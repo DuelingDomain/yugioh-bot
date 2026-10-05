@@ -162,7 +162,8 @@ const STAGGER_MS = CARD_FX.summonStaggerMs;
 const MAX_STAGGER_STEPS = 5;
 /** A second slam waits this long after the first starts; the first one's aftermath overlaps it a little. */
 const HEAVY_LOCK_MS = fieldPlacementMs(CARD_FX.heavyLockMs);
-const MAX_ITEMS = 10;
+/** Room for a 4-way wipe (4 x 10 field cards): a dropped stand-in leaves a blank zone. */
+const MAX_ITEMS = 44;
 /** The WebGL summon holds the real card this much past its hand-over, in case the timer is late. */
 const HAND_OVER_MARGIN_MS = 400;
 const GY_LOCATION = LOCATION_GRAVE;
@@ -738,7 +739,10 @@ function DestroyFx({ item, overlay, done }: EffectProps) {
   const shards = useRef<Array<HTMLSpanElement | null>>([]);
   const crackSvg = useRef<SVGSVGElement>(null);
   const flash = useRef<HTMLSpanElement>(null);
+  const sleeve = useRef<HTMLSpanElement>(null);
   const card = item.card;
+  // A card that lay face-down shows its sleeve until the effect hits it, then its face (the stand-in keeps the pose).
+  const faceDown = card != null && item.plan?.source?.faceUp === false;
   const seed = item.event.id;
   const handoff = item.plan != null;
   const claimed = item.claim3d === true;
@@ -782,6 +786,11 @@ function DestroyFx({ item, overlay, done }: EffectProps) {
       destroyWholeFrames(breakAt, total),
       { duration: total, delay: d, easing: "linear" },
     );
+    if (faceDown) {
+      const turnAt = Math.min(0.999, Math.max(0, breakAt - 300) / total);
+      track.play(sleeve.current, [{ opacity: 1 }, { opacity: 1, offset: turnAt }, { opacity: 0, offset: turnAt }, { opacity: 0 }],
+        { duration: total, delay: d, easing: "linear" });
+    }
     track.play(
       crackSvg.current,
       [{ opacity: 0 }, { opacity: 0, offset: Math.max(0, breakAt - 300) / total }, { opacity: 1, offset: Math.max(0, breakAt - 170) / total }, { opacity: 1, offset: Math.min(0.999, breakAt / total) }, { opacity: 0 }],
@@ -856,8 +865,9 @@ function DestroyFx({ item, overlay, done }: EffectProps) {
 
   return (
     <div ref={anchor} className={styles.anchor}>
-      <div ref={whole} className={styles.destroyWhole}>
+      <div ref={whole} className={styles.destroyWhole} data-face={faceDown ? "down" : undefined}>
         {card ? <img className={styles.ghostArt} src={cardArtUrl(card.code, "small")} alt="" draggable={false} /> : null}
+        {faceDown ? <span ref={sleeve} className={styles.destroySleeve} /> : null}
         <span className={styles.destroyRim} />
         <svg ref={crackSvg} className={styles.cardCracks} viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
           {cracks.map((path, index) => (

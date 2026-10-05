@@ -35,7 +35,7 @@ These rules come from ADR-0002 and spec section 4.2.
 6. **Elimination in the middle of a chain.** The cards of an eliminated duelist leave the game. Their chain links resolve with no effect. The chain order is the turn player first, then clockwise.
 7. **Negation and the partner (product owner, 2026-09-30).** A card that negates an activation, an effect or a summon (Solemn Judgment, Solemn Warning, Solemn Strike, Ash Blossom, Magic Jammer, Stardust Dragon and similar cards) cannot negate the partner's in Tag. In FFA it can negate any duelist. At all tables it can negate the own activation or summon, as in 1v1. A core rule enforces this for every card with a negate category and a chaining or summon event (spec 1.3, requirement 3). About 260 scripts have no player check and depend on it. Continuous negation and lock effects (Jinzo and similar) affect every duelist, the partner included (rule 1, product owner 2026-09-30).
 8. **Count and compare cards (owner answer to triage question 2, 2026-10-01).** A card that compares field, hand or card counts ("your opponent controls more ...", Evenly Matched, Pineapple Blast, about 50 cards) does not add all opponents together. In FFA the activator picks ONE opponent when they activate it, and the card compares with that opponent only. In Tag the card compares with the combined field or hand of the two opposing duelists.
-9. **One opponent chooses (owner answer to triage question 5, 2026-10-01).** When the card says "your opponent chooses" in the singular, ONE opponent chooses: the picked (bound) opponent, in FFA and in Tag. All opponents choose only when the card text says "all" or "each". This replaces the old proposal "each affected opponent chooses from their own cards".
+9. **One opponent chooses (owner answer to triage question 5, 2026-10-01).** When the card says "your opponent chooses" in the singular, ONE opponent chooses: the picked (bound) opponent, in FFA and in Tag. Decision-only effects pick the deciding opponent during resolution, after the activator prepares the choices (rulebook v1.4, owner approved 2026-10-04; R-COMMON-OPP-DECISION). Effects requiring an opponent's action/resources keep their activation declaration or causal opponent. All opponents choose only when the card text says "all" or "each". This replaces the old proposal "each affected opponent chooses from their own cards".
 10. **Tribute of an opponent monster (owner answer to triage question 8, 2026-10-01).** A Tribute of a monster of an opponent works for the monsters of any opponent, not only seat 1. This includes the Kaiju, Lava Golem and The Winged Dragon of Ra - Sphere Mode. For Ra Sphere Mode, all Tributed monsters come from ONE opponent, and it goes to the field of that opponent.
 11. **Turn count (owner answer to triage question 1, 2026-10-01).** Every turn of any opponent counts as one opponent turn (in Tag, only a turn of the two opposing duelists). The turn-count review found no card to ban. The 4 free-for-all turn-count bans in group (c) stay. Swords of Revealing Light is legal and protects only its controller in FFA (R-FFA-SWORDS-PROTECT).
 
@@ -258,6 +258,7 @@ Categories: symmetry (two equal sides), hand-swap (both hands), control-swap, tu
 | Kaiser Colosseum | 35059553 | symmetry | It compares the monster count of two sides to limit summons. | `c35059553.lua:16`, `c35059553.lua:30` | 3-FFA, 4-FFA | no |
 | Skull Invitation | 98139712 | symmetry | Damage goes by card owner to 'you' and 'the opponent' only. | `c98139712.lua:19`, `c98139712.lua:27` | 3-FFA, 4-FFA | no |
 | Ring of Destruction | 83555666 | symmetry | It damages the activator and one opponent. The opponent LP check reads one player. | `c83555666.lua:25`, `c83555666.lua:41` | 3-FFA, 4-FFA | no |
+| Convulsion of Nature | 62966332 | symmetry | It reverses Decks through one global check for two sides. A multiplayer table has more than two Decks. | `c62966332.lua:5`, `c62966332.lua:14`, `c62966332.lua:17` | 3-FFA, 4-FFA, Tag | yes |
 | Doom Virus Dragon | 22804644 | turn-count | Its effect lasts 3 'opponent turns'. | `c22804644.lua:48`, `c22804644.lua:56` | 3-FFA, 4-FFA | no |
 | The Wicked Avatar | 21208154 | turn-count | Its effect lasts 2 'opponent turns'. | `c21208154.lua:62`, `c21208154.lua:71` | 3-FFA, 4-FFA | no |
 | Grisaille Prison | 22888900 | turn-count | Its effect lasts 2 'opponent turns'. | `c22888900.lua:28`, `c22888900.lua:45` | 3-FFA, 4-FFA | no |
@@ -290,7 +291,6 @@ Categories: symmetry (two equal sides), hand-swap (both hands), control-swap, tu
 | Nibiru, the Primal Being | 27204311 | global-state | It counts summons in a flag for each of two players and reads the flag of 'the opponent'. | `c27204311.lua:34`, `c27204311.lua:38` | 3-FFA, 4-FFA | no |
 | Droll & Lock Bird | 94145021 | global-state | It keeps a two-slot table of draws for each player. | `c94145021.lua:17`, `c94145021.lua:42` | 3-FFA, 4-FFA | no |
 | Crush Card Virus | 57728570 | chooser | It reads the opponent hand, field and Deck, and asks one opponent to choose. | `c57728570.lua:43`, `c57728570.lua:52` | 3-FFA, 4-FFA | no |
-| Creature Swap | 31036355 | control-swap | The script swaps control between the activator and one named opponent. | `c31036355.lua:31`, `c31036355.lua:35` | 3-FFA, 4-FFA | no |
 | Creature Seizure | 15305240 | control-swap | The script swaps control between the activator and one named opponent. | `c15305240.lua:30`, `c15305240.lua:34` | 3-FFA, 4-FFA | no |
 | Switcheroroo | 30426226 | control-swap | It needs equal monster counts on two sides and swaps all of them. | `c30426226.lua:19`, `c30426226.lua:29` | 3-FFA, 4-FFA | no |
 | Dummy Golem | 13532663 | control-swap | The script swaps control between the activator and a monster chosen by one named opponent. | `c13532663.lua:25`, `c13532663.lua:26` | 3-FFA, 4-FFA | no |
@@ -298,7 +298,7 @@ Categories: symmetry (two equal sides), hand-swap (both hands), control-swap, tu
 
 Turn-count rows: these 4 bans stay. Swords of Revealing Light is legal under R-FFA-SWORDS-PROTECT (owner correction, 2026-10-02 night). Other cards with an opponent-turn count are legal and follow rule 11; the review is in `.status/multiplayer-turncount-review.md`.
 
-Total: 45 cards. 3-FFA and 4-FFA: 45 cards (22 only in free-for-all). Tag: 23 cards.
+Total: 46 cards. 3-FFA and 4-FFA: 46 cards (22 only in free-for-all). Tag: 24 cards.
 
 Error message format: `<card> is forbidden in 4-player free-for-all: <reason>`. The table name is "3-player free-for-all", "4-player free-for-all" or "2v2 Tag Duel".
 
@@ -317,10 +317,11 @@ Live proof, by card (status 2026-10-01):
 | Pineapple Blast, Evenly Matched | 3-FFA, 4-FFA, Tag |
 | Ojama Trio, Black Garden, Foolish Revival | 3-FFA, Tag |
 | Mimighoul Slime | 3-FFA |
-| Mystic Mine, Number 100: Numeron Dragon, Ultimate Sky | 3-FFA |
+| Mystic Mine | 3-FFA, 4-FFA, Tag |
+| Number 100: Numeron Dragon, Ultimate Sky | 3-FFA |
 | Dice Jar, Royal Tribute, Messenger of Peace | 3-FFA, 4-FFA, Tag |
 
-No scenario proves these rules yet (`pending`): the other 6 Kaiju, Alien Skull, Santa Claws, Surgical Striker - H.A.M.P., Jormungardr the Nordic Serpent, Fenrir the Nordic Wolf, Grinder Golem, Fallen of Argyros, Soul Exchange, Snatch Steal, and the cards with an effect that summons to the field of an opponent (Ojama Trio, Black Garden, Mimighoul Slime and Foolish Revival above are the exceptions). The Tag result of Volcanic Queen, Ra, Mimighoul Slime, Mystic Mine, Numeron Dragon and Ultimate Sky also has no scenario. The target cap of Ultimate Sky has no scenario, so this page does not claim it.
+No scenario proves these rules yet (`pending`): the other 6 Kaiju, Alien Skull, Santa Claws, Surgical Striker - H.A.M.P., Jormungardr the Nordic Serpent, Fenrir the Nordic Wolf, Grinder Golem, Fallen of Argyros, Soul Exchange, Snatch Steal, and the cards with an effect that summons to the field of an opponent (Ojama Trio, Black Garden, Mimighoul Slime and Foolish Revival above are the exceptions). The Tag result of Volcanic Queen, Ra, Mimighoul Slime, Numeron Dragon and Ultimate Sky also has no scenario. The target cap of Ultimate Sky has no scenario, so this page does not claim it.
 
 Decision 2: Kaiju and Lava Golem. The card goes to the field of the player whose monster was Tributed. If the opponent that was picked for the Tribute is eliminated before the summon is done, the card is not summoned and stays in the hand (lead decision 2026-10-01, proven for Gameciel in 3-FFA and 4-FFA). The scan of `data/duel-engine-next/card-scripts` found 12 cards that use `aux.AddKaijuProcedure` or `aux.AddLavaProcedure`, and the catalog test checks that every one has a rule entry. The Winged Dragon of Ra - Sphere Mode is added to this table by the owner answer of 2026-10-01 (it has its own Tribute procedure). In Tag, the Tributed monster belongs to an opposing member, so the card goes to that member's field. The Kaiju summon with no Tribute (an opponent controls a Kaiju) goes to your own field.
 
@@ -364,7 +365,7 @@ Decision 6: cards that compare with the opponents or roll against one (lead deci
 
 | Card | Passcode | Rule | Script evidence |
 |---|---|---|---|
-| Mystic Mine | 76375976 | Only an opponent that alone controls more monsters than you is locked (no monster effect, no attack). The sum of two opponents does not count. It destroys itself in the End Phase when your count equals the count of any one opponent. | `c76375976.lua:53`, `c76375976.lua:57`, `c76375976.lua:63` |
+| Mystic Mine | 76375976 | Only an opponent that alone controls more monsters than you is locked (no monster effect, no attack). The sum of two opponents does not count. You are locked if at least one opponent controls fewer monsters than you. It destroys itself in the End Phase only when every living player controls the same number of monsters. In Tag, compare the joined monster counts of the two teams. | `c76375976.lua:53`, `c76375976.lua:57`, `c76375976.lua:63` |
 | Number 100: Numeron Dragon | 57314798 | It is offered only when a direct attack goes at YOU (in Tag, at your team). A direct attack at another seat does not offer it. Each duelist Sets from its own Graveyard. | `c57314798.lua:98` |
 | Ultimate Sky | 38817295 | In free-for-all, you pick one opponent when you activate it. It is offered when ONE opponent controls more monsters than you, and it reads only that opponent. | `c38817295.lua:15`, `c38817295.lua:30` |
 | Dice Jar | 3549275 | You and one opponent, picked when it flips, each roll a die. Only the side that loses the roll takes the damage. In Tag, the team LP takes it. | `c3549275.lua:22`, `c3549275.lua:26`, `c3549275.lua:32` |

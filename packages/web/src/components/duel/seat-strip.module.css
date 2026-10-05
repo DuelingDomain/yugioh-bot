@@ -142,3 +142,55 @@ button.hit:focus-visible {
     flex-basis: calc(50% - 4px);
   }
 }
+
+/* In the phase bar (wide table): one row of slim tags. The dot-and-number badge and the "You" word give way to the name and status. */
+.compact {
+  flex-wrap: nowrap;
+  gap: 4px;
+}
+.compact .item {
+  position: relative;
+  flex: none;
+  min-width: 0;
+  border-radius: 999px;
+  font-size: 12.5px;
+}
+.compact .hit {
+  width: auto;
+  padding: 3px 9px 3px 8px;
+  gap: 5px;
+}
+.compact .order {
+  display: none;
+}
+/* "You" and "Partner" stay for screen readers. */
+.compact .rel {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+  padding: 0;
+}
+.compact .name {
+  flex: none;
+  max-width: 9ch;
+}
+.compact .status {
+  font-size: 9px;
+  padding: 0 4px;
+  line-height: 13px;
+}
+/* Narrow desktops: shorter names keep the phase strip clear of the End Turn block. */
+@media (min-width: 901px) and (max-width: 1500px) {
+  .compact .name {
+    max-width: 6ch;
+  }
+  .compact .hit {
+    padding: 3px 7px 3px 6px;
+    gap: 4px;
+  }
+}

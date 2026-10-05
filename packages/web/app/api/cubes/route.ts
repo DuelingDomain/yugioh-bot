@@ -1,3 +1,4 @@
+import { cardFetchErrorResponse } from "@/lib/card-fetch-errors";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
@@ -202,6 +203,8 @@ export async function POST(request: Request) {
     if (draftType) setCubeDraftType(db, cube.id, draftType);
     return NextResponse.json({ cube: withDraftType(db, cube.id, cube) }, { status: 201 });
   } catch (error) {
+    const fetchFailure = cardFetchErrorResponse(error);
+    if (fetchFailure) return fetchFailure;
     // CubeNameTakenError: another save took the name after the early check above.
     const message = error instanceof Error ? error.message : "Failed to create cube";
     return NextResponse.json({ error: message }, { status: 409 });

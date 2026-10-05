@@ -1,0 +1,105 @@
+From 5689a9098cdbc7a1b24b77efde8550147fa506f3 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Sun, 4 Oct 2026 19:48:18 -0400
+Subject: [PATCH] Make FFA rule returns synchronous without response events
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ field.cpp | 81 +++++++++++++++++++++++++++++++++++++++++++++++--------
+ 1 file changed, 70 insertions(+), 11 deletions(-)
+
+diff --git a/field.cpp b/field.cpp
+index 20e0476..05bb05f 100644
+--- a/field.cpp
++++ b/field.cpp
+@@ -372,17 +372,76 @@ void field::eliminate(uint8_t p, uint8_t reason, bool marked) {
+ 		message->write(pcard->get_info_location());
+ 		message->write<uint32_t>(REASON_RULE);
+ 	}
+-	// Equip cards of others that lost their target, and cards p controls but does not own.
+-	if(equipings.size())
+-		destroy(std::move(equipings), nullptr, REASON_RULE + REASON_LOST_TARGET, DUELIST_NONE);
+-	// One send_to per owner: the destination duelist is given, so no "none" player id is needed.
+-	for(uint8_t q = 0; q < n_duelists; ++q) {
+-		card_set group;
+-		for(auto& pcard : to_grave)
+-			if(pcard->owner == q)
+-				group.insert(pcard);
+-		if(group.size())
+-			send_to(std::move(group), nullptr, REASON_RULE, DUELIST_NONE, q, LOCATION_GRAVE, 0, POS_FACEUP);
++	if(return_owned_zones) {
++		// Rulebook returns cannot be responded to. Move the fallback synchronously,
++		// including attachments, without leave-field, destination or move events.
++		// Keep continuous redirects (Macro Cosmos, Pendulums) but offer no choices.
++		std::vector<card*> pending(to_grave.begin(), to_grave.end());
++		card_set moved;
++		for(size_t i = 0; i < pending.size(); ++i) {
++			card* pcard = pending[i];
++			if(!pcard->current.location || !moved.insert(pcard).second)
++				continue;
++			const auto old_location = pcard->current.location;
++			const auto old_info = pcard->get_info_location();
++			if(pcard->equiping_target)
++				pcard->unequip();
++			const std::vector<card*> equips(pcard->equiping_cards.begin(), pcard->equiping_cards.end());
++			for(auto* equip : equips) {
++				equip->unequip();
++				if(equip->current.location == LOCATION_SZONE)
++					equipings.insert(equip);
++			}
++			pending.insert(pending.end(), pcard->xyz_materials.begin(), pcard->xyz_materials.end());
++			pcard->clear_card_target();
++			pcard->enable_field_effect(false);
++			pcard->current.reason = REASON_RULE;
++			pcard->current.reason_effect = nullptr;
++			pcard->current.reason_player = DUELIST_NONE;
++			uint32_t destination = LOCATION_GRAVE;
++			if(old_location & LOCATION_ONFIELD) {
++				const auto redirect = pcard->leave_field_redirect(REASON_RULE);
++				if(redirect) destination = redirect;
++			}
++			const auto redirect = pcard->destination_redirect(destination & 0xffff, REASON_RULE);
++			if(redirect) destination = redirect;
++			pcard->sendto_param.set(pcard->owner, POS_FACEUP, destination & 0xffff, destination >> 16);
++			if(pcard->overlay_target)
++				pcard->overlay_target->xyz_remove(pcard);
++			if(pcard->data.type & TYPE_TOKEN)
++				remove_card(pcard);
++			else {
++				move_card(pcard->owner, pcard, destination & 0xffff, destination >> 16);
++				pcard->current.position = pcard->sendto_param.position;
++			}
++			if(old_location & LOCATION_ONFIELD)
++				pcard->reset(RESET_LEAVE, RESET_EVENT);
++			pcard->reset(pcard->current.location == LOCATION_GRAVE ? RESET_TOGRAVE
++				: pcard->current.location == LOCATION_REMOVED ? RESET_REMOVE : RESET_TODECK, RESET_EVENT);
++			core.leave_confirmed.erase(pcard);
++			pcard->set_status(STATUS_LEAVE_CONFIRMED, FALSE);
++			pcard->enable_field_effect(true);
++			auto message = pduel->new_message(MSG_MOVE);
++			message->write<uint32_t>(pcard->data.code);
++			message->write(old_info);
++			message->write(pcard->get_info_location());
++			message->write<uint32_t>(REASON_RULE);
++		}
++		// Lost-target equips keep rule destruction and its normal events.
++		if(equipings.size())
++			destroy(std::move(equipings), nullptr, REASON_RULE + REASON_LOST_TARGET, DUELIST_NONE);
++	} else {
++		// Tag keeps its stock sends and events.
++		if(equipings.size())
++			destroy(std::move(equipings), nullptr, REASON_RULE + REASON_LOST_TARGET, DUELIST_NONE);
++		for(uint8_t q = 0; q < n_duelists; ++q) {
++			card_set group;
++			for(auto& pcard : to_grave)
++				if(pcard->owner == q)
++					group.insert(pcard);
++			if(group.size())
++				send_to(std::move(group), nullptr, REASON_RULE, DUELIST_NONE, q, LOCATION_GRAVE, 0, POS_FACEUP);
++		}
+ 	}
+ 	core.re_adjust = true;
+ }
+-- 
+2.43.0
+

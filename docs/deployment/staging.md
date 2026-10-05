@@ -139,19 +139,19 @@ The build uses the same inputs as the engine session:
 - `domain-core/pins.json`: ygopro-core `efc21aa433b88cd35b7c37db4072a35c58d9d435`, wrapper source
   `9f36452f2a2464f057f7fd6e2273aa5ab589401e`, Lua `75ea9ccbea7c4886f30da147fb67b693b2624c26`,
   and emsdk `4.0.9` at digest `sha256:3c853ef9c3b4c2708da1adac2fdfdba49c775fdc4144ceef4989423963e96811`.
-- All numbered patches in `domain-core/patches` (currently 0001–0084; 84 patches). No experimental patches or
-  `PATCH_LIMIT`. The current series hash is `1c66c92b62827c5635fc0132ac665dd22b479efa79bae3933339d90f08481810`.
+- All numbered patches in `domain-core/patches` (currently 0001–0090 and 0100; 91 patches). No experimental patches or
+  `PATCH_LIMIT`. The current series hash (concatenated patch bytes in filename order) is `88550bace076f6c1f38ec70b0e8cf5c762bf93279203bbfe73020308034cffac`.
 - Domain additionally uses `APPLY_DOMAIN=1 DOMAIN_MULTI=1`, the existing Domain patch, `domain_master.cpp`
   and `apply-domain-multi.mjs`. The current multi layer hash is
-  `cf5100707bce7701cb0be0ac4a8ff47308a13b278174f03c157f2f2e46dd849a`.
+  `06d5cfbfba8719eb5fe0b3b0eb211a6264d96bb295a8669fe0680969c1822bb8`.
 
-The 84-patch CI builds use `LUA_FIXED_SEED=1` with the pinned image above. Their verified hashes are:
+The 91-patch CI builds use `LUA_FIXED_SEED=1` with the pinned image above. Patch 0089 was corrected on 2026-10-05 so delayed EVENT_CHAINING triggers from normally completed links remain legal. Both multiplayer cores were rebuilt from clean trees using the CI compiler wrapper, the shared build lock and `EMCC_CORES=2`. The full series reapplied cleanly and the Domain pre/patch/post steps succeeded. Their verified hashes are:
 
 | CI core | SHA-256 |
 | --- | --- |
-| Standard multiplayer | `cf4d7b4723756901199f45b152a495b0e4fe24afc42ef5000d2f50b9f0a0743f` |
-| Domain multiplayer | `a9bed74b80a3614237dd20b14b094d8b82aebfa5438dd2c2d7a9eac65af1f301` |
-| Domain 1v1 (unchanged) | `16f60edf2c1e246886d1962fad32238fde0dd969c36bc959251df488c83aefc7` |
+| Standard multiplayer | `34e8c87cc2e854ad608c7ed216d010c20b677655a914215640054c480d8ef748` |
+| Domain multiplayer | `4b02e5fe7806b5d078010e23338c677456ae93910aeabce157f774f8598f6133` |
+| Domain 1v1 | `01611db77c00ddef07a3d4cfc88800f5c523e3a388c3732616a79fa19b3c4a63` |
 
 Deploys omit `LUA_FIXED_SEED`; the differential test workflow uses it. The multi cache keys include all
 build/packaging scripts, pins, patches and Domain sources. Each cache stores both WASMs and their
@@ -232,9 +232,11 @@ New duels save `setup.firstTurnDraw`, the resolved `DUEL_1ST_TURN_DRAW` flag, wh
 Worker recovery and all journal replay paths use this saved flag. The engine resource pin still checks the
 bundle and Lua overlay. A rule change alone does not change an existing duel's draw flag.
 
-The legacy 1v1 engine uses the stock Master Rule draw rule in Standard and Domain:
-MR1/MR2 draw on turn 1; MR3-MR5 do not. The pinned engine draws on turn 1 in every
-Domain seat layout. Standard on the pinned engine uses the stock Master Rule draw rule.
+Since 2026-10-04, new 1v1 Domain duels skip the turn-1 duelist's draw at every Master Rule
+on both the pinned and legacy engines; the second duelist draws as usual.
+In Tag, FFA3 and FFA4 Domain duels, every duelist draws on their first turn, including turn 1.
+Standard is unchanged on both engines: MR1/MR2 draw on turn 1; MR3-MR5 skip only
+the turn-1 duelist's draw. Tag and FFA use MR5 only.
 
 Old records have no saved flag. Production ran `main`; after migration, all its old duels are 1v1
 and need no action. Before 2026-10-02 (this change), staging ran this branch before and after `0fb46df`,
@@ -363,7 +365,8 @@ Do the steps in this order. Write down the result of each step. Report every ste
 1. Make a 3-player free-for-all Standard table. First try a deck with Ring of Destruction or Swords of Revealing Light.
    Expect a refusal. Then use legal decks.
 2. Start the duel. Expect: the seat order is shown. Standard MR5 skips only the turn-1 draw (p0 has 5 cards).
-   Domain in every seat layout draws on turn 1 (p0 has 6 cards with default settings).
+   Tag and FFA Domain duels draw on turn 1 (p0 has 6 cards with default settings).
+   In 1v1 Domain, p0 skips the draw at every Master Rule on both engines (5 cards with default settings).
    Standard MR1/MR2: the first duelist draws (where the core allows MR1/MR2).
    Standard MR3/MR4/MR5 skip only the turn-1 draw.
    Standard FFA uses MR5 only; the core rejects MR1-MR4 with more than 2 duelists.
@@ -383,7 +386,7 @@ Do the steps in this order. Write down the result of each step. Report every ste
 13. Reduce a player to 0 LP by battle in your own turn. Expect: your turn continues, and the next turn goes to the next
     living player.
 14. Finish the duel. Expect: all players see the right winner and the right reason, and the history shows it.
-15. Play a short 1v1 Standard duel and a short 1v1 Domain duel. Expect: Domain p0 draws on turn 1. Standard MR3/MR4/MR5 p0 skips the draw; Standard MR1/MR2 p0 draws.
+15. Play a short 1v1 Standard duel and a short 1v1 Domain duel. Expect: Domain p0 skips the turn-1 draw at every Master Rule on both engines; p1 draws as usual. Standard MR3/MR4/MR5 p0 skips the draw; Standard MR1/MR2 p0 draws.
 
 ## Open risks
 

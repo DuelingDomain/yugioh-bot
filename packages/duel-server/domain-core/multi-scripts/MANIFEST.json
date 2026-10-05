@@ -154,6 +154,34 @@
       ]
     },
     {
+      "code": 2948263,
+      "file": "c2948263.lua",
+      "name": "Gogogo Golem - Golden Form",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "disop"
+      ],
+      "stockSha256": "d88539ea79c4844e658238aba182d151926081672e84e3b2d34c01b1188f4a34",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
+    },
+    {
+      "code": 3055837,
+      "file": "c3055837.lua",
+      "name": "Trap of Board Eraser",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "operation"
+      ],
+      "stockSha256": "b70e690b98cd3263e60eb7004bf4938bb189f1f2e054ccfd632a5a7426edc172",
+      "note": "FFA operations tolerate a removed source link and preserve independent actions. Tag and 1v1 keep the stock functions."
+    },
+    {
       "code": 3064425,
       "file": "c3064425.lua",
       "name": "Superheavy Samurai Soulbang Cannon",
@@ -242,7 +270,39 @@
       "classes": [
         "R1"
       ],
-      "stockSha256": "5a3ddd2c47a81b56bd7f72dac0e8bed15cc9c0012a98afe868583eaf645a3985"
+      "stockSha256": "5a3ddd2c47a81b56bd7f72dac0e8bed15cc9c0012a98afe868583eaf645a3985",
+      "redefined": [
+        "spop"
+      ],
+      "note": " FFA operations tolerate a removed source link and preserve independent actions."
+    },
+    {
+      "code": 4891376,
+      "file": "c4891376.lua",
+      "name": "Zalen the Shackled Dragon",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "initial_effect"
+      ],
+      "stockSha256": "3dba8d4b3bed7910484a058c664da031300495e0b357f5f433811715c16895b1",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
+    },
+    {
+      "code": 4993187,
+      "file": "c4993187.lua",
+      "name": "W:P Fancy Ball",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "linkop"
+      ],
+      "stockSha256": "2a2372af7e0bcca424b3f73e1757226c4f18e71b6c90fea27c80dc9270360a6e",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
     },
     {
       "code": 5010422,
@@ -276,6 +336,21 @@
       "note": "FFA4: previous Link and column filters use only the real controller and its across seat."
     },
     {
+      "code": 5605529,
+      "file": "c5605529.lua",
+      "name": "Vaalmonica Scelta",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "activate"
+      ],
+      "stockSha256": "400168d222f9b7d7e7dac9972279f22a60918200b2d0454e0c8ae9cc593ffc78",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
       "code": 5611760,
       "file": "c5611760.lua",
       "name": "Rainbow Bridge of Salvation",
@@ -304,6 +379,21 @@
       ]
     },
     {
+      "code": 5786513,
+      "file": "c5786513.lua",
+      "name": "Turn Silence",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "target",
+        "activate"
+      ],
+      "stockSha256": "74190ee7648b0e0a8923d32258f17bce6ab3920c03ad00428dc4f0cadd837c1e",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
+    },
+    {
       "code": 5821478,
       "file": "c5821478.lua",
       "name": "Topologic Bomber Dragon",
@@ -311,6 +401,34 @@
       "classes": [],
       "stockSha256": "6590fb1ff291c51b855ab609843584d652ea1273568c3d0758ac18a7e561213a",
       "note": "FFA4: previous Link and column filters use only the real controller and its across seat."
+    },
+    {
+      "code": 5861892,
+      "file": "c5861892.lua",
+      "name": "Arcana Force EX - The Light Ruler",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "negop"
+      ],
+      "stockSha256": "66b266e9c6457123807f5723343781a528f52baa6263032a4072d4da50702bf2",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
+    },
+    {
+      "code": 6180710,
+      "file": "c6180710.lua",
+      "name": "Dream Shark",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "damop"
+      ],
+      "stockSha256": "d608e772e8cd44cdba8b58071a7813055072e4edaef2af3663875ff2d5a53ec3",
+      "note": "FFA operations tolerate a removed source link and preserve independent actions. Tag and 1v1 keep the stock functions."
     },
     {
       "code": 6325660,
@@ -403,6 +521,20 @@
       "stockSha256": "3a3551e02b39c54e7a6a90a8f631a51bba0cb01c12ba20298410bbcc68ea2ad0"
     },
     {
+      "code": 7443908,
+      "file": "c7443908.lua",
+      "name": "Hayate the Earth Star",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "disop"
+      ],
+      "stockSha256": "e62a3d7ee844dd7c272ea611d30aa662d7e7d9084cd50a75affcd88a90a6099d",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
+    },
+    {
       "code": 7852509,
       "file": "c7852509.lua",
       "name": "Loop of Destruction",
@@ -442,6 +574,20 @@
       "r2Class": "FLAG-L0",
       "stockSha256": "2626aa1ca67fef50a7cc0857bcc50244ef38bf30916fbe8debf68bace0aee2e8",
       "note": "global flag registered for the literal seat 0 only: the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag), so each holder reads it with its own player value."
+    },
+    {
+      "code": 8806072,
+      "file": "c8806072.lua",
+      "name": "Combo Fighter",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "chop"
+      ],
+      "stockSha256": "5dbdfb0aa779ac67d11a92b70e6d3ed43fc013d641385fee29ae2ad72a30ad01",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
     },
     {
       "code": 8814959,
@@ -488,6 +634,20 @@
       "classes": [],
       "stockSha256": "c95a766e64851d34549aee11c97e6b8f4bc14c3644db0eb5bcbde53b476c0570",
       "note": "The overlay uses the real duelist seat for this card effect."
+    },
+    {
+      "code": 9069157,
+      "file": "c9069157.lua",
+      "name": "Dragonroid",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "limop"
+      ],
+      "stockSha256": "0a90026f6d07c0b5c2a4543b68c60a5ef7a966d14dddf5a36f6b98de408d9664",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
     },
     {
       "code": 9074847,
@@ -554,6 +714,21 @@
       ]
     },
     {
+      "code": 9283801,
+      "file": "c9283801.lua",
+      "name": "The Monarchs Revolt",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "thtgop"
+      ],
+      "stockSha256": "b6a091946674cced39b7c780ba012778463620b4ba959ec921ddf72b4ba65660",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
       "code": 9336190,
       "file": "c9336190.lua",
       "name": "The Phantom Knights of Mist Claws",
@@ -576,6 +751,20 @@
         "R1"
       ],
       "stockSha256": "9d1268d1110e00c1c0f0b57314582da8296021db0c9a190246df58807e079c83"
+    },
+    {
+      "code": 9628664,
+      "file": "c9628664.lua",
+      "name": "Iris, the Earth Mother",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "chop"
+      ],
+      "stockSha256": "75006c9643246ed816cf255463722176016410905af48315d009c7d53fd001a7",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
     },
     {
       "code": 9794980,
@@ -669,6 +858,20 @@
       "note": "FFA4: Link and column filters use only the real across seat."
     },
     {
+      "code": 10673071,
+      "file": "c10673071.lua",
+      "name": "Virakam, the Divine Spirit of Artifice",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "discon"
+      ],
+      "stockSha256": "d1f53a6657bacddd350230a91e57f2eceaa074ec74810d743cf830288ee2eec2",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
+    },
+    {
       "code": 10852583,
       "file": "c10852583.lua",
       "kind": "fix",
@@ -706,6 +909,20 @@
       "stockSha256": "4b2fb2b2086b360296dbd6bd82998c5726769aeed7f17da5938a3c5974ddffca",
       "note": "Use the exact action seat and the real controller or owner destination.",
       "r2Class": "EACH-CONTROLLER"
+    },
+    {
+      "code": 11685347,
+      "file": "c11685347.lua",
+      "name": "Blast Asmodian",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "chop"
+      ],
+      "stockSha256": "305acee03d98936bbf3629af81da9c3cc8c221ea033c2b0871dfcc2ae56c4bdb",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
     },
     {
       "code": 12210097,
@@ -884,6 +1101,20 @@
       "stockSha256": "904caca4dc9e8e7704b02452553bb3fbdc9ab3680c511b0815f8504d513dfe38"
     },
     {
+      "code": 14146794,
+      "file": "c14146794.lua",
+      "name": "Donyoribo @Ignister",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "damop"
+      ],
+      "stockSha256": "747ddad8a7d7e9c7fd48aed984d67a5b3e4718ce5a3c830f2a8db3628a07afbf",
+      "note": "FFA operations tolerate a removed source link and preserve independent actions. Tag and 1v1 keep the stock functions."
+    },
+    {
       "code": 14220547,
       "file": "c14220547.lua",
       "name": "Branded in Central Dogmatika",
@@ -924,6 +1155,21 @@
       "classes": [],
       "stockSha256": "f51bab6244f67e17c50f1c54d5679072e9019ce02938ae6024a1291a938ad4b1",
       "note": "The overlay uses the real duelist seat for this card effect."
+    },
+    {
+      "code": 14733538,
+      "file": "c14733538.lua",
+      "name": "Draco Face-Off",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "activate"
+      ],
+      "stockSha256": "4fac3a671dca05d7ba938f71741c441a3a0bc73a3b9a3024c4861986c388d386",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 14772491,
@@ -1014,6 +1260,20 @@
       "stockSha256": "e693b72ecce676e89c22959734008f501e80b3a8822e6764e5c1207f4070cfe5",
       "classes": [],
       "note": "The overlay restricts FFA4 column geometry to the exact own and across seats."
+    },
+    {
+      "code": 16617334,
+      "file": "c16617334.lua",
+      "name": "Performapal Rain Goat",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "operation"
+      ],
+      "stockSha256": "34f35e8258a25d1addb3b838dd9103dbf5da0a80d786bbec3dfaef2775e927ee",
+      "note": "FFA operations tolerate a removed source link and preserve independent actions. Tag and 1v1 keep the stock functions."
     },
     {
       "code": 16832845,
@@ -1208,7 +1468,7 @@
       "code": 18861006,
       "file": "c18861006.lua",
       "name": "Crimson Firewing Pegasus",
-      "kind": "whole",
+      "kind": "hand",
       "classes": [
         "COMPARE"
       ],
@@ -1221,7 +1481,12 @@
           "spcon"
         ]
       },
-      "stockSha256": "3c658cc062a2fff5f8637632ff15ee024875e9bbecdc1be19fe07bb77722b490"
+      "stockSha256": "3c658cc062a2fff5f8637632ff15ee024875e9bbecdc1be19fe07bb77722b490",
+      "redefined": [
+        "damtg",
+        "damop"
+      ],
+      "note": " FFA chain reads skip removed links; Tag keeps its existing functions."
     },
     {
       "code": 18964575,
@@ -1240,6 +1505,34 @@
       "compareIn": [
         "condition"
       ]
+    },
+    {
+      "code": 18973184,
+      "file": "c18973184.lua",
+      "name": "Branded Lost",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "limop"
+      ],
+      "stockSha256": "acc57cc48a8d321965b1df1b4535ade2e74153f023e2b98115370efdf48c4224",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
+    },
+    {
+      "code": 19162134,
+      "file": "c19162134.lua",
+      "name": "Dueltaining",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "chcon"
+      ],
+      "stockSha256": "40dccb30fb6299bce6b1096c822e269dddcf0e11e3925d0924672e481241673c",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
     },
     {
       "code": 19222426,
@@ -1285,6 +1578,20 @@
       "note": "Declare the opponent before selecting its card. The target controller chooses the effect without another opponent pick; after the send to the Graveyard, the owner draws two cards."
     },
     {
+      "code": 19362568,
+      "file": "c19362568.lua",
+      "name": "Icy Breeze Refrain",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "negcon"
+      ],
+      "stockSha256": "46bdc67986909afeb9e46537b71d436f70a6a32ceb29efe064290d904a7882b0",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
+    },
+    {
       "code": 19491080,
       "file": "c19491080.lua",
       "name": "Clown Crew Cappello",
@@ -1306,6 +1613,20 @@
         "damtg",
         "damop"
       ]
+    },
+    {
+      "code": 19652159,
+      "file": "c19652159.lua",
+      "name": "Light and Darkness Dragonlord",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "negop"
+      ],
+      "stockSha256": "5ab60b2eac1f4b3fda66c2fa016cfff47bbe0558189a3996151778ff5ffc24df",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
     },
     {
       "code": 19665973,
@@ -1356,6 +1677,21 @@
         "s"
       ],
       "seatInit": "false"
+    },
+    {
+      "code": 20065259,
+      "file": "c20065259.lua",
+      "name": "Kagero the Cannon Ninja",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "ssptg",
+        "sspop"
+      ],
+      "stockSha256": "0926ee7d0d2a63bda424f198ff7647fe86369a40860609ebceb2b199ac442d18",
+      "note": "FFA operations tolerate a removed source link and preserve independent actions. Tag and 1v1 keep the stock functions."
     },
     {
       "code": 20501450,
@@ -1561,6 +1897,21 @@
       "stockSha256": "eac8f85e4ff240ce74911b852e0c01b4a6c3c7c9eec26f0e164b8441a6e8d1b9"
     },
     {
+      "code": 21888494,
+      "file": "c21888494.lua",
+      "name": "Chosen One",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "activate"
+      ],
+      "stockSha256": "a7342e60c2520e71f7b9ca011c833e3fa2184171d43fe8de621f86ed21bb05bc",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
       "code": 22404570,
       "file": "c22404570.lua",
       "name": "Power Patron Shade of the Final Hour",
@@ -1611,6 +1962,36 @@
       ]
     },
     {
+      "code": 22842126,
+      "file": "c22842126.lua",
+      "name": "Pantheism of the Monarchs",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "thop"
+      ],
+      "stockSha256": "22fea234fd25addc89e97f96600d229c149fe43c52cd4e7331efed4201d3236c",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
+      "code": 23270035,
+      "file": "c23270035.lua",
+      "name": "Monster Assortment",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "operation"
+      ],
+      "stockSha256": "a4697fd3eb8570bda1ce2a31590ada1dd14560adbcf6d24f76fa8a433848c238",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
       "code": 23557835,
       "file": "c23557835.lua",
       "name": "Dimension Fusion",
@@ -1631,6 +2012,20 @@
       "stockSha256": "63576d7818ccaa4b0644450e444cd285c298fac3599e79d2885dc8d92cb041b3"
     },
     {
+      "code": 23599634,
+      "file": "c23599634.lua",
+      "name": "Artmage Pact -Awakening-",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "limop"
+      ],
+      "stockSha256": "70f32c6369240be5e0794efc2920dd25bfec525e5d7e6de9cd78f72923a03a2a",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
+    },
+    {
       "code": 23639291,
       "file": "c23639291.lua",
       "name": "Raging Cloudian",
@@ -1642,6 +2037,21 @@
       ],
       "stockSha256": "028abe29f70e9be32459c9d902ae1ea0b55576bdea24f69dac7a2d6aefd66ed1",
       "note": "Script fix (r2-checks, R-COMMON-EACH-PLAYER): the watcher is a global effect (Duel.RegisterEffect(e2,0)) that runs with no scope, so its player values are real seats. The stock regop read tp as the literal seat 0: only a Cloudian of seat 0 was kept and the event was raised for seat 0, so the holder of any other seat never got the Trap. The regop does the stock steps for every seat 0..3 (the card of a seat, the flag of that seat, the event for that seat). Not part of R1 or R2."
+    },
+    {
+      "code": 23898021,
+      "file": "c23898021.lua",
+      "name": "Lilith, Lady of Lament",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "thop"
+      ],
+      "stockSha256": "ce6446eb4cf7f237351e0b03d006db39507e975772fe54e58cd8be42497d4a67",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 23931679,
@@ -1689,6 +2099,21 @@
       ]
     },
     {
+      "code": 24393683,
+      "file": "c24393683.lua",
+      "name": "Gunkan Suship Daily Special",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "activate"
+      ],
+      "stockSha256": "e606753296531c1808666510dd9ac725fceab7f318a2ceb1e63e1c419259c5cc",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
       "code": 24514503,
       "file": "c24514503.lua",
       "name": "Soulicer Crystal",
@@ -1701,6 +2126,20 @@
       ],
       "replace": true,
       "stockSha256": "9e3c4c3787d7eda606ba1d80444ea47aaa0836b459cf074ae13afc6afa1b08bc"
+    },
+    {
+      "code": 24566654,
+      "file": "c24566654.lua",
+      "name": "Crimson Fire",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "operation"
+      ],
+      "stockSha256": "648caa162ee41938ac1dd848c40997de0e8c4261337f9f687d4baa57c27eb304",
+      "note": "FFA operations tolerate a removed source link and preserve independent actions. Tag and 1v1 keep the stock functions."
     },
     {
       "code": 24590232,
@@ -1751,6 +2190,20 @@
       ]
     },
     {
+      "code": 25050038,
+      "file": "c25050038.lua",
+      "name": "Chain Healing",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "recop"
+      ],
+      "stockSha256": "96843f960c0abea67e15cbcc58e0ee554506259a29f2fee21f94b0d4ee0891bb",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
+    },
+    {
       "code": 25096909,
       "file": "c25096909.lua",
       "name": "Simultaneous Equation Cannons",
@@ -1799,6 +2252,20 @@
       ],
       "stockSha256": "d22769cec678669c6d56d296ac82acb6519c1146b18a46a2940d1bd1a4746749",
       "note": "The Graveyard condition sums attack flags over all seats, once per team in Tag. It does not read a folded opponent or ask for a pick."
+    },
+    {
+      "code": 25629622,
+      "file": "c25629622.lua",
+      "name": "Abyss Actor - Superstar",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "limop"
+      ],
+      "stockSha256": "7d15dc00309a7a5efcf845420ff3bdfaab1df8e50f36bad8f55ee4a2c9cb645a",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
     },
     {
       "code": 25669282,
@@ -1971,6 +2438,20 @@
       "r2Class": "LITERAL",
       "stockSha256": "686c2eafc278de29ce5f4c56136512f904d3431ee09bb567659a91ef87949ec9",
       "note": "the global check compares the reason player with 1-previous controller; it compares the keys (seat in FFA, team in Tag) and writes the flag for the real previous controller."
+    },
+    {
+      "code": 28403802,
+      "file": "c28403802.lua",
+      "name": "P.U.N.K. JAM Dragon Drive",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "spcon"
+      ],
+      "stockSha256": "70b8dbbee9b1c9df2fb7ac68ee2a66094d289ef29a0dcff4c198540993ca3736",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
     },
     {
       "code": 28497830,
@@ -2184,6 +2665,20 @@
       "stockSha256": "fd679ce599a553c84b73f869f08f13dde16784d5dd4e1aea4a61390336ad9b1e"
     },
     {
+      "code": 31292357,
+      "file": "c31292357.lua",
+      "name": "Performage Hat Tricker",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "ctop"
+      ],
+      "stockSha256": "e55501964e6b1dc1e003636fae02a29f72128636fa83ccd07b72099836d1bfb2",
+      "note": "FFA operations tolerate a removed source link and preserve independent actions. Tag and 1v1 keep the stock functions."
+    },
+    {
       "code": 31353051,
       "file": "c31353051.lua",
       "name": "Exploderokket Dragon",
@@ -2207,6 +2702,36 @@
       "seatTables": [
         "s.attr_list"
       ]
+    },
+    {
+      "code": 32360466,
+      "file": "c32360466.lua",
+      "name": "Beginning of Heaven and Earth",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "activate"
+      ],
+      "stockSha256": "a522a6ecda127f8ebcfc51881865ae9b10435cbac498dea41c5946b00a45419b",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
+      "code": 32588805,
+      "file": "c32588805.lua",
+      "name": "The Despair Uranus",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "setop"
+      ],
+      "stockSha256": "e1088a833fd2a9d62eb018828aae84f4f09c3b98c425c6b7cb26c01e836ddabe",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 32762201,
@@ -2287,6 +2812,20 @@
       "note": "the check raises the event with a bit mask of the keys (stock: 0, 1 or PLAYER_ALL); the condition asks for the own key."
     },
     {
+      "code": 33391067,
+      "file": "c33391067.lua",
+      "name": "Curse Reflection Doll",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "operation"
+      ],
+      "stockSha256": "0c0a7d4afada98d9c43f5ce4334eca20a73092c86ff1f250e1082f56a0901066",
+      "note": "FFA operations tolerate a removed source link and preserve independent actions. Tag and 1v1 keep the stock functions."
+    },
+    {
       "code": 33782437,
       "file": "c33782437.lua",
       "name": "One Day of Peace",
@@ -2295,6 +2834,20 @@
         "R1"
       ],
       "stockSha256": "4be782dd7f9beb1a4dea5875f3adfff3a9b2928ef57eed22c9bc710d8b4abc9f"
+    },
+    {
+      "code": 33837653,
+      "file": "c33837653.lua",
+      "name": "Tenma the Sky Star",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "disop"
+      ],
+      "stockSha256": "62e466fd90713e7fe97029f236e9aa8a4c12e155a0f7efcdb7b5fc2c42755a75",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
     },
     {
       "code": 33900648,
@@ -2347,6 +2900,20 @@
       "r2Class": "FLAG-L0"
     },
     {
+      "code": 34298391,
+      "file": "c34298391.lua",
+      "name": "Mind Scan",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "decltg"
+      ],
+      "stockSha256": "4a033d36eab4e6374bc3b4b03c6365987bfbfca8f0ce2e9c6c3005a1c619ba98",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
+    },
+    {
       "code": 34449261,
       "file": "c34449261.lua",
       "name": "Fusion Fright Waltz",
@@ -2373,6 +2940,21 @@
       ],
       "stockSha256": "9398ff93bd133e06e4578686b24b5bbd3a2a4db150055587fa4a4d46b5dc05ba",
       "note": "Script fix (misc-table): only the duelist whose Standby Phase it is, with a Spell in its own hand, gains the 1000 LP, with no pick (Duel.MPTurnOwns on the Spell in that hand). Not part of R1."
+    },
+    {
+      "code": 35011819,
+      "file": "c35011819.lua",
+      "name": "By Order of the Emperor",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "target1",
+        "activate1"
+      ],
+      "stockSha256": "0aca9da684b70a96fb9db44d90fe5a9579381ce2547af952e8223ab52836f1b5",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
     },
     {
       "code": 35059553,
@@ -2459,6 +3041,20 @@
       "note": "Script fix (R-FFA-OPP-ONE, owner decision 2026-10-02): Book of Eclipse declares one opponent at activation in FFA. The first flip affects every field. The delayed effect stores the declared seat, flips only its face-down monsters and lets that opponent draw for them. It does nothing if that seat is eliminated. Tag flips and draws per opposing controller. Requires C3."
     },
     {
+      "code": 35563539,
+      "file": "c35563539.lua",
+      "name": "Mystical Refpanel",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "activate"
+      ],
+      "stockSha256": "4d4184fb16a8fb70e4eb1745e1da13dd53ebac307ec245abdb54326ef8d487ca",
+      "note": "FFA operations tolerate a removed source link and preserve independent actions. Tag and 1v1 keep the stock functions."
+    },
+    {
       "code": 35569555,
       "file": "c35569555.lua",
       "name": "Dogmatikamatrix",
@@ -2512,6 +3108,21 @@
       ]
     },
     {
+      "code": 36591747,
+      "file": "c36591747.lua",
+      "name": "Amaze Attraction Thrill Train",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "setop"
+      ],
+      "stockSha256": "f115fbac168b1a0c9a3cb437042de675bce271f65b202cd54be074716e6fad19",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
       "code": 36668118,
       "file": "c36668118.lua",
       "name": "Boot Sector Launch",
@@ -2529,6 +3140,20 @@
         "efftg"
       ],
       "stockSha256": "367ca4dbe5b75c4c109052c9d3dd590e3319094e6b1e1c5eba40d0772369a1ca"
+    },
+    {
+      "code": 36730805,
+      "file": "c36730805.lua",
+      "name": "Speedlift",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "activate"
+      ],
+      "stockSha256": "4f0cf6c7e0d2a060fa99b25de9b733d6fc669c8debf10457fec3a40857d6f02a",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
     },
     {
       "code": 36809777,
@@ -2561,6 +3186,21 @@
       "stockSha256": "326b6c2da53db6e5837a0df646f1286d72dd8c394fab613883418a8a7f8486de"
     },
     {
+      "code": 37006702,
+      "file": "c37006702.lua",
+      "name": "Krishnerd Witch",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "tdtg",
+        "tdop"
+      ],
+      "stockSha256": "b96ee169d01ed9ee046b3421a15b791b4eff9d8a535ac5407dd4f4c3508e9c06",
+      "note": "FFA operations tolerate a removed source link and preserve independent actions. Tag and 1v1 keep the stock functions."
+    },
+    {
       "code": 37310367,
       "file": "c37310367.lua",
       "name": "Lockout Gardna",
@@ -2573,6 +3213,20 @@
         "inline"
       ],
       "replace": true
+    },
+    {
+      "code": 37511832,
+      "file": "c37511832.lua",
+      "name": "Sargasso Lighthouse",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "operation"
+      ],
+      "stockSha256": "5a2e4e14b507ceb9f18e5a8bf05b84a9d041959ddc00a9a5317a371ccccb4c6a",
+      "note": "FFA operations tolerate a removed source link and preserve independent actions. Tag and 1v1 keep the stock functions."
     },
     {
       "code": 37780349,
@@ -2615,6 +3269,20 @@
       "stockSha256": "7167a152987cdf93d23563f722cb54ad4bd2937767ea0e8b36a98bd9f585821c"
     },
     {
+      "code": 38143903,
+      "file": "c38143903.lua",
+      "name": "Head Judging",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "op"
+      ],
+      "stockSha256": "490bced38fdb51147807d78729f74825d284e28bc3d1eebe6f8a38042a984b4f",
+      "note": "FFA operations tolerate a removed source link and preserve independent actions. Tag and 1v1 keep the stock functions."
+    },
+    {
       "code": 38522377,
       "file": "c38522377.lua",
       "name": "Meklord Astro Dragon Asterisk",
@@ -2625,6 +3293,21 @@
       "r2Class": "EACH-CONTROLLER",
       "stockSha256": "416d972d7a441a06776789f4baeaa6dc5d7b61f47c5f18ae55386c37d298cfb6",
       "note": "the damage goes to tp, 1-tp or both by who Synchro Summoned; the summoning sides are a key mask (real controller seat via Duel.MPSeatOf) stored in the label at the target step, and every living side in the mask takes 1000."
+    },
+    {
+      "code": 38723936,
+      "file": "c38723936.lua",
+      "name": "Question",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "activate"
+      ],
+      "stockSha256": "6f59c859e16277cd51c65a6ee2bd53a2d1e7e9a99e3176fffa4b842abb113636",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 38817295,
@@ -2708,6 +3391,20 @@
       "stockSha256": "28aa31e9fe4dba30a4915dd4d40d75c5e97855c7e1de98f183094163493a349f"
     },
     {
+      "code": 39711336,
+      "file": "c39711336.lua",
+      "name": "Fushioh Richie",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "disop"
+      ],
+      "stockSha256": "28be8ba58bd5eab25143e88c75a93f3e7ec9ecc553f613ec1b5682b132c7a9c0",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
+    },
+    {
       "code": 39767432,
       "file": "c39767432.lua",
       "name": "Sorcerer of Sebek",
@@ -2744,6 +3441,21 @@
       "note": "The delayed summon binds the real owner of the banished target, including a Tag partner."
     },
     {
+      "code": 40230018,
+      "file": "c40230018.lua",
+      "name": "Spellbook Library of the Crescent",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "operation"
+      ],
+      "stockSha256": "8ca4807b88b56681eefa3009a9e9ca83b6b85386af93c0f9d80241bfa7227b0e",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
       "code": 40267580,
       "file": "c40267580.lua",
       "name": "Brain Jacker",
@@ -2776,6 +3488,35 @@
       "stockSha256": "b3655ac17db9e94d390cebd6ff604d9971121f735d9afe566bd255ce1ffd85cb"
     },
     {
+      "code": 41424250,
+      "file": "c41424250.lua",
+      "name": "Chaos End Ruler - Ruler of the Beginning and the End",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "limop"
+      ],
+      "stockSha256": "cfaf3a4dbb8b8704e6aec0586082ddadff0c4d8db4ff746c48ea355c9bdcc7e3",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
+    },
+    {
+      "code": 41773061,
+      "file": "c41773061.lua",
+      "name": "Voici la Carte (Today's Menu)",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "activate"
+      ],
+      "stockSha256": "0f7638de78b08a20b335fd9607ec5ae86515fa038719c66513d7ac241faaffb2",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
       "code": 42091632,
       "file": "c42091632.lua",
       "name": "Dominus Spiral",
@@ -2794,6 +3535,22 @@
       },
       "chooserClass": "CH-OP",
       "stockSha256": "100321adc2379201c936e524bdff4c35dc30b75e99f80f93df2698c00d6fdbb2"
+    },
+    {
+      "code": 42193638,
+      "file": "c42193638.lua",
+      "name": "Vaalmonica Versare",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "activate",
+        "target"
+      ],
+      "stockSha256": "5beda836e970a820c7b6245bbad2e4667837c0abcdb8ca1b45f7f8313acdce29",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 42228966,
@@ -2816,6 +3573,21 @@
         "R1"
       ],
       "stockSha256": "aa45dff987f42d5803585456668e393f744ffbe11018b7f9a7760b5956227e3f"
+    },
+    {
+      "code": 42548470,
+      "file": "c42548470.lua",
+      "name": "Weights & Zenmaisures",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "activate"
+      ],
+      "stockSha256": "7b62a1bf9d11c303811ae3ea14bfb4f03a41e4c30617da8c623c8cb37a822851",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 42589641,
@@ -2888,6 +3660,20 @@
       "note": "Script fix (Q7, Q10): at:IsControler(tp) in the condition. Not part of R1."
     },
     {
+      "code": 43487744,
+      "file": "c43487744.lua",
+      "name": "White Hole",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "activate"
+      ],
+      "stockSha256": "42b7cf4842c7f3b3ba0cb47f2f1a2cf25a93e3be00778073e5880a1067dc903e",
+      "note": "FFA operations tolerate a removed source link and preserve independent actions. Tag and 1v1 keep the stock functions."
+    },
+    {
       "code": 43632709,
       "file": "c43632709.lua",
       "name": "Cerynemesia, Mystical Beast of the Forest",
@@ -2946,6 +3732,20 @@
       "note": "Script fix (late-cards, Tag): the 100 LP is asked only in the Standby Phase of the duelist that owns the card, not in the Standby Phase of its partner (Duel.MPTurnOwns). The team LP pays. Not part of R1."
     },
     {
+      "code": 44800181,
+      "file": "c44800181.lua",
+      "name": "Combo Master",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "chop"
+      ],
+      "stockSha256": "3b53278d1ee45ab8170b9b92d1bf6aa346713fe3019072f52e8d5bed772d9835",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
+    },
+    {
       "code": 44891812,
       "file": "c44891812.lua",
       "name": "Superheavy Samurai Helper",
@@ -2974,6 +3774,20 @@
       "stockSha256": "9ca56d4fca7239fd8881054a4a240a992d6e3014026cb58525da1e48fc593103"
     },
     {
+      "code": 45023678,
+      "file": "c45023678.lua",
+      "name": "Lightning Punisher",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "chop"
+      ],
+      "stockSha256": "1a26f4c2089af02180b010a9b6eaf0461745abefcf5a7d88d471cd5b7d6a80d2",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
+    },
+    {
       "code": 45112597,
       "file": "c45112597.lua",
       "name": "Worldsea Dragon Zealantis",
@@ -2984,6 +3798,20 @@
       "stockSha256": "b8dc0f1a453430b0133fb44ff989e0e446d4bc20bdc2c53c63bca2db198c9368",
       "note": "Use the exact action seat and the real controller or owner destination.",
       "r2Class": "EACH-CONTROLLER"
+    },
+    {
+      "code": 45141013,
+      "file": "c45141013.lua",
+      "kind": "hand",
+      "name": "Heat Wave",
+      "classes": [
+        "DURATION"
+      ],
+      "redefined": [
+        "operation"
+      ],
+      "stockSha256": "047097e48cb03f853320b4e323762aeaad1477e5d761c30bfa08e719b4dc3964",
+      "note": "FFA: expires at the activator's next Draw Phase, including a skipped turn after removal; Tag and 1v1 keep stock behavior."
     },
     {
       "code": 45148985,
@@ -3149,6 +3977,20 @@
       "note": "The current controller's own turn triggers the effect. Each living duelist takes damage."
     },
     {
+      "code": 47297616,
+      "file": "c47297616.lua",
+      "name": "Light and Darkness Dragon",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "negop"
+      ],
+      "stockSha256": "c6fb3ceca9603d08fb0f57dac3e4de1805b1c6bc041ea3d3b380a1a826627b0c",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
+    },
+    {
       "code": 47475363,
       "file": "c47475363.lua",
       "name": "Drowning Mirror Force",
@@ -3167,6 +4009,20 @@
       ]
     },
     {
+      "code": 47679935,
+      "file": "c47679935.lua",
+      "name": "Magical Meltdown",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "limop"
+      ],
+      "stockSha256": "add7bcdebbbaa8678d1e0e0597bafbdd4c96fa9b8dea801e92c53caa259384ff",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
+    },
+    {
       "code": 47759571,
       "file": "c47759571.lua",
       "name": "Pitknight Earlie",
@@ -3183,6 +4039,20 @@
       "stockSha256": "88b6624990f30e33f52bb86c946541701c42626b2397f229b2a4c9d17cb461b9",
       "classes": [],
       "note": "The overlay restricts FFA4 column geometry to the exact own and across seats."
+    },
+    {
+      "code": 47946130,
+      "file": "c47946130.lua",
+      "name": "Gouki The Giant Ogre",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "negop"
+      ],
+      "stockSha256": "c83b87cff5a90c78163472e66323d178248c1e25cd87d4b6b3d1cd1c0711db89",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
     },
     {
       "code": 48150362,
@@ -3346,6 +4216,21 @@
       "note": "the global check loops over the players 0 and 1 and reads the previous controller at EVENT_DESTROY (it reads the first seat for every seat); it writes the flag for the real controller seat of each destroyed monster (Duel.MPSeatOf)."
     },
     {
+      "code": 50213848,
+      "file": "c50213848.lua",
+      "name": "Monster Reborn Reborn",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "activate"
+      ],
+      "stockSha256": "1ac54e9c9b5c3d3e596b317f040a88861e74b1efbc72431fc22f35bbf435f71e",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
       "code": 50470982,
       "file": "c50470982.lua",
       "name": "The Paths of Destiny",
@@ -3375,6 +4260,21 @@
         "sptg"
       ],
       "stockSha256": "368822aab7b0be98103cf99610c8520553d1b62b86bff1854e64e3a32c0e289f"
+    },
+    {
+      "code": 50756327,
+      "file": "c50756327.lua",
+      "name": "Crowley, the First Propheseer",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "thop"
+      ],
+      "stockSha256": "e69254ef2c9e11eafa3ed2fceae844ef47f89e2d56684e7ae241d3295a901496",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 50838440,
@@ -3421,6 +4321,20 @@
       "seatResets": {
         "clearop": null
       }
+    },
+    {
+      "code": 51449743,
+      "file": "c51449743.lua",
+      "name": "Chain Detonation",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "damop"
+      ],
+      "stockSha256": "07a2fdc584fcede90215838d0e01f4edbcb36e8abef782fc12d72f8bf9cc9475",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
     },
     {
       "code": 51612489,
@@ -3571,6 +4485,20 @@
       ]
     },
     {
+      "code": 54408264,
+      "file": "c54408264.lua",
+      "name": "Magikey Battle",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "activate"
+      ],
+      "stockSha256": "5fe1fccf40553611607decf34456853318892f09b53d38f938a2eef27e5fbabc",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
+    },
+    {
       "code": 54512827,
       "file": "c54512827.lua",
       "name": "Ghostrick Lantern",
@@ -3668,6 +4596,20 @@
       "stockSha256": "cd73860122707474e79fd5e30196443420e778d5d40a7eaedfbaac0a653354ba"
     },
     {
+      "code": 55888045,
+      "file": "c55888045.lua",
+      "name": "Number C106: Giant Red Hand",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "negop"
+      ],
+      "stockSha256": "64e6d1b04c64ae1e167fdc97487dc36d84fd7f2bb729bdf2810875444404ca31",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
+    },
+    {
       "code": 56051648,
       "file": "c56051648.lua",
       "name": "Spider Egg",
@@ -3693,6 +4635,20 @@
       "classes": [],
       "stockSha256": "f74b7b5b04044a3f7ad391f5917e755fe4ef7410fb9eb18e0c0af3564b954a3d",
       "note": "The overlay uses the real duelist seat for this card effect."
+    },
+    {
+      "code": 56638325,
+      "file": "c56638325.lua",
+      "name": "Stellarknight Delteros",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "limop"
+      ],
+      "stockSha256": "06355a65f77ca7a84194dd242c3361e66833c0664a0113b30235b4f53894e401",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
     },
     {
       "code": 56673480,
@@ -3769,6 +4725,20 @@
       "stockSha256": "23b6708861991c12d5cb9b780b1b21c290258e313dbf762d0c3945a02333dfea"
     },
     {
+      "code": 57006589,
+      "file": "c57006589.lua",
+      "name": "Energy-Absorbing Monolith",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "operation"
+      ],
+      "stockSha256": "62534be7fa92c68fe931b161a48a167ab3ec5dfc4121bd0d53d2209ef5700b89",
+      "note": "FFA operations tolerate a removed source link and preserve independent actions. Tag and 1v1 keep the stock functions."
+    },
+    {
       "code": 57314798,
       "file": "c57314798.lua",
       "name": "Number 100: Numeron Dragon",
@@ -3784,6 +4754,20 @@
       "chooserClass": "CH-EACH",
       "stockSha256": "5b731e5173025a5bc6f734cdc61382bf3da103ffe62c418010c8326d752b5822",
       "note": "Numeron Dragon: desop loops over every living duelist with aux.MPForEachDuelist (Tag partners included): each chooses from its own scope (in Tag the Graveyard of the team, the card of the partner is not offered again), then each Sets its card in a second pass. spcon in FFA counts only a direct attack that can only go to you (no other seat without a monster): the core has no read of the attacked duelist."
+    },
+    {
+      "code": 57775790,
+      "file": "c57775790.lua",
+      "name": "Fabled Realm's Revival",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "limop"
+      ],
+      "stockSha256": "d204ff5e007033a081a3fbb0b859887265845781a21c2440bf7a39fd28ad38ec",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
     },
     {
       "code": 57809669,
@@ -3805,6 +4789,21 @@
       "r2Class": "FLAG-L0",
       "stockSha256": "b6ded8db478fef828a26bde92742a32181d22ff7876e7e256a4f82a08c7d84e8",
       "note": "global flag registered for the literal seat 0 only: the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag), so each holder reads it with its own player value."
+    },
+    {
+      "code": 57902193,
+      "file": "c57902193.lua",
+      "name": "Painful Return",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "activate"
+      ],
+      "stockSha256": "097e75c8fc07cf7560b7fddcc127abba6c513cd8e741361c514f7049ff8f8a34",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 58071123,
@@ -3834,6 +4833,35 @@
       "note": "The target stores the operation info for the activator when the group is not 2 cards (the core demands 2 for PLAYER_ALL); the operation Special Summons each target for the duelist whose Graveyard holds it (windows)."
     },
     {
+      "code": 58577036,
+      "file": "c58577036.lua",
+      "name": "Reasoning",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "operation"
+      ],
+      "stockSha256": "3a5b02b631ed132def6ed1d0efbb34ba28ef0be23b1aef78d0755244082e9270",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
+      "code": 58641905,
+      "file": "c58641905.lua",
+      "name": "Ring of Defense",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "operation"
+      ],
+      "stockSha256": "98bd6882c1d758502e2765f0d3557d3da66f8f95dc3974f39617aa434c76a1ed",
+      "note": "FFA operations tolerate a removed source link and preserve independent actions. Tag and 1v1 keep the stock functions."
+    },
+    {
       "code": 58707981,
       "file": "c58707981.lua",
       "name": "Disablaster the Negation Fortress",
@@ -3854,6 +4882,21 @@
         "target",
         "operation"
       ]
+    },
+    {
+      "code": 58753372,
+      "file": "c58753372.lua",
+      "name": "Super Quantal Fairy Alphan",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "spop"
+      ],
+      "stockSha256": "542cfa7da2d4773e906d0caece52c965b4913c39028602d9db11da7a9b78ecfc",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 59011257,
@@ -4011,6 +5054,20 @@
       "note": "the condition compares the real seat of the player that took the battle damage (s[0], written by the global check) with tp, which a handler folds; it compares keys (seat in FFA, team in Tag) with the real seat of this card."
     },
     {
+      "code": 60442460,
+      "file": "c60442460.lua",
+      "name": "Branded Befallen",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "negcon"
+      ],
+      "stockSha256": "e773dfa73a39489178ecda139920ac7dd544d1651e86acb01836bf0c1b93c292",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
+    },
+    {
       "code": 60534585,
       "file": "c60534585.lua",
       "name": "Battle Instinct",
@@ -4039,6 +5096,50 @@
       "r2Class": "LITERAL",
       "stockSha256": "21694d57aceef2071ffbf5819935e1387ea1d0364755545784551258e2b428cd",
       "note": "the global check registers the flag for the literals 0 and 1 by comparing the real player with 0; it registers the flag for the real seat of each matching card instead (the core keys a flag by seat in FFA and by team in Tag)."
+    },
+    {
+      "code": 60741115,
+      "file": "c60741115.lua",
+      "name": "Damage Eater",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "operation"
+      ],
+      "stockSha256": "613418c71d09bcc9d0febdd0a19e575f104a265a25ecee9586bbaa8f08b05292",
+      "note": "FFA operations tolerate a removed source link and preserve independent actions. Tag and 1v1 keep the stock functions."
+    },
+    {
+      "code": 60866277,
+      "file": "c60866277.lua",
+      "name": "Earthshaker",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "operation"
+      ],
+      "stockSha256": "d2fbbc7214a39ae8092bfb66f4fc9e7a72f92df67feb504a0c4d7652da936d3d",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
+      "code": 60876124,
+      "file": "c60876124.lua",
+      "name": "Rare Value",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "activate"
+      ],
+      "stockSha256": "cc877e87fdc703cfba7bbb871c15ee85b67675f10b17b1b259875d47108bdc2b",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 61318483,
@@ -4221,6 +5322,35 @@
       "stockSha256": "f224f49c886c6b8e4e6d291e5d7205d4780c177a3beef6254591943c33e7de44"
     },
     {
+      "code": 64184058,
+      "file": "c64184058.lua",
+      "name": "Destiny HERO - Decider",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "damop"
+      ],
+      "stockSha256": "e21479fb6d7300b6fe2489a2a5c040648ef2f389949962e377cca90d018ada85",
+      "note": "FFA operations tolerate a removed source link and preserve independent actions. Tag and 1v1 keep the stock functions."
+    },
+    {
+      "code": 64280356,
+      "file": "c64280356.lua",
+      "name": "Kozmo Tincan",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "thop"
+      ],
+      "stockSha256": "e3baf4880eef862dd41b77f40ed0f2e4cfe8ec7681813866b037e2bcc7245280",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
       "code": 64325438,
       "file": "c64325438.lua",
       "name": "Generaider Boss Room",
@@ -4228,7 +5358,11 @@
       "classes": [
         "R1"
       ],
-      "stockSha256": "ead5481f7ca0d03da0a45f4dc9ff0765f82f7b2de25b41fc8c33bfa2b821e868"
+      "stockSha256": "ead5481f7ca0d03da0a45f4dc9ff0765f82f7b2de25b41fc8c33bfa2b821e868",
+      "redefined": [
+        "condition"
+      ],
+      "note": " FFA chain reads skip removed links; Tag keeps its existing functions."
     },
     {
       "code": 64605089,
@@ -4577,6 +5711,20 @@
       "stockSha256": "16c6302fae39792f9ea034398141cfb9d0d7cec90899cb831a9bbde9d4ed2d0b"
     },
     {
+      "code": 70333910,
+      "file": "c70333910.lua",
+      "name": "Noctovision Dragon",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "disop"
+      ],
+      "stockSha256": "6309d5d2172b43d06288dd321db46b4d7ed44b0c0929c0f26ff15999639207fb",
+      "note": "FFA operations tolerate a removed source link and preserve independent actions. Tag and 1v1 keep the stock functions."
+    },
+    {
       "code": 70335319,
       "file": "c70335319.lua",
       "name": "All-Eyes Phantom Dragon",
@@ -4590,6 +5738,36 @@
       "seatTables": [
         "s"
       ]
+    },
+    {
+      "code": 70491413,
+      "file": "c70491413.lua",
+      "name": "Surprise Chain",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "target",
+        "activate"
+      ],
+      "stockSha256": "1e746d87ffaad274ae03fd396dd428e5f96645e8fc146880996c7d513794f3aa",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
+    },
+    {
+      "code": 70508653,
+      "file": "c70508653.lua",
+      "name": "Tool Box",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "thop"
+      ],
+      "stockSha256": "d1be1c78235dcbbe59ada72903cf61e972c03acd000f9f870f306f5c63977af7",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 70659412,
@@ -4671,6 +5849,20 @@
       "note": "global flags registered for the literal seats 0 and 1 (both are global): the initial_effect wrapper fans each of them out to every living duelist (seat in FFA, team in Tag). Slot 1 (a Demise Lord destroyed by battle) is a key of its own (id+100) and s.spop reads it with the own seat, so the 3000 ATK bonus does not come after any battle kill."
     },
     {
+      "code": 71159974,
+      "file": "c71159974.lua",
+      "name": "Magikey Dragon - Andrabime",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "limop"
+      ],
+      "stockSha256": "3f18201b14032b3b11426a3dc6cac4d34ef3a7b77c375788a7245dc51a4ad73a",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
+    },
+    {
       "code": 71166481,
       "file": "c71166481.lua",
       "name": "Number 75: Bamboozling Gossip Shadow",
@@ -4679,6 +5871,21 @@
         "R1"
       ],
       "stockSha256": "e48e5cc488677ae837e0ed243fb9fbb7446e8cb67a139222b3c945524927bd1a"
+    },
+    {
+      "code": 71275181,
+      "file": "c71275181.lua",
+      "name": "Fifty Fifty?",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "activate"
+      ],
+      "stockSha256": "9bd9d6bb7bb6dd3dfd09e138d54b1db4aec0e2cc6bba53bcba2c42236cbff44e",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 71315423,
@@ -4706,6 +5913,34 @@
       "seatInit": "false"
     },
     {
+      "code": 71395725,
+      "file": "c71395725.lua",
+      "name": "Man Beast of Ares",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "chop"
+      ],
+      "stockSha256": "c4900e238de2848a5c9669e7250c03cbefa91ee67f4d741a0b3e7ed21068db37",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
+    },
+    {
+      "code": 71440209,
+      "file": "c71440209.lua",
+      "name": "Dark Magic Talisman",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "discon"
+      ],
+      "stockSha256": "c4ea9f02dd29d0d8199394cc3d6545b371d75dc7166ec1934fb2a8510e1e4405",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
+    },
+    {
       "code": 71442223,
       "file": "c71442223.lua",
       "name": "Cubic Rebirth",
@@ -4730,6 +5965,20 @@
       "r2Class": "EVENT-BITS",
       "stockSha256": "9228580aa26b101f7683a66efc82db6af6a7a161c6b1947013fc06b107a81617",
       "note": "the check raises the event with a bit mask of the controller keys (stock: bit 0 and 1); the handlers ask for the own key and for any other key."
+    },
+    {
+      "code": 71650854,
+      "file": "c71650854.lua",
+      "name": "Magical Mid-Breaker Field",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "condition"
+      ],
+      "stockSha256": "cf7595118b4e694f89e6717442775a25bcf083f6ebe2d1e9e86d98f74ae39f86",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
     },
     {
       "code": 71782404,
@@ -4882,6 +6131,21 @@
       "stockSha256": "12358eff25253775fd3cf467e8692e77df0b5cbf2b0e6f811db4aff59a28fe72"
     },
     {
+      "code": 74191942,
+      "file": "c74191942.lua",
+      "name": "Painful Choice",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "activate"
+      ],
+      "stockSha256": "3f6458be1b47880de2342d46a9cf70cc1de2503bbb415182af0209daa6673b2f",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
       "code": 74271714,
       "file": "c74271714.lua",
       "name": "Fish and Bids",
@@ -4895,6 +6159,35 @@
       },
       "stockSha256": "7a82c1d97ab6bf236b46d17e6416ba1bf314fd042a2549c58705171d3312bd9f",
       "note": "In Tag, select one opponent at activation for the opponent-hand effect. Keep the joined team field."
+    },
+    {
+      "code": 74289646,
+      "file": "c74289646.lua",
+      "name": "Royal Rhino with Deceitful Dice",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "target",
+        "operation"
+      ],
+      "stockSha256": "59ee556003fd5a7e494f9cc0ecbbff9d42e10059942f6b4205d5b80740e7a5c7",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
+    },
+    {
+      "code": 74416026,
+      "file": "c74416026.lua",
+      "name": "Frightfur March",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "activate"
+      ],
+      "stockSha256": "dd4e466eb1086717112e6965a1d3545883a78e0dadbbe21e650d0f1b8f503312",
+      "note": "FFA operations tolerate a removed source link and preserve independent actions. Tag and 1v1 keep the stock functions."
     },
     {
       "code": 74426895,
@@ -4975,6 +6268,20 @@
         "R1"
       ],
       "stockSha256": "720a56596b8015cdb5b0fba6bae7f46f2434e58991569b4a056e774047239085"
+    },
+    {
+      "code": 75983808,
+      "file": "c75983808.lua",
+      "name": "Chaos Mystic Box",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "thdesop"
+      ],
+      "stockSha256": "56fc41dceed57263d2b0de3ceff1cbabebe9598b54e9209bd95c13838cf1b984",
+      "note": "FFA operations tolerate a removed source link and preserve independent actions. Tag and 1v1 keep the stock functions."
     },
     {
       "code": 76004142,
@@ -5082,7 +6389,24 @@
       ],
       "r2Class": "LITERAL",
       "stockSha256": "b78d1d3cab2dc838b0cc7c0b24561fe9a4fb9400d1327dd2263868a2084c9d72",
-      "note": "the global check registers the flag for the literals 0 and 1 by comparing the real player with 0; it registers the flag for the real seat of each matching card instead (the core keys a flag by seat in FFA and by team in Tag)."
+      "note": "the global check registers the flag for the literals 0 and 1 by comparing the real player with 0; it registers the flag for the real seat of each matching card instead (the core keys a flag by seat in FFA and by team in Tag). FFA chain reads skip removed links; Tag keeps its existing functions.",
+      "redefined": [
+        "discon"
+      ]
+    },
+    {
+      "code": 76714458,
+      "file": "c76714458.lua",
+      "name": "Spell of Pain",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "operation"
+      ],
+      "stockSha256": "bbb4e7a7c53b0058c355cb57fde2921ff99cb495547c548f08390e0aba7b6968",
+      "note": "FFA operations tolerate a removed source link and preserve independent actions. Tag and 1v1 keep the stock functions."
     },
     {
       "code": 76895648,
@@ -5206,6 +6530,22 @@
       ]
     },
     {
+      "code": 78598237,
+      "file": "c78598237.lua",
+      "name": "Vaalmonica Intonare",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "target",
+        "activate"
+      ],
+      "stockSha256": "a656f1ef97177eb93798256fb0d60362fdc563a28dfa6bc84dc36d0aa8513641",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
       "code": 78679226,
       "file": "c78679226.lua",
       "name": "Future Silence",
@@ -5216,6 +6556,20 @@
       "stockSha256": "5b85c1dd408241a719667c65f5c97548e73ca6b6b326bb16654515319b5adacb"
     },
     {
+      "code": 78700060,
+      "file": "c78700060.lua",
+      "name": "Doomcaliber Knight",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "operation"
+      ],
+      "stockSha256": "d4eee7fa91f21a811c63e20a5d45d326fc4d14147d62ec529b60a24eae354ef4",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
+    },
+    {
       "code": 78706415,
       "file": "c78706415.lua",
       "name": "Fiber Jar",
@@ -5224,6 +6578,20 @@
         "R1"
       ],
       "stockSha256": "50c3dcab9adfcaa8421181d46a83499e18eee56f1fb2ccbbabda6fad392e9aee"
+    },
+    {
+      "code": 78783370,
+      "file": "c78783370.lua",
+      "name": "Barrel Behind the Door",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "operation"
+      ],
+      "stockSha256": "f92471e595af4669ae94d55f3db13b4145dfa4111c4f29052f90fb1a51c6f48a",
+      "note": "FFA operations tolerate a removed source link and preserve independent actions. Tag and 1v1 keep the stock functions."
     },
     {
       "code": 80208158,
@@ -5265,7 +6633,8 @@
       "name": "Mimighoul Slime",
       "kind": "expr",
       "classes": [
-        "COMPARE"
+        "COMPARE",
+        "CHOOSER"
       ],
       "effectType": "IGNITION",
       "compareIn": [
@@ -5409,6 +6778,20 @@
       ]
     },
     {
+      "code": 82359538,
+      "file": "c82359538.lua",
+      "name": "Enneacraft - Aiza.LEON",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "rthcon"
+      ],
+      "stockSha256": "2fa5779c2ba06e35d4ea181ec32f6c093c82d5515711791fe6a12b723a060443",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
+    },
+    {
       "code": 82385847,
       "file": "c82385847.lua",
       "name": "Dinowrestler Pankratops",
@@ -5438,6 +6821,20 @@
       "note": "count of direct attacks per ATTACKED duelist key (s.mpcount) and first attacker per key (s.mpfirst); the stock s[1-controller] and s[2] break at more than two seats. The response lock binds the battle turn player with no declaration."
     },
     {
+      "code": 82699999,
+      "file": "c82699999.lua",
+      "name": "Live\u2606Twin Lil-la Sweet",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "discon"
+      ],
+      "stockSha256": "30be02776e37c3b848a22ec69c06435f8dae052e474998ba004202c9b48d36f2",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
+    },
+    {
       "code": 82734805,
       "file": "c82734805.lua",
       "name": "Infernoid Tierra",
@@ -5455,6 +6852,21 @@
       "classes": [],
       "stockSha256": "807ab9475cb8e96d0c1c4ccd8ec535b07ccada3645196f25ce9bd169b017d2d7",
       "note": "The overlay uses the real duelist seat for this card effect."
+    },
+    {
+      "code": 83008724,
+      "file": "c83008724.lua",
+      "name": "Gunkan Suship Catch-of-the-Day",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "operation"
+      ],
+      "stockSha256": "0d9c7f57081a88eb8e81228ea702ed7dcae2ded7c438cd10038e297558d7fc04",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 83054225,
@@ -5623,6 +7035,20 @@
       "stockSha256": "358ad8ddc2bc362107a5229ee33c46fb9974c445598d83374d3559e7da148405"
     },
     {
+      "code": 84521924,
+      "file": "c84521924.lua",
+      "name": "GranSolfachord Coolia",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "checkop"
+      ],
+      "stockSha256": "d1d51096373da9756a04cdd9dc424807b40eb0ee7693cf34e725882312d2af65",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
+    },
+    {
       "code": 84813516,
       "file": "c84813516.lua",
       "name": "Thunder Ball",
@@ -5633,6 +7059,20 @@
       "r2Class": "FLAG-L0",
       "stockSha256": "5c726ae42d0f79def5d7bcf28e5da6e4938871bee3993ce4ba263ae332991dde",
       "note": "global flag registered for the literal seat 0 only: the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag), so each holder reads it with its own player value."
+    },
+    {
+      "code": 85008676,
+      "file": "c85008676.lua",
+      "name": "Gouki Octostretch",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "operation"
+      ],
+      "stockSha256": "59a6d4bc31f83996bd8a277f60a113588cfbb4c3a8a96e7f3aa00f53390d39c6",
+      "note": "FFA operations tolerate a removed source link and preserve independent actions. Tag and 1v1 keep the stock functions."
     },
     {
       "code": 85602018,
@@ -5697,6 +7137,20 @@
         "damage",
         "damop"
       ]
+    },
+    {
+      "code": 86682165,
+      "file": "c86682165.lua",
+      "name": "Icejade Gymir Aegirine",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "immop"
+      ],
+      "stockSha256": "70a54f48abb7881dd35c7b4d3c0d22752b33d473f0a2106bf1a79c9b1cc80067",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
     },
     {
       "code": 87588741,
@@ -5800,6 +7254,20 @@
       "stockSha256": "ca15b875da720d62234c9d7f274a3a11471a6ee706da2cdd5dc34880f7cfe273"
     },
     {
+      "code": 88989706,
+      "file": "c88989706.lua",
+      "name": "Great Dezard",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "disop"
+      ],
+      "stockSha256": "7d33b59427e37242eefeb8bb5c6559886b8732a9f3ad27aabdaf9e25c6a74b43",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
+    },
+    {
       "code": 89040386,
       "file": "c89040386.lua",
       "name": "Blackwing - Backlash",
@@ -5816,6 +7284,20 @@
       "compareIn": [
         "condition"
       ]
+    },
+    {
+      "code": 89086647,
+      "file": "c89086647.lua",
+      "name": "Okiku's Dish Count",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "initial_effect"
+      ],
+      "stockSha256": "35e85c8010f7703313d8dd6e07c5c1f41f89e092e69a20a10809ed29ae876a2e",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
     },
     {
       "code": 89328238,
@@ -6033,6 +7515,35 @@
       "note": "In Tag, select one opponent at activation for the optional summon from the hand or GY. Keep the joined team field."
     },
     {
+      "code": 91592030,
+      "file": "c91592030.lua",
+      "name": "Intimidating Ore - Summonite",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "spop"
+      ],
+      "stockSha256": "ffb2ac039d7593e54bdea6d5e2b2c9552d41cc09ae548f02ed84b2bdf223e5a1",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
+      "code": 91623717,
+      "file": "c91623717.lua",
+      "name": "Chain Strike",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "target"
+      ],
+      "stockSha256": "fa9fa1cf20c5ed1c7d7e4fe449e020ef14ab823e6ae32074d28fe4abe88ccc7c",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
+    },
+    {
       "code": 91668078,
       "file": "c91668078.lua",
       "name": "In Papa's Footsteps",
@@ -6195,6 +7706,21 @@
       ]
     },
     {
+      "code": 93437091,
+      "file": "c93437091.lua",
+      "name": "Bingo Machine, Go!!!",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "operation"
+      ],
+      "stockSha256": "8eadf0151132f58da3eedc74534b66f1e8c99064e2870d244b85404bf5bd408c",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
       "code": 93469007,
       "file": "c93469007.lua",
       "name": "Assault Overload",
@@ -6244,6 +7770,20 @@
       "r2Class": "EACH-CONTROLLER",
       "stockSha256": "4520559566f5d84b72b1d6dbd012b62e0b191f9ff4e1a0705cf5f8f9baf5c3e5",
       "note": "the recover and the damage use the literals 0, 1 and PLAYER_ALL for the controller of the equip or leaving cards; the real controller seat (Duel.MPSeatOf) is kept as a key mask in the label and every living side in the mask recovers or takes 1000."
+    },
+    {
+      "code": 93729896,
+      "file": "c93729896.lua",
+      "name": "Nightmare Throne",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "regop"
+      ],
+      "stockSha256": "406b48296068bad5768c1b0d50a55723d01932bf6e18443ddbecb90f3c02105f",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
     },
     {
       "code": 94016752,
@@ -6532,6 +8072,37 @@
       "note": "Chooser card with a compare in an inline condition (MPAny); the file replaces the script. The triage did not list it as a compare card."
     },
     {
+      "code": 97926515,
+      "file": "c97926515.lua",
+      "name": "Emerging Emergency Rescute Rescue",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "condition",
+        "activate"
+      ],
+      "stockSha256": "9f5dfaa1ed1ab18270a0385689517bf4a636855f7ba510f1d2eb5bb4e65db555",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
+      "code": 98301564,
+      "file": "c98301564.lua",
+      "name": "Guiding Ariadne",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "regop"
+      ],
+      "stockSha256": "d736ef0bebd4e7ac9111964f2a0f8574fea2b927e1bb341d347df62f904fadbf",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
       "code": 98520301,
       "file": "c98520301.lua",
       "name": "Asset Mountis",
@@ -6598,6 +8169,21 @@
       "classes": [],
       "stockSha256": "9ac816b42597f4b7f9049c9f326a9892abecdf8a8ca765ae8e9005216b0b062e",
       "note": "FFA direct-attack condition checks each prospective defender, then the attacked seat; stock behavior at two seats and in Tag."
+    },
+    {
+      "code": 99064191,
+      "file": "c99064191.lua",
+      "name": "Xyz Wrath",
+      "kind": "hand",
+      "classes": [
+        "LEAVE"
+      ],
+      "redefined": [
+        "target1",
+        "activate1"
+      ],
+      "stockSha256": "968ac34adead951fe971c0d777d2c4e4fb8beff6f1e93b500d1ca5e61eff0b79",
+      "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
     },
     {
       "code": 99505609,

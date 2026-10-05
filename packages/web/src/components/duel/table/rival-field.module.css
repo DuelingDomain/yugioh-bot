@@ -6,7 +6,7 @@
   width: max-content;
   transform-origin: 50% 50%;
   will-change: transform;
-  transition: transform 0.76s cubic-bezier(0.2, 0.7, 0.2, 1);
+  transition: transform var(--glide, 0.76s) var(--glide-ease, cubic-bezier(0.2, 0.7, 0.2, 1));
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -17,4 +17,46 @@
 
 .seat[hidden] {
   display: none;
+}
+
+/* Regrouping after an elimination: the boards wait for the crumble (0.65 s), then glide for 1 s. */
+.seat[data-glide="true"] {
+  transition: transform 1s cubic-bezier(0.3, 0.7, 0.2, 1) 0.65s;
+}
+
+@keyframes glideIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .seat[data-glide="true"] {
+    transition: none;
+    animation: glideIn 0.38s ease-out 0.22s both;
+  }
+}
+
+/* The in-app reduced motion setting (the media query above covers the system one). */
+:global([data-reduced="true"]) .seat[data-glide="true"] {
+  transition: none;
+  animation: glideIn 0.38s ease-out 0.22s both;
+}
+
+/* The board that left. The 3D chain seat > .exitBoard > layer must not get opacity, filter or overflow. */
+.seat[data-seat-exit] {
+  pointer-events: none;
+  transform-style: preserve-3d;
+  transition: none;
+}
+
+.exitBoard {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  transform-style: preserve-3d;
 }

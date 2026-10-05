@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { backfillMainArtworkRows } from "../services/card-artworks.js";
 import { generateWebSlug } from "../util/web-slug.js";
 import { isExtraDeckFrame } from "../services/card-catalog.js";
 
@@ -73,6 +74,21 @@ export function migrate(db: Database.Database) {
 
     create index if not exists card_catalog_normalized_name_type_idx
       on card_catalog (lower(trim(name)), type);
+
+    -- Old catalog rows remain untouched and refresh on their next sync. Their
+    -- single image is not evidence of a complete artwork family.
+    create table if not exists card_artworks (
+      card_id integer not null references card_catalog(ygoprodeck_id),
+      artwork_id integer primary key references card_catalog(ygoprodeck_id),
+      image_url text not null,
+      image_url_small text not null,
+      image_url_cropped text,
+      is_main integer not null check (is_main in (0, 1)),
+      source text not null default 'api' check (source in ('api', 'engine'))
+    );
+    create index if not exists card_artworks_card_idx on card_artworks (card_id);
+    create unique index if not exists card_artworks_main_idx
+      on card_artworks (card_id) where is_main = 1;
 
     create table if not exists cubes (
       id integer primary key autoincrement,
@@ -183,6 +199,7 @@ export function migrate(db: Database.Database) {
       wave_number integer not null,
       pick_step integer not null,
       pick_method text not null default 'manual',
+      forced integer not null default 0 check (forced in (0, 1)),
       picked_at text not null,
       foreign key (draft_id, player_id) references draft_players(draft_id, player_id),
       foreign key (draft_card_id, draft_id, wave_number) references draft_cards(id, draft_id, wave_number),
@@ -314,12 +331,37 @@ export function migrate(db: Database.Database) {
   addColumnIfMissing(db, "draft_cards", "draft_pack_id", "integer references draft_packs(id)");
   addColumnIfMissing(db, "draft_cards", "position", "integer");
   addColumnIfMissing(db, "draft_picks", "pick_method", "text not null default 'manual'");
+  // Only explicit copy-limit ON booster drafts can identify old forced picks reliably.
+  // Older configs without the flag and copy-limit OFF/theme drafts retain the three-copy rule.
+  // Add and backfill in one write transaction; later migrate calls preserve recorded flags.
+  db.transaction(() => {
+    if (hasColumn(db, "draft_picks", "forced")) return;
+    addColumnIfMissing(db, "draft_picks", "forced", "integer not null default 0 check (forced in (0, 1))");
+    db.exec(`
+      with ordered_picks as (
+        select pk.id, row_number() over (
+          partition by pk.draft_id, pk.player_id, lower(trim(cc.name)), cc.type,
+            case when cc.ygoprodeck_id is null then dc.catalog_card_id end
+          order by pk.id
+        ) as copy_number
+        from draft_picks pk
+        join drafts d on d.id = pk.draft_id
+        join draft_cards dc on dc.id = pk.draft_card_id
+        left join card_catalog cc on cc.ygoprodeck_id = dc.catalog_card_id
+        where json_extract(d.config_json, '$.copyLimit') = 1
+          and coalesce(json_extract(d.config_json, '$.mode'), 'booster') != 'theme'
+      )
+      update draft_picks set forced = 1
+      where id in (select id from ordered_picks where copy_number > 3)
+    `);
+  }).immediate();
   addColumnIfMissing(db, "card_catalog", "effect_text", "text");
   addColumnIfMissing(db, "card_catalog", "atk", "integer");
   addColumnIfMissing(db, "card_catalog", "def", "integer");
   addColumnIfMissing(db, "card_catalog", "attribute", "text");
   addColumnIfMissing(db, "card_catalog", "level", "integer");
   addColumnIfMissing(db, "card_catalog", "archetype", "text");
+  backfillMainArtworkRows(db);
   addColumnIfMissing(db, "card_sets", "card_count", "integer");
   addColumnIfMissing(db, "card_sets", "set_code", "text");
   addColumnIfMissing(db, "drafts", "tournament_id", "integer references tournaments(id)");

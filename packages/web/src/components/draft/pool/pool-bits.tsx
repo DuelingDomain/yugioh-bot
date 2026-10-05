@@ -25,7 +25,7 @@ export function Tally({ counts }: { counts: PoolTallyCounts }) {
 export function CardThumb({ id, src, className }: { id: number; src?: string; className?: string }) {
   return (
     // eslint-disable-next-line @next/next/no-img-element
-    <img className={className} src={src || thumbUrl(id)} alt="" loading="lazy" decoding="async" />
+    <img className={className} src={thumbUrl(id)} alt="" loading="lazy" decoding="async" />
   );
 }
 

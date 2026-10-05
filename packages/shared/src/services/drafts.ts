@@ -6,6 +6,8 @@ import { cubePoolSizes } from "./cubes.js";
 import { MAX_COPIES_PER_PLAYER } from "./constants.js";
 import { buildDraftDeck, createDraftDeckService } from "./draft-decks.js";
 import { isExtraDeckFrame } from "./card-catalog.js";
+import { canonicalCardCode } from "../duels/pool.js";
+import { loadArtworkIdentityCatalog } from "./card-artworks.js";
 import { analyzeCube, buildDealWithRemainder, prepareBoosterPool, seededShuffle, type ShuffleSeed } from "./deal.js";
 
 export type DraftStatus = "pending" | "active" | "cancelled" | "completed";
@@ -15,6 +17,7 @@ export type DraftPoolCard = {
   draftCardId: number;
   catalogCardId: number;
   pickMethod: "manual" | "auto";
+  forced: boolean;
   packRound: number;
   pickStep: number;
 };
@@ -78,6 +81,7 @@ function mapDraftPick(row: any): DraftPick {
     waveNumber: row.wave_number,
     pickStep: row.pick_step,
     pickMethod: row.pick_method,
+    forced: row.forced === 1,
     pickedAt: row.picked_at,
   };
 }
@@ -309,11 +313,12 @@ export function createDraftService(
       .prepare("select catalog_card_id from draft_cards where id = ? and draft_id = ?")
       .get(draftCardId, draftId) as { catalog_card_id: number } | undefined;
     const draft = findById(draftId);
-    if (draft.config.copyLimit === false) return;
+    if (draft.config.copyLimit === false) return false;
     if (card && isCapped(heldCopies(draftId, playerId), card.catalog_card_id)) {
-      if (draft.config.mode !== "theme" && currentPackOptionsInternal(draftId, playerId, true).some((option) => option.id === draftCardId)) return;
+      if (draft.config.mode !== "theme" && currentPackOptionsInternal(draftId, playerId, true).some((option) => option.id === draftCardId && option.forced)) return true;
       throw new Error(`You already have ${MAX_COPIES_PER_PLAYER} copies of this card`);
     }
+    return false;
   };
 
   const playerSeatIndex = (draftId: number, playerId: number): number => {
@@ -396,6 +401,7 @@ export function createDraftService(
             dp.draft_card_id,
             dc.catalog_card_id,
             dp.pick_method,
+            dp.forced,
             dp.wave_number,
             dp.pick_step
           from draft_picks dp
@@ -409,6 +415,7 @@ export function createDraftService(
         draftCardId: row.draft_card_id,
         catalogCardId: row.catalog_card_id,
         pickMethod: row.pick_method,
+        forced: row.forced === 1,
         packRound: row.wave_number,
         pickStep: row.pick_step,
       }));
@@ -420,17 +427,21 @@ export function createDraftService(
     if (draft.status !== "completed" && playerProgress(draftId, playerId).pick_count < (draft.config.cardsPerPlayer ?? defaultDraftConfig.cardsPerPlayer)) {
       throw new Error("Deck is not complete yet");
     }
-    const rows = db.prepare(`select dc.catalog_card_id, cc.name, cc.type, cc.frame_type
+    const rows = db.prepare(`select dc.catalog_card_id, cc.name, cc.type, cc.frame_type, pk.forced
       from draft_picks pk join draft_cards dc on dc.id = pk.draft_card_id
       left join card_catalog cc on cc.ygoprodeck_id = dc.catalog_card_id
       where pk.draft_id = ? and pk.player_id = ? order by pk.id`)
-      .all(draftId, playerId) as Array<{ catalog_card_id: number; name: string | null; type: string | null; frame_type: string | null }>;
+      .all(draftId, playerId) as Array<{ catalog_card_id: number; name: string | null; type: string | null; frame_type: string | null; forced: number }>;
     const deck = buildDraftDeck(rows.map((row) => ({ catalogId: row.catalog_card_id, name: row.name, type: row.type,
+      forced: row.forced === 1,
       extra: isExtraDeckFrame({ type: row.type ?? "", frameType: row.frame_type ?? "" }) })));
     return ["#main", ...deck.main, "#extra", ...deck.extra, "", "!side", ...deck.side, ""].join("\n");
   };
 
   const catalogCardIdsForDraft = (config: DraftConfig): number[] => {
+    const artworkIdentity = loadArtworkIdentityCatalog();
+    const isMain = (row: CatalogRow & { art_is_main: number }) => row.art_is_main === 1
+      && canonicalCardCode(row.ygoprodeck_id, artworkIdentity) === row.ygoprodeck_id;
     const setNames = new Set((config.setNames ?? []).map((name) => name.trim()));
     const customCardIds = config.customCardIds ?? [];
     const customCardIdSet = new Set(customCardIds);
@@ -439,11 +450,12 @@ export function createDraftService(
     const hasExplicitPool = setNames.size > 0 || customCardIds.length > 0 || includeNames.size > 0;
     const rows = db
       .prepare(
-        "select ygoprodeck_id, name, type, frame_type, card_sets_json from card_catalog order by ygoprodeck_id",
+        `select cc.ygoprodeck_id, cc.name, cc.type, cc.frame_type, cc.card_sets_json, coalesce(a.is_main, 1) as art_is_main
+         from card_catalog cc left join card_artworks a on a.artwork_id = cc.ygoprodeck_id order by cc.ygoprodeck_id`,
       )
       .all()
       .map((raw: any) => {
-        const row = raw as CatalogRow;
+        const row = raw as CatalogRow & { art_is_main: number };
         return { row, cardSets: JSON.parse(row.card_sets_json) as Array<{ set_name: string }> };
       })
       .filter(({ row, cardSets }) => {
@@ -456,6 +468,8 @@ export function createDraftService(
         if (excludeNames.has(normalizedName)) {
           return false;
         }
+
+        if (!isMain(row) && !customCardIdSet.has(row.ygoprodeck_id)) return false;
 
         if (!hasExplicitPool) {
           return true;
@@ -483,7 +497,7 @@ export function createDraftService(
     for (const { row, cardSets } of rows) {
       customEligibleIds.add(row.ygoprodeck_id);
       const normalizedName = normalizeName(row.name);
-      if (includeNames.has(normalizedName) || cardSets.some((cardSet) => setNames.has(cardSet.set_name))) {
+      if (isMain(row) && (includeNames.has(normalizedName) || cardSets.some((cardSet) => setNames.has(cardSet.set_name)))) {
         baseIds.add(row.ygoprodeck_id);
       }
     }
@@ -1173,7 +1187,7 @@ export function createDraftService(
     if (cardRow.picked_by_player_id !== null) {
       throw new Error("Card has already been picked");
     }
-    assertUnderCopyCap(draftId, playerId, draftCardId);
+    const forced = assertUnderCopyCap(draftId, playerId, draftCardId);
 
     db.prepare(
       `
@@ -1186,11 +1200,13 @@ export function createDraftService(
     const result = db
       .prepare(
         `
-          insert into draft_picks (draft_id, player_id, draft_card_id, wave_number, pick_step, pick_method, picked_at)
-          values (?, ?, ?, ?, ?, ?, ?)
+          insert into draft_picks (draft_id, player_id, draft_card_id, wave_number, pick_step, pick_method, forced, picked_at)
+          values (?, ?, ?, ?, ?, ?, ?, ?)
         `,
       )
-      .run(draftId, playerId, draftCardId, draft.currentPackRound, draft.currentPickStep, pickMethod, now.toISOString());
+      .run(draftId, playerId, draftCardId, draft.currentPackRound, draft.currentPickStep, pickMethod,
+        forced ? 1 : 0,
+        now.toISOString());
 
     db.prepare(
       `

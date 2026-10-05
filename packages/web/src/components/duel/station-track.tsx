@@ -4,7 +4,9 @@ import type { CSSProperties, ReactNode } from "react";
 import { ArrowRight, Check, Hourglass, Lock } from "lucide-react";
 import type { DuelPromptOption } from "@yugidraft/shared/duels";
 import { phaseLabel } from "./constants";
+import { BATTLE, phaseStations, STATIONS, type PhaseMove } from "./phase-hub-model";
 import { ChainModeSwitch } from "./chain-mode-switch";
+import { useIsNarrow } from "./side-panel";
 import { duelFontClasses } from "./fonts";
 import { useSkinStyles } from "./skin";
 import type { ChainModeControl } from "./use-chain-mode";
@@ -118,46 +120,22 @@ export type StationTrackProps = {
   reducedMotion: boolean;
   /** Tables of 3 or more seats: the duelists in turn order, each with its colour and standing. */
   seatStrip?: readonly StationSeatChip[];
+  /** Tables of 3 or more seats: the turn order as a ready-made element (the table's interactive SeatStrip), shown where the chips go. */
+  seatSlot?: ReactNode;
+  /** How many seats `seatSlot` holds, for the bar's width rules. */
+  seatSlotCount?: number;
   /** Tables of 3 or more seats: attacks are still shut. Shows "No attack until turn N". */
   attackLock?: { firstTurn: number; turnsLeft: number } | null;
   /** The test id of the lock chip. The Tag Rooftop keeps its own (`tag-attack-lock`), which its e2e specs read. */
   attackLockTestId?: string;
   /** The viewer's own chain response switch (Auto / Always / Off). Absent for spectators, replays and scenario tables. */
   chainMode?: ChainModeControl | null;
-};
-
-type PhaseMove = "to_bp" | "to_m2" | "to_ep";
-
-type Station = {
-  code: string;
-  name: string;
-  /** What the local player can do while this station is current on their turn. */
-  hint: string;
-  /** Phase move (option id) that enters this station. */
-  action?: PhaseMove;
-};
-
-const STATIONS: readonly Station[] = [
-  { code: "DP", name: "Draw", hint: "Draw a card for the turn" },
-  { code: "SP", name: "Standby", hint: "Standby Phase effects resolve" },
-  { code: "M1", name: "Main 1", hint: "Summon or Set a monster, activate or Set Spells and Traps" },
-  { code: "BP", name: "Battle", hint: "Choose an attacker, or move on", action: "to_bp" },
-  { code: "M2", name: "Main 2", hint: "Summon, Set or activate more, then end your turn", action: "to_m2" },
-  { code: "EP", name: "End", hint: "End Phase effects resolve, then the turn passes", action: "to_ep" },
-];
-
-const BATTLE = 3;
-
-/** Normalised phaseLabel() -> station index. Damage steps belong to the Battle station. */
-const STATION_INDEX: Record<string, number> = {
-  Draw: 0,
-  Standby: 1,
-  "Main 1": 2,
-  Battle: BATTLE,
-  Damage: BATTLE,
-  "Damage calculation": BATTLE,
-  "Main 2": 4,
-  End: 5,
+  /**
+   * Where the phase steps live. "bar" (default): the six stations sit in this bar. "hub": the phase hub in the middle of
+   * the board shows them, so on a desktop width the bar keeps only the caption, the clock and the buttons; on a phone
+   * (900px and under) the stations come back here, because the hub does not fit.
+   */
+  phases?: "bar" | "hub";
 };
 
 /** Which phase move is the primary button, in order of preference, per current station. */
@@ -224,22 +202,24 @@ export function StationTrack({
   caption,
   reducedMotion,
   seatStrip,
+  seatSlot,
+  seatSlotCount,
   attackLock,
   attackLockTestId = "attack-lock",
   chainMode,
+  phases = "bar",
 }: StationTrackProps) {
   const styles = useSkinStyles(baseStyles, "station");
-  const current = STATION_INDEX[phaseLabel(phase)] ?? -1;
+  // The hub shows the phases on the board, but only where it fits. On a phone the bar keeps its own strip.
+  const narrow = useIsNarrow();
+  const hubbed = phases === "hub" && !narrow;
+  const { current, offered } = phaseStations({ phase, actionOptions, canAct });
   const spectator = mySeat == null;
   const myTurn = !spectator && turnSeat === mySeat;
   const tone = myTurn ? "mine" : "theirs";
   const turnName = turnSeat != null ? playerName(turnSeat) : "—";
   const inBattle = current === BATTLE;
   const step = inBattle ? resolveBattleStep(phase, battleStep) : null;
-
-  // Phase moves the local seat may take right now.
-  const offered = new Map<string, DuelPromptOption>();
-  if (canAct) for (const option of actionOptions) offered.set(option.id, option);
 
   const primaryId = primaryPreference(current).find((id) => offered.has(id));
   const primary = primaryId ? offered.get(primaryId) : undefined;
@@ -271,28 +251,35 @@ export function StationTrack({
 
   return (
     <nav
-      aria-label="Duel phases"
+      aria-label={hubbed ? "Turn actions" : "Duel phases"}
       className={`${styles.root} ${duelFontClasses}`}
+      data-phases={hubbed ? "hub" : "bar"}
       data-tone={tone}
       data-phase={STATIONS[current]?.code ?? "none"}
       data-step={step ?? undefined}
       data-reduced={reducedMotion ? "true" : "false"}
       data-seats={seatStrip && seatStrip.length > 0 ? "true" : undefined}
       data-seat-count={seatStrip && seatStrip.length > 3 ? seatStrip.length : undefined}
+      data-seat-chips={seatSlot ? (seatSlotCount ?? 0) > 3 ? "4" : "3" : undefined}
       data-chain={chainMode ? "true" : undefined}
     >
       <div className={styles.seat}>
-        <span className={styles.lamp} aria-hidden="true" />
-        <div className={styles.seatText}>
-          <strong className={styles.seatName} title={turnName}>{turnName}</strong>
-          <span className={styles.seatTurn}>Turn {turn ?? "—"}</span>
-        </div>
-        {myTurn ? <span className={styles.srOnly}>Your turn</span> : null}
+        {hubbed ? null : (
+          <>
+            <span className={styles.lamp} aria-hidden="true" />
+            <div className={styles.seatText}>
+              <strong className={styles.seatName} title={turnName}>{turnName}</strong>
+              <span className={styles.seatTurn}>Turn {turn ?? "—"}</span>
+            </div>
+            {myTurn ? <span className={styles.srOnly}>Your turn</span> : null}
+          </>
+        )}
         {clock ? <div className={styles.clockSlot}>{clock}</div> : null}
+        {seatSlot ? <div className={styles.seatSlot}>{seatSlot}</div> : null}
       </div>
 
       <div className={styles.rail}>
-        <div className={styles.stack} style={stackStyle} data-idle={current < 0 ? "true" : "false"}>
+        {hubbed ? null : <div className={styles.stack} style={stackStyle} data-idle={current < 0 ? "true" : "false"}>
           <span className={styles.railLine} aria-hidden="true" />
           <span className={styles.railDone} aria-hidden="true" />
           <span className={styles.pool} aria-hidden="true" />
@@ -336,7 +323,7 @@ export function StationTrack({
               );
             })}
           </ol>
-        </div>
+        </div>}
         {inBattle ? (
           <div className={styles.caption} aria-live="polite" aria-atomic="true" title={captionText}>
             {parts.note ? <span className={styles.capNote}>{parts.note}<span aria-hidden="true"> · </span></span> : null}

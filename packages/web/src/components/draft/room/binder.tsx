@@ -1,5 +1,6 @@
 "use client";
 
+import { cardImageUrl } from "@/lib/card-image-url";
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { downloadYdk } from "@/lib/ydk";
 import { LevelsChart } from "./levels-chart";
@@ -469,7 +470,7 @@ export const Binder = memo(
                             onBlur={() => peek(null)}
                           >
                             {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={c.imageUrlSmall || c.imageUrl} alt="" loading="lazy" />
+                            <img src={cardImageUrl(c.passcode ?? c.id, "small")} alt="" loading="lazy" />
                             <span className="rn">{c.name}</span>
                             <span className="rt">{kindLine}</span>
                             {right}
@@ -490,7 +491,7 @@ export const Binder = memo(
               disabled={p.pool.length === 0}
               onClick={() => {
                 const name = p.draftName.replace(/[<>:"/\\|?*\u0000-\u001f\u007f]/g, "").trim() || "Draft";
-                downloadYdk(p.pool.map((card) => ({ id: card.passcode, frameType: card.frameType })), `${name} picks.ydk`);
+                downloadYdk(p.pool.map((card) => ({ id: card.passcode, frameType: card.frameType, name: card.name, type: card.type, forced: card.forced })), `${name} picks.ydk`);
               }}
             >
               Export YDK

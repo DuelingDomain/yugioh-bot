@@ -34,12 +34,29 @@ describe("POST/DELETE /api/drafts/[slug]/cubes (draft cubes)", () => {
     auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
   });
   afterEach(() => {
+    vi.unstubAllGlobals();
     delete process.env.DATABASE_PATH;
     delete process.env.DISCORD_GUILD_ID;
     while (tempDirs.length > 0) {
       const dir = tempDirs.pop();
       if (dir) rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it.each(["network", "timeout", "429", "503", "json"])("returns 503 for a %s archetype fetch without changing the draft", async (failure) => {
+    await seedBlankThemeDraft();
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      if (failure === "network") throw new Error("offline");
+      if (failure === "timeout") throw new DOMException("timeout", "TimeoutError");
+      return new Response("bad JSON", { status: failure === "json" ? 200 : Number(failure), headers: { "Retry-After": "2" } });
+    }));
+    const { POST } = await import("../app/api/drafts/[slug]/cubes/route");
+    const response = await POST(new Request("http://localhost/api/drafts/theme-slug/cubes", { method: "POST", body: JSON.stringify({ kind: "archetype", archetype: "Missing" }) }), { params: Promise.resolve({ slug: "theme-slug" }) });
+    expect(response.status).toBe(503);
+    expect((await response.json()).error).toContain("Try again");
+    const db = new (await import("better-sqlite3")).default(process.env.DATABASE_PATH!);
+    expect(db.prepare("select count(*) as n from cubes").get()).toEqual({ n: 0 });
+    db.close();
   });
 
   it("adds a blank cube to the draft and then removes it", async () => {

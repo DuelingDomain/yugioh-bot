@@ -1,0 +1,141 @@
+/* The coin toss. A dim cover over the whole duel screen with the gold coin in the centre. It sits in a
+   portal at the page root, above every duel layer (--duel-z-coin), so a menu, a prompt or a dialog that
+   was open stays open under it and shows again when the cover leaves. Ported from the approved demo
+   (.fx-demo/coin-flip/demo.css): the coin, the label and the summary are the same. */
+.root {
+  --ui: var(--font-duel-ui), "Sofia Sans Semi Condensed", "Arial Narrow", system-ui, sans-serif;
+  --num: var(--font-duel-num), "Sofia Sans Extra Condensed", "Arial Narrow", system-ui, sans-serif;
+  --ink: #efe7d5; --ink-2: #c3bba8; --ink-3: #958f81; --ink-4: #5f5c57;
+  --sheet: rgb(181 153 99 / 0.34); --sheet-hi: rgb(181 153 99 / 0.66);
+  --chain-ink: #f4d690; --gold: #e4b64f; --gold-hi: #fff1b8;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --d: 220px;
+  --cy: 52%;
+  position: fixed;
+  inset: 0;
+  z-index: var(--duel-z-coin);
+  container-type: size;
+  overflow: hidden;
+  color: var(--ink);
+  font-family: var(--ui);
+  cursor: default;
+  user-select: none;
+}
+/* The cover: nearly black with a blur, so a menu, the LP and the clock under it cannot be read. The blur sits
+   on this layer and not on .root: a backdrop filter on .root would flatten the 3D coin. The fade is on this
+   layer, the stage and the tray, never on .root, which would also stop the blur while it fades. The verdict
+   and the summary fade on their own (transitions), so they are not in this list. */
+.root::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgb(3 5 12 / 0.9);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+.root::before, .stage, .tray { animation: dimIn 0.22s ease-out both; }
+.root[data-state="out"]::before, .root[data-state="out"] .stage, .root[data-state="out"] .tray { animation: dimOut 0.26s ease-in both; }
+/* The replay shows the coin but takes no input. */
+.root[data-passive="true"] { pointer-events: none; }
+@keyframes dimIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes dimOut { from { opacity: 1; } to { opacity: 0; } }
+.root[data-rm="true"]::before, .root[data-rm="true"] .stage, .root[data-rm="true"] .tray { animation-duration: 0.16s; }
+
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* ---------- result tray (top centre) ---------- */
+.tray { position: absolute; left: 50%; top: 5cqh; translate: -50% 0; display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 999px;
+  background: rgb(5 8 16 / 0.72); border: 1px solid var(--sheet); }
+.trayName { font: 600 11px/1 var(--ui); letter-spacing: 0.14em; text-transform: uppercase; color: var(--chain-ink); }
+.chips { display: inline-flex; gap: 6px; }
+.chip { --cs: 26px; position: relative; width: var(--cs); height: var(--cs); border-radius: 50%; display: grid; place-items: center; flex: none;
+  border: 1px dashed var(--sheet); color: var(--ink-4); font: 700 12px/1 var(--num); }
+.chipDone { border: 0; color: #2a1c05; animation: chipIn 0.32s var(--ease) both; }
+.chip .m { position: absolute; inset: 0; border-radius: 50%; overflow: hidden; box-shadow: 0 0 0 1.5px var(--gold), 0 0 0 2.5px rgb(74 52 16 / 0.9), 0 1px 6px rgb(0 0 0 / 0.6); }
+.chip .m img { width: 100%; height: 100%; object-fit: cover; display: block; filter: sepia(1) saturate(2.1) hue-rotate(-12deg) contrast(1.15) brightness(1.02); }
+.chip .m::after { content: ""; position: absolute; inset: 0; background: linear-gradient(135deg, rgb(255 241 184 / 0.35), transparent 45%, rgb(74 52 16 / 0.35)); }
+.chip .l { position: absolute; z-index: 1; right: -3px; bottom: -3px; min-width: 15px; height: 15px; border-radius: 999px; display: grid; place-items: center;
+  background: #120d03; color: var(--gold-hi); font: 800 10px/1 var(--num); border: 1px solid var(--gold); }
+@keyframes chipIn { from { transform: scale(0.4); opacity: 0; } 60% { transform: scale(1.12); opacity: 1; } to { transform: scale(1); opacity: 1; } }
+.root[data-rm="true"] .chipDone { animation: none; }
+
+/* ---------- the coin ---------- */
+.stage { position: absolute; inset: 0; }
+.pad { position: absolute; left: 50%; top: var(--cy); width: calc(var(--d) * 1.9); height: calc(var(--d) * 0.62); translate: -50% -4%; border-radius: 50%;
+  background: radial-gradient(closest-side, rgb(228 182 79 / 0.14), transparent 70%); border: 1px dashed rgb(228 182 79 / 0.22); }
+.shadow { position: absolute; left: 50%; top: var(--cy); width: calc(var(--d) * 0.95); height: calc(var(--d) * 0.2); margin-left: calc(var(--d) * -0.475); translate: 0 calc(var(--d) * 0.5);
+  border-radius: 50%; background: radial-gradient(closest-side, rgb(0 0 0 / 0.78), rgb(0 0 0 / 0.38) 60%, transparent); opacity: 0; will-change: transform, opacity; }
+.scene { position: absolute; inset: 0; perspective: 1100px; perspective-origin: 50% 30%; }
+/* No opacity below 1, filter or overflow on a parent of .coin during the spin: preserve-3d would flatten. */
+.lift { position: absolute; left: 50%; top: var(--cy); width: 0; height: 0; transform-style: preserve-3d; will-change: transform, opacity; opacity: 0; }
+.coin { --t: calc(var(--d) * 0.085); position: absolute; left: calc(var(--d) / -2); top: calc(var(--d) / -2); width: var(--d); height: var(--d); transform-style: preserve-3d; will-change: transform; }
+.burst { position: absolute; left: calc(var(--d) / -2); top: calc(var(--d) / -2); width: var(--d); height: var(--d); border-radius: 50%; pointer-events: none; opacity: 0; transform-style: flat;
+  box-shadow: 0 0 0 2px rgb(255 226 140 / 0.9), 0 0 36px 8px rgb(228 182 79 / 0.55), inset 0 0 28px rgb(255 226 140 / 0.4); }
+.burstOn { animation: burst 0.7s var(--ease) both; }
+@keyframes burst { from { opacity: 0.95; transform: scale(0.96); } to { opacity: 0; transform: scale(1.5); } }
+.root[data-rm="true"] .shadow, .root[data-rm="true"] .burst { display: none; }
+
+.rimpiece { position: absolute; left: 50%; top: 50%; width: var(--t); height: calc(var(--d) * 0.0685); margin-left: calc(var(--t) / -2); margin-top: calc(var(--d) * -0.03425);
+  transform: rotateZ(var(--a)) translateX(calc(var(--d) / 2 - 0.5px)) rotateY(90deg); backface-visibility: hidden; background: var(--c); }
+.rimpiece::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, rgb(0 0 0 / 0.28), transparent 30%, transparent 70%, rgb(0 0 0 / 0.28)); }
+
+.face { position: absolute; inset: 0; border-radius: 50%; backface-visibility: hidden; -webkit-backface-visibility: hidden; overflow: hidden;
+  background:
+    conic-gradient(from 18deg, #8a6420, #f6dc8e, #b88a2c, #fff1b8, #9b7424, #e9c76a, #7a5818, #f1d27c, #a47a28, #fff1b8, #8a6420);
+  box-shadow: inset 0 0 0 1.5px #fff1b8, inset 0 0 0 calc(var(--d) * 0.028) #c9962f, inset 0 0 0 calc(var(--d) * 0.03) rgb(74 52 16 / 0.7); }
+.front { transform: translateZ(calc(var(--t) / 2)); }
+.back { transform: rotateX(180deg) translateZ(calc(var(--t) / 2)); }
+/* the milled edge: fine ticks on the outer ring */
+.mill { position: absolute; inset: 0; border-radius: 50%; background: repeating-conic-gradient(rgb(74 52 16 / 0.42) 0 1.1deg, transparent 1.1deg 3.6deg);
+  -webkit-mask: radial-gradient(closest-side, transparent 92.5%, #000 93.5%); mask: radial-gradient(closest-side, transparent 92.5%, #000 93.5%); }
+/* the raised inner rim and groove around the medallion */
+.groove { position: absolute; inset: 11.5%; border-radius: 50%;
+  box-shadow: 0 0 0 calc(var(--d) * 0.012) #7a5818, 0 0 0 calc(var(--d) * 0.02) #fbe59a, 0 0 0 calc(var(--d) * 0.03) #a47a28, inset 0 2px 6px rgb(0 0 0 / 0.55); }
+.medal { position: absolute; inset: 13%; border-radius: 50%; overflow: hidden; background: #3a2808; }
+.medal img { position: absolute; inset: -4%; width: 108%; height: 108%; object-fit: cover; display: block;
+  filter: grayscale(1) contrast(1.22) brightness(1.12); }
+/* gold tint: multiply a warm gradient over the grey art, then add the emboss light */
+.tint { position: absolute; inset: 0; border-radius: 50%; mix-blend-mode: multiply;
+  background: linear-gradient(145deg, #ffe9a0 0%, #f0c050 40%, #d09a30 70%, #b07a20 100%); }
+.hi { position: absolute; inset: 0; border-radius: 50%; mix-blend-mode: soft-light;
+  background: radial-gradient(120% 90% at 30% 20%, rgb(255 246 200 / 0.95), rgb(255 246 200 / 0) 55%), radial-gradient(100% 80% at 80% 95%, rgb(60 36 0 / 0.75), transparent 60%); }
+.emb { position: absolute; inset: 0; border-radius: 50%; overflow: hidden; mix-blend-mode: overlay; opacity: 0.75; }
+.emb img { position: absolute; inset: -4%; width: 108%; height: 108%; object-fit: cover; filter: url(#duel-coin-emboss) grayscale(1); }
+.ringtext { position: absolute; inset: 0; width: 100%; height: 100%; filter: drop-shadow(0 0.6px 0 rgb(255 240 180 / 0.7)); pointer-events: none; }
+.ringtext text { font: 800 11.5px var(--num); letter-spacing: 1.6px; fill: #5a3d0a; }
+.shade { position: absolute; inset: 0; border-radius: 50%; background: #0b0702; opacity: 0; pointer-events: none; }
+.glint { position: absolute; inset: 0; border-radius: 50%; pointer-events: none; opacity: 0; mix-blend-mode: screen;
+  background: linear-gradient(112deg, transparent 38%, rgb(255 246 214 / 0.85) 49%, rgb(255 246 214 / 0.0) 56%); }
+.sweep { position: absolute; inset: 0; border-radius: 50%; pointer-events: none; opacity: 0; mix-blend-mode: screen;
+  background: linear-gradient(112deg, transparent 40%, rgb(255 246 214 / 0.9) 50%, transparent 60%); }
+.landed .sweep { animation: sweep 0.9s ease-out both; }
+.root[data-rm="true"] .landed .sweep { animation: none; }
+@keyframes sweep { from { opacity: 1; transform: translateX(-60%); } to { opacity: 0; transform: translateX(60%); } }
+
+/* ---------- verdict label and summary ---------- */
+.verdict { position: absolute; left: 50%; top: 77%; translate: -50% 0; display: grid; justify-items: center; gap: 2px; text-align: center; pointer-events: none;
+  opacity: 0; transform: translateY(8px); transition: opacity 0.22s ease-out, transform 0.22s var(--ease); }
+.verdictOn { opacity: 1; transform: none; }
+.verdict small { font: 600 11px/1 var(--ui); letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-3); }
+.verdict b { font: 800 clamp(40px, 11cqh, 84px)/0.95 var(--num); letter-spacing: 0.14em; padding-left: 0.14em; color: var(--chain-ink);
+  background: linear-gradient(180deg, #fff6d0 0%, #f4d690 40%, #d9a73f 100%); -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 2px 0 rgb(74 52 16 / 0.9)) drop-shadow(0 0 18px rgb(228 182 79 / 0.45)); }
+.verdict span { font: 600 14px/1.2 var(--ui); letter-spacing: 0.06em; color: var(--ink-2); }
+.verdict[data-face="tails"] b { background-image: linear-gradient(180deg, #f1e6ff 0%, #c6b6ff 42%, #8d6fe6 100%); filter: drop-shadow(0 2px 0 rgb(40 20 90 / 0.9)) drop-shadow(0 0 18px rgb(155 126 255 / 0.5)); }
+
+.summary { position: absolute; left: 50%; top: var(--cy); translate: -50% -50%; display: grid; justify-items: center; gap: 10px; padding: 18px 28px 16px;
+  border-radius: 12px; background: linear-gradient(180deg, rgb(10 17 34 / 0.9), rgb(5 8 16 / 0.92)); border: 1px solid var(--sheet-hi);
+  box-shadow: 0 18px 50px rgb(0 0 0 / 0.55), inset 0 0 0 1px rgb(255 241 184 / 0.05);
+  opacity: 0; pointer-events: none; transform: scale(0.96); transition: opacity 0.26s ease-out, transform 0.26s var(--ease); }
+.summaryOn { opacity: 1; transform: none; }
+.summary small { font: 600 11px/1 var(--ui); letter-spacing: 0.2em; text-transform: uppercase; color: var(--chain-ink); }
+.sChips { display: flex; gap: 14px; }
+.sChips .chip { --cs: clamp(54px, 9cqh, 78px); }
+.sChips .l { min-width: 24px; height: 24px; font-size: 15px; right: -6px; bottom: -6px; }
+.summary b { font: 800 clamp(26px, 5.4cqh, 42px)/1 var(--num); letter-spacing: 0.08em; color: var(--ink); }
+.summary span { font: 500 13px/1 var(--ui); color: var(--ink-3); letter-spacing: 0.05em; }
+
+/* Reduced motion: a short fade, no lift, no slide. */
+.root[data-rm="true"] .verdict, .root[data-rm="true"] .summary, .root[data-rm="true"] .tray { transition-duration: 0.16s; }
+.root[data-rm="true"] .verdict { transform: none; }
+.root[data-rm="true"] .summary { transform: none; }

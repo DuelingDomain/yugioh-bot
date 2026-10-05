@@ -174,7 +174,9 @@ describe("cube service core", () => {
         fetch: async (input) => {
           calls.push(String(input));
           if (failure === "offline") throw new Error("fetch failed");
-          return { ok: false, status: 400, async json() { return { error: "No card matching your query" }; } } as Response;
+          return Response.json({
+            error: "No card matching your query was found in the database. Please see https://db.ygoprodeck.com/api-guide/ for syntax usage.",
+          }, { status: 400 });
         },
       });
       seedCard(db, 1, "Main A", "Normal Monster", "normal");
@@ -186,6 +188,7 @@ describe("cube service core", () => {
       const { cubes, calls } = rejectingSetup();
       const cube = cubes.createBlank("g", "Custom", "u");
       const res = await cubes.importPasscodes(cube.id, [1, 777, 2, 1]);
+      // Only the unknown passcode needs a network lookup.
       expect(calls).toHaveLength(1);
       expect(res).toEqual({ added: 2, unknown: [777] });
       expect(cubes.getCubePools(cube.id).main.map((c) => [c.catalogCardId, c.maxCopies])).toEqual([[1, 2]]);

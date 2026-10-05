@@ -24,7 +24,7 @@ function proof(format: Format, domain: boolean, kind: Case): Scenario {
     ...(domain ? { deckMaster: "Blue-Eyes White Dragon" } : {}),
   };
   const draws = Array<number>(n).fill(0);
-  draws[0] = Number(domain);
+  draws[0] = Number(domain && format !== "1v1");
   let recovered = 0;
   const board = (): BoardExpect => Object.fromEntries(seats.map((seat, i) => [seat,
     kind === "dead" && seat === declared ? {
@@ -47,15 +47,15 @@ function proof(format: Format, domain: boolean, kind: Case): Scenario {
     const next = living[(turn - 1) % living.length];
     const isOpponent = format === "tag" ? next === "p1" || next === "p3" : next !== "p0";
     // The live FIELD_ONLY player effect counts only its declared seat in FFA.
-    // Dead, empty and card-effect controls keep Q1 R3. Tag counts opposing turns.
-    if (isOpponent && (!ffa || kind !== "live" || next === declared)) recovered += 100;
+    // Removed declared seats keep their original binding; empty/card effects keep R3.
+    if (isOpponent && (!ffa || (kind !== "live" && kind !== "dead") || next === declared)) recovered += 100;
     draws[seats.indexOf(next)]++;
     steps.push(endTurn(previous), expectTurn(next, turn), expectPrompt({ by: next, context: "action" }), expectBoard(board()));
   }
   return defineScenario({
     id: `is-turn-player-duration-${format}-${kind}${domain ? "-domain" : ""}`,
     title: `${format}: IsTurnPlayer in a ${kind} declared-duration callback recovers only on counted opponent turns`,
-    source: "Core-fix5 review LOW-1; owner 2026-10-03 declared duration and 2026-10-02 late dead-seat fallback and card-effect scope",
+    source: "Core-fix5 review LOW-1; owner 2026-10-03 declared duration and 2026-10-04 removed-seat duration; card effects keep R3",
     rules: ffa ? ["R-FFA-DECLARED-DURATION", ...(kind === "dead" ? ["R-FFA-ELIMINATION"] : []), ...(kind !== "live" ? ["R-FFA-ORDER"] : [])]
       : format === "tag" ? ["R-TAG-ORDER", "R-TAG-LP"] : [],
     tags: ["multiplayer", `fixture:${kind}`], setup, steps,
@@ -66,7 +66,7 @@ async function run(scenario: Scenario): Promise<void> {
   const compiled = compileBoard(scenario.setup);
   const kind = scenario.tags.find(tag => tag.startsWith("fixture:"))!.slice(8);
   const fixture = readFileSync(new URL("./fixtures/is-turn-player-duration.lua", import.meta.url), "utf8");
-  const game = await createEngineGame({ ...compiled.options, firstTurnDraw: scenario.setup.mode === "domain", dataDirectory: engineDataDirectory,
+  const game = await createEngineGame({ ...compiled.options, dataDirectory: engineDataDirectory,
     multiWasmBinary: scenario.setup.mode === "domain" ? domainNseatWasmBinary() : nseatWasmBinary(),
     startupScripts: [{ name: "is-turn-player-duration.lua", content: `TURN_CASE=${JSON.stringify(kind)}\n${fixture}` }, ...(compiled.options.startupScripts ?? [])],
     seed: ["1", "2", "3", "4"],

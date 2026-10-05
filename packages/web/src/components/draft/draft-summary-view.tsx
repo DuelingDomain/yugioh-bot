@@ -1,5 +1,6 @@
 "use client";
 
+import { cardArtworkId, cardImageUrl } from "@/lib/card-image-url";
 import * as React from "react";
 import Image from "next/image";
 import { ChevronDown, Layers } from "lucide-react";
@@ -125,7 +126,8 @@ function PoolGroupView({
                 <span className={styles.missing}>{card.name}</span>
               ) : (
                 <Image
-                  src={card.imageUrlSmall || card.imageUrl}
+                  src={cardImageUrl(cardArtworkId(card), "small")}
+                  unoptimized
                   alt=""
                   width={421}
                   height={614}

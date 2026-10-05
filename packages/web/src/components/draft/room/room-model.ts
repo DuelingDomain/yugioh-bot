@@ -54,7 +54,7 @@ export function blockedLabel(card: Pick<RoomCard, "held">): string {
 
 /** The copy limit left only capped cards in this pack: say why a blocked card is taken and where it goes. */
 export function forcedPackNote(cap: number): string {
-  return `You have ${cap} of each card here. This pick stays in your pool only.`;
+  return `You have ${cap} of each card here. You can use this extra copy in your deck.`;
 }
 
 /* ---------- card text ---------- */

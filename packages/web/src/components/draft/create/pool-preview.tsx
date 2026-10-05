@@ -1,5 +1,6 @@
 "use client";
 
+import { cardImageUrl } from "@/lib/card-image-url";
 import * as React from "react";
 import { Eye } from "lucide-react";
 import { SheetPortal, svButtonClass } from "@/components/sheet";
@@ -57,7 +58,7 @@ export function PoolPreview({ cards, unknownIds, loading }: PoolPreviewProps) {
             {thumbs.map((c) => (
               <li key={c.id}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={c.imageUrlSmall} alt="" loading="lazy" />
+                <img src={cardImageUrl(c.id, "small")} alt="" loading="lazy" />
               </li>
             ))}
           </ul>

@@ -343,6 +343,45 @@ function captureAttack(event: DuelEvent, prev: CardIndex, now: CardIndex): Attac
   return { ...base, to, direct: true, target: null, toEl: null, targetCard: null, targetInDefense: false, targetTurned: false };
 }
 
+/**
+ * The same capture with its screen boxes read again, for a board that moved since the declaration (a drawer opened or closed,
+ * the window resized) while the attack waits for its response window. The retained art stays as captured, since the card may
+ * not be in its zone any more; a zone or tally that is gone keeps its old box. The input itself when nothing moved.
+ */
+function remeasureCapture(capture: AttackCapture, event: DuelEvent): AttackCapture {
+  const zone = event.zone;
+  if (!zone) return capture;
+  const same = (a: Box, b: Box) => a.left === b.left && a.top === b.top && a.width === b.width && a.height === b.height;
+  const refreshCut = (cut: CutSource | null, node: HTMLElement | null, card: BattleCard | null): CutSource | null => {
+    if (!cut || !node || !card) return cut;
+    const fresh = cutSourceOf(node, card);
+    return fresh && fresh.defense === cut.defense ? { ...cut, box: fresh.box, innerW: fresh.innerW, innerH: fresh.innerH } : cut;
+  };
+  const fromNode = zoneNode(keyOfZone(zone));
+  const attacker = refreshCut(capture.attacker, fromNode, capture.attackerCard);
+  let from = attacker?.box ?? capture.from;
+  if (!attacker && fromNode) from = zoneBox(keyOfZone(zone)) ?? from;
+  const lp: Record<number, Box | undefined> = { ...capture.lp };
+  for (const node of document.querySelectorAll<HTMLElement>("[data-lp-seat]")) {
+    const seat = Number(node.dataset.lpSeat);
+    lp[seat] = lpBox(seat) ?? lp[seat];
+  }
+  let target = capture.target;
+  let to = capture.to;
+  if (capture.direct) {
+    to = lpBox(event.targetSeat ?? 1 - zone.controller) ?? to;
+  } else if (event.target) {
+    const node = zoneNode(keyOfZone(event.target));
+    target = refreshCut(capture.target, node, capture.targetCard);
+    to = target?.box ?? (node && boxOf(node).width > 0 ? boxOf(node) : to);
+  }
+  const moved = !same(from, capture.from) || !same(to, capture.to) || Object.keys(lp).some((seat) => {
+    const before = capture.lp[Number(seat)], after = lp[Number(seat)];
+    return before && after ? !same(before, after) : before !== after;
+  });
+  return moved ? { ...capture, from, to, attacker, target, lp } : capture;
+}
+
 function battleCapture(capture: AttackCapture, events: readonly DuelEvent[], attack: DuelEvent): AttackCapture {
   let attackerCard = capture.attackerCard, targetCard = capture.targetCard;
   for (const event of [...events].filter(e => e.id > attack.id).sort((a, b) => a.id - b.id)) {
@@ -761,6 +800,29 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
   }
 
   useEffect(() => setMounted(true), []);
+  // The board can move while an attack waits for its response window (the table's drawer opens or closes, the window is
+  // resized). The wide table pumps a window `resize` for the length of the drawer's glide. The boxes captured at the
+  // declaration are read again one frame after the last resize, so the strike plays on the cards where they are now.
+  useEffect(() => {
+    if (!active) return;
+    let frame = 0;
+    const refresh = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const pending = pendingRef.current;
+        if (!pending?.capture) return;
+        const next = remeasureCapture(pending.capture, pending.attack);
+        if (next === pending.capture) return;
+        pendingRef.current = { ...pending, capture: next };
+        capturesRef.current.set(pending.attack.id, next);
+      });
+    };
+    window.addEventListener("resize", refresh);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", refresh);
+    };
+  }, [active]);
   useEffect(() => {
     const controllers = controllersRef.current;
     return () => {

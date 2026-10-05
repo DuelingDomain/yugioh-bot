@@ -4,6 +4,7 @@
  * The cube-night draft room: the full-screen layer shown while a draft is active.
  * Ported from the approved mock; the simulator is replaced by the live draft (see use-room-state.ts).
  */
+import { cardImageUrl } from "@/lib/card-image-url";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PLAYER_COPY_CAP } from "@/components/cubes/readiness";
 import { useDraftStore } from "@/lib/stores/draft-store";
@@ -323,7 +324,7 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   useEffect(() => {
     warmImages.current = rs.cards.map((c) => {
       const img = new Image();
-      img.src = c.imageUrl || c.imageUrlSmall;
+      img.src = cardImageUrl(c.passcode ?? c.id);
       return img;
     });
   }, [rs.cards]);
@@ -397,7 +398,7 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
           layer: layerRef.current,
           from: f.from,
           to: f.to,
-          src: card.imageUrlSmall || card.imageUrl,
+          src: cardImageUrl(card.passcode ?? card.id, "small"),
           glow: tint(card).main,
           arc: window.matchMedia?.(PHONE).matches ? 24 : 48,
           duration: 300,

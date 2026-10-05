@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { seatsOfTeam, teamOfSeat, type DuelEvent, type DuelEngineView } from "@yugidraft/shared/duels";
 import { BattleFx } from "../battle-fx";
 import { ChainFx } from "../chain-fx";
+import { CoinTossFx } from "../coin-toss-fx";
 import { DestroyFx } from "../destroy-fx";
 import { DuelFeedback } from "../feedback";
 import { FxBoundary } from "../fx-boundary";
@@ -18,6 +19,7 @@ import { toneBySeat } from "../table/seat-state";
 import { SEAT_TONE_HEX, type TableController } from "../table/types";
 import { tagResponseOrder } from "./live-tag";
 import { chainDecidingSeat } from "./use-chain-passes";
+import { withDestroyCards } from "../destroy-cards";
 
 /** The part of the live controller the effects read. `TableController` fits, so the shell passes its own. */
 export type TagFxController = Pick<TableController, "engine" | "room" | "viewerSeat" | "nameOf" | "prompt" | "reducedMotion">;
@@ -85,14 +87,15 @@ export function TagFx({ controller, preferences, fxActive = true, passedSeats = 
   const duelKey = room.session.slug;
   return (
     <FxBoundary>
+      <CoinTossFx events={events} duelKey={duelKey} reducedMotion={reducedMotion} />
       <DuelFeedback events={events} duelKey={duelKey} soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={reducedMotion} />
-      <SummonFx events={events} duelKey={duelKey} reducedMotion={reducedMotion} shake={preferences.shake} />
-      <MoveFx events={events} duelKey={duelKey} reducedMotion={reducedMotion} />
+      <SummonFx events={withDestroyCards(events)} duelKey={duelKey} reducedMotion={reducedMotion} shake={preferences.shake} />
+      <MoveFx events={withDestroyCards(events)} duelKey={duelKey} reducedMotion={reducedMotion} />
       <PositionFx events={events} duelKey={duelKey} reducedMotion={reducedMotion} />
-      <ChainFx events={events} chain={engine.chain} duelKey={duelKey} reducedMotion={reducedMotion} mySeat={viewerSeat} playerName={nameOf} seatTones={seatTones} priority={priority} ended={room.session.status !== "active" || engine.result != null} table="tag" seats={engine.seats} />
+      <ChainFx events={withDestroyCards(events)} chain={engine.chain} duelKey={duelKey} reducedMotion={reducedMotion} mySeat={viewerSeat} playerName={nameOf} seatTones={seatTones} priority={priority} ended={room.session.status !== "active" || engine.result != null} table="tag" seats={engine.seats} />
       <MasterReturnFx events={events} seats={engine.seats} duelKey={duelKey} reducedMotion={reducedMotion} mySeat={viewerSeat} />
-      <BattleFx events={events} seats={engine.seats} reducedMotion={reducedMotion} active aim={null} />
-      <DestroyFx events={events} reducedMotion={reducedMotion} active mySeat={viewerSeat ?? 0} />
+      <BattleFx events={withDestroyCards(events)} seats={engine.seats} reducedMotion={reducedMotion} active aim={null} />
+      <DestroyFx events={withDestroyCards(events)} reducedMotion={reducedMotion} active mySeat={viewerSeat ?? 0} />
     </FxBoundary>
   );
 }

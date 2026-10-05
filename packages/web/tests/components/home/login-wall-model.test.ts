@@ -117,9 +117,9 @@ describe("the deck", () => {
   it("starts neighbouring columns on different cards", () => {
     expect(railDeck(2, 8)[0]).not.toBe(railDeck(7, 8)[0]);
   });
-  it("reads card art from YGOPRODeck's small images, which need no sign-in", () => {
+  it("reads login art through Next's image optimizer without the protected API", () => {
     expect(cardImageSrc(5405694)).toBe(
-      `/_next/image?url=${encodeURIComponent("https://images.ygoprodeck.com/images/cards_small/5405694.jpg")}&w=256&q=75`,
+      "/_next/image?url=https%3A%2F%2Fimages.ygoprodeck.com%2Fimages%2Fcards_small%2F5405694.jpg&w=256&q=75",
     );
   });
 });

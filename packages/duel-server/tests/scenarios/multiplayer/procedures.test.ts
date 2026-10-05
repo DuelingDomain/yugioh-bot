@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { seatCountFor, teamOfSeat } from "@yugidraft/shared/duels";
 import { outcomeAsserts } from "../../../scripts/rule-coverage.js";
-import { describeWithCores } from "../../support/cores.js";
+import { describeWithCores, needs } from "../../support/cores.js";
 import { liveNseat } from "../../support/live-nseat.js";
 import { runScenarios } from "../../support/runner.js";
 import type { Scenario } from "../../support/dsl.js";
 import { PROCEDURE_SCENARIOS, PROCEDURE_TAG_SCENARIOS } from "./procedures.js";
+import { domainVariant } from "./domain-variants.js";
 
 // Summon procedures that Tribute one opponent (Kaiju, Lava Golem, Volcanic Queen, Ra Sphere Mode), the Tribute of a monster of opponent 2 (Q8)
 // and a dead bound seat (W6), on a real engine. Same gate as nseat-live.test.ts: NSEAT_LIVE=1 and a multi core with
@@ -17,6 +18,11 @@ describeWithCores("live procedure scenarios: FFA", liveNseat, () => {
 
 describeWithCores("live procedure scenarios: Tag", liveNseat, () => {
   runScenarios("multiplayer/procedures-tag", PROCEDURE_TAG_SCENARIOS);
+});
+
+describeWithCores("live Domain procedure elimination", [liveNseat, ...needs.domainMulti()], () => {
+  runScenarios("multiplayer/procedures-domain-leave", PROCEDURE_SCENARIOS.filter((scenario) =>
+    scenario.tags.includes("elimination")).map(domainVariant));
 });
 
 const LISTS: Array<[string, Scenario[]]> = [["FFA", PROCEDURE_SCENARIOS], ["Tag", PROCEDURE_TAG_SCENARIOS]];

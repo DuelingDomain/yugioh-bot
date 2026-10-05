@@ -99,6 +99,22 @@ describe("draft cleanup service", () => {
     }
   });
 
+  it("applies the byte cap to full, alternate, small and cropped images", async () => {
+    const db = new Database(":memory:"); migrate(db);
+    const dir = await mkdtemp(path.join(tmpdir(), "draft-cleanup-"));
+    try {
+      for (const filename of ["81480460.jpg", "81480461.jpg", "81480461-small.jpg", "81480461-cropped.jpg"]) {
+        await writeFile(path.join(dir, filename), Buffer.alloc(100));
+      }
+      const cleanup = createDraftCleanupService(db, { imageCacheDir: dir });
+      expect(await cleanup.imageCacheBytes()).toBe(400);
+      expect(await cleanup.removeOldestImages(100)).toBe(3);
+      expect(await cleanup.imageCacheBytes()).toBe(100);
+    } finally {
+      db.close(); await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("removes oldest images when cache exceeds the max bytes limit", async () => {
     const db = new Database(":memory:");
     migrate(db);

@@ -36,6 +36,7 @@ export interface LogEntry {
   id: number;
   text: string;
   audience: "all" | number;
+  eventId?: number;
 }
 
 export type RevealMap = Map<number, Map<string, number>>;
@@ -332,6 +333,7 @@ export interface StoredDuelEvent {
   text: string;
   publicText: string;
   description?: string;
+  toss?: DuelEvent["toss"];
   /** Seats allowed to see `card`/`text`/`description`: everyone, one seat, or a list (empty = nobody). */
   revealCardTo: "all" | number | readonly number[];
   /** Board positions are public information; only `card` and `text` are audience-gated. */
@@ -716,6 +718,9 @@ export function projectStoredEvent(event: StoredDuelEvent, viewer: number | null
   };
   if (event.seat != null) projected.seat = event.seat;
   if (event.chainIndex != null) projected.chainIndex = event.chainIndex;
+  if (event.toss) projected.toss = event.toss.type === "coin"
+    ? { type: "coin", results: [...event.toss.results] }
+    : { type: "dice", results: [...event.toss.results] };
   if (event.zone) projected.zone = { ...event.zone };
   if (event.target) projected.target = { ...event.target };
   if (event.targetSeat != null) projected.targetSeat = event.targetSeat;
@@ -1247,6 +1252,16 @@ export function observeDuelEvent(
         zone: zoneRefOf(ctx?.format, message),
       };
     }
+    case OcgMessageType.TOSS_COIN: {
+      const source = ctx?.resolving;
+      const text = `Coin toss: ${message.results.map((value) => value ? "Heads" : "Tails").join(", ")}`;
+      return {
+        id, kind: "toss", seat: seatOf(ctx?.format, message.player),
+        text, publicText: text, revealCardTo: "all",
+        toss: { type: "coin", results: message.results.map((value) => value ? "heads" : "tails") },
+        ...(source ? { card: cards.get(source.code), sourceCode: source.code, chainIndex: source.index } : {}),
+      };
+    }
     case OcgMessageType.CHAIN_SOLVING:
       return chainLinkEvent(id, "chain-resolving", message.chain_size, chain, cards, "is resolving", ctx?.format);
     case OcgMessageType.CHAIN_SOLVED:
@@ -1633,7 +1648,7 @@ export function projectView(args: {
     }),
     log: args.log
       .filter((entry) => entry.audience === "all" || entry.audience === args.viewer)
-      .map(({ id, text }) => ({ id, text })),
+      .map(({ id, text, eventId }) => ({ id, text, ...(eventId != null ? { eventId } : {}) })),
     result: args.result,
   };
   if (multi) view.format = format;

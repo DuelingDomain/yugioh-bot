@@ -58,7 +58,7 @@ function RoomTag() {
 }
 
 // The wide Rooftop opens Settings from the HUD dock; the 3-way table and the narrow layouts use the Settings tab.
-const openSettings = () => act(() => void fireEvent.click(screen.queryByTestId("hud-dock-settings") ?? screen.getByRole("tab", { name: "Settings" })));
+const openSettings = () => act(() => void fireEvent.click(screen.queryByTestId("hud-dock-settings") ?? screen.queryByRole("tab", { name: "Settings" }) ?? screen.getByRole("button", { name: "Settings" })));
 
 describe("the shells use the room's one preferences instance", () => {
   it.each([["TableShell", RoomTable, "[data-table-shell]"], ["TagShell", RoomTag, "[data-table-shell='tag']"]] as const)(

@@ -45,6 +45,7 @@
   --duel-z-confirm: 110;        /* attack confirm (portal), over the menu layer */
   --duel-z-modal: 150;          /* series and side-deck screens */
   --duel-z-result: 200;         /* the result screen */
+  --duel-z-coin: 300;           /* the coin toss: a dim cover over the whole duel screen and every layer above (portal) */
 }
 
 /* Motion tokens, "quick and quiet". Mirrored in src/lib/motion.ts (JS cannot read var() in a WAAPI

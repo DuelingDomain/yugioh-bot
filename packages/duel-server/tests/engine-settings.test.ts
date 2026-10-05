@@ -112,8 +112,8 @@ describe("engine start settings", () => {
     expect(normal.deckCount).toBe(33);
     const domain = await opening("domain", domainDeck(), custom);
     expect(domain.lp).toBe(4000);
-    expect(domain.hand).toHaveLength(8);
-    expect(domain.deckCount).toBe(52);
+    expect(domain.hand).toHaveLength(7);
+    expect(domain.deckCount).toBe(53);
   });
 
   it("lets drawPerTurn change the MR1 first-player extra draw", async () => {
@@ -136,7 +136,7 @@ describe("engine start settings", () => {
     expect(shuffled.hand).not.toEqual(expected);
     const domainMain = spellMain(60, [DARK_MAGICIAN]);
     const domainFrozen = await opening("domain", domainDeck(domainMain), { shuffleDeck: false });
-    expect(domainFrozen.hand).toEqual(domainMain.slice(0, 6));
+    expect(domainFrozen.hand).toEqual(domainMain.slice(0, 5));
   });
 
   it("still shuffles from card effects after an unshuffled opening", async () => {
@@ -194,6 +194,6 @@ describe("engine start settings", () => {
   it("starts a Domain game under Master Rule 4 instead of rejecting it", async () => {
     const opened = await opening("domain", domainDeck(), { startingLP: 1000, startingHand: 1 }, 4);
     expect(opened.lp).toBe(1000);
-    expect(opened.hand).toHaveLength(2);
+    expect(opened.hand).toHaveLength(1);
   });
 });

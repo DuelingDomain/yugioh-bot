@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, type Ref } from "react";
 import { phaseTitle } from "./constants";
 import { categoriesForLog, categoryForLogText, summonMethodForLogText, type LogCategory } from "./log-category";
 import { LogCategoryGlyph } from "./log-category-glyph";
+import { useHeldTossLogIds, withoutHeldTossLines } from "./coin-toss-lock";
 import baseStyles from "./room.module.css";
 import { useSkinStyles } from "./skin";
 
@@ -67,16 +68,18 @@ export function DuelLogLine({
 
 /** The live room's Text log (the match sheet). It follows the newest line. */
 export function MatchSheetLog({
-  entries,
+  entries: allEntries,
   playerName,
   players,
 }: {
-  entries: ReadonlyArray<{ id: number; text: string }>;
+  entries: ReadonlyArray<{ id: number; text: string; eventId?: number }>;
   playerName: (seat: number) => string;
   players: string;
 }) {
   const styles = useSkinStyles(baseStyles, "history");
   const listRef = useRef<HTMLOListElement>(null);
+  // A coin toss line stays out until its result has landed (coin-toss-fx).
+  const entries = withoutHeldTossLines(allEntries, useHeldTossLogIds());
   const categories = useLogCategories(entries);
   const count = entries.length;
   // Follow the newest entry id: the engine caps the log at 400 lines, so the length stops changing.

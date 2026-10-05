@@ -205,6 +205,29 @@ function aux.MPAnyOpponent(tp,fn)
 	end)
 end
 
+-- Decision-only "your opponent": call during resolution, after the activator prepares the choices.
+-- Use the ordinary option prompt with the same seat descriptors as the core's declaration prompt.
+-- Unlike a declaration, this ignores an event/chain opponent: any living opponent can decide.
+-- MPBindSeat keeps that real chooser across subsequent prompts, including in Tag; patch 0100 recognizes this resolution-only binding.
+function aux.MPChooseOpponent(tp)
+	if Duel.MPMode()==0 then return true end
+	local me=aux.MPKey(tp)
+	local seats={}
+	aux.MPForEachDuelist(function(tp_i,seat_i)
+		if aux.MPKeyOfSeat(seat_i)~=me then seats[#seats+1]=seat_i end
+	end)
+	table.sort(seats)
+	Duel.MPWindowEnd()
+	if #seats==0 then Duel.MPBindSeat(-1) return false end
+	local seat=seats[1]
+	if #seats>1 then
+		local options={}
+		for i,opponent in ipairs(seats) do options[i]=0xfffe0000+opponent end
+		seat=seats[Duel.SelectOption(tp,table.unpack(options))+1]
+	end
+	return seat~=nil and Duel.MPBindSeat(seat)
+end
+
 -- The Lua value of the own side of the duelist that runs the effect: FFA 0, Tag its team id. A seat that Duel.MPBindSeat accepts is a
 -- living opponent, so the own team is the other one. It leaves no bind behind.
 local function mp_own_value()

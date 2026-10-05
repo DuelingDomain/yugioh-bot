@@ -18,6 +18,8 @@ export interface HistoryStripProps {
   onInspectCard: (card: DuelCard | DuelCardInfo) => void;
   /** The "Log" tab opens the whole list. */
   onOpenLog?: () => void;
+  /** `rail`: a single column of tiles for the wide table's icon rail (no caption); tiles that do not fit are left out. */
+  variant?: "row" | "rail";
 }
 
 /**
@@ -25,7 +27,7 @@ export interface HistoryStripProps {
  * of the seat that made it. It folds events into its own list the way the Log tab does, so a rolled event window loses
  * nothing. Tiles with a card open it in the Card tab.
  */
-export function HistoryStrip({ engine, mySeat, playerName, seatTones, onInspectCard, onOpenLog }: HistoryStripProps) {
+export function HistoryStrip({ engine, mySeat, playerName, seatTones, onInspectCard, onOpenLog, variant = "row" }: HistoryStripProps) {
   const [stored, setStored] = useState<HistoryState>(() => ingestHistory(emptyHistory(), engine.events, contextFor(engine)));
   const base = shouldResetHistory(stored, engine.events, engine.revision) ? emptyHistory() : stored;
   const history = ingestHistory(base, engine.events, contextFor(engine));
@@ -46,14 +48,17 @@ export function HistoryStrip({ engine, mySeat, playerName, seatTones, onInspectC
     if (tiles.length >= MAX_TILES) break;
   }
 
+  const rail = variant === "rail";
   return (
-    <section className={styles.strip} aria-label="Recent moves" data-testid="history-strip">
-      <div className={styles.cap}>
-        <b>History</b>
-        <i aria-hidden="true" />
-        {onOpenLog ? <button type="button" onClick={onOpenLog}>newest first · Log</button> : <span>newest first</span>}
-      </div>
-      <ol className={styles.rail}>
+    <section className={rail ? styles.vstrip : styles.strip} aria-label="Recent moves" data-testid="history-strip" data-variant={variant}>
+      {rail ? <b className={styles.vcap}>History</b> : (
+        <div className={styles.cap}>
+          <b>History</b>
+          <i aria-hidden="true" />
+          {onOpenLog ? <button type="button" onClick={onOpenLog}>newest first · Log</button> : <span>newest first</span>}
+        </div>
+      )}
+      <ol className={rail ? styles.vrail : styles.rail}>
         {tiles.length === 0 ? <li className={styles.none}>No moves yet</li> : null}
         {tiles.map((entry) => {
           const thumb = entry.thumbs[0];

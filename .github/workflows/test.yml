@@ -240,7 +240,7 @@ jobs:
             test -s "packages/duel-server/domain-core/dist/$f" || { echo "differential core missing or empty: $f" >&2; exit 1; }
           done
           DUEL_DATA_DIR="$PWD/$BUNDLE_DIR" sh packages/duel-server/scripts/install-engine-bundle.sh
-          # The legacy 1v1 files must be main's files (sha256 pinned in legacy-1v1/expected-sha256.txt), also when the bundle came from the cache.
+          # The legacy 1v1 files must match the approved legacy pin (sha256 pinned in legacy-1v1/expected-sha256.txt), also when the bundle came from the cache.
           sh packages/duel-server/scripts/check-legacy-pin.sh "$PWD/$BUNDLE_DIR"
 
       - name: Verify pinned core hashes

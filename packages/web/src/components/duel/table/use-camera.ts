@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef } from "react";
 import { duelFxClock } from "../fx-clock";
 import { isEliminated } from "../multi-seat";
 import {
   cameraActionForKey,
   cameraReducer,
+  isFaceOff,
   effectiveCamera,
   initialCamera,
   lockForEvents,
@@ -120,6 +121,12 @@ export function useCamera({ controller, layout, initial, initialLock = null, aim
     if (seat != null && out.includes(seat)) dispatch({ type: "home" });
   }, [out, state.focusSeat, state.lookSeat, state.mode]);
 
+  // A 3-way face-off has one view: the camera goes home before the next paint, so the old pose never shows.
+  const faceOff = isFaceOff(layout, out);
+  useLayoutEffect(() => {
+    if (faceOff && state.mode !== "home") dispatch({ type: "home" });
+  }, [faceOff, state.mode]);
+
   const keyRef = useRef({ state, seatKeys, suspended, uprightOnly });
   keyRef.current = { state, seatKeys, suspended, uprightOnly };
   useEffect(() => {
@@ -129,6 +136,8 @@ export function useCamera({ controller, layout, initial, initialLock = null, aim
       const target = event.target as HTMLElement | null;
       if (target?.closest?.('[role="dialog"][aria-modal="true"]') || document.querySelector('[aria-modal="true"]')) return;
       if (event.key === "Tab" && target?.closest?.("[data-slot='prompt'], [role='dialog']")) return;
+      // The rail and the drawer are ordinary controls: Tab walks through them, Space presses a button, and no key drives the camera from there.
+      if (target?.closest?.("[data-table-chrome]")) return;
       if (/^[1-9]$/.test(event.key) && keyRef.current.seatKeys) return;
       const action = cameraActionForKey(event, env.current.layout, keyRef.current.state, env.current.ctx);
       if (!action) return;

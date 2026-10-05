@@ -51,11 +51,13 @@ export function deckCardCounts(deck: DuelDeck, resolve: (code: number) => number
  * Checks a deck against a card pool (passcode -> copies available). Returns one
  * issue per passcode the deck uses more often than the pool has, sorted by
  * passcode. An empty list means the deck is legal for the pool.
+ * Each durable forced pick adds one copy to the usual three-copy draft limit.
  */
 export function checkDeckAgainstPool(
   deck: DuelDeck,
   pool: ReadonlyMap<number, number>,
   resolve: (code: number) => number = (code) => code,
+  forcedCopies: ReadonlyMap<number, number> = new Map(),
 ): DeckPoolIssue[] {
   const availableCounts = new Map<number, number>();
   for (const [raw, count] of pool) {
@@ -63,8 +65,13 @@ export function checkDeckAgainstPool(
     availableCounts.set(code, (availableCounts.get(code) ?? 0) + count);
   }
   const issues: DeckPoolIssue[] = [];
+  const forcedCounts = new Map<number, number>();
+  for (const [raw, count] of forcedCopies) {
+    const code = resolve(raw);
+    forcedCounts.set(code, (forcedCounts.get(code) ?? 0) + count);
+  }
   for (const [code, used] of deckCardCounts(deck, resolve)) {
-    const available = Math.min(3, availableCounts.get(code) ?? 0);
+    const available = Math.min(3 + (forcedCounts.get(code) ?? 0), availableCounts.get(code) ?? 0);
     if (used > available) issues.push({ code, used, available });
   }
   return issues.sort((a, b) => a.code - b.code);

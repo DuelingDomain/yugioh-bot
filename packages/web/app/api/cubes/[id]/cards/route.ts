@@ -1,3 +1,4 @@
+import { cardFetchErrorResponse } from "@/lib/card-fetch-errors";
 import { NextResponse } from "next/server";
 import { requireWebAccess } from "@/lib/web-access";
 import { cubeWriteAccess } from "@/lib/cube-access";
@@ -96,6 +97,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         return NextResponse.json({ error: "Unknown op" }, { status: 400 });
     }
   } catch (error) {
+    const fetchFailure = cardFetchErrorResponse(error);
+    if (fetchFailure) return fetchFailure;
     const message = error instanceof Error ? error.message : "Cube update failed";
     return NextResponse.json({ error: message }, { status: 400 });
   }

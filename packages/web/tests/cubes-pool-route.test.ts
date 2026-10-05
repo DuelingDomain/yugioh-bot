@@ -28,6 +28,8 @@ async function setupDb() {
   ins.run(1, "Main A", "Normal Monster", "normal", "i", "i", "[]", "t");
   ins.run(2, "Xyz B", "XYZ Monster", "xyz", "i", "i", "[]", "t");
   ins.run(3, "Main C", "Effect Monster", "effect", "i", "i", "[]", "t");
+  db.exec(`insert into card_artworks (card_id,artwork_id,image_url,image_url_small,is_main)
+    select ygoprodeck_id,ygoprodeck_id,image_url,image_url_small,1 from card_catalog`);
   db.close();
 }
 
@@ -63,6 +65,28 @@ describe("cube pool routes", () => {
     const { POST } = await import("../app/api/cubes/route");
     return POST(json({ kind: "pool", ...body }));
   }
+
+  it.each(["network", "timeout", "429", "503", "json"])("saves a legacy cube during %s failures and returns 503 for missing data", async (failure) => {
+    await setupDb();
+    const db = await rawDb(); db.exec("delete from card_artworks"); db.close();
+    const discordFetch = globalThis.fetch;
+    const upstream = vi.fn(async () => {
+      if (failure === "network") throw new Error("offline");
+      if (failure === "timeout") throw new DOMException("timeout", "TimeoutError");
+      return new Response("bad JSON", { status: failure === "json" ? 200 : Number(failure), headers: { "Retry-After": "2" } });
+    });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
+      String(input).includes("ygoprodeck") ? upstream() : discordFetch(input, init)));
+    const cached = await createPool({ name: "Cached", cards: [{ id: 1, copies: 3 }, { id: 2, copies: 1 }] });
+    expect(cached.status).toBe(201);
+    expect(upstream).not.toHaveBeenCalled();
+    const missing = await createPool({ name: "Missing", cards: [{ id: 99999999, copies: 1 }] });
+    expect(missing.status).toBe(503);
+    expect((await missing.json()).error).toContain("Try again");
+    const verify = await rawDb();
+    expect(verify.prepare("select count(*) as n from cubes where name = 'Missing'").get()).toEqual({ n: 0 });
+    verify.close();
+  });
 
   it("saves a pool as a real cube, splitting extra frames, summing duplicates and reporting unknown ids", async () => {
     await setupDb();
@@ -206,6 +230,7 @@ describe("cube pool routes", () => {
 
   it("validates poolSource on draft create and keeps the cube name from the database", async () => {
     await setupDb();
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ data: [] })));
     const db = await rawDb();
     db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1','Real Name','x')").run();
     db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('other','Foreign','x')").run();

@@ -15,6 +15,7 @@ const CREATURE_SWAP = 31036355;
 const RAIGEKI = 12580477;
 const DARK_MAGICIAN = 46986414;
 const RING_OF_DESTRUCTION = 83555666;
+const CONVULSION_OF_NATURE = 62966332;
 
 const TYPE_SPELL = 0x2;
 const TYPE_MONSTER = 0x1;
@@ -95,6 +96,27 @@ describe("multiplayer forbidden list in deck validation", () => {
     for (const table of ["ffa3", "ffa4", "tag"] as const) {
       expect(inspectDeck("normal", deck, DATA, settings, { table }).issues.length, table).toBe(1);
     }
+  });
+
+  it.each(["ffa3", "ffa4", "tag"] as const)("refuses Convulsion of Nature in %s even when deck validation is off", (table) => {
+    const deck: DuelDeck = { ...deckWith(CONVULSION_OF_NATURE), side: [CONVULSION_OF_NATURE] };
+    for (const validate of [true, false]) {
+      const rules = { ...settings, validateDeck: validate };
+      const issues = inspectDeck("normal", deck, DATA, rules, { table }).issues;
+      expect(issues).toHaveLength(1);
+      expect(issues[0]!.message).toMatch(/^Convulsion of Nature is forbidden in /);
+      expect(issues[0]!.cards).toEqual([
+        expect.objectContaining({ section: "main", index: 0, code: CONVULSION_OF_NATURE }),
+        expect.objectContaining({ section: "side", index: 0, code: CONVULSION_OF_NATURE }),
+      ]);
+      expect(() => validateDeck("normal", deck, DATA, rules, { table })).toThrow(/Convulsion of Nature is forbidden/);
+    }
+  });
+
+  it("keeps Convulsion of Nature legal in 1v1", () => {
+    const deck = deckWith(CONVULSION_OF_NATURE);
+    expect(inspectDeck("normal", deck, DATA, settings, { table: "1v1" }).issues).toEqual([]);
+    expect(() => validateDeck("normal", deck, DATA, settings, { table: "1v1" })).not.toThrow();
   });
 
   it("uses the documented message format", () => {

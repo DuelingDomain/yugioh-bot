@@ -30,6 +30,7 @@ import {
   planMoves,
   resetMoveSchedule,
   resolveSource,
+  standsInAtSource,
   startZoneSnapshots,
   type MovePlan,
   type MoveStyle,
@@ -39,6 +40,7 @@ import { beginDestroyHide, beginPileHold, beginPileLift, startDestroyHideGuard }
 import { SHARDS, Track } from "./summon-fx";
 import { CARD_FX } from "./duel-timing";
 import { ShowcaseGhost } from "./add-fx";
+import { cardTurn, placeSourceStandIn, SourceStandIn } from "./source-stand-in";
 import { retargetFlight } from "./live-flight";
 import { ConfirmGhost, CONFIRM_MS } from "./confirm-fx";
 import { TributeGhost } from "./tribute-fx";
@@ -61,7 +63,8 @@ export type MoveFxProps = {
 const CARD_ASPECT = 0.686;
 const SAMPLES = 18;
 const HIDE_FAILSAFE_MS = 1500;
-const MAX_GHOSTS = 12;
+/** A 4-way wipe can send 4 x 10 field cards at once; each one needs its stand-in (a dropped ghost leaves a blank zone). */
+const MAX_GHOSTS = 48;
 /** The ghost dissolves over the real card this long after landing. */
 export const LAND_FADE_MS = CARD_FX.landFadeMs;
 /** Moves smaller than this many px are not chased. */
@@ -239,9 +242,7 @@ export function destinationShift(overlay: HTMLElement, dest: HTMLElement, cx: nu
  * Turn of a card as it rests on the board, in degrees: a quarter for Defense Position, plus a half turn
  * on the opponent's side of the table (field.module.css turns their cards the same way).
  */
-export function cardTurn(side: "you" | "opp", defense: boolean): number {
-  return (side === "opp" ? 180 : 0) + (defense ? 90 : 0);
-}
+export { cardTurn };
 
 /* ---------- the pieces of a destroyed card ---------- */
 
@@ -306,6 +307,7 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
   const root = useRef<HTMLDivElement>(null);
   const flipper = useRef<HTMLDivElement>(null);
   const shade = useRef<HTMLSpanElement>(null);
+  const standInRef = useRef<HTMLDivElement>(null);
   const pieceEls = useRef<Array<HTMLSpanElement | null>>([]);
   const landedRef = useRef(landed);
   landedRef.current = landed;
@@ -361,15 +363,21 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
 
     const track = new Track();
     let alive = true;
+    // A ghost that stands in at its source waits there (first keyframe held) until its flight starts.
+    const delay = standsInAtSource(plan) ? Math.max(0, plan.startAt - duelFxClock.now()) : 0;
     const endDefense = dest?.dataset.defense === "true";
     const endTurn = dest ? moveDestinationRotation(dest) : cardTurn(target.side, endDefense);
     let liveFlight: ReturnType<typeof retargetFlight> | undefined;
 
     if (plan.style === "fade" || !source) {
-      track.play(el, [{ opacity: 0 }, { opacity: 1, offset: 0.5 }, { opacity: 1 }], {
-        duration: plan.reduced ? plan.durationMs : Math.min(plan.durationMs, 300),
-        easing: "ease-out",
-      });
+      const fadeMs = plan.reduced ? plan.durationMs : Math.min(plan.durationMs, 300);
+      track.play(el, [{ opacity: 0 }, { opacity: 1, offset: 0.5 }, { opacity: 1 }], { duration: fadeMs, easing: "ease-out", delay, fill: delay > 0 ? "both" : "auto" });
+      // Reduced motion: the card does not travel. Its stand-in sits on the source zone (opacity 1 from the first
+      // frame, in the pose it had) and fades out there while the card fades in on its pile.
+      const standIn = standInRef.current;
+      if (standIn && placeSourceStandIn(standIn, plan, o, w, h)) {
+        track.play(standIn, [{ opacity: 1 }, { opacity: 0 }], { duration: fadeMs, easing: "ease-out", delay, fill: "both" });
+      }
       if (flipper.current) flipper.current.style.transform = `rotateY(${endAngle}deg)`;
       el.style.transform = endTurn !== 0 ? `rotate(${endTurn}deg)` : "none";
     } else {
@@ -385,9 +393,9 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
         cardH: h,
         spin: seededSign(plan.id) * (14 + (plan.id % 5) * 3),
       });
-      const options: KeyframeAnimationOptions = { duration: plan.durationMs, easing: "linear", fill: "both" };
+      const options: KeyframeAnimationOptions = { duration: plan.durationMs, easing: "linear", fill: "both", delay };
       track.play(el, flight.card, options);
-      liveFlight = retargetFlight({ event: plan.event, el, overlay, cx, cy, duration: plan.durationMs, endRot: endTurn,
+      liveFlight = retargetFlight({ event: plan.event, el, overlay, cx, cy, duration: plan.durationMs, endRot: endTurn, delay,
         fallback: () => handArrivalTarget(plan.event)?.rect });
       track.onDispose(liveFlight.stop);
       if (pieces) {
@@ -395,7 +403,7 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
         pieceEls.current.forEach((piece, index) => {
           const shard = SHARDS[index];
           if (!piece || !shard) return;
-          track.play(piece, pieceFrames(pieceMotion(shard, plan.id, index, w, h), pieces), { duration: plan.durationMs, easing: "linear", fill: "both" });
+          track.play(piece, pieceFrames(pieceMotion(shard, plan.id, index, w, h), pieces), { duration: plan.durationMs, easing: "linear", fill: "both", delay });
         });
       } else {
         track.play(shade.current, flight.shade, options);
@@ -459,7 +467,10 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const standsInReduced = plan.reduced && plan.style === "fade" && standsInAtSource(plan);
   return (
+    <>
+    {standsInReduced ? <SourceStandIn ref={standInRef} code={card?.code ?? 0} faceUp={startUp} sleeve={sleeve} /> : null}
     <div ref={root} className={styles.ghost} data-style={plan.style} style={{ opacity: 0 } as CSSProperties}>
       <span ref={shade} className={styles.shade} />
       {pieces && card ? (
@@ -487,6 +498,7 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
         <div className={styles.back} data-sleeve={sleeve} style={{ transform: `rotateY(${card ? 180 : 0}deg)` }} />
       </div>
     </div>
+    </>
   );
 }
 
@@ -845,7 +857,7 @@ export function MoveFx({ events, duelKey, reducedMotion, replayFrom = null, skip
         const failsafe = duelFxClock.setTimeout(release, waitMs);
         timersRef.current.add(failsafe);
       }
-      if (wait <= 16) {
+      if (wait <= 16 || standsInAtSource(plan)) {
         started.push(plan);
       } else {
         const timer = duelFxClock.setTimeout(() => {

@@ -1,6 +1,6 @@
 "use client";
 
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import type { DuelCardInfo } from "@yugidraft/shared/duels";
 import { cardArtUrl } from "../constants";
 import { LifePoints } from "../life-points";
@@ -44,6 +44,15 @@ export interface HoloLpProps {
   /** A rival's Deck Master: a small art thumb at the top right of the panel. A click inspects it. */
   master?: DuelCardInfo | null;
   onInspectMaster?: (card: DuelCardInfo) => void;
+  /** The seat just left the duel: the LP is struck out, a chip says its place ("Eliminated, 3rd"), and the panel fades away. */
+  exiting?: boolean;
+  placeLabel?: string | null;
+  /** The seats regroup after an elimination: the panel waits, then glides to its new corner. */
+  glide?: boolean;
+  /** Hangs under the panel (your Deck Master chip). It sits outside the panel body, so it never changes the panel's own box. */
+  footer?: ReactNode;
+  /** The footer chip stays within the panel's width. */
+  footerTight?: boolean;
   reducedMotion: boolean;
 }
 
@@ -107,6 +116,11 @@ export function HoloLp({
   master = null,
   onInspectMaster,
   lastDamage = null,
+  exiting = false,
+  placeLabel = null,
+  glide = false,
+  footer = null,
+  footerTight = false,
   reducedMotion,
 }: HoloLpProps) {
   const hex = SEAT_TONE_HEX[tone];
@@ -148,7 +162,7 @@ export function HoloLp({
         </span>
         {clock ? <span className={styles.clock}>{clock}</span> : null}
       </div>
-      {stateLabel ? <div className={styles.state}>{stateLabel}</div> : null}
+      {stateLabel && !exiting ? <div className={styles.state}>{out && placeLabel ? `Eliminated, ${placeLabel}` : stateLabel}</div> : null}
       {status === "choosing" ? <div className={styles.think}>choosing...</div> : null}
     </>
   );
@@ -163,6 +177,8 @@ export function HoloLp({
       data-turn={turn ? "true" : undefined}
       data-active={turn || status === "choosing" ? "true" : undefined}
       data-elim={out ? "true" : undefined}
+      data-exiting={exiting ? "true" : undefined}
+      data-glide={glide ? "true" : undefined}
       data-leaving={status === "leaving" ? "true" : undefined}
       data-legal={legal ? "true" : undefined}
       data-beam={beam}
@@ -200,7 +216,9 @@ export function HoloLp({
           <img src={cardArtUrl(master.code, "small")} alt="" draggable={false} />
         </button>
       ) : null}
+      {exiting ? <span className={styles.exitChip} data-exit-chip>{placeLabel ? `Eliminated, ${placeLabel}` : "Eliminated"}</span> : null}
       <span className={styles.beam} aria-hidden="true" />
+      {footer ? <div className={styles.footer} data-tight={footerTight ? "true" : undefined}>{footer}</div> : null}
     </div>
   );
 }

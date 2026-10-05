@@ -284,6 +284,9 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
       return;
     }
     switch (kind) {
+      case "toss":
+        // The toss layer owns any future coin sound.
+        break;
       case "summon":
         synth.tone({ freq: 392, type: "triangle", start: t, duration: 0.14, peak: 0.045 });
         synth.tone({ freq: 523.25, type: "sine", start: t + 0.05, duration: 0.16, peak: 0.035 });
