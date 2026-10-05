@@ -169,6 +169,23 @@ describe("PhaseHub on another turn", () => {
 });
 
 describe("PhaseHub turn owner", () => {
+  it.each(["sm", "lg"])("keeps a real space in Turn 7 in the %s table caption", (size) => {
+    const { container } = render(
+      <div data-hub-size={size}>
+        <PhaseHub {...hubProps({ variant: "table", turn: 7 })} />
+      </div>,
+    );
+    const caption = container.querySelector<HTMLElement>("[data-part='owner']")!;
+    expect(caption.textContent).toContain("Turn 7");
+    expect(within(caption).getByText("Turn 7", { exact: true }).textContent).toBe("Turn 7");
+  });
+
+  it("keeps a real space in Turn 3 above the left pair in the 1v1 band", () => {
+    const { container } = render(<PhaseHub {...hubProps({ turn: 3 })} />);
+    const owner = container.querySelector<HTMLElement>("[data-cell='0'] [data-part='owner']")!;
+    expect(within(owner).getByText("Turn 3", { exact: true }).textContent).toBe("Turn 3");
+  });
+
   it("says You on your own turn and the duelist's name on theirs", () => {
     const mine = render(<PhaseHub {...hubProps()} />);
     expect(mine.container.textContent).toContain("You");
