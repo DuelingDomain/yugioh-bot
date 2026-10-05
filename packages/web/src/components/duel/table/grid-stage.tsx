@@ -104,7 +104,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
     home: homeCell?.seat ?? 0,
     shown,
     suspended: false,
-    digitsFree: picks == null,
+    digitsFree: picks == null && controller.aim?.from == null,
     escapeFree: controller.aim?.from == null,
   });
   const focusControl = grid ?? local;

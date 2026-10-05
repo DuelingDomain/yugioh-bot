@@ -123,6 +123,15 @@ describe("GridStage", () => {
     expect(stage.getAttribute("data-grid-focus")).toBe("all");
   });
 
+  it("keeps the digit keys and Esc away from the focus during an attack aim", () => {
+    const { container } = render(<Shell id="battle-aim" />);
+    const stage = container.querySelector("[data-grid-stage]")!;
+    expect(stage.getAttribute("data-grid-focus")).toBe("0");
+    for (const key of ["2", "3", "4"]) act(() => void fireEvent.keyDown(window, { key }));
+    act(() => void fireEvent.keyDown(window, { key: "Escape" }));
+    expect(stage.getAttribute("data-grid-focus")).toBe("0");
+  });
+
   it("sizes the fields from one layout: the focused field is the largest, the others about 0.8x or smaller, no transform at rest", () => {
     const { container } = render(<Shell id="main" />);
     const stage = container.querySelector("[data-grid-stage]")!;
