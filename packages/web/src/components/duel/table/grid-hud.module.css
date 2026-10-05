@@ -217,10 +217,8 @@
   display: flex;
   flex-direction: column;
   width: min(380px, calc(100% - 82px));
-  /* Above the Deck Master plate in the margin below, so the two never meet: the flyout top (56px), a 10px gap, the
-     plate's bottom offset, its rest (132px) and its card height (the same formula as .masterWrap). */
-  --fly-master-at: var(--hud-master-bottom, calc(clamp(58px, 5.6dvh, 68px) + 20px));
-  max-height: max(200px, calc(100% - 66px - var(--fly-master-at) - 132px - clamp(58px, calc(100dvh - var(--fly-master-at) - 364px), 222px)));
+  /* Above the Deck Master plate in the margin below, so the two never meet. */
+  max-height: max(280px, calc(100% - 330px));
   border-radius: 14px;
   background: rgb(9 15 29 / 0.97);
   box-shadow: 0 24px 60px -12px rgb(0 0 0 / 0.8);
@@ -363,29 +361,15 @@
   .dockButton { transition: none; }
 }
 
-/* ---------- Deck Master plate (bottom of the left margin, beside your field) ---------- */
-/*
- * The plate is tall: the whole card at a readable size on top, the name below it and the action row at the bottom. It
- * grows up into the free margin under the dock. The card is at most the plate's inner width (152px wide, 222px high)
- * and gets smaller only when the screen is too short for it: the plate top stays 8px below the 4-icon dock (top 56px
- * + 168px), so nothing in the margin is ever covered. While a chain is live the tower (top 232px, at most four rows,
- * about 300px) is in the margin too: the card then gets smaller as much as it must to stay below the tower's tallest
- * size. 132px is the rest of the plate (paddings, the gaps, the name and the action row).
- */
+/* ---------- Deck Master token plate (left margin, beside your field) ---------- */
 .masterWrap {
-  --hud-master-at: var(--hud-master-bottom, calc(clamp(58px, 5.6dvh, 68px) + 20px));
-  --hud-master-art-h: clamp(58px, calc(100dvh - var(--hud-master-at) - 232px - 132px), 222px);
   position: absolute;
   left: 14px;
-  bottom: var(--hud-master-at);
+  bottom: var(--hud-master-bottom, calc(clamp(58px, 5.6dvh, 68px) + 20px));
   z-index: 31;
   width: 168px;
   font-family: var(--duel-f-ui);
   color: var(--duel-ink);
-}
-/* The chain tower comes before the plate in the same layer. */
-.tower ~ .masterWrap {
-  --hud-master-art-h: clamp(58px, calc(100dvh - var(--hud-master-at) - 544px - 132px), 222px);
 }
 
 .master {
@@ -407,15 +391,10 @@
 .master[data-selected="true"] { border-color: rgb(155 126 255 / 0.8); box-shadow: 0 0 18px -2px rgb(155 126 255 / 0.6), 0 10px 28px -8px rgb(0 0 0 / 0.7); }
 .master[data-open="true"] { border-color: rgb(155 126 255 / 0.7); }
 
-/* The card and the name. The details open in this same box, over them. */
-.masterFace { position: relative; min-width: 0; }
-
 .masterToken {
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
+  align-items: center;
   gap: 8px;
-  width: 100%;
   min-width: 0;
   padding: 0;
   border: 0;
@@ -426,22 +405,16 @@
   cursor: pointer;
 }
 .masterToken:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: 2px; border-radius: 8px; }
-/* The whole card, never cropped. */
 .masterArt {
   flex: none;
   display: block;
-  align-self: center;
-  height: var(--hud-master-art-h);
+  width: 40px;
   aspect-ratio: 59 / 86;
   border-radius: 6px;
-  background: #1b2740 center / contain no-repeat;
-  box-shadow: inset 0 0 0 1px rgb(239 231 213 / 0.14), 0 6px 16px -6px rgb(0 0 0 / 0.8);
+  background: #1b2740 center top / cover no-repeat;
+  box-shadow: inset 0 0 0 1px rgb(239 231 213 / 0.14);
 }
 .master[data-away="true"] .masterArt { filter: saturate(0.55); }
-/* A second plate (the rival's in a 1v1 room, the partner's in Tag; `data-slot="other"`) sits high in the right margin:
-   it keeps the small token row, card left of the name. */
-.masterWrap[data-slot="other"] .masterToken { flex-direction: row; align-items: center; }
-.masterWrap[data-slot="other"] .masterArt { align-self: auto; height: 58px; }
 .masterId { display: grid; flex: 1 1 0; gap: 2px; min-width: 0; }
 .masterId small { overflow: hidden; color: var(--duel-ink-3); font-size: 9.5px; letter-spacing: 0.08em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
 /* The name is at most two lines, then an ellipsis. */
@@ -490,43 +463,37 @@
 .masterActions button:disabled { opacity: 0.5; cursor: default; }
 .masterActions button:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: 2px; }
 
-/* The details open inside the plate, over the card and the name, so they never reach past the plate. A short screen
-   scrolls them. */
+/* The details flyout sits right above the plate in the margin, joined to it by a short nib. */
 .masterFly {
   position: absolute;
-  inset: 0;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
+  left: 0;
+  bottom: calc(100% + 10px);
+  width: 100%;
+  display: grid;
   gap: 4px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 2px 2px 4px;
-  border-radius: 8px;
-  background: rgb(9 15 29);
-}
-.masterFly > * { flex: none; }
-/* The second plate is small and high in the right margin: its details hang below it, outside the plate (the plate
-   lets them out; 9px is its padding and border). */
-.masterWrap[data-slot="other"] .master { overflow: visible; }
-.masterWrap[data-slot="other"] .masterFly {
-  inset: calc(100% + 19px) -9px auto;
-  overflow: visible;
   padding: 8px 8px 10px;
   border: 1px solid rgb(155 126 255 / 0.55);
   border-radius: 14px;
   background: rgb(9 15 29 / 0.97);
   box-shadow: 0 24px 60px -12px rgb(0 0 0 / 0.8);
 }
+.masterFly::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  width: 2px;
+  height: 10px;
+  background: rgb(155 126 255 / 0.55);
+}
 .masterFly header { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
 .masterFly header b { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--duel-pen-ink); }
 .masterFlyName { margin: 2px 0 0; font-size: 13px; font-weight: 600; line-height: 1.2; }
 .masterFlyLine { margin: 0; color: var(--duel-ink-2); font-size: 11.5px; }
 .masterFly dl { display: grid; gap: 4px; margin: 6px 0 4px; }
-/* One line per fact (the label left, the value right), so the facts and Card view fit in the plate. */
-.masterFly dl div { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; padding: 4px 6px; border-radius: 6px; background: rgb(239 231 213 / 0.05); }
+.masterFly dl div { display: grid; gap: 0; padding: 4px 6px; border-radius: 6px; background: rgb(239 231 213 / 0.05); }
 .masterFly dt { color: var(--duel-ink-3); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; }
-.masterFly dd { margin: 0; font-size: 13px; font-weight: 600; text-align: right; white-space: nowrap; }
+.masterFly dd { margin: 0; font-size: 13px; font-weight: 600; }
 .masterFlyCard {
   height: 28px;
   border: 1px solid var(--duel-rule);
@@ -539,6 +506,52 @@
 }
 .masterFlyCard:hover { color: var(--duel-ink); background: rgb(239 231 213 / 0.08); }
 .masterFlyCard:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: 2px; }
+
+/* The card and the name; in the tall form the details open in this same box, over them. */
+.masterFace { display: grid; min-width: 0; }
+
+/*
+ * The tall form (data-form="tall"; large screens with a free margin, chosen in grid-master.tsx): the whole card at a
+ * readable size on top, the name below it and the action row at the bottom. The plate grows up into the free margin
+ * under the dock. The card is 195px to 222px high (`--hud-master-art-h`, set by the plate); with less room the plate is
+ * compact, never a card size between the two forms.
+ */
+.masterWrap[data-form="tall"] .masterFace { position: relative; }
+.masterWrap[data-form="tall"] .masterToken { flex-direction: column; align-items: stretch; width: 100%; }
+/* The whole card, never cropped. */
+.masterWrap[data-form="tall"] .masterArt {
+  width: auto;
+  height: var(--hud-master-art-h, 222px);
+  align-self: center;
+  background-position: center;
+  background-size: contain;
+  box-shadow: inset 0 0 0 1px rgb(239 231 213 / 0.14), 0 6px 16px -6px rgb(0 0 0 / 0.8);
+}
+/* The details open inside the plate, over the card and the name, so they never reach past the plate. */
+.masterWrap[data-form="tall"] .masterFly {
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  width: auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px 2px 4px;
+  border: 0;
+  border-radius: 8px;
+  background: rgb(9 15 29);
+  box-shadow: none;
+}
+.masterWrap[data-form="tall"] .masterFly::after { display: none; }
+.masterWrap[data-form="tall"] .masterFly > * { flex: none; }
+/* One line per fact (the label left, the value right), so the facts and Card view fit in the plate. */
+.masterWrap[data-form="tall"] .masterFly dl div { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
+.masterWrap[data-form="tall"] .masterFly dd { text-align: right; white-space: nowrap; }
+/* The tall plate is higher: the dock flyout (after the plate in the layer) ends above it. The flyout top (56px), a
+   10px gap, the plate's bottom offset, its rest (132px) and its tallest card (222px). */
+.masterWrap[data-form="tall"] ~ .flyout {
+  max-height: max(200px, calc(100% - 66px - var(--hud-master-bottom, calc(clamp(58px, 5.6dvh, 68px) + 20px)) - 354px));
+}
 
 /* ---------- hover preview: slides out from the left edge ---------- */
 .preview {

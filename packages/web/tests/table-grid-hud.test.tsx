@@ -12,6 +12,7 @@ import { LOCATION_DMZONE } from "@/components/duel/constants";
 import { FFA4_FIXTURES } from "@/components/duel/table/fixtures/ffa4";
 import type { TableFixtureState } from "@/components/duel/table/fixtures/common";
 import { useFixtureController } from "@/components/duel/table/fixtures/use-fixture-controller";
+import { masterForm } from "@/components/duel/table/grid-master";
 import { PREVIEW_HIDE_MS } from "@/components/duel/table/grid-preview";
 import { TableShell } from "@/components/duel/table/table-shell";
 
@@ -171,10 +172,20 @@ describe("the Deck Master token", () => {
     expect(direct.getAttribute("title")).toBe("Attack directly with Sage with Eyes of Blue");
   });
 
-  it("shows the whole card at full size, not the small thumbnail", () => {
+  it("starts as the compact plate with the small card", () => {
     render(<Shell state={stateOf("main")} />);
+    expect(screen.getByTestId("hud-master").dataset.form).toBe("compact");
     const art = screen.getByTestId("hud-master-token").querySelector("span[aria-hidden]") as HTMLElement;
-    expect(art.style.backgroundImage).toMatch(/\/api\/cards\/\d+\/image"?\)/);
+    expect(art.style.backgroundImage).toMatch(/size=small/);
+  });
+
+  it("is tall only on a large screen with room for a card of 195px or more, never between the two forms", () => {
+    expect(masterForm(800, 400)).toEqual({ tall: false });
+    expect(masterForm(768, 400)).toEqual({ tall: false });
+    expect(masterForm(900, 194)).toEqual({ tall: false });
+    expect(masterForm(900, 195)).toEqual({ tall: true, art: 195 });
+    expect(masterForm(900, 530)).toEqual({ tall: true, art: 222 });
+    expect(masterForm(1080, 97)).toEqual({ tall: false });
   });
 
   it("opens the details flyout from the token or from Inspect, and closes it", () => {
@@ -185,9 +196,8 @@ describe("the Deck Master token", () => {
     expect(within(details).getByTestId("hud-master-returns").textContent).toBe("1");
     expect(within(details).getByTestId("hud-master-cost").textContent).toBe("1000 LP");
     expect(within(details).getByTestId("hud-master-status").textContent).toBe("Elsewhere");
-    // The dock flyout stays closed: the details open in the plate itself, over the card, so they never reach the dock.
+    // The dock flyout stays closed: the details open beside the token, in the free margin.
     expect(isOpen()).toBe(false);
-    expect(screen.getByTestId("hud-master").querySelector("section")?.contains(details)).toBe(true);
     fireEvent.keyDown(window, { key: "Escape" });
     expect(screen.queryByTestId("hud-master-flyout")).toBeNull();
 
