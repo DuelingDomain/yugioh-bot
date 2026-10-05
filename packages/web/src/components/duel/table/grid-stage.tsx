@@ -28,26 +28,32 @@ import styles from "./grid-stage.module.css";
  * at once; a seat that goes out while the table is open stays drawn as `out` (its field crumbles in its own cell)
  * for `OUT_HOLD_MS`, then the cell is empty. Cells never move.
  */
-function useCellStates(seats: readonly { seat: number; eliminated?: boolean; pendingElimination?: boolean }[]): ReadonlyMap<number, CellState> {
+export function useCellStates(seats: readonly { seat: number; eliminated?: boolean; pendingElimination?: boolean }[]): ReadonlyMap<number, CellState> {
   const since = useRef(new Map<number, number | null>());
   const opened = useRef(false);
-  const [, setTick] = useState(0);
+  const [tick, setTick] = useState(0);
   const now = Date.now();
   for (const view of seats) {
     if (view.eliminated !== true) since.current.delete(view.seat);
     else if (!since.current.has(view.seat)) since.current.set(view.seat, opened.current ? now : null);
   }
   const states = new Map<number, CellState>(seats.map((view) => [view.seat, cellState(view, since.current.get(view.seat) ?? null, now)]));
-  const holding = seats.some((view) => states.get(view.seat) === "out");
+  // The next moment an `out` cell turns `empty`. Only seats still `out` count: a seat that is already empty has a
+  // deadline in the past and would make the timer fire at once, without ever reaching the seat that is still out.
+  let deadline: number | null = null;
+  for (const view of seats) {
+    const at = since.current.get(view.seat);
+    if (states.get(view.seat) !== "out" || at == null) continue;
+    deadline = deadline == null ? at + OUT_HOLD_MS : Math.min(deadline, at + OUT_HOLD_MS);
+  }
   useEffect(() => {
     opened.current = true;
   }, []);
   useEffect(() => {
-    if (!holding) return;
-    const wait = Math.max(50, Math.min(...[...since.current.values()].filter((at): at is number => at != null).map((at) => at + OUT_HOLD_MS - Date.now())));
-    const timer = window.setTimeout(() => setTick((value) => value + 1), wait);
+    if (deadline == null) return;
+    const timer = window.setTimeout(() => setTick((value) => value + 1), Math.max(50, deadline - Date.now()));
     return () => window.clearTimeout(timer);
-  }, [holding, seats]);
+  }, [deadline, tick]);
   return states;
 }
 

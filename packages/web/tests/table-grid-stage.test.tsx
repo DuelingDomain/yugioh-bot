@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/font/google", () => {
@@ -11,6 +11,7 @@ vi.mock("next/font/google", () => {
 import { FFA4_FIXTURES } from "@/components/duel/table/fixtures/ffa4";
 import { useFixtureController } from "@/components/duel/table/fixtures/use-fixture-controller";
 import { OUT_HOLD_MS } from "@/components/duel/table/grid-layout";
+import { useCellStates } from "@/components/duel/table/grid-stage";
 import { TableShell } from "@/components/duel/table/table-shell";
 
 beforeAll(() => {
@@ -126,5 +127,30 @@ describe("GridStage", () => {
     expect(cellOf(container, 0).getAttribute("data-cell-state")).toBe("live");
     expect(cellOf(container, 0).getAttribute("data-quadrant")).toBe("bl");
     expect(OUT_HOLD_MS).toBeGreaterThan(0);
+  });
+});
+
+describe("useCellStates", () => {
+  const seatsWith = (out: number[]) => [0, 1, 2, 3].map((seat) => ({ seat, eliminated: out.includes(seat) }));
+
+  it("empties a second out seat on its own clock, after the first one is already empty", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+    const { result, rerender } = renderHook(({ out }) => useCellStates(seatsWith(out)), { initialProps: { out: [] as number[] } });
+    rerender({ out: [1] });
+    expect(result.current.get(1)).toBe("out");
+    act(() => {
+      vi.advanceTimersByTime(OUT_HOLD_MS + 100);
+    });
+    expect(result.current.get(1)).toBe("empty");
+    rerender({ out: [1, 2] });
+    expect(result.current.get(2)).toBe("out");
+    expect(result.current.get(1)).toBe("empty");
+    act(() => {
+      vi.advanceTimersByTime(OUT_HOLD_MS);
+    });
+    expect(result.current.get(2)).toBe("empty");
+    expect(result.current.get(1)).toBe("empty");
+    expect(result.current.get(0)).toBe("live");
   });
 });
