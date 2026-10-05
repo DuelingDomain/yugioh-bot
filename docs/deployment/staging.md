@@ -139,18 +139,18 @@ The build uses the same inputs as the engine session:
 - `domain-core/pins.json`: ygopro-core `efc21aa433b88cd35b7c37db4072a35c58d9d435`, wrapper source
   `9f36452f2a2464f057f7fd6e2273aa5ab589401e`, Lua `75ea9ccbea7c4886f30da147fb67b693b2624c26`,
   and emsdk `4.0.9` at digest `sha256:3c853ef9c3b4c2708da1adac2fdfdba49c775fdc4144ceef4989423963e96811`.
-- All numbered patches in `domain-core/patches` (currently 0001–0084; 84 patches). No experimental patches or
-  `PATCH_LIMIT`. The current series hash is `1c66c92b62827c5635fc0132ac665dd22b479efa79bae3933339d90f08481810`.
+- All numbered patches in `domain-core/patches` (currently 0001–0084, 0090 and 0100; 86 patches). No experimental patches or
+  `PATCH_LIMIT`. The current series hash is `2ae6263330a761b904acf9c96431357c876db50157ef45eabf60c69821dd8f07`.
 - Domain additionally uses `APPLY_DOMAIN=1 DOMAIN_MULTI=1`, the existing Domain patch, `domain_master.cpp`
   and `apply-domain-multi.mjs`. The current multi layer hash is
   `06d5cfbfba8719eb5fe0b3b0eb211a6264d96bb295a8669fe0680969c1822bb8`.
 
-The 84-patch CI builds use `LUA_FIXED_SEED=1` with the pinned image above. Their verified hashes are:
+The 86-patch CI builds use `LUA_FIXED_SEED=1` with the pinned image above. Both multiplayer cores and the pinned and legacy Domain 1v1 cores were rebuilt for the combined 2026-10-04 FFA response-order, card-rulings and Deck Master changes using the pinned TypeScript build entry point, the shared build lock and `EMCC_CORES=2`. Their verified hashes are:
 
 | CI core | SHA-256 |
 | --- | --- |
-| Standard multiplayer | `cf4d7b4723756901199f45b152a495b0e4fe24afc42ef5000d2f50b9f0a0743f` |
-| Domain multiplayer | `f296a0251c8272f176832148214278d5df1247096fd7f13af4b1ef024390cfba` |
+| Standard multiplayer | `2d464ed29c03d0d97f62719743bff0124e8c1183279187ee900ece4d768e5bd1` |
+| Domain multiplayer | `47781ead64d6a2a1d1986297255ff9fa53e589a11571c1813b98085f2b19a7bf` |
 | Domain 1v1 | `01611db77c00ddef07a3d4cfc88800f5c523e3a388c3732616a79fa19b3c4a63` |
 
 Deploys omit `LUA_FIXED_SEED`; the differential test workflow uses it. The multi cache keys include all

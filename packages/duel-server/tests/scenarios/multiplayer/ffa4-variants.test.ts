@@ -25,9 +25,10 @@ const POOL: Scenario[] = [
 /** FFA3 scenarios that also run at FFA4. */
 export const FFA4_IDS: string[] = [
   // Mystic Mine
-  "compare-ffa3-mystic-mine-destroys-itself-on-any-equal-opponent",
+  "compare-ffa3-mystic-mine-stays-with-only-one-equal-opponent",
   "compare-gaps-ffa3-mystic-mine-no-opponent-has-more-nobody-is-locked",
   "compare-gaps-ffa3-mystic-mine-only-the-opponent-with-more-monsters-is-locked",
+  "compare-gaps-ffa3-mystic-mine-self-locks-if-one-opponent-has-fewer",
   // Ultimate Sky
   "compare-ffa3-activation-condition-one-opponent",
   "compare-ffa3-chain-of-three-each-link-its-own-opponent",

@@ -114,6 +114,20 @@ export const TAG_COPY_SCENARIOS: Scenario[] = [
       }),
     ],
   }),
+  defineScenario({
+    id: "tag-copies-mystic-mine-self-locks-by-unequal-joined-counts",
+    title: "Tag: Mystic Mine stays and locks its controller with three joined monsters against two",
+    source: TAG_PARTNER,
+    rules: ["R-TAG-PARTNER"],
+    tags: ["multiplayer", "compare", "tag", "card:76375976"],
+    setup: { format: "tag", p0: { hand: [MINE], monsters: [PIPER, ELF] }, p1: { monsters: [OX] }, p2: { monsters: [PIPER] }, p3: { monsters: [AXE] } },
+    steps: [
+      activate(MINE, "p0"), expectNotOffered("activate", PIPER, "p0"),
+      endTurn("p0"), endTurn("p1"), expectOffered("activate", PIPER, "p2"), endTurn("p2"), endTurn("p3"),
+      changePhase("battle", "p0"), expectNotOffered("attack", PIPER, "p0"), expectNotOffered("attack", ELF, "p0"),
+      everyTagSeat({ p0: { monsters: [PIPER, ELF], spells: [MINE] }, p1: { monsters: [OX] }, p2: { monsters: [PIPER] }, p3: { monsters: [AXE] } }),
+    ],
+  }),
   // Ultimate Sky: "if your opponent controls more monsters than you". In Tag the joined count of the opposing team is compared with the joined count
   // of the own team, and the target cap is the joined face-up count of the opposing team.
   defineScenario({
