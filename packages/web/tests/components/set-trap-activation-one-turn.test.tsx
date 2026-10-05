@@ -87,4 +87,34 @@ describe("a Set Trap activated on the field turns over once", () => {
     const run = animate.mock.calls.find(([, ], index) => animate.mock.contexts[index] === copy)!;
     expect((run[0] as Keyframe[])[0].opacity).toBe(1);
   });
+
+  /** How PositionFx showed the reveal of zone `seat`:8:1: its own copy (normal motion) or a fade of the real card (reduced). */
+  const positionTurns = (view: ReturnType<typeof render>) => {
+    const art = view.container.querySelector("[data-card-art]");
+    const own = animate.mock.contexts.filter((el: Element) => el.closest('[data-layer="position"]') != null);
+    const fades = animate.mock.calls.filter(([frames], index) => animate.mock.contexts[index] === art
+      && (frames as Keyframe[]).length === 2 && (frames as Keyframe[])[0].opacity === 0 && (frames as Keyframe[])[1].opacity === 1);
+    return own.length + fades.length;
+  };
+  const flip = (seat: number, id = 2): DuelEvent =>
+    ({ id, kind: "position", text: "flip", seat, card: CARDS.mst, zone: z(seat, SZONE, 1), fromPosition: 0x0a, toPosition: 0x05, flip: true } as DuelEvent);
+
+  it.each([[false, 0], [true, 0], [false, 1], [true, 1]])("a Set card flipped face-up by an effect still turns (reduced=%s, seat=%s)", (reduced, seat) => {
+    duelFxClock.setReducedMotion(reduced);
+    const view = render(<Board events={[]} reduced={reduced} seat={seat} />);
+    view.rerender(<Board events={setting(seat)} reduced={reduced} seat={seat} />);
+    view.rerender(<Board events={[...setting(seat), flip(seat)]} reduced={reduced} seat={seat} />);
+    expect(positionTurns(view)).toBeGreaterThan(0);
+  });
+
+  it.each([[false, 0], [true, 1]])("an activation of another card from the zone does not silence the flip (reduced=%s, seat=%s)", (reduced, seat) => {
+    duelFxClock.setReducedMotion(reduced);
+    const view = render(<Board events={[]} reduced={reduced} seat={seat} />);
+    view.rerender(<Board events={setting(seat)} reduced={reduced} seat={seat} />);
+    view.rerender(<Board events={[...setting(seat), flip(seat),
+      { id: 3, kind: "move", text: "to grave", seat, card: CARDS.mst, from: z(seat, SZONE, 1), zone: z(seat, 0x10, 0), reason: "destroy" },
+      { id: 4, kind: "activate", text: "activate", seat, card: CARDS.mirrorForce, zone: z(seat, SZONE, 1), chainIndex: 1 },
+    ]} reduced={reduced} seat={seat} />);
+    expect(positionTurns(view)).toBeGreaterThan(0);
+  });
 });

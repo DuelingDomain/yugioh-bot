@@ -195,7 +195,11 @@ export function flipCoveredBySummon(fresh: readonly DuelEvent[], position: Posit
  */
 export function flipCoveredByActivation(fresh: readonly DuelEvent[], position: PositionEvent): boolean {
   if (position.zone.location !== LOCATION_SZONE || !positionChangeOf(position).reveal) return false;
-  return fresh.some((other) => other.kind === "activate" && other.id > position.id && sameZone(other.zone, position.zone));
+  const code = position.card?.code;
+  // Only the activation of this same card covers the flip: a card flipped by an effect keeps its own turn, even
+  // when another card activates from that zone later in the batch.
+  return fresh.some((other) => other.kind === "activate" && other.id > position.id && sameZone(other.zone, position.zone)
+    && (code == null || code <= 0 || other.card == null || other.card.code <= 0 || other.card.code === code));
 }
 
 /** Event kinds whose picture is drawn on the board by SummonFx or PositionFx when the zone is known. */
