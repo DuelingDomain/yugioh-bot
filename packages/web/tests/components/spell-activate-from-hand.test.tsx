@@ -213,6 +213,23 @@ describe("a Set card activated on the field stays on screen", () => {
     expect(Number((hide[1] as KeyframeAnimationOptions).duration)).toBeLessThanOrEqual(fadeStartMs + 1);
   });
 
+  it("knows a card was Set while the tab was hidden", () => {
+    duelFxClock.setReducedMotion(false);
+    const view = render(<Board events={[]} reduced={false} />);
+    const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+    view.rerender(<Board events={setting(0)} reduced={false} />);
+    hidden.mockReturnValue(false);
+    view.rerender(<Board events={[...setting(0), ...activation(0)]} reduced={false} />);
+    expect(ghostOf(view.container).querySelector("span")).not.toBeNull();
+  });
+
+  it("knows a card was Set before the page loaded, from the event history", () => {
+    duelFxClock.setReducedMotion(false);
+    const view = render(<Board events={setting(0)} reduced={false} />);
+    view.rerender(<Board events={[...setting(0), ...activation(0)]} reduced={false} />);
+    expect(ghostOf(view.container).querySelector("span")).not.toBeNull();
+  });
+
   it("shows its face at once under reduced motion, with no sleeve", () => {
     const ghost = ghostOf(activate(true, 0));
     expect(ghost.querySelector("span")).toBeNull();

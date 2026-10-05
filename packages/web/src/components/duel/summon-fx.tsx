@@ -2198,19 +2198,22 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
     }
     if (cursorRef.current == null) {
       cursorRef.current = maxEventId(events) ?? 0;
+      // Cards Set before this page loaded are known from the history the room still holds.
+      for (const event of collectFreshEvents(events, 0).fresh) trackSetZones(setZonesRef.current, event, new Set());
       return;
     }
     const { nextCursor, fresh } = collectFreshEvents(events, cursorRef.current);
     cursorRef.current = nextCursor;
     if (fresh.length === 0) return;
+    // Set zones follow every event, also those of a hidden tab, which plays no effects.
+    const setDown = new Set<number>();
+    for (const event of fresh) trackSetZones(setZonesRef.current, event, setDown);
     if (typeof document !== "undefined" && document.hidden) return;
 
     const now = typeof performance !== "undefined" ? duelFxClock.now() : 0;
     // Idempotent: MoveFx plans the same batch; whichever layer runs first fixes the timing.
     planMoves(fresh, { now, reduced: prefsRef.current.reducedMotion, duelKey });
     const planned: FxItem[] = [];
-    const setDown = new Set<number>();
-    for (const event of fresh) trackSetZones(setZonesRef.current, event, setDown);
     let step = 0;
     for (const event of fresh) {
       const planned_ = planKind(event, fresh);
