@@ -308,6 +308,7 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
   const root = useRef<HTMLDivElement>(null);
   const flipper = useRef<HTMLDivElement>(null);
   const shade = useRef<HTMLSpanElement>(null);
+  const standInRef = useRef<HTMLDivElement>(null);
   const pieceEls = useRef<Array<HTMLSpanElement | null>>([]);
   const landedRef = useRef(landed);
   landedRef.current = landed;
@@ -370,10 +371,23 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
     let liveFlight: ReturnType<typeof retargetFlight> | undefined;
 
     if (plan.style === "fade" || !source) {
-      track.play(el, [{ opacity: 0 }, { opacity: 1, offset: 0.5 }, { opacity: 1 }], {
-        duration: plan.reduced ? plan.durationMs : Math.min(plan.durationMs, 300),
-        easing: "ease-out",
-      });
+      const fadeMs = plan.reduced ? plan.durationMs : Math.min(plan.durationMs, 300);
+      track.play(el, [{ opacity: 0 }, { opacity: 1, offset: 0.5 }, { opacity: 1 }], { duration: fadeMs, easing: "ease-out", delay, fill: delay > 0 ? "both" : "auto" });
+      // Reduced motion: the card does not travel. Its stand-in sits on the source zone (opacity 1 from the first
+      // frame, in the pose it had) and fades out there while the card fades in on its pile.
+      const standIn = standInRef.current;
+      const from = plan.source;
+      if (standIn && from) {
+        const scale = clamp(from.rect.height / h, 0.35, 2.4);
+        standIn.style.left = `${from.rect.left - o.left + from.rect.width / 2 - w / 2}px`;
+        standIn.style.top = `${from.rect.top - o.top + from.rect.height / 2 - h / 2}px`;
+        standIn.style.width = `${w}px`;
+        standIn.style.height = `${h}px`;
+        standIn.style.setProperty("--fx-r", `${Math.max(2, w * 0.05)}px`);
+        const defense = plan.event.fromPosition == null ? from.defense : isDefenseAt(plan.event.from?.location, plan.event.fromPosition);
+        standIn.style.transform = `rotate(${cardTurn(from.side, defense)}deg) scale(${scale})`;
+        track.play(standIn, [{ opacity: 1 }, { opacity: 0 }], { duration: fadeMs, easing: "ease-out", delay, fill: "both" });
+      }
       if (flipper.current) flipper.current.style.transform = `rotateY(${endAngle}deg)`;
       el.style.transform = endTurn !== 0 ? `rotate(${endTurn}deg)` : "none";
     } else {
@@ -463,7 +477,21 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const standsInReduced = plan.reduced && plan.style === "fade" && standsInAtSource(plan);
   return (
+    <>
+    {standsInReduced ? (
+      <div ref={standInRef} className={styles.ghost} data-stand-in="true" style={{ opacity: 1 } as CSSProperties}>
+        <div className={styles.flipper} style={{ transform: `rotateY(${startAngle}deg)` }}>
+          {card ? (
+            <div className={styles.face}>
+              <img className={styles.art} src={cardArtUrl(card.code, "small")} alt="" draggable={false} />
+            </div>
+          ) : null}
+          <div className={styles.back} data-sleeve={sleeve} style={{ transform: `rotateY(${card ? 180 : 0}deg)` }} />
+        </div>
+      </div>
+    ) : null}
     <div ref={root} className={styles.ghost} data-style={plan.style} style={{ opacity: 0 } as CSSProperties}>
       <span ref={shade} className={styles.shade} />
       {pieces && card ? (
@@ -491,6 +519,7 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
         <div className={styles.back} data-sleeve={sleeve} style={{ transform: `rotateY(${card ? 180 : 0}deg)` }} />
       </div>
     </div>
+    </>
   );
 }
 

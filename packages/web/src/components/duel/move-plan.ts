@@ -129,12 +129,17 @@ export type MoveGeometry = { distance: number };
  * The board already shows the new state, so its zone is empty: the ghost is placed over the zone at once, in the
  * pose the card had (sleeve or face, Attack or Defense), and lifts from there when its flight starts. The same
  * element stands in and flies, so the card never vanishes and never shows twice. A destroy has its own
- * stand-in (the break in SummonFx), a Tribute and a wipe piece their own layers.
+ * stand-in (the break in SummonFx), a Tribute and a wipe piece their own layers. Under reduced motion the
+ * "fade" plan has a stand-in of its own at the source (MoveFx), destroy or not.
  */
 export function standsInAtSource(plan: MovePlan): boolean {
   const from = plan.event.from?.location;
   if (from !== LOCATION_MZONE && from !== LOCATION_SZONE) return false;
-  if (plan.source == null || plan.silent || plan.destroy || plan.takeover || plan.handoffFrom) return false;
+  if (plan.source == null || plan.silent || plan.takeover || plan.handoffFrom) return false;
+  // Reduced motion: the card does not travel. It stays in its zone, pose and face, and fades out there
+  // while it fades in on its pile. A destroy has no break to stand in for it, so it stays too.
+  if (plan.reduced && plan.style === "fade" && !plan.tribute) return true;
+  if (plan.destroy) return false;
   // A showcase that rises from the zone starts on the card; one that rises from a strip or a pile does not.
   if (plan.style === "add") return plan.showcase?.origin.kind === "source";
   return plan.style !== "tribute" && plan.style !== "fade";
