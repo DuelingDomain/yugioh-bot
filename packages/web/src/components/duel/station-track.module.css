@@ -986,3 +986,23 @@ button.plate[data-next="true"]:hover {
     display: none;
   }
 }
+
+/* ---------- wide table (3 and 4 seats): the turn order sits in the left block, beside the turn and the clock ---------- */
+
+.seatSlot {
+  flex: none;
+  min-width: 0;
+  margin-left: 4px;
+}
+@media (min-width: 901px) {
+  .root[data-seat-chips] {
+    grid-template-columns: minmax(max-content, 1fr) minmax(0, 36rem) minmax(260px, auto);
+  }
+  .root[data-seat-chips][data-chain="true"] {
+    grid-template-columns: minmax(max-content, 1fr) minmax(0, 30rem) minmax(440px, auto);
+  }
+  .root[data-seat-chips] .seat { padding-left: 14px; gap: 8px; }
+  .root[data-seat-chips] .seatName { max-width: 11ch; }
+  .root[data-seat-chips] .clockSlot { margin-left: 4px; }
+  .root[data-seat-chips] .actions { gap: 8px; padding: 0 12px 0 4px; }
+}

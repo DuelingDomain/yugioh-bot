@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { DuelEngineView, DuelFormat, DuelSeatView } from "@yugidraft/shared/duels";
 import {
   ARENA_CENTER,
+  boardBounds,
   compactFor,
   flyWorld,
   flyYawFor,
@@ -11,9 +12,12 @@ import {
   seatNormal,
   seatPoses,
   stageFit,
+  stageSpread,
   slotPlan,
   slotZIndex,
   tableLayout,
+  wideHoloAnchors,
+  wideHomeSlots,
 } from "@/components/duel/table/geometry";
 import type { CameraState } from "@/components/duel/table/types";
 
@@ -37,7 +41,10 @@ function camera(over: Partial<CameraState> = {}): CameraState {
     fly: { yawDeg: 0, tiltDeg: 40, zoom: 1, targetSeat: null }, lock: null, ...over,
   };
 }
-const VIEW = { width: 1440, height: 900 };
+// A box exactly the stage's shape: no room beyond the stage, so every pose is the classic one.
+const VIEW = { width: 1100, height: 860 };
+// A box wider than the stage (a 1920 by 1080 screen under the 72px rail and the top and bottom bars).
+const WIDE = { width: 1848, height: 950 };
 
 describe("tableLayout", () => {
   it("places a 3-way table clockwise from the viewer with viewer-relative tones", () => {

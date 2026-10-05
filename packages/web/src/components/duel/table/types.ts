@@ -165,6 +165,7 @@ export interface TableStageProps {
   fx?: ReactNode;
   promptCenter?: ReactNode;
   overlay?: ReactNode; // slots: FxBoundary tree, PromptCenter, menus
+  masterChip?: ReactNode; // hangs under the viewer's own holo LP panel (the Deck Master chip of a domain duel)
 }
 export type TagStageProps = TableStageProps;
 export type FxLockRule = (event: DuelEvent) => { reason: CameraLockReason; ms: number } | null;

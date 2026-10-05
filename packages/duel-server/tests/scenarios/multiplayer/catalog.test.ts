@@ -73,7 +73,8 @@ describe("multiplayer card catalog", () => {
   it("keeps 21 all-seat or ongoing cards and 45 one-opponent cards after the FFA rule change", () => {
     expect(GROUP_ALL).toHaveLength(21);
     expect(GROUP_ONE).toHaveLength(45);
-    expect(MULTIPLAYER_FORBIDDEN.length).toBeGreaterThanOrEqual(25);
+    expect(MULTIPLAYER_FORBIDDEN).toHaveLength(46);
+    expect(MULTIPLAYER_FORBIDDEN.filter((entry) => entry.formats.includes("tag"))).toHaveLength(24);
   });
 
   it("puts opponent-field cards in the one-opponent group with the declaration or response rule", () => {
@@ -181,6 +182,18 @@ describe("multiplayer card catalog", () => {
       .map((file) => Number(file.slice(1, -4)));
     const forbidden = new Set(MULTIPLAYER_FORBIDDEN.map((entry) => entry.code));
     expect(withWin.filter((code) => !forbidden.has(code))).toEqual([]);
+  });
+
+  it("forbids Convulsion of Nature in every multiplayer format with Deck reverse evidence", () => {
+    const entry = MULTIPLAYER_FORBIDDEN.find((item) => item.code === 62966332);
+    expect(entry?.name).toBe("Convulsion of Nature");
+    expect(entry?.category).toBe("symmetry");
+    expect(entry?.formats).toEqual(["ffa3", "ffa4", "tag"]);
+    expect(FORBIDDEN_EVIDENCE[62966332]).toEqual([
+      { file: "official/c62966332.lua", line: 5, token: "GLOBALFLAG_DECK_REVERSE_CHECK" },
+      { file: "official/c62966332.lua", line: 14, token: "EFFECT_REVERSE_DECK" },
+      { file: "official/c62966332.lua", line: 17, token: "SetTargetRange(1,1)" },
+    ]);
   });
 
   it("gives every Kaiju and Lava procedure card the same rule (Tribute goes to the field of the Tributed monster)", () => {

@@ -101,8 +101,9 @@ const RACES: Record<string, number> = {
 };
 
 const RACE_PATTERN =
-  "(aqua|beast-warrior|beast|cyberse|dinosaur|divine-beast|dragon|fairy|fiend|fish|illusion|insect|machine|plant|psychic|pyro|reptile|rock|sea serpent|spellcaster|thunder|warrior|winged beast|wyrm|zombie)";
-const ATTRIBUTE_PATTERN = `(${Object.keys(ATTRIBUTES).join("|")})`;
+  "\\b(aqua|beast[ -]warrior|beast|cyberse|dinosaur|divine[ -]beast|dragon|fairy|fairies|fiend|fish|fishes|illusion|insect|machine|plant|psychic|pyro|reptile|rock|sea[ -]serpent|spellcaster|thunder|warrior|winged[ -]beast|wyrm|zombie)(?:s)?\\b";
+const ATTRIBUTE_PATTERN = `\\b(${Object.keys(ATTRIBUTES).join("|")})\\b`;
+const QUOTED_DOMAIN_MENTION = new RegExp(`^(?:${RACE_PATTERN}|${ATTRIBUTE_PATTERN})$`, "i");
 const NOT_TREATED_AS = "\\(This card is not treated as an? (\".*?\") card\\.\\)";
 const MENTIONED_QUOTES = "\"(.*?)\"";
 const NAME_IDENTITY =
@@ -485,6 +486,13 @@ function componentOf(card: EngineCard, identities: { find(name: string): string 
   return identities.find(name);
 }
 
+function domainEffectText(dm: EngineCard): string {
+  if ((dm.type & TYPE_NORMAL) === 0) return dm.desc;
+  if ((dm.type & TYPE_PENDULUM) === 0) return "";
+  // Normal Pendulums have an effect box above their separate flavor/monster box.
+  return /\[\s*Pendulum Effect\s*\]([\s\S]*?)(?:\[\s*(?:Monster Effect|Flavor Text)\s*\]|$)/i.exec(dm.desc)?.[1] ?? "";
+}
+
 function buildDomain(dm: EngineCard, catalog: Catalog): Domain {
   const attributes = new Set<number>([dm.attribute, ATTRIBUTE_DIVINE]);
   const races = new Set<number>([dm.race, RACE_DIVINE]);
@@ -503,8 +511,8 @@ function buildDomain(dm: EngineCard, catalog: Catalog): Domain {
     for (const code of match.setcodes) setcodes.add(code);
   };
 
-  if ((dm.type & TYPE_NORMAL) === 0) {
-    let text = dm.desc;
+  let text = domainEffectText(dm);
+  if (text) {
     ({ cleaned: text } = cleanDesc(text, NOT_TREATED_AS));
     if (catalog.quoteCardNames.length > 0) {
       const quoteCards = catalog.quoteCardNames.map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
@@ -518,11 +526,13 @@ function buildDomain(dm: EngineCard, catalog: Catalog): Domain {
       const archetype = catalog.nameHex.get(mention);
       if (archetype !== undefined) setcodes.add(archetype);
       else addNamed(mention);
+      // A quoted Attribute/Type label is a mention; words inside card names are not.
+      if (archetype === undefined && QUOTED_DOMAIN_MENTION.test(mention)) text += ` ${mention}`;
     }
     const raceMentions = cleanDesc(text, RACE_PATTERN);
     text = raceMentions.cleaned;
     for (const race of raceMentions.matches) {
-      const key = race.replace(/\W/g, "");
+      const key = race.replace(/\W/g, "").replace(/^fairies$/, "fairy").replace(/^fishes$/, "fish");
       const raceCode = RACES[key === "divinebeast" ? "divine" : key];
       if (raceCode === undefined) fail(`Unknown mentioned Type "${race}" on ${dm.name}`);
       races.add(raceCode);
