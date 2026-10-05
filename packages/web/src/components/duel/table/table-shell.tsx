@@ -46,9 +46,7 @@ import { CameraControls } from "./camera-controls";
 import { tableLayout } from "./geometry";
 import { GridStage } from "./grid-stage";
 import { gridKeyGates, useGridFocus } from "./grid-focus";
-import { GridMasterToken } from "./grid-master";
-import { GridHoverPreview } from "./grid-preview";
-import { ChainList, ChainTower, DOCK_PANES, GridDock, GridFlyout, useHudDismiss, type HudPane } from "./grid-hud";
+import { HudLayer, useHudPane } from "./hud-layer";
 import { gridCells, usesGridLayout } from "./grid-layout";
 import { HistoryStrip } from "./history-strip";
 import { OpponentBar } from "./opponent-bar";
@@ -66,7 +64,6 @@ import hudStyles from "./grid-hud.module.css";
 import styles from "./table-shell.module.css";
 
 /** Panes that stay mounted while hidden, so they keep the rows they built (the log counts the new ones). */
-const HUD_KEEP: readonly HudPane[] = ["log"];
 
 export interface TableShellActions {
   onExit?: () => void;
@@ -172,6 +169,7 @@ function TableShellBody({
   const hud = !narrow && usesGridLayout(engineFormat(tracked.engine) as TableFormat, tracked.engine.seats);
   // The Card pane is a flyout in the HUD: a hover must not fill it, only a click or Inspect does.
   const ui = useTableUi(tracked, { initialPane: hud ? "log" : undefined });
+  const hudState = useHudPane({ enabled: hud, suspended: ui.suspended, inspect: ui.inspect, menuOpen: ui.menu != null });
   const base = ui.controller;
   const { engine, room, viewerSeat, nameOf, prompt } = base;
   const format = engineFormat(engine);
@@ -188,7 +186,6 @@ function TableShellBody({
   const ownBoardRef = useRef<HTMLDivElement>(null);
   const boardRef = roomBoardRef ?? ownBoardRef;
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [hudPane, setHudPane] = useState<HudPane | null>(null);
   const suspended = inputSuspended || ui.suspended || (narrow && sheetOpen);
   const flow = useAimFlow(base, layout, rootRef, { suspended });
   const controller = flow.controller;
@@ -196,7 +193,7 @@ function TableShellBody({
   // The 4-way grid starts with your own field in focus. The turn strip and the keys (1 to 4, O, Esc) move the focus.
   const gridSeats = useMemo(() => gridCells(layout), [layout]);
   const gridShown = useMemo(() => engine.seats.filter((view) => !view.eliminated).map((view) => view.seat), [engine.seats]);
-  const gates = gridKeyGates({ prompt: controller.prompt, viewerSeat, aiming: flow.aiming, seatKeys: flow.seatKeys, flyoutOpen: hudPane != null });
+  const gates = gridKeyGates({ prompt: controller.prompt, viewerSeat, aiming: flow.aiming, seatKeys: flow.seatKeys, flyoutOpen: hudState.pane != null });
   const gridFocus = useGridFocus({
     enabled: grid,
     home: gridSeats.find((cell) => cell.home)?.seat ?? 0,
@@ -295,7 +292,7 @@ function TableShellBody({
     out: camera.out,
   };
   const playersText = session.seats.map((seat) => seat.displayName).join(" v ");
-  const logVisible = hud ? hudPane === "log" : ui.pane === "log" && (!narrow || sheetOpen);
+  const logVisible = hud ? hudState.pane === "log" : ui.pane === "log" && (!narrow || sheetOpen);
   const inspectCard = (target: InspectTarget) => { ui.inspectCard(target); if (narrow) setSheetOpen(true); };
   // Before anything is hovered the Card tab shows the viewer's first face-up monster (else a hand card), as the tag table does.
   const startCard = ui.inspect ? null : firstInspectCard(engine, viewerSeat);
@@ -331,23 +328,6 @@ function TableShellBody({
       </details>
     </div>
   );
-
-  const toggleHud = useCallback((pane: HudPane) => setHudPane((current) => (current === pane ? null : pane)), []);
-  useHudDismiss(hud && hudPane != null, ui.suspended, () => setHudPane(null));
-  // A click or Inspect on a card opens the Card pane, unless that click opened an action menu (it keeps the board clear).
-  const menuOpen = ui.menu != null;
-  useEffect(() => {
-    if (hud && ui.inspect && !menuOpen) setHudPane("card");
-    // Only a new inspect target opens it.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hud, ui.inspect]);
-  const hudTabs: readonly HudPane[] = hudPane === "card" ? ["card", ...DOCK_PANES] : DOCK_PANES;
-  const hudPanels: Partial<Record<HudPane, ReactNode>> = {
-    card: cardPanel,
-    log: logPanel,
-    settings: <TableSettings controller={controller} preferences={preferences} connection={connection} tools={settingsTools} />,
-    chain: <ChainList chain={engine.chain} nameOf={nameOf} tones={seatTones} />,
-  };
 
   const pileSeat = ui.pile?.seat;
   const out = standings.filter((entry) => engine.seats.find((view) => view.seat === entry.seat)?.eliminated === true);
@@ -646,29 +626,34 @@ function TableShellBody({
         </div>
       )}
       {hud ? (
-        <>
-          <GridDock pane={hudPane} onToggle={toggleHud} unread={logUnread} chainCount={chainOpen ? engine.chain.length : 0} />
-          {chainOpen ? <ChainTower chain={engine.chain} nameOf={nameOf} tones={seatTones} onOpen={() => setHudPane("chain")} /> : null}
-          {domain ? (
-            <GridMasterToken
-              view={engine.seats.find((seat) => seat.seat === (viewerSeat ?? layout.anchorSeat))}
-              local={!spectator}
-              legalKeys={controller.legalKeys}
-              selectedKeys={controller.selectedKeys}
-              canAct={canAct}
-              legalActionsFor={(card, keys) => (canAct && prompt?.kind === "choice" && prompt.context?.type === "action" ? optionsForCard(prompt, card, keys) : [])}
-              open={hudPane === "master"}
-              title={spectator ? `${nameOf(layout.anchorSeat)}'s Master` : "Your Master"}
-              onToggle={() => toggleHud("master")}
-              onClose={() => setHudPane(null)}
-              onChooseAction={(option) => controller.onAnswer({ choice: option.id })}
-              onInspect={(target) => { ui.setInspect(target); setHudPane("card"); }}
-              onHoverCard={controller.onHoverCard}
-            />
-          ) : null}
-          <GridFlyout pane={hudPane} tabs={hudTabs} panels={hudPanels} keepMounted={HUD_KEEP} onSelect={setHudPane} onClose={() => setHudPane(null)}
-            chainCount={chainOpen ? engine.chain.length : 0} chainLive={chainOpen} />
-        </>
+        <HudLayer
+          hud={hudState}
+          panels={{
+            card: cardPanel,
+            log: logPanel,
+            settings: <TableSettings controller={controller} preferences={preferences} connection={connection} tools={settingsTools} />,
+          }}
+          chain={engine.chain}
+          chainOpen={chainOpen}
+          nameOf={nameOf}
+          seatTones={seatTones}
+          logUnread={logUnread}
+          master={domain ? {
+            view: engine.seats.find((seat) => seat.seat === (viewerSeat ?? layout.anchorSeat)),
+            local: !spectator,
+            legalKeys: controller.legalKeys,
+            selectedKeys: controller.selectedKeys,
+            canAct,
+            legalActionsFor: (card, keys) => (canAct && prompt?.kind === "choice" && prompt.context?.type === "action" ? optionsForCard(prompt, card, keys) : []),
+            title: spectator ? `${nameOf(layout.anchorSeat)}'s Master` : "Your Master",
+            onChooseAction: (option) => controller.onAnswer({ choice: option.id }),
+            onHoverCard: controller.onHoverCard,
+          } : null}
+          onInspect={ui.setInspect}
+          preview={ui.hover ? { card: ui.hover.card, owner: { name: nameOf(ui.hover.card.controller), ...toneOf(ui.hover.card.controller) } } : null}
+          previewHidden={ui.menu != null || ui.pile?.open === true}
+          reducedMotion={controller.reducedMotion}
+        />
       ) : null}
       {narrow ? <TablePhonePanes domain={domain} pane={ui.pane} open={sheetOpen} unread={logUnread}
         onClose={() => setSheetOpen(false)} onSelect={(pane) => { ui.setPane(pane); setSheetOpen(true); }}
@@ -699,13 +684,6 @@ function TableShellBody({
           prefer={confirmSide(ui.attackerKey, lockAnchor, rootRef.current ?? document)}
           onConfirm={flow.confirm}
           onBack={flow.cancel}
-        />
-      ) : null}
-      {hud ? (
-        <GridHoverPreview
-          card={ui.hover && !ui.menu && !ui.pile?.open && hudPane == null ? ui.hover.card : null}
-          owner={ui.hover ? { name: nameOf(ui.hover.card.controller), ...toneOf(ui.hover.card.controller) } : null}
-          reducedMotion={controller.reducedMotion}
         />
       ) : null}
       {!hud && ui.hover && !ui.menu && !ui.pile?.open && !sheetOpen ? <CardHoverInfo card={ui.hover.card} anchor={ui.hover.anchor} /> : null}
