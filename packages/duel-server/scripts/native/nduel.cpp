@@ -1015,7 +1015,7 @@ int main(int argc, char** argv) {
 		if(opt.tag) {
 			for(int k : {1, 3, 2, 0}) expected.push_back((chain_L + k) % 4);
 		} else {
-			const int st = chain_L == turn_player ? (turn_player + 1) % n : turn_player;
+			const int st = (chain_L + 1) % n;
 			for(int k = 0; k < n; ++k) expected.push_back((st + k) % n);
 		}
 		size_t at = 0;

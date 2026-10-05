@@ -5,6 +5,7 @@ import {
   auraTintOf,
   cueDuration,
   hasCentreBanner,
+  fxSoundsItself,
   isHeavySummon,
   slamCrackCount,
   slamStrengthOf,
@@ -40,6 +41,16 @@ const threeLinkResolution: DuelEvent[] = [
 ];
 
 describe("collectFreshEvents", () => {
+  it("consumes tosses once and leaves their picture and timing to the toss layer", () => {
+    const toss: DuelEvent = { ...event(18, "toss"), toss: { type: "coin", results: ["heads", "tails"] } };
+    expect(collectFreshEvents([toss, toss], 17)).toEqual({ nextCursor: 18, fresh: [toss] });
+    expect(collectFreshEvents([toss], 18)).toEqual({ nextCursor: 18, fresh: [] });
+    expect(hasCentreBanner("toss")).toBe(false);
+    expect(cueDuration("toss", false)).toBe(0);
+    expect(cueDuration("toss", true)).toBe(0);
+    expect(fxSoundsItself(toss)).toBe(true);
+  });
+
   it("consumes confirmations without allocating a feedback banner", () => {
     const confirm = event(18, "confirm");
     expect(collectFreshEvents([confirm], 17)).toEqual({ nextCursor: 18, fresh: [confirm] });

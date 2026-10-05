@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { seatsOfTeam, teamOfSeat, type DuelEvent, type DuelEngineView } from "@yugidraft/shared/duels";
 import { BattleFx } from "../battle-fx";
 import { ChainFx } from "../chain-fx";
+import { CoinTossFx } from "../coin-toss-fx";
 import { DestroyFx } from "../destroy-fx";
 import { DuelFeedback } from "../feedback";
 import { FxBoundary } from "../fx-boundary";
@@ -85,6 +86,7 @@ export function TagFx({ controller, preferences, fxActive = true, passedSeats = 
   const duelKey = room.session.slug;
   return (
     <FxBoundary>
+      <CoinTossFx events={events} duelKey={duelKey} reducedMotion={reducedMotion} />
       <DuelFeedback events={events} duelKey={duelKey} soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={reducedMotion} />
       <SummonFx events={events} duelKey={duelKey} reducedMotion={reducedMotion} shake={preferences.shake} />
       <MoveFx events={events} duelKey={duelKey} reducedMotion={reducedMotion} />

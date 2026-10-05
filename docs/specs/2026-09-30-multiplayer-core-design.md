@@ -463,10 +463,11 @@ mirror check (a monster in one player's EMZ blocks the same column for the other
 Define `response_order(link_adder)`, which is computed again after each new Chain Link:
 
 - **1v1:** unchanged (opponent of the adder first, then the adder).
-- **FFA (product owner, 2026-09-30):** the turn player has priority. If the adder is not the turn player, the order is the
-  turn player, then clockwise from the turn player through every other duelist, the adder included. If the adder is the turn
-  player, the order starts with the next duelist clockwise and ends with the turn player. Every duelist gets a window; a pass
-  by all in a row ends the chain. Example with 4 duelists, P1 the turn player: P2 chains, so the order is P1, P2, P3, P4.
+- **FFA (product owner, 2026-10-04; supersedes the 2026-09-30 decision):** after each new link, the order starts
+  with the next living seat clockwise after the adder and ends with the adder. A new link clears the previous passes;
+  all living seats must pass in a row after the last link to resolve the chain. Eliminated and leaving seats are skipped.
+  Example: A activates, B passes, C chains; D responds first, then A, B and C. An open window still starts with the turn
+  player. SEGOC and trigger ordering keep their existing rules.
   With 2 duelists this is the same as 1v1.
 - **Tag:** ADR-0002 (official Tag rule): the **opposing team responds first**. the opposing team responds first. Within a team, both members get to respond. The initial protocol, simple and ADR-compatible:
   ask the team members in turn order; the first member who has a legal activation may act; both must pass for the team to pass.

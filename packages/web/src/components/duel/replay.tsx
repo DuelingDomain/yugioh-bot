@@ -10,6 +10,8 @@ import { duelReplayKey, getDuelReplay } from "./api";
 import { CardHoverInfo } from "./card-interactions";
 import { phaseLabel } from "./constants";
 import { DeckMasterRail, DuelField } from "./field";
+import { CoinTossFx } from "./coin-toss-fx";
+import { useCoinPlaying, useHeldTossLogIds, withoutHeldTossLines } from "./coin-toss-lock";
 import { DuelFeedback } from "./feedback";
 import { MoveSourceBoundary } from "./fx-boundary";
 import { CardInspector, type InspectTarget } from "./inspector";
@@ -35,13 +37,15 @@ const noActions = () => [];
 const noop = () => undefined;
 
 /** The replay's Text log. Lines look like the live match sheet's (DuelLogLine); lines new at this step are lit. */
-export function LogList({ entries, freshIds, reducedMotion, playerName }: {
+export function LogList({ entries: allEntries, freshIds, reducedMotion, playerName }: {
   entries: ReplayLogEntry[];
   freshIds: Set<number>;
   reducedMotion: boolean;
   playerName: (seat: number) => string;
 }) {
   const endRef = useRef<HTMLLIElement>(null);
+  // The replay's coin toss line also waits for the coin to land.
+  const entries = withoutHeldTossLines(allEntries, useHeldTossLogIds());
   const categories = useLogCategories(entries);
   const count = entries.length;
   // Follow the newest entry id: the engine caps the log at 400 lines, so the length stops changing.
@@ -57,6 +61,31 @@ export function LogList({ entries, freshIds, reducedMotion, playerName }: {
       ))}
     </ol>
   );
+}
+
+/**
+ * Autoplay: steps to the next frame every BASE_STEP_MS / speed and stops at the last one. A coin toss in
+ * the replay plays on its own clock, so autoplay waits until it is gone and then steps on.
+ */
+export function useReplayAutoplay({ playing, index, last, speed, setIndex, setPlaying }: {
+  playing: boolean;
+  index: number;
+  last: number;
+  speed: number;
+  setIndex: (update: (value: number) => number) => void;
+  setPlaying: (playing: boolean) => void;
+}): void {
+  const coinPlaying = useCoinPlaying();
+  useEffect(() => {
+    if (!playing) return;
+    if (index >= last) {
+      setPlaying(false);
+      return;
+    }
+    if (coinPlaying) return;
+    const timer = window.setTimeout(() => setIndex((value) => Math.min(value + 1, last)), BASE_STEP_MS / speed);
+    return () => window.clearTimeout(timer);
+  }, [playing, index, speed, last, coinPlaying, setIndex, setPlaying]);
 }
 
 export function DuelReplayView({ slug }: { slug: string }) {
@@ -104,15 +133,7 @@ export function DuelReplayView({ slug }: { slug: string }) {
     setPlaying(true);
   }, [playing, last, seek]);
 
-  useEffect(() => {
-    if (!playing) return;
-    if (index >= last) {
-      setPlaying(false);
-      return;
-    }
-    const timer = window.setTimeout(() => setIndex((value) => Math.min(value + 1, last)), BASE_STEP_MS / speed);
-    return () => window.clearTimeout(timer);
-  }, [playing, index, speed, last]);
+  useReplayAutoplay({ playing, index, last, speed, setIndex, setPlaying });
 
   useEffect(() => {
     if (!timeline) return;
@@ -251,6 +272,8 @@ export function DuelReplayView({ slug }: { slug: string }) {
               topName={playerName(top?.seat ?? 1 - localSeat)} />
             <DuelFeedback events={engine.events} duelKey={`${slug}:replay:${epoch}`}
               soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={preferences.reducedMotion} />
+            {/* The replay plays the coin too, passive: nothing is locked and the cover takes no pointer. */}
+            <CoinTossFx events={engine.events} duelKey={`${slug}:replay:${epoch}`} reducedMotion={preferences.reducedMotion} passive />
             </MoveSourceBoundary>
           </div>
           <nav className={styles.phases} aria-label="Duel phases">

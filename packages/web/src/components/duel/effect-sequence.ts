@@ -7,6 +7,8 @@ import { LOCATION_SZONE, TYPE_SPELL, TYPE_TRAP } from "./constants";
 import type { MovePlan } from "./move-plan";
 
 const state = { readyAt: 0, placedAt: 0 };
+/** Holds that apply only to events laid out after `afterId` (a coin toss never delays what leads to it). */
+let holds: Array<{ at: number; afterId: number }> = [];
 const handled = new Set<number>();
 const sources = new Map<string, number>();
 const zoneKey = (zone: NonNullable<DuelEvent["zone"]>) => `${zone.controller}:${zone.location}:${zone.sequence}`;
@@ -14,8 +16,18 @@ const zoneKey = (zone: NonNullable<DuelEvent["zone"]>) => `${zone.controller}:${
 export function resetEffectSequence(): void {
   state.readyAt = 0;
   state.placedAt = 0;
+  holds = [];
   handled.clear();
   sources.clear();
+}
+
+/**
+ * Nothing in the effect sequence starts before `at`: the coin toss holds every later move and marker.
+ * Only events with an id above `afterId` (the toss) wait; the activation and the resolving beat before the
+ * toss keep their place, so the coin never shows before the card that tosses it.
+ */
+export function holdEffectSequenceUntil(at: number, afterId: number): void {
+  holds.push({ at, afterId });
 }
 
 const isSpellTrap = (event: DuelEvent) => event.zone?.location === LOCATION_SZONE &&
@@ -24,6 +36,7 @@ const isSpellTrap = (event: DuelEvent) => event.zone?.location === LOCATION_SZON
 /** Reconcile measured flights and render-captured scenes with the chain's existing beats. */
 export function sequenceEffects(fresh: readonly DuelEvent[], moves: readonly MovePlan[], now: number, reduced: boolean): void {
   const ordered = [...fresh].sort((a, b) => a.id - b.id);
+  holds = holds.filter((hold) => hold.at > now);
   const byId = new Map(moves.map((move) => [move.id, move]));
   const destroys = new Map(ordered.filter((event) => event.kind === "destroy").map((event) => [event.id, event]));
   const groups = new Map<string, Array<{ move: MovePlan; destroy: DuelEvent }>>();
@@ -47,6 +60,7 @@ export function sequenceEffects(fresh: readonly DuelEvent[], moves: readonly Mov
   for (const event of ordered) {
     if (handled.has(event.id)) continue;
     handled.add(event.id);
+    for (const hold of holds) if (hold.afterId < event.id) state.readyAt = Math.max(state.readyAt, hold.at);
     if (event.kind === "chain-end") sources.clear();
     const move = byId.get(event.id);
     const groupKey = groupOf.get(event.id);

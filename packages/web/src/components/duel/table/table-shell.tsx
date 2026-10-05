@@ -10,6 +10,7 @@ import { isCustomDomain } from "@yugidraft/shared/duels";
 import { BattleFx } from "../battle-fx";
 import { AttackConfirm, CardActionMenu, CardHoverInfo, confirmSide, targetName } from "../card-interactions";
 import { ChainFx } from "../chain-fx";
+import { CoinTossFx } from "../coin-toss-fx";
 import { isBattlePhase, phaseTitle, zoneKey } from "../constants";
 import { DestroyFx } from "../destroy-fx";
 import { DuelResultScreen } from "../duel-result";
@@ -607,6 +608,7 @@ function TableShellBody({
                 ) : null}
                 fx={
                   <FxBoundary>
+                    {fxActive ? <CoinTossFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
                     {fxActive ? <DuelFeedback events={engine.events} duelKey={session.slug} soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={controller.reducedMotion} /> : null}
                     {fxActive ? <SummonFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} shake={preferences.shake} /> : null}
                     {fxActive ? <MoveFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}

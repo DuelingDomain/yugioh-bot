@@ -59,6 +59,7 @@ import {
   type DuelHoverHandler,
   type FieldCallbacks,
 } from "./field-keys";
+import { isCoinTossActive } from "./coin-toss-lock";
 import { useSkinStyles } from "./skin";
 import baseStyles from "./field.module.css";
 
@@ -425,6 +426,8 @@ export function PileSlot({
             y: event.clientY,
             timer: window.setTimeout(() => {
               hold.current = null;
+              // A press that began before a coin toss must not open the menu (surrender) under the cover.
+              if (isCoinTossActive()) return;
               setMenuAnchor(target);
             }, 500),
           };

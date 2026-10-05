@@ -8,13 +8,16 @@
  *   1. wait until the board is quiet: no running script animation (MoveFx, SummonFx, PositionFx), no FX
  *      hold (battle, summon, destroy), no card flight (movesSettleAt) and no LP counter rolling;
  *   2. then a human pause (RESULT_TIMING.pauseMs) of continued quiet; a new effect in that time restarts it;
- *   3. never later than RESULT_TIMING.capMs after the end, so a stuck FX signal cannot hide the result.
+ *   3. never later than RESULT_TIMING.capMs after the end, so a stuck FX signal cannot hide the result;
+ *      but never while a coin toss plays: the coin is the only thing on the screen then (it has its own
+ *      safety timer, so it cannot hold the result for ever).
  * No wait at all for a duel that was already finished when the room opened (a reload, a link), and for
  * endings that have no board FX (surrender, time limit, lost connection, interrupted or cancelled table).
  * Reduced motion: one short pause (RESULT_TIMING.reducedPauseMs).
  *
  * `resultGate` is the whole decision as a pure function; `useResultGate` feeds it with the clock and the board.
  */
+import { isCoinTossActive } from "./coin-toss-lock";
 import { duelFxClock } from "./fx-clock";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import type { DuelStatus } from "@yugidraft/shared/duels";
@@ -49,6 +52,8 @@ export type ResultGateInput = {
   sinceEndMs: number;
   /** How long the board has been quiet without a break; null when it is busy now. */
   quietForMs: number | null;
+  /** A coin toss plays now: the result waits for it, cap and reduced pause included. */
+  coinPlaying?: boolean;
 };
 
 export type ResultGate =
@@ -65,6 +70,7 @@ export function resultGate(input: ResultGateInput, timing: ResultTiming = RESULT
   if (!input.over) return { show: false, reason: "not-over" };
   if (!input.live) return { show: true, reason: "opened-finished" };
   if (endsOffBoard(input.status, input.reasonKind)) return { show: true, reason: "off-board" };
+  if (input.coinPlaying) return { show: false, reason: "waiting" };
   if (input.reducedMotion) {
     return input.sinceEndMs >= timing.reducedPauseMs ? { show: true, reason: "reduced" } : { show: false, reason: "waiting" };
   }
@@ -121,15 +127,19 @@ export function useResultGate({ slug, status, hasResult, reason, reducedMotion, 
       return undefined;
     }
     if (immediate) return undefined;
-    const startedAt = duelFxClock.dateNow();
+    let startedAt = duelFxClock.dateNow();
     let quietSince: number | null = null;
     const tick = () => {
       const now = duelFxClock.dateNow();
-      quietSince = boardQuietNow(board.current) ? (quietSince ?? now) : null;
+      const coinPlaying = isCoinTossActive();
+      // The cap and the pauses count from the end of the last coin.
+      if (coinPlaying) startedAt = now;
+      quietSince = !coinPlaying && boardQuietNow(board.current) ? (quietSince ?? now) : null;
       const decision = resultGate({
         ...latest.current,
         sinceEndMs: now - startedAt,
         quietForMs: quietSince == null ? null : now - quietSince,
+        coinPlaying,
       });
       if (!decision.show) return;
       duelFxClock.clearInterval(timer);

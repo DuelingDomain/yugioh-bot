@@ -15,6 +15,7 @@
 import { duelFxClock } from "./fx-clock";
 import { useEffect, useState, type RefObject } from "react";
 import { GATE_TIMING } from "./duel-timing";
+import { waitForCoinIdle } from "./coin-toss-lock";
 
 export const REVEAL_TIMING = {
   /** The beat before a panel may appear. */
@@ -195,9 +196,15 @@ export function usePromptReveal({ promptId, board, reducedMotion, skip = false }
     if (!promptId || skip) return undefined;
     const controller = new AbortController();
     const source = () => board.current;
-    void waitForReveal({ source, reducedMotion, signal: controller.signal }).then((done) => {
-      if (done && !controller.signal.aborted) setRevealedId(promptId);
-    });
+    void waitForReveal({ source, reducedMotion, signal: controller.signal })
+      // A coin toss in play also holds the panel (the cap and reduced motion do not skip it).
+      .then(async (done) => {
+        if (done) await waitForCoinIdle(controller.signal);
+        return done;
+      })
+      .then((done) => {
+        if (done && !controller.signal.aborted) setRevealedId(promptId);
+      });
     return () => controller.abort();
     // The reduced-motion preference is read when the wait starts; a change mid-wait is not worth a restart.
     // eslint-disable-next-line react-hooks/exhaustive-deps
