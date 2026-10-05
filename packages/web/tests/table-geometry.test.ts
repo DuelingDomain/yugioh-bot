@@ -582,6 +582,28 @@ describe("hubPose", () => {
     });
   });
 
+  describe.each(boxes)("face-off far hand, %s", (_boxLabel, rawBox) => {
+    const area = rawBox ? fitOf(rawBox) : undefined;
+    it.each([[1], [2], [0]])("seat %i out: the hand backs of the far seat start at or below the top of the table box", (outSeat) => {
+      const duo = aliveLayout(tableLayout("ffa3", engine("ffa3", 3), 0), [outSeat]);
+      const poses = seatPoses(duo, camera(), area);
+      // The far seat is the one at the focus place (a viewer who is out watches with the first living seat far).
+      const far = [...poses.values()].find((pose) => pose.slot === "focus")!;
+      expect(far.rotateDeg).toBe(180);
+      // The back edge of the far field is toward the top: its hand backs (420 x 100 at 188..288 from the centre) put through the
+      // seat's tilt and perspective, as boardBounds does for the field.
+      const rot = (far.rotateDeg * Math.PI) / 180;
+      const tilt = ((far.tiltDeg ?? 0) * Math.PI) / 180;
+      const tops = [[-210, 188], [210, 188], [210, 288], [-210, 288]].map(([lx, ly]) => {
+        const px = lx * far.scale;
+        const py = ly * far.scale;
+        const y = px * Math.sin(rot) + py * Math.cos(rot);
+        return far.y + (y * Math.cos(tilt)) / (1 - (y * Math.sin(tilt)) / 1700);
+      });
+      expect(Math.min(...tops)).toBeGreaterThanOrEqual(0);
+    });
+  });
+
   it("uses the small strip at a 3-way table, the large one above a 4-way ring in the overview", () => {
     const three = tableLayout("ffa3", engine("ffa3", 3), 0);
     const four = tableLayout("ffa4", engine("ffa4", 4), 0);

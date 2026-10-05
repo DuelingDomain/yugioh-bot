@@ -69,6 +69,14 @@ const FFA3_SLOTS: Readonly<Record<PoseSlot, HomeSlot>> = {
   oN: { x: 327, y: 301, rotateDeg: 120, scale: 0.58, tiltDeg: 0 },
   oR: { x: 773, y: 301, rotateDeg: 240, scale: 0.58, tiltDeg: 0 },
 };
+/**
+ * The places of a face-off (a 3-way table with two seats left). The far seat is a little smaller and lower than the 3-way
+ * focus place, so its hand backs (about 288 stage px above the field centre at scale 1) stay inside the table box at the top.
+ */
+const DUO_SLOTS: Readonly<Record<PoseSlot, HomeSlot>> = {
+  ...FFA3_SLOTS,
+  focus: { x: 550, y: 234, rotateDeg: 180, scale: 0.78, tiltDeg: 9 },
+};
 /** The eleven named places of a 4-way table (the prototype's `4ffa-b` geometry at a 860 px stage). */
 const FFA4_SLOTS: Readonly<Record<PoseSlot, HomeSlot>> = {
   home: FFA4_HOME[0],
@@ -98,7 +106,8 @@ export function arrangementOf(layout: Pick<TableLayout, "format" | "arrangement"
 }
 
 function slotTable(layout: Pick<TableLayout, "format" | "arrangement">): Readonly<Record<PoseSlot, HomeSlot>> {
-  return arrangementOf(layout) === "ffa4" ? FFA4_SLOTS : FFA3_SLOTS;
+  const arrangement = arrangementOf(layout);
+  return arrangement === "ffa4" ? FFA4_SLOTS : arrangement === "duo" ? DUO_SLOTS : FFA3_SLOTS;
 }
 
 /**
