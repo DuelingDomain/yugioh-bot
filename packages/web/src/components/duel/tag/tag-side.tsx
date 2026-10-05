@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { seatsOfTeam, teamOfSeat, type DuelCard, type DuelCardInfo } from "@yugidraft/shared/duels";
 import { zoneKey } from "../constants";
 import { resolveEquipLinks } from "../equip-links";
@@ -15,6 +15,8 @@ import roomStyles from "../room.module.css";
 import { CardTabEmpty, DESKTOP_PANES, desktopPane, SidePanel, SideTabs, useIsNarrow } from "../side-panel";
 import { MatchSheetLog } from "../text-log";
 import { HistoryStrip } from "../table/history-strip";
+import { HudLayer, type HudPaneState } from "../table/hud-layer";
+import { hudMasterProps } from "../table/hud-shared";
 import { tableLayout } from "../table/geometry";
 import { TablePhonePanes } from "../table/table-phone-panes";
 import { TableSettings } from "../table/table-settings";
@@ -46,6 +48,24 @@ function useSeatTones(controller: TableController) {
   }, [layout]);
 }
 
+/**
+ * The floating HUD of the wide Rooftop (`table/hud-layer.tsx`). With it, `TagSide` renders no columns: the HUD layer
+ * (dock, flyouts, Deck Master plates, hover preview) and the prompt tray as a floating card. `camera` is the camera dock,
+ * a fourth dock icon.
+ */
+export type TagSideHud = {
+  state: HudPaneState;
+  /** The hovered card, for the preview. */
+  hover: TableUi["hover"];
+  /** The card of a prompt row under the pointer: the preview shows it when no board card is hovered. */
+  rowCard: DuelCardInfo | null;
+  /** The tray draws something a player sees. When it does not, the floating card hides. */
+  trayVisible: boolean;
+  /** A card menu is open: the preview hides. */
+  menuOpen: boolean;
+  camera: ReactNode;
+};
+
 export type TagSideProps = Pick<TableShellProps, "connection" | "settingsTools"> & {
   /** The controller the board uses (menu and aim aware), so the tray, the master docks and the pile act like the board. */
   controller: TableController;
@@ -60,6 +80,8 @@ export type TagSideProps = Pick<TableShellProps, "connection" | "settingsTools">
   /** Classes the shell uses to place the left column and the Deck Master column in its grid. */
   leftClassName?: string;
   mastersClassName?: string;
+  /** The floating HUD (wide screens only). Leave out for the columns and the phone panes. */
+  hud?: TagSideHud;
 };
 
 /**
@@ -79,6 +101,7 @@ export function TagSide({
   tray,
   leftClassName,
   mastersClassName,
+  hud,
 }: TagSideProps) {
   const { engine, room, viewerSeat, nameOf, prompt } = controller;
   const session = room.session;
@@ -93,7 +116,7 @@ export function TagSide({
   const [logUnread, setLogUnread] = useState(0);
   const seatTones = useSeatTones(controller);
   const canAct = controller.canAct && !controller.busy;
-  const logVisible = ui.pane === "log" && (!narrow || sheetOpen);
+  const logVisible = hud ? hud.state.pane === "log" : ui.pane === "log" && (!narrow || sheetOpen);
   const selectedPane = desktopPane(ui.pane);
 
   const openCard = (card: DuelCard | DuelCardInfo) =>
@@ -166,6 +189,41 @@ export function TagSide({
       waitingName={prompt ? nameOf(prompt.seat) : null}
     />
   );
+
+  if (hud && !narrow) {
+    // A spectator sees the anchor seat (seat 0), as the Deck Master column did.
+    const seat = viewerSeat ?? 0;
+    const source = {
+      legalKeys: controller.legalKeys,
+      selectedKeys: controller.selectedKeys,
+      canAct,
+      prompt,
+      onAnswer: controller.onAnswer,
+      onActivate: controller.onActivate,
+      onHoverCard: controller.onHoverCard,
+    };
+    const hovered = hud.hover?.card ?? null;
+    return (
+      <>
+        <div className={styles.hudTray} data-tone={prompt?.context?.type === "chain" ? "chain" : "action"} data-empty={hud.trayVisible ? undefined : "true"} data-prompt-surface={prompt ? "" : undefined}>{trayNode}</div>
+        <HudLayer
+          hud={hud.state}
+          panels={{ card: cardPanel, log: logPanel, settings: settingsPanel, camera: hud.camera }}
+          chain={engine.chain}
+          chainOpen={engine.chain.length > 0 && session.status === "active"}
+          nameOf={nameOf}
+          seatTones={seatTones}
+          logUnread={logUnread}
+          master={domain ? hudMasterProps(source, engine.seats.find((view) => view.seat === seat), viewerSeat != null, viewerSeat == null ? `${nameOf(seat)}'s Master` : "Your Master") : null}
+          otherMaster={domain && partner != null ? hudMasterProps(source, engine.seats.find((view) => view.seat === partner), false, `${nameOf(partner)}'s Master`) : null}
+          onInspect={ui.setInspect}
+          preview={hovered ? { card: hovered, owner: { name: nameOf(hovered.controller), ...(seatTones.get(hovered.controller) ?? SEAT_TONE_HEX.ice) } } : hud.rowCard ? { card: hud.rowCard, owner: null } : null}
+          previewHidden={hud.menuOpen || ui.pile?.open === true}
+          reducedMotion={controller.reducedMotion}
+        />
+      </>
+    );
+  }
 
   return (
     <>

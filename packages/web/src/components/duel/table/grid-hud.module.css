@@ -74,6 +74,22 @@
   pointer-events: auto;
 }
 
+/* The seat pill is narrow: its two clocks stack, one short name and time per line, so they never run into the seat name. */
+.bottom nav [data-pill] {
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+.bottom nav [data-pill] > span {
+  gap: 8px;
+  font-size: 15px;
+  line-height: 1.1;
+}
+.bottom nav [data-pill] > span small {
+  max-width: 8ch;
+  font-size: 11px;
+}
+
 /* ---------- icon dock ---------- */
 .dock {
   position: absolute;
@@ -429,10 +445,16 @@
 .masterFlyCard:hover { color: var(--duel-ink); background: rgb(239 231 213 / 0.08); }
 .masterFlyCard:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: 2px; }
 
-/* ---------- hover preview: slides out from the left edge ---------- */
+/* The second plate (the rival of a 1v1 duel, the partner of a Tag duel) sits in the right margin, under the top pills.
+   Its details open below it, so they never run off the top of the screen. */
+.masterWrap[data-slot="other"] { left: auto; right: 14px; bottom: auto; top: 56px; }
+.masterWrap[data-slot="other"] .masterFly { bottom: auto; top: calc(100% + 10px); }
+.masterWrap[data-slot="other"] .masterFly::after { top: auto; bottom: 100%; }
+
+/* ---------- hover preview: slides out from the left edge, beside the dock (never over its icons) ---------- */
 .preview {
   position: absolute;
-  left: 0;
+  left: 72px;
   top: 50px;
   z-index: 34;
   width: 270px;
@@ -440,14 +462,13 @@
   padding: 12px 12px 14px;
   overflow: hidden;
   border: 1px solid rgb(155 126 255 / 0.5);
-  border-left: 0;
-  border-radius: 0 14px 14px 0;
+  border-radius: 14px;
   background: rgb(9 15 29 / 0.97);
   box-shadow: 0 24px 60px -12px rgb(0 0 0 / 0.85);
   font-family: var(--duel-f-ui);
   color: var(--duel-ink);
   pointer-events: none;
-  transform: translateX(-100%);
+  transform: translateX(calc(-100% - 72px));
   transition: transform 0.18s ease-out, visibility 0s linear 0.18s;
   visibility: hidden;
 }

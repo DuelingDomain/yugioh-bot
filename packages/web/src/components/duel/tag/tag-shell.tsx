@@ -13,15 +13,19 @@ import { leavingOnlySeats, outOrLeavingSeats, outSeatOptionIds } from "../multi-
 import { usePickContinuation } from "../pick-continuation";
 import { useDuelPreferences, type DuelPreferences } from "../preferences";
 import { centerKind, PromptCenter } from "../prompt-center";
-import { PromptTray } from "../prompts";
+import { PromptTray, promptTrayVisible } from "../prompts";
 import { useResultGate } from "../result-reveal";
 import roomStyles from "../room.module.css";
 import { SeriesBanner } from "../series-banner";
 import { useIsNarrow } from "../side-panel";
-import { hasNoLegalMoves, resolveBattleStep, StationTrack } from "../station-track";
+import { resolveBattleStep, StationTrack } from "../station-track";
+import { RowPreviewBoundary, useHudEscape, useHudPane, useRowPreview } from "../table/hud-layer";
+import { DuelClockDisplay } from "../room-settings";
+import { stationTrackProps } from "../table/hud-shared";
 import { OpponentBar } from "../table/opponent-bar";
-import { toneBySeat } from "../table/seat-state";
+import { attackLockAt, toneBySeat } from "../table/seat-state";
 import { tableLayout } from "../table/geometry";
+import hudStyles from "../table/grid-hud.module.css";
 import { AimArrow } from "../table/aim-arrow";
 import { useAimFlow } from "../table/use-aim-flow";
 import { useTableUi } from "../table/use-table-ui";
@@ -36,7 +40,7 @@ import { TagFx, tagPriority } from "./tag-fx";
 import { TagHeader } from "./tag-header";
 import { TagPileViewer, TagSide } from "./tag-side";
 import { TagStage } from "./tag-stage";
-import { TagTrack } from "./tag-track";
+import { TagBaton, TagTrack } from "./tag-track";
 import { chainDecidingSeat, useChainPasses } from "./use-chain-passes";
 import { useRoofKeys } from "./use-roof-keys";
 import styles from "./tag-shell.module.css";
@@ -105,7 +109,13 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
     given.onAnswer(answer);
   }, [given, pick.noteAnswer, pickContinuation]);
   const tracked = useMemo(() => ({ ...given, onAnswer }), [given, onAnswer]);
-  const ui = useTableUi(tracked);
+  const narrow = useIsNarrow();
+  // A wide screen swaps the bars and side columns for the floating HUD (table/hud-layer.tsx). The Card pane is a flyout
+  // there: a hover must not fill it, only a click or Inspect does, so the list pane stays the starting one.
+  const hud = !narrow;
+  const hudState = useHudPane({ camera: true });
+  const ui = useTableUi(tracked, { initialPane: hud ? "log" : undefined, hud, onOpenCard: hudState.openCard });
+  const rowPreview = useRowPreview(tracked.prompt?.id ?? null);
   const base = ui.controller;
   const { engine, room, viewerSeat, nameOf, prompt } = base;
   const layout = useMemo(
@@ -117,10 +127,14 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const ownBoardRef = useRef<HTMLDivElement>(null);
   const boardRef = roomBoardRef ?? ownBoardRef;
-  const narrow = useIsNarrow();
   const [sheetOpen, setSheetOpen] = useState(false);
   // One flag for the aim flow and the camera keys. A seat pick or an aim does not suspend input: they need their keys.
   const suspended = tagInputSuspended({ inputSuspended, menu: ui.menu, pile: ui.pile, narrow, sheetOpen });
+  useHudEscape(hudState, hud, suspended);
+  const hudOpen = hud && hudState.pane != null;
+  // A modal (Surrender) opened from the Settings flyout: the flyout closes so the modal owns Esc.
+  const closeHud = hudState.close;
+  useEffect(() => { if (inputSuspended) closeHud(); }, [inputSuspended, closeHud]);
   const flow = useAimFlow(base, layout, rootRef, { suspended });
   const controller = flow.controller;
   const [hideResult, setHideResult] = useState(false);
@@ -199,6 +213,21 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
   const actionOptions = prompt?.context?.type === "action" ? prompt.options : [];
   const trackCaption = terminal ? "Duel finished" : prompt == null ? null : promptMine ? (actionPrompt ? null : prompt.title) : `${nameOf(prompt.seat)} is choosing…`;
   const canAct = base.canAct && !base.busy;
+  const trackProps = stationTrackProps({
+    phase: engine.phase,
+    battleStep,
+    turn: engine.turn,
+    turnSeat: engine.turnSeat,
+    mySeat: viewerSeat,
+    playerName: nameOf,
+    promptMine,
+    actionOptions,
+    canAct,
+    onAnswer: controller.onAnswer,
+    caption: trackCaption,
+    reducedMotion: controller.reducedMotion,
+    chainMode,
+  });
   const outSeats = engine.seats.filter((seat) => seat.eliminated).map((seat) => seat.seat);
 
   // The locked target of an attack: the confirm sits on the card. A locked seat keeps the opponent bar.
@@ -218,7 +247,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
       busy={controller.busy}
       draft={controller.draft}
       onSubmit={controller.onAnswer}
-      menuOpen={suspended}
+      menuOpen={suspended} escapeHeld={hudOpen}
       active={!terminal && !viewerOut}
       aim={flow.promptAim ?? undefined}
       headless={centered}
@@ -226,6 +255,9 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
       waitingName={prompt ? nameOf(prompt.seat) : null}
       disabledIds={outSeatOptionIds(prompt, outOrLeavingSeats(engine.seats))}
     />
+  );
+  const cameraDock = (
+    <CameraDock camera={camera} layout={layout} dispatch={dispatchCamera} nameOf={nameOf} turnSeat={engine.turnSeat} outSeats={outSeats} />
   );
   const side = (
     <TagSide
@@ -239,6 +271,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
       tray={tray}
       leftClassName={styles.left}
       mastersClassName={styles.masters}
+      hud={hud ? { state: hudState, hover: ui.hover, rowCard: rowPreview.card, trayVisible: promptTrayVisible(prompt, viewerSeat, !terminal && !viewerOut, centered), menuOpen: ui.menu != null, camera: cameraDock } : undefined}
     />
   );
 
@@ -254,6 +287,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
       data-phase={battle ? "battle" : undefined}
       data-turn={spectator ? "watch" : myTurn ? "you" : "opp"}
       data-reduced={controller.reducedMotion ? "true" : "false"}
+      data-hud={hud ? "true" : undefined}
     >
       <TagHeader
         session={session}
@@ -266,6 +300,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
         headerTools={headerTools}
         onExit={hasResult && resultReady ? () => actions?.onExit?.() : undefined}
         onShowResult={hasResult && hideResult ? () => setHideResult(false) : undefined}
+        hud={hud ? { baton: <TagBaton engine={engine} nameOf={nameOf} toneOf={toneOf} /> } : undefined}
       />
       {room.series && !showResult ? (
         <SeriesBanner
@@ -277,7 +312,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
       ) : null}
 
       <div className={styles.main} data-masters={domain && !narrow ? "true" : "false"}>
-        <div className={roomStyles.notices}>
+        <div className={`${roomStyles.notices} ${hud ? styles.hudNotices : ""}`}>
           <div className="pointer-events-auto">{notices}</div>
         </div>
         {narrow ? null : side}
@@ -293,6 +328,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
                 teamNames={teamNames}
                 fx={<TagFx controller={controller} preferences={preferences} fxActive={fxActive} passedSeats={passes} />}
                 promptCenter={
+                  <RowPreviewBoundary row={rowPreview} enabled={hud}>
                   <PromptCenter
                     prompt={prompt ?? (!hasResult ? pick.waiting : null)}
                     mySeat={viewerSeat}
@@ -301,7 +337,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
                     busy={controller.busy || (prompt == null && pick.waiting != null)}
                     draft={controller.draft}
                     onSubmit={controller.onAnswer}
-                    menuOpen={suspended}
+                    menuOpen={suspended} escapeHeld={hudOpen}
                     chain={engine.chain}
                     aim={flow.promptAim ?? undefined}
                     aimLocked={flow.locked}
@@ -311,11 +347,12 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
                     outSeats={outOrLeavingSeats(engine.seats)}
                     leavingSeats={leavingOnlySeats(engine.seats)}
                     revealed={controller.revealed}
-                    onInspectCard={(card) => ui.setInspect({ type: "info", card })}
+                    onInspectCard={hud ? rowPreview.show : (card) => ui.setInspect({ type: "info", card })}
                     nameOf={nameOf}
                     seatTones={seatTones}
                     priority={priority}
                   />
+                  </RowPreviewBoundary>
                 }
                 overlay={
                   <>
@@ -355,39 +392,35 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
             </MoveSourceBoundary>
           </div>
         </section>
-        {narrow ? null : (
+        {narrow || hud ? null : (
           <aside className={styles.right} aria-label="Camera">
             <CameraDock camera={camera} layout={layout} dispatch={dispatchCamera} nameOf={nameOf} turnSeat={engine.turnSeat} outSeats={outSeats} />
           </aside>
         )}
       </div>
 
-      <TagTrack
-        session={session}
-        engine={engine}
-        clock={room.clock?.activeSeat != null ? room.clock : null}
-        nameOf={nameOf}
-        prompt={prompt}
-        toneOf={toneOf}
-        reducedMotion={controller.reducedMotion}
-      >
-        <StationTrack
-          phase={engine.phase}
-          battleStep={battleStep}
-          turn={engine.turn}
-          turnSeat={engine.turnSeat}
-          mySeat={viewerSeat}
-          playerName={nameOf}
-          actionOptions={promptMine ? actionOptions : []}
-          canAct={canAct}
-          noLegalMoves={canAct && hasNoLegalMoves(actionOptions)}
-          onChoose={(id) => controller.onAnswer({ choice: id })}
-          clock={null}
-          caption={trackCaption}
+      {hud ? (
+        <div className={hudStyles.bottom} data-testid="hud-bottom" data-tag-track>
+          <StationTrack
+            {...trackProps}
+            clock={room.clock?.activeSeat != null ? <DuelClockDisplay key={room.clock.serverNow} clock={room.clock} session={session} reducedMotion={controller.reducedMotion} compact /> : null}
+            attackLock={attackLockAt("tag", engine.seats.length || 4, engine.turn, prompt)}
+            attackLockTestId="tag-attack-lock"
+          />
+        </div>
+      ) : (
+        <TagTrack
+          session={session}
+          engine={engine}
+          clock={room.clock?.activeSeat != null ? room.clock : null}
+          nameOf={nameOf}
+          prompt={prompt}
+          toneOf={toneOf}
           reducedMotion={controller.reducedMotion}
-          chainMode={chainMode}
-        />
-      </TagTrack>
+        >
+          <StationTrack {...trackProps} clock={null} />
+        </TagTrack>
+      )}
       {narrow ? side : null}
 
       {ui.menu ? (
@@ -416,7 +449,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
           onBack={flow.cancel}
         />
       ) : null}
-      {ui.hover && !ui.menu && !ui.pile?.open && !sheetOpen ? <CardHoverInfo card={ui.hover.card} anchor={ui.hover.anchor} /> : null}
+      {!hud && ui.hover && !ui.menu && !ui.pile?.open && !sheetOpen ? <CardHoverInfo card={ui.hover.card} anchor={ui.hover.anchor} /> : null}
       {showResult && !preview ? (
         <DuelResultScreen
           room={room}

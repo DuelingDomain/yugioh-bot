@@ -8,6 +8,7 @@ vi.mock("next/font/google", () => {
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
 });
 
+import type { DuelAnswer } from "@yugidraft/shared/duels";
 import { LOCATION_DMZONE } from "@/components/duel/constants";
 import { FFA4_FIXTURES } from "@/components/duel/table/fixtures/ffa4";
 import type { TableFixtureState } from "@/components/duel/table/fixtures/common";
@@ -33,8 +34,9 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function Shell({ state }: { state: TableFixtureState }) {
-  const controller = useFixtureController(state, { reducedMotion: true });
+function Shell({ state, onAnswer }: { state: TableFixtureState; onAnswer?: (answer: DuelAnswer) => void }) {
+  const base = useFixtureController(state, { reducedMotion: true });
+  const controller = onAnswer ? { ...base, onAnswer } : base;
   return <TableShell controller={controller} />;
 }
 const stateOf = (id: keyof typeof FFA4_FIXTURES.states) => FFA4_FIXTURES.states[id];
@@ -218,5 +220,54 @@ describe("the hover card preview", () => {
     const { container } = render(<Shell state={stateOf("main")} />);
     fireEvent.mouseEnter(myCard(container));
     expect(isOpen()).toBe(false);
+  });
+});
+
+describe("the HUD of the 4-way grid with a prompt", () => {
+  it("Esc closes an open flyout and does not answer the prompt", () => {
+    const onAnswer = vi.fn();
+    render(<Shell state={stateOf("chain-2")} onAnswer={onAnswer} />);
+    fireEvent.click(screen.getByTestId("hud-dock-log"));
+    expect(isOpen()).toBe(true);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(isOpen()).toBe(false);
+    expect(onAnswer).not.toHaveBeenCalled();
+  });
+
+  it("an open flyout does not hold the other prompt keys: N still says no", () => {
+    const onAnswer = vi.fn();
+    render(<Shell state={stateOf("chain-2")} onAnswer={onAnswer} />);
+    fireEvent.click(screen.getByTestId("hud-dock-log"));
+    fireEvent.keyDown(window, { key: "n" });
+    expect(isOpen()).toBe(true);
+    expect(onAnswer).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves Esc to a modal dialog, and the flyout stays", () => {
+    render(<Shell state={stateOf("main")} />);
+    fireEvent.click(screen.getByTestId("hud-dock-log"));
+    const modal = document.createElement("div");
+    modal.setAttribute("aria-modal", "true");
+    document.body.appendChild(modal);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(isOpen()).toBe(true);
+    modal.remove();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(isOpen()).toBe(false);
+  });
+});
+
+describe("the clock in the bar of the 4-way grid", () => {
+  it("shows the answering seat's clock only, and nothing when no clock runs", () => {
+    const running = structuredClone(stateOf("main"));
+    running.room.clock = { ...running.room.clock!, activeSeat: 1 };
+    const { unmount } = render(<Shell state={running} />);
+    const timer = within(screen.getByTestId("hud-bottom")).getByRole("timer");
+    expect(timer.querySelectorAll("[data-active]")).toHaveLength(1);
+    unmount();
+    const idle = structuredClone(stateOf("main"));
+    idle.room.clock = { ...idle.room.clock!, activeSeat: null };
+    render(<Shell state={idle} />);
+    expect(within(screen.getByTestId("hud-bottom")).queryByRole("timer")).toBeNull();
   });
 });
