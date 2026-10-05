@@ -292,6 +292,40 @@ describe("BattleFx", () => {
     }
   });
 
+  it("asks the zone, not the seat field, whether the picture is turned: an attack from the grid's bottom-right rival is not upside down", () => {
+    // A seat field says "opp" even at 0 degrees, but its zones (which turn the art) say "you" there.
+    const zone = board.querySelector<HTMLElement>('[data-zones="3:4:0"]')!;
+    const field = document.createElement("div");
+    field.dataset.side = "opp";
+    zone.replaceWith(field);
+    field.appendChild(zone);
+    zone.dataset.side = "you";
+    board.querySelector<HTMLElement>('[data-zones="1:4:0"]')!.dataset.side = "opp";
+    const attack3: DuelEvent = { id: 2, kind: "attack", seat: 3, text: "attack", zone: { controller: 3, location: 4, sequence: 0 }, target: attack.target };
+    const calculation: DuelEvent = { id: 3, kind: "battle", text: "Calculation", zone: attack3.zone, target: attack3.target,
+      battle: { attacker: { attack: 2300, defense: 2100, position: 1 }, target: { attack: 2300, defense: 1500, position: 1 } } };
+    const before = [
+      { seat: 3, monsters: [{ controller: 3, location: 4, sequence: 0, position: 1, ...warrior }] },
+      { seat: 1, monsters: [{ controller: 1, location: 4, sequence: 0, position: 1, ...warrior }] },
+    ] as unknown as DuelSeatView[];
+    const after = [{ seat: 3, monsters: [null] }, { seat: 1, monsters: [null] }] as unknown as DuelSeatView[];
+    const play = vi.fn((_id: string, _request: FxRequest) => Promise.resolve());
+    setSharedFx3d({ host: board, api: { ready: true, play, prefetchArt() {}, cancelAll() {} } });
+    try {
+      const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} seats={before} />);
+      rerender(<BattleFx events={[phase, attack3, calculation,
+        { id: 4, kind: "destroy", text: "", zone: attack3.zone, cause: "battle" },
+        { id: 5, kind: "destroy", text: "", zone: attack3.target, cause: "battle" }]} reducedMotion={false} seats={after} />);
+      const breaks = play.mock.calls[0]?.[1].battle?.breaks ?? [];
+      expect(breaks).toHaveLength(2);
+      const byCode = breaks.map((entry) => entry.turned);
+      // Attacker (the bottom-right rival, zone "you") first or second by break order; exactly one picture is turned: the 1v1-style target.
+      expect(byCode.filter(Boolean)).toHaveLength(1);
+      expect(breaks.find((entry) => entry.rect.x < 500)?.turned).toBe(true);
+      expect(breaks.find((entry) => entry.rect.x >= 500)?.turned).toBeFalsy();
+    } finally { setSharedFx3d(null); }
+  });
+
   it("refreshes declaration-time art from the engine calculation position", () => {
     const node = board.querySelector<HTMLElement>('[data-zones="1:4:0"]')!;
     node.dataset.defense = "false";

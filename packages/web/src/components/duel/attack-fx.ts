@@ -484,6 +484,25 @@ export function screenPose(box: HTMLElement): { w: number; h: number; turn: numb
   return { w, h, turn: Math.abs(turn) < 0.05 ? 0 : Math.round(turn * 100) / 100 };
 }
 
+/**
+ * True when the zone around `node` draws its picture half-turned (field.module.css `[data-side="opp"] .art`). The
+ * NEAREST `data-side` decides: a seat field says "opp" even at 0 degrees (the grid's bottom-right rival), but its
+ * zones are the ones that turn the art, and they say "you" there.
+ */
+export function zoneTurnsArt(node: Element): boolean {
+  return node.closest("[data-side]")?.getAttribute("data-side") === "opp";
+}
+
+/**
+ * True when the picture in this zone stands upside down on screen: the zone's own half turn, plus the turn of the
+ * seat field around it (a field turned past a quarter flips the picture back). `art` must be a positioned card box
+ * in the zone; an unreadable pose counts as no field turn.
+ */
+export function artUpsideDown(zone: Element, art: HTMLElement | null): boolean {
+  const pose = art?.parentElement ? screenPose(art.parentElement) : null;
+  return zoneTurnsArt(zone) !== (pose != null && Math.abs(pose.turn) > 90);
+}
+
 /** The turn of a card copy that was cut from a rotated seat field: the copy lives outside the field, so it carries the turn itself. */
 export function cutTurnStyle(cut: Pick<FxCut, "turn">): string {
   return cut.turn ? `rotate:${f1(cut.turn)}deg;` : "";

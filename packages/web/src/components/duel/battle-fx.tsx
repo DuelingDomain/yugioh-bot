@@ -6,7 +6,7 @@ import { LOCATION_DMZONE, cardArtUrl, isDefense, isFacedown, zoneKey } from "./c
 import { battleOutcome, type BattleOutcome } from "./battle-outcome";
 import { battleTrigger } from "./battle-trigger";
 import { attackStyleFor, battleKind, battleTiming, DESTROY_TAIL_MS, hasCounterStrike, type AttackCardLike, type AttackStyleId, type BattleKind, type BattleTiming } from "./attack-styles";
-import { runAttackFx, screenPose, type AttackFxPlan, type FxCut, type FxLpHit, type FxSide } from "./attack-fx";
+import { artUpsideDown, runAttackFx, screenPose, zoneTurnsArt, type AttackFxPlan, type FxCut, type FxLpHit, type FxSide } from "./attack-fx";
 import { flipAttackAt, flipFightDamageAt } from "./chain-beats";
 import { FlipStrike, type FlipStrikePlan } from "./flip-strike";
 import { flipSequenceSteps } from "./flip-sequence";
@@ -291,7 +291,8 @@ function cutSourceOf(node: HTMLElement, card: BattleCard): CutSource | null {
   const pose = readPose(art);
   // The copy is drawn outside its zone, so it carries the opponent's half turn (field.module.css) as an attribute.
   const clone = art.cloneNode(true) as HTMLElement;
-  if (art.closest('[data-side="opp"]')) clone.setAttribute("data-turned", "true");
+  // Only the zone turns the art (the clone's field turn comes from screenPose), so ask the zone, not the field.
+  if (zoneTurnsArt(node)) clone.setAttribute("data-turned", "true");
   if (defense) clone.style.transform = defenseTransform(true, pose.fit);
   // Without a layout (no readable size) the box on screen is all there is: a Defense card lies on its side in it.
   const w = pose.w || art.offsetWidth || (defense ? box.height : box.width);
@@ -323,7 +324,7 @@ function captureAttack(event: DuelEvent, prev: CardIndex, now: CardIndex): Attac
     attacker,
     fromEl: fromNode.querySelector("[data-card-art]"),
     attackerCard,
-    attackerTurned: fromNode.closest('[data-side="opp"]') != null,
+    attackerTurned: artUpsideDown(fromNode, fromNode.querySelector<HTMLElement>("[data-card-art]")),
     lp,
   };
   if (event.target) {
@@ -335,7 +336,7 @@ function captureAttack(event: DuelEvent, prev: CardIndex, now: CardIndex): Attac
     const to = target?.box ?? boxOf(node);
     if (to.width <= 0 || to.height <= 0) return null;
     const targetInDefense = targetCard.position == null ? node.dataset.defense === "true" : isDefense(targetCard.position);
-    return { ...base, to, direct: false, target, toEl: node.querySelector("[data-card-art]"), targetCard, targetInDefense, targetTurned: node.closest('[data-side="opp"]') != null };
+    return { ...base, to, direct: false, target, toEl: node.querySelector("[data-card-art]"), targetCard, targetInDefense, targetTurned: artUpsideDown(node, node.querySelector<HTMLElement>("[data-card-art]")) };
   }
   const to = lpBox(event.targetSeat ?? 1 - zone.controller);
   if (!to) return null;

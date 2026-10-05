@@ -10,6 +10,7 @@ import { pickBattleRoute } from "./fx3d/routing";
 import { getSharedFx3d, viewportToHost } from "./fx3d/shared";
 import type { FxPiles, FxRect, FxRows, FxScene, FxWorld } from "./fx3d/types";
 import { safeFxAnimate as safeAnimate } from "./safe-animate";
+import { artUpsideDown } from "./attack-fx";
 import { duelFxClock } from "./fx-clock";
 import { chainEffectAt } from "./chain-beats";
 import { holdPromptReveal } from "./prompt-reveal";
@@ -146,7 +147,7 @@ function planGroup(group: SceneGroup<DuelEvent>, events: readonly DuelEvent[], m
       rect: toRect(found.box),
       code: event.card && event.card.code > 0 ? event.card.code : codeOfNode(found.node),
       defense: found.node.getAttribute("data-defense") === "true",
-      turned: found.node.closest('[data-side="opp"]') != null,
+      turned: artUpsideDown(found.node, found.node.querySelector<HTMLElement>("[data-card-art]")),
       box: found.box,
       event,
       st: zone.location !== LOCATION_MZONE,
