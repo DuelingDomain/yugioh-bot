@@ -65,7 +65,9 @@ describe("the floating HUD of the 4-way grid", () => {
     expect(container.querySelector("[data-hud='true']")).not.toBeNull();
     expect(screen.getByTestId("hud-top")).toBeTruthy();
     expect(screen.getByTestId("hud-bottom")).toBeTruthy();
-    for (const id of ["log", "settings", "history", "chain"]) expect(screen.getByTestId(`hud-dock-${id}`)).toBeTruthy();
+    for (const id of ["log", "settings", "chain"]) expect(screen.getByTestId(`hud-dock-${id}`)).toBeTruthy();
+    // The old History pane only repeated the Log pane, so the dock has no History icon.
+    expect(screen.queryByTestId("hud-dock-history")).toBeNull();
     expect(isOpen()).toBe(false);
   });
 
@@ -75,16 +77,16 @@ describe("the floating HUD of the 4-way grid", () => {
     expect(isOpen()).toBe(true);
     expect(flyout().getAttribute("data-pane")).toBe("settings");
     expect(screen.getByTestId("hud-dock-settings").getAttribute("aria-pressed")).toBe("true");
-    fireEvent.click(screen.getByTestId("hud-dock-history"));
-    expect(flyout().getAttribute("data-pane")).toBe("history");
-    fireEvent.click(screen.getByTestId("hud-dock-history"));
+    fireEvent.click(screen.getByTestId("hud-dock-log"));
+    expect(flyout().getAttribute("data-pane")).toBe("log");
+    fireEvent.click(screen.getByTestId("hud-dock-log"));
     expect(isOpen()).toBe(false);
   });
 
   it("closes with Esc, with the close button and with a click outside, but not with a click inside", () => {
     render(<Shell state={stateOf("main")} />);
     fireEvent.click(screen.getByTestId("hud-dock-log"));
-    fireEvent.pointerDown(within(flyout()).getByTestId("hud-tab-history"));
+    fireEvent.pointerDown(within(flyout()).getByTestId("hud-tab-settings"));
     expect(isOpen()).toBe(true);
     fireEvent.keyDown(window, { key: "Escape" });
     expect(isOpen()).toBe(false);

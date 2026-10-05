@@ -71,7 +71,7 @@ import hudStyles from "./grid-hud.module.css";
 import styles from "./table-shell.module.css";
 
 /** Panes that stay mounted while hidden, so they keep the rows they built (the log counts the new ones). */
-const HUD_KEEP: readonly HudPane[] = ["log", "history"];
+const HUD_KEEP: readonly HudPane[] = ["log"];
 
 export interface TableShellActions {
   onExit?: () => void;
@@ -373,15 +373,6 @@ function TableShellBody({
     card: cardPanel,
     log: logPanel,
     settings: <TableSettings controller={controller} preferences={preferences} connection={connection} tools={settingsTools} />,
-    history: (
-      <HistoryStrip
-        engine={engine}
-        mySeat={viewerSeat}
-        playerName={nameOf}
-        seatTones={seatTones}
-        onInspectCard={(card) => inspectCard("location" in card ? { type: "card", card } : { type: "info", card })}
-      />
-    ),
     chain: <ChainList chain={engine.chain} nameOf={nameOf} tones={seatTones} />,
   };
   const seatStrip = (
