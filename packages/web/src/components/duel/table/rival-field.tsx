@@ -81,6 +81,8 @@ export interface ExitingSeatProps {
   reducedMotion: boolean;
   /** Called once when the layer can go. */
   onDone: () => void;
+  /** A fixed place in the parent's px (the grid table), as on `RivalField`: the pose then only gives the card size. */
+  placement?: { left: number; top: number; zIndex: number };
 }
 
 /**
@@ -88,7 +90,7 @@ export interface ExitingSeatProps {
  * engine has emptied: the cards are drawn from the last view. It is a plain box the size of a field, turned and scaled
  * like one, so it lines up with the pad under it. Under reduced motion it only fades down.
  */
-export function ExitingSeat({ pose, tone, view, masterRule, faceUpHand, angleOffsetDeg = 0, reducedMotion, onDone }: ExitingSeatProps) {
+export function ExitingSeat({ pose, tone, view, masterRule, faceUpHand, angleOffsetDeg = 0, reducedMotion, onDone, placement }: ExitingSeatProps) {
   const width = boardWidth(masterRule);
   const cards = useMemo(() => crumbleCards(view, { faceUpHand, width }), [view, faceUpHand, width]);
   const done = useRef(onDone);
@@ -102,8 +104,9 @@ export function ExitingSeat({ pose, tone, view, masterRule, faceUpHand, angleOff
   const style: CSSProperties & Record<string, string | number> = {
     width: width * unit,
     height: CRUMBLE_UNIT * FIELD_H * unit,
-    transform: seatTransform(pose),
-    zIndex: slotZIndex(pose.slot, pose.scale) + 1,
+    ...(placement
+      ? { left: placement.left, top: placement.top, rotate: pose.rotateDeg ? `${pose.rotateDeg}deg` : "none", zIndex: placement.zIndex }
+      : { transform: seatTransform(pose), zIndex: slotZIndex(pose.slot, pose.scale) + 1 }),
   };
   return (
     <div className={styles.seat} style={style} data-seat-exit={pose.seat} data-exit-motion={reducedMotion ? "reduced" : "full"} aria-hidden="true">

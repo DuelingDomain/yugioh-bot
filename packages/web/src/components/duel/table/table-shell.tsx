@@ -200,7 +200,7 @@ function TableShellBody({
   const flow = useAimFlow(base, layout, rootRef, { suspended });
   const controller = flow.controller;
   const camera = useCamera({ controller, layout, initial: initialCamera, initialLock, aiming: flow.aiming, seatKeys: flow.seatKeys, suspended, uprightOnly: grid });
-  // The 4-way grid starts zoomed on your own field. The turn strip and the keys (1 to 4, O, Esc, + and -) move it.
+  // The 4-way grid starts with your own field in focus. The turn strip and the keys (1 to 4, O, Esc) move the focus.
   const gridSeats = useMemo(() => gridCells(layout), [layout]);
   const gridShown = useMemo(() => engine.seats.filter((view) => !view.eliminated).map((view) => view.seat), [engine.seats]);
   const gridFocus = useGridFocus({

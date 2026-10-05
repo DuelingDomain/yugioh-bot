@@ -115,8 +115,8 @@ export function playFlip(el: HTMLElement, previous: FlipTrack | undefined, next:
       rest.delta = null;
     }
   };
-  anim.addEventListener("finish", clear);
-  anim.addEventListener("cancel", clear);
+  anim.addEventListener?.("finish", clear);
+  anim.addEventListener?.("cancel", clear);
   rest.anim = anim;
   rest.delta = delta;
   if (options.fadeText && (Math.abs(delta.sx - 1) > 0.01 || Math.abs(delta.sy - 1) > 0.01)) {

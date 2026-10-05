@@ -1,8 +1,8 @@
 /*
- * The 4-way grid table: two columns of facing fields (see grid-layout.ts). The board box fills its parent. The world
- * inside is laid out in natural px and shown with `zoom` (never a scale transform, so text stays sharp); a translate on
- * its parent pans it. Slots (fx, prompt, overlay) lie over the whole box, so FX measure the real screen position of the
- * zones and LP plates, as on the other tables.
+ * The 4-way grid table: two columns of facing fields (see grid-layout.ts). The board box fills its parent. Every field
+ * and life panel is placed with real px (left, top, --sf-z) from one layout; at rest none has a transform, so text
+ * stays sharp. A change of focus FLIPs them (grid-flip.ts). Slots (fx, prompt, overlay) lie over the whole box, so FX
+ * measure the real screen position of the zones and LP plates, as on the other tables.
  */
 .board {
   --sheet: rgb(181 153 99 / 0.34);
@@ -34,10 +34,6 @@
   font-family: var(--font-duel-ui, "Arial Narrow"), "Arial Narrow", sans-serif;
 }
 
-.board[data-ready="false"] .pan {
-  visibility: hidden;
-}
-
 /* A faint ember wash over the whole board in the Battle Phase. */
 .board::after {
   content: "";
@@ -54,32 +50,20 @@
   opacity: 1;
 }
 
-.pan {
-  position: absolute;
-  left: 0;
-  top: 0;
-  transform-origin: 0 0;
-}
-
 .world {
-  position: relative;
-  transform-origin: 0 0;
+  position: absolute;
+  inset: 0;
 }
 
-/* A cell is only a hook for state; the field inside is placed on the world by its own transform. */
+/* A cell is only a hook for state; the field inside is placed on the world by its own left and top. */
 .cell {
   display: contents;
 }
 
-/* Fields sit still: the camera moves the world, not a field. No pose glide, no raster hint that would blur at a new zoom. */
+/* Fields sit still at rest: the stage animates a transform only during a move (FLIP). No pose glide, no raster hint that would blur. */
 .world :global([data-seat-slot]) {
   will-change: auto;
   transition: none;
-}
-
-/* Text on a field grows as the world shrinks (the zoom is tweened, so the factor is a variable of the world). */
-.world :global([data-seat-field]) {
-  --ts: var(--gts, 1) !important;
 }
 
 /* Your hand is drawn nearly as large as the 1v1 hand. It lies below your field and rises over its lower edge on hover. */
@@ -92,9 +76,9 @@
   pointer-events: none;
 }
 
-/* A field you can zoom to by its empty background or its life box. */
+/* A field you can focus by its empty background or its life box. */
 .cell:not([data-focus="true"]) > :global([data-seat-slot]) :global([data-seat-field]) {
-  cursor: zoom-in;
+  cursor: pointer;
 }
 
 .cell:not([data-focus="true"]) > :global([data-seat-slot]) :global([data-zones]),
@@ -102,11 +86,15 @@
   cursor: pointer;
 }
 
+/* The box of a life panel; the panel fits into it (see HoloLp `fit`). */
 .lp {
-  display: contents;
+  position: absolute;
+  z-index: 40;
+  display: flex;
+  align-items: center;
 }
 
-/* View controls: all fields, zoom out, zoom in. */
+/* View control: all fields. */
 .controls {
   position: absolute;
   right: 10px;
