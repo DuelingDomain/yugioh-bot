@@ -1,5 +1,5 @@
 import { activate, expectBoard, expectChain, expectEliminated, expectPrompt, expectResolved, expectResponseOrder,
-  pass, surrender, type Scenario, type Step } from "../../support/dsl.js";
+  pass, select, surrender, type Scenario, type Step } from "../../support/dsl.js";
 import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { domainVariant } from "./domain-variants.js";
 import { FFA_SCENARIOS } from "./nseat-ffa.js";
@@ -73,6 +73,40 @@ function chainAfterB(format: "ffa3" | "1v1"): Scenario {
       expectBoard({ p0: { hand: { count: 2 }, deckCount: 18, grave: ["Pot of Greed"] }, p1: { grave: ["Waboku"], spells: ["Waboku"] } })] });
 }
 standard.push(chainAfterB("ffa3"));
+standard.push(defineScenario({
+  id: "rule-proof-ffa4-chain-after-non-turn-segoc-controller",
+  title: "FFA4: SEGOC ends with p2's mandatory trigger, then p3, p0, p1 and p2 respond",
+  source: `${source.source} (owner, 2026-10-04)`,
+  rules: ["R-FFA-CHAIN", "R-FFA-TRIGGERS"],
+  tags: ["multiplayer", "ffa4", "chain", "trigger", "segoc"],
+  setup: {
+    format: "ffa4",
+    p0: { hand: ["Dark Hole"], monsters: ["Sangan"], deck: ["Giant Rat"], spells: [{ card: "Waboku", pos: "set" }] },
+    p1: { spells: [{ card: "Waboku", pos: "set" }] },
+    p2: { monsters: ["Skull-Mark Ladybug"], spells: [{ card: "Waboku", pos: "set" }] },
+    p3: { spells: [{ card: "Waboku", pos: "set" }] },
+  },
+  steps: [
+    activate("Dark Hole", "p0"),
+    ...(["p1", "p2", "p3", "p0"] as const).flatMap((by) => [
+      expectChain("Dark Hole"), expectPrompt({ by, context: "chain" }), pass(by),
+    ]),
+    // SEGOC keeps the turn player's trigger first; p2 controls the last link.
+    ...(["p3", "p0", "p1", "p2"] as const).flatMap((by, index) => [
+      expectChain("Sangan", "Skull-Mark Ladybug"), expectPrompt({ by, context: "chain" }),
+      ...(index === 3 ? [expectResponseOrder("p1", "p2", "p3", "p0", "p3", "p0", "p1", "p2")] : []),
+      pass(by),
+    ]),
+    select("Giant Rat"),
+    expectResolved("Dark Hole", "Skull-Mark Ladybug", "Sangan"),
+    expectBoard({
+      p0: { monsters: [], hand: ["Giant Rat"], grave: ["Dark Hole", "Sangan"], spells: ["Waboku"] },
+      p1: { lp: 8000, spells: ["Waboku"] },
+      p2: { lp: 9000, monsters: [], grave: ["Skull-Mark Ladybug"], spells: ["Waboku"] },
+      p3: { lp: 8000, spells: ["Waboku"] },
+    }),
+  ],
+}));
 export const FFA_CHAIN_PROOF_SCENARIOS = [...standard, ...standard.map(domainVariant)];
 
 const tag = defineScenario({ id: "rule-proof-tag-chain-response-order-control", title: "Tag: opposing team responds before partner after a new link",

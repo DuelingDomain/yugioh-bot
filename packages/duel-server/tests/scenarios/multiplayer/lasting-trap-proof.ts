@@ -40,7 +40,9 @@ function lastingTrap(format: Format): Scenario {
   const steps: Step[] = [
     activate(POT, "p0"),
     activate(WABOKU, "p1"),
-    ...(format === "tag" ? [pass("p2")] : []),
+    // Pass the seats between p1 and p0 before p0 counters the Trap activation.
+    pass("p2"),
+    ...(format === "ffa4" ? [pass("p3")] : []),
     activate(REBOOT, "p0"),
     // These real response prompts are after Red Reboot resolves. Its lasting lock must spare the other FFA seats and the Tag partner.
     pass("p2"),

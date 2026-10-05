@@ -556,7 +556,8 @@ export const FFA_SCENARIOS: Scenario[] = [
     source: `${SOURCE} [R-FFA-ELIMINATION]`,
     rules: ["R-FFA-ELIMINATION"],
     tags: ["multiplayer", "elimination", "chain", "surrender", "ffa4", "card:55144522", "card:60082869"],
-    // Chain: Pot of Greed (p0), Dust Tornado (p1), Dust Tornado (p2). p1 holds a second Dust Tornado, so it has the open window.
+    // Chain: Pot of Greed (p0), Dust Tornado (p1), Dust Tornado (p2). p2 responds first after p1's link.
+    // After p2's link, p3 and p0 cannot respond; p1 holds a second Dust Tornado, so it has the open window.
     // p2 gives up first (it holds no prompt), then p1 (it holds the window). Both Dust Tornado links destroy their Swords.
     setup: {
       format: "ffa4",
@@ -570,7 +571,7 @@ export const FFA_SCENARIOS: Scenario[] = [
       // R-FFA-OPP-ONE: declare the opponent before selecting its card.
       pickOpponent("p0", "p1"),
       select({ card: "Swords of Revealing Light", nth: 0 }),
-      pass("p1"),
+      expectPrompt({ by: "p2", context: "chain" }),
       activate("Dust Tornado", "p2"),
       // R-FFA-OPP-ONE: declare the opponent before selecting its card.
       pickOpponent("p0", "p2"),
