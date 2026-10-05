@@ -217,7 +217,10 @@ export function GridMasterToken({
             onFocus={(event) => onHoverCard?.(card, event.currentTarget)}
             onBlur={() => onHoverCard?.(null, null)}
           >
-            <span ref={artRef} className={styles.masterArt} style={{ backgroundImage: `url(${cardArtUrl(master.card.code, form.tall ? "full" : "small")})` }} aria-hidden="true" />
+            <span ref={artRef} className={styles.masterArt} style={{ backgroundImage: form.tall
+              // The small art sits under the full art, so the plate is never blank when the full image fails.
+              ? `url(${cardArtUrl(master.card.code, "full")}), url(${cardArtUrl(master.card.code, "small")})`
+              : `url(${cardArtUrl(master.card.code, "small")})` }} aria-hidden="true" />
             <span className={styles.masterId}>
               <small>{local ? "Your Master" : "Deck Master"}</small>
               <b title={master.card.name}>{master.card.name}</b>
