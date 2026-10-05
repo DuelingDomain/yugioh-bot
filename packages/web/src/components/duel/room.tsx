@@ -1297,6 +1297,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       })}
       clock={solid || !data.clock ? null : hud ? hudClock(data.clock, data.session, preferences.reducedMotion) : <DuelClockDisplay key={data.clock.serverNow} clock={data.clock} session={data.session} />}
       phases={phaseHub ? "hub" : "bar"}
+      compact={hud}
     />
   );
   const mobileTabs = tabs(true);
@@ -1422,7 +1423,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
             {inspectorNode}
           </aside>
         )}
-        {promptDockNode}
+        {hud ? null : promptDockNode}
         <section className={styles.boardColumn} aria-label="Duel field">
           <div className={styles.board} ref={boardRef} data-deal-wait={startBeats.waiting ? "true" : undefined}>
             {renderBoard(multi ? (
@@ -1438,7 +1439,10 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         {masterRail && !hud ? <aside className={styles.masters} aria-label="Deck Masters">{masterRail}</aside> : null}
       </div>
       {hud ? (
-        <div className={hudStyles.bottom} data-testid="hud-bottom">{trackNode}</div>
+        <div className={hudStyles.corner} data-testid="hud-corner">
+          {promptDockNode}
+          {trackNode}
+        </div>
       ) : (
         <div className={styles.track}>
           {trackNode}

@@ -27,8 +27,11 @@ describe("your hand is drawn larger than the strip reserves", () => {
     expect(css).toMatch(/\.handLocal \{\s*--cardw: var\(--lhcw\);/);
   });
 
-  it("rests the HUD room hand low, but keeps the higher rest where there is no hover to lift it", () => {
-    expect(css).toMatch(/\[data-hud="room"\]\) \.playmat \{[^}]*--lk: 0\.3;/);
-    expect(css).toMatch(/@media \(hover: none\) \{\s*:global\(\[data-hud="room"\]\) \.playmat \{\s*--lk: 0\.45;/);
+  it("keeps the HUD room hand inside its strip so it barely reaches the Spell/Trap row", () => {
+    // --lk 0.89 + the 0.95 drawn size leave a small part of a zone height of overlap; no lift reserve (cards that lift
+    // rise over the row), and the strip has no bottom reserve because the room has no station track.
+    expect(css).toMatch(/\[data-hud="room"\]\) \.playmat \{[^}]*--lk: 0\.89;/);
+    expect(css).toMatch(/\[data-hud="room"\]\) \.playmat \{[^}]*--lift-k: 0;[^}]*--mark-k: 0;/);
+    expect(css).not.toMatch(/@media \(hover: none\) \{\s*:global\(\[data-hud="room"\]\)/);
   });
 });

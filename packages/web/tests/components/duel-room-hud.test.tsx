@@ -135,7 +135,10 @@ describe("the floating HUD of the 1v1 room", () => {
     const { container } = mount();
     expect(container.querySelector("[data-hud='room']")).not.toBeNull();
     expect(screen.getByTestId("hud-top").tagName).toBe("HEADER");
-    expect(screen.getByTestId("hud-bottom")).toBeTruthy();
+    // No full-width bottom bar: the turn controls sit in one compact corner cluster.
+    expect(screen.queryByTestId("hud-bottom")).toBeNull();
+    const corner = screen.getByTestId("hud-corner");
+    expect(corner.querySelector("nav[data-compact='true']")).not.toBeNull();
     expect(screen.queryByRole("complementary", { name: "Duel panels" })).toBeNull();
     for (const id of ["log", "settings", "chain"]) expect(screen.getByTestId(`hud-dock-${id}`)).toBeTruthy();
     expect(screen.queryByTestId("hud-dock-history")).toBeNull();

@@ -216,25 +216,21 @@
 }
 
 /* Floating HUD room (1v1): the board is height-bound, so every pixel of chrome inside the frame is card. The
-   padding is trimmed, the opponent's hand backs are smaller (they peek less above the board) and your hand rests
-   lower, so it overlaps the front Spell/Trap row more (it still rises to full size on hover or focus). Phones keep
-   the compact rules below. */
+   padding is trimmed and the opponent's hand backs are smaller (they peek less above the board). There is no
+   station track under the board here, so your hand sits in the bottom strip and only its top edge (about 0.08 zone
+   heights) reaches the front Spell/Trap row: the zones stay clickable. A lifted (legal) card, its glow and its nib
+   tag rise over that row instead of getting their own reserve, and the hover lift still raises the card to full
+   size. Phones keep the compact rules below. */
 @container (min-width: 641px) {
   :global([data-hud="room"]) .playmat {
     --py: 2px;
-    --gs: 2px;
-    --hpad: 3px;
-    --lk: 0.3;
+    --gs: 1px;
+    --hpad: 2px;
+    --lk: 0.89;
+    --res-bot-px: 0px;
+    --lift-k: 0;
+    --mark-k: 0;
     --ohk: 0.36;
-  }
-}
-
-/* Touch screens have no hover to lift the low hand, so they keep the earlier, higher rest. */
-@container (min-width: 641px) {
-  @media (hover: none) {
-    :global([data-hud="room"]) .playmat {
-      --lk: 0.45;
-    }
   }
 }
 

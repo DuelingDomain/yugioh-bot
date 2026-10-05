@@ -663,15 +663,20 @@
 /* ---------- floating HUD of the 1v1 room (table/hud-layer.tsx) ---------- */
 /* Scoped to `data-hud="room"`: the 4-way grid root also wears roomStyles.shell and sets its own `data-hud="true"`. */
 /* The header, the side panes and the footer give way to glass pills in the margins. The board keeps clear margins for
-   them: a strip above, the station track below and a column at the left for the dock and the Deck Master plate. */
+   them: a strip above and a column at the left for the dock and the Deck Master plate. There is no bar below: the
+   turn controls and the prompt sit in the bottom-right corner (grid-hud.module.css .corner), right of the board. */
 .shell[data-hud="room"] {
   /* The rival's hand (small backs, tucked) peeks above the field and the header pills end at 45px:
      the strip is that 45px plus the peek, so no pill sits on those cards. The 3dvh slope tracks the peek,
      which grows with the board. */
   --hud-top: calc(36px + 3dvh);
-  /* The station track fills the bottom 58 to 68px (plus its 4px margin); the board stops 7px above it. */
-  --hud-bottom: calc(clamp(58px, 5.6dvh, 68px) + 11px);
+  /* Your hand is the last thing at the bottom, so the board's frame ends 5px above the screen edge. */
+  --hud-bottom: 5px;
   --hud-left: 156px;
+  /* The corner stack is a little narrower than the gutter right of the board at 1280px. */
+  --hud-corner-w: 168px;
+  /* The Deck Master plate sits at the bottom of the left margin, as no bar is under it. */
+  --hud-master-bottom: 14px;
 }
 .shell[data-hud="room"] .layout {
   grid-template-columns: minmax(0, 1fr);
@@ -683,10 +688,10 @@
   padding: var(--hud-top) 14px var(--hud-bottom) var(--hud-left);
   border-left: 0;
 }
-/* Narrow desktops: the board is centered, so its top right corner would reach the Deck Master plate there. A little
-   more room at the right moves the board left (the board is height-bound, so it keeps its size). */
+/* Narrow desktops: the board is centered, so its right side would reach the Deck Master plate and the corner stack
+   there. A little more room at the right moves the board left (the board is height-bound, so it keeps its size). */
 @media (max-width: 1320px) {
-  .shell[data-hud="room"] .boardColumn { padding-right: 44px; }
+  .shell[data-hud="room"] .boardColumn { padding-right: 60px; }
 }
 /* The shell already paints the ground and the lamp glows over the whole screen; the field's own copy would end at the
    padded box as a visible edge. */
@@ -704,16 +709,19 @@
   bottom: calc(-1 * var(--hud-bottom));
   height: calc(50% + var(--hud-bottom));
 }
-/* A prompt for you opens at the right, over the board's free corner; the margin at the left belongs to the dock. */
-.shell[data-hud="room"] .promptDock[data-mode="float"],
-.shell[data-hud="room"] .promptDock[data-mode="flow"] {
-  position: absolute;
+/* A prompt for you opens at the right, in the corner column right above the turn controls (the column is
+   `.corner` in grid-hud.module.css); the margin at the left belongs to the dock. The selector is as strong as the
+   narrow-screen rules below, which would pin the dock to the screen's bottom. */
+.shell[data-hud="room"][data-fit="true"] .corner .promptDock[data-mode="float"],
+.shell[data-hud="room"][data-fit="true"] .corner .promptDock[data-mode="flow"] {
+  position: relative;
   grid-area: auto;
-  right: 14px;
-  bottom: var(--hud-bottom);
-  z-index: calc(var(--duel-z-prompt) + 13);
+  inset: auto;
+  z-index: auto;
   width: min(380px, 34vw);
   margin: 0;
+  border-radius: 8px;
+  pointer-events: auto;
 }
 .shell[data-hud="room"] .notices { top: var(--hud-top); }
 
