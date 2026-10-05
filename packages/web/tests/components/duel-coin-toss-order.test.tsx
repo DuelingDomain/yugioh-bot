@@ -72,6 +72,39 @@ describe("coin toss before the moves", () => {
     expect(chainBeatAt(7)).toBeGreaterThanOrEqual(planEnd - 50);
   });
 
+  it("the activation and the resolving beat before the toss keep their place: the card shows before its coin", () => {
+    const events = batch();
+    const { rerender } = render(<CoinTossFx events={[]} duelKey={KEY} reducedMotion={false} />);
+    const t0 = duelFxClock.now();
+    planChainBeats(events, { now: t0, reduced: false, duelKey: KEY });
+    const activationBeat = chainBeatAt(1);
+    const resolvingBeat = chainBeatAt(2);
+    act(() => { rerender(<CoinTossFx events={events} duelKey={KEY} reducedMotion={false} />); });
+    const plans = planMoves(events, options(t0));
+    expect(chainBeatAt(1)).toBe(activationBeat);
+    expect(chainBeatAt(2)).toBe(resolvingBeat);
+    // The coin starts after the resolving beat; what follows the toss starts after the coin.
+    const planEnd = resolvingBeat + COIN_TIMING.chainLeadMs + PLAN_MS;
+    expect(plans.find((plan) => plan.id === 4)!.startAt).toBeGreaterThanOrEqual(planEnd - 50);
+    expect(resolvingBeat + COIN_TIMING.chainLeadMs).toBeLessThan(planEnd);
+  });
+
+  it("a trap that is activated before the toss keeps its place too", () => {
+    const events = batch();
+    // A Trap Card in the spell/trap zone: the activation goes through the spell/trap branch of the sequencer.
+    (events[0] as DuelEvent).zone = zone(0, 8, 1);
+    (events[0] as DuelEvent).card = { ...C.celtic, type: 0x4 } as DuelEvent["card"];
+    const { rerender } = render(<CoinTossFx events={[]} duelKey={KEY} reducedMotion={false} />);
+    const t0 = duelFxClock.now();
+    planChainBeats(events, { now: t0, reduced: false, duelKey: KEY });
+    const activationBeat = chainBeatAt(1);
+    const resolvingBeat = chainBeatAt(2);
+    act(() => { rerender(<CoinTossFx events={events} duelKey={KEY} reducedMotion={false} />); });
+    planMoves(events, options(t0));
+    expect(chainBeatAt(1)).toBe(activationBeat);
+    expect(chainBeatAt(2)).toBe(resolvingBeat);
+  });
+
   it("a later batch (a bot move with no chain) waits for the coin too", () => {
     // Only the toss in the first batch: the serial move queue holds no earlier move that could hide the hold.
     const events = batch().filter((event) => event.kind !== "move" && event.kind !== "destroy");

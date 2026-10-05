@@ -415,7 +415,7 @@ export function CoinTossFx({ events, duelKey, reducedMotion, replayFrom = null, 
         holdPromptReveal(plan.end - now);
         holdChainAfter(event.id, plan.end);
         // Moves and markers laid out after this layer (bot moves too) start once the last result is gone.
-        holdEffectSequenceUntil(plan.end);
+        holdEffectSequenceUntil(plan.end, event.id);
       }
       added = true;
     }
