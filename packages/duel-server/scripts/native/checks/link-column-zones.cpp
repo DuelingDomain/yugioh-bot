@@ -100,8 +100,8 @@ static void zones(int n) {
 			for(int cp = 0; cp < n; ++cp) {
 				if(cp == 2) {
 					if(n == 3) EXPECT((v[cp] >> 16) == 0, "%s own seat has high bits %08x", q.name, v[cp]);
-				} else if(n == 4 && cp == 0)
-					EXPECT(v[cp] == (((v[2] & 0xffff) << 16) | (v[2] >> 16)), "%s across mask differs", q.name);
+				} else if(n == 4 && cp == 3)
+					EXPECT(v[cp] == (((v[2] & 0xffff) << 16) | (v[2] >> 16)), "%s facing partner mask differs", q.name);
 				else EXPECT(v[cp] == 0, "%s seat %d is %08x, want 0", q.name, cp, v[cp]);
 			}
 		}
