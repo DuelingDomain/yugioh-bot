@@ -82,7 +82,17 @@ for (const mode of ["normal", "domain"] as const) {
         const session = new Session(scenario, game);
         session.reachMainPhase();
         session.startRecording();
-        scenario.steps.forEach((step, index) => session.run(step, index + 1));
+        scenario.steps.forEach((step, index) => {
+          const leavingDuringPlacement = scenario.id === "rotate-control-ffa4-loss-during-placement" && step.op === "surrender";
+          const before = leavingDuringPlacement ? game.view(0).prompt : null;
+          session.run(step, index + 1);
+          if (leavingDuringPlacement) {
+            // R-COMMON-SURRENDER-EOT: loss is immediate and the living choice
+            // keeps its id and options. A DSL board assertion would settle it.
+            expect(game.view(null).seats[1]).toMatchObject({ eliminated: true, pendingElimination: false });
+            expect(game.view(0).prompt).toEqual(before);
+          }
+        });
       } finally {
         game.close();
       }

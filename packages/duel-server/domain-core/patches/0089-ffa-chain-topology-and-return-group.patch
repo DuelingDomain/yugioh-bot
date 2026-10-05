@@ -224,7 +224,7 @@ index 44828dd..f665cbb 100644
  	effect* peffect = pchain->triggering_effect;
  	uint8_t tp = pchain->triggering_player;
  	if(!peffect->is_flag(EFFECT_FLAG_CARD_TARGET) || !peffect->target)
-@@ -4017,15 +4035,55 @@ int32_t field::check_chain_target(uint8_t chaincount, card* pcard) {
+@@ -4017,15 +4035,59 @@ int32_t field::check_chain_target(uint8_t chaincount, card* pcard) {
  	pduel->lua->add_param<LuaParam::CARD>(pcard);
  	return pduel->lua->check_condition(peffect->target, 10);
  }
@@ -232,8 +232,12 @@ index 44828dd..f665cbb 100644
 +bool field::is_removed_chain_event(const tevent& event) const {
 +	if(n_duelists <= 2 || n_teams != n_duelists || event.event_code != EVENT_CHAINING)
 +		return false;
-+	return event.event_value > 0 && (event.event_value > core.current_chain.size()
-+		|| core.current_chain[event.event_value - 1].removed_by_elimination);
++	// Delayed EVENT_CHAINING triggers are checked after their source link was
++	// popped. A missing slot is not a removed link (R-FFA-ELIMINATION).
++	if(event.event_value == 0 || event.event_value > core.current_chain.size())
++		return false;
++	const auto& ch = core.current_chain[event.event_value - 1];
++	return ch.removed_by_elimination && ch.triggering_effect == event.reason_effect;
 +}
 +chain* field::get_current_chain() {
 +	for(auto it = core.current_chain.rbegin(); it != core.current_chain.rend(); ++it)
@@ -532,4 +536,3 @@ index 7eae9d4..e49d8ce 100644
  			for(auto& ch_lim : core.chain_limit)
 -- 
 2.43.0
-
