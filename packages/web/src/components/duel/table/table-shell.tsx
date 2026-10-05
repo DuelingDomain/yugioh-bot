@@ -10,6 +10,7 @@ import { isCustomDomain } from "@yugidraft/shared/duels";
 import { BattleFx } from "../battle-fx";
 import { AttackConfirm, CardActionMenu, CardHoverInfo, confirmSide, targetName } from "../card-interactions";
 import { ChainFx } from "../chain-fx";
+import { projectChainNames } from "../chain-state";
 import { CoinTossFx } from "../coin-toss-fx";
 import { isBattlePhase, phaseTitle, zoneKey } from "../constants";
 import { DestroyFx } from "../destroy-fx";
@@ -184,9 +185,10 @@ function TableShellBody({
   const rowPreview = useRowPreview(tracked.prompt?.id ?? null);
   const base = ui.controller;
   const { engine, room, viewerSeat, nameOf, prompt } = base;
+  const namedChain = useMemo(() => projectChainNames(engine.chain, engine.seats), [engine.chain, engine.seats]);
   const format = engineFormat(engine);
   // A table of 3 or 4 draws its phases on the board, beside the turn ring. Tag keeps them in the bar.
-  const hubOn = format === "ffa3" || format === "ffa4";
+  const hubOn = !hud && (format === "ffa3" || format === "ffa4");
   const layout = useMemo(
     () => tableLayout(format as TableFormat, engine, viewerSeat),
     // The layout depends on who sits where, never on a card: the seat list is enough.
@@ -379,14 +381,9 @@ function TableShellBody({
     </div>
   );
 
-  const seatStrip = (
-    <SeatStrip engine={engine} mySeat={viewerSeat} nameOf={nameOf} promptSeat={controller.promptSeat}
-      focusSeat={camera.state.focusSeat} onFocusSeat={isFaceOff(layout, camera.out) ? undefined : (seat) => camera.dispatch({ type: "focus", seat })}
-      pick={canAct && controller.revealed ? controller.seatPick : null} compact={!narrow} />
-  );
   // Your Deck Master hangs under your LP plate on the wide table; a click opens the drawer on its Master tab.
   const myView = viewerSeat != null ? engine.seats.find((seat) => seat.seat === viewerSeat) : undefined;
-  const masterChip = domain && !narrow && myView?.deckMaster ? (
+  const masterChip = domain && !narrow && !hud && myView?.deckMaster ? (
     <MasterChip view={myView} label="Your Master" onOpen={() => { ui.setPane("masters"); ui.setDrawerOpen(true); }} />
   ) : null;
 
@@ -462,8 +459,8 @@ function TableShellBody({
   const seatStripNode = (
     <SeatStrip engine={engine} mySeat={viewerSeat} nameOf={nameOf} promptSeat={controller.promptSeat}
       focusSeat={grid ? gridFocus.focus.seat : camera.state.focusSeat} focusAny={grid}
-      onFocusSeat={grid ? gridFocus.focusSeat : (seat) => camera.dispatch({ type: "focus", seat })}
-      pick={canAct && controller.revealed ? controller.seatPick : null} />
+      onFocusSeat={grid ? gridFocus.focusSeat : isFaceOff(layout, camera.out) ? undefined : (seat) => camera.dispatch({ type: "focus", seat })}
+      pick={canAct && controller.revealed ? controller.seatPick : null} compact={!narrow} />
   );
 
   return (
@@ -616,7 +613,7 @@ function TableShellBody({
                     {fxActive ? <SummonFx events={withDestroyCards(engine.events)} duelKey={session.slug} reducedMotion={controller.reducedMotion} shake={preferences.shake} /> : null}
                     {fxActive ? <MoveFx events={withDestroyCards(engine.events)} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
                     {fxActive ? <PositionFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
-                    {fxActive ? <ChainFx events={withDestroyCards(engine.events)} chain={engine.chain} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} playerName={nameOf} seatTones={seatTones} priority={priority} ended={hasResult} table={format} seats={engine.seats} /> : null}
+                    {fxActive ? <ChainFx events={withDestroyCards(engine.events)} chain={namedChain} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} playerName={nameOf} seatTones={seatTones} priority={priority} ended={hasResult} table={format} seats={engine.seats} /> : null}
                     {fxActive ? <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} /> : null}
                     <BattleFx events={withDestroyCards(engine.events)} seats={engine.seats} reducedMotion={controller.reducedMotion} active={fxActive} aim={null} />
                     <DestroyFx events={withDestroyCards(engine.events)} reducedMotion={controller.reducedMotion} active={fxActive} mySeat={viewerSeat ?? 0} />
@@ -633,7 +630,7 @@ function TableShellBody({
                     draft={controller.draft}
                     onSubmit={controller.onAnswer}
                     menuOpen={suspended} escapeHeld={hudOpen}
-                    chain={engine.chain}
+                    chain={namedChain}
                     aim={flow.promptAim ?? undefined}
                     aimLocked={flow.locked}
                     reducedMotion={controller.reducedMotion}
@@ -713,12 +710,12 @@ function TableShellBody({
         </div>
       ) : (
         <div className={roomStyles.track}>
-          {narrow ? (grid ? seatStripNode : seatStrip) : null}
+          {narrow ? seatStripNode : null}
           <StationTrack
-            seatSlot={narrow ? undefined : grid ? seatStripNode : seatStrip}
-            seatSlotCount={engine.seats.length}
             {...trackProps}
-            clock={room.clock?.activeSeat != null ? <DuelClockDisplay key={room.clock.serverNow} clock={room.clock} session={session} compact /> : null}
+            seatSlot={narrow ? undefined : seatStripNode}
+            seatSlotCount={engine.seats.length}
+            clock={room.clock?.activeSeat != null ? <DuelClockDisplay key={room.clock.serverNow} clock={room.clock} session={session} reducedMotion={controller.reducedMotion} compact /> : null}
             attackLock={attackLockAt(format, engine.seats.length, engine.turn, engine.prompt)}
             phases={hubOn && !grid ? "hub" : "bar"}
           />

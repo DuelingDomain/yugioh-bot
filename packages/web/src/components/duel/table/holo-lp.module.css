@@ -34,20 +34,6 @@
   backdrop-filter: none;
 }
 
-/* The grid table sizes the box itself and fits the panel into it: in the flow of the box, no anchor, no glide. */
-.holo[data-fit="true"] {
-  position: relative;
-  width: 100%;
-  transition: opacity 0.35s;
-}
-
-/* The grid moves and scales this panel (FLIP) on every focus change. A backdrop blur of 2px is hardly seen over the field mat,
-   but it is blurred again on every frame of that move, so the fitted panel has none. */
-.holo[data-fit="true"] .body {
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-}
-
 /* The fly-in pump moves the panel every frame: no glide, and it fades when its seat is off screen. */
 .holo[data-floating="true"] {
   transition: opacity 0.35s;
@@ -370,6 +356,20 @@
 .master:hover, .master:focus-visible { border-color: var(--tink); outline: none; }
 .holo[data-elim="true"] .master { filter: grayscale(1); opacity: 0.6; }
 
+/* In a grid box the Deck Master art shrinks with the panel and sits higher, so it never covers the life numerals. */
+.holo[data-fit="true"] .master {
+  right: calc(6px * var(--lpk));
+  top: calc(-16px * var(--lpk));
+  width: calc(24px * var(--lpk));
+  height: calc(34px * var(--lpk));
+}
+
+/* A box too small for the whole panel (a fit under about 0.6) keeps the name, the numerals and the damage: the counts row
+   and the clock are left out (the clock would sit on the Extra Monster Zone beside the box). */
+.holo[data-compact="true"] .meta {
+  display: none;
+}
+
 /* The seat just left: strike the LP, show the place chip, fade the panel away (1.3 s). It keeps its colours. */
 .holo[data-exiting="true"] {
   animation: holoOut 1.3s linear both;
@@ -503,18 +503,4 @@
 }
 .footer[data-tight="true"] {
   max-width: 100%;
-}
-
-/* In a grid box the Deck Master art shrinks with the panel and sits higher, so it never covers the life numerals. */
-.holo[data-fit="true"] .master {
-  right: calc(6px * var(--lpk));
-  top: calc(-16px * var(--lpk));
-  width: calc(24px * var(--lpk));
-  height: calc(34px * var(--lpk));
-}
-
-/* A box too small for the whole panel (a fit under about 0.6) keeps the name, the numerals and the damage: the counts row
-   and the clock are left out (the clock would sit on the Extra Monster Zone beside the box). */
-.holo[data-compact="true"] .meta {
-  display: none;
 }

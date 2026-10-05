@@ -13,7 +13,7 @@ export type ReviewPath = 'continuous' | 'permission' | 'cost-prompt' | 'both-sid
 export interface BoundReviewCase { scenario: Scenario; path: ReviewPath; departed: boolean; }
 
 function snapshot(format: Format, card: number, path: ReviewPath, departed: boolean): ReturnType<typeof everySeat> {
- const acted = !departed || path === 'cost-prompt';
+ const acted = !departed;
  const actor: Seat = path === 'both-side' ? 'p1' : 'p0';
  const recipient: Seat = path === 'both-side' ? 'p0' : 'p1';
  const state: Partial<Record<Seat, DuelistExpect>> = {};
@@ -28,6 +28,9 @@ function snapshot(format: Format, card: number, path: ReviewPath, departed: bool
   state[actor] = { ...state[actor], lp: (format === 'tag' ? 16000 : 8000) + 23 };
   state[recipient] = { ...state[recipient], lp: (format === 'tag' ? 16000 : 8000) - 777 };
  }
+ // R-COMMON-SURRENDER-EOT: the living suspended cost completes its payment,
+ // but the removed causal opponent cancels the unstarted target and operation.
+ if (departed && path === 'cost-prompt') state.p0 = { ...state.p0, lp: 7900 };
  if (departed) state.p1 = { lp: acted ? 7223 : 8000, hand: [], deckCount: 0, extra: [] };
  return everySeat(format, state);
 }
@@ -35,9 +38,9 @@ function snapshot(format: Format, card: number, path: ReviewPath, departed: bool
 function review(format: Format, path: ReviewPath, card: number, departed: boolean): BoundReviewCase {
  const name = path === 'continuous' ? card === REVIEW_SPELL ? 'spell' : 'trap' : path;
  const scenario = defineScenario({
-  id: `queued-review-${format}-${name}-${departed ? path === 'cost-prompt' ? 'deferred-surrender' : 'departed' : 'alive'}`,
+  id: `queued-review-${format}-${name}-${departed ? path === 'cost-prompt' ? 'immediate-surrender' : 'departed' : 'alive'}`,
   title: path === 'both-side' ? 'The actual activating team replaces a controller-based causal binding'
-   : path === 'cost-prompt' ? departed ? 'A surrender in a cost choice preserves the living causal seat until chain end' : 'The saved opponent survives a cost choice and the target runs once'
+   : path === 'cost-prompt' ? departed ? 'Immediate surrender preserves the living cost choice and cancels the invalid target' : 'The saved opponent survives a cost choice and the target runs once'
    : path === 'permission' ? departed ? 'A departed causal seat is checked again after the hand-Trap permission choice' : 'The hand-Trap permission choice keeps the living saved opponent'
    : departed ? 'A failed saved-opponent activation enables its face-up Continuous card effects' : 'A living saved-opponent activation enables its face-up Continuous card effects',
   source: 'docs/adr/0002-multiplayer-duel-rules.md [R-FFA-OPP-RESPONSE] [R-COMMON-SURRENDER-EOT]',
@@ -63,7 +66,8 @@ function review(format: Format, path: ReviewPath, card: number, departed: boolea
     ...(departed ? [surrender('p1')] : []), choose('opt:0', 'p0')] : []),
    ...(path === 'cost-prompt' ? [expectPrompt({ by: 'p0', kind: 'choice', title: 'Select an option' }),
     expectPickOptions([{ id: 'opt:0', label: 'First cost choice' }, { id: 'opt:1', label: 'Second cost choice' }], 'p0'),
-    ...(departed ? [surrender('p1'), expectEliminated()] : []), choose('opt:0', 'p0')] : []),
+    // Rulebook v1.4, Removing players from the game; R-COMMON-SURRENDER-EOT.
+    ...(departed ? [surrender('p1'), expectEliminated('p1'), expectPrompt({ by: 'p0', kind: 'choice', title: 'Select an option' })] : []), choose('opt:0', 'p0')] : []),
    // Responders without a legal effect are skipped by the engine.
    expectPrompt({ by: 'p0', title: 'Choose an action' }),
    expectResolved(card),

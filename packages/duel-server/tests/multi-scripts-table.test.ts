@@ -240,6 +240,7 @@ const NOT_R2_RULES = ["EACH-DUELIST", "SCRIPT", "CHOOSER"];
  * EACH-DUELIST or SCRIPT) and have the scan class O or F. An R2 entry must have a scan class other than U (the scan sees a read of the
  * opponent or of a player) and must not be listed under the triage rules of R1 or the choosers (R2 also holds cards that the
  * triage did not list, found by reading the scripts; the triage is a local file and the triage checks are skipped without it).
+ * LEAVE and DURATION mark chain/phase-rule overlays independently of opponent-access classes; other classes still get these checks.
  * A "fix" entry has no class and is not checked.
  */
 export function classProblems(
@@ -260,7 +261,11 @@ export function classProblems(
       problems.push(`${card.code} ${card.name}: not in the scan`);
       continue;
     }
-    const rClasses = (card.classes as string[]).filter((name) => name === "R1" || name === "R2");
+    // LEAVE and DURATION annotate chain/phase rules independently of opponent-access scan classes.
+    // The generator inventory and leave/duration scenarios check them; retain other classes on the same card.
+    const classes = card.classes.filter((name) => name !== "LEAVE" && name !== "DURATION");
+    if (card.classes.some((name) => name === "LEAVE" || name === "DURATION") && classes.length === 0) continue;
+    const rClasses = classes.filter((name) => name === "R1" || name === "R2");
     if (rClasses.length > 0) {
       if (rClasses.includes("R1")) {
         if (r1 && !r1.has(card.code)) problems.push(`${card.code} ${card.name}: MANIFEST class R1, the triage has no R1 rule`);
@@ -274,8 +279,8 @@ export function classProblems(
       continue;
     }
     const expected = CLASS_DECISIONS[card.code] ?? scanClasses(scan);
-    if ([...card.classes].sort().join("+") !== [...expected].sort().join("+")) {
-      problems.push(`${card.code} ${card.name}: MANIFEST class ${card.classes.join("+")}, scan class ${expected.join("+")}`);
+    if ([...classes].sort().join("+") !== [...expected].sort().join("+")) {
+      problems.push(`${card.code} ${card.name}: MANIFEST class ${classes.join("+")}, scan class ${expected.join("+")}`);
     }
     const scanClass = SCAN_CLASS_OF[card.code] ?? "O";
     if (scan.cls !== scanClass) problems.push(`${card.code} ${card.name}: scan class is ${scan.cls}, expected ${scanClass}`);
@@ -302,6 +307,27 @@ describeWithCores("the table: classes of the manifest against the scan", stock, 
 
   it("every listed card has the same class in MANIFEST.json and in the scan", () => {
     expect(classProblems(manifest, scans, COMPARE_FALSE_POSITIVES, readTriage())).toEqual([]);
+  });
+
+  it("keeps leave-chain and duration annotations separate from opponent classes", () => {
+    const problems = (card: Manifest["cards"][number], map = scans) =>
+      classProblems({ version: 1, cards: [card] }, map).filter((line) => line.startsWith(`${card.code} `));
+    const leave = manifest.cards.find((card) => card.kind !== "fix" && card.classes.join("+") === "LEAVE" && scans.get(card.code)?.cls === "U")!;
+    expect(leave).toBeDefined();
+    expect(problems(leave)).toEqual([]);
+    expect(problems(leave, new Map())).toContain(`${leave.code} ${leave.name}: not in the scan`);
+    const duration = manifest.cards.find((card) => card.classes.join("+") === "DURATION")!;
+    expect(duration).toBeDefined();
+    expect(problems(duration)).toEqual([]);
+
+    const compare = manifest.cards.find((card) => card.kind !== "fix" && card.classes.join("+") === "COMPARE" && scans.get(card.code)?.cls === "O")!;
+    const both = { ...compare, classes: ["COMPARE", "LEAVE"] as CardClass[] };
+    expect(problems(both)).toEqual([]);
+    const wrongClass = { ...both, classes: ["CHOOSER", "LEAVE"] as CardClass[] };
+    expect(problems(wrongClass).join("\n")).toContain("MANIFEST class CHOOSER");
+    const wrongScan = new Map(scans);
+    wrongScan.set(compare.code, { ...scans.get(compare.code)!, cls: "C" });
+    expect(problems(both, wrongScan).join("\n")).toContain("scan class is C, expected O");
   });
 
   it("the class check fails for a wrong class, a missing entry and a card that is not O", () => {

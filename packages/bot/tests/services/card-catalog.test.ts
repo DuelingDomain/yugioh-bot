@@ -35,7 +35,7 @@ function setup(
         return {
           ok: true,
           async json() {
-            return setsResponse;
+            return setsResponse.map((set) => ({ set_code: "", num_of_cards: 0, ...set }));
           },
         } as Response;
       }
@@ -104,7 +104,7 @@ describe("card catalog service", () => {
       },
     );
 
-    await app.catalog.syncDraftPool({
+    const pool = await app.catalog.syncDraftPool({
       setNames: ["Metal Raiders"],
       includeNames: ["Raigeki"],
       excludeNames: ["Time Wizard"],
@@ -114,6 +114,7 @@ describe("card catalog service", () => {
       "https://db.ygoprodeck.com/api/v7/cardinfo.php?cardset=Metal+Raiders",
       "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Raigeki",
     ]);
+    expect(pool.map((card) => card.ygoprodeckId)).toEqual([summonedSkull.id, raigeki.id]);
     expect(app.catalog.findByIds([raigeki.id, summonedSkull.id, timeWizard.id, thousandDragon.id])).toEqual([
       expect.objectContaining({
         ygoprodeckId: raigeki.id,
@@ -133,8 +134,10 @@ describe("card catalog service", () => {
         imageUrlSmall: "https://img/small/summoned-skull",
         cardSets: [{ set_name: "Metal Raiders" }],
       }),
+      expect.objectContaining({ ygoprodeckId: thousandDragon.id, name: "Thousand Dragon" }),
     ]);
-    expect(app.db.prepare("select count(*) as count from card_catalog").get()).toEqual({ count: 2 });
+    expect(app.catalog.hasArtworks(thousandDragon.id)).toBe(true);
+    expect(app.db.prepare("select count(*) as count from card_catalog").get()).toEqual({ count: 3 });
   });
 
   it("updates cached cards when a sync sees the same id again", async () => {

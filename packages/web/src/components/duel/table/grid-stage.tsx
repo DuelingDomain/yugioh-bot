@@ -375,6 +375,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
                   deckCount={view.deckCount}
                   clockMs={room.clock?.remainingMs[cell.seat] ?? null}
                   status={holoStatus(engine, cell.seat, promptSeat)}
+                  placeLabel={placeLabels?.get(cell.seat) ?? null}
                   me={slot.relation === "self"}
                   x={0}
                   y={0}
@@ -388,7 +389,6 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
                   onPick={() => picks?.onPick(cell.seat)}
                   onHover={(hover) => controller.onAim?.(hover ? { lpSeat: cell.seat } : null)}
                   reducedMotion={reducedMotion}
-                  placeLabel={placeLabels?.get(cell.seat) ?? null}
                 />
               </div>
             );

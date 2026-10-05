@@ -69,6 +69,10 @@ describe("theme draft GET response (buildDraftResponse)", () => {
     expect(res.themeProgress).toMatchObject({ main: 0, mainTotal: 40, extra: 0, extraTotal: 0 });
     expect(res.allowedCubes).toHaveLength(2);
     expect(res.allowedCubes[0].mainCount).toBe(42);
+    expect(res.allowedCubes[0].sampleImages).toEqual([
+      "/api/cards/1/image?variant=small", "/api/cards/2/image?variant=small",
+      "/api/cards/3/image?variant=small", "/api/cards/4/image?variant=small",
+    ]);
     expect(res.currentPack).toHaveLength(3);
     expect(res.seats).toEqual([
       { playerId: p2, displayName: "P2", seatIndex: 0, hasPicked: false, isCurrentPlayer: false },

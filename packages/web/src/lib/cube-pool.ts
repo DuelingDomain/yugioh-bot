@@ -33,9 +33,8 @@ export function parsePoolEntries(value: unknown): { entries: PoolEntry[] } | { e
  * Returns the ids the card database does not have.
  */
 export async function ensureCatalogCards(catalog: CardCatalogService, ids: number[]): Promise<number[]> {
-  const present = (list: number[]) => new Set(catalog.findByIds(list).map((c) => c.ygoprodeckId));
-  const known = present(ids);
-  let missing = ids.filter((id) => !known.has(id));
+  const present = (list: number[]) => new Set(list.filter((id) => catalog.hasCatalogRow(id)));
+  let missing = [...new Set(ids)].filter((id) => !catalog.hasCatalogRow(id));
   if (missing.length === 0) return [];
   try {
     await catalog.syncDraftPool({ setNames: [], customCardIds: missing, includeNames: [], excludeNames: [] });

@@ -7,7 +7,7 @@
 //
 // applyChainEvent folds one event into the state, so a player can play a batch out one beat at a
 // time. deriveChainState folds a whole window at once (first paint, reconnect, replay of a window).
-import type { DuelCardInfo, DuelChainLink, DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
+import type { DuelCardInfo, DuelChainLink, DuelEvent, DuelSeatView, DuelZoneRef } from "@yugidraft/shared/duels";
 import { LOCATION_DECK, LOCATION_EXTRA, LOCATION_GRAVE, LOCATION_HAND, LOCATION_MZONE, LOCATION_REMOVED, LOCATION_SZONE, zoneKey } from "./constants";
 import { CHAIN_TIMING } from "./duel-timing";
 import { chainEffectText } from "./chain-effect-text";
@@ -83,7 +83,7 @@ export function applyChainEvent(state: ChainState, event: DuelEvent): ChainState
       index,
       seat: event.seat ?? 0,
       code: card && card.code > 0 ? card.code : null,
-      name: card?.name ?? null,
+      name: knownChainName(card?.name) ?? null,
       card,
       description: event.description,
       text: card?.description?.trim() ? card.description : null,
@@ -99,6 +99,18 @@ export function applyChainEvent(state: ChainState, event: DuelEvent): ChainState
   const links = ensureLinks(state.links, index);
   const link = { ...links[index - 1] };
   links[index - 1] = link;
+  // Resolution events carry the viewer-safe source too. A reconnect can lose the activation
+  // from the rolling window while retaining these events; use that identity before a zone fallback.
+  if (knownChainName(event.card?.name)) {
+    const card = event.card!;
+    link.card = card;
+    link.name = knownChainName(card.name)!;
+    link.code = card.code > 0 ? card.code : null;
+    link.text = card.description?.trim() || null;
+    link.cardType = card.type > 0 ? card.type : null;
+    link.seat = event.seat ?? link.seat;
+    link.zone ??= event.zone ? { ...event.zone } : null;
+  }
   if (kind === "target") {
     link.targets = event.targets?.map((zone) => ({ ...zone })) ?? [];
     if (event.seat != null && link.code == null) link.seat = event.seat;
@@ -122,7 +134,7 @@ function fromSnapshot(link: DuelChainLink): ChainLinkState {
     index: link.index,
     seat: link.seat,
     code: link.code != null && link.code > 0 ? link.code : null,
-    name: link.name ?? null,
+    name: knownChainName(link.name) ?? null,
     card: null,
     description: link.description,
     text: link.text?.trim() ? link.text : null,
@@ -173,6 +185,7 @@ export function deriveChainState(events: readonly DuelEvent[], snapshot: readonl
     links[entry.index - 1] = {
       ...base,
       // A reload mid-chain has no activation event; the snapshot still carries the card text.
+      name: knownChainName(base.name) ?? knownChainName(entry.name) ?? null,
       text: base.text ?? entry.text, cardType: base.cardType ?? entry.cardType,
       status: known.status, negated: known.negated, zone: known.zone ?? entry.zone,
       targets: hasTargets ? entry.targets : known.targets,
@@ -209,9 +222,31 @@ export function chainFocusLink(state: ChainState): ChainLinkState | null {
   return resolved ?? state.links[state.links.length - 1];
 }
 
+/** A legacy location label is not a card identity. Never resolve unknown identities through a catalog. */
+function knownChainName(name: string | null | undefined): string | undefined {
+  const value = name?.trim();
+  return value && !/^(?:(?:Spell & Trap|Monster|Extra Monster|Field|Pendulum) zone(?: \d+)?|Face-down card|Unknown card)$/i.test(value) ? value : undefined;
+}
+
+/** Fill legacy/missing link names only from the same card in this viewer's redacted board. */
+export function projectChainNames(chain: readonly DuelChainLink[], seats: readonly DuelSeatView[] = []): DuelChainLink[] {
+  return chain.map((link) => {
+    if (knownChainName(link.name)) return link;
+    const seat = seats.find((seat) => seat.seat === link.zone?.controller);
+    const zone = link.zone;
+    const cards = !seat || !zone ? [] : zone.location === LOCATION_MZONE ? seat.monsters
+      : zone.location === LOCATION_SZONE ? seat.spells : zone.location === LOCATION_HAND ? seat.hand
+      : zone.location === LOCATION_GRAVE ? seat.graveyard : zone.location === LOCATION_REMOVED ? seat.banished
+      : zone.location === LOCATION_EXTRA ? seat.extra : [];
+    // A later occupant of the same zone must never rename a historical activation.
+    const card = link.code != null && link.code > 0 ? cards.find((card) => card?.sequence === zone?.sequence && card?.code === link.code) : null;
+    return { ...link, name: knownChainName(card?.name) };
+  });
+}
+
 /** What every surface calls a link's card: its name, or "A card" when the name is unknown. Never a passcode. */
 export function chainCardName(link: Pick<ChainLinkState, "name">): string {
-  return link.name?.trim() || "A card";
+  return knownChainName(link.name) || "A card";
 }
 
 export type ChainCallout = {

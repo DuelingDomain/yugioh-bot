@@ -101,7 +101,7 @@ describe("POST /api/cards/resolve", () => {
     // Monster Reborn is not in the selected set → baseline 0, custom 1 → qty 1.
     const mr = json.cards.find((c: { id: number }) => c.id === 83764718);
     expect(mr.qty).toBe(1);
-    // The requested set is synced first; only custom passcodes missing from the catalog are fetched.
+    // The requested set is synced first; existing custom rows need no artwork lookup.
     expect(syncDraftPool).toHaveBeenNthCalledWith(1, {
       setNames: ["Metal Raiders"],
       customCardIds: [],
@@ -164,17 +164,15 @@ describe("POST /api/cards/resolve", () => {
     expect(json.unknownIds).toEqual([99999999]);
   });
 
-  it("still fails when the card database cannot be reached", async () => {
+  it("returns 503 when the card database cannot be reached", async () => {
     await setupDb();
     syncDraftPool.mockRejectedValue(new Error("Could not reach the card database (offline). Check connectivity and try again."));
     const { POST } = await import("../app/api/cards/resolve/route");
-    await expect(
-      POST(new Request("http://t/api/cards/resolve", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ customCardIds: [99999999] }),
-      })),
-    ).rejects.toThrow(/Could not reach/);
+    const response = await POST(new Request("http://t/api/cards/resolve", {
+      method: "POST", body: JSON.stringify({ customCardIds: [99999999] }),
+    }));
+    expect(response.status).toBe(503);
+    expect((await response.json()).error).toContain("Try again");
   });
 
   it("returns one card entry per distinct id even when ids repeat", async () => {

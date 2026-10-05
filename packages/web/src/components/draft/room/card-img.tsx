@@ -1,5 +1,6 @@
 "use client";
 
+import { cardImageUrl } from "@/lib/card-image-url";
 import { useState } from "react";
 import type { RoomCard } from "./room-model";
 
@@ -19,8 +20,8 @@ export function CardImg({
   className?: string;
 }) {
   const cls = `${crop ? "crop " : ""}${className ?? ""}`.trim() || undefined;
-  const first = large ? card.imageUrl || card.imageUrlSmall : card.imageUrlSmall || card.imageUrl;
-  const second = large ? card.imageUrlSmall : card.imageUrl;
+  const first = cardImageUrl(card.passcode ?? card.id, large ? "full" : "small");
+  const second = cardImageUrl(card.passcode ?? card.id, large ? "small" : "full");
   const [tries, setTries] = useState(0);
   const src = tries === 0 ? first : tries === 1 && second && second !== first ? second : null;
   if (!src) {

@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 
 // DOMAIN_CORE_BUILD=docker (default): run packages/duel-server/scripts/build-domain-core.sh
@@ -34,6 +34,7 @@ if (dataDir) mkdirSync(dataDir, { recursive: true });
 // Multi outputs can be isolated under this checkout rather than sharing domain-core/dist.
 const buildEnv: Record<string, string> = {
   EMCC_CORES: process.env.EMCC_CORES ?? "2",
+  ...(process.env.LUA_FIXED_SEED ? { LUA_FIXED_SEED: process.env.LUA_FIXED_SEED } : {}),
   ...(multi ? {
     LUA_FIXED_SEED: "1",
     OUT_NAME: `ocgcore.${target}.sync.wasm`,
@@ -90,3 +91,11 @@ const result =
 
 if (result.error) throw result.error;
 if (result.status !== 0) process.exit(result.status ?? 1);
+
+if (target === "multi-domain" && dataDir) {
+  const dist = resolve(worktree, process.env.MULTI_DIST ?? "packages/duel-server/domain-core/dist");
+  const outName = process.env.OUT_NAME ?? "ocgcore.multi-domain.sync.wasm";
+  const infoName = `${outName.replace(/\.sync\.wasm$/, "")}-build-info.json`;
+  copyFileSync(resolve(dist, outName), resolve(dataDir, "ocgcore.multi-domain.wasm"));
+  copyFileSync(resolve(dist, infoName), resolve(dataDir, "ocgcore.multi-domain-build-info.json"));
+}

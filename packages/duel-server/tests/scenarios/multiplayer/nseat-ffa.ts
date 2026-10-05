@@ -446,12 +446,12 @@ export const FFA_SCENARIOS: Scenario[] = [
   }),
   defineScenario({
     id: "nseat-ffa4-surrender-own-link-has-no-effect",
-    title: "FFA4: a seat that gives up while its Dust Tornado link is on the chain loses, after its link resolves normally",
+    title: "FFA4: a seat that gives up while its Dust Tornado link is on the chain loses, without resolving its link",
     source: `${SOURCE} [R-FFA-ELIMINATION]`,
     rules: ["R-FFA-ELIMINATION"],
     tags: ["multiplayer", "elimination", "chain", "surrender", "ffa4", "card:55144522", "card:60082869"],
     // p0 plays Pot of Greed. p1 answers with Dust Tornado on the Swords of p0 and holds a second Dust Tornado, so p1 has the next
-    // window (the adder also gets a chance). p1 gives up there. Dust Tornado and Pot of Greed resolve normally before p1 leaves.
+    // window (the adder also gets a chance). p1 gives up there. Dust Tornado is removed; Pot of Greed still resolves.
     setup: {
       format: "ffa4",
       p0: { hand: ["Pot of Greed"], spells: [{ card: "Swords of Revealing Light", pos: "up" }] },
@@ -466,7 +466,7 @@ export const FFA_SCENARIOS: Scenario[] = [
       surrender("p1"),
       expectEliminated("p1"),
       // Dust Tornado destroys Swords, then Pot of Greed draws two cards before p1 leaves.
-      expectBoard({ p0: { hand: { count: 2 }, grave: ["Pot of Greed", "Swords of Revealing Light"], spells: { count: 0 } } }),
+      expectBoard({ p0: { hand: { count: 2 }, grave: ["Pot of Greed"], spells: ["Swords of Revealing Light"] } }),
     ],
   }),
   defineScenario({
@@ -491,23 +491,23 @@ export const FFA_SCENARIOS: Scenario[] = [
       select({ card: "Swords of Revealing Light" }),
       expectPrompt({ by: "p2", context: "chain" }),
       surrender("p1"),
-      // The chain is the same one: the surrender did not pass the window of p2 and did not close the chain.
-      expectChain("Pot of Greed", "Dust Tornado"),
+      // The living window stays open; only the removed seat's link leaves the view.
+      expectChain("Pot of Greed"),
       expectPrompt({ by: "p2", context: "chain" }),
       pass("p2"),
       expectEliminated("p1"),
       // The pending surrender does not stop Dust Tornado. It destroys Swords before p1 leaves.
-      expectBoard({ p0: { hand: { count: 2 }, grave: ["Pot of Greed", "Swords of Revealing Light"], spells: { count: 0 } } }),
+      expectBoard({ p0: { hand: { count: 2 }, grave: ["Pot of Greed"], spells: ["Swords of Revealing Light"] } }),
     ],
   }),
   defineScenario({
     id: "nseat-ffa4-surrender-with-card-prompt-open",
-    title: "FFA4: a seat that gives up while it picks the target of its Dust Tornado loses, after its link resolves normally",
+    title: "FFA4: a seat that gives up while it picks the target of its Dust Tornado loses, without resolving its link",
     source: `${SOURCE} [R-FFA-ELIMINATION]`,
     rules: ["R-FFA-ELIMINATION"],
     tags: ["multiplayer", "elimination", "chain", "surrender", "prompt", "ffa4", "card:55144522", "card:60082869"],
     // p1 activates Dust Tornado on the Swords of p0 and has a card prompt open (select the target) when it gives up. The engine
-    // answers that prompt for p1. The link resolves normally. p2 holds a set Dust Tornado, so the chain stays open for a window.
+    // answers that prompt for p1. The link is removed. p2 holds a set Dust Tornado, so the chain stays open for a window.
     setup: {
       format: "ffa4",
       p0: { hand: ["Pot of Greed"], spells: [{ card: "Swords of Revealing Light", pos: "up" }, { card: "Swords of Revealing Light", pos: "up" }] },
@@ -521,13 +521,13 @@ export const FFA_SCENARIOS: Scenario[] = [
       pickOpponent("p0", "p1"),
       expectPrompt({ by: "p1", kind: "cards" }),
       surrender("p1"),
-      // The activation was not cancelled: the link of p1 is on the chain, and p2 holds the window after it.
-      expectChain("Pot of Greed", "Dust Tornado"),
+      // The leaver's activation is removed and the living response remains open.
+      expectChain("Pot of Greed"),
       expectPrompt({ by: "p2", context: "chain" }),
       pass("p2"),
       expectEliminated("p1"),
       // The automatic target choice destroys one Swords before p1 leaves.
-      expectBoard({ p0: { hand: { count: 2 }, grave: ["Pot of Greed", "Swords of Revealing Light"], spells: { count: 1 } } }),
+      expectBoard({ p0: { hand: { count: 2 }, grave: ["Pot of Greed"], spells: ["Swords of Revealing Light", "Swords of Revealing Light"] } }),
     ],
   }),
   defineScenario({
@@ -552,7 +552,7 @@ export const FFA_SCENARIOS: Scenario[] = [
   }),
   defineScenario({
     id: "nseat-ffa4-two-surrenders-in-one-chain",
-    title: "FFA4: two seats give up while both of their Dust Tornado links are on the chain, after both links resolve normally",
+    title: "FFA4: two seats give up while both of their Dust Tornado links are on the chain, without resolving either link",
     source: `${SOURCE} [R-FFA-ELIMINATION]`,
     rules: ["R-FFA-ELIMINATION"],
     tags: ["multiplayer", "elimination", "chain", "surrender", "ffa4", "card:55144522", "card:60082869"],
@@ -581,12 +581,12 @@ export const FFA_SCENARIOS: Scenario[] = [
       surrender("p2"),
       surrender("p1"),
       expectEliminated("p1", "p2"),
-      expectBoard({ p0: { hand: { count: 2 }, grave: ["Pot of Greed", "Swords of Revealing Light", "Swords of Revealing Light"], spells: { count: 0 } } }),
+      expectBoard({ p0: { hand: { count: 2 }, grave: ["Pot of Greed"], spells: ["Swords of Revealing Light", "Swords of Revealing Light"] } }),
     ],
   }),
   defineScenario({
     id: "nseat-ffa4-turn-player-surrenders-mid-battle",
-    title: "FFA4: the turn player gives up after its attack is declared while p3 holds a chain window: the window closes, the attack is cancelled",
+    title: "FFA4: the turn player gives up after its attack is declared; living response windows stay open and the attack is cancelled",
     source: `${SOURCE} [R-FFA-ELIMINATION]`,
     rules: ["R-FFA-ELIMINATION", "R-FFA-ATTACK"],
     tags: ["multiplayer", "elimination", "battle", "surrender", "ffa4", "card:15025844", "card:60082869"],
@@ -607,9 +607,11 @@ export const FFA_SCENARIOS: Scenario[] = [
       attack(ELF, { card: ELF, owner: "p1" }, "p0"),
       expectPrompt({ by: "p3", context: "chain" }),
       surrender("p0"),
-      // This window responds to p0's attack. It closes when p0 leaves.
-      // Later phase windows for the departed turn also close in the core.
       expectEliminated("p0"),
+      expectPrompt({ by: "p3", context: "chain" }),
+      // Decline the retained attack response. With p0's Spell removed, Dust
+      // Tornado has no target for the later phase windows.
+      pass("p3"),
       expectTurn("p1", 6),
       // No battle took place: the Elf of p1 is alive and nobody lost LP.
       expectBoard({ p1: { monsters: [ELF], lp: 8000 }, p2: { lp: 8000 }, p3: { lp: 8000 } }),

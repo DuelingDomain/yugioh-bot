@@ -665,9 +665,12 @@
 /* The header, the side panes and the footer give way to glass pills in the margins. The board keeps clear margins for
    them: a strip above, the station track below and a column at the left for the dock and the Deck Master plate. */
 .shell[data-hud="room"] {
-  /* The rival's hand peeks about 25px above the field: the strip clears it, so no pill sits on those cards. */
-  --hud-top: 72px;
-  --hud-bottom: calc(clamp(58px, 5.6dvh, 68px) + 20px);
+  /* The rival's hand (small backs, tucked) peeks above the field and the header pills end at 45px:
+     the strip is that 45px plus the peek, so no pill sits on those cards. The 3dvh slope tracks the peek,
+     which grows with the board. */
+  --hud-top: calc(36px + 3dvh);
+  /* The station track fills the bottom 58 to 68px (plus its 4px margin); the board stops 7px above it. */
+  --hud-bottom: calc(clamp(58px, 5.6dvh, 68px) + 11px);
   --hud-left: 156px;
 }
 .shell[data-hud="room"] .layout {
@@ -679,6 +682,11 @@
 .shell[data-hud="room"] .boardColumn {
   padding: var(--hud-top) 14px var(--hud-bottom) var(--hud-left);
   border-left: 0;
+}
+/* Narrow desktops: the board is centered, so its top right corner would reach the Deck Master plate there. A little
+   more room at the right moves the board left (the board is height-bound, so it keeps its size). */
+@media (max-width: 1320px) {
+  .shell[data-hud="room"] .boardColumn { padding-right: 44px; }
 }
 /* The shell already paints the ground and the lamp glows over the whole screen; the field's own copy would end at the
    padded box as a visible edge. */

@@ -547,6 +547,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   let messagesSinceLastPrompt = 0;
   /** Links of the chain that are still on it: the wrapper cannot read the chain when there are more than two seats. */
   let liveChainSize = 0;
+  const startedChainLinks = new Set<number>();
   let pending: PendingPrompt | null = null;
   let closedResponseSeat: number | null = null;
   let result: DuelEngineView["result"] = null;
@@ -660,13 +661,19 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
           lastHintCard = Number(message.hint) || undefined;
         }
         return;
+      case OcgMessageType.CHAIN_SOLVING:
+        startedChainLinks.add(message.chain_size);
+        return;
       case OcgMessageType.CHAIN_SOLVED:
       case OcgMessageType.CHAIN_END:
+        if (message.type === OcgMessageType.CHAIN_SOLVED) startedChainLinks.delete(message.chain_size);
+        else startedChainLinks.clear();
         lastHintCard = undefined;
         synchroSummon = undefined;
         liveChainSize = message.type === OcgMessageType.CHAIN_SOLVED ? Math.max(0, message.chain_size - 1) : 0;
         return;
       case OcgMessageType.CHAINING:
+        startedChainLinks.delete(message.chain_size);
         liveChainSize = message.chain_size;
         appendLog(`${cards.get(message.code)?.name ?? `Card ${message.code}`} is activating`);
         return;
@@ -813,7 +820,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   const applyRaw = (raw: RawDuelistMessage) => {
     if (raw.type !== MSG_DUELIST_ELIMINATED) eliminationGroup = null;
     if (raw.type === MSG_SURRENDER_WINDOW_CLOSED) {
-      if (raw.duelist < seatCount) closedResponseSeat = raw.duelist;
+      if (format === "tag" && raw.duelist < seatCount) closedResponseSeat = raw.duelist;
       return;
     }
     if (raw.type === MSG_DUELIST_ELIMINATED) {
@@ -997,24 +1004,22 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     && (pending?.message.type === OcgMessageType.SELECT_EFFECTYN
       || pending?.message.type === OcgMessageType.SELECT_CHAIN && !pending.message.forced);
 
-  // Keep the existing cut-short optional-chain policy for LP, deck and time-limit losses.
-  const mustPassOtherCutShortTurn = () => eliminated.has(turnSeat) && eliminationReasons.get(turnSeat) !== 0
-    && liveChainSize === 0 && pending?.message.type === OcgMessageType.SELECT_CHAIN && !pending.message.forced;
-
   /**
    * While the open prompt belongs to a seat that is leaving, answer it for that seat (the answer that changes
    * the game least) until the core reports the loss or the prompt moves to a seat that stays. Deterministic:
    * a journal replay of the same commands gives the same answers.
    */
   const answerForLeavingSeats = () => {
-    for (let step = 0; pending && !result && (leaving.has(pending.seat) || mustCloseResponseWindow() || mustPassOtherCutShortTurn()); step += 1) {
+    for (let step = 0; pending && !result && (leaving.has(pending.seat) || mustCloseResponseWindow()); step += 1) {
       const current = pending;
       closedResponseSeat = null;
       if (step >= LEAVING_ANSWER_LIMIT) {
         throw new Error(`Seat ${current.seat} is still in the duel after ${LEAVING_ANSWER_LIMIT} automatic answers (open prompt ${current.id}, ${current.prompt.kind})`);
       }
       const permittedCards = current.prompt.kind === "announce-card" ? game.searchCards("") : undefined;
-      const answer = chooseSurrenderedAnswer(current.prompt, { permittedCards });
+      const phasePass = format !== "tag" && eliminated.has(current.seat) && current.prompt.kind === "choice"
+        ? ["to_bp", "to_m2", "to_ep"].find((id) => current.prompt.options.some((option) => option.id === id)) : undefined;
+      const answer = phasePass ? { choice: phasePass } : chooseSurrenderedAnswer(current.prompt, { permittedCards });
       const response = resolveAnswer(current, current.seat, current.id, answer, cards);
       diagnose("leaving-answer", current.seat, `${current.prompt.kind} ${current.id}`);
       sawRetry = false;
@@ -1061,7 +1066,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
         handIdentities: eventContext.handIdentities,
         mode: options.mode,
         domainState: readDomainState(),
-        ...(multi ? { format, eliminated, leaving: new Set([...leaving].filter(isLeaving)), chain: chainMemory.slice(0, liveChainSize) } : {}),
+        ...(multi ? { format, eliminated, leaving: new Set([...leaving].filter(isLeaving)), chain: chainMemory.slice(0, liveChainSize).filter((link) => !eliminated.has(link.seat) || startedChainLinks.has(link.index)) } : {}),
       });
       // Disabled zones are public board facts. The field is set only for seats that have one.
       if (multi) projected.eliminationOrder = eliminationOrder.map((group) => [...group]);

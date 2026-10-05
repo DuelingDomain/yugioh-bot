@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { backfillMainArtworkRows } from "../services/card-artworks.js";
 import { generateWebSlug } from "../util/web-slug.js";
 import { isExtraDeckFrame } from "../services/card-catalog.js";
 
@@ -73,6 +74,21 @@ export function migrate(db: Database.Database) {
 
     create index if not exists card_catalog_normalized_name_type_idx
       on card_catalog (lower(trim(name)), type);
+
+    -- Old catalog rows remain untouched and refresh on their next sync. Their
+    -- single image is not evidence of a complete artwork family.
+    create table if not exists card_artworks (
+      card_id integer not null references card_catalog(ygoprodeck_id),
+      artwork_id integer primary key references card_catalog(ygoprodeck_id),
+      image_url text not null,
+      image_url_small text not null,
+      image_url_cropped text,
+      is_main integer not null check (is_main in (0, 1)),
+      source text not null default 'api' check (source in ('api', 'engine'))
+    );
+    create index if not exists card_artworks_card_idx on card_artworks (card_id);
+    create unique index if not exists card_artworks_main_idx
+      on card_artworks (card_id) where is_main = 1;
 
     create table if not exists cubes (
       id integer primary key autoincrement,
@@ -345,6 +361,7 @@ export function migrate(db: Database.Database) {
   addColumnIfMissing(db, "card_catalog", "attribute", "text");
   addColumnIfMissing(db, "card_catalog", "level", "integer");
   addColumnIfMissing(db, "card_catalog", "archetype", "text");
+  backfillMainArtworkRows(db);
   addColumnIfMissing(db, "card_sets", "card_count", "integer");
   addColumnIfMissing(db, "card_sets", "set_code", "text");
   addColumnIfMissing(db, "drafts", "tournament_id", "integer references tournaments(id)");

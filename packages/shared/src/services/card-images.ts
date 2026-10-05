@@ -1,11 +1,12 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import sharp from "sharp";
+import { CARD_BACK_SVG, fetchCardResource, trustedCardImageUrl } from "./card-fetch.js";
 
 type FetchLike = (
   input: string | URL | globalThis.Request,
   init?: globalThis.RequestInit,
-) => Promise<Pick<Response, "ok" | "arrayBuffer">>;
+) => Promise<Pick<Response, "ok" | "arrayBuffer"> & Partial<Pick<Response, "status" | "headers">>>;
 
 export type DraftImageCard = {
   ygoprodeckId: number;
@@ -24,6 +25,12 @@ const CARD_HEIGHT = 145;
 
 const CARD_FULL_WIDTH = 240;
 const CARD_FULL_HEIGHT = 350;
+
+/** Decode the complete image before keeping upstream bytes in a durable cache. */
+export async function validateCardImage(buffer: Buffer): Promise<Buffer> {
+  await sharp(buffer).stats();
+  return buffer;
+}
 
 function createNumberOverlay(number: number, width: number, height: number) {
   return Buffer.from(`
@@ -51,50 +58,25 @@ export function createDraftImageService({
 }) {
   const fetchImpl = fetch;
 
-  const getCachedImage = async (card: DraftImageCard) => {
-    await mkdir(cacheDir, { recursive: true });
-
-    const cachePath = join(cacheDir, `${card.ygoprodeckId}.png`);
-
+  const getImage = async (card: DraftImageCard, full: boolean) => {
+    const cachePath = join(cacheDir, `${card.ygoprodeckId}${full ? "-full" : ""}.png`);
+    try { return await readFile(cachePath); } catch { /* Fetch only a missing image. */ }
+    const width = full ? CARD_FULL_WIDTH : CARD_WIDTH;
+    const height = full ? CARD_FULL_HEIGHT : CARD_HEIGHT;
     try {
-      return await readFile(cachePath);
-    } catch {
-      const response = await fetchImpl(card.imageUrlSmall ?? card.imageUrl);
-
-      if (!response.ok) {
-        throw new Error(`Card image request failed for ${card.ygoprodeckId}`);
-      }
-
-      const buffer = Buffer.from(await response.arrayBuffer());
-      const normalized = await sharp(buffer).resize(CARD_WIDTH, CARD_HEIGHT, { fit: "cover", position: "center" }).png().toBuffer();
-      await writeFile(cachePath, normalized);
+      const fallback = `https://images.ygoprodeck.com/images/${full ? "cards" : "cards_small"}/${card.ygoprodeckId}.jpg`;
+      const url = trustedCardImageUrl(full ? card.imageUrl : card.imageUrlSmall ?? card.imageUrl, fallback);
+      const buffer = await fetchCardResource(url, fetchImpl, async (response) => Buffer.from(await response.arrayBuffer()));
+      const normalized = await sharp(buffer).resize(width, height, { fit: "cover", position: "center" }).png().toBuffer();
+      try { await mkdir(cacheDir, { recursive: true }); await writeFile(cachePath, normalized); } catch { /* A full disk must not stop a pick. */ }
       return normalized;
+    } catch {
+      // Never persist a placeholder under a card ID. A later request can recover.
+      return sharp(Buffer.from(CARD_BACK_SVG)).resize(width, height).png().toBuffer();
     }
   };
-
-  const getCachedFullImage = async (card: DraftImageCard) => {
-    await mkdir(cacheDir, { recursive: true });
-
-    const cachePath = join(cacheDir, `${card.ygoprodeckId}-full.png`);
-
-    try {
-      return await readFile(cachePath);
-    } catch {
-      const response = await fetchImpl(card.imageUrl);
-
-      if (!response.ok) {
-        throw new Error(`Card image request failed for ${card.ygoprodeckId}`);
-      }
-
-      const buffer = Buffer.from(await response.arrayBuffer());
-      const normalized = await sharp(buffer)
-        .resize(CARD_FULL_WIDTH, CARD_FULL_HEIGHT, { fit: "cover", position: "center" })
-        .png()
-        .toBuffer();
-      await writeFile(cachePath, normalized);
-      return normalized;
-    }
-  };
+  const getCachedImage = (card: DraftImageCard) => getImage(card, false);
+  const getCachedFullImage = (card: DraftImageCard) => getImage(card, true);
 
   return {
     async renderNumberedGrid(cards: DraftImageCard[]) {

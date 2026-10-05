@@ -12,6 +12,7 @@ import { broadcaster } from "@/lib/notify";
 import { lookupDraftCardTypes, type EngineCardTypes } from "@/lib/draft-engine-types";
 import { draftTestBotsEnabled } from "@/lib/draft-test-bots";
 import { checkDiscordWebAccess } from "@/lib/discord-web-access";
+import { cardImageUrl } from "@/lib/card-image-url";
 
 function getTimerSeconds(pickDeadlineAt: string | null | undefined): number {
   if (!pickDeadlineAt) {
@@ -277,11 +278,11 @@ export async function buildDraftResponse(slug: string, userId: string) {
         .all(draft.guild_id, ...ids) as Array<{ id: number; name: string; archetype: string | null }>;
       const countStmt = db.prepare("select pool, count(*) as n from cube_cards where cube_id = ? group by pool");
       const sampleStmt = db.prepare(
-        "select cc.image_url_small as img from cube_cards tc join card_catalog cc on cc.ygoprodeck_id = tc.catalog_card_id where tc.cube_id = ? limit 4",
+        "select catalog_card_id as id from cube_cards where cube_id = ? limit 4",
       );
       allowedCubes = rows.map((r) => {
         const counts = countStmt.all(r.id) as Array<{ pool: string; n: number }>;
-        const samples = (sampleStmt.all(r.id) as Array<{ img: string }>).map((s) => s.img);
+        const samples = (sampleStmt.all(r.id) as Array<{ id: number }>).map((s) => cardImageUrl(s.id, "small"));
         return {
           id: r.id,
           name: r.name,

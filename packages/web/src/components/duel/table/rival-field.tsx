@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, type CSSProperties } from "react";
 import { slotZIndex } from "./geometry";
 import { boardWidth, crumbleCards } from "./crumble-model";
-import { SeatCrumble } from "./seat-crumble";
 import { textScale } from "./seat-angle";
+import { SeatCrumble } from "./seat-crumble";
 import type { DuelSeatView } from "@yugidraft/shared/duels";
 import type { SeatFieldProps, SeatFieldRenderer, SeatPose, SeatTone } from "./types";
 import styles from "./rival-field.module.css";
@@ -15,13 +15,13 @@ export interface RivalFieldProps {
   render: SeatFieldRenderer;
   /** Extra turn of the whole world (the fly-in view), added to the angle the field reads for upright text. */
   angleOffsetDeg?: number;
-  /** Seats are regrouping after an elimination: the move waits for the crumble, then glides slowly. */
-  glide?: boolean;
   /**
    * A fixed place in the parent's px (the grid table): the box sits at `left`/`top` and turns with the CSS `rotate`
    * property. `transform` stays free for the stage to animate. `pose.x/y/scale` are not used; `pose.z` is the card height.
    */
   placement?: { left: number; top: number; zIndex: number; small?: boolean; lh?: number; boxX?: number };
+  /** Seats are regrouping after an elimination: the move waits for the crumble, then glides slowly. */
+  glide?: boolean;
 }
 
 /** CSS transform of a seat box: its centre goes to the pose, then it tilts, turns and scales about its own centre. */
@@ -43,7 +43,7 @@ export function seatTransform(pose: Pick<SeatPose, "x" | "y" | "rotateDeg" | "ti
  * draws the board at a fixed card size (`--sf-z`) and counter-rotates its own text when upright is on.
  * It serves the viewer's own seat too: that pose is simply upright at full size.
  */
-export function RivalField({ pose, field, render, angleOffsetDeg = 0, glide = false, placement }: RivalFieldProps) {
+export function RivalField({ pose, field, render, angleOffsetDeg = 0, placement, glide = false }: RivalFieldProps) {
   const style: CSSProperties & Record<string, string | number> = placement
     ? { "--sf-z": `${pose.z}px`, "--sf-ts": textScale(pose.scale).toFixed(2), ...(placement.lh != null ? { "--sf-lh": `${placement.lh}px` } : {}), ...(placement.boxX != null ? { "--sf-box-x": `${placement.boxX}px` } : {}), left: placement.left, top: placement.top, rotate: pose.rotateDeg ? `${pose.rotateDeg}deg` : "none", zIndex: placement.zIndex }
     : { "--sf-z": `${pose.z}px`, transform: seatTransform(pose), zIndex: slotZIndex(pose.slot, pose.scale) };
@@ -54,8 +54,9 @@ export function RivalField({ pose, field, render, angleOffsetDeg = 0, glide = fa
       data-seat-slot={pose.seat}
       data-pose-scale={pose.scale}
       data-docked={pose.docked ? "true" : undefined}
-      data-glide={glide ? "true" : undefined}
       data-small={placement?.small ? "true" : undefined}
+      data-compact={pose.compact ? "true" : undefined}
+      data-glide={glide ? "true" : undefined}
       hidden={pose.hidden || undefined}
     >
       {render(placement ? { ...field, angleDeg: pose.rotateDeg + angleOffsetDeg } : { ...field, angleDeg: pose.rotateDeg + angleOffsetDeg, scale: pose.scale })}
