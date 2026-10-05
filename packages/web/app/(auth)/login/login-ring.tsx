@@ -1,3 +1,4 @@
+import { cardImageUrl } from "@/lib/card-image-url";
 import Image from "next/image";
 import styles from "./login.module.css";
 
@@ -36,7 +37,8 @@ export function LoginRing() {
           <Image
             key={card.id}
             className={`${styles.fc} ${card.className}`}
-            src={`https://images.ygoprodeck.com/images/cards/${card.id}.jpg`}
+            src={cardImageUrl(card.id)}
+            unoptimized
             alt=""
             width={212}
             height={309}

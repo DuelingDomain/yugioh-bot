@@ -15,25 +15,9 @@ const nextConfig: NextConfig = {
   outputFileTracingRoot: worktreeRoot,
   transpilePackages: ["@yugidraft/shared"],
   serverExternalPackages: ["better-sqlite3", "sharp"],
-  images: {
-    // Card art is immutable — cache optimized variants for a year instead of
-    // the 60s default so previews stay warm. WebP only: AVIF's slower cold
-    // encode is exactly the cold-start cost we are trying to reduce.
-    minimumCacheTTL: 31536000,
-    formats: ["image/webp"],
-    remotePatterns: [
-      {
-        protocol: "https",
-        hostname: "images.ygoprodeck.com",
-        pathname: "/images/cards/**",
-      },
-      {
-        protocol: "https",
-        hostname: "images.ygoprodeck.com",
-        pathname: "/images/cards_small/**",
-      },
-    ],
-  },
+  // All card images use our cache route, which has a timeout, call budget and
+  // transient fallback. Disable Next's separate outbound image fetch path.
+  images: { unoptimized: true },
 };
 
 export default nextConfig;

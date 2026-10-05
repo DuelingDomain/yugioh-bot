@@ -15,7 +15,7 @@ const { signIn, redirect, rethrow } = vi.hoisted(() => ({
 vi.mock("@/lib/auth", () => ({ signIn }));
 vi.mock("next/navigation", () => ({ redirect, unstable_rethrow: rethrow }));
 vi.mock("next/image", () => ({
-  default: ({ alt, priority: _priority, ...props }: { alt: string; priority?: boolean }) => <img alt={alt} {...props} />,
+  default: ({ alt, priority: _priority, unoptimized: _unoptimized, ...props }: { alt: string; priority?: boolean; unoptimized?: boolean }) => <img alt={alt} {...props} />,
 }));
 
 let formStatus = { pending: false };
@@ -53,9 +53,9 @@ describe("LoginPage", () => {
     const { container } = render(await LoginPage({ searchParams: Promise.resolve({}) }));
     const images = Array.from(container.querySelectorAll("img"));
     expect(images.map((card) => card.getAttribute("src"))).toEqual([
-      "https://images.ygoprodeck.com/images/cards/46986418.jpg",
-      "https://images.ygoprodeck.com/images/cards/23995346.jpg",
-      "https://images.ygoprodeck.com/images/cards/89631146.jpg",
+      "/api/cards/46986418/image?variant=full",
+      "/api/cards/23995346/image?variant=full",
+      "/api/cards/89631146/image?variant=full",
     ]);
     for (const card of images) {
       expect(card).toHaveAttribute("alt", "");

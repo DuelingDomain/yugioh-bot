@@ -1,4 +1,5 @@
 import NextAuth from "next-auth";
+import { RING_CARD_IDS, WALL_CARD_IDS } from "../../app/(auth)/login/login-wall-model";
 import Credentials from "next-auth/providers/credentials";
 import Discord from "next-auth/providers/discord";
 import { fxLabEnabled, isFxLabPublicPath } from "./fx-lab";
@@ -121,6 +122,8 @@ export const {
         return new Response(null, { status: 404 });
       }
       const isPublicRoute =
+        /^\/api\/cards\/\d{1,10}\/image$/.test(nextUrl.pathname)
+          && [...RING_CARD_IDS, ...WALL_CARD_IDS].includes(Number(nextUrl.pathname.split("/")[3])) ||
         (fxLabEnabled() && isFxLabPublicPath(nextUrl.pathname)) ||
         nextUrl.pathname === "/login" ||
         nextUrl.pathname === "/api/auth" ||
