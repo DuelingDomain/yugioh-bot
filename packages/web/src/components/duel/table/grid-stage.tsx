@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperti
 import { engineFormat } from "../multi-seat";
 import { AttackLine } from "./attack-line";
 import { boxOf, cancelTracks, playFlip, type FlipTrack } from "./grid-flip";
+import { FINALE_GLIDE_EASING, FINALE_GLIDE_MS } from "./grid-finale";
 import { useGridFocus } from "./grid-focus";
 import {
   cellIndex,
@@ -12,13 +13,19 @@ import {
   gridFocusLayout,
   gridWorld,
   OUT_HOLD_MS,
+  OVERLAP,
+  PAIR_GAP,
+  PAIR_LEFT,
   pairDrawer,
   type CellState,
+  type GridCellRect,
   type GridRect,
 } from "./grid-layout";
 import { holoStatus, HoloLp } from "./holo-lp";
 import { lastSeatDamage } from "./seat-state";
-import { RivalField } from "./rival-field";
+import { ExitingSeat, RivalField } from "./rival-field";
+import { useSeatExits } from "./use-seat-exits";
+import { LOCATION_HAND } from "../constants";
 import { SEAT_Z } from "./geometry";
 import type { SeatFieldProps, SeatPose, SeatTone } from "./types";
 import type { TableStageViewProps } from "./table-stage";
@@ -58,7 +65,7 @@ export function useCellStates(seats: readonly { seat: number; eliminated?: boole
   return states;
 }
 
-/** Natural height of the contents of a life panel (px) and the width it needs for five numerals; a smaller box shrinks them. */
+/** Natural height of the contents of a life plate (px) and the width it needs for five numerals; a smaller box shrinks them. */
 const LP_NATURAL_HEIGHT = 90;
 const LP_NATURAL_WIDTH = 130;
 const lpFit = (rect: GridRect) => Math.min(1, rect.height / LP_NATURAL_HEIGHT, rect.width / LP_NATURAL_WIDTH);
@@ -66,8 +73,35 @@ const lpFit = (rect: GridRect) => Math.min(1, rect.height / LP_NATURAL_HEIGHT, r
 /** A click on these keeps its own meaning; every other click on a field or life box focuses it. */
 const OWN_CLICK = "button, a, input, select, textarea, [role='button'], [data-zones], [data-legal='true']";
 
+/** What a legal pick is made of: a field pick (zones, cards on the board), a hand pick, or both (an open main phase). */
+export type PickKind = "field" | "hand" | "mixed" | null;
+
+export function pickKindOf(legalKeys: ReadonlySet<string>): PickKind {
+  let hand = false;
+  let field = false;
+  for (const key of legalKeys) {
+    if (key.split(":")[1] === String(LOCATION_HAND)) hand = true;
+    else field = true;
+    if (hand && field) return "mixed";
+  }
+  return field ? "field" : hand ? "hand" : null;
+}
+
+/** The pose of a seat that left, for its crumble: the centre of its box, upright size, turned like its field. */
+const exitPose = (seat: number, spot: GridCellRect, rotateDeg: 0 | 180): SeatPose => ({
+  seat,
+  x: spot.rect.x + spot.rect.width / 2,
+  y: spot.rect.y + spot.rect.height / 2,
+  scale: 1,
+  rotateDeg,
+  z: spot.z,
+  docked: false,
+  compact: false,
+  hidden: false,
+});
+
 /** The 4-way table as two columns of facing fields that share an Extra Monster row (see grid-layout.ts). */
-export function GridStage({ controller, layout, camera, renderSeatField, fx, promptCenter, overlay, wantMode, locked = false, grid }: TableStageViewProps) {
+export function GridStage({ controller, layout, camera, renderSeatField, fx, promptCenter, overlay, wantMode, locked = false, grid, placeLabels, gridFinale = null, gridHub, hubPlace = "band" }: TableStageViewProps) {
   const { engine, room, viewerSeat, nameOf, legalKeys, selectedKeys, reducedMotion } = controller;
   const rootRef = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ width: 0, height: 0 });
@@ -111,7 +145,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
   const { focus } = focusControl;
   const focusCell = focus.seat != null ? cells.find((cell) => cell.seat === focus.seat) ?? null : null;
 
-  // A seat pick shows every life box (they are the targets, with their keys), so the camera steps back for it and
+  // A seat pick shows every life plate (they are the targets, with their keys), so the camera steps back for it and
   // returns to the field it left when the pick is over.
   const picking = picks != null;
   const resume = useRef<number | null>(null);
@@ -133,41 +167,50 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
   }, [picking]);
 
   // The final layout, once. The fields get real sizes from it (never a zoom); a change of focus only FLIPs between two layouts.
+  // Only a seat in the duel draws a field: one that is out crumbles (see `useSeatExits`) and leaves an outline.
   const homeColumn = homeCell?.column ?? null;
+  const gone = (seat: number) => (states.get(seat) ?? "live") !== "live";
   const drawerSeats = ([0, 1] as const).map((column) => pairDrawer(cells, states, column));
   const drawerRow = ([0, 1] as const).map((column) => cells.find((cell) => cell.seat === drawerSeats[column])?.row ?? 1) as [0 | 1, 0 | 1];
   const drawerKey = drawerRow.join("");
+  // The finale board only when both seats of its column are still in.
+  const finaleColumn = gridFinale != null && cells.filter((cell) => cell.column === gridFinale && !gone(cell.seat)).length === 2 ? gridFinale : null;
   const layoutBox = useMemo(
-    () => (box.width > 0 && box.height > 0 ? gridFocusLayout(world, box, focusCell, { homeColumn, drawerRow: drawerKey.split("").map(Number) as [0 | 1, 0 | 1] }) : null),
-    [box, drawerKey, focusCell, homeColumn, world],
+    () => (box.width > 0 && box.height > 0 ? gridFocusLayout(world, box, focusCell, { homeColumn, drawerRow: drawerKey.split("").map(Number) as [0 | 1, 0 | 1], finale: finaleColumn }) : null),
+    [box, drawerKey, finaleColumn, focusCell, homeColumn, world],
   );
   const placed = layoutBox;
 
   const tracks = useRef(new Map<string, FlipTrack>());
   const lastBox = useRef({ width: 0, height: 0 });
+  const lastFinale = useRef<0 | 1 | null>(finaleColumn);
   useLayoutEffect(() => {
     const root = rootRef.current;
     if (!root || !placed) return;
     const resized = lastBox.current.width !== box.width || lastBox.current.height !== box.height;
     lastBox.current = { width: box.width, height: box.height };
+    const toFinale = lastFinale.current !== finaleColumn;
+    lastFinale.current = finaleColumn;
     const animate = !resized && !reducedMotion;
     const seen = new Set<string>();
-    const move = (key: string, el: HTMLElement | null, rect: GridRect, turn: 0 | 180, fadeText: boolean) => {
+    const move = (key: string, el: HTMLElement | null, rect: GridRect, turn: 0 | 180, fadeText: boolean, finaleMove: boolean) => {
       if (!el) return;
       seen.add(key);
-      tracks.current.set(key, playFlip(el, tracks.current.get(key), boxOf(rect), animate, { turn, fadeText }));
+      const options = finaleMove ? { turn, fadeText, duration: FINALE_GLIDE_MS, easing: FINALE_GLIDE_EASING } : { turn, fadeText };
+      tracks.current.set(key, playFlip(el, tracks.current.get(key), boxOf(rect), animate, options));
     };
     for (const cell of cells) {
-      move(`f${cell.seat}`, root.querySelector<HTMLElement>(`[data-seat-slot="${cell.seat}"]`), placed.cells[cellIndex(cell)].rect, cell.rotateDeg, false);
-      const band = placed.bands[cell.column];
-      move(`l${cell.seat}`, root.querySelector<HTMLElement>(`[data-grid-lp="${cell.seat}"]`), cell.row === 1 ? band.bottomLp : band.topLp, 0, true);
+      const spot = placed.cells[cellIndex(cell)];
+      const glide = toFinale;
+      move(`f${cell.seat}`, root.querySelector<HTMLElement>(`[data-seat-slot="${cell.seat}"]`), spot.rect, cell.rotateDeg, false, glide);
+      move(`l${cell.seat}`, root.querySelector<HTMLElement>(`[data-grid-lp="${cell.seat}"]`), spot.plate, 0, true, glide);
     }
     for (const key of [...tracks.current.keys()]) {
       if (seen.has(key)) continue;
       cancelTracks([tracks.current.get(key)!]);
       tracks.current.delete(key);
     }
-  }, [placed, box.width, box.height, cells, reducedMotion]);
+  }, [placed, box.width, box.height, cells, reducedMotion, finaleColumn]);
   useEffect(() => {
     const live = tracks.current;
     return () => cancelTracks(live.values());
@@ -178,16 +221,34 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
   const pairs = useRef(new Map<number, NonNullable<SeatFieldProps["pair"]>>());
   const stablePair = (seat: number, next: NonNullable<SeatFieldProps["pair"]>) => {
     const had = pairs.current.get(seat);
-    if (had && had.other === next.other && had.left === next.left && had.right === next.right && had.joined === next.joined) return had;
+    if (had && had.other === next.other && had.left === next.left && had.right === next.right && had.gap === next.gap && had.joined === next.joined) return had;
     pairs.current.set(seat, next);
     return next;
   };
+
+  // The crumble of a seat that leaves: its last board, drawn at the box it had, cut where the shared row begins.
+  const outSeats = useMemo(() => engine.seats.filter((view) => view.eliminated === true).map((view) => view.seat), [engine.seats]);
+  const poses = new Map<number, SeatPose>();
+  if (placed) for (const cell of cells) poses.set(cell.seat, exitPose(cell.seat, placed.cells[cellIndex(cell)], cell.rotateDeg));
+  const exitState = useSeatExits({
+    out: outSeats,
+    seats: engine.seats,
+    poses,
+    faceUpHand: (seat) => seat === viewerSeat,
+    enabled: true,
+    resetKey: `${room.session.slug}:${room.series?.gameNumber ?? 0}`,
+  });
+  // An outline that waits for the crumble, or one that is there at once (a seat that was out when the table opened).
+  const lateOutline = useRef(new Map<number, boolean>());
+  for (const seat of outSeats) if (!lateOutline.current.has(seat)) lateOutline.current.set(seat, exitState.exits.some((exit) => exit.seat === seat));
+  for (const seat of [...lateOutline.current.keys()]) if (!outSeats.includes(seat)) lateOutline.current.delete(seat);
 
   const pickOrder = picks ? layout.slots.map((slot) => slot.seat).filter((seat) => picks.options.has(seat)) : [];
   const promptSeat = controller.prompt?.seat ?? null;
   const format = engineFormat(engine);
   const attackerSeat = controller.aim?.from ? Number(controller.aim.from.split(":")[0]) : null;
   const attackerTone = (attackerSeat != null ? tones.get(attackerSeat) : null) ?? "violet";
+  const pickKind = pickKindOf(legalKeys);
 
   const focusOn = (seat: number) => {
     if (focus.seat !== seat) focusControl.focusSeat(seat);
@@ -215,14 +276,46 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
     if (Number.isInteger(seat)) focusOn(seat);
   };
 
+  // The phase hub: in the band of the pair that shares the Extra Monster row (yours, else the finale pair, else any
+  // that is still drawn), or in the middle of the table between the pairs.
+  const hubColumn: 0 | 1 | null = finaleColumn ?? (homeColumn != null && drawerSeats[homeColumn] != null ? homeColumn : drawerSeats[0] != null ? 0 : drawerSeats[1] != null ? 1 : null);
+  const hubStyle = ((): CSSProperties | null => {
+    if (!placed || !gridHub) return null;
+    if (hubPlace === "center" && finaleColumn == null) {
+      const left = placed.cells[0].rect;
+      const right = placed.cells[2].rect;
+      const gutterX = (left.x + left.width + right.x) / 2;
+      const line = placed.bands[0].rect.y + placed.bands[0].rect.height / 2;
+      return { left: gutterX, top: line, ["--hub-z" as string]: `${placed.bands[0].z}px` };
+    }
+    if (hubColumn == null) return null;
+    const band = placed.bands[hubColumn];
+    const z = band.z;
+    return { left: band.rect.x, top: band.rect.y, width: band.rect.width, height: band.rect.height, ["--z" as string]: `${z}px`, ["--g" as string]: `${z * 0.075}px` };
+  })();
+
+  // The pick bar takes the top lane between the two top plates (over the far hand, never over a zone or a plate you can
+  // pick). The prompt reads `data-bar-room` as "x,y,width,height" in board pixels.
+  const barRoom = ((): string | undefined => {
+    if (!placed) return undefined;
+    const lanes = [placed.cells[1].plate, placed.cells[2].plate];
+    const left = lanes[0].x + lanes[0].width;
+    const right = lanes[1].x;
+    const width = Math.min(440, right - left - 16);
+    if (width < 240) return undefined;
+    return [(left + right) / 2 - width / 2, 8, width, 112].map(Math.round).join(",");
+  })();
+
   return (
     <div
       ref={rootRef}
       className={styles.board}
+      data-bar-room={barRoom}
       data-prompt-scope
       data-table-stage={layout.format}
       data-grid-stage="true"
       data-grid-focus={focus.seat ?? "all"}
+      data-grid-finale={finaleColumn ?? undefined}
       data-format={format}
       data-camera-mode={camera.mode}
       data-camera-want={wantMode ?? camera.mode}
@@ -232,6 +325,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
       data-stage-scale={((placed?.sizes.equal ?? 0) / SEAT_Z).toFixed(3)}
       data-ready={placed ? "true" : "false"}
       data-battle={engine.phase === "battle" ? "true" : undefined}
+      data-pick-kind={pickKind ?? undefined}
     >
       <div className={styles.world} onClick={onClick} onFocusCapture={onFocus}>
           {placed
@@ -251,7 +345,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
               compact: false,
               hidden: false,
             };
-            const empty = state === "empty";
+            const out = state !== "live";
             const self = slot.relation === "self";
             const drawer = drawerSeats[cell.column];
             const band = placed.bands[cell.column];
@@ -269,9 +363,10 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
               emz: drawer === cell.seat ? "pair" : "none",
               pair: stablePair(cell.seat, {
                 other: cell.partner,
-                left: bottom ? band.bottomRoom : band.topRoom,
-                right: bottom ? band.topRoom : band.bottomRoom,
-                joined: (states.get(cell.partner) ?? "live") !== "empty",
+                left: PAIR_LEFT,
+                right: 0,
+                gap: PAIR_GAP,
+                joined: (states.get(cell.partner) ?? "live") === "live",
               }),
               showTally: false,
               usable: slot.relation === "self" || slot.relation === "opponent",
@@ -283,6 +378,11 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
               onInspect: controller.onInspect,
               onHoverCard: controller.onHoverCard,
             };
+            void band;
+            void bottom;
+            const exitRow = exitState.exits.find((entry) => entry.seat === cell.seat);
+            // In the finale the two seats that left fade out of the board: only their plates stay.
+            const outline = out && (finaleColumn == null || cell.column === finaleColumn) ? placed.cells[cellIndex(cell)].own : null;
             return (
               <div
                 key={cell.seat}
@@ -294,16 +394,48 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
                 data-focus={focus.seat === cell.seat ? "true" : undefined}
                 data-partner={cell.home ? cell.partner : undefined}
                 role="group"
-                aria-label={`${nameOf(cell.seat)}${self ? " (you)" : ""}, field${focus.seat === cell.seat ? ", in focus" : ""}${state === "empty" ? ", empty seat" : ""}`}
+                aria-label={`${nameOf(cell.seat)}${self ? " (you)" : ""}, field${focus.seat === cell.seat ? ", in focus" : ""}${out ? ", out of the duel" : ""}`}
               >
-                {empty ? null : (
+                {out ? null : (
                   <RivalField
                     pose={pose}
                     field={field}
                     render={renderSeatField}
-                    placement={{ left: spot.rect.x, top: spot.rect.y, zIndex: focus.seat === cell.seat ? 30 : spot.drawer ? 14 : 10, small: spot.small, lh: spot.lh, boxX: self ? spot.rect.x : undefined }}
+                    placement={{
+                      left: spot.rect.x,
+                      top: spot.rect.y,
+                      zIndex: focus.seat === cell.seat ? 30 : spot.drawer ? 14 : 10,
+                      small: spot.small,
+                      lh: spot.lh,
+                      boxX: self ? spot.rect.x : undefined,
+                      handShift: spot.hand.shift,
+                      handWidth: spot.hand.width,
+                    }}
                   />
                 )}
+                {exitRow ? (
+                  <ExitingSeat
+                    pose={exitPose(cell.seat, spot, cell.rotateDeg)}
+                    tone={slot.tone}
+                    view={exitRow.view}
+                    masterRule={masterRule}
+                    faceUpHand={exitRow.faceUpHand}
+                    reducedMotion={reducedMotion}
+                    clipTop={OVERLAP * spot.z}
+                    onDone={() => exitState.finish(cell.seat)}
+                  />
+                ) : null}
+                {outline ? (
+                  <div
+                    className={styles.outline}
+                    data-out-outline={cell.seat}
+                    data-late={lateOutline.current.get(cell.seat) ? "true" : undefined}
+                    data-tone={slot.tone}
+                    style={{ left: outline.x, top: outline.y, width: outline.width, height: outline.height, ["--z" as string]: `${spot.z}px` }}
+                  >
+                    <span>{nameOf(cell.seat)} · OUT</span>
+                  </div>
+                ) : null}
               </div>
             );
               })
@@ -313,12 +445,12 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
             const view = engine.seats.find((entry) => entry.seat === cell.seat);
             const slot = layout.slots.find((entry) => entry.seat === cell.seat);
             if (!view || !slot) return null;
-            const lp = cell.row === 1 ? placed.bands[cell.column].bottomLp : placed.bands[cell.column].topLp;
+            const lp = placed.cells[cellIndex(cell)].plate;
             const lpStyle: CSSProperties = { left: lp.x, top: lp.y, width: lp.width, height: lp.height };
             const pickable = picks?.options.has(cell.seat) === true;
             const index = pickOrder.indexOf(cell.seat);
             return (
-              <div key={cell.seat} className={styles.lp} data-grid-lp={cell.seat} style={lpStyle}>
+              <div key={cell.seat} className={styles.lp} data-grid-lp={cell.seat} data-lp-side={finaleColumn === cell.column && cell.row === 1 ? "left" : undefined} style={lpStyle}>
                 <HoloLp
                   seat={cell.seat}
                   name={nameOf(cell.seat)}
@@ -340,12 +472,18 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
                   hotkey={pickable && index >= 0 ? index + 1 : null}
                   onPick={() => picks?.onPick(cell.seat)}
                   onHover={(hover) => controller.onAim?.(hover ? { lpSeat: cell.seat } : null)}
+                  placeLabel={placeLabels?.get(cell.seat) ?? null}
                   reducedMotion={reducedMotion}
                 />
               </div>
             );
               })
             : null}
+          {hubStyle && gridHub ? (
+            <div className={styles.hub} data-grid-hub={hubPlace === "center" && finaleColumn == null ? "center" : "band"} style={hubStyle}>
+              {gridHub(hubPlace === "center" && finaleColumn == null ? "center" : "band")}
+            </div>
+          ) : null}
       </div>
       {controller.aim?.from ? <AttackLine aim={controller.aim} tone={attackerTone} stageWidth={box.width} stageHeight={box.height} /> : null}
       <div className={styles.live} role="status" aria-live="polite" data-grid-live>

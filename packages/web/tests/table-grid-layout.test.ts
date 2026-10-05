@@ -4,7 +4,7 @@ import { tableLayout } from "@/components/duel/table/geometry";
 import {
   cellIndex,
   cellState,
-  FOCUS_SHARE,
+  FINALE_SIDE,
   gridCells,
   gridFocusLayout,
   gridPartnerOf,
@@ -12,11 +12,12 @@ import {
   gridWorld,
   HAND_RISE,
   HAND_SHARE,
-  LP_MAX_HEIGHT,
   OUT_HOLD_MS,
-  OTHER_SHARE,
+  OTHER_MIN_SHARE,
+  PAIR_FOCUS,
+  PAIR_FOCUS_MIN,
   OVERLAP,
-  PARTNER_MIN_SHARE,
+  PLATE_H,
   pairDrawer,
   SMALL_FIELD_WIDTH,
   usesGridLayout,
@@ -103,17 +104,18 @@ describe("shared Extra Monster row", () => {
     expect(extraMonster(mine as never, partner as never, "right")).toEqual({ code: 2 });
   });
 
-  it("is drawn by the bottom field, or by the top field once the bottom cell is empty", () => {
+  it("is drawn by the bottom field, or by the top field once the bottom seat is not live", () => {
     const cells = gridCells(layoutOf(0));
     const states = (entries: [number, CellState][]) => new Map<number, CellState>(entries);
     expect(pairDrawer(cells, states([]), 0)).toBe(0);
     expect(pairDrawer(cells, states([]), 1)).toBe(3);
     expect(pairDrawer(cells, states([[0, "empty"]]), 0)).toBe(1);
-    expect(pairDrawer(cells, states([[0, "out"]]), 0)).toBe(0);
+    expect(pairDrawer(cells, states([[0, "out"]]), 0)).toBe(1);
     expect(pairDrawer(cells, states([[0, "empty"], [1, "empty"]]), 0)).toBeNull();
+    expect(pairDrawer(cells, states([[0, "out"], [1, "out"]]), 0)).toBeNull();
   });
 
-  it("is drawn by the focused seat of the column when that seat is not empty", () => {
+  it("is drawn by the preferred seat of the column when that seat is live", () => {
     const cells = gridCells(layoutOf(0));
     const states = (entries: [number, CellState][]) => new Map<number, CellState>(entries);
     expect(pairDrawer(cells, states([]), 0, 1)).toBe(1);
@@ -138,7 +140,7 @@ const every = (run: (layout: GridFocusLayout, view: (typeof VIEWPORTS)[number], 
 };
 
 describe("gridFocusLayout", () => {
-  it("lays four equal fields in a 2x2 for all fields, rows lined up, the equal size height-bound", () => {
+  it("lays four equal fields in a 2x2 for all fields, rows lined up", () => {
     const layout = gridFocusLayout(gridWorld(5), VIEWPORTS[0], null);
     const [tl, bl, tr, br] = layout.cells;
     expect(layout.cells.map((cell) => cell.z)).toEqual([layout.sizes.equal, layout.sizes.equal, layout.sizes.equal, layout.sizes.equal]);
@@ -148,109 +150,78 @@ describe("gridFocusLayout", () => {
     expect(tl.rect.x).toBeLessThan(tr.rect.x);
     expect(tl.rect.y).toBeLessThan(bl.rect.y);
     expect(layout.sizes.equal).toBeGreaterThan(95);
+    expect(layout.finale).toBeNull();
   });
 
-  it("keeps every field and every life box inside the box, for every focus and box", () => {
+  it("keeps every field, plate and shared row inside the box, for every focus and box", () => {
     for (const rule of [3, 4, 5] as const) {
       every((layout, view) => {
-        for (const cell of layout.cells) expect(inside(cell.rect, view)).toBe(true);
-        for (const band of layout.bands) {
-          expect(inside(band.rect, view)).toBe(true);
-          expect(inside(band.bottomLp, view)).toBe(true);
-          expect(inside(band.topLp, view)).toBe(true);
+        for (const cell of layout.cells) {
+          expect(inside(cell.rect, view)).toBe(true);
+          expect(inside(cell.plate, view)).toBe(true);
         }
+        for (const band of layout.bands) expect(inside(band.rect, view)).toBe(true);
       }, rule);
     }
   });
 
-  it("keeps each field inside its own column: the two columns never overlap", () => {
+  it("keeps each pair inside its own column: the two columns never overlap", () => {
     every((layout) => {
       const left = layout.cells.filter((cell) => cell.column === 0);
       const right = layout.cells.filter((cell) => cell.column === 1);
       for (const a of left) for (const b of right) expect(overlap(a.rect, b.rect)).toBe(false);
-      for (const band of [layout.bands[0]]) for (const b of right) expect(overlap(band.rect, b.rect)).toBe(false);
+      for (const b of right) expect(overlap(layout.bands[0].rect, b.rect)).toBe(false);
     });
   });
 
-  it("overlaps the two fields of a column by their Extra Monster rows only, and puts no life box over an Extra Monster Zone", () => {
+  it("gives a plate to every seat, above the top field and below the bottom field, clear of the shared row", () => {
     every((layout) => {
       for (const column of [0, 1] as const) {
         const top = layout.cells[cellIndex({ column, row: 0 })];
         const bottom = layout.cells[cellIndex({ column, row: 1 })];
-        const drawer = top.drawer ? top : bottom;
-        const other = top.drawer ? bottom : top;
-        // the mat of the field that does not draw the row ends where the row of the drawer starts
-        const visible = top.drawer ? other.rect.y + OVERLAP * other.z : other.rect.y + other.rect.height - OVERLAP * other.z;
-        expect(Math.abs(visible - (top.drawer ? drawer.rect.y + drawer.rect.height : drawer.rect.y))).toBeLessThanOrEqual(1);
         const band = layout.bands[column];
-        expect(overlap(band.bottomLp, band.topLp)).toBe(false);
-        expect(band.bottomLp.x + band.bottomLp.width).toBeLessThanOrEqual(band.topLp.x);
-        expect(band.bottomLp.y).toBeGreaterThanOrEqual(band.rect.y - 0.01);
-        expect(band.bottomLp.y + band.bottomLp.height).toBeLessThanOrEqual(band.rect.y + band.rect.height + 0.01);
-        expect(band.bottomLp.height).toBeLessThanOrEqual(LP_MAX_HEIGHT);
+        expect(overlap(top.plate, band.rect)).toBe(false);
+        expect(overlap(bottom.plate, band.rect)).toBe(false);
+        expect(overlap(top.plate, bottom.plate)).toBe(false);
+        expect(top.plate.y + top.plate.height).toBeLessThanOrEqual(top.rect.y + top.rect.height);
+        expect(bottom.plate.y).toBeGreaterThanOrEqual(band.rect.y + band.rect.height);
       }
     });
   });
 
-  it("makes the focused field about 1.3x the equal size and the other column about 0.8x, the partner in between", () => {
+  it("lifts the focused pair to about 1.12x of the rest size, the other pair a little smaller", () => {
     const view = { width: 1904, height: 930 };
     for (const focus of FOCUSES.filter((entry) => entry != null)) {
       const layout = gridFocusLayout(gridWorld(5), view, focus, { homeColumn: 0 });
-      const { equal } = layout.sizes;
-      const focused = layout.cells[cellIndex(focus!)];
-      const partner = layout.cells[cellIndex({ column: focus!.column, row: focus!.row === 1 ? 0 : 1 })];
-      expect(focused.z).toBe(layout.sizes.focus);
-      expect(focused.z).toBeGreaterThanOrEqual(equal * 1.29);
-      expect(focused.z).toBeLessThanOrEqual(equal * FOCUS_SHARE + 0.01);
-      expect(partner.z).toBeLessThan(focused.z);
-      expect(partner.z).toBeGreaterThanOrEqual(equal * PARTNER_MIN_SHARE - 0.01);
-      expect(partner.z).toBeLessThanOrEqual(equal * OTHER_SHARE + 0.01);
-      for (const cell of layout.cells.filter((entry) => entry.column !== focus!.column)) expect(cell.z).toBeCloseTo(equal * OTHER_SHARE, 1);
+      const { rest, focus: lifted, other } = layout.sizes;
+      expect(lifted).toBeGreaterThan(rest);
+      expect(lifted).toBeLessThanOrEqual(rest * PAIR_FOCUS + 0.01);
+      expect(lifted).toBeGreaterThanOrEqual(rest * PAIR_FOCUS_MIN - 0.01);
+      expect(other).toBeLessThanOrEqual(rest + 0.01);
+      expect(other).toBeGreaterThanOrEqual(rest * OTHER_MIN_SHARE - 0.01);
+      for (const cell of layout.cells) expect(cell.z).toBeCloseTo(cell.column === focus!.column ? lifted : other, 1);
     }
   });
 
-  it("makes every focus at least 1.29x the equal size at 1440x900 and 1920x1080, for the home column too", () => {
-    for (const view of [{ width: 1440, height: 900 }, { width: 1920, height: 1080 }]) {
-      for (const focus of FOCUSES.filter((entry) => entry != null)) {
-        const layout = gridFocusLayout(gridWorld(5), view, focus, { homeColumn: 0 });
-        expect(layout.sizes.focus / layout.sizes.equal).toBeGreaterThanOrEqual(1.29);
-        expect(layout.sizes.partner / layout.sizes.equal).toBeGreaterThanOrEqual(PARTNER_MIN_SHARE - 0.001);
-      }
-    }
-  });
-
-  it("gives a spectator (no home column) no larger hand lane: the fields get the room instead", () => {
-    const view = { width: 1900, height: 700 };
-    const own = gridFocusLayout(gridWorld(5), view, null, { homeColumn: 0 });
-    const watching = gridFocusLayout(gridWorld(5), view, null, { homeColumn: null });
-    expect(watching.sizes.equal).toBeGreaterThan(own.sizes.equal);
-    expect(watching.cells[1].rect.y + watching.cells[1].rect.height).toBeLessThanOrEqual(view.height);
-    // neither column has the wide own life box
-    expect(watching.bands[0].bottomLp.width).toBeCloseTo(watching.bands[1].bottomLp.width, 0);
-    expect(own.bands[0].bottomLp.width).toBeGreaterThan(own.bands[1].bottomLp.width);
-  });
-
-  it("keeps the home hand lane fixed from the equal size: a focused home field does not grow it", () => {
+  it("keeps the home hand lane fixed from the rest size: a lifted home pair does not grow the hand", () => {
     const view = { width: 1440, height: 900 };
     const lane = (focus: (typeof FOCUSES)[number]) => {
       const layout = gridFocusLayout(gridWorld(5), view, focus, { homeColumn: 0 });
       const home = layout.cells[cellIndex({ column: 0, row: 1 })];
       return { layout, home, below: view.height - 8 - (home.rect.y + home.rect.height) };
     };
-    const all = lane(null);
     const mine = lane({ column: 0, row: 1 });
     const rival = lane({ column: 1, row: 1 });
-    // the room below the home field: 1.04 of its card height, never of more than the equal size (the hand rises over the field's edge by HAND_RISE)
-    for (const entry of [all, mine, rival]) expect(entry.below).toBeGreaterThanOrEqual(1.04 * Math.min(entry.home.z, entry.layout.sizes.equal) - 1);
-    // the hand card is drawn from the equal size, never from the focused size, and fits the lane with its rise
-    expect(mine.home.z).toBeGreaterThan(all.home.z);
-    expect(mine.home.lh).toBeCloseTo(HAND_SHARE * mine.layout.sizes.equal, 1);
-    expect(mine.home.lh * (1 - HAND_RISE)).toBeLessThan(mine.below);
+    for (const entry of [mine, rival]) {
+      expect(entry.home.lh).toBeCloseTo(HAND_SHARE * entry.layout.sizes.rest, 1);
+      // the hand rises over the field's edge by HAND_RISE and still fits under it
+      expect(entry.home.lh * (1 - HAND_RISE)).toBeLessThan(entry.below);
+    }
   });
 
-  it("puts left and top of every field and life box on whole px", () => {
+  it("puts left and top of every field, plate and shared row on whole px", () => {
     every((layout) => {
-      for (const box of [...layout.cells.map((cell) => cell.rect), ...layout.bands.flatMap((band) => [band.rect, band.bottomLp, band.topLp])]) {
+      for (const box of [...layout.cells.flatMap((cell) => [cell.rect, cell.plate]), ...layout.bands.map((band) => band.rect)]) {
         expect(Number.isInteger(box.x)).toBe(true);
         expect(Number.isInteger(box.y)).toBe(true);
       }
@@ -265,20 +236,10 @@ describe("gridFocusLayout", () => {
         const bottom = layout.cells[cellIndex({ column, row: 1 })];
         const nonDrawer = top.drawer ? bottom : top;
         const drawer = top.drawer ? top : bottom;
-        // the mat of the other field is cut OVERLAP of its card height from the pair side; its monster row ends 1.196 from there
         expect(Math.abs(top.rect.y + top.rect.height - bottom.rect.y - OVERLAP * nonDrawer.z)).toBeLessThanOrEqual(1);
         expect(drawer.drawer).toBe(true);
       }
     });
-  });
-
-  it("reaches 1.3x when the focused column has no larger hand lane, and gives up size for the partner minimum when it has", () => {
-    const view = { width: 1356, height: 744 };
-    const rival = gridFocusLayout(gridWorld(5), view, { column: 1, row: 1 }, { homeColumn: 0 });
-    expect(rival.sizes.focus / rival.sizes.equal).toBeCloseTo(FOCUS_SHARE, 2);
-    const mine = gridFocusLayout(gridWorld(5), view, { column: 0, row: 1 }, { homeColumn: 0 });
-    expect(mine.sizes.focus / mine.sizes.equal).toBeGreaterThanOrEqual(1.29);
-    expect(mine.sizes.partner / mine.sizes.equal).toBeGreaterThanOrEqual(PARTNER_MIN_SHARE - 0.001);
   });
 
   it("keeps the shared Extra Monster row on the bottom field of each column, whatever the focus", () => {
@@ -298,31 +259,78 @@ describe("gridFocusLayout", () => {
     }
   });
 
-  it("honours an explicit drawer row (the focused cell is empty or a pair has one seat left)", () => {
-    const layout = gridFocusLayout(gridWorld(5), VIEWPORTS[0], { column: 0, row: 0 }, { drawerRow: [1, 1] });
-    expect(layout.cells[cellIndex({ column: 0, row: 1 })].drawer).toBe(true);
-    expect(layout.cells[cellIndex({ column: 0, row: 0 })].drawer).toBe(false);
+  it("lines the two shared Extra Monster rows up on one line", () => {
+    every((layout) => {
+      const [a, b] = layout.bands;
+      expect(Math.abs(a.rect.y + a.rect.height / 2 - (b.rect.y + b.rect.height / 2))).toBeLessThanOrEqual(1);
+    });
   });
 
-  it("makes the viewer's life box the wide one on the left of its band", () => {
-    const layout = gridFocusLayout(gridWorld(5), VIEWPORTS[0], null, { homeColumn: 0 });
-    const [home, other] = layout.bands;
-    expect(home.bottomLp.width).toBeGreaterThan(home.topLp.width);
-    expect(home.bottomLp.width).toBeGreaterThan(other.bottomLp.width);
-    expect(home.bottomLp.x).toBeLessThan(home.topLp.x);
-    expect(other.bottomLp.x + other.bottomLp.width).toBeLessThan(other.topLp.x);
+  it("honours an explicit drawer row (the focused cell is empty or a pair has one seat left)", () => {
+    const layout = gridFocusLayout(gridWorld(5), VIEWPORTS[0], { column: 0, row: 0 }, { drawerRow: [0, 1] });
+    expect(layout.cells[cellIndex({ column: 0, row: 0 })].drawer).toBe(true);
+    expect(layout.cells[cellIndex({ column: 0, row: 1 })].drawer).toBe(false);
   });
 
   it("marks the fields that are narrower than the small limit", () => {
     const layout = gridFocusLayout(gridWorld(5), { width: 1356, height: 744 }, { column: 0, row: 1 }, { homeColumn: 0 });
     for (const cell of layout.cells) expect(cell.small).toBe(cell.rect.width < SMALL_FIELD_WIDTH);
-    expect(layout.cells.some((cell) => cell.small)).toBe(true);
     expect(layout.cells[cellIndex({ column: 0, row: 1 })].small).toBe(false);
   });
 
   it("gives an empty box a zero layout instead of throwing", () => {
     const layout = gridFocusLayout(gridWorld(5), { width: 0, height: 0 }, { column: 0, row: 1 });
     expect(layout.cells.every((cell) => cell.z === 0 || Number.isFinite(cell.z))).toBe(true);
+  });
+});
+
+describe("gridFocusLayout finale", () => {
+  const view = { width: 1920, height: 1080 };
+  const finaleOf = (column: 0 | 1) => gridFocusLayout(gridWorld(5), view, { column, row: 1 }, { homeColumn: 0, finale: column });
+
+  it("grows the last pair to one board in the middle of the box, never smaller than the lifted pair and bigger than the rest size", () => {
+    for (const column of [0, 1] as const) {
+      const layout = finaleOf(column);
+      const normal = gridFocusLayout(gridWorld(5), view, { column, row: 1 }, { homeColumn: 0 });
+      const [top, bottom] = [layout.cells[cellIndex({ column, row: 0 })], layout.cells[cellIndex({ column, row: 1 })]];
+      expect(layout.finale).toBe(column);
+      expect(bottom.z).toBeGreaterThanOrEqual(normal.cells[cellIndex({ column, row: 1 })].z - 0.01);
+      expect(bottom.z).toBeGreaterThan(normal.sizes.rest);
+      expect(Math.abs(bottom.rect.x + bottom.rect.width / 2 - view.width / 2)).toBeLessThanOrEqual(1);
+      expect(bottom.rect.x).toBe(top.rect.x);
+      for (const cell of [top, bottom]) expect(inside(cell.rect, view)).toBe(true);
+    }
+  });
+
+  it("puts my plate on the LEFT of the board and the partner's plate on the right", () => {
+    const layout = finaleOf(0);
+    const [top, bottom] = [layout.cells[cellIndex({ column: 0, row: 0 })], layout.cells[cellIndex({ column: 0, row: 1 })]];
+    expect(bottom.plate.x + bottom.plate.width).toBeLessThanOrEqual(bottom.rect.x);
+    expect(top.plate.x).toBeGreaterThanOrEqual(top.rect.x + top.rect.width);
+    expect(bottom.plate.width).toBeCloseTo(FINALE_SIDE * bottom.z, 0);
+    expect(bottom.plate.height).toBeCloseTo(PLATE_H * bottom.z, 0);
+    expect(inside(bottom.plate, view)).toBe(true);
+    expect(inside(top.plate, view)).toBe(true);
+  });
+
+  it("keeps the plates of the two seats that left clear of the finale board and of each other, inside the box", () => {
+    for (const column of [0, 1] as const) {
+      const layout = finaleOf(column);
+      const board = [layout.cells[cellIndex({ column, row: 0 })], layout.cells[cellIndex({ column, row: 1 })]];
+      const away = layout.cells.filter((cell) => cell.column !== column);
+      for (const cell of away) {
+        expect(inside(cell.plate, view)).toBe(true);
+        for (const own of board) expect(overlap(cell.plate, own.rect)).toBe(false);
+        for (const own of board) expect(overlap(cell.plate, own.plate)).toBe(false);
+      }
+      expect(overlap(away[0].plate, away[1].plate)).toBe(false);
+    }
+  });
+
+  it("gives my hand the whole board width in the finale", () => {
+    const layout = finaleOf(0);
+    expect(layout.cells[cellIndex({ column: 0, row: 1 })].hand.shift).toBe(0);
+    expect(layout.cells[cellIndex({ column: 0, row: 1 })].hand.width).toBeCloseTo(gridWorld(5).zones, 2);
   });
 });
 

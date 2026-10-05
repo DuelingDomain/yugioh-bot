@@ -19,7 +19,7 @@ export interface RivalFieldProps {
    * A fixed place in the parent's px (the grid table): the box sits at `left`/`top` and turns with the CSS `rotate`
    * property. `transform` stays free for the stage to animate. `pose.x/y/scale` are not used; `pose.z` is the card height.
    */
-  placement?: { left: number; top: number; zIndex: number; small?: boolean; lh?: number; boxX?: number };
+  placement?: { left: number; top: number; zIndex: number; small?: boolean; lh?: number; boxX?: number; handShift?: number; handWidth?: number };
   /** Seats are regrouping after an elimination: the move waits for the crumble, then glides slowly. */
   glide?: boolean;
 }
@@ -45,7 +45,7 @@ export function seatTransform(pose: Pick<SeatPose, "x" | "y" | "rotateDeg" | "ti
  */
 export function RivalField({ pose, field, render, angleOffsetDeg = 0, placement, glide = false }: RivalFieldProps) {
   const style: CSSProperties & Record<string, string | number> = placement
-    ? { "--sf-z": `${pose.z}px`, "--sf-ts": textScale(pose.scale).toFixed(2), ...(placement.lh != null ? { "--sf-lh": `${placement.lh}px` } : {}), ...(placement.boxX != null ? { "--sf-box-x": `${placement.boxX}px` } : {}), left: placement.left, top: placement.top, rotate: pose.rotateDeg ? `${pose.rotateDeg}deg` : "none", zIndex: placement.zIndex }
+    ? { "--sf-z": `${pose.z}px`, "--sf-ts": textScale(pose.scale).toFixed(2), ...(placement.lh != null ? { "--sf-lh": `${placement.lh}px` } : {}), ...(placement.boxX != null ? { "--sf-box-x": `${placement.boxX}px` } : {}), ...(placement.handShift != null ? { "--hand-shift": placement.handShift } : {}), ...(placement.handWidth != null ? { "--hand-w": placement.handWidth } : {}), left: placement.left, top: placement.top, rotate: pose.rotateDeg ? `${pose.rotateDeg}deg` : "none", zIndex: placement.zIndex }
     : { "--sf-z": `${pose.z}px`, transform: seatTransform(pose), zIndex: slotZIndex(pose.slot, pose.scale) };
   return (
     <div
@@ -85,6 +85,8 @@ export interface ExitingSeatProps {
   /** Extra turn of the world (the fly-in view), so gravity stays down on the screen. */
   angleOffsetDeg?: number;
   reducedMotion: boolean;
+  /** Cut the top of the board this many px (in the board's own turn): the 4-way grid keeps the shared Extra Monster row. */
+  clipTop?: number;
   /** Called once when the layer can go. */
   onDone: () => void;
 }
@@ -94,7 +96,7 @@ export interface ExitingSeatProps {
  * engine has emptied: the cards are drawn from the last view. It is a plain box the size of a field, turned and scaled
  * like one, so it lines up with the pad under it. Under reduced motion it only fades down.
  */
-export function ExitingSeat({ pose, tone, view, masterRule, faceUpHand, angleOffsetDeg = 0, reducedMotion, onDone }: ExitingSeatProps) {
+export function ExitingSeat({ pose, tone, view, masterRule, faceUpHand, angleOffsetDeg = 0, reducedMotion, clipTop, onDone }: ExitingSeatProps) {
   const width = boardWidth(masterRule);
   const cards = useMemo(() => crumbleCards(view, { faceUpHand, width }), [view, faceUpHand, width]);
   const done = useRef(onDone);
@@ -110,6 +112,7 @@ export function ExitingSeat({ pose, tone, view, masterRule, faceUpHand, angleOff
     height: CRUMBLE_UNIT * FIELD_H * unit,
     transform: seatTransform(pose),
     zIndex: slotZIndex(pose.slot, pose.scale) + 1,
+    ...(clipTop != null ? { clipPath: `inset(${clipTop}px -600px -600px -600px)` } : {}),
   };
   return (
     <div className={styles.seat} style={style} data-seat-exit={pose.seat} data-exit-motion={reducedMotion ? "reduced" : "full"} aria-hidden="true">
