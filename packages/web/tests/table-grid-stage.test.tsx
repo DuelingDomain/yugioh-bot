@@ -139,20 +139,20 @@ describe("GridStage", () => {
     expect(stage.getAttribute("data-grid-focus")).toBe("0");
   });
 
-  it("sizes the fields from one layout: the focused field is the largest, the others about 0.8x or smaller, no transform at rest", () => {
+  it("sizes the fields from one layout: the focused pair is lifted as a pair, the other pair a little smaller, no transform at rest", () => {
     const { container } = render(<Shell id="main" />);
     const stage = container.querySelector("[data-grid-stage]")!;
     const z = (seat: number) => parseFloat(cellOf(container, seat).querySelector<HTMLElement>("[data-seat-slot]")!.style.getPropertyValue("--sf-z"));
     expect(z(0)).toBeGreaterThan(z(3));
-    expect(z(1)).toBeLessThan(z(0));
+    expect(z(1)).toBeCloseTo(z(0), 1);
     expect(z(3)).toBeLessThan(z(0));
     expect(z(3)).toBeCloseTo(z(2), 1);
     act(() => void fireEvent.keyDown(window, { key: "o" }));
     expect(stage.getAttribute("data-grid-focus")).toBe("all");
     expect(new Set([0, 1, 2, 3].map(z)).size).toBe(1);
     act(() => void fireEvent.keyDown(window, { key: "2" }));
-    expect(z(1)).toBeGreaterThan(z(0));
-    expect(z(1)).toBeGreaterThan(z(2));
+    expect(z(1)).toBeCloseTo(z(0), 1);
+    expect(z(1)).toBeGreaterThanOrEqual(z(2));
     for (const seat of [0, 1, 2, 3]) expect(cellOf(container, seat).querySelector<HTMLElement>("[data-seat-slot]")!.style.transform).toBe("");
   });
 
@@ -214,7 +214,7 @@ describe("GridStage", () => {
     const { container } = render(<Shell id="main" />);
     const slot = (seat: number) => cellOf(container, seat).querySelector<HTMLElement>("[data-seat-slot]")!;
     expect(slot(0).getAttribute("data-small")).toBeNull();
-    expect(slot(1).getAttribute("data-small")).toBe("true");
+    expect(slot(3).getAttribute("data-small")).toBe("true");
     const lp = container.querySelector<HTMLElement>('[data-grid-lp="0"]')!;
     expect(lp.style.width).not.toBe("");
     expect(lp.querySelector('[data-fit="true"]')).not.toBeNull();

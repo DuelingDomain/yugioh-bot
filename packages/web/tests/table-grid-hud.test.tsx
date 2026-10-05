@@ -66,7 +66,9 @@ describe("the floating HUD of the 4-way grid", () => {
     const { container } = render(<Shell state={stateOf("main")} />);
     expect(container.querySelector("[data-hud='true']")).not.toBeNull();
     expect(screen.getByTestId("hud-top")).toBeTruthy();
-    expect(screen.getByTestId("hud-bottom")).toBeTruthy();
+    // No full-width bottom bar: the turn controls sit in the corner cluster.
+    expect(screen.queryByTestId("hud-bottom")).toBeNull();
+    expect(screen.getByTestId("hud-corner")).toBeTruthy();
     for (const id of ["log", "settings", "chain"]) expect(screen.getByTestId(`hud-dock-${id}`)).toBeTruthy();
     // The old History pane only repeated the Log pane, so the dock has no History icon.
     expect(screen.queryByTestId("hud-dock-history")).toBeNull();
@@ -273,17 +275,17 @@ describe("the HUD of the 4-way grid with a prompt", () => {
   });
 });
 
-describe("the clock in the bar of the 4-way grid", () => {
+describe("the clock in the corner of the 4-way grid", () => {
   it("shows the answering seat's clock only, and nothing when no clock runs", () => {
     const running = structuredClone(stateOf("main"));
     running.room.clock = { ...running.room.clock!, activeSeat: 1 };
     const { unmount } = render(<Shell state={running} />);
-    const timer = within(screen.getByTestId("hud-bottom")).getByRole("timer");
+    const timer = within(screen.getByTestId("hud-corner")).getByRole("timer");
     expect(timer.querySelectorAll("[data-active]")).toHaveLength(1);
     unmount();
     const idle = structuredClone(stateOf("main"));
     idle.room.clock = { ...idle.room.clock!, activeSeat: null };
     render(<Shell state={idle} />);
-    expect(within(screen.getByTestId("hud-bottom")).queryByRole("timer")).toBeNull();
+    expect(within(screen.getByTestId("hud-corner")).queryByRole("timer")).toBeNull();
   });
 });

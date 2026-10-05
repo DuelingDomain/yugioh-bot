@@ -1,6 +1,6 @@
 import type { DuelChainLink, DuelEngineView, DuelEvent, DuelPrompt, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import { ev, MZ, SZ } from "../../fx-lab/board";
-import { LOCATION_HAND, LOCATION_MZONE, POS_FACEDOWN_DEFENSE, zoneKey } from "../../constants";
+import { LOCATION_HAND, LOCATION_MZONE, LOCATION_SZONE, POS_FACEDOWN_DEFENSE, zoneKey } from "../../constants";
 import {
   fixtureEngine,
   fixtureRoom,
@@ -243,3 +243,34 @@ const states = {
 } satisfies Record<TableStateId, TableFixtureState>;
 
 export const FFA4_FIXTURES: TableFixtureSet = { format: "ffa4", title: "4-way free-for-all", states };
+
+/**
+ * A preview variant of the 4-way fixtures for the pair-lift review (`?out=2,3&pick=field`). Every state of the set gets
+ * the seats in `out` swept clean and eliminated (the first one went out first); `pick` replaces the prompt with a pick
+ * among your own field cards (`field`) or your hand (`hand`), which the room answers on the board.
+ */
+export function ffa4Variant(set: TableFixtureSet, opts: { out: readonly number[]; pick?: "field" | "hand" | null }): TableFixtureSet {
+  if (opts.out.length === 0 && !opts.pick) return set;
+  const states = Object.fromEntries(
+    Object.entries(set.states).map(([id, state]) => {
+      const engine = state.room.engine!;
+      const seats = engine.seats.map((view) => ({ ...view }));
+      for (const seat of opts.out) leave(seats[seat]);
+      let prompt = engine.prompt;
+      if (opts.pick && state.room.mySeat === ASTER) {
+        const own = seats[ASTER];
+        const options: DuelPromptOption[] = opts.pick === "hand"
+          ? own.hand.map((card, sequence) => ({ id: `h${sequence}`, label: card.name ?? "Card", controller: ASTER, location: LOCATION_HAND, sequence }))
+          : [
+              ...own.monsters.flatMap((card, sequence) => (card && sequence < 7 ? [{ id: `om${sequence}`, label: card.name ?? "Monster", controller: ASTER, location: LOCATION_MZONE, sequence }] : [])),
+              ...own.spells.flatMap((card, sequence) => (card && sequence < 5 ? [{ id: `os${sequence}`, label: card.name ?? "Set card", controller: ASTER, location: LOCATION_SZONE, sequence }] : [])),
+            ];
+        prompt = { id: `pick-${opts.pick}`, seat: ASTER, kind: "cards", title: opts.pick === "hand" ? "Select 1 card in your hand" : "Select 1 card you control", min: 1, max: 1, options };
+      }
+      const room = { ...state.room, engine: { ...engine, seats, prompt, eliminationOrder: opts.out.map((seat) => [seat]) } };
+      const ui = opts.out.length > 0 ? { ...state.ui, initialOutOrder: opts.out.map((seat) => [seat]) } : state.ui;
+      return [id, { ...state, room, ui }];
+    }),
+  ) as unknown as TableFixtureSet["states"];
+  return { ...set, states };
+}

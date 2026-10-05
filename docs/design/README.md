@@ -1,27 +1,23 @@
-# Approved designs
+# Design references
 
-The source designs for the site, as interactive HTML mocks with a workshop page each. Open the files in a browser straight from disk. The card art loads from images.ygoprodeck.com, so you need to be online.
+Only designs that code or tests still use stay here. Shipped designs are removed; the code is the source.
 
 ## Draft room: Cube night (`draft-room/`)
 
-The primary design for draft nights, approved by the owner on 2026-10-02. It's built in the app as the draft room (PR #69 and follow-ups). Keep the draft room to this design.
+Approved by the owner on 2026-10-02. The app builds it as the draft room (`packages/web/src/components/draft/room/`). Keep the draft room to this design.
 
-- `workshop.html`: every feature explained with screenshots, plus what it takes to build.
+- `workshop.html`: every feature explained, with screenshots.
 - `cube-night.html`: the interactive mock. Use the grey "Mock controls" tab to change state.
 
-## Tournament page: Solid Vision, concept D (`tournament/`)
+## Multiplayer table space (`table-space-v2/`)
 
-The owner picked this on 2026-10-03. It's not built in the app yet.
+Live reference for the 3-way Plaza, the Tag Rooftop, and the open 4-way grid work. Review it again when the 4-way grid ships.
 
-- `workshop-d.html`: every feature explained, what's already in the app, what needs work, and the open questions.
-- `d.html`: the interactive mock.
-- `brief-*.md`: the design briefs the mock was built from.
+## 3D mode baseline (`duel-3d-mode/concept/solid-vision/` and `duel-3d-mode/concept/assets/`)
 
-The rest of the site is being brought in line with D. The draft room keeps Cube night.
+The Solid Vision concept page, used as the e2e baseline by `packages/web/e2e/duel-3d-mode.playwright.ts` (it loads `index.html` and `shots/*.png`). The page loads `../assets/`, so keep both folders. Local card art, no network needed.
 
-## Tribute Summon on the board (`tribute/`)
+## Contracts
 
-Proposal, not built yet. Replaces the centred tribute pick bar with picking on the board plus a compact corner dock, and adds a tribute animation.
-
-- `workshop.html`: the flow, every dock state, where the dock sits in the 1v1, table and Rooftop shells, the animation (live replay, frame strip, timeline), the opponent view, reduced motion and the phone layout.
-- `shots/`: PNGs of each section.
+- `coin-toss/backend.md`: the coin toss timing contract (`MIN_DUEL_FX_SPEED`, `COIN_CHAIN_BEAT_MAX_MS`, `MAX_COIN_TOSS_GRACE_MS`).
+- `fx/destroy-sequence.md`: the destroy sequence rule that the move plan follows.

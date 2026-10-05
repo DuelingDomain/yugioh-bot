@@ -139,18 +139,18 @@ The build uses the same inputs as the engine session:
 - `domain-core/pins.json`: ygopro-core `efc21aa433b88cd35b7c37db4072a35c58d9d435`, wrapper source
   `9f36452f2a2464f057f7fd6e2273aa5ab589401e`, Lua `75ea9ccbea7c4886f30da147fb67b693b2624c26`,
   and emsdk `4.0.9` at digest `sha256:3c853ef9c3b4c2708da1adac2fdfdba49c775fdc4144ceef4989423963e96811`.
-- All numbered patches in `domain-core/patches` (currently 0001–0090 and 0100; 91 patches). No experimental patches or
-  `PATCH_LIMIT`. The current series hash (concatenated patch bytes in filename order) is `88550bace076f6c1f38ec70b0e8cf5c762bf93279203bbfe73020308034cffac`.
+- All numbered patches in `domain-core/patches` (currently 0001–0090 and 0100–0101; 92 patches). No experimental patches or
+  `PATCH_LIMIT`. The current series hash (concatenated patch bytes in filename order) is `8974c4d25cafb57f844cccfe960e7a8ec971fc667c975cf5595be458635fdc14`.
 - Domain additionally uses `APPLY_DOMAIN=1 DOMAIN_MULTI=1`, the existing Domain patch, `domain_master.cpp`
   and `apply-domain-multi.mjs`. The current multi layer hash is
   `06d5cfbfba8719eb5fe0b3b0eb211a6264d96bb295a8669fe0680969c1822bb8`.
 
-The 91-patch CI builds use `LUA_FIXED_SEED=1` with the pinned image above. Patch 0089 was corrected on 2026-10-05 so delayed EVENT_CHAINING triggers from normally completed links remain legal. Both multiplayer cores were rebuilt from clean trees using the CI compiler wrapper, the shared build lock and `EMCC_CORES=2`. The full series reapplied cleanly and the Domain pre/patch/post steps succeeded. Their verified hashes are:
+The 92-patch CI builds use `LUA_FIXED_SEED=1` with the pinned image above. Patch 0089 was corrected on 2026-10-05 so delayed EVENT_CHAINING triggers from normally completed links remain legal. Patch 0101 follows the owner decision on 2026-10-05: control rotations complete the whole resolving chain link, including card choices and every placement, before pending surrender or timeout removal. Creature Swap (`c31036355.lua`) is the only multi-script that calls `MPRotateControl`; it marks the resolving link before the first card choice, including when an alias or a copying card such as Serial Spell calls the operation. Deferring that link is smaller than moving the Lua choices into the processor, and the existing host answers the leaving seat's required prompts. Both multiplayer cores were rebuilt from clean trees using the CI compiler wrapper, the shared build lock and `EMCC_CORES=2`. The full series reapplied cleanly and the Domain pre/patch/post steps succeeded. Their verified hashes are:
 
 | CI core | SHA-256 |
 | --- | --- |
-| Standard multiplayer | `34e8c87cc2e854ad608c7ed216d010c20b677655a914215640054c480d8ef748` |
-| Domain multiplayer | `4b02e5fe7806b5d078010e23338c677456ae93910aeabce157f774f8598f6133` |
+| Standard multiplayer | `e56ea5b32dde8ef868370dbbb16e9bb9e26a0ab43aea8b74bf3c4a952d7e0ef9` |
+| Domain multiplayer | `dbbe0d13a8eebd13f017c7f81936f16e1ab62d65699e5222509cbb762f59bfaa` |
 | Domain 1v1 | `01611db77c00ddef07a3d4cfc88800f5c523e3a388c3732616a79fa19b3c4a63` |
 
 Deploys omit `LUA_FIXED_SEED`; the differential test workflow uses it. The multi cache keys include all
@@ -175,7 +175,7 @@ target, clears the named context, and keeps its existing volume.
 The shared installer validates both checksums before writing, updates either multi core even under an
 identical base manifest, and refuses a changed multi core while a Tag/FFA duel is active. Staging's
 wrapper requires both WASMs and all four checksum/provenance sidecars. Production carries the same
-cores but still defaults `MULTIPLAYER_TABLES` to off; shipping them does not open multiplayer tables.
+cores, and production defaults `MULTIPLAYER_TABLES` to on (`docker-compose.yml`). Put `MULTIPLAYER_TABLES=0` in the VM `.env` to close the tables.
 
 ### Local verification without starting services
 
@@ -299,14 +299,8 @@ WHERE web_slug = '<verified-local-duel-slug>'
 - **Standard and Domain support FFA3, FFA4 and Tag once this bundle is deployed.** A missing core still
   closes the corresponding start guard. Domain uses `ocgcore.multi-domain.wasm`; deploying an older
   workflow that ships only the plain core leaves Domain blocked.
-- **Rules that are not proven by a test yet.** `docs/specs/multiplayer-rule-coverage.md` lists 19 rules that have no outcome
-  test yet (8 are covered). In plain words, five groups. Cards that rely on them can behave wrongly:
-  1. Cards that say "opponent", "each player" or "all" (separate fields, Extra Monster Zones, picking an opponent for hand
-     and Deck effects, ongoing effects on opponents, the Forbidden and Limited list per Deck).
-  2. Chains and triggers at 3 and 4 seats (who may respond first, trigger order) and the response order in Tag.
-  3. Negation and lock cards (for example Solemn Judgment, Jinzo).
-  4. Tag partners (sharing cards and costs, the partner is not an opponent, seeing the partner's hand).
-  5. Tag loss and turn-count cards (a team loss from an empty Deck, Final Countdown).
+- **Rule coverage.** `docs/specs/multiplayer-rule-coverage.md` lists all 45 rules of ADR-0002 as covered by an outcome test. A
+  rule id is one unit, so read the scenario before you trust a rule with several clauses. Cards outside the tested scenarios can still behave wrongly: report them.
 - The legacy Standard 1v1 engine uses the older npm core. Staging defaults to the legacy 1v1 engine, as production does (`STAGING_DUEL_1V1_ENGINE=pinned` tests the merged one);
   multiplayer games load the separately built multi cores.
 - Staging has a copy of the production database. Testers sign in with their real Discord accounts, and the guild check applies.

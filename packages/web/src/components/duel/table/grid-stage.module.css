@@ -66,11 +66,21 @@
   transition: none;
 }
 
-/* Your hand is drawn nearly as large as the 1v1 hand, from the EQUAL card size (--sf-lh, set by the stage) so a focused
-   field does not need a larger lane. It rises over the lower edge of your field by a fifth of a card and lifts on hover. */
+/* Your hand is drawn nearly as large as the 1v1 hand, from the EQUAL card size (--sf-lh, set by the stage). It rises over
+   the lower edge of your field only by the padding of the mat and a sliver of a Spell/Trap zone (0.185 of a card of the
+   field): at rest the zones stay clickable, and a hovered hand card lifts clearly. */
 .world :global([data-seat-field][data-side="you"]) {
   --lh: var(--sf-lh, calc(var(--z) * 0.95));
-  --hand-rise: calc(var(--lh) * 0.4);
+  --hand-rise: calc(var(--z) * 0.185);
+}
+
+/* A pick of a field (a zone or a card on the board): the hand is click-through, so a click only ever meets the field.
+   A pick of a hand card, or an open main phase, keeps the hand live: it wins where it overlaps. */
+/* (Doubled class: stronger than the rule of field.module.css that gives the hand cards the pointer back.) */
+.board.board[data-pick-kind="field"] :global([data-hand-seat]),
+.board.board[data-pick-kind="field"] :global([data-hand-seat]) *,
+.board.board[data-pick-kind="field"] :global([data-hand-seat]) *::before {
+  pointer-events: none;
 }
 
 /* An out seat shows its existing out treatment (the field's own grayscale and label) while it stays mounted. */
@@ -94,6 +104,11 @@
   z-index: 40;
   display: flex;
   align-items: center;
+}
+
+/* In the finale your plate sits left of the board: it hugs the board's edge. */
+.lp[data-lp-side="left"] {
+  justify-content: flex-end;
 }
 
 /* View control: all fields. */
@@ -160,18 +175,9 @@
 }
 
 /*
- * The "select cards" instruction bar measures the Extra Monster Zones and lands on the middle band, over the LP plates
- * (which can be targets). In the grid it takes the same lane as the yes/no bar. It places itself with inline styles,
- * hence !important. A tribute dock (data-place="dock") places itself by your hand and stays as it is.
+ * The "select cards" instruction bar places itself in the top lane from `data-bar-room` (grid-stage.tsx). A tribute
+ * dock (data-place="dock") places itself by your hand and stays as it is.
  */
-.slot[data-slot="prompt"] :global([data-prompt-surface][data-place="mid"]),
-.slot[data-slot="prompt"] :global([data-prompt-surface][data-place="top"]) {
-  top: 8px !important;
-  left: 50% !important;
-  bottom: auto;
-  translate: -50% 0;
-  --bar-fit: 440px;
-}
 
 /* Seat choices sit at the top centre (over the far row), so the attacker, your field and every LP plate stay visible. */
 .slot[data-slot="prompt"][data-seat-pick] :global([data-prompt-panel]:not([data-precheck])) {
@@ -201,20 +207,15 @@
   flex-wrap: wrap;
 }
 
-/* A rival's hand backs hang off the owner's back edge: the top fields (turned 180 degrees) show them above the top edge. */
-/* Keep your field name in the empty lane beside the hand as more cards arrive. */
-.board :global([data-seat-field][data-side="you"] > [data-seat-name]) {
-  left: 0;
-  translate: 0 100%;
+/* The name is on the life plate: the field's own name label is not drawn. */
+.world :global([data-seat-field] > [data-seat-name]) {
+  display: none;
 }
 
-/*
- * With the HUD, the Deck Master plate sits in the left margin (left 14 + width 168, see grid-hud.module.css) and the
- * board starts at --hud-left, so the plate reaches into the board. The name starts at the plate edge plus an 8px gap
- * when the field box (--sf-box-x, set by the stage) is left of that line.
- */
-:global([data-hud="true"]) .board :global([data-seat-field][data-side="you"] > [data-seat-name]) {
-  left: max(0px, calc(190px - var(--hud-left, 0px) - var(--sf-box-x, 190px)));
+/* A rival's hand backs hang off the owner's back edge. In the grid they sit in the lane of the life plate, beside it,
+   and no longer tuck over the first row of the board. */
+.world :global([data-hand-seat][data-side="opp"]) {
+  translate: -50% -4%;
 }
 
 /* The polite "Focus: name" line for screen readers. */
@@ -228,4 +229,58 @@
   border: 0;
   clip-path: inset(50%);
   white-space: nowrap;
+}
+
+/* The outline a seat that is out leaves: a faint dashed box with its name. It waits for the crumble when the seat
+   leaves while you watch (data-late). Always upright, whatever the turn of the field. */
+.outline {
+  position: absolute;
+  z-index: 3;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  border: 1px dashed rgb(120 135 190 / 0.2);
+  border-radius: calc(var(--z) * 0.12);
+  color: rgb(136 146 176 / 0.4);
+  font-size: clamp(9px, calc(var(--z) * 0.105), 12px);
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  line-height: 1;
+  pointer-events: none;
+  text-transform: uppercase;
+}
+
+.outline[data-late="true"] {
+  animation: outlineIn 0.8s 1s both;
+}
+
+@keyframes outlineIn {
+  from {
+    opacity: 0;
+  }
+}
+
+/* The phase hub: a flat layer over the fields. In the band it is the box of the shared Extra Monster row; in the
+   middle of the table it is a point (left, top) that the hub centres on. It never takes a click itself. */
+.hub {
+  position: absolute;
+  z-index: 45;
+  pointer-events: none;
+}
+
+/* Its chips are wider than the free cells of the band on a small board and lie over the edges of the Extra Monster
+   Zones. While one of those zones (or a card in it) is a target, the zone wins: no chip takes the click. */
+.board[data-emz-pick="true"] .hub,
+.board[data-emz-pick="true"] .hub * {
+  pointer-events: none;
+}
+
+.hub[data-grid-hub="center"] {
+  translate: -50% -50%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .outline[data-late="true"] {
+    animation: none;
+  }
 }

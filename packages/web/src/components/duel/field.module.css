@@ -1986,7 +1986,7 @@
   --lh: var(--sf-lh, calc(var(--z) * 0.76));
   --lhcw: calc(var(--lh) * 0.686);
   --lhg: calc(var(--z) * 0.07);
-  --hw-bot: calc(var(--z) * 5.4);
+  --hw-bot: calc(var(--z) * var(--hand-w, 5.4));
   /* How far the hand rises over the lower edge of the field (the 4-way grid sets it). */
   --hand-rise: 0px;
   --hpad: 4px;
@@ -2119,7 +2119,7 @@
 .emzPair {
   display: flex;
   align-items: stretch;
-  gap: calc(var(--z) * 0.06);
+  gap: calc(var(--z) * var(--pg, 0.06));
   box-sizing: border-box;
   width: 100%;
   height: 100%;
@@ -2320,9 +2320,9 @@
 .sfHand {
   position: absolute;
   top: calc(100% - 2px - var(--hand-rise));
-  left: 50%;
+  left: calc(50% + var(--z) * var(--hand-shift, 0));
   z-index: calc(var(--duel-z-fx) - 1);
-  width: calc(var(--z) * 5.4);
+  width: calc(var(--z) * var(--hand-w, 5.4));
   height: calc(var(--lh) * 1.2 + 6px);
   translate: -50% 0;
 }
@@ -2330,6 +2330,31 @@
 /* Enlarged hand art can overlap the back row; clicks there belong to its zone button. */
 .sfHand .frame {
   pointer-events: none;
+}
+
+/* 4-way grid: your hand rises over the lower edge of your Spell/Trap row. Only the cards take the pointer, never the
+   empty lane round them, so that edge of a zone is never a dead strip. As in the 1v1 room, a legal or selected card
+   rests a little higher than its box: a strip above the box keeps that visible edge on the card. */
+:global([data-grid-stage]) .sfHand {
+  pointer-events: none;
+}
+
+:global([data-grid-stage]) .sfHand .handCard {
+  pointer-events: auto;
+}
+
+:global([data-grid-stage]) .sfHand .handLocal .handCard .zone[data-legal="true"] .zoneHit::before,
+:global([data-grid-stage]) .sfHand .handLocal .handCard .zone[data-selected="true"] .zoneHit::before {
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  left: 0;
+  height: calc(var(--lh) * 0.05);
+  content: "";
+}
+
+:global([data-grid-stage]) .sfHand .handLocal .handCard .zone[data-selected="true"] .zoneHit::before {
+  height: calc(var(--lh) * 0.12);
 }
 
 /* A seat that cannot use cards for the viewer (a partner, a spectator's view): the legal ring only. */

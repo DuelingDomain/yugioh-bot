@@ -1,6 +1,6 @@
 # Core patch series (multi core)
 
-This directory holds the patch series for the N-duelist ygopro-core. The series is for 3-player, 4-player and 2v2 Tag duels. No server uses the multi core yet.
+This directory holds the patch series for the N-duelist ygopro-core. The series is for 3-player, 4-player and 2v2 Tag duels. The duel host loads the multi core (`ocgcore.multi.wasm`, or `ocgcore.multi-domain.wasm` for Domain) for every table with more than two seats (`src/engine.ts`, `readMultiWasm`). Those tables are open when `MULTIPLAYER_TABLES` is on, which is the Compose default.
 
 ## What the series is
 
@@ -102,6 +102,7 @@ This directory holds the patch series for the N-duelist ygopro-core. The series 
 | `0089-ffa-chain-topology-and-return-group.patch` | Keep stored fields readable on removed links, reject mutators on those links, preserve started-link messages and restart living FFA response windows. | Lost-target equips retain rule destruction events; elimination return groups remain atomic. |
 | `0090-ffa-chain-response-order.patch` | R-FFA-CHAIN (owner, 2026-10-04): restart the response round clockwise after the latest link's activating seat, with the activator last. Existing pass reset and eliminated-cursor handling stay in use. | FFA3/FFA4 only. Open windows still start with the turn player. SEGOC trigger ordering, Tag response order and 1v1 are unchanged. After a trigger chain or a mandatory quick-trigger link, the first response goes to the next living seat after the last link's controller. |
 | `0100-resolution-opponent-decisions.patch` | Summarize the reviewed `aux.MPChooseOpponent` closure as a resolution-time binding in the activation analyzer. | Decision-only opponent card choices stay at resolution; arbitrary wrappers and resource/action declarations keep normal analysis. The helper name, source and exact line span must stay aligned (catalog guard). |
+| `0101-ffa-finish-rotation-before-leave.patch` | `Duel.MPBeginControlRotation` marks the resolving link before Lua card choices. Defer pending FFA losses for that link or a queued or running `RotateControl` processor. | Card choices, placements and the atomic rotation finish before removal for surrender or timeout, including aliases and copied operations (owner, 2026-10-05). |
 
 ## Commands
 

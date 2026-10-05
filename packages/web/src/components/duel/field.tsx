@@ -1123,7 +1123,7 @@ export const SeatField = memo(function SeatField({
             <PileColumn view={view} opponent={false} flip={straight} side="left" callbacks={callbacks} ownerLabel={owner} masterRule={masterRule} />
             <div className={styles.sfEmz}>
               {masterRule >= 4 && emz === "pair" ? (
-                <div className={styles.emzPair} style={{ "--pl": pair?.left ?? 0, "--pr": pair?.right ?? 0 } as CssVars}>
+                <div className={styles.emzPair} style={{ "--pl": pair?.left ?? 0, "--pr": pair?.right ?? 0, "--pg": pair?.gap ?? 0.06 } as CssVars}>
                   {pairSlot("left")}
                   {pairSlot("right")}
                 </div>

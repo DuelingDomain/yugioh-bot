@@ -356,17 +356,15 @@ describe("the crumble in the stage and side layout", () => {
     return node ? { left: node.style.left, top: node.style.top, rotate: node.style.rotate, transform: node.style.transform, z: node.style.getPropertyValue("--sf-z") } : null;
   };
 
-  it("draws the crumble at the place and turn of the field it replaces, and no field moves", () => {
+  it("draws the crumble in the cell of the field it replaces, turned like it and cut below the shared row, and no field moves", () => {
     const { container, rerender } = render(<Shell state={main} />);
-    const before = spot(container, 2, "data-seat-slot")!;
     const others = [0, 1].map((seat) => spot(container, seat, "data-seat-slot"));
     rerender(<Shell state={withOut(main, [2])} />);
     expect(spot(container, 2, "data-seat-slot")).toBeNull();
-    const exit = spot(container, 2, "data-seat-exit")!;
-    expect(exit.left).toBe(before.left);
-    expect(exit.top).toBe(before.top);
-    expect(exit.rotate).toBe("180deg");
-    expect(exit.transform).toBe("");
+    const exit = container.querySelector<HTMLElement>("[data-seat-exit='2']")!;
+    expect(exit.closest("[data-grid-cell='2']")).not.toBeNull();
+    expect(exit.style.transform).toContain("rotate(180deg)");
+    expect(exit.style.clipPath).toMatch(/^inset\(/);
     expect([0, 1].map((seat) => spot(container, seat, "data-seat-slot"))).toEqual(others);
     settle(2000);
     expect(crumbles(container)).toBe(0);

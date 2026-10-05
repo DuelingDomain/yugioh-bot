@@ -87,6 +87,8 @@ export interface FlipOptions {
   /** Fade the text between 15% and 70% of the move when the box changes size (the numerals of a life panel). */
   fadeText: boolean;
   duration?: number;
+  /** A curve other than the usual one (the finale glide). */
+  easing?: string;
 }
 
 const canAnimate = (el: Element): el is HTMLElement & { animate: Element["animate"] } => typeof (el as Element).animate === "function";
@@ -125,7 +127,7 @@ export function playFlip(el: HTMLElement, previous: FlipTrack | undefined, next:
   if (!animate || !from || !boxesDiffer(from, next) || !canAnimate(el)) return rest;
   const delta = flipDelta(from, next);
   const duration = options.duration ?? FLIP_MS;
-  const anim = el.animate([{ transform: flipTransform(delta, options.turn) }, { transform: "none" }], { duration, easing: FLIP_EASING });
+  const anim = el.animate([{ transform: flipTransform(delta, options.turn) }, { transform: "none" }], { duration, easing: options.easing ?? FLIP_EASING });
   const clear = () => {
     if (rest.anim === anim) {
       rest.anim = null;
