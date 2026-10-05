@@ -14,7 +14,8 @@
   --loss-ink: #ff9489;
   --ink-3: #958f81;
   --ink-4: #6e6a62;
-  transition: opacity 0.35s, translate 0.7s cubic-bezier(0.2, 0.7, 0.2, 1);
+  /* --glide / --glide-ease: the shell shortens the glide while a drawer reflows the table (table-shell.module.css). */
+  transition: opacity 0.35s, translate var(--glide, 0.7s) var(--glide-ease, cubic-bezier(0.2, 0.7, 0.2, 1));
 }
 
 /* The fly-in pump moves the panel every frame: no glide, and it fades when its seat is off screen. */
@@ -330,3 +331,16 @@
 .master img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .master:hover, .master:focus-visible { border-color: var(--tink); outline: none; }
 .holo[data-elim="true"] .master { filter: grayscale(1); opacity: 0.6; }
+
+/* Hangs under the panel, outside its body: your Deck Master chip. */
+.footer {
+  position: absolute;
+  left: 0;
+  top: 100%;
+  margin-top: 8px;
+  width: max-content;
+  max-width: 270px;
+}
+.footer[data-tight="true"] {
+  max-width: 100%;
+}

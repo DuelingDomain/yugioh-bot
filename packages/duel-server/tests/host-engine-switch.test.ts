@@ -97,21 +97,21 @@ const setupOf = (duels: ReturnType<typeof open>["duels"], slug: string) => duels
 describe("DUEL_1V1_ENGINE on a new table", () => {
   it.each((["normal", "domain"] as const).flatMap((mode) =>
     ([1, 2, 3, 4, 5] as const).map((masterRule) => ({ mode, masterRule })),
-  ))("legacy $mode MR$masterRule: saves the stock first-turn draw rule", async ({ mode, masterRule }) => {
+  ))("legacy $mode MR$masterRule: saves the current first-turn draw rule", async ({ mode, masterRule }) => {
     process.env.DUEL_1V1_ENGINE = "legacy";
     const t = await table("1v1", mode, masterRule);
     expect((await post(t.host, { op: "start", ...t.organizer })).status).toBe(200);
-    const firstTurnDraw = masterRule <= 2;
+    const firstTurnDraw = mode === "normal" && masterRule <= 2;
     expect(t.workers[0]!.created).toMatchObject({ engine: "legacy", firstTurnDraw });
     expect(setupOf(t.duels, t.session.slug)).toMatchObject({ engine: "legacy", firstTurnDraw });
   });
 
-  it("pinned Domain MR5: saves a first-turn draw", async () => {
+  it.each([1, 2, 3, 4, 5] as const)("pinned Domain MR%s: saves no turn-1 draw", async (masterRule) => {
     process.env.DUEL_1V1_ENGINE = "pinned";
-    const t = await table("1v1", "domain");
+    const t = await table("1v1", "domain", masterRule);
     expect((await post(t.host, { op: "start", ...t.organizer })).status).toBe(200);
-    expect(t.workers[0]!.created).toMatchObject({ engine: "pinned", firstTurnDraw: true });
-    expect(setupOf(t.duels, t.session.slug)).toMatchObject({ engine: "pinned", firstTurnDraw: true });
+    expect(t.workers[0]!.created).toMatchObject({ engine: "pinned", firstTurnDraw: false });
+    expect(setupOf(t.duels, t.session.slug)).toMatchObject({ engine: "pinned", firstTurnDraw: false });
   });
 
   it("starts a 1v1 table on the legacy engine when the switch is not set, and saves that", async () => {

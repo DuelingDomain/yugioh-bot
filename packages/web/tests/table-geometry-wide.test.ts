@@ -1,0 +1,209 @@
+import { describe, expect, it } from "vitest";
+import type { DuelEngineView, DuelFormat, DuelSeatView } from "@yugidraft/shared/duels";
+import {
+  boardBounds,
+  holoAnchor,
+  promptRooms,
+  seatPoses,
+  stageFit,
+  stageSpread,
+  tableLayout,
+  wideHoloAnchors,
+  wideHomeSlots,
+} from "@/components/duel/table/geometry";
+import type { CameraState } from "@/components/duel/table/types";
+
+function seatView(seat: number): DuelSeatView {
+  return {
+    seat, lp: 8000, hand: [], deckCount: 30, extraCount: 0, extra: [],
+    monsters: [null, null, null, null, null], spells: [null, null, null, null, null, null],
+    graveyard: [], banished: [],
+  };
+}
+function engine(format: DuelFormat, count: number): DuelEngineView {
+  return {
+    revision: 1, format, turn: 1, turnSeat: 0, phase: "main1",
+    seats: Array.from({ length: count }, (_, seat) => seatView(seat)),
+    prompt: null, chain: [], events: [], log: [], result: null,
+  };
+}
+function camera(over: Partial<CameraState> = {}): CameraState {
+  return {
+    mode: "home", focusSeat: null, lookSeat: null, upright: false, compact: "auto", auto: true, pinned: false, aiming: false,
+    fly: { yawDeg: 0, tiltDeg: 40, zoom: 1, targetSeat: null }, lock: null, ...over,
+  };
+}
+
+// The stage's own shape: nothing is visible beyond it.
+const CLASSIC = { width: 1100, height: 860 };
+// A 1920 by 1080 screen under the 72px rail and the top and bottom bars.
+const WIDE = { width: 1848, height: 950 };
+// The tightest case: 1366 by 768 with the drawer closed.
+const TIGHT = { width: 1294, height: 649 };
+
+describe("the wide plaza", () => {
+  const four = tableLayout("ffa4", engine("ffa4", 4), 0);
+  const three = tableLayout("ffa3", engine("ffa3", 3), 0);
+
+  it("counts the stage px visible beyond each side, in steps of two, none for a box no wider than the stage", () => {
+    expect(stageSpread(CLASSIC)).toBe(0);
+    expect(stageSpread({ width: 900, height: 860 })).toBe(0);
+    expect(stageSpread({ width: 0, height: 0 })).toBe(0);
+    const spread = stageSpread(WIDE);
+    expect(spread).toBeGreaterThan(100);
+    expect(spread % 2).toBe(0);
+    expect(stageSpread({ width: 9000, height: 860 })).toBe(450);
+  });
+
+  it("gives every pose the classic place when there is no spread", () => {
+    expect(wideHomeSlots("ffa4", 0)).toBeNull();
+    expect(wideHomeSlots("ffa3", 0)).toBeNull();
+    const poses = seatPoses(four, camera(), CLASSIC);
+    expect(poses.get(1)).toMatchObject({ x: 148, y: 223, rotateDeg: 90, scale: 0.6 });
+    expect(poses.get(3)).toMatchObject({ x: 952, y: 223, rotateDeg: 270, scale: 0.6 });
+  });
+
+  it("moves the 4-way side rivals out to the edges and makes them bigger, keeps them upright and the far rival central", () => {
+    const classic = seatPoses(four, camera(), CLASSIC);
+    const wide = seatPoses(four, camera(), WIDE);
+    expect(wide.get(0)).toMatchObject({ x: 550, y: 610, scale: 1 });
+    expect(wide.get(1)!.x).toBeLessThan(classic.get(1)!.x);
+    expect(wide.get(3)!.x).toBeGreaterThan(classic.get(3)!.x);
+    expect(wide.get(1)!.scale).toBeGreaterThan(0.6);
+    expect(wide.get(1)!.scale).toBeLessThanOrEqual(0.9);
+    expect(wide.get(2)!.x).toBe(550);
+    expect(wide.get(1)!.rotateDeg).toBe(90);
+    expect(wide.get(3)!.rotateDeg).toBe(270);
+  });
+
+  it("keeps every board inside the visible stage", () => {
+    for (const box of [WIDE, TIGHT]) {
+      const spread = stageSpread(box);
+      for (const layout of [four, three]) {
+        for (const board of [...seatPoses(layout, camera(), box).values()].map(boardBounds)) {
+          expect(board.l).toBeGreaterThanOrEqual(-spread);
+          expect(board.r).toBeLessThanOrEqual(1100 + spread);
+        }
+      }
+    }
+  });
+
+  it("docks every plate clear of every board and every other plate, inside the visible stage", () => {
+    for (const box of [WIDE, TIGHT]) {
+      for (const layout of [four, three]) {
+        const poses = seatPoses(layout, camera(), box);
+        const spread = stageSpread(box);
+        const anchors = wideHoloAnchors(layout, camera(), poses, spread, true)!;
+        expect(anchors).not.toBeNull();
+        expect(anchors.size).toBe(layout.slots.length);
+        const rects = [...anchors].map(([seat, a]) => ({
+          seat,
+          // Your plate with the Deck Master chip hung under it (270 wide at most), and a rival's plate.
+          l: a.x, t: a.y, r: a.x + (a.me ? 270 : 196), b: a.y + (a.me ? 113 + 58 : 92),
+        }));
+        for (const rect of rects) {
+          expect(rect.l).toBeGreaterThanOrEqual(-spread);
+          expect(rect.r).toBeLessThanOrEqual(1100 + spread);
+          for (const [seat, pose] of poses) {
+            if (seat === rect.seat) continue;
+            const board = boardBounds(pose);
+            const apart = rect.r <= board.l || board.r <= rect.l || rect.b <= board.t || board.b <= rect.t;
+            expect(apart, `${layout.format} ${box.width}: plate ${rect.seat} vs board ${seat}`).toBe(true);
+          }
+          for (const other of rects) {
+            if (other.seat >= rect.seat) continue;
+            const apart = rect.r <= other.l || other.r <= rect.l || rect.b <= other.t || other.b <= rect.t;
+            expect(apart, `${layout.format} ${box.width}: plate ${rect.seat} vs plate ${other.seat}`).toBe(true);
+          }
+        }
+      }
+    }
+  });
+
+  // Table areas in screen px: 1920 closed, 1440 and 1366 with the drawer open, 1366 closed.
+  const BOXES = [
+    { name: "1920 closed", box: { width: 1848, height: 950 } },
+    { name: "1440 open", box: { width: 988, height: 776 } },
+    { name: "1366 open", box: { width: 914, height: 649 } },
+    { name: "1366 closed", box: { width: 1294, height: 649 } },
+  ].map(({ name, box }) => ({ name, box, fit: { width: box.width, height: (box.height * 860) / 956 } }));
+  const gap = (a: { l: number; r: number; t: number; b: number }, b: { l: number; r: number; t: number; b: number }) =>
+    Math.max(0, a.l - b.r, b.l - a.r, a.t - b.b, b.t - a.b);
+  const overlap = (a: { l: number; r: number; t: number; b: number }, b: { l: number; r: number; t: number; b: number }) =>
+    a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+
+  it("keeps every plate attached to its own board (within 16 stage px) and off the camera hint corner", () => {
+    for (const { name, fit } of BOXES) {
+      const k = stageFit(fit);
+      const spread = stageSpread(fit);
+      const hint = { width: 250 / k, height: 40 / k };
+      for (const layout of [four, three]) {
+        const poses = seatPoses(layout, camera(), fit);
+        const anchors = wideHoloAnchors(layout, camera(), poses, spread, true, { hint })!;
+        for (const [seat, a] of anchors) {
+          const r = { l: a.x, t: a.y, r: a.x + (a.me ? 270 : 196), b: a.y + (a.me ? 171 : 92) };
+          const own = boardBounds(poses.get(seat)!);
+          expect(gap(r, own), `${layout.format} ${name}: plate ${seat} is ${gap(r, own).toFixed(0)} px from its board`).toBeLessThanOrEqual(16);
+          const corner = { l: -spread, r: -spread + hint.width, t: 952 - hint.height, b: 952 };
+          expect(overlap(r, corner), `${layout.format} ${name}: plate ${seat} vs the camera hint`).toBe(false);
+        }
+      }
+    }
+  });
+
+  it("never settles a plate on a field when the search runs out (a tall, narrow home board, and a sweep of odd sizes)", () => {
+    const sizes = [{ width: 914, height: 781 }, ...[640, 760, 914, 1100, 1400].flatMap((width) => [520, 650, 781, 900].map((height) => ({ width, height })))];
+    for (const box of sizes) {
+      const fit = { width: box.width, height: (box.height * 860) / 956 };
+      const k = stageFit(fit);
+      const spread = stageSpread(fit);
+      const hint = { width: 250 / k, height: 40 / k };
+      for (const layout of [four, three]) {
+        const poses = seatPoses(layout, camera(), fit);
+        const anchors = wideHoloAnchors(layout, camera(), poses, spread, true, { hint });
+        if (!anchors) continue;
+        for (const [seat, a] of anchors) {
+          const rect = { l: a.x, t: a.y, r: a.x + (a.me ? (a.footerTight ? 212 : 270) : 196), b: a.y + (a.me ? 171 : 92) };
+          for (const [other, pose] of poses) {
+            expect(overlap(rect, boardBounds(pose)), `${layout.format} ${box.width}x${box.height}: plate ${seat} on board ${other}`).toBe(false);
+          }
+        }
+      }
+    }
+  });
+
+  it("finds the prompts a room clear of every board, plate, the ring, your hand and the hint", () => {
+    for (const { name, box, fit } of BOXES) {
+      const k = stageFit(fit);
+      const spread = stageSpread(fit);
+      for (const layout of [four, three]) {
+        const poses = seatPoses(layout, camera(), fit);
+        const wide = wideHoloAnchors(layout, camera(), poses, spread, true, { hint: { width: 250 / k, height: 40 / k } });
+        const anchors = new Map(layout.slots.map((slot) => [slot.seat, wide?.get(slot.seat) ?? holoAnchor(layout, slot.seat, camera())] as const));
+        const rooms = promptRooms({ layout, camera: camera(), poses, anchors, spread, meFooter: true, box, k });
+        const hint = { l: -spread - 6, r: -spread + 6 + 250 / k, t: 952 - 40 / k, b: 952 };
+        for (const kind of ["panel", "bar"] as const) {
+          const room = rooms[kind];
+          expect(room, `${layout.format} ${name}: a room for the ${kind}`).not.toBeNull();
+          const r = { l: room!.x, r: room!.x + room!.width, t: room!.y, b: room!.y + room!.height };
+          for (const [seat, pose] of poses) expect(overlap(r, boardBounds(pose)), `${layout.format} ${name}: ${kind} room vs board ${seat}`).toBe(false);
+          for (const [seat, a] of anchors) {
+            const p = { l: a.x, t: a.y, r: a.x + (a.me ? 270 : 196), b: a.y + (a.me ? 171 : 92) };
+            expect(overlap(r, p), `${layout.format} ${name}: ${kind} room vs plate ${seat}`).toBe(false);
+          }
+          expect(overlap(r, { l: 488, r: 612, t: 348, b: 486 }), `${layout.format} ${name}: ${kind} room vs the ring`).toBe(false);
+          expect(overlap(r, { l: 220, r: 880, t: 856, b: 960 }), `${layout.format} ${name}: ${kind} room vs your hand`).toBe(false);
+          expect(overlap(r, hint), `${layout.format} ${name}: ${kind} room vs the camera hint`).toBe(false);
+        }
+        // The panel holds the three seat choices of a table of four.
+        expect(rooms.panel!.height * k, `${layout.format} ${name}: panel room height`).toBeGreaterThanOrEqual(199);
+      }
+    }
+  });
+
+  it("leaves the plates to their classic anchors when there is no spread or the camera has left home", () => {
+    expect(wideHoloAnchors(four, camera(), seatPoses(four, camera(), CLASSIC), 0)).toBeNull();
+    const focus = camera({ mode: "focus", focusSeat: 1 });
+    expect(wideHoloAnchors(four, focus, seatPoses(four, focus, WIDE), stageSpread(WIDE))).toBeNull();
+  });
+});

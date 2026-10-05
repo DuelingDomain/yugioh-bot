@@ -57,7 +57,7 @@ function RoomTag() {
   return <TagShell controller={controller} preferences={preferences} teamNames={[...TAG_TEAM_NAMES] as [string, string]} />;
 }
 
-const openSettings = () => act(() => void fireEvent.click(screen.getByRole("tab", { name: "Settings" })));
+const openSettings = () => act(() => void fireEvent.click(screen.queryByRole("tab", { name: "Settings" }) ?? screen.getByRole("button", { name: "Settings" })));
 
 describe("the shells use the room's one preferences instance", () => {
   it.each([["TableShell", RoomTable, "[data-table-shell]"], ["TagShell", RoomTag, "[data-table-shell='tag']"]] as const)(

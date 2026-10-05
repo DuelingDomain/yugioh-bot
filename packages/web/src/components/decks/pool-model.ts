@@ -8,6 +8,8 @@ export interface DraftDeckPool {
   draftName: string;
   /** Engine passcodes with the copies the player drafted. */
   cards: Array<{ code: number; count: number }>;
+  /** Forced picks per engine passcode (a capped pack with no legal swap). Each adds one copy to the 3-copy limit. */
+  forcedCopies?: Record<string, number>;
   /** Pool cards that belong in the main deck. */
   mainPoolCount: number;
   /** YGOPRODeck ids the duel engine does not know; they are not in `cards`. */
@@ -30,19 +32,47 @@ export function poolCounts(cards: ReadonlyArray<{ code: number; count: number }>
   return counts;
 }
 
+/** Forced pick counts per canonical passcode; alternate artworks share one count. */
+export function forcedCounts(
+  forced: Readonly<Record<string, number>> | undefined,
+  catalog: CardIdentityCatalog = new Map(),
+): Map<number, number> {
+  const counts = new Map<number, number>();
+  for (const [raw, count] of Object.entries(forced ?? {})) {
+    const code = canonicalCardCode(Number(raw), catalog);
+    if (Number.isInteger(count) && count > 0) counts.set(code, (counts.get(code) ?? 0) + count);
+  }
+  return counts;
+}
+
 /** Copies of each passcode in the deck (Main, Extra and Side). */
 export function deckUsage(deck: DuelDeck, catalog: CardIdentityCatalog = new Map()): Map<number, number> {
   return deckCardCounts(deck, (code) => canonicalCardCode(code, catalog));
 }
 
-/** Copies of a card the player can still add: pool copies minus copies in the deck. Never below 0. */
-export function remainingCopies(pool: ReadonlyMap<number, number>, used: ReadonlyMap<number, number>, code: number): number {
-  return Math.max(0, Math.min(3, pool.get(code) ?? 0) - (used.get(code) ?? 0));
+/** Most copies of a card the draft deck can hold: 3, plus one per forced pick, never more than the pool has. */
+export function deckAllowance(pool: ReadonlyMap<number, number>, code: number, forced: ReadonlyMap<number, number> = new Map()): number {
+  return Math.min(3 + (forced.get(code) ?? 0), pool.get(code) ?? 0);
+}
+
+/** Copies of a card the player can still add: the allowance minus copies in the deck. Never below 0. */
+export function remainingCopies(
+  pool: ReadonlyMap<number, number>,
+  used: ReadonlyMap<number, number>,
+  code: number,
+  forced: ReadonlyMap<number, number> = new Map(),
+): number {
+  return Math.max(0, deckAllowance(pool, code, forced) - (used.get(code) ?? 0));
 }
 
 /** True when the pool still has a copy to add. A card that is not in the pool never can be added. */
-export function canAddFromPool(pool: ReadonlyMap<number, number>, used: ReadonlyMap<number, number>, code: number): boolean {
-  return remainingCopies(pool, used, code) > 0;
+export function canAddFromPool(
+  pool: ReadonlyMap<number, number>,
+  used: ReadonlyMap<number, number>,
+  code: number,
+  forced: ReadonlyMap<number, number> = new Map(),
+): boolean {
+  return remainingCopies(pool, used, code, forced) > 0;
 }
 
 /** The fewest Main Deck cards a draft deck needs: 40, or the whole main pool when it is smaller. */

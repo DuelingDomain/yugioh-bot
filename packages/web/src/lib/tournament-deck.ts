@@ -12,6 +12,8 @@ export type DraftPool =
       ok: true;
       /** Engine passcode -> copies drafted. */
       counts: Map<number, number>;
+      /** Canonical engine passcode -> durable forced picks. */
+      forcedCopies: Map<number, number>;
       /** Catalog and submitted deck ids -> canonical engine passcodes. */
       codeMap: Map<number, number | null>;
       /** Drafted copies that belong in the main deck. */
@@ -36,7 +38,7 @@ export async function loadDraftPool(input: {
   /** Include the saved/submitted deck so both sides of the comparison use the same mapping. */
   deckCodes?: number[];
 }): Promise<DraftPool> {
-  let picks: Array<{ catalogCardId: number }>;
+  let picks: Array<{ catalogCardId: number; forced: boolean }>;
   try {
     picks = createDraftService(input.db).pool(input.draftId, input.playerId);
   } catch (error) {
@@ -62,6 +64,11 @@ export async function loadDraftPool(input: {
   );
 
   const counts = new Map<number, number>();
+  const forcedCopies = new Map<number, number>();
+  for (const pick of picks) {
+    const code = resolved.get(pick.catalogCardId);
+    if (pick.forced && typeof code === "number") forcedCopies.set(code, (forcedCopies.get(code) ?? 0) + 1);
+  }
   const unresolved = new Set<number>();
   let mainPoolCount = 0;
   for (const pick of picks) {
@@ -71,9 +78,9 @@ export async function loadDraftPool(input: {
       continue;
     }
     counts.set(code, (counts.get(code) ?? 0) + 1);
-    if (!extraIds.has(pick.catalogCardId) && counts.get(code)! <= 3) mainPoolCount += 1;
+    if (!extraIds.has(pick.catalogCardId) && counts.get(code)! <= 3 + (forcedCopies.get(code) ?? 0)) mainPoolCount += 1;
   }
-  return { ok: true, counts, codeMap: resolved, mainPoolCount, unresolved: [...unresolved].sort((a, b) => a - b) };
+  return { ok: true, counts, forcedCopies, codeMap: resolved, mainPoolCount, unresolved: [...unresolved].sort((a, b) => a - b) };
 }
 
 /** Null when the main deck size is fine for a draft deck, else the error text. */

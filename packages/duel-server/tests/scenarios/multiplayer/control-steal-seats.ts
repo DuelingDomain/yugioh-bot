@@ -15,7 +15,7 @@ function theft(format: Format, domain: boolean, thief: DuelistId, victim: Duelis
   const seats = seatsFor(format);
   const ti = seats.indexOf(thief);
   const setup: Scenario["setup"] = { format, ...(domain ? { mode: "domain" } : {}) };
-  const draws = seats.map((_, i) => i === 0 ? Number(domain) : Number(i <= ti));
+  const draws = seats.map((_, i) => i === 0 ? Number(domain && format !== "1v1") : Number(i <= ti));
   const continuous = spell === "Snatch Steal";
   for (const seat of seats) setup[seat] = {
     monsters: seat === thief ? [ELF] : seat === victim ? [OX, ELF] : [],
@@ -63,7 +63,7 @@ function swap(format: Format, domain: boolean, thief: DuelistId): Scenario {
     setup[seat] = { monsters: active ? [monsters[i], ELF] : [], hand: seat === thief ? ["Creature Swap"] : [],
       deck: Array(20).fill(ELF), ...(domain ? { deckMaster: "Blue-Eyes White Dragon" } : {}) };
     const received = ffa ? (i + seats.length - 1) % seats.length : seat === thief ? seats.indexOf(victim) : ti;
-    const drawn = i === 0 ? Number(domain) : Number(i <= ti);
+    const drawn = i === 0 ? Number(domain && format !== "1v1") : Number(i <= ti);
     board[seat] = { lp: format === "tag" ? 16000 : 8000, monsters: active ? [monsters[received], ELF] : [],
       grave: seat === thief ? ["Creature Swap"] : [], spells: [], banished: [], extra: [],
       hand: Array(drawn).fill(ELF), deckCount: 20 - drawn,
@@ -106,7 +106,7 @@ for (const domain of [false, true]) for (const format of ["ffa3", "ffa4", "tag",
     const setup: Scenario["setup"] = { format, ...(domain ? { mode: "domain" } : {}) };
     const board: BoardExpect = {};
     for (const [i, seat] of seats.entries()) {
-      const drawn = i === 0 ? Number(domain) : Number(i <= ti);
+      const drawn = i === 0 ? Number(domain && format !== "1v1") : Number(i <= ti);
       setup[seat] = { monsters: seat === thief ? [faceDown(source)] : seat === victim ? [target, other] : [],
         deck: Array(20).fill(ELF), ...(domain ? { deckMaster: "Blue-Eyes White Dragon" } : {}) };
       board[seat] = { monsters: seat === thief ? [source, target] : seat === victim ? [other] : [],

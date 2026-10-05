@@ -702,6 +702,18 @@
   min-height: 0;
 }
 
+/* The phase hub (1v1): the top row of the band, the same height as the Extra Monster Zones and a five-column grid like theirs, so
+   the three pairs of phases sit in its free cells. It is drawn before the zones and has no z-index of its own, so its hairline
+   lies under their outlines, labels and cards; the chips (z-index 3) lie over them. It takes no height from the zones. */
+.emzHub {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: var(--z);
+  pointer-events: none;
+}
+
 .rows {
   display: grid;
   grid-column: 2;
@@ -724,6 +736,10 @@
   width: 100%;
   height: 100%;
   min-height: 0;
+}
+
+.emzRow {
+  height: var(--z);
 }
 
 .emzRow > :not(:nth-child(2)):not(:nth-child(4)) {
@@ -2142,6 +2158,10 @@
   translate: -50% 100%;
   rotate: var(--lab);
   white-space: nowrap;
+  /* A long name stops at the board's width instead of running off the table area. */
+  max-width: 10em;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .seatField[data-density="compact"] .pileLabel,

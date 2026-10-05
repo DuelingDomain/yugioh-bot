@@ -15,8 +15,10 @@ The following rules replace the old readings:
 - `R-COMMON-ONGOING`: a face-up continuous effect applies to every eligible
   player or card. A lasting lock from an activated effect is bound to one
   declared opponent. The legal Gravity Bind proof must run on both cores.
-- First draw: Domain draws on each duelist's first turn in every format.
-  Standard MR1 and MR2 also draw on turn 1. Standard MR3, MR4 and MR5 skip only
+- First draw (**2026-10-02 reading superseded on 2026-10-04**): new 1v1 Domain duels
+  skip the turn-1 duelist's draw at every Master Rule on both the pinned and legacy engines.
+  Tag, FFA3 and FFA4 Domain duels draw on each duelist's first turn, including turn 1.
+  Standard is unchanged: MR1 and MR2 draw on turn 1. MR3, MR4 and MR5 skip only
   the turn-1 duelist's draw. All later duelists draw on their first turn.
 - `R-FFA-NO-ATTACK`: the last living duelist gets the first Battle Phase on
   turn n. C2 provides the change from P68's turn n+1.
