@@ -47,6 +47,7 @@ import { tableLayout } from "./geometry";
 import { GridStage } from "./grid-stage";
 import { useGridFocus } from "./grid-focus";
 import { GridMasterToken } from "./grid-master";
+import { GridHoverPreview } from "./grid-preview";
 import { ChainList, ChainTower, DOCK_PANES, GridDock, GridFlyout, useHudDismiss, type HudPane } from "./grid-hud";
 import { gridCells, usesGridLayout } from "./grid-layout";
 import { HistoryStrip } from "./history-strip";
@@ -708,7 +709,14 @@ function TableShellBody({
           onBack={flow.cancel}
         />
       ) : null}
-      {ui.hover && !ui.menu && !ui.pile?.open && !sheetOpen ? <CardHoverInfo card={ui.hover.card} anchor={ui.hover.anchor} /> : null}
+      {hud ? (
+        <GridHoverPreview
+          card={ui.hover && !ui.menu && !ui.pile?.open && hudPane == null ? ui.hover.card : null}
+          owner={ui.hover ? { name: nameOf(ui.hover.card.controller), ...toneOf(ui.hover.card.controller) } : null}
+          reducedMotion={controller.reducedMotion}
+        />
+      ) : null}
+      {!hud && ui.hover && !ui.menu && !ui.pile?.open && !sheetOpen ? <CardHoverInfo card={ui.hover.card} anchor={ui.hover.anchor} /> : null}
       {showResult ? (
         <DuelResultScreen
           room={room}

@@ -405,3 +405,49 @@
 }
 .masterFlyCard:hover { color: var(--duel-ink); background: rgb(239 231 213 / 0.08); }
 .masterFlyCard:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: 2px; }
+
+/* ---------- hover preview: slides out from the left edge ---------- */
+.preview {
+  position: absolute;
+  left: 0;
+  top: 50px;
+  z-index: 34;
+  width: 270px;
+  max-height: calc(100% - 60px);
+  padding: 12px 12px 14px;
+  overflow: hidden;
+  border: 1px solid rgb(155 126 255 / 0.5);
+  border-left: 0;
+  border-radius: 0 14px 14px 0;
+  background: rgb(9 15 29 / 0.97);
+  box-shadow: 0 24px 60px -12px rgb(0 0 0 / 0.85);
+  font-family: var(--duel-f-ui);
+  color: var(--duel-ink);
+  pointer-events: none;
+  transform: translateX(-100%);
+  transition: transform 0.18s ease-out, visibility 0s linear 0.18s;
+  visibility: hidden;
+}
+.preview[data-open="true"] { transform: none; visibility: visible; transition: transform 0.18s ease-out, visibility 0s; }
+.preview[data-motion="none"] { transition: none; }
+.previewArt { display: block; width: 100%; aspect-ratio: 59 / 86; margin: 0 0 10px; border-radius: 4px; object-fit: cover; background: #1b2740; }
+.preview h3 { margin: 0; font-size: 17px; font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
+.previewType { margin: 3px 0 0; color: var(--duel-ink-2); font-size: 12px; }
+.previewStats { margin: 6px 0 0; font-size: 17px; font-weight: 500; letter-spacing: 0.02em; }
+.previewText {
+  display: -webkit-box;
+  margin: 8px 0 0;
+  overflow: hidden;
+  color: var(--duel-ink-2);
+  font-size: 12px;
+  line-height: 1.4;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+}
+.previewOwner { display: flex; align-items: center; gap: 6px; margin: 10px 0 0; color: var(--duel-ink-3); font-size: 11.5px; }
+.previewOwner i { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--seat-main, var(--duel-ink-3)); }
+.previewOwner b { color: var(--seat-ink, var(--duel-ink)); font-weight: 600; }
+
+@media (prefers-reduced-motion: reduce) {
+  .preview { transition: none; }
+}
