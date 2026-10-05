@@ -139,18 +139,18 @@ The build uses the same inputs as the engine session:
 - `domain-core/pins.json`: ygopro-core `efc21aa433b88cd35b7c37db4072a35c58d9d435`, wrapper source
   `9f36452f2a2464f057f7fd6e2273aa5ab589401e`, Lua `75ea9ccbea7c4886f30da147fb67b693b2624c26`,
   and emsdk `4.0.9` at digest `sha256:3c853ef9c3b4c2708da1adac2fdfdba49c775fdc4144ceef4989423963e96811`.
-- All numbered patches in `domain-core/patches` (currently 0001–0084 and 0100; 85 patches). No experimental patches or
-  `PATCH_LIMIT`. The current series hash is `bef16e48962eeb75982494ecb0b58375b832119edc6388eb1f4dcaada3738aeb`.
+- All numbered patches in `domain-core/patches` (currently 0001–0084, 0090 and 0100; 86 patches). No experimental patches or
+  `PATCH_LIMIT`. The current series hash is `2ae6263330a761b904acf9c96431357c876db50157ef45eabf60c69821dd8f07`.
 - Domain additionally uses `APPLY_DOMAIN=1 DOMAIN_MULTI=1`, the existing Domain patch, `domain_master.cpp`
   and `apply-domain-multi.mjs`. The current multi layer hash is
   `cf5100707bce7701cb0be0ac4a8ff47308a13b278174f03c157f2f2e46dd849a`.
 
-The 85-patch CI builds use `LUA_FIXED_SEED=1` with the pinned image above. Their verified hashes are:
+The 86-patch CI builds use `LUA_FIXED_SEED=1` with the pinned image above. Both multiplayer cores were rebuilt for the combined 2026-10-04 FFA response-order and card-rulings changes using the pinned TypeScript build entry point, the shared build lock and `EMCC_CORES=2`. Their verified hashes are:
 
 | CI core | SHA-256 |
 | --- | --- |
-| Standard multiplayer | `a3b84f58ded8594496c4ac6f07fbd965a960ae8f1ee1060b80c9cd8261fea0fc` |
-| Domain multiplayer | `a026d7ab414ed63126001a4cd917b791b594ede1eace3d8ffdeb8ab334e5e725` |
+| Standard multiplayer | `2d464ed29c03d0d97f62719743bff0124e8c1183279187ee900ece4d768e5bd1` |
+| Domain multiplayer | `62fb3efd72b4cd40dd8894df1140ab6047616fe582f741d6d52a6461c7784c64` |
 | Domain 1v1 (unchanged) | `16f60edf2c1e246886d1962fad32238fde0dd969c36bc959251df488c83aefc7` |
 
 Deploys omit `LUA_FIXED_SEED`; the differential test workflow uses it. The multi cache keys include all
