@@ -196,6 +196,23 @@ describe("a Set card activated on the field stays on screen", () => {
     expect(turns.some((turn) => turn.includes("rotateY(-84deg)"))).toBe(true);
   });
 
+  it.each([false, true])("gives the real card back before its copy fades, so the zone never fades to blank (reduced=%s)", (reduced) => {
+    const container = activate(reduced, 0);
+    const ghost = ghostOf(container);
+    const art = container.querySelector("[data-card-art]");
+    const copy = animate.mock.calls[animate.mock.contexts.findIndex((context) => context === ghost)];
+    // The hold that hides the real card: every frame at opacity 0.
+    const hide = animate.mock.calls.find(([frames], index) => animate.mock.contexts[index] === art
+      && (frames as Keyframe[]).every((frame) => frame.opacity === 0));
+    expect(hide).toBeDefined();
+    const copyTiming = copy[1] as KeyframeAnimationOptions;
+    const frames = copy[0] as Keyframe[];
+    // The copy is whole until its last frame that still has opacity 1, then fades out.
+    const fadeFrom = frames.filter((frame) => frame.opacity === 1 && frame.offset != null).reduce((max, frame) => Math.max(max, Number(frame.offset)), 0);
+    const fadeStartMs = Number(copyTiming.delay) + fadeFrom * Number(copyTiming.duration);
+    expect(Number((hide[1] as KeyframeAnimationOptions).duration)).toBeLessThanOrEqual(fadeStartMs + 1);
+  });
+
   it("shows its face at once under reduced motion, with no sleeve", () => {
     const ghost = ghostOf(activate(true, 0));
     expect(ghost.querySelector("span")).toBeNull();

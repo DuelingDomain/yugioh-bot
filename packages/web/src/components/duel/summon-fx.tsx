@@ -704,8 +704,11 @@ function ActivateFx({ item, overlay, done }: EffectProps) {
         ...(arrived ? { fill: "forwards" as const } : {}),
       });
       if (sleeved) track.play(sleeve.current, [{ opacity: 1 }, { opacity: 1, offset: turnAt }, { opacity: 0, offset: turnAt }, { opacity: 0 }], { duration: total, delay: d, easing: "linear" });
-      // The real card is already face-up: hide it under the copy, which covers the zone from its first frame.
-      if (item.wasSet === true && !arrived && art?.querySelector(`img[src*="/cards/${item.card?.code}/image"]`)) holdHidden(track, zone, Math.max(0, d + total));
+      // The real card is already face-up: hide it under the copy, which covers the zone from its first frame. A copy that
+      // fades out gives the card back as its fade starts, so it fades over the same face, not over an empty zone; a copy
+      // held for a handoff drops at once when the card leaves, so the card stays hidden to the end.
+      const coveredMs = item.activationHoldMs ? total : fadeAt * total;
+      if (item.wasSet === true && !arrived && art?.querySelector(`img[src*="/cards/${item.card?.code}/image"]`)) holdHidden(track, zone, Math.max(0, d + coveredMs));
     }
     if (item.reduced) track.play(edge.current, [{ opacity: 0 }, { opacity: 1, offset: 0.25 }, { opacity: 0 }], { duration: CARD_FX.reducedEffectMs, delay: d });
     else pulseRing(track, edge.current, d + 80, { grow: 1.16, duration: 700, peak: 1 });
