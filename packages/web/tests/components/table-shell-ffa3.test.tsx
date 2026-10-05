@@ -69,7 +69,15 @@ describe("TableShell on the 3-way fixtures: the whole table", () => {
     expect(container.querySelector("[role='tablist']")).not.toBeNull();
     expect(container.querySelector("nav[aria-label='Duel phases']")).not.toBeNull();
     expect(container.querySelectorAll("[aria-label='Turn order'] li")).toHaveLength(3);
-    expect(container.querySelector("[aria-label='Deck Masters']")).not.toBeNull();
+    // The seat strip lives in the station track's left block, not in a row of its own above it.
+    const track = container.querySelector("[data-seat-chips]") as HTMLElement;
+    expect(track).not.toBeNull();
+    expect(track.querySelector("[data-testid='seat-strip']")).not.toBeNull();
+    // Card, Log, Master, Settings and View are rail buttons that open the drawer.
+    const rail = container.querySelector("[data-testid='table-rail']") as HTMLElement;
+    for (const key of ["card", "log", "masters", "settings", "view"]) expect(rail.querySelector(`[data-rail='${key}']`), key).not.toBeNull();
+    // The Deck Master column is gone; the drawer carries the Master tab.
+    expect(container.querySelector("[aria-label='Deck Masters']")).toBeNull();
   });
 
   it("writes turn and prompt status words on the seat strip", () => {
@@ -97,8 +105,10 @@ describe("TableShell on the 3-way fixtures: the whole table", () => {
     const { container } = render(<Shell id="main" />);
     const strip = container.querySelector("[data-testid='history-strip']") as HTMLElement;
     expect(strip).not.toBeNull();
-    const aside = strip.closest("aside") as HTMLElement;
-    expect(aside.firstElementChild).toBe(strip);
+    // It tops the 72px rail: the tiles stack in a column under a History caption.
+    const rail = strip.closest("[data-testid='table-rail']") as HTMLElement;
+    expect(rail.firstElementChild).toBe(strip);
+    expect(strip.getAttribute("data-variant")).toBe("rail");
     const tiles = strip.querySelectorAll("li[data-seat]");
     expect(tiles.length).toBeGreaterThan(0);
     expect(tiles.length).toBeLessThanOrEqual(8);
@@ -115,12 +125,12 @@ describe("TableShell on the 3-way fixtures: the whole table", () => {
     expect(plain.container.querySelector("[data-testid='priority-chips']")).toBeNull();
   });
 
-  it("puts rival Deck Masters on the holo panels, and only your own master and the camera panel in the right column", () => {
+  it("puts rival Deck Masters on the holo panels, your own as a chip under your plate, and the camera panel behind the View button", () => {
     const { container } = render(<Shell id="main" />);
-    const aside = container.querySelector("[aria-label='Deck Masters']") as HTMLElement;
-    expect([...aside.querySelectorAll("section h2")].map((node) => node.textContent)).toEqual(["Your Master"]);
-    expect(aside.querySelector("[data-docks]")?.getAttribute("data-docks")).toBe("1");
-    expect(aside.querySelector("[data-camera-panel]")).not.toBeNull();
+    expect(container.querySelector("[data-testid='master-chip']")).not.toBeNull();
+    expect(container.querySelectorAll("[data-testid='master-chip']")).toHaveLength(1);
+    expect(container.querySelector("[data-docks]")).toBeNull();
+    // The camera panel is part of the page, opened by the rail's View button.
     expect(container.querySelectorAll("[data-camera-panel]")).toHaveLength(1);
     expect(container.querySelector("[data-camera-chip]")).not.toBeNull();
     const thumbs = [...container.querySelectorAll("[data-master-thumb]")].map((node) => node.getAttribute("data-master-thumb")).sort();

@@ -11,7 +11,7 @@ it.each((["1v1", "tag", "ffa3", "ffa4"] as const).flatMap((format) =>
     tags: [], setup: { format, mode, masterRule, p0: { hand: [], deck: ["Silver Fang"] } },
     steps: [expectBoard({ p0: { hand: [], deckCount: 20 } })] };
   const result = defineScenarioWithFfaFirstDraw(input);
-  const draws = mode === "domain" || masterRule <= 2;
+  const draws = mode === "domain" ? format !== "1v1" : masterRule <= 2;
   expect(result.steps[0]).toEqual(expectBoard({ p0: { hand: draws ? ["Mystical Elf"] : [], deckCount: draws ? 19 : 20 } }));
   expect(result.setup.p0?.deck).toEqual(draws ? ["Mystical Elf", "Silver Fang"] : ["Silver Fang"]);
 });

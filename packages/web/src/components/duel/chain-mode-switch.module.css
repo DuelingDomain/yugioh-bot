@@ -103,6 +103,13 @@
   }
 }
 
+/* With the phases in the middle of the board the bar has room: the word and the key stay at every desktop width. */
+@media (min-width: 901px) {
+  :global([data-phases="hub"]) .label {
+    display: grid;
+  }
+}
+
 /* Tables of 3 and 4 seats share the actions column with the seat strip: slimmer segments. */
 :global([data-seats="true"]) .option {
   min-width: 46px;

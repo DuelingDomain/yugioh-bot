@@ -90,6 +90,8 @@ import {
   DRAFT_EXTRA_MAX,
   DRAFT_MAIN_MAX,
   canAddFromPool,
+  deckAllowance,
+  forcedCounts,
   deckUsage,
   draftDeckNotes,
   draftMainMinimum,
@@ -434,6 +436,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   const counts = useMemo(() => copyCounts(deck, catalog), [deck, catalog]);
   const problems = useMemo(() => (pool ? [] : copyProblems(deck, catalog, limits)), [pool, deck, catalog, limits]);
   const poolMap = useMemo(() => (pool ? poolCounts(pool.cards, catalog) : null), [pool, catalog]);
+  const forcedMap = useMemo(() => forcedCounts(pool?.forcedCopies, catalog), [pool, catalog]);
   const usage = useMemo(() => deckUsage(deck, catalog), [deck, catalog]);
   const over = useMemo(() => new Set(problems.map((problem) => problem.key)), [problems]);
   const archetypes = facets?.archetypes ?? [];
@@ -468,10 +471,10 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     return defaultAddSection(card);
   }
 
-  /** A draft deck can only hold as many copies of a card as the player drafted. */
+  /** A draft deck holds at most 3 copies of a card, plus one per forced pick, and no more than the player drafted. */
   function poolRoomFor(code: number): boolean {
     code = poolCode(code);
-    if (!poolMap || canAddFromPool(poolMap, usage, code)) return true;
+    if (!poolMap || canAddFromPool(poolMap, usage, code, forcedMap)) return true;
     setNotice(poolMap.has(code)
       ? `${cardName(code)}: no copies left in your pool.`
       : `${cardName(code)} is not in your draft pool.`);
@@ -783,7 +786,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
       mode={mode}
       copies={deckCount(inspected)}
       limit={copyLimit(inspected.code, catalog, limits)}
-      poolCopies={poolMap ? poolMap.get(poolCode(inspected.code)) ?? 0 : undefined}
+      poolCopies={poolMap ? deckAllowance(poolMap, poolCode(inspected.code), forcedMap) : undefined} forced={forcedMap.get(poolCode(inspected.code)) ?? 0}
       banlistName={banlistName}
       archetypes={archetypes}
       hideSummary={isPhone && cardSheetOpen}
@@ -952,9 +955,9 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
             <DeckSectionGrid {...sectionProps} title="Extra" section="extra" codes={deck.extra} maximum={DRAFT_EXTRA_MAX} target="up to 15" emptyHint="Fusion, Synchro, Xyz and Link monsters go here." actions={clearButton("extra", "Extra")} />
             <DeckSectionGrid {...sectionProps} title="Side" section="side" codes={deck.side} unused={mode === "domain"} maximum={mode === "domain" ? 0 : 15} target={mode === "domain" ? "Not used in Domain" : "up to 15"} emptyHint="Drag cards here, or use Side on a selected card." actions={clearButton("side", "Side")} />
           </main>
-          <CardBrowser id="deck-editor-cards" pool={poolMap ? { cards: poolCards, remaining: (card) => remainingCopies(poolMap, usage, poolCode(card.code)), totalCopies: [...poolMap.values()].reduce((sum, count) => sum + count, 0), notInDeck: [...poolMap.keys()].reduce((sum, code) => sum + remainingCopies(poolMap, usage, code), 0) } : undefined} query={query} onQueryChange={setQuery} archetypes={archetypes} limits={limits} view={view} onViewChange={setView} deckCount={deckCount} inspectCode={selected == null ? inspectCode : null} onInspect={(card, openSheet) => { rememberCatalog([card]); inspect(card.code, null, openSheet); }} onHover={(card) => { if (card) rememberCatalog([card]); pointAt(card ? { code: card.code, from: "list" } : null); }} onAdd={(card) => addFromList(card)} onCatalog={rememberCatalog} onRemoveDrop={(drag) => removeCopy(drag)} searchRef={searchRef} />
+          <CardBrowser id="deck-editor-cards" pool={poolMap ? { cards: poolCards, remaining: (card) => remainingCopies(poolMap, usage, poolCode(card.code), forcedMap), totalCopies: [...poolMap.values()].reduce((sum, count) => sum + count, 0), notInDeck: [...poolMap.keys()].reduce((sum, code) => sum + remainingCopies(poolMap, usage, code, forcedMap), 0) } : undefined} query={query} onQueryChange={setQuery} archetypes={archetypes} limits={limits} view={view} onViewChange={setView} deckCount={deckCount} inspectCode={selected == null ? inspectCode : null} onInspect={(card, openSheet) => { rememberCatalog([card]); inspect(card.code, null, openSheet); }} onHover={(card) => { if (card) rememberCatalog([card]); pointAt(card ? { code: card.code, from: "list" } : null); }} onAdd={(card) => addFromList(card)} onCatalog={rememberCatalog} onRemoveDrop={(drag) => removeCopy(drag)} searchRef={searchRef} />
         </div>
-        {isPhone && cardSheetOpen && inspectCode != null ? <CardBottomSheet label={cardName(inspectCode)} onClose={() => { setCardSheetOpen(false); setHover(null); }}>{shown ? <CardPreview card={shown} compact copySummary={inspected && !previewing ? <CardCopyCount copies={deckCount(inspected)} limit={copyLimit(inspected.code, catalog, limits)} poolCopies={poolMap ? poolMap.get(poolCode(inspected.code)) ?? 0 : undefined} /> : undefined} /> : missingReader}{cardControls}</CardBottomSheet> : null}
+        {isPhone && cardSheetOpen && inspectCode != null ? <CardBottomSheet label={cardName(inspectCode)} onClose={() => { setCardSheetOpen(false); setHover(null); }}>{shown ? <CardPreview card={shown} compact copySummary={inspected && !previewing ? <CardCopyCount copies={deckCount(inspected)} limit={copyLimit(inspected.code, catalog, limits)} poolCopies={poolMap ? deckAllowance(poolMap, poolCode(inspected.code), forcedMap) : undefined} forced={forcedMap.get(poolCode(inspected.code)) ?? 0} /> : undefined} /> : missingReader}{cardControls}</CardBottomSheet> : null}
       </div>
     </SheetRoot>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, type RefObject } from "react";
+import { useMemo, type ReactNode, type RefObject } from "react";
 import type { DuelEngineView, DuelMasterRule } from "@yugidraft/shared/duels";
 import { isBattlePhase } from "./constants";
 import { resolveEquipLinks } from "./equip-links";
@@ -32,6 +32,11 @@ export type DuelFieldProps = {
   showExtraZones?: boolean;
   /** Room action/reveal gate. Local priority follows this directly; previews can omit it. */
   priorityLive?: boolean;
+  /**
+   * The phase hub for a 1v1: a strip in its own lane, directly under the Extra Monster Zone band and above your monster
+   * zones. The lane takes height from the board (the zones shrink a little). Leave it out and the board is as before.
+   */
+  hub?: ReactNode;
 };
 
 /**

@@ -44,7 +44,7 @@ export interface PreviewContext {
   lock: CameraLockReason | null;
   viewport: { width: number; height: number };
   reduced: boolean;
-  /** `?chain=auto|always|off`: draw the chain response switch on the station track (local state, no server). */
+  /** `?chain=auto|always|off|none`: the chain response switch on the station track (local state, no server). Auto unless `none`. */
   chainMode: ChainModeControl | null;
 }
 
@@ -106,7 +106,8 @@ export function PreviewHarness({ set, stateId, cam, lock, basePath, renderStage,
   const activeId = isTableStateId(stateId) ? stateId : "main";
   const state = set.states[activeId];
   const chainFromUrl = query.get("chain");
-  const [chain, setChain] = useState<DuelChainMode | null>(isDuelChainMode(chainFromUrl) ? chainFromUrl : null);
+  // The live room draws the switch for a seated player; so does the preview, on Auto, unless `?chain=none`.
+  const [chain, setChain] = useState<DuelChainMode | null>(isDuelChainMode(chainFromUrl) ? chainFromUrl : chainFromUrl === "none" ? null : "auto");
   const preview: PreviewContext = {
     cam: parsePreviewCam(cam), lock: parsePreviewLock(lock), viewport, reduced,
     chainMode: chain ? { mode: chain, onChange: setChain } : null,

@@ -140,7 +140,7 @@ export async function playDuel(scenario: NScenario, options: PlayOptions): Promi
   const schedule = options.script ? [] : eliminationSchedule(scenario);
   const outcome: NOutcome = {
     scenario,
-    firstTurnDraw: options.firstTurnDraw ?? firstTurnDrawFor(scenario.mode, scenario.masterRule),
+    firstTurnDraw: options.firstTurnDraw ?? firstTurnDrawFor(scenario.mode, scenario.masterRule, scenario.format),
     decks: setup.decks,
     deckNotes: setup.deckNotes,
     disjoint: setup.disjoint,

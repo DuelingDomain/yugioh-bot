@@ -60,7 +60,7 @@ describe("table live connection settings", () => {
     media(false);
     const resync = vi.fn().mockResolvedValue(undefined);
     render(<Shell connection={{ connected: false, syncing: false, recovering: true, presence: { onlineSeats: [0], spectatorCount: 2 }, resync }} />);
-    fireEvent.click(screen.getByRole("tab", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(screen.getByText("Reconnecting live updates; polling for the latest state.")).toBeTruthy();
     expect(screen.getByText("2 watching")).toBeTruthy();
     expect(screen.getByText("Ren Arata · Connected")).toBeTruthy();
@@ -74,7 +74,7 @@ describe("table live connection settings", () => {
     const resync = vi.fn().mockRejectedValue(new Error("offline"));
     const connection = { connected: false, syncing: true, recovering: false, presence: null, resync };
     const view = render(<Shell connection={connection} />);
-    fireEvent.click(screen.getByRole("tab", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(screen.getByRole("button", { name: "Catch up now" })).toBeDisabled();
     view.rerender(<Shell connection={{ ...connection, syncing: false }} />);
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Catch up now" })); });

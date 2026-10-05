@@ -2,8 +2,8 @@ import { existsSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import Database from "better-sqlite3";
 import { canonicalCardCode, mapDeckCodes, type DuelDeck } from "@yugidraft/shared/duels";
-import { createCardCatalogService } from "@yugidraft/shared/services";
-import { DeckLegalityError } from "./deck-legality.js";
+import { createCardCatalogService, createDraftService } from "@yugidraft/shared/services";
+import { DeckLegalityError, type InspectDeckOptions } from "./deck-legality.js";
 
 type FetchLike = (
   input: string | URL | globalThis.Request,
@@ -225,4 +225,33 @@ export async function normalizeCardCodes(
     result.set(id, known === undefined ? null : canonicalCardCode(known, index.byId));
   }
   return result;
+}
+
+/** Trusted draft pool and forced allowances, using the same engine artwork identity as deck checks. */
+export async function loadDraftDeckPool(input: {
+  draftId: number;
+  playerId: number;
+  guildId: string;
+  dataDirectory: string;
+  db: Database.Database;
+}): Promise<NonNullable<InspectDeckOptions["draftPool"]>> {
+  const { db, draftId, playerId, guildId, dataDirectory } = input;
+  const participant = db.prepare(`
+    select d.id from drafts d
+    join draft_players dp on dp.draft_id = d.id
+    join players p on p.id = dp.player_id and p.guild_id = d.guild_id
+    where d.id = ? and d.guild_id = ? and d.status = 'completed' and p.id = ?
+  `).get(draftId, guildId, playerId);
+  if (!participant) fail("Draft pool is not available for this player");
+  const picks = createDraftService(db).pool(draftId, playerId);
+  const codes = await normalizeCardCodes([...new Set(picks.map((pick) => pick.catalogCardId))], dataDirectory, db);
+  const counts = new Map<number, number>();
+  const forcedCopies = new Map<number, number>();
+  for (const pick of picks) {
+    const code = codes.get(pick.catalogCardId);
+    if (typeof code !== "number") continue;
+    counts.set(code, (counts.get(code) ?? 0) + 1);
+    if (pick.forced) forcedCopies.set(code, (forcedCopies.get(code) ?? 0) + 1);
+  }
+  return { counts, forcedCopies };
 }

@@ -59,6 +59,15 @@ it("rejects a fourth copy when saved against a draft pool", () => {
 });
 
 describe("buildDraftDeck", () => {
+  it("includes forced copies by artwork identity, with one extra slot per forced pick", () => {
+    const normal = { catalogId: 1, extra: false, name: "Card", type: "Effect Monster" };
+    const forced = { ...normal, catalogId: 2, name: " CARD ", forced: true };
+    expect(buildDraftDeck([normal, normal, normal, forced, normal]).main).toEqual([1, 1, 1, 2]);
+    expect(buildDraftDeck([normal, normal, normal, forced, forced]).main).toEqual([1, 1, 1, 2, 2]);
+    expect(buildDraftDeck([normal, normal, normal, { ...forced, type: "Normal Monster" }]).main)
+      .toEqual([1, 1, 1, 2]);
+  });
+
   it("puts main picks in main, extra deck monsters in extra, and keeps copies", () => {
     const deck = buildDraftDeck([
       { catalogId: 1, extra: false },

@@ -383,9 +383,11 @@ describe("live room table mount", () => {
     room(FFA3_FIXTURES.states.main.room);
     state.room!.engine!.seats = state.room!.engine!.seats.map((seat) => ({ ...seat, [out]: seat.seat === 0 }));
     const { container } = mount();
-    const card = container.querySelector("[data-zones='0:2:0']")!;
-    expect(card).not.toBeNull();
-    await act(async () => { fireEvent.click(card.querySelector("button") ?? card); });
+    const card = container.querySelector("[data-zones='0:2:0']");
+    // A seat that is out on the first render has no board at all; a leaving seat still shows its stale cards.
+    if (out === "pendingElimination") expect(card).not.toBeNull();
+    else expect(card).toBeNull();
+    await act(async () => { if (card) fireEvent.click(card.querySelector("button") ?? card); });
     expect(screen.queryByRole("menu")).toBeNull();
     expect(screen.queryByRole("button", { name: "Battle Phase" })).toBeNull();
     expect(state.send).not.toHaveBeenCalled();

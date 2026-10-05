@@ -19,6 +19,8 @@ export interface DraftDeckFixture {
  */
 export async function seedDraftDeck(options: {
   picks: number[];
+  /** Zero-based pick indices that were forced. */
+  forcedPicks?: number[];
   status?: string;
   /** Adds a tournament for the draft with these users as participants. */
   tournamentUsers?: string[];
@@ -63,14 +65,14 @@ export async function seedDraftDeck(options: {
     "insert into draft_cards (draft_id, wave_number, catalog_card_id, picked_by_player_id, picked_at) values (?, 1, ?, ?, ?)",
   );
   const insertPick = db.prepare(
-    "insert into draft_picks (draft_id, player_id, draft_card_id, wave_number, pick_step, picked_at) values (?, ?, ?, 1, ?, ?)",
+    "insert into draft_picks (draft_id, player_id, draft_card_id, wave_number, pick_step, forced, picked_at) values (?, ?, ?, 1, ?, ?, ?)",
   );
   const now = new Date().toISOString();
   // One transaction: a thousand separate commits take tens of seconds.
   db.transaction(() => {
     options.picks.forEach((id, index) => {
       const cardId = Number(insertCardRow.run(draftId, id, players.drafter, now).lastInsertRowid);
-      insertPick.run(draftId, players.drafter, cardId, index + 1, now);
+      insertPick.run(draftId, players.drafter, cardId, index + 1, options.forcedPicks?.includes(index) ? 1 : 0, now);
     });
   })();
 

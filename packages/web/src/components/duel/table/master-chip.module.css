@@ -1,0 +1,52 @@
+/* Hangs under your LP plate (holo-lp's footer). Matches the plate's ink; the violet edge is the Deck Master colour. */
+.chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 5px 10px 5px 5px;
+  border: 1px solid rgb(155 126 255 / 0.4);
+  border-radius: 6px;
+  background: linear-gradient(160deg, rgb(155 126 255 / 0.12), rgb(8 12 24 / 0.9) 60%);
+  color: #c3bba8;
+  font-family: var(--font-duel-ui, "Arial Narrow"), "Arial Narrow", sans-serif;
+  font-size: 12px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.chip:hover,
+.chip:focus-visible {
+  border-color: rgb(155 126 255 / 0.85);
+  outline: none;
+}
+.art {
+  flex: none;
+  width: 28px;
+  height: 41px;
+  border-radius: 2px;
+  object-fit: cover;
+  background: #06080e;
+  box-shadow: 0 0 0 1px rgb(155 126 255 / 0.6);
+}
+.text {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+.text b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #efe7d5;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.text small {
+  color: #958f81;
+  font-size: 11.5px;
+}
+.text em {
+  color: #e4b64f;
+  font-style: normal;
+}

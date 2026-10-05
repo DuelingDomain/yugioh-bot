@@ -57,7 +57,7 @@ async function replayDifferentialFile(saved: DifferentialFile, dataDirectory: st
   try {
     if (wasm) registerDomainCoreFactory((ctx) => createDomainCore({ ...ctx, wasmBinary: new Uint8Array(wasm) }));
     const engine = saved.engine!;
-    const firstTurnDraw = savedFuzzFirstTurnDraw(engine.firstTurnDraw, engine.mode, engine.masterRule);
+    const firstTurnDraw = savedFuzzFirstTurnDraw(engine.firstTurnDraw, engine.mode, engine.masterRule, engine.format);
     const game = await createEngineGame({ ...engine, firstTurnDraw, dataDirectory, ...(wasm ? { standardWasmBinary: wasm } : {}) } as Parameters<typeof createEngineGame>[0]);
     try {
       for (const [i, command] of saved.journal.entries()) {
