@@ -713,7 +713,7 @@ describe("duel snapshots archive and cancel", () => {
     start(app, active.slug);
     try {
       app.duels.cancel(active.slug, "g1", app.p1);
-      throw new Error("expected active cancel to fail");
+      throw new Error("expected active series cancel to fail");
     } catch (error) {
       expect((error as DuelServiceError).status).toBe(409);
     }
@@ -725,6 +725,40 @@ describe("duel snapshots archive and cancel", () => {
     expect(app.duels.get(lobby.slug, "g1").archivedAt).toBeTruthy();
     expect(app.duels.list("g1", app.p1).map((row) => row.slug)).toEqual([active.slug]);
     expect(app.duels.archiveDue(8, 10 * 60 * 1000)).toEqual([]);
+  });
+
+  it.each(["1v1", "ffa3", "ffa4", "tag"] as const)("allows only the creator to cancel an active casual %s duel without a winner", (format) => {
+    const app = setup();
+    const session = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Casual", mode: "normal", format });
+    const count = format === "1v1" ? 2 : format === "ffa3" ? 3 : 4;
+    app.duels.setDeck(session.slug, "g1", app.p1, validDeck());
+    for (let seat = 1; seat < count; seat++) app.duels.addPracticeBot(session.slug, "g1", app.p1, validDeck(1000 * seat), seat);
+    app.duels.activate(session.slug, "g1", app.p1, ["1", "2", "3", "4"], "v", {
+      turn: 5, remainingMs: Array(count).fill(60_000), activeSeat: 0, startedAt: 1000,
+    });
+    expect(() => app.duels.cancel(session.slug, "g1", app.p2)).toThrow("Only the organizer can cancel");
+    expect(app.duels.get(session.slug, "g1").status).toBe("active");
+    const cancelled = app.duels.cancel(session.slug, "g1", app.p1);
+    expect(cancelled).toMatchObject({ status: "cancelled", winnerSeat: null, winnerPlayerId: null, resultReason: "Cancelled" });
+    expect(cancelled.endedAt).toBeTruthy();
+    expect(cancelled.archivedAt).toBeTruthy();
+    expect(app.duels.room(session.slug, "g1", app.p1).clock).toBeNull();
+    expect(app.duels.cancel(session.slug, "g1", app.p1)).toEqual(cancelled);
+    app.db.close();
+  });
+
+  it("still refuses cancellation of an active ranked duel or an already completed duel", () => {
+    const app = setup();
+    const ranked = readyDuel(app);
+    app.db.prepare("update duels set ranked = 1 where id = ?").run(ranked.id);
+    start(app, ranked.slug);
+    expect(() => app.duels.cancel(ranked.slug, "g1", app.p1)).toThrow();
+    const finished = readyDuel(app);
+    start(app, finished.slug);
+    app.duels.complete(finished.slug, "g1", 0, "Surrender");
+    expect(() => app.duels.cancel(finished.slug, "g1", app.p1)).toThrow();
+    expect(app.duels.get(finished.slug, "g1")).toMatchObject({ status: "completed", winnerSeat: 0 });
+    app.db.close();
   });
 });
 

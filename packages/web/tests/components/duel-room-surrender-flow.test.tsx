@@ -5,7 +5,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import type { DuelRoom } from "@yugidraft/shared/duels";
 
 // Same harness as duel-room-table-mount.test.tsx (that file is not edited): the room runs for real, the API is mocked.
-const state = vi.hoisted(() => ({ room: undefined as DuelRoom | undefined, mutate: vi.fn().mockResolvedValue(undefined), replace: vi.fn(), resync: vi.fn().mockResolvedValue(undefined), send: vi.fn(), surrender: vi.fn() }));
+const state = vi.hoisted(() => ({ room: undefined as DuelRoom | undefined, mutate: vi.fn().mockResolvedValue(undefined), replace: vi.fn(), resync: vi.fn().mockResolvedValue(undefined), send: vi.fn(), surrender: vi.fn(), cancel: vi.fn() }));
 vi.mock("next/font/google", () => {
   const font = () => ({ variable: "font-var", className: "font-class" });
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
@@ -15,11 +15,12 @@ vi.mock("swr", () => ({ default: () => ({ data: state.room, error: undefined, is
 vi.mock("@/lib/hooks/use-duel-websocket", () => ({ useDuelWebsocket: () => ({ connected: true, syncing: false, recovering: false, presence: null, resync: state.resync }) }));
 vi.mock("@/lib/hooks/use-duel-leave-guard", () => ({ useDuelLeaveGuard: vi.fn() }));
 vi.mock("@/components/duel/prompt-reveal", async (original) => ({ ...await original<object>(), usePromptReveal: () => true, usePromptAnswerable: () => true }));
-vi.mock("@/components/duel/api", async (original) => ({ ...await original<object>(), sendDuelAction: state.send, surrenderDuel: state.surrender,
+vi.mock("@/components/duel/api", async (original) => ({ ...await original<object>(), sendDuelAction: state.send, surrenderDuel: state.surrender, cancelDuel: state.cancel,
   reportEnabled: vi.fn().mockResolvedValue(false), getDuelRoom: async () => state.room, listDuelPresets: async () => ({ presets: [] }) }));
 import { DuelRoomView } from "@/components/duel/room";
 import { DuelRequestError } from "@/components/duel/api";
 import { FFA3_FIXTURES } from "@/components/duel/table/fixtures/ffa3";
+import { FFA4_FIXTURES } from "@/components/duel/table/fixtures/ffa4";
 import { TAG_FIXTURES } from "@/components/duel/tag/fixtures";
 
 beforeAll(() => {
@@ -43,6 +44,56 @@ function room(source: DuelRoom) {
 }
 const mount = () => render(<DuelRoomView slug="live" windowed />);
 const notice = () => screen.queryByRole("alert");
+
+describe("active creator cancellation", () => {
+  it.each([
+    { format: "ffa3", legacyStage: false, source: FFA3_FIXTURES.states.main.room },
+    { format: "ffa3", legacyStage: true, source: FFA3_FIXTURES.states.main.room },
+    { format: "ffa4", legacyStage: false, source: FFA4_FIXTURES.states.main.room },
+    { format: "tag", legacyStage: false, source: TAG_FIXTURES.states.main.room },
+  ])("confirms before cancelling the whole casual $format table (legacyStage=$legacyStage)", async ({ source, legacyStage }) => {
+    room(source);
+    state.room!.session.organizerPlayerId = state.room!.session.seats.find((seat) => seat.seat === state.room!.mySeat)!.playerId!;
+    state.room!.series = null;
+    state.room!.session.seriesId = null;
+    state.room!.session.ranked = false;
+    state.cancel.mockResolvedValueOnce({ ...state.room, session: { ...state.room!.session, status: "cancelled" } });
+    render(<DuelRoomView slug="live" windowed legacyStage={legacyStage} />);
+    if (legacyStage) fireEvent.click(screen.getByRole("tab", { name: /Settings/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel duel" }));
+    const dialog = screen.getByRole("dialog", { name: "Cancel duel" });
+    expect(dialog).toHaveTextContent("This ends the duel for every player without a winner.");
+    expect(state.cancel).not.toHaveBeenCalled();
+    await act(async () => { fireEvent.click(within(dialog).getByRole("button", { name: "Cancel duel" })); });
+    expect(state.cancel).toHaveBeenCalledExactlyOnceWith("live");
+    expect(state.mutate).toHaveBeenCalled();
+  });
+
+  it("keeps the duel running when the creator dismisses confirmation", () => {
+    room(FFA3_FIXTURES.states.main.room);
+    state.room!.session.organizerPlayerId = state.room!.session.seats.find((seat) => seat.seat === state.room!.mySeat)!.playerId!;
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel duel" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Cancel duel" })).getByRole("button", { name: "Keep playing" }));
+    expect(state.cancel).not.toHaveBeenCalled();
+  });
+
+  it("hides cancellation from a seated player who did not create the duel", () => {
+    room(FFA3_FIXTURES.states.main.room);
+    state.room!.session.organizerPlayerId = -1;
+    mount();
+    expect(screen.queryByRole("button", { name: "Cancel duel" })).toBeNull();
+  });
+
+  it.each(["series", "ranked"])("hides cancellation from active %s games", (kind) => {
+    room(FFA3_FIXTURES.states.main.room);
+    state.room!.session.organizerPlayerId = state.room!.session.seats.find((seat) => seat.seat === state.room!.mySeat)!.playerId!;
+    if (kind === "series") state.room!.session.seriesId = 42;
+    else state.room!.session.ranked = true;
+    mount();
+    expect(screen.queryByRole("button", { name: "Cancel duel" })).toBeNull();
+  });
+});
 
 describe("duel room failed requests", () => {
   describe.each([
@@ -135,9 +186,9 @@ describe("duel room failed requests", () => {
     fireEvent.click(screen.getByRole("button", { name: "Surrender" }));
     const dialog = screen.getByRole("dialog", { name: "Surrender" });
     await act(async () => { fireEvent.click(within(dialog).getByRole("button", { name: "Surrender" })); });
-    await waitFor(() => expect(notice()).toHaveTextContent("This duel can't accept a surrender right now."));
+    await waitFor(() => expect(notice()).toHaveTextContent("This server's duel engine is out of date and can't accept a surrender. The creator can cancel the duel."));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Surrender" })).toBeNull());
-    expect(notice()).not.toHaveTextContent("engine");
+    expect(notice()).not.toHaveTextContent("eliminate a surrendering duelist");
     expect(state.mutate).toHaveBeenCalled();
     // The seat is unchanged, so the player can still surrender later.
     expect(screen.getAllByRole("button", { name: "Surrender" })[0]).toBeEnabled();

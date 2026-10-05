@@ -37,4 +37,18 @@ describe("POST /api/duels/[slug]/actions error forwarding", () => {
       op: "respond", slug: "table", guildId: "g1", playerId: 1, command,
     });
   });
+
+  it("forwards an active table cancellation with the authenticated actor", async () => {
+    const cancelled = { session: { slug: "table", status: "cancelled", winnerSeat: null } };
+    const fetchMock = vi.fn(async (_url: unknown, _init: RequestInit) => Response.json(cancelled));
+    vi.stubGlobal("fetch", fetchMock);
+    const { POST } = await import("../app/api/duels/[slug]/cancel/route");
+    const response = await POST(new NextRequest("http://localhost/api/duels/table/cancel", { method: "POST" }),
+      { params: Promise.resolve({ slug: "table" }) });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(cancelled);
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body as string)).toEqual({
+      op: "cancel", slug: "table", guildId: "g1", playerId: 1,
+    });
+  });
 });
