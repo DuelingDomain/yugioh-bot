@@ -12,6 +12,7 @@ import {
   gridPlacement,
   gridWorld,
   HAND_RISE,
+  HUD_CORNER,
   HAND_SHARE,
   OUT_HOLD_MS,
   OTHER_MIN_SHARE,
@@ -150,7 +151,8 @@ describe("gridFocusLayout", () => {
     expect(tl.rect.x).toBe(bl.rect.x);
     expect(tl.rect.x).toBeLessThan(tr.rect.x);
     expect(tl.rect.y).toBeLessThan(bl.rect.y);
-    expect(layout.sizes.equal).toBeGreaterThan(95);
+    // The grid fields are wider (full-size Defense cards), so this box is bound by its width.
+    expect(layout.sizes.equal).toBeGreaterThan(85);
     expect(layout.finale).toBeNull();
   });
 
@@ -163,6 +165,23 @@ describe("gridFocusLayout", () => {
         }
         for (const band of layout.bands) expect(inside(band.rect, view)).toBe(true);
       }, rule);
+    }
+  });
+
+  it("keeps every field, plate and your hand clear of the HUD turn-control corner, and loses no size without it", () => {
+    for (const view of [...VIEWPORTS, { width: 1920, height: 1080 }, { width: 1280, height: 800 }]) {
+      for (const focus of FOCUSES) {
+        const free = gridFocusLayout(gridWorld(5), view, focus, { homeColumn: 0 });
+        const layout = gridFocusLayout(gridWorld(5), view, focus, { homeColumn: 0, corner: HUD_CORNER });
+        const box = { x: view.width - HUD_CORNER.width, y: view.height - HUD_CORNER.height, width: HUD_CORNER.width, height: HUD_CORNER.height };
+        for (const cell of layout.cells) {
+          expect(overlap(cell.rect, box)).toBe(false);
+          expect(overlap(cell.plate, box)).toBe(false);
+          expect(inside(cell.rect, view)).toBe(true);
+        }
+        for (const band of layout.bands) expect(overlap(band.rect, box)).toBe(false);
+        for (const [index, cell] of layout.cells.entries()) expect(cell.z).toBeLessThanOrEqual(free.cells[index].z + 0.01);
+      }
     }
   });
 
@@ -190,7 +209,7 @@ describe("gridFocusLayout", () => {
     });
   });
 
-  it("lifts the focused pair to about 1.12x of the rest size, the other pair a little smaller", () => {
+  it("lifts the focused pair to about 1.16x of the rest size, the other pair a little smaller", () => {
     const view = { width: 1904, height: 930 };
     for (const focus of FOCUSES.filter((entry) => entry != null)) {
       const layout = gridFocusLayout(gridWorld(5), view, focus, { homeColumn: 0 });
@@ -214,7 +233,8 @@ describe("gridFocusLayout", () => {
     const mine = lane({ column: 0, row: 1 });
     const rival = lane({ column: 1, row: 1 });
     for (const entry of [mine, rival]) {
-      expect(entry.home.lh).toBeCloseTo(HAND_SHARE * entry.layout.sizes.rest, 1);
+      // Never more than the rest size; a box bound by its width can make your field (and so your hand) smaller while the rival pair is lifted.
+      expect(entry.home.lh).toBeCloseTo(HAND_SHARE * Math.min(entry.home.z, entry.layout.sizes.rest), 1);
       // the hand rises over the field's edge by HAND_RISE and still fits under it
       expect(entry.home.lh * (1 - HAND_RISE)).toBeLessThan(entry.below);
     }

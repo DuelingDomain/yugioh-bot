@@ -12,6 +12,7 @@ import {
   gridCells,
   gridFocusLayout,
   gridWorld,
+  HUD_CORNER,
   OUT_HOLD_MS,
   OVERLAP,
   PAIR_GAP,
@@ -182,6 +183,9 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
   const { engine, room, viewerSeat, nameOf, legalKeys, selectedKeys, reducedMotion } = controller;
   const rootRef = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ width: 0, height: 0 });
+  // In the floating HUD the board runs to the right edge of the screen, under the corner of turn controls: the layout
+  // keeps that corner clear of every field (HUD_CORNER in grid-layout.ts).
+  const [hud, setHud] = useState(false);
 
   useLayoutEffect(() => {
     const node = rootRef.current;
@@ -191,6 +195,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
       return prev.width === next.width && prev.height === next.height ? prev : next;
     });
     read();
+    setHud(node.closest('[data-hud="true"]') != null);
     const observer = new ResizeObserver(read);
     observer.observe(node);
     window.addEventListener("resize", read);
@@ -265,8 +270,9 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
       homeColumn,
       drawerRow: drawerKey.split("").map(Number) as [0 | 1, 0 | 1],
       finale: bottom && top ? { bottom, top, homeHand: bottom.home } : null,
+      corner: hud ? HUD_CORNER : null,
     });
-  }, [box, cells, drawerKey, finaleKey, focusCell, homeColumn, world]);
+  }, [box, cells, drawerKey, finaleKey, focusCell, homeColumn, world, hud]);
   const placed = layoutBox;
 
   // The pair frames (see `pairFrameRect`): the live fields of each column, or the whole finale board.
