@@ -82,6 +82,8 @@ export function startDecisionClock(
  * After an accepted engine command. Time bank rules:
  * - Freeze remaining at `decidedAt` (player commit) and start the next prompt owner at `resumeAt`,
  *   so engine processing is not charged. Only the answering seat is charged.
+ * - A real presentation pause can defer that start to `graceEndsAt`. Only grace still
+ *   outstanding at command completion keeps an unfunded clock's future start.
  * - The deciding seat gets `DUEL_CLOCK_INCREMENT_MS` back, capped at the bank. A seat already at
  *   zero (continue-timeout freeze) gets nothing until the next turn.
  * - When the duel turn changes, each seat regains `duelClockRegainMs` (25% of the bank, at least
@@ -98,6 +100,7 @@ export function syncDecisionClock(
   resumeAt: number = decidedAt,
   timeout: "loss" | "continue" = "continue",
   decidedSeat: SeatIndex | null | undefined = previous?.activeSeat,
+  graceEndsAt: number | null = null,
 ): DecisionClockState | null {
   const budget = clockBudgetMs(turnSeconds);
   if (budget === null) return null;
@@ -132,10 +135,10 @@ export function syncDecisionClock(
       : null;
   // Reduced motion or a bot may answer during opening or coin toss grace. Keep its original end,
   // without granting another grace window on a prompt change or a reconnect.
-  const startAt = Math.max(resumeAt, previous.startedAt ?? resumeAt);
+  const startAt = Math.max(resumeAt, graceEndsAt ?? resumeAt, previous.startedAt ?? resumeAt);
   // A future start also stores outstanding grace when the current prompt has no
   // funded owner. An early handoff must not discard that presentation pause.
-  const inGrace = startAt > decidedAt;
+  const inGrace = startAt > resumeAt;
   return {
     turn: view.turn,
     remainingMs: remaining,

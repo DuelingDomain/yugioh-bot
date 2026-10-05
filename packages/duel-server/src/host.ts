@@ -72,6 +72,12 @@ const START_BACKOFF_MS = [60 * 1000, 5 * 60 * 1000, 15 * 60 * 1000];
 const MAX_TIMER_MS = 2 ** 31 - 1;
 /** Bound one live coin presentation pause, including any already queued grace. */
 const MAX_COIN_TOSS_GRACE_MS = 60_000;
+/**
+ * Real-time margin for pre-toss moves/summons and delivery. The client's move-plan/effect-sequence
+ * can queue an 860ms placement and a 1,625ms ordinary summon: 4,970ms at MIN_DUEL_FX_SPEED.
+ * Leave another 1,030ms for delivery. This conservative fixed bound avoids duplicating its visual planner.
+ */
+const COIN_PRE_TOSS_MARGIN_MS = 6_000;
 const TIME_LIMIT_REASON = "Time limit";
 /** MSG_WIN reason codes from the core (strings.conf victory reasons): 0 Surrendered, 3 Time limit up. */
 const WIN_REASON_SURRENDER = 0;
@@ -224,15 +230,11 @@ function freshCoinTossGraceMs(view: DuelEngineView, afterEventId: number): numbe
     lastTossId = Math.max(lastTossId, event.id);
   }
   if (events === 0) return 0;
-  // Coins wait for their resolving badge. Include the whole current chain prefix,
-  // even activations from earlier batches that a fast player or bot may still be watching.
-  let chainStartId = 0;
-  for (const event of view.events) {
-    if (event.kind === "chain-end" && event.id <= afterEventId) chainStartId = Math.max(chainStartId, event.id);
-  }
-  return Math.min(MAX_COIN_TOSS_GRACE_MS, duration + chainBeatDurationMs(view, chainStartId, lastTossId)
+  // Earlier batches are already accounted for by fxReadyAt. Count only this command's
+  // beats before the toss, so a fast answer cannot charge the same chain prefix twice.
+  return Math.min(MAX_COIN_TOSS_GRACE_MS, duration + chainBeatDurationMs(view, afterEventId, lastTossId)
     + (COIN_TIMING.chainLeadMs + (events - 1) * COIN_TIMING.gapMs) / MIN_DUEL_FX_SPEED
-    + COIN_TIMING.safetyMarginMs);
+    + COIN_TIMING.safetyMarginMs + COIN_PRE_TOSS_MARGIN_MS);
 }
 
 function freezeView(
@@ -676,16 +678,17 @@ export function createDuelHost(options: {
     const finishedAt = now();
     const entry = games.get(slug);
     // A fast answer or a bot can queue another toss before the previous presentation ends.
-    const resumeAt = grace === 0 ? finishedAt : Math.min(finishedAt + MAX_COIN_TOSS_GRACE_MS,
+    const graceEndsAt = grace === 0 ? null : Math.min(finishedAt + MAX_COIN_TOSS_GRACE_MS,
       Math.max(finishedAt, entry?.fxReadyAt ?? finishedAt, state.clock?.startedAt ?? finishedAt) + grace);
     const clock = syncDecisionClock(
       state.clock,
       view,
       state.session.settings.turnSeconds,
       decidedAt,
-      resumeAt,
+      finishedAt,
       state.session.settings.timeout,
       isSeatIndex(seat) ? seat : undefined,
+      graceEndsAt,
     );
     // The journal keeps the reason of a scripted bot in `note`. Replay reads only promptId, revision and answer.
     options.db.transaction(() => {
@@ -697,7 +700,7 @@ export function createDuelHost(options: {
       const lastCoinId = after.events.reduce((id, event) => event.id > afterEventId && event.kind === "toss"
         && event.toss?.type === "coin" && event.toss.results.length > 0 ? Math.max(id, event.id) : id, afterEventId);
       entry.fxReadyAt = Math.min(finishedAt + MAX_COIN_TOSS_GRACE_MS,
-        (grace === 0 ? Math.max(finishedAt, entry.fxReadyAt ?? finishedAt) : resumeAt) + chainBeatDurationMs(after, lastCoinId));
+        (graceEndsAt ?? Math.max(finishedAt, entry.fxReadyAt ?? finishedAt)) + chainBeatDurationMs(after, lastCoinId));
     }
   }
 
