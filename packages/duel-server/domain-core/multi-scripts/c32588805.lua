@@ -1,4 +1,4 @@
-if not aux.MPChooseOpponent then return end
+if not aux.MPAny then return end
 -- The Despair Uranus: the deciding opponent is chosen during resolution (rulebook v1.4).
 function s.setop(e,tp,eg,ep,ev,re,r,rp)
 	if Duel.GetLocationCount(tp,LOCATION_SZONE)<=0 then return end

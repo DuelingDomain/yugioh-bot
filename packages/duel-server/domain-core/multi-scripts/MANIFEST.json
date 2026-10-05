@@ -281,13 +281,14 @@
       "name": "Vaalmonica Scelta",
       "kind": "hand",
       "classes": [
-        "DECISION"
+        "CHOOSER"
       ],
       "redefined": [
         "activate"
       ],
       "stockSha256": "400168d222f9b7d7e7dac9972279f22a60918200b2d0454e0c8ae9cc593ffc78",
-      "note": "Decision-only opponent pick at resolution; no activation declaration."
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 5611760,
@@ -573,13 +574,14 @@
       "name": "The Monarchs Revolt",
       "kind": "hand",
       "classes": [
-        "DECISION"
+        "CHOOSER"
       ],
       "redefined": [
         "thtgop"
       ],
       "stockSha256": "b6a091946674cced39b7c780ba012778463620b4ba959ec921ddf72b4ba65660",
-      "note": "Decision-only opponent pick at resolution; no activation declaration."
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 9336190,
@@ -959,13 +961,14 @@
       "name": "Draco Face-Off",
       "kind": "hand",
       "classes": [
-        "DECISION"
+        "CHOOSER"
       ],
       "redefined": [
         "activate"
       ],
       "stockSha256": "4fac3a671dca05d7ba938f71741c441a3a0bc73a3b9a3024c4861986c388d386",
-      "note": "Decision-only opponent pick at resolution; no activation declaration."
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 14772491,
@@ -1608,13 +1611,14 @@
       "name": "Chosen One",
       "kind": "hand",
       "classes": [
-        "DECISION"
+        "CHOOSER"
       ],
       "redefined": [
         "activate"
       ],
       "stockSha256": "a7342e60c2520e71f7b9ca011c833e3fa2184171d43fe8de621f86ed21bb05bc",
-      "note": "Decision-only opponent pick at resolution; no activation declaration."
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 22404570,
@@ -1672,13 +1676,14 @@
       "name": "Pantheism of the Monarchs",
       "kind": "hand",
       "classes": [
-        "DECISION"
+        "CHOOSER"
       ],
       "redefined": [
         "thop"
       ],
       "stockSha256": "22fea234fd25addc89e97f96600d229c149fe43c52cd4e7331efed4201d3236c",
-      "note": "Decision-only opponent pick at resolution; no activation declaration."
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 23270035,
@@ -1686,13 +1691,14 @@
       "name": "Monster Assortment",
       "kind": "hand",
       "classes": [
-        "DECISION"
+        "CHOOSER"
       ],
       "redefined": [
         "operation"
       ],
       "stockSha256": "a4697fd3eb8570bda1ce2a31590ada1dd14560adbcf6d24f76fa8a433848c238",
-      "note": "Decision-only opponent pick at resolution; no activation declaration."
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 23557835,
@@ -1733,13 +1739,14 @@
       "name": "Lilith, Lady of Lament",
       "kind": "hand",
       "classes": [
-        "DECISION"
+        "CHOOSER"
       ],
       "redefined": [
         "thop"
       ],
       "stockSha256": "ce6446eb4cf7f237351e0b03d006db39507e975772fe54e58cd8be42497d4a67",
-      "note": "Decision-only opponent pick at resolution; no activation declaration."
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 23931679,
@@ -1792,13 +1799,14 @@
       "name": "Gunkan Suship Daily Special",
       "kind": "hand",
       "classes": [
-        "DECISION"
+        "CHOOSER"
       ],
       "redefined": [
         "activate"
       ],
       "stockSha256": "e606753296531c1808666510dd9ac725fceab7f318a2ceb1e63e1c419259c5cc",
-      "note": "Decision-only opponent pick at resolution; no activation declaration."
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 24514503,
@@ -2326,13 +2334,14 @@
       "name": "Beginning of Heaven and Earth",
       "kind": "hand",
       "classes": [
-        "DECISION"
+        "CHOOSER"
       ],
       "redefined": [
         "activate"
       ],
       "stockSha256": "a522a6ecda127f8ebcfc51881865ae9b10435cbac498dea41c5946b00a45419b",
-      "note": "Decision-only opponent pick at resolution; no activation declaration."
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 32588805,
@@ -2340,13 +2349,14 @@
       "name": "The Despair Uranus",
       "kind": "hand",
       "classes": [
-        "DECISION"
+        "CHOOSER"
       ],
       "redefined": [
         "setop"
       ],
       "stockSha256": "e1088a833fd2a9d62eb018828aae84f4f09c3b98c425c6b7cb26c01e836ddabe",
-      "note": "Decision-only opponent pick at resolution; no activation declaration."
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 32762201,
@@ -2657,13 +2667,14 @@
       "name": "Amaze Attraction Thrill Train",
       "kind": "hand",
       "classes": [
-        "DECISION"
+        "CHOOSER"
       ],
       "redefined": [
         "setop"
       ],
       "stockSha256": "f115fbac168b1a0c9a3cb437042de675bce271f65b202cd54be074716e6fad19",
-      "note": "Decision-only opponent pick at resolution; no activation declaration."
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 36668118,
@@ -2786,13 +2797,14 @@
       "name": "Question",
       "kind": "hand",
       "classes": [
-        "DECISION"
+        "CHOOSER"
       ],
       "redefined": [
         "activate"
       ],
       "stockSha256": "6f59c859e16277cd51c65a6ee2bd53a2d1e7e9a99e3176fffa4b842abb113636",
-      "note": "Decision-only opponent pick at resolution; no activation declaration."
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 38817295,
@@ -2917,13 +2929,14 @@
       "name": "Spellbook Library of the Crescent",
       "kind": "hand",
       "classes": [
-        "DECISION"
+        "CHOOSER"
       ],
       "redefined": [
         "operation"
       ],
       "stockSha256": "8ca4807b88b56681eefa3009a9e9ca83b6b85386af93c0f9d80241bfa7227b0e",
-      "note": "Decision-only opponent pick at resolution; no activation declaration."
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 40267580,
@@ -2963,13 +2976,14 @@
       "name": "Voici la Carte (Today's Menu)",
       "kind": "hand",
       "classes": [
-        "DECISION"
+        "CHOOSER"
       ],
       "redefined": [
         "activate"
       ],
       "stockSha256": "0f7638de78b08a20b335fd9607ec5ae86515fa038719c66513d7ac241faaffb2",
-      "note": "Decision-only opponent pick at resolution; no activation declaration."
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 42091632,
@@ -2997,14 +3011,15 @@
       "name": "Vaalmonica Versare",
       "kind": "hand",
       "classes": [
-        "DECISION"
+        "CHOOSER"
       ],
       "redefined": [
         "activate",
         "target"
       ],
       "stockSha256": "5beda836e970a820c7b6245bbad2e4667837c0abcdb8ca1b45f7f8313acdce29",
-      "note": "Decision-only opponent pick at resolution; no activation declaration."
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 42228966,
@@ -3034,13 +3049,14 @@
       "name": "Weights & Zenmaisures",
       "kind": "hand",
       "classes": [
-        "DECISION"
+        "CHOOSER"
       ],
       "redefined": [
         "activate"
       ],
       "stockSha256": "7b62a1bf9d11c303811ae3ea14bfb4f03a41e4c30617da8c623c8cb37a822851",
-      "note": "Decision-only opponent pick at resolution; no activation declaration."
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 42589641,
@@ -3576,13 +3592,14 @@
       "name": "Monster Reborn Reborn",
       "kind": "hand",
       "classes": [
-        "DECISION"
+        "CHOOSER"
       ],
       "redefined": [
         "activate"
       ],
       "stockSha256": "1ac54e9c9b5c3d3e596b317f040a88861e74b1efbc72431fc22f35bbf435f71e",
-      "note": "Decision-only opponent pick at resolution; no activation declaration."
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 50470982,
@@ -3621,13 +3638,14 @@
       "name": "Crowley, the First Propheseer",
       "kind": "hand",
       "classes": [
-        "DECISION"
+        "CHOOSER"
       ],
       "redefined": [
         "thop"
       ],
       "stockSha256": "e69254ef2c9e11eafa3ed2fceae844ef47f89e2d56684e7ae241d3295a901496",
-      "note": "Decision-only opponent pick at resolution; no activation declaration."
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 50838440,
@@ -4065,13 +4083,14 @@
       "name": "Painful Return",
       "kind": "hand",
       "classes": [
-        "DECISION"
+        "CHOOSER"
       ],
       "redefined": [
         "activate"
       ],
       "stockSha256": "097e75c8fc07cf7560b7fddcc127abba6c513cd8e741361c514f7049ff8f8a34",
-      "note": "Decision-only opponent pick at resolution; no activation declaration."
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 58071123,
@@ -4106,13 +4125,14 @@
       "name": "Reasoning",
       "kind": "hand",
       "classes": [
-        "DECISION"
+        "CHOOSER"
       ],
       "redefined": [
         "operation"
       ],
       "stockSha256": "3a5b02b631ed132def6ed1d0efbb34ba28ef0be23b1aef78d0755244082e9270",
-      "note": "Decision-only opponent pick at resolution; no activation declaration."
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 58707981,
@@ -4142,13 +4162,14 @@
       "name": "Super Quantal Fairy Alphan",
       "kind": "hand",
       "classes": [
-        "DECISION"
+        "CHOOSER"
       ],
       "redefined": [
         "spop"
       ],
       "stockSha256": "542cfa7da2d4773e906d0caece52c965b4913c39028602d9db11da7a9b78ecfc",
-      "note": "Decision-only opponent pick at resolution; no activation declaration."
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 59011257,
@@ -4341,13 +4362,14 @@
       "name": "Earthshaker",
       "kind": "hand",
       "classes": [
-        "DECISION"
+        "CHOOSER"
       ],
       "redefined": [
         "operation"
       ],
       "stockSha256": "d2fbbc7214a39ae8092bfb66f4fc9e7a72f92df67feb504a0c4d7652da936d3d",
-      "note": "Decision-only opponent pick at resolution; no activation declaration."
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 60876124,
@@ -4355,13 +4377,14 @@
       "name": "Rare Value",
       "kind": "hand",
       "classes": [
-        "DECISION"
+        "CHOOSER"
       ],
       "redefined": [
         "activate"
       ],
       "stockSha256": "cc877e87fdc703cfba7bbb871c15ee85b67675f10b17b1b259875d47108bdc2b",
-      "note": "Decision-only opponent pick at resolution; no activation declaration."
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 61318483,
@@ -4549,13 +4572,14 @@
       "name": "Kozmo Tincan",
       "kind": "hand",
       "classes": [
-        "DECISION"
+        "CHOOSER"
       ],
       "redefined": [
         "thop"
       ],
       "stockSha256": "e3baf4880eef862dd41b77f40ed0f2e4cfe8ec7681813866b037e2bcc7245280",
-      "note": "Decision-only opponent pick at resolution; no activation declaration."
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 64325438,
@@ -4934,13 +4958,14 @@
       "name": "Tool Box",
       "kind": "hand",
       "classes": [
-        "DECISION"
+        "CHOOSER"
       ],
       "redefined": [
         "thop"
       ],
       "stockSha256": "d1be1c78235dcbbe59ada72903cf61e972c03acd000f9f870f306f5c63977af7",
-      "note": "Decision-only opponent pick at resolution; no activation declaration."
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 70659412,
@@ -5037,13 +5062,14 @@
       "name": "Fifty Fifty?",
       "kind": "hand",
       "classes": [
-        "DECISION"
+        "CHOOSER"
       ],
       "redefined": [
         "activate"
       ],
       "stockSha256": "9bd9d6bb7bb6dd3dfd09e138d54b1db4aec0e2cc6bba53bcba2c42236cbff44e",
-      "note": "Decision-only opponent pick at resolution; no activation declaration."
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 71315423,
@@ -5252,13 +5278,14 @@
       "name": "Painful Choice",
       "kind": "hand",
       "classes": [
-        "DECISION"
+        "CHOOSER"
       ],
       "redefined": [
         "activate"
       ],
       "stockSha256": "3f6458be1b47880de2342d46a9cf70cc1de2503bbb415182af0209daa6673b2f",
-      "note": "Decision-only opponent pick at resolution; no activation declaration."
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 74271714,
@@ -5590,14 +5617,15 @@
       "name": "Vaalmonica Intonare",
       "kind": "hand",
       "classes": [
-        "DECISION"
+        "CHOOSER"
       ],
       "redefined": [
         "target",
         "activate"
       ],
       "stockSha256": "a656f1ef97177eb93798256fb0d60362fdc563a28dfa6bc84dc36d0aa8513641",
-      "note": "Decision-only opponent pick at resolution; no activation declaration."
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 78679226,
@@ -5659,7 +5687,8 @@
       "name": "Mimighoul Slime",
       "kind": "expr",
       "classes": [
-        "COMPARE"
+        "COMPARE",
+        "CHOOSER"
       ],
       "effectType": "IGNITION",
       "compareIn": [
@@ -5856,13 +5885,14 @@
       "name": "Gunkan Suship Catch-of-the-Day",
       "kind": "hand",
       "classes": [
-        "DECISION"
+        "CHOOSER"
       ],
       "redefined": [
         "operation"
       ],
       "stockSha256": "0d9c7f57081a88eb8e81228ea702ed7dcae2ded7c438cd10038e297558d7fc04",
-      "note": "Decision-only opponent pick at resolution; no activation declaration."
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 83054225,
@@ -6446,13 +6476,14 @@
       "name": "Intimidating Ore - Summonite",
       "kind": "hand",
       "classes": [
-        "DECISION"
+        "CHOOSER"
       ],
       "redefined": [
         "spop"
       ],
       "stockSha256": "ffb2ac039d7593e54bdea6d5e2b2c9552d41cc09ae548f02ed84b2bdf223e5a1",
-      "note": "Decision-only opponent pick at resolution; no activation declaration."
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 91668078,
@@ -6622,13 +6653,14 @@
       "name": "Bingo Machine, Go!!!",
       "kind": "hand",
       "classes": [
-        "DECISION"
+        "CHOOSER"
       ],
       "redefined": [
         "operation"
       ],
       "stockSha256": "8eadf0151132f58da3eedc74534b66f1e8c99064e2870d244b85404bf5bd408c",
-      "note": "Decision-only opponent pick at resolution; no activation declaration."
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 93469007,
@@ -6973,14 +7005,15 @@
       "name": "Emerging Emergency Rescute Rescue",
       "kind": "hand",
       "classes": [
-        "DECISION"
+        "CHOOSER"
       ],
       "redefined": [
         "condition",
         "activate"
       ],
       "stockSha256": "9f5dfaa1ed1ab18270a0385689517bf4a636855f7ba510f1d2eb5bb4e65db555",
-      "note": "Decision-only opponent pick at resolution; no activation declaration."
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 98301564,
@@ -6988,13 +7021,14 @@
       "name": "Guiding Ariadne",
       "kind": "hand",
       "classes": [
-        "DECISION"
+        "CHOOSER"
       ],
       "redefined": [
         "regop"
       ],
       "stockSha256": "d736ef0bebd4e7ac9111964f2a0f8574fea2b927e1bb341d347df62f904fadbf",
-      "note": "Decision-only opponent pick at resolution; no activation declaration."
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 98520301,

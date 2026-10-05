@@ -12,7 +12,7 @@
  * lists are also compared with it:
  *   COMPARE (54) = triage group `field-count-compare` (51) minus 6 false positives, plus Evenly Matched and Pineapple Blast,
  *                  plus 7 cards of the scan gap (COMPARE_SCAN_ADDED, in other triage groups).
- *   CHOOSER (44) = triage rule starting with `CHOOSER`.
+ *   CHOOSER (77) = triage rule starting with `CHOOSER`, plus the reviewed resolution-time decisions in CHOOSER_TRIAGE_ADDED.
  *   R1           = triage rule starting with `EACH-DUELIST` or `SCRIPT`, minus Mirror Gate 43452193 (it belongs to Q7),
  *                  plus the reviewed cards in R1_TRIAGE_ADDED. A new scan does not remove these cards.
  *                  An R1 card is a MANIFEST entry of class `R1` (kind `hand`: a suffix that loops with aux.MPForEachDuelist) or a
@@ -23,8 +23,6 @@
  *                  one slot per seat in FFA and per team in Tag, see seatFileText) or kind `hand` (a suffix written by hand). A card
  *                  whose stock script works as it is after core patch 0053 is a member of R2_NO_CHANGE. The R2 entries are not part of
  *                  the pinned `entries` count either.
- *
- *   DECISION = hand-written resolution-time decision-only overrides; separate from the pinned compare/chooser census.
  *
  *   ATTACK (a direct attack at you) = a MANIFEST entry of class `ATTACK`, kind `hand`: "when an opponent's monster declares a direct attack"
  *                  holds in FFA only when the attack goes to the duelist that holds the card (aux.MPAttackedAtMe wraps the stock
@@ -60,10 +58,16 @@ export const COMPARE_FALSE_POSITIVES = [16191953, 22512406, 24175232, 35059553, 
 export const COMPARE_SCAN_ADDED = [25388971, 46772449, 50838440, 55273560, 62015408, 80551022, 89883517];
 /** Reviewed R1 cards that the scan does not list with an R1 rule. */
 export const R1_TRIAGE_ADDED = [31036355]; // Creature Swap: the C7 rotation in FFA; the stock swap in Tag.
-/** Compare AND chooser cards that the triage does not list as `field-count-compare`. */
-export const COMPARE_EXTRA = [15693423, 90669991];
+/** Reviewed resolution-time opponent decisions added after the original chooser triage. */
+export const CHOOSER_TRIAGE_ADDED = [
+  5605529, 9283801, 14733538, 21888494, 22842126, 23270035, 23898021, 24393683, 32360466, 32588805, 36591747,
+  38723936, 40230018, 41773061, 42193638, 42548470, 50213848, 50756327, 57902193, 58577036, 58753372, 60866277,
+  60876124, 64280356, 70508653, 71275181, 74191942, 78598237, 83008724, 91592030, 93437091, 97926515, 98301564,
+];
+/** Compare AND chooser cards, counted once in the table (the original triage may put them in another group). */
+export const COMPARE_EXTRA = [15693423, 80551022, 90669991]; // Slime's stock Flip operation chooses through local p=1-tp.
 export const MIRROR_GATE = 43452193;
-export const EXPECTED_COUNTS = { compare: 54, chooser: 44, whole: 7, entries: 210, r1: 93, attack: 59 } as const;
+export const EXPECTED_COUNTS = { compare: 54, chooser: 77, whole: 7, entries: 243, r1: 93, attack: 59 } as const;
 /**
  * R1 cards whose stock script already acts on every living duelist after core patch 0053, so they need no suffix and no entry.
  * Pinned (a card is added here only after the script was read). 39513225 only sends a Confirm to the opponent (no effect on each duelist).
@@ -96,7 +100,7 @@ export const R1_COMPLETE = true;
 
 export type Helper = "MPAny" | "MPValue" | "MPOne" | "MPPick" | "MPTarget" | "MPAttackedAtMe";
 /** ATTACK: "when an opponent's monster declares a direct attack" (the attack must go to the duelist that holds the card). */
-export type CardClass = "COMPARE" | "CHOOSER" | "R1" | "R2" | "ATTACK" | "DECISION";
+export type CardClass = "COMPARE" | "CHOOSER" | "R1" | "R2" | "ATTACK";
 /** The kind of seat state that the stock script of an R2 card keeps (a short tag for the note and the report). */
 export type R2Class =
   | "TABLE" // a per-player table or counter (s[tp], s.list[ep]): one slot per seat (FFA) or team (Tag)
@@ -262,7 +266,7 @@ export function checkLists(manifest: Manifest, triage: Triage[] | null): string[
   if (compare.length !== EXPECTED_COUNTS.compare) problems.push(`COMPARE has ${compare.length} cards, expected ${EXPECTED_COUNTS.compare}`);
   if (chooser.length !== EXPECTED_COUNTS.chooser) problems.push(`CHOOSER has ${chooser.length} cards, expected ${EXPECTED_COUNTS.chooser}`);
   if (whole.length !== EXPECTED_COUNTS.whole) problems.push(`${whole.length} whole files, expected ${EXPECTED_COUNTS.whole}`);
-  const overlayEntries = manifest.cards.filter((card) => !card.classes.includes("R1") && !card.classes.includes("R2") && !card.classes.includes("ATTACK") && !card.classes.includes("DECISION"));
+  const overlayEntries = manifest.cards.filter((card) => !card.classes.includes("R1") && !card.classes.includes("R2") && !card.classes.includes("ATTACK"));
   if (overlayEntries.length !== EXPECTED_COUNTS.entries) problems.push(`${overlayEntries.length} entries, expected ${EXPECTED_COUNTS.entries}`);
   const r1Entries = manifest.cards.filter((card) => card.classes.includes("R1"));
   for (const card of r1Entries) {
@@ -296,7 +300,7 @@ export function checkLists(manifest: Manifest, triage: Triage[] | null): string[
       ...COMPARE_SCAN_ADDED,
     ]);
     if (!same(compare, expectedCompare)) problems.push(`COMPARE differs from the triage: ${diff(compare, expectedCompare)}`);
-    const expectedChooser = sorted(triage.filter((entry) => entry.rule.startsWith("CHOOSER")).map((entry) => entry.code));
+    const expectedChooser = sorted([...triage.filter((entry) => entry.rule.startsWith("CHOOSER")).map((entry) => entry.code), ...CHOOSER_TRIAGE_ADDED]);
     if (!same(chooser, expectedChooser)) problems.push(`CHOOSER differs from the triage: ${diff(chooser, expectedChooser)}`);
     const r1 = r1Codes(triage);
     if (r1.length !== EXPECTED_COUNTS.r1) problems.push(`R1 has ${r1.length} cards, expected ${EXPECTED_COUNTS.r1}`);

@@ -1,4 +1,4 @@
-if not aux.MPChooseOpponent then return end
+if not aux.MPAny then return end
 -- Vaalmonica Intonare: the deciding opponent is chosen during resolution (rulebook v1.4).
 function s.target(e,tp,eg,ep,ev,re,r,rp,chk)
 	if chk==0 then return true end

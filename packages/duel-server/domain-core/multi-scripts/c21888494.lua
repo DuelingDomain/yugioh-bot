@@ -1,4 +1,4 @@
-if not aux.MPChooseOpponent then return end
+if not aux.MPAny then return end
 -- Chosen One: the deciding opponent is chosen during resolution (rulebook v1.4).
 function s.activate(e,tp,eg,ep,ev,re,r,rp)
 	if Duel.GetLocationCount(tp,LOCATION_MZONE)<=0 then return end

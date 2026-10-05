@@ -1,4 +1,4 @@
-if not aux.MPChooseOpponent then return end
+if not aux.MPAny then return end
 -- Fifty Fifty?: the deciding opponent is chosen during resolution (rulebook v1.4).
 function s.activate(e,tp,eg,ep,ev,re,r,rp)
 	if not Duel.IsPlayerCanRemove(tp) then return end

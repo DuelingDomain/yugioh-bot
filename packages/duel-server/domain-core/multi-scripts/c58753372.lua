@@ -1,4 +1,4 @@
-if not aux.MPChooseOpponent then return end
+if not aux.MPAny then return end
 -- Super Quantal Fairy Alphan: the deciding opponent is chosen during resolution (rulebook v1.4).
 function s.spop(e,tp,eg,ep,ev,re,r,rp)
 	local g=Duel.GetMatchingGroup(s.spfilter2,tp,LOCATION_DECK,0,nil)

@@ -1,4 +1,4 @@
-if not aux.MPChooseOpponent then return end
+if not aux.MPAny then return end
 -- Draco Face-Off: the deciding opponent is chosen during resolution (rulebook v1.4).
 function s.activate(e,tp,eg,ep,ev,re,r,rp)
 	local b1=Duel.CheckPendulumZones(tp)
