@@ -55,6 +55,9 @@ import { MultiSeatStage } from "./multi-seat-stage";
 import { engineFormat, focusOpponentSeat, foeSeats, formatLabel, isMultiSeat, isOpponentPick, leavingOnlySeats, outOrLeavingSeats, outSeatOptionIds, seatPickFor, seatNamer } from "./multi-seat";
 import { resolveEquipLinks } from "./equip-links";
 import styles from "./room.module.css";
+import hudStyles from "./table/grid-hud.module.css";
+import { HudLayer, useHudPane } from "./table/hud-layer";
+import { SEAT_TONE_HEX } from "./table/types";
 import { AttackConfirm, CardActionMenu, CardHoverInfo, PickRefusalHint, shakeRefusedCard, confirmSide, targetName, zoneAnchor, type CardMenuState } from "./card-interactions";
 import { DestroyFx } from "./destroy-fx";
 import { FxBoundary, MoveSourceBoundary } from "./fx-boundary";
@@ -339,6 +342,10 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const revealed = revealBeat && answerable;
   const activeMenu = !viewerOut && !busy && !error && !catchingUp && menu?.promptId === prompt?.id &&
     menu?.revision === data?.engine?.revision ? menu : null;
+  // A wide 1v1 table swaps the bars and side panes for the floating HUD (table/hud-layer.tsx). The 3D mode keeps its own
+  // look, and the 3 and 4 seat tables and the Tag table have their own shells.
+  const hud = !narrow && data?.engine != null && !isMultiSeat(data.engine) && !liveTable && view.mode !== "3d";
+  const hudState = useHudPane({ enabled: hud, suspended: Boolean(activeMenu) || Boolean(pile?.open) || deckMenuOpen, inspect, menuOpen: Boolean(activeMenu) });
 
   // Human attack flow: pick the attacker in the menu (preview arrow), aim at a target, confirm.
   const [pendingAttack, setPendingAttack] = useState<{ key: string; direct: boolean } | null>(null);
@@ -534,7 +541,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
 
   /** A prompt tile or response row under the pointer: show the card in the inspector, as board cards do. */
   function inspectInfo(card: DuelCardInfo) {
-    if (pane === "card") setInspect({ type: "info", card });
+    if (pane === "card" && !hud) setInspect({ type: "info", card });
   }
 
   function showInspector(target: InspectTarget, mobile = false, reveal = false) {
@@ -600,7 +607,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       return;
     }
     setHover({ card, anchor });
-    if (pane === "card") setInspect({ type: "card", card });
+    // The HUD's Card flyout opens on a click, never on a hover.
+    if (pane === "card" && !hud) setInspect({ type: "card", card });
   }
 
   function onFieldActivate(keys: string[], card: DuelCard | null, anchor: HTMLElement, preserveInspector = false) {
@@ -942,7 +950,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   ) : null;
   // The Log list stays mounted behind the other tabs (SidePanel keepMounted), so it keeps the rows it has built.
   // Only the instance in the column counts unread rows; the narrow sheet gets its own, uncounted copy.
-  const logVisible = pane === "log" && (!narrow || mobileInspect);
+  const logVisible = hud ? hudState.pane === "log" : pane === "log" && (!narrow || mobileInspect);
   const logPanel = (counted: boolean) => (
     <div className={styles.logPane}>
       {engine ? <DuelHistoryRail key={slug} events={engine.events} engine={engine} mySeat={data.mySeat} playerName={playerName}
@@ -1055,6 +1063,14 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   );
 
   const solid = view.mode === "3d" && !multi && !liveTable;
+
+  // The HUD's Deck Master plates read the same seat views and legal actions as the rail of the classic page.
+  const hudSeatTones = new Map<number, { main: string; ink: string }>(
+    (engine?.seats ?? []).map((seat) => [seat.seat, seat.seat === localSeat ? SEAT_TONE_HEX.ice : SEAT_TONE_HEX.rose]),
+  );
+  const hudMaster = (seatView: NonNullable<typeof engine>["seats"][number] | undefined, local: boolean, title: string) => ({
+    view: seatView, local, legalKeys, selectedKeys, canAct, legalActionsFor, title, onChooseAction, onHoverCard,
+  });
 
   // The pieces of the flat page, built once so the classic page and the 3D mode page (SolidRoom) show the same nodes.
   const wordmark = <Link href="/duels" replace={inDuelWindow}>Duelists Kingdom</Link>;
@@ -1189,7 +1205,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         <PileViewer title={pile.title} owner={pile.owner} open={pile.open}
           cards={livePileCards(pile, engine, localSeat)} onClose={closePile}
           onInspectCard={(card) => { setInspect({ type: "card", card }); if (pane !== "log") setPane("card"); }}
-          onHoverCard={(card) => { if (pane === "card") setInspect({ type: "card", card }); }}
+          onHoverCard={(card) => { if (pane === "card" && !hud) setInspect({ type: "card", card }); }}
           onActivateCard={onInspectorActivate}
           legalKeys={legalKeys} selectedKeys={selectedKeys}
           reducedMotion={preferences.reducedMotion} />
@@ -1208,7 +1224,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       canAct={canAct}
       noLegalMoves={canAct && hasNoLegalMoves(actionOptions)}
       onChoose={(id) => onSubmitAnswer({ choice: id })}
-      clock={!solid && data.clock ? <DuelClockDisplay key={data.clock.serverNow} clock={data.clock} session={data.session} /> : null}
+      clock={!solid && data.clock ? <DuelClockDisplay key={data.clock.serverNow} clock={data.clock} session={data.session} compact={hud} /> : null}
       caption={trackCaption}
       reducedMotion={preferences.reducedMotion}
       chainMode={chainMode}
@@ -1233,7 +1249,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           onBack={() => setAimLock(null)} />
       ) : null}
       {pickHintShown && pickHint ? <PickRefusalHint anchor={pickHint.anchor} text={pickHint.text} onDone={clearPickHint} /> : null}
-      {hover && !activeMenu && !pickHintShown && !mobileInspect && !pile?.open ? <CardHoverInfo card={hover.card} anchor={hover.anchor} /> : null}
+      {!hud && hover && !activeMenu && !pickHintShown && !mobileInspect && !pile?.open ? <CardHoverInfo card={hover.card} anchor={hover.anchor} /> : null}
       <Sheet open={mobileInspect} onClose={() => setMobileInspect(false)}
         className={solid ? SOLID_SHEET_CLASS : undefined}
         title={pane === "card" ? "Card" : pane === "log" ? "Duel log" : pane === "masters" ? "Deck Masters" : "Settings"}>
@@ -1303,25 +1319,40 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     <DeckSurrenderContext.Provider value={deckSurrender}>
     <div className={`${styles.shell} ${duelFontClasses} -mx-4 -my-4 sm:-mx-6 sm:-my-6 lg:-mx-8 lg:-my-8`}
       data-duel-fx-speed-root data-domain={domain} data-fit="true" data-phase={battle ? "battle" : undefined}
+      data-hud={hud ? "true" : undefined}
       data-turn={spectator ? "watch" : myTurn ? "you" : "opp"}
       data-reduced={preferences.reducedMotion ? "true" : "false"}>
-      <header className={styles.header}>
-        {headerIdentity}
-        {headerTurn}
-        <div className={styles.status}>
-          <SeriesGameLabel room={data} />
-          {connectionStatus}
-          {headerTools}
-        </div>
-      </header>
+      {hud ? (
+        <header className={hudStyles.top} data-testid="hud-top">
+          <div className={hudStyles.topLeft}>{headerIdentity}</div>
+          <div className={hudStyles.topMid}>{headerTurn}</div>
+          <div className={hudStyles.topRight}>
+            <SeriesGameLabel room={data} />
+            {connectionStatus}
+            {headerTools}
+          </div>
+        </header>
+      ) : (
+        <header className={styles.header}>
+          {headerIdentity}
+          {headerTurn}
+          <div className={styles.status}>
+            <SeriesGameLabel room={data} />
+            {connectionStatus}
+            {headerTools}
+          </div>
+        </header>
+      )}
       {seriesBanner}
       <div className={styles.layout}>
         {/* Notices float over the top of the layout. In flow they would take height from the board
             and shrink it for as long as the notice shows. */}
         {noticesNode}
-        <aside className={styles.inspector}>
-          {inspectorNode}
-        </aside>
+        {hud ? null : (
+          <aside className={styles.inspector}>
+            {inspectorNode}
+          </aside>
+        )}
         {promptDockNode}
         <section className={styles.boardColumn} aria-label="Duel field">
           <div className={styles.board} ref={boardRef} data-deal-wait={startBeats.waiting ? "true" : undefined}>
@@ -1335,12 +1366,33 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
             ) : fieldProps ? <DuelField key={slug} {...fieldProps} /> : null)}
           </div>
         </section>
-        {masterRail ? <aside className={styles.masters} aria-label="Deck Masters">{masterRail}</aside> : null}
+        {masterRail && !hud ? <aside className={styles.masters} aria-label="Deck Masters">{masterRail}</aside> : null}
       </div>
-      <div className={styles.track}>
-        {trackNode}
-      </div>
+      {hud ? (
+        <div className={hudStyles.bottom} data-testid="hud-bottom">{trackNode}</div>
+      ) : (
+        <div className={styles.track}>
+          {trackNode}
+        </div>
+      )}
       <div className={styles.mobileBar}>{mobileTabs}</div>
+      {hud && engine ? (
+        <HudLayer
+          hud={hudState}
+          panels={{ card: cardPanel, log: logPanel(true), settings: settingsPanel }}
+          chain={engine.chain}
+          chainOpen={engine.chain.length > 0 && !terminal}
+          nameOf={playerName}
+          seatTones={hudSeatTones}
+          logUnread={logUnread}
+          master={domain ? hudMaster(engine.seats.find((seat) => seat.seat === localSeat), !spectator, spectator ? `${playerName(localSeat)}'s Master` : "Your Master") : null}
+          otherMaster={domain && top ? hudMaster(top, false, `${playerName(top.seat)}'s Master`) : null}
+          onInspect={setInspect}
+          preview={hover ? { card: hover.card, owner: { name: playerName(hover.card.controller), ...(hudSeatTones.get(hover.card.controller) ?? SEAT_TONE_HEX.ice) } } : null}
+          previewHidden={Boolean(activeMenu) || pickHintShown || Boolean(pile?.open)}
+          reducedMotion={preferences.reducedMotion}
+        />
+      ) : null}
       {overlaysNode}
     </div>
     </DeckSurrenderContext.Provider>

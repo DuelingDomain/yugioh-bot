@@ -660,6 +660,37 @@
 .clock > span[data-active="true"] { color: var(--duel-ink); }
 .clock > span[data-active="true"] .clockTime { color: var(--duel-ink); }
 
+/* ---------- floating HUD (table/hud-layer.tsx) ---------- */
+/* The header, the side panes and the footer give way to glass pills in the margins. The board keeps clear margins for
+   them: a strip above, the station track below and a column at the left for the dock and the Deck Master plate. */
+.shell[data-hud="true"] {
+  --hud-top: 52px;
+  --hud-bottom: calc(clamp(58px, 5.6dvh, 68px) + 20px);
+  --hud-left: 156px;
+}
+.shell[data-hud="true"] .layout {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-areas: "board";
+  background: none;
+}
+.shell[data-hud="true"] .boardColumn {
+  padding: var(--hud-top) 14px var(--hud-bottom) var(--hud-left);
+  border-left: 0;
+}
+/* A prompt for you opens at the right, over the board's free corner; the margin at the left belongs to the dock. */
+.shell[data-hud="true"] .promptDock[data-mode="float"],
+.shell[data-hud="true"] .promptDock[data-mode="flow"] {
+  position: absolute;
+  grid-area: auto;
+  right: 14px;
+  bottom: var(--hud-bottom);
+  z-index: calc(var(--duel-z-prompt) + 13);
+  width: min(380px, 34vw);
+  margin: 0;
+}
+.shell[data-hud="true"] .notices { top: var(--hud-top); }
+
 /* ============================================================
    Narrow screens: one board column, tab bar at the bottom,
    inspector and Deck Masters open in a sheet.
