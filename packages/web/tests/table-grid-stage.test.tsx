@@ -8,6 +8,13 @@ vi.mock("next/font/google", () => {
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
 });
 
+// disabledZones runs once per draw of a seat field: a count of its calls is a count of draws.
+vi.mock("@/components/duel/multi-seat", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/components/duel/multi-seat")>();
+  return { ...real, disabledZones: vi.fn(real.disabledZones) };
+});
+
+import { disabledZones } from "@/components/duel/multi-seat";
 import { FFA4_FIXTURES } from "@/components/duel/table/fixtures/ffa4";
 import { useFixtureController } from "@/components/duel/table/fixtures/use-fixture-controller";
 import { OUT_HOLD_MS } from "@/components/duel/table/grid-layout";
@@ -147,6 +154,16 @@ describe("GridStage", () => {
     expect(z(1)).toBeGreaterThan(z(0));
     expect(z(1)).toBeGreaterThan(z(2));
     for (const seat of [0, 1, 2, 3]) expect(cellOf(container, seat).querySelector<HTMLElement>("[data-seat-slot]")!.style.transform).toBe("");
+  });
+
+  it("does not draw a seat field again for a change of focus (the focus only moves boxes)", () => {
+    const { container } = render(<Shell id="main" />);
+    const stage = container.querySelector("[data-grid-stage]")!;
+    const draws = vi.mocked(disabledZones);
+    draws.mockClear();
+    for (const key of ["2", "3", "o", "4", "1"]) act(() => void fireEvent.keyDown(window, { key }));
+    expect(stage.getAttribute("data-grid-focus")).toBe("0");
+    expect(draws).toHaveBeenCalledTimes(0);
   });
 
   it("keeps the shared Extra Monster row on the same field when the focus moves, so its zone nodes stay mounted", () => {

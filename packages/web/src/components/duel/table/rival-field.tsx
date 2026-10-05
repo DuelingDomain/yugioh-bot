@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import { slotZIndex } from "./geometry";
+import { textScale } from "./seat-angle";
 import type { SeatFieldProps, SeatFieldRenderer, SeatPose } from "./types";
 import styles from "./rival-field.module.css";
 
@@ -39,7 +40,7 @@ export function seatTransform(pose: Pick<SeatPose, "x" | "y" | "rotateDeg" | "ti
  */
 export function RivalField({ pose, field, render, angleOffsetDeg = 0, placement }: RivalFieldProps) {
   const style: CSSProperties & Record<string, string | number> = placement
-    ? { "--sf-z": `${pose.z}px`, ...(placement.lh != null ? { "--sf-lh": `${placement.lh}px` } : {}), left: placement.left, top: placement.top, rotate: pose.rotateDeg ? `${pose.rotateDeg}deg` : "none", zIndex: placement.zIndex }
+    ? { "--sf-z": `${pose.z}px`, "--sf-ts": textScale(pose.scale).toFixed(2), ...(placement.lh != null ? { "--sf-lh": `${placement.lh}px` } : {}), left: placement.left, top: placement.top, rotate: pose.rotateDeg ? `${pose.rotateDeg}deg` : "none", zIndex: placement.zIndex }
     : { "--sf-z": `${pose.z}px`, transform: seatTransform(pose), zIndex: slotZIndex(pose.slot, pose.scale) };
   return (
     <div
@@ -51,7 +52,7 @@ export function RivalField({ pose, field, render, angleOffsetDeg = 0, placement 
       data-small={placement?.small ? "true" : undefined}
       hidden={pose.hidden || undefined}
     >
-      {render({ ...field, angleDeg: pose.rotateDeg + angleOffsetDeg, scale: pose.scale })}
+      {render(placement ? { ...field, angleDeg: pose.rotateDeg + angleOffsetDeg } : { ...field, angleDeg: pose.rotateDeg + angleOffsetDeg, scale: pose.scale })}
     </div>
   );
 }

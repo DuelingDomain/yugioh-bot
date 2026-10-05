@@ -1919,7 +1919,7 @@
   --pk: 0.86;
   --pile-col: var(--cw);
   --pad: calc(var(--z) * 0.125);
-  --ts: 1;
+  --ts: var(--sf-ts, 1);
   --lab: 0deg;
   --fs-name: calc(var(--z) * 0.125 * var(--ts));
   --fs-small: calc(var(--z) * 0.1 * var(--ts));
