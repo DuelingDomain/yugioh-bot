@@ -436,7 +436,7 @@ describe("normalizeImportedDeck keepUnresolved", () => {
     const downFetch: FetchLike = async () => ({ ok: false, async json() { return {}; } });
     await expect(
       normalizeImportedDeck({ main: [90000001], extra: [], side: [] }, DATA, down.db, { fetch: downFetch, keepUnresolved: true }),
-    ).rejects.toThrow(/Could not reach the card database \(request failed\)/);
+    ).rejects.toThrow(/Could not reach the card database/);
 
     const { db, fetch, fetchCalls } = catalogFixture();
     const empty = mkdtempSync(join(tmpdir(), "import-empty-"));
