@@ -32,7 +32,7 @@ function zOf(css: string, selector: string): string | null {
 describe("duel layer tokens", () => {
   it("order the layers: board < board FX < prompts < chain < menus < modals < result", () => {
     const t = tokens();
-    const order = ["board", "fx", "fx-front", "prompt", "chain", "prompt-front", "tooltip", "menu", "confirm", "modal", "result"];
+    const order = ["board", "fx", "fx-front", "prompt", "chain", "prompt-front", "tooltip", "menu", "confirm", "modal", "result", "coin"];
     expect(Object.keys(t)).toEqual(order);
     for (let i = 1; i < order.length; i++) expect(t[order[i]], `${order[i]} above ${order[i - 1]}`).toBeGreaterThan(t[order[i - 1]]);
   });
@@ -75,6 +75,8 @@ describe("duel layers use the tokens", () => {
     ["battle-fx.module.css", ".confirm", "var(--duel-z-confirm)"],
     ["series.module.css", ".sideSheet", "var(--duel-z-modal)"],
     ["duel-result.module.css", ".root", "var(--duel-z-result)"],
+    // The coin toss covers everything, the result screen included.
+    ["coin-toss-fx.module.css", ".root", "var(--duel-z-coin)"],
   ];
 
   it.each(cases)("%s %s", (file, selector, expected) => {

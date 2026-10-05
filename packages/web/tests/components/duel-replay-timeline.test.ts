@@ -13,6 +13,19 @@ function frame(step: number, logIds: number[], eventIds: number[] = []): DuelRep
 }
 
 describe("buildReplayTimeline", () => {
+  it("keeps a toss and its log link in replay history, including seeking back to its frame", () => {
+    const tossed = frame(1, []);
+    tossed.view.events = [{ id: 18, kind: "toss", seat: 2, text: "Coin toss: Heads, Tails, Heads",
+      sourceCode: 81480460, chainIndex: 1, toss: { type: "coin", results: ["heads", "tails", "heads"] } }];
+    tossed.view.log = [{ id: 5, text: "Coin toss: Heads, Tails, Heads", eventId: 18 }];
+    const timeline = buildReplayTimeline([frame(0, [1]), tossed, frame(2, [])]);
+    expect(timeline.viewAt(2).events).toEqual(tossed.view.events);
+    expect(timeline.newLogAt(1)).toEqual(tossed.view.log);
+    expect(timeline.newLogAt(2)).toEqual([]);
+    expect(timeline.viewAt(0).events).toEqual([]);
+    expect(timeline.viewAt(1).log.find((entry) => entry.eventId === 18)).toEqual(tossed.view.log[0]);
+  });
+
   it("keeps a confirmation once in the replay event stream and caption log", () => {
     const confirmed = frame(1, [2]);
     confirmed.view.log[0].text = "Confirmed Kojikocy";

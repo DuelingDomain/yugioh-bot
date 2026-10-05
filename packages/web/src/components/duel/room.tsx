@@ -94,6 +94,8 @@ import { MoveFx } from "./move-fx";
 import { fxLayersUp, useStartBeats } from "./use-start-beats";
 import { PositionFx } from "./position-fx";
 import { ChainFx } from "./chain-fx";
+import { CoinTossFx } from "./coin-toss-fx";
+import { isCoinTossActive, useCoinTossLocked } from "./coin-toss-lock";
 import { SummonFx } from "./summon-fx";
 import { DuelHistoryRail } from "./history-rail";
 import { centerKind, PromptCenter } from "./prompt-center";
@@ -107,6 +109,7 @@ import { buildAttackPreview } from "./solid/attack-preview";
 import { PileViewer } from "./pile-viewer";
 import { livePileCards, shouldClosePileForPrompt, type PileView } from "./pile-focus";
 import { MatchSheetLog } from "./text-log";
+import { withDestroyCards } from "./destroy-cards";
 import {
   CardTabEmpty, DEFAULT_SIDE_PANE, DESKTOP_PANES, desktopPane, mobilePanes, SidePanel, SideTabs, useIsNarrow, type SidePane,
 } from "./side-panel";
@@ -265,6 +268,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   // 3 and 4 seat tables: the opponent the player tapped to show large (null = follow the action).
   const [pinnedFocus, setPinnedFocus] = useState<number | null>(null);
   const preferences = useDuelPreferences();
+  // A coin toss is playing: no answer, surrender or other action goes out (also blocked at window level).
+  const tossLocked = useCoinTossLocked();
   useDuelAnimationSpeed(preferences.reducedMotion);
   const view = useBoardView(viewOverride);
   // The chunk of the 3D look starts loading before the room data arrives, so the table appears at once.
@@ -451,6 +456,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
 
   const run = useCallback(
     async (work: () => Promise<DuelRoom | { session: unknown } | void>, kind?: "seat-pick") => {
+      // A coin toss is playing: nothing is sent, and the open menu stays as it is.
+      if (isCoinTossActive()) return;
       // React's busy state alone cannot reject two clicks within one render.
       if (inFlight.current) return;
       inFlight.current = true;
@@ -514,6 +521,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
 
   const onSubmitAnswer = useCallback(
     (answer: DuelAnswer) => {
+      if (isCoinTossActive()) return;
       if (!data?.engine || !prompt || error || catchingUp || data.mySeat !== prompt.seat ||
           data.session.status !== "active" || viewerOut || inFlight.current) return;
       const command = { promptId: prompt.id, revision: data.engine.revision, answer };
@@ -771,16 +779,16 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     else router.replace("/duels");
   };
   const surrenderOpen = confirmSurrender && canSurrender;
-  const surrenderModal = <SurrenderModal open={surrenderOpen} busy={busy} multiplayer={multi && (format === "ffa3" || format === "ffa4")} tag={multi && format === "tag"}
+  const surrenderModal = <SurrenderModal open={surrenderOpen} busy={busy || tossLocked} multiplayer={multi && (format === "ffa3" || format === "ffa4")} tag={multi && format === "tag"}
     onClose={() => setConfirmSurrender(false)} onConfirm={() => {
-      if (!canSurrender) return;
+      if (!canSurrender || isCoinTossActive()) return;
       setConfirmSurrender(false);
       void run(() => surrenderDuel(slug));
     }} />;
   // Your own deck opens a Surrender menu. It uses the same confirm and the same surrender call as the header button.
   const deckSurrender: DeckSurrenderValue = {
     seat: data.mySeat, available: canSurrender, busy: busy || catchingUp || Boolean(error),
-    onSurrender: () => setConfirmSurrender(true), onMenuOpenChange: setDeckMenuOpen,
+    onSurrender: () => { if (!isCoinTossActive()) setConfirmSurrender(true); }, onMenuOpenChange: setDeckMenuOpen,
     scope: `${prompt?.id ?? ""}|${data.engine?.turnSeat ?? ""}`,
   };
   // The series has moved on to its next game and this room is about to follow it (the effect on nextTarget).
@@ -841,7 +849,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         <ReportButton slug={slug} />
         {popOutControl}
         {leaveControl}
-        {canSurrender ? <Button type="button" variant="danger" size="sm" disabled={busy || catchingUp || Boolean(error)}
+        {canSurrender ? <Button type="button" variant="danger" size="sm" disabled={busy || catchingUp || Boolean(error) || tossLocked}
           onClick={() => setConfirmSurrender(true)}>Surrender</Button> : null}
       </>,
       settingsTools: canArchive ? <Button type="button" variant="secondary" size="sm" disabled={busy}
@@ -1028,7 +1036,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         </div>
       ) : null}
       <BugReportMenuButton room={data} />
-      {canSurrender ? <Button type="button" variant="danger" size="sm" disabled={busy}
+      {canSurrender ? <Button type="button" variant="danger" size="sm" disabled={busy || tossLocked}
         onClick={() => setConfirmSurrender(true)}>Surrender</Button> : null}
       {canArchive ? <Button type="button" variant="secondary" size="sm" disabled={busy}
         onClick={() => void run(() => archiveDuel(slug))}>Archive table</Button> : null}
@@ -1183,19 +1191,21 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     <MoveSourceBoundary events={engine.events} duelKey={slug} root={boardRef}>
       {field}
       <FxBoundary>
+      {fxUp ? <CoinTossFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion}
+        replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough} /> : null}
       {fxUp ? <DuelFeedback events={engine.events} duelKey={slug} replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough}
         soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={preferences.reducedMotion} /> : null}
-      {fxUp ? <SummonFx events={engine.events} duelKey={slug}
+      {fxUp ? <SummonFx events={withDestroyCards(engine.events)} duelKey={slug}
         reducedMotion={preferences.reducedMotion} shake={preferences.shake} /> : null}
-      {fxUp ? <MoveFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough} /> : null}
+      {fxUp ? <MoveFx events={withDestroyCards(engine.events)} duelKey={slug} reducedMotion={preferences.reducedMotion} replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough} /> : null}
       {fxUp ? <PositionFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} /> : null}
-      {fxUp ? <ChainFx events={engine.events} chain={engine.chain} duelKey={slug}
+      {fxUp ? <ChainFx events={withDestroyCards(engine.events)} chain={engine.chain} duelKey={slug}
         reducedMotion={preferences.reducedMotion} mySeat={data.mySeat} playerName={playerName} ended={duelOver} seats={engine.seats} /> : null}
       {fxUp ? <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={slug}
         reducedMotion={preferences.reducedMotion} mySeat={data.mySeat} /> : null}
-      <BattleFx key={`battle-${slug}`} events={engine.events} seats={engine.seats} reducedMotion={preferences.reducedMotion}
+      <BattleFx key={`battle-${slug}`} events={withDestroyCards(engine.events)} seats={engine.seats} reducedMotion={preferences.reducedMotion}
         active={fxUp} aim={solid ? null : battleAim} result={engine.result} battleStep={battleStep} />
-      <DestroyFx key={`destroy-${slug}`} events={engine.events} reducedMotion={preferences.reducedMotion}
+      <DestroyFx key={`destroy-${slug}`} events={withDestroyCards(engine.events)} reducedMotion={preferences.reducedMotion}
         active={fxUp} mySeat={localSeat} />
       </FxBoundary>
       <PromptCenter prompt={prompt ?? pick.waiting} mySeat={data.mySeat} active={data.session.status === "active" && !viewerOut} slug={slug}

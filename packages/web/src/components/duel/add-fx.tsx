@@ -24,7 +24,9 @@ import { buildShowcaseFrames, showcaseBox, showcaseSourceLabel, ADDED_TITLE } fr
 import { CARD_FX } from "./duel-timing";
 import { Track } from "./summon-fx";
 import { retargetFlight } from "./live-flight";
-import type { MovePlan } from "./move-plan";
+import { standsInAtSource, type MovePlan } from "./move-plan";
+import { placeSourceStandIn, SourceStandIn } from "./source-stand-in";
+import { duelFxClock } from "./fx-clock";
 import fx from "./move-fx.module.css";
 import styles from "./add-fx.module.css";
 
@@ -44,6 +46,7 @@ export function ShowcaseGhost({ plan, confirmedCard, overlay, landed, done }: Pr
   const flipper = useRef<HTMLDivElement>(null);
   const aura = useRef<HTMLSpanElement>(null);
   const labelEl = useRef<HTMLDivElement>(null);
+  const standInRef = useRef<HTMLDivElement>(null);
   const ring = useRef<HTMLDivElement>(null);
   const landedRef = useRef(landed);
   landedRef.current = landed;
@@ -53,7 +56,10 @@ export function ShowcaseGhost({ plan, confirmedCard, overlay, landed, done }: Pr
   const known = plan.event.card?.code || confirmedCard?.code || 0;
   const initialCode = useRef(known);
   const shownCode = useRef(known);
-  const showing = useRef(known > 0 ? 0 : 180);
+  // A card that rises from its zone is on that zone from the moment it is planned, as it was (sleeve or face).
+  const standsIn = standsInAtSource(plan);
+  const setDown = standsIn && known > 0 && plan.source?.faceUp === false;
+  const showing = useRef(known > 0 && !setDown ? 0 : 180);
   const [code, setCode] = useState(known);
   const [side, setSide] = useState<"you" | "opp">("you");
   const [fullReady, setFullReady] = useState(false);
@@ -116,9 +122,26 @@ export function ShowcaseGhost({ plan, confirmedCard, overlay, landed, done }: Pr
     let alive = true;
     const first = frames();
     const opts = (duration: number): KeyframeAnimationOptions => ({ duration, easing: "linear", fill: "both" });
-    track.play(el, first.stage, opts(stageMs));
-    track.play(aura.current, first.aura, opts(stageMs));
-    track.play(label, first.label, opts(stageMs));
+    // The ghost waits on the zone (its first keyframe) until the showcase starts.
+    const delay = standsIn ? Math.max(0, plan.startAt - duelFxClock.now()) : 0;
+    const stageOpts = { ...opts(stageMs), delay };
+    // Reduced motion: the showcase fades in at its spot. The card stays on its zone until then, and fades out there
+    // as the showcase fades in (the card does not travel).
+    const standIn = standInRef.current;
+    if (standIn && placeSourceStandIn(standIn, plan, o, w, h)) {
+      track.play(standIn, [{ opacity: 1 }, { opacity: 0 }], { duration: phases.riseMs, easing: "ease-out", delay, fill: "both" });
+    }
+    track.play(el, first.stage, stageOpts);
+    track.play(aura.current, first.aura, stageOpts);
+    track.play(label, first.label, stageOpts);
+    if (setDown) {
+      // It lay face-down: it turns over as it rises.
+      track.play(flipper.current, [
+        { transform: "rotateY(180deg)", offset: 0 }, { transform: "rotateY(180deg)", offset: 0.1, easing: "ease-in-out" },
+        { transform: "rotateY(0deg)", offset: 0.45 }, { transform: "rotateY(0deg)", offset: 1 },
+      ], { ...stageOpts, duration: Math.min(stageMs, phases.riseMs * 2) });
+      showing.current = 0;
+    }
 
     let landedOnce = false;
     const land = () => {
@@ -129,7 +152,7 @@ export function ShowcaseGhost({ plan, confirmedCard, overlay, landed, done }: Pr
 
     let flightEnd = { dx: 0, dy: 0 };
     let liveFlight: ReturnType<typeof retargetFlight> | undefined;
-    track.after(stageMs, () => {
+    track.after(delay + stageMs, () => {
       if (!alive) return;
       const current = findMoveDestination(plan.event);
       const target = handArrivalTarget(plan.event);
@@ -228,7 +251,7 @@ export function ShowcaseGhost({ plan, confirmedCard, overlay, landed, done }: Pr
       }));
       track.after(Math.max(phases.glowMs, CARD_FX.landFadeMs), () => doneRef.current());
     };
-    track.after(stageMs + phases.flyMs, settle);
+    track.after(delay + stageMs + phases.flyMs, settle);
     return () => {
       alive = false;
       track.dispose();
@@ -256,6 +279,7 @@ export function ShowcaseGhost({ plan, confirmedCard, overlay, landed, done }: Pr
 
   return (
     <>
+      {plan.reduced && standsIn ? <SourceStandIn ref={standInRef} code={known} faceUp={plan.source?.faceUp === true} sleeve={sleeve} /> : null}
       <div ref={ring} className={styles.ring} data-testid="added-ring" />
       <div
         ref={labelEl}
@@ -269,7 +293,7 @@ export function ShowcaseGhost({ plan, confirmedCard, overlay, landed, done }: Pr
       </div>
       <div ref={root} className={fx.ghost} data-style="add" data-testid="added-ghost" data-known={code > 0 ? "true" : "false"} style={{ opacity: 0 } as CSSProperties}>
         <span ref={aura} className={styles.aura} style={{ opacity: 0 } as CSSProperties} />
-        <div ref={flipper} className={fx.flipper} style={{ transform: `rotateY(${initialCode.current > 0 ? 0 : 180}deg)` }}>
+        <div ref={flipper} className={fx.flipper} style={{ transform: `rotateY(${initialCode.current > 0 && !setDown ? 0 : 180}deg)` }}>
           <div className={`${fx.face} ${styles.face}`}>
             {code > 0 ? (
               <>

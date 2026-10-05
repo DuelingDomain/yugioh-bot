@@ -7,6 +7,7 @@ vi.mock("next/font/google", () => {
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
 });
 
+import { acquireCoinLock, resetCoinTossState } from "@/components/duel/coin-toss-lock";
 import { clearPromptRevealHold, holdPromptReveal } from "@/components/duel/prompt-reveal";
 import { clearLpMotion, lpMotionRemainingMs, noteLpMotion } from "@/components/duel/lp-motion";
 import {
@@ -114,6 +115,15 @@ describe("boardQuietNow", () => {
   });
 });
 
+describe("resultGate and the coin toss", () => {
+  it("does not show while a coin plays, not at the cap and not in reduced motion", () => {
+    expect(gate({ sinceEndMs: RESULT_TIMING.capMs + 5000, quietForMs: null, coinPlaying: true })).toMatchObject({ show: false });
+    expect(gate({ sinceEndMs: 1500, quietForMs: RESULT_TIMING.pauseMs + 1, coinPlaying: true })).toMatchObject({ show: false });
+    expect(gate({ reducedMotion: true, sinceEndMs: RESULT_TIMING.reducedPauseMs + 500, coinPlaying: true })).toMatchObject({ show: false });
+    expect(gate({ sinceEndMs: RESULT_TIMING.capMs, quietForMs: null, coinPlaying: false })).toMatchObject({ show: true, reason: "cap" });
+  });
+});
+
 describe("useResultGate", () => {
   type Props = Parameters<typeof useResultGate>[0];
   const board = { current: null };
@@ -156,6 +166,22 @@ describe("useResultGate", () => {
     expect(result.current).toBe(false);
     await act(async () => { await vi.advanceTimersByTimeAsync(400); });
     expect(result.current).toBe(true);
+  });
+
+  it("waits for a 3-coin toss that ends the duel, past the cap, then adds the pause", async () => {
+    resetCoinTossState();
+    const { result, rerender } = renderHook((p: Props) => useResultGate(p), { initialProps: props() });
+    // The coin layer takes the lock when the toss event arrives, with the result in the same batch.
+    const release = acquireCoinLock();
+    rerender(props({ status: "completed", hasResult: true, reason: "LP reached 0" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(RESULT_TIMING.capMs + 3000); });
+    expect(result.current).toBe(false);
+    release();
+    await act(async () => { await vi.advanceTimersByTimeAsync(RESULT_TIMING.pauseMs - 300); });
+    expect(result.current).toBe(false);
+    await act(async () => { await vi.advanceTimersByTimeAsync(600); });
+    expect(result.current).toBe(true);
+    resetCoinTossState();
   });
 
   it("shows after the cap when the board never settles", async () => {
