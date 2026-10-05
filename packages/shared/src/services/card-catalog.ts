@@ -3,7 +3,7 @@ import type { Card } from "../types/index.js";
 import { foldCardText } from "../duels/card-query.js";
 import { canonicalCardCode, type CardIdentityCatalog } from "../duels/pool.js";
 import { loadArtworkIdentityCatalog, mainArtworkId, type CardArtwork } from "./card-artworks.js";
-import { fetchCardResource, isCardFetchError } from "./card-fetch.js";
+import { CardFetchError, fetchCardResource, isCardFetchError } from "./card-fetch.js";
 
 type CardSet = {
   set_name: string;
@@ -149,6 +149,8 @@ export function createCardCatalogService(
       if (art) previous.add(art.card_id);
     }
     if (previous.size === 1) return [...previous][0];
+    // Only engine evidence may merge already distinct artwork families.
+    if (previous.size > 1) throw new CardFetchError();
     if (card.card_images.some((art) => (art.id ?? card.id) === card.id)) return card.id;
     return Math.min(card.id, ...card.card_images.map((art) => art.id ?? card.id));
   };

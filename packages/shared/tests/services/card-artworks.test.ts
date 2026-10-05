@@ -199,6 +199,17 @@ describe("card artwork mapping", () => {
     expect(withoutEngine.listArtworks(art.id)[0]).toMatchObject({ artworkId: 46986414, isMain: true });
   });
 
+  it("does not guess over conflicting existing main rows without engine identity", async () => {
+    const { db, catalog } = setup();
+    await catalog.syncCardByName("Dark Magician");
+    db.exec("update card_artworks set card_id = 36996508, is_main = 1 where artwork_id = 36996508");
+    const before = db.prepare("select * from card_artworks order by artwork_id").all();
+    const withoutEngine = createCardCatalogService(db, { identityCatalog: new Map(),
+      fetch: async () => ({ ok: true, json: async () => ({ data: [fixtures[2]] }) }) });
+    await expect(withoutEngine.syncCardByName("Dark Magician")).rejects.toThrow(/Try again/);
+    expect(db.prepare("select * from card_artworks order by artwork_id").all()).toEqual(before);
+  });
+
   it("uses main card data even if a legacy alternate row has stale stats", async () => {
     const { db, catalog } = setup();
     await catalog.syncCardByName("Blue-Eyes White Dragon");
