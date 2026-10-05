@@ -49,8 +49,9 @@ describe("GridStage", () => {
   it("turns the top fields 180 degrees and leaves the bottom fields upright", () => {
     const { container } = render(<Shell id="main" />);
     const angle = (seat: number) => cellOf(container, seat).querySelector("[data-seat-slot]")?.getAttribute("style") ?? "";
-    for (const seat of [1, 2]) expect(angle(seat)).toMatch(/rotate\(180deg\)/);
-    for (const seat of [0, 3]) expect(angle(seat)).not.toMatch(/rotate\(180deg\)/);
+    for (const seat of [1, 2]) expect(angle(seat)).toMatch(/rotate: 180deg/);
+    for (const seat of [0, 3]) expect(angle(seat)).not.toMatch(/rotate: 180deg/);
+    for (const seat of [0, 1, 2, 3]) expect(angle(seat)).not.toMatch(/transform/);
   });
 
   it("shows the viewer hand face up and the rival hands as backs", () => {
@@ -90,7 +91,7 @@ describe("GridStage", () => {
     expect(container.querySelector("[data-column-link]")).toBeNull();
   });
 
-  it("starts zoomed on my field; keys 1-4 focus a field, O and Esc show all fields, a click on a field zooms to it", () => {
+  it("starts with my field in focus; keys 1-4 focus a field, O and Esc show all fields, a click on a field focuses it", () => {
     const { container } = render(<Shell id="main" />);
     const stage = container.querySelector("[data-grid-stage]")!;
     const press = (key: string) => act(() => void fireEvent.keyDown(window, { key }));
@@ -111,10 +112,52 @@ describe("GridStage", () => {
       fireEvent.click(container.querySelector('[data-testid="grid-all"]')!);
     });
     expect(stage.getAttribute("data-grid-focus")).toBe("all");
-    act(() => {
-      fireEvent.click(container.querySelector('[data-testid="grid-zoom-in"]')!);
-    });
-    expect(stage.getAttribute("data-grid-focus")).toBe("3");
+    // the old zoom keys and buttons are gone
+    expect(container.querySelector('[data-testid="grid-zoom-in"]')).toBeNull();
+    expect(container.querySelector('[data-testid="grid-zoom-out"]')).toBeNull();
+    press("+");
+    press("-");
+    expect(stage.getAttribute("data-grid-focus")).toBe("all");
+    // keys with a modifier or in a text field are ignored
+    act(() => void fireEvent.keyDown(window, { key: "2", ctrlKey: true }));
+    expect(stage.getAttribute("data-grid-focus")).toBe("all");
+  });
+
+  it("sizes the fields from one layout: the focused field is the largest, the others about 0.8x or smaller, no transform at rest", () => {
+    const { container } = render(<Shell id="main" />);
+    const stage = container.querySelector("[data-grid-stage]")!;
+    const z = (seat: number) => parseFloat(cellOf(container, seat).querySelector<HTMLElement>("[data-seat-slot]")!.style.getPropertyValue("--sf-z"));
+    expect(z(0)).toBeGreaterThan(z(3));
+    expect(z(3)).toBeGreaterThanOrEqual(z(1));
+    expect(z(3)).toBeCloseTo(z(2), 1);
+    act(() => void fireEvent.keyDown(window, { key: "o" }));
+    expect(stage.getAttribute("data-grid-focus")).toBe("all");
+    expect(new Set([0, 1, 2, 3].map(z)).size).toBe(1);
+    act(() => void fireEvent.keyDown(window, { key: "2" }));
+    expect(z(1)).toBeGreaterThan(z(0));
+    expect(z(1)).toBeGreaterThan(z(2));
+    for (const seat of [0, 1, 2, 3]) expect(cellOf(container, seat).querySelector<HTMLElement>("[data-seat-slot]")!.style.transform).toBe("");
+  });
+
+  it("makes the focused field draw the shared Extra Monster row, so the band goes under a focused top field", () => {
+    const { container } = render(<Shell id="main" />);
+    const emz = (seat: number) => cellOf(container, seat).querySelector("[data-seat-field]")!.getAttribute("data-emz");
+    expect([emz(0), emz(1)]).toEqual(["pair", "none"]);
+    act(() => void fireEvent.keyDown(window, { key: "2" }));
+    expect([emz(0), emz(1)]).toEqual(["none", "pair"]);
+    act(() => void fireEvent.keyDown(window, { key: "1" }));
+    expect([emz(0), emz(1)]).toEqual(["pair", "none"]);
+  });
+
+  it("marks the small fields and fits the life panels into their boxes", () => {
+    const { container } = render(<Shell id="main" />);
+    const slot = (seat: number) => cellOf(container, seat).querySelector<HTMLElement>("[data-seat-slot]")!;
+    expect(slot(0).getAttribute("data-small")).toBeNull();
+    expect(slot(1).getAttribute("data-small")).toBe("true");
+    const lp = container.querySelector<HTMLElement>('[data-grid-lp="0"]')!;
+    expect(lp.style.width).not.toBe("");
+    expect(lp.querySelector('[data-fit="true"]')).not.toBeNull();
+    expect(lp.querySelectorAll("[data-holo-text]").length).toBeGreaterThan(0);
   });
 
   it("zooms with the turn strip, and a click on a zone does not zoom", () => {

@@ -1,27 +1,26 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type MouseEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FocusEvent, type MouseEvent } from "react";
 import { engineFormat } from "../multi-seat";
 import { AttackLine } from "./attack-line";
+import { boxOf, cancelTracks, playFlip, type FlipTrack } from "./grid-flip";
 import { useGridFocus } from "./grid-focus";
 import {
+  cellIndex,
   cellState,
-  gridBand,
   gridCells,
-  gridPose,
-  gridView,
+  gridFocusLayout,
   gridWorld,
-  lpBox,
   OUT_HOLD_MS,
   pairDrawer,
   type CellState,
-  type GridView,
+  type GridRect,
 } from "./grid-layout";
 import { holoStatus, HoloLp } from "./holo-lp";
 import { lastSeatDamage } from "./seat-state";
 import { RivalField } from "./rival-field";
-import { textScale } from "./seat-angle";
-import type { SeatFieldProps, SeatTone } from "./types";
+import { SEAT_Z } from "./geometry";
+import type { SeatFieldProps, SeatPose, SeatTone } from "./types";
 import type { TableStageViewProps } from "./table-stage";
 import styles from "./grid-stage.module.css";
 
@@ -59,62 +58,12 @@ export function useCellStates(seats: readonly { seat: number; eliminated?: boole
   return states;
 }
 
-/** How long the camera takes to move between two views. */
-export const VIEW_MS = 460;
+/** Natural height of the contents of a life panel (px) and the width it needs for five numerals; a smaller box shrinks them. */
+const LP_NATURAL_HEIGHT = 90;
+const LP_NATURAL_WIDTH = 130;
+const lpFit = (rect: GridRect) => Math.min(1, rect.height / LP_NATURAL_HEIGHT, rect.width / LP_NATURAL_WIDTH);
 
-const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
-
-/**
- * Moves the camera of the grid. The world is drawn at a real size (`zoom` on the world box, a translate on its
- * parent), never with a scale transform, so the text is laid out at its final size and stays sharp. The move is a
- * short tween written straight to the DOM; with reduced motion, or before the first measure, the view jumps.
- */
-function useViewTween(target: GridView | null, reduced: boolean) {
-  const panRef = useRef<HTMLDivElement>(null);
-  const worldRef = useRef<HTMLDivElement>(null);
-  const current = useRef<GridView | null>(null);
-  const frame = useRef(0);
-
-  const paint = (view: GridView) => {
-    current.current = view;
-    const pan = panRef.current;
-    const world = worldRef.current;
-    if (!pan || !world) return;
-    pan.style.transform = `translate(${view.x}px, ${view.y}px)`;
-    world.style.zoom = String(view.zoom);
-    world.style.setProperty("--gts", textScale(view.zoom).toFixed(3));
-  };
-
-  useLayoutEffect(() => {
-    if (!target) return;
-    cancelAnimationFrame(frame.current);
-    const from = current.current;
-    const settle = (view: GridView): GridView => ({ zoom: view.zoom, x: Math.round(view.x), y: Math.round(view.y) });
-    if (!from || reduced) {
-      paint(settle(target));
-      return;
-    }
-    const start = performance.now();
-    const step = (now: number) => {
-      const t = Math.min(1, (now - start) / VIEW_MS);
-      if (t >= 1) {
-        paint(settle(target));
-        return;
-      }
-      const e = ease(t);
-      paint({ zoom: from.zoom + (target.zoom - from.zoom) * e, x: from.x + (target.x - from.x) * e, y: from.y + (target.y - from.y) * e });
-      frame.current = requestAnimationFrame(step);
-    };
-    frame.current = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(frame.current);
-    // paint only reads refs
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target?.zoom, target?.x, target?.y, reduced]);
-
-  return { panRef, worldRef };
-}
-
-/** A click on these keeps its own meaning; every other click on a field or life box zooms to it. */
+/** A click on these keeps its own meaning; every other click on a field or life box focuses it. */
 const OWN_CLICK = "button, a, input, select, textarea, [role='button'], [data-zones], [data-legal='true']";
 
 /** The 4-way table as two columns of facing fields that share an Extra Monster row (see grid-layout.ts). */
@@ -182,20 +131,54 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
     }
   }, [picking]);
 
-  const target = useMemo(
-    () => (box.width > 0 && box.height > 0 ? gridView(world, box, focusCell, focus.mul) : null),
-    [box, focus.mul, focusCell, world],
+  // The final layout, once. The fields get real sizes from it (never a zoom); a change of focus only FLIPs between two layouts.
+  const homeColumn = homeCell?.column ?? 0;
+  const drawerSeats = ([0, 1] as const).map((column) => pairDrawer(cells, states, column, focus.seat));
+  const drawerRow = ([0, 1] as const).map((column) => cells.find((cell) => cell.seat === drawerSeats[column])?.row ?? 1) as [0 | 1, 0 | 1];
+  const drawerKey = drawerRow.join("");
+  const layoutBox = useMemo(
+    () => (box.width > 0 && box.height > 0 ? gridFocusLayout(world, box, focusCell, { homeColumn, drawerRow: drawerKey.split("").map(Number) as [0 | 1, 0 | 1] }) : null),
+    [box, drawerKey, focusCell, homeColumn, world],
   );
-  const { panRef, worldRef } = useViewTween(target, reducedMotion);
+  const placed = layoutBox;
+
+  const tracks = useRef(new Map<string, FlipTrack>());
+  const lastBox = useRef({ width: 0, height: 0 });
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!root || !placed) return;
+    const resized = lastBox.current.width !== box.width || lastBox.current.height !== box.height;
+    lastBox.current = { width: box.width, height: box.height };
+    const animate = !resized && !reducedMotion;
+    const seen = new Set<string>();
+    const move = (key: string, el: HTMLElement | null, rect: GridRect, turn: 0 | 180, fadeText: boolean) => {
+      if (!el) return;
+      seen.add(key);
+      tracks.current.set(key, playFlip(el, tracks.current.get(key), boxOf(rect), animate, { turn, fadeText }));
+    };
+    for (const cell of cells) {
+      move(`f${cell.seat}`, root.querySelector<HTMLElement>(`[data-seat-slot="${cell.seat}"]`), placed.cells[cellIndex(cell)].rect, cell.rotateDeg, false);
+      const band = placed.bands[cell.column];
+      move(`l${cell.seat}`, root.querySelector<HTMLElement>(`[data-grid-lp="${cell.seat}"]`), cell.row === 1 ? band.bottomLp : band.topLp, 0, true);
+    }
+    for (const key of [...tracks.current.keys()]) {
+      if (seen.has(key)) continue;
+      cancelTracks([tracks.current.get(key)!]);
+      tracks.current.delete(key);
+    }
+  }, [placed, box.width, box.height, cells, reducedMotion]);
+  useEffect(() => {
+    const live = tracks.current;
+    return () => cancelTracks(live.values());
+  }, []);
 
   const pickOrder = picks ? layout.slots.map((slot) => slot.seat).filter((seat) => picks.options.has(seat)) : [];
   const promptSeat = controller.prompt?.seat ?? null;
   const format = engineFormat(engine);
   const attackerSeat = controller.aim?.from ? Number(controller.aim.from.split(":")[0]) : null;
   const attackerTone = (attackerSeat != null ? tones.get(attackerSeat) : null) ?? "violet";
-  const homeColumn = homeCell?.column ?? null;
 
-  const zoomTo = (seat: number) => {
+  const focusOn = (seat: number) => {
     if (focus.seat !== seat) focusControl.focusSeat(seat);
   };
   const onClick = (event: MouseEvent<HTMLDivElement>) => {
@@ -203,7 +186,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
     if (target.closest(OWN_CLICK)) return;
     const host = target.closest<HTMLElement>("[data-grid-cell], [data-grid-lp]");
     const seat = host ? Number(host.dataset.gridCell ?? host.dataset.gridLp) : NaN;
-    if (Number.isInteger(seat)) zoomTo(seat);
+    if (Number.isInteger(seat)) focusOn(seat);
   };
   // Tab into a field that is out of view brings it into view.
   const onFocus = (event: FocusEvent<HTMLDivElement>) => {
@@ -218,7 +201,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
     if (!keyboard) return;
     const host = target.closest<HTMLElement>("[data-grid-cell], [data-grid-lp]");
     const seat = host ? Number(host.dataset.gridCell ?? host.dataset.gridLp) : NaN;
-    if (Number.isInteger(seat)) zoomTo(seat);
+    if (Number.isInteger(seat)) focusOn(seat);
   };
 
   return (
@@ -235,21 +218,32 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
       data-camera-lock={locked ? "true" : undefined}
       data-fly="false"
       data-upright={camera.upright ? "true" : "false"}
-      data-stage-scale={(target?.zoom ?? 0).toFixed(3)}
-      data-ready={target ? "true" : "false"}
+      data-stage-scale={((placed?.sizes.equal ?? 0) / SEAT_Z).toFixed(3)}
+      data-ready={placed ? "true" : "false"}
       data-battle={engine.phase === "battle" ? "true" : undefined}
     >
-      <div className={styles.pan} ref={panRef}>
-        <div className={styles.world} ref={worldRef} style={{ width: world.width, height: world.height }} onClick={onClick} onFocusCapture={onFocus}>
-          {cells.map((cell) => {
+      <div className={styles.world} onClick={onClick} onFocusCapture={onFocus}>
+          {placed
+            ? cells.map((cell) => {
             const slot = layout.slots.find((entry) => entry.seat === cell.seat);
-            const pose = gridPose(cell, world);
             const state = states.get(cell.seat) ?? "live";
             if (!slot) return null;
+            const spot = placed.cells[cellIndex(cell)];
+            const pose: SeatPose = {
+              seat: cell.seat,
+              x: 0,
+              y: 0,
+              scale: spot.z / SEAT_Z,
+              rotateDeg: cell.rotateDeg,
+              z: spot.z,
+              docked: false,
+              compact: false,
+              hidden: false,
+            };
             const empty = state === "empty";
             const self = slot.relation === "self";
-            const drawer = pairDrawer(cells, states, cell.column);
-            const band = gridBand(cell.column, cell.column === homeColumn, world);
+            const drawer = drawerSeats[cell.column];
+            const band = placed.bands[cell.column];
             const bottom = cell.row === 1;
             const field: Omit<SeatFieldProps, "angleDeg" | "scale"> = {
               engine,
@@ -285,22 +279,33 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
                 data-grid-cell={cell.seat}
                 data-quadrant={cell.quadrant}
                 data-cell-state={state}
+                data-small={spot.small ? "true" : undefined}
                 data-focus={focus.seat === cell.seat ? "true" : undefined}
                 data-partner={cell.home ? cell.partner : undefined}
               >
-                {empty ? null : <RivalField pose={pose} field={field} render={renderSeatField} />}
+                {empty ? null : (
+                  <RivalField
+                    pose={pose}
+                    field={field}
+                    render={renderSeatField}
+                    placement={{ left: spot.rect.x, top: spot.rect.y, zIndex: focus.seat === cell.seat ? 30 : spot.drawer ? 14 : 10, small: spot.small }}
+                  />
+                )}
               </div>
             );
-          })}
-          {cells.map((cell) => {
+              })
+            : null}
+          {placed
+            ? cells.map((cell) => {
             const view = engine.seats.find((entry) => entry.seat === cell.seat);
             const slot = layout.slots.find((entry) => entry.seat === cell.seat);
             if (!view || !slot) return null;
-            const lp = lpBox(cell, cell.column === homeColumn, world);
+            const lp = cell.row === 1 ? placed.bands[cell.column].bottomLp : placed.bands[cell.column].topLp;
+            const lpStyle: CSSProperties = { left: lp.x, top: lp.y, width: lp.width, height: lp.height };
             const pickable = picks?.options.has(cell.seat) === true;
             const index = pickOrder.indexOf(cell.seat);
             return (
-              <div key={cell.seat} className={styles.lp} data-grid-lp={cell.seat}>
+              <div key={cell.seat} className={styles.lp} data-grid-lp={cell.seat} style={lpStyle}>
                 <HoloLp
                   seat={cell.seat}
                   name={nameOf(cell.seat)}
@@ -311,9 +316,9 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
                   clockMs={room.clock?.remainingMs[cell.seat] ?? null}
                   status={holoStatus(engine, cell.seat, promptSeat)}
                   me={slot.relation === "self"}
-                  x={lp.x}
-                  y={lp.y}
-                  width={lp.width}
+                  x={0}
+                  y={0}
+                  fit={lpFit(lp)}
                   beam="none"
                   master={slot.relation === "self" ? null : view.deckMaster?.card ?? null}
                   onInspectMaster={(card) => controller.onInspect({ type: "info", card })}
@@ -326,19 +331,13 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
                 />
               </div>
             );
-          })}
-        </div>
+              })
+            : null}
       </div>
       {controller.aim?.from ? <AttackLine aim={controller.aim} tone={attackerTone} stageWidth={box.width} stageHeight={box.height} /> : null}
       <div className={styles.controls} role="group" aria-label="Table view" data-grid-controls>
         <button type="button" className={styles.control} data-testid="grid-all" aria-pressed={focus.seat == null} aria-keyshortcuts="O Escape" title="All fields (O or Esc)" onClick={focusControl.showAll}>
           All fields
-        </button>
-        <button type="button" className={styles.control} data-testid="grid-zoom-out" aria-label="Zoom out" aria-keyshortcuts="-" title="Zoom out (-)" onClick={focusControl.zoomOut} disabled={focus.seat == null}>
-          &minus;
-        </button>
-        <button type="button" className={styles.control} data-testid="grid-zoom-in" aria-label="Zoom in" aria-keyshortcuts="+" title="Zoom in (+)" onClick={focusControl.zoomIn}>
-          +
         </button>
       </div>
       {fx ? <div className={styles.slot} data-slot="fx">{fx}</div> : null}
