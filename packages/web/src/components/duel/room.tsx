@@ -8,6 +8,7 @@ import useSWR from "swr";
 import { Circle, Diamond, ExternalLink, Eye, Radio, Volume2, VolumeX } from "lucide-react";
 import { isCustomDomain, type DuelAnswer, type DuelCard, type DuelCardInfo, type DuelDeck, type DuelPromptOption, type DuelRoom } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
+import { Modal } from "@/components/ui/modal";
 import { SurrenderModal } from "./surrender-modal";
 import { DeckSurrenderContext, type DeckSurrenderValue } from "./deck-surrender";
 import { BugReportHeaderButton } from "../bug-report/bug-report-header-button";
@@ -211,6 +212,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const narrow = useIsNarrow();
   const [mobileInspect, setMobileInspect] = useState(false);
   const [confirmSurrender, setConfirmSurrender] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false);
   // The Surrender menu on your own deck is open: prompt keys and the right-click decline wait for it.
   const [deckMenuOpen, setDeckMenuOpen] = useState(false);
   const [hideResult, setHideResult] = useState(false);
@@ -709,7 +711,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     slug,
     serverMode: data?.engine?.chainMode,
     enabled: data?.mySeat != null && !spectate && !viewerOut && !ownWindowGate && data.session.status === "active" && !data.engine?.result,
-    suspended: confirmSurrender || deckMenuOpen,
+    suspended: confirmSurrender || confirmCancel || deckMenuOpen,
     send: async (mode) => {
       const seq = ++mutationSeq.current;
       try {
@@ -806,6 +808,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const terminal = data.session.status !== "active";
   const isOrganizer = actorPlayerId === data.session.organizerPlayerId || data.session.seats.some((seat) =>
     seat.seat === data.mySeat && seat.playerId === data.session.organizerPlayerId);
+  const canCancel = !terminal && isOrganizer && !data.session.ranked && data.session.seriesId == null && data.series == null;
   const canArchive = terminal && isOrganizer && !data.session.archivedAt;
   const series = data.series ?? null;
   const myIndex = series ? seriesPlayerIndex(data, series) : null;
@@ -821,6 +824,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   };
   // The Surrender confirm is a modal: the HUD flyout that held the button closes, so the modal owns Esc.
   const askSurrender = () => { hudState.close(); setConfirmSurrender(true); };
+  // The Cancel duel confirm is a modal too: the flyout closes the same way.
+  const askCancel = () => { hudState.close(); setConfirmCancel(true); };
   const surrenderOpen = confirmSurrender && canSurrender;
   const surrenderModal = <SurrenderModal open={surrenderOpen} busy={busy || tossLocked} multiplayer={multi && (format === "ffa3" || format === "ffa4")} tag={multi && format === "tag"}
     onClose={() => setConfirmSurrender(false)} onConfirm={() => {
@@ -828,6 +833,18 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       setConfirmSurrender(false);
       void run(() => surrenderDuel(slug));
     }} />;
+  const cancelOpen = confirmCancel && canCancel;
+  const cancelModal = <Modal open={cancelOpen} onClose={() => setConfirmCancel(false)} title="Cancel duel">
+    <p className="text-sm text-text-secondary">This ends the duel for every player without a winner.</p>
+    <div className="mt-4 flex gap-2">
+      <Button type="button" variant="danger" loading={busy} disabled={busy || tossLocked} onClick={() => {
+        if (!canCancel || isCoinTossActive()) return;
+        setConfirmCancel(false);
+        void run(() => cancelDuel(slug));
+      }}>Cancel duel</Button>
+      <Button type="button" variant="ghost" onClick={() => setConfirmCancel(false)}>Keep playing</Button>
+    </div>
+  </Modal>;
   // Your own deck opens a Surrender menu. It uses the same confirm and the same surrender call as the header button.
   const deckSurrender: DeckSurrenderValue = {
     seat: data.mySeat, available: canSurrender, busy: busy || catchingUp || Boolean(error),
@@ -881,7 +898,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     // One seam set for both live shells, so the room stays one code path.
     const shellProps: TableShellProps = {
       controller: liveController, fillViewport: true, boardRef, pickContinuation: pick, preferences,
-      inputSuspended: surrenderOpen || deckMenuOpen,
+      inputSuspended: surrenderOpen || cancelOpen || deckMenuOpen,
       chainMode,
       fxActive: !error && !realtime.recovering, busy: busy || Boolean(error) || catchingUp,
       initialOutOrder: eliminationOrder(liveController.engine),
@@ -894,6 +911,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         {leaveControl}
         {canSurrender ? <Button type="button" variant="danger" size="sm" disabled={busy || catchingUp || Boolean(error) || tossLocked}
           onClick={askSurrender}>Surrender</Button> : null}
+        {canCancel ? <Button type="button" variant="secondary" size="sm" disabled={busy || catchingUp || Boolean(error) || tossLocked}
+          onClick={askCancel}>Cancel duel</Button> : null}
       </>,
       settingsTools: canArchive ? <Button type="button" variant="secondary" size="sm" disabled={busy}
         onClick={() => void run(() => archiveDuel(slug))}>Archive table</Button> : null,
@@ -906,6 +925,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       </>,
       modals: <>
         {surrenderModal}
+        {cancelModal}
       </>,
     };
     // The shells keep their own pile viewer, inspector and menus. A new key on the change to spectator drops them with the room's.
@@ -1081,6 +1101,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       <BugReportMenuButton room={data} />
       {canSurrender ? <Button type="button" variant="danger" size="sm" disabled={busy || tossLocked}
         onClick={askSurrender}>Surrender</Button> : null}
+      {canCancel ? <Button type="button" variant="secondary" size="sm" disabled={busy || tossLocked}
+        onClick={askCancel}>Cancel duel</Button> : null}
       {canArchive ? <Button type="button" variant="secondary" size="sm" disabled={busy}
         onClick={() => void run(() => archiveDuel(slug))}>Archive table</Button> : null}
       {data.session.status === "completed" || data.session.status === "interrupted" ? (
@@ -1326,6 +1348,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         {sidePanes(false)}
       </Sheet>
       {surrenderModal}
+      {cancelModal}
       {showResult ? (
         <DuelResultScreen room={data} slug={slug} reducedMotion={preferences.reducedMotion}
           soundEnabled={preferences.soundEnabled} onClose={() => setHideResult(true)} onExit={exitDuel}
