@@ -30,7 +30,7 @@ describe("card fetch transport", () => {
     for (let i = 1; i < starts.length; i++) expect(starts[i] - starts[i - 1]).toBeGreaterThanOrEqual(1000 / rate);
   });
 
-  it.each([[undefined, 32], ["2", 2]] as const)("rejects a full queue with CARD_FETCH_QUEUE_LIMIT=%s", async (setting, limit) => {
+  it.each([[undefined, 1024], ["2", 2]] as const)("rejects a full queue with CARD_FETCH_QUEUE_LIMIT=%s", async (setting, limit) => {
     vi.stubEnv("CARD_FETCH_QUEUE_LIMIT", setting);
     const { fetchCardResource, CardFetchError } = await import("../../src/services/card-fetch.js");
     const fetch = vi.fn(async () => new Response("ok"));

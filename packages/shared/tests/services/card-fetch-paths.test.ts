@@ -17,7 +17,7 @@ const paths: Array<[string, (catalog: CardCatalogService) => Promise<unknown>]> 
 const failures = ["network", "timeout", "429", "503", "json"];
 let db: Database.Database;
 beforeEach(() => { vi.resetModules(); vi.useFakeTimers(); db = new Database(":memory:"); migrate(db); });
-afterEach(() => { db.close(); vi.useRealTimers(); });
+afterEach(() => { db.close(); vi.useRealTimers(); vi.unstubAllEnvs(); });
 
 async function setup(failure: string, cached: boolean) {
   const { createCardCatalogService } = await import("../../src/services/card-catalog.js");
@@ -50,6 +50,29 @@ describe.each(failures)("catalog %s failures", (failure) => {
     const result = expect(call(catalog)).rejects.toThrow(/Try again/);
     await vi.runAllTimersAsync();
     await result;
+  });
+});
+
+describe("healthy draft imports", () => {
+  it.each([undefined, "32"])("saves all 60 new passcodes with CARD_FETCH_QUEUE_LIMIT=%s", async (limit) => {
+    vi.stubEnv("CARD_FETCH_QUEUE_LIMIT", limit);
+    const { createCardCatalogService } = await import("../../src/services/card-catalog.js");
+    const cards = Array.from({ length: 60 }, (_, i) => ({
+      id: 10000000 + i, name: `New Card ${i}`, type: "Effect Monster", frameType: "effect",
+      card_images: [{ id: 10000000 + i, image_url: "full", image_url_small: "small" }],
+    }));
+    const fetch = vi.fn(async (input: string | URL | Request) => {
+      const params = new URL(String(input)).searchParams;
+      const card = cards.find((card) => params.has("id") ? card.id === Number(params.get("id")) : card.name === params.get("name"));
+      return new Response(JSON.stringify({ data: card ? [card] : [] }));
+    });
+    const catalog = createCardCatalogService(db, { fetch, identityCatalog: new Map() });
+    const result = expect(catalog.syncDraftPool({ setNames: [], customCardIds: cards.map((card) => card.id),
+      includeNames: [], excludeNames: [] })).resolves.toHaveLength(60);
+    await Promise.all([result, vi.runAllTimersAsync()]);
+    expect(catalog.findByIds(cards.map((card) => card.id))).toHaveLength(60);
+    expect(db.prepare("select count(*) as n from card_catalog").get()).toEqual({ n: 60 });
+    expect(fetch).toHaveBeenCalledTimes(120);
   });
 });
 

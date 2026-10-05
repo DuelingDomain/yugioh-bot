@@ -432,21 +432,25 @@ export function createCardCatalogService(
       };
       // Existing rows need no artwork fetch. Bulk set sync fills legacy artwork rows later.
       const jobs = [
-        ...input.setNames.map((name) => load(() => fetchCards("cardset", name),
+        ...input.setNames.map((name) => () => load(() => fetchCards("cardset", name),
           () => cachedCards((card) => card.cardSets.some((set) => set.set_name === name)),
           (cards) => {
             const set = db.prepare("select card_count from card_sets where set_name = ?").get(name) as { card_count: number | null } | undefined;
             return set?.card_count != null && set.card_count > 0 && cards.length >= set.card_count;
           })),
-        ...distinctCustomIds.filter((id) => !hasCatalogRow(id)).map((id) => load(() => fetchArtworkFamily(id), () => {
+        ...distinctCustomIds.filter((id) => !hasCatalogRow(id)).map((id) => () => load(() => fetchArtworkFamily(id), () => {
           ensureEngineArtwork(id);
           return findByIds([id]);
         })),
-        ...input.includeNames.map((name) => load(() => fetchCards("name", name),
+        ...input.includeNames.map((name) => () => load(() => fetchCards("name", name),
           () => cachedCards((card) => normalizeName(card.name) === normalizeName(name)))),
       ];
-      // Retain successful responses even if another lookup fails. All promises have handlers.
-      const results = await Promise.allSettled(jobs);
+      // One import must not fill the process-wide queue. Keep at most four
+      // lookups active, and retain successes even if another lookup fails.
+      const results: PromiseSettledResult<YgoprodeckCard[]>[] = [];
+      for (let offset = 0; offset < jobs.length; offset += 4) {
+        results.push(...await Promise.allSettled(jobs.slice(offset, offset + 4).map((job) => job())));
+      }
       const excludedNames = new Set(input.excludeNames.map(normalizeName));
       const seenIds = new Set<number>();
       const cardsToCache: YgoprodeckCard[] = [];

@@ -6,7 +6,7 @@ function positiveIntegerSetting(name: string, fallback: number): number {
 
 // Leave room under the upstream budget for the bot, web and duel processes.
 const START_INTERVAL_MS = Math.ceil(1000 / positiveIntegerSetting("CARD_FETCH_REQUESTS_PER_SECOND", 5));
-const QUEUE_LIMIT = positiveIntegerSetting("CARD_FETCH_QUEUE_LIMIT", 32);
+const QUEUE_LIMIT = positiveIntegerSetting("CARD_FETCH_QUEUE_LIMIT", 1024);
 const queue: Array<() => void> = [];
 const backoff = new Map<string, number>();
 let active = 0;
