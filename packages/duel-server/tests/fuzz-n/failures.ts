@@ -75,7 +75,7 @@ export function writeFailureFile(file: FailureFile, directory = N_FAILURE_DIR): 
 
 export function readFailureFile(path: string): FailureFile {
   const file = JSON.parse(readFileSync(path, "utf8")) as FailureFile;
-  file.engine = { ...file.engine, firstTurnDraw: savedFuzzFirstTurnDraw(file.engine?.firstTurnDraw, file.scenario.mode, file.scenario.masterRule) };
+  file.engine = { ...file.engine, firstTurnDraw: savedFuzzFirstTurnDraw(file.engine?.firstTurnDraw, file.scenario.mode, file.scenario.masterRule, file.scenario.format) };
   return file;
 }
 

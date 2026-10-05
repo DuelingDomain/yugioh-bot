@@ -76,7 +76,7 @@ export interface IsolatedOptions {
  * nothing in the same process can stop it, so the parent kills the child and classifies a `hang`.
  */
 export async function runIsolated(scenario: NScenario, options: IsolatedOptions): Promise<NOutcome> {
-  options = { ...options, firstTurnDraw: options.firstTurnDraw ?? firstTurnDrawFor(scenario.mode, scenario.masterRule) };
+  options = { ...options, firstTurnDraw: options.firstTurnDraw ?? firstTurnDrawFor(scenario.mode, scenario.masterRule, scenario.format) };
   const dir = mkdtempSync(join(tmpdir(), "fuzz-n-"));
   const specFile = join(dir, "spec.json");
   const journalFile = join(dir, "trace.jsonl");

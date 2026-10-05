@@ -14,6 +14,7 @@ const standardTrap = process.env.CORE_SCOPE_TRAP_WASM ?? process.env.TABLE_TRAP_
 const domainTrap = process.env.TABLE_TRAP_DOMAIN_WASM ?? "";
 type Case="card-lock"|"card-lock-symbolic"|"player-lock"|"phase-read"|"phase-later"|"phase-same-turn"|"single"|"equip"|"field"|"duration"|"dead-duration"|"empty-duration"|"tag-read";
 function proof(format:"1v1"|"ffa3"|"ffa4"|"tag", domain:boolean, kind:Case):Scenario {
+  const openingDraw=Number(domain&&format!=="1v1");
   const seats:DuelistId[]=format==="1v1"?["p0","p1"]:format==="ffa3"?["p0","p1","p2"]:["p0","p1","p2","p3"];
   const setup:Scenario["setup"]={format,...(domain?{mode:"domain"}:{})};
   for(const seat of seats) setup[seat]={monsters:seat==="p0"?[SOURCE,OX]:[OX],deck:Array(20).fill(ELF),...(domain?{deckMaster:"Blue-Eyes White Dragon"}:{})};
@@ -23,7 +24,7 @@ function proof(format:"1v1"|"ffa3"|"ffa4"|"tag", domain:boolean, kind:Case):Scen
   const board=(turn:number,boost:(s:DuelistId)=>boolean,recover?:DuelistId):BoardExpect=>{
     const result:BoardExpect={};
     for(const seat of seats) {
-      const index=seats.indexOf(seat), draws=index===0?Number(domain):index<turn?1:0;
+      const index=seats.indexOf(seat), draws=index===0?openingDraw:index<turn?1:0;
       result[seat]={lp:(format==="tag"?16000:8000)+(recover===seat?100:0),monsters:seat==="p0"?control&&turn>1?[OX]:[SOURCE,OX]:seat==="p1"&&control&&turn>1?[OX,SOURCE]:[OX],
         zones:{[seat==="p0"?"m1":"m0"]:{card:OX,attack:1700+(boost(seat)?700:0)}},hand:control&&seat==="p1"?["Monster Reborn",...Array(draws).fill(ELF)]:Array(draws).fill(ELF),deckCount:20-draws,spells:[],banished:[],grave:seat==="p1"&&control?[ELF,...(turn>1?[HEART]:[])]:[],
         ...(domain?{deckMaster:{inZone:true,returns:0,nextCost:0}}:{})};
@@ -63,10 +64,10 @@ function proof(format:"1v1"|"ffa3"|"ffa4"|"tag", domain:boolean, kind:Case):Scen
       }
       steps.push(endTurn("p0"),endTurn("p1"),expectPrompt({by:format==="1v1"?"p0":kind==="dead-duration"?(format==="ffa3"?"p0":"p3"):"p2",context:"action"}));
       const final=board(3,s=>kind==="duration"&&s==="p0");
-      if(format==="1v1") {final.p0!.hand=Array(1+Number(domain)).fill(ELF);final.p0!.deckCount=19-Number(domain);}
+      if(format==="1v1") {final.p0!.hand=Array(1+openingDraw).fill(ELF);final.p0!.deckCount=19-openingDraw;}
       if(kind==="equip") { final.p0!.monsters=[OX];final.p0!.spells=[SOURCE];final.p0!.zones={m1:{card:OX,attack:1700}}; }
       if(kind==="dead-duration") {
-        const next=format==="ffa3"?"p0":"p3";const draws=next==="p0"?1+Number(domain):1;final[next]!.hand=Array(draws).fill(ELF);final[next]!.deckCount=20-draws;
+        const next=format==="ffa3"?"p0":"p3";const draws=next==="p0"?1+openingDraw:1;final[next]!.hand=Array(draws).fill(ELF);final[next]!.deckCount=20-draws;
         final.p2={lp:0,monsters:[],spells:[],hand:[],deckCount:0,grave:[],banished:[],...(domain?{deckMaster:{inZone:false,returns:0,nextCost:0}}:{})};
       }
       if(kind==="single") final.p0!.zones={m0:{card:SOURCE,attack:1300},m1:{card:OX,attack:1700}};
@@ -74,7 +75,7 @@ function proof(format:"1v1"|"ffa3"|"ffa4"|"tag", domain:boolean, kind:Case):Scen
       steps.push(expectBoard(final));
       if(format!=="1v1"&&(kind==="single"||kind==="equip"||kind==="field"||kind==="duration")) {
         const cleared=board(format==="ffa3"?1:4,()=>false);
-        if(format==="ffa3") {cleared.p0!.hand=Array(1+Number(domain)).fill(ELF);cleared.p0!.deckCount=19-Number(domain);cleared.p1!.hand=[ELF];cleared.p1!.deckCount=19;cleared.p2!.hand=[ELF];cleared.p2!.deckCount=19;}
+        if(format==="ffa3") {cleared.p0!.hand=Array(1+openingDraw).fill(ELF);cleared.p0!.deckCount=19-openingDraw;cleared.p1!.hand=[ELF];cleared.p1!.deckCount=19;cleared.p2!.hand=[ELF];cleared.p2!.deckCount=19;}
         if(kind==="single") cleared.p0!.zones={m0:{card:SOURCE,attack:1300},m1:{card:OX,attack:1700}};
         if(kind==="equip") {cleared.p0!.monsters=[OX];cleared.p0!.spells=[SOURCE];}
         steps.push(endTurn("p2"),expectBoard(cleared));
@@ -91,7 +92,7 @@ async function run(scenario:Scenario):Promise<void>{
  const trapBytes=kind==="tag-read"?readFileSync(trapPath):undefined;
  const wasm=trapBytes?trapBytes.buffer.slice(trapBytes.byteOffset,trapBytes.byteOffset+trapBytes.byteLength) as ArrayBuffer:scenario.setup.mode==="domain"?domainNseatWasmBinary():nseatWasmBinary();
  if(kind==="tag-read") expect(Buffer.from(new Uint8Array(wasm ?? new ArrayBuffer(0))).includes(Buffer.from("NFOLD %c")),"The loaded core must emit fold traps").toBe(true);
- const game=await createEngineGame({...compiled.options,firstTurnDraw:scenario.setup.mode==="domain",dataDirectory:engineDataDirectory,
+ const game=await createEngineGame({...compiled.options,dataDirectory:engineDataDirectory,
   multiWasmBinary:wasm,startupScripts:[{name:"core-binding-scope.lua",content:`CORE_CASE=${JSON.stringify(kind)}\n${fixture}`},...(compiled.options.startupScripts??[])],seed:["1","2","3","4"]});
  try{const session=new Session(scenario,game);session.reachMainPhase();session.startRecording();scenario.steps.forEach((step,i)=>session.run(step,i+1));
   if(kind==="tag-read") expect(game.diagnostics().filter(d=>d.kind==="stderr").map(d=>d.detail).join("\n")).toMatch(/NFOLD c .*fn=Draw/);

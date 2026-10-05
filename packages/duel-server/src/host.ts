@@ -321,7 +321,7 @@ export function createDuelHost(options: {
     format: DuelFormat = "1v1",
     startupScripts?: string[],
     engine?: DuelEngineChoice,
-    firstTurnDraw = firstTurnDrawFor(mode, masterRule, engine, format),
+    firstTurnDraw = firstTurnDrawFor(mode, masterRule, format),
   ): GameOptions {
     const created: GameOptions = {
       mode,
@@ -1428,7 +1428,7 @@ export function createDuelHost(options: {
       const settings = state.session.settings;
       const scripts = (copts.startupScripts ?? []).map((script) => script.content);
       const engine = engineForNewTable(preset.format, true);
-      const firstTurnDraw = firstTurnDrawFor(state.session.mode, state.session.masterRule, engine, preset.format);
+      const firstTurnDraw = firstTurnDrawFor(state.session.mode, state.session.masterRule, preset.format);
       const botPolicies: Record<string, string> = {};
       for (let seat = 1; seat < seatCount; seat += 1) botPolicies[String(seat)] = SCRIPTED_POLICY;
       game = spawn();
@@ -1906,7 +1906,7 @@ export function createDuelHost(options: {
     const bytes = randomBytes(32);
     const seed = [0, 8, 16, 24].map((offset) => bytes.readBigUInt64LE(offset).toString());
     const engine = engineForNewTable(state.session.format);
-    const firstTurnDraw = firstTurnDrawFor(state.session.mode, state.session.masterRule, engine, state.session.format);
+    const firstTurnDraw = firstTurnDrawFor(state.session.mode, state.session.masterRule, state.session.format);
     const game = spawn();
     try {
       await game.create(workerCreateOptions(

@@ -16,7 +16,7 @@ function proof(format:Format,domain:boolean,card:typeof LAND|typeof LOTUS):Scena
   const setup:Scenario["setup"]={format,...(domain?{mode:"domain"}:{})};
   for(const seat of seats) setup[seat]={monsters:[OX],deck:Array(20).fill(ELF),hand:lotus?seat==="p0"?[ELF]:seat===target?[AXE,FANG]:[OX]:seat==="p0"?[LAND]:[],
     ...(lotus&&seat==="p0"?{spells:[{card:LOTUS,pos:"set" as const}]}:{}),...(domain?{deckMaster:"Blue-Eyes White Dragon"}:{})};
-  const draws=Array(n).fill(0);draws[0]=Number(domain);
+  const draws=Array(n).fill(0);draws[0]=Number(domain&&format!=="1v1");
   const damaged=new Set<DuelistId>();let returned=false;
   const board=():BoardExpect=>Object.fromEntries(seats.map((seat,i)=>[seat,{
     lp:(format==="tag"?16000:8000)-(lotus?(seat==="p0"||(format==="tag"&&seat==="p2")?2000:0):500*([...damaged].filter(p=>format==="tag"?Number(p.slice(1))%2===i%2:p===seat).length)),
@@ -45,7 +45,7 @@ function proof(format:Format,domain:boolean,card:typeof LAND|typeof LOTUS):Scena
 }
 async function run(scenario:Scenario):Promise<void> {
   const compiled=compileBoard(scenario.setup);
-  const game=await createEngineGame({...compiled.options,firstTurnDraw:scenario.setup.mode==="domain",dataDirectory:engineDataDirectory,
+  const game=await createEngineGame({...compiled.options,dataDirectory:engineDataDirectory,
     multiWasmBinary:scenario.setup.mode==="domain"?domainNseatWasmBinary():nseatWasmBinary(),seed:["1","2","3","4"]});
   try {const session=new Session(scenario,game);session.reachMainPhase();session.startRecording();scenario.steps.forEach((step,i)=>session.run(step,i+1));}
   finally {game.close();}
