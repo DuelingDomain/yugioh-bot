@@ -1,5 +1,5 @@
 import type { DuelEvent, DuelSeatView } from "@yugidraft/shared/duels";
-import { flyYawFor, normalizeAngle } from "./geometry";
+import { aliveLayout, flyYawFor, normalizeAngle } from "./geometry";
 import { scaleLockMs as scaleLock } from "../camera-lock-time";
 import type { CameraAction, CameraLockReason, CameraMode, CameraState, FlyPose, TableLayout } from "./types";
 
@@ -69,11 +69,31 @@ function move(state: CameraState, patch: Partial<CameraState> & { mode: CameraMo
   };
 }
 
+/**
+ * A 3-way table with two seats or fewer left is a face-off: the two boards face each other and there is one view.
+ * Overview, Focus, Look and the fly-in have nothing to show there.
+ */
+export function isFaceOff(layout: TableLayout, out: readonly number[] | ReadonlySet<number>): boolean {
+  if (layout.format !== "ffa3") return false;
+  const gone = out instanceof Set ? out : new Set(out);
+  return layout.slots.filter((slot) => !gone.has(slot.seat)).length <= 2;
+}
+
+const FACE_OFF_VIEWS = new Set<CameraAction["type"]>(["overview", "focus", "focusStep", "look", "toggleFly", "flyTo"]);
+
 const MOVES = new Set<CameraAction["type"]>(["home", "overview", "focus", "focusStep", "look", "toggleFly", "flyTo", "orbit", "zoom"]);
 
 export function cameraReducer(state: CameraState, action: CameraAction, layout: TableLayout, ctx?: CameraContext): CameraState {
-  if (state.lock != null && MOVES.has(action.type)) return state;
   const { anchor, known, out, rivals } = seatsOf(layout, ctx);
+  const faceOff = isFaceOff(layout, out);
+  // A face-off has one view, so a camera in another mode goes home at once, also under an FX lock (the lock stays).
+  if (faceOff && state.mode !== "home" && (action.type === "home" || FACE_OFF_VIEWS.has(action.type))) return move(state, HOME_VIEW);
+  if (state.lock != null && MOVES.has(action.type)) return state;
+  if (faceOff) {
+    // One view only: a request for another one sends the camera home, and the auto camera does not follow a rival.
+    if (FACE_OFF_VIEWS.has(action.type)) return state.mode === "home" ? state : move(state, HOME_VIEW);
+    if (action.type === "autoFollow" && action.seat != null && action.seat !== anchor) return state;
+  }
   switch (action.type) {
     case "home":
       return move(state, HOME_VIEW);
@@ -109,7 +129,7 @@ export function cameraReducer(state: CameraState, action: CameraAction, layout: 
       if (state.mode === "fly" && state.fly.targetSeat === action.seat && !state.fly.free) {
         return { ...state, fly: FLY_HOME, pinned: true, autoMoved: false };
       }
-      const fly: FlyPose = { yawDeg: flyYawFor(layout, action.seat), tiltDeg: SEAT_TILT, zoom: SEAT_ZOOM, targetSeat: action.seat, free: false };
+      const fly: FlyPose = { yawDeg: flyYawFor(aliveLayout(layout, out), action.seat), tiltDeg: SEAT_TILT, zoom: SEAT_ZOOM, targetSeat: action.seat, free: false };
       if (state.mode === "fly") return { ...state, fly, pinned: true, autoMoved: false };
       return move({ ...state, flyIn: true }, { mode: "fly", fly });
     }
@@ -151,8 +171,11 @@ export function cameraReducer(state: CameraState, action: CameraAction, layout: 
       if (state.lock && state.lock.untilMs > action.nowMs && state.lock.untilMs >= untilMs) return state;
       return { ...state, lock: { reason: action.reason, untilMs } };
     }
-    case "tick":
-      return state.lock && state.lock.untilMs <= action.nowMs ? { ...state, lock: null } : state;
+    case "tick": {
+      if (!state.lock || state.lock.untilMs > action.nowMs) return state;
+      // The lock ends in a face-off: no view but home is left, so the camera goes home in the same update.
+      return faceOff && state.mode !== "home" ? move({ ...state, lock: null }, HOME_VIEW) : { ...state, lock: null };
+    }
   }
 }
 
@@ -197,6 +220,8 @@ export function cameraActionForKey(
   ctx?: CameraContext,
 ): CameraAction | null {
   const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+  const faceOff = isFaceOff(layout, ctx?.out ?? []);
+  if (faceOff && (key === "Tab" || key === "o" || key === "0" || key === "f" || key === "p" || key === "Escape")) return null;
   switch (key) {
     case "Tab":
       return { type: "focusStep", dir: event.shiftKey ? -1 : 1 };
@@ -229,6 +254,7 @@ export function cameraActionForKey(
   if (/^[1-9]$/.test(key)) {
     const slot = layout.slots[Number(key) - 1];
     if (!slot) return null;
+    if (faceOff && slot.seat !== layout.anchorSeat) return null;
     if (camera.mode === "fly") return { type: "flyTo", seat: slot.seat };
     return slot.seat === layout.anchorSeat ? { type: "home" } : { type: "focus", seat: slot.seat };
   }

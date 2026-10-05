@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { FFA3_FIXTURES } from "@/components/duel/table/fixtures/ffa3";
 import { tableLayout } from "@/components/duel/table/geometry";
 import {
+  aliveSeats,
   attackLockAt,
+  eliminatedSeats,
   firstAttackTurn,
   lastSeatDamage,
   placeLabel,
@@ -18,6 +20,15 @@ describe("seat-state", () => {
   it("lists the seats that are out", () => {
     expect(seatsOut(engineOf("main"))).toEqual([]);
     expect(seatsOut(engineOf("elimination"))).toEqual([2]);
+  });
+
+  it("tells the seats that left from the seats still in the duel", () => {
+    const engine = engineOf("elimination");
+    expect(eliminatedSeats(engine)).toEqual([2]);
+    expect(aliveSeats(engine)).toEqual([0, 1]);
+    const leaving = { seats: engine.seats.map((view) => (view.seat === 0 ? { ...view, pendingElimination: true } : view)) };
+    expect(eliminatedSeats(leaving)).toEqual([2]);
+    expect(aliveSeats(leaving)).toEqual([0, 1]);
   });
 
   it("never reads a Leaving seat as next to play: next goes to the next living seat", () => {

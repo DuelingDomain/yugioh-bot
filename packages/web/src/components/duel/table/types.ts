@@ -32,8 +32,12 @@ export interface SeatSlot {
   code: string | null; // tag: "1A" | "2A" | "1B" | "2B" (tagSeatCode); ffa: null
   turnOrder: number; // 0-based order in the turn ring
 }
+/** How the seats still in the duel are placed: the 4-way places, the 3-way places, or a face to face pair. */
+export type Arrangement = "ffa4" | "ffa3" | "duo";
 export interface TableLayout {
   format: TableFormat;
+  /** Set by `aliveLayout` when seats are out. Absent: the places follow the format. */
+  arrangement?: Arrangement;
   viewerSeat: number | null;
   anchorSeat: number; // anchor = viewer, or 0 for spectator
   slots: readonly SeatSlot[]; // viewer/anchor first, then placementOrder

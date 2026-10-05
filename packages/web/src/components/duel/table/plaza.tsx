@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { SEAT_TONE_HEX, type SeatPose, type TableLayout } from "./types";
+import { SEAT_TONE_HEX, type SeatPose, type SeatTone, type TableLayout } from "./types";
 import { hexToRgbTriplet } from "./seat-angle";
 import { ARENA_CENTER, STAGE } from "./geometry";
 import styles from "./plaza.module.css";
@@ -14,9 +14,37 @@ const SKYLINE_PATH =
  * `--spread` (set by the stage) is how far a wide box shows beyond the 1100 px stage at each side: the plaza grows by that much,
  * the floor and pads stay in the 1100 px space, and the skyline repeats (mirrored, so the seams meet) into the wings.
  */
-export function Plaza({ layout, poses, fly = false }: { layout: TableLayout; poses: ReadonlyMap<number, SeatPose>; fly?: boolean }) {
+export interface PlazaExit {
+  seat: number;
+  tone: SeatTone;
+  /** The pose the seat had before it left: its pad fades there and a red ring spreads. */
+  pose: SeatPose;
+}
+
+export interface PlazaProps {
+  layout: TableLayout;
+  poses: ReadonlyMap<number, SeatPose>;
+  fly?: boolean;
+  /** Seats that left: they have no pad. */
+  hidden?: ReadonlySet<number>;
+  /** Pads of seats that just left, on their way out. */
+  exits?: readonly PlazaExit[];
+  /** The seats regroup after an elimination: the pads wait for the crumble and glide with the boards. */
+  glide?: boolean;
+  reducedMotion?: boolean;
+}
+
+export function Plaza({ layout, poses, fly = false, hidden, exits = [], glide = false, reducedMotion = false }: PlazaProps) {
+  const padStyle = (pose: SeatPose, tone: SeatTone): CSSProperties & Record<string, string | number> => ({
+    left: pose.x,
+    top: pose.y,
+    "--t": hexToRgbTriplet(SEAT_TONE_HEX[tone].main),
+    "--s": pose.scale,
+    rotate: `${pose.rotateDeg}deg`,
+    scale: pose.scale,
+  });
   return (
-    <div className={styles.plaza} data-plaza data-fly={fly ? "true" : undefined} aria-hidden="true">
+    <div className={styles.plaza} data-plaza data-fly={fly ? "true" : undefined} data-glide={glide ? "true" : undefined} aria-hidden="true">
       <div className={styles.space}>
         {[-1, 1].map((side) => (
           <svg key={side} className={styles.skyline} data-wing viewBox="0 0 1100 170" preserveAspectRatio="none" aria-hidden="true" style={{ left: side * STAGE.width, scale: "-1 1" }}>
@@ -44,16 +72,15 @@ export function Plaza({ layout, poses, fly = false }: { layout: TableLayout; pos
         </div>
         {layout.slots.map((slot) => {
           const pose = poses.get(slot.seat);
-          if (!pose || pose.hidden) return null;
-          const style: CSSProperties & Record<string, string | number> = {
-            left: pose.x,
-            top: pose.y,
-            "--t": hexToRgbTriplet(SEAT_TONE_HEX[slot.tone].main),
-            rotate: `${pose.rotateDeg}deg`,
-            scale: pose.scale,
-          };
-          return <span key={slot.seat} className={styles.pad} data-pad-seat={slot.seat} style={style} />;
+          if (!pose || pose.hidden || hidden?.has(slot.seat)) return null;
+          return <span key={slot.seat} className={styles.pad} data-pad-seat={slot.seat} style={padStyle(pose, slot.tone)} />;
         })}
+        {exits.map((exit) => (
+          <span key={`out${exit.seat}`}>
+            <span className={`${styles.pad} ${styles.padOut}`} data-pad-exit={exit.seat} style={padStyle(exit.pose, exit.tone)} />
+            {reducedMotion ? null : <span className={styles.shock} data-shock={exit.seat} style={padStyle(exit.pose, exit.tone)} />}
+          </span>
+        ))}
       </div>
       <span className={styles.edge} />
     </div>

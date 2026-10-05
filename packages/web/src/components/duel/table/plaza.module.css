@@ -114,3 +114,70 @@
 .plaza[data-fly="true"] .floor {
   opacity: 1;
 }
+
+/* A seat left: its pad fades, a red ring spreads from the board. */
+.padOut {
+  animation: padOut 0.6s ease-out 0.2s both;
+}
+
+.shock {
+  position: absolute;
+  width: 700px;
+  height: 420px;
+  translate: -50% -50%;
+  border: 2px solid rgb(228 90 77 / 0.75);
+  border-radius: 50%;
+  opacity: 0;
+  animation: shock 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) 0.12s both;
+}
+
+@keyframes padOut {
+  from {
+    opacity: 0.8;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes shock {
+  from {
+    opacity: 0.85;
+    scale: calc(var(--s) * 0.7);
+  }
+  to {
+    opacity: 0;
+    scale: calc(var(--s) * 1.5);
+  }
+}
+
+/* The seats regroup: the pads wait for the crumble (0.65 s), then glide for 1 s with the boards. */
+.plaza[data-glide="true"] .pad:not(.padOut) {
+  transition:
+    left 1s cubic-bezier(0.3, 0.7, 0.2, 1) 0.65s,
+    top 1s cubic-bezier(0.3, 0.7, 0.2, 1) 0.65s,
+    rotate 1s cubic-bezier(0.3, 0.7, 0.2, 1) 0.65s,
+    scale 1s cubic-bezier(0.3, 0.7, 0.2, 1) 0.65s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plaza[data-glide="true"] .pad:not(.padOut) {
+    transition: none;
+  }
+
+  .padOut {
+    animation-duration: 0.42s;
+    animation-delay: 0s;
+  }
+}
+
+/* The in-app reduced motion setting (the media query above covers the system one). */
+:global([data-reduced="true"]) .plaza[data-glide="true"] .pad:not(.padOut) {
+  transition: none;
+}
+
+:global([data-reduced="true"]) .padOut {
+  animation-duration: 0.42s;
+  animation-delay: 0s;
+}
+

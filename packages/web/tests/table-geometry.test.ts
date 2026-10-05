@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { DuelEngineView, DuelFormat, DuelSeatView } from "@yugidraft/shared/duels";
 import {
   ARENA_CENTER,
+  aliveLayout,
+  arrangementOf,
   boardBounds,
   compactFor,
   flyWorld,
@@ -381,6 +383,57 @@ describe("compactFor", () => {
   });
 });
 
+describe("aliveLayout", () => {
+  it("gives the same layout back when nothing is out", () => {
+    const three = tableLayout("ffa3", engine("ffa3", 3), 0);
+    expect(aliveLayout(three, [])).toBe(three);
+  });
+
+  it("never respaces a 4-way table or Tag: the place of a seat that left stays empty", () => {
+    const four = tableLayout("ffa4", engine("ffa4", 4), 0);
+    for (const out of [[2], [2, 3]]) {
+      const alive = aliveLayout(four, out);
+      expect(alive).toBe(four);
+      expect(arrangementOf(alive)).toBe("ffa4");
+      expect(slotPlan(alive, camera())).toEqual(["home", "vL", "vN", "vR"]);
+    }
+    const tag = tableLayout("tag", engine("tag", 4), 0);
+    expect(aliveLayout(tag, [1])).toBe(tag);
+  });
+
+  it("places 2 alive of a 3-way table face to face: one near, one far, in every camera mode", () => {
+    const three = tableLayout("ffa3", engine("ffa3", 3), 0);
+    const alive = aliveLayout(three, new Set([1]));
+    expect(arrangementOf(alive)).toBe("duo");
+    expect(alive.slots.map((s) => s.seat)).toEqual([0, 2]);
+    expect(alive.slots.map((s) => s.tone)).toEqual(three.slots.filter((s) => s.seat !== 1).map((s) => s.tone));
+    for (const mode of ["home", "overview", "look", "focus", "fly"] as const) {
+      expect(slotPlan(alive, camera({ mode, focusSeat: 2, lookSeat: 2 }))).toEqual(["home", "focus"]);
+    }
+    const poses = seatPoses(alive, camera());
+    expect(poses.get(0)?.rotateDeg).toBe(0);
+    expect(Math.abs(poses.get(2)?.rotateDeg ?? 0)).toBe(180);
+    expect(holoAnchor(alive, 0, camera())).toMatchObject({ me: true, beam: "none" });
+    expect(holoAnchor(alive, 2, camera())).toMatchObject({ me: false, beam: "down" });
+    expect(ringPose(alive, camera())).toEqual({ x: 550, y: 322, scale: 1 });
+    expect(ringAngles(alive, camera()).get(0)).toBe(90);
+    expect(ringAngles(alive, camera()).get(2)).toBe(270);
+  });
+
+  it("puts the first living seat far and the next near when the viewer is out", () => {
+    const three = tableLayout("ffa3", engine("ffa3", 3), 1);
+    const alive = aliveLayout(three, [1]);
+    expect(alive.slots.map((s) => s.seat)).toEqual([2, 0]);
+    expect(slotPlan(alive, camera())).toEqual(["focus", "home"]);
+  });
+
+  it("falls back to a single near place for a lone seat and refuses a pair with more than 2", () => {
+    const three = tableLayout("ffa3", engine("ffa3", 3), 0);
+    expect(slotPlan(aliveLayout(three, [1, 2]), camera())).toEqual(["home"]);
+    expect(slotPlan({ ...three, arrangement: "duo" }, camera())).toBeNull();
+  });
+});
+
 // ---- the phase hub card ----
 type Pt = { x: number; y: number };
 function box(cx: number, cy: number, w: number, h: number, deg = 0): Pt[] {
@@ -492,6 +545,63 @@ describe("hubPose", () => {
         expect(at.y + at.height / 2).toBeLessThanOrEqual(area && spread > 0 ? 952 : 860);
       },
     );
+  });
+
+  // The face-off (a 3-way table with two seats left) has no wide plates or wide hub: it keeps the classic poses, plates and strip place.
+  // Its boards, plates and the strip must stay clear of each other at every table box (the stage is sized from the same box as 3-way).
+  describe.each(boxes)("face-off, %s", (_boxLabel, rawBox) => {
+    const area = rawBox ? fitOf(rawBox) : undefined;
+    it.each([[1], [2], [0]])("seat %i out: the strip overlaps no board, plate, hand row, camera hint or the ring", (outSeat) => {
+      const full = tableLayout("ffa3", engine("ffa3", 3), 0);
+      const duo = aliveLayout(full, [outSeat]);
+      const view = camera();
+      const poses = seatPoses(duo, view, area);
+      const at = hubPose(duo, view, area ? { box: area, meFooter: true } : undefined);
+      const spread = area ? stageSpread(area) : 0;
+      const wide = area ? wideHoloAnchors(duo, view, poses, spread, true, { hint: { width: 250 / stageFit(area), height: 40 / stageFit(area) } }) : null;
+      // The duo is not a wide arrangement: the plates are the classic ones.
+      expect(wide).toBeNull();
+      const card = box(at.x, at.y, at.width, at.height);
+      duo.slots.forEach((slot, place) => {
+        const pose = poses.get(slot.seat)!;
+        if (pose.hidden) return;
+        for (const rect of seatObstacles(pose, place === 0)) {
+          expect(overlaps(card, box(rect.x, rect.y, rect.width + 10, rect.height + 10, rect.rotateDeg))).toBe(false);
+        }
+        const plate = holoObstacle(holoAnchor(duo, slot.seat, view));
+        expect(overlaps(card, box(plate.x, plate.y, plate.width + 16, plate.height + 16))).toBe(false);
+      });
+      const ring = ringPose(duo, view);
+      const dx = Math.max(Math.abs(at.x - ring.x) - at.width / 2, 0);
+      const dy = Math.max(Math.abs(at.y - ring.y) - at.height / 2, 0);
+      expect(Math.hypot(dx, dy)).toBeGreaterThan(62 * ring.scale);
+      expect(overlaps(card, box(ARENA_SIGN.x + ARENA_SIGN.width / 2, ARENA_SIGN.y + ARENA_SIGN.height / 2, ARENA_SIGN.width, ARENA_SIGN.height))).toBe(false);
+      expect(at.x - at.width / 2).toBeGreaterThanOrEqual(0);
+      expect(at.x + at.width / 2).toBeLessThanOrEqual(1100);
+      expect(at.y + at.height / 2).toBeLessThanOrEqual(860);
+    });
+  });
+
+  describe.each(boxes)("face-off far hand, %s", (_boxLabel, rawBox) => {
+    const area = rawBox ? fitOf(rawBox) : undefined;
+    it.each([[1], [2], [0]])("seat %i out: the hand backs of the far seat start at or below the top of the table box", (outSeat) => {
+      const duo = aliveLayout(tableLayout("ffa3", engine("ffa3", 3), 0), [outSeat]);
+      const poses = seatPoses(duo, camera(), area);
+      // The far seat is the one at the focus place (a viewer who is out watches with the first living seat far).
+      const far = [...poses.values()].find((pose) => pose.slot === "focus")!;
+      expect(far.rotateDeg).toBe(180);
+      // The back edge of the far field is toward the top: its hand backs (420 x 100 at 188..288 from the centre) put through the
+      // seat's tilt and perspective, as boardBounds does for the field.
+      const rot = (far.rotateDeg * Math.PI) / 180;
+      const tilt = ((far.tiltDeg ?? 0) * Math.PI) / 180;
+      const tops = [[-210, 188], [210, 188], [210, 288], [-210, 288]].map(([lx, ly]) => {
+        const px = lx * far.scale;
+        const py = ly * far.scale;
+        const y = px * Math.sin(rot) + py * Math.cos(rot);
+        return far.y + (y * Math.cos(tilt)) / (1 - (y * Math.sin(tilt)) / 1700);
+      });
+      expect(Math.min(...tops)).toBeGreaterThanOrEqual(0);
+    });
   });
 
   it("uses the small strip at a 3-way table, the large one above a 4-way ring in the overview", () => {
