@@ -33,8 +33,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { duelFxClock } from "./fx-clock";
 import { screenPose } from "./attack-fx";
-import type { DuelCardInfo, DuelEvent } from "@yugidraft/shared/duels";
-import { cardArtUrl, isDefenseAt, LOCATION_GRAVE, LOCATION_PZONE, LOCATION_SZONE, TYPE_LINK, TYPE_XYZ } from "./constants";
+import type { DuelCardInfo, DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
+import { cardArtUrl, isDefenseAt, LOCATION_GRAVE, LOCATION_PZONE, LOCATION_SZONE, TYPE_LINK, TYPE_XYZ, zoneKey } from "./constants";
 import {
   auraTintOf,
   collectFreshEvents,
@@ -202,6 +202,8 @@ type FxItem = {
   /** A resolved source stays visible until cleanup; undefined awaits an open chain, zero finishes normally. */
   activationHoldMs?: number;
   activationAt?: number;
+  /** activate: the card lay Set (face-down) in its zone until now, so its copy turns from the sleeve to the face. */
+  wasSet?: boolean;
   /** The 3D layer draws the break of this card (shards and flash), so the DOM only holds the ghost. */
   claim3d?: boolean;
   /** Set when the WebGL layer draws this heavy or typed summon. */
@@ -660,6 +662,7 @@ function ActivateFx({ item, overlay, done }: EffectProps) {
   const anchor = useAnchor();
   const edge = useRef<HTMLSpanElement>(null);
   const ghost = useRef<HTMLDivElement>(null);
+  const sleeve = useRef<HTMLSpanElement>(null);
   const chain = item.event.chainIndex != null;
   useEffectSetup(overlay, item, item.activationHoldMs == null && item.event.zone?.location === LOCATION_SZONE ? () => {} : done, ({ track, zone, geo }) => {
     if (anchor.current) placeAnchor(anchor.current, geo);
@@ -672,23 +675,40 @@ function ActivateFx({ item, overlay, done }: EffectProps) {
       const activationMs = item.reduced ? CARD_FX.reducedEffectMs : CARD_FX.activationMs;
       const total = Math.max(activationMs, item.activationHoldMs ?? 0);
       const flips = flat && !item.plan && !item.reduced;
-      const initialTransform = flips ? "perspective(520px) rotateY(84deg)" : "none";
+      // A card that flew in from the hand was showing its face the whole way: its copy is whole from the first frame and
+      // the real card stays in its zone. Fading the copy in over a hidden card left the zone blank for a moment.
+      const arrived = item.plan != null;
+      // A Set card is already face-up on the board when its activation plays: its copy shows the sleeve first and turns it
+      // over in place, over the hidden real card. Under reduced motion the face shows from the first frame.
+      const sleeved = item.wasSet === true && !arrived && flips;
+      const initialTransform = flips && !sleeved ? "perspective(520px) rotateY(84deg)" : "none";
       const finalTransform = flips ? "perspective(520px) rotateY(0deg)" : "none";
       // The face turns over fast, then stays up (CARD_FX.activationFaceMs) and fades in the last part of it.
       const flipAt = item.reduced ? 0.4 * activationMs / total : CARD_FX.activationFlipMs / total;
       const fadeAt = (activationMs - (item.reduced ? 0.25 * activationMs : CARD_FX.activationFadeMs)) / total;
-      const frames: Keyframe[] = item.activationHoldMs ? [
-        { opacity: 0, transform: initialTransform },
+      const turnAt = flipAt / 2;
+      const turned: Keyframe[] = sleeved ? [
+        { opacity: 1, transform: "perspective(520px) rotateY(0deg)" },
+        { opacity: 1, transform: "perspective(520px) rotateY(84deg)", offset: turnAt },
+        { opacity: 1, transform: "perspective(520px) rotateY(-84deg)", offset: turnAt },
         { opacity: 1, transform: finalTransform, offset: flipAt },
-        { opacity: 1, offset: 0.9999 }, { opacity: 0 },
-      ] : [{ opacity: 0, transform: initialTransform }, { opacity: 1, transform: finalTransform, offset: flipAt }, { opacity: 1, offset: fadeAt }, { opacity: 0 }];
+      ] : [{ opacity: 1, transform: initialTransform }, { opacity: 1, transform: finalTransform, offset: flipAt }];
+      const frames: Keyframe[] = item.activationHoldMs ? [
+        ...turned, { opacity: 1, offset: 0.9999 }, { opacity: 0 },
+      ] : [...turned, { opacity: 1, offset: fadeAt }, { opacity: 0 }];
       track.play(ghost.current, frames, {
         duration: total,
         delay: d,
-        easing: "cubic-bezier(0.25, 0.8, 0.3, 1)",
+        easing: sleeved ? "linear" : "cubic-bezier(0.25, 0.8, 0.3, 1)",
+        // A card still flying in from the hand must not also show its copy in the zone: the copy starts when it lands.
+        ...(arrived ? { fill: "forwards" as const } : {}),
       });
-      // A copy survives the source node disappearing in a later response snapshot.
-      if (art?.querySelector(`img[src*="/cards/${item.card?.code}/image"]`)) holdHidden(track, zone, Math.max(0, d + total));
+      if (sleeved) track.play(sleeve.current, [{ opacity: 1 }, { opacity: 1, offset: turnAt }, { opacity: 0, offset: turnAt }, { opacity: 0 }], { duration: total, delay: d, easing: "linear" });
+      // The real card is already face-up: hide it under the copy, which covers the zone from its first frame. A copy that
+      // fades out gives the card back as its fade starts, so it fades over the same face, not over an empty zone; a copy
+      // held for a handoff drops at once when the card leaves, so the card stays hidden to the end.
+      const coveredMs = item.activationHoldMs ? total : fadeAt * total;
+      if (item.wasSet === true && !arrived && art?.querySelector(`img[src*="/cards/${item.card?.code}/image"]`)) holdHidden(track, zone, Math.max(0, d + coveredMs));
     }
     if (item.reduced) track.play(edge.current, [{ opacity: 0 }, { opacity: 1, offset: 0.25 }, { opacity: 0 }], { duration: CARD_FX.reducedEffectMs, delay: d });
     else pulseRing(track, edge.current, d + 80, { grow: 1.16, duration: 700, peak: 1 });
@@ -699,6 +719,7 @@ function ActivateFx({ item, overlay, done }: EffectProps) {
       {item.card ? (
         <div ref={ghost} className={styles.flipGhost}>
           <img className={styles.ghostArt} src={cardArtUrl(item.card.code, "small")} alt="" draggable={false} />
+          {item.wasSet === true && item.plan == null && !item.reduced ? <span ref={sleeve} className={styles.destroySleeve} /> : null}
         </div>
       ) : null}
     </div>
@@ -2122,6 +2143,26 @@ function planKind(event: DuelEvent, fresh: readonly DuelEvent[]): { kind: FxKind
   }
 }
 
+/**
+ * Keeps `zones` as the Spell/Trap zones where a card lies Set. An activation of such a card is added to `activated`
+ * (its zone stops being Set). A card that left the zone, or was put there to activate, is not Set.
+ */
+function trackSetZones(zones: Set<string>, event: DuelEvent, activated: Set<number>): void {
+  const key = (zone: DuelZoneRef | undefined) => (zone && zone.location === LOCATION_SZONE ? zoneKey(zone.controller, zone.location, zone.sequence) : null);
+  const at = key(event.zone);
+  if (event.kind === "set" && at) zones.add(at);
+  else if (event.kind === "activate" && at) {
+    if (zones.delete(at)) activated.add(event.id);
+  } else if (event.kind === "move") {
+    const from = key(event.from);
+    if (from) zones.delete(from);
+    if (at) {
+      if (event.faceDown === true && event.reason !== "activate") zones.add(at);
+      else zones.delete(at);
+    }
+  } else if (event.kind === "destroy" && at) zones.delete(at);
+}
+
 export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const [items, setItems] = useState<FxItem[]>([]);
@@ -2130,6 +2171,8 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
   const keyRef = useRef(duelKey);
   const heavyFreeAtRef = useRef(0);
   const seqRef = useRef(0);
+  // Spell/Trap zones where a card lies Set, learned from the events: its activation turns the sleeve over.
+  const setZonesRef = useRef(new Set<string>());
   const prefsRef = useRef({ reducedMotion, shake });
   prefsRef.current = { reducedMotion, shake };
   // The WebGL layer loads while the room is idle; its ref is null until the canvas can draw.
@@ -2150,15 +2193,21 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
       keyRef.current = duelKey;
       cursorRef.current = null;
       heavyFreeAtRef.current = 0;
+      setZonesRef.current.clear();
       setItems([]);
     }
     if (cursorRef.current == null) {
       cursorRef.current = maxEventId(events) ?? 0;
+      // Cards Set before this page loaded are known from the history the room still holds.
+      for (const event of collectFreshEvents(events, 0).fresh) trackSetZones(setZonesRef.current, event, new Set());
       return;
     }
     const { nextCursor, fresh } = collectFreshEvents(events, cursorRef.current);
     cursorRef.current = nextCursor;
     if (fresh.length === 0) return;
+    // Set zones follow every event, also those of a hidden tab, which plays no effects.
+    const setDown = new Set<number>();
+    for (const event of fresh) trackSetZones(setZonesRef.current, event, setDown);
     if (typeof document !== "undefined" && document.hidden) return;
 
     const now = typeof performance !== "undefined" ? duelFxClock.now() : 0;
@@ -2228,6 +2277,7 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
         claim3d,
         three,
         activationAt: kind === "activate" ? now + delayMs : undefined,
+        wasSet: setDown.has(event.id) || undefined,
       };
       planned.push(base);
       if (strength > 0 && !base.reduced) {
