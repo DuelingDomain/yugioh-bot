@@ -1,9 +1,9 @@
 if not aux.MPForEachDuelist then return end
--- Dangerous Machine Type-6: the die is rolled in the operation and four results act on "your opponent": 2 the hand (discard), 4 the Deck
--- (draw), 5 the monsters (destroy), 6 nothing. The hand and the draw are R-COMMON-OPP-PICK: the owner picks one opponent when the effect
--- is put on the chain (before the die is rolled), so the target step asks for the pick (aux.MPPick). The operation then reads the bound
--- opponent. A late pick inside the operation is not allowed (trap c). The destroy (result 5) is the field of "your opponent" and stays
--- stock: it chooses among the monsters of every opponent (R-COMMON-OPP-FIELD). Results 1 and 3 (own discard, own draw) and the
--- destroy of the card itself (6) do not read an opponent.
+-- Dangerous Machine Type-6: the die is rolled in the operation; results 2 (opponent discards), 4 (opponent draws) and 5 (destroy an
+-- opponent monster) need an opponent. The owner declares one when the effect is put on the chain, BEFORE the die is rolled
+-- (R-COMMON-OPP-PICK), so the target step requests the pick (aux.MPPick). Results 2 and 4 use that bound duelist.
+-- In FFA, result 5 selects only from the declared opponent's monsters (R-FFA-OPP-ONE), never every opponent's field.
+-- Tag keeps its stock joined opposing field for result 5; the chosen opponent's partner can supply the destroyed monster.
+-- Results 1 and 3 (own discard, own draw) and the destruction of this card itself (6) do not read an opponent.
 local stock_target=s.target
 s.target=aux.MPPick(stock_target)

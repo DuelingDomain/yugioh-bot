@@ -54,7 +54,7 @@ describe("check-legacy-pin.sh", () => {
     expect(run.stderr).toContain("is missing");
   });
 
-  it("the committed pin file agrees with the shas in the legacy README (main's files)", () => {
+  it("the committed pin file agrees with the shas in the legacy README (the approved legacy pin)", () => {
     const pins = Object.fromEntries(readFileSync(pinFile, "utf8").trim().split("\n").map((line) => {
       const [value, name] = line.split(/\s+/);
       return [name, value];

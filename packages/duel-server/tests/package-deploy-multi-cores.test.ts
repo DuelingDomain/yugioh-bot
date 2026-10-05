@@ -43,6 +43,9 @@ function fixture() {
   }
   const git = (...args: string[]) => execFileSync("git", args, { cwd: work, stdio: "pipe" }).toString().trim();
   git("init", "-q");
+  // The fixture is disposable. Background maintenance can race afterEach while it removes .git/objects.
+  git("config", "maintenance.auto", "false");
+  git("config", "gc.auto", "0");
   git("add", ".");
   git("-c", "user.name=Deploy test", "-c", "user.email=deploy-test@example.invalid", "commit", "-qm", "fixture");
   return { work, bundle, script, deployedBy: git("rev-parse", "HEAD") };

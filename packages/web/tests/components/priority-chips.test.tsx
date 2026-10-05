@@ -9,24 +9,38 @@ afterEach(cleanup);
 const seats = [{ seat: 0 }, { seat: 1 }, { seat: 2 }];
 
 describe("priorityOrder", () => {
-  it("opens with the turn player and goes clockwise", () => {
-    expect(priorityOrder(seats, 1, [{ seat: 0 }], null).map((slot) => slot.seat)).toEqual([1, 2, 0]);
+  it("opens with the turn player and goes clockwise when the chain is empty", () => {
+    expect(priorityOrder(seats, 1, [], null).map((slot) => slot.seat)).toEqual([1, 2, 0]);
   });
 
-  it("opens with the next seat when the turn player made the last link", () => {
+  it("opens with the first seat after the last link and that activator answers last", () => {
+    expect(priorityOrder(seats, 0, [{ seat: 1 }], null).map((slot) => slot.seat)).toEqual([2, 0, 1]);
     expect(priorityOrder(seats, 1, [{ seat: 0 }, { seat: 1 }], null).map((slot) => slot.seat)).toEqual([2, 0, 1]);
+  });
+
+  it("follows the last link in a four seat chain", () => {
+    const four = [{ seat: 0 }, { seat: 1 }, { seat: 2 }, { seat: 3 }];
+    expect(priorityOrder(four, 0, [{ seat: 0 }], null).map((slot) => slot.seat)).toEqual([1, 2, 3, 0]);
+    expect(priorityOrder(four, 0, [{ seat: 0 }, { seat: 1 }], null).map((slot) => slot.seat)).toEqual([2, 3, 0, 1]);
+  });
+
+  it("leaves out a last activator who left and starts after them", () => {
+    const four = [{ seat: 0 }, { seat: 1 }, { seat: 2, eliminated: true }, { seat: 3 }];
+    expect(priorityOrder(four, 0, [{ seat: 0 }, { seat: 2 }], null).map((slot) => slot.seat)).toEqual([3, 0, 1]);
+    const leaving = [{ seat: 0 }, { seat: 1 }, { seat: 2 }, { seat: 3, pendingElimination: true }];
+    expect(priorityOrder(leaving, 0, [{ seat: 3 }], null).map((slot) => slot.seat)).toEqual([0, 1, 2]);
   });
 
   it("skips a seat that left, and starts after a turn player who left", () => {
     const left = [{ seat: 0 }, { seat: 1, eliminated: true }, { seat: 2 }];
     expect(priorityOrder(left, 0, [{ seat: 2 }], null).map((slot) => slot.seat)).toEqual([0, 2]);
-    expect(priorityOrder(left, 1, [{ seat: 0 }], null).map((slot) => slot.seat)).toEqual([2, 0]);
+    expect(priorityOrder(left, 1, [], null).map((slot) => slot.seat)).toEqual([2, 0]);
   });
 
   it("skips a seat that is leaving, also when it is the turn player", () => {
     const leaving = [{ seat: 0 }, { seat: 1, pendingElimination: true }, { seat: 2 }];
     expect(priorityOrder(leaving, 0, [{ seat: 2 }], null).map((slot) => slot.seat)).toEqual([0, 2]);
-    expect(priorityOrder(leaving, 1, [{ seat: 0 }], null).map((slot) => slot.seat)).toEqual([2, 0]);
+    expect(priorityOrder(leaving, 1, [], null).map((slot) => slot.seat)).toEqual([2, 0]);
   });
 
   it("lights the seat that is choosing", () => {

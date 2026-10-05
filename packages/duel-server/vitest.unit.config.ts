@@ -87,6 +87,8 @@ const NEEDS_ENGINE = [
   "tests/scenarios/multiplayer/action-seat.test.ts",
   "tests/scenarios/multiplayer/owner-seat.test.ts",
   "tests/domain-nseat-stress-fuzz-stall.test.ts",
+  // Deck Master core rule tests read card scripts through tests/domain/helpers.ts
+  "tests/domain/**",
   // main's engine tests, run against the legacy 1v1 engine (src/legacy): a Standard or Domain core each
   "tests/legacy-main/**",
 ];

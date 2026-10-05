@@ -139,19 +139,19 @@ The build uses the same inputs as the engine session:
 - `domain-core/pins.json`: ygopro-core `efc21aa433b88cd35b7c37db4072a35c58d9d435`, wrapper source
   `9f36452f2a2464f057f7fd6e2273aa5ab589401e`, Lua `75ea9ccbea7c4886f30da147fb67b693b2624c26`,
   and emsdk `4.0.9` at digest `sha256:3c853ef9c3b4c2708da1adac2fdfdba49c775fdc4144ceef4989423963e96811`.
-- All numbered patches in `domain-core/patches` (currently 0001–0084 plus 0105; 85 patches). No experimental patches or
-  `PATCH_LIMIT`. The current series hash is `5621592465aed17c41ea29d33374a91540118d22867d862c01d497f688b02642`.
+- All numbered patches in `domain-core/patches` (currently 0001–0084, 0090, 0100 and 0105; 87 patches). No experimental patches or
+  `PATCH_LIMIT`. The current series hash is `daf8bda9cda377fa6c42f8dfe7fc7278f1d69aa8de4eaadd80c6e5bf926547e0`.
 - Domain additionally uses `APPLY_DOMAIN=1 DOMAIN_MULTI=1`, the existing Domain patch, `domain_master.cpp`
   and `apply-domain-multi.mjs`. The current multi layer hash is
-  `cf5100707bce7701cb0be0ac4a8ff47308a13b278174f03c157f2f2e46dd849a`.
+  `06d5cfbfba8719eb5fe0b3b0eb211a6264d96bb295a8669fe0680969c1822bb8`.
 
-The 85-patch CI builds use `LUA_FIXED_SEED=1` with the pinned image above. Their verified hashes are:
+The 87-patch CI builds use `LUA_FIXED_SEED=1` with the pinned image above. Both multiplayer cores were rebuilt for the combined 2026-10-04 FFA response-order, card-rulings, Deck Master and facing-seat changes with the CI compiler adapter, the shared build lock and `EMCC_CORES=2`. The rebuilt pinned Domain 1v1 control retains main's hash; the legacy Domain 1v1 pin is unchanged from main. Their verified hashes are:
 
 | CI core | SHA-256 |
 | --- | --- |
-| Standard multiplayer | `5c34495d538d28a193fa9c2580fccdc539c3c1367b4a1e428ac126662831fa71` |
-| Domain multiplayer | `242fab7f4394faa44f8a6ba680fbc51673fbcecd5ad77e3bdef5cf365b8c6d0d` |
-| Domain 1v1 (unchanged) | `16f60edf2c1e246886d1962fad32238fde0dd969c36bc959251df488c83aefc7` |
+| Standard multiplayer | `b52de685be2a8834651dc53fcbf2a7cf7802e587f810000120f83fa22e53aca1` |
+| Domain multiplayer | `0abcfdc436ee958711b023355cb76d3eb01d69fc7471c22e08fb331ecd96380d` |
+| Domain 1v1 | `01611db77c00ddef07a3d4cfc88800f5c523e3a388c3732616a79fa19b3c4a63` |
 
 Deploys omit `LUA_FIXED_SEED`; the differential test workflow uses it. The multi cache keys include all
 build/packaging scripts, pins, patches and Domain sources. Each cache stores both WASMs and their

@@ -53,7 +53,7 @@ describe("MANIFEST.json of the overlay", () => {
     expect(files).toEqual(cards.map((card) => card.file).sort());
   });
 
-  it("has no problem in the lists and counts (54 compare, 44 chooser, 7 whole)", () => {
+  it("has no problem in the lists and counts (54 compare, 77 chooser, 7 whole)", () => {
     expect(checkLists(manifest, null)).toEqual([]);
     expect(cards.filter((card) => card.classes.includes("COMPARE"))).toHaveLength(EXPECTED_COUNTS.compare);
     expect(cards.filter((card) => card.classes.includes("CHOOSER") && !COMPARE_EXTRA.includes(card.code))).toHaveLength(EXPECTED_COUNTS.chooser);
@@ -435,7 +435,7 @@ describeWithCores("the overlay against the stock scripts", stock, () => {
 });
 
 describeWithCores("the overlay against the triage file", triageNeed, () => {
-  it("the lists equal the triage (COMPARE 54, CHOOSER 44, R1 93)", () => {
+  it("the lists equal the triage (COMPARE 54, CHOOSER 77, R1 93)", () => {
     const triage = readTriage();
     expect(triage).not.toBeNull();
     expect(checkLists(manifest, triage)).toEqual([]);

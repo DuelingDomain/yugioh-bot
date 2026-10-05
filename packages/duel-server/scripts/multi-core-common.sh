@@ -7,7 +7,7 @@
 
 ROOT="${DOMAIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
 PKG="$ROOT/packages/duel-server"
-DIST="$PKG/domain-core/dist"
+DIST="${MULTI_DIST:-$PKG/domain-core/dist}"
 CACHE="$PKG/domain-core/.build"
 PINS="$PKG/domain-core/pins.json"
 PATCHES="$PKG/domain-core/patches"

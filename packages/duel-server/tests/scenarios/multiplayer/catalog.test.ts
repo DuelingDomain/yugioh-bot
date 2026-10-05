@@ -307,6 +307,18 @@ describe("multiplayer card catalog", () => {
     expect(problems).toEqual([]);
   });
 
+  it("keeps the core's resolution picker summary aligned with the reviewed Lua helper", () => {
+    const helper = linesOf("overlay/mp-utility.lua");
+    const start = helper.findIndex((line) => line === "function aux.MPChooseOpponent(tp)");
+    const finish = helper.findIndex((line, index) => index > start && line === "end");
+    const patch = readFileSync(join(overlay, "../patches/0100-resolution-opponent-decisions.patch"), "utf8");
+    const summary = patch.slice(patch.indexOf("inline bool resolution_opponent_picker"));
+    const span = summary.match(/p->linedefined==(\d+) && p->lastlinedefined==(\d+)/);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(span).not.toBeNull();
+    expect([start + 1, finish + 1]).toEqual(span!.slice(1).map(Number));
+  });
+
   it("cites only scripts of the card itself for the card-owned evidence", () => {
     const wrong = SCENARIOS.flatMap((s) =>
       s.evidence.filter((item) => item.file.startsWith("official/") && item.file !== `official/c${s.code}.lua`).map(() => s.card),

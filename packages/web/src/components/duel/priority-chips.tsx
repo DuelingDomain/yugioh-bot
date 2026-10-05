@@ -8,8 +8,9 @@ export type PrioritySlot = { seat: number; choosing: boolean };
 type SeatLike = { seat: number; eliminated?: boolean; pendingElimination?: boolean };
 
 /**
- * Who may answer the open chain, in order. After a link the turn player answers first and the others follow clockwise;
- * when the turn player made the last link, the next seat answers first. Seats that left the duel or are leaving are skipped.
+ * Who may answer the open chain, in order. With no chain link the turn player answers first and the others follow
+ * clockwise. After a link, the first living seat after the seat that added the last link answers first, the others
+ * follow clockwise, and that activator answers last. Seats that left the duel or are leaving are skipped.
  * `choosingSeat` is the seat with the open chain prompt, or null when nobody is being asked.
  */
 export function priorityOrder(
@@ -20,12 +21,17 @@ export function priorityOrder(
 ): PrioritySlot[] {
   const alive = [...seats].filter((view) => view.eliminated !== true && view.pendingElimination !== true).map((view) => view.seat).sort((a, b) => a - b);
   if (alive.length === 0) return [];
-  const turnAt = alive.indexOf(turnSeat);
   const last = chain[chain.length - 1];
-  // The turn player may have left; the next living seat after theirs then opens.
-  let start = turnAt >= 0 ? turnAt : alive.findIndex((seat) => seat > turnSeat);
+  let start: number;
+  if (last != null) {
+    // The last activator may have left; the next living seat after theirs still opens, and they are left out.
+    start = alive.findIndex((seat) => seat > last.seat);
+  } else {
+    // The turn player may have left; the next living seat after theirs then opens.
+    const turnAt = alive.indexOf(turnSeat);
+    start = turnAt >= 0 ? turnAt : alive.findIndex((seat) => seat > turnSeat);
+  }
   if (start < 0) start = 0;
-  if (last != null && alive[start] === last.seat) start = (start + 1) % alive.length;
   return alive.map((_, k) => alive[(start + k) % alive.length]).map((seat) => ({ seat, choosing: seat === choosingSeat }));
 }
 
