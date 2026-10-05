@@ -47,6 +47,9 @@ export interface HoloLpProps {
   reducedMotion: boolean;
 }
 
+/** A fitted panel scaled below this drops its counts row and its clock. */
+export const COMPACT_FIT = 0.6;
+
 const STATE_LABEL: Partial<Record<SeatStatus, string>> = {
   leaving: "Leaving",
   eliminated: "Eliminated",
@@ -165,6 +168,7 @@ export function HoloLp({
       data-beam={beam}
       data-floating={floating ? "true" : undefined}
       data-fit={fit != null ? "true" : undefined}
+      data-compact={fit != null && fit < COMPACT_FIT ? "true" : undefined}
       data-status={status}
       onMouseEnter={legal ? () => onHover?.(true) : undefined}
       onMouseLeave={legal ? () => onHover?.(false) : undefined}
