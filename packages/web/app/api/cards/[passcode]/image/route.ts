@@ -2,19 +2,30 @@ import { NextResponse } from "next/server";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { callDuelHost, requireDuelActor } from "@/lib/duel-host";
+import { getDb } from "@/lib/db";
 
 export const runtime = "nodejs";
 
 const CACHE_DIR = process.env.CARD_IMAGE_CACHE_DIR ?? "./data/card-images";
 const YGOPRODECK_IMAGE_URL = "https://images.ygoprodeck.com/images/cards";
 const YGOPRODECK_SMALL_URL = "https://images.ygoprodeck.com/images/cards_small";
+const YGOPRODECK_CROPPED_URL = "https://images.ygoprodeck.com/images/cards_cropped";
+type ImageVariant = "full" | "small" | "cropped";
+type ArtworkRow = { card_id: number; image_url: string; image_url_small: string; image_url_cropped: string | null };
+
+function artworkOf(passcode: number): ArtworkRow | undefined {
+  return getDb().prepare("select card_id, image_url, image_url_small, image_url_cropped from card_artworks where artwork_id = ?")
+    .get(passcode) as ArtworkRow | undefined;
+}
 
 class ImageMissingError extends Error {}
 
 /** The image for one passcode from YGOPRODeck, or null when YGOPRODeck has none. */
-async function fetchImage(passcode: number, size: "full" | "small"): Promise<Buffer | null> {
-  const baseUrl = size === "small" ? YGOPRODECK_SMALL_URL : YGOPRODECK_IMAGE_URL;
-  const response = await fetch(`${baseUrl}/${passcode}.jpg`);
+async function fetchImage(passcode: number, variant: ImageVariant): Promise<Buffer | null> {
+  const artwork = artworkOf(passcode);
+  const baseUrl = variant === "cropped" ? YGOPRODECK_CROPPED_URL : variant === "small" ? YGOPRODECK_SMALL_URL : YGOPRODECK_IMAGE_URL;
+  const storedUrl = variant === "cropped" ? artwork?.image_url_cropped : variant === "small" ? artwork?.image_url_small : artwork?.image_url;
+  const response = await fetch(storedUrl || `${baseUrl}/${passcode}.jpg`);
   if (response.status === 404) return null;
   if (!response.ok) {
     throw new Error(`Failed to fetch card image: ${response.status}`);
@@ -28,6 +39,8 @@ async function fetchImage(passcode: number, size: "full" | "small"): Promise<Buf
  * but its alias (the Ritual Monster, 5405694) does.
  */
 async function aliasOf(passcode: number): Promise<number | null> {
+  const artwork = artworkOf(passcode);
+  if (artwork && artwork.card_id !== passcode) return artwork.card_id;
   const actor = await requireDuelActor();
   if (!actor.ok) return null;
   const result = await callDuelHost({ op: "card-details", guildId: actor.guildId, playerId: actor.playerId, codes: [passcode] });
@@ -39,20 +52,20 @@ async function aliasOf(passcode: number): Promise<number | null> {
 
 async function getCachedImage(
   passcode: number,
-  size: "full" | "small"
+  variant: ImageVariant
 ): Promise<Buffer> {
   await mkdir(CACHE_DIR, { recursive: true });
 
-  const filename = size === "small" ? `${passcode}-small.jpg` : `${passcode}.jpg`;
+  const filename = variant === "full" ? `${passcode}.jpg` : `${passcode}-${variant}.jpg`;
   const cachePath = join(CACHE_DIR, filename);
 
   try {
     return await readFile(cachePath);
   } catch {
-    let image = await fetchImage(passcode, size);
+    let image = await fetchImage(passcode, variant);
     if (!image) {
       const alias = await aliasOf(passcode);
-      if (alias != null) image = await fetchImage(alias, size);
+      if (alias != null) image = await fetchImage(alias, variant);
     }
     if (!image) throw new ImageMissingError(`No card image for ${passcode}`);
 
@@ -71,11 +84,14 @@ export async function GET(
       return NextResponse.json({ error: "Invalid card passcode" }, { status: 400 });
     }
     const { searchParams } = new URL(request.url);
-    const size = searchParams.get("size") === "small" ? "small" : "full";
+    const variant = searchParams.get("variant") ?? (searchParams.get("size") === "small" ? "small" : "full");
+    if (variant !== "full" && variant !== "small" && variant !== "cropped") {
+      return NextResponse.json({ error: "Invalid image variant" }, { status: 400 });
+    }
 
-    const image = await getCachedImage(Number(raw), size);
+    const image = await getCachedImage(Number(raw), variant);
 
-    return new Response(image.buffer as ArrayBuffer, {
+    return new Response(new Uint8Array(image), {
       headers: {
         "Content-Type": "image/jpeg",
         "Cache-Control": "public, max-age=86400, immutable",
