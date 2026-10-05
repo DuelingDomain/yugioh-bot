@@ -117,7 +117,12 @@ describe("cube API routes", () => {
   it("imports a YDK file into a cube, merging copies and reporting unknown passcodes", async () => {
     await setupDb();
     // The catalog asks ygoprodeck about a passcode it does not know; answer with no card.
-    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ data: [] })));
+    const discordFetch = globalThis.fetch;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
+      String(input).includes("ygoprodeck") ? Response.json({
+        error: "No card matching your query was found in the database. Please see https://db.ygoprodeck.com/api-guide/ for syntax usage.",
+      }, { status: 400 }) : discordFetch(input, init),
+    ));
     const { POST: createCube } = await import("../app/api/cubes/route");
     const created = await createCube(
       new Request("http://x", { method: "POST", body: JSON.stringify({ kind: "blank", name: "Imported" }) }) as any,
@@ -199,7 +204,9 @@ describe("cube API routes", () => {
       vi.stubGlobal(
         "fetch",
         vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
-          String(input).includes("ygoprodeck") ? new Response("{}", { status: 400 }) : discordFetch(input, init),
+          String(input).includes("ygoprodeck") ? Response.json({
+            error: "No card matching your query was found in the database. Please see https://db.ygoprodeck.com/api-guide/ for syntax usage.",
+          }, { status: 400 }) : discordFetch(input, init),
         ),
       );
       const res = await post({ op: "importYdk", text: "#main\n1\n777\n#extra\n2\n888\n" });

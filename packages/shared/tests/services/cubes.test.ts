@@ -174,7 +174,9 @@ describe("cube service core", () => {
         fetch: async (input) => {
           calls.push(String(input));
           if (failure === "offline") throw new Error("fetch failed");
-          return { ok: false, status: 400, async json() { return { error: "No card matching your query" }; } } as Response;
+          return Response.json({
+            error: "No card matching your query was found in the database. Please see https://db.ygoprodeck.com/api-guide/ for syntax usage.",
+          }, { status: 400 });
         },
       });
       seedCard(db, 1, "Main A", "Normal Monster", "normal");
