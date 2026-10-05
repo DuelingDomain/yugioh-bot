@@ -506,6 +506,18 @@
   background: rgb(9 15 29);
 }
 .masterFly > * { flex: none; }
+/* The second plate is small and high in the right margin: its details hang below it, outside the plate (the plate
+   lets them out; 9px is its padding and border). */
+.masterWrap[data-slot="other"] .master { overflow: visible; }
+.masterWrap[data-slot="other"] .masterFly {
+  inset: calc(100% + 19px) -9px auto;
+  overflow: visible;
+  padding: 8px 8px 10px;
+  border: 1px solid rgb(155 126 255 / 0.55);
+  border-radius: 14px;
+  background: rgb(9 15 29 / 0.97);
+  box-shadow: 0 24px 60px -12px rgb(0 0 0 / 0.8);
+}
 .masterFly header { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
 .masterFly header b { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--duel-pen-ink); }
 .masterFlyName { margin: 2px 0 0; font-size: 13px; font-weight: 600; line-height: 1.2; }
