@@ -96,6 +96,18 @@ const overlap = (a: GridRect, b: GridRect) =>
   Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
 
 /**
+ * The size unit (px) of the modal prompts (option and effect lists, yes/no, card grid, positions, numbers, chain list)
+ * in the 4-way grid: it follows the height of YOUR pair, so a prompt keeps to about one row band of the board on a small
+ * screen. The finale board is larger than a pair, so it uses a larger divisor and its prompts do not grow with it. The
+ * pick bar keeps the room unit (its look at 1920x1080 is the reference).
+ */
+export function promptUnit(height: number, finale: boolean): number {
+  const unit = height / (finale ? PROMPT_UNIT.finale : PROMPT_UNIT.pair);
+  return Math.round(Math.min(PROMPT_UNIT.max, Math.max(PROMPT_UNIT.min, unit)) * 100) / 100;
+}
+export const PROMPT_UNIT = { pair: 680, finale: 820, min: 0.72, max: 1.15 } as const;
+
+/**
  * The room of the pick bar (zone and card picks on the board) in YOUR pair, as "x,y,width,height" for `data-bar-room`:
  * as near the middle of the pair as it can be (the band between the two fields, as in the 1v1 room), and never over a
  * target. `pair` is the frame of your pair (or the finale board, or the pair a spectator looks at); `targets` are the
@@ -445,6 +457,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
         ["--pr-cy" as string]: `${Math.round(promptPair.y + promptPair.height / 2)}px`,
         ["--pr-w" as string]: `${Math.round(promptPair.width)}px`,
         ["--pr-h" as string]: `${Math.round(promptPair.height)}px`,
+        ["--pr-unit" as string]: `${promptUnit(promptPair.height, finale != null)}px`,
       } as CSSProperties)
     : undefined;
 
@@ -715,7 +728,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
         </button>
       </div>
       {fx ? <div className={styles.slot} data-slot="fx">{fx}</div> : null}
-      {promptCenter ? <div className={styles.slot} data-slot="prompt" data-seat-pick={picks ? "true" : undefined} data-prompt-pair={promptPair ? promptColumn ?? undefined : undefined} style={promptStyle}>{promptCenter}</div> : null}
+      {promptCenter ? <div className={styles.slot} data-slot="prompt" data-seat-pick={picks ? "true" : undefined} data-prompt-pair={promptPair ? promptColumn ?? undefined : undefined} data-prompt-dense={promptPair ? "true" : undefined} style={promptStyle}>{promptCenter}</div> : null}
       {overlay ? <div className={styles.slot} data-slot="overlay">{overlay}</div> : null}
     </div>
   );

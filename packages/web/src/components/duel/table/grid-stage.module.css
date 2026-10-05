@@ -170,30 +170,54 @@
  * may cover the middle of that pair; the pick bar places itself from `data-bar-room` (off every target) and the
  * tribute dock by your hand.
  */
+/*
+ * The modal prompts take the pair unit (grid-stage.tsx sets --pr-unit from the pair height), so they keep to about one
+ * row band of the board on a small screen. The type steps are set again here because the room set them from its own
+ * unit; text stays 12px or more. The pick bar ([data-place]) keeps the room unit.
+ */
+.slot[data-slot="prompt"][data-prompt-dense] :global([data-prompt-panel]) {
+  --duel-unit: var(--pr-unit, 1px);
+  --duel-t-xs: max(12px, calc(11 * var(--duel-unit)));
+  --duel-t-sm: max(12px, calc(12 * var(--duel-unit)));
+  --duel-t-body: max(12px, calc(13 * var(--duel-unit)));
+  --duel-t-head: max(13px, calc(15 * var(--duel-unit)));
+  --pc-title: clamp(14px, calc(17 * var(--duel-unit)), 20px);
+  --pc-sub: clamp(12px, calc(13.5 * var(--duel-unit)), 15px);
+}
+
 .slot[data-slot="prompt"] :global([data-prompt-panel][data-precheck]) {
   inset: var(--pr-cy, 50%) auto auto var(--pr-cx, 50%);
   translate: -50% -50%;
   width: max-content;
   min-width: 0;
-  max-width: min(440px, calc(var(--pr-w, 100%) - 24px));
+  max-width: min(max(360px, calc(400 * var(--duel-unit))), calc(var(--pr-w, 100%) - 24px));
+  gap: calc(10 * var(--duel-unit)) calc(12 * var(--duel-unit));
+  padding: calc(8 * var(--duel-unit)) calc(12 * var(--duel-unit));
 }
 
 .slot[data-slot="prompt"] :global([data-prompt-panel]:not([data-precheck])) {
   inset: var(--pr-cy, 50%) auto auto var(--pr-cx, 50%);
   translate: -50% -50%;
   margin: 0;
-  width: min(560px, calc(var(--pr-w, 100%) - 24px));
+  width: min(calc(440 * var(--duel-unit)), calc(var(--pr-w, 100%) - 24px));
   max-height: min(calc(var(--pr-h, 100%) - 16px), calc(100% - 24px));
 }
 
 .slot[data-slot="prompt"] :global([data-prompt-panel][data-wide="true"]:not([data-precheck])) {
-  width: min(640px, calc(var(--pr-w, 100%) - 24px));
+  width: min(calc(520 * var(--duel-unit)), calc(var(--pr-w, 100%) - 24px));
 }
 
 .slot[data-slot="prompt"] :global([data-prompt-surface]:not([data-prompt-panel], [data-place])) {
   inset: var(--pr-cy, 50%) auto auto var(--pr-cx, 50%);
   translate: -50% -50%;
   margin: 0;
+}
+
+/* A card strip is as wide as its cards need, never wider than the pair. */
+.slot[data-slot="prompt"] :global([data-prompt-panel][data-strip="true"]:not([data-precheck])) {
+  width: fit-content;
+  min-width: min(calc(300 * var(--duel-unit)), calc(var(--pr-w, 100%) - 24px));
+  max-width: calc(var(--pr-w, 100%) - 24px);
 }
 
 /* Seat choices are narrow: the life plates (the targets) sit above and below the pairs, so the middle leaves them free. */
@@ -203,7 +227,7 @@
 
 /* Expanded responses (the chain list) are narrower than a card grid. */
 .slot[data-slot="prompt"]:not([data-seat-pick]) :global([data-prompt-panel][data-tone="chain"]:not([data-precheck])) {
-  width: min(400px, calc(var(--pr-w, 100%) - 24px));
+  width: min(calc(360 * var(--duel-unit)), calc(var(--pr-w, 100%) - 24px));
   min-width: 0;
 }
 

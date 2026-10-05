@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { pickBarRoom } from "../src/components/duel/table/grid-stage";
+import { pickBarRoom, promptUnit } from "../src/components/duel/table/grid-stage";
 
 const rect = (x: number, y: number, width: number, height: number) => ({ x, y, width, height });
 const room = (value: string | undefined) => value?.split(",").map(Number);
@@ -74,5 +74,30 @@ describe("grid prompt placement", () => {
     const source = readFileSync(join(__dirname, "../src/components/duel/table/grid-stage.tsx"), "utf8");
     expect(source).toMatch(/"--pr-cx"/);
     expect(source).toMatch(/data-slot="prompt"[^>]*style=\{promptStyle\}/);
+  });
+});
+
+// The modal prompts take a unit from the pair height, so they stay small on a small screen and on the finale board.
+describe("promptUnit", () => {
+  it("follows the pair height between the floor and the cap", () => {
+    expect(promptUnit(746, false)).toBe(1.1); // 1920x1080 pair
+    expect(promptUnit(520, false)).toBe(0.76); // 1280x800 pair
+    expect(promptUnit(300, false)).toBe(0.72);
+    expect(promptUnit(2000, false)).toBe(1.15);
+  });
+
+  it("is smaller on the finale board than on a pair of the same height", () => {
+    expect(promptUnit(746, true)).toBeLessThan(promptUnit(746, false));
+  });
+
+  it("is set on the slot, and the dense rules keep rows and buttons 32px or more and text 12px or more", () => {
+    const grid = readFileSync(join(__dirname, "../src/components/duel/table/grid-stage.module.css"), "utf8");
+    expect(grid).toMatch(/\[data-prompt-dense\] :global\(\[data-prompt-panel\]\) \{\s*--duel-unit: var\(--pr-unit, 1px\)/);
+    for (const step of grid.match(/--duel-t-\w+: max\((\d+)px/g) ?? []) expect(Number(step.match(/(\d+)px/)![1])).toBeGreaterThanOrEqual(12);
+    const prompts = readFileSync(join(__dirname, "../src/components/duel/prompt-center.module.css"), "utf8");
+    expect(prompts).toMatch(/\[data-prompt-dense\]\) \.rowMain \{\s*min-height: max\(34px/);
+    expect(prompts).toMatch(/\[data-prompt-dense\]\) \.btn \{ min-height: max\(32px/);
+    const source = readFileSync(join(__dirname, "../src/components/duel/table/grid-stage.tsx"), "utf8");
+    expect(source).toMatch(/"--pr-unit" as string\]: `\$\{promptUnit\(/);
   });
 });
