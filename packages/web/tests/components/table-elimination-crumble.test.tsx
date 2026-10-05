@@ -342,6 +342,8 @@ describe("the camera keys in a 3-way face-off", () => {
     press("0");
     expect(mode(container)).toBe("fly");
     rerender(<Shell state={withOut(main, [2])} />);
+    // Home at once, while the FX lock still runs: no wait, and no frame of the old fly pose.
+    expect(mode(container)).toBe("home");
     settle(6000);
     expect(mode(container)).toBe("home");
   });

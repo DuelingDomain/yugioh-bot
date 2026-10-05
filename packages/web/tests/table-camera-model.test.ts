@@ -86,6 +86,9 @@ describe("cameraReducer: home, overview, focus, look", () => {
     expect(run(moved, { type: "focus", seat: 0 })).toMatchObject({ mode: "home", focusSeat: null, pinned: false });
     expect(run(HOME, { type: "focus", seat: 9 })).toBe(HOME);
     expect(run(HOME, { type: "focus", seat: 1 }, L3, [1])).toBe(HOME);
+    // On a 4-way table the out check itself (not the face-off) refuses the seat.
+    const home4 = initialCamera(L4);
+    expect(run(home4, { type: "focus", seat: 1 }, L4, [1])).toBe(home4);
   });
 
   it("focusStep walks home, Ryo, Mika, home in both directions", () => {
@@ -255,6 +258,8 @@ describe("cameraReducer: auto camera", () => {
 
   it("does not follow an eliminated or unknown seat", () => {
     expect(run(HOME, { type: "autoFollow", seat: 1 }, L3, [1])).toBe(HOME);
+    const home4 = initialCamera(L4);
+    expect(run(home4, { type: "autoFollow", seat: 1 }, L4, [1])).toBe(home4);
     expect(run(HOME, { type: "autoFollow", seat: 9 })).toBe(HOME);
   });
 
@@ -542,6 +547,21 @@ describe("the 3-way face-off has one view", () => {
 
   it("does not let the auto camera follow a rival", () => {
     expect(run(HOME, { type: "autoFollow", seat: 1 }, L3, OUT)).toBe(HOME);
+  });
+
+  it("goes home at once from fly mode under an FX lock, and keeps the lock", () => {
+    const fly = locked(initialCamera(L3, { mode: "fly" }));
+    expect(fly.mode).toBe("fly");
+    const home = run(fly, { type: "home" }, L3, OUT);
+    expect(home).toMatchObject({ mode: "home", pinned: false });
+    expect(home.lock).toEqual(fly.lock);
+    expect(effectiveCamera(home, 1500).mode).toBe("home");
+  });
+
+  it("goes home in the update that ends the lock", () => {
+    const fly = locked(initialCamera(L3, { mode: "fly" }), 1000);
+    expect(run(fly, { type: "tick", nowMs: 2500 }, L3, OUT)).toMatchObject({ mode: "home", lock: null });
+    expect(run(fly, { type: "tick", nowMs: 2500 }, L3).mode).toBe("fly");
   });
 
   it("still allows the views with three seats alive", () => {

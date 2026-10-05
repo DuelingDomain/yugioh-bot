@@ -84,9 +84,12 @@ const FACE_OFF_VIEWS = new Set<CameraAction["type"]>(["overview", "focus", "focu
 const MOVES = new Set<CameraAction["type"]>(["home", "overview", "focus", "focusStep", "look", "toggleFly", "flyTo", "orbit", "zoom"]);
 
 export function cameraReducer(state: CameraState, action: CameraAction, layout: TableLayout, ctx?: CameraContext): CameraState {
-  if (state.lock != null && MOVES.has(action.type)) return state;
   const { anchor, known, out, rivals } = seatsOf(layout, ctx);
-  if (isFaceOff(layout, out)) {
+  const faceOff = isFaceOff(layout, out);
+  // A face-off has one view, so a camera in another mode goes home at once, also under an FX lock (the lock stays).
+  if (faceOff && state.mode !== "home" && (action.type === "home" || FACE_OFF_VIEWS.has(action.type))) return move(state, HOME_VIEW);
+  if (state.lock != null && MOVES.has(action.type)) return state;
+  if (faceOff) {
     // One view only: a request for another one sends the camera home, and the auto camera does not follow a rival.
     if (FACE_OFF_VIEWS.has(action.type)) return state.mode === "home" ? state : move(state, HOME_VIEW);
     if (action.type === "autoFollow" && action.seat != null && action.seat !== anchor) return state;
@@ -168,8 +171,11 @@ export function cameraReducer(state: CameraState, action: CameraAction, layout: 
       if (state.lock && state.lock.untilMs > action.nowMs && state.lock.untilMs >= untilMs) return state;
       return { ...state, lock: { reason: action.reason, untilMs } };
     }
-    case "tick":
-      return state.lock && state.lock.untilMs <= action.nowMs ? { ...state, lock: null } : state;
+    case "tick": {
+      if (!state.lock || state.lock.untilMs > action.nowMs) return state;
+      // The lock ends in a face-off: no view but home is left, so the camera goes home in the same update.
+      return faceOff && state.mode !== "home" ? move({ ...state, lock: null }, HOME_VIEW) : { ...state, lock: null };
+    }
   }
 }
 

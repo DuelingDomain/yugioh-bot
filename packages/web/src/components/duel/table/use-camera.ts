@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef } from "react";
 import { duelFxClock } from "../fx-clock";
 import { isEliminated } from "../multi-seat";
 import {
@@ -119,11 +119,11 @@ export function useCamera({ controller, layout, initial, initialLock = null, aim
     if (seat != null && out.includes(seat)) dispatch({ type: "home" });
   }, [out, state.focusSeat, state.lookSeat, state.mode]);
 
-  // A 3-way face-off has one view. A move home is ignored under an FX lock, so this runs again when the lock ends.
+  // A 3-way face-off has one view: the camera goes home before the next paint, so the old pose never shows.
   const faceOff = isFaceOff(layout, out);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (faceOff && state.mode !== "home") dispatch({ type: "home" });
-  }, [faceOff, state.mode, state.lock]);
+  }, [faceOff, state.mode]);
 
   const keyRef = useRef({ state, seatKeys, suspended });
   keyRef.current = { state, seatKeys, suspended };
