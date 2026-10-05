@@ -660,44 +660,45 @@
 .clock > span[data-active="true"] { color: var(--duel-ink); }
 .clock > span[data-active="true"] .clockTime { color: var(--duel-ink); }
 
-/* ---------- floating HUD (table/hud-layer.tsx) ---------- */
+/* ---------- floating HUD of the 1v1 room (table/hud-layer.tsx) ---------- */
+/* Scoped to `data-hud="room"`: the 4-way grid root also wears roomStyles.shell and sets its own `data-hud="true"`. */
 /* The header, the side panes and the footer give way to glass pills in the margins. The board keeps clear margins for
    them: a strip above, the station track below and a column at the left for the dock and the Deck Master plate. */
-.shell[data-hud="true"] {
+.shell[data-hud="room"] {
   /* The rival's hand peeks about 25px above the field: the strip clears it, so no pill sits on those cards. */
   --hud-top: 72px;
   --hud-bottom: calc(clamp(58px, 5.6dvh, 68px) + 20px);
   --hud-left: 156px;
 }
-.shell[data-hud="true"] .layout {
+.shell[data-hud="room"] .layout {
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   grid-template-areas: "board";
   background: none;
 }
-.shell[data-hud="true"] .boardColumn {
+.shell[data-hud="room"] .boardColumn {
   padding: var(--hud-top) 14px var(--hud-bottom) var(--hud-left);
   border-left: 0;
 }
 /* The shell already paints the ground and the lamp glows over the whole screen; the field's own copy would end at the
    padded box as a visible edge. */
-.shell[data-hud="true"] [data-duel-field="true"] { background: none; }
+.shell[data-hud="room"] [data-duel-field="true"] { background: none; }
 /* The turn light fills the whole screen edge to edge for the same reason, not just the padded field box. */
-.shell[data-hud="true"] [data-turn-glow] {
+.shell[data-hud="room"] [data-turn-glow] {
   left: calc(-1 * var(--hud-left));
   right: -14px;
 }
-.shell[data-hud="true"] [data-turn-glow][data-side="top"] {
+.shell[data-hud="room"] [data-turn-glow][data-side="top"] {
   top: calc(-1 * var(--hud-top));
   height: calc(50% + var(--hud-top));
 }
-.shell[data-hud="true"] [data-turn-glow][data-side="bottom"] {
+.shell[data-hud="room"] [data-turn-glow][data-side="bottom"] {
   bottom: calc(-1 * var(--hud-bottom));
   height: calc(50% + var(--hud-bottom));
 }
 /* A prompt for you opens at the right, over the board's free corner; the margin at the left belongs to the dock. */
-.shell[data-hud="true"] .promptDock[data-mode="float"],
-.shell[data-hud="true"] .promptDock[data-mode="flow"] {
+.shell[data-hud="room"] .promptDock[data-mode="float"],
+.shell[data-hud="room"] .promptDock[data-mode="flow"] {
   position: absolute;
   grid-area: auto;
   right: 14px;
@@ -706,7 +707,7 @@
   width: min(380px, 34vw);
   margin: 0;
 }
-.shell[data-hud="true"] .notices { top: var(--hud-top); }
+.shell[data-hud="room"] .notices { top: var(--hud-top); }
 
 /* ============================================================
    Narrow screens: one board column, tab bar at the bottom,

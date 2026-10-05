@@ -51,7 +51,8 @@
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
 }
-/* Most prompts answer in the centered panel, and an action prompt only leaves a screen-reader line: no card then. */
+/* Most prompts answer in the centered panel, and an action prompt only leaves a screen-reader line: no card then.
+   TagSide sets data-empty from the prompt (promptTrayVisible). */
 .hudTray:empty,
-.hudTray:not(:has(:is(button, p, h2, h3, h4, label, input):not([class*="srOnly"]))) { display: none; }
+.hudTray[data-empty="true"] { display: none; }
 .hudTray[data-tone="chain"] { border-color: rgb(228 182 79 / 0.55); background-image: linear-gradient(var(--duel-chain-soft), var(--duel-chain-soft)); }
