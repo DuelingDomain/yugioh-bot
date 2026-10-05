@@ -5,6 +5,8 @@ import Link from "next/link";
 import { isDuelChainMode, type DuelChainMode } from "@yugidraft/shared/duels";
 import { DeckSurrenderContext } from "@/components/duel/deck-surrender";
 import { isBattlePhase } from "@/components/duel/constants";
+import { ChainFx } from "@/components/duel/chain-fx";
+import { withDestroyCards } from "@/components/duel/destroy-cards";
 import { DuelField } from "@/components/duel/field";
 import { duelFontClasses } from "@/components/duel/fonts";
 import { seatNamer } from "@/components/duel/multi-seat";
@@ -91,6 +93,10 @@ export function ClassicPreview({ stateId, chain: chainParam, reduced }: { stateI
                     onChoose={choose} reducedMotion={reduced}
                   />
                 }
+              />
+              <ChainFx
+                events={withDestroyCards(engine.events)} chain={engine.chain} duelKey={`classic-preview-${id}`}
+                reducedMotion={reduced} mySeat={mySeat} playerName={playerName} seats={engine.seats}
               />
               <PromptCenter
                 prompt={prompt} mySeat={mySeat} active slug={`classic-preview-${id}`} busy={false} draft={DRAFT} onSubmit={noop}
