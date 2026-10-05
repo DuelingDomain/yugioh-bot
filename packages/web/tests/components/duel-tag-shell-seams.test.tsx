@@ -114,8 +114,8 @@ describe("TagShell seams for the room", () => {
   });
 
   it("shows the settings tools in the Settings tab", () => {
-    const { container, getByRole } = render(<Shell settingsTools={<button type="button">Archive table</button>} />);
-    act(() => void fireEvent.click(getByRole("tab", { name: /Settings/ })));
+    const { container, getByTestId } = render(<Shell settingsTools={<button type="button">Archive table</button>} />);
+    act(() => void fireEvent.click(getByTestId("hud-dock-settings")));
     expect(container.textContent).toContain("Archive table");
   });
 
@@ -128,13 +128,20 @@ describe("TagShell seams for the room", () => {
     expect(busy.container.querySelector("[data-table-shell]")?.getAttribute("data-can-act")).toBe("false");
   });
 
-  it("blocks the field while a centered prompt is not revealed yet", () => {
+  it("blocks the field while a centered panel prompt is not revealed yet", () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const { container } = render(<Shell id="chain-2" tweak={(controller) => ({ ...controller, revealed: false })} />);
+    expect(container.querySelector("[data-table-shell]")?.getAttribute("data-can-act")).toBe("false");
+    expect(container.querySelector("[data-zones][data-legal='true']")).toBeNull();
+    expect(answers(info)).toHaveLength(0);
+  });
+
+  it("lets a board pick take the first click before its bar is revealed", () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => {});
     const { container } = render(<Shell id="target-pick" tweak={(controller) => ({ ...controller, revealed: false })} />);
-    expect(container.querySelector("[data-table-shell]")?.getAttribute("data-can-act")).toBe("false");
     const zone = container.querySelector("[data-zones][data-legal='true']") as HTMLElement;
     act(() => void fireEvent.click(zone.querySelector("button") ?? zone));
-    expect(answers(info)).toHaveLength(0);
+    expect(answers(info)).toHaveLength(1);
   });
 
   it("lets the field answer once the centered prompt is revealed", () => {
@@ -152,19 +159,27 @@ describe("TagShell seams for the room", () => {
     expect(noteAnswer).not.toHaveBeenCalled();
   });
 
-  it("mounts one header, one turn track with the station track inside, and no second clock", () => {
+  it("mounts one header with the turn order in its pill, and one station track in the bottom pill, with no second clock", () => {
     const { container } = render(<Shell />);
-        expect(container.querySelectorAll("[data-tag-header]")).toHaveLength(1);
+    expect(container.querySelectorAll("[data-tag-header]")).toHaveLength(1);
     expect(container.textContent).toContain("Turn 5");
+    expect(container.querySelector("[data-tag-header] [data-baton-strip]")).not.toBeNull();
     const track = container.querySelector("[data-tag-track]") as HTMLElement;
-    expect(track.querySelector("[data-baton-strip]")).not.toBeNull();
     expect(track.querySelector("[aria-label*='phase' i], [data-station-track], ol[aria-label*='Phase' i]")).not.toBeNull();
     expect(container.querySelectorAll("[data-baton-strip]")).toHaveLength(1);
   });
 
+  it("keeps the baton strip in the turn track on a narrow screen", () => {
+    vi.stubGlobal("matchMedia", mediaStub(true));
+    const { container } = render(<Shell />);
+    const track = container.querySelector("[data-tag-track]") as HTMLElement;
+    expect(track.querySelector("[data-baton-strip]")).not.toBeNull();
+    expect(container.querySelectorAll("[data-baton-strip]")).toHaveLength(1);
+  });
+
   it("uses one preferences object for the header toggle and the Settings tab", () => {
-    const { container, getByRole } = render(<Shell />);
-    act(() => void fireEvent.click(getByRole("tab", { name: /Settings/ })));
+    const { container, getByTestId } = render(<Shell />);
+    act(() => void fireEvent.click(getByTestId("hud-dock-settings")));
     const toggle = container.querySelector("[data-sound-toggle]") as HTMLElement;
     const sw = () => container.querySelector("input[role='switch']") as HTMLInputElement;
     const before = sw().checked;

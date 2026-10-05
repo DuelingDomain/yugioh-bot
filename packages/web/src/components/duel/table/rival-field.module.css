@@ -19,12 +19,6 @@
   display: none;
 }
 
-/* Compact: the board stays in the tree (zone positions, hand, FX hooks) but is not drawn; chips take its place. */
-.seat[data-compact="true"] [data-seat-field] {
-  visibility: hidden;
-  pointer-events: none;
-}
-
 /* Regrouping after an elimination: the boards wait for the crumble (0.65 s), then glide for 1 s. */
 .seat[data-glide="true"] {
   transition: transform 1s cubic-bezier(0.3, 0.7, 0.2, 1) 0.65s;

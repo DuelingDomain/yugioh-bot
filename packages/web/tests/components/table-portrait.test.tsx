@@ -36,7 +36,7 @@ function Shell({ fixture }: { fixture: TableFixtureState }) {
 }
 
 describe("phone chain and response rows", () => {
-  it.each([FFA3_FIXTURES, FFA4_FIXTURES])("fits $format between the measured chain and response without losing seats or phases", async (set) => {
+  it.each([FFA3_FIXTURES])("fits $format between the measured chain and response without losing seats or phases", async (set) => {
     const { container } = render(<Shell fixture={set.states["chain-2"]} />);
     await act(async () => { await vi.advanceTimersByTimeAsync(100); });
     const stage = container.querySelector<HTMLElement>("[data-table-stage]")!;
@@ -49,6 +49,20 @@ describe("phone chain and response rows", () => {
     expect(fittedHeight).toBeLessThan(available + 2);
     expect(container.querySelectorAll("[data-seat-field]")).toHaveLength(set.states.main.room.engine!.seats.length);
     expect(container.querySelectorAll("[data-hand-seat]")).toHaveLength(set.states.main.room.engine!.seats.length);
+    expect(container.querySelector('nav[aria-label="Duel phases"]')).not.toBeNull();
+  });
+
+  // The 4-way table is the 2 by 2 grid on every screen: it has no portrait plaza and no chain room, but it keeps all four
+  // fields, all four hands and the phases while a chain is open on a phone.
+  it("keeps all four seats and the phases of the 4-way grid on a phone with a chain open", async () => {
+    const { container } = render(<Shell fixture={FFA4_FIXTURES.states["chain-2"]} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    const stage = container.querySelector<HTMLElement>("[data-table-stage]")!;
+    expect(stage.hasAttribute("data-grid-stage")).toBe(true);
+    expect(stage.dataset.portrait).toBeUndefined();
+    const seats = FFA4_FIXTURES.states.main.room.engine!.seats.length;
+    expect(container.querySelectorAll("[data-seat-field]")).toHaveLength(seats);
+    expect(container.querySelectorAll("[data-hand-seat]")).toHaveLength(seats);
     expect(container.querySelector('nav[aria-label="Duel phases"]')).not.toBeNull();
   });
 });

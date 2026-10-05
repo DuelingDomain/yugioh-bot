@@ -1,0 +1,622 @@
+/*
+ * The floating HUD of the 4-way grid table (concept B). Slim glass pills sit in the margins around the board, so nothing
+ * covers the field at rest; the panes open as flyouts. Everything is laid in px with no scale transform. The tokens
+ * (--duel-*) come from the room shell these parts sit in.
+ */
+.glass,
+.top > div,
+.dock,
+.flyout,
+.tower,
+.bottom > nav > div {
+  border: 1px solid var(--duel-rule);
+  background: rgb(9 15 29 / 0.94);
+  box-shadow: 0 10px 28px -8px rgb(0 0 0 / 0.7);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+
+/* ---------- top pills ---------- */
+.top {
+  position: absolute;
+  inset: 8px 14px auto;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.top > div {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 36px;
+  border-radius: 18px;
+  pointer-events: auto;
+}
+
+.topLeft { flex: 0 1 auto; padding: 0 16px; }
+.topMid { position: relative; flex: 0 1 auto; padding: 0 8px; }
+
+/* "FINAL DUEL" / "LAST TWO REMAINING": it takes the place of the turn strip for a moment, then the strip returns. */
+.topMid[data-caption="true"] > :not(.caption) {
+  animation: stripStep 3.4s linear both;
+}
+@keyframes stripStep {
+  0% { opacity: 1; }
+  8%, 90% { opacity: 0; }
+  100% { opacity: 1; }
+}
+.caption {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  opacity: 0;
+  pointer-events: none;
+  white-space: nowrap;
+  animation: captionStep 3.4s linear both;
+}
+@keyframes captionStep {
+  0%, 8% { opacity: 0; }
+  20%, 74% { opacity: 1; }
+  86%, 100% { opacity: 0; }
+}
+.captionKey { font-size: 10.5px; font-weight: 600; letter-spacing: 0.34em; color: var(--gold, #d9a441); }
+.captionNames { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; color: var(--ink, #e8edf8); }
+.captionName { display: flex; align-items: center; gap: 7px; }
+.captionName em { margin: 0 2px; font-style: normal; font-weight: 500; color: var(--ink-2, #9aa6c4); }
+.captionName i { width: 7px; height: 7px; border-radius: 50%; }
+@media (prefers-reduced-motion: reduce) {
+  .topMid[data-caption="true"] > :not(.caption) { animation: none; opacity: 0; }
+  .caption { animation: none; opacity: 1; }
+}
+.topRight { flex: 0 1 auto; gap: 10px; padding: 0 8px 0 14px; justify-content: flex-end; }
+
+.topLeft a { flex: none; white-space: nowrap; }
+/* On a narrower screen the live and sound pills fall back to their icons, so the three pills keep one row. */
+@media (max-width: 1560px) {
+  .topRight [role="status"] > span:not(:first-child) { display: none; }
+  .topRight button[aria-label^="Sound"] span { display: none; }
+}
+
+/* The turn order sits in one row inside its pill. */
+.topMid ol { flex-wrap: nowrap; }
+.topMid li { flex: 0 1 auto; min-width: 0; background: rgb(14 23 41 / 0.7); }
+
+/* ---------- bottom pills: the station track, split into three ---------- */
+.bottom {
+  position: absolute;
+  inset: auto 14px 8px;
+  z-index: 30;
+  pointer-events: none;
+}
+
+.bottom > nav {
+  gap: 10px;
+  overflow: visible;
+  border: 0;
+  background: none;
+}
+
+.bottom > nav > div {
+  height: 100%;
+  min-width: 0;
+  border-radius: 14px;
+  pointer-events: auto;
+}
+
+/* The seat pill is narrow: its two clocks stack, one short name and time per line, so they never run into the seat name. */
+.bottom nav [data-pill] {
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+.bottom nav [data-pill] > span {
+  gap: 8px;
+  font-size: 15px;
+  line-height: 1.1;
+}
+.bottom nav [data-pill] > span small {
+  max-width: 8ch;
+  font-size: 11px;
+}
+
+/* ---------- bottom-right corner (the 1v1 room and the 4-way grid): the turn controls without a full-width bar ---------- */
+/* One column at the corner, right of the board: the prompt dock (when a prompt is open) above the clocks pill and the
+   actions pill. It is a column, so the dock always sits right on top of the controls, whatever height they have. Only
+   the parts take clicks; the empty space around them does not. */
+.corner {
+  position: absolute;
+  right: 14px;
+  bottom: var(--hud-bottom, 8px);
+  z-index: calc(var(--duel-z-prompt, 40) + 13);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  width: var(--hud-corner-w, 168px);
+  pointer-events: none;
+}
+.corner > nav {
+  width: 100%;
+  pointer-events: none;
+}
+.corner > nav > div {
+  pointer-events: auto;
+}
+/* The clocks pill: one line per player, the name at the left and the time at the right. */
+.corner nav [data-pill] {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+}
+.corner nav [data-pill] > span {
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 15px;
+  line-height: 1.1;
+}
+.corner nav [data-pill] > span small {
+  max-width: 10ch;
+  font-size: 11px;
+}
+
+/* ---------- icon dock ---------- */
+.dock {
+  position: absolute;
+  left: 14px;
+  top: 56px;
+  z-index: 31;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 16px;
+}
+
+.dockButton {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--duel-ink-2);
+  cursor: pointer;
+  transition: color 0.15s, background-color 0.15s;
+}
+.dockButton:hover { color: var(--duel-ink); background: rgb(239 231 213 / 0.06); }
+.dockButton:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: -2px; }
+.dockButton[aria-pressed="true"] {
+  color: var(--duel-ink);
+  background: linear-gradient(135deg, rgb(87 51 209 / 0.5), rgb(87 51 209 / 0.18));
+  box-shadow: inset 0 0 0 1px rgb(155 126 255 / 0.7);
+}
+
+.dockBadge,
+.tabBadge {
+  display: grid;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--duel-chain);
+  color: #1b1203;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+.dockBadge {
+  position: absolute;
+  right: -2px;
+  bottom: -1px;
+  box-shadow: 0 0 10px rgb(228 182 79 / 0.6);
+}
+.dockBadge[data-kind="log"] { background: var(--duel-pen); color: #0d0a1c; box-shadow: 0 0 10px rgb(155 126 255 / 0.6); }
+.tabBadge { display: inline-grid; margin-left: 6px; vertical-align: 1px; }
+
+/* ---------- flyout ---------- */
+.flyout {
+  position: absolute;
+  left: 68px;
+  top: 56px;
+  z-index: 32;
+  display: flex;
+  flex-direction: column;
+  width: min(380px, calc(100% - 82px));
+  /* Above the Deck Master plate in the margin below, so the two never meet. */
+  max-height: max(280px, calc(100% - 330px));
+  border-radius: 14px;
+  background: rgb(9 15 29 / 0.97);
+  box-shadow: 0 24px 60px -12px rgb(0 0 0 / 0.8);
+  overflow: hidden;
+  font-family: var(--duel-f-ui);
+  color: var(--duel-ink);
+}
+.flyout[hidden] { display: none; }
+/* A live chain keeps its tower in view: the flyout opens to the right of it. */
+.flyout[data-chain="true"] { left: 170px; width: min(380px, calc(100% - 184px)); }
+
+.flyTabs {
+  flex: none;
+  display: flex;
+  align-items: stretch;
+  padding: 0 6px 0 8px;
+  border-bottom: 1px solid var(--duel-rule);
+}
+.flyTabs button[role="tab"] {
+  flex: 1;
+  height: 38px;
+  padding: 0 6px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  background: transparent;
+  color: var(--duel-ink-3);
+  font: inherit;
+  font-size: var(--duel-t-body);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.flyTabs button[role="tab"]:hover { color: var(--duel-ink); }
+.flyTabs button[role="tab"][aria-selected="true"] { color: var(--duel-ink); border-bottom-color: var(--duel-pen-ink); font-weight: 500; }
+.flyTabs button:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: -3px; border-radius: 6px; }
+.flyClose {
+  flex: none;
+  align-self: center;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--duel-ink-3);
+  cursor: pointer;
+}
+.flyClose:hover { color: var(--duel-ink); background: rgb(239 231 213 / 0.06); }
+
+.flyBody { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; }
+.flyPanel { min-width: 0; }
+.flyPanel:not([hidden]) { flex: 1 1 auto; min-height: 0; }
+/* The log list scrolls inside a pane of fixed height, as in the side column. */
+.flyout[data-pane="log"],
+.flyout[data-pane="card"] { height: min(600px, max(280px, calc(100% - 330px))); }
+.flyout[data-pane="log"] .flyPanel:not([hidden]) { overflow: hidden; }
+.flyPanel[hidden] { display: none; }
+.empty { margin: 0; padding: 18px 16px; color: var(--duel-ink-3); font-size: var(--duel-t-body); }
+
+/* ---------- chain: tower and pane ---------- */
+.tower {
+  position: absolute;
+  left: 14px;
+  top: 232px;
+  z-index: 31;
+  width: 148px;
+  padding: 8px 8px 6px;
+  border-radius: 14px;
+  border-color: rgb(228 182 79 / 0.55);
+  background: rgb(26 20 8 / 0.94);
+  font-family: var(--duel-f-ui);
+  color: var(--duel-ink);
+}
+.towerHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin: 0 0 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--duel-chain-ink);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: left;
+  cursor: pointer;
+}
+.towerHead:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: 2px; border-radius: 4px; }
+.towerMore { margin: 4px 0 0; color: var(--duel-ink-3); font-size: 11px; }
+
+.chainPane { padding: 12px 12px 14px; }
+.chainHead { margin: 0 0 10px; color: var(--duel-chain-ink); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+.chainList { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.chainRow { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+.chainArt {
+  position: relative;
+  flex: none;
+  width: 24px;
+  height: 35px;
+  border: 1px solid var(--seat-main, var(--duel-rule));
+  border-radius: 3px;
+  background: #1b2740 center / cover no-repeat;
+}
+.chainArt u {
+  position: absolute;
+  left: -6px;
+  top: -6px;
+  display: grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--duel-chain);
+  color: #1b1203;
+  font-size: 10px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.chainText { display: grid; gap: 1px; min-width: 0; font-size: 12px; line-height: 1.25; }
+.chainText b { font-weight: 600; overflow-wrap: anywhere; }
+.chainText small { color: var(--seat-ink, var(--duel-ink-3)); font-size: 11px; }
+.chainText em {
+  display: -webkit-box;
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--duel-ink-2);
+  font-style: normal;
+  font-size: 11.5px;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dockButton { transition: none; }
+}
+
+/* ---------- Deck Master token plate (left margin, beside your field) ---------- */
+.masterWrap {
+  position: absolute;
+  left: 14px;
+  bottom: var(--hud-master-bottom, calc(clamp(58px, 5.6dvh, 68px) + 20px));
+  z-index: 31;
+  width: 168px;
+  font-family: var(--duel-f-ui);
+  color: var(--duel-ink);
+}
+
+.master {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--duel-rule);
+  border-radius: 14px;
+  background: rgb(9 15 29 / 0.94);
+  box-shadow: 0 10px 28px -8px rgb(0 0 0 / 0.7);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+/* A summon is legal now: the plate glows, with no outline and no dimming. */
+.master[data-legal="true"] { border-color: rgb(228 182 79 / 0.7); box-shadow: 0 0 18px -2px rgb(228 182 79 / 0.55), 0 10px 28px -8px rgb(0 0 0 / 0.7); }
+.master[data-selected="true"] { border-color: rgb(155 126 255 / 0.8); box-shadow: 0 0 18px -2px rgb(155 126 255 / 0.6), 0 10px 28px -8px rgb(0 0 0 / 0.7); }
+.master[data-open="true"] { border-color: rgb(155 126 255 / 0.7); }
+
+.masterToken {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.masterToken:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: 2px; border-radius: 8px; }
+.masterArt {
+  flex: none;
+  display: block;
+  width: 40px;
+  aspect-ratio: 59 / 86;
+  border-radius: 6px;
+  background: #1b2740 center top / cover no-repeat;
+  box-shadow: inset 0 0 0 1px rgb(239 231 213 / 0.14);
+}
+.master[data-away="true"] .masterArt { filter: saturate(0.55); }
+.masterId { display: grid; flex: 1 1 0; gap: 2px; min-width: 0; }
+.masterId small { overflow: hidden; color: var(--duel-ink-3); font-size: 9.5px; letter-spacing: 0.08em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+/* The name is at most two lines, then an ellipsis. */
+.masterId b {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+/* One row: the summon words share the width, Inspect is a square icon button. */
+.masterActions { display: flex; gap: 4px; min-width: 0; }
+.masterActions button {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 0;
+  height: 30px;
+  padding: 0 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  border: 1px solid var(--duel-rule);
+  border-radius: 8px;
+  background: rgb(239 231 213 / 0.04);
+  color: var(--duel-ink-2);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+/* A long label ends in an ellipsis at the right; the full text stays in the title and the accessible name. */
+.masterActionText { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.masterActions .masterInspect { flex: none; width: 30px; padding: 0; }
+.masterInspectText { display: none; }
+/* With no summon legal, Inspect is alone in the row: it fills it and shows its word. */
+.masterActions .masterInspect:only-child { flex: 1 1 0; width: auto; }
+.masterActions .masterInspect:only-child .masterInspectText { display: inline; }
+.masterActions button:hover:not(:disabled) { color: var(--duel-ink); background: rgb(239 231 213 / 0.09); }
+.masterActions button[data-primary="true"] { border-color: transparent; background: linear-gradient(135deg, #5733d1, #3f2399); color: #fff; }
+.masterActions button:disabled { opacity: 0.5; cursor: default; }
+.masterActions button:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: 2px; }
+
+/* The details flyout sits right above the plate in the margin, joined to it by a short nib. */
+.masterFly {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 10px);
+  width: 100%;
+  display: grid;
+  gap: 4px;
+  padding: 8px 8px 10px;
+  border: 1px solid rgb(155 126 255 / 0.55);
+  border-radius: 14px;
+  background: rgb(9 15 29 / 0.97);
+  box-shadow: 0 24px 60px -12px rgb(0 0 0 / 0.8);
+}
+.masterFly::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  width: 2px;
+  height: 10px;
+  background: rgb(155 126 255 / 0.55);
+}
+.masterFly header { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+.masterFly header b { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--duel-pen-ink); }
+.masterFlyName { margin: 2px 0 0; font-size: 13px; font-weight: 600; line-height: 1.2; }
+.masterFlyLine { margin: 0; color: var(--duel-ink-2); font-size: 11.5px; }
+.masterFly dl { display: grid; gap: 4px; margin: 6px 0 4px; }
+.masterFly dl div { display: grid; gap: 0; padding: 4px 6px; border-radius: 6px; background: rgb(239 231 213 / 0.05); }
+.masterFly dt { color: var(--duel-ink-3); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; }
+.masterFly dd { margin: 0; font-size: 13px; font-weight: 600; }
+.masterFlyCard {
+  height: 28px;
+  border: 1px solid var(--duel-rule);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--duel-ink-2);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.masterFlyCard:hover { color: var(--duel-ink); background: rgb(239 231 213 / 0.08); }
+.masterFlyCard:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: 2px; }
+
+/* The second plate (the rival of a 1v1 duel, the partner of a Tag duel) sits in the right margin, under the top pills.
+   Its details open below it, so they never run off the top of the screen. */
+.masterWrap[data-slot="other"] { left: auto; right: 14px; bottom: auto; top: 56px; }
+.masterWrap[data-slot="other"] .masterFly { bottom: auto; top: calc(100% + 10px); }
+.masterWrap[data-slot="other"] .masterFly::after { top: auto; bottom: 100%; }
+
+/* The card and the name; in the tall form the details open in this same box, over them. */
+.masterFace { display: grid; min-width: 0; }
+
+/*
+ * The tall form (data-form="tall"; large screens with a free margin, chosen in grid-master.tsx): the whole card at a
+ * readable size on top, the name below it and the action row at the bottom. The plate grows up into the free margin
+ * under the dock. The card is 195px to 222px high (`--hud-master-art-h`, set by the plate); with less room the plate is
+ * compact, never a card size between the two forms.
+ */
+.masterWrap[data-form="tall"] .masterFace { position: relative; }
+.masterWrap[data-form="tall"] .masterToken { flex-direction: column; align-items: stretch; width: 100%; }
+/* The whole card, never cropped. */
+.masterWrap[data-form="tall"] .masterArt {
+  width: auto;
+  height: var(--hud-master-art-h, 222px);
+  align-self: center;
+  background-position: center;
+  background-size: contain;
+  box-shadow: inset 0 0 0 1px rgb(239 231 213 / 0.14), 0 6px 16px -6px rgb(0 0 0 / 0.8);
+}
+/* The details open inside the plate, over the card and the name, so they never reach past the plate. */
+.masterWrap[data-form="tall"] .masterFly {
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  width: auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px 2px 4px;
+  border: 0;
+  border-radius: 8px;
+  background: rgb(9 15 29);
+  box-shadow: none;
+}
+.masterWrap[data-form="tall"] .masterFly::after { display: none; }
+.masterWrap[data-form="tall"] .masterFly > * { flex: none; }
+/* One line per fact (the label left, the value right), so the facts and Card view fit in the plate. */
+.masterWrap[data-form="tall"] .masterFly dl div { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
+.masterWrap[data-form="tall"] .masterFly dd { text-align: right; white-space: nowrap; }
+/* The tall plate is higher: the dock flyout (after the plate in the layer) ends above it. The flyout top (56px), a
+   10px gap, the plate's bottom offset, its rest (132px) and its tallest card (222px). */
+.masterWrap[data-form="tall"] ~ .flyout {
+  max-height: max(200px, calc(100% - 66px - var(--hud-master-bottom, calc(clamp(58px, 5.6dvh, 68px) + 20px)) - 354px));
+}
+
+/* ---------- hover preview: slides out from the left edge, beside the dock (never over its icons) ---------- */
+.preview {
+  position: absolute;
+  left: 72px;
+  top: 50px;
+  z-index: 34;
+  width: 270px;
+  max-height: calc(100% - 60px);
+  padding: 12px 12px 14px;
+  overflow: hidden;
+  border: 1px solid rgb(155 126 255 / 0.5);
+  border-radius: 14px;
+  background: rgb(9 15 29 / 0.97);
+  box-shadow: 0 24px 60px -12px rgb(0 0 0 / 0.85);
+  font-family: var(--duel-f-ui);
+  color: var(--duel-ink);
+  pointer-events: none;
+  transform: translateX(calc(-100% - 72px));
+  transition: transform 0.18s ease-out, visibility 0s linear 0.18s;
+  visibility: hidden;
+}
+.preview[data-open="true"] { transform: none; visibility: visible; transition: transform 0.18s ease-out, visibility 0s; }
+.preview[data-motion="none"] { transition: none; }
+.previewArt { display: block; width: 100%; aspect-ratio: 59 / 86; margin: 0 0 10px; border-radius: 4px; object-fit: cover; background: #1b2740; }
+.preview h3 { margin: 0; font-size: 17px; font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
+.previewType { margin: 3px 0 0; color: var(--duel-ink-2); font-size: 12px; }
+.previewStats { margin: 6px 0 0; font-size: 17px; font-weight: 500; letter-spacing: 0.02em; }
+.previewText {
+  display: -webkit-box;
+  margin: 8px 0 0;
+  overflow: hidden;
+  color: var(--duel-ink-2);
+  font-size: 12px;
+  line-height: 1.4;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+}
+.previewOwner { display: flex; align-items: center; gap: 6px; margin: 10px 0 0; color: var(--duel-ink-3); font-size: 11.5px; }
+.previewOwner i { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--seat-main, var(--duel-ink-3)); }
+.previewOwner b { color: var(--seat-ink, var(--duel-ink)); font-weight: 600; }
+
+@media (prefers-reduced-motion: reduce) {
+  .preview { transition: none; }
+}

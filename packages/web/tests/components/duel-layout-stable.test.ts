@@ -26,10 +26,17 @@ function descendants<T extends ts.Node>(node: ts.Node, matches: (node: ts.Node) 
   return found;
 }
 
+/** The class alone, or a template string that starts with it (`${styles.layout} ${hud ? ... : ""}`). */
+function isClassExpression(expression: ts.Expression | undefined, className: string): boolean {
+  if (!expression) return false;
+  if (expression.getText() === className) return true;
+  return ts.isTemplateExpression(expression) && expression.head.text === "" && expression.templateSpans[0]?.expression.getText() === className;
+}
+
 function classElements(node: ts.Node, className: string): ts.JsxElement[] {
   return descendants(node, ts.isJsxElement).filter((element) => element.openingElement.attributes.properties.some((attribute) =>
     ts.isJsxAttribute(attribute) && attribute.name.getText() === "className" && attribute.initializer != null &&
-    ts.isJsxExpression(attribute.initializer) && attribute.initializer.expression?.getText() === className));
+    ts.isJsxExpression(attribute.initializer) && isClassExpression(attribute.initializer.expression, className)));
 }
 
 /** The body of the first top-level rule whose selector list is exactly `selector`. */
