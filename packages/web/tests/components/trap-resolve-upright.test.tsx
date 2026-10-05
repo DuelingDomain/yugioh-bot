@@ -131,8 +131,10 @@ for (const format of ["1v1", "ffa4", "tag"] as const) {
         // The activation copy is the one turn of the flip: PositionFx draws no second copy over the same zone.
         expect(result.container.querySelector('[data-flip="reveal"]')).toBeNull();
         if (!reduced) {
+          // The copy turns about its upright axis only: no in-plane turn that would lay it sideways.
           const frames = animations.find(a => a.element === ghost)!.frames;
-          for (const frame of frames) for (const [, deg] of String(frame.transform ?? "").matchAll(/\brotate\(([-\d.]+)deg\)/g)) expect(Number(deg) % 180).toBe(0);
+          for (const frame of frames) expect(String(frame.transform ?? "")).not.toMatch(/\brotate(Z|3d)?\(/);
+          expect(frames.some(frame => String(frame.transform ?? "").includes("rotateY(0deg)"))).toBe(true);
         }
         expect(result.container.querySelector('[data-feedback-cue][data-kind="activate"] img')).not.toBeNull();
         const strip = result.container.querySelector('[data-chain-strip]');
@@ -166,6 +168,19 @@ for (const format of ["1v1", "ffa4", "tag"] as const) {
         }
       });
     }
+    it.each(viewers)("turns a Set Trap flipped by an effect (no activation) upright for viewer %s", viewer => {
+      const card = traps[0];
+      const set: DuelCard = { ...card, ...zone, position: 0x0a };
+      const events: DuelEvent[] = [{ id: 1, kind: "position", text: "flipped face-up", card, zone, fromPosition: 0x0a, toPosition: 0x05, flip: true }];
+      const result = render(<Board view={engine(format, set)} viewer={viewer} reduced={false} />);
+      result.rerender(<Board view={engine(format, { ...set, position: 0x05 }, events)} viewer={viewer} reduced={false} />);
+      upright(result.container.querySelector<HTMLElement>('[data-zones~="0:8:0"]')!);
+      // With no activation copy, PositionFx draws the turn itself, and it stays upright.
+      const flip = result.container.querySelector('[data-flip="reveal"]');
+      expect(flip).not.toBeNull();
+      const frames = animations.find(a => a.element === flip)!.frames;
+      for (const frame of frames) expect(Number(String(frame.transform).match(/rotate\(([-\d.]+)deg\)/)![1]) % 180).toBe(0);
+    });
     it.each(viewers)("keeps a Trap Monster in defense after moving to MZONE for viewer %s", viewer => {
       const card: DuelCard = { ...traps[1], code: 26905245, name: "Metal Reflect Slime", ...zone, location: 4, position: 4, type: 0x20125 };
       const { container } = render(<Board view={engine(format, card)} viewer={viewer} reduced />);
