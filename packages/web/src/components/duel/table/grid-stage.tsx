@@ -281,6 +281,10 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
   const frameKey = frames.map((r) => (r ? `${r.x},${r.y},${r.width},${r.height}` : "-")).join("|");
 
   const tracks = useRef(new Map<string, FlipTrack>());
+  // A field that turns on its way (the finale board) draws its labels and card faces for its old turn during the first
+  // half of the move, then for the new one: its text never shows upside down while the field spins.
+  const [lateTurns, setLateTurns] = useState<ReadonlyMap<number, 0 | 180> | null>(null);
+  const turnTimer = useRef<number | undefined>(undefined);
   const frameTracks = useRef(new Map<string, FrameTrack>());
   const lastBox = useRef({ width: 0, height: 0 });
   const lastFinale = useRef<string | null>(finaleKey);
@@ -294,15 +298,20 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
     const animate = !resized && !reducedMotion;
     const seen = new Set<string>();
     const move = (key: string, el: HTMLElement | null, rect: GridRect, turn: 0 | 180, fadeText: boolean, finaleMove: boolean) => {
-      if (!el) return;
+      if (!el) return null;
       seen.add(key);
       const options = finaleMove ? { turn, fadeText, duration: FINALE_GLIDE_MS, easing: FINALE_GLIDE_EASING } : { turn, fadeText };
-      tracks.current.set(key, playFlip(el, tracks.current.get(key), boxOf(rect), animate, options));
+      const track = playFlip(el, tracks.current.get(key), boxOf(rect), animate, options);
+      tracks.current.set(key, track);
+      return track;
     };
+    const turned = new Map<number, 0 | 180>();
     for (const cell of cells) {
       const spot = placed.cells[cellIndex(cell)];
       const glide = toFinale;
-      move(`f${cell.seat}`, root.querySelector<HTMLElement>(`[data-seat-slot="${cell.seat}"]`), spot.rect, spot.turn, false, glide);
+      const before = tracks.current.get(`f${cell.seat}`)?.turn;
+      const track = move(`f${cell.seat}`, root.querySelector<HTMLElement>(`[data-seat-slot="${cell.seat}"]`), spot.rect, spot.turn, false, glide);
+      if (track?.anim && before != null && before !== spot.turn) turned.set(cell.seat, before);
       move(`l${cell.seat}`, root.querySelector<HTMLElement>(`[data-grid-lp="${cell.seat}"]`), spot.plate, 0, true, glide);
     }
     const origin = root.getBoundingClientRect();
@@ -317,12 +326,25 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
       cancelTracks([tracks.current.get(key)!]);
       tracks.current.delete(key);
     }
+    if (turned.size > 0) {
+      window.clearTimeout(turnTimer.current);
+      setLateTurns(turned);
+      turnTimer.current = window.setTimeout(() => setLateTurns(null), (toFinale ? FINALE_GLIDE_MS : FLIP_MS) / 2);
+    } else {
+      // Any other run (a resize, reduced motion, a new focus) ends a turn that was under way: the field stands at its
+      // new turn at once, so its faces turn with it.
+      window.clearTimeout(turnTimer.current);
+      setLateTurns(null);
+    }
     // The frames are read from `frameKey`; a seat that goes out changes them without a new layout.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [placed, box.width, box.height, cells, reducedMotion, finaleKey, frameKey]);
   useEffect(() => {
     const live = tracks.current;
-    return () => cancelTracks(live.values());
+    return () => {
+      cancelTracks(live.values());
+      window.clearTimeout(turnTimer.current);
+    };
   }, []);
 
   // The seat fields are memoized: a field is drawn again only when something in it changes, never for a move or a
@@ -580,6 +602,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
                 {out ? null : (
                   <RivalField
                     pose={pose}
+                    angleOffsetDeg={(lateTurns?.get(cell.seat) ?? spot.turn) - spot.turn}
                     field={field}
                     render={renderSeatField}
                     placement={{

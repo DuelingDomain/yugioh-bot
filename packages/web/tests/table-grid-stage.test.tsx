@@ -18,6 +18,8 @@ import { disabledZones } from "@/components/duel/multi-seat";
 import { FFA4_FIXTURES, ffa4Variant } from "@/components/duel/table/fixtures/ffa4";
 import { useFixtureController } from "@/components/duel/table/fixtures/use-fixture-controller";
 import { OUT_HOLD_MS } from "@/components/duel/table/grid-layout";
+import { FINALE_BEAT_MS, FINALE_GLIDE_MS } from "@/components/duel/table/grid-finale";
+import { EXIT_CRUMBLE_MS } from "@/components/duel/table/rival-field";
 import { pairFrameRect, useCellStates } from "@/components/duel/table/grid-stage";
 import { TableShell } from "@/components/duel/table/table-shell";
 
@@ -346,6 +348,65 @@ describe("pair frames and the finale board", () => {
     for (const seat of [0, 3]) expect(fieldOf(container, seat).hasAttribute("data-emz")).toBe(false);
     expect(frameOf(container, 0).hasAttribute("data-gone")).toBe(false);
     expect(frameHidden(container, 1)).toBe(true);
+  });
+});
+
+describe("a field that turns on its way to the finale board", () => {
+  function MotionShell({ out }: { out: number[] }) {
+    const set = ffa4Variant(FFA4_FIXTURES, { out });
+    const controller = useFixtureController(set.states.main, { reducedMotion: false });
+    return <TableShell controller={controller} />;
+  }
+  const angleOf = (container: HTMLElement, seat: number) => Number(cellOf(container, seat).querySelector("[data-seat-field]")?.getAttribute("data-seat-angle"));
+  const slotOf = (container: HTMLElement, seat: number) => cellOf(container, seat).querySelector("[data-seat-slot]")?.getAttribute("style") ?? "";
+
+  it("draws its labels and card faces for the old turn during the first half of the glide, then for the new one", () => {
+    vi.useFakeTimers();
+    const fake = () => ({
+      playState: "running",
+      cancel() {},
+      finish() {},
+      addEventListener() {},
+      removeEventListener() {},
+      effect: { getComputedTiming: () => ({ progress: 0 }) },
+      finished: new Promise(() => {}),
+    });
+    const had = Element.prototype.animate;
+    Element.prototype.animate = vi.fn(fake) as unknown as typeof Element.prototype.animate;
+    try {
+      // Seat 3 (bottom right) and you are the last two: seat 3 goes to the top of the board and turns 0 -> 180.
+      const view = render(<MotionShell out={[1]} />);
+      expect(Math.abs(angleOf(view.container, 3))).toBe(0);
+      view.rerender(<MotionShell out={[1, 2]} />);
+      act(() => void vi.advanceTimersByTime(EXIT_CRUMBLE_MS + FINALE_BEAT_MS));
+      expect(view.container.querySelector("[data-grid-stage]")!.getAttribute("data-grid-finale")).toBe("cross");
+      expect(slotOf(view.container, 3)).toMatch(/rotate: 180deg/);
+      expect(Math.abs(angleOf(view.container, 3))).toBe(0);
+      act(() => void vi.advanceTimersByTime(FINALE_GLIDE_MS / 2));
+      expect(Math.abs(angleOf(view.container, 3))).toBe(180);
+      // The bottom seat never turns.
+      expect(Math.abs(angleOf(view.container, 0))).toBe(0);
+      view.unmount();
+    } finally {
+      Element.prototype.animate = had;
+    }
+  });
+
+  it("flashes the seam of a pair that breaks live, but not of one that was broken when the table opened", () => {
+    vi.useFakeTimers();
+    const had = Element.prototype.animate;
+    Element.prototype.animate = vi.fn(() => ({ playState: "running", cancel() {}, finish() {}, addEventListener() {}, removeEventListener() {}, effect: { getComputedTiming: () => ({ progress: 0 }) }, finished: new Promise(() => {}) })) as unknown as typeof Element.prototype.animate;
+    try {
+      const opened = render(<MotionShell out={[2]} />);
+      expect(opened.container.querySelector("[data-pair-break]")).toBeNull();
+      opened.unmount();
+      const live = render(<MotionShell out={[]} />);
+      live.rerender(<MotionShell out={[2]} />);
+      expect(live.container.querySelector('[data-pair-break="1"]')).not.toBeNull();
+      live.unmount();
+    } finally {
+      Element.prototype.animate = had;
+    }
   });
 });
 
