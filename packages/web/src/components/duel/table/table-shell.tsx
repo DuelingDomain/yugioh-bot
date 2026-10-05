@@ -10,6 +10,7 @@ import { isCustomDomain } from "@yugidraft/shared/duels";
 import { BattleFx } from "../battle-fx";
 import { AttackConfirm, CardActionMenu, CardHoverInfo, confirmSide, targetName } from "../card-interactions";
 import { ChainFx } from "../chain-fx";
+import { CoinTossFx } from "../coin-toss-fx";
 import { isBattlePhase, phaseTitle, zoneKey } from "../constants";
 import { DestroyFx } from "../destroy-fx";
 import { DuelResultScreen } from "../duel-result";
@@ -525,6 +526,7 @@ function TableShellBody({
                     {fxActive ? <MoveFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
                     {fxActive ? <PositionFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
                     {fxActive ? <ChainFx events={engine.events} chain={engine.chain} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} playerName={nameOf} seatTones={seatTones} priority={priority} ended={hasResult} table={format} seats={engine.seats} /> : null}
+                    {fxActive ? <CoinTossFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
                     {fxActive ? <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} /> : null}
                     <BattleFx events={engine.events} seats={engine.seats} reducedMotion={controller.reducedMotion} active={fxActive} aim={null} />
                     <DestroyFx events={engine.events} reducedMotion={controller.reducedMotion} active={fxActive} mySeat={viewerSeat ?? 0} />

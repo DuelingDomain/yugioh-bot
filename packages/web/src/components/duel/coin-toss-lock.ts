@@ -33,6 +33,24 @@ function subscribeLock(listener: () => void): () => void {
   return () => { lockListeners.delete(listener); };
 }
 
+/** Resolves when no toss plays (at once when none does), or when the signal aborts. */
+export function waitForCoinIdle(signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (!isCoinTossActive() || signal?.aborted) {
+      resolve();
+      return;
+    }
+    const done = () => {
+      lockListeners.delete(check);
+      signal?.removeEventListener("abort", done);
+      resolve();
+    };
+    const check = () => { if (!isCoinTossActive()) done(); };
+    lockListeners.add(check);
+    signal?.addEventListener("abort", done, { once: true });
+  });
+}
+
 /** Re-renders when the toss starts or ends. */
 export function useCoinTossLocked(): boolean {
   return useSyncExternalStore(subscribeLock, isCoinTossActive, () => false);
