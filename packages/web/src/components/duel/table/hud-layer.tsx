@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { DuelCard, DuelChainLink, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import type { DuelHoverHandler } from "../field-keys";
-import { ChainList, ChainTower, DOCK_PANES, GridDock, GridFlyout, useHudDismiss, type HudPane } from "./grid-hud";
+import { ChainList, ChainTower, DOCK_PANES, DOCK_PANES_CAMERA, GridDock, GridFlyout, useHudDismiss, type HudPane } from "./grid-hud";
 import { GridMasterToken } from "./grid-master";
 import { GridHoverPreview } from "./grid-preview";
 import type { InspectTarget } from "./types";
@@ -14,8 +14,8 @@ import type { InspectTarget } from "./types";
  * and panes; they only feed this layer their real panels and duel data.
  */
 
-/** The Log pane stays mounted while hidden, so its rows and its unread count survive a close. */
-export const HUD_KEEP: readonly HudPane[] = ["log"];
+/** The Log pane stays mounted while hidden, so its rows and its unread count survive a close. So does the Camera pane of the Tag Rooftop: its lock state and seat buttons stay live. */
+export const HUD_KEEP: readonly HudPane[] = ["log", "camera"];
 
 export interface HudPaneState {
   pane: HudPane | null;
@@ -30,12 +30,14 @@ export interface HudPaneState {
  * The open flyout of a HUD. Esc and a press outside close it (`useHudDismiss`). A new inspect target (a click or
  * Inspect on a card) opens the Card pane, unless that click opened an action menu: the menu keeps the board clear.
  */
-export function useHudPane({ enabled, suspended, inspect, menuOpen }: {
+export function useHudPane({ enabled, suspended, inspect, menuOpen, camera = false }: {
   enabled: boolean;
   /** A card menu or the pile viewer is open: it keeps Esc. */
   suspended: boolean;
   inspect: InspectTarget | null;
   menuOpen: boolean;
+  /** The table has a camera panel (the Tag Rooftop): the dock gets a fourth icon. */
+  camera?: boolean;
 }): HudPaneState {
   const [pane, setPane] = useState<HudPane | null>(null);
   const toggle = useCallback((next: HudPane) => setPane((current) => (current === next ? null : next)), []);
@@ -46,7 +48,8 @@ export function useHudPane({ enabled, suspended, inspect, menuOpen }: {
     // Only a new inspect target opens it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, inspect]);
-  const tabs: readonly HudPane[] = pane === "card" ? ["card", ...DOCK_PANES] : DOCK_PANES;
+  const dock: readonly HudPane[] = camera ? DOCK_PANES_CAMERA : DOCK_PANES;
+  const tabs: readonly HudPane[] = pane === "card" ? ["card", ...dock] : dock;
   return { pane, setPane, toggle, close, tabs };
 }
 
@@ -67,8 +70,8 @@ export interface HudMasterProps {
 
 export interface HudLayerProps {
   hud: HudPaneState;
-  /** The Card panel, Log panel and Settings panel; the Chain panel is built here from `chain`. */
-  panels: Pick<Record<HudPane, ReactNode>, "card" | "log" | "settings">;
+  /** The Card panel, Log panel and Settings panel; the Chain panel is built here from `chain`. `camera` adds the fourth dock icon. */
+  panels: Pick<Record<HudPane, ReactNode>, "card" | "log" | "settings"> & { camera?: ReactNode };
   chain: readonly DuelChainLink[];
   /** A chain is live: the tower shows under the dock. */
   chainOpen: boolean;
@@ -96,7 +99,7 @@ export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, log
   };
   return (
     <>
-      <GridDock pane={hud.pane} onToggle={hud.toggle} unread={logUnread} chainCount={chainCount} />
+      <GridDock pane={hud.pane} onToggle={hud.toggle} unread={logUnread} chainCount={chainCount} panes={panels.camera != null ? DOCK_PANES_CAMERA : DOCK_PANES} />
       {chainOpen ? <ChainTower chain={chain} nameOf={nameOf} tones={seatTones} onOpen={() => hud.setPane("chain")} /> : null}
       {master ? (
         <GridMasterToken

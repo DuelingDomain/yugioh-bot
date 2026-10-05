@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
-import { Link2, ScrollText, SlidersHorizontal, X } from "lucide-react";
+import { Link2, ScrollText, SlidersHorizontal, Video, X } from "lucide-react";
 import type { DuelChainLink } from "@yugidraft/shared/duels";
 import { cardArtUrl } from "../constants";
 import { unreadLabel } from "../side-panel";
@@ -13,10 +13,15 @@ import styles from "./grid-hud.module.css";
  * their own; the shell owns which pane is open and feeds each part its real data.
  */
 
-/** The panes the HUD can open. `master`, `other` and `card` are not dock icons: a Deck Master token and a card click open them. */
-export type HudPane = "card" | "log" | "settings" | "chain" | "master" | "other";
+/**
+ * The panes the HUD can open. `master`, `other` and `card` are not dock icons: a Deck Master token and a card click open
+ * them. `camera` is the fourth dock icon of the Tag Rooftop only (its camera dock).
+ */
+export type HudPane = "card" | "log" | "settings" | "chain" | "master" | "other" | "camera";
 
 export const DOCK_PANES = ["log", "settings", "chain"] as const;
+/** The dock of a table with a camera panel. */
+export const DOCK_PANES_CAMERA = [...DOCK_PANES, "camera"] as const;
 
 export const HUD_PANE_LABEL: Record<HudPane, string> = {
   card: "Card",
@@ -25,11 +30,12 @@ export const HUD_PANE_LABEL: Record<HudPane, string> = {
   chain: "Chain",
   master: "Deck Master",
   other: "Deck Master",
+  camera: "Camera",
 };
 
 type SeatTones = ReadonlyMap<number, { main: string; ink: string }>;
 
-const DOCK_ICON = { log: ScrollText, settings: SlidersHorizontal, chain: Link2 } as const;
+const DOCK_ICON = { log: ScrollText, settings: SlidersHorizontal, chain: Link2, camera: Video } as const;
 
 /**
  * Closes the open flyout with Esc (before any other key handler sees it) or a press outside the parts marked
@@ -60,8 +66,10 @@ export function useHudDismiss(active: boolean, suspended: boolean, onClose: () =
   }, [active, suspended]);
 }
 
-export function GridDock({ pane, onToggle, unread, chainCount }: {
+export function GridDock({ pane, onToggle, unread, chainCount, panes = DOCK_PANES }: {
   pane: HudPane | null;
+  /** The icons, top to bottom. Default: Log, Settings, Chain. */
+  panes?: readonly (typeof DOCK_PANES_CAMERA)[number][];
   /** The same icon again closes the pane. */
   onToggle: (pane: HudPane) => void;
   /** New log rows since the Log pane was last in view. */
@@ -70,7 +78,7 @@ export function GridDock({ pane, onToggle, unread, chainCount }: {
 }) {
   return (
     <nav className={styles.dock} aria-label="Table panels" data-hud-keep="" data-testid="hud-dock">
-      {DOCK_PANES.map((id) => {
+      {panes.map((id) => {
         const Icon = DOCK_ICON[id];
         const count = id === "log" ? unread : id === "chain" ? chainCount : 0;
         return (
