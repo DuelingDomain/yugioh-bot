@@ -52,3 +52,36 @@ describe.each(failures)("catalog %s failures", (failure) => {
     await result;
   });
 });
+
+describe("cached draft sets", () => {
+  const draft = (catalog: CardCatalogService) => catalog.syncDraftPool({
+    setNames: ["Pendulum Domination Structure Deck"], includeNames: [], excludeNames: [],
+  });
+
+  it.each([43, null])("rejects one cached card when the set count is %s", async (count) => {
+    const { catalog } = await setup("503", true);
+    db.prepare("update card_catalog set card_sets_json = ?").run(JSON.stringify([{ set_name: "Pendulum Domination Structure Deck" }]));
+    db.prepare("update card_sets set set_name = ?, card_count = ?").run("Pendulum Domination Structure Deck", count);
+    const result = expect(draft(catalog)).rejects.toThrow("Could not reach the card database. Try again shortly.");
+    await Promise.all([result, vi.runAllTimersAsync()]);
+  });
+
+  it("does not count alternate artworks as additional cards", async () => {
+    const { catalog } = await setup("503", true);
+    db.exec(`update card_sets set card_count = 2;
+      insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
+      select 12345679,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at from card_catalog;
+      insert into card_artworks (card_id,artwork_id,image_url,image_url_small,is_main) values (12345678,12345679,'alt','alt',0);`);
+    const result = expect(catalog.syncDraftPool({ setNames: ["Cached Set"], includeNames: [], excludeNames: [] })).rejects.toThrow(/Try again/);
+    await Promise.all([result, vi.runAllTimersAsync()]);
+  });
+
+  it("checks the full set before excluding names and Extra Deck cards", async () => {
+    const { catalog } = await setup("503", true);
+    db.exec(`update card_sets set card_count = 2;
+      insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
+      select 22345678,'Cached Fusion','Fusion Monster','fusion',image_url,image_url_small,card_sets_json,cached_at from card_catalog;`);
+    const result = expect(catalog.syncDraftPool({ setNames: ["Cached Set"], includeNames: [], excludeNames: ["Cached Dragon"] })).resolves.toEqual([]);
+    await Promise.all([result, vi.runAllTimersAsync()]);
+  });
+});

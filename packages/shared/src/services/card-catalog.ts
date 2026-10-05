@@ -403,12 +403,13 @@ export function createCardCatalogService(
       const distinctCustomIds = [...new Set(input.customCardIds ?? [])];
       for (const id of distinctCustomIds) ensureLegacyEngineArtwork(id);
       const cachedIds: number[] = [];
-      const load = async (fetch: () => Promise<YgoprodeckCard[]>, cached: () => CardCatalogCard[]) => {
+      const load = async (fetch: () => Promise<YgoprodeckCard[]>, cached: () => CardCatalogCard[],
+        usable = (cards: CardCatalogCard[]) => cards.length > 0) => {
         try { return await fetch(); }
         catch (error) {
           if (!isCardFetchError(error)) throw error;
           const cards = cached();
-          if (cards.length === 0) throw error;
+          if (!usable(cards)) throw error;
           cachedIds.push(...cards.map((card) => card.ygoprodeckId));
           return [];
         }
@@ -416,7 +417,11 @@ export function createCardCatalogService(
       // Existing rows need no artwork fetch. Bulk set sync fills legacy artwork rows later.
       const jobs = [
         ...input.setNames.map((name) => load(() => fetchCards("cardset", name),
-          () => cachedCards((card) => card.cardSets.some((set) => set.set_name === name)))),
+          () => cachedCards((card) => card.cardSets.some((set) => set.set_name === name)),
+          (cards) => {
+            const set = db.prepare("select card_count from card_sets where set_name = ?").get(name) as { card_count: number | null } | undefined;
+            return set?.card_count != null && set.card_count > 0 && cards.length >= set.card_count;
+          })),
         ...distinctCustomIds.filter((id) => !hasCatalogRow(id)).map((id) => load(() => fetchArtworkFamily(id), () => {
           ensureEngineArtwork(id);
           return findByIds([id]);
