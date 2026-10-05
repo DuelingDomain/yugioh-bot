@@ -20,6 +20,6 @@ export function readCoreCapabilities(dataDirectory: string, wasmFile: string, lo
   }));
   const capabilities = fields.get("capabilities")?.split(",").map((flag) => flag.trim()) ?? [];
   return {
-    ffa4SharedExtraZones: fields.get("sha256") === loadedSha && capabilities.includes("ffa4-shared-extra-zones"),
+    ffa4SharedExtraZones: fields.get("sha256") === loadedSha && capabilities.includes("ffa4-facing-extra-zones"),
   };
 }

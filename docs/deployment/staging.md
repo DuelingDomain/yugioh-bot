@@ -140,7 +140,7 @@ The build uses the same inputs as the engine session:
   `9f36452f2a2464f057f7fd6e2273aa5ab589401e`, Lua `75ea9ccbea7c4886f30da147fb67b693b2624c26`,
   and emsdk `4.0.9` at digest `sha256:3c853ef9c3b4c2708da1adac2fdfdba49c775fdc4144ceef4989423963e96811`.
 - All numbered patches in `domain-core/patches` (currently 0001–0084 plus 0105; 85 patches). No experimental patches or
-  `PATCH_LIMIT`. The current series hash is `3cf4dd0ec4dffd897eece325d68ab967a0a34d2e62c8212f501f8ce06e76e295`.
+  `PATCH_LIMIT`. The current series hash is `5621592465aed17c41ea29d33374a91540118d22867d862c01d497f688b02642`.
 - Domain additionally uses `APPLY_DOMAIN=1 DOMAIN_MULTI=1`, the existing Domain patch, `domain_master.cpp`
   and `apply-domain-multi.mjs`. The current multi layer hash is
   `cf5100707bce7701cb0be0ac4a8ff47308a13b278174f03c157f2f2e46dd849a`.

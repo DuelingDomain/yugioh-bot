@@ -224,7 +224,7 @@ jobs:
           cp "$dist/ocgcore.multi.sync.wasm" "$BUNDLE_DIR/ocgcore.multi.wasm"
           cp "$dist/ocgcore.multi-domain.sync.wasm" "$BUNDLE_DIR/ocgcore.multi-domain.wasm"
           for stem in ocgcore.multi ocgcore.multi-domain; do
-            printf 'tag=ci-%s\nsource=%s\nsha256=%s\ncapabilities=ffa4-shared-extra-zones\ninstalled=%s\nnote=built by .github/workflows/test.yml\n' \
+            printf 'tag=ci-%s\nsource=%s\nsha256=%s\ncapabilities=ffa4-facing-extra-zones\ninstalled=%s\nnote=built by .github/workflows/test.yml\n' \
               "${GITHUB_SHA::12}" "$dist/$stem.sync.wasm" \
               "$(sha256sum "$dist/$stem.sync.wasm" | cut -d' ' -f1)" \
               "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$BUNDLE_DIR/$stem.SOURCE"

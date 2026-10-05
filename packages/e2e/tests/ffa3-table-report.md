@@ -569,13 +569,20 @@ retry 0. Expected failures are not counted as ordinary ADR passes.
 | R-FFA-RESOURCE-ROTATION: Creature Swap rotates monsters 0 to 1 to 2 to 0 | Expected failure | Expected failure |
 | R-COMMON-EMZ: real Link summons into own EMZ 5 ignore rival EMZ and use only the local arrow | Pass | Pass |
 | R-COMMON-EMZ: real Link summons into own EMZ 6 ignore rival EMZ and use only the local arrow | Pass | Pass |
-| current engine: FFA4 across EMZ remain independent during a real Link summon | Pass | Pass |
-| R-FFA-ACROSS-EMZ: FFA4 across seat 2 blocks seat 0's matching EMZ during a real Link summon | Expected failure | Expected failure |
+| R-FFA-ACROSS-EMZ: FFA4 facing seat 1 blocks seat 0's matching EMZ during a real Link summon | Expected failure | Expected failure |
 
-Expected failures occur at these engine assertions: Raigeki and Dweller return
-no opponent declaration; Creature Swap gives the pair-swap identities rather
-than the three-seat rotation; FFA4 offers both EMZ rather than excluding the
-blocked matching zone. None is accepted because of a UI timeout.
+The FFA4 row uses the current facing-seat title; its recorded outcomes belong to
+this report's earlier 0/2 assertion. The obsolete independent-EMZ control has been
+removed from the current spec. On 2026-10-04, the rebuilt 85-patch Standard and
+Domain cores passed the shared-zone scenarios for facing pairs 0/1 and 2/3,
+including real Link summons. The current browser assertion has no `test.fail`
+annotation; this follow-up did not rerun Playwright.
+
+In those historical runs, expected failures occurred at these engine assertions:
+Raigeki and Dweller returned no opponent declaration; Creature Swap gave the
+pair-swap identities rather than the three-seat rotation; FFA4 offered both EMZ
+rather than excluding the blocked matching zone. None was accepted because of a
+UI timeout.
 
 Additional checks: E2E and duel-server typechecks passed; all 37 then-registered
 preset boards compiled in the focused unit run (39 unselected tests skipped);
