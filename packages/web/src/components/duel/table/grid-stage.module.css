@@ -66,9 +66,11 @@
   transition: none;
 }
 
-/* Your hand is drawn nearly as large as the 1v1 hand. It lies below your field and rises over its lower edge on hover. */
+/* Your hand is drawn nearly as large as the 1v1 hand, from the EQUAL card size (--sf-lh, set by the stage) so a focused
+   field does not need a larger lane. It rises over the lower edge of your field by a fifth of a card and lifts on hover. */
 .world :global([data-seat-field][data-side="you"]) {
-  --lh: calc(var(--z) * 0.95);
+  --lh: var(--sf-lh, calc(var(--z) * 0.95));
+  --hand-rise: calc(var(--lh) * 0.4);
 }
 
 /* An out seat shows its existing out treatment (the field's own grayscale and label) while it stays mounted. */

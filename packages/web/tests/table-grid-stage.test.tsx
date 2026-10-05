@@ -128,7 +128,8 @@ describe("GridStage", () => {
     const stage = container.querySelector("[data-grid-stage]")!;
     const z = (seat: number) => parseFloat(cellOf(container, seat).querySelector<HTMLElement>("[data-seat-slot]")!.style.getPropertyValue("--sf-z"));
     expect(z(0)).toBeGreaterThan(z(3));
-    expect(z(3)).toBeGreaterThanOrEqual(z(1));
+    expect(z(1)).toBeLessThan(z(0));
+    expect(z(3)).toBeLessThan(z(0));
     expect(z(3)).toBeCloseTo(z(2), 1);
     act(() => void fireEvent.keyDown(window, { key: "o" }));
     expect(stage.getAttribute("data-grid-focus")).toBe("all");

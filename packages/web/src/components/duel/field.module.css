@@ -1942,10 +1942,12 @@
   --n3: calc(var(--z) * 0.13 * var(--ts));
   --n4: calc(var(--z) * 0.088 * var(--ts));
   /* The viewer's hand: cards 0.76 zone sizes tall, below the board. */
-  --lh: calc(var(--z) * 0.76);
+  --lh: var(--sf-lh, calc(var(--z) * 0.76));
   --lhcw: calc(var(--lh) * 0.686);
   --lhg: calc(var(--z) * 0.07);
   --hw-bot: calc(var(--z) * 5.4);
+  /* How far the hand rises over the lower edge of the field (the 4-way grid sets it). */
+  --hand-rise: 0px;
   --hpad: 4px;
   position: relative;
   box-sizing: border-box;
@@ -2096,11 +2098,12 @@
 }
 
 .seatField[data-emz="none"] .sfMat {
-  clip-path: inset(calc(var(--z) * 1.25) -240px -240px -240px);
+  /* Pad + row + row gap: the end of this field's monster row (the grid overlaps the pair by the same measure). */
+  clip-path: inset(calc(var(--z) * 1.196) -240px -240px -240px);
 }
 
 .seatField[data-emz="none"] .sfRule {
-  top: calc(var(--z) * 1.25 + 6px);
+  top: calc(var(--z) * 1.196 + 6px);
 }
 
 .seatField[data-emz="pair"][data-joined="true"] .sfMat {
@@ -2275,7 +2278,7 @@
 /* The viewer's hand sits right below the board and turns with it. */
 .sfHand {
   position: absolute;
-  top: calc(100% - 2px);
+  top: calc(100% - 2px - var(--hand-rise));
   left: 50%;
   z-index: calc(var(--duel-z-fx) - 1);
   width: calc(var(--z) * 5.4);

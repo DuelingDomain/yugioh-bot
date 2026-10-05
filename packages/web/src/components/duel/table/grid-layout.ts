@@ -108,15 +108,30 @@ export function pairDrawer(cells: readonly GridCell[], states: ReadonlyMap<numbe
 const FIELD_ZONES_WIDE: Record<number, number> = { 3: 7.35 };
 const FIELD_ZONES_DEFAULT = 5.83;
 const FIELD_ZONES_HIGH = 3.393;
-/** Pad around the zone grid, one card row, the gap between card rows (field.module.css `.sfGrid`). */
+/** Pad around the zone grid, one card row, the gap between card rows (field.module.css `.sfGrid`, `.seatField --gy`). */
 const PAD = 0.125;
 const ROW = 1;
-/** The shared Extra Monster row (with its pads) that the two fields of a pair overlap by. */
-const OVERLAP = 2 * PAD + ROW;
-/** Room for a rival's hand backs above the top row (and below a rival's bottom row), and for your hand below your row. */
+const ROW_GAP = 0.071;
+/**
+ * How far the two fields of a pair overlap: the drawing field's pad and Extra Monster row, plus the gap to its
+ * monster row. The other field's mat ends exactly there (field.module.css clips it at the same measure), so its
+ * monster row is whole and the two mats meet with no seam.
+ */
+export const OVERLAP = PAD + ROW + ROW_GAP;
+/** Room for a rival's hand backs above the top row (and below a rival's bottom row). Shares of that field's card height. */
 const TOP_LANE = 0.62;
 const RIVAL_BOTTOM_LANE = 0.62;
-const HOME_BOTTOM_LANE = 1.3;
+/**
+ * Room for your hand below your row, as a share of the card height of your field, but never of more than the EQUAL
+ * card height: the lane stops growing when your field is focused (a lane that grew with the focus cost the focus its
+ * size). About 0.8 of the old 1.3 lane; the hand rises over the field's lower edge by `HAND_RISE` of its own height
+ * instead of leaving a gap there.
+ */
+const HOME_LANE = 1.04;
+/** Drawn height of your hand cards as a share of the equal card height (a field smaller than that draws a smaller hand). */
+export const HAND_SHARE = 0.95;
+/** How far your hand rises over the lower edge of your field, as a share of a hand card's height. */
+export const HAND_RISE = 0.2;
 const COLUMN_GAP = 0.34;
 /** Card width of a zone, and the horizontal space the pile column and its gaps take on each side of the middle. */
 const CARD_W = 0.686;
@@ -135,6 +150,8 @@ const EDGE = 8;
 /** Focused field and the other column, as a share of the equal 2x2 card size; the partner never goes below the minimum. */
 export const FOCUS_SHARE = 1.3;
 export const OTHER_SHARE = 0.8;
+/** The other column gives up width down to this share so the focused field can reach its size on a box that is width-bound. */
+export const OTHER_MIN_SHARE = 0.66;
 export const PARTNER_MAX_SHARE = 0.8;
 export const PARTNER_MIN_SHARE = 0.62;
 /** A field narrower than this (px) is "small": no zone labels, ATK only. */
@@ -184,6 +201,8 @@ export interface GridCellRect {
   /** The field draws the shared Extra Monster row of its column. */
   drawer: boolean;
   small: boolean;
+  /** Card height of a hand card of this field in px (only the home field draws a hand). */
+  lh: number;
 }
 
 /**
@@ -213,12 +232,13 @@ export interface GridFocusLayout {
 export const cellIndex = (cell: GridFocusTarget): number => cell.column * 2 + cell.row;
 
 const round2 = (value: number) => Math.round(value * 100) / 100;
-const rect = (x: number, y: number, width: number, height: number): GridRect => ({ x: round2(x), y: round2(y), width: round2(width), height: round2(height) });
+/** Left and top are whole px (a box on a half px blurs its text at rest); sizes keep two decimals. */
+const rect = (x: number, y: number, width: number, height: number): GridRect => ({ x: Math.round(x), y: Math.round(y), width: round2(width), height: round2(height) });
 
 /** Height of a column from the top of its top lane to the bottom of its bottom lane (px). The fields overlap by the Extra Monster rows. */
-function columnHeight(zt: number, zb: number, drawerRow: 0 | 1, bottomLane: number): number {
+function columnHeight(zt: number, zb: number, drawerRow: 0 | 1, lane: number): number {
   const nonDrawer = drawerRow === 1 ? zt : zb;
-  return (TOP_LANE + FIELD_ZONES_HIGH) * zt - OVERLAP * nonDrawer + (FIELD_ZONES_HIGH + bottomLane) * zb;
+  return (TOP_LANE + FIELD_ZONES_HIGH) * zt - OVERLAP * nonDrawer + FIELD_ZONES_HIGH * zb + lane;
 }
 
 function placeColumn(
@@ -230,6 +250,7 @@ function placeColumn(
   top: number,
   home: boolean,
   zones: number,
+  equal: number,
 ): { cells: [GridCellRect, GridCellRect]; band: GridBandRect } {
   const topBox = rect(centerX - (zones * zt) / 2, top + TOP_LANE * zt, zones * zt, FIELD_ZONES_HIGH * zt);
   const overlap = OVERLAP * (drawerRow === 1 ? zt : zb);
@@ -261,6 +282,7 @@ function placeColumn(
     rect: box,
     drawer: drawerRow === row,
     small: box.width < SMALL_FIELD_WIDTH,
+    lh: round2(HAND_SHARE * Math.min(z, equal)),
   });
   return { cells: [cell(0, topBox, zt), cell(1, bottomBox, zb)], band };
 }
@@ -268,7 +290,7 @@ function placeColumn(
 /**
  * The final layout of the grid in a box ("Stage and side"), pure. `focus` null = all fields: an equal 2x2. A focus =
  * that field about 1.3x the equal size, its partner (the other field of its column) smaller above or below it with
- * the shared Extra Monster row between them, and the other column at about 0.8x. Each field stays inside its own
+ * the shared Extra Monster row between them, and the other column at about 0.8x (down to 0.66x on a box that is narrow). Each field stays inside its own
  * column and all four are always whole inside the box. The partner never goes under 0.62x: when the column is too
  * short for 1.3x, the focused field gives up size instead.
  */
@@ -277,46 +299,64 @@ export function gridFocusLayout(world: GridWorld, viewport: GridViewport, focus:
   const homeColumn = options.homeColumn ?? 0;
   const width = Math.max(0, viewport.width - 2 * EDGE);
   const height = Math.max(0, viewport.height - 2 * EDGE);
-  const laneOf = (column: 0 | 1) => (column === homeColumn ? HOME_BOTTOM_LANE : RIVAL_BOTTOM_LANE);
   const drawerOf = (column: 0 | 1): 0 | 1 => options.drawerRow?.[column] ?? (focus && focus.column === column ? focus.row : 1);
 
   // The equal 2x2: both columns as tall as the one with the larger hand lane, so the rows line up.
-  const equal = Math.max(0, Math.min(width / (2 * zones + COLUMN_GAP), height / columnHeight(1, 1, 1, HOME_BOTTOM_LANE)));
+  const equal = Math.max(0, Math.min(width / (2 * zones + COLUMN_GAP), height / columnHeight(1, 1, 1, HOME_LANE)));
   const gap = COLUMN_GAP * equal;
+  const homeLane = HOME_LANE * equal;
+  const laneOf = (column: 0 | 1, zb: number) => (column === homeColumn ? HOME_LANE * Math.min(zb, equal) : RIVAL_BOTTOM_LANE * zb);
   const place = (column: 0 | 1, zt: number, zb: number, centerX: number, top: number) =>
-    placeColumn(column, zt, zb, drawerOf(column), centerX, top, column === homeColumn, zones);
+    placeColumn(column, zt, zb, drawerOf(column), centerX, top, column === homeColumn, zones, equal);
 
   let sizes = { equal, focus: equal, partner: equal, other: equal };
   const columns: { cells: [GridCellRect, GridCellRect]; band: GridBandRect }[] = [];
   if (!focus) {
     const x0 = EDGE + (width - (2 * zones * equal + gap)) / 2;
-    const top = EDGE + (height - columnHeight(equal, equal, 1, HOME_BOTTOM_LANE)) / 2;
+    const top = EDGE + (height - columnHeight(equal, equal, 1, homeLane)) / 2;
     columns[0] = place(0, equal, equal, x0 + (zones * equal) / 2, top);
     columns[1] = place(1, equal, equal, x0 + zones * equal + gap + (zones * equal) / 2, top);
   } else {
     const fc = focus.column;
     const oc: 0 | 1 = fc === 0 ? 1 : 0;
     const drawerRow = drawerOf(fc);
-    // Column height is linear in the two sizes: its coefficient for the focused field and for its partner.
-    const heightOf = (zs: number, zp: number) => (focus.row === 1 ? columnHeight(zp, zs, drawerRow, laneOf(fc)) : columnHeight(zs, zp, drawerRow, laneOf(fc)));
-    const cs = heightOf(1, 0);
-    const cp = heightOf(0, 1);
-    const other = OTHER_SHARE * equal;
-    const widthCap = (width - gap - zones * other) / zones;
+    // Column height grows with both sizes. The partner's share is solved from it (affine in the partner's size).
+    const heightOf = (zs: number, zp: number) => {
+      const zt = focus.row === 1 ? zp : zs;
+      const zb = focus.row === 1 ? zs : zp;
+      return columnHeight(zt, zb, drawerRow, laneOf(fc, zb));
+    };
+    const widthCap = (width - gap - zones * OTHER_MIN_SHARE * equal) / zones;
     const focusMax = Math.min(FOCUS_SHARE * equal, widthCap);
+    const partnerFor = (zs: number) => {
+      const base = heightOf(zs, 0);
+      return (height - base) / (heightOf(zs, 1) - base);
+    };
+    const partnerMin = PARTNER_MIN_SHARE * equal;
     let zs = focusMax;
-    let zp = Math.min(PARTNER_MAX_SHARE * equal, (height - cs * zs) / cp);
-    if (zp < PARTNER_MIN_SHARE * equal) {
-      zp = PARTNER_MIN_SHARE * equal;
-      zs = Math.max(zp, Math.min(focusMax, (height - cp * zp) / cs));
+    let zp = Math.min(PARTNER_MAX_SHARE * equal, partnerFor(zs));
+    if (zp < partnerMin) {
+      // The column is too short: the partner stays at its minimum and the focused field gives up size (bisection:
+      // the height only grows with the focused size).
+      zp = partnerMin;
+      let lo = partnerMin;
+      let hi = focusMax;
+      if (heightOf(hi, zp) <= height) lo = hi;
+      else for (let step = 0; step < 40; step++) {
+        const mid = (lo + hi) / 2;
+        if (heightOf(mid, zp) <= height) lo = mid;
+        else hi = mid;
+      }
+      zs = Math.max(partnerMin, lo);
     }
+    const other = Math.min(OTHER_SHARE * equal, (width - gap - zones * zs) / zones);
     sizes = { equal, focus: zs, partner: zp, other };
     const total = zones * zs + gap + zones * other;
     const x0 = EDGE + (width - total) / 2;
     const focusX = fc === 0 ? x0 + (zones * zs) / 2 : x0 + zones * other + gap + (zones * zs) / 2;
     const otherX = fc === 0 ? x0 + zones * zs + gap + (zones * other) / 2 : x0 + (zones * other) / 2;
     const focusTop = EDGE + (height - heightOf(zs, zp)) / 2;
-    const otherTop = EDGE + (height - columnHeight(other, other, drawerOf(oc), laneOf(oc))) / 2;
+    const otherTop = EDGE + (height - columnHeight(other, other, drawerOf(oc), laneOf(oc, other))) / 2;
     columns[fc] = focus.row === 1 ? place(fc, zp, zs, focusX, focusTop) : place(fc, zs, zp, focusX, focusTop);
     columns[oc] = place(oc, other, other, otherX, otherTop);
   }

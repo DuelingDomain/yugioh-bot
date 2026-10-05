@@ -317,7 +317,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
                     pose={pose}
                     field={field}
                     render={renderSeatField}
-                    placement={{ left: spot.rect.x, top: spot.rect.y, zIndex: focus.seat === cell.seat ? 30 : spot.drawer ? 14 : 10, small: spot.small }}
+                    placement={{ left: spot.rect.x, top: spot.rect.y, zIndex: focus.seat === cell.seat ? 30 : spot.drawer ? 14 : 10, small: spot.small, lh: spot.lh }}
                   />
                 )}
                 {state === "out" && exit ? (
