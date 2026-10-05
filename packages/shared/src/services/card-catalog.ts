@@ -147,7 +147,7 @@ export function createCardCatalogService(
       const art = artworkById.get(id) as ArtworkRow | undefined;
       if (art) previous.add(art.card_id);
     }
-    return previous.size === 1 ? [...previous][0] : card.id;
+    return previous.size === 1 ? [...previous][0] : Math.min(card.id, ...card.card_images.map((art) => art.id ?? card.id));
   };
 
   // Fail fast on an unreachable API instead of hanging the request for minutes.

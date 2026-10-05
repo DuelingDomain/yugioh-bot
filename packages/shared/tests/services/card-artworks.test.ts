@@ -1,8 +1,7 @@
 import Database from "better-sqlite3";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "../../src/db/schema.js";
 import { createCardCatalogService } from "../../src/services/card-catalog.js";
@@ -155,17 +154,25 @@ describe("card artwork mapping", () => {
   it("moves a fallback family to its proven main without losing known crops", async () => {
     const { db } = setup();
     const mutableIdentity = new Map();
-    let response = fixtures[0];
+    let response = fixtures[2];
     const catalog = createCardCatalogService(db, { identityCatalog: mutableIdentity,
       fetch: async () => ({ ok: true, json: async () => ({ data: [response] }) }) });
     await catalog.syncCardByName(response.name);
-    expect(catalog.canonicalId(81480460)).toBe(81480461);
-    mutableIdentity.set(81480460, { name: response.name, type: 33, alias: 0 });
-    response = { ...response, id: 81480460, card_images: [response.card_images[1]] };
+    expect(catalog.canonicalId(46986414)).toBe(36996508);
+    mutableIdentity.set(46986414, { name: response.name, type: 17, alias: 0 });
+    response = { ...response, id: 46986414, card_images: [response.card_images[1]] };
     await catalog.syncCardByName(response.name);
-    expect(catalog.listArtworks(81480460)).toHaveLength(2);
+    expect(catalog.listArtworks(46986414)).toHaveLength(9);
+    expect(catalog.listArtworks(46986421)[0]).toMatchObject({ artworkId: 46986414, isMain: true });
+    expect(catalog.listArtworks(46986421).find((art) => art.artworkId === 46986421)?.imageUrlCropped).toContain("46986421.jpg");
+  });
+
+  it("uses the lowest passcode when engine identity is missing", async () => {
+    const { db } = setup();
+    const catalog = createCardCatalogService(db, { identityCatalog: new Map(),
+      fetch: async () => ({ ok: true, json: async () => ({ data: [fixtures[0]] }) }) });
+    expect((await catalog.syncCardByName("Barrel Dragon"))?.ygoprodeckId).toBe(81480460);
     expect(catalog.listArtworks(81480461)[0]).toMatchObject({ artworkId: 81480460, isMain: true });
-    expect(catalog.listArtworks(81480461)[1].imageUrlCropped).toContain("81480461.jpg");
   });
 
   it("uses main card data even if a legacy alternate row has stale stats", async () => {
@@ -225,17 +232,18 @@ describe("card artwork mapping", () => {
   });
 });
 
-it("resolves a relative engine path from the repository root and filters legacy alternate options", () => {
+it.each(["absolute", "relative", "default"])("resolves the %s engine path from cwd and filters legacy alternate options", (mode) => {
   const dir = mkdtempSync(join(tmpdir(), "card-art-engine-"));
-  const engine = new Database(join(dir, "cards.cdb"));
+  const engineDir = join(dir, "data/duel-engine");
+  mkdirSync(engineDir, { recursive: true });
+  const engine = new Database(join(engineDir, "cards.cdb"));
   engine.exec(`create table datas (id integer primary key, alias integer, type integer);
     create table texts (id integer primary key, name text);
     insert into datas values (89631139,0,17),(89631146,89631139,17);
     insert into texts values (89631139,'Blue-Eyes White Dragon'),(89631146,'Blue-Eyes White Dragon');`);
   engine.close();
-  const root = fileURLToPath(new URL("../../../../", import.meta.url));
-  vi.stubEnv("DUEL_DATA_DIR", relative(root, dir));
-  const cwd = vi.spyOn(process, "cwd").mockReturnValue(join(root, "packages/web"));
+  vi.stubEnv("DUEL_DATA_DIR", mode === "absolute" ? engineDir : mode === "relative" ? relative(dir, engineDir) : undefined);
+  const cwd = vi.spyOn(process, "cwd").mockReturnValue(dir);
   try {
     expect(canonicalCardCode(89631146, loadArtworkIdentityCatalog())).toBe(89631139);
     const { db } = setup();
@@ -249,6 +257,19 @@ it("resolves a relative engine path from the repository root and filters legacy 
     expect(drafts.resolvePoolCardIds({})).toEqual([89631139]);
     expect(catalogMainImage(db, 89631139)).toBe("https://images.ygoprodeck.com/images/cards/89631139.jpg");
   } finally { cwd.mockRestore(); vi.unstubAllEnvs(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+it("warns only once when the engine identity database is missing", async () => {
+  vi.resetModules();
+  const { loadArtworkIdentityCatalog: load } = await import("../../src/services/card-artworks.js");
+  vi.stubEnv("DUEL_DATA_DIR", join(tmpdir(), "missing-artwork-engine"));
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    expect(load().size).toBe(0);
+    expect(load().size).toBe(0);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toContain("artwork");
+  } finally { warn.mockRestore(); vi.unstubAllEnvs(); }
 });
 
 function catalogMainImage(db: Database.Database, id: number) {

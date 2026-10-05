@@ -1,7 +1,6 @@
 import Database from "better-sqlite3";
 import { existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { canonicalCardCode, type CardIdentityCatalog } from "../duels/pool.js";
 
 export interface CardArtwork {
@@ -14,12 +13,18 @@ export interface CardArtwork {
 }
 
 const engineCache = new Map<string, { mtime: number; cards: CardIdentityCatalog }>();
+let warnedMissingIdentity = false;
 
 /** Share the engine's artwork identity rule without opening its database for writes. */
 export function loadArtworkIdentityCatalog(): CardIdentityCatalog {
-  const root = fileURLToPath(new URL("../../../../", import.meta.url));
-  const path = resolve(root, process.env.DUEL_DATA_DIR ?? "data/duel-engine", "cards.cdb");
-  if (!existsSync(path)) return new Map();
+  const path = resolve(process.cwd(), process.env.DUEL_DATA_DIR ?? "data/duel-engine", "cards.cdb");
+  if (!existsSync(path)) {
+    if (!warnedMissingIdentity) {
+      console.warn(`[card-artworks] Engine identity is missing at ${path}; artwork sync will preserve known mains or use the lowest passcode.`);
+      warnedMissingIdentity = true;
+    }
+    return new Map();
+  }
   const mtime = statSync(path).mtimeMs;
   const cached = engineCache.get(path);
   if (cached?.mtime === mtime) return cached.cards;
