@@ -340,8 +340,8 @@ describe("artwork fetch limits", () => {
       await Promise.all(jobs);
       expect(starts).toHaveLength(20);
       expect(maxInFlight).toBeLessThanOrEqual(4);
-      for (let i = 1; i < starts.length; i++) expect(starts[i] - starts[i - 1]).toBeGreaterThanOrEqual(125);
-      for (const start of starts) expect(starts.filter((time) => time >= start && time < start + 1000).length).toBeLessThanOrEqual(8);
+      for (let i = 1; i < starts.length; i++) expect(starts[i] - starts[i - 1]).toBeGreaterThanOrEqual(200);
+      for (const start of starts) expect(starts.filter((time) => time >= start && time < start + 1000).length).toBeLessThanOrEqual(5);
     } finally { vi.useRealTimers(); }
   });
 });

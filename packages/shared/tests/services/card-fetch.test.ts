@@ -4,7 +4,47 @@ import type { AddressInfo } from "node:net";
 
 describe("card fetch transport", () => {
   beforeEach(() => { vi.resetModules(); vi.useFakeTimers(); });
-  afterEach(() => { vi.useRealTimers(); });
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); });
+
+  it.each([400, 401, 403, 404, 429, 503])("retains HTTP %s for callers to distinguish permanent failures", async (status) => {
+    const { fetchCardResource } = await import("../../src/services/card-fetch.js");
+    await expect(fetchCardResource("https://images.ygoprodeck.com/images/cards/1.jpg",
+      async () => new Response("error", { status }), (response) => response.text()))
+      .rejects.toMatchObject({ name: "CardFetchError", status });
+  });
+
+  it.each([
+    [undefined, 5], ["2", 2], ["invalid", 5], ["0", 5],
+  ] as const)("limits request starts with CARD_FETCH_REQUESTS_PER_SECOND=%s", async (setting, rate) => {
+    vi.stubEnv("CARD_FETCH_REQUESTS_PER_SECOND", setting);
+    const { fetchCardResource } = await import("../../src/services/card-fetch.js");
+    const starts: number[] = [];
+    const fetch = vi.fn(async () => { starts.push(Date.now()); return new Response("ok"); });
+    const results = Promise.all(Array.from({ length: rate + 1 }, (_, i) =>
+      fetchCardResource(`https://${i % 2 ? "images" : "db"}.ygoprodeck.com/card`, fetch, (r) => r.text())));
+    await vi.advanceTimersByTimeAsync(999);
+    expect(starts).toHaveLength(rate);
+    await vi.advanceTimersByTimeAsync(1);
+    await results;
+    expect(starts).toHaveLength(rate + 1);
+    for (let i = 1; i < starts.length; i++) expect(starts[i] - starts[i - 1]).toBeGreaterThanOrEqual(1000 / rate);
+  });
+
+  it.each([[undefined, 32], ["2", 2]] as const)("rejects a full queue with CARD_FETCH_QUEUE_LIMIT=%s", async (setting, limit) => {
+    vi.stubEnv("CARD_FETCH_QUEUE_LIMIT", setting);
+    const { fetchCardResource, CardFetchError } = await import("../../src/services/card-fetch.js");
+    const fetch = vi.fn(async () => new Response("ok"));
+    const call = () => fetchCardResource("https://db.ygoprodeck.com/card", fetch, (r) => r.text());
+    const jobs = Promise.all(Array.from({ length: limit + 1 }, call));
+    await expect(call()).rejects.toBeInstanceOf(CardFetchError);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await vi.runAllTimersAsync();
+    await jobs;
+    const recovered = call();
+    await vi.runAllTimersAsync();
+    await expect(recovered).resolves.toBe("ok");
+    expect(fetch).toHaveBeenCalledTimes(limit + 2);
+  });
 
   it.each(["network", "timeout", "json", "429", "503"])("contains a %s failure", async (failure) => {
     const { fetchCardResource, CardFetchError } = await import("../../src/services/card-fetch.js");
