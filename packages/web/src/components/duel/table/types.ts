@@ -9,7 +9,7 @@ export type { BattleAim, PromptDraft, InspectTarget, DuelActivateHandler, DuelHo
 
 /**
  * The contract of the multiplayer table UI (3-way, 4-way, 2v2 tag). The scaffold wrote it; after that only the
- * 3w-* steps may change it, and only by adding. Plan: docs/specs/2026-10-01-multiplayer-table-ui-plan.md.
+ * 3w-* steps may change it, and only by adding. See docs/architecture.md.
  */
 
 export type TableFormat = Exclude<DuelFormat, "1v1">; // "tag" | "ffa3" | "ffa4"
