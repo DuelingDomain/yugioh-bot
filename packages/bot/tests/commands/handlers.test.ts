@@ -81,7 +81,7 @@ function setup(options: { cardsBySet?: Record<string, unknown[]>; fetchCalls?: s
         return {
           ok: true,
           async json() {
-            return mockSetNames.map((set_name) => ({ set_name }));
+            return mockSetNames.map((set_name) => ({ set_name, set_code: "", num_of_cards: 0 }));
           },
         } as Response;
       }

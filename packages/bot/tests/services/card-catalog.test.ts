@@ -35,7 +35,7 @@ function setup(
         return {
           ok: true,
           async json() {
-            return setsResponse;
+            return setsResponse.map((set) => ({ set_code: "", num_of_cards: 0, ...set }));
           },
         } as Response;
       }
