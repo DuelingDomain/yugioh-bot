@@ -67,6 +67,11 @@ export interface UseGridFocusOptions {
   digitsFree: boolean;
   /** Escape belongs to an open prompt or to the aim. */
   escapeFree: boolean;
+  /**
+   * Seats that are gone from `shown` but still play their exit (the crumble). A focus on one of them stays until it is
+   * not held any more, so the exit is seen at its full size before the focus goes home.
+   */
+  holding?: readonly number[];
 }
 
 export interface UseGridFocus {
@@ -82,13 +87,13 @@ function typing(target: EventTarget | null): boolean {
 }
 
 /** The focus of the grid and its keys: 1 to 4 focus a field, O and Esc show all fields. */
-export function useGridFocus({ enabled, home, shown, suspended, digitsFree, escapeFree }: UseGridFocusOptions): UseGridFocus {
+export function useGridFocus({ enabled, home, shown, suspended, digitsFree, escapeFree, holding }: UseGridFocusOptions): UseGridFocus {
   const [focus, dispatch] = useReducer(gridFocusReducer, home, initialGridFocus);
   const live = useRef({ enabled, shown, suspended, digitsFree, escapeFree });
   live.current = { enabled, shown, suspended, digitsFree, escapeFree };
 
   // A field whose cell goes empty cannot stay in focus: back to your own field, or to all fields when that is gone too.
-  const gone = focus.seat != null && !shown.includes(focus.seat);
+  const gone = focus.seat != null && !shown.includes(focus.seat) && !holding?.includes(focus.seat);
   useEffect(() => {
     if (!gone) return;
     dispatch(shown.includes(home) ? { type: "focus", seat: home } : { type: "all" });
