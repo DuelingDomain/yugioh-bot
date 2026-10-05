@@ -68,6 +68,10 @@ const CRUMBLE_UNIT = 112;
 /** Height of a seat field in card units (see `.seatField` in field.module.css). */
 const FIELD_H = 3.393;
 
+/** How long the crumble of a seat that left plays: the animation, and the timer for a browser with none. */
+export const EXIT_CRUMBLE_MS = 1600;
+export const EXIT_CRUMBLE_REDUCED_MS = 520;
+
 export interface ExitingSeatProps {
   /** The pose the seat had before it left. */
   pose: SeatPose;
@@ -98,7 +102,7 @@ export function ExitingSeat({ pose, tone, view, masterRule, faceUpHand, angleOff
   done.current = onDone;
   // The animation reports itself; this timer is for a browser with no animations and for reduced motion.
   useEffect(() => {
-    const timer = setTimeout(() => done.current(), reducedMotion ? 520 : 1600);
+    const timer = setTimeout(() => done.current(), reducedMotion ? EXIT_CRUMBLE_REDUCED_MS : EXIT_CRUMBLE_MS);
     return () => clearTimeout(timer);
   }, [reducedMotion]);
   const unit = pose.z / CRUMBLE_UNIT;
