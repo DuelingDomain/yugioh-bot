@@ -39,4 +39,6 @@ it.each(["none", "contents", "hud"] as const)("answers a zone pick on the board,
   render(<Panel wrap={wrap} />);
   // The modal lists every free zone as a button; on the board the zones themselves are the buttons.
   expect(screen.queryByTitle(/Spell & Trap Zone 1/)).toBeNull();
+  // The pick runs on the board: its instruction bar is shown (not an empty layer).
+  expect(screen.getByRole("group", { name: /zone/i })).toBeTruthy();
 });
