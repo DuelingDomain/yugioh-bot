@@ -2,7 +2,7 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type Database from "better-sqlite3";
-import { createDuelSeriesService, createDuelService, type DuelFinalSnapshots } from "@yugidraft/shared/services";
+import { createDuelSeriesService, createDuelService, createTournamentDuelService, type DuelFinalSnapshots } from "@yugidraft/shared/services";
 import type {
   DuelAnswer,
   DuelCommand,
@@ -28,8 +28,8 @@ import {
 import { ELIMINATE_PROMPT_PREFIX as ELIMINATE_PREFIX, eliminationCodeOf, eliminationAtTurnEnd } from "./engine.js";
 import { EngineAnswerError } from "./prompts.js";
 import { GameWorker, type DuelGameWorker, type GameOptions, type WorkerDebugState } from "./worker-client.js";
-import { DeckLegalityError, inspectDeck, validateDeck } from "./deck-legality.js";
-import { canonicalEngineCardCode, normalizeCardCodes, normalizeImportedDeck } from "./deck-import.js";
+import { DeckLegalityError, inspectDeck, validateDeck, type InspectDeckOptions } from "./deck-legality.js";
+import { canonicalEngineCardCode, loadDraftDeckPool, normalizeCardCodes, normalizeImportedDeck } from "./deck-import.js";
 import { loadCardDatabase } from "./cards.js";
 import { cardFacets, queryCards } from "./card-search.js";
 import { activeMultiScriptsHash, pinnedEngineVersion } from "./multi-scripts.js";
@@ -308,8 +308,18 @@ export function createDuelHost(options: {
   let stopped = false;
 
   /** Check one deck against the real table format, so a Tag or FFA table also refuses the cards that do not work there. */
-  function validateSessionDeck(mode: DuelMode, deck: DuelDeck, settings: DuelSettings, format: DuelFormat): void {
-    validateDeck(mode, deck, options.dataDirectory, settings, { table: format });
+  async function sessionDeckOptions(session: DuelSession, playerId: number): Promise<InspectDeckOptions> {
+    const table = session.format;
+    const tournamentId = session.seriesId ? series.get(session.seriesId, session.guildId).tournamentId : null;
+    const draftId = tournamentId === null ? null : createTournamentDuelService(options.db).rules(tournamentId).draftId;
+    if (draftId === null) return { table };
+    const draftPool = await loadDraftDeckPool({ draftId, playerId, guildId: session.guildId, dataDirectory: options.dataDirectory, db: options.db });
+    return { table, draftPool };
+  }
+
+  async function validateSessionDeck(mode: DuelMode, deck: DuelDeck, settings: DuelSettings, format: DuelFormat, context?: { session: DuelSession; playerId: number }): Promise<void> {
+    const checks = context ? await sessionDeckOptions(context.session, context.playerId) : { table: format };
+    validateDeck(mode, deck, options.dataDirectory, settings, checks);
   }
 
   function workerCreateOptions(
@@ -1877,7 +1887,7 @@ export function createDuelHost(options: {
   }
 
   /** The checks every start makes: a lobby duel, every seat ready, and legal decks for the format. */
-  function assertStartable(slug: string, guildId: string) {
+  async function assertStartable(slug: string, guildId: string) {
     const session = service.get(slug, guildId);
     if (session.status !== "lobby") throw new RequestError("Duel already started", 409);
     const seatCount = seatCountFor(session.format);
@@ -1896,13 +1906,16 @@ export function createDuelHost(options: {
     }
     const state = service.privateState(slug, guildId);
     const settings = state.session.settings;
-    for (const deck of state.decks) validateSessionDeck(state.session.mode, deck, settings, state.session.format);
+    for (const [seat, deck] of state.decks.entries()) {
+      await validateSessionDeck(state.session.mode, deck, settings, state.session.format,
+        { session: state.session, playerId: state.session.seats[seat].playerId! });
+    }
     return { session, state, settings, seatCount };
   }
 
   /** Starts a lobby game. `organizer` null is a system start, which the duel service only allows for a series game. */
   async function startGame(slug: string, guildId: string, organizer: number | null): Promise<DuelGameWorker> {
-    const { state, settings, seatCount } = assertStartable(slug, guildId);
+    const { state, settings, seatCount } = await assertStartable(slug, guildId);
     const bytes = randomBytes(32);
     const seed = [0, 8, 16, 24].map((offset) => bytes.readBigUInt64LE(offset).toString());
     const engine = engineForNewTable(state.session.format);
@@ -2047,7 +2060,7 @@ export function createDuelHost(options: {
       await driveOpening(slug, guildId);
       return games.get(slug)?.game ?? null;
     }
-    const { session } = assertStartable(slug, guildId);
+    const { session } = await assertStartable(slug, guildId);
     if (!options.openingRps || session.format !== "1v1" || (session.gameNumber ?? 1) > 1) return startGame(slug, guildId, actor);
     service.startOpening(slug, guildId, actor ?? session.organizerPlayerId, now());
     await driveOpening(slug, guildId);
@@ -2166,7 +2179,12 @@ export function createDuelHost(options: {
       }
       const settings = normalizeDuelSettings(mode, body.settings);
       const deck = await normalizeImportedDeck(body.deck as DuelDeck, options.dataDirectory, options.db, { keepUnresolved: true });
-      return { deck, report: inspectDeck(mode, deck, options.dataDirectory, settings) };
+      let draftPool: InspectDeckOptions["draftPool"];
+      if (body.draftId !== undefined && body.draftId !== null) {
+        if (!Number.isSafeInteger(body.draftId) || (body.draftId as number) < 1 || mode !== "normal") throw new RequestError("Invalid draft deck context", 400);
+        draftPool = await loadDraftDeckPool({ draftId: body.draftId as number, playerId: actor, guildId, dataDirectory: options.dataDirectory, db: options.db });
+      }
+      return { deck, report: inspectDeck(mode, deck, options.dataDirectory, settings, { draftPool }) };
     }
     if (op === "card-query") {
       try {
@@ -2217,7 +2235,7 @@ export function createDuelHost(options: {
       if (blocked) throw new RequestError(blocked, 403);
       const settings = room.session.settings;
       const deck = buildPracticeBotDeck(room.session.mode, options.dataDirectory);
-      validateSessionDeck(room.session.mode, deck, settings, room.session.format);
+      await validateSessionDeck(room.session.mode, deck, settings, room.session.format);
       let botSeat: number | undefined;
       if (body.seat !== undefined && body.seat !== null) {
         if (!Number.isSafeInteger(body.seat)) throw new RequestError("Bot seat must be a whole number", 400);
@@ -2253,7 +2271,7 @@ export function createDuelHost(options: {
         if (info.status !== "between_games") throw new RequestError("Side decking is only open between games", 409);
         // Like check-deck, unresolved ids stay as sent so validateSessionDeck can report them.
         const deck = await normalizeImportedDeck(body.deck as DuelDeck, options.dataDirectory, options.db, { keepUnresolved: true });
-        validateSessionDeck(room.session.mode, deck, room.session.settings, room.session.format);
+        await validateSessionDeck(room.session.mode, deck, room.session.settings, room.session.format, { session: room.session, playerId: actor });
         // `info` is read before the await above, so a Ready sent meanwhile (through another game slug)
         // is not in it: the transaction reports whether this save cleared Ready.
         const saved = series.saveSideDeck(seriesId, guildId, actor, deck,
@@ -2319,9 +2337,9 @@ export function createDuelHost(options: {
         keepUnresolved: op === "validate-deck",
       });
       if (op === "validate-deck") {
-        return inspectDeck(room.session.mode, deck, options.dataDirectory, settings, { table: room.session.format });
+        return inspectDeck(room.session.mode, deck, options.dataDirectory, settings, await sessionDeckOptions(room.session, actor));
       }
-      validateSessionDeck(room.session.mode, deck, settings, room.session.format);
+      await validateSessionDeck(room.session.mode, deck, settings, room.session.format, { session: room.session, playerId: actor });
       const session = service.setDeck(slug, guildId, actor, deck);
       await emitChange(slug, guildId);
       return { session: await autoStart(slug, guildId, session) };

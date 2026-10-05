@@ -13,6 +13,7 @@ import type {
   DuelMode,
   DuelSettings,
 } from "@yugidraft/shared/duels";
+import { canonicalCardCode, checkDeckAgainstPool } from "@yugidraft/shared/duels";
 import { banlistLimitsFor, type BanlistLimit } from "./banlists/index.js";
 import { MULTIPLAYER_TABLE_LABEL, multiplayerForbiddenFor, type MultiplayerTable } from "./banlists/multiplayer.js";
 
@@ -21,6 +22,8 @@ export type { MultiplayerTable };
 export interface InspectDeckOptions {
   /** Table the deck is for. Default "1v1" adds no multiplayer rule. */
   table?: MultiplayerTable;
+  /** Server-loaded picks only. Each forced pick adds one copy to the draft limit. */
+  draftPool?: { counts: ReadonlyMap<number, number>; forcedCopies: ReadonlyMap<number, number> };
 }
 
 export class DeckLegalityError extends Error {
@@ -807,7 +810,15 @@ export function inspectDeck(
     }
     collectEngineCards();
     collectMultiplayerIssues([...main, ...extra, ...side], table, undefined, issues);
-    if (competitive) collectCopyLimitIssues([...main, ...extra, ...side], identities, 3, catalog, limits, issues);
+    if (options.draftPool) {
+      const resolve = (code: number) => canonicalCardCode(code, catalog.cards);
+      for (const issue of checkDeckAgainstPool(deck, options.draftPool.counts, resolve, options.draftPool.forcedCopies)) {
+        issues.push({
+          message: `${readCard(catalog, issue.code)?.name ?? issue.code}: at most ${issue.available} copies allowed by your draft picks (${issue.used} used)`,
+          cards: [...main, ...extra, ...side].filter((item) => resolve(item.code) === issue.code).map(locatedRef),
+        });
+      }
+    } else if (competitive) collectCopyLimitIssues([...main, ...extra, ...side], identities, 3, catalog, limits, issues);
     return { issues };
   }
 
