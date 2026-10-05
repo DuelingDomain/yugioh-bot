@@ -90,44 +90,61 @@ export function pickKindOf(legalKeys: ReadonlySet<string>): PickKind {
   return field ? "field" : hand ? "hand" : null;
 }
 
-/** The top lane of the board where the pick bar may sit (board px): 8px down, 80px high, room for a bar of two rows. */
-export const BAR_LANE = { top: 8, height: 80 } as const;
-const BAR_MAX = 440;
-const BAR_MIN = 240;
-const BAR_EDGE = 8;
+/** The pick bar as the room plans it (board px): its widest size and its height in one row, or stacked when narrow. */
+export const PICK_BAR = { max: 420, row: 400, rowHeight: 92, stackHeight: 136, edge: 12, clear: 6 } as const;
+
+const overlap = (a: GridRect, b: GridRect) =>
+  Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
 
 /**
- * The room of the pick bar in the top lane, as "x,y,width,height" for `data-bar-room`, or undefined when no gap is wide
- * enough (the prompt then places the bar itself). `blocks` are the boxes the bar must not cover (plates, fields, the far
- * hands, the view control); only the ones that reach into the lane count. Of the gaps that hold a full bar, the one
- * nearest the middle of the board wins; else the widest gap.
+ * The size unit (px) of the modal prompts (option and effect lists, yes/no, card grid, positions, numbers, chain list)
+ * in the 4-way grid: it follows the height of YOUR pair, so a prompt keeps to about one row band of the board on a small
+ * screen. The finale board is larger than a pair, so it uses a larger divisor and its prompts do not grow with it. The
+ * pick bar keeps the room unit (its look at 1920x1080 is the reference).
  */
-export function barRoomOf(boardWidth: number, blocks: readonly GridRect[]): string | undefined {
-  const top = BAR_LANE.top;
-  const bottom = BAR_LANE.top + BAR_LANE.height;
-  const spans = blocks
-    .filter((r) => r.width > 0 && r.height > 0 && r.y < bottom && r.y + r.height > top)
-    .map((r) => [r.x, r.x + r.width] as const)
-    .sort((a, b) => a[0] - b[0]);
-  const gaps: [number, number][] = [];
-  let from = BAR_EDGE;
-  for (const [left, right] of spans) {
-    if (left > from) gaps.push([from, left]);
-    from = Math.max(from, right);
+export function promptUnit(height: number, finale: boolean): number {
+  const unit = height / (finale ? PROMPT_UNIT.finale : PROMPT_UNIT.pair);
+  return Math.round(Math.min(PROMPT_UNIT.max, Math.max(PROMPT_UNIT.min, unit)) * 100) / 100;
+}
+export const PROMPT_UNIT = { pair: 680, finale: 820, min: 0.72, max: 1.15 } as const;
+
+/**
+ * The room of the pick bar (zone and card picks on the board) in YOUR pair, as "x,y,width,height" for `data-bar-room`:
+ * as near the middle of the pair as it can be (the band between the two fields, as in the 1v1 room), and never over a
+ * target. `pair` is the frame of your pair (or the finale board, or the pair a spectator looks at); `targets` are the
+ * boxes of every legal zone and card (board px). The bar is planned at its widest size, so a narrower bar is clear too.
+ * When no place is clear (targets everywhere) the place that covers the least of them wins.
+ */
+export function pickBarRoom(pair: GridRect, targets: readonly GridRect[]): string | undefined {
+  if (pair.width <= 0 || pair.height <= 0) return undefined;
+  const width = Math.min(PICK_BAR.max, pair.width - 2 * PICK_BAR.edge);
+  if (width < 200) return undefined;
+  const height = Math.min(width < PICK_BAR.row ? PICK_BAR.stackHeight : PICK_BAR.rowHeight, pair.height - 2 * PICK_BAR.edge);
+  const blocks = targets
+    .filter((r) => r.width > 0 && r.height > 0)
+    .map((r) => ({ x: r.x - PICK_BAR.clear, y: r.y - PICK_BAR.clear, width: r.width + 2 * PICK_BAR.clear, height: r.height + 2 * PICK_BAR.clear }));
+  const centreX = pair.x + pair.width / 2;
+  const centreY = pair.y + pair.height / 2;
+  const reachX = Math.max(0, (pair.width - width) / 2 - PICK_BAR.edge);
+  const reachY = Math.max(0, (pair.height - height) / 2 - PICK_BAR.edge);
+  let best = null as { box: GridRect; cover: number; far: number } | null;
+  // Steps out from the middle; up before down at the same distance (the half of the pair in front of you).
+  for (let dy = 0; dy <= reachY; dy += 4) {
+    for (const sy of dy === 0 ? [0] : [-1, 1]) {
+      for (let dx = 0; dx <= reachX; dx += 8) {
+        for (const sx of dx === 0 ? [0] : [-1, 1]) {
+          const box = { x: centreX + sx * dx - width / 2, y: centreY + sy * dy - height / 2, width, height };
+          const cover = blocks.reduce((sum, r) => sum + overlap(box, r), 0);
+          const far = Math.hypot(dx, dy);
+          if (!best || cover < best.cover || (cover === best.cover && far < best.far)) best = { box, cover, far };
+        }
+      }
+      if (best && best.cover === 0 && best.far <= dy) break;
+    }
+    if (best && best.cover === 0 && best.far <= dy) break;
   }
-  if (boardWidth - BAR_EDGE > from) gaps.push([from, boardWidth - BAR_EDGE]);
-  const usable = gaps.map(([left, right]) => ({ left, right, width: Math.min(BAR_MAX, right - left - 16) })).filter((gap) => gap.width >= BAR_MIN);
-  if (usable.length === 0) return undefined;
-  const middle = boardWidth / 2;
-  // The bar sits as near the middle as its gap allows.
-  const centreOf = (gap: { left: number; right: number; width: number }) => Math.min(Math.max(middle, gap.left + 8 + gap.width / 2), gap.right - 8 - gap.width / 2);
-  const full = usable.filter((gap) => gap.width >= BAR_MAX);
-  const pick = full.length > 0
-    ? full.reduce((best, gap) => (Math.abs(centreOf(gap) - middle) < Math.abs(centreOf(best) - middle) ? gap : best))
-    : usable.reduce((best, gap) => (gap.width > best.width ? gap : best));
-  const half = pick.width / 2;
-  const centreX = centreOf(pick);
-  return [centreX - half, top, pick.width, BAR_LANE.height].map(Math.round).join(",");
+  if (!best) return undefined;
+  return [best.box.x, best.box.y, best.box.width, best.box.height].map(Math.round).join(",");
 }
 
 /**
@@ -442,42 +459,47 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
     return { left: band.rect.x, top: band.rect.y, width: band.rect.width, height: band.rect.height, ["--z" as string]: `${z}px`, ["--g" as string]: `${z * 0.075}px`, ["--hub-hc" as string]: `${hubFit?.chip ?? 0}px` };
   })();
 
-  // The pick bar takes a free gap of the top lane (over no plate, field, far hand or the view control). The prompt reads
-  // `data-bar-room` as "x,y,width,height" in board pixels and follows its changes. The far hands and the control are
-  // measured once the fields stand still (a FLIP or the finale glide moves them); plates and fields come from the layout.
-  const [measured, setMeasured] = useState<readonly GridRect[]>([]);
-  const handsKey = engine.seats.map((view) => `${view.seat}:${view.hand.length}:${view.eliminated === true ? 1 : 0}`).join(",");
+  // Every prompt sits in the middle of YOUR pair (the half of the table where your field is), as the 1v1 room puts it in
+  // the middle of the board: on the finale board the middle of that board; a spectator's, the pair in focus (else the
+  // middle of the table). The prompt slot carries that box as --pr-* (board px) for the panels and the yes/no bar.
+  const promptColumn: 0 | 1 | null = finale ? finale.bottom.column : viewerSeat != null ? homeColumn : focusCell?.column ?? null;
+  const promptPair = promptColumn != null ? frames[promptColumn] : null;
+  const promptStyle = promptPair
+    ? ({
+        ["--pr-cx" as string]: `${Math.round(promptPair.x + promptPair.width / 2)}px`,
+        ["--pr-cy" as string]: `${Math.round(promptPair.y + promptPair.height / 2)}px`,
+        ["--pr-w" as string]: `${Math.round(promptPair.width)}px`,
+        ["--pr-h" as string]: `${Math.round(promptPair.height)}px`,
+        ["--pr-unit" as string]: `${promptUnit(promptPair.height, finale != null)}px`,
+      } as CSSProperties)
+    : undefined;
+
+  // The pick bar (zone and card picks) is in that pair too, near its middle, and never over a target: the boxes of the
+  // legal zones and cards are measured when the targets change and again once the fields stand still (a FLIP or the
+  // finale glide moves them). The prompt reads `data-bar-room` as "x,y,width,height" in board pixels and follows it.
+  const [targets, setTargets] = useState<readonly GridRect[]>([]);
+  const legalKey = [...legalKeys].sort().join(",");
   useEffect(() => {
     const root = rootRef.current;
     if (!root || !placed) return;
     const measure = () => {
       const board = root.getBoundingClientRect();
-      const nodes = root.querySelectorAll<HTMLElement>('[data-hand-seat][data-side="opp"], [data-grid-controls]');
-      const next = Array.from(nodes)
+      const next = Array.from(root.querySelectorAll<HTMLElement>('[data-legal="true"]'))
         .map((node) => node.getBoundingClientRect())
         .filter((r) => r.width > 1 && r.height > 1)
         .map((r) => ({ x: Math.round(r.left - board.left), y: Math.round(r.top - board.top), width: Math.round(r.width), height: Math.round(r.height) }));
-      setMeasured((current) => (sameRects(current, next) ? current : next));
+      setTargets((current) => (sameRects(current, next) ? current : next));
     };
-    const wait = reducedMotion ? 0 : Math.max(FLIP_MS, FINALE_GLIDE_MS) + 80;
-    const timer = window.setTimeout(measure, wait);
-    return () => window.clearTimeout(timer);
-  }, [placed, handsKey, reducedMotion]);
-  const barRoom = ((): string | undefined => {
-    if (!placed) return undefined;
-    const blocks: GridRect[] = [...measured];
-    for (const cell of cells) {
-      const spot = placed.cells[cellIndex(cell)];
-      const state = states.get(cell.seat) ?? "live";
-      if (state === "empty") continue;
-      // In the finale the seats that left are gone from the table (plates too).
-      if (finale && !inFinale(cell.seat)) continue;
-      blocks.push(spot.plate);
-      if (state === "live") blocks.push(spot.rect);
-      else blocks.push(spot.own);
-    }
-    return barRoomOf(box.width, blocks);
-  })();
+    const frame = window.requestAnimationFrame(measure);
+    const timer = window.setTimeout(measure, reducedMotion ? 0 : Math.max(FLIP_MS, FINALE_GLIDE_MS) + 80);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
+  }, [placed, legalKey, reducedMotion]);
+  const barRoom = useMemo(() => (promptPair ? pickBarRoom(promptPair, targets) : undefined),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [promptPair?.x, promptPair?.y, promptPair?.width, promptPair?.height, targets]);
 
   return (
     <div
@@ -719,7 +741,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
         </button>
       </div>
       {fx ? <div className={styles.slot} data-slot="fx">{fx}</div> : null}
-      {promptCenter ? <div className={styles.slot} data-slot="prompt" data-seat-pick={picks ? "true" : undefined}>{promptCenter}</div> : null}
+      {promptCenter ? <div className={styles.slot} data-slot="prompt" data-seat-pick={picks ? "true" : undefined} data-prompt-pair={promptPair ? promptColumn ?? undefined : undefined} data-prompt-dense={promptPair ? "true" : undefined} style={promptStyle}>{promptCenter}</div> : null}
       {overlay ? <div className={styles.slot} data-slot="overlay">{overlay}</div> : null}
     </div>
   );

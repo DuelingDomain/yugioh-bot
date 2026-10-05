@@ -1,6 +1,6 @@
 import type { DuelChainLink, DuelEngineView, DuelEvent, DuelPrompt, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import { ev, MZ, SZ } from "../../fx-lab/board";
-import { LOCATION_HAND, LOCATION_MZONE, LOCATION_SZONE, POS_FACEDOWN_DEFENSE, POS_FACEUP_DEFENSE, zoneKey } from "../../constants";
+import { LOCATION_GRAVE, LOCATION_HAND, LOCATION_MZONE, LOCATION_SZONE, POS_FACEDOWN_DEFENSE, POS_FACEUP_ATTACK, POS_FACEUP_DEFENSE, zoneKey } from "../../constants";
 import {
   fixtureEngine,
   fixtureRoom,
@@ -265,13 +265,54 @@ function fillDefense(seats: DuelSeatView[]): void {
   }
 }
 
+export type Ffa4PreviewPick = "field" | "hand" | "emz" | "zone" | "yesno" | "option" | "cards" | "position" | "number";
+
+export const FFA4_PREVIEW_PICKS: readonly Ffa4PreviewPick[] = ["field", "hand", "emz", "zone", "yesno", "option", "cards", "position", "number"];
+
+/**
+ * The prompt of a preview pick that is not a pick among your own cards: a zone of your field (`zone`), the "Activate its
+ * effect?" yes/no (`yesno`), an effect's option list (`option`), a card pick from your GY (`cards`, the card grid), a
+ * battle position (`position`) and a number (`number`). Null for the card picks.
+ */
+function previewPrompt(pick: Ffa4PreviewPick, own: DuelSeatView): DuelPrompt | null {
+  const source = { code: C.blueEyes.code, name: C.blueEyes.name, seat: ASTER, text: "" };
+  switch (pick) {
+    case "zone":
+      return {
+        id: "pick-zone", seat: ASTER, kind: "places", title: `Select a zone for ${C.blueEyes.name}`, min: 1, max: 1,
+        options: own.monsters.flatMap((card, sequence) => (!card && sequence < 5 ? [{ id: `z${sequence}`, label: `Monster Zone ${sequence + 1}`, controller: ASTER, location: LOCATION_MZONE, sequence }] : [])),
+      };
+    case "yesno":
+      return { id: "pick-yesno", seat: ASTER, kind: "choice", title: "Activate the effect?", source: { code: C.celtic.code, name: C.celtic.name, seat: ASTER, text: "" }, options: [{ id: "yes", label: "Yes" }, { id: "no", label: "No" }] };
+    case "option":
+      return {
+        id: "pick-option", seat: ASTER, kind: "choice", title: `Choose an effect of ${C.blueEyes.name}`, source,
+        options: [{ id: "o1", label: "Draw 1 card" }, { id: "o2", label: "Gain 1000 LP" }, { id: "o3", label: "Destroy 1 Spell/Trap" }],
+      };
+    case "cards":
+      return {
+        id: "pick-cards", seat: ASTER, kind: "cards", title: "Select 1 monster in your GY", min: 1, max: 1, cancelable: true,
+        options: [C.blueEyes, C.summonedSkull, C.gaia].map((card, sequence) => ({ id: `g${sequence}`, label: card.name, card, controller: ASTER, location: LOCATION_GRAVE, sequence })),
+      };
+    case "position":
+      return {
+        id: "pick-position", seat: ASTER, kind: "choice", title: `Choose a position for ${C.blueEyes.name}`, context: { type: "position" }, source,
+        options: [{ id: `pos:${POS_FACEUP_ATTACK}`, label: "Face-up Attack" }, { id: `pos:${POS_FACEUP_DEFENSE}`, label: "Face-up Defense" }],
+      };
+    case "number":
+      return { id: "pick-number", seat: ASTER, kind: "number", title: "Declare a Level", source, options: [1, 2, 3, 4, 5, 6].map((level) => ({ id: `n${level}`, label: String(level), values: [level] })) };
+    default:
+      return null;
+  }
+}
+
 /**
  * A preview variant of the 4-way fixtures for the pair-lift review (`?out=2,3&pick=field&def=1`). Every state of the set
  * gets the seats in `out` swept clean and eliminated (the first one went out first); `pick` replaces the prompt with a
  * pick among your own field cards (`field`, or `emz` with one in an Extra Monster Zone) or your hand (`hand`), which the
  * room answers on the board; `defense` fills every live field with Defense Position monsters (see fillDefense).
  */
-export function ffa4Variant(set: TableFixtureSet, opts: { out: readonly number[]; pick?: "field" | "hand" | "emz" | null; defense?: boolean }): TableFixtureSet {
+export function ffa4Variant(set: TableFixtureSet, opts: { out: readonly number[]; pick?: Ffa4PreviewPick | null; defense?: boolean }): TableFixtureSet {
   if (opts.out.length === 0 && !opts.pick && !opts.defense) return set;
   const states = Object.fromEntries(
     Object.entries(set.states).map(([id, state]) => {
@@ -287,13 +328,14 @@ export function ffa4Variant(set: TableFixtureSet, opts: { out: readonly number[]
           own.monsters = [...own.monsters];
           putMonster(own, 5, C.stardust);
         }
-        const options: DuelPromptOption[] = opts.pick === "hand"
+        const other = previewPrompt(opts.pick, own);
+        const options: DuelPromptOption[] = other ? [] : opts.pick === "hand"
           ? own.hand.map((card, sequence) => ({ id: `h${sequence}`, label: card.name ?? "Card", controller: ASTER, location: LOCATION_HAND, sequence }))
           : [
               ...own.monsters.flatMap((card, sequence) => (card && sequence < 7 ? [{ id: `om${sequence}`, label: card.name ?? "Monster", controller: ASTER, location: LOCATION_MZONE, sequence }] : [])),
               ...own.spells.flatMap((card, sequence) => (card && sequence < 5 ? [{ id: `os${sequence}`, label: card.name ?? "Set card", controller: ASTER, location: LOCATION_SZONE, sequence }] : [])),
             ];
-        prompt = { id: `pick-${opts.pick}`, seat: ASTER, kind: "cards", title: opts.pick === "hand" ? "Select 1 card in your hand" : "Select 1 card you control", min: 1, max: 1, options };
+        prompt = other ?? { id: `pick-${opts.pick}`, seat: ASTER, kind: "cards", title: opts.pick === "hand" ? "Select 1 card in your hand" : "Select 1 card you control", min: 1, max: 1, options };
       }
       const room = { ...state.room, engine: { ...engine, seats, prompt, eliminationOrder: opts.out.map((seat) => [seat]) } };
       const ui = opts.out.length > 0 ? { ...state.ui, initialOutOrder: opts.out.map((seat) => [seat]) } : state.ui;
