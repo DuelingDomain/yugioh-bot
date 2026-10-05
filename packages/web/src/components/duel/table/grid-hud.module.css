@@ -90,6 +90,46 @@
   font-size: 11px;
 }
 
+/* ---------- bottom-right corner (the 1v1 room): the turn controls without a full-width bar ---------- */
+/* One column at the corner, right of the board: the prompt dock (when a prompt is open) above the clocks pill and the
+   actions pill. It is a column, so the dock always sits right on top of the controls, whatever height they have. Only
+   the parts take clicks; the empty space around them does not. */
+.corner {
+  position: absolute;
+  right: 14px;
+  bottom: var(--hud-bottom, 8px);
+  z-index: calc(var(--duel-z-prompt, 40) + 13);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  width: var(--hud-corner-w, 168px);
+  pointer-events: none;
+}
+.corner > nav {
+  width: 100%;
+  pointer-events: none;
+}
+.corner > nav > div {
+  pointer-events: auto;
+}
+/* The clocks pill: one line per player, the name at the left and the time at the right. */
+.corner nav [data-pill] {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+}
+.corner nav [data-pill] > span {
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 15px;
+  line-height: 1.1;
+}
+.corner nav [data-pill] > span small {
+  max-width: 10ch;
+  font-size: 11px;
+}
+
 /* ---------- icon dock ---------- */
 .dock {
   position: absolute;
@@ -305,7 +345,7 @@
 .masterWrap {
   position: absolute;
   left: 14px;
-  bottom: calc(clamp(58px, 5.6dvh, 68px) + 20px);
+  bottom: var(--hud-master-bottom, calc(clamp(58px, 5.6dvh, 68px) + 20px));
   z-index: 31;
   width: 168px;
   font-family: var(--duel-f-ui);
@@ -391,6 +431,8 @@
   font-size: 12px;
   cursor: pointer;
 }
+/* A long label ends in an ellipsis at the right; the full text stays in the title and the accessible name. */
+.masterActionText { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .masterActions .masterInspect { flex: none; width: 30px; padding: 0; }
 .masterInspectText { display: none; }
 /* With no summon legal, Inspect is alone in the row: it fills it and shows its word. */

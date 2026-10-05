@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import React from "react";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -135,7 +137,13 @@ describe("the floating HUD of the 1v1 room", () => {
     const { container } = mount();
     expect(container.querySelector("[data-hud='room']")).not.toBeNull();
     expect(screen.getByTestId("hud-top").tagName).toBe("HEADER");
-    expect(screen.getByTestId("hud-bottom")).toBeTruthy();
+    // No full-width bottom bar: the turn controls sit in one compact corner cluster.
+    expect(screen.queryByTestId("hud-bottom")).toBeNull();
+    const corner = screen.getByTestId("hud-corner");
+    expect(corner.querySelector("nav[data-compact='true']")).not.toBeNull();
+    // room.module.css finds the corner by this attribute (its class is hashed in another module) to turn clicks
+    // back on for an open prompt dock there.
+    expect(corner.hasAttribute("data-hud-corner")).toBe(true);
     expect(screen.queryByRole("complementary", { name: "Duel panels" })).toBeNull();
     for (const id of ["log", "settings", "chain"]) expect(screen.getByTestId(`hud-dock-${id}`)).toBeTruthy();
     expect(screen.queryByTestId("hud-dock-history")).toBeNull();
@@ -372,5 +380,22 @@ describe("the 1v1 clocks and the Deck Master plate", () => {
     expect(sent()).toHaveLength(1);
     expect(sent()[0]).toMatchObject({ promptId: "p4", answer: { selected: ["dm"] } });
     expect(screen.queryByTestId("hud-master-flyout")).toBeNull();
+  });
+});
+
+// jsdom applies no CSS, so these read the stylesheet.
+describe("the 1v1 HUD corner in the stylesheet", () => {
+  const css = readFileSync(join(__dirname, "../../src/components/duel/room.module.css"), "utf8");
+
+  it("turns clicks back on for an open prompt dock in the corner, found by its data attribute", () => {
+    // The corner column takes no clicks; a class selector for it would be hashed in room.module.css and never match.
+    expect(css).toMatch(/\[data-hud-corner\] > \.promptDock\[data-mode="float"\],\s*[^{]*\[data-hud-corner\] > \.promptDock\[data-mode="flow"\] \{[^}]*pointer-events: auto;/);
+    expect(css).not.toMatch(/\.corner \.promptDock/);
+  });
+
+  it("keeps the board left of the corner stack on narrow or nearly square screens, but never under 660px", () => {
+    expect(css).toMatch(/--hud-right-need: calc\(520px \+ 105\.6dvh - 100vw\);/);
+    expect(css).toMatch(/--hud-right-max: min\(calc\(var\(--hud-corner-w\) \+ 28px\), calc\(100vw - var\(--hud-left\) - 660px\)\);/);
+    expect(css).toMatch(/padding: var\(--hud-top\) clamp\(14px, var\(--hud-right-need\), var\(--hud-right-max\)\)/);
   });
 });

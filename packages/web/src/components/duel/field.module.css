@@ -216,25 +216,21 @@
 }
 
 /* Floating HUD room (1v1): the board is height-bound, so every pixel of chrome inside the frame is card. The
-   padding is trimmed, the opponent's hand backs are smaller (they peek less above the board) and your hand rests
-   lower, so it overlaps the front Spell/Trap row more (it still rises to full size on hover or focus). Phones keep
-   the compact rules below. */
+   padding is trimmed and the opponent's hand backs are smaller (they peek less above the board). There is no
+   station track under the board here, so your hand sits in the bottom strip and only its top edge (about 0.08 zone
+   heights) reaches the front Spell/Trap row: the zones stay clickable. A lifted (legal) card, its glow and its nib
+   tag rise over that row instead of getting their own reserve, and the hover lift still raises the card to full
+   size. Phones keep the compact rules below. */
 @container (min-width: 641px) {
   :global([data-hud="room"]) .playmat {
     --py: 2px;
-    --gs: 2px;
-    --hpad: 3px;
-    --lk: 0.3;
+    --gs: 1px;
+    --hpad: 2px;
+    --lk: 0.89;
+    --res-bot-px: 0px;
+    --lift-k: 0;
+    --mark-k: 0;
     --ohk: 0.36;
-  }
-}
-
-/* Touch screens have no hover to lift the low hand, so they keep the earlier, higher rest. */
-@container (min-width: 641px) {
-  @media (hover: none) {
-    :global([data-hud="room"]) .playmat {
-      --lk: 0.45;
-    }
   }
 }
 
@@ -597,6 +593,28 @@
   .handLocal .handCard .zone[data-selected="true"]:has(:focus-visible) .frame {
     transform: translateY(calc(var(--lh) * -0.14)) scale(2);
   }
+}
+
+/* Floating HUD room (1v1): your hand reaches up over the front Spell/Trap row. Only the card's resting box takes
+   the pointer, never the picture that the hover grows over that row: when the pointer leaves the resting box the
+   card drops back, so a click always goes to the hand card or the zone you see, never both. */
+:global([data-hud="room"]) .handLocal .handCard .frame {
+  pointer-events: none;
+}
+
+/* A legal or selected card rests a little higher than its box: this strip keeps that visible edge on the card. */
+:global([data-hud="room"]) .handLocal .handCard .zone[data-legal="true"] .zoneHit::before,
+:global([data-hud="room"]) .handLocal .handCard .zone[data-selected="true"] .zoneHit::before {
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  left: 0;
+  height: calc(var(--lh) * 0.05);
+  content: "";
+}
+
+:global([data-hud="room"]) .handLocal .handCard .zone[data-selected="true"] .zoneHit::before {
+  height: calc(var(--lh) * 0.12);
 }
 
 /* ---------- arena: five rows on a 7-column grid ---------- */

@@ -11,11 +11,14 @@ import styles from "./grid-hud.module.css";
 
 /**
  * The plate is narrow, so the buttons show a short word. The full option text ("Normal Summon Sage with Eyes of Blue")
- * stays as the accessible name and the tooltip. A label that is not a Normal Summon or a Set is shown as it is.
+ * stays as the accessible name and the tooltip. Normal Summon, Set and Attack get a short word; other labels are shown
+ * as they are and end in an ellipsis when they are too long.
  */
 function shortActionLabel(label: string): string {
   if (/^Normal Summon\b/i.test(label)) return "Summon";
   if (/^Set\b/i.test(label)) return "Set";
+  if (/^Attack directly\b/i.test(label)) return "Direct attack";
+  if (/^Attack\b/i.test(label)) return "Attack";
   return label;
 }
 
@@ -134,7 +137,7 @@ export function GridMasterToken({
           {actions.map((option, index) => (
             <button key={option.id} type="button" data-primary={index === 0 ? "true" : "false"} data-testid={id("hud-master-action")}
               aria-label={option.label} title={option.label} disabled={!canAct} onClick={() => onChooseAction(option)}>
-              {shortActionLabel(option.label)}
+              <span className={styles.masterActionText}>{shortActionLabel(option.label)}</span>
             </button>
           ))}
           <button type="button" className={styles.masterInspect} data-testid={id("hud-master-inspect")} aria-label="Inspect" title="Inspect" onClick={onToggle}>
