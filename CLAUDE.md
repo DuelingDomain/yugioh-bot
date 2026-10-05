@@ -25,6 +25,14 @@ npm test             # All packages via Turborepo (duel tests need engine resour
 npm run typecheck    # All packages
 npm run build        # All packages (shared must build first — Turbo handles ordering)
 
+# CI runs these; locally run only the test files for the areas you touched.
+# Engine suites (duel-server): test:engine needs the built cores (DUEL_REQUIRE_CORES=1, NSEAT_LIVE=1); test:native runs the native checks
+npm run test:engine
+npm run test:native
+
+# Browser e2e on an isolated stack (Playwright, packages/e2e)
+npm run e2e
+
 # Run tests in a single package
 npm test --workspace=packages/bot
 npm test --workspace=packages/shared
@@ -54,16 +62,20 @@ npm run commands:deploy --workspace=packages/bot  # dev (tsx)
 
 ## Architecture
 
-This is an npm workspaces + Turborepo monorepo with five packages:
+This is an npm workspaces + Turborepo monorepo with six packages (see `docs/architecture.md` for the full map):
 
 - **`packages/shared`** (`@yugidraft/shared`) — The foundation. Contains the SQLite schema (`src/db/schema.ts`), shared business-logic services (drafts, cubes, matches, tournaments, players, guild settings, card catalog, duels), and WebSocket event types (`src/ws/`). All other packages depend on its built `dist`; rebuild after shared source changes before checking consumers.
 - **`packages/bot`** — Discord bot (discord.js). Handles slash commands, buttons, modals, select menus, and autocomplete. Also runs an internal announce HTTP server on port 4001 so the web can trigger bot announcements.
 - **`packages/ws`** — Socket.IO server for draft/tournament updates and duel invalidations/presence. Public browser port 3001 (`WS_PORT`); internal HTTP port 4002 (`WS_INTERNAL_PORT`) receives signed broadcasts from `bot`, `web`, and `duel-server`.
 - **`packages/web`** — Next.js 16 App Router dashboard. Discord OAuth via NextAuth v5. Real-time draft UI uses Zustand (`src/lib/stores/draft-store.ts`) fed by the WebSocket connection.
 - **`packages/duel-server`** (`@yugidraft/duel-server`) — EDOPro engine host using `ocgcore-wasm` and engine workers. `build` compiles TypeScript; `dev` runs `tsx watch src/server.ts`; `start` runs `dist/server.js`. Only exposes private HTTP on `127.0.0.1:4003` by default (`DUEL_INTERNAL_HOST` / `DUEL_INTERNAL_PORT`). Web routes call it through `src/lib/duel-host.ts`.
+- **`packages/e2e`** (`@yugidraft/e2e`) — Playwright duel tests on an isolated stack (web/ws/duel on the 3300 port family, own SQLite file). `E2E_SLOT=0-9` gives concurrent stacks. See `packages/e2e/README.md`.
 
 ### Duel resources and Docker
 
+- Engines: new 1v1 tables run on the legacy engine by default (`DUEL_1V1_ENGINE=legacy|pinned`, read when a table starts; `legacy` is main's pre-n-seat engine in `src/legacy/`, `pinned` is the merged one). Tag, FFA3 and FFA4 tables always run on the multi cores (`ocgcore.multi.wasm`, `ocgcore.multi-domain.wasm`). See `docs/deployment/duel-engine-switch.md`.
+- `MULTIPLAYER_TABLES` gates Tag/FFA tables. The code default is off, but Compose defaults it to on (`1`); set it on both `duel` and `web`, and `0` closes new multi tables.
+- The multi cores and the legacy Domain core are separate builds (`build-domain-core.ts multi|multi-domain|legacy-domain`), not part of `duel:prepare` or the package TypeScript build.
 - `duel:prepare` downloads pinned card data, strings, and Lua scripts into `DUEL_DATA_DIR` (default root `data/duel-engine`). `scripts/build-domain-core.ts` in `packages/duel-server` separately builds the patched Domain Format WASM bundle with the pinned Emscripten Docker image; `DOMAIN_CORE_BUILD=local` uses a local `em++` toolchain. Neither step is part of the package's TypeScript build.
 - `Dockerfile` has `bot`, `ws`, `duel`, `web`, and `web-dev` runtime targets. Compose mounts `./data` into bot/web/duel; duel startup runs `packages/duel-server/scripts/install-engine-bundle.sh` to validate the prepared bundle. The deploy workflow prepares/caches that bundle separately (`.github/workflows/deploy.yml`).
 - Compose binds duel to `0.0.0.0:4003` inside the Docker network and sets web's `DUEL_INTERNAL_URL=http://duel:4003`. Caddy routes `/socket.io/*` to `ws:3001` and other HTTP to `web:3000`; internal ports 4001/4002/4003 are not published. The dev override adds a shared TypeScript watcher and exposes web/ws on 3000/3001.
@@ -93,7 +105,7 @@ The bot wraps all discord.js interactions into framework-agnostic `*Like` types 
 - `packages/web/proxy.ts` runs NextAuth on every route except Next static/image assets and the favicon. `src/lib/auth.ts` allows login/auth endpoints, icons, and the enabled FX lab; protected pages and APIs require Discord sign-in and membership in `DISCORD_GUILD_ID`, checked with `DISCORD_TOKEN`.
 - `src/lib/discord-web-access.ts` is the shared entry point for member/admin checks, used by sign-in, proxy, and route guards. E2E/test login providers must go through it too. Exception: duel guards in `src/lib/duel-host.ts` call `verifyDiscordGuildMembership` directly, so tests that stub only the entry point still hit Discord verification there. Membership/admin decisions cache for 60 seconds with in-flight deduplication and a 5-second request timeout; failures back off for at least 10 seconds and honor Discord's 429 retry deadline. APIs return 401 for no session, 403 for denied access, 503 when verification is unavailable.
 - Admin = guild owner or a member with Manage Server / Administrator. Season start/end and settings writes require admin; cubes are editable by their owner or admin. Every server-data read is scoped to the configured guild, including slug/id lookups and linked resources.
-- `/dev/fx-lab` and its card-image routes are public with `DUEL_FX_LAB=1` or in `next dev`; the lab returns 404 otherwise (`src/lib/fx-lab.ts`).
+- `/dev/fx-lab`, `/dev/table-preview`, `/dev/solid-preview` and their card-image routes are public with `DUEL_FX_LAB=1` or in `next dev`; the lab returns 404 otherwise (`src/lib/fx-lab.ts`).
 - Draft lobby test bots (Add bot button, `POST /api/drafts/[slug]/join-bot`, host only) are off in production unless the web server has `DRAFT_TEST_BOTS=1`; any non-production build allows them. The draft API returns `botsEnabled` so the page never reads the env (`src/lib/draft-test-bots.ts`). Bots pick through the pick route (they auto-pick after each human pick) and through pick-deadline expiry.
 
 ### Draft flow

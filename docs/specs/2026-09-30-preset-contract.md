@@ -1,6 +1,6 @@
 # Preset contract (duel host and web)
 
-Owner: worker S2 (duel-server). Reader: worker S3 (web). Status: written early, kept true.
+Status: live contract (`packages/duel-server/src/host.ts`, `src/presets/`).
 
 A preset is a hand scenario. The user plays seat 0 in the web room. Scripted bots play the other seats. The host
 ops below are on the same endpoint as all other duel ops: `POST /internal/duel`, signed body, same auth. They only work
@@ -19,15 +19,20 @@ Response:
 { "presets": [
   { "id": "dust-tornado-chain", "title": "...", "format": "1v1", "humanSeat": 0, "seats": 2,
     "checklist": ["..."], "needsMultiCore": false, "needs": null, "rules": ["R-..."],
-    "available": true, "unavailableReason": null }
-] }
+    "available": true, "unavailableReason": null,
+    "issues": [{ "sig": "...", "title": "...", "owner": "..." }] }
+],
+  "core": { "tag": "...", "sha": "..." } }
 ```
 
-- `needsMultiCore` (boolean, the lead's wire name) and `needs` (`null` or `"multi-core"`) say the same thing.
+`core` is the multi core of the data directory (`multiCoreInfo`; both fields are `null` when it is missing).
+
+- `needsMultiCore` (boolean) and `needs` (`null` or `"multi-core"`) say the same thing.
 - `rules` = ADR-0002 rule ids the preset covers.
 - `available` is `false` when the preset needs the multi-duelist core and the engine data directory has no
   `ocgcore.multi.wasm`. Then `unavailableReason` holds the text to show. The web must not start an unavailable preset
   (the host also refuses it with HTTP 409).
+- `issues` lists known problems for the preset (empty when none).
 - `checklist` is the list of things the tester must see, in order. Show it in the room (a side panel).
 
 ## Op `start-preset`
@@ -58,7 +63,7 @@ Effect: writes the folder `<repo>/.status/manual/<slug>-<iso-time>/` with
 - `note.md`: the tester's note, the checklist and the slug.
 
 Response: `{ "path": "<absolute folder>" }`. The folder is relative to the repo root that holds the engine data
-directory (override with env `DUEL_REPORT_DIR`). `.status/manual/` must stay out of git (the lead decides).
+directory (override with env `DUEL_REPORT_DIR`). `.status/manual/` is ignored by git (`.gitignore`, `.status/`) and by Docker (`.dockerignore`).
 
 ## Journal note field
 
@@ -70,7 +75,7 @@ Other readers must ignore it. Replay only uses `promptId`, `revision` and `answe
 The rule helper `surrender()` makes the host call the same path as op `surrender` for that seat (FFA: the seat is out;
 Tag: the team loses; 1v1: the other seat wins). It is NOT stored as an answer. In FFA the host records the seat in
 `setup_json.surrenderedSeats`. In `journal.jsonl` of a report it shows as a separate line `{ "type": "surrender", seat }`
-after the answers. (Until the host can call `eliminate` the seat stays in the core on autopilot passes, as for a human surrender.)
+after the answers.
 
 ## Setup JSON stored in the duel (`duels.setup_json`)
 
@@ -79,9 +84,6 @@ after the answers. (Until the host can call `eliminate` the seat stays in the co
 rules are not stored (they are code): they come from the preset registry by `presetId`. Rules are stateless
 functions of (prompt, view), so a recover after a restart plays the same.
 
-## Preset ids (first version)
+## Preset ids
 
-1v1 today: `dust-tornado-chain`, `solemn-judgment-summon`, `jinzo-stops-trap`.
-Multi-core (`needs: "multi-core"`): `raigeki-dark-hole-ffa4`, `raigeki-dark-hole-tag`, `mind-crush-ffa4-pick`, `tag-lp-solemn-partner`,
-`tag-jinzo-blocks-traps`, `ffa4-chain-order-heavy-storm`, `ffa4-surrender-in-chain`. Always read the real list from
-`list-presets`. Do not hard-code ids in the web.
+Call `list-presets` for the current ids (source: `packages/duel-server/src/presets/`). Do not hard-code ids in the web.
