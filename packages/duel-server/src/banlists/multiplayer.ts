@@ -46,6 +46,7 @@ export const MULTIPLAYER_FORBIDDEN: readonly MultiplayerForbidden[] = [
   { code: 35059553, name: "Kaiser Colosseum", category: "symmetry", reason: "It compares the monster count of two sides to limit summons.", formats: FFA },
   { code: 98139712, name: "Skull Invitation", category: "symmetry", reason: "Damage goes by card owner to 'you' and 'the opponent' only.", formats: FFA },
   { code: 83555666, name: "Ring of Destruction", category: "symmetry", reason: "It damages the activator and one opponent. The opponent LP check reads one player.", formats: FFA },
+  { code: 62966332, name: "Convulsion of Nature", category: "symmetry", reason: "It reverses Decks through one global check for two sides. A multiplayer table has more than two Decks.", formats: ALL },
   // --- turn-count
   { code: 22804644, name: "Doom Virus Dragon", category: "turn-count", reason: "Its effect lasts 3 'opponent turns'.", formats: FFA },
   { code: 21208154, name: "The Wicked Avatar", category: "turn-count", reason: "Its effect lasts 2 'opponent turns'.", formats: FFA },

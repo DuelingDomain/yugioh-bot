@@ -44,6 +44,7 @@ export async function createLegacyEngineGame(options: EngineGameOptions): Promis
     decks: options.decks,
     seed: options.seed,
     dataDirectory: options.dataDirectory,
+    firstTurnDraw: options.firstTurnDraw,
     ...(options.masterRule ? { masterRule: options.masterRule } : {}),
     ...(options.settings ? { settings: options.settings } : {}),
   });

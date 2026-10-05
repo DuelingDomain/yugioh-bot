@@ -145,7 +145,7 @@ export async function handleSelectMenu(
     const cardName = catalogCards[0]?.name ?? "Unknown";
 
     const forcedNote = pickedCard.forced
-      ? ` You have ${MAX_COPIES_PER_PLAYER} of each card here. This pick stays in your pool only.`
+      ? ` You have ${MAX_COPIES_PER_PLAYER} of each card here. You can use this extra copy in your deck.`
       : "";
     await interaction.reply({ content: `You picked ${cardName}.${forcedNote}`, ephemeral: true });
 

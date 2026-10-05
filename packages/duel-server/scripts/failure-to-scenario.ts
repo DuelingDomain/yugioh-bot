@@ -121,7 +121,7 @@ export function loadNSource(file: string): NSource {
       label: `fuzz-n ${format} seed ${scenario.seed} core ${raw.wasm?.tag ?? "?"}`,
       mode: scenario.mode,
       masterRule: scenario.masterRule,
-      firstTurnDraw: savedFuzzFirstTurnDraw(raw.engine?.firstTurnDraw, scenario.mode, scenario.masterRule),
+      firstTurnDraw: savedFuzzFirstTurnDraw(raw.engine?.firstTurnDraw, scenario.mode, scenario.masterRule, format),
       decks: raw.decks,
       seed: engineSeed(scenario.seed),
       commands,

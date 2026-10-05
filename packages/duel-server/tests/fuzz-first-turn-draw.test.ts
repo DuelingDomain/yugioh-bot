@@ -41,7 +41,7 @@ describeWithCores("fuzz files retain the first-turn draw rule", [needs.standard(
 
   it.each([
     { mode: "normal", firstTurnDraw: true },
-    { mode: "domain", firstTurnDraw: false },
+    { mode: "domain", firstTurnDraw: true },
   ] as const)("$mode: a local saved $firstTurnDraw flag overrides the current rule", async ({ mode, firstTurnDraw }) => {
     const seed = ["1", "2", "3", "4"];
     const decks = Array.from({ length: 2 }, () => ({ main: Array(40).fill(15025844), extra: [], side: [],

@@ -67,7 +67,7 @@ describe("legacy 1v1 engine core identity", () => {
     }
   });
 
-  itEachWithCores<[DuelMasterRule]>(legacyDomain, [[1], [2], [3], [4], [5]], "Domain MR%s: only MR1 and MR2 draw on turn 1", async (masterRule) => {
+  itEachWithCores<[DuelMasterRule]>(legacyDomain, [[1], [2], [3], [4], [5]], "Domain MR%s: first Main Phases have five cards for turn 1 and six for turn 2", async (masterRule) => {
     const game = await createLegacyEngineGame({ mode: "domain", format: "1v1", masterRule,
       decks: decks(true), seed: ["1", "2", "3", "4"], dataDirectory: DATA, settings });
     try {
@@ -75,11 +75,13 @@ describe("legacy 1v1 engine core identity", () => {
         const own = game.view(actor);
         expect(own.turn).toBe(actor + 1);
         expect(own.turnSeat).toBe(actor);
+        expect(own.phase).toBe("main1");
+        expect(own.seats[actor]!.hand).toHaveLength(actor === 0 ? 5 : 6);
         expect(own.prompt?.options.some((option) => option.id === "to_ep")).toBe(true);
         for (let viewer = 0; viewer < 2; viewer++) {
           const view = game.view(viewer);
           for (let seat = 0; seat < 2; seat++) {
-            const drew = seat <= actor && (seat > 0 || masterRule <= 2);
+            const drew = seat <= actor && seat > 0;
             expect(view.seats[seat]!.hand).toHaveLength(5 + Number(drew));
             expect(view.seats[seat]!.deckCount).toBe(35 - Number(drew));
           }
@@ -90,6 +92,18 @@ describe("legacy 1v1 engine core identity", () => {
       game.close();
     }
   });
+
+  itEachWithCores<[DuelMasterRule, boolean]>(legacyDomain,
+    ([1, 2, 3, 4, 5] as const).flatMap((masterRule) => [false, true].map((draw): [DuelMasterRule, boolean] => [masterRule, draw])),
+    "Domain MR%s: honors a saved firstTurnDraw=%s", async (masterRule, firstTurnDraw) => {
+      const game = await createLegacyEngineGame({ mode: "domain", format: "1v1", masterRule, firstTurnDraw,
+        decks: decks(true), seed: ["1", "2", "3", "4"], dataDirectory: DATA, settings });
+      try {
+        expect(game.view(0).phase).toBe("main1");
+        expect(game.view(0).seats[0]!.hand).toHaveLength(firstTurnDraw ? 6 : 5);
+        expect(game.view(0).seats[1]!.hand).toHaveLength(5);
+      } finally { game.close(); }
+    });
 
   it("Standard runs the npm package core, byte for byte", async () => {
     const game = await createLegacyEngineGame({ mode: "normal", format: "1v1", decks: decks(false), seed: ["1", "2", "3", "4"], dataDirectory: DATA, settings });

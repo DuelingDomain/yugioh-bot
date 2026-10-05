@@ -5,6 +5,9 @@ import { MAX_COPIES_PER_PLAYER } from "../../src/services/constants.js";
 import { createCardCatalogService } from "../../src/services/card-catalog.js";
 import { createCubeService } from "../../src/services/cubes.js";
 import { buildDraftDeck, createDraftDeckService } from "../../src/services/draft-decks.js";
+import { createSavedDeckService } from "../../src/services/saved-decks.js";
+import { createDraftTournamentService } from "../../src/services/draft-tournament.js";
+import { createTournamentDuelService } from "../../src/services/tournament-duels.js";
 import { createDraftService } from "../../src/services/drafts.js";
 import type { DraftConfig } from "../../src/types/index.js";
 
@@ -79,6 +82,55 @@ function boosterDraft(config: Partial<DraftConfig>, cubeCardIds: number[], cardC
 const distinctCube = (n: number) => Array.from({ length: n }, (_, i) => i + 1);
 
 describe("per-player copy cap in booster drafts", () => {
+  it("keeps automatic forced picks in saved decks, exports and tournament registrations", () => {
+    const { db, drafts, draftId, a, b } = boosterDraft(
+      { packSize: 10, packsPerPlayer: 1, cardsPerPlayer: 10 },
+      [...Array(10).fill(1), ...Array(10).fill(2)], 2,
+    );
+    try {
+      for (let step = 0; step < 10; step++) {
+        expireNow(db, draftId);
+        drafts.expireCurrentPickStep(draftId);
+      }
+      for (const player of [a, b]) {
+        const picks = createDraftService(db).pool(draftId, player);
+        expect(picks.some((pick) => pick.forced)).toBe(true);
+        expect(drafts.picks(draftId).filter((pick) => pick.playerId === player && pick.forced)
+          .every((pick) => pick.pickMethod === "auto")).toBe(true);
+        const owner = player === a ? "u-A" : "u-B";
+        const deck = createSavedDeckService(db).findByDraft("g", owner, draftId)!.deck;
+        expect(deck.main).toHaveLength(10);
+        expect(createDraftDeckService(db).mainPoolCount(draftId, player)).toBe(10);
+        expect(drafts.exportYdk(draftId, player).split("\n").filter((line) => /^\d+$/.test(line)))
+          .toHaveLength(10);
+      }
+      const { tournamentId } = createDraftTournamentService(db).createTournamentFromDraft({
+        draftId, format: "round_robin", createdByUserId: "host",
+      });
+      for (const player of [a, b]) {
+        expect(createTournamentDuelService(db).registration(tournamentId, player)?.deck.main).toHaveLength(10);
+      }
+    } finally { db.close(); }
+  });
+
+  it.each([true, false, undefined, "theme"])("migrates legacy excess copies safely (%s)", (limit) => {
+    const { db, draftId, a } = boosterDraft({ packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8 }, distinctCube(16));
+    try {
+      // Two artwork ids with the same identity. No stored flag existed before this change.
+      db.prepare("update card_catalog set name = ' CARD 1 ' where ygoprodeck_id = 2").run();
+      grantCopies(db, draftId, a, 1, 2);
+      grantCopies(db, draftId, a, 2, 2);
+      db.prepare("update drafts set config_json = ? where id = ?")
+        .run(JSON.stringify(limit === "theme" ? { copyLimit: true, mode: "theme" } : { copyLimit: limit }), draftId);
+      db.exec("alter table draft_picks drop column forced");
+      migrate(db);
+      const flags = db.prepare("select forced from draft_picks order by id").all();
+      expect(flags).toEqual([0, 0, 0, limit === true ? 1 : 0].map((forced) => ({ forced })));
+      migrate(db);
+      expect(db.prepare("select forced from draft_picks order by id").all()).toEqual(flags);
+    } finally { db.close(); }
+  });
+
   it("counts two artwork ids as one card for manual and automatic picks", () => {
     const { db, drafts, draftId, a } = boosterDraft({ packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8 }, [1, 2, ...distinctCube(20)]);
     try {
@@ -235,7 +287,8 @@ describe("per-player copy cap in booster drafts", () => {
     expect(drafts.hasPassedStep(draftId, a)).toBe(false);
     expect(drafts.pickOptions(draftId, a)).toHaveLength(3);
     expect(drafts.pickOptions(draftId, a).every((card) => card.forced === true)).toBe(true);
-    drafts.pickCard(draftId, a, bPack[1].id);
+    expect(drafts.pickCard(draftId, a, bPack[1].id)).toMatchObject({ forced: true });
+    expect(createDraftService(db).pool(draftId, a).at(-1)).toMatchObject({ forced: true });
     expect(drafts.heldCopies(draftId, a)[bPack[1].catalogCardId]).toBe(4);
     expect(db.prepare("select pick_count from draft_players where draft_id = ? and player_id = ?").get(draftId, a)).toEqual({ pick_count: 2 });
   });
@@ -325,8 +378,8 @@ describe("per-player copy cap in booster drafts", () => {
     }
     drafts.pickCard(draftId, a, pack[0].id);
     expect(drafts.heldCopies(draftId, a)[pack[0].catalogCardId]).toBe(4);
-    const deck = buildDraftDeck(drafts.pool(draftId, a).map((card) => ({ catalogId: card.catalogCardId, extra: false })));
-    expect(deck.main.filter((id) => id === pack[0].catalogCardId)).toHaveLength(3);
+    const deck = buildDraftDeck(drafts.pool(draftId, a).map((card) => ({ catalogId: card.catalogCardId, forced: card.forced, extra: false })));
+    expect(deck.main.filter((id) => id === pack[0].catalogCardId)).toHaveLength(4);
     expect(deck.extra).toEqual([]);
     expect(deck.side).toEqual([]);
     expect(createDraftDeckService(db).mainPoolCount(draftId, a)).toBe(deck.main.length);
@@ -340,6 +393,9 @@ describe("per-player copy cap in booster drafts", () => {
     const before = db.prepare("select * from draft_undealt").all();
     drafts.pickCard(draftId, a, pack[0].id);
     expect(drafts.heldCopies(draftId, a)[pack[0].catalogCardId]).toBe(4);
+    expect(drafts.pool(draftId, a).at(-1)).toMatchObject({ forced: false });
+    const deck = buildDraftDeck(drafts.pool(draftId, a).map((card) => ({ catalogId: card.catalogCardId, forced: card.forced, extra: false })));
+    expect(deck.main.filter((id) => id === pack[0].catalogCardId)).toHaveLength(3);
     expect(db.prepare("select * from draft_undealt").all()).toEqual(before);
   });
 

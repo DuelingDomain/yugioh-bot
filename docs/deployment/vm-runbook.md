@@ -209,11 +209,12 @@ matching bundle and rebuilds every service:
 ## First-turn draw records (2026-10-02)
 
 New duels save the resolved boolean flag as `setup.firstTurnDraw` in `duels.setup_json`.
-Recovery and replay use that flag. The pinned engine draws on turn 1 in every Domain seat layout.
-The legacy 1v1 engine uses the stock Master Rule flags in Standard and Domain:
-MR1/MR2 draw on turn 1; MR3/MR4/MR5 skip only the turn-1 draw.
-Standard on the pinned engine uses the same Master Rule draw rule.
-Standard FFA and Tag use MR5 only.
+Recovery and replay use that flag, preserving each duel's historical rule.
+Since 2026-10-04, new 1v1 Domain duels skip the turn-1 duelist's draw at every Master Rule
+on both the pinned and legacy engines; the second duelist draws as usual.
+In Tag, FFA3 and FFA4 Domain duels, every duelist draws on their first turn, including turn 1.
+Standard is unchanged on both engines: MR1/MR2 draw on turn 1; MR3/MR4/MR5 skip only
+the turn-1 duelist's draw. Tag and FFA use MR5 only.
 
 Production ran `main`, which had no Tag or FFA duels and no `format` or `setup_json`
 columns. Migration adds `format` with the default `'1v1'`, so every old production

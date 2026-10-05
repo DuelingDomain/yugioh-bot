@@ -183,6 +183,7 @@ export function migrate(db: Database.Database) {
       wave_number integer not null,
       pick_step integer not null,
       pick_method text not null default 'manual',
+      forced integer not null default 0 check (forced in (0, 1)),
       picked_at text not null,
       foreign key (draft_id, player_id) references draft_players(draft_id, player_id),
       foreign key (draft_card_id, draft_id, wave_number) references draft_cards(id, draft_id, wave_number),
@@ -314,6 +315,30 @@ export function migrate(db: Database.Database) {
   addColumnIfMissing(db, "draft_cards", "draft_pack_id", "integer references draft_packs(id)");
   addColumnIfMissing(db, "draft_cards", "position", "integer");
   addColumnIfMissing(db, "draft_picks", "pick_method", "text not null default 'manual'");
+  // Only explicit copy-limit ON booster drafts can identify old forced picks reliably.
+  // Older configs without the flag and copy-limit OFF/theme drafts retain the three-copy rule.
+  // Add and backfill in one write transaction; later migrate calls preserve recorded flags.
+  db.transaction(() => {
+    if (hasColumn(db, "draft_picks", "forced")) return;
+    addColumnIfMissing(db, "draft_picks", "forced", "integer not null default 0 check (forced in (0, 1))");
+    db.exec(`
+      with ordered_picks as (
+        select pk.id, row_number() over (
+          partition by pk.draft_id, pk.player_id, lower(trim(cc.name)), cc.type,
+            case when cc.ygoprodeck_id is null then dc.catalog_card_id end
+          order by pk.id
+        ) as copy_number
+        from draft_picks pk
+        join drafts d on d.id = pk.draft_id
+        join draft_cards dc on dc.id = pk.draft_card_id
+        left join card_catalog cc on cc.ygoprodeck_id = dc.catalog_card_id
+        where json_extract(d.config_json, '$.copyLimit') = 1
+          and coalesce(json_extract(d.config_json, '$.mode'), 'booster') != 'theme'
+      )
+      update draft_picks set forced = 1
+      where id in (select id from ordered_picks where copy_number > 3)
+    `);
+  }).immediate();
   addColumnIfMissing(db, "card_catalog", "effect_text", "text");
   addColumnIfMissing(db, "card_catalog", "atk", "integer");
   addColumnIfMissing(db, "card_catalog", "def", "integer");

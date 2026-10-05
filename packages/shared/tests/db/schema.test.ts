@@ -96,6 +96,7 @@ describe("shared database schema", () => {
       "wave_number",
       "pick_step",
       "pick_method",
+      "forced",
       "picked_at",
     ]);
     expect(getTableInfo(db, "draft_passes").map((column) => column.name)).toEqual([

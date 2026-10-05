@@ -232,9 +232,11 @@ New duels save `setup.firstTurnDraw`, the resolved `DUEL_1ST_TURN_DRAW` flag, wh
 Worker recovery and all journal replay paths use this saved flag. The engine resource pin still checks the
 bundle and Lua overlay. A rule change alone does not change an existing duel's draw flag.
 
-The legacy 1v1 engine uses the stock Master Rule draw rule in Standard and Domain:
-MR1/MR2 draw on turn 1; MR3-MR5 do not. The pinned engine draws on turn 1 in every
-Domain seat layout. Standard on the pinned engine uses the stock Master Rule draw rule.
+Since 2026-10-04, new 1v1 Domain duels skip the turn-1 duelist's draw at every Master Rule
+on both the pinned and legacy engines; the second duelist draws as usual.
+In Tag, FFA3 and FFA4 Domain duels, every duelist draws on their first turn, including turn 1.
+Standard is unchanged on both engines: MR1/MR2 draw on turn 1; MR3-MR5 skip only
+the turn-1 duelist's draw. Tag and FFA use MR5 only.
 
 Old records have no saved flag. Production ran `main`; after migration, all its old duels are 1v1
 and need no action. Before 2026-10-02 (this change), staging ran this branch before and after `0fb46df`,
@@ -363,7 +365,8 @@ Do the steps in this order. Write down the result of each step. Report every ste
 1. Make a 3-player free-for-all Standard table. First try a deck with Ring of Destruction or Swords of Revealing Light.
    Expect a refusal. Then use legal decks.
 2. Start the duel. Expect: the seat order is shown. Standard MR5 skips only the turn-1 draw (p0 has 5 cards).
-   Domain in every seat layout draws on turn 1 (p0 has 6 cards with default settings).
+   Tag and FFA Domain duels draw on turn 1 (p0 has 6 cards with default settings).
+   In 1v1 Domain, p0 skips the draw at every Master Rule on both engines (5 cards with default settings).
    Standard MR1/MR2: the first duelist draws (where the core allows MR1/MR2).
    Standard MR3/MR4/MR5 skip only the turn-1 draw.
    Standard FFA uses MR5 only; the core rejects MR1-MR4 with more than 2 duelists.
@@ -383,7 +386,7 @@ Do the steps in this order. Write down the result of each step. Report every ste
 13. Reduce a player to 0 LP by battle in your own turn. Expect: your turn continues, and the next turn goes to the next
     living player.
 14. Finish the duel. Expect: all players see the right winner and the right reason, and the history shows it.
-15. Play a short 1v1 Standard duel and a short 1v1 Domain duel. Expect: Domain p0 draws on turn 1. Standard MR3/MR4/MR5 p0 skips the draw; Standard MR1/MR2 p0 draws.
+15. Play a short 1v1 Standard duel and a short 1v1 Domain duel. Expect: Domain p0 skips the turn-1 draw at every Master Rule on both engines; p1 draws as usual. Standard MR3/MR4/MR5 p0 skips the draw; Standard MR1/MR2 p0 draws.
 
 ## Open risks
 

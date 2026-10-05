@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 import React from "react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DuelMasterRule } from "@yugidraft/shared/duels";
@@ -96,5 +98,59 @@ describe("fx lab Master Rule field scenarios", () => {
       const inEmz = board.seats.some((seat) => seat.monsters.slice(5).some((card) => card != null));
       expect(inEmz).toBe(rule >= 4);
     }
+  });
+});
+
+describe("DuelField phase hub slot", () => {
+  function withHub(rule: DuelMasterRule, hub: React.ReactNode) {
+    const script = findScenario(`state-field-mr${LAB_BOARD[rule]}`)!.build();
+    const engine = {
+      revision: 1, turn: 1, turnSeat: 0, phase: "main1", battleStep: null,
+      seats: script.initial.seats, prompt: null, chain: [], events: [], log: [], result: null,
+    };
+    return render(
+      <DuelField engine={engine} mySeat={0} masterRule={rule} reducedMotion
+        legalKeys={new Set()} selectedKeys={new Set()} hub={hub}
+        onActivate={() => {}} onInspect={() => {}} bottomName="You" topName="Opp" />,
+    );
+  }
+
+  it.each([1, 3, 5] as const)("draws the hub in the Extra Monster Zone band, before the zones so its line lies under them, under Master Rule %i", (rule) => {
+    const { container } = withHub(rule, <nav aria-label="Duel phases" data-testid="hub-probe" />);
+    const hub = container.querySelector('[data-testid="hub-probe"]')!;
+    const halves = [...container.querySelectorAll("[data-field-seat]")];
+    expect(halves).toHaveLength(2);
+    // After the top field and before the bottom one in document order: the band between them.
+    expect(halves[0].compareDocumentPosition(hub) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(hub.compareDocumentPosition(halves[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(halves.some((half) => half.contains(hub))).toBe(false);
+    // It belongs to the board's middle row, inside the Extra Monster Zone band, and takes no row of its own.
+    expect(hub.closest("[data-hub='true']")).not.toBeNull();
+    expect(hub.closest("[class*='emzBand']")).not.toBeNull();
+    // Before the Extra Monster Zones in document order: at the same stacking level its hairline paints under their outlines.
+    for (const emz of container.querySelectorAll('[data-kind="emz"]')) {
+      expect(hub.compareDocumentPosition(emz) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+  });
+
+  it("takes no height from the zones: no lane in the field's size budget", () => {
+    const css = readFileSync(join(__dirname, "../../src/components/duel/field.module.css"), "utf8");
+    expect(css).not.toContain("--lane-h");
+    expect(css).toMatch(/grid-template-rows:\s*repeat\(5, var\(--z\)\)/);
+  });
+
+  it("draws no hub wrapper without a hub", () => {
+    const { container } = field(5);
+    expect(container.querySelector("[data-hub='true']")).toBeNull();
+  });
+
+  it("leaves both Extra Monster Zones in place beside the hub", () => {
+    const { container } = withHub(5, <nav aria-label="Duel phases" />);
+    expect(container.querySelectorAll('[data-kind="emz"]')).toHaveLength(2);
+  });
+
+  it("draws nothing extra without a hub", () => {
+    const { container } = field(5);
+    expect(container.querySelector('nav[aria-label="Duel phases"]')).toBeNull();
   });
 });
