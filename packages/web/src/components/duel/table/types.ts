@@ -124,7 +124,14 @@ export interface SeatFieldProps {
   tone: SeatTone;
   density: "full" | "rival" | "compact";
   hand: "face" | "backs" | "none";
-  emz: "own" | "shared-bottom" | "shared-top";
+  /**
+   * Extra Monster Zones of the seat: `own` (two of its own), `pair` (the grid: this seat draws the row it shares with the
+   * facing seat `pair.other`), `none` (the grid: the facing seat draws it). `pair.left` and `pair.right` are the room left
+   * for the life boxes, in card heights; `pair.gap` is the space between the two EMZ (columns 2 and 4), in card heights; `pair.joined` = the facing field is drawn, so the two mats meet at this row.
+   */
+  emz: "own" | "shared-bottom" | "shared-top" | "pair" | "none";
+  /** `framed`: the stage draws one frame round the pair (see grid-stage.tsx `pairFrameRect`), so this field draws no mat. */
+  pair?: { other: number | null; left: number; right: number; gap: number; joined: boolean; framed?: boolean };
   showTally: boolean; // false when a holo LP panel owns data-lp-seat
   usable: boolean; // false: legal ring only, no USE glow (partner, spectator)
   name?: string; // display name of the seat (labels and aria text); default "Player <n>"

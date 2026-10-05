@@ -5,7 +5,6 @@ import {
   aliveLayout,
   arrangementOf,
   boardBounds,
-  compactFor,
   flyWorld,
   flyYawFor,
   holoAnchor,
@@ -363,23 +362,6 @@ describe("4-way camera places", () => {
   it("flyWorld looks at the overview place of the target seat", () => {
     const fly = { yawDeg: 0, tiltDeg: 30, zoom: 1.8, targetSeat: 1 };
     expect(flyWorld(layout, fly)).toMatchObject({ fx: 129 - ARENA_CENTER.x, fy: 395 - ARENA_CENTER.y, oy: 36 });
-  });
-});
-
-describe("compactFor", () => {
-  const unit = (scale: number) => ({ scale, slot: "dockL" as const });
-  it("goes compact below 44 px of rival card height, or 40 px under 1440 px of window", () => {
-    // card height = 112 * scale * stage scale
-    expect(compactFor(unit(0.5), 0.75, 1600)).toBe(true); // 42
-    expect(compactFor(unit(0.5), 0.8, 1600)).toBe(false); // 44.8
-    expect(compactFor(unit(0.5), 0.75, 1280)).toBe(false); // 42 >= 40
-    expect(compactFor(unit(0.5), 0.7, 1280)).toBe(true); // 39.2
-  });
-  it("never compacts your own place; 'on' compacts every other place, 'off' none", () => {
-    expect(compactFor({ scale: 1, slot: "home" }, 0.1, 1200)).toBe(false);
-    expect(compactFor({ scale: 0.52, slot: "oHome" }, 0.1, 1200)).toBe(false);
-    expect(compactFor(unit(0.92), 1, 1600, "on")).toBe(true);
-    expect(compactFor(unit(0.5), 0.3, 1200, "off")).toBe(false);
   });
 });
 

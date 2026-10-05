@@ -365,7 +365,13 @@ export function optionsOnBoard(prompt: DuelPrompt, hasZone: (key: string) => boo
  * its canvas, so it marks the stage with `data-prompt-scope` and the zones are found there.
  */
 function boardOf(layer: HTMLElement | null): HTMLElement | null {
-  return layer?.closest<HTMLElement>("[data-prompt-scope]") ?? layer?.parentElement ?? null;
+  const scope = layer?.closest<HTMLElement>("[data-prompt-scope]");
+  if (scope) return scope;
+  // A wrapper with `display: contents` (the HUD's row preview boundary) draws no box and holds no zones: the board is
+  // the first parent above it. Measuring the wrapper would find no zone and send every pick to the card grid.
+  let parent = layer?.parentElement ?? null;
+  while (parent && parent.style.display === "contents" && parent.parentElement) parent = parent.parentElement;
+  return parent;
 }
 
 function allOptionsOnBoard(prompt: DuelPrompt, scope: ParentNode): boolean {
@@ -1289,6 +1295,8 @@ export interface PromptCenterProps {
   onSubmit: (answer: DuelAnswer) => void;
   /** A card action menu is open: right-click and Esc belong to it. */
   menuOpen: boolean;
+  /** A floating flyout is open: Esc closes it and does not answer or fold the prompt. Every other key still works. */
+  escapeHeld?: boolean;
   chain: readonly DuelChainLink[];
   /** Attack-target step: picking a card aims instead of answering. */
   aim?: PromptAim;
@@ -1353,6 +1361,7 @@ export function PromptCenter(props: PromptCenterProps) {
   const busyRef = useRef(busy);
   const submitRef = useRef(onSubmit);
   const menuRef = useRef(props.menuOpen);
+  const escapeHeldRef = useRef(props.escapeHeld === true);
   const lockedRef = useRef(props.aimLocked);
   const collapsedRef = useRef(collapsed);
   const revealedRef = useRef(revealed);
@@ -1365,6 +1374,7 @@ export function PromptCenter(props: PromptCenterProps) {
   busyRef.current = busy;
   submitRef.current = onSubmit;
   menuRef.current = props.menuOpen;
+  escapeHeldRef.current = props.escapeHeld === true;
   lockedRef.current = props.aimLocked;
   collapsedRef.current = collapsed;
   barRef.current = kind === "select" && onBoard !== false;
@@ -1553,6 +1563,7 @@ export function PromptCenter(props: PromptCenterProps) {
     const key = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing) return;
       if (event.metaKey || event.ctrlKey || event.altKey || menuRef.current) return;
+      if (event.key === "Escape" && escapeHeldRef.current) return;
       // A menu owns its keys: Escape closes it, and n / y in it must not answer the prompt behind.
       if (event.target instanceof Element && event.target.closest("[data-duel-menu],[role='menu']")) return;
       if (kindRef.current == null || barRef.current) return;

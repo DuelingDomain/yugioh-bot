@@ -211,27 +211,6 @@ export function slotPlan(layout: TableLayout, camera: CameraView): PoseSlot[] | 
   return home;
 }
 
-/** Card height (px on screen) under which a rival field turns into compact chips: 44, or 40 in a window under 1440 wide. */
-export function compactThreshold(screenWidth: number): number {
-  return screenWidth < 1440 ? 40 : 44;
-}
-
-/**
- * True when a field is drawn as compact chips (4-way table). Your own place never is. `auto` goes compact when
- * a rival card is under the threshold on screen (`112 * scale * stageScale`), `on` for every rival place, `off`
- * for none. The pose needs a `scale` and a named `slot`.
- */
-export function compactFor(
-  pose: Pick<SeatPose, "scale" | "slot">,
-  stageScale: number,
-  screenWidth: number,
-  mode: "auto" | "on" | "off" = "auto",
-): boolean {
-  if (pose.slot === "home" || pose.slot === "oHome" || mode === "off") return false;
-  if (mode === "on") return true;
-  return SEAT_Z * pose.scale * stageScale < compactThreshold(screenWidth);
-}
-
 /**
  * Where every seat stands for a camera state. Upright only turns text, so it never moves a field. A lock is
  * not read here: the caller passes the effective camera (see `effectiveCamera`).
@@ -244,17 +223,11 @@ export function seatPoses(
   const plan = slotPlan(layout, camera);
   const home = homeTable(layout.format);
   const table = slotTable(layout);
-  const fit = viewport ? stageFit(viewport) : 0;
-  const screenWidth = viewport?.screenWidth ?? viewport?.width ?? 0;
   const wide = viewport ? wideHomeSlots(layout.format, stageSpread(viewport)) : null;
   const poses = new Map<number, SeatPose>();
   layout.slots.forEach((slot, place) => {
     const name = plan?.[place];
     const at = name ? (wide?.[name] ?? table[name]) : home[Math.min(place, home.length - 1)];
-    // Compact chips are a 4-way table feature: in the fly-in view the camera zooms in, so fields stay whole.
-    const compact = arrangementOf(layout) === "ffa4" && camera.mode !== "fly" && name != null && fit > 0
-      ? compactFor({ scale: at.scale, slot: name }, fit, screenWidth, camera.compact ?? "auto")
-      : false;
     poses.set(slot.seat, {
       seat: slot.seat,
       x: at.x,
@@ -265,7 +238,7 @@ export function seatPoses(
       slot: name,
       z: SEAT_Z,
       docked: name === "dockL" || name === "dockR",
-      compact,
+      compact: false,
       hidden: false,
     });
   });
