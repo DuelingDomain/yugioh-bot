@@ -427,8 +427,6 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
             const out = state !== "live";
             const self = slot.relation === "self";
             const drawer = drawerSeats[cell.column];
-            const band = placed.bands[cell.column];
-            const bottom = cell.row === 1;
             const field: Omit<SeatFieldProps, "angleDeg" | "scale"> = {
               engine,
               seat: cell.seat,
@@ -457,8 +455,6 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
               onInspect: controller.onInspect,
               onHoverCard: controller.onHoverCard,
             };
-            void band;
-            void bottom;
             const exitRow = exitState.exits.find((entry) => entry.seat === cell.seat);
             // In the finale the two seats that left fade out of the board: only their plates stay.
             const outline = out && (finaleColumn == null || cell.column === finaleColumn) ? placed.cells[cellIndex(cell)].own : null;
