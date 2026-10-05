@@ -171,6 +171,12 @@ describe("the Deck Master token", () => {
     expect(direct.getAttribute("title")).toBe("Attack directly with Sage with Eyes of Blue");
   });
 
+  it("shows the whole card at full size, not the small thumbnail", () => {
+    render(<Shell state={stateOf("main")} />);
+    const art = screen.getByTestId("hud-master-token").querySelector("span[aria-hidden]") as HTMLElement;
+    expect(art.style.backgroundImage).toMatch(/\/api\/cards\/\d+\/image"?\)/);
+  });
+
   it("opens the details flyout from the token or from Inspect, and closes it", () => {
     render(<Shell state={stateOf("main")} />);
     expect(screen.queryByTestId("hud-master-flyout")).toBeNull();
@@ -179,8 +185,9 @@ describe("the Deck Master token", () => {
     expect(within(details).getByTestId("hud-master-returns").textContent).toBe("1");
     expect(within(details).getByTestId("hud-master-cost").textContent).toBe("1000 LP");
     expect(within(details).getByTestId("hud-master-status").textContent).toBe("Elsewhere");
-    // The dock flyout stays closed: the details open beside the token, in the free margin.
+    // The dock flyout stays closed: the details open in the plate itself, over the card, so they never reach the dock.
     expect(isOpen()).toBe(false);
+    expect(screen.getByTestId("hud-master").querySelector("section")?.contains(details)).toBe(true);
     fireEvent.keyDown(window, { key: "Escape" });
     expect(screen.queryByTestId("hud-master-flyout")).toBeNull();
 
