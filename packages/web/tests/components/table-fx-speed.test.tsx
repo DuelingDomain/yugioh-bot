@@ -53,7 +53,8 @@ function Tag() {
   return <TagShell controller={controller} teamNames={[...TAG_TEAM_NAMES] as [string, string]} />;
 }
 
-const openSettings = () => act(() => void fireEvent.click(screen.getByRole("tab", { name: "Settings" })));
+// The wide Rooftop opens Settings from the HUD dock; the 3-way table and the narrow layouts use the Settings tab.
+const openSettings = () => act(() => void fireEvent.click(screen.queryByTestId("hud-dock-settings") ?? screen.getByRole("tab", { name: "Settings" })));
 const ev = (id: number, kind: DuelEvent["kind"], extra: Partial<DuelEvent> = {}): DuelEvent => ({ id, kind, text: kind, ...extra });
 
 describe("animation speed in the N-seat shells", () => {

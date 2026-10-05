@@ -153,7 +153,7 @@ describe("Report bug in the Rooftop shell", () => {
       return <TagShell fxActive={false} controller={controller} connection={connection} />;
     }
     render(<Shell />);
-    fireEvent.click(screen.getAllByRole("tab", { name: "Settings" })[0]!);
+    fireEvent.click(screen.getByTestId("hud-dock-settings"));
     fireEvent.click(screen.getByRole("button", { name: "Report bug" }));
     expectNoDuelHotkeys();
   });
@@ -165,7 +165,7 @@ describe("Report bug in the Rooftop shell", () => {
       return <TagShell fxActive={false} controller={controller} connection={connection} />;
     }
     render(<Shell />);
-    fireEvent.click(screen.getAllByRole("tab", { name: "Settings" })[0]!);
+    fireEvent.click(screen.getByTestId("hud-dock-settings"));
     await reportFromMenu({ format: "tag", seat: TAG_FIXTURES.states.main.room.mySeat, slug: TAG_FIXTURES.states.main.room.session.slug });
   });
 });
