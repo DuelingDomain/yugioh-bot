@@ -1,7 +1,8 @@
 /*
- * The 4-way grid table: four full fields in a 2 by 2 grid (see grid-layout.ts). The board box fills its parent, and the
- * canvas inside is 1100 stage px wide (its height follows the rows), scaled to fit. Slots (fx, prompt, overlay) lie over
- * the whole box, so FX measure the real screen position of the zones and LP plates, as on the other tables.
+ * The 4-way grid table: two columns of facing fields (see grid-layout.ts). The board box fills its parent. The world
+ * inside is laid out in natural px and shown with `zoom` (never a scale transform, so text stays sharp); a translate on
+ * its parent pans it. Slots (fx, prompt, overlay) lie over the whole box, so FX measure the real screen position of the
+ * zones and LP plates, as on the other tables.
  */
 .board {
   --sheet: rgb(181 153 99 / 0.34);
@@ -33,7 +34,7 @@
   font-family: var(--font-duel-ui, "Arial Narrow"), "Arial Narrow", sans-serif;
 }
 
-.board[data-ready="false"] .canvas {
+.board[data-ready="false"] .pan {
   visibility: hidden;
 }
 
@@ -53,35 +54,37 @@
   opacity: 1;
 }
 
-.canvas {
+.pan {
   position: absolute;
   left: 0;
   top: 0;
   transform-origin: 0 0;
 }
 
-/* The grid plane leans back a little: the far (top) row is a touch smaller. No camera moves. */
-.plane {
-  position: absolute;
-  inset: 0;
-  transform: perspective(2400px) rotateX(var(--grid-tilt, 0deg));
-  transform-origin: 50% 62%;
+.world {
+  position: relative;
+  transform-origin: 0 0;
 }
 
-/* A cell is only a hook for state; the field inside is placed on the plane by its own transform. */
+/* A cell is only a hook for state; the field inside is placed on the world by its own transform. */
 .cell {
   display: contents;
 }
 
-/* A thin seam between the two columns, through the middle band. */
-.seam {
-  position: absolute;
-  left: 6px;
-  right: 6px;
-  border-top: 1px solid rgb(181 153 99 / 0.12);
-  border-bottom: 1px solid rgb(181 153 99 / 0.12);
-  background: linear-gradient(180deg, rgb(181 153 99 / 0.035), transparent 40%, transparent 60%, rgb(181 153 99 / 0.035));
-  pointer-events: none;
+/* Fields sit still: the camera moves the world, not a field. No pose glide, no raster hint that would blur at a new zoom. */
+.world :global([data-seat-slot]) {
+  will-change: auto;
+  transition: none;
+}
+
+/* Text on a field grows as the world shrinks (the zoom is tweened, so the factor is a variable of the world). */
+.world :global([data-seat-field]) {
+  --ts: var(--gts, 1) !important;
+}
+
+/* Your hand is drawn nearly as large as the 1v1 hand. It lies below your field and rises over its lower edge on hover. */
+.world :global([data-seat-field][data-side="you"]) {
+  --lh: calc(var(--z) * 0.95);
 }
 
 /* An out seat shows its existing out treatment (the field's own grayscale and label) while it stays mounted. */
@@ -89,38 +92,61 @@
   pointer-events: none;
 }
 
-/* The column partner mark: a gold pill and bar between the two LP plates of the column. */
-.link {
+/* A field you can zoom to by its empty background or its life box. */
+.cell:not([data-focus="true"]) > :global([data-seat-slot]) :global([data-seat-field]) {
+  cursor: zoom-in;
+}
+
+.cell:not([data-focus="true"]) > :global([data-seat-slot]) :global([data-zones]),
+.cell:not([data-focus="true"]) > :global([data-seat-slot]) button {
+  cursor: pointer;
+}
+
+.lp {
+  display: contents;
+}
+
+/* View controls: all fields, zoom out, zoom in. */
+.controls {
   position: absolute;
-  z-index: 41;
+  right: 10px;
+  top: 10px;
+  z-index: 60;
   display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 18px;
-  color: var(--partner);
-  pointer-events: none;
+  gap: 4px;
 }
 
-.link i {
-  flex: 1;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgb(228 182 79 / 0.8));
-}
-
-.link i:last-child {
-  background: linear-gradient(270deg, transparent, rgb(228 182 79 / 0.8));
-}
-
-.link b {
-  padding: 1px 7px;
-  border: 1px solid rgb(228 182 79 / 0.6);
-  border-radius: 9px;
-  background: rgb(40 30 8 / 0.75);
-  font-size: 10px;
+.control {
+  min-width: 30px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid rgb(181 153 99 / 0.4);
+  border-radius: 6px;
+  background: rgb(7 11 21 / 0.82);
+  color: var(--ink-2);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  line-height: 1.4;
+}
+
+.control:hover:not(:disabled),
+.control:focus-visible {
+  border-color: var(--sheet-hi);
+  color: var(--ink);
+  outline: none;
+}
+
+.control[aria-pressed="true"] {
+  border-color: var(--pen);
+  color: var(--pen-ink);
+}
+
+.control:disabled {
+  cursor: default;
+  opacity: 0.4;
 }
 
 /* Slots over the whole box. A child turns pointer events back on for its own panels. */
@@ -132,12 +158,12 @@
 }
 
 /*
- * The "Activate its effect?" bar sits in the lane under the bottom row, right of your hand and clear of every field.
- * (A grid has no free side lane: the fields fill the box.)
+ * The "Activate its effect?" bar and the one-line prompts sit at the top centre, over the far row. Your hand, your
+ * field and the bottom-right field's lower row stay free, whatever the zoom.
  */
 .slot[data-slot="prompt"] :global([data-prompt-panel][data-precheck]) {
-  inset: auto auto 6px 44%;
-  translate: none;
+  inset: 8px auto auto 50%;
+  translate: -50% 0;
   width: max-content;
   min-width: 0;
   max-width: min(440px, 54%);
@@ -150,10 +176,10 @@
  */
 .slot[data-slot="prompt"] :global([data-prompt-surface][data-place="mid"]),
 .slot[data-slot="prompt"] :global([data-prompt-surface][data-place="top"]) {
-  top: auto !important;
-  left: 44% !important;
-  bottom: 6px;
-  translate: none;
+  top: 8px !important;
+  left: 50% !important;
+  bottom: auto;
+  translate: -50% 0;
   --bar-fit: 440px;
 }
 
@@ -185,30 +211,7 @@
   flex-wrap: wrap;
 }
 
-/*
- * A rival's hand backs hang off the owner's back edge: the top fields (turned 180 degrees) show them along the top
- * edge of the board, the bottom-right field along the bottom edge. One `data-hand-seat` per seat stays: the effects aim at it.
- */
-.board :global([data-hand-seat][data-side="opp"]) {
-  translate: calc(-50% + var(--hand-shift, 0px)) -8%;
-}
-
-.board :global([data-hand-seat][data-side="opp"]:hover) {
-  translate: calc(-50% + var(--hand-shift, 0px)) 4%;
-}
-
-/*
- * The two far hands lean toward the seam, so the chain strip (it docks in the top-left corner of the board) never
- * covers a hand. The fields are turned 180 degrees, so a push toward the seam is the opposite sign in their frame.
- */
-.cell[data-quadrant="tl"] {
-  --hand-shift: -90px;
-}
-
-.cell[data-quadrant="tr"] {
-  --hand-shift: 90px;
-}
-
+/* A rival's hand backs hang off the owner's back edge: the top fields (turned 180 degrees) show them above the top edge. */
 /* Keep your field name in the empty lane beside the hand as more cards arrive. */
 .board :global([data-seat-field][data-side="you"] > [data-seat-name]) {
   left: 0;

@@ -24,6 +24,8 @@ export interface HoloLpProps {
   /** Top-left of the panel in stage px. */
   x: number;
   y: number;
+  /** Width in stage px (default 196, or 212 for the viewer's own panel). The grid fits a panel into its middle band. */
+  width?: number;
   beam: "down" | "up" | "none";
   /** This panel can be chosen now (an opponent pick or a direct attack): dashed ring and a key hint. */
   legal?: boolean;
@@ -86,6 +88,7 @@ export function HoloLp({
   me,
   x,
   y,
+  width,
   beam,
   legal = false,
   hotkey = null,
@@ -106,6 +109,7 @@ export function HoloLp({
     "--t": hexToRgbTriplet(hex.main),
     "--tink": hex.ink,
     translate: floating ? "0px 0px" : `${x}px ${y}px`,
+    ...(width != null ? { "--lpw": `${width}px` } : null),
   };
   const body = (
     <>

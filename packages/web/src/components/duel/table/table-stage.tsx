@@ -2,6 +2,7 @@
 
 import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent } from "react";
 import { engineFormat } from "../multi-seat";
+import type { UseGridFocus } from "./grid-focus";
 import { AttackLine } from "./attack-line";
 import { FlyCity } from "./fly-city";
 import { flyWorld, holoAnchor, normalizeAngle, ringAngles, ringPose, seatPoses, slotPlan, stageFit, STAGE } from "./geometry";
@@ -36,6 +37,8 @@ export interface TableStageViewProps extends TableStageProps {
   out?: readonly number[];
   /** Draw the turn ring (default true on a 3-way table). */
   ring?: boolean;
+  /** The focus of the 4-way grid, owned by the shell so the turn strip can drive it. The plaza stage ignores it. */
+  grid?: UseGridFocus;
 }
 
 /**

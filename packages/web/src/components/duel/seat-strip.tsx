@@ -15,6 +15,7 @@ export function SeatStrip({
   promptSeat,
   focusSeat,
   onFocusSeat,
+  focusAny = false,
   pick,
 }: {
   engine: Pick<DuelEngineView, "format" | "seats" | "turnSeat">;
@@ -23,6 +24,8 @@ export function SeatStrip({
   promptSeat: number | null;
   focusSeat?: number | null;
   onFocusSeat?: (seat: number) => void;
+  /** Any seat can be focused, yours too (the 4-way grid zooms to any field). Default: rivals only. */
+  focusAny?: boolean;
   /** An opponent pick is open: the seats it offers answer it when tapped. */
   pick?: SeatPick | null;
 }) {
@@ -41,7 +44,7 @@ export function SeatStrip({
         const isNext = view.seat === next && view.seat !== engine.turnSeat && !leaving;
         const answering = view.seat === promptSeat && !out && !leaving;
         const pickable = pick?.options.has(view.seat) === true && !out && !(leaving && livingOffered);
-        const focusable = !pickable && onFocusSeat != null && relation === "opponent" && !out;
+        const focusable = !pickable && onFocusSeat != null && (focusAny || relation === "opponent") && !out;
         const status = out ? "Eliminated" : turn ? "To play" : isNext ? "Next" : null;
         const content = (
           <>

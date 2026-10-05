@@ -2054,6 +2054,53 @@
   pointer-events: auto;
 }
 
+/* The 4-way grid: two facing fields share one row of two Extra Monster Zones. The field that draws it (data-emz="pair")
+   lays the zones out between room for the life boxes (--pl, --pr in card heights); the other (data-emz="none") hides its
+   own row and its mat ends where the drawing field's begins, so the pair reads as one board. */
+.emzPair {
+  display: flex;
+  align-items: stretch;
+  gap: calc(var(--z) * 0.06);
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding-left: calc(var(--z) * var(--pl, 0));
+  padding-right: calc(var(--z) * var(--pr, 0));
+}
+
+.emzPair > .zone {
+  flex: 0 0 var(--cw);
+  width: var(--cw);
+  min-width: 0;
+}
+
+.seatField[data-emz="none"] .sfEmz {
+  display: none;
+}
+
+.seatField[data-emz="none"] .sfMat {
+  clip-path: inset(calc(var(--z) * 1.25) -240px -240px -240px);
+}
+
+.seatField[data-emz="none"] .sfRule {
+  top: calc(var(--z) * 1.25 + 6px);
+}
+
+.seatField[data-emz="pair"][data-joined="true"] .sfMat {
+  border-top-width: 0;
+  border-radius: 0 0 6px 6px;
+}
+
+.seatField[data-emz="pair"][data-joined="true"] .sfMat::before {
+  border-top-width: 0;
+  border-radius: 0 0 3px 3px;
+}
+
+.seatField[data-emz="pair"][data-joined="true"] .sfRule {
+  top: 0;
+}
+
 .sfRows {
   display: grid;
   grid-row: 2 / span 2;

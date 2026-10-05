@@ -13,6 +13,8 @@ export interface AttackLineProps {
   tone: SeatTone;
   /** Height of the stage canvas in stage px (the width is always 1100). A table whose canvas is not 860 high says so. */
   stageHeight?: number;
+  /** Width of the canvas in stage px (default 1100). The grid draws the line on the board box in screen px and says so. */
+  stageWidth?: number;
 }
 
 interface Pt {
@@ -43,7 +45,7 @@ export function aimCurve(from: { x: number; y: number }, to: { x: number; y: num
  * it (a fly-in orbit, a swing). Preview is a faint dashed hint, aim is dashed and marching, locked is solid.
  * It takes no pointer events. BattleFx gets no aim of its own: this line is the aim layer of a table.
  */
-export function AttackLine({ aim, tone, stageHeight = 860 }: AttackLineProps) {
+export function AttackLine({ aim, tone, stageHeight = 860, stageWidth = 1100 }: AttackLineProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const glowRef = useRef<SVGPathElement>(null);
   const pathRef = useRef<SVGPathElement>(null);
@@ -71,7 +73,7 @@ export function AttackLine({ aim, tone, stageHeight = 860 }: AttackLineProps) {
     const draw = () => {
       frame = requestAnimationFrame(draw);
       const origin = svg.getBoundingClientRect();
-      const k = origin.width / 1100;
+      const k = origin.width / stageWidth;
       if (!(k > 0)) return hide();
       const fromEl = find(`[data-zones~="${escape(fromKey)}"]`);
       const toEl =
@@ -110,11 +112,11 @@ export function AttackLine({ aim, tone, stageHeight = 860 }: AttackLineProps) {
     <svg
       ref={svgRef}
       className={styles.line}
-      viewBox={`0 0 1100 ${stageHeight}`}
+      viewBox={`0 0 ${stageWidth} ${stageHeight}`}
       data-attack-line={active ? mode : "off"}
       data-found="false"
       aria-hidden="true"
-      style={active ? (stageHeight === 860 ? undefined : { height: stageHeight }) : { display: "none" }}
+      style={active ? (stageHeight === 860 && stageWidth === 1100 ? undefined : { width: stageWidth, height: stageHeight }) : { display: "none" }}
     >
       <defs>
         <filter id="attack-line-glow" x="-20%" y="-20%" width="140%" height="140%">

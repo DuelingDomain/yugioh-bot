@@ -1014,6 +1014,7 @@ export function SeatField({
   density,
   hand,
   emz,
+  pair,
   showTally,
   usable,
   legalKeys,
@@ -1063,6 +1064,28 @@ export function SeatField({
       />
     );
   };
+  // A facing pair shares ONE row of two Extra Monster Zones, like the two sides of a 1v1 table (see table/grid-layout.ts):
+  // this seat is the "bottom" of it, the facing seat the "top". Left is this seat's seq 5 or the facing seat's seq 6.
+  const pairSlot = (column: "left" | "right") => {
+    const other = engine.seats.find((entry) => entry.seat === pair?.other);
+    const card = extraMonster(view, other, column);
+    const otherOff = other ? disabledZones(other) : null;
+    const offId = column === "left"
+      ? off.monsters[5] ? `${seat}-m-5` : otherOff?.monsters[6] ? `${other?.seat}-m-6` : undefined
+      : off.monsters[6] ? `${seat}-m-6` : otherOff?.monsters[5] ? `${other?.seat}-m-5` : undefined;
+    return (
+      <ZoneSlot
+        {...emzZoneProps(column, {
+          card,
+          keys: withExact(card, extraMonsterKeys(seat, pair?.other ?? seat, column)),
+          offId,
+          flip: card != null && (card.controller === seat ? straight : !straight),
+          callbacks,
+        })}
+        label={`Shared Extra monster zone, ${column}`}
+      />
+    );
+  };
 
   return (
     <EquipLinksContext.Provider value={equipLinks}>
@@ -1084,6 +1107,8 @@ export function SeatField({
         data-battle={battle ? "true" : "false"}
         data-reduced-motion={reducedMotion ? "true" : "false"}
         data-master-rule={masterRule}
+        data-emz={emz === "pair" || emz === "none" ? emz : undefined}
+        data-joined={emz === "pair" && pair?.joined ? "true" : undefined}
         style={vars}
       >
         <div className={styles.sfMat}>
@@ -1091,7 +1116,12 @@ export function SeatField({
           <div className={styles.sfGrid}>
             <PileColumn view={view} opponent={false} flip={straight} side="left" callbacks={callbacks} ownerLabel={owner} masterRule={masterRule} />
             <div className={styles.sfEmz}>
-              {masterRule >= 4 ? (
+              {masterRule >= 4 && emz === "pair" ? (
+                <div className={styles.emzPair} style={{ "--pl": pair?.left ?? 0, "--pr": pair?.right ?? 0 } as CssVars}>
+                  {pairSlot("left")}
+                  {pairSlot("right")}
+                </div>
+              ) : masterRule >= 4 && emz !== "none" ? (
                 <div className={styles.emzRow}>
                   <div />
                   {emzSlot("left")}

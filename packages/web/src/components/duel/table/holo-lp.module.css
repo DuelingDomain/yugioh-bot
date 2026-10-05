@@ -4,7 +4,7 @@
   left: 0;
   top: 0;
   z-index: 40;
-  width: 196px;
+  width: var(--lpw, 196px);
   color: #efe7d5;
   font-family: var(--font-duel-ui, "Arial Narrow"), "Arial Narrow", sans-serif;
   --sheet: rgb(181 153 99 / 0.34);
@@ -28,7 +28,7 @@
 }
 
 .holo[data-me="true"] {
-  width: 212px;
+  width: var(--lpw, 212px);
 }
 
 .body {

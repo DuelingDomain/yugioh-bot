@@ -45,7 +45,8 @@ import roomStyles from "../room.module.css";
 import { CameraControls } from "./camera-controls";
 import { tableLayout } from "./geometry";
 import { GridStage } from "./grid-stage";
-import { usesGridLayout } from "./grid-layout";
+import { useGridFocus } from "./grid-focus";
+import { gridCells, usesGridLayout } from "./grid-layout";
 import { HistoryStrip } from "./history-strip";
 import { OpponentBar } from "./opponent-bar";
 import { attackLockAt, placeLabel, placings, toneBySeat, trackOutOrder } from "./seat-state";
@@ -181,6 +182,17 @@ function TableShellBody({
   const flow = useAimFlow(base, layout, rootRef, { suspended });
   const controller = flow.controller;
   const camera = useCamera({ controller, layout, initial: initialCamera, initialLock, aiming: flow.aiming, seatKeys: flow.seatKeys, suspended, uprightOnly: grid });
+  // The 4-way grid starts zoomed on your own field. The turn strip and the keys (1 to 4, O, Esc, + and -) move it.
+  const gridSeats = useMemo(() => gridCells(layout), [layout]);
+  const gridShown = useMemo(() => engine.seats.filter((view) => !view.eliminated).map((view) => view.seat), [engine.seats]);
+  const gridFocus = useGridFocus({
+    enabled: grid,
+    home: gridSeats.find((cell) => cell.home)?.seat ?? 0,
+    shown: gridShown,
+    suspended,
+    digitsFree: !flow.seatKeys,
+    escapeFree: !flow.aiming && !(controller.prompt && (controller.prompt.cancelable || controller.prompt.finishable)),
+  });
   const [hideResult, setHideResult] = useState(false);
   const [logUnread, setLogUnread] = useState(0);
   // Phone and small tablet: the left column is a sheet opened from a bar under the station track.
@@ -442,6 +454,7 @@ function TableShellBody({
                 locked={camera.locked}
                 out={camera.out}
                 dispatchCamera={camera.dispatch}
+                grid={grid ? gridFocus : undefined}
                 renderSeatField={(props) => <SeatField {...props} />}
                 fx={
                   <FxBoundary>
@@ -537,7 +550,8 @@ function TableShellBody({
       </div>
       <div className={roomStyles.track}>
         <SeatStrip engine={engine} mySeat={viewerSeat} nameOf={nameOf} promptSeat={controller.promptSeat}
-          focusSeat={grid ? null : camera.state.focusSeat} onFocusSeat={grid ? undefined : (seat) => camera.dispatch({ type: "focus", seat })}
+          focusSeat={grid ? gridFocus.focus.seat : camera.state.focusSeat} focusAny={grid}
+          onFocusSeat={grid ? gridFocus.focusSeat : (seat) => camera.dispatch({ type: "focus", seat })}
           pick={canAct && controller.revealed ? controller.seatPick : null} />
         <StationTrack
           phase={engine.phase}

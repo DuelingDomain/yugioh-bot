@@ -64,19 +64,77 @@ describe("GridStage", () => {
     }
   });
 
-  it("marks the column partner (seat + 2, the diagonal) and draws the link", () => {
+  it("pairs the facing seats (0+1, 2+3) and draws ONE shared Extra Monster row per column", () => {
     const { container } = render(<Shell id="main" />);
-    expect(cellOf(container, 2).getAttribute("data-partner")).toBe("true");
-    expect(cellOf(container, 1).getAttribute("data-partner")).toBeNull();
-    expect(cellOf(container, 3).getAttribute("data-partner")).toBeNull();
-    expect(container.querySelector('[data-column-link="2"]')).not.toBeNull();
+    expect(cellOf(container, 0).getAttribute("data-partner")).toBe("1");
+    const fieldOf = (seat: number) => cellOf(container, seat).querySelector("[data-seat-field]")!;
+    expect(fieldOf(0).getAttribute("data-emz")).toBe("pair");
+    expect(fieldOf(3).getAttribute("data-emz")).toBe("pair");
+    expect(fieldOf(1).getAttribute("data-emz")).toBe("none");
+    expect(fieldOf(2).getAttribute("data-emz")).toBe("none");
+    const keys = [...fieldOf(0).querySelectorAll("[data-zones]")].map((node) => node.getAttribute("data-zones") ?? "");
+    expect(keys.some((key) => key.includes("0:4:5") && key.includes("1:4:6"))).toBe(true);
+    expect(keys.some((key) => key.includes("0:4:6") && key.includes("1:4:5"))).toBe(true);
+    expect(container.querySelector("[data-column-link]")).toBeNull();
   });
 
-  it("draws no partner mark for a spectator", () => {
+  it("puts a life box for every seat in the middle bands, mine first on the left", () => {
+    const { container } = render(<Shell id="main" />);
+    const lps = [0, 1, 2, 3].map((seat) => container.querySelector(`[data-grid-lp="${seat}"]`));
+    expect(lps.every((node) => node != null)).toBe(true);
+  });
+
+  it("anchors a spectator on seat 0 at bottom-left", () => {
     const { container } = render(<Shell id="spectator" />);
-    expect(container.querySelector("[data-column-link]")).toBeNull();
-    expect(container.querySelector('[data-grid-cell][data-partner="true"]')).toBeNull();
     expect(cellOf(container, 0).getAttribute("data-quadrant")).toBe("bl");
+    expect(container.querySelector("[data-column-link]")).toBeNull();
+  });
+
+  it("starts zoomed on my field; keys 1-4 focus a field, O and Esc show all fields, a click on a field zooms to it", () => {
+    const { container } = render(<Shell id="main" />);
+    const stage = container.querySelector("[data-grid-stage]")!;
+    const press = (key: string) => act(() => void fireEvent.keyDown(window, { key }));
+    expect(stage.getAttribute("data-grid-focus")).toBe("0");
+    press("3");
+    expect(stage.getAttribute("data-grid-focus")).toBe("2");
+    press("o");
+    expect(stage.getAttribute("data-grid-focus")).toBe("all");
+    press("2");
+    expect(stage.getAttribute("data-grid-focus")).toBe("1");
+    press("Escape");
+    expect(stage.getAttribute("data-grid-focus")).toBe("all");
+    act(() => {
+      fireEvent.click(cellOf(container, 3).querySelector("[data-seat-field]")!);
+    });
+    expect(stage.getAttribute("data-grid-focus")).toBe("3");
+    act(() => {
+      fireEvent.click(container.querySelector('[data-testid="grid-all"]')!);
+    });
+    expect(stage.getAttribute("data-grid-focus")).toBe("all");
+    act(() => {
+      fireEvent.click(container.querySelector('[data-testid="grid-zoom-in"]')!);
+    });
+    expect(stage.getAttribute("data-grid-focus")).toBe("3");
+  });
+
+  it("zooms with the turn strip, and a click on a zone does not zoom", () => {
+    const { container } = render(<Shell id="main" />);
+    const stage = container.querySelector("[data-grid-stage]")!;
+    const strip = container.querySelector('[aria-label="Show Mirelle on the main field"]');
+    expect(strip).not.toBeNull();
+    act(() => {
+      fireEvent.click(strip!);
+    });
+    expect(stage.getAttribute("data-grid-focus")).toBe("3");
+    act(() => {
+      fireEvent.click(container.querySelector('[data-grid-lp="1"]')!);
+    });
+    expect(stage.getAttribute("data-grid-focus")).toBe("1");
+    act(() => {
+      const zone = cellOf(container, 2).querySelector<HTMLElement>("[data-zones] button");
+      if (zone) fireEvent.click(zone);
+    });
+    expect(stage.getAttribute("data-grid-focus")).toBe("1");
   });
 
   it("lights legal zones on a rival field, on the rival field's own cell, and they stay clickable", () => {
@@ -109,11 +167,12 @@ describe("GridStage", () => {
     expect(container.querySelector("[data-lp-seat='2']")).not.toBeNull();
   });
 
-  it("drops the partner mark once the partner is out", () => {
-    const { container } = render(<Shell id="elimination" />);
-    // Juniper (seat 2) is the column partner of Aster and is the one leaving in this state.
-    expect(container.querySelector("[data-column-link]")).toBeNull();
-    expect(container.querySelector('[data-grid-cell][data-partner="true"]')).toBeNull();
+  it("hands the shared row to the top field when the bottom cell is empty, and falls back to my zoom when a focused seat goes", () => {
+    const { container } = render(<Shell id="result" />);
+    const field = cellOf(container, 0).querySelector("[data-seat-field]")!;
+    expect(field.getAttribute("data-emz")).toBe("pair");
+    expect(field.hasAttribute("data-joined")).toBe(false);
+    expect(container.querySelector("[data-grid-stage]")!.getAttribute("data-grid-focus")).toBe("0");
   });
 
   it("opens an already-out seat as an empty, untargetable cell; the other cells stay put", () => {
