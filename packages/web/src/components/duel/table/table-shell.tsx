@@ -48,7 +48,7 @@ import { CameraControls } from "./camera-controls";
 import { isFaceOff } from "./camera-model";
 import { tableLayout } from "./geometry";
 import { GridStage } from "./grid-stage";
-import { useGridFocus } from "./grid-focus";
+import { gridKeyGates, useGridFocus } from "./grid-focus";
 import { GridMasterToken } from "./grid-master";
 import { GridHoverPreview } from "./grid-preview";
 import { ChainList, ChainTower, DOCK_PANES, GridDock, GridFlyout, useHudDismiss, type HudPane } from "./grid-hud";
@@ -204,13 +204,14 @@ function TableShellBody({
   // The 4-way grid starts with your own field in focus. The turn strip and the keys (1 to 4, O, Esc) move the focus.
   const gridSeats = useMemo(() => gridCells(layout), [layout]);
   const gridShown = useMemo(() => engine.seats.filter((view) => !view.eliminated).map((view) => view.seat), [engine.seats]);
+  const gates = gridKeyGates({ prompt: controller.prompt, viewerSeat, aiming: flow.aiming, seatKeys: flow.seatKeys, flyoutOpen: hudPane != null });
   const gridFocus = useGridFocus({
     enabled: grid,
     home: gridSeats.find((cell) => cell.home)?.seat ?? 0,
     shown: gridShown,
     suspended,
-    digitsFree: !flow.seatKeys,
-    escapeFree: !flow.aiming && hudPane == null && !(controller.prompt && (controller.prompt.cancelable || controller.prompt.finishable)),
+    digitsFree: gates.digitsFree,
+    escapeFree: gates.escapeFree,
   });
   const [hideResult, setHideResult] = useState(false);
   const [logUnread, setLogUnread] = useState(0);

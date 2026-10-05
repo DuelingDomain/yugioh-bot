@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
+import type { DuelPrompt } from "@yugidraft/shared/duels";
+import { backOutAnswer } from "../pick-backout";
 
 /** Where the 4-way grid looks. `seat` is the field in focus (large), or null for all four fields (an equal 2x2). */
 export interface GridFocus {
@@ -29,6 +31,28 @@ export function seatOfDigit(key: string, seats: readonly number[]): number | nul
   if (!/^[1-4]$/.test(key)) return null;
   const seat = Number(key) - 1;
   return seats.includes(seat) ? seat : null;
+}
+
+export interface GridKeyState {
+  /** The prompt that is open, and the viewer's seat (null for a spectator). */
+  prompt: DuelPrompt | null;
+  viewerSeat: number | null;
+  /** An attack is aimed or locked. */
+  aiming: boolean;
+  /** A seat pick owns the digit keys. */
+  seatKeys: boolean;
+  /** A flyout of the HUD is open (it closes on Esc by itself). */
+  flyoutOpen: boolean;
+}
+
+/**
+ * Which keys the focus may take. Esc belongs to an open prompt of the viewer first (Cancel, Finish, or the one step
+ * back of a toggle pick), then to the aim and to an open flyout: it is one action, never two. The digit keys belong to
+ * a seat pick and to an attack aim, which use them to pick or lock a target.
+ */
+export function gridKeyGates({ prompt, viewerSeat, aiming, seatKeys, flyoutOpen }: GridKeyState): { digitsFree: boolean; escapeFree: boolean } {
+  const owned = prompt != null && prompt.seat === viewerSeat && (prompt.cancelable === true || prompt.finishable === true || backOutAnswer(prompt) != null);
+  return { digitsFree: !seatKeys && !aiming, escapeFree: !aiming && !flyoutOpen && !owned };
 }
 
 export interface UseGridFocusOptions {
