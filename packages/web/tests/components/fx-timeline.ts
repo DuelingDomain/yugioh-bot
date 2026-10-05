@@ -5,13 +5,18 @@ import { vi } from "vitest";
  * and `opacityAt` reads back what a viewer would see at a later fake time (keyframes, delay and fill, no easing).
  * With it a test can ask "what is on screen at +700 ms" without a browser.
  */
-type Recorded = { el: Element; frames: Keyframe[]; options: KeyframeAnimationOptions; start: number };
+type Recorded = { el: Element; frames: Keyframe[]; options: KeyframeAnimationOptions; start: number; cancelled?: boolean };
 
 export function createTimeline() {
   const animations: Recorded[] = [];
   const animate = vi.fn(function (this: Element, frames: Keyframe[], options: KeyframeAnimationOptions) {
-    animations.push({ el: this, frames, options: options ?? {}, start: performance.now() });
-    return { finished: new Promise(() => {}), cancel: vi.fn(), effect: { getTiming: () => options }, currentTime: 0, playbackRate: 1 } as unknown as Animation;
+    const record: Recorded = { el: this, frames, options: options ?? {}, start: performance.now() };
+    animations.push(record);
+    // A cancelled animation no longer paints: the element falls back to its inline style.
+    // `finished` settles when the animation ends (on the fake clock), so a layer that waits on it can finish.
+    const total = Number(options?.delay ?? 0) + Number(options?.duration ?? 0);
+    const finished = new Promise<void>((resolve) => { setTimeout(resolve, Number.isFinite(total) ? total : 0); });
+    return { finished, cancel: vi.fn(() => { record.cancelled = true; }), effect: { getTiming: () => options }, currentTime: 0, playbackRate: 1 } as unknown as Animation;
   });
 
   const offsets = (frames: Keyframe[]): number[] => {
@@ -52,7 +57,7 @@ export function createTimeline() {
   const own = (el: Element, now: number): number => {
     let value: number | null = null;
     for (const anim of animations) {
-      if (anim.el !== el) continue;
+      if (anim.el !== el || anim.cancelled) continue;
       const sample = sampleOpacity(anim, now);
       if (sample != null) value = sample;
     }

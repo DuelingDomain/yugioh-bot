@@ -276,7 +276,7 @@ describe("an effect that hits a card keeps it on screen from its zone to its des
     const at = zone(1, SZONE, 1);
     const victim: Victim = { card: C.solemn, at, up: true };
     const events = [
-      ev({ id: 1, kind: "move", card: C.solemn, from: at, zone: zone(1, GRAVE, 0), reason: "rule" }),
+      ev({ id: 1, kind: "move", card: C.solemn, from: at, zone: zone(1, GRAVE, 0), reason: "other" }),
     ];
     const run = await play(events, [victim]);
     expectOneCardUntilLanding(run, 0, 1);

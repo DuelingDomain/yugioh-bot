@@ -42,12 +42,42 @@ No new animation look was added. Only timing and the stand-in pose changed.
 | Tribute | Checked, no gap found |
 | Battle destroy | Checked in a 2D harness, no gap found |
 | Discard, mill, draw | Not field departures. Not changed |
-| 3D Solid Vision, 3-way, 4-way, Tag | Same code path. Tag, table and lab mounts use `withDestroyCards`. Not checked in a browser |
+| 3D Solid Vision, 3-way, 4-way, Tag | Not the same code path as 2D (see "3D wipes"). Tag, table and lab mounts use `withDestroyCards`. Tested with a mocked canvas, not checked in a browser |
 
 Tests: `packages/web/tests/components/destroy-sequence.test.tsx` (fake timers, a sample of the overlay every
-25 ms: one card shown from the first frame to the landing, never two).
+25 ms: one card shown from the first frame to the landing, never two) and
+`packages/web/tests/components/destroy-scene.test.tsx` (scene layer: `useFx3d` is mocked and the test checks what
+the scene receives).
+
+## 3D wipes
+
+A wipe piece (Feather Duster, Heavy Storm, Raigeki) in 3D goes to the scene layer (`planScene`), not to the 2D
+break. Two rules keep the zone right until the scene takes the card:
+
+- A victim that is face-down at the source is sent to the scene with code 0. The canvas then draws the sleeve.
+  `withDestroyCards` fills `event.card` for the Graveyard move, so `destroy-fx.tsx` reads the face state from the
+  DOM (`[data-card-art]` without an image) and not from the event. The card may turn face-up only at the break or
+  the move.
+- Each victim gets a wipe ghost (`WipeGhost`) over its zone until `startAt + takeMs`. A face-down victim has no
+  image source, so its ghost shows the sleeve art as a CSS background.
+
+## Card of a card-less destroy
+
+The server sends no card in the destroy event for a face-down card. `withDestroyCards` takes the card from the
+move to the Graveyard, and only if that move has reason "destroy", has a known card, leaves the same zone, is at most
+6 event ids away, and no other destroy has claimed it. A destroy that names its card claims its own move first.
+When the match is not clear, the destroy stays card-less and the sleeve shows.
+
+## Caps
+
+`move-fx.tsx` `MAX_GHOSTS` is 48 and `summon-fx.tsx` `MAX_ITEMS` is 44, so a 4-way wipe (up to 40 cards) does not
+drop the oldest stand-in and leave a blank zone.
 
 ## Not covered
 
-- Reduced motion: stand-ins at the source are not drawn (the card fades). Not changed.
+- Reduced motion: stand-ins at the source are not drawn (the card fades in on the Graveyard), so the zone of a
+  destroyed card is blank until then. The card shows once and nothing stays behind (tested). A fix needs a new
+  reduced-motion stand-in, not done.
+- A Set card that is destroyed in 3D (not a wipe) uses the 2D stand-in with its sleeve until the break. A turn
+  from sleeve to face at the break in 3D is a new look and is not built.
 - A bounce that rises from a strip or a pile (not from the zone) keeps its own showcase.
