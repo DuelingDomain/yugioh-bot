@@ -130,6 +130,18 @@ describe("a continuous Spell activated from the hand stays on screen", () => {
     expectNeverBlank(container);
   });
 
+  it.each([false, true])("shows no copy in its zone while it is still flying in (reduced=%s)", (reduced) => {
+    duelFxClock.setReducedMotion(reduced);
+    const { container, rerender } = render(<Board events={[]} reduced={reduced} />);
+    rerender(<Board events={staying} reduced={reduced} />);
+    const ghost = expectNeverBlank(container);
+    const calls = animate.mock.calls.filter((_, index) => animate.mock.contexts[index] === ghost);
+    const options = calls[calls.length - 1][1] as KeyframeAnimationOptions;
+    expect(Number(options.delay)).toBeGreaterThan(0);
+    // Before the flight lands, a backwards fill would put the whole copy in the zone next to the flying card.
+    expect(options.fill).toBe("forwards");
+  });
+
   it.each([false, true])("keeps a Field Spell from the hand whole in the Field Zone (reduced=%s)", (reduced) => {
     duelFxClock.setReducedMotion(reduced);
     const field = staying.map((event) => (event.zone ? { ...event, zone: z(0, SZONE, 5) } : event));

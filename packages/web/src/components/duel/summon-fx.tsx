@@ -700,6 +700,8 @@ function ActivateFx({ item, overlay, done }: EffectProps) {
         duration: total,
         delay: d,
         easing: sleeved ? "linear" : "cubic-bezier(0.25, 0.8, 0.3, 1)",
+        // A card still flying in from the hand must not also show its copy in the zone: the copy starts when it lands.
+        ...(arrived ? { fill: "forwards" as const } : {}),
       });
       if (sleeved) track.play(sleeve.current, [{ opacity: 1 }, { opacity: 1, offset: turnAt }, { opacity: 0, offset: turnAt }, { opacity: 0 }], { duration: total, delay: d, easing: "linear" });
       // The real card is already face-up: hide it under the copy, which covers the zone from its first frame.
