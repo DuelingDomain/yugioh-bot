@@ -79,6 +79,8 @@ describe("nduel golden data pins", () => {
   it("records current pins beside the golden rows", () => {
     const current = { ...pins, scripts: "d".repeat(40) };
     const f = fixture(current);
+    const patchHash = multiScriptsFolderHash(f.patches);
+    writeFileSync(join(f.patches, "README.md"), "documentation only\n");
     mkdirSync(join(f.work, "data"), { recursive: true });
     writeFileSync(join(f.work, "data/cards.tsv"), "");
     writeFileSync(join(f.work, "data/pool.txt"), "");
@@ -91,7 +93,7 @@ describe("nduel golden data pins", () => {
     expect(golden).toContain("2\tffa\t1\t1\tfixture-hash\n");
     expect(golden).not.toContain(current.scripts);
     expect(golden).toContain(`# multi-scripts-sha256=${multiScriptsFolderHash(f.overlay)}\n`);
-    expect(golden).toContain(`# patches-sha256=${multiScriptsFolderHash(f.patches)}\n`);
+    expect(golden).toContain(`# patches-sha256=${patchHash}\n`);
     const check = f.run("--check", { NDUEL_SKIP_BUILD: "1" });
     expect(check.status, check.stdout + check.stderr).toBe(0);
     expect(check.stdout).toContain("1 rows checked, 0 skipped, 0 mismatches");
@@ -122,5 +124,34 @@ describe("nduel golden overlay and patches", () => {
     renameSync(join(f.patches, "0001-test.patch"), join(f.patches, "0002-test.patch"));
     expect(f.run().stderr).toContain(folderDiagnostic);
     expect(existsSync(f.work)).toBe(false);
+  });
+});
+
+
+describe("golden inputs describe the complete shipping patch series", () => {
+  for (const mode of ["--record", "--check"]) {
+    it.each([
+      { NDUEL_PATCHES: "/tmp/extra.patch" }, { NDUEL_PATCHES: "" },
+      { NDUEL_PATCH_LIMIT: "2" }, { NDUEL_PATCH_LIMIT: "0" }, { NDUEL_PATCH_LIMIT: "" },
+    ])(`${mode} refuses patch overrides before creating work`, (override) => {
+      const f = fixture();
+      const before = readFileSync(f.golden, "utf8");
+      const result = f.run(mode, override);
+      expect(result.status).toBe(2);
+      expect(result.stderr).toContain("golden modes require NDUEL_PATCHES and NDUEL_PATCH_LIMIT to be unset");
+      expect(existsSync(f.work)).toBe(false);
+      expect(existsSync(f.built)).toBe(false);
+      expect(readFileSync(f.golden, "utf8")).toBe(before);
+    });
+  }
+
+  it("ignores patch documentation while still checking patch bytes", () => {
+    const f = fixture();
+    writeFileSync(join(f.patches, "README.md"), "documentation only\n");
+    const result = f.run();
+    expect(result.stdout).toContain("fixture-build-boundary");
+    expect(result.stderr).not.toContain(folderDiagnostic);
+    writeFileSync(join(f.patches, "0001-test.patch"), "changed patch\n");
+    expect(f.run().stderr).toContain(folderDiagnostic);
   });
 });

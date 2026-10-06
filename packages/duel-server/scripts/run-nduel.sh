@@ -75,6 +75,9 @@ MULTI_DIR="${DUEL_MULTI_SCRIPTS_DIR:-$PKG/domain-core/multi-scripts}"
 DATA_PINS_SHA256=""
 MULTI_SCRIPTS_SHA256=""; PATCHES_SHA256=""
 if [[ "$MODE_RUN" == check || "$MODE_RUN" == record ]]; then
+  if [[ ${NDUEL_PATCHES+x} || ${NDUEL_PATCH_LIMIT+x} ]]; then
+    echo "golden modes require NDUEL_PATCHES and NDUEL_PATCH_LIMIT to be unset" >&2; exit 2
+  fi
   if [[ "$MODE_RUN" == check && ! -f "$GOLDEN" ]]; then
     echo "no golden file: $GOLDEN (run --record first)" >&2; exit 2
   fi
@@ -102,20 +105,21 @@ PY
   FOLDER_HASHES="$(python3 - "$MULTI_DIR" "$PKG/domain-core/patches" "$GOLDEN" "$MODE_RUN" <<'PY'
 import hashlib, pathlib, re, sys
 overlay, patches, golden, mode = sys.argv[1:]
-def folder_hash(directory):
+def folder_hash(directory, pattern="*"):
     root = pathlib.Path(directory)
     if not root.is_dir():
         sys.exit(f"missing golden input folder: {directory}")
     # Same algorithm as src/multi-scripts.ts multiScriptsFolderHash: bytewise sorted
     # relative paths, each followed by NUL, the file's SHA-256 and a newline.
-    files = [p for p in root.rglob("*") if p.is_file() and not p.is_symlink()]
+    # Only *.patch files affect the patch series, as in the core cache keys.
+    files = [p for p in root.rglob(pattern) if p.is_file() and not p.is_symlink()]
     digest = hashlib.sha256()
     for path in sorted(files, key=lambda p: p.relative_to(root).as_posix().encode()):
         name = path.relative_to(root).as_posix()
         sha = hashlib.sha256(path.read_bytes()).hexdigest()
         digest.update(f"{name}\0{sha}\n".encode())
     return digest.hexdigest()
-hashes = {"multi-scripts": folder_hash(overlay), "patches": folder_hash(patches)}
+hashes = {"multi-scripts": folder_hash(overlay), "patches": folder_hash(patches, "*.patch")}
 if mode == "check":
     metadata = open(golden).read()
     for field, digest in hashes.items():
