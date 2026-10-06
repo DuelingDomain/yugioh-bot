@@ -2,6 +2,8 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type Database from "better-sqlite3";
+import { createLocalCardDataStatus } from "./card-data-status.js";
+import { createGithubCardDataStatus } from "./github-card-data-status.js";
 import { createDuelSeriesService, createDuelService, createTournamentDuelService, isCardFetchError, type DuelFinalSnapshots } from "@yugidraft/shared/services";
 import type {
   DuelAnswer,
@@ -304,6 +306,8 @@ export function createDuelHost(options: {
   if (!options.secret) throw new Error("DUEL_INTERNAL_SECRET is required");
   const service = createDuelService(options.db);
   const series = createDuelSeriesService(options.db);
+  const localCardDataStatus = createLocalCardDataStatus(options.db, options.dataDirectory);
+  const githubCardDataStatus = createGithubCardDataStatus();
   const manifest = JSON.parse(readFileSync(join(options.dataDirectory, "manifest.json"), "utf8")) as { bundleVersion: string };
   if (!manifest.bundleVersion) throw new Error("Engine resource manifest has no bundle version");
   setCatalogDirectory(options.dataDirectory);
@@ -2188,6 +2192,15 @@ export function createDuelHost(options: {
       throw new RequestError("Authenticated guild and player are required", 400);
     }
     const actor = playerId as number;
+    if (op === "engine-data-status") {
+      try {
+        const local = localCardDataStatus();
+        const github = await githubCardDataStatus(local.engine);
+        return { ...local, ...github, generatedAt: new Date().toISOString() };
+      } catch {
+        throw new RequestError("Card data status is unavailable", 503);
+      }
+    }
     if (op === "capabilities") {
       return { multiplayerTables: multiplayerTablesEnabled(), multiCoreReady: multiCoreAvailable(options.dataDirectory), multiDomainCoreReady: multiDomainCoreAvailable(options.dataDirectory) };
     }
@@ -2683,9 +2696,9 @@ export function createDuelHost(options: {
         try { body = JSON.parse(raw); } catch { throw new RequestError("Invalid JSON", 400); }
         if (!body || typeof body !== "object" || Array.isArray(body)) throw new RequestError("Invalid request", 400);
         const key = typeof body.slug === "string" ? body.slug : "catalog";
-        // debug-trace and bug-context must answer while the duel queue is stuck inside the core, so they skip the queue.
+        // Diagnostics skip the queue; GitHub status reads must not block card editor requests.
         const ctl = { abandoned: false };
-        const queued = (body.op === "debug-trace" || body.op === "bug-context" ? operate(body) : enqueue(key, () => operate(body, ctl)));
+        const queued = (body.op === "debug-trace" || body.op === "bug-context" || body.op === "engine-data-status" ? operate(body) : enqueue(key, () => operate(body, ctl)));
         const answer = (body.op === "report" || body.op === "view") && queueBlockedMs > 0 ? await answerOrFallback(body, queued, ctl) : await queued;
         return Response.json(answer, { headers: { "cache-control": "no-store" } });
       } catch (error) {
