@@ -65,13 +65,13 @@ export async function rewritePins(root: string, old: Pins, next: Pins, dryRun: b
   const changes: { path: string; content: string }[] = [];
   for (const path of paths) {
     const bytes = await readFile(join(root, path));
+    if (!(PIN_FILES as readonly string[]).includes(path) && keys.some((key) => bytes.includes(old[key]))) {
+      throw new Error(`Refusing to rewrite pin outside allowlist: ${path}`);
+    }
     if (bytes.includes(0)) continue;
     const original = bytes.toString("utf8");
     const content = original.replace(pattern, (sha) => replacements.get(sha)!);
     if (original === content) continue;
-    if (!(PIN_FILES as readonly string[]).includes(path)) {
-      throw new Error(`Refusing to rewrite pin outside allowlist: ${path}`);
-    }
     changes.push({ path, content });
   }
   if (!dryRun) for (const change of changes) await writeFile(join(root, change.path), change.content);

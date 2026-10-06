@@ -189,6 +189,14 @@ describe("engine data update", () => {
     expect(await readPins(root)).toEqual(oldPins);
   });
 
+  it("rejects even an unchanged old pin in an unexpected tracked file", async () => {
+    const { root } = await fixture();
+    await writeFile(join(root, "unexpected.bin"), Buffer.concat([Buffer.from([0]), Buffer.from(oldPins.strings)]));
+    execFileSync("git", ["-C", root, "add", "unexpected.bin"]);
+    await expect(rewritePins(root, oldPins, { ...oldPins, database: nextPins.database }, false)).rejects.toThrow(/unexpected.bin/);
+    expect(await readPins(root)).toEqual(oldPins);
+  });
+
   it("does not match a suffix of another property when reading pins", async () => {
     const { root } = await fixture();
     const path = join(root, "packages/duel-server/scripts/prepare-data.ts");
