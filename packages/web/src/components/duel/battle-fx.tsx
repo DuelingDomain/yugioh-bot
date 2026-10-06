@@ -7,7 +7,7 @@ import { battleOutcome, type BattleOutcome } from "./battle-outcome";
 import { battleOutcomeId, battleTrigger } from "./battle-trigger";
 import { coinBarrierFor, coinTossBefore, whenCoinBarrierClears } from "./coin-barrier";
 import { SOURCE_PIECES } from "./fx3d/scene-plan";
-import { primeSignatureAliases, signatureCode } from "./signature-alias";
+import { canonicalOf, primeSignatureAliases, signatureCode } from "./signature-alias";
 import { SIGNATURES, attackStyleFor, battleKind, battleTiming, DESTROY_TAIL_MS, hasCounterStrike, type AttackCardLike, type AttackStyleId, type BattleKind, type BattleTiming } from "./attack-styles";
 import { artUpsideDown, runAttackFx, screenPose, zoneTurnsArt, type AttackFxPlan, type FxCut, type FxLpHit, type FxSide } from "./attack-fx";
 import { flipAttackAt, flipFightDamageAt } from "./chain-beats";
@@ -183,14 +183,14 @@ function indexSeats(seats: readonly DuelSeatView[] | undefined): CardIndex {
     for (const card of seat.monsters) {
       if (!card) continue;
       index.set(zoneKey(card.controller, card.location, card.sequence), {
-        code: card.code, name: card.name, race: card.race, attribute: card.attribute, position: card.position,
+        code: card.code, canonicalPasscode: canonicalOf(card), name: card.name, race: card.race, attribute: card.attribute, position: card.position,
         attack: card.attack, defense: card.defense,
       });
     }
     const master = seat.deckMaster;
     if (master?.inZone) {
       index.set(zoneKey(seat.seat, LOCATION_DMZONE, 0), {
-        code: master.card.code, name: master.card.name, race: master.card.race, attribute: master.card.attribute,
+        code: master.card.code, canonicalPasscode: canonicalOf(master.card), name: master.card.name, race: master.card.race, attribute: master.card.attribute,
       });
     }
   }
@@ -440,7 +440,7 @@ type Play = {
 
 /** The signature passcode when the card plays a signature attack, else null. */
 function signatureOf(style: ReturnType<typeof attackStyleFor>, card: BattleCard | null): number | null {
-  return style.rule.startsWith("signature") && card?.code != null ? signatureCode(card.code) : null;
+  return style.rule.startsWith("signature") && card?.code != null ? signatureCode(card.code, card.canonicalPasscode) : null;
 }
 
 type Resolved = {

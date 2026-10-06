@@ -121,7 +121,14 @@ export const RACE_STYLES: Record<string, AttackStyleId> = {
 };
 
 /** What the resolver needs from a card. Every field may be missing (a face-down or unseen card). */
-export type AttackCardLike = { code?: number; name?: string; race?: string; attribute?: number };
+export type AttackCardLike = {
+  code?: number;
+  /** The passcode of the original card when the server names it (an alternate art carries its own `code`). */
+  canonicalPasscode?: number;
+  name?: string;
+  race?: string;
+  attribute?: number;
+};
 
 export type AttackStyle = {
   style: AttackStyleId;
@@ -160,7 +167,7 @@ export function attackStyleFor(card: AttackCardLike | null | undefined): AttackS
   const attrName = attributeName(card?.attribute);
   const attrTint: Tint = attrName ? TINTS[attrName] : TINTS.LIGHT;
   const fallbackName = attrName ?? "LIGHT";
-  const sig = card?.code != null ? SIGNATURES[signatureCode(card.code)] : undefined;
+  const sig = card?.code != null ? SIGNATURES[signatureCode(card.code, card.canonicalPasscode)] : undefined;
   if (sig) {
     return {
       style: sig.style,

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup as cleanupRender, fireEvent, render, screen } from "@testing-library/react";
 import type { DuelEvent, DuelPrompt, DuelSeatView } from "@yugidraft/shared/duels";
 
 vi.mock("next/font/google", () => {
@@ -16,6 +16,8 @@ import { AttackConfirm } from "@/components/duel/card-interactions";
 import { armLpHold, clearLpHolds, takeLpHold } from "@/components/duel/life-points";
 import { isAttackTargetPrompt, isDirectAttackPrompt } from "@/components/duel/prompts";
 import { setSharedFx3d } from "@/components/duel/fx3d/shared";
+import { learnArtworkFamily, resetSignatureAliases } from "@/components/duel/signature-alias";
+import { clearCardArtworksCache } from "@/lib/card-artworks-client";
 import { clearPromptRevealHold, promptRevealHoldMs } from "@/components/duel/prompt-reveal";
 import { DUEL_FX_CUE_EVENT, type DuelFxCueDetail } from "@/components/duel/event-queue";
 import type { FxRequest } from "@/components/duel/fx3d/types";
@@ -729,6 +731,59 @@ describe("BattleFx", () => {
     expect(playLayer()?.getAttribute("data-style")).toBe("lightning");
     // The signature's name shows at the attacker.
     expect(document.body.textContent).toContain("White Lightning");
+  });
+
+  describe("alternate art signatures", () => {
+    const BLUE_EYES = 89631139;
+    const ALT = 89631140;
+    const altAttacker = { code: ALT, name: "Blue-Eyes White Dragon", race: "Dragon", attribute: 16, attack: 3000, defense: 2500 };
+    beforeEach(() => {
+      resetSignatureAliases();
+      clearCardArtworksCache();
+      window.history.pushState({}, "", "/duels/abc");
+    });
+    afterEach(() => vi.unstubAllGlobals());
+
+    const play = (seats: DuelSeatView[]) => {
+      const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} seats={seats} />);
+      rerender(<BattleFx events={[phase, attack, hurt]} reducedMotion={false} seats={seats} />);
+    };
+
+    it("plays the signature of an alternate art from the canonical passcode on the card, with no lookup", () => {
+      const fetch = vi.fn(async () => Response.json({ error: "Unauthorized" }, { status: 401 }));
+      vi.stubGlobal("fetch", fetch);
+      const seats = seatsOf({ ...altAttacker, canonicalPasscode: BLUE_EYES } as typeof altAttacker, machine);
+      play(seats);
+      expect(playLayer()?.getAttribute("data-style")).toBe("lightning");
+      expect(document.body.textContent).toContain("White Lightning");
+    });
+
+    it("falls back to the learned family when the card has no canonical passcode", () => {
+      vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: "Unauthorized" }, { status: 401 })));
+      play(seatsOf(altAttacker, machine));
+      expect(playLayer()?.getAttribute("data-style")).not.toBe("lightning");
+      cleanupRender();
+      learnArtworkFamily({ passcode: BLUE_EYES, artworks: [BLUE_EYES, ALT].map(passcode => ({ passcode, isMain: passcode === BLUE_EYES, imageUrl: null, smallUrl: null, croppedUrl: null })) });
+      play(seatsOf(altAttacker, machine));
+      expect(playLayer()?.getAttribute("data-style")).toBe("lightning");
+    });
+
+    it("sends one lookup, not one per signature card, when the session has no sign-in", async () => {
+      const fetch = vi.fn(async () => Response.json({ error: "Unauthorized" }, { status: 401 }));
+      vi.stubGlobal("fetch", fetch);
+      render(<BattleFx events={[]} reducedMotion />);
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+      expect(fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("sends no lookup on a public lab page", async () => {
+      window.history.pushState({}, "", "/dev/fx-lab");
+      const fetch = vi.fn(async () => Response.json({ error: "Unauthorized" }, { status: 401 }));
+      vi.stubGlobal("fetch", fetch);
+      render(<BattleFx events={[]} reducedMotion />);
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+      expect(fetch).not.toHaveBeenCalled();
+    });
   });
 
   it("picks the style from the card that attacked, using the board as it was before the snapshot", () => {
