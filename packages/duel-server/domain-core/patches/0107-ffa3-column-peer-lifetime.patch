@@ -48,3 +48,16 @@ index ed3e85b..103f5d9 100644
  }
  
  bool chain::chain_operation_sort(const chain& c1, const chain& c2) {
+diff --git a/field.h b/field.h
+index e99cc5d..29970b0 100644
+--- a/field.h
++++ b/field.h
+@@ -559,6 +559,8 @@ public:
+ 		return DUELIST_NONE;
+ 	}
+ 	// Column-only FFA3 house rule; EMZ and Link geometry still use across_of.
++	// Const for field state only: a flagged read marks the Lua activation probe
++	// as opponent-dependent via scope_mark_touched(). It does not bind a seat.
+ 	uint8_t column_peer_of(uint8_t p) const;
+ 	// The high half of a zone effect: explicit selection, geometry, bound seat,
+ 	// then the physical across field (FFA4) or the existing separate-field fallback.
