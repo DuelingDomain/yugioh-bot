@@ -3,7 +3,7 @@
 #
 #   sh scripts/staging/health-check.sh [<seconds>]      (default 120)
 #
-# Checks: the ws, duel and web containers run with no restarts; the web answers through the staging
+# Checks: the ws, duel, web and worker containers run with no restarts; the web answers through the staging
 # Caddy; Socket.IO answers through the staging Caddy. Reads STAGING_HTTP_PORT from .env.staging
 # (a plain value, nothing secret).
 set -eu
@@ -41,9 +41,12 @@ start=$(date +%s)
 last=""
 while :; do
   last=""
-  for svc in ws duel web caddy; do
+  for svc in ws duel web worker caddy; do
     container_ok "$svc" || last="$last $svc-not-running"
   done
+  worker_id=$($compose ps -q worker 2>/dev/null || true)
+  worker_health=$(docker inspect -f '{{.State.Health.Status}}' "$worker_id" 2>/dev/null || true)
+  [ "$worker_health" = healthy ] || last="$last worker-not-healthy"
   http_ok "$base/api/auth/providers" || last="$last web-not-answering"
   http_ok "$base/socket.io/?EIO=4&transport=polling" || last="$last socketio-not-answering"
   if [ -z "$last" ]; then

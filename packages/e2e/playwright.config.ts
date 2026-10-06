@@ -46,7 +46,7 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
     },
   ],
-  // One supervised stack: ws + duel host + web. It stops when Playwright stops.
+  // One supervised stack: ws + duel host + worker + web. It stops when Playwright stops.
   webServer: {
     command: "node stack/start.mjs",
     url: `${webUrl}/login`,
@@ -54,7 +54,7 @@ export default defineConfig({
     reuseExistingServer: false,
     // Slot startup can queue behind other slots' serialized web builds.
     timeout: e2eSlot === undefined ? 120_000 : 15 * 60_000,
-    gracefulShutdown: { signal: "SIGTERM", timeout: 8_000 },
+    gracefulShutdown: { signal: "SIGTERM", timeout: 20_000 },
     stdout: "pipe",
     stderr: "pipe",
     env: { E2E_AUTH_SECRET: process.env.E2E_AUTH_SECRET ?? "" },

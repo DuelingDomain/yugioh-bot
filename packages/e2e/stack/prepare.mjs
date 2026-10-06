@@ -1,6 +1,7 @@
 // Builds what the isolated stack runs, only when it is out of date.
 //  - ws dist            (tsc, cheap)
 //  - duel-server dist   (tsc; only if missing or older than its src)
+//  - worker dist        (tsc, no public port)
 //  - web standalone     (next build with the E2E NEXT_PUBLIC_WS_URL baked in)
 // E2E_FORCE_BUILD=1 rebuilds web (and services only with E2E_SLOT unset). E2E_SKIP_BUILD=1 skips builds.
 import { spawn } from "node:child_process";
@@ -69,8 +70,8 @@ async function prepare() {
   if (!isBuildFresh(sharedDist, serviceInputs("shared"))) throw new Error('packages/shared/dist is missing or stale. Run "npm run build --workspace=packages/shared" once before starting parallel slots.');
   console.log("[e2e:prepare] shared build is up to date");
 
-  for (const name of ["ws", "duel-server"]) {
-    const fresh = isBuildFresh(at(`packages/${name}/dist/server.js`), [...serviceInputs(name), at("packages/shared/dist")]);
+  for (const [name, entry] of [["ws", "server.js"], ["duel-server", "server.js"], ["worker", "index.js"]]) {
+    const fresh = isBuildFresh(at(`packages/${name}/dist/${entry}`), [...serviceInputs(name), at("packages/shared/dist")]);
     if (e2eSlot !== undefined && !fresh) {
       throw new Error(`packages/${name}/dist is stale. Build it once before starting parallel slots.`);
     }

@@ -12,7 +12,7 @@ if (rawSlot !== undefined && !/^[0-9]$/.test(rawSlot)) {
 export const e2eSlot = rawSlot === undefined ? undefined : Number(rawSlot);
 export const stackDir = resolve(e2eRoot, e2eSlot === undefined ? ".stack" : `.stack-${e2eSlot}`);
 export const supervisorPidFile = resolve(stackDir, "supervisor.pid");
-/** One timestamped file with the output of ws, duel host and web. Tests attach the lines of a failed test. */
+/** One timestamped file with the output of ws, duel host, worker and web. Tests attach the lines of a failed test. */
 export const stackLogFile = resolve(stackDir, "logs/stack.log");
 
 // Slot 0 also avoids the ordinary 3300 family; slot 9 stays below the manual 3400 family.
@@ -38,14 +38,15 @@ export const wsUrl = `http://localhost:${ports.ws}`;
 export const guildId = "900000000000000001";
 // Fake Discord user ids. The stub treats exactly these ids as guild members.
 export const players = [
-  { key: "p1", discordId: "900000000000000101", name: "E2E Alice" },
-  { key: "p2", discordId: "900000000000000102", name: "E2E Bob" },
-  { key: "p3", discordId: "900000000000000103", name: "E2E Carol" },
-  { key: "p4", discordId: "900000000000000104", name: "E2E Dave" },
+  { key: "p1", userId: 101, discordId: "900000000000000101", name: "E2E Alice" },
+  { key: "p2", userId: 102, discordId: "900000000000000102", name: "E2E Bob" },
+  { key: "p3", userId: 103, discordId: "900000000000000103", name: "E2E Carol" },
+  { key: "p4", userId: 104, discordId: "900000000000000104", name: "E2E Dave" },
   // Never seated by the four-seat specs: the unseated watcher of a full table.
-  { key: "p5", discordId: "900000000000000105", name: "E2E Eve" },
+  { key: "p5", userId: 105, discordId: "900000000000000105", name: "E2E Eve" },
 ];
 
+export const workerHealthPath = resolve(stackDir, "worker-health.json");
 export const dbPath = resolve(stackDir, "e2e.sqlite");
 // Keep stub images out of the manual cache even when switching modes without cleanup.
 export const cardImageDir = resolve(stackDir, manualMode ? "manual-card-images" : "card-images");

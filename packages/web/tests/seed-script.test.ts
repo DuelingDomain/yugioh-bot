@@ -1,3 +1,4 @@
+import { fixtureUserId } from "./fixtures/identity";
 import Database from "better-sqlite3";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -19,15 +20,15 @@ afterEach(() => {
 });
 
 describe("seed script", () => {
-  it("stores the Discord user id as created_by_user_id for seeded tournaments and drafts", () => {
+  it("stores application owners and preserves identities when reseeded", () => {
     const tempDir = mkdtempSync(join(tmpdir(), "yugioh-seed-"));
     const dbPath = join(tempDir, "seed.sqlite");
-    const discordUserId = "seed-user-123";
+    const discordUserId = "900000000000000101";
     const guildId = "seed-guild-456";
 
     tempDirs.push(tempDir);
 
-    execFileSync(process.execPath, ["--import", "tsx", "scripts/seed.ts"], {
+    const seed = () => execFileSync(process.execPath, ["--import", "tsx", "scripts/seed.ts"], {
       cwd: repoRoot,
       env: {
         ...process.env,
@@ -38,19 +39,20 @@ describe("seed script", () => {
       stdio: "pipe",
     });
 
+    seed();
     const db = new Database(dbPath, { readonly: true });
 
     const tournamentOwners = db
       .prepare(
         "select distinct created_by_user_id from tournaments where guild_id = ? and name in ('Friday Night Fights', 'Weekend Championship') order by created_by_user_id"
       )
-      .all(guildId) as Array<{ created_by_user_id: string }>;
+      .all(guildId) as Array<{ created_by_user_id: number }>;
 
     const draftOwners = db
       .prepare(
         "select distinct created_by_user_id from drafts where guild_id = ? and name in ('Legendary Draft', 'Retro Draft') order by created_by_user_id"
       )
-      .all(guildId) as Array<{ created_by_user_id: string }>;
+      .all(guildId) as Array<{ created_by_user_id: number }>;
 
     const draftConfigs = db
       .prepare(
@@ -74,8 +76,14 @@ describe("seed script", () => {
       .prepare("select effect_text, atk, def, attribute, level from card_catalog where name = 'Blue-Eyes White Dragon'")
       .get() as { effect_text: string; atk: number; def: number; attribute: string; level: number } | undefined;
 
-    expect(tournamentOwners).toEqual([{ created_by_user_id: discordUserId }]);
-    expect(draftOwners).toEqual([{ created_by_user_id: discordUserId }]);
+    const owner = db.prepare("select id from users where discord_user_id=?").get(discordUserId) as {id:number};
+    expect(Number.isSafeInteger(owner.id)).toBe(true);
+    // Same explicit fixture identity used by the seed-consuming route tests.
+    expect(owner.id).toBe(fixtureUserId(discordUserId));
+    expect(tournamentOwners).toEqual([{ created_by_user_id: owner.id }]);
+    expect(draftOwners).toEqual([{ created_by_user_id: owner.id }]);
+    expect(db.pragma("foreign_key_check")).toEqual([]);
+    expect(db.prepare("select count(*) as n from players p join users u on u.id=p.user_id where p.discord_user_id like 'fake_%' and u.discord_user_id is null").get()).toEqual({n:4});
     expect(draftConfigs.map((draft) => ({
       name: draft.name,
       setNames: JSON.parse(draft.config_json).setNames,
@@ -115,5 +123,15 @@ describe("seed script", () => {
       attribute: "LIGHT",
       level: 8,
     });
+    const identities = db.prepare("select id,user_id,discord_user_id from players order by id").all();
+    const users = db.prepare("select id,discord_user_id from users order by id").all();
+    db.close();
+    seed();
+    const reseeded = new Database(dbPath, {readonly:true});
+    try {
+      expect(reseeded.prepare("select id,user_id,discord_user_id from players order by id").all()).toEqual(identities);
+      expect(reseeded.prepare("select id,discord_user_id from users order by id").all()).toEqual(users);
+      expect(reseeded.pragma("foreign_key_check")).toEqual([]);
+    } finally { reseeded.close(); }
   }, 15000);
 });

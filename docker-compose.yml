@@ -10,6 +10,9 @@ services:
     env_file:
       - .env
     environment:
+      - DATABASE_PATH=/app/data/bot.sqlite
+      - CARD_IMAGE_CACHE_DIR=/app/data/card-images
+      - DISCORD_BOT_ENABLED=${DISCORD_BOT_ENABLED:-1}
       - DUEL_DATA_DIR=/app/data/duel-engine
     command: sh -c "node packages/bot/dist/deploy-commands.js && node packages/bot/dist/index.js"
     volumes:
@@ -22,6 +25,7 @@ services:
     restart: unless-stopped
     user: *user
     environment:
+      - DATABASE_PATH=/app/data/bot.sqlite
       - WEB_URL=${NEXTAUTH_URL:-http://localhost}
       - WS_PORT=3001
       - WS_INTERNAL_PORT=4002
@@ -29,8 +33,12 @@ services:
     command: node packages/ws/dist/server.js
     volumes:
       - ./data:/app/data
-    depends_on:
-      - bot
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/socket.io/?EIO=4&transport=polling').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   duel:
     build:
@@ -72,6 +80,8 @@ services:
       - .env
     environment:
       - DATABASE_PATH=/app/data/bot.sqlite
+      - CARD_IMAGE_CACHE_DIR=/app/data/card-images
+      - DISCORD_BOT_ENABLED=${DISCORD_BOT_ENABLED:-1}
       - DUEL_DATA_DIR=/app/data/duel-engine
       - WS_INTERNAL_URL=http://ws:4002
       - WS_INTERNAL_SECRET=${WS_INTERNAL_SECRET}
@@ -87,6 +97,32 @@ services:
     depends_on:
       - ws
       - duel
+
+  worker:
+    build:
+      context: .
+      target: worker
+    restart: unless-stopped
+    user: *user
+    stop_grace_period: 150s
+    environment:
+      - DATABASE_PATH=/app/data/bot.sqlite
+      - CARD_IMAGE_CACHE_DIR=/app/data/card-images
+      - CARD_IMAGE_CACHE_MAX_BYTES=${CARD_IMAGE_CACHE_MAX_BYTES:-16106127360}
+      - WORKER_HEALTH_PATH=/tmp/yugidraft-worker-health.json
+      - DISCORD_BOT_ENABLED=${DISCORD_BOT_ENABLED:-1}
+      - WS_INTERNAL_URL=http://ws:4002
+      - WS_INTERNAL_SECRET=${WS_INTERNAL_SECRET}
+      - BOT_ANNOUNCE_URL=http://bot:4001
+      - BOT_ANNOUNCE_SECRET=${BOT_ANNOUNCE_SECRET}
+      - SETS_SYNC_CRON=${SETS_SYNC_CRON:-0 6 * * *}
+      - SETS_SYNC_TIMEZONE=${SETS_SYNC_TIMEZONE:-UTC}
+      - IMAGE_CLEANUP_CRON=${IMAGE_CLEANUP_CRON:-0 4 * * *}
+      - IMAGE_CLEANUP_TIMEZONE=${IMAGE_CLEANUP_TIMEZONE:-UTC}
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - ws
 
   caddy:
     image: caddy:2-alpine

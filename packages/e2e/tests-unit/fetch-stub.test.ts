@@ -50,3 +50,8 @@ test("manual mode still stubs Discord membership for exactly the fake players", 
   assert.equal(request("https://discord.com/api/v10/guilds/123/members/789", true).status, 404);
   assert.equal(request("https://discord.com/api/v10/guilds/789/members/456", true).status, 404);
 });
+
+test("set synchronization is offline in an isolated worker", () => {
+  assert.deepEqual(JSON.parse(request("https://db.ygoprodeck.com/api/v7/cardsets.php").body.toString()),
+    [{set_name:"Metal Raiders",set_code:"MRD",num_of_cards:144,tcg_date:"2002-06-26"}]);
+});

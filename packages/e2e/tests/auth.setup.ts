@@ -22,7 +22,9 @@ for (const player of players) {
     });
     expect([200, 302]).toContain(response.status());
     const session = await (await api.get("/api/auth/session")).json();
-    expect(session.user?.id).toBe(player.discordId);
+    expect(session.user?.id).toBe(String(player.userId));
+    expect(session.user?.discordUserId).toBe(player.discordId);
+    expect(session.user?.id).not.toBe(player.discordId);
     await api.storageState({ path: authFile(player.key) });
     await api.dispose();
   });
