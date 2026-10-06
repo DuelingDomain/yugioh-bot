@@ -77,7 +77,7 @@ function useViewport(): { width: number; height: number } {
  * zone <seq> of <seat>: `2:0>3` is a direct attack on seat 3, `1:1>2:0` an attack on the monster in zone 0 of seat 2.
  * `?as=<seat>|spectator` picks the viewer. For screenshots of what a bystander, the target or a spectator reads.
  */
-function parseAttackParam(raw: string | null): DuelEvent | null {
+export function parseAttackParam(raw: string | null): DuelEvent | null {
   const match = raw?.match(/^(\d+):(\d+)>(\d+)(?::(\d+))?$/);
   if (!match) return null;
   const [seat, seq, target, targetSeq] = match.slice(1).map((part) => (part == null ? null : Number(part)));
