@@ -24,3 +24,8 @@ function s.initial_effect(c)
 	Duel.RegisterEffect=reg
 	if not ok then error(err,0) end
 end
+
+-- R-FFA-THREE-COLUMNS: choose the column opponent before cards or zones.
+if aux.MPColumnEffects then
+	s.initial_effect=aux.MPColumnEffects(s.initial_effect,{s.activate})
+end
