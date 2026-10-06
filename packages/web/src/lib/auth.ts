@@ -1,8 +1,10 @@
-import NextAuth from "next-auth";
+import NextAuth, { type NextAuthConfig } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import Discord from "next-auth/providers/discord";
 import { fxLabEnabled, isFxLabPublicPath } from "./fx-lab";
 import { checkDiscordWebAccess, webAccessError } from "./discord-web-access";
+import { ensureAuthIdentity, resolveJwtIdentity } from "./auth-identity";
+import { parseUserId } from "./user-id";
 
 function accessErrorPage(status: 403 | 503) {
   return `/login?error=${status === 403 ? "GuildMembershipRequired" : "GuildMembershipUnavailable"}`;
@@ -41,7 +43,7 @@ export function isE2EAuthEnabled(env: NodeJS.ProcessEnv = process.env): boolean 
 
 /**
  * Constant-time compare. Hashing first gives equal-length digests, so length never leaks.
- * Uses Web Crypto, not node:crypto: this module is also bundled into the Edge middleware.
+ * Uses Web Crypto; Next.js 16 runs this auth module in its Node proxy.
  */
 async function secretsMatch(given: string, expected: string): Promise<boolean> {
   const encoder = new TextEncoder();
@@ -76,6 +78,40 @@ if (e2eEnabled && !isBuildPhase) {
   console.warn("[auth] E2E test login is ENABLED (E2E_AUTH=1). Never set E2E_AUTH in production.");
 }
 
+const identityCallbacks: Pick<NonNullable<NextAuthConfig["callbacks"]>, "signIn" | "jwt" | "session"> = {
+  async signIn({ user, profile, account }) {
+    const discordUserId = typeof profile?.id === "string" ? profile.id : user.id;
+    if (!discordUserId) return accessErrorPage(403);
+    const decision = await checkDiscordWebAccess(discordUserId);
+    if (!decision.ok) return accessErrorPage(decision.status);
+    ensureAuthIdentity({
+      discordUserId,
+      displayName: user.name ?? "Unknown",
+      providerEmail: profile?.email,
+      providerVerified: profile?.verified,
+      captureEmail: account?.provider === "discord",
+    });
+    return true;
+  },
+  async jwt({ token, account, profile, user }) {
+    if (account?.provider === E2E_PROVIDER_ID && user?.id) {
+      token.discordId = user.id;
+    } else if (account?.provider === "discord" && typeof profile?.id === "string") {
+      token.discordId = profile.id;
+    }
+    const identity = resolveJwtIdentity(token.discordId);
+    if (identity) token.userId = identity.id;
+    else delete token.userId;
+    return token;
+  },
+  async session({ session, token }) {
+    const identity = resolveJwtIdentity(token.discordId);
+    session.user.id = identity ? String(identity.id) : "";
+    session.user.discordUserId = identity?.discordUserId ?? null;
+    return session;
+  },
+};
+
 export const {
   handlers: { GET, POST },
   auth,
@@ -96,26 +132,7 @@ export const {
     error: "/login",
   },
   callbacks: {
-    async signIn({ user, profile }) {
-      const userId = typeof profile?.id === "string" ? profile.id : user.id;
-      if (!userId) return accessErrorPage(403);
-      const decision = await checkDiscordWebAccess(userId);
-      return decision.ok ? true : accessErrorPage(decision.status);
-    },
-    async jwt({ token, account, profile, user }) {
-      if (account?.provider === E2E_PROVIDER_ID && user?.id) {
-        token.discordId = user.id;
-      } else if (account && profile?.id) {
-        token.discordId = profile.id as string;
-      }
-      return token;
-    },
-    async session({ session, token }) {
-      if (session.user) {
-        session.user.id = (token.discordId as string) ?? token.sub ?? "";
-      }
-      return session;
-    },
+    ...identityCallbacks,
     async authorized({ auth, request: { nextUrl } }) {
       if (nextUrl.pathname === "/dev/fx-lab" && !fxLabEnabled()) {
         return new Response(null, { status: 404 });
@@ -134,13 +151,15 @@ export const {
 
       if (isPublicRoute) return true;
       const isApi = nextUrl.pathname.startsWith("/api/");
-      if (!auth?.user?.id) {
+      if (parseUserId(auth?.user?.id) === null) {
         return isApi
           ? Response.json({ error: "Unauthorized" }, { status: 401 })
           : Response.redirect(new URL("/login", nextUrl));
       }
 
-      const decision = await checkDiscordWebAccess(auth.user.id);
+      const decision = auth?.user?.discordUserId
+        ? await checkDiscordWebAccess(auth.user.discordUserId)
+        : { ok: false as const, status: 403 as const };
       if (!decision.ok) {
         return isApi
           ? Response.json({ error: webAccessError(decision.status) }, { status: decision.status })

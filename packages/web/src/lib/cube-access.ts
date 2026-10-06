@@ -22,12 +22,16 @@ export function cubeReferenceAccess(
   return null;
 }
 
-export async function cubeWriteAccess(db: ReturnType<typeof getDb>, cubeId: number, userId: string) {
+export async function cubeWriteAccess(
+  db: ReturnType<typeof getDb>,
+  cubeId: number,
+  actor: { userId: number; discordUserId: string },
+) {
   const cube = db
     .prepare("select created_by_user_id from cubes where id = ? and guild_id = ?")
-    .get(cubeId, env.discordGuildId) as { created_by_user_id: string } | undefined;
+    .get(cubeId, env.discordGuildId) as { created_by_user_id: number } | undefined;
   if (!cube) return NextResponse.json({ error: "Cube not found" }, { status: 404 });
-  if (cube.created_by_user_id === userId) return null;
-  const decision = await checkDiscordWebAccess(userId, "admin");
+  if (cube.created_by_user_id === actor.userId) return null;
+  const decision = await checkDiscordWebAccess(actor.discordUserId, "admin");
   return decision.ok ? null : NextResponse.json({ error: webAccessError(decision.status) }, { status: decision.status });
 }

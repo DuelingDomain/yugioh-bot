@@ -1,3 +1,6 @@
+import Database from "better-sqlite3";
+import { migrate } from "@yugidraft/shared/db";
+import { createUserService } from "@yugidraft/shared/services";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -9,9 +12,12 @@ type AuthConfig = {
   providers: Provider[];
   callbacks: {
     jwt: (args: Record<string, unknown>) => Promise<Record<string, unknown>>;
-    session: (args: Record<string, unknown>) => Promise<{ user: { id: string } }>;
+    session: (args: Record<string, unknown>) => Promise<{ user: { id: string; discordUserId: string | null } }>;
   };
 };
+
+const identityState = vi.hoisted(() => ({ db: null as Database.Database | null }));
+vi.mock("@/lib/db", () => ({ getDb: () => identityState.db! }));
 
 const authState = vi.hoisted(() => ({ config: null as unknown }));
 
@@ -39,6 +45,8 @@ const e2eProvider = (config: AuthConfig) => config.providers.find((provider) => 
 
 describe("E2E test login provider", () => {
   beforeEach(() => {
+    identityState.db = new Database(":memory:");
+    migrate(identityState.db);
     process.env.DISCORD_CLIENT_ID = "discord-client-id";
     process.env.DISCORD_CLIENT_SECRET = "discord-client-secret";
     process.env.NEXTAUTH_SECRET = "nextauth-secret";
@@ -47,6 +55,7 @@ describe("E2E test login provider", () => {
   });
 
   afterEach(() => {
+    identityState.db?.close();
     for (const key of ["DISCORD_CLIENT_ID", "DISCORD_CLIENT_SECRET", "NEXTAUTH_SECRET", "E2E_AUTH", "E2E_AUTH_SECRET"]) {
       delete process.env[key];
     }
@@ -134,7 +143,7 @@ describe("E2E test login provider", () => {
   });
 
   describe("session shape", () => {
-    it("gives the test user the same discordId and session.user.id as the Discord provider", async () => {
+    it("gives both providers the same application user ID and separate Discord ID", async () => {
       process.env.E2E_AUTH = "1";
       process.env.E2E_AUTH_SECRET = STRONG_SECRET;
       vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -154,7 +163,13 @@ describe("E2E test login provider", () => {
       expect(fromDiscord.discordId).toBe("100000000000000001");
 
       const session = await callbacks.session({ session: { user: {} }, token: fromE2e });
-      expect(session.user.id).toBe("100000000000000001");
+      const discordSession = await callbacks.session({ session: { user: {} }, token: fromDiscord });
+      expect(session.user.id).toBe(String(fromE2e.userId));
+      expect(session.user.id).not.toBe("100000000000000001");
+      expect(discordSession.user.id).toBe(session.user.id);
+      expect(session.user.discordUserId).toBe("100000000000000001");
+      expect(createUserService(identityState.db!).findByDiscordId("100000000000000001"))
+        .toMatchObject({ email: null, emailVerified: false });
     });
   });
 
