@@ -1008,7 +1008,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     onSubmitAnswer({ choice: option.id });
   };
   const masterRail = domain && engine ? (
-    <DeckMasterRail engine={engine} mySeat={data.mySeat} legalKeys={legalKeys}
+    <DeckMasterRail engine={engine} mySeat={data.mySeat} legalKeys={fieldLegalKeys}
       selectedKeys={selectedKeys} canAct={canAct}
       legalActionsFor={legalActionsFor}
       onChooseAction={onChooseAction}
@@ -1138,7 +1138,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     (engine?.seats ?? []).map((seat) => [seat.seat, seat.seat === localSeat ? SEAT_TONE_HEX.ice : SEAT_TONE_HEX.rose]),
   );
   const hudMaster = (seatView: NonNullable<typeof engine>["seats"][number] | undefined, local: boolean, title: string) =>
-    hudMasterProps({ legalKeys, selectedKeys, canAct, prompt, onAnswer: onSubmitAnswer, onActivate: onFieldActivate, onHoverCard }, seatView, local, title);
+    hudMasterProps({ legalKeys: fieldLegalKeys, selectedKeys, canAct, prompt, onAnswer: onSubmitAnswer, onActivate: onFieldActivate, onHoverCard }, seatView, local, title);
 
   // The pieces of the flat page, built once so the classic page and the 3D mode page (SolidRoom) show the same nodes.
   const wordmark = <Link href="/duels" replace={inDuelWindow}>Duelists Kingdom</Link>;
@@ -1298,7 +1298,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           onInspectCard={(card) => { setInspect({ type: "card", card }); if (pane !== "log") setPane("card"); }}
           onHoverCard={(card) => { if (pane === "card" && !hud) setInspect({ type: "card", card }); }}
           onActivateCard={onInspectorActivate}
-          legalKeys={legalKeys} selectedKeys={selectedKeys}
+          legalKeys={fieldLegalKeys} selectedKeys={selectedKeys}
           reducedMotion={preferences.reducedMotion} />
       ) : null}
     </MoveSourceBoundary>
@@ -1455,7 +1455,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
             {renderBoard(multi ? (
               <MultiSeatStage key={slug} engine={engine!} mySeat={data.mySeat} masterRule={data.session.masterRule}
                 reducedMotion={preferences.reducedMotion}
-                legalKeys={legalKeys} selectedKeys={selectedKeys} onActivate={onFieldActivate}
+                legalKeys={fieldLegalKeys} selectedKeys={selectedKeys} onActivate={onFieldActivate}
                 onHoverCard={onHoverCard} onInspect={(target) => showInspector(target, true)}
                 nameOf={playerName} promptSeat={prompt?.seat ?? null}
                 focusSeat={focusSeat} onFocusSeat={setPinnedFocus} seatPick={seatPick} />

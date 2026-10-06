@@ -18,6 +18,7 @@ vi.mock("@/components/duel/api", async original => ({ ...await original<object>(
 import { DuelRoomView } from "@/components/duel/room";
 import { solidFixture } from "@/components/duel/solid/fixtures/states";
 import { cardAt, HAND } from "@/components/duel/table/fixtures/common";
+import { LOCATION_DMZONE } from "@/components/duel/constants";
 import { clearPromptRevealHold, holdPromptReveal } from "@/components/duel/prompt-reveal";
 
 const jet = { code: 30576089, name: "Blue-Eyes Jet Dragon", description: "Special Summon this card from your hand or GY.", type: 33, attack: 3000, defense: 0, level: 8, attribute: 16, race: "Dragon" };
@@ -62,5 +63,24 @@ describe.each([0, 1])("live 1v1 hand effects, seat %s", seat => {
     await act(async () => { fireEvent.click(item); });
     expect(state.send).toHaveBeenCalledTimes(1);
     expect(state.send.mock.calls[0]![1].answer).toEqual({ choice: chain ? "card:7" : "yes" });
+  });
+});
+
+describe("live 1v1 Deck Master during the reveal hold", () => {
+  it("shows no pick glow on the Deck Master plate until the reveal, then glows", async () => {
+    room(0, false);
+    const source = state.room!;
+    source.session.mode = "domain";
+    source.engine!.seats[0]!.deckMaster = { card: jet, inZone: true, returns: 0, nextCost: 0 } as never;
+    source.engine!.prompt = {
+      id: "master-trigger", seat: 0, kind: "choice", title: "Use Jet Dragon?", min: 1, max: 1,
+      options: [{ id: "yes", label: "Yes", card: jet, controller: 0, location: LOCATION_DMZONE, sequence: 0 }, { id: "no", label: "No", card: jet }],
+    };
+    holdPromptReveal(2000);
+    render(<DuelRoomView slug="live" windowed />);
+    const plate = () => screen.getByTestId("hud-master").querySelector("section")!;
+    expect(plate().getAttribute("data-legal")).toBe("false");
+    await act(async () => { await vi.advanceTimersByTimeAsync(6500); });
+    expect(plate().getAttribute("data-legal")).toBe("true");
   });
 });
