@@ -125,16 +125,32 @@ export interface LayerFrame {
 export const FLAT_FRAME: LayerFrame = Object.freeze({ x: 0, y: 0, k: 1 });
 
 /**
- * The CSS transform of the layer (transform-origin 0 0 in its parent) that shows the view. From
+ * The translation of the layer in its parent (px of the parent, before the scale). From
  * `frame.x + frame.k * (u + s * p) = view.x + view.s * (frame.x + frame.k * p)`: u = (view.x + (s - 1) * frame.x) / k.
  */
+export function layerOffset(view: View, frame: LayerFrame = FLAT_FRAME): Point {
+  const k = frame.k > 0 ? frame.k : 1;
+  return { x: (view.x + (view.s - 1) * frame.x) / k, y: (view.y + (view.s - 1) * frame.y) / k };
+}
+
+/** The CSS transform of the layer (transform-origin 0 0 in its parent) that shows the view. */
 export function layerTransform(view: View, frame: LayerFrame = FLAT_FRAME): string {
   if (isIdentity(view)) return "";
-  const k = frame.k > 0 ? frame.k : 1;
-  const ux = (view.x + (view.s - 1) * frame.x) / k;
-  const uy = (view.y + (view.s - 1) * frame.y) / k;
-  return `translate(${ux.toFixed(2)}px, ${uy.toFixed(2)}px) scale(${view.s.toFixed(4)})`;
+  const u = layerOffset(view, frame);
+  return `translate(${u.x.toFixed(2)}px, ${u.y.toFixed(2)}px) scale(${view.s.toFixed(4)})`;
 }
+
+/**
+ * A HUD element that belongs to a place on the board (a life plate, the phase hub) follows the view at its own size:
+ * its anchor (a point inside it, px of the layer's parent) goes where the board takes that point. A plate that covers no
+ * card at 1x covers none at any zoom: it stays inside the zoomed box of its 1x place. The CSS left (or top) of an element
+ * at `base` px is this calc; the view hook writes --vz-x, --vz-y (the layer offset, px) and --vz-s (the scale).
+ */
+export function followCss(base: number, anchor: number, axis: "x" | "y"): string {
+  return `calc(${round2(base)}px + var(--vz-${axis}, 0px) + (var(--vz-s, 1) - 1) * ${round2(anchor)}px)`;
+}
+
+const round2 = (value: number) => Math.round(value * 100) / 100;
 
 /** A board-box rect at the camera pose as it shows on the screen under the view (board-box px). */
 export function viewRect(view: View, rect: Rect): Rect {

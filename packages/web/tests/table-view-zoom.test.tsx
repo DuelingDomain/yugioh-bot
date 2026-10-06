@@ -6,7 +6,9 @@ import { useViewZoom } from "@/components/duel/table/use-view-zoom";
 import {
   clampView,
   DRAG_THRESHOLD_PX,
+  followCss,
   isZoomed,
+  layerOffset,
   layerTransform,
   panBy,
   pinchView,
@@ -105,6 +107,29 @@ describe("view helpers", () => {
     for (let i = 0; i < 60 && view !== target; i += 1) view = stepView(view, target, 16, 70);
     expect(view).toBe(target);
     expect(isZoomed(view)).toBe(true);
+  });
+});
+
+describe("HUD that follows the board", () => {
+  it("puts the anchor of a plate where the zoom takes that board point, at the plate's own size", () => {
+    const frame = { x: 40, y: 10, k: 0.8 };
+    const view = { s: 2, x: -300, y: -120 };
+    const u = layerOffset(view, frame);
+    // A board point q (px of the layer's parent) goes to u + s * q; the follow offset is u + (s - 1) * q.
+    const q = { x: 210, y: 95 };
+    const on = { x: frame.x + frame.k * (u.x + view.s * q.x), y: frame.y + frame.k * (u.y + view.s * q.y) };
+    expect(on.x).toBeCloseTo(view.x + view.s * (frame.x + frame.k * q.x), 6);
+    expect(on.y).toBeCloseTo(view.y + view.s * (frame.y + frame.k * q.y), 6);
+    expect(followCss(200, 210, "x")).toBe("calc(200px + var(--vz-x, 0px) + (var(--vz-s, 1) - 1) * 210px)");
+  });
+
+  it("keeps a plate inside the zoomed box of its place, so it covers no card it did not cover at rest", () => {
+    // Plate 100 px wide at x 300, anchor in its middle: at 2.5x its box is inside the zoomed 300..400 box.
+    const s = 2.5;
+    const u = layerOffset({ s, x: -700, y: 0 });
+    const left = 300 + u.x + (s - 1) * 350;
+    expect(left).toBeGreaterThanOrEqual(u.x + s * 300);
+    expect(left + 100).toBeLessThanOrEqual(u.x + s * 400);
   });
 });
 

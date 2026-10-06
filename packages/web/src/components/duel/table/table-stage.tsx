@@ -19,6 +19,7 @@ import { useFlyWorld } from "./use-fly-world";
 import { useSeatExits } from "./use-seat-exits";
 import { useViewZoom } from "./use-view-zoom";
 import { ViewReset } from "./view-reset";
+import { followCss } from "./view-zoom";
 import type { CameraMode, SeatFieldProps, SeatPose, SeatTone, TableStageProps } from "./types";
 import styles from "./table-stage.module.css";
 
@@ -410,6 +411,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
               footer={!exit && anchor.me ? masterChip : null}
               footerTight={anchor.footerTight}
               reducedMotion={reducedMotion}
+              follow={zoom.zoomed}
             />
           );
         })}
@@ -418,7 +420,13 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
             className={styles.hub}
             data-hub-slot="true"
             data-hub-size={hubAt.size}
-            style={{ width: hubAt.width, height: hubAt.height, transform: `translate(${hubAt.x - hubAt.width / 2}px, ${hubAt.y - hubAt.height / 2}px)` }}
+            style={{
+              width: hubAt.width,
+              height: hubAt.height,
+              transform: `translate(${hubAt.x - hubAt.width / 2}px, ${hubAt.y - hubAt.height / 2}px)`,
+              // Under a zoom the hub keeps its size and follows the ring it sits on (followCss).
+              ...(zoom.zoomed ? { left: followCss(0, hubAt.x, "x"), top: followCss(0, hubAt.y, "y") } : null),
+            }}
           >
             {hub}
           </div>

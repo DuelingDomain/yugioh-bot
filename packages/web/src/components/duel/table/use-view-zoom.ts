@@ -6,6 +6,7 @@ import {
   FLAT_FRAME,
   isIdentity,
   isZoomed,
+  layerOffset,
   layerTransform,
   panBy,
   pinchView,
@@ -87,6 +88,11 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
     if (root) {
       if (isZoomed(state.current)) root.dataset.viewZoomed = "true";
       else delete root.dataset.viewZoomed;
+      // The HUD that follows the board (see followCss) reads the layer offset and the scale.
+      const u = layerOffset(state.current, state.frame);
+      root.style.setProperty("--vz-x", `${u.x.toFixed(2)}px`);
+      root.style.setProperty("--vz-y", `${u.y.toFixed(2)}px`);
+      root.style.setProperty("--vz-s", state.current.s.toFixed(4));
     }
   }, [layerRef, rootRef]);
 
