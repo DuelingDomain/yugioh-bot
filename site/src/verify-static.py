@@ -134,6 +134,8 @@ def main():
     assert pages['404.html'].find('meta', name='robots', content='noindex')
     for name in ('privacy.html', 'terms.html'):
         page = pages[name]
+        assert ('privacy' + '@') not in page.file.read_text().lower(), (name, 'retired contact address')
+        assert page.find('a', href='mailto:support@duelingdomain.com'), (name, 'missing support contact link')
         title = Path(name).stem.title() + ' | Dueling Domain'
         assert page.find('title')[0]['text'] == title, name
         for attr in ('og:type', 'og:site_name', 'og:title', 'og:description', 'og:url',

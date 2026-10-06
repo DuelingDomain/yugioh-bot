@@ -151,7 +151,7 @@ All three HTML `OWNER:` comments are in `public/privacy.html`:
 
 1. Confirm the operator's legal name and add it as the person/entity responsible for this information.
 2. Confirm Hetzner's contracting legal name, VM region and security-log retention; add location/retention.
-3. Confirm `privacy@duelingdomain.com` receives requests; supply a public business contact address if required.
+3. `support@duelingdomain.com` is live on Private Email and forwards to the owner; it is the only public contact address.
    No home address or personal email is published.
 
 Outstanding: actual local-font download/measurement; Docker routing/CSP/browser/layout verification; owner
