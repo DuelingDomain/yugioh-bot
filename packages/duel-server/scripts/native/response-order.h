@@ -32,6 +32,8 @@ struct ResponseOrder {
 			// FFA3/FFA4 only. With no living link (chain_L < 0), the response round is
 			// one round: the turn player first, then turn order. While a living link
 			// remains, the anchor is the newest living link: start after its owner.
+			// The one-round, turn-player-first part is proved by the cost-elimination-response
+			// check; this checker resets at CHAIN_END.
 			const int start = chain_L < 0 ? turn_player : (chain_L + 1) % n;
 			// Keep slots for seats eliminated during this round: an earlier prompt
 			// to such a seat still fixes our position. The driver's eliminated-prompt
