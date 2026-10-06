@@ -8074,6 +8074,21 @@
       "stockSha256": "88e8ba425dd0a0b82a005178a8899cb2f97fd54b4425d3c97fcf4c4ead48bdf1"
     },
     {
+      "code": 92435533,
+      "file": "c92435533.lua",
+      "name": "Lazion, the Timelord",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "FIELD+TRIGGER_F",
+      "redefined": [
+        "tdcon",
+        "tdtg",
+        "tdop"
+      ],
+      "stockSha256": "5ef1eb8325ea2f3c8979f1fa12d3da7c1ce0b9cab24782d46f7671da41b3453a",
+      "note": "Script fix (#213, OD-LAZION): continuous effects record each opponent that Lazion attacked (the seat declared at the attack, kept after a redirect) or that attacked it; the controller picks among the living recorded opponents at resolution and only that Graveyard is shuffled. Tag keeps the stock effect."
+    },
+    {
       "code": 92530005,
       "file": "c92530005.lua",
       "name": "Performage Ball Balancer",
