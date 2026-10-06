@@ -14,7 +14,7 @@ export const runtime = "nodejs";
  *   generatedAt: ISO timestamp,
  *   engine: { bundleVersion, preparedAt, preparedAtSource, sources: { database, scripts, strings }, cardCount, cdbFiles },
  *   catalog: { lastSuccessfulSyncAt, lastCardCachedAt, totalCards, revision, newestSets },
- *   gap: { recentSetsMissingFromEngineCount, recentSets, cachedCatalogMissingCount, cachedCatalogMissing, cachedCatalogIdMismatch },
+ *   gap: { recentSetsMissingFromEngineCount, recentSetsUnknownCount, recentSets, cachedCatalogMissingCount, cachedCatalogMissing, cachedCatalogIdMismatch },
  *   upstream: { checkedAt, expiresAt, sources: { database, scripts, strings }, babelCdbFiles: { status, files } },
  *   updateWorkflow: { lastRunStatus, lastRun, pullRequestStatus, openPullRequest }
  * }
@@ -27,10 +27,12 @@ export const runtime = "nodejs";
  * covers sets released in the last 12 calendar months, fetched through the shared card queue.
  * Each recentSets row has name/code/releaseDate/status/checkedAt/total/missingCount/missingCards/idMismatch.
  * Counts are playable alias/artwork families, excluding skills and tokens. Unknown set totals
- * and missing counts are null; the primary count is also null before the first set sync.
+ * and missing counts are null; recentSetsUnknownCount reports these sets. The primary count
+ * sums known sets and is null only before the first set sync.
  * Same-name/type passcode differences are idMismatch, not missing.
  * The cachedCatalog fields are secondary diagnostics for the incomplete on-demand catalog.
- * Set lists persist in SQLite; sets <=60 days old refresh daily, older sets are immutable.
+ * Set lists persist in SQLite and refresh on view, at most daily for sets <=60 days old
+ * and at most weekly for older sets. Background fetches run one set at a time.
  * preparedAt is null and preparedAtSource is unknown; file mtime is not a preparation date.
  * GitHub metadata caches one hour; failures retry after five minutes or the rate-limit reset.
  * Cold/stale remote metadata returns immediately while refreshing in the background; checkedAt

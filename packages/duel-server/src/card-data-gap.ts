@@ -93,7 +93,8 @@ export function computeCardDataGap(
       missingCards: result.missingCards, idMismatch: result.idMismatch };
   });
   return {
-    recentSetsMissingFromEngineCount: recent.some(s => s.cards === null) ? null : recentMissing.size,
+    recentSetsMissingFromEngineCount: recentMissing.size,
+    recentSetsUnknownCount: recent.filter(s => s.cards === null).length,
     recentSets, cachedCatalogMissingCount: cached.missing.size, cachedCatalogMissing: cached.missingCards,
     cachedCatalogIdMismatch: cached.idMismatch,
   };
