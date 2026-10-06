@@ -339,10 +339,11 @@
       "code": 5043020,
       "file": "c5043020.lua",
       "name": "Firewall Dragon (pre-errata)",
+      "stockPath": "pre-errata/c5043020.lua",
       "kind": "fix",
       "classes": [],
       "stockSha256": "f59c0f37b6aa14a5bb00996cae770418916a1fb5196434d367b19a935f5ff2d5",
-      "note": "FFA4: previous Link and column filters use only the real controller and its across seat."
+      "note": "FFA4: previous Link and column filters use only the real controller and its across seat. Stock is pre-errata/c5043020.lua (unchanged at both data pins); absent from production cards.cdb, retained for private fixtures. Runtime basename lookup appends this overlay to that pre-errata script."
     },
     {
       "code": 5087128,

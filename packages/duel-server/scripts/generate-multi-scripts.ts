@@ -142,6 +142,8 @@ export interface ManifestCard {
   seatExtra?: string;
   /** Kind `seat`: the tables are not made again at the turn end (the stock script keeps them for the whole duel). */
   seatNoReset?: boolean;
+  /** Reviewed stock path relative to card-scripts; defaults to official/<file>. */
+  stockPath?: string;
   stockSha256?: string;
   note?: string;
 }
