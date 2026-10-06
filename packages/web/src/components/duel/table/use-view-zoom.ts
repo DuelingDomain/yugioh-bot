@@ -92,6 +92,8 @@ export interface UseViewZoom {
   zoomed: boolean;
   /** Back to the camera pose, eased (at once with reduced motion). */
   reset: () => void;
+  /** The HUD over the board changed (a prompt opened, closed or moved): the view eases into the new clamps. */
+  refit: () => void;
 }
 
 const pointIn = (node: HTMLElement, event: { clientX: number; clientY: number }): Point => {
@@ -183,6 +185,14 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
   }, [settle, tick, write]);
 
   const reset = useCallback(() => go(VIEW_IDENTITY, false), [go]);
+
+  const refit = useCallback(() => {
+    const root = rootRef.current;
+    const state = live.current;
+    if (!root || !isZoomed(state.target)) return;
+    const next = clampView(state.target, sizeOf(root), insetsOf(root));
+    if (!viewsClose(next, state.target)) go(next, false);
+  }, [go, insetsOf, rootRef]);
 
   // A new layout of the board resets the view; with reduced motion at once.
   const lastKey = useRef(resetKey);
@@ -416,5 +426,5 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
     state.raf = 0;
   }, []);
 
-  return { view: rest, zoomed: isZoomed(rest), reset };
+  return { view: rest, zoomed: isZoomed(rest), reset, refit };
 }

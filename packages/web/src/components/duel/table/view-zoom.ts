@@ -81,9 +81,14 @@ export function clampView(view: View, box: Size, insets: Insets = NO_INSETS): Vi
   return { s, x, y };
 }
 
+/** A HUD rect counts for an edge only when its band reaches no deeper than this part of the box (see `edgeInsets`). */
+export const EDGE_REACH = 0.25;
+
 /**
  * The insets of the HUD rects (board-box px): each rect that is on the box is given to the edge it costs the least
- * free area to give up (the depth of its band times the length of that edge).
+ * free area to give up (the depth of its band times the length of that edge). A rect that is not at an edge (its band
+ * would reach deeper than EDGE_REACH of the box, as a prompt panel in the middle does) is left out: the zoom alone can
+ * take a card out from under it, and its band would let the pan show a half-empty box.
  */
 export function edgeInsets(rects: readonly Rect[], box: Size): Insets {
   const out = { top: 0, right: 0, bottom: 0, left: 0 };
@@ -101,6 +106,8 @@ export function edgeInsets(rects: readonly Rect[], box: Size): Insets {
     ];
     let best = bands[0];
     for (const band of bands) if (band[1] * band[2] < best[1] * best[2]) best = band;
+    const reach = (best[0] === "top" || best[0] === "bottom" ? box.height : box.width) * EDGE_REACH;
+    if (best[1] > reach) continue;
     out[best[0]] = Math.max(out[best[0]], best[1]);
   }
   return out;

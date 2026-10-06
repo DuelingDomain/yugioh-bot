@@ -300,6 +300,14 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
     return freeDockRoom(box, [...targets, ...zones, ...hudRects]) ?? found;
   }, [floating, zoom.zoomed, nearBox, targets, zones, hudRects, rooms?.bar, box]);
 
+  // A prompt that opens, closes or moves changes the HUD insets: the view eases into the new clamps (no gap stays).
+  const hudKey = `${controller.prompt?.id ?? ""}|${promptCenter ? 1 : 0}|${overlay ? 1 : 0}|${controller.seatPick ? 1 : 0}|${barRoom ?? ""}|${rooms?.panel ? `${rooms.panel.x},${rooms.panel.y}` : ""}`;
+  const { refit } = zoom;
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(refit);
+    return () => window.cancelAnimationFrame(frame);
+  }, [hudKey, refit]);
+
   const world = useMemo(() => flyWorld(play, camera.fly), [play, camera.fly]);
   const tones = useMemo(() => new Map<number, SeatTone>(layout.slots.map((slot) => [slot.seat, slot.tone])), [layout.slots]);
   const looking = camera.mode === "look";

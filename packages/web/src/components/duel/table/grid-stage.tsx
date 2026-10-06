@@ -599,6 +599,14 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [promptPair?.x, promptPair?.y, promptPair?.width, promptPair?.height, targets, zones, hudRects, zoom.zoomed, box.width, box.height]);
 
+  // A prompt that opens, closes or moves changes the HUD insets: the view eases into the new clamps (no gap stays).
+  const hudKey = `${controller.prompt?.id ?? ""}|${promptCenter ? 1 : 0}|${overlay ? 1 : 0}|${picks ? 1 : 0}|${barRoom ?? ""}`;
+  const { refit } = zoom;
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(refit);
+    return () => window.cancelAnimationFrame(frame);
+  }, [hudKey, refit]);
+
   return (
     <div
       ref={rootRef}
