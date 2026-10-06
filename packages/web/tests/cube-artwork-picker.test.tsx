@@ -29,6 +29,7 @@ const FAMILY = {
 let entries: Array<{ catalogCardId: number; pool: "main"; maxCopies: number }>;
 let posts: Array<Record<string, unknown>>;
 let swapError: string | null;
+let swapThrows = false;
 let swapStatus = 400;
 
 beforeEach(() => {
@@ -36,6 +37,7 @@ beforeEach(() => {
   entries = [{ catalogCardId: 1, pool: "main", maxCopies: 2 }];
   posts = [];
   swapError = null;
+  swapThrows = false;
   swapStatus = 400;
   vi.stubGlobal("fetch", vi.fn(async (input: unknown, init?: RequestInit) => {
     const target = String(input);
@@ -43,6 +45,7 @@ beforeEach(() => {
     if (target.endsWith("/api/cubes/5/cards")) {
       const body = JSON.parse(String(init?.body)) as { op: string; catalogCardId: number; artworkPasscode: number };
       posts.push(body);
+      if (swapThrows) throw new TypeError("Failed to fetch");
       if (swapError !== null) return { ok: false, status: swapStatus, json: async () => (swapError ? { error: swapError } : {}) } as Response;
       entries = entries.map((entry) => (entry.catalogCardId === body.catalogCardId ? { ...entry, catalogCardId: body.artworkPasscode } : entry));
       return { ok: true, json: async () => detail() } as Response;
@@ -85,6 +88,14 @@ describe("cube card art", () => {
     const region = screen.getByRole("region", { name: "Card art" });
     expect(await within(region).findByText("That art is already in the cube.")).toBeInTheDocument();
     expect(screen.getAllByText("That art is already in the cube.")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Main A, 2 copies" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("says so inside the picker when the request itself fails", async () => {
+    swapThrows = true;
+    const thumbs = await openSelected();
+    fireEvent.click(thumbs[1]!);
+    expect(await within(screen.getByRole("region", { name: "Card art" })).findByText("Could not change the art.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Main A, 2 copies" })).toHaveAttribute("aria-pressed", "true");
   });
 

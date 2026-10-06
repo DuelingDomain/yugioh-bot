@@ -152,6 +152,10 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
       }
       applyDetail({ pools: data.pools, cards: data.cards });
       return { added: data.added, unknown: data.unknown, copies: data.copies };
+    } catch {
+      // The request itself failed (network down): say so instead of leaving an unhandled rejection.
+      report(op.op === "setArtwork" ? "Could not change the art." : "Update failed.");
+      return null;
     } finally {
       setBusy(false);
     }
