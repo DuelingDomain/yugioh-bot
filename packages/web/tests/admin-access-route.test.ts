@@ -14,7 +14,9 @@ async function get() { const { GET } = await import("../app/api/admin/access/rou
 
 it("rejects a request with no session", async () => {
   auth.mockResolvedValue(null);
-  expect((await get()).status).toBe(401);
+  const response = await get();
+  expect(response.status).toBe(401);
+  expect(response.headers.get("cache-control")).toBe("no-store");
 });
 it("reports admin: true for a guild admin", async () => {
   const response = await get();
@@ -33,5 +35,7 @@ it("reports admin: false for a non-member", async () => {
 });
 it("returns 503 when Discord cannot be verified", async () => {
   discord.guildStatus = 500;
-  expect((await get()).status).toBe(503);
+  const response = await get();
+  expect(response.status).toBe(503);
+  expect(response.headers.get("cache-control")).toBe("no-store");
 });

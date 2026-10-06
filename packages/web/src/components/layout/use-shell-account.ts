@@ -18,6 +18,30 @@ export interface ShellAccount {
   isAdmin: boolean;
 }
 
+const ADMIN_HINT_KEY = "dd:admin-hint";
+const ADMIN_HINT_TTL_MS = 5 * 60_000;
+
+/** The last answer of /api/admin/access, kept for five minutes so a full page load does not ask Discord again. */
+function readAdminHint(now = Date.now()): boolean | null {
+  try {
+    const raw = window.sessionStorage.getItem(ADMIN_HINT_KEY);
+    if (!raw) return null;
+    const hint = JSON.parse(raw) as { admin?: unknown; at?: unknown };
+    if (typeof hint.admin !== "boolean" || typeof hint.at !== "number" || now - hint.at > ADMIN_HINT_TTL_MS || hint.at > now) return null;
+    return hint.admin;
+  } catch {
+    return null;
+  }
+}
+
+function writeAdminHint(admin: boolean): void {
+  try {
+    window.sessionStorage.setItem(ADMIN_HINT_KEY, JSON.stringify({ admin, at: Date.now() }));
+  } catch {
+    // Storage can be blocked. The hint is only a convenience.
+  }
+}
+
 const INITIAL: ShellAccount = { status: "loading", name: "", image: null, playerId: null, profileSettled: false, tier: null, elo: null, isAdmin: false };
 
 /** The two requests the old top bar made, plus the profile for the tier and Elo line, once for the whole shell. */
@@ -61,12 +85,19 @@ export function useShellAccount(): ShellAccount {
         // A failed lookup leaves profile availability unknown.
       });
     // Only decides whether admin links show. Every admin route still checks access itself.
-    fetch("/api/admin/access")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { admin?: unknown } | null) => {
-        if (live && d?.admin === true) setAccount((a) => ({ ...a, isAdmin: true }));
-      })
-      .catch(() => {});
+    const hint = readAdminHint();
+    if (hint !== null) {
+      if (hint) setAccount((a) => ({ ...a, isAdmin: true }));
+    } else {
+      fetch("/api/admin/access")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d: { admin?: unknown } | null) => {
+          if (typeof d?.admin !== "boolean") return;
+          writeAdminHint(d.admin);
+          if (live && d.admin) setAccount((a) => ({ ...a, isAdmin: true }));
+        })
+        .catch(() => {});
+    }
     return () => {
       live = false;
     };
