@@ -1,12 +1,15 @@
+import { createElement, type ReactNode } from "react";
+
 // What the login page says for each ?error= value. Auth.js 5 sends the names below; the two
 // GuildMembership names come from this app's own redirect in src/lib/auth.ts.
 
 export type LoginMessage = {
   tone: "info" | "bad";
-  title: string;
+  title: ReactNode;
   body: string;
-  /** Shown as "Error: <code>" so someone running the bot can match it to a log. */
+  /** Shown as "Error: <code>" to match the service log. */
   code?: string;
+  presentation?: "panel";
 };
 
 export function describeLoginError(error: string | undefined): LoginMessage | null {
@@ -22,26 +25,27 @@ export function describeLoginError(error: string | undefined): LoginMessage | nu
       return {
         tone: "bad",
         title: "Couldn't sign you in.",
-        body: "The problem is on Duelists Kingdom's side, not your Discord account. Try again in a minute. If it keeps happening, tell whoever runs the bot.",
+        body: "The problem is on our side, not your Discord account. Try again in a minute.",
         code: "Configuration",
       };
     case "GuildMembershipRequired":
       return {
         tone: "bad",
-        title: "You're not in the Discord server.",
-        body: "You must be a member of the Discord server to use this app. Join it, then sign in again.",
+        title: ["This account isn't in the ", createElement("em", { key: "alpha" }, "alpha"), " yet"],
+        body: "Access opens in waves. Join the waitlist and we'll email you when it's your turn.",
+        presentation: "panel",
       };
     case "GuildMembershipUnavailable":
       return {
         tone: "bad",
-        title: "Couldn't check your Discord server membership.",
-        body: "Try again in a minute. If it keeps happening, tell whoever runs the bot.",
+        title: "Couldn't check your access just now.",
+        body: "Try again in a minute.",
       };
     default:
       return {
         tone: "bad",
         title: "Sign-in didn't work.",
-        body: "Try again. If it keeps happening, tell whoever runs the bot.",
+        body: "Try again when you're ready.",
         code: error,
       };
   }

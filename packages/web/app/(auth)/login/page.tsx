@@ -1,55 +1,53 @@
-import { LightRule, SheetRoot, StatusLine } from "@/components/sheet";
+import type { Metadata } from "next";
+import { SignInShell } from "@/components/auth/sign-in-shell";
+import { SignInFootLinks, SignInStep } from "@/components/auth/sign-in-step";
+import { SignInBanner, SignInErrorPanel } from "@/components/auth/sign-in-error";
+import styles from "@/components/auth/sign-in-shell.module.css";
 import { signInWithDiscord } from "./actions";
 import { describeLoginError } from "./login-errors";
 import { LoginButton } from "./login-button";
-import { BrandMark } from "./login-marks";
-import { LoginRing } from "./login-ring";
-import { LoginWall } from "./login-wall";
-import styles from "./login.module.css";
+
+export const metadata: Metadata = {
+  title: "Sign in | Dueling Domain",
+  description: "Sign in to your drafts, decks and duels.",
+};
 
 interface LoginPageProps {
   searchParams: Promise<{ error?: string }>;
 }
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
-  const params = await searchParams;
-  const message = describeLoginError(params.error);
+  const { error } = await searchParams;
+  const message = describeLoginError(error);
+  const marketingUrl = process.env.MARKETING_URL?.trim().replace(/\/+$/, "") || undefined;
 
   return (
-    <SheetRoot>
-      <main className={styles.page} data-message={message ? "" : undefined}>
-        <LoginWall hasMessage={message !== null}>
-          <div className={styles.stack}>
-            <LoginRing />
-            <div className={styles.copy}>
-              <h1 className={`${styles.brand} ${styles.c1}`}>
-                <BrandMark className={styles.mark} />
-                Duelists Kingdom
-              </h1>
-              <span className={`${styles.short} ${styles.c2}`}>
-                <LightRule beam />
-              </span>
-              <p className={`${styles.sub} ${styles.c3}`}>
-                Drafts, tournaments and duels for your Discord server. Sign in with the account you use there.
-              </p>
-              {message && (
-                <div className={`${styles.msg} ${styles.c3}`} role={message.tone === "bad" ? "alert" : "status"}>
-                  <StatusLine tone={message.tone === "bad" ? "block" : "neutral"}>
-                    <b className={styles.msgTitle}>{message.title}</b>{" "}{message.body}
-                    {message.code && <span className={styles.code}>Error: {message.code}</span>}
-                  </StatusLine>
-                </div>
-              )}
-              <form className={`${styles.form} ${styles.c4}`} action={signInWithDiscord}>
-                <LoginButton />
-              </form>
-              <p className={`${styles.fine} ${styles.c5}`}>
-                Discord shares your name, avatar and email. Duelists Kingdom can&apos;t read or send messages as you.
-              </p>
-            </div>
-          </div>
-        </LoginWall>
-      </main>
-    </SheetRoot>
+    <SignInShell marketingUrl={marketingUrl} tone={message?.tone === "bad" ? "bad" : "neutral"}>
+      {message?.presentation === "panel" ? (
+        <SignInErrorPanel
+          title={message.title}
+          body={message.body}
+          action={<>
+            {marketingUrl && <a className={`${styles.btn} ${styles["btn-primary"]}`} href={`${marketingUrl}/#join`}>Join the waitlist</a>}
+            <a className={`${styles.btn} ${styles["btn-alt"]}`} href="/login">Try a different account</a>
+          </>}
+          foot={<SignInFootLinks marketingUrl={marketingUrl} waitlist={false} />}
+        />
+      ) : (
+        <SignInStep
+          eyebrow="Closed alpha"
+          title={<>Welcome <em>back</em></>}
+          lede="Sign in to your drafts, decks and duels."
+          screen={message ? "err-service" : "signin"}
+          foot={<SignInFootLinks marketingUrl={marketingUrl} />}
+        >
+          <form className={styles.form} action={signInWithDiscord}>
+            {message && <SignInBanner tone={message.tone} code={message.code}>{message.title}{" "}{message.body}</SignInBanner>}
+            <LoginButton />
+            <p className={styles.fine} id="fine-discord">Discord shares your name, avatar and email. We can’t read or send messages as you.</p>
+          </form>
+        </SignInStep>
+      )}
+    </SignInShell>
   );
 }
