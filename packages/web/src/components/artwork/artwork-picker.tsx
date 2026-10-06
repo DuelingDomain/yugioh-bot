@@ -51,7 +51,8 @@ export function ArtworkPicker({
 }) {
   const [loaded, setLoaded] = useState<CardArtworksResponse | null>(() => peekCardArtworks(code));
   const [failed, setFailed] = useState<{ code: number; error: Error } | null>(null);
-  const [slow, setSlow] = useState(false);
+  // The code whose request has been running for a moment; another card never inherits it.
+  const [slowCode, setSlowCode] = useState<number | null>(null);
   const [retry, setRetry] = useState(0);
   const [broken, setBroken] = useState<ReadonlySet<number>>(() => new Set());
   const [look, setLook] = useState<number | null>(null);
@@ -64,6 +65,25 @@ export function ArtworkPicker({
   const onFamilyRef = useRef(onFamily);
   onFamilyRef.current = onFamily;
   const skip = knownCount === 1;
+  // "Art changed" shows briefly once a change ends on another card.
+  const [changed, setChanged] = useState(false);
+  const wasBusy = useRef(false);
+  const codeAtStart = useRef(code);
+  const changedTimer = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (busy) {
+      if (!wasBusy.current) codeAtStart.current = code;
+      wasBusy.current = true;
+      return;
+    }
+    if (!wasBusy.current) return;
+    wasBusy.current = false;
+    if (codeAtStart.current === code) return;
+    setChanged(true);
+    window.clearTimeout(changedTimer.current);
+    changedTimer.current = window.setTimeout(() => setChanged(false), 2000);
+  }, [busy, code]);
+  useEffect(() => () => window.clearTimeout(changedTimer.current), []);
 
   useEffect(() => {
     if (skip) return;
@@ -71,9 +91,9 @@ export function ArtworkPicker({
     if (familyRef.current?.artworks.some((art) => art.passcode === code)) return;
     let cancelled = false;
     setFailed(null);
-    setSlow(false);
+    setSlowCode(null);
     // A card that has one art answers fast; its placeholder would only flash.
-    const timer = window.setTimeout(() => setSlow(true), 200);
+    const timer = window.setTimeout(() => setSlowCode(code), 200);
     void fetchCardArtworks(code).then(
       (result) => {
         if (cancelled) return;
@@ -105,7 +125,7 @@ export function ArtworkPicker({
     );
   }
   if (!family) {
-    if (knownCount == null && !slow) return null;
+    if (knownCount == null && slowCode !== code) return null;
     return (
       <section className={styles.picker} aria-label={label} aria-busy="true">
         <header className={styles.head}>
@@ -189,7 +209,7 @@ export function ArtworkPicker({
         })}
       </div>
       {/* Only the change of state is announced; moving focus along the strip already reads each art. */}
-      <p className="sr" role="status">{busy ? "Changing art…" : ""}</p>
+      <p className="sr" role="status">{busy ? "Changing art…" : changed ? "Art changed" : ""}</p>
       <p className={styles.caption} aria-hidden={busy || undefined}>
         {busy ? "Changing art…" : (
           <>

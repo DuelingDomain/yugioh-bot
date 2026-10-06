@@ -247,6 +247,41 @@ describe("ArtworkPicker", () => {
     }
   });
 
+  it("says Art changed briefly when a change ends on another art, and not when nothing changed", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { rerender } = render(<ArtworkPicker code={MAIN.code} onPick={vi.fn()} />);
+      await screen.findByRole("group", { name: "Choose an art" });
+      rerender(<ArtworkPicker code={MAIN.code} busy onPick={vi.fn()} />);
+      rerender(<ArtworkPicker code={MAIN.code} onPick={vi.fn()} />);
+      expect(screen.getByRole("status")).toBeEmptyDOMElement();
+      rerender(<ArtworkPicker code={MAIN.code} busy onPick={vi.fn()} />);
+      rerender(<ArtworkPicker code={ALT.code} onPick={vi.fn()} />);
+      expect(screen.getByRole("status")).toHaveTextContent("Art changed");
+      await act(async () => { await vi.advanceTimersByTimeAsync(2100); });
+      expect(screen.getByRole("status")).toBeEmptyDOMElement();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not show the placeholder of a new card because the last card was slow", async () => {
+    vi.useFakeTimers();
+    try {
+      let release!: () => void;
+      artworkGate = new Promise<void>((resolve) => { release = resolve; });
+      const { container, rerender } = render(<ArtworkPicker code={DARK.code} onPick={vi.fn()} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+      expect(screen.getByText("Loading…")).toBeInTheDocument();
+      // Another card opens: its placeholder waits for its own delay.
+      rerender(<ArtworkPicker code={ALT.code} onPick={vi.fn()} />);
+      expect(container).toBeEmptyDOMElement();
+      await act(async () => { release(); });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("shows the known count while the list loads when the card list already said it", () => {
     artworkGate = new Promise<void>(() => undefined);
     render(<ArtworkPicker code={DARK.code} knownCount={2} onPick={vi.fn()} />);
