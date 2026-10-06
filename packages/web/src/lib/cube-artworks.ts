@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import type { DraftConfig } from "@yugidraft/shared/types";
 import type { CardArtworkFamily } from "@yugidraft/shared/duels";
 
 export class CubeArtworkConflict extends Error {}
@@ -39,6 +40,14 @@ export function swapCubeArtwork(db: Database.Database, cubeId: number, from: num
           `https://images.ygoprodeck.com/images/cards_small/${code}.jpg`, Number(code === cardId));
     }
     db.prepare("update cube_cards set catalog_card_id = ? where cube_id = ? and catalog_card_id = ?").run(to, cubeId, from);
-    db.prepare("update cubes set updated_at = ? where id = ?").run(new Date().toISOString(), cubeId);
+    const cube = db.prepare("select config_json from cubes where id = ?").get(cubeId) as { config_json: string | null };
+    const config = JSON.parse(cube.config_json ?? "{}") as DraftConfig;
+    // Legacy cubes can list the same card in config and authored rows. Let the swapped
+    // row supply its maxCopies, preserving unrelated config entries (including copies).
+    if (config.customCardIds) {
+      config.customCardIds = config.customCardIds.filter(code => code !== from && code !== to);
+    }
+    db.prepare("update cubes set config_json = ?, updated_at = ? where id = ?")
+      .run(JSON.stringify(config), new Date().toISOString(), cubeId);
   })();
 }

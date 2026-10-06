@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { createDraftService } from "@yugidraft/shared/services";
+import { createDraftService, createCubeService, createCardCatalogService } from "@yugidraft/shared/services";
 import { migrate } from "@yugidraft/shared/db";
 const { getDb, requireWebAccess, cubeWriteAccess, callDuelHost } = vi.hoisted(() => ({ getDb: vi.fn(), requireWebAccess: vi.fn(), cubeWriteAccess: vi.fn(), callDuelHost: vi.fn() }));
 vi.mock("@/lib/db", () => ({ getDb }));
@@ -93,4 +93,25 @@ it("keeps engine-only artwork in the existing local API family", async () => {
   db.exec("insert into card_artworks (card_id,artwork_id,image_url,image_url_small,is_main) values (12,12,'full','small',1),(12,10,'full','small',0)");
   expect((await swap()).status).toBe(200);
   expect(db.prepare("select card_id,is_main from card_artworks where artwork_id = 11").get()).toEqual({ card_id: 12, is_main: 0 });
+});
+
+
+it("dedupes legacy config membership against the swapped row without losing authored copies", async () => {
+  const config = { customCardIds: [20, 10, 10, 11, 20], setNames: ["Legacy set"], cardsPerPlayer: 8 };
+  db.prepare("update cubes set config_json = ? where id = 1").run(JSON.stringify(config));
+  expect((await swap()).status).toBe(200);
+  const cubes = createCubeService(db, createCardCatalogService(db));
+  expect(cubes.findCube(1)?.config).toEqual({ ...config, customCardIds: [20, 20] });
+  expect(cubes.applyCubeToConfig(1).customCardIds).toEqual([20, 20, 11, 11]);
+});
+
+it("rolls back artwork rows and config together when the cube update fails", async () => {
+  const config = JSON.stringify({ customCardIds: [10, 11] });
+  db.prepare("update cubes set config_json = ? where id = 1").run(config);
+  db.exec("create trigger reject_cube_update before update on cubes begin select raise(abort, 'cube update failed'); end");
+  expect((await swap()).status).toBe(400);
+  expect(db.prepare("select catalog_card_id from cube_cards").all()).toEqual([{ catalog_card_id: 10 }]);
+  expect(db.prepare("select config_json from cubes where id = 1").get()).toEqual({ config_json: config });
+  expect(db.prepare("select 1 from card_catalog where ygoprodeck_id = 11").get()).toBeUndefined();
+  expect(db.prepare("select 1 from card_artworks where artwork_id = 11").get()).toBeUndefined();
 });
