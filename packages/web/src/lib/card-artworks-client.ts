@@ -4,7 +4,8 @@ export type { CardArtworksResponse, SelectableCardArtwork };
 
 /** Families are tiny and change only when a sync adds art, so a short in-memory cache is enough. */
 const TTL_MS = 5 * 60_000;
-const cache = new Map<number, { at: number; family: Promise<CardArtworksResponse> }>();
+type Entry = { at: number; family: Promise<CardArtworksResponse>; value?: CardArtworksResponse };
+const cache = new Map<number, Entry>();
 
 export class ArtworksRequestError extends Error {
   readonly status: number;
@@ -39,21 +40,32 @@ async function load(passcode: number): Promise<CardArtworksResponse> {
   return { passcode: family.passcode, artworks: family.artworks };
 }
 
+/** The family when an earlier request already loaded it, so a picker can draw it on its first render. */
+export function peekCardArtworks(passcode: number): CardArtworksResponse | null {
+  const hit = cache.get(passcode);
+  return hit?.value && Date.now() - hit.at < TTL_MS ? hit.value : null;
+}
+
 /** Every art of the card's family, main first. One request serves any member of the family. */
 export function fetchCardArtworks(passcode: number): Promise<CardArtworksResponse> {
   const hit = cache.get(passcode);
   if (hit && Date.now() - hit.at < TTL_MS) return hit.family;
   const family = load(passcode);
-  const entry = { at: Date.now(), family };
+  const entry: Entry = { at: Date.now(), family };
   cache.set(passcode, entry);
   void family.then(
     (value) => {
+      entry.value = value;
       for (const art of value.artworks) {
         const existing = cache.get(art.passcode);
-        if (!existing || existing === entry || Date.now() - existing.at >= TTL_MS) cache.set(art.passcode, { at: entry.at, family });
+        if (!existing || existing === entry || Date.now() - existing.at >= TTL_MS) cache.set(art.passcode, { at: entry.at, family, value });
       }
     },
-    () => { if (cache.get(passcode) === entry) cache.delete(passcode); },
+    (reason: unknown) => {
+      // A card with no family stays "no family" for the cache time; any other failure may be a hiccup, so the next ask retries.
+      const missing = reason instanceof ArtworksRequestError && reason.status === 404;
+      if (!missing && cache.get(passcode) === entry) cache.delete(passcode);
+    },
   );
   return family;
 }

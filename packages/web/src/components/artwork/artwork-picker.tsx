@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { ImageOff, RotateCw } from "lucide-react";
-import { ArtworksRequestError, fetchCardArtworks, type CardArtworksResponse, type SelectableCardArtwork } from "@/lib/card-artworks-client";
+import { ArtworksRequestError, fetchCardArtworks, peekCardArtworks, type CardArtworksResponse, type SelectableCardArtwork } from "@/lib/card-artworks-client";
 import { cn } from "@/lib/utils";
 import styles from "./artwork-picker.module.css";
 
@@ -49,12 +49,16 @@ export function ArtworkPicker({
   onFamily?: (family: CardArtworksResponse) => void;
   onPick: (art: SelectableCardArtwork, family: CardArtworksResponse) => void;
 }) {
-  const [family, setFamily] = useState<CardArtworksResponse | null>(null);
-  const [failure, setFailure] = useState<ArtworksRequestError | Error | null>(null);
+  const [loaded, setLoaded] = useState<CardArtworksResponse | null>(() => peekCardArtworks(code));
+  const [failed, setFailed] = useState<{ code: number; error: Error } | null>(null);
+  const [slow, setSlow] = useState(false);
   const [retry, setRetry] = useState(0);
   const [broken, setBroken] = useState<ReadonlySet<number>>(() => new Set());
   const [look, setLook] = useState<number | null>(null);
   const strip = useRef<HTMLDivElement>(null);
+  // The strip of another card is never shown: a family counts only when it holds this card's art.
+  const family = (loaded?.artworks.some((art) => art.passcode === code) ? loaded : null) ?? peekCardArtworks(code);
+  const failure = failed?.code === code ? failed.error : null;
   const familyRef = useRef(family);
   familyRef.current = family;
   const onFamilyRef = useRef(onFamily);
@@ -64,22 +68,25 @@ export function ArtworkPicker({
   useEffect(() => {
     if (skip) return;
     // The strip stays while the card changes inside its own family.
-    if (familyRef.current?.artworks.some((art) => art.passcode === code) && retry === 0) return;
+    if (familyRef.current?.artworks.some((art) => art.passcode === code)) return;
     let cancelled = false;
-    setFailure(null);
+    setFailed(null);
+    setSlow(false);
+    // A card that has one art answers fast; its placeholder would only flash.
+    const timer = window.setTimeout(() => setSlow(true), 200);
     void fetchCardArtworks(code).then(
       (result) => {
         if (cancelled) return;
-        setFamily(result);
+        setLoaded(result);
         onFamilyRef.current?.(result);
       },
       (reason: unknown) => {
         if (cancelled) return;
-        setFamily(null);
-        setFailure(reason instanceof Error ? reason : new Error("Could not load the art list."));
+        setLoaded(null);
+        setFailed({ code, error: reason instanceof Error ? reason : new Error("Could not load the art list.") });
       },
     );
-    return () => { cancelled = true; };
+    return () => { cancelled = true; window.clearTimeout(timer); };
   }, [code, skip, retry]);
 
   if (skip) return null;
@@ -98,9 +105,13 @@ export function ArtworkPicker({
     );
   }
   if (!family) {
+    if (knownCount == null && !slow) return null;
     return (
       <section className={styles.picker} aria-label={label} aria-busy="true">
-        <header className={styles.head}><span className={styles.title}>Art</span><span className={styles.count}>Loading…</span></header>
+        <header className={styles.head}>
+          <span className={styles.title}>Art</span>
+          <span className={cn("num", styles.count)}>{knownCount != null ? `${knownCount} arts` : "Loading…"}</span>
+        </header>
         <div className={styles.skeleton} aria-hidden="true"><span /><span /><span /></div>
       </section>
     );
@@ -109,10 +120,11 @@ export function ArtworkPicker({
 
   const { artworks } = family;
   const current = artworks.findIndex((art) => art.passcode === code);
-  const shownIndex = look ?? (current >= 0 ? current : 0);
-  const shown = artworks[shownIndex]!;
+  const shownIndex = Math.min(look ?? (current >= 0 ? current : 0), artworks.length - 1);
+  const shown = artworks[shownIndex] ?? artworks[0]!;
   const tabStop = current >= 0 ? current : 0;
   const locked = disabled || busy;
+  const shownReason = shownIndex === current ? undefined : unavailable?.get(shown.passcode);
 
   function onKey(event: KeyboardEvent<HTMLDivElement>) {
     const keys: Record<string, number> = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 };
@@ -139,6 +151,9 @@ export function ArtworkPicker({
           const missing = !art.smallUrl || broken.has(art.passcode);
           const isCurrent = index === current;
           const reason = isCurrent ? undefined : unavailable?.get(art.passcode);
+          // aria-disabled, not disabled: the button keeps its place in the tab order, so arrow keys and
+          // focus survive a swap and a keyboard user can still read why an art is unavailable.
+          const blocked = (locked || reason != null) && !isCurrent;
           return (
             <button
               key={art.passcode}
@@ -150,8 +165,8 @@ export function ArtworkPicker({
               data-current={isCurrent ? "true" : undefined}
               data-missing={missing ? "true" : undefined}
               tabIndex={index === tabStop ? 0 : -1}
-              disabled={(locked || reason != null) && !isCurrent}
-              onClick={() => { if (!isCurrent && !locked) onPick(art, family); }}
+              aria-disabled={blocked || undefined}
+              onClick={() => { if (!isCurrent && !blocked) onPick(art, family); }}
               onPointerEnter={(event) => { if (event.pointerType !== "touch") setLook(index); }}
               onPointerLeave={() => setLook(null)}
               onFocus={() => setLook(index)}
@@ -173,7 +188,9 @@ export function ArtworkPicker({
           );
         })}
       </div>
-      <p className={styles.caption} aria-live="polite">
+      {/* Only the change of state is announced; moving focus along the strip already reads each art. */}
+      <p className="sr" role="status">{busy ? "Changing art…" : ""}</p>
+      <p className={styles.caption} aria-hidden={busy || undefined}>
         {busy ? "Changing art…" : (
           <>
             <span className="num">Art {shownIndex + 1} of {artworks.length}</span>
@@ -181,6 +198,7 @@ export function ArtworkPicker({
             {shown.isMain ? " · Main art" : ""}
             {!shown.smallUrl || broken.has(shown.passcode) ? " · No image yet" : ""}
             {shownIndex === current ? " · In use" : ""}
+            {shownReason ? ` · ${shownReason}` : ""}
           </>
         )}
       </p>
