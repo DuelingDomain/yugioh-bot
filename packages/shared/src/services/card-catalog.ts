@@ -332,6 +332,12 @@ export function createCardCatalogService(
       );
       // All foreign-key targets exist before artwork mappings are inserted.
       for (const parent of previousParents) db.prepare("update card_artworks set is_main = 0 where card_id = ?").run(parent);
+      // Retained engine-only arts are deliberately absent from API images, but
+      // must follow a reconciled family main without gaining API provenance.
+      for (const image of known) {
+        if (image.source === "engine") db.prepare("update card_artworks set card_id = ?, is_main = ? where artwork_id = ?")
+          .run(cardId, Number(image.artwork_id === cardId), image.artwork_id);
+      }
       for (const [artworkId, image] of images) upsertArtwork.run(cardId, artworkId, image.image_url,
         image.image_url_small, image.image_url_cropped ?? null, Number(artworkId === cardId));
       if (synthesizedMain) db.prepare("update card_artworks set source = 'engine' where artwork_id = ?").run(cardId);
