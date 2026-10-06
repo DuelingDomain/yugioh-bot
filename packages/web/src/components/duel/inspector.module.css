@@ -11,7 +11,7 @@
   overflow-x: hidden;
   color: var(--duel-ink, #efe7d5);
   font-family: var(--duel-f-ui, var(--font-body));
-  font-size: var(--duel-t-body, 13px);
+  font-size: var(--ct, var(--duel-t-body, 13px));
 }
 
 .empty {
@@ -21,7 +21,7 @@
   padding: 1rem;
   color: var(--duel-ink-3, #958f81);
   font-family: var(--duel-f-ui, var(--font-body));
-  font-size: var(--duel-t-body, 13px);
+  font-size: var(--ct, var(--duel-t-body, 13px));
   text-align: center;
 }
 
@@ -55,7 +55,7 @@
   margin: 0;
   color: var(--duel-ink, #efe7d5);
   font-family: var(--duel-f-ui, var(--font-body));
-  font-size: var(--duel-t-name, 20px);
+  font-size: calc(var(--ct, 14px) * 1.4);
   font-weight: 500;
   letter-spacing: -0.005em;
   line-height: 1.15;
@@ -75,17 +75,21 @@
   line-height: 1.35;
 }
 
-.details,
+.details {
+  color: var(--duel-ink-2, #c3bba8);
+  font-size: var(--ct, var(--duel-t-body, 13px));
+}
+
 .kind {
   color: var(--duel-ink-2, #c3bba8);
-  font-size: var(--duel-t-body, 13px);
+  font-size: calc(var(--ct, 14px) * 0.95);
 }
 
 .combat {
   padding-top: calc(2 * var(--duel-unit, 1px));
   color: var(--duel-ink, #efe7d5);
   font-family: var(--duel-f-num, var(--font-display));
-  font-size: var(--duel-t-num, 22px);
+  font-size: calc(var(--ct, 14px) * 1.45);
   font-variant-numeric: tabular-nums lining-nums;
   font-weight: 450;
   letter-spacing: 0.01em;
@@ -97,8 +101,8 @@
   padding-top: calc(8 * var(--duel-unit, 1px));
   border-top: 1px solid var(--duel-rule-lo, rgb(181 153 99 / 0.17));
   color: var(--duel-ink-2, #c3bba8);
-  font-size: var(--duel-t-body, 13px);
-  line-height: 1.45;
+  font-size: var(--ct, var(--duel-t-body, 13px));
+  line-height: 1.5;
 }
 
 .metaList {
@@ -107,7 +111,7 @@
   list-style: none;
   color: var(--duel-ink-2, #c3bba8);
   font-family: var(--duel-f-ui, var(--font-body));
-  font-size: var(--duel-t-sm, 12px);
+  font-size: calc(var(--ct, 13px) * 0.95);
   line-height: 1.4;
 }
 
@@ -184,12 +188,12 @@
   padding: 0 calc(16 * var(--duel-unit, 1px)) calc(8 * var(--duel-unit, 1px));
   color: var(--duel-ink-3, #958f81);
   font-family: var(--duel-f-ui, var(--font-body));
-  font-size: var(--duel-t-sm, 12px);
+  font-size: calc(var(--ct, 13px) * 0.95);
 }
 .owner i {
   flex: none;
-  width: 9px;
-  height: 9px;
+  width: 0.6em;
+  height: 0.6em;
   border-radius: 50%;
   background: var(--seat-main, #9b7eff);
 }

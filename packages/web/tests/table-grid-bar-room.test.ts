@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { pickBarRoom, promptUnit } from "../src/components/duel/table/grid-stage";
+import { dockBarRoom, freeDockRoom, pickBarRoom, promptUnit, restBarRoom } from "../src/components/duel/table/grid-stage";
 
 const rect = (x: number, y: number, width: number, height: number) => ({ x, y, width, height });
 const room = (value: string | undefined) => value?.split(",").map(Number);
@@ -99,5 +99,48 @@ describe("promptUnit", () => {
     expect(prompts).toMatch(/\[data-prompt-dense\]\) \.btn \{ min-height: max\(32px/);
     const source = readFileSync(join(__dirname, "../src/components/duel/table/grid-stage.tsx"), "utf8");
     expect(source).toMatch(/"--pr-unit" as string\]: `\$\{promptUnit\(/);
+  });
+});
+
+describe("pickBarRoom and the other zones", () => {
+  it("keeps off a zone that is not a target when there is room, but never trades a target for it", () => {
+    const pair = rect(0, 0, 1000, 600);
+    const emz = rect(400, 250, 120, 100);
+    const box = room(pickBarRoom(pair, [], [emz]))!;
+    expect(hits(box, emz)).toBe(false);
+    // A target band above and below the middle and the zone in the middle: the bar stays off the targets.
+    const targets = [rect(0, 150, 1000, 90), rect(0, 360, 1000, 90)];
+    const boxed = room(pickBarRoom(pair, targets, [rect(0, 240, 1000, 120)]))!;
+    expect(targets.some((t) => hits(boxed, t))).toBe(false);
+  });
+});
+
+describe("restBarRoom", () => {
+  it("docks at the bottom, beside the hand and off the HUD, when the pair has no free room", () => {
+    const pair = rect(0, 0, 1200, 900);
+    // A full band of zones over the middle of the pair: no clear pair room.
+    const zones = [rect(0, 0, 1200, 900)];
+    const box = { width: 1900, height: 1080 };
+    const hand = rect(600, 920, 400, 104);
+    const plate = rect(200, 920, 215, 105);
+    const dock = room(restBarRoom(pair, box, [], [...zones, hand], [plate]))!;
+    expect(dock[1]).toBe(1080 - 92 - 12);
+    expect(hits(dock, hand) || hits(dock, plate)).toBe(false);
+    expect(freeDockRoom(box, [rect(0, 900, 1900, 180)])).toBeUndefined();
+    // A gap of 420 px between the hand and the corner cluster: no full bar fits, a stacked 380 px bar does.
+    const narrow = room(freeDockRoom({ width: 1440, height: 820 }, [rect(0, 660, 870, 160), rect(1290, 600, 150, 220)]))!;
+    expect(narrow[2]).toBe(380);
+    expect(narrow[3]).toBe(136);
+    expect(narrow[0]).toBeGreaterThanOrEqual(870);
+    expect(narrow[0] + narrow[2]).toBeLessThanOrEqual(1290);
+  });
+});
+
+describe("dockBarRoom", () => {
+  it("docks the bar of a zoomed board at the bottom middle of the box, in the middle half", () => {
+    expect(room(dockBarRoom({ width: 1230, height: 815 }))).toEqual([405, 711, 420, 92]);
+    // A narrow box: the bar is half the box wide and stacks.
+    expect(room(dockBarRoom({ width: 760, height: 600 }))).toEqual([190, 452, 380, 136]);
+    expect(dockBarRoom({ width: 300, height: 600 })).toBeUndefined();
   });
 });

@@ -3,6 +3,7 @@
 import type { CSSProperties } from "react";
 import type { DuelCard, DuelCardInfo } from "@yugidraft/shared/duels";
 import { CardBack } from "./card-face";
+import { cardTextStyle, useCardTextSize } from "./card-text-size";
 import {
   cardArtUrl,
   cardCombatText,
@@ -21,10 +22,12 @@ export type InspectTarget =
 
 function InfoBody({ card }: { card: DuelCard | DuelCardInfo }) {
   const styles = useSkinStyles(baseStyles, "inspector");
+  const textSize = useCardTextSize();
+  const textStyle = cardTextStyle(textSize);
   const code = card.code;
   if (isHiddenCard(card) || code == null) {
     return (
-      <div className={styles.root}>
+      <div className={styles.root} data-card-text={textSize} style={textStyle}>
         <div className={`${styles.art} card-frame`}>
           <CardBack className={styles.artBack} />
         </div>
@@ -39,7 +42,7 @@ function InfoBody({ card }: { card: DuelCard | DuelCardInfo }) {
   const description = card.description?.trim() ?? "";
 
   return (
-    <div className={styles.root}>
+    <div className={styles.root} data-card-text={textSize} style={textStyle}>
       <div className={`${styles.art} card-frame`}>
         <img src={cardArtUrl(code, "full")} alt="" />
       </div>
@@ -77,13 +80,15 @@ export function CardInspector({
   ownerOf?: (card: DuelCard) => InspectorOwner | null;
 }) {
   const styles = useSkinStyles(baseStyles, "inspector");
+  const textSize = useCardTextSize();
+  const textStyle = cardTextStyle(textSize);
   if (!target) {
-    return <div className={styles.empty}>Select a card to inspect.</div>;
+    return <div className={styles.empty} style={textStyle}>Select a card to inspect.</div>;
   }
 
   if (target.type === "pile") {
     return (
-      <div className={styles.root}>
+      <div className={styles.root} data-card-text={textSize} style={textStyle}>
         <h2 className={styles.pileTitle}>{target.title}</h2>
         {target.cards.length === 0 ? (
           <p className={styles.details}>Empty.</p>
@@ -146,14 +151,14 @@ export function CardInspector({
         <p
           className={styles.owner}
           data-testid="inspector-owner"
-          style={{ "--seat-main": owner.tone.main, "--seat-ink": owner.tone.ink } as CSSProperties}
+          style={{ ...textStyle, "--seat-main": owner.tone.main, "--seat-ink": owner.tone.ink } as CSSProperties}
         >
           <i aria-hidden="true" />
           Owner <b>{owner.name}</b>
         </p>
       ) : null}
       {extras.length > 0 ? (
-        <ul className={styles.metaList}>
+        <ul className={styles.metaList} style={textStyle}>
           {extras.map((line) => (
             <li key={line}>{line}</li>
           ))}
