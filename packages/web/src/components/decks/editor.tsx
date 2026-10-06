@@ -39,7 +39,8 @@ import { SheetRoot, StatusLine, SvButton, Zone } from "@/components/sheet";
 import { cn } from "@/lib/utils";
 import { useNavigationLeaveGuard } from "@/lib/hooks/use-duel-leave-guard";
 import { DeckRequestError, createSavedDeck, deleteSavedDeck, getDeckCardFacets, getDeckCards, getSavedDeck, readRegistration, saveDraftDeck, swapDeckArtwork, updateSavedDeck, type DeckRegistrationMark, type SavedDeckView } from "./api";
-import { ArtworkPicker } from "@/components/artwork/artwork-picker";
+import { ArtworkPicker, artCountLabel } from "@/components/artwork/artwork-picker";
+import { ArtChip } from "./art-chip";
 import { ControlsLegend } from "./controls-legend";
 import { useCardPress } from "./card-press";
 import { DeckArtMenu, type ArtMenuTarget } from "./art-menu";
@@ -923,6 +924,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     const section = (["main", "extra", "side"] as const).find((value) => deck[value].includes(code));
     inspect(code, section ? { section, code, index: deck[section].indexOf(code) } : null);
   }
+  const masterArts = deck.deckMaster != null ? altArtCount(deck.deckMaster, catalog) : 0;
   const masterGesture = press({
     remove: () => commit(selectDomainMaster(selection, undefined)),
     moveSide: () => setNotice("Domain has no Side Deck."),
@@ -1142,17 +1144,17 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
                 onDragOver={(event) => { if (hasCardDrag(event)) { event.preventDefault(); setMasterDropping(true); } }}
                 onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setMasterDropping(false); }}
                 onDrop={(event) => { setMasterDropping(false); const drag = readCardDrag(event); if (!drag || drag.from === "master") return; event.preventDefault(); makeMaster(drag.code, drag.from === "list" ? undefined : drag.from); }}>
-                <div className={styles["de-mslot"]}>{deck.deckMaster != null ? <button type="button" className={styles["de-c"]} aria-label={`Deck Master: ${cardName(deck.deckMaster)}`} aria-pressed={inspectCode === deck.deckMaster && selected == null} title={cardName(deck.deckMaster)} draggable {...masterGesture} onPointerEnter={(event) => { if (event.pointerType !== "touch") pointAt({ code: deck.deckMaster!, from: "master" }); }} onPointerLeave={() => pointAt(null)} onDragStart={(event) => { masterGesture.onDragStart(); writeCardDrag(event, { code: deck.deckMaster!, from: "master" }); }}><CardArt code={deck.deckMaster} name={cardName(deck.deckMaster)} /></button> : <Zone state="dashed" size="md" style={{ "--zw": "58px" } as CSSProperties} />}</div>
+                <div className={styles["de-mslot"]}>{deck.deckMaster != null ? <button type="button" className={styles["de-c"]} aria-label={`Deck Master: ${cardName(deck.deckMaster)}${masterArts > 0 ? `, ${artCountLabel(masterArts)}` : ""}`} aria-keyshortcuts="ContextMenu Shift+F10" aria-pressed={inspectCode === deck.deckMaster && selected == null} title={cardName(deck.deckMaster)} draggable {...masterGesture} onPointerEnter={(event) => { if (event.pointerType !== "touch") pointAt({ code: deck.deckMaster!, from: "master" }); }} onPointerLeave={() => pointAt(null)} onDragStart={(event) => { masterGesture.onDragStart(); writeCardDrag(event, { code: deck.deckMaster!, from: "master" }); }}><CardArt code={deck.deckMaster} name={cardName(deck.deckMaster)} /><ArtChip otherArts={masterArts} corner open={artMenu?.section === "deckMaster"} onOpen={(anchor) => openArtMenu({ section: "deckMaster", index: 0, code: deck.deckMaster!, anchor })} /></button> : <Zone state="dashed" size="md" style={{ "--zw": "58px" } as CSSProperties} />}</div>
                 <div className={styles.masterText}><h2 className={styles["de-st"]}>Deck Master</h2><p className="small">{deck.deckMaster != null ? `${cardName(deck.deckMaster)}. ` : ""}Drag a monster here, or select one and press Use as Deck Master.</p>{deck.deckMaster != null ? <SvButton variant="quiet" disabled={busy} onClick={() => commit(selectDomainMaster(selection, undefined))}>Clear</SvButton> : null}</div>
               </section>
             ) : null}
             <DeckSectionGrid {...sectionProps} title="Main" section="main" codes={deck.main} minimum={mainLow} maximum={DRAFT_MAIN_MAX} target={mode === "domain" ? "60" : `${mainLow}–${DRAFT_MAIN_MAX}`} emptyHint="Add cards from the list on the right." actions={clearButton("main", "Main")} />
             <DeckSectionGrid {...sectionProps} title="Extra" section="extra" codes={deck.extra} maximum={DRAFT_EXTRA_MAX} target="up to 15" emptyHint="Fusion, Synchro, Xyz and Link monsters go here." actions={clearButton("extra", "Extra")} />
-            <DeckSectionGrid {...sectionProps} title="Side" section="side" codes={deck.side} unused={mode === "domain"} maximum={mode === "domain" ? 0 : 15} target={mode === "domain" ? "Not used in Domain" : "up to 15"} emptyHint="Drag cards here, or use Side on a selected card." actions={clearButton("side", "Side")} />
+            <DeckSectionGrid {...sectionProps} title="Side" section="side" codes={deck.side} unused={mode === "domain"} maximum={mode === "domain" ? 0 : 15} target={mode === "domain" ? "Not used in Domain" : "up to 15"} emptyHint="Drag cards here, Ctrl+click a deck card, or use Side on a selected card." actions={clearButton("side", "Side")} />
           </main>
           <CardBrowser id="deck-editor-cards" pool={poolMap ? { cards: poolCards, remaining: (card) => remainingCopies(poolMap, usage, poolCode(card.code), forcedMap), totalCopies: [...poolMap.values()].reduce((sum, count) => sum + count, 0), notInDeck: [...poolMap.keys()].reduce((sum, code) => sum + remainingCopies(poolMap, usage, code, forcedMap), 0) } : undefined} query={query} onQueryChange={setQuery} archetypes={archetypes} limits={limits} view={view} onViewChange={setView} deckCount={deckCount} inspectCode={selected == null ? inspectCode : null} onInspect={(card, openSheet) => { rememberCatalog([card]); inspect(card.code, null, openSheet); }} onHover={(card) => { if (card) rememberCatalog([card]); pointAt(card ? { code: card.code, from: "list" } : null); }} onAdd={(card) => addFromList(card)} onCatalog={rememberCatalog} onRemoveDrop={(drag) => removeCopy(drag)} searchRef={searchRef} />
         </div>
-        {artMenu ? <DeckArtMenu target={artMenu} knownCount={altArtCount(artMenu.code, catalog) + 1} busy={artBusy} disabled={busy} onClose={() => setArtMenu(null)} onFamily={(family) => { void loadFamilyCards(family); }} onPick={(art, family) => { void pickMenuArtwork(art, family); }} /> : null}
+        {artMenu ? <DeckArtMenu key={`${artMenu.section}-${artMenu.index}`} target={artMenu} knownCount={altArtCount(artMenu.code, catalog) + 1} busy={artBusy} disabled={busy} onClose={() => setArtMenu(null)} onFamily={(family) => { void loadFamilyCards(family); }} onPick={(art, family) => { void pickMenuArtwork(art, family); }} /> : null}
         {isPhone && cardSheetOpen && inspectCode != null ? <CardBottomSheet label={cardName(inspectCode)} onClose={() => { setCardSheetOpen(false); setHover(null); }}>{shown ? <CardPreview card={shown} compact copySummary={inspected && !previewing ? <CardCopyCount copies={deckCount(inspected)} limit={copyLimit(inspected.code, catalog, limits)} poolCopies={poolMap ? deckAllowance(poolMap, poolCode(inspected.code), forcedMap) : undefined} forced={forcedMap.get(poolCode(inspected.code)) ?? 0} /> : undefined} /> : missingReader}{cardControls}</CardBottomSheet> : null}
       </div>
     </SheetRoot>

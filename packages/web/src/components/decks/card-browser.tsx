@@ -6,6 +6,7 @@ import { cardLimit, type CardArchetype, type CardQuery, type DeckCardInfo } from
 import { TYPE_LINK, cardDetailsText, cardStatsText } from "@/components/duel/constants";
 import { cn } from "@/lib/utils";
 import { artCountLabel } from "@/components/artwork/artwork-picker";
+import { ArtChip } from "./art-chip";
 import { DeckButton, DeckSelect, DeckSegmented } from "./controls";
 import { queryDeckCards } from "./api";
 import { CardArt } from "./card-art";
@@ -381,7 +382,7 @@ export function CardBrowser({
                       <button type="button" className={styles["de-t"]} aria-label={label} data-full={pool && full ? "true" : undefined} title={card.name} {...handlers}>
                         <CardArt code={card.code} name={card.name} />
                         <LimitBadge limit={limit} />
-                        {card.altArtCount ? <span className={cn("num", styles["de-arts"])} title="Alternate arts. Select the card to choose one.">{artCountLabel(card.altArtCount)}</span> : null}
+                        <ArtChip otherArts={card.altArtCount ?? 0} corner />
                         {pool ? (
                           <span className={cn("num", styles["de-left"])} data-zero={left <= 0 ? "true" : undefined} title="Copies left in your pool">{left} left</span>
                         ) : count > 0 ? <span className={cn("num", styles["de-have"])}>×{count}</span> : null}
@@ -400,7 +401,7 @@ export function CardBrowser({
                       <span className={styles.rowText}>
                         <strong>{card.name}</strong>{" "}
                         <span>{cardDetailsText(card)}</span>{" "}
-                        {card.altArtCount ? <span className={cn("num", styles.rowArts)} title="Alternate arts. Select the card to choose one.">{artCountLabel(card.altArtCount)}</span> : null}{" "}
+                        <ArtChip otherArts={card.altArtCount ?? 0} />{" "}
                         {stats ? <span className={cn("num", styles.rowStats)}>{(card.type & TYPE_LINK) ? `ATK ${stats}` : stats}</span> : null}
                       </span>{" "}
                       {pool ? (

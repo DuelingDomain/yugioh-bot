@@ -1,10 +1,10 @@
 "use client";
 
 import { useRef, useState, type DragEvent, type ReactNode } from "react";
-import { Layers } from "lucide-react";
 import { artCountLabel } from "@/components/artwork/artwork-picker";
 import { Zone } from "@/components/sheet";
 import { cn } from "@/lib/utils";
+import { ArtChip } from "./art-chip";
 import { CardArt } from "./card-art";
 import { useCardPress } from "./card-press";
 import { hasCardDrag, readCardDrag, writeCardDrag } from "./drag";
@@ -177,14 +177,15 @@ export function DeckSectionGrid({
                   type="button"
                   className={styles["de-c"]}
                   aria-pressed={isSelected}
-                  aria-haspopup={arts > 0 ? "dialog" : undefined}
-                  aria-expanded={arts > 0 ? menuOpen : undefined}
+                  aria-keyshortcuts="Delete ContextMenu Shift+F10"
                   aria-label={`${name}, ${title} Deck card ${index + 1}${missing ? ", not in the card database" : ""}${isOver ? ", too many copies" : ""}${arts > 0 ? `, ${artCountLabel(arts)}` : ""}`}
                   title={name}
                   data-unknown={missing ? "true" : undefined}
                   data-over={isOver ? "true" : undefined}
                   draggable
                   {...gesture}
+                  onPointerEnter={(event) => { if (event.pointerType !== "touch") onHover({ section, index }); }}
+                  onPointerLeave={() => onHover(null)}
                   onDragStart={(event) => {
                     gesture.onDragStart();
                     onSelect({ section, code, index }, false);
@@ -201,7 +202,7 @@ export function DeckSectionGrid({
                 >
                   <CardArt code={code} name={name} />
                   <LimitBadge limit={copyLimit(code, catalog, limits)} />
-                  {arts > 0 ? <span className={cn("num", styles["de-artchip"])} data-open={menuOpen ? "true" : undefined} title={`${artCountLabel(arts)}. Right-click to change the art.`} aria-hidden="true"><Layers size={10} strokeWidth={2.4} />{arts + 1}</span> : null}
+                  <ArtChip otherArts={arts} corner open={menuOpen} onOpen={(anchor) => openMenu(anchor, code, index)} />
                   {missing ? <span className={cn("num", styles.unknownTag)}>{code}</span> : null}
                 </button>
               </li>

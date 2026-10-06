@@ -19,7 +19,13 @@ export function ControlsLegend({ phone = false }: { phone?: boolean }) {
         <li><kbd>Click</kbd> preview</li>
         <li><kbd>Double-click</kbd> or <kbd>Right-click</kbd> add</li>
       </ul>
-      <p className={styles["de-legend-n"]}>With a card focused: <kbd>Delete</kbd> removes, <kbd>Menu</kbd> or <kbd>Shift+F10</kbd> changes art.</p>
+      <p className={styles["de-legend-k"]}>Keyboard, on a focused deck card</p>
+      <ul>
+        <li><kbd>Enter</kbd> or <kbd>Space</kbd> select</li>
+        <li><kbd>Delete</kbd> remove</li>
+        <li><kbd>Ctrl+Enter</kbd> move to/from Side Deck</li>
+        <li><kbd>Menu</kbd> or <kbd>Shift+F10</kbd> change art</li>
+      </ul>
     </section>
   );
 }

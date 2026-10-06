@@ -18,7 +18,31 @@ export type ArtMenuTarget = {
 
 const GAP = 8;
 const MARGIN = 12;
+/** Where the menu grows from, so it opens out of the card it sits beside. */
+type Placement = { top: number; left: number; origin: string };
 const FOCUSABLE = 'button:not(:disabled):not([tabindex="-1"]), a[href]';
+
+/**
+ * The press that closes the menu is followed by a click on whatever was under the pointer, and on a deck
+ * tile that click would remove a card. The next click is stopped before it reaches the page; the next
+ * pointerdown starts a new gesture and drops the guard, and so does a second of waiting.
+ */
+function swallowNextClick() {
+  // A press with no click after it (a drag, a scroll) ends the guard too, and so does a long wait.
+  const timer = window.setTimeout(() => drop(), 1000);
+  const drop = () => {
+    window.clearTimeout(timer);
+    document.removeEventListener("click", stop, true);
+    document.removeEventListener("pointerdown", drop, true);
+  };
+  function stop(event: Event) {
+    event.stopPropagation();
+    event.preventDefault();
+    drop();
+  }
+  document.addEventListener("click", stop, true);
+  document.addEventListener("pointerdown", drop, true);
+}
 
 /**
  * The art choices of one deck card in a small popover beside the card. A pick, Escape, a press outside
@@ -39,7 +63,7 @@ export function DeckArtMenu({ target, knownCount, busy, disabled, onClose, onFam
   const panelRef = useCallback((node: HTMLDivElement | null) => { panel.current = node; setBox(node); }, []);
   const close = useRef(onClose);
   close.current = onClose;
-  const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
+  const [position, setPosition] = useState<Placement | null>(null);
   const { anchor } = target;
 
   // Beside the card: to its right, else to its left, else below or above it on a narrow screen.
@@ -52,14 +76,17 @@ export function DeckArtMenu({ target, knownCount, busy, disabled, onClose, onFam
       const room = { w: window.innerWidth, h: window.innerHeight };
       const clamp = (value: number, max: number) => Math.max(MARGIN, Math.min(value, max));
       let left: number;
+      let origin = "top left";
       let top = clamp(from.top, room.h - height - MARGIN);
       if (from.right + GAP + width <= room.w - MARGIN) left = from.right + GAP;
-      else if (from.left - GAP - width >= MARGIN) left = from.left - GAP - width;
+      else if (from.left - GAP - width >= MARGIN) { left = from.left - GAP - width; origin = "top right"; }
       else {
         left = clamp(from.left + from.width / 2 - width / 2, room.w - width - MARGIN);
-        top = from.bottom + GAP + height <= room.h - MARGIN ? from.bottom + GAP : clamp(from.top - GAP - height, room.h - height - MARGIN);
+        const below = from.bottom + GAP + height <= room.h - MARGIN;
+        top = below ? from.bottom + GAP : clamp(from.top - GAP - height, room.h - height - MARGIN);
+        origin = below ? "top center" : "bottom center";
       }
-      setPosition((current) => (current && current.top === top && current.left === left ? current : { top, left }));
+      setPosition((current) => (current && current.top === top && current.left === left && current.origin === origin ? current : { top, left, origin }));
     }
     place();
     window.addEventListener("resize", place);
@@ -74,7 +101,9 @@ export function DeckArtMenu({ target, knownCount, busy, disabled, onClose, onFam
 
   useEffect(() => {
     function onPointer(event: PointerEvent) {
-      if (panel.current && !panel.current.contains(event.target as Node)) close.current();
+      if (!panel.current || panel.current.contains(event.target as Node)) return;
+      close.current();
+      swallowNextClick();
     }
     function onScroll(event: Event) {
       if (panel.current && !panel.current.contains(event.target as Node)) close.current();
@@ -115,7 +144,7 @@ export function DeckArtMenu({ target, knownCount, busy, disabled, onClose, onFam
         className={`${styles["de-pop"]} ${styles["de-artmenu"]}`}
         data-mo="pop"
         data-state="open"
-        style={{ top: position?.top ?? 0, left: position?.left ?? 0, visibility: position ? undefined : "hidden", "--mo-origin": "top left" } as CSSProperties}
+        style={{ top: position?.top ?? 0, left: position?.left ?? 0, visibility: position ? undefined : "hidden", "--mo-origin": position?.origin ?? "top left" } as CSSProperties}
       >
         <ArtworkPicker
           code={target.code}

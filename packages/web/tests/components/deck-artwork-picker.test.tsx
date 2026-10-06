@@ -323,7 +323,7 @@ describe("deck editor art", () => {
   it("shows the art count on cards that have other arts", async () => {
     render(<SavedDeckEditor />);
     const tile = await screen.findByRole("button", { name: "Blue-Eyes White Dragon, 3 arts" });
-    expect(within(tile).getByText("3 arts")).toBeInTheDocument();
+    expect(within(tile).getByTitle("3 arts. Select the card to choose one.")).toBeInTheDocument();
     const pot = screen.getByRole("button", { name: "Pot of Greed" });
     expect(within(pot).queryByText(/arts/)).toBeNull();
   });
@@ -399,12 +399,12 @@ describe("deck editor art", () => {
   it("swaps the Deck Master in Domain and keeps the format", async () => {
     stored = { ...savedDeck([]), mode: "domain", deck: { main: [], extra: [], side: [], deckMaster: MAIN.code } };
     render(<SavedDeckEditor deckId="7" />);
-    fireEvent.click(await screen.findByRole("button", { name: "Deck Master: Blue-Eyes White Dragon" }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Deck Master: Blue-Eyes White Dragon/ }));
     const group = await screen.findByRole("region", { name: "Art of this copy" });
     fireEvent.click(within(group).getByRole("button", { name: /Art 2 of 3/ }));
     await waitFor(() => expect(swaps).toHaveLength(1));
     expect(swaps[0]).toMatchObject({ section: "deckMaster", index: 0, from: MAIN.code, to: ALT.code });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Deck Master: Blue-Eyes White Dragon" }).querySelector("img")?.getAttribute("src")).toContain(String(ALT.code)));
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Deck Master: Blue-Eyes White Dragon/ }).querySelector("img")?.getAttribute("src")).toContain(String(ALT.code)));
     expect(within(screen.getByRole("region", { name: "Art of this copy" })).getByRole("button", { name: /Art 2 of 3/ })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "Domain" })).toHaveAttribute("aria-pressed", "true");
   });
@@ -462,7 +462,6 @@ describe("deck art menu", () => {
     render(<SavedDeckEditor deckId="7" />);
     const copies = await screen.findAllByRole("button", { name: copyName });
     const { group } = await openMenu(copies[1]!);
-    expect(copies[1]).toHaveAttribute("aria-expanded", "true");
     // The art in use has the focus, so the arrow keys work at once.
     await waitFor(() => expect(within(group).getByRole("button", { name: /Art 1 of 3/ })).toHaveFocus());
     fireEvent.click(within(group).getByRole("button", { name: /Art 2 of 3/ }));
@@ -505,7 +504,6 @@ describe("deck art menu", () => {
     fireEvent.keyDown(document.activeElement!, { key: "Escape" });
     expect(screen.queryByRole("dialog", { name: menuName })).toBeNull();
     expect(tile).toHaveFocus();
-    expect(tile).toHaveAttribute("aria-expanded", "false");
     expect(swaps).toHaveLength(0);
   });
 
@@ -518,6 +516,8 @@ describe("deck art menu", () => {
     expect(screen.getByRole("dialog", { name: menuName })).toBeInTheDocument();
     fireEvent.pointerDown(document.body);
     expect(screen.queryByRole("dialog", { name: menuName })).toBeNull();
+    // The click that ends the press is the guard's one click.
+    fireEvent.click(document.body);
   });
 
   it("says so, and opens no menu, for a card with one art", async () => {
@@ -562,12 +562,12 @@ describe("deck art menu", () => {
   it("swaps the Deck Master in Domain from its own menu", async () => {
     stored = { ...savedDeck([]), mode: "domain", deck: { main: [], extra: [], side: [], deckMaster: MAIN.code } };
     render(<SavedDeckEditor deckId="7" />);
-    const slot = await screen.findByRole("button", { name: "Deck Master: Blue-Eyes White Dragon" });
+    const slot = await screen.findByRole("button", { name: /^Deck Master: Blue-Eyes White Dragon/ });
     const { group } = await openMenu(slot);
     fireEvent.click(within(group).getByRole("button", { name: /Art 2 of 3/ }));
     await waitFor(() => expect(swaps).toHaveLength(1));
     expect(swaps[0]).toMatchObject({ section: "deckMaster", index: 0, from: MAIN.code, to: ALT.code });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Deck Master: Blue-Eyes White Dragon" }).querySelector("img")?.getAttribute("src")).toContain(String(ALT.code)));
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Deck Master: Blue-Eyes White Dragon/ }).querySelector("img")?.getAttribute("src")).toContain(String(ALT.code)));
     expect(screen.getByRole("button", { name: "Domain" })).toHaveAttribute("aria-pressed", "true");
   });
 
@@ -598,10 +598,127 @@ describe("deck art indicator", () => {
     stored = savedDeck([MAIN.code, DARK.code, POT.code]);
     render(<SavedDeckEditor deckId="7" />);
     const multi = await screen.findByRole("button", { name: /Blue-Eyes White Dragon, Main Deck card 1, 3 arts$/ });
-    expect(within(multi).getByTitle("3 arts. Right-click to change the art.")).toHaveTextContent("3");
+    expect(within(multi).getByTitle("3 arts. Click or right-click to change the art.")).toHaveTextContent("3");
     const two = screen.getByRole("button", { name: /Dark Magician, Main Deck card 2, 2 arts$/ });
-    expect(within(two).getByTitle("2 arts. Right-click to change the art.")).toHaveTextContent("2");
+    expect(within(two).getByTitle("2 arts. Click or right-click to change the art.")).toHaveTextContent("2");
     const single = screen.getByRole("button", { name: /Pot of Greed, Main Deck card 3$/ });
     expect(single.querySelector('[title*="arts"]')).toBeNull();
+  });
+});
+
+describe("deck art menu details", () => {
+  const copyName = /Blue-Eyes White Dragon, Main Deck card/;
+  const menuName = "Change art of Blue-Eyes White Dragon";
+  const mouseClick = (element: Element) => {
+    fireEvent.pointerDown(element, { pointerType: "mouse", button: 0 });
+    fireEvent.pointerUp(element, { pointerType: "mouse", button: 0 });
+    fireEvent.click(element, { detail: 1 });
+  };
+  const rect = (left: number, top: number, width = 60, height = 90) => ({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => ({}) }) as DOMRect;
+
+  afterEach(() => {
+    window.innerWidth = 1024;
+    window.innerHeight = 768;
+  });
+
+  it("does not remove the card under the press that closes the menu, then clicks work again", async () => {
+    stored = savedDeck([MAIN.code, MAIN.code]);
+    render(<SavedDeckEditor deckId="7" />);
+    const copies = await screen.findAllByRole("button", { name: copyName });
+    fireEvent.contextMenu(copies[0]!);
+    await screen.findByRole("dialog", { name: menuName });
+    mouseClick(copies[1]!);
+    expect(screen.queryByRole("dialog", { name: menuName })).toBeNull();
+    expect(screen.getAllByRole("button", { name: copyName })).toHaveLength(2);
+    mouseClick(screen.getAllByRole("button", { name: copyName })[1]!);
+    expect(screen.getAllByRole("button", { name: copyName })).toHaveLength(1);
+  });
+
+  it("opens the menu from the art chip and does not remove the card", async () => {
+    stored = savedDeck([MAIN.code]);
+    render(<SavedDeckEditor deckId="7" />);
+    const tile = await screen.findByRole("button", { name: copyName });
+    const chip = within(tile).getByTitle("3 arts. Click or right-click to change the art.");
+    mouseClick(chip);
+    expect(await screen.findByRole("dialog", { name: menuName })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: copyName })).toHaveLength(1);
+  });
+
+  it("gives the Deck Master slot the chip, the art count in its name and the menu", async () => {
+    stored = { ...savedDeck([]), mode: "domain", deck: { main: [], extra: [], side: [], deckMaster: MAIN.code } };
+    render(<SavedDeckEditor deckId="7" />);
+    const slot = await screen.findByRole("button", { name: "Deck Master: Blue-Eyes White Dragon, 3 arts" });
+    mouseClick(within(slot).getByTitle("3 arts. Click or right-click to change the art."));
+    expect(await screen.findByRole("dialog", { name: menuName })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Deck Master: Blue-Eyes White Dragon, 3 arts" })).toBeInTheDocument();
+  });
+
+  it("names the keys on the tile and leaves no dialog claim", async () => {
+    stored = savedDeck([MAIN.code]);
+    render(<SavedDeckEditor deckId="7" />);
+    const tile = await screen.findByRole("button", { name: copyName });
+    expect(tile).toHaveAttribute("aria-keyshortcuts", "Delete ContextMenu Shift+F10");
+    expect(tile).not.toHaveAttribute("aria-haspopup");
+    expect(tile).not.toHaveAttribute("aria-expanded");
+  });
+
+  it("keeps Tab inside the menu", async () => {
+    stored = savedDeck([MAIN.code]);
+    render(<SavedDeckEditor deckId="7" />);
+    fireEvent.contextMenu(await screen.findByRole("button", { name: copyName }));
+    const menu = await screen.findByRole("dialog", { name: menuName });
+    await waitFor(() => expect(menu.contains(document.activeElement)).toBe(true));
+    expect(fireEvent.keyDown(document.activeElement!, { key: "Tab" })).toBe(false);
+    expect(menu.contains(document.activeElement)).toBe(true);
+    expect(fireEvent.keyDown(document.activeElement!, { key: "Tab", shiftKey: true })).toBe(false);
+    expect(menu.contains(document.activeElement)).toBe(true);
+  });
+
+  it("closes when the page scrolls, but not when the strip inside it does", async () => {
+    stored = savedDeck([MAIN.code]);
+    render(<SavedDeckEditor deckId="7" />);
+    fireEvent.contextMenu(await screen.findByRole("button", { name: copyName }));
+    const menu = await screen.findByRole("dialog", { name: menuName });
+    fireEvent.scroll(within(menu).getByRole("group", { name: "Choose an art" }));
+    expect(screen.getByRole("dialog", { name: menuName })).toBeInTheDocument();
+    fireEvent.scroll(document.body);
+    expect(screen.queryByRole("dialog", { name: menuName })).toBeNull();
+  });
+
+  it("opens to the left of the card when there is no room on its right", async () => {
+    window.innerWidth = 800;
+    stored = savedDeck([MAIN.code]);
+    render(<SavedDeckEditor deckId="7" />);
+    const tile = await screen.findByRole("button", { name: copyName });
+    vi.spyOn(tile, "getBoundingClientRect").mockReturnValue(rect(600, 100));
+    fireEvent.contextMenu(tile);
+    const menu = await screen.findByRole("dialog", { name: menuName });
+    await waitFor(() => expect(menu).toHaveStyle({ left: "300px", top: "100px" }));
+    expect(menu.style.getPropertyValue("--mo-origin")).toBe("top right");
+  });
+
+  it("opens below the card on a narrow screen", async () => {
+    window.innerWidth = 400;
+    stored = savedDeck([MAIN.code]);
+    render(<SavedDeckEditor deckId="7" />);
+    const tile = await screen.findByRole("button", { name: copyName });
+    vi.spyOn(tile, "getBoundingClientRect").mockReturnValue(rect(150, 100));
+    fireEvent.contextMenu(tile);
+    const menu = await screen.findByRole("dialog", { name: menuName });
+    await waitFor(() => expect(menu).toHaveStyle({ top: "198px" }));
+    expect(menu.style.getPropertyValue("--mo-origin")).toBe("top center");
+  });
+
+  it("starts again for the next card: focus lands in the new menu and goes back to its card", async () => {
+    stored = savedDeck([MAIN.code, MAIN.code]);
+    render(<SavedDeckEditor deckId="7" />);
+    const copies = await screen.findAllByRole("button", { name: copyName });
+    fireEvent.contextMenu(copies[0]!);
+    await screen.findByRole("dialog", { name: menuName });
+    await waitFor(() => expect(screen.getByRole("dialog", { name: menuName }).contains(document.activeElement)).toBe(true));
+    fireEvent.contextMenu(copies[1]!);
+    await waitFor(() => expect(screen.getByRole("dialog", { name: menuName }).contains(document.activeElement)).toBe(true));
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(copies[1]).toHaveFocus();
   });
 });
