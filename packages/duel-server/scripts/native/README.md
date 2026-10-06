@@ -87,12 +87,16 @@ They run for n > 2 only (except the message format checks) and fail only with `-
 Without the flag they print one `NDUEL NOTE` line per check and run.
 
 - `response-order`: after `MSG_CHAINING` by L, the players of the `MSG_SELECT_CHAIN` prompts until the next
-  `MSG_CHAINING` or `MSG_CHAIN_SOLVING` must be a subsequence of the expected order. FFA (R-FFA-CHAIN): start at L+1,
+  `MSG_CHAINING`, `MSG_CHAIN_SOLVING`, or `MSG_CHAIN_END` must be a subsequence of the expected order. FFA (R-FFA-CHAIN): start at L+1,
   then clockwise, with L last. Tag: L+1, L+3, L+2, L. Duelists that were not prompted
   are allowed. Trigger prompts inside a trigger batch can give a false report: treat a report there with care.
-  `MSG_CHAIN_END` discards the anchor and prompt history: when every unresolved FFA link was removed by
-  elimination, no `MSG_CHAIN_SOLVING` arrives. The restarted open window and later events are not responses to
-  the removed link. Checking at the next link and at resolution still enforces the order within a live chain.
+  When elimination removes unresolved links, it validates pending prompts and re-anchors to the newest living
+  link. Elimination without a removed link preserves response history. With no links left, any normal response
+  prompt before cleanup `MSG_CHAIN_END` fails, including a correctly ordered redundant round.
+  `MSG_CHAIN_END` validates collected responses before resetting, including when no `MSG_CHAIN_SOLVING` arrived.
+  The engine emits cleanup `MSG_CHAIN_END` before one normal open response round when the last link is removed.
+  The `nduel-response-order` regression tests the shared checker with synthetic windows and requires seed 18
+  to exercise final-link elimination followed by `MSG_CHAIN_END` with an open tracked anchor.
 - `direct-pick`: a `MSG_SELECT_OPTION` whose options all are `0xFFFF0000|d` lists only living opponents of the
   prompted duelist. The next `MSG_ATTACK_DUELIST` (201) must name the picked duelist (the answer sent by nduel) and
   a living opponent of the turn player.
