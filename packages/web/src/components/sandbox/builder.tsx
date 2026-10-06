@@ -135,6 +135,8 @@ export function SandboxBuilder({
   const searchRef = useRef<HTMLInputElement>(null);
   const requested = useRef(new Set<number>());
 
+  useEffect(() => { searchRef.current?.focus(); }, []);
+
   const seats = seatsOf(state.board.format);
   const activeSeat = seats.includes(seat) ? seat : "p0";
   const format = state.board.format ?? "1v1";

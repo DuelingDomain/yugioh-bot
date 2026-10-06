@@ -46,7 +46,8 @@ describe("SandboxBuilder", () => {
   it("adds the top hit to the hand with Enter", async () => {
     const user = userEvent.setup();
     const { last } = setup();
-    await quickAdd(user, "dark magician");
+    expect(screen.getByRole("combobox", { name: /search a card to add/i })).toHaveFocus();
+    await user.keyboard("dark magician{Enter}");
     await waitFor(() => expect(last().board.p0?.hand).toEqual([MAGICIAN.code]));
   });
 
