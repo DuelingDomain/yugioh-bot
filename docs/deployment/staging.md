@@ -139,18 +139,18 @@ The build uses the same inputs as the engine session:
 - `domain-core/pins.json`: ygopro-core `efc21aa433b88cd35b7c37db4072a35c58d9d435`, wrapper source
   `9f36452f2a2464f057f7fd6e2273aa5ab589401e`, Lua `75ea9ccbea7c4886f30da147fb67b693b2624c26`,
   and emsdk `4.0.9` at digest `sha256:3c853ef9c3b4c2708da1adac2fdfdba49c775fdc4144ceef4989423963e96811`.
-- All numbered patches in `domain-core/patches` (currently 0001–0090, 0100, 0101 and 0105–0108; 96 patches). No experimental patches or
-  `PATCH_LIMIT`. The current series hash (concatenated patch bytes in filename order) is `6a59e636d6e7037fea6283c2bf67bb470fbfa8a9d11312142d24adac48b11b17`.
+- All numbered patches in `domain-core/patches` (currently 0001–0090, 0100, 0101 and 0105–0110; 98 patches). No experimental patches or
+  `PATCH_LIMIT`. The current series hash (concatenated patch bytes in filename order) is `7e916f1ac1e6c86ddc34801ef940abff4c53aa9dfaa1dd871978a6d4ac9e07a1`.
 - Domain additionally uses `APPLY_DOMAIN=1 DOMAIN_MULTI=1`, the existing Domain patch, `domain_master.cpp`
   and `apply-domain-multi.mjs`. The current multi layer hash is
   `06d5cfbfba8719eb5fe0b3b0eb211a6264d96bb295a8669fe0680969c1822bb8`.
 
-The 96-patch CI builds use `LUA_FIXED_SEED=1` with the pinned image above. Patch 0089 was corrected on 2026-10-05 so delayed EVENT_CHAINING triggers from normally completed links remain legal. Patch 0101 follows the owner decision on 2026-10-05: control rotations complete the whole resolving chain link, including card choices and every placement, before pending surrender or timeout removal. Creature Swap (`c31036355.lua`) is the only multi-script that calls `MPRotateControl`; it marks the resolving link before the first card choice, including when an alias or a copying card such as Serial Spell calls the operation. Deferring that link is smaller than moving the Lua choices into the processor, and the existing host answers the leaving seat's required prompts. Patch 0105 sets the FFA4 facing pairs to 0/1 and 2/3. Patches 0106 and 0107 add the FFA3 column opponent and retain that choice through resolution. Patch 0108 restarts the FFA3/FFA4 response round after a cost elimination, so priority follows the newest living link (or the turn player when none is left). Both multiplayer cores were built in [CI run 37490612938](https://github.com/imran443/yugioh-bot/actions/runs/37490612938) on 2026-10-06. The following hashes come from its multi and multi-domain build logs:
+The 98-patch pinned builds use `LUA_FIXED_SEED=1` with the pinned image above. Patch 0089 was corrected on 2026-10-05 so delayed EVENT_CHAINING triggers from normally completed links remain legal. Patch 0101 follows the owner decision on 2026-10-05: control rotations complete the whole resolving chain link, including card choices and every placement, before pending surrender or timeout removal. Creature Swap (`c31036355.lua`) is the only multi-script that calls `MPRotateControl`; it marks the resolving link before the first card choice, including when an alias or a copying card such as Serial Spell calls the operation. Deferring that link is smaller than moving the Lua choices into the processor, and the existing host answers the leaving seat's required prompts. Patch 0105 sets the FFA4 facing pairs to 0/1 and 2/3. Patches 0106 and 0107 add the FFA3 column opponent and retain that choice through resolution. Patch 0108 restarts the FFA3/FFA4 response round after a cost elimination, so priority follows the newest living link (or the turn player when none is left). Patch 0109 clears the recorded opponent of an operation-based disabled-zone effect when its card leaves, so a revived Ojama King picks again. Patch 0110 keeps a resolved lock bound to its declared opponent after the registering seat leaves. Both changes are guarded by `n_duelists > 2`. Both multiplayer cores were rebuilt locally on 2026-10-06 from `origin/main` plus the reviewed fixes, using the cached pinned image, the full 98-patch series and `LUA_FIXED_SEED=1`. The following multiplayer hashes come from those builds; the Domain 1v1 pin is unchanged:
 
-| CI core | SHA-256 |
+| Pinned core | SHA-256 |
 | --- | --- |
-| Standard multiplayer | `e16881f178c1aff4e2df8c7aebc46ba30a9595e8ba52e61791157172f0d098be` |
-| Domain multiplayer | `cc1ec5f175c14f2e4465b3db87d96fe4f0a320bd15701f544d49d5cb0137cf0c` |
+| Standard multiplayer | `5070da424a30ee8bf8ec18ed799af263eb44a01ff99ec1cdc6f35c9faef17f4f` |
+| Domain multiplayer | `51e41ea7e8620b46fbdb5685341d2b20eae224bfb0870aec6fea52c09d15cac4` |
 | Domain 1v1 | `01611db77c00ddef07a3d4cfc88800f5c523e3a388c3732616a79fa19b3c4a63` |
 
 The released-card preparation change uses `cards.cdb` plus `release-betb.cdb` at the
