@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
+import { parseUserId } from "@/lib/user-id";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { createScoringService, createSeasonService } from "@yugidraft/shared/services";
@@ -8,15 +9,16 @@ import { LeaderboardClient } from "./leaderboard-client";
 
 export default async function LeaderboardPage() {
   const session = await auth();
-  if (!session?.user?.id) redirect("/login");
+  const userId = parseUserId(session?.user?.id);
+  if (userId === null) redirect("/login");
 
   const db = getDb();
   const guildId = env.discordGuildId;
 
   // Resolve current player id (null if user has no player record in this guild)
   const playerRow = db
-    .prepare("select id from players where discord_user_id = ? and guild_id = ?")
-    .get(session.user.id, guildId) as { id: number } | undefined;
+    .prepare("select id from players where user_id = ? and guild_id = ?")
+    .get(userId, guildId) as { id: number } | undefined;
   const currentPlayerId = playerRow?.id ?? null;
 
   const scoring = createScoringService(db);

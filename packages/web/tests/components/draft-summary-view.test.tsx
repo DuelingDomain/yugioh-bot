@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { fixtureUserId } from "../fixtures/identity";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
@@ -96,7 +97,7 @@ const baseDraft = {
   id: 1,
   name: "Legendary Draft",
   status: "completed",
-  createdByUserId: "creator-1",
+  createdByUserId: fixtureUserId("creator-1"),
   createdAt: "2026-05-06T12:00:00.000Z",
   endedAt: "2026-05-06T12:30:00.000Z",
   config: {
@@ -579,3 +580,5 @@ describe("DraftSummaryView", () => {
     expect(container.textContent).not.toMatch(/\u00b7/);
   });
 });
+
+const FIXTURE_KEYS = ["creator-1"] as const;

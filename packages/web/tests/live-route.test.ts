@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import Database from "better-sqlite3";
 import { NextResponse } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -24,10 +25,11 @@ function actor(playerId: number) {
 beforeEach(() => {
   db = new Database(":memory:");
   migrate(db);
-  const insert = db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g', ?, ?)");
-  p1 = Number(insert.run("u1", "Yugi").lastInsertRowid);
-  p2 = Number(insert.run("u2", "Kaiba").lastInsertRowid);
-  p3 = Number(insert.run("u3", "Joey").lastInsertRowid);
+  seedFixtureUsers(db, FIXTURE_KEYS);
+  const insert = db.prepare("insert into players (guild_id, user_id, discord_user_id, display_name) values ('g', ?, ?, ?)");
+  p1 = Number(insert.run(fixtureUserId("u1"), fixtureDiscordId("u1"), "Yugi").lastInsertRowid);
+  p2 = Number(insert.run(fixtureUserId("u2"), fixtureDiscordId("u2"), "Kaiba").lastInsertRowid);
+  p3 = Number(insert.run(fixtureUserId("u3"), fixtureDiscordId("u3"), "Joey").lastInsertRowid);
   getDb.mockReturnValue(db);
   requireDuelActor.mockReset();
 });
@@ -74,3 +76,8 @@ describe("GET /api/live", () => {
       opponents: [{ seat: duel.seats.find((seat) => seat.playerId === p2)!.seat, name: "Kaiba", isBot: false }] }, liveCount: 1 });
   });
 });
+
+const FIXTURE_KEYS = ["u1", "u2", "u3"] as const;
+
+// Membership is a dependency of these routes; authorization still runs through the real web boundary.
+vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));

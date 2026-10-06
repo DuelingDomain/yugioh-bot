@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -13,7 +14,7 @@ let discord: ReturnType<typeof mockDiscordAccess>;
 describe("guild settings access", () => {
   beforeEach(async () => {
     vi.resetModules();
-    auth.mockResolvedValue({ user: { id: "member" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("member")), discordUserId: fixtureDiscordId("member") } });
     discord = mockDiscordAccess();
     tempDir = mkdtempSync(join(tmpdir(), "yugioh-settings-access-"));
     vi.stubEnv("DATABASE_PATH", join(tempDir, "test.sqlite"));
@@ -77,3 +78,5 @@ describe("guild settings access", () => {
     expect((await GET()).status).toBe(403);
   });
 });
+
+const FIXTURE_KEYS = ["member"] as const;

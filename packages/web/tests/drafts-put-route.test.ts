@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -28,7 +29,7 @@ describe("PUT /api/drafts/[slug]", () => {
     vi.resetModules();
     auth.mockReset();
     syncDraftPool.mockReset().mockResolvedValue([]);
-    auth.mockResolvedValue({ user: { id: "creator-user", name: "Yugi" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("creator-user")), discordUserId: fixtureDiscordId("creator-user"), name: "Yugi" } });
   });
 
   afterEach(() => {
@@ -53,6 +54,7 @@ describe("PUT /api/drafts/[slug]", () => {
     const { migrate } = await import("@yugidraft/shared/db");
     const db = new Database(dbPath);
     migrate(db);
+    seedFixtureUsers(db, FIXTURE_KEYS);
 
     // Seed catalog cards (enough distinct to pass the create/edit feasibility check)
     for (let i = 1; i <= 30; i++) {
@@ -62,13 +64,12 @@ describe("PUT /api/drafts/[slug]", () => {
       ).run(i, `Card ${i}`);
     }
 
-    db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('guild-1', 'creator-user', 'Yugi')").run();
-    const playerRow = db.prepare("select id from players where discord_user_id = 'creator-user'").get() as { id: number };
+    db.prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('guild-1', ${fixtureUserId("creator-user")}, '${fixtureDiscordId("creator-user")}', 'Yugi')`).run();
+    const playerRow = db.prepare(`select id from players where user_id = ${fixtureUserId("creator-user")}`).get() as { id: number };
 
     const customCardIds = Array.from({ length: 30 }, (_, i) => i + 1);
     db.prepare(
-      `insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug)
-       values ('guild-1', 'channel-1', 'My Draft', 'pending', 'creator-user', ?, 'test-slug')`,
+      `insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug) values ('guild-1', 'channel-1', 'My Draft', 'pending', ${fixtureUserId("creator-user")}, ?, 'test-slug')`,
     ).run(JSON.stringify({
       customCardIds,
       setNames: [],
@@ -88,10 +89,11 @@ describe("PUT /api/drafts/[slug]", () => {
     const { getDb } = await import("@/lib/db");
     const { createDraftService, createPlayerService } = await import("@yugidraft/shared/services");
     const db = getDb();
+    seedFixtureUsers(db, FIXTURE_KEYS);
     const copies = Array.from({ length: 30 }, (_, i) => Array(3).fill(i + 1)).flat();
     db.prepare("update drafts set config_json = ? where id = 1").run(JSON.stringify({ customCardIds: copies, packSize: 8, packsPerPlayer: 5, cardsPerPlayer: 40 }));
     const drafts = createDraftService(db, { seedSource: () => 7 });
-    const other = createPlayerService(db).findOrCreate("guild-1", "other", "Kaiba");
+    const other = createPlayerService(db).findOrCreate("guild-1", fixtureUserId("other"), "Kaiba");
     drafts.join(1, other.id);
     let storedConfig: unknown;
     let storedDeal: unknown;
@@ -129,7 +131,7 @@ describe("PUT /api/drafts/[slug]", () => {
   it.each(["pending", "active"])("rejects a rename colliding with a %s draft in the same guild", async (status) => {
     await setupDraftWithCustomPool();
     const { getDb } = await import("@/lib/db");
-    getDb().prepare("insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug) values ('guild-1', 'channel-1', 'Existing Draft', ?, 'other-user', '{}', 'other-slug')").run(status);
+    getDb().prepare(`insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug) values ('guild-1', 'channel-1', 'Existing Draft', ?, ${fixtureUserId("other-user")}, '{}', 'other-slug')`).run(status);
     const { PUT } = await import("../app/api/drafts/[slug]/route");
     const response = await PUT(new Request("http://localhost/api/drafts/test-slug", {
       method: "PUT", body: JSON.stringify({ name: "Existing Draft" }),
@@ -143,7 +145,7 @@ describe("PUT /api/drafts/[slug]", () => {
   it.each(["completed", "cancelled"])("allows a rename matching a %s draft in the same guild", async (status) => {
     await setupDraftWithCustomPool();
     const { getDb } = await import("@/lib/db");
-    getDb().prepare("insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug) values ('guild-1', 'channel-1', 'Existing Draft', ?, 'other-user', '{}', 'other-slug')").run(status);
+    getDb().prepare(`insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug) values ('guild-1', 'channel-1', 'Existing Draft', ?, ${fixtureUserId("other-user")}, '{}', 'other-slug')`).run(status);
     const { PUT } = await import("../app/api/drafts/[slug]/route");
     const response = await PUT(new Request("http://localhost/api/drafts/test-slug", {
       method: "PUT", body: JSON.stringify({ name: "Existing Draft" }),
@@ -158,7 +160,7 @@ describe("PUT /api/drafts/[slug]", () => {
   it("allows a rename matching a draft in another guild", async () => {
     await setupDraftWithCustomPool();
     const { getDb } = await import("@/lib/db");
-    getDb().prepare("insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug) values ('guild-2', 'channel-2', 'Existing Draft', 'pending', 'other-user', '{}', 'other-slug')").run();
+    getDb().prepare(`insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug) values ('guild-2', 'channel-2', 'Existing Draft', 'pending', ${fixtureUserId("other-user")}, '{}', 'other-slug')`).run();
     const { PUT } = await import("../app/api/drafts/[slug]/route");
     const response = await PUT(new Request("http://localhost/api/drafts/test-slug", {
       method: "PUT", body: JSON.stringify({ name: "Existing Draft" }),
@@ -235,7 +237,7 @@ describe("PUT /api/drafts/[slug]", () => {
   it("stores a poolSource that names a cube in this guild, with the cube's name from the database", async () => {
     await setupDraftWithCustomPool();
     const { getDb } = await import("@/lib/db");
-    const cubeId = Number(getDb().prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1','Goat','creator-user')").run().lastInsertRowid);
+    const cubeId = Number(getDb().prepare(`insert into cubes (guild_id, name, created_by_user_id) values ('guild-1', 'Goat', ${fixtureUserId("creator-user")})`).run().lastInsertRowid);
     const { data } = await putConfig({ poolSource: { cubeId, cubeName: "Spoofed" } });
     expect(data.config.poolSource).toEqual({ cubeId, cubeName: "Goat" });
   });
@@ -243,8 +245,8 @@ describe("PUT /api/drafts/[slug]", () => {
   it("drops a foreign or unknown poolSource and clears the stored one", async () => {
     await setupDraftWithCustomPool();
     const { getDb } = await import("@/lib/db");
-    const own = Number(getDb().prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1','Goat','creator-user')").run().lastInsertRowid);
-    const foreign = Number(getDb().prepare("insert into cubes (guild_id, name, created_by_user_id) values ('other-guild','Foreign','x')").run().lastInsertRowid);
+    const own = Number(getDb().prepare(`insert into cubes (guild_id, name, created_by_user_id) values ('guild-1', 'Goat', ${fixtureUserId("creator-user")})`).run().lastInsertRowid);
+    const foreign = Number(getDb().prepare(`insert into cubes (guild_id, name, created_by_user_id) values ('other-guild', 'Foreign', ${fixtureUserId("x")})`).run().lastInsertRowid);
     expect((await putConfig({ poolSource: { cubeId: own, cubeName: "Goat" } })).data.config.poolSource).toBeDefined();
     const dropped = await putConfig({ poolSource: { cubeId: foreign, cubeName: "Foreign" } });
     expect(dropped.data.config.poolSource).toBeUndefined();
@@ -303,3 +305,8 @@ describe("PUT /api/drafts/[slug]", () => {
     expect(data.error).toMatch(/at least one set/i);
   });
 });
+
+const FIXTURE_KEYS = ["creator-user", "other", "other-user", "x"] as const;
+
+// Membership is a dependency of these routes; authorization still runs through the real web boundary.
+vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));

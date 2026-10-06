@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -61,15 +62,16 @@ describe("GET /api/tournaments/[slug] stakes", () => {
     const { migrate } = await import("@yugidraft/shared/db");
     const db = new Database(process.env.DATABASE_PATH);
     migrate(db);
+    seedFixtureUsers(db, FIXTURE_KEYS);
     const player = (user: string) =>
-      Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('guild-1', ?, ?)").run(user, user).lastInsertRowid);
+      Number(db.prepare("insert into players (guild_id, user_id, discord_user_id, display_name) values ('guild-1', ?, ?, ?)").run(fixtureUserId(user), fixtureDiscordId(user), user).lastInsertRowid);
     const me = player("me");
     const rival = player("rival");
     const bystander = player("bystander");
     db.prepare("insert into player_ratings (guild_id, player_id, elo) values ('guild-1', ?, 1100)").run(me);
     db.prepare("insert into player_ratings (guild_id, player_id, elo) values ('guild-1', ?, 1300)").run(rival);
     const tournamentId = Number(
-      db.prepare("insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug) values ('guild-1', 'Cup', 'round_robin', ?, 'host', ?)")
+      db.prepare(`insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug) values ('guild-1', 'Cup', 'round_robin', ?, ${fixtureUserId("host")}, ?)`)
         .run(status, SLUG).lastInsertRowid,
     );
     for (const id of [me, rival, bystander]) db.prepare("insert into tournament_participants (tournament_id, player_id) values (?, ?)").run(tournamentId, id);
@@ -89,7 +91,7 @@ describe("GET /api/tournaments/[slug] stakes", () => {
 
   it("gives a player the exact Elo for their next match", async () => {
     const { slot, rival } = await seed();
-    auth.mockResolvedValue({ user: { id: "me", name: "me" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("me")), discordUserId: fixtureDiscordId("me"), name: "me" } });
     const json = await get();
     expect(json.stakes).toEqual({ tournamentMatchId: slot, opponentId: rival, ...eloStakes(1100, 1300) });
     expect(json.stakes.win).toBeGreaterThan(16);
@@ -98,15 +100,22 @@ describe("GET /api/tournaments/[slug] stakes", () => {
 
   it("is null for a participant who has no match to play", async () => {
     await seed();
-    auth.mockResolvedValue({ user: { id: "bystander", name: "bystander" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("bystander")), discordUserId: fixtureDiscordId("bystander"), name: "bystander" } });
     expect((await get()).stakes).toBeNull();
   });
 
-  it("is null for a signed-out viewer and for a tournament that is not running", async () => {
+  it("is null for a tournament that is not running and rejects a signed-out viewer", async () => {
     await seed("completed");
-    auth.mockResolvedValue({ user: { id: "me", name: "me" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("me")), discordUserId: fixtureDiscordId("me"), name: "me" } });
     expect((await get()).stakes).toBeNull();
     auth.mockResolvedValue(null);
-    expect((await get()).stakes).toBeNull();
+    const { GET } = await import("../app/api/tournaments/[slug]/route");
+    const response = await GET(new Request(`http://localhost/api/tournaments/${SLUG}`) as never, { params: Promise.resolve({ slug: SLUG }) });
+    expect(response.status).toBe(401);
   });
 });
+
+const FIXTURE_KEYS = ["host", "me", "rival", "bystander"] as const;
+
+// Membership is a dependency of these routes; authorization still runs through the real web boundary.
+vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));

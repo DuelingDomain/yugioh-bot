@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { fixtureUserId } from "../fixtures/identity";
 import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -11,7 +12,7 @@ const push = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 
 const base: TournamentDetail = {
-  id: 1, name: "Cup", format: "round_robin", status: "pending", createdByUserId: "host",
+  id: 1, name: "Cup", format: "round_robin", status: "pending", createdByUserId: fixtureUserId("host"),
   participants: [{ playerId: 1, displayName: "Ann", deckRegistered: true }, { playerId: 2, displayName: "Ben", deckRegistered: false }],
   matches: [], isParticipant: true, currentUserPlayerId: 1,
   startedAt: null, createdAt: "2026-01-01T00:00:00Z", bestOf: 3,
@@ -101,3 +102,5 @@ describe("PlayersTab deck marker", () => {
     expect(screen.queryByTestId("player-deck-marker-1")).toBeNull();
   });
 });
+
+const FIXTURE_KEYS = ["host"] as const;

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
 import { cubeReferenceAccess } from "@/lib/cube-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
@@ -9,10 +9,8 @@ import { broadcaster } from "@/lib/notify";
 export const runtime = "nodejs";
 
 export async function POST(request: Request, { params }: { params: Promise<{ slug: string }> }) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const actor = await requireWebAccess();
+  if (!actor.ok) return actor.response;
   const { slug } = await params;
   const db = getDb();
   const guildId = env.discordGuildId;
@@ -33,8 +31,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
   }
 
   const player = db
-    .prepare("select id from players where guild_id = ? and discord_user_id = ?")
-    .get(guildId, session.user.id) as { id: number } | undefined;
+    .prepare("select id from players where guild_id = ? and user_id = ?")
+    .get(guildId, actor.userId) as { id: number } | undefined;
   if (!player) {
     return NextResponse.json({ error: "Join the draft first" }, { status: 400 });
   }

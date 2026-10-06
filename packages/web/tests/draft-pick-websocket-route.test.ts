@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -32,6 +33,7 @@ async function createStartedDraftDb() {
   const { createDraftService, createPlayerService } = await import("@yugidraft/shared/services");
   const db = new Database(dbPath);
   migrate(db);
+  seedFixtureUsers(db, FIXTURE_KEYS);
 
   const insertCard = db.prepare(
     `
@@ -62,15 +64,15 @@ async function createStartedDraftDb() {
   }
 
   const players = createPlayerService(db);
-  const yugi = players.findOrCreate("guild-1", "user-1", "Yugi");
-  const kaiba = players.findOrCreate("guild-1", "user-2", "Kaiba");
+  const yugi = players.findOrCreate("guild-1", fixtureUserId("user-1"), "Yugi");
+  const kaiba = players.findOrCreate("guild-1", fixtureUserId("user-2"), "Kaiba");
   const drafts = createDraftService(db);
   const draft = drafts.create(
     "guild-1",
     "channel-1",
     "socket draft",
     { setNames: ["Metal Raiders"], packSize: 2, packsPerPlayer: 1, cardsPerPlayer: 2, pickSeconds: 60 },
-    "user-1",
+    fixtureUserId("user-1"),
     yugi.id,
   );
   drafts.join(draft.id, kaiba.id);
@@ -95,7 +97,7 @@ describe("POST /api/drafts/[slug]/pick websocket events", () => {
     vi.resetModules();
     auth.mockReset();
     broadcaster.draft.mockReset();
-    auth.mockResolvedValue({ user: { id: "user-2", name: "Kaiba" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("user-2")), discordUserId: fixtureDiscordId("user-2"), name: "Kaiba" } });
   });
 
   afterEach(() => {
@@ -137,3 +139,8 @@ describe("POST /api/drafts/[slug]/pick websocket events", () => {
     );
   });
 });
+
+const FIXTURE_KEYS = ["user-1", "user-2"] as const;
+
+// Membership is a dependency of these routes; authorization still runs through the real web boundary.
+vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));

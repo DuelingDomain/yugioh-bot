@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "../fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -12,7 +13,7 @@ describe("GET /api/dashboard stats", () => {
   beforeEach(() => {
     vi.resetModules();
     auth.mockReset();
-    auth.mockResolvedValue({ user: { id: "u1", name: "Yugi" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1"), name: "Yugi" } });
   });
   afterEach(() => {
     delete process.env.DATABASE_PATH;
@@ -33,10 +34,11 @@ describe("GET /api/dashboard stats", () => {
     const { migrate } = await import("../../../shared/src/db/schema");
     const db = new Database(dbPath);
     migrate(db);
-    db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1','u1','Yugi')").run();
-    db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1','u2','Kaiba')").run();
-    const p1 = (db.prepare("select id from players where discord_user_id='u1'").get() as any).id;
-    const p2 = (db.prepare("select id from players where discord_user_id='u2'").get() as any).id;
+    seedFixtureUsers(db, FIXTURE_KEYS);
+    db.prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('g1', ${fixtureUserId("u1")}, '${fixtureDiscordId("u1")}', 'Yugi')`).run();
+    db.prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('g1', ${fixtureUserId("u2")}, '${fixtureDiscordId("u2")}', 'Kaiba')`).run();
+    const p1 = (db.prepare(`select id from players where user_id = ${fixtureUserId("u1")}`).get() as any).id;
+    const p2 = (db.prepare(`select id from players where user_id = ${fixtureUserId("u2")}`).get() as any).id;
     db.prepare(
       "insert into matches (guild_id, player_one_id, player_two_id, winner_id, reporter_id, status, source) values ('g1', ?, ?, ?, ?, 'approved', 'casual')",
     ).run(p1, p2, p1, p1);
@@ -52,3 +54,8 @@ describe("GET /api/dashboard stats", () => {
     expect(body.stats).toEqual({ wins: 1, losses: 1 });
   });
 });
+
+const FIXTURE_KEYS = ["u1", "u2"] as const;
+
+// Membership is a dependency of these routes; authorization still runs through the real web boundary.
+vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));

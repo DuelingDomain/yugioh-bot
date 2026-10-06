@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -34,17 +35,17 @@ function seed(opts: { status?: "active" | "pending" } = {}) {
   process.env.NEXTAUTH_URL = "https://duel.example.com/";
   const db = new Database(process.env.DATABASE_PATH);
   migrate(db);
-  const insert = db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', ?, ?)");
-  const a = Number(insert.run("u-a", "Alice").lastInsertRowid);
-  const b = Number(insert.run("u-b", "Bob").lastInsertRowid);
-  insert.run("u-x", "Outsider");
-  insert.run("u-org", "Organizer");
+  seedFixtureUsers(db, FIXTURE_KEYS);
+  const insert = db.prepare("insert into players (guild_id, user_id, discord_user_id, display_name) values ('g1', ?, ?, ?)");
+  const a = Number(insert.run(fixtureUserId("u-a"), fixtureDiscordId("u-a"), "Alice").lastInsertRowid);
+  const b = Number(insert.run(fixtureUserId("u-b"), fixtureDiscordId("u-b"), "Bob").lastInsertRowid);
+  insert.run(fixtureUserId("u-x"), fixtureDiscordId("u-x"), "Outsider");
+  insert.run(fixtureUserId("u-org"), fixtureDiscordId("u-org"), "Organizer");
   const tournaments = createTournamentService(db);
-  const tour = tournaments.create("g1", "Cube cup", "round_robin", "u-org");
+  const tour = tournaments.create("g1", "Cube cup", "round_robin", fixtureUserId("u-org"));
   db.prepare("update tournaments set web_slug = 'cup' where id = ?").run(tour.id);
   db.prepare(
-    `insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug, tournament_id)
-     values ('g1', 'c', 'Cube', 'completed', 'u-org', '{}', 'cube-1', ?)`,
+    `insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug, tournament_id) values ('g1', 'c', 'Cube', 'completed', ${fixtureUserId("u-org")}, '{}', 'cube-1', ?)`,
   ).run(tour.id);
   tournaments.join(tour.id, a);
   tournaments.join(tour.id, b);
@@ -65,7 +66,7 @@ describe("starting a draft tournament series", () => {
   beforeEach(() => {
     vi.resetModules();
     for (const mock of [auth, callDuelHost, linkDraftDeck]) mock.mockReset();
-    auth.mockResolvedValue({ user: { id: "u-a", name: "Alice" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-a")), discordUserId: fixtureDiscordId("u-a"), name: "Alice" } });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
   });
   afterEach(() => {
@@ -120,13 +121,13 @@ describe("starting a draft tournament series", () => {
   it("checks who may start before it links or maps any deck", async () => {
     const s = seed();
     const { POST } = await import("../app/api/tournaments/[slug]/matches/[tmId]/duel/route");
-    auth.mockResolvedValue({ user: { id: "u-x", name: "Outsider" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-x")), discordUserId: fixtureDiscordId("u-x"), name: "Outsider" } });
     expect((await POST(post(), ctx(s.tmId))).status).toBe(403);
     expect(linkDraftDeck).not.toHaveBeenCalled();
     expect(callDuelHost).not.toHaveBeenCalled();
     // The organizer may start it.
     callDuelHost.mockResolvedValue({ ok: true, data: { deck: MAPPED, report: { issues: [] } } });
-    auth.mockResolvedValue({ user: { id: "u-org", name: "Organizer" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-org")), discordUserId: fixtureDiscordId("u-org"), name: "Organizer" } });
     const res = await POST(post(), ctx(s.tmId));
     expect(res.status).toBe(201);
   });
@@ -139,3 +140,8 @@ describe("starting a draft tournament series", () => {
     expect(linkDraftDeck).not.toHaveBeenCalled();
   });
 });
+
+const FIXTURE_KEYS = ["u-a", "u-b", "u-x", "u-org"] as const;
+
+// Membership is a dependency of these routes; authorization still runs through the real web boundary.
+vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));

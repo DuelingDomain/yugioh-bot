@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -32,8 +33,9 @@ async function seed() {
   const { migrate } = await import("@yugidraft/shared/db");
   const db = new Database(process.env.DATABASE_PATH);
   migrate(db);
-  db.prepare("insert into players (id, guild_id, discord_user_id, display_name) values (1, ?, ?, 'Seraphina Quill')").run(GUILD, DISCORD_ID);
-  db.prepare("insert into players (id, guild_id, discord_user_id, display_name) values (3, ?, ?, 'Orion Vale')").run(GUILD, OTHER_ID);
+  seedFixtureUsers(db, FIXTURE_KEYS);
+  db.prepare("insert into players (id, guild_id, user_id, discord_user_id, display_name) values (1, ?, ?, ?, 'Seraphina Quill')").run(GUILD, fixtureUserId(DISCORD_ID), fixtureDiscordId(DISCORD_ID));
+  db.prepare("insert into players (id, guild_id, user_id, discord_user_id, display_name) values (3, ?, ?, ?, 'Orion Vale')").run(GUILD, fixtureUserId(OTHER_ID), fixtureDiscordId(OTHER_ID));
   db.prepare("insert into duels (guild_id, web_slug, name, organizer_player_id, mode, status) values (?, 'duel-a', 'T', 1, 'normal', 'active')").run(GUILD);
   db.close();
 }
@@ -66,7 +68,7 @@ describe("POST /api/bug-reports/precheck", () => {
   beforeEach(async () => {
     vi.resetModules();
     auth.mockReset();
-    auth.mockResolvedValue({ user: { id: DISCORD_ID, name: "Seraphina Quill" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId(DISCORD_ID)), discordUserId: fixtureDiscordId(DISCORD_ID), name: "Seraphina Quill" } });
     discord = mockDiscordAccess();
     openIssues = [];
     const discordFetch = globalThis.fetch;
@@ -88,7 +90,7 @@ describe("POST /api/bug-reports/precheck", () => {
     const POST = await route();
     auth.mockResolvedValue(null);
     expect((await POST(post(body()))).status).toBe(401);
-    auth.mockResolvedValue({ user: { id: DISCORD_ID, name: "Seraphina Quill" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId(DISCORD_ID)), discordUserId: fixtureDiscordId(DISCORD_ID), name: "Seraphina Quill" } });
     discord.memberStatus = 404;
     expect((await POST(post(body()))).status).toBe(403);
     expect(github).not.toHaveBeenCalled();
@@ -120,7 +122,7 @@ describe("POST /api/bug-reports/precheck", () => {
   });
 
   it("only reads: a player with no row is not created, and nothing is saved", async () => {
-    auth.mockResolvedValue({ user: { id: "123456789012345678", name: "Newcomer" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("123456789012345678")), discordUserId: fixtureDiscordId("123456789012345678"), name: "Newcomer" } });
     vi.stubEnv("BUG_REPORT_GITHUB_TOKEN", "");
     await addReport({ player: 3, slug: "duel-a", turn: 3, description: "The chain froze and the duel never went on after my effect", issue: 8 });
     const { getDb } = await import("../src/lib/db");
@@ -241,3 +243,5 @@ describe("POST /api/bug-reports/precheck", () => {
     expect(Number(res.headers.get("Retry-After"))).toBeGreaterThan(0);
   });
 });
+
+const FIXTURE_KEYS = ["123456789012345678", "810293847561029384", "990000000000000001", "players"] as const;

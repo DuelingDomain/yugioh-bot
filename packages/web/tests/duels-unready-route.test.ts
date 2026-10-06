@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -20,7 +21,8 @@ function seed() {
   process.env.DUEL_INTERNAL_SECRET = "s3cret";
   const db = new Database(process.env.DATABASE_PATH);
   migrate(db);
-  const host = Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', 'u-host', 'Yugi')").run().lastInsertRowid);
+  seedFixtureUsers(db, FIXTURE_KEYS);
+  const host = Number(db.prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('g1', ${fixtureUserId("u-host")}, '${fixtureDiscordId("u-host")}', 'Yugi')`).run().lastInsertRowid);
   const session = createDuelService(db).create({ guildId: "g1", organizerPlayerId: host, name: "Table", mode: "normal" });
   db.close();
   return { slug: session.slug, host };
@@ -40,7 +42,7 @@ describe("POST /api/duels/[slug]/unready", () => {
   beforeEach(() => {
     vi.resetModules();
     auth.mockReset();
-    auth.mockResolvedValue({ user: { id: "u-host", name: "Yugi" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-host")), discordUserId: fixtureDiscordId("u-host"), name: "Yugi" } });
     hostReply = () => Response.json({ session: { status: "lobby", seats: [{ ready: false }] } });
     fetchMock = vi.fn(async (url: unknown) => (String(url).startsWith("http://duel.test:4003") ? hostReply() : new Response("{}", { status: 200 })));
     vi.stubGlobal("fetch", fetchMock);
@@ -85,3 +87,8 @@ describe("POST /api/duels/[slug]/unready", () => {
     expect(hostCalls()).toHaveLength(0);
   });
 });
+
+const FIXTURE_KEYS = ["u-host"] as const;
+
+// Membership is a dependency of these routes; authorization still runs through the real web boundary.
+vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));

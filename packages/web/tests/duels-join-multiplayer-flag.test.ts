@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
@@ -35,9 +36,10 @@ beforeEach(() => {
   vi.stubEnv("MULTIPLAYER_TABLES", "0");
   db = new Database(":memory:");
   migrate(db);
-  const insert = db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', ?, ?)");
-  organizerPlayerId = Number(insert.run("organizer", "Yugi").lastInsertRowid);
-  playerId = Number(insert.run("joiner", "Kaiba").lastInsertRowid);
+  seedFixtureUsers(db, FIXTURE_KEYS);
+  const insert = db.prepare("insert into players (guild_id, user_id, discord_user_id, display_name) values ('g1', ?, ?, ?)");
+  organizerPlayerId = Number(insert.run(fixtureUserId("organizer"), fixtureDiscordId("organizer"), "Yugi").lastInsertRowid);
+  playerId = Number(insert.run(fixtureUserId("joiner"), fixtureDiscordId("joiner"), "Kaiba").lastInsertRowid);
   duels = createDuelService(db);
   joinSpy = vi.spyOn(duels, "takeSeat");
   actor.mockReset().mockResolvedValue({ ok: true, guildId: "g1", playerId, duels });
@@ -238,3 +240,8 @@ describe("POST /api/duels/[slug]/seat with host capabilities", () => {
     expect(notify).toHaveBeenCalledTimes(1);
   });
 });
+
+const FIXTURE_KEYS = ["organizer", "joiner"] as const;
+
+// Membership is a dependency of these routes; authorization still runs through the real web boundary.
+vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));

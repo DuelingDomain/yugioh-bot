@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import Database from "better-sqlite3";
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -25,19 +26,19 @@ vi.mock("@yugidraft/shared/duels", () => import("../../shared/src/duels/index"))
 
 function fixture(packSize = 2) {
   const players = createPlayerService(db);
-  const a = players.findOrCreate("guild", "creator", "Yugi");
-  const b = players.findOrCreate("guild", "opponent", "Kaiba");
+  const a = players.findOrCreate("guild", fixtureUserId("creator"), "Yugi");
+  const b = players.findOrCreate("guild", fixtureUserId("opponent"), "Kaiba");
   const drafts = createDraftService(db);
   const ids = Array.from({ length: 80 }, (_, i) => i + 1);
   const insert = db.prepare(`insert into card_catalog
     (ygoprodeck_id, name, type, frame_type, image_url, image_url_small, card_sets_json, cached_at)
     values (?, ?, 'Normal Monster', 'normal', '', '', '[]', '2026-01-01')`);
   for (const id of ids) insert.run(id, `Card ${id}`);
-  const draft = drafts.create("guild", "channel", "Draft", { cubeCardIds: ids, packSize, packsPerPlayer: 1, cardsPerPlayer: packSize, pickSeconds: 45 }, "creator", a.id);
+  const draft = drafts.create("guild", "channel", "Draft", { cubeCardIds: ids, packSize, packsPerPlayer: 1, cardsPerPlayer: packSize, pickSeconds: 45 }, fixtureUserId("creator"), a.id);
   drafts.join(draft.id, b.id);
   db.prepare("update drafts set web_slug = 'draft-cup' where id = ?").run(draft.id);
   const tournaments = createTournamentService(db);
-  const tournament = tournaments.create("guild", "Cup", "round_robin", "creator");
+  const tournament = tournaments.create("guild", "Cup", "round_robin", fixtureUserId("creator"));
   tournaments.join(tournament.id, a.id);
   tournaments.join(tournament.id, b.id);
   db.prepare("update tournaments set web_slug = 'cup' where id = ?").run(tournament.id);
@@ -57,7 +58,8 @@ describe("draft and tournament route broadcasts", () => {
     vi.setSystemTime(new Date("2026-01-01T00:01:00Z"));
     db = new Database(":memory:");
     migrate(db);
-    auth.mockResolvedValue({ user: { id: "creator", name: "Yugi" } });
+    seedFixtureUsers(db, FIXTURE_KEYS);
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("creator")), discordUserId: fixtureDiscordId("creator"), name: "Yugi" } });
   });
   afterEach(() => {
     db.close();
@@ -114,7 +116,7 @@ describe("draft and tournament route broadcasts", () => {
 
   it("claiming a draft cube refreshes the lobby", async () => {
     const { draft } = fixture();
-    const cube = createCubeService(db, createCardCatalogService(db)).createBlank("guild", "Cube", "creator");
+    const cube = createCubeService(db, createCardCatalogService(db)).createBlank("guild", "Cube", fixtureUserId("creator"));
     db.prepare("update drafts set config_json = ? where id = ?").run(JSON.stringify({ mode: "theme", allowedCubeIds: [cube.id] }), draft.id);
     const { POST } = await import("../app/api/drafts/[slug]/claim-cube/route");
     expect((await POST(request("POST", { cubeId: cube.id }), draftCtx)).status).toBe(200);
@@ -142,7 +144,7 @@ describe("draft and tournament route broadcasts", () => {
   it("registering a tournament deck refreshes open pages", async () => {
     fixture();
     const deck = { main: [1, 2, 3], extra: [], side: [] };
-    const saved = createSavedDeckService(db).create("guild", "creator", { name: "Deck", mode: "normal", deck });
+    const saved = createSavedDeckService(db).create("guild", fixtureUserId("creator"), { name: "Deck", mode: "normal", deck });
     callDuelHost.mockResolvedValue({ ok: true, data: { deck, report: { issues: [] } } });
     const { PUT } = await import("../app/api/tournaments/[slug]/deck/route");
     expect((await PUT(request("PUT", { savedDeckId: saved.id }), tournamentCtx)).status).toBe(200);
@@ -153,7 +155,7 @@ describe("draft and tournament route broadcasts", () => {
     const { a, draft, tournament } = fixture();
     db.prepare("update drafts set status = 'completed', tournament_id = ? where id = ?").run(tournament.id, draft.id);
     const savedDecks = createSavedDeckService(db);
-    const deck = savedDecks.create("guild", "creator", {
+    const deck = savedDecks.create("guild", fixtureUserId("creator"), {
       name: "Draft deck", mode: "normal", draftId: draft.id, deck: { main: [1, 2], extra: [], side: [] },
     });
     const { registerDraftDeck } = await import("../app/api/decks/draft-deck");
@@ -161,7 +163,7 @@ describe("draft and tournament route broadcasts", () => {
     expect(registerDraftDeck(context, deck)).toBeUndefined();
     expect(broadcaster.tournament).toHaveBeenCalledExactlyOnceWith({ kind: "match-updated", slug: "cup" });
     broadcaster.tournament.mockClear();
-    const updated = savedDecks.update(deck.id, "guild", "creator", {
+    const updated = savedDecks.update(deck.id, "guild", fixtureUserId("creator"), {
       name: "Updated deck", mode: "normal", deck: { main: [2, 3], extra: [], side: [] },
     });
     expect(registerDraftDeck(context, updated)).toBeUndefined();
@@ -199,8 +201,13 @@ describe("draft and tournament route broadcasts", () => {
     db.prepare("delete from tournament_participants where tournament_id = ?").run(tournament.id);
     const route = await import("../app/api/tournaments/[slug]/route");
     expect((await route.POST(request("POST"), tournamentCtx)).status).toBe(400);
-    auth.mockResolvedValue({ user: { id: "outsider" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("outsider")), discordUserId: fixtureDiscordId("outsider") } });
     expect((await route.PUT(request("PUT", { name: "Wrong" }), tournamentCtx)).status).toBe(403);
     expect(broadcaster.tournament).not.toHaveBeenCalled();
   });
 });
+
+const FIXTURE_KEYS = ["creator", "opponent", "outsider"] as const;
+
+// Membership is a dependency of these routes; authorization still runs through the real web boundary.
+vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));

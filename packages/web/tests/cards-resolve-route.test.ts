@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 // packages/web/tests/cards-resolve-route.test.ts
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -35,6 +36,7 @@ async function setupDb() {
   const { migrate } = await import("@yugidraft/shared/db");
   const db = new Database(dbPath);
   migrate(db);
+  seedFixtureUsers(db, FIXTURE_KEYS);
   // two catalog cards: one in "Metal Raiders", one not in any set
   db.prepare(
     `insert into card_catalog (ygoprodeck_id, name, type, frame_type, effect_text, atk, def, attribute, level, image_url, image_url_small, card_sets_json, cached_at)
@@ -58,7 +60,7 @@ describe("POST /api/cards/resolve", () => {
   beforeEach(() => {
     vi.resetModules();
     auth.mockReset();
-    auth.mockResolvedValue({ user: { id: "u", name: "Yugi" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u")), discordUserId: fixtureDiscordId("u"), name: "Yugi" } });
     syncDraftPool.mockReset();
     syncDraftPool.mockResolvedValue([]);
     syncCardByName.mockReset();
@@ -125,6 +127,7 @@ describe("POST /api/cards/resolve", () => {
     const { migrate } = await import("@yugidraft/shared/db");
     const db = new Database(process.env.DATABASE_PATH);
     migrate(db);
+    seedFixtureUsers(db, FIXTURE_KEYS);
     db.close();
     syncDraftPool.mockImplementation(async () => {
       const d = new Database(process.env.DATABASE_PATH!);
@@ -185,6 +188,7 @@ describe("POST /api/cards/resolve", () => {
     const { migrate } = await import("@yugidraft/shared/db");
     const db = new Database(dbPath);
     migrate(db);
+    seedFixtureUsers(db, FIXTURE_KEYS);
     // Two catalog cards; request repeats 101 three times.
     seedCard(db, 101, "Alpha");
     seedCard(db, 102, "Beta");
@@ -309,3 +313,8 @@ describe("POST /api/cards/resolve", () => {
     expect(syncCardsByFuzzyName).toHaveBeenCalledWith("blue eyes", { includeExtra: true });
   });
 });
+
+const FIXTURE_KEYS = ["u"] as const;
+
+// Membership is a dependency of these routes; authorization still runs through the real web boundary.
+vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { fixtureUserId } from "../fixtures/identity";
 import React from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -6,7 +7,7 @@ import { MyDeckPanel } from "../../src/components/tournament/my-deck-panel";
 import type { TournamentDetail } from "../../src/components/tournament/types";
 
 const tournament: TournamentDetail = {
-  id: 1, name: "Cup", format: "single_elim", status: "active", createdByUserId: "host",
+  id: 1, name: "Cup", format: "single_elim", status: "active", createdByUserId: fixtureUserId("host"),
   participants: [{ playerId: 10, displayName: "Me" }],
   matches: [], isParticipant: true, currentUserPlayerId: 10,
   startedAt: null, createdAt: "2026-01-01T00:00:00Z",
@@ -197,3 +198,5 @@ describe("MyDeckPanel", () => {
     expect(screen.queryByText(/main deck cards/i)).toBeNull();
   });
 });
+
+const FIXTURE_KEYS = ["host"] as const;

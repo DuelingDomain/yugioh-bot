@@ -89,7 +89,7 @@ async function checkAgainstPool(
 /** Loads the draft for a draft deck write and checks the deck against the pool. */
 export async function checkDraftDeckWrite(
   guildId: string,
-  ownerUserId: string,
+  ownerUserId: number,
   draftId: number,
   deck: unknown,
 ): Promise<{ ok: true; draft: DraftDeckContext; deck: unknown } | { ok: false; response: NextResponse }> {

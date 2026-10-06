@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -21,9 +22,10 @@ function seed() {
   process.env.NEXTAUTH_URL = "https://duel.example.com";
   const db = new Database(process.env.DATABASE_PATH);
   migrate(db);
-  const insert = db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', ?, ?)");
-  const me = Number(insert.run("u-me", "Yugi").lastInsertRowid);
-  const opponent = Number(insert.run("u-opp", "Kaiba").lastInsertRowid);
+  seedFixtureUsers(db, FIXTURE_KEYS);
+  const insert = db.prepare("insert into players (guild_id, user_id, discord_user_id, display_name) values ('g1', ?, ?, ?)");
+  const me = Number(insert.run(fixtureUserId("u-me"), fixtureDiscordId("u-me"), "Yugi").lastInsertRowid);
+  const opponent = Number(insert.run(fixtureUserId("u-opp"), fixtureDiscordId("u-opp"), "Kaiba").lastInsertRowid);
   return { db, me, opponent };
 }
 
@@ -35,7 +37,7 @@ describe("POST /api/duels challenges", () => {
     vi.resetModules();
     auth.mockReset();
     announcer.announce.mockClear();
-    auth.mockResolvedValue({ user: { id: "u-me", name: "Yugi" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-me")), discordUserId: fixtureDiscordId("u-me"), name: "Yugi" } });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
   });
   afterEach(() => {
@@ -59,7 +61,7 @@ describe("POST /api/duels challenges", () => {
     expect(announcer.announce.mock.calls[0][0]).toMatchObject({
       kind: "duel-invite",
       guildId: "g1",
-      opponentDiscordUserId: "u-opp",
+      opponentDiscordUserId: fixtureDiscordId("u-opp"),
       challengerName: "Yugi",
       bestOf: 3,
       ranked: true,
@@ -129,3 +131,8 @@ describe("POST /api/duels challenges", () => {
     expect(announcer.announce).not.toHaveBeenCalled();
   });
 });
+
+const FIXTURE_KEYS = ["u-me", "u-opp"] as const;
+
+// Membership is a dependency of these routes; authorization still runs through the real web boundary.
+vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));

@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId } from "../fixtures/identity";
 import { vi } from "vitest";
 import type { CardSummary } from "../../src/lib/card-types";
 
@@ -31,7 +32,7 @@ export const GOAT = {
   id: 1,
   name: "Goat cube",
   draftType: "booster",
-  createdByUserId: "u1",
+  createdByUserId: fixtureUserId("u1"),
   createdByName: "Imran",
   canEdit: true,
   extraCount: 6,
@@ -49,7 +50,7 @@ export const OTHERS = {
   id: 2,
   name: "Despia cube",
   draftType: "any",
-  createdByUserId: "u2",
+  createdByUserId: fixtureUserId("u2"),
   createdByName: "Josh",
   canEdit: false,
   extraCount: 0,
@@ -90,11 +91,11 @@ export function stubFetch(options: StubOptions = {}): Stub {
     const extra = options.extra?.[`${method} ${url}`];
     if (extra) return extra(init);
     if (url === "/api/discord/channels") return Response.json({ channels: [] });
-    if (url === "/api/auth/session") return Response.json({ user: { id: options.userId ?? "u1" } });
+    if (url === "/api/auth/session") return Response.json({ user: { id: String(fixtureUserId(options.userId ?? "u1")), discordUserId: fixtureDiscordId(options.userId ?? "u1") } });
     if (url === "/api/cubes" && method === "GET") return Response.json({ cubes });
     if (url === "/api/cubes" && method === "POST") {
       if (options.createCube) return options.createCube(body);
-      return Response.json({ cube: { id: 77, name: body.name } }, { status: 201 });
+      return Response.json({ cube: { id: 77, name: body.name, createdByUserId: fixtureUserId(options.userId ?? "u1") } }, { status: 201 });
     }
     const detail = /^\/api\/cubes\/(\d+)$/.exec(url);
     if (detail && method === "GET") {
@@ -148,3 +149,5 @@ export function stubFetch(options: StubOptions = {}): Stub {
     find: (url, method = "GET") => calls.filter((c) => c.url === url && c.method === method),
   };
 }
+
+const FIXTURE_KEYS = ["u1","u2"] as const;

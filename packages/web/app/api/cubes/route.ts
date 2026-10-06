@@ -1,6 +1,6 @@
 import { cardFetchErrorResponse } from "@/lib/card-fetch-errors";
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { createCardCatalogService, createCubeService } from "@yugidraft/shared/services";
@@ -18,7 +18,7 @@ type CubeRow = {
   archetype: string | null;
   banlist: string | null;
   config_json: string;
-  created_by_user_id: string;
+  created_by_user_id: number;
   created_by_name: string | null;
 };
 
@@ -29,10 +29,8 @@ function withDraftType<T extends object>(db: ReturnType<typeof getDb>, cubeId: n
 }
 
 export async function GET() {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const actor = await requireWebAccess();
+  if (!actor.ok) return actor.response;
   if (!env.discordGuildId) {
     return NextResponse.json({ error: "Server not configured for cubes" }, { status: 500 });
   }
@@ -40,8 +38,7 @@ export async function GET() {
   const db = getDb();
   const rows = db
     .prepare(`select c.id, c.guild_id, c.name, c.archetype, c.banlist, c.config_json, c.created_by_user_id,
-              (select p.display_name from players p
-                where p.guild_id = c.guild_id and p.discord_user_id = c.created_by_user_id) as created_by_name
+              (select u.display_name from users u where u.id = c.created_by_user_id) as created_by_name
          from cubes c where c.guild_id = ? order by c.name asc`)
     .all(env.discordGuildId) as CubeRow[];
 
@@ -73,9 +70,9 @@ export async function GET() {
   // carries those passcodes and their copies for the loaders.
   // The admin check runs once per request, and only when some cube is not the viewer's own.
   let isAdmin = false;
-  if (rows.some((r) => r.created_by_user_id !== session.user!.id)) {
+  if (rows.some((r) => r.created_by_user_id !== actor.userId)) {
     try {
-      isAdmin = (await checkDiscordWebAccess(session.user.id, "admin")).ok;
+      isAdmin = (await checkDiscordWebAccess(actor.discordUserId, "admin")).ok;
     } catch {
       isAdmin = false;
     }
@@ -92,7 +89,7 @@ export async function GET() {
       draftType: cubeDraftTypeOf(row.config_json),
       createdByUserId: row.created_by_user_id,
       createdByName: row.created_by_name ?? null,
-      canEdit: isAdmin || row.created_by_user_id === session.user!.id,
+      canEdit: isAdmin || row.created_by_user_id === actor.userId,
       mainCount: mainCards.length,
       extraCount: extraCountByCube.get(row.id) ?? 0,
       setNames: Array.isArray(config.setNames) ? config.setNames : [],
@@ -105,10 +102,8 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const actor = await requireWebAccess();
+  if (!actor.ok) return actor.response;
   if (!env.discordGuildId) {
     return NextResponse.json({ error: "Server not configured for cubes" }, { status: 500 });
   }
@@ -139,7 +134,7 @@ export async function POST(request: Request) {
       if (!archetype) {
         return NextResponse.json({ error: "archetype is required" }, { status: 400 });
       }
-      const cube = await cubes.createFromArchetype(guildId, archetype, session.user.id, {
+      const cube = await cubes.createFromArchetype(guildId, archetype, actor.userId, {
         name: body.name?.trim() || archetype,
         banlist: body.banlist,
       });
@@ -170,7 +165,7 @@ export async function POST(request: Request) {
       const cube = cubes.createWithCards(
         guildId,
         name,
-        session.user.id,
+        actor.userId,
         parsed.entries.filter((e) => !unknown.has(e.id)),
         { copyExtraFromCubeId: copyFrom },
       );
@@ -194,12 +189,12 @@ export async function POST(request: Request) {
       const customCardIds = Array.isArray(incoming.customCardIds)
         ? incoming.customCardIds.filter((n): n is number => Number.isInteger(n))
         : [];
-      const cube = cubes.save(guildId, name, { setNames, customCardIds }, session.user.id);
+      const cube = cubes.save(guildId, name, { setNames, customCardIds }, actor.userId);
       if (draftType) setCubeDraftType(db, cube.id, draftType);
       return NextResponse.json({ cube: withDraftType(db, cube.id, cube) }, { status: 201 });
     }
 
-    const cube = cubes.createBlank(guildId, name, session.user.id);
+    const cube = cubes.createBlank(guildId, name, actor.userId);
     if (draftType) setCubeDraftType(db, cube.id, draftType);
     return NextResponse.json({ cube: withDraftType(db, cube.id, cube) }, { status: 201 });
   } catch (error) {

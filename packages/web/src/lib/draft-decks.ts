@@ -14,7 +14,7 @@ export interface DraftDeckNoteView {
 // The shared draft-deck service. It is read off the namespace and typed by hand so a web build
 // that still sees an older shared build degrades to "no auto decks" instead of failing to load.
 type DraftDeckApi = {
-  ensureForUser(guildId: string, discordUserId: string): number[];
+  ensureForUser(guildId: string, userId: number): number[];
   linkTournament(tournamentId: number, onlyPlayerId?: number): number[];
   mainPoolCount(draftId: number, playerId: number): number;
 };
@@ -32,9 +32,9 @@ function api(db: Database.Database): DraftDeckApi | null {
  * Saves any draft deck the user is missing for a finished draft (drafts that ended before the
  * automatic save, or a save that failed). Never throws: a read route must not fail over this.
  */
-export function backfillDraftDecks(guildId: string, discordUserId: string, db: Database.Database = getDb()): void {
+export function backfillDraftDecks(guildId: string, userId: number, db: Database.Database = getDb()): void {
   try {
-    api(db)?.ensureForUser(guildId, discordUserId);
+    api(db)?.ensureForUser(guildId, userId);
   } catch (error) {
     console.error("[draft-decks] backfill failed:", error);
   }
