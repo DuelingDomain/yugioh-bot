@@ -285,3 +285,5 @@ button.de-flag:hover { text-decoration: underline; text-underline-offset: 3px; }
   .de-ib { width: 38px; height: 38px; }
 }
 @media (prefers-reduced-motion: reduce) { .de-bs { animation: none; } .de-c { transition: none; } .de-c:hover { transform: none; } }
+/* The art menu beside a deck card: the shared picker in a small popover. */
+.de-artmenu { width: min(292px, calc(100vw - 24px)); padding: 12px; gap: 8px; }

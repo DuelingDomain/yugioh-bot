@@ -7,6 +7,7 @@ import { CardArt } from "./card-art";
 import { hasCardDrag, readCardDrag, writeCardDrag } from "./drag";
 import { LimitBadge } from "./limit-badge";
 import {
+  altArtCount,
   cardLabel,
   copyKey,
   copyLimit,
@@ -43,6 +44,8 @@ export function DeckSectionGrid({
   onHover,
   onRemove,
   onDrop,
+  onArtMenu,
+  artMenu,
 }: {
   title: string;
   section: DeckSection;
@@ -65,6 +68,10 @@ export function DeckSectionGrid({
   onHover: (copy: HoveredCopy | null) => void;
   onRemove: (source: CardSource) => void;
   onDrop: (source: CardSource, section: DeckSection, at?: number) => void;
+  /** Right-click, long press or the menu key on a card: the art menu opens beside `anchor`. */
+  onArtMenu: (request: { section: DeckSection; index: number; code: number; anchor: HTMLElement }) => void;
+  /** The copy whose art menu is open. */
+  artMenu: { section: string; index: number } | null;
 }) {
   const [dropping, setDropping] = useState(false);
   const [insertAt, setInsertAt] = useState<number | null>(null);
@@ -80,6 +87,10 @@ export function DeckSectionGrid({
       if (!items || items.length === 0) return;
       items[Math.min(index, items.length - 1)]?.querySelector("button")?.focus();
     });
+  }
+
+  function openMenu(anchor: HTMLElement, code: number, index: number) {
+    onArtMenu({ section, index, code, anchor });
   }
 
   function allowDrop(event: DragEvent): boolean {
@@ -139,6 +150,8 @@ export function DeckSectionGrid({
             const missing = unknown.has(code);
             const isSelected = selected?.section === section && selected.code === code && (selected.index == null || selected.index === index);
             const isOver = over.has(copyKey(code, catalog));
+            const arts = altArtCount(code, catalog);
+            const menuOpen = artMenu?.section === section && artMenu.index === index;
             return (
               <li
                 key={`${section}-${index}`}
@@ -150,6 +163,8 @@ export function DeckSectionGrid({
                   type="button"
                   className={styles["de-c"]}
                   aria-pressed={isSelected}
+                  aria-haspopup={arts > 0 ? "dialog" : undefined}
+                  aria-expanded={arts > 0 ? menuOpen : undefined}
                   aria-label={`${name}, ${title} Deck card ${index + 1}${missing ? ", not in the card database" : ""}${isOver ? ", too many copies" : ""}`}
                   title={name}
                   data-unknown={missing ? "true" : undefined}
@@ -162,8 +177,13 @@ export function DeckSectionGrid({
                   onClick={(event) => { event.currentTarget.focus(); onSelect({ section, code, index }); }}
                   onPointerEnter={(event) => { if (event.pointerType !== "touch") onHover({ section, index }); }}
                   onPointerLeave={() => onHover(null)}
-                  onContextMenu={(event) => { event.preventDefault(); onRemove({ code, from: section, index }); }}
+                  onContextMenu={(event) => { event.preventDefault(); openMenu(event.currentTarget, code, index); }}
                   onKeyDown={(event) => {
+                    if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+                      event.preventDefault();
+                      openMenu(event.currentTarget, code, index);
+                      return;
+                    }
                     if (event.ctrlKey || event.metaKey || event.altKey) return;
                     if (event.key === "Delete" || event.key === "Backspace" || event.key === "-") {
                       event.preventDefault();

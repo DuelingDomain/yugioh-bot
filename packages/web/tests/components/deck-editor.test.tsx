@@ -153,7 +153,7 @@ describe("SavedDeckEditor", () => {
     fireEvent.click(screen.getByRole("button", { name: "Redo" }));
     expect(mainCards()).toHaveLength(3);
 
-    fireEvent.contextMenu(mainCards()[0]!);
+    fireEvent.keyDown(mainCards()[0]!, { key: "Delete" });
     expect(mainCards()).toHaveLength(2);
   });
 
