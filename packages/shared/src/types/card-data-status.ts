@@ -55,6 +55,11 @@ export interface UpstreamSourceStatus {
   behindCommits: number | null;
   /** Whole days between pinned and HEAD commit dates, not age since today. */
   behindDays: number | null;
+  /**
+   * GitHub's status of compare/pinned...HEAD: "ahead" = upstream HEAD has new commits on our pin (we are
+   * behind), "behind" = our pin is newer than HEAD, "diverged" = both. "unknown" = no answer, even when
+   * status is "ok" and HEAD is known.
+   */
   comparison: "identical" | "ahead" | "behind" | "diverged" | "unknown";
 }
 export interface EngineUpdateWorkflowStatus {
