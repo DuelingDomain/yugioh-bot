@@ -592,3 +592,16 @@ describe("deck art menu", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: menuName })).toBeNull());
   });
 });
+
+describe("deck art indicator", () => {
+  it("marks only the cards that have other arts, and says how many in the card name", async () => {
+    stored = savedDeck([MAIN.code, DARK.code, POT.code]);
+    render(<SavedDeckEditor deckId="7" />);
+    const multi = await screen.findByRole("button", { name: /Blue-Eyes White Dragon, Main Deck card 1, 3 arts$/ });
+    expect(within(multi).getByTitle("3 arts. Right-click to change the art.")).toHaveTextContent("3");
+    const two = screen.getByRole("button", { name: /Dark Magician, Main Deck card 2, 2 arts$/ });
+    expect(within(two).getByTitle("2 arts. Right-click to change the art.")).toHaveTextContent("2");
+    const single = screen.getByRole("button", { name: /Pot of Greed, Main Deck card 3$/ });
+    expect(single.querySelector('[title*="arts"]')).toBeNull();
+  });
+});
