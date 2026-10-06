@@ -693,7 +693,7 @@ function TableShellBody({
                     {fxActive ? <PositionFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
                     {fxActive ? <ChainFx events={withDestroyCards(engine.events)} chain={namedChain} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} playerName={nameOf} seatTones={seatTones} priority={priority} ended={hasResult} table={format} seats={engine.seats} /> : null}
                     {fxActive ? <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} /> : null}
-                    <BattleFx events={withDestroyCards(engine.events)} seats={engine.seats} reducedMotion={controller.reducedMotion} active={fxActive} aim={null} />
+                    <BattleFx events={withDestroyCards(engine.events)} seats={engine.seats} reducedMotion={controller.reducedMotion} active={fxActive} aim={null} nameOf={nameOf} />
                     <DestroyFx events={withDestroyCards(engine.events)} reducedMotion={controller.reducedMotion} active={fxActive} mySeat={viewerSeat ?? 0} />
                   </FxBoundary>
                 }

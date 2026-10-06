@@ -89,7 +89,7 @@ export function advanceFlipTracks(tracks: FlipTrack[], events: readonly DuelEven
   const freshIds = new Set(ordered.map((event) => event.id));
   const steps: FlipStep[] = [];
   for (const event of ordered) {
-    if (event.kind === "phase" || event.kind === "attack" || event.kind === "battle-end") {
+    if (event.kind === "phase" || event.kind === "attack" || event.kind === "attack-negated" || event.kind === "battle-end") {
       tracks.length = 0;
       if (event.kind === "attack" && event.zone && event.target) {
         tracks.push({ attack: event, flip: null, battle: null, damage: [], activate: null, target: null, resolving: null, chainEnd: null });
