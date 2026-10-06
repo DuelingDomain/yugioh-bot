@@ -10,6 +10,9 @@ import {
   type Pins,
 } from "../scripts/update-engine-data.js";
 
+import { MULTIPLAYER_FORBIDDEN } from "../src/banlists/multiplayer.js";
+import { reconcile, scanText } from "../scripts/scan-multiplayer-scripts.js";
+
 const oldPins: Pins = { scripts: "a".repeat(40), database: "b".repeat(40), strings: "c".repeat(40) };
 const nextPins: Pins = { scripts: "d".repeat(40), database: "e".repeat(40), strings: "f".repeat(40) };
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
@@ -226,6 +229,23 @@ describe("engine data update", () => {
       expect.objectContaining({ code: 94145021, changed: false, formatGap: true }),
     ]);
   });
+
+  it.each([74519184, 72892473, 82301904, 35059553, 37313786, 27204311, 57728570, 15305240, 13532663])(
+    "honors the owner Tag decision for %i but still reports script changes", (code) => {
+      const entry = MULTIPLAYER_FORBIDDEN.find((card) => card.code === code)!;
+      expect(entry.tagDecision).toEqual({ allowed: true, source: "owner 2026-10-06, option A" });
+      expect(entry.formats).toEqual(["ffa3", "ffa4"]);
+      const source = "Duel.GetFieldGroup(tp,LOCATION_HAND,LOCATION_HAND)";
+      const path = `official/c${code}.lua`;
+      const scripts = new Map([[path, source]]);
+      expect(scanText(code, source).flagged).toBe(true);
+      expect(reconcile([scanText(code, source)]).formatGap).toEqual([]);
+      expect(findListedChanges(scripts, [], new Set())).toEqual([]);
+      expect(findListedChanges(scripts, [path], new Set())).toEqual([
+        expect.objectContaining({ code, changed: true, formatGap: false }),
+      ]);
+    },
+  );
 
   it("writes single-line GITHUB_OUTPUT values including only reported files", () => {
     expect(githubOutput({ changed: true, next: nextPins, files: ["packages/duel-server/scripts/prepare-data.ts"] })).toBe(
