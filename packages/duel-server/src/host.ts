@@ -2,7 +2,7 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type Database from "better-sqlite3";
-import { createLocalCardDataStatus } from "./card-data-status.js";
+import { createLocalCardDataStatus, type EngineDataManifest } from "./card-data-status.js";
 import { createGithubCardDataStatus } from "./github-card-data-status.js";
 import { createDuelSeriesService, createDuelService, createTournamentDuelService, isCardFetchError, type DuelFinalSnapshots } from "@yugidraft/shared/services";
 import type {
@@ -306,10 +306,10 @@ export function createDuelHost(options: {
   if (!options.secret) throw new Error("DUEL_INTERNAL_SECRET is required");
   const service = createDuelService(options.db);
   const series = createDuelSeriesService(options.db);
-  const localCardDataStatus = createLocalCardDataStatus(options.db, options.dataDirectory);
-  const githubCardDataStatus = createGithubCardDataStatus();
-  const manifest = JSON.parse(readFileSync(join(options.dataDirectory, "manifest.json"), "utf8")) as { bundleVersion: string };
+  const manifest = JSON.parse(readFileSync(join(options.dataDirectory, "manifest.json"), "utf8")) as EngineDataManifest;
   if (!manifest.bundleVersion) throw new Error("Engine resource manifest has no bundle version");
+  const localCardDataStatus = createLocalCardDataStatus(options.db, options.dataDirectory, { manifest, now: options.now });
+  const githubCardDataStatus = createGithubCardDataStatus({ now: options.now });
   setCatalogDirectory(options.dataDirectory);
   const pinnedVersionFor = (format: DuelFormat): string =>
     pinnedEngineVersion(manifest.bundleVersion, seatCountFor(format), seatCountFor(format) > 2 ? activeMultiScriptsHash(options.dataDirectory) : null);
@@ -2197,7 +2197,8 @@ export function createDuelHost(options: {
         const local = localCardDataStatus();
         const github = await githubCardDataStatus(local.engine);
         return { ...local, ...github, generatedAt: new Date().toISOString() };
-      } catch {
+      } catch (error) {
+        console.error("[duel] engine-data-status", error);
         throw new RequestError("Card data status is unavailable", 503);
       }
     }
@@ -2720,6 +2721,7 @@ export function createDuelHost(options: {
       for (const slug of [...openingTimers.keys()]) clearOpeningTimer(slug);
       const loops = [...botLoops.values()];
       for (const slug of [...botLoops.keys()]) cancelBotLoop(slug);
+      await Promise.all([localCardDataStatus.close(), githubCardDataStatus.close()]);
       await Promise.allSettled([...queues.values(), ...loops.map((loop) => loop.done)]);
       await Promise.all([...games.values()].map((entry) => safeClose(entry.game)));
       games.clear();

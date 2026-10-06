@@ -10,7 +10,7 @@ export interface EngineSourcePin {
 export interface EngineDataStatus {
   bundleVersion: string;
   preparedAt: string | null;
-  /** Old bundles have no timestamp; file mtime is explicitly only an estimate. */
+  /** Current bundles have no preparation timestamp and report unknown. Legacy tags are retained for clients. */
   preparedAtSource: "manifest" | "manifest-mtime" | "unknown";
   sources: Record<EngineDataSource, EngineSourcePin>;
   /** Raw datas rows, including alternate passcodes and tokens. */
@@ -40,10 +40,24 @@ export interface CardDataGapCard {
   setReleaseDate: string | null;
 }
 export interface CardDataGapStatus {
-  /** Families, using same-name/type engine aliases and persisted catalog artwork mappings. */
-  catalogMissingFromEngineCount: number;
-  catalogMissingFromEngine: CardDataGapCard[];
-  engineMissingFromCatalogCount: number;
+  /** Unique missing families across the last 12 calendar months of released TCG sets; null until the set index is synced and every set is cached. */
+  recentSetsMissingFromEngineCount: number | null;
+  recentSets: CardDataSetGapStatus[];
+  /** Diagnostic only: the on-demand catalog is incomplete. Skills and tokens are excluded. */
+  cachedCatalogMissingCount: number;
+  cachedCatalogMissing: CardDataGapCard[];
+  /** Same normalized name/type exists in the engine under a different passcode family. */
+  cachedCatalogIdMismatch: CardDataGapCard[];
+}
+export interface CardDataSetGapStatus extends CatalogSetStatus {
+  /** ok may be stale while a daily refresh is in flight; checkedAt is the last successful fetch. */
+  status: DataStatus;
+  checkedAt: string | null;
+  /** Playable families; null means the set has not been fetched successfully. */
+  total: number | null;
+  missingCount: number | null;
+  missingCards: CardDataGapCard[];
+  idMismatch: CardDataGapCard[];
 }
 export interface UpstreamSourceStatus {
   status: DataStatus;

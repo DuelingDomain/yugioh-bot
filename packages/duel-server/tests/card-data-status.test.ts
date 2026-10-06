@@ -5,79 +5,90 @@ import { join } from "node:path";
 import { expect, it } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { computeCardDataGap, createLocalCardDataStatus } from "../src/card-data-status.js";
+const card = (id: number, name = "Card", cardSets: Array<{ set_name: string; set_code?: string }> = []) =>
+  ({ id, name, type: "Normal Monster", frameType: "normal", cardSets });
 
-it("compares passcodes and transitive alias/artwork families in both directions, newest first", () => {
+it("uses canonical alias and persisted artwork families, deduplicating missing cards newest first", () => {
   const result = computeCardDataGap(
-    [{ id: 10, alias: 0 }, { id: 20, alias: 10 }, { id: 30, alias: 20 }, { id: 40, alias: 50 }, { id: 50, alias: 0 }, { id: 60, alias: 0 }].map(card => ({ ...card, name: "Artwork", type: 1 })),
-    [
-      { id: 10, name: "Known", cardSets: [] }, { id: 31, name: "Known artwork", cardSets: [] },
-      { id: 50, name: "Alias target", cardSets: [] },
-      { id: 70, name: "Old", cardSets: [{ set_name: "Old", set_code: "OLD-EN001" }] },
-      { id: 80, name: "New", cardSets: [{ set_name: "New" }, { set_name: "Old" }] },
-      { id: 81, name: "New artwork", cardSets: [] }, { id: 90, name: "Undated", cardSets: [] },
-    ],
+    [{ id: 10, alias: 0 }, { id: 20, alias: 10 }, { id: 30, alias: 20 }].map(c => ({ ...c, name: "Known", type: 17 })),
+    [card(31, "Known"), card(80, "New", [{ set_name: "New" }]), card(81, "New art"), card(70, "Old", [{ set_name: "Old", set_code: "OLD-EN001" }])],
     [{ cardId: 30, artworkId: 31 }, { cardId: 80, artworkId: 81 }],
     [{ name: "Old", code: "OLD", releaseDate: "2025-01-01" }, { name: "New", code: "NEW", releaseDate: "2026-09-01" }],
   );
-  expect(result).toEqual({
-    catalogMissingFromEngineCount: 3,
-    catalogMissingFromEngine: [
-      { id: 80, name: "New", setCode: "NEW", setReleaseDate: "2026-09-01" },
-      { id: 70, name: "Old", setCode: "OLD-EN001", setReleaseDate: "2025-01-01" },
-      { id: 90, name: "Undated", setCode: null, setReleaseDate: null },
-    ], engineMissingFromCatalogCount: 1,
-  });
+  expect(result.cachedCatalogMissingCount).toBe(2);
+  expect(result.cachedCatalogMissing).toEqual([
+    { id: 80, name: "New", setCode: "NEW", setReleaseDate: "2026-09-01" },
+    { id: 70, name: "Old", setCode: "OLD-EN001", setReleaseDate: "2025-01-01" },
+  ]);
 });
 
-it("handles empty pools and alias cycles without hanging", () => {
-  expect(computeCardDataGap([], [], [], [])).toEqual({ catalogMissingFromEngineCount: 0, catalogMissingFromEngine: [], engineMissingFromCatalogCount: 0 });
-  expect(computeCardDataGap([{ id: 1, alias: 2, name: "Cycle", type: 1 }, { id: 2, alias: 1, name: "Cycle", type: 1 }], [{ id: 2, name: "Cycle", cardSets: [] }], [], []).engineMissingFromCatalogCount).toBe(0);
+it("excludes skills and tokens and reports normalized same-name/type ID mismatches separately", () => {
+  const result = computeCardDataGap([
+    { id: 1, alias: 0, name: " CARD ", type: 17 },
+    { id: 2, alias: 0, name: "Token", type: 0x4011 },
+  ], [card(99, "card"), { ...card(3), frameType: "skill" }, { ...card(4), type: "Token", frameType: "token" },
+    { ...card(5, "Card"), type: "Spell Card", frameType: "spell" }], [], []);
+  expect(result.cachedCatalogMissing.map(c => c.id)).toEqual([5]);
+  expect(result.cachedCatalogIdMismatch.map(c => c.id)).toEqual([99]);
 });
 
-it("reads manifest CDB provenance and caches until a catalog revision or bundle change", () => {
+it("keeps name-treatment aliases and different card types separate and tolerates alias cycles", () => {
+  const result = computeCardDataGap([
+    { id: 1, alias: 2, name: "Treated as Original", type: 17 },
+    { id: 2, alias: 0, name: "Original", type: 17 },
+    { id: 3, alias: 2, name: "Original", type: 2 },
+    { id: 4, alias: 5, name: "Cycle", type: 17 }, { id: 5, alias: 4, name: "Cycle", type: 17 },
+  ], [card(99, "Other"), card(5, "Cycle")], [], []);
+  expect(result.cachedCatalogMissing.map(c => c.id)).toEqual([99]);
+  expect(result.cachedCatalogIdMismatch).toEqual([]);
+});
+
+it("keeps the newest printing date even without a code and retains a known per-set printing code", () => {
+  const sets = [{ name: "New", code: null, releaseDate: "2026-10-01" }, { name: "Old", code: "OLD", releaseDate: "2025-01-01" }];
+  const newer = card(1, "New card", [{ set_name: "New" }, { set_name: "Old", set_code: "OLD-EN001" }]);
+  expect(computeCardDataGap([], [newer], [], sets).cachedCatalogMissing).toEqual([
+    { id: 1, name: "New card", setCode: null, setReleaseDate: "2026-10-01" },
+  ]);
+  const printing = card(2, "Printed", [{ set_name: "Old", set_code: "OLD-EN002" }, { set_name: "Old" }]);
+  expect(computeCardDataGap([], [], [], sets, [{ ...sets[1], cards: [printing], checkedAt: "2026-10-01" }])
+    .recentSets[0].missingCards[0].setCode).toBe("OLD-EN002");
+});
+
+function setup(manifest: object) {
   const dir = mkdtempSync(join(tmpdir(), "card-status-"));
   const db = new Database(":memory:"); migrate(db);
   const cdb = new Database(join(dir, "cards.cdb"));
-  cdb.exec("create table datas (id integer primary key, alias integer, type integer); create table texts (id integer primary key, name text); insert into datas values (10,0,1); insert into texts values (10,'Known')"); cdb.close();
-  const manifest = (bundleVersion: string) => writeFileSync(join(dir, "manifest.json"), JSON.stringify({
-    bundleVersion, preparedAt: "2026-01-01T00:00:00Z", sources: { database: "pin", databaseFiles: ["cards.cdb", "release-new.cdb"] },
-  }));
-  manifest("v1");
-  const read = createLocalCardDataStatus(db, dir);
+  cdb.exec("create table datas (id integer primary key, alias integer, type integer); create table texts (id integer primary key, name text); insert into datas values (10,0,17); insert into texts values (10,'Known')"); cdb.close();
+  writeFileSync(join(dir, "manifest.json"), JSON.stringify(manifest));
+  return { dir, db, cleanup: () => { db.close(); rmSync(dir, { recursive: true, force: true }); } };
+}
+
+it("uses the startup manifest and holds snapshots at least 60 seconds despite revision bumps", () => {
+  const manifest = { bundleVersion: "v1", sources: { database: "pin", databaseFiles: ["cards.cdb", "release-new.cdb"] } };
+  const { dir, db, cleanup } = setup(manifest);
+  let now = Date.parse("2026-10-06T00:00:00Z");
+  const read = createLocalCardDataStatus(db, dir, { manifest, now: () => now });
   try {
     const first = read();
-    expect(first.engine).toMatchObject({ cardCount: 1, cdbFiles: ["cards.cdb", "release-new.cdb"], preparedAtSource: "manifest" });
-    expect(first.catalog.lastSuccessfulSyncAt).toBeNull();
-    expect(read()).toBe(first);
-    db.exec("insert into players (guild_id, discord_user_id, display_name) values ('g','u','U')");
-    expect(read()).toBe(first);
-    db.exec(`insert into card_sets (set_name,set_code,synced_at,release_date) values ('New','NEW','2026-01-01T00:00:00Z','2026-01-01');
-      insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
-      values (99,'Missing','Monster','normal','','','[{"set_name":"New"}]','2026-01-01T00:00:00Z')`);
-    const second = read();
-    expect(second).not.toBe(first);
-    expect(second.gap.catalogMissingFromEngineCount).toBe(1);
-    expect(second.catalog.newestSets).toEqual([{ name: "New", code: "NEW", releaseDate: "2026-01-01" }]);
-    db.exec("delete from card_catalog");
-    expect(read().gap.catalogMissingFromEngineCount).toBe(0);
-    manifest("v2");
-    expect(read().engine.bundleVersion).toBe("v2");
-    writeFileSync(join(dir, "manifest.json"), JSON.stringify({ bundleVersion: "v3", sources: {} }));
-    expect(read().engine.preparedAtSource).toBe("manifest-mtime");
-  } finally { db.close(); rmSync(dir, { recursive: true, force: true }); }
+    expect(first.engine).toMatchObject({ cardCount: 1, cdbFiles: ["cards.cdb", "release-new.cdb"], preparedAt: null, preparedAtSource: "unknown" });
+    db.exec(`insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
+      values (99,'Missing','Normal Monster','normal','','','[]','2026-01-01T00:00:00Z')`);
+    now += 59_999; expect(read()).toBe(first);
+    now++; expect(read().gap.cachedCatalogMissingCount).toBe(1);
+    writeFileSync(join(dir, "manifest.json"), JSON.stringify({ bundleVersion: "replaced", sources: {} }));
+    now += 60_000; expect(read().engine.bundleVersion).toBe("v1");
+  } finally { cleanup(); }
 });
 
-it("keeps the newest date even if its set code is unknown", () => {
-  expect(computeCardDataGap([], [{ id: 1, name: "New card", cardSets: [{ set_name: "New" }, { set_name: "Old" }] }], [], [
-    { name: "New", code: null, releaseDate: "2026-10-01" }, { name: "Old", code: "OLD", releaseDate: "2025-01-01" },
-  ]).catalogMissingFromEngine).toEqual([{ id: 1, name: "New card", setCode: null, setReleaseDate: "2026-10-01" }]);
+it("supports old manifest shape without inventing preparation time or finding unrelated CDB strings", () => {
+  const { dir, db, cleanup } = setup({ bundleVersion: "old", sources: { database: "pin" }, unrelated: "other.cdb" });
+  try {
+    expect(createLocalCardDataStatus(db, dir)().engine).toMatchObject({ cdbFiles: ["cards.cdb"], preparedAt: null, preparedAtSource: "unknown" });
+  } finally { cleanup(); }
 });
 
-it("keeps name-treatment aliases and different card types as distinct engine cards", () => {
-  const engine = [
-    { id: 1, alias: 2, name: "Treated as Original", type: 1 },
-    { id: 2, alias: 0, name: "Original", type: 1 },
-    { id: 3, alias: 2, name: "Original", type: 2 },
-  ];
-  expect(computeCardDataGap(engine, [{ id: 2, name: "Original", cardSets: [] }], [], []).engineMissingFromCatalogCount).toBe(2);
+it.each([null, "cards.cdb", ["cards.cdb", 7], [], ["cards.cdb", "nested/release-new.cdb"]].map(databaseFiles => [databaseFiles]))("rejects malformed explicit databaseFiles %j", (databaseFiles) => {
+  const { dir, db, cleanup } = setup({ bundleVersion: "bad", sources: { databaseFiles } });
+  try { expect(() => createLocalCardDataStatus(db, dir)()).toThrow(/databaseFiles/); }
+  finally { cleanup(); }
 });

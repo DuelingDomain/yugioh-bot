@@ -36,3 +36,34 @@ it("migrates existing set data idempotently and tracks catalog changes without u
   db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g','u','U')").run();
   expect(revision()).toBe(before + 1);
 });
+
+it("retains release dates when later set responses omit or corrupt them", async () => {
+  const db = setup();
+  const fetch = vi.fn().mockResolvedValueOnce(Response.json([
+    { set_name: "New", set_code: "NEW", num_of_cards: 2, tcg_date: "2026-09-30" },
+  ])).mockResolvedValueOnce(Response.json([
+    { set_name: "New", set_code: "UPD", num_of_cards: 3 },
+  ])).mockResolvedValueOnce(Response.json([
+    { set_name: "New", set_code: "UPD", num_of_cards: 3, tcg_date: "invalid" },
+  ])).mockResolvedValueOnce(Response.json([
+    { set_name: "New", set_code: "UPD", num_of_cards: 3, tcg_date: "2026-02-31" },
+  ]));
+  const cards = createCardCatalogService(db, { fetch, identityCatalog: new Map() });
+  await cards.syncSets(); await cards.syncSets(); await cards.syncSets(); await cards.syncSets();
+  expect(db.prepare("select release_date, set_code, card_count from card_sets").get())
+    .toEqual({ release_date: "2026-09-30", set_code: "UPD", card_count: 3 });
+});
+
+it("tracks inserts, updates and deletes for catalog and artwork rows", () => {
+  const db = setup();
+  const revision = () => (db.prepare("select revision from card_catalog_revision where id=1").get() as { revision: number }).revision;
+  const before = revision();
+  db.exec(`insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
+    values (1,'Card','Normal Monster','normal','','','[]','2026-01-01');
+    update card_catalog set name='Updated' where ygoprodeck_id=1;
+    insert into card_artworks (card_id,artwork_id,image_url,image_url_small,is_main,source) values (1,1,'','',1,'api');
+    update card_artworks set image_url='changed' where artwork_id=1;
+    delete from card_artworks; delete from card_catalog;`);
+  expect(revision()).toBe(before + 6);
+  expect(db.prepare("select name from sqlite_master where name='card_data_set_cache'").get()).toBeDefined();
+});
