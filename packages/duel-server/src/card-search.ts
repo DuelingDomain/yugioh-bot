@@ -285,9 +285,10 @@ export function queryCards(cards: CardDatabase, query: CardQuery): CardQueryResu
   const exact = /^\d+$/.test(trimmed) ? index.byCode.get(Number(trimmed)) : undefined;
   const exactPasses = exact != null && compile({ ...query, text: "" }, index).every((check) => check(exact));
 
+  const exactFamily = exact && exactPasses ? cardArtworkFamily(cards, exact.card.code)?.passcode : undefined;
   const found: Entry[] = [];
   for (const entry of index.entries) {
-    if (entry.hidden || entry === exact) continue;
+    if (entry.hidden || entry === exact || (exactFamily !== undefined && cardArtworkFamily(cards, entry.card.code)?.passcode === exactFamily)) continue;
     if (passes(entry)) found.push(entry);
   }
   const member: Matcher | null = query.archetypeMode === "related" && query.archetypes.length > 0

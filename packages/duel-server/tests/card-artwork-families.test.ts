@@ -37,3 +37,11 @@ describe("engine artwork families", () => {
     expect(search("Cycle").cards).toHaveLength(2);
   });
 });
+
+it("does not repeat the main when an exact alternate code also partially matches it", () => {
+  const both = [card(10), card(1, 10)];
+  const database = { ...cards, all: () => both, deckCard: (id: number) => both.find(c => c.code === id) } as CardDatabase;
+  const result = queryCards(database, { ...emptyCardQuery(), text: "1" });
+  expect(result.cards.map(card => card.code)).toEqual([1]);
+  expect(result.cards[0].altArtCount).toBe(1);
+});
