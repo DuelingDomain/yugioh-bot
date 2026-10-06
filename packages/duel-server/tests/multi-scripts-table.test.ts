@@ -453,6 +453,20 @@ const filler = (count: number): CardEntry[] => FILLERS.slice(0, count);
  * `ahead`: p0 has more cards, so a "fewer than you" compare passes. Each opponent has a different count, so the compare differs by seat.
  */
 export function boardFor(format: DuelFormat, code: number, layout: Layout): BoardSpec {
+  if (code === 90140980) {
+    // Extra Deck copies load before the probe. De-Fusion returns the wrapped field copy,
+    // then Polymerization checks its fusion condition with the three Ojama materials.
+    return { format, deckSize: 20,
+      p0: { monsters: [code], hand: ["De-Fusion", "Polymerization", "Ojama Green", "Ojama Yellow", "Ojama Black"] }, p1: {}, p2: {},
+      ...(format === "tag" ? { p3: {} } : {}) };
+  }
+  if (code === 85967160) {
+    // Bergamot's piercing condition is read when a Plant attacks a Defense Position monster.
+    return { format, deckSize: 20, attackFirstTurn: true,
+      p0: { monsters: [code], lp: 9000 }, p1: { monsters: [{ card: "Mystical Elf", pos: "def" }], lp: 8000 },
+      p2: format === "tag" ? {} : { monsters: [{ card: "Mystical Elf", pos: "def" }], lp: 8000 },
+      ...(format === "tag" ? { p3: { monsters: [{ card: "Mystical Elf", pos: "def" }], lp: 8000 } } : {}) };
+  }
   if (code === 78360952) {
     // Sunlit Sentinel registers its Standby Phase trigger only after destruction while face-down.
     return { format, deckSize: 20,
@@ -634,8 +648,8 @@ export async function playTable(format: DuelFormat, code: number, layout: Layout
         const end = prompt.options.find(option => option.id === "to_ep");
         if (end) answers.unshift({ choice: end.id });
       }
-      if (code === 99050989 && seat === 0 && prompt.context?.type === "action") {
-        // The generic p0 planner summons and activates, then ends its turn. Drillago needs an attack.
+      if ([99050989, 85967160].includes(code) && seat === 0 && prompt.context?.type === "action") {
+        // The generic p0 planner summons and activates, then ends its turn. Drillago and Bergamot need an attack.
         const attack = prompt.options.find(option => option.id.startsWith("attack:") && option.card?.code === code);
         const action = attack ?? prompt.options.find(option => option.id === "to_bp");
         if (action) answers.unshift({ choice: action.id });
