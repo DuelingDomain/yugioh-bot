@@ -29,6 +29,21 @@ describe("4-way grid: your hand never blocks your Spell/Trap row", () => {
   });
 });
 
+describe("4-way grid: every zone of every field takes the pointer, also where two facing fields overlap", () => {
+  it("makes the seat box, the mat and the grid click-through and gives the pointer back to the zones", () => {
+    expect(field).toMatch(
+      /:global\(\[data-grid-stage\]\) \.seatField,\s*:global\(\[data-grid-stage\]\) \.sfMat,\s*:global\(\[data-grid-stage\]\) \.sfGrid \{\s*pointer-events: none;/,
+    );
+    expect(field).toMatch(/:global\(\[data-grid-stage\]\) \.sfGrid \.zone \{\s*pointer-events: auto;/);
+    expect(field).toMatch(/:global\(\[data-grid-stage\]\) \.seatField > :where\(:not\(\.sfMat\)\) \{\s*pointer-events: auto;/);
+    expect(grid).toMatch(/\.world :global\(\[data-seat-slot\]\) \{\s*pointer-events: none;/);
+  });
+
+  it("does not cut the Banished zone of the field that hides its Extra Monster row", () => {
+    expect(field).toMatch(/\.seatField\[data-emz="none"\]\[data-framed="true"\] \.sfMat \{\s*clip-path: none;/);
+  });
+});
+
 describe("4-way grid: the phase hub sits in the free cells beside the Extra Monster Zones, never over them", () => {
   const hub = readFileSync(join(__dirname, "../src/components/duel/phase-hub.module.css"), "utf8");
   // A cell of the band: the five monster columns (3.73 z wide), 0.075 z apart.

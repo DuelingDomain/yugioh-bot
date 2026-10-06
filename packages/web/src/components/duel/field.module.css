@@ -2113,6 +2113,25 @@
   pointer-events: auto;
 }
 
+/* 4-way grid: a field lies over the shared Extra Monster band of its facing field, and the front field has the higher
+   z-index. The seat box, the mat and the grid are only a drawing, so their empty boxes never take the pointer: every zone and
+   pile of every field does, at any zoom (the grid stage turns a click on empty mat into a focus of that field). */
+:global([data-grid-stage]) .seatField,
+:global([data-grid-stage]) .sfMat,
+:global([data-grid-stage]) .sfGrid {
+  pointer-events: none;
+}
+
+:global([data-grid-stage]) .sfGrid .zone {
+  pointer-events: auto;
+}
+
+/* What lies on the field and is not a drawing (the life box, the hand) keeps the pointer. `:where` keeps this rule weaker
+   than the ones that make a label or a hand click-through. */
+:global([data-grid-stage]) .seatField > :where(:not(.sfMat)) {
+  pointer-events: auto;
+}
+
 /* The 4-way grid: two facing fields share one row of two Extra Monster Zones. The field that draws it (data-emz="pair")
    lays the zones out between room for the life boxes (--pl, --pr in card heights); the other (data-emz="none") hides its
    own row and its mat ends where the drawing field's begins, so the pair reads as one board. */
@@ -2141,6 +2160,12 @@
 .seatField[data-emz="none"] .sfMat {
   /* Pad + row + row gap: the end of this field's monster row (the grid overlaps the pair by the same measure). */
   clip-path: inset(calc(var(--z) * 1.196) -240px -240px -240px);
+}
+
+/* A framed field paints no mat, so the cut hides nothing of the mat. It would still cut this field's Banished zone, which sits
+   in the first grid row beside the shared Extra Monster Zones (invisible and out of reach). */
+.seatField[data-emz="none"][data-framed="true"] .sfMat {
+  clip-path: none;
 }
 
 .seatField[data-emz="none"] .sfRule {
