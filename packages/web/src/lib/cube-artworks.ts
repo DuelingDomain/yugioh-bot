@@ -13,11 +13,13 @@ export function swapCubeArtwork(db: Database.Database, cubeId: number, from: num
     if (!db.prepare("select 1 from cube_cards where cube_id = ? and catalog_card_id = ?").get(cubeId, from)) {
       throw new Error("Cube card not found");
     }
-    if (db.prepare(`select 1 from drafts d where d.status in ('pending', 'active') and (
+    const blocking = db.prepare(`select d.name, d.web_slug as slug, d.status from drafts d where d.status in ('pending', 'active') and (
       exists (select 1 from draft_player_cube pc where pc.draft_id = d.id and pc.cube_id = ?)
       or exists (select 1 from json_each(d.config_json, '$.allowedCubeIds') allowed where allowed.value = ?)
-    ) limit 1`).get(cubeId, cubeId)) {
-      throw new CubeArtworkConflict("Artwork cannot change while this cube is used by a pending or active draft");
+    ) order by d.id limit 1`).get(cubeId, cubeId) as { name: string; slug: string | null; status: string } | undefined;
+    if (blocking) {
+      const label = blocking.slug ? `"${blocking.name}" (${blocking.slug})` : `"${blocking.name}"`;
+      throw new CubeArtworkConflict(`Artwork cannot change while this cube is used by the ${blocking.status} draft ${label}. Finish or cancel that draft first.`);
     }
     if (from === to) return;
     if (db.prepare("select 1 from cube_cards where cube_id = ? and catalog_card_id = ?").get(cubeId, to)) {

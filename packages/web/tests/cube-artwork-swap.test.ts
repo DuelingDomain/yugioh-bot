@@ -53,9 +53,15 @@ function themeDraft() {
   drafts.join(draft.id, players[1]);
   return { drafts, draft, players };
 }
-it("blocks pending drafts whose allowed cubes include this cube", async () => {
-  themeDraft();
-  expect((await swap()).status).toBe(409);
+it("blocks pending drafts whose allowed cubes include this cube and names the draft", async () => {
+  const { draft } = themeDraft();
+  db.prepare("update drafts set web_slug = 'abc123' where id = ?").run(draft.id);
+  const response = await swap();
+  expect(response.status).toBe(409);
+  const { error } = await response.json();
+  expect(error).toContain('"Theme" (abc123)');
+  expect(error).toContain("pending draft");
+  expect(error).toMatch(/finish or cancel/i);
   expect(db.prepare("select catalog_card_id from cube_cards where catalog_card_id != 20").all()).toEqual([{ catalog_card_id: 10 }]);
 });
 it("blocks an assigned active cube after a pick, even without allowedCubeIds", async () => {
