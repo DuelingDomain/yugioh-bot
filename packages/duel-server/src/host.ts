@@ -2328,6 +2328,9 @@ export function createDuelHost(options: {
       if (typeof body.query !== "string" || body.query.length > 200) throw new RequestError("Invalid card search", 400);
       if (typeof body.slug === "string" && body.slug) {
         const room = service.room(body.slug, guildId, actor);
+        const info = room.session.sandbox ? service.privateState(body.slug, guildId).setup?.sandbox : undefined;
+        room.mySeat = resolveActingSeat({ ...room.session, actor, mySeat: room.mySeat,
+          manualSeats: info ? policiesForRun(info.run, room.session.format).manualSeats : new Set(), as: body.as });
         if (room.mySeat === null) throw new RequestError("Join this duel before searching its choices", 403);
         if (room.session.status !== "active") throw new RequestError("This duel is not active", 409);
         const game = await recover(body.slug, guildId);

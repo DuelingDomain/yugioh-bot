@@ -1231,7 +1231,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       data-idle={dockMode === "idle" ? "true" : "false"}
       data-prompt-surface={dockMode === "idle" ? undefined : ""}
     >
-      <PromptTray prompt={prompt} mySeat={data.mySeat} slug={slug} busy={busy || Boolean(error) || catchingUp}
+      <PromptTray prompt={prompt} mySeat={data.mySeat} slug={slug} sandbox={sandboxView.current} busy={busy || Boolean(error) || catchingUp}
         draft={draft} onSubmit={onSubmitAnswer} menuOpen={promptMenuOpen} escapeHeld={hudFlyoutOpen}
         active={data.session.status === "active" && !viewerOut} aim={promptAim} headless={centered} suspended={centered && !revealed}
         waitingName={multi && prompt ? playerName(prompt.seat) : null}
@@ -1291,7 +1291,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         active={fxUp} mySeat={localSeat} />
       </FxBoundary>
       <RowPreviewBoundary row={rowPreview} enabled={hud}>
-        <PromptCenter prompt={prompt ?? pick.waiting} mySeat={data.mySeat} active={data.session.status === "active" && !viewerOut} slug={slug}
+        <PromptCenter prompt={prompt ?? pick.waiting} mySeat={data.mySeat} active={data.session.status === "active" && !viewerOut} slug={slug} sandbox={sandboxView.current}
         busy={busy || Boolean(error) || catchingUp || (prompt == null && pick.waiting != null)} draft={draft} onSubmit={onSubmitAnswer}
         menuOpen={promptMenuOpen} escapeHeld={hudFlyoutOpen} chain={engine.chain} aim={promptAim}
         aimLocked={aimLock != null && aimLock.promptId === prompt?.id}

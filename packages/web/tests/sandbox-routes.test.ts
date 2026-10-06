@@ -272,6 +272,16 @@ describe("duel sandbox operations", () => {
     }
     expect(payloads()[0]).toEqual({ op, slug: session.slug, guildId: "guild", playerId: owner, ...fields });
   });
+  it("forwards the Manual seat for card search and checks sandbox admin access", async () => {
+    const session = duel();
+    const { GET } = await import("../app/api/duels/cards/route");
+    const path = `/api/duels/cards?slug=${session.slug}&q=Elf&as=1`;
+    expect((await GET(request(path, undefined, "GET"))).status).toBe(200);
+    expect(payloads().at(-1)).toMatchObject({ op: "cards", slug: session.slug, as: 1, query: "Elf" });
+    mocks.access.mockResolvedValue({ ok: false, status: 403 });
+    expect((await GET(request(path, undefined, "GET"))).status).toBe(403);
+    expect((await GET(request(`/api/duels/cards?slug=${session.slug}&q=Elf`, undefined, "GET"))).status).toBe(403);
+  });
   it("forwards sandbox info", async () => {
     const session = duel();
     const { GET } = await import("../app/api/duels/[slug]/sandbox/route");

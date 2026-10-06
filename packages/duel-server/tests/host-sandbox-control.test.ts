@@ -16,6 +16,7 @@ interface Control {
   promptSeat: number;
   phaseWindow?: boolean;
   phaseAfterAnswer?: boolean;
+  announce?: boolean;
 }
 const resources: Array<{ host: DuelHost; db: Database.Database }> = [];
 afterEach(async () => {
@@ -42,12 +43,12 @@ class FakeWorker implements DuelGameWorker {
         extra: [{ controller: index, location: 64, sequence: 0, position: 10, ...(viewer === index ? { code: 84013237 } : {}) }],
         monsters: [], spells: [], graveyard: [], banished: [],
       })),
-      prompt: viewer === seat ? { id: `prompt-${this.revision}`, seat, kind: "choice", title: "Choose",
+      prompt: viewer === seat ? { id: `prompt-${this.revision}`, seat, kind: this.control.announce ? "announce-card" : "choice", title: "Choose",
         options: boundary ? [{ id: "num:0", label: "Number", values: [0x53425800] }] : [{ id: "to_ep", label: "End turn" }], min: 1, max: 1, cancelable: false } : null,
       chain: [], events: [], log: [], result: null };
   }
   async answer() { this.revision++; }
-  async search() { return []; }
+  async search() { return [{ code: 15025844, name: "Mystical Elf", description: "", type: 1, attack: 800, defense: 2000, level: 4, attribute: 16, race: "Spellcaster" }]; }
   async close() { this.running = false; }
 }
 
@@ -142,6 +143,18 @@ describe("sandbox seat control", () => {
     await t.workers[0].close();
     expect((await t.post("view", { slug, as: 1 })).status).toBe(200);
     expect(t.duels.privateState(slug, "g").setup?.sandbox?.run.bots["1"]).toBe("manual");
+  });
+  it.each([1, 2, 3])("searches announce-card choices as Manual seat %i", async (seat) => {
+    const t = setup(); t.control.promptSeat = seat; t.control.announce = true;
+    const slug = await t.start({ board: { format: "ffa4" }, run: { bots: { "1": "manual", "2": "manual", "3": "manual" } } });
+    const result = await t.post("cards", { slug, as: seat, query: "Mystical" });
+    expect(result.status, result.data.error).toBe(200);
+    expect(result.data.cards[0].code).toBe(15025844);
+    expect((await t.post("cards", { slug, query: "Mystical" })).status).toBe(409);
+    expect((await t.post("cards", { slug, as: seat, query: "Mystical", playerId: t.other })).status).toBe(403);
+    expect((await t.post("cards", { slug, as: 4, query: "Mystical" })).status).toBe(400);
+    const regular = t.duels.create({ guildId: "g", organizerPlayerId: t.owner, name: "Normal", mode: "normal" });
+    expect((await t.post("cards", { slug: regular.slug, as: seat, query: "Mystical" })).status).toBe(409);
   });
   it("surrenders the acting seat", async () => {
     const t = setup(), slug = await t.start({ run: manualRun });

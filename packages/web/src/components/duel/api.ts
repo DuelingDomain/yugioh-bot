@@ -334,10 +334,11 @@ export async function cancelDuel(slug: string): Promise<DuelRoom> {
 export async function searchDuelCards(
   q: string,
   slug?: string,
+  sandbox?: SandboxView,
 ): Promise<{ cards: DuelCardInfo[] }> {
   const params = new URLSearchParams({ q });
   if (slug) params.set("slug", slug);
-  return parseBody(await fetch(`/api/duels/cards?${params.toString()}`, { cache: "no-store" }));
+  return parseBody(await fetch(withSandboxQuery(`/api/duels/cards?${params.toString()}`, sandbox), { cache: "no-store" }));
 }
 
 export async function getDuelCards(codes: number[]): Promise<{ cards: DuelCardInfo[]; missing: number[] }> {
