@@ -1,4 +1,4 @@
-import { activate, endTurn, expectBoard, expectEliminated, expectNotOffered, expectOffered, expectPickOptions, expectPickSeats, expectPrompt, normalSummon, number, pickOpponent, pass, position, select, specialSummon, surrender, yes, zone, type Scenario, type Step } from "../../support/dsl.js";
+import { activate, choose, endTurn, expectBoard, expectEliminated, expectNotOffered, expectOffered, expectPickOptions, expectPickSeats, expectPrompt, normalSummon, number, pickOpponent, pass, position, select, specialSummon, surrender, yes, zone, type Scenario, type Step } from "../../support/dsl.js";
 import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { domainVariant } from "./domain-variants.js";
 import { SEATS, turnsBefore, type Seat } from "./seat-kit.js";
@@ -71,6 +71,17 @@ function impermanence(peer: "p1" | "p2", eliminated: boolean, continuous = false
     activate(POT, peer), zone(peer,continuous ? "s0" : "s3",peer), expectPrompt({by:peer,context:"action"}),
     expectBoard({ [peer]: { hand: Array(continuous ? 3 : 1).fill(ELF),
       zones: { m4: {card:wolf,attack: 2000} }, grave:[remedy,POT] } })]);
+}
+function impermanenceControlChange(): Scenario {
+  const control = "Enemy Controller", tenki = "Fire Formation - Tenki", wolf = "Gene-Warped Warwolf";
+  return scenario("impermanence-target-becomes-own", {
+    p0: { monsters: [ELF, null, null, null, wolf], spells: [{ card: control, pos: "set" }, { card: IMP, pos: "set" }], hand: [tenki] },
+    p1: { monsters: ["Giant Rat"] },
+  }, [activate(IMP, "p0"), expectPrompt({ by: "p0", context: "chain" }), activate(control, "p0"),
+    choose("opt:1", "p0"), select({ card: ELF, owner: "p0" }), zone("p0", "m0", "p0"),
+    expectPrompt({ by: "p0", context: "action" }), activate(tenki, "p0"), zone("p0", "s1", "p0"),
+    expectPrompt({ by: "p0", context: "action" }),
+    expectBoard({ p0: { zones: { m0: "Giant Rat", m4: { card: wolf, attack: 2000 } }, grave: [ELF, IMP, control] }, p1: { monsters: [] } })]);
 }
 function disablaster(eliminated: boolean): Scenario {
   const card="Disablaster the Negation Fortress", trooper="Card Trooper";
@@ -158,7 +169,7 @@ function fullEmzColumn(card: "Bingo Card" | "Blasting Fuse", eliminated: boolean
         ...(!eliminated ? { p1: { monsters: [OX, spider], spells: ["Dark Hole"], grave: [] } } : {}) }),
     ])]);
 }
-const standard = [peerLeaves(),...(["Bingo Card", "Blasting Fuse"] as const).flatMap(card => [false, true].flatMap(eliminated => (["none", "own-main", "peer-spell"] as const).map(missing => fullEmzColumn(card, eliminated, missing)))),sour(),emzColumn("p1"),emzColumn("p2"),independentEmzColumn(),moveColumn("Sprind the Irondash Dragon","p1"),moveColumn("Sprind the Irondash Dragon","p2"),moveColumn("Goldilocks the Battle Landscaper","p1"),moveColumn("Goldilocks the Battle Landscaper","p2"),crown("p1",false),crown("p2",false),crown("p1",true),crown("p2",true),paranoia(false),paranoia(true),bingo("p1",false),bingo("p2",false),bingo("p1",true),bingo("p2",true),yajiro(),impermanence("p2",true,false,"p1"),impermanence("p2",true,true,"p1"),impermanence("p1",false), impermanence("p1",false,true), impermanence("p1",true), impermanence("p2",true), impermanence("p1",true,true), impermanence("p2",true,true), disablaster(false),disablaster(true),chosen("p1"), chosen("p2"), passive,
+const standard = [impermanenceControlChange(),peerLeaves(),...(["Bingo Card", "Blasting Fuse"] as const).flatMap(card => [false, true].flatMap(eliminated => (["none", "own-main", "peer-spell"] as const).map(missing => fullEmzColumn(card, eliminated, missing)))),sour(),emzColumn("p1"),emzColumn("p2"),independentEmzColumn(),moveColumn("Sprind the Irondash Dragon","p1"),moveColumn("Sprind the Irondash Dragon","p2"),moveColumn("Goldilocks the Battle Landscaper","p1"),moveColumn("Goldilocks the Battle Landscaper","p2"),crown("p1",false),crown("p2",false),crown("p1",true),crown("p2",true),paranoia(false),paranoia(true),bingo("p1",false),bingo("p2",false),bingo("p1",true),bingo("p2",true),yajiro(),impermanence("p2",true,false,"p1"),impermanence("p2",true,true,"p1"),impermanence("p1",false), impermanence("p1",false,true), impermanence("p1",true), impermanence("p2",true), impermanence("p1",true,true), impermanence("p2",true,true), disablaster(false),disablaster(true),chosen("p1"), chosen("p2"), passive,
   ...([["p0", "p1"], ["p0", "p2"], ["p1", "p2"]] as const).flatMap(([actor, peer]) =>
     (["knight", "fuse", "scuffle"] as const).map(kind => survivor(actor, peer, kind)))];
 export const FFA3_COLUMN_SCENARIOS = [...standard, ...standard.map(domainVariant)];

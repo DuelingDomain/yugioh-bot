@@ -24,7 +24,7 @@ function s.distg(e,c)
 	if peer~=nil then
 		local seat=Duel.MPSeatOf(c)
 		if seat~=own and seat~=peer then return false end
-		if seat==peer then seq=4-seq end
+		if seat~=own then seq=4-seq end
 		return c:IsSpellTrap() and seq==c:GetSequence() and c:GetFlagEffect(id)==0
 	end
 	local tp=e:GetHandlerPlayer()
