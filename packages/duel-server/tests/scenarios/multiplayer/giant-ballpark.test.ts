@@ -6,7 +6,7 @@ import { runScenarios } from "../../support/runner.js";
 import { Session } from "../../support/session.js";
 import { GIANT_BALLPARK_SCENARIOS } from "./giant-ballpark.js";
 
-describeWithCores("Giant Ballpark protects every player in Auto", [needs.cards(), needs.installedMulti()], () => {
+describeWithCores("Giant Ballpark protects every player in Auto", [needs.cards(), needs.standard(), needs.domain(), needs.installedMulti()], () => {
   runScenarios("multiplayer/giant-ballpark", GIANT_BALLPARK_SCENARIOS, async scenario => {
     const compiled = compileBoard(scenario.setup);
     const game = await createEngineGame({ ...compiled.options, dataDirectory: engineDataDirectory,
