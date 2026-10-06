@@ -225,7 +225,8 @@ export function seatPoses(
   const plan = slotPlan(layout, camera);
   const home = homeTable(layout.format);
   const table = slotTable(layout);
-  const wide = viewport ? wideHomeSlots(layout.format, stageSpread(viewport), plazaView(viewport)) : null;
+  const duo = arrangementOf(layout) === "duo" && camera.mode !== "fly" && viewport ? duoFinaleSlots(stageSpread(viewport)) : null;
+  const wide = duo ?? (viewport && arrangementOf(layout) !== "duo" ? wideHomeSlots(layout.format, stageSpread(viewport), plazaView(viewport)) : null);
   const poses = new Map<number, SeatPose>();
   layout.slots.forEach((slot, place) => {
     const name = plan?.[place];
@@ -237,7 +238,7 @@ export function seatPoses(
       scale: at.scale,
       rotateDeg: at.rotateDeg,
       tiltDeg: at.tiltDeg,
-      ...(name && wide?.[name]?.width && arrangementOf(layout) === "ffa3" ? { width: wide[name]!.width } : {}),
+      ...(name && wide?.[name]?.width ? { width: wide[name]!.width } : {}),
       slot: name,
       z: SEAT_Z,
       docked: name === "dockL" || name === "dockR",
@@ -308,6 +309,20 @@ const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
  * 4-way: the side rivals grow up to .9 of your size and sit at the outer edges, the far one grows a little.
  * 3-way: the two rivals grow to about .78 and move apart so their boards stay clear of each other.
  */
+/**
+ * The FINAL DUEL board of a 3-way table on a wide screen (two seats left, as the 4-way finale): the 1v1 composition. Both
+ * fields are the wide ones (full-size Defense cards), face to face on the centre line; the far one is tilted away and
+ * smaller (.76, the size that keeps its hand backs inside the stage and about 30 stage px of air above yours). The turn ring moves to
+ * the open stage left of both fields (`ringPose`). Null where the box is too narrow: the classic face-off stays.
+ */
+export function duoFinaleSlots(spread: number): Partial<Record<PoseSlot, HomeSlot>> | null {
+  if (!(spread >= FULL_DEF_SPREAD)) return null;
+  return {
+    home: { ...FFA3_HOME[0], width: SEAT_BOX_FULL_DEF },
+    focus: { x: 550, y: 218, rotateDeg: 180, scale: 0.76, tiltDeg: 9, width: SEAT_BOX_FULL_DEF },
+  };
+}
+
 export function wideHomeSlots(format: TableFormat, spread: number, view?: PlazaView): Partial<Record<PoseSlot, HomeSlot>> | null {
   if (!(spread > 0) || (format !== "ffa3" && format !== "ffa4")) return null;
   const t = clamp01(spread / 250);
@@ -526,7 +541,8 @@ export function wideHoloAnchors(
   corner?: { hint: { width: number; height: number }; hud?: { width: number; height: number } },
 ): Map<number, HoloAnchor> | null {
   const plan = slotPlan(layout, camera);
-  if (!(spread > 0) || !plan || !plan.every((name) => HOME_PLACES.has(name))) return null;
+  const finale = arrangementOf(layout) === "duo" && camera.mode !== "fly" && duoFinaleSlots(spread) != null;
+  if (!(spread > 0) || !plan || !plan.every((name) => HOME_PLACES.has(name) || (finale && name === "focus"))) return null;
   const four = layout.slots.length === 4;
   const boards = new Map<number, Bounds>();
   for (const slot of layout.slots) {
@@ -537,7 +553,8 @@ export function wideHoloAnchors(
   const right = STAGE.width + spread - 6;
   // The turn ring in the middle is never covered.
   const ringHalf = 62;
-  const taken: Bounds[] = [{ l: ARENA_CENTER.x - ringHalf, r: ARENA_CENTER.x + ringHalf, t: ARENA_CENTER.y - 62, b: ARENA_CENTER.y + 76 }];
+  const ringAt = finale ? ringPose(layout, camera, spread) : ARENA_CENTER;
+  const taken: Bounds[] = [{ l: ringAt.x - ringHalf, r: ringAt.x + ringHalf, t: ringAt.y - 62, b: ringAt.y + 76 }];
   // Your hand fans along the bottom edge under your board: up to ten cards, about 660 stage px.
   taken.push({ l: ARENA_CENTER.x - 330, r: ARENA_CENTER.x + 330, t: STAGE.height - 4, b: 960 });
   // The camera hint pill lives in the bottom left corner of the table area.
@@ -615,6 +632,9 @@ export function wideHoloAnchors(
       // Beside your board (upright, so its box is exact: the plate never rests on it), low enough that a rival's panel above it stays clear; the Deck Master chip hangs below.
       const y = board.b - plate.height;
       at = settle([[board.r + 14, y + 34], [board.r + 14, y + 22], [board.r + 14, y - 30], [board.r + 14, board.t + 20]], size, -1, isMine && meFooter ? { width: plate.width, height: size.height } : undefined);
+    } else if (name === "focus") {
+      // The far field of the FINAL DUEL board: beside its top left corner (the classic face-off place), else its right one.
+      at = settle([[board.l - 14 - size.width, board.t + 6], [board.l - 14 - size.width, board.b - size.height], [board.r + 14, board.t + 6]], size, slot.seat);
     } else if (four && name === "vL") {
       // Hugging the lower inner corner of its own board: under it, else beside it, else under its far end.
       const edge = me ? Math.max(left, me.l - 10 - size.width) : right;
@@ -747,7 +767,7 @@ export function promptRooms(input: {
   const panelMax = Math.min(320, Math.max(220, box.width * 0.27));
   const base = { layout: input.layout, camera: input.camera, poses: input.poses, anchors: input.anchors, spread: input.spread, meFooter: input.meFooter, hint };
   const hub = hubPose(input.layout, input.camera, { box: { width: box.width, height: k * STAGE.height }, meFooter: input.meFooter });
-  const ring = ringPose(input.layout, input.camera);
+  const ring = ringPose(input.layout, input.camera, input.spread);
   const furniture: PromptRoom[] = [
     { x: hub.x - hub.width / 2, y: hub.y - hub.height / 2, width: hub.width, height: hub.height },
     { x: ring.x - 70 * ring.scale, y: ring.y - 70 * ring.scale, width: 140 * ring.scale, height: 154 * ring.scale },
@@ -896,8 +916,13 @@ export function holoAnchor(layout: TableLayout, seat: number, camera?: CameraVie
 }
 
 /** Where the turn ring stands in a camera mode: it keeps clear of every field. */
-export function ringPose(layout: TableLayout, camera: CameraView): { x: number; y: number; scale: number } {
-  if (arrangementOf(layout) === "duo") return camera.mode === "fly" ? { x: 550, y: 430, scale: 1 } : { x: 550, y: 322, scale: 1 };
+export function ringPose(layout: TableLayout, camera: CameraView, spread = 0): { x: number; y: number; scale: number } {
+  if (arrangementOf(layout) === "duo") {
+    if (camera.mode === "fly") return { x: 550, y: 430, scale: 1 };
+    // The FINAL DUEL board: left of both wide fields, level with the gap between them.
+    if (duoFinaleSlots(spread)) return { x: 60, y: 392, scale: 1 };
+    return { x: 550, y: 322, scale: 1 };
+  }
   if (arrangementOf(layout) === "ffa4") {
     if (camera.mode === "fly") return { x: 550, y: 410, scale: 1 };
     if (camera.mode === "overview") return { x: 550, y: 395, scale: 0.9 };
@@ -1057,7 +1082,7 @@ function wideHubPose(
   fallback: HubPose,
   hud?: { width: number; height: number },
 ): HubPose {
-  const ring = ringPose(layout, camera);
+  const ring = ringPose(layout, camera, spread);
   const obstacles = hubObstacles(layout, poses, plates, meFooter, hint, spread, ring);
   if (hud) {
     const right = STAGE.width + spread;
@@ -1073,7 +1098,7 @@ function wideHubPose(
   // 4-way: the clear place nearest the ring. 3-way: the rivals close in on the ring from both sides, so the strip stays by your
   // own field instead (its right side, level with the top quarter), the same place the classic table gives it.
   const mine = [...poses.values()].find((pose) => pose.slot === "home");
-  const board = mine && layout.slots.length === 3 ? boardBounds(mine) : null;
+  const board = mine && arrangementOf(layout) !== "ffa4" ? boardBounds(mine) : null;
   const want = board ? { x: board.r + 12 + width / 2, y: board.t + (board.b - board.t) / 4 } : ring;
   const spots: Array<{ x: number; y: number; d: number }> = [];
   for (let x = l0; x <= r0; x += step) {

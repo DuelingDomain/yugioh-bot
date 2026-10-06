@@ -243,7 +243,8 @@ function TableShellBody({
     digitsFree: gates.digitsFree,
     escapeFree: gates.escapeFree,
   });
-  // The last two seats of a 4-way glide into one full board in the middle (the 1v1 composition) and say FINAL DUEL.
+  // The last two seats of a 4-way glide into one full board in the middle (the 1v1 composition) and say FINAL DUEL. The 3-way
+  // plaza uses the same caption and timing: its seats regroup face to face (geometry.ts duoFinaleSlots).
   const finale = useGridFinale({ seats: engine.seats, cells: gridSeats, reducedMotion: controller.reducedMotion });
   const [hideResult, setHideResult] = useState(false);
   const [logUnread, setLogUnread] = useState(0);
@@ -429,7 +430,7 @@ function TableShellBody({
   // the last two are: there the out notes are hidden from the eye and not live, and the caption is only drawn.
   const freshOut = grid ? out.filter((entry) => entry.seat !== viewerSeat && !outAtOpen.has(entry.seat)) : [];
   const newestOut = freshOut.reduce<(typeof out)[number] | null>((best, entry) => (best == null || entry.place < best.place ? entry : best), null);
-  const finaleNote = grid && finale.caption ? `Final duel: ${finale.caption.seats.map((seat) => nameOf(seat)).join(" vs ")}.` : "";
+  const finaleNote = (grid || plazaHud) && finale.caption ? `Final duel: ${finale.caption.seats.map((seat) => nameOf(seat)).join(" vs ")}.` : "";
   const liveText = [
     viewerEliminated ? "You are eliminated. You keep watching." : "",
     newestOut ? `${nameOf(newestOut.seat)} is out, ${placeLabel(newestOut.place)}.` : "",

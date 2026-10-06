@@ -17,7 +17,7 @@ import { ExitingSeat, RivalField } from "./rival-field";
 import { TurnRing } from "./turn-ring";
 import { useFlyGestures } from "./use-fly-gestures";
 import { useFlyWorld } from "./use-fly-world";
-import { useSeatExits } from "./use-seat-exits";
+import { GLIDE_MS, useSeatExits } from "./use-seat-exits";
 import type { CameraMode, SeatFieldProps, SeatPose, SeatTone, TableStageProps } from "./types";
 import styles from "./table-stage.module.css";
 
@@ -225,13 +225,13 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
       setTargets((current) => (sameRects(current, next) ? current : next));
     };
     const frame = window.requestAnimationFrame(measure);
-    // Once the seats stand still: a regroup glides them to new places.
-    const timer = window.setTimeout(measure, reducedMotion ? 0 : SETTLE_MS);
+    // Once the seats stand still: a regroup (the FINAL DUEL board) glides them to new places.
+    const timer = window.setTimeout(measure, reducedMotion ? 0 : regroup ? GLIDE_MS : SETTLE_MS);
     return () => {
       window.cancelAnimationFrame(frame);
       window.clearTimeout(timer);
     };
-  }, [nearBox, legalKey, reducedMotion]);
+  }, [nearBox, legalKey, reducedMotion, regroup]);
   const barRoom = useMemo(() => {
     if (!nearBox) return undefined;
     // The bar may run to the edge of your field (the 4-way keeps 12 px inside a pair): a short field has one row band
@@ -310,7 +310,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
   };
   const attackerSeat = controller.aim?.from ? Number(controller.aim.from.split(":")[0]) : null;
   const attackerTone = (attackerSeat != null ? tones.get(attackerSeat) : null) ?? "violet";
-  const ringAt = ringPose(play, camera);
+  const ringAt = ringPose(play, camera, spread);
   // The phase hub strip: the classic place, or at a wide table (home and look) the clear place nearest the ring or your field.
   // The place only depends on the camera's mode and target, so a fly-in drag (which changes only `camera.fly`) does not rescan.
   const hubAt = useMemo(
@@ -328,6 +328,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
       data-table-stage={layout.format}
       data-format={format}
       data-camera-mode={camera.mode}
+      data-regroup={gliding && regroup ? "true" : undefined}
       data-camera-want={wantMode ?? camera.mode}
       data-camera-lock={locked ? "true" : undefined}
       data-fly={fly ? "true" : "false"}
