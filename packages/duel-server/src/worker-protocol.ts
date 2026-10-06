@@ -1,3 +1,4 @@
+import type { SandboxEngineSnapshot } from "./sandbox-snapshot.js";
 import type { EngineCoreInfo, EngineDiagnostic, EngineStartupScript } from "./engine.js";
 import type { PromptTraceEntry } from "./prompt-trace.js";
 import type { DuelAnswer, DuelCardInfo, DuelChainMode, DuelDeck, DuelEngineChoice, DuelEngineView, DuelErrorCode, DuelFormat, DuelMasterRule, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
@@ -28,9 +29,10 @@ export type DuelWorkerRequest =
   | { id: number; op: "search"; query: string }
   | { id: number; op: "eliminate"; seat: number; reason: number; atTurnEnd?: boolean }
   | { id: number; op: "chain-mode"; seat: number; mode: DuelChainMode }
+  | { id: number; op: "sandbox-snapshot" }
   | { id: number; op: "diagnostics" }
   | { id: number; op: "close" };
 
 export type DuelWorkerResponse =
-  | { id: number; ok: true; value?: DuelEngineView | DuelCardInfo[] | EngineDiagnostic[] | boolean; info?: EngineCoreInfo; promptTrace?: PromptTraceEntry }
+  | { id: number; ok: true; value?: SandboxEngineSnapshot | DuelEngineView | DuelCardInfo[] | EngineDiagnostic[] | boolean; info?: EngineCoreInfo; promptTrace?: PromptTraceEntry }
   | { id: number; ok: false; error: string; code?: DuelErrorCode };

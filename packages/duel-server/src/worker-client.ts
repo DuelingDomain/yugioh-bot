@@ -1,3 +1,4 @@
+import type { SandboxEngineSnapshot } from "./sandbox-snapshot.js";
 import { Worker } from "node:worker_threads";
 import type { PromptTraceEntry } from "./prompt-trace.js";
 import type { EngineCoreInfo, EngineDiagnostic, EngineStartupScript } from "./engine.js";
@@ -163,6 +164,10 @@ export class GameWorker implements DuelGameWorker {
 
   setChainMode(seat: number, mode: DuelChainMode): Promise<boolean> {
     return this.request({ op: "chain-mode", seat, mode });
+  }
+
+  sandboxSnapshot(): Promise<SandboxEngineSnapshot> {
+    return this.request({ op: "sandbox-snapshot" });
   }
 
   diagnostics(): Promise<EngineDiagnostic[]> {
