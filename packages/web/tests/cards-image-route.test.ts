@@ -1,5 +1,5 @@
 // packages/web/tests/cards-image-route.test.ts
-import { mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -105,8 +105,8 @@ describe("GET /api/cards/[passcode]/image", () => {
   it.each(["full", "small", "cropped"])("migrates legacy API %s art without fetching", async variant => {
     db.exec(`insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
       values (5405694,'Ritual','Ritual Monster','ritual','full','small','[]','now');
-      insert into card_artworks (card_id,artwork_id,image_url,image_url_small,is_main,source)
-      values (5405694,5405694,'full','small',1,'api');`);
+      insert into card_artworks (card_id,artwork_id,image_url,image_url_small,image_url_cropped,is_main,source)
+      values (5405694,5405694,'full','small','crop',1,'api');`);
     const legacy = join(cacheDir, `5405694${variant === "full" ? "" : `-${variant}`}.jpg`);
     writeFileSync(legacy, RITUAL_ART);
 
@@ -117,6 +117,50 @@ describe("GET /api/cards/[passcode]/image", () => {
     expect(fetched).toEqual([]);
     expect(readFileSync(cachePath("5405694", variant))).toEqual(RITUAL_ART);
     expect(() => readFileSync(legacy)).toThrow();
+    expect(callDuelHost).not.toHaveBeenCalled();
+  });
+
+  it.each(["full", "small"])("migrates legacy catalog-only %s art without fetching", async variant => {
+    db.exec(`insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
+      values (5405694,'Ritual','Ritual Monster','ritual','full','small','[]','now');`);
+    expect(db.prepare("select 1 from card_artworks where artwork_id = ?").get(5405694)).toBeUndefined();
+    const legacy = join(cacheDir, `5405694${variant === "full" ? "" : `-${variant}`}.jpg`);
+    writeFileSync(legacy, RITUAL_ART);
+
+    const response = await getImage("5405694", `?variant=${variant}`);
+
+    expect(response.status).toBe(200);
+    expect(fetched).toEqual([]);
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(RITUAL_ART);
+    expect(response.headers.get("Cache-Control")).toBe("public, max-age=86400, immutable");
+    expect(readFileSync(cachePath("5405694", variant))).toEqual(RITUAL_ART);
+    expect(() => readFileSync(legacy)).toThrow();
+    expect(callDuelHost).not.toHaveBeenCalled();
+  });
+
+  it.each(["catalog-only", "api"])("fetches legacy crops without crop metadata for %s cards", async source => {
+    db.exec(`insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
+      values (5405694,'Ritual','Ritual Monster','ritual','full','small','[]','now');`);
+    if (source === "api") {
+      db.exec(`insert into card_artworks (card_id,artwork_id,image_url,image_url_small,is_main,source)
+        values (5405694,5405694,'full','small',1,'api');`);
+    }
+    const legacy = join(cacheDir, "5405694-cropped.jpg");
+    const legacyArt = await jpeg("legacy full-card fallback");
+    const ownCrop = await jpeg("verified crop");
+    writeFileSync(legacy, legacyArt);
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      fetched.push(url);
+      return new Response(new Uint8Array(ownCrop));
+    }));
+
+    const response = await getImage("5405694", "?variant=cropped");
+
+    expect(response.status).toBe(200);
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(ownCrop);
+    expect(fetched).toEqual(["https://images.ygoprodeck.com/images/cards_cropped/5405694.jpg"]);
+    expect(readFileSync(cachePath("5405694", "cropped"))).toEqual(ownCrop);
+    expect(readFileSync(legacy)).toEqual(legacyArt);
     expect(callDuelHost).not.toHaveBeenCalled();
   });
 
@@ -199,6 +243,46 @@ describe("GET /api/cards/[passcode]/image", () => {
       : [`${IMAGES}/10000100.jpg`, `${IGNIS}/10000100.jpg`]);
     expect(requireDuelActor).not.toHaveBeenCalled();
     expect(callDuelHost).not.toHaveBeenCalled();
+  });
+
+  it.each(["full", "small"])("waits ten minutes before retrying an expired Ignis %s refresh during an outage", async variant => {
+    const ownArt = await jpeg("expired alternate art");
+    const filename = cachePath("10000100", variant, "ignis");
+    writeFileSync(filename, ownArt);
+    const refreshedAt = Date.now();
+    const expired = new Date(refreshedAt - 8 * 24 * 3600 * 1000);
+    utimesSync(filename, expired, expired);
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      fetched.push(url);
+      return new Response("unavailable", { status: url.startsWith(IGNIS) ? 503 : 404 });
+    }));
+    const realNow = Date.now.bind(Date);
+    let elapsedMs = 0;
+    const now = vi.spyOn(Date, "now").mockImplementation(() => realNow() + elapsedMs);
+    try {
+      expect(Buffer.from(await (await getImage("10000100", `?variant=${variant}`)).arrayBuffer())).toEqual(ownArt);
+      const afterRefresh = Date.now();
+      elapsedMs = 9 * 60 * 1000;
+      vi.resetModules();
+      const second = await getImage("10000100", `?variant=${variant}`);
+      expect(Buffer.from(await second.arrayBuffer())).toEqual(ownArt);
+      expect(second.headers.get("Cache-Control")).toBe("public, max-age=3600");
+      const refreshUrls = [
+        `${variant === "small" ? "https://images.ygoprodeck.com/images/cards_small" : IMAGES}/10000100.jpg`,
+        `${IGNIS}/10000100.jpg`,
+      ];
+      expect(fetched).toEqual(refreshUrls);
+      const retryMtime = statSync(filename).mtimeMs;
+      expect(retryMtime).toBeGreaterThanOrEqual(refreshedAt - 7 * 24 * 3600 * 1000 + 10 * 60 * 1000 - 1);
+      expect(retryMtime).toBeLessThanOrEqual(afterRefresh - 7 * 24 * 3600 * 1000 + 10 * 60 * 1000 + 1);
+
+      elapsedMs = 10 * 60 * 1000 + 1;
+      expect(Buffer.from(await (await getImage("10000100", `?variant=${variant}`)).arrayBuffer())).toEqual(ownArt);
+      expect(fetched).toEqual([...refreshUrls, ...refreshUrls]);
+      expect(readFileSync(filename)).toEqual(ownArt);
+      expect(requireDuelActor).not.toHaveBeenCalled();
+      expect(callDuelHost).not.toHaveBeenCalled();
+    } finally { now.mockRestore(); }
   });
 
   it("reuses a verified alias and reads its current cache file for ten minutes", async () => {

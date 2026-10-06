@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { callDuelHost, requireDuelActor } from "@/lib/duel-host";
 import { getDb } from "@/lib/db";
@@ -17,6 +17,7 @@ type CachedImage = { image: Buffer; cacheControl: string };
 type FetchedImage = CardImageResource<Buffer>;
 type ArtworkRow = { card_id: number; image_url: string; image_url_small: string; image_url_cropped: string | null; source: "api" | "engine" };
 const FALLBACK_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const FALLBACK_RETRY_MS = 10 * 60 * 1000;
 const MISSING_TTL_MS = 10 * 60 * 1000;
 const ALIAS_TTL_MS = 10 * 60 * 1000;
 const inFlight = new Map<string, Promise<CachedImage>>();
@@ -84,7 +85,7 @@ function imageFilename(passcode: number, variant: ImageVariant): string {
   return variant === "full" ? `${passcode}.jpg` : `${passcode}-${variant}.jpg`;
 }
 
-async function readCachedImage(passcode: number, filename: string): Promise<CachedImage | null> {
+async function readCachedImage(passcode: number, variant: ImageVariant, filename: string): Promise<CachedImage | null> {
   const primaryPath = cardImageCachePath(filename, "ygoprodeck");
   try {
     return { image: await validateCardImage(await readFile(primaryPath)), cacheControl: OWN_CACHE_CONTROL };
@@ -93,9 +94,13 @@ async function readCachedImage(passcode: number, filename: string): Promise<Cach
       try {
         const legacyPath = join(dirname(primaryPath), filename);
         const legacy = await readFile(legacyPath);
-        // API artwork rows identify legacy files that can be reused safely.
-        // Engine-only codes still skip potentially poisoned alias art.
-        if (artworkOf(passcode)?.source === "api") {
+        // Pre-artwork API catalog rows are safe too; engine writers always add
+        // artwork rows, so their potentially poisoned alias art still stays out.
+        const artwork = artworkOf(passcode);
+        const apiCard = artwork ? artwork.source === "api"
+          : !!getDb().prepare("select 1 from card_catalog where ygoprodeck_id = ?").get(passcode);
+        // Without crop metadata, legacy crops may contain full-card fallback art.
+        if (apiCard && (variant !== "cropped" || artwork?.image_url_cropped != null)) {
           const image = await validateCardImage(legacy);
           await rename(legacyPath, primaryPath);
           return { image, cacheControl: OWN_CACHE_CONTROL };
@@ -128,7 +133,7 @@ async function writeCachedImage(filename: string, source: CardImageSource, image
 }
 
 async function loadImage(passcode: number, variant: ImageVariant, filename: string): Promise<CachedImage> {
-  const cached = await readCachedImage(passcode, filename);
+  const cached = await readCachedImage(passcode, variant, filename);
   if (cached) return cached;
   if ((missingImages.get(filename) ?? 0) > Date.now()) throw new ImageMissingError();
   missingImages.delete(filename);
@@ -147,13 +152,17 @@ async function loadImage(passcode: number, variant: ImageVariant, filename: stri
 
   // A failed refresh must preserve this passcode's art before considering aliases.
   const expired = await readCachedIgnis(filename, true);
-  if (expired) return expired;
+  if (expired) {
+    const retryMtime = new Date(Date.now() - FALLBACK_TTL_MS + FALLBACK_RETRY_MS);
+    await utimes(cardImageCachePath(filename, "ignis"), retryMtime, retryMtime).catch(() => {});
+    return expired;
+  }
 
   let alias: number | null | undefined;
   try { alias = await aliasOf(passcode); }
   catch (error) { throw upstreamError ?? fallbackError ?? error; }
   if (alias != null) {
-    const cachedAlias = await readCachedImage(alias, imageFilename(alias, variant));
+    const cachedAlias = await readCachedImage(alias, variant, imageFilename(alias, variant));
     let image = cachedAlias?.image;
     // A primary 404 always permits alias fetching, even after an Ignis error.
     if (!image && !upstreamError) {
