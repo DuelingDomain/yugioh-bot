@@ -17,6 +17,8 @@ import { TurnRing } from "./turn-ring";
 import { useFlyGestures } from "./use-fly-gestures";
 import { useFlyWorld } from "./use-fly-world";
 import { useSeatExits } from "./use-seat-exits";
+import { useViewZoom } from "./use-view-zoom";
+import { ViewReset } from "./view-reset";
 import type { CameraMode, SeatFieldProps, SeatPose, SeatTone, TableStageProps } from "./types";
 import styles from "./table-stage.module.css";
 
@@ -65,6 +67,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<HTMLDivElement>(null);
+  const perspRef = useRef<HTMLDivElement>(null);
   const tetherRef = useRef<SVGSVGElement>(null);
   const [measuredChainSize, setChainSize] = useState<ChainStripSize | null>(null);
   const [box, setBox] = useState({ width: 0, height: 0, screenWidth: 0 });
@@ -137,6 +140,20 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
   const [cityOn, setCityOn] = useState(fly);
   if (fly && !cityOn) setCityOn(true);
   const rawPoses = useMemo(() => portrait?.poses ?? seatPoses(play, camera, fitBox), [play, camera, fitBox, portrait]);
+  // Zoom and pan of the board under a flat camera (view-zoom.ts): the plaza, the fields and the ring zoom; the holo
+  // panels, the hub and the prompts stay. The fly-in view keeps its own orbit and zoom. A new camera view resets it.
+  const zoomFrame = useMemo(
+    () => ({ x: (box.width - STAGE.width * k) / 2, y: stageTop + (stageHeight - canvasHeight * k) / 2, k }),
+    [box.width, k, stageTop, stageHeight, canvasHeight],
+  );
+  const zoom = useViewZoom({
+    rootRef,
+    layerRef: perspRef,
+    enabled: !fly && k > 0,
+    reducedMotion,
+    resetKey: `${camera.mode}|${camera.focusSeat ?? ""}|${camera.lookSeat ?? ""}|${outKey}|${portrait ? "portrait" : "wide"}`,
+    frame: zoomFrame,
+  });
   // How much plaza a wide box shows beyond each side of the 1100 px stage; zero for a box that is not wider.
   const spread = useMemo(() => portrait ? 0 : stageSpread(fitBox), [fitBox, portrait]);
 
@@ -163,13 +180,17 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
     if (!(k > 0) || fly) return null;
     if (portrait) return { panel: null, bar: null, chain: chainSize ? { x: 6, y: 48, ...chainSize } : null };
     if (chainInset && chainSize) return chainBandRooms(chainSize, box);
+    // A zoomed board covers the free rooms between the boards: the panel and the pick bar take their usual places, as
+    // in the fly-in view (the bar then places itself from the zones as they show). The rooms of the phone and of the
+    // chain band above are off the board, so they stay.
+    if (zoom.zoomed) return { panel: null, bar: null, chain: null };
     const anchors = new Map(play.slots.map((slot) => [slot.seat, wideAnchors?.get(slot.seat) ?? holoAnchor(play, slot.seat, camera)] as const));
     const found = promptRooms({ layout: play, camera, poses, anchors, spread, meFooter: hasChip, box, k, chainSize });
     const dx = (box.width - STAGE.width * k) / 2;
     const dy = stageTop + (stageHeight - canvasHeight * k) / 2;
     const toBox = (room: PromptRoom | null) => room && { x: Math.round(dx + room.x * k), y: Math.round(dy + room.y * k), width: Math.round(room.width * k), height: Math.round(room.height * k) };
     return { panel: toBox(found.panel), bar: toBox(found.bar), chain: toBox(found.chain) };
-  }, [play, camera, poses, spread, hasChip, k, fly, box, canvasHeight, wideAnchors, chainSize, chainInset, stageHeight, stageTop, portrait]);
+  }, [play, camera, poses, spread, hasChip, k, fly, box, canvasHeight, wideAnchors, chainSize, chainInset, stageHeight, stageTop, portrait, zoom.zoomed]);
 
   const world = useMemo(() => flyWorld(play, camera.fly), [play, camera.fly]);
   const tones = useMemo(() => new Map<number, SeatTone>(layout.slots.map((slot) => [slot.seat, slot.tone])), [layout.slots]);
@@ -272,7 +293,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
             <div className={styles.fog} aria-hidden="true" />
           </>
         ) : null}
-        <div className={styles.persp}>
+        <div ref={perspRef} className={styles.persp} data-view-layer>
           <div ref={worldRef} className={styles.world} data-world>
             {threeWay && cityOn ? <FlyCity /> : null}
             <div className={styles.wstage} onClick={onSeatClick}>
@@ -404,6 +425,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
         ) : null}
         {controller.aim?.from ? <AttackLine aim={controller.aim} tone={attackerTone} /> : null}
       </div>
+      <ViewReset zoomed={zoom.zoomed} scale={zoom.view.s} onReset={zoom.reset} style={{ left: 10, top: stageTop + 10 }} />
       {fx ? <ChainRoomContext.Provider value={reserveChain ? setChainSize : null}><div className={styles.slot} data-slot="fx">{fx}</div></ChainRoomContext.Provider> : null}
       {promptCenter ? <div ref={promptRef} className={styles.slot} data-slot="prompt" data-seat-pick={picks ? "true" : undefined}>{promptCenter}</div> : null}
       {overlay ? <div className={styles.slot} data-slot="overlay">{overlay}</div> : null}
