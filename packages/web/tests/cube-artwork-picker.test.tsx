@@ -43,7 +43,7 @@ beforeEach(() => {
     if (target.endsWith("/api/cubes/5/cards")) {
       const body = JSON.parse(String(init?.body)) as { op: string; catalogCardId: number; artworkPasscode: number };
       posts.push(body);
-      if (swapError) return { ok: false, status: swapStatus, json: async () => ({ error: swapError }) } as Response;
+      if (swapError !== null) return { ok: false, status: swapStatus, json: async () => (swapError ? { error: swapError } : {}) } as Response;
       entries = entries.map((entry) => (entry.catalogCardId === body.catalogCardId ? { ...entry, catalogCardId: body.artworkPasscode } : entry));
       return { ok: true, json: async () => detail() } as Response;
     }
@@ -77,20 +77,31 @@ describe("cube card art", () => {
     await waitFor(() => expect(after[1]).toHaveAttribute("aria-pressed", "true"));
   });
 
-  it("shows the server reason and keeps the card when the swap is refused", async () => {
+  it("shows the server reason beside the art strip and keeps the card when the swap is refused", async () => {
     swapError = "That art is already in the cube.";
     const thumbs = await openSelected();
     fireEvent.click(thumbs[1]!);
-    expect(await screen.findByText("That art is already in the cube.")).toBeInTheDocument();
+    // The message sits in the picker (visible in the phone sheet), not only at the top of the page.
+    const region = screen.getByRole("region", { name: "Card art" });
+    expect(await within(region).findByText("That art is already in the cube.")).toBeInTheDocument();
+    expect(screen.getAllByText("That art is already in the cube.")).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Main A, 2 copies" })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("says so when the cube is in a running draft", async () => {
-    swapError = "conflict";
+  it("shows the server message when the cube is in a running or pending draft", async () => {
+    swapError = "This cube is in a pending draft.";
     swapStatus = 409;
     const thumbs = await openSelected();
     fireEvent.click(thumbs[1]!);
-    expect(await screen.findByText("This cube is in a running draft. Its cards cannot change.")).toBeInTheDocument();
+    expect(await within(screen.getByRole("region", { name: "Card art" })).findByText("This cube is in a pending draft.")).toBeInTheDocument();
+  });
+
+  it("says the cube is in a running draft when the server gives no message", async () => {
+    swapError = "";
+    swapStatus = 409;
+    const thumbs = await openSelected();
+    fireEvent.click(thumbs[1]!);
+    expect(await within(screen.getByRole("region", { name: "Card art" })).findByText("This cube is in a running draft. Its cards cannot change.")).toBeInTheDocument();
   });
 
   it("disables an art the cube already holds", async () => {
@@ -99,7 +110,7 @@ describe("cube card art", () => {
     await screen.findByRole("heading", { name: "Custom" });
     fireEvent.click(screen.getAllByRole("button", { name: /Main A, 2 copies/ })[0]!);
     const thumbs = within(await screen.findByRole("group", { name: "Choose an art" })).getAllByRole("button");
-    expect(thumbs[1]).toBeDisabled();
+    expect(thumbs[1]).toHaveAttribute("aria-disabled", "true");
     expect(thumbs[1]).toHaveAccessibleName(/already in this cube/);
     fireEvent.click(thumbs[1]!);
     expect(posts).toHaveLength(0);
