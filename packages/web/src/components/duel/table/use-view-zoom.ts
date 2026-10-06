@@ -9,6 +9,7 @@ import {
   isZoomed,
   layerOffset,
   layerTransform,
+  FOLLOW_ATTR,
   panBy,
   pinchView,
   PressSplit,
@@ -122,7 +123,8 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
   /** The HUD insets of the box now (the HUD moves: a prompt opens, a drawer slides), read at each gesture. */
   const insetsOf = useCallback((root: HTMLElement): Insets => edgeInsets(occluderRects(root, occluderSelector.current), sizeOf(root)), []);
 
-  const write = useCallback(() => {
+  /** Writes the view to the DOM; `atRest` writes the follow vars on the root too (see followShift). */
+  const write = useCallback((atRest = false) => {
     const layer = layerRef.current;
     const root = rootRef.current;
     const state = live.current;
@@ -134,11 +136,19 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
     if (root) {
       if (isZoomed(state.current)) root.dataset.viewZoomed = "true";
       else delete root.dataset.viewZoomed;
-      // The HUD that follows the board (see followCss) reads the layer offset and the scale.
+      // The HUD that follows the board (see followShift) reads the layer offset and the scale: on every frame from its
+      // own style, at rest from the root as well (a follower that mounts later inherits it).
       const u = layerOffset(state.current, state.frame);
-      root.style.setProperty("--vz-x", `${u.x.toFixed(2)}px`);
-      root.style.setProperty("--vz-y", `${u.y.toFixed(2)}px`);
-      root.style.setProperty("--vz-s", state.current.s.toFixed(4));
+      const x = `${u.x.toFixed(2)}px`;
+      const y = `${u.y.toFixed(2)}px`;
+      const s = state.current.s.toFixed(4);
+      const targets: HTMLElement[] = Array.from(root.querySelectorAll<HTMLElement>(`[${FOLLOW_ATTR}]`));
+      if (atRest) targets.push(root);
+      for (const node of targets) {
+        node.style.setProperty("--vz-x", x);
+        node.style.setProperty("--vz-y", y);
+        node.style.setProperty("--vz-s", s);
+      }
     }
   }, [layerRef, rootRef]);
 
@@ -146,7 +156,7 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
     const state = live.current;
     if (state.raf) cancelAnimationFrame(state.raf);
     state.raf = 0;
-    write();
+    write(true);
     const at = state.current;
     setRest((prev) => (viewsClose(prev, at) ? prev : at));
   }, [write]);
@@ -221,7 +231,7 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
     const insets = insetsOf(root);
     state.target = clampView(state.target, box, insets);
     state.current = state.raf ? clampView(state.current, box, insets) : state.target;
-    write();
+    write(state.raf === 0);
   }, [frame.x, frame.y, frame.k, rootRef, write, insetsOf]);
 
   useEffect(() => {

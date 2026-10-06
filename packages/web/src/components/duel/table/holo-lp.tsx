@@ -5,7 +5,7 @@ import type { DuelCardInfo } from "@yugidraft/shared/duels";
 import { cardArtUrl } from "../constants";
 import { LifePoints } from "../life-points";
 import { hexToRgbTriplet } from "./seat-angle";
-import { followCss } from "./view-zoom";
+import { FOLLOW_ATTR, followTransform } from "./view-zoom";
 import { SEAT_TONE_HEX, type SeatStatus, type SeatTone } from "./types";
 import styles from "./holo-lp.module.css";
 
@@ -36,7 +36,7 @@ export interface HoloLpProps {
   /** The fly-in pump places this panel with `style.transform`: the anchor translate is zero. */
   floating?: boolean;
   /**
-   * The panel follows a zoom of the board at its own size (see followCss in view-zoom.ts): its middle goes where the zoom
+   * The panel follows a zoom of the board at its own size (see followShift in view-zoom.ts): its middle goes where the zoom
    * takes that point, so it stays clear of the cards it is clear of at rest. At 1x it is the anchor place.
    */
   follow?: boolean;
@@ -138,15 +138,15 @@ export function HoloLp({
   const turn = status === "turn";
   const out = status === "eliminated";
   const clock = formatClock(clockMs);
+  const follows = follow && !floating && fit == null;
   const style: CSSProperties & Record<string, string | number> = {
     "--t": hexToRgbTriplet(hex.main),
     "--tink": hex.ink,
     translate: floating || fit != null ? "0px 0px" : `${x}px ${y}px`,
     ...(width != null && fit == null ? { "--lpw": `${width}px` } : null),
     ...(fit != null ? { "--lpk": fit.toFixed(3) } : null),
-    ...(follow && !floating && fit == null
-      ? { left: followCss(0, x + (width ?? (me ? 212 : 196)) / 2, "x"), top: followCss(0, y + FOLLOW_MID_Y, "y") }
-      : null),
+    // The follow is a transform (its `translate` glides the anchor place): no layout on a zoom frame.
+    ...(follows ? { transform: followTransform(x + (width ?? (me ? 212 : 196)) / 2, y + FOLLOW_MID_Y) } : null),
   };
   const body = (
     <>
@@ -184,6 +184,7 @@ export function HoloLp({
       className={styles.holo}
       style={style}
       data-holo={seat}
+      {...(follows ? { [FOLLOW_ATTR]: "" } : null)}
       data-seat={seat}
       data-tone={tone}
       data-me={me ? "true" : undefined}

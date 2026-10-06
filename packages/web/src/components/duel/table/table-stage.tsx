@@ -20,7 +20,7 @@ import { useFlyWorld } from "./use-fly-world";
 import { GLIDE_MS, useSeatExits } from "./use-seat-exits";
 import { occluderRects, useViewZoom } from "./use-view-zoom";
 import { ViewReset } from "./view-reset";
-import { followCss } from "./view-zoom";
+import { FOLLOW_ATTR, followShift } from "./view-zoom";
 import type { CameraMode, SeatFieldProps, SeatPose, SeatTone, TableStageProps } from "./types";
 import styles from "./table-stage.module.css";
 
@@ -536,15 +536,15 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
           <div
             className={styles.hub}
             data-hub-slot="true"
+            {...{ [FOLLOW_ATTR]: "" }}
             data-hub-size={hubAt.size}
             style={{
               width: hubAt.width,
               height: hubAt.height,
               transform: `translate(${hubAt.x - hubAt.width / 2}px, ${hubAt.y - hubAt.height / 2}px)`,
-              // Under a zoom the hub keeps its size and follows the ring it sits on (followCss). Always on: the follow is
-              // the 1x place at 1x, so the first frame of a zoom already moves it with the board.
-              left: followCss(0, hubAt.x, "x"),
-              top: followCss(0, hubAt.y, "y"),
+              // Under a zoom the hub keeps its size and follows the ring it sits on (followShift, as its transform glides
+              // it to its place). Always on: the follow is the 1x place at 1x, so the first zoom frame moves it too.
+              translate: followShift(hubAt.x, hubAt.y),
             }}
           >
             {hub}

@@ -232,6 +232,7 @@ describe("useViewZoom on a board", () => {
           <button type="button" data-testid="prompt">yes</button>
         </div>
         {hud ? <div data-zoom-occluder data-testid="hud" /> : null}
+        <div data-vz-follow="" data-testid="plate" />
       </div>
     );
   }
@@ -358,6 +359,31 @@ describe("useViewZoom on a board", () => {
       fireEvent.pointerUp(floor, { pointerId: 1, clientX: 300, clientY: 300, pointerType: "mouse" });
     });
     expect(reads.mock.calls.filter(([selector]) => selector === VIEW_OCCLUDERS)).toHaveLength(1);
+  });
+
+  it("writes the follow vars on the followers each frame, and on the root only at rest", () => {
+    const { getByTestId } = render(<Board onZone={() => undefined} onBoard={() => undefined} />);
+    const root = getByTestId("root");
+    const plate = getByTestId("plate");
+    const vx = (node: HTMLElement) => node.style.getPropertyValue("--vz-x");
+    act(() => {
+      root.dispatchEvent(new WheelEvent("wheel", { deltaY: -240, clientX: 500, clientY: 300, bubbles: true, cancelable: true, ctrlKey: true }));
+    });
+    expect(vx(root)).not.toBe("");
+    expect(vx(plate)).toBe(vx(root));
+    const rested = vx(root);
+    const floor = getByTestId("floor");
+    act(() => {
+      fireEvent.pointerDown(floor, { pointerId: 1, button: 0, clientX: 500, clientY: 300, pointerType: "mouse" });
+      fireEvent.pointerMove(floor, { pointerId: 1, clientX: 400, clientY: 300, pointerType: "mouse" });
+    });
+    // Mid-drag: the plate moves, the root (and the board under it) keeps its style.
+    expect(vx(plate)).not.toBe(rested);
+    expect(vx(root)).toBe(rested);
+    act(() => {
+      fireEvent.pointerUp(floor, { pointerId: 1, clientX: 400, clientY: 300, pointerType: "mouse" });
+    });
+    expect(vx(root)).toBe(vx(plate));
   });
 
   it("eases without reduced motion", () => {

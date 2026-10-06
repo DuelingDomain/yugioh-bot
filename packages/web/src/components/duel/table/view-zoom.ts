@@ -199,6 +199,23 @@ export function followCss(base: number, anchor: number, axis: "x" | "y"): string
   return `calc(${round2(base)}px + var(--vz-${axis}, 0px) + (var(--vz-s, 1) - 1) * ${round2(anchor)}px)`;
 }
 
+/**
+ * The follow as a shift (the CSS `translate` value "x y"): the element keeps its 1x left and top, and moves by a
+ * transform, so a zoom frame costs no layout. The element carries `data-vz-follow`: the view hook writes the --vz-*
+ * vars on it on every frame (on the board root only when the view comes to rest, so a frame recalcs no other style).
+ */
+export function followShift(anchorX: number, anchorY: number): string {
+  return `${followCss(0, anchorX, "x")} ${followCss(0, anchorY, "y")}`;
+}
+
+/** The same follow as a `transform` value, for an element whose `translate` is taken (a glide) or set by its CSS. */
+export function followTransform(anchorX: number, anchorY: number): string {
+  return `translate(${followCss(0, anchorX, "x")}, ${followCss(0, anchorY, "y")})`;
+}
+
+/** The attribute of an element that follows the view (see followShift). */
+export const FOLLOW_ATTR = "data-vz-follow";
+
 const round2 = (value: number) => Math.round(value * 100) / 100;
 
 /** A board-box rect at the camera pose as it shows on the screen under the view (board-box px). */
