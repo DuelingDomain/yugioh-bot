@@ -3488,6 +3488,16 @@
       "stockSha256": "b3655ac17db9e94d390cebd6ff604d9971121f735d9afe566bd255ce1ffd85cb"
     },
     {
+      "code": 40640057,
+      "file": "c40640057.lua",
+      "name": "Kuriboh",
+      "kind": "fix",
+      "classes": [],
+      "redefined": ["con", "op"],
+      "stockSha256": "09622bcf802fc9ce22e4c180b9a6876f8aa31aef6386d61d29a52b762828eafb",
+      "note": "Tag: test battle damage on either living partner and register damage prevention for both. Keep the stock opponent-turn check; FFA and 1v1 keep the stock effect."
+    },
+    {
       "code": 41424250,
       "file": "c41424250.lua",
       "name": "Chaos End Ruler - Ruler of the Beginning and the End",
