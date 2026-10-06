@@ -58,6 +58,13 @@ describe("engine data update", () => {
     expect(detectOverlayConflicts(cards, new Map([["pre-errata/c1.lua", "pre-errata"]]))).toEqual([{ ...cards[0], actualSha256: null }]);
   });
 
+  it("checks an explicitly reviewed pre-errata baseline without falling back to another script", () => {
+    const card = { code: 5043020, file: "c5043020.lua", stockPath: "pre-errata/c5043020.lua", stockSha256: sha256("original") };
+    expect(detectOverlayConflicts([card], new Map([[card.stockPath, "original"]]))).toEqual([]);
+    expect(detectOverlayConflicts([card], new Map([[card.stockPath, "changed"]]))).toEqual([{ ...card, actualSha256: sha256("changed") }]);
+    expect(detectOverlayConflicts([card], new Map([[`official/${card.file}`, "original"]]))).toEqual([{ ...card, actualSha256: null }]);
+  });
+
   it("synchronizes all three pin files, leaving non-data core pins untouched", async () => {
     const { root, files } = await fixture();
     const rewritten = await rewritePins(root, oldPins, nextPins, false);

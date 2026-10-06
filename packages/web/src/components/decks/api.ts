@@ -1,5 +1,5 @@
 import type { DraftDeckPool } from "./pool-model";
-import type { CardFacets, CardQuery, CardQueryResult, DeckCardInfo, DuelDeck, DuelMode, SavedDeck } from "@yugidraft/shared/duels";
+import type { CardFacets, CardQuery, CardQueryResult, DeckArtworkSwapRequest, DeckCardInfo, DuelDeck, DuelMode, SavedDeck } from "@yugidraft/shared/duels";
 import type { DeckRegistrationMark } from "@yugidraft/shared/services";
 
 export type { SavedDeck, DeckRegistrationMark };
@@ -177,4 +177,16 @@ export async function getDeckCards(codes: number[]): Promise<{ cards: DeckCardIn
     body: JSON.stringify({ codes }),
   }));
   return { cards: body.cards ?? [], missing: body.missing ?? [] };
+}
+
+/** Swap one deck occurrence to another art of the same card. The server only checks and rebuilds the deck; saving is separate. */
+export async function swapDeckArtwork(request: DeckArtworkSwapRequest, signal?: AbortSignal): Promise<DuelDeck> {
+  const body = await parseBody<{ deck?: DuelDeck }>(await fetch("/api/decks/artwork", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+    signal,
+  }));
+  if (!body.deck) throw new DeckRequestError("The server returned no deck.", 502);
+  return body.deck;
 }

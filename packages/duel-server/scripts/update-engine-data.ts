@@ -40,10 +40,10 @@ export function diffScripts(oldTree: Map<string, string>, newTree: Map<string, s
   };
 }
 
-type OverlayCard = { code: number; file: string; name?: string; stockSha256?: string };
+type OverlayCard = { code: number; file: string; name?: string; stockPath?: string; stockSha256?: string };
 export function detectOverlayConflicts(cards: OverlayCard[], stock: Map<string, string>) {
   return cards.flatMap((card) => {
-    const text = stock.get(`official/${card.file}`);
+    const text = stock.get(card.stockPath ?? `official/${card.file}`);
     const actualSha256 = text === undefined ? null : sha256(text);
     return actualSha256 === card.stockSha256 ? [] : [{ ...card, actualSha256 }];
   });

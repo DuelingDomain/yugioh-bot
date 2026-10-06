@@ -1,0 +1,129 @@
+// @vitest-environment jsdom
+import React from "react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CubeEditor } from "@/components/cubes/cube-editor";
+import { clearCardArtworksCache } from "@/lib/card-artworks-client";
+
+vi.mock("next/font/google", () => {
+  const font = () => ({ variable: "font-var", className: "font-class" });
+  return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
+});
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(),
+}));
+vi.mock("next/link", () => ({
+  default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a>,
+}));
+
+function card(id: number, name: string) {
+  return { id, name, type: "Normal Monster", frameType: "normal", effectText: "", imageUrl: "i", imageUrlSmall: "i" };
+}
+const url = (passcode: number, variant: string) => `/api/cards/${passcode}/image?variant=${variant}`;
+const FAMILY = {
+  passcode: 1,
+  artworks: [1, 2].map((passcode) => ({ passcode, isMain: passcode === 1, imageUrl: url(passcode, "full"), smallUrl: url(passcode, "small"), croppedUrl: url(passcode, "cropped") })),
+};
+
+let entries: Array<{ catalogCardId: number; pool: "main"; maxCopies: number }>;
+let posts: Array<Record<string, unknown>>;
+let swapError: string | null;
+let swapThrows = false;
+let swapStatus = 400;
+
+beforeEach(() => {
+  clearCardArtworksCache();
+  entries = [{ catalogCardId: 1, pool: "main", maxCopies: 2 }];
+  posts = [];
+  swapError = null;
+  swapThrows = false;
+  swapStatus = 400;
+  vi.stubGlobal("fetch", vi.fn(async (input: unknown, init?: RequestInit) => {
+    const target = String(input);
+    const detail = () => ({ pools: { main: entries, extra: [] }, cards: entries.map((entry) => card(entry.catalogCardId, "Main A")) });
+    if (target.endsWith("/api/cubes/5/cards")) {
+      const body = JSON.parse(String(init?.body)) as { op: string; catalogCardId: number; artworkPasscode: number };
+      posts.push(body);
+      if (swapThrows) throw new TypeError("Failed to fetch");
+      if (swapError !== null) return { ok: false, status: swapStatus, json: async () => (swapError ? { error: swapError } : {}) } as Response;
+      entries = entries.map((entry) => (entry.catalogCardId === body.catalogCardId ? { ...entry, catalogCardId: body.artworkPasscode } : entry));
+      return { ok: true, json: async () => detail() } as Response;
+    }
+    if (target.endsWith("/api/cubes/5")) {
+      return { ok: true, json: async () => ({ cube: { id: 5, name: "Custom", archetype: null, banlist: null, draftType: undefined, settings: {} }, ...detail() }) } as Response;
+    }
+    if (target.endsWith("/artworks")) return { ok: true, json: async () => FAMILY } as Response;
+    return { ok: true, json: async () => ({ cards: [] }) } as Response;
+  }));
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+async function openSelected() {
+  render(<CubeEditor cubeId={5} />);
+  await screen.findByRole("heading", { name: "Custom" });
+  fireEvent.click(screen.getByRole("button", { name: "Main A, 2 copies" }));
+  return within(await screen.findByRole("group", { name: "Choose an art" })).getAllByRole("button");
+}
+
+describe("cube card art", () => {
+  it("swaps the art of the selected card and keeps it selected", async () => {
+    const thumbs = await openSelected();
+    expect(thumbs[0]).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(thumbs[1]!);
+    await waitFor(() => expect(posts).toEqual([{ op: "setArtwork", catalogCardId: 1, artworkPasscode: 2 }]));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Main A, 2 copies" })).toHaveAttribute("aria-pressed", "true"));
+    const after = within(await screen.findByRole("group", { name: "Choose an art" })).getAllByRole("button");
+    await waitFor(() => expect(after[1]).toHaveAttribute("aria-pressed", "true"));
+  });
+
+  it("shows the server reason beside the art strip and keeps the card when the swap is refused", async () => {
+    swapError = "That art is already in the cube.";
+    const thumbs = await openSelected();
+    fireEvent.click(thumbs[1]!);
+    // The message sits in the picker (visible in the phone sheet), not only at the top of the page.
+    const region = screen.getByRole("region", { name: "Card art" });
+    expect(await within(region).findByText("That art is already in the cube.")).toBeInTheDocument();
+    expect(screen.getAllByText("That art is already in the cube.")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Main A, 2 copies" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("says so inside the picker when the request itself fails", async () => {
+    swapThrows = true;
+    const thumbs = await openSelected();
+    fireEvent.click(thumbs[1]!);
+    expect(await within(screen.getByRole("region", { name: "Card art" })).findByText("Could not change the art.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Main A, 2 copies" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("shows the server message when the cube is in a running or pending draft", async () => {
+    swapError = "This cube is in a pending draft.";
+    swapStatus = 409;
+    const thumbs = await openSelected();
+    fireEvent.click(thumbs[1]!);
+    expect(await within(screen.getByRole("region", { name: "Card art" })).findByText("This cube is in a pending draft.")).toBeInTheDocument();
+  });
+
+  it("says the cube is in a running draft when the server gives no message", async () => {
+    swapError = "";
+    swapStatus = 409;
+    const thumbs = await openSelected();
+    fireEvent.click(thumbs[1]!);
+    expect(await within(screen.getByRole("region", { name: "Card art" })).findByText("This cube is in a running draft. Its cards cannot change.")).toBeInTheDocument();
+  });
+
+  it("disables an art the cube already holds", async () => {
+    entries = [{ catalogCardId: 1, pool: "main", maxCopies: 2 }, { catalogCardId: 2, pool: "main", maxCopies: 1 }];
+    render(<CubeEditor cubeId={5} />);
+    await screen.findByRole("heading", { name: "Custom" });
+    fireEvent.click(screen.getAllByRole("button", { name: /Main A, 2 copies/ })[0]!);
+    const thumbs = within(await screen.findByRole("group", { name: "Choose an art" })).getAllByRole("button");
+    expect(thumbs[1]).toHaveAttribute("aria-disabled", "true");
+    expect(thumbs[1]).toHaveAccessibleName(/already in this cube/);
+    fireEvent.click(thumbs[1]!);
+    expect(posts).toHaveLength(0);
+  });
+});

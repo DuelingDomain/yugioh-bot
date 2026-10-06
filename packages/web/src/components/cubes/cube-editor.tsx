@@ -21,6 +21,7 @@ import {
   type PoolTribute,
   type PoolView,
 } from "./cube-grid-model";
+import { ArtworkPicker } from "@/components/artwork/artwork-picker";
 import { CubeInspector } from "./cube-inspector";
 import { CubeBottomSheet, UndoToast } from "./cube-sheet";
 import { parseAddTab } from "./library-model";
@@ -73,6 +74,8 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
   const [loading, setLoading] = React.useState(true);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  // A swap refusal belongs next to the art strip: the page-top alert hides behind the phone sheet and the scroll.
+  const [artError, setArtError] = React.useState<string | null>(null);
   const [editingName, setEditingName] = React.useState(false);
   const [nameDraft, setNameDraft] = React.useState("");
   const [savingName, setSavingName] = React.useState(false);
@@ -128,9 +131,9 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
     return () => ro.disconnect();
   }, [loading]);
 
-  const mutate = async (op: Record<string, unknown>): Promise<ImportOutcome | null> => {
+  const mutate = async (op: Record<string, unknown>, report: (message: string | null) => void = setError): Promise<ImportOutcome | null> => {
     setBusy(true);
-    setError(null);
+    report(null);
     try {
       const res = await fetch(`/api/cubes/${cubeId}/cards`, {
         method: "POST",
@@ -143,11 +146,16 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
         error?: string;
       } & ImportOutcome;
       if (!res.ok || !data.pools || !data.cards) {
-        setError(data.error ?? "Update failed.");
+        // A cube whose draft is pending or running refuses an art swap with 409; the server says which.
+        report(data.error ?? (res.status === 409 && op.op === "setArtwork" ? "This cube is in a running draft. Its cards cannot change." : "Update failed."));
         return null;
       }
       applyDetail({ pools: data.pools, cards: data.cards });
       return { added: data.added, unknown: data.unknown, copies: data.copies };
+    } catch {
+      // The request itself failed (network down): say so instead of leaving an unhandled rejection.
+      report(op.op === "setArtwork" ? "Could not change the art." : "Update failed.");
+      return null;
     } finally {
       setBusy(false);
     }
@@ -168,6 +176,10 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
   };
 
   const selected = entryFor(selectedId);
+  // The artwork list does not say which arts the cube already has, and a swap to one is refused.
+  const inCube = new Map<number, string>(
+    [...pools.main, ...pools.extra].map((entry) => [entry.catalogCardId, "already in this cube"] as const),
+  );
   const selectedCard = selectedId != null ? (cardsById.get(selectedId) ?? null) : null;
 
   const setCopies = async (copies: number) => {
@@ -175,6 +187,17 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
     const next = clampCopies(copies);
     if (next === selected.entry.maxCopies) return;
     await mutate({ op: "setMaxCopies", catalogCardId: selected.entry.catalogCardId, maxCopies: next });
+  };
+
+  // The card is the same card in the cube; only its passcode, and so its picture, changes.
+  const selectedIdRef = React.useRef(selectedId);
+  selectedIdRef.current = selectedId;
+  React.useEffect(() => { setArtError(null); }, [selectedId]);
+  const setArtwork = async (artworkPasscode: number) => {
+    if (!selected || busy) return;
+    const from = selected.entry.catalogCardId;
+    const result = await mutate({ op: "setArtwork", catalogCardId: from, artworkPasscode }, setArtError);
+    if (result && selectedIdRef.current === from) setSelectedId(artworkPasscode);
   };
 
   const removeSelected = async () => {
@@ -339,6 +362,7 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
       copies={selected.entry.maxCopies}
       busy={busy}
       compact={railHidden}
+      artwork={<ArtworkPicker code={selected.entry.catalogCardId} busy={busy} error={artError} unavailable={inCube} onPick={(art) => void setArtwork(art.passcode)} />}
       onSetCopies={(n) => void setCopies(n)}
       onRemove={() => void removeSelected()}
     />

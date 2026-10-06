@@ -63,6 +63,10 @@ jobs:
       - name: Install without a write token
         run: prlimit --core=1:1 -- npm ci
 
+      # Build checked-out repository code before applying candidate data pins.
+      - name: Build shared for engine-data scripts
+        run: prlimit --core=1:1 -- npm run build --workspace=packages/shared
+
       # Even a workflow dry run applies candidates in this disposable, read-only-token job.
       - name: Resolve pins and write report
         id: update

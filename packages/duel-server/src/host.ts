@@ -30,6 +30,7 @@ import { ELIMINATE_PROMPT_PREFIX as ELIMINATE_PREFIX, eliminationCodeOf, elimina
 import { EngineAnswerError } from "./prompts.js";
 import { GameWorker, type DuelGameWorker, type GameOptions, type WorkerDebugState } from "./worker-client.js";
 import { DeckLegalityError, inspectDeck, validateDeck, type InspectDeckOptions } from "./deck-legality.js";
+import { cardArtworkFamily } from "./card-artworks.js";
 import { canonicalEngineCardCode, loadDraftDeckPool, normalizeCardCodes, normalizeImportedDeck } from "./deck-import.js";
 import { loadCardDatabase } from "./cards.js";
 import { cardFacets, queryCards } from "./card-search.js";
@@ -2202,6 +2203,15 @@ export function createDuelHost(options: {
       return startPreset(body, guildId, actor);
     }
     if (op === "report" || op === "debug-trace") requireScenarios();
+    if (op === "card-artworks") {
+      if (!Array.isArray(body.codes) || body.codes.length !== 1
+        || !Number.isSafeInteger(body.codes[0]) || body.codes[0] <= 0 || body.codes[0] > 0xffffffff) {
+        throw new RequestError("Provide one positive card passcode", 400);
+      }
+      const family = cardArtworkFamily(loadCardDatabase(options.dataDirectory), body.codes[0]);
+      if (!family) throw new RequestError("Card not found in the duel engine", 404);
+      return family;
+    }
     if (op === "card-details") {
       if (!Array.isArray(body.codes) || body.codes.length > 1000
         || body.codes.some((code) => !Number.isSafeInteger(code) || code <= 0 || code > 0xffffffff)) {
@@ -2212,7 +2222,7 @@ export function createDuelHost(options: {
       const missing: number[] = [];
       for (const code of new Set<number>(body.codes)) {
         const card = catalog.deckCard(code);
-        if (card) cards.push(card);
+        if (card) cards.push({ ...card, altArtCount: (cardArtworkFamily(catalog, code)?.artworks.length ?? 1) - 1 });
         else missing.push(code);
       }
       return { cards, missing };
@@ -2222,7 +2232,7 @@ export function createDuelHost(options: {
         || body.codes.some((code) => !Number.isSafeInteger(code) || code <= 0 || code > 0xffffffff)) {
         throw new RequestError("Provide at most 1000 positive card ids", 400);
       }
-      const codes = await normalizeCardCodes(body.codes as number[], options.dataDirectory, options.db);
+      const codes = await normalizeCardCodes(body.codes as number[], options.dataDirectory, options.db, { preserveArtwork: body.preserveArtwork === true });
       return { codes: Object.fromEntries(codes) };
     }
     if (op === "check-deck") {

@@ -34,7 +34,7 @@ The default report is `.status/engine-data-update.md` (ignored by git); `--repor
 The first line is `Needs review: N conflicts, M risks, K shared-script changes, probe errors P, overlay check exit X`. A successful overlay check does not clear stock-hash conflicts or other findings.
 
 - **Commits and official scripts:** compare links show upstream changes; new/changed official `cNNN.lua` scripts include candidate database names. Database-only changes can add card data without a script diff.
-- **Overlay conflicts:** every manifest stock hash is compared only with `official/cNNN.lua`, matching the overlay generator. If only a pre-errata or other nonofficial copy exists, the report says `removed`. Reconcile affected overlays with upstream and review baseline hashes; do not replace hashes merely to silence a conflict.
+- **Overlay conflicts:** every manifest stock hash is compared with its explicitly reviewed `stockPath`, or `official/cNNN.lua` by default. A nonofficial copy does not silently become the baseline: without a reviewed path, the report says `removed`. Reconcile affected overlays with upstream and review baseline hashes; do not replace hashes merely to silence a conflict.
 - **Changed shared scripts:** every added, changed or removed `.lua` outside `official/cNNN.lua` is listed, including utility, constants, procedures, card-specific helpers and nonofficial scripts. Utility/procedure/constant changes flag `mp-utility.lua` for review. Check shared multiplayer assumptions even when no official card changed.
 - **New multiplayer risks:** new/changed official scripts flagged F or ambiguous O and absent from both multiplayer lists need a rule, tested overlay or format-specific ban decision.
 - **Changed listed cards:** changed scripts already in `MULTIPLAYER_CARD_RULES` or `MULTIPLAYER_FORBIDDEN` without an overlay need renewed review. This section also includes `formatGap` cards, including unchanged cards whose scan finds Tag coverage missing.
@@ -44,28 +44,25 @@ The first line is `Needs review: N conflicts, M risks, K shared-script changes, 
 
 **Live-duel warning:** a merged data bump changes `bundleVersion`. Active duels with a different bundle version are interrupted on recovery. Drain active duels and **merge at a quiet time**; deploy preflight can refuse while duels remain active. **Replay-loss warning:** each bump also makes replays of all earlier duels with a different bundle version unavailable, because the host refuses replay on a `bundleVersion` mismatch. The owner must account for both effects when deciding cadence. Host behavior is unchanged; see the [VM runbook](vm-runbook.md).
 
-## Merge order for PR #210
+## Re-record golden hashes
 
-Merge the golden-metadata follow-up (`fix/engine-data-review-gaps`) first. After removing `2f1cccf0` and restoring main's overlay fingerprint, `git merge-tree --write-tree origin/chore/engine-data-update HEAD` reports exactly one content conflict: `packages/duel-server/scripts/native/golden.tsv`. `docs/deployment/engine-data-updates.md` and `packages/duel-server/tests/update-engine-data.test.ts` merge automatically; there is no manifest or manifest-test conflict. Re-run the preview if either branch advances.
+After reconciling the candidate scripts, overlay (including `MANIFEST.json`) and patch series, use Node 22 to install dependencies and prepare a fresh bundle for the branch's pins:
 
-Then, in PR #210's `chore/engine-data-update` checkout:
+```sh
+prlimit --core=1:1 -- npm ci
+DUEL_DATA_DIR="$PWD/data/duel-engine-next" prlimit --core=1:1 -- npm run prepare:data --workspace=packages/duel-server
+```
 
-1. Fetch and merge the updated `origin/main` into the update branch. Resolve the `golden.tsv` conflict by retaining PR #210's entire file temporarily (`git checkout --ours packages/duel-server/scripts/native/golden.tsv` when merging from the update branch), then stage it and finish the merge. Do not copy main's historical fingerprints onto the candidate rows. The temporary resolution is expected to fail the golden metadata check until step 3 re-records it.
-2. Finish reconciling the candidate scripts, overlay (including `MANIFEST.json`) and patch series. With Node 22, install dependencies and prepare a fresh bundle for that branch's pins:
-   ```sh
-   prlimit --core=1:1 -- npm ci
-   DUEL_DATA_DIR="$PWD/data/duel-engine-next" prlimit --core=1:1 -- npm run prepare:data --workspace=packages/duel-server
-   ```
-3. Use a fresh native work directory so cached card dumps and binaries cannot come from the old pins. Re-record all four cases, then check the resulting file with the same build:
-   ```sh
-   unset NDUEL_PATCHES NDUEL_PATCH_LIMIT DUEL_MULTI_SCRIPTS_DIR
-   export DUEL_DATA_DIR="$PWD/data/duel-engine-next"
-   export NDUEL_DIR="$(mktemp -d)"
-   NDUEL_CASES="n2 n3 n4 tag" NDUEL_SEEDS=20 NDUEL_TURNS=60 NDUEL_LP=3000 NDUEL_FUTURE=0 NDUEL_SKIP_BUILD=0 prlimit --core=1:1 -- bash packages/duel-server/scripts/run-nduel.sh --record
-   NDUEL_SKIP_BUILD=1 NDUEL_FUTURE=0 prlimit --core=1:1 -- bash packages/duel-server/scripts/run-nduel.sh --check
-   rm -rf "$NDUEL_DIR"
-   unset NDUEL_DIR
-   ```
-4. Review the row changes and all three fingerprint headers, verify 80 rows were recorded/checked with no skips or mismatches, and commit `packages/duel-server/scripts/native/golden.tsv` in PR #210. Merge that PR only after its CI passes. Never refresh the headers alone to bypass a failed check.
+Use a fresh native work directory so cached card dumps and binaries cannot come from old pins. Re-record all four cases, then check the resulting file with the same build:
 
-The follow-up on main retains its existing 20 two-player rows. PR #210 must re-record after incorporating the follow-up, with its own final data pins and overlay; the manifest stock-path test can land independently in PR #210 before that merge. Its reviewed `stockPath` manifest entry and `ManifestCard` type remain in PR #210 only; this follow-up retains main’s overlay bytes. The required golden re-record must happen after incorporating the follow-up, not by synchronizing its headers in advance.
+```sh
+unset NDUEL_PATCHES NDUEL_PATCH_LIMIT DUEL_MULTI_SCRIPTS_DIR
+export DUEL_DATA_DIR="$PWD/data/duel-engine-next"
+export NDUEL_DIR="$(mktemp -d)"
+NDUEL_CASES="n2 n3 n4 tag" NDUEL_SEEDS=20 NDUEL_TURNS=60 NDUEL_LP=3000 NDUEL_FUTURE=0 NDUEL_SKIP_BUILD=0 prlimit --core=1:1 -- bash packages/duel-server/scripts/run-nduel.sh --record
+NDUEL_SKIP_BUILD=1 NDUEL_FUTURE=0 prlimit --core=1:1 -- bash packages/duel-server/scripts/run-nduel.sh --check
+rm -rf "$NDUEL_DIR"
+unset NDUEL_DIR
+```
+
+Review the row changes and all three fingerprint headers, verify 80 rows were recorded/checked with no skips or mismatches, and commit `packages/duel-server/scripts/native/golden.tsv` in the data-update PR. Merge only after its CI passes. Never refresh the headers alone to bypass a failed check.

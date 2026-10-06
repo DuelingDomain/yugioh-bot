@@ -1,0 +1,45 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Tue, 18 Apr 2000 00:00:00 +0000
+Subject: [PATCH] core: refresh FFA responses after cost elimination
+
+Activation costs can remove links after QuickEffect's responder was queued.
+Choose from the new living top link before issuing that prompt. If no live
+link remains, let chain cleanup finish before the one normal open-state
+round; do not offer a redundant pre-CHAIN_END round.
+
+R-FFA-CHAIN, owner decision 2026-10-06. Tag and n2 paths stay unchanged.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Jo347fwscScmug26ujsNN2
+---
+ processor.cpp | 16 ++++++++++++++++
+ 1 file changed, 16 insertions(+)
+
+diff --git a/processor.cpp b/processor.cpp
+index 44ec175..01cbb50 100644
+--- a/processor.cpp
++++ b/processor.cpp
+@@ -1171,6 +1171,22 @@ bool field::process(Processors::QuickEffect& arg) {
+ 		return FALSE;
+ 	}
+ 	case 2: {
++		if(n_duelists > 2 && n_teams == n_duelists
++			&& std::any_of(core.current_chain.begin(), core.current_chain.end(), [](const chain& ch) { return ch.removed_by_elimination; })) {
++			// AddChain can remove links while paying a cost, after this process's
++			// priority was chosen. Refresh it only now, before issuing a prompt.
++			auto* top = get_current_chain();
++			if(!top) {
++				// Let the caller clean up the removed slots and emit CHAIN_END.
++				// Its post-chain PointEvent supplies the single open-state round.
++				core.select_chains.clear();
++				for(uint8_t p = 0; p < n_duelists; ++p)
++					core.hint_timing[p] &= TIMING_DAMAGE_STEP | TIMING_DAMAGE_CAL;
++				return TRUE;
++			}
++			core.response_anchor = top->triggering_player;
++			priority = arg.priority_player = first_responder();
++		}
+ 		if(n_duelists > 2 && !is_alive(priority)) {
+ 			// an eliminated duelist is not asked: step 3 takes this as a pass
+ 			core.select_chains.clear();

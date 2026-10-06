@@ -7,6 +7,8 @@ import { isOptionalCardScript, loadCardDatabase, type CardDatabase } from "../sr
 
 export interface EngineDataProbeResult {
   errors: string[];
+  artworkScriptScanError?: string;
+  artworkScriptFallbacks?: Array<{ passcode: number; main: number; requested?: number }>;
   scriptsChecked: number;
   apiSymbolsChecked: number;
   globalsChecked: number;
@@ -187,7 +189,16 @@ export async function probeEngineData(
   changedPaths: string[],
   options: { timeoutMs?: number } = {},
 ): Promise<EngineDataProbeResult> {
-  const failed = (message: string): EngineDataProbeResult => ({ errors: [message], scriptsChecked: 0, apiSymbolsChecked: 0, globalsChecked: 0, cardsChecked: 0 });
+  // This static safety check must survive a Lua timeout, crash or failed fork.
+  let artworkScriptFallbacks: EngineDataProbeResult["artworkScriptFallbacks"];
+  let artworkScriptScanError: string | undefined;
+  try {
+    const cards = loadCardDatabase(dataDirectory);
+    try { artworkScriptFallbacks = cards.artworkScriptFallbacks(); }
+    finally { cards.close(); }
+  } catch (error) { artworkScriptScanError = String(error); }
+  const safety = { artworkScriptFallbacks, artworkScriptScanError };
+  const failed = (message: string): EngineDataProbeResult => ({ ...safety, errors: [message], scriptsChecked: 0, apiSymbolsChecked: 0, globalsChecked: 0, cardsChecked: 0 });
   return new Promise((resolveReport) => {
     let child: ReturnType<typeof fork>;
     try {
@@ -203,7 +214,7 @@ export async function probeEngineData(
       finished = true;
       clearTimeout(timer);
       child.kill("SIGKILL");
-      resolveReport(result);
+      resolveReport({ ...result, ...safety });
     };
     const timeoutMs = options.timeoutMs ?? 60_000;
     const timer = setTimeout(() => finish(failed(`Standard 1v1 compatibility probe timed out after ${timeoutMs}ms; candidate scripts may hang during loading or initial_effect.`)), timeoutMs);
