@@ -214,7 +214,7 @@ export async function normalizeCardCodes(
   codes: number[],
   dataDirectory: string,
   db: Database.Database,
-  options: Pick<NormalizeImportedDeckOptions, "fetch"> = {},
+  options: Pick<NormalizeImportedDeckOptions, "fetch"> & { preserveArtwork?: boolean } = {},
 ): Promise<Map<number, number | null>> {
   const ids = requireCardIds(codes);
   const index = loadEngineIndex(dataDirectory);
@@ -222,7 +222,7 @@ export async function normalizeCardCodes(
   const result = new Map<number, number | null>();
   for (const id of ids) {
     const known = index.byId.has(id) ? id : resolved.get(id);
-    result.set(id, known === undefined ? null : canonicalCardCode(known, index.byId));
+    result.set(id, known === undefined ? null : options.preserveArtwork ? known : canonicalCardCode(known, index.byId));
   }
   return result;
 }

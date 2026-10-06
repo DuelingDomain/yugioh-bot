@@ -239,7 +239,7 @@ describe("cube API routes", () => {
     const res = await exportYdk(new Request("http://x") as any, { params: Promise.resolve({ id: String(cube.id) }) });
     expect(res.status).toBe(200);
     expect(res.headers.get("content-disposition")).toContain('filename="Stun pool.ydk"');
-    expect(await res.text()).toBe("#created by Duelists Kingdom\n#main\n1\n1\n#extra\n2\n2\n2\n!side\n");
+    expect(await res.text()).toBe("#created by Dueling Domain\n#main\n1\n1\n#extra\n2\n2\n2\n!side\n");
 
     const missing = await exportYdk(new Request("http://x") as any, { params: Promise.resolve({ id: "9999" }) });
     expect(missing.status).toBe(404);

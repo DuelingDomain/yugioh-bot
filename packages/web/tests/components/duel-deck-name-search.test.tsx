@@ -44,7 +44,7 @@ const OCG_ONLY = card(70000001, "Blue-Eyes OCG Promo", 0x11, 1);
 const normalSettings = (patch: Partial<DuelSettings> = {}): DuelSettings => ({ ...defaultDuelSettings("normal"), ...patch });
 
 function answer(cards: DeckCardInfo[]): CardQueryResult {
-  return { cards, total: cards.length, offset: 0 };
+  return { cards: cards.map(card => ({ ...card, altArtCount: 0 })), total: cards.length, offset: 0 };
 }
 
 function renderEditor(settings = normalSettings()) {

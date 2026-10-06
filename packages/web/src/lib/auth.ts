@@ -123,10 +123,13 @@ export const {
       const isPublicRoute =
         (fxLabEnabled() && isFxLabPublicPath(nextUrl.pathname)) ||
         nextUrl.pathname === "/login" ||
+        nextUrl.pathname === "/api/waitlist" ||
         nextUrl.pathname === "/api/auth" ||
         nextUrl.pathname.startsWith("/api/auth/") ||
         nextUrl.pathname.startsWith("/_next") ||
         nextUrl.pathname === "/favicon.ico" ||
+        nextUrl.pathname === "/icon.svg" ||
+        nextUrl.pathname === "/apple-icon.png" ||
         nextUrl.pathname.startsWith("/icons/");
 
       if (isPublicRoute) return true;

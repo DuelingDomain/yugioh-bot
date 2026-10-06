@@ -413,6 +413,8 @@ function resolveScriptToken(token: string, cardId: number, catalog: Catalog): nu
 }
 
 function listedValues(cardId: number, field: "listed_names" | "listed_series", catalog: Catalog): number[] {
+  // Alternate-art script wrappers need not repeat their main's Domain metadata.
+  cardId = canonicalCardCode(cardId, catalog.cards);
   const path = catalog.scripts.get(cardId);
   if (!path) return [];
   let source: string;
@@ -626,6 +628,7 @@ function cardScriptMessage(card: EngineCard, catalog: Catalog): string | undefin
   if ((card.type & SCRIPT_TYPES) === 0) return undefined;
   if (catalog.scripts.has(card.id)) return undefined;
   if (card.alias !== 0 && catalog.scripts.has(card.alias)) return undefined;
+  if (catalog.scripts.has(canonicalCardCode(card.id, catalog.cards))) return undefined;
   return `${card.name} is missing a card script`;
 }
 

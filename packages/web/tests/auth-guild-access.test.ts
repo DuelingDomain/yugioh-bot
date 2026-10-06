@@ -10,6 +10,7 @@ vi.mock("next-auth", () => ({
   },
 }));
 vi.mock("next-auth/providers/discord", () => ({ default: () => ({}) }));
+vi.mock("next/font/local", () => ({ default: () => ({ variable: "font-local" }) }));
 
 let discord: ReturnType<typeof mockDiscordAccess>;
 async function callbacks() {
@@ -98,8 +99,8 @@ describe("web guild membership", () => {
   });
 
   it.each([
-    ["GuildMembershipRequired", /must be a member of the Discord server/i],
-    ["GuildMembershipUnavailable", /check your Discord server membership/i],
+    ["GuildMembershipRequired", /Access opens in waves/],
+    ["GuildMembershipUnavailable", /check your access just now/],
   ] as const)("renders the %s error", async (error, message) => {
     const { default: LoginPage } = await import("../app/(auth)/login/page");
     const markup = renderToStaticMarkup(await LoginPage({ searchParams: Promise.resolve({ error }) }));

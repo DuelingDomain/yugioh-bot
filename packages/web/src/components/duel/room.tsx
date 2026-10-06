@@ -1143,7 +1143,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     hudMasterProps({ legalKeys: fieldLegalKeys, selectedKeys, canAct, prompt, onAnswer: onSubmitAnswer, onActivate: onFieldActivate, onHoverCard }, seatView, local, title);
 
   // The pieces of the flat page, built once so the classic page and the 3D mode page (SolidRoom) show the same nodes.
-  const wordmark = <Link href="/duels" replace={inDuelWindow}>Duelists Kingdom</Link>;
+  const wordmark = <Link href="/duels" replace={inDuelWindow}>Dueling Domain</Link>;
   const spectatorTag = spectator ? <strong className={styles.viewerRole} title="You are watching. Both players' hidden cards remain private.">
     <Eye size={15} strokeWidth={1.5} aria-hidden /> You are spectating
   </strong> : null;

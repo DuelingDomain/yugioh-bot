@@ -186,7 +186,7 @@ export function SolidPreviewRoom({ stateId, flat, reduced }: { stateId: SolidSta
         turnText={turnText}
         headerPhase={headerPhase}
         battleStep={battleStep}
-        wordmark={<Link href="/duels">Duelists Kingdom</Link>}
+        wordmark={<Link href="/duels">Dueling Domain</Link>}
         spectatorTag={null}
         seriesLabel={null}
         connectionStatus={
