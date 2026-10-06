@@ -99,8 +99,8 @@ No existing patch file changed. The new patch is `0106-ffa3-column-peer.patch`. 
 
 Base: `f0d4993b`. All changes are local on `feat/ffa3-columns-pick`.
 
-- Impermanence saves the negated target's seat at resolution. Its three lasting effects keep that seat. It is now in group (a).
-- FFA4 keeps the prior unbound Lua 1 column result. The new fallback is FFA3 only.
+- The first review changed Impermanence to save the target's seat at resolution. The re-review below corrects this to the activation's bound peer.
+- The first FFA4 check missed the P0 cases. The re-review below restores the prior unbound Lua 1 result.
 - A bound column peer stays bound after loss. Unbound column reads use `pick_opponents`, including its pending-loss rule.
 - The declaration comment explains that `column_peer_of` is const for field state but marks the Lua probe.
 - Tests cover two response links with different peers, nested scopes, a peer leaving before resolution, and both choices for p1 and p2 with three alive. Impermanence also leaves the third seat's continuous effect active.
@@ -198,3 +198,76 @@ For the first Impermanence red/green runs, the live environment used `.local/ver
 ### Cleanup
 
 The final WASM files, build records, checksums, and logs are retained in `.local/review/`. The prior `.local/verification/` evidence is unchanged. Temporary engine data, core source/cache/build trees, `domain-core/dist`, and the shared TypeScript build output were removed. No push, PR, merge, service start, or production-data change was made.
+
+## High re-review, 2026-10-05
+
+Base: `aaca1eae`. Two fixes, one commit per fix.
+
+- FFA4 returns `false` for an unbound Lua 1 column origin before the FFA3 fallback. New native checks use scope P0 with seat-0 and seat-1 cards. Both fail before the fix. A third check detects the unwanted probe touch. All pass after the fix.
+- Impermanence reads `aux.MPColumnPeerSeat(own)` during its opted-in activation. Patch 0107 keeps this bound seat. Target control changes cannot redirect the lasting column effects.
+- Eight control-change tests fail before the second fix and pass after it: own or third-seat control, activation or continuous effects, Standard or Domain. P1's set Jar of Greed in `s3` draws no card. P1's Tenki in `s3` is disabled. P0's Tenki in `s1` is disabled. P2's Tenki in `s3` stays active. These results also confirm the existing `seat~=own` mirror test.
+
+| Check | Result |
+|---|---|
+| Local Standard and Domain WASM builds | Both pass |
+| Native review and column/Link checks, ASan and UBSan | 6 pass, 0 fail, 0 skip |
+| Impermanence subset | 24 pass |
+| Full FFA3 columns, EMZ/Link, shared zones and local viewer zones | 433 pass, 0 fail, 0 skip |
+| Manifest, stock hashes, overlays, geometry audit and scanner | 142 pass, 1 optional skip |
+| Duel server typecheck | Pass |
+
+The optional skip needs `.status/multiplayer-triage.json`. Filtered red/green runs exclude unrelated tests. The full live run has no skips. The native build has no compiler warnings. Both WASM builds emit the existing upstream Lua C-as-C++ and string-pointer warnings. Both use Emscripten 4.0.9, 95 patches, `luaFixedSeed: 0`, and core HEAD `e7b553053d01b6f4be6b99190180b6bae2159a57`. No core patch changed.
+
+Item 6 remains a deferred follow-up: offer only opponents with a legal choice. This needs `MPTarget` work to distinguish a legal own-card choice from a legal opponent-card choice. No GitHub issue was opened.
+
+### Exact re-review commands
+
+Run from this worktree. Node is `v22.23.3`. The source engine cache is read only. Commands use no service ports. Build and test jobs run in foreground sessions and are awaited.
+
+```bash
+export PATH=/home/sulman633/.nvm/versions/node/v22.23.3/bin:$PATH
+mkdir -p .local/re-review
+cp -a /home/sulman633/.cache/dk-duel-engine-178 .local/engine
+node --version
+npm run build --workspace=packages/shared
+bash packages/duel-server/scripts/prepare-multi-core-tree.sh > .local/re-review/prepare.log 2>&1
+
+set -o pipefail
+# Before the FFA4 fix: both P0 assertions and the probe-touch check fail.
+DUEL_DATA_DIR=$PWD/.local/engine MULTI_TREE=$PWD/packages/duel-server/domain-core/.build/multi-core-tree bash packages/duel-server/scripts/native/checks/run.sh ffa3-column-review 2>&1 | tee .local/re-review/ffa4-red.log
+# After the FFA4 fix: 6 pass. The core library is unchanged.
+DUEL_DATA_DIR=$PWD/.local/engine MULTI_TREE=$PWD/packages/duel-server/domain-core/.build/multi-core-tree CHECKS_SKIP_LIB=1 bash packages/duel-server/scripts/native/checks/run.sh ffa3-column-review link-column-zones 2>&1 | tee .local/re-review/ffa4-green.log
+
+docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e EM_CACHE=/src/packages/duel-server/domain-core/.emcache -v "$PWD":/src -w /src docker.io/emscripten/emsdk:4.0.9 bash packages/duel-server/scripts/build-multi-core.sh 2>&1 | tee .local/re-review/build-standard.log
+docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e EM_CACHE=/src/packages/duel-server/domain-core/.emcache -e APPLY_DOMAIN=1 -e DOMAIN_MULTI=1 -e OUT_NAME=ocgcore.multi-domain.sync.wasm -v "$PWD":/src -w /src docker.io/emscripten/emsdk:4.0.9 bash packages/duel-server/scripts/build-multi-core.sh > .local/re-review/build-domain.log 2>&1
+
+# Before the Impermanence fix: 8 failures, all at final board assertions.
+DUEL_DATA_DIR=$PWD/.local/engine MULTI_WASM=$PWD/packages/duel-server/domain-core/dist/ocgcore.multi.sync.wasm DOMAIN_MULTI_WASM=$PWD/packages/duel-server/domain-core/dist/ocgcore.multi-domain.sync.wasm DUEL_REQUIRE_CORES=1 NSEAT_LIVE=1 npx vitest run packages/duel-server/tests/scenarios/multiplayer/ffa3-columns.test.ts -t target-becomes > .local/re-review/impermanence-red-final.log 2>&1
+# After the Impermanence fix: 24 pass.
+DUEL_DATA_DIR=$PWD/.local/engine MULTI_WASM=$PWD/packages/duel-server/domain-core/dist/ocgcore.multi.sync.wasm DOMAIN_MULTI_WASM=$PWD/packages/duel-server/domain-core/dist/ocgcore.multi-domain.sync.wasm DUEL_REQUIRE_CORES=1 NSEAT_LIVE=1 npx vitest run packages/duel-server/tests/scenarios/multiplayer/ffa3-columns.test.ts -t impermanence > .local/re-review/impermanence-green.log 2>&1
+
+DUEL_DATA_DIR=$PWD/.local/engine MULTI_WASM=$PWD/packages/duel-server/domain-core/dist/ocgcore.multi.sync.wasm DOMAIN_MULTI_WASM=$PWD/packages/duel-server/domain-core/dist/ocgcore.multi-domain.sync.wasm DUEL_REQUIRE_CORES=1 NSEAT_LIVE=1 npx vitest run packages/duel-server/tests/scenarios/multiplayer/ffa3-columns.test.ts packages/duel-server/tests/scenarios/multiplayer/extra-monster-zones.test.ts packages/duel-server/tests/scenarios/multiplayer/df-shared-zones.test.ts packages/duel-server/tests/scenarios/multiplayer/df-local-zone-viewer.test.ts > .local/re-review/scenarios-final.log 2>&1
+DUEL_DATA_DIR=$PWD/.local/engine npx vitest run packages/duel-server/tests/multi-scripts-manifest.test.ts packages/duel-server/tests/multi-scripts.test.ts packages/duel-server/tests/c6-geometry-audit.test.ts packages/duel-server/tests/scenarios/multiplayer/scan.test.ts > .local/re-review/overlay-final.log 2>&1
+npm run typecheck --workspace=packages/duel-server > .local/re-review/typecheck.log 2>&1
+git diff --check
+
+# Retain the evidence, then remove this run's temporary data and build files.
+cp packages/duel-server/domain-core/dist/ocgcore.multi.sync.wasm packages/duel-server/domain-core/dist/ocgcore.multi-domain.sync.wasm packages/duel-server/domain-core/dist/ocgcore.multi-build-info.json packages/duel-server/domain-core/dist/ocgcore.multi-domain-build-info.json .local/re-review/
+sha256sum .local/re-review/*.wasm > .local/re-review/SHA256SUMS
+python3 - <<'PY'
+from pathlib import Path
+from shutil import rmtree
+root = Path.cwd().resolve()
+assert str(root) == '/home/sulman633/orca/workspaces/yugioh-bot/ffa3-columns'
+for name in ('.local/engine', 'packages/duel-server/domain-core/.build', 'packages/duel-server/domain-core/.emcache', 'packages/duel-server/domain-core/dist', 'packages/shared/dist'):
+    path = root / name
+    if not path.exists():
+        continue
+    assert path.is_dir() and not path.is_symlink() and path.resolve().is_relative_to(root)
+    rmtree(path)
+    print(f'Removed {name}')
+PY
+git status --short
+```
+
+Logs, both WASM files, build records and checksums remain in `.local/re-review/`. Earlier evidence directories are unchanged. No push, PR, merge, service start, or production-data change was made.

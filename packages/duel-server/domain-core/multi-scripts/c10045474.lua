@@ -3,9 +3,8 @@ if not aux.MPColumnGeometry then return end
 local mp_activate=s.activate
 function s.activate(e,tp,...)
 	if not aux.MPColumnGeometry() or aux.MPGeometryShared() then return mp_activate(e,tp,...) end
-	local target=Duel.GetFirstTarget()
-	local peer=target and Duel.MPSeatOf(target) or -1
 	local own=Duel.MPSeat(tp)
+	local peer=aux.MPColumnPeerSeat(own)
 	local register=Duel.RegisterEffect
 	Duel.RegisterEffect=function(effect,player,...)
 		if effect:GetTarget()==s.distg or effect:GetOperation()==s.disop then

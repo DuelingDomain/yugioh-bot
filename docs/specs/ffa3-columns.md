@@ -4,7 +4,7 @@ Owner decision: 2026-10-05. Rule: **R-FFA-THREE-COLUMNS**. Base: `origin/main` a
 
 With three living duelists, an activated effect that affects opponent cards selects one living opponent before card or zone choices. With two, all column logic uses the remaining opponent and gives no opponent prompt. Main column `s` faces `4-s`. EMZ sequences 5 and 6 map to columns 1 and 3. FFA3 EMZ remain separate: two independently occupied mirrored EMZ can contribute two cards to one column. Link arrows do not change. FFA4 keeps seats 0/1 and 2/3, without re-facing after a loss. Tag and 1v1 do not change.
 
-A chain keeps its bound peer if that peer leaves. Its column reads see the departed seat's empty field; they do not switch to the survivor. Before a peer is bound, column reads use the same pending-loss eligibility as the opponent pick. Infinite Impermanence saves the negated target's controller at resolution and uses that seat for its lasting column negation.
+A chain keeps its bound peer if that peer leaves. Its column reads see the departed seat's empty field; they do not switch to the survivor. Before a peer is bound, column reads use the same pending-loss eligibility as the opponent pick. Infinite Impermanence saves the activated effect's bound column peer for its lasting column negation. A change in the target's controller does not change that peer.
 
 ## Card groups
 
