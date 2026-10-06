@@ -5,7 +5,6 @@ import { Trash2, X } from "lucide-react";
 import { SANDBOX_LIMITS, type SandboxCardEntry, type SandboxStance } from "@yugidraft/shared/duels";
 import { cn } from "@/lib/utils";
 import {
-  allowedPositions,
   cardOf,
   defaultPos,
   isSlotZone,
@@ -14,7 +13,7 @@ import {
   type SandboxAction,
   type SlotZone,
 } from "./board-model";
-import { isXyz, zoneName } from "./placement";
+import { isXyz, slotPositions, zoneName } from "./placement";
 import { CardThumb, specOf, type CardInfoMap } from "./zone-slot";
 import styles from "./builder.module.css";
 
@@ -62,7 +61,7 @@ export function CardPopover({
   const code = cardOf(entry);
   const info = infos.get(code);
   const name = info?.name ?? `Card ${code}`;
-  const positions = slot ? allowedPositions(loc.zone) : [];
+  const positions = slot ? slotPositions(loc.zone, info) : [];
   const pos = slot ? (spec.pos ?? defaultPos(loc.zone as SlotZone)) : undefined;
   const materials = spec.materials ?? [];
   const showMaterials = loc.zone === "monster" && ((info ? isXyz(info) : false) || materials.length > 0);
@@ -118,12 +117,14 @@ export function CardPopover({
 
       {positions.length > 0 ? (
         <div className={styles.popRow} role="group" aria-label="Position">
-          {positions.map((value) => (
+          {positions.map(({ pos: value, blocked }) => (
             <button
               key={value}
               type="button"
               className={styles.popChoice}
               aria-pressed={pos === value}
+              disabled={blocked !== undefined}
+              title={blocked}
               onClick={() => onAction({ type: "setPosition", at: loc, pos: value })}
             >
               {POS_LABEL[value]}

@@ -2,8 +2,10 @@
  * Pure placement rules of the builder UI: where a card goes when the user adds it to a target,
  * and which slots refuse it. Card data comes from the card search; an unknown card is never refused.
  */
-import type { DeckCardInfo, SandboxDuelistId } from "@yugidraft/shared/duels";
+import type { DeckCardInfo, SandboxDuelistId, SandboxStance } from "@yugidraft/shared/duels";
 import {
+  TYPE_CONTINUOUS,
+  TYPE_EQUIP,
   TYPE_FIELD,
   TYPE_FUSION,
   TYPE_LINK,
@@ -14,7 +16,7 @@ import {
   TYPE_TRAP,
   TYPE_XYZ,
 } from "@/components/duel/constants";
-import { getEntry, slotCount, type CardLoc, type PileZone, type SandboxBuilderState, type SandboxZone, type SlotZone } from "./board-model";
+import { allowedPositions, getEntry, slotCount, type CardLoc, type PileZone, type SandboxBuilderState, type SandboxZone, type SlotZone } from "./board-model";
 
 /** Where quick add sends a card. `field` picks the zone from the card type. */
 export type AddTarget = PileZone | "field";
@@ -44,6 +46,26 @@ export function isExtraDeckMonster(info: TypeInfo): boolean {
 }
 export function isXyz(info: TypeInfo): boolean {
   return isMonster(info) && (info.type & TYPE_XYZ) !== 0;
+}
+
+/**
+ * Whether a card can sit face-up in a Spell & Trap Zone: Continuous and Equip Spells, Continuous Traps.
+ * Normal, Quick-Play and Ritual Spells and Normal and Counter Traps are only ever Set or activated.
+ * An unknown card is never refused.
+ */
+export function canStayFaceUp(info: TypeInfo | undefined): boolean {
+  if (!info) return true;
+  if ((info.type & TYPE_SPELL) !== 0) return (info.type & (TYPE_CONTINUOUS | TYPE_EQUIP)) !== 0;
+  if ((info.type & TYPE_TRAP) !== 0) return (info.type & TYPE_CONTINUOUS) !== 0;
+  return true;
+}
+
+export const NO_FACE_UP_HINT = "This card cannot stay face-up on the field. Set it, then activate it.";
+
+/** The positions the popover offers for a card in a slot. `blocked` explains a position that is shown but disabled. */
+export function slotPositions(zone: SandboxZone, info: TypeInfo | undefined): Array<{ pos: SandboxStance; blocked?: string }> {
+  return allowedPositions(zone).map((pos) =>
+    zone === "spell" && pos === "up" && !canStayFaceUp(info) ? { pos, blocked: NO_FACE_UP_HINT } : { pos });
 }
 
 /** Why a slot refuses this card, or null when it fits (or the card is unknown). */

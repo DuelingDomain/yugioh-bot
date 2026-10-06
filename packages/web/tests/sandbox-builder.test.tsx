@@ -7,7 +7,7 @@ import type { DeckCardInfo } from "@yugidraft/shared/duels";
 import { SandboxBuilder } from "@/components/sandbox/builder";
 import type { BuilderServices } from "@/components/sandbox/api";
 import type { SandboxBuilderState } from "@/components/sandbox/board-model";
-import { TYPE_EFFECT, TYPE_MONSTER, TYPE_SPELL, TYPE_XYZ } from "@/components/duel/constants";
+import { TYPE_CONTINUOUS, TYPE_EFFECT, TYPE_MONSTER, TYPE_SPELL, TYPE_XYZ } from "@/components/duel/constants";
 
 function card(code: number, name: string, type: number): DeckCardInfo {
   return { code, name, description: "", type, attack: 2500, defense: 2100, level: 7, attribute: 1, race: "Spellcaster", alias: 0, setcodes: [], lscale: 0, rscale: 0, arrows: 0, ot: 3 };
@@ -17,7 +17,8 @@ const MAGICIAN = card(46986414, "Dark Magician", TYPE_MONSTER | TYPE_EFFECT);
 const XYZ = card(2000001, "Number 39: Utopia", TYPE_MONSTER | TYPE_XYZ);
 const MATERIAL = card(2000002, "Gagaga Magician", TYPE_MONSTER | TYPE_EFFECT);
 const POT = card(55144522, "Pot of Greed", TYPE_SPELL);
-const ALL = [MAGICIAN, XYZ, MATERIAL, POT];
+const MESSENGER = card(2000003, "Messenger of Peace", TYPE_SPELL | TYPE_CONTINUOUS);
+const ALL = [MAGICIAN, XYZ, MATERIAL, POT, MESSENGER];
 
 const services: BuilderServices = {
   search: async (text) => {
@@ -71,7 +72,7 @@ describe("SandboxBuilder", () => {
     expect(last()?.board.p0?.monsters).toBeUndefined();
     expect(screen.getAllByRole("status").some((el) => /Only monsters/.test(el.textContent ?? ""))).toBe(true);
     await user.click(screen.getByRole("button", { name: /^Spell\/Trap 3, empty/ }));
-    await waitFor(() => expect(last().board.p0?.spells?.[2]).toBe(POT.code));
+    await waitFor(() => expect(last().board.p0?.spells?.[2]).toEqual({ card: POT.code, pos: "set" }));
   });
 
   it("sets the position of a placed monster from the popover", async () => {
@@ -84,6 +85,34 @@ describe("SandboxBuilder", () => {
     await user.click(within(dialog).getByRole("button", { name: "Set" }));
     await waitFor(() => expect(last().board.p0?.monsters?.[0]).toMatchObject({ card: MAGICIAN.code, pos: "set" }));
     expect(screen.getByRole("button", { name: /Monster 1, Dark Magician, Set/ })).toBeInTheDocument();
+  });
+
+  it("puts a Normal Spell in the Spell & Trap Zone Set and offers only Set in the popover", async () => {
+    const user = userEvent.setup();
+    const { last } = setup();
+    await user.click(screen.getByRole("button", { name: "Field" }));
+    await quickAdd(user, "pot of greed");
+    await waitFor(() => expect(last().board.p0?.spells?.[0]).toEqual({ card: POT.code, pos: "set" }));
+    await user.click(await screen.findByRole("button", { name: /Spell\/Trap 1, Pot of Greed, Set/ }));
+    const dialog = await screen.findByRole("dialog", { name: /Pot of Greed options/ });
+    const faceUp = within(dialog).getByRole("button", { name: "Face-up" });
+    expect(faceUp).toBeDisabled();
+    expect(faceUp).toHaveAttribute("title", expect.stringMatching(/cannot stay face-up/));
+    expect(within(dialog).getByRole("button", { name: "Set" })).toHaveAttribute("aria-pressed", "true");
+    await user.click(faceUp);
+    expect(last().board.p0?.spells?.[0]).toEqual({ card: POT.code, pos: "set" });
+  });
+
+  it("starts a Continuous Spell Set as well, and lets the popover turn it face-up", async () => {
+    const user = userEvent.setup();
+    const { last } = setup();
+    await user.click(screen.getByRole("button", { name: "Field" }));
+    await quickAdd(user, "messenger");
+    await waitFor(() => expect(last().board.p0?.spells?.[0]).toEqual({ card: MESSENGER.code, pos: "set" }));
+    await user.click(await screen.findByRole("button", { name: /Spell\/Trap 1, Messenger of Peace, Set/ }));
+    const dialog = await screen.findByRole("dialog", { name: /Messenger of Peace options/ });
+    await user.click(within(dialog).getByRole("button", { name: "Face-up" }));
+    await waitFor(() => expect(last().board.p0?.spells?.[0]).toBe(MESSENGER.code));
   });
 
   it("adds and removes an Xyz material", async () => {

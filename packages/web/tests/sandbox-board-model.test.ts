@@ -104,6 +104,30 @@ describe("place, position, summoned, materials, remove", () => {
     expectSaved(state);
   });
 
+  it("puts a new card in a Spell & Trap Zone face-down, and keeps an explicit position", () => {
+    let state = run(createBuilderState(), { type: "place", at: loc("p0", "spell", 0), card: MIRROR });
+    expect(state.board.p0?.spells).toEqual([{ card: MIRROR, pos: "set" }]);
+    state = run(state, { type: "place", at: loc("p0", "spell", 1), card: MIRROR, pos: "up" });
+    expect(state.board.p0?.spells).toEqual([{ card: MIRROR, pos: "set" }, MIRROR]);
+    // The saved board stays valid and the compiler reads the missing position as face-up, so Set is written out.
+    expectSaved(state);
+  });
+
+  it("sets a card that arrives in a Spell & Trap Zone from a pile, and not in the Field or Pendulum Zone", () => {
+    let state = run(createBuilderState(), { type: "paste", seat: "p0", codes: [MIRROR, DM, BEWD] },
+      { type: "move", from: loc("p0", "hand", 0), to: loc("p0", "spell", 2) },
+      { type: "move", from: loc("p0", "hand", 0), to: loc("p0", "field") },
+      { type: "move", from: loc("p0", "hand", 0), to: loc("p0", "pendulum", 0) });
+    expect(state.board.p0).toEqual({ spells: [null, null, { card: MIRROR, pos: "set" }], field: DM, pendulum: [BEWD, null] });
+    // Within the same zone the position stays. To the Field Zone the card is face-up again, and the Field card it swaps with is Set.
+    state = run(state, { type: "move", from: loc("p0", "spell", 2), to: loc("p0", "spell", 0) });
+    expect(state.board.p0?.spells).toEqual([{ card: MIRROR, pos: "set" }]);
+    state = run(state, { type: "move", from: loc("p0", "spell", 0), to: loc("p0", "field") });
+    expect(state.board.p0?.field).toBe(MIRROR);
+    expect(state.board.p0?.spells).toEqual([{ card: DM, pos: "set" }]);
+    expectSaved(state);
+  });
+
   it("tracks summoned=false only on monsters", () => {
     let state = run(createBuilderState(), { type: "place", at: loc("p0", "monster"), card: BEWD }, { type: "setSummoned", at: loc("p0", "monster"), summoned: false });
     expect(state.board.p0?.monsters).toEqual([{ card: BEWD, summoned: false }]);
@@ -384,9 +408,9 @@ describe("fast clear", () => {
 
   it("clears one zone, field zones included", () => {
     let state = run(filled(), { type: "clearZone", seat: "p0", zone: "hand" });
-    expect(state.board.p0).toEqual({ monsters: [BEWD, DM], spells: [MIRROR] });
+    expect(state.board.p0).toEqual({ monsters: [BEWD, DM], spells: [{ card: MIRROR, pos: "set" }] });
     state = run(state, { type: "clearZone", seat: "p0", zone: "monster" });
-    expect(state.board.p0).toEqual({ spells: [MIRROR] });
+    expect(state.board.p0).toEqual({ spells: [{ card: MIRROR, pos: "set" }] });
     expectSaved(state);
   });
 

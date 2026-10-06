@@ -185,9 +185,20 @@ function specOf(entry: SandboxCardEntry): SandboxCardSpec {
   return typeof entry === "number" ? { card: entry } : entry;
 }
 
+/** What a saved slot without `pos` means. The compiler reads it as face-up, so this is not the position of a new card. */
 export function defaultPos(zone: SlotZone): SandboxStance | undefined {
   if (zone === "monster") return "atk";
   return zone === "deckMaster" ? undefined : "up";
+}
+
+/**
+ * A card that is newly put in a Spell & Trap Zone is Set: a Normal or Quick-Play Spell or a Normal or Counter Trap
+ * cannot stay face-up there, and a Set card can still be activated. Because the saved default is face-up,
+ * the position is written out. The Field and Pendulum Zones keep their face-up default.
+ */
+export function placedEntry(zone: SandboxZone, card: number, pos?: SandboxStance): SandboxCardEntry {
+  const chosen = pos ?? (zone === "spell" ? "set" : undefined);
+  return chosen && chosen !== defaultPos(zone as SlotZone) ? { card, pos: chosen } : card;
 }
 
 export function allowedPositions(zone: SandboxZone): readonly SandboxStance[] {
@@ -478,8 +489,7 @@ function runAction(state: SandboxBuilderState, action: SandboxAction, result: Ap
       checkPasscode(action.card);
       const zone = action.at.zone;
       if (action.pos !== undefined && !allowedPositions(zone).includes(action.pos)) fail("That position does not fit this zone.");
-      const entry: SandboxCardEntry = action.pos && action.pos !== defaultPos(zone) ? { card: action.card, pos: action.pos } : action.card;
-      writeSlot(works[action.at.seat], action.at, entry);
+      writeSlot(works[action.at.seat], action.at, placedEntry(zone, action.card, action.pos));
       break;
     }
     case "remove": {
@@ -678,6 +688,12 @@ function fixBattleStart(head: SandboxBoard, result: ApplyResult): void {
   }
 }
 
+/** An entry that changes zone: it gets the position of a new card there (Set in a Spell & Trap Zone). */
+function carried(entry: SandboxCardEntry, from: SlotZone, to: SlotZone): SandboxCardEntry {
+  if (from === to) return entry;
+  return to === "deckMaster" ? cardOf(entry) : placedEntry(to, cardOf(entry));
+}
+
 function moveCard(board: SandboxBoard, works: WorkBoard, from: CardLoc, to: CardLoc): void {
   checkLoc(board, from);
   checkLoc(board, to);
@@ -693,8 +709,8 @@ function moveCard(board: SandboxBoard, works: WorkBoard, from: CardLoc, to: Card
   if (fromSlot && toSlot) {
     if (slotClass(from.zone as SlotZone) !== slotClass(to.zone as SlotZone)) fail(`A card cannot move from ${ZONE_LABEL[from.zone]} to ${ZONE_LABEL[to.zone]}.`);
     const displaced = readEntry(target, to);
-    writeSlot(target, to, from.zone === "deckMaster" ? cardOf(entry) : entry);
-    writeSlot(source, from, displaced);
+    writeSlot(target, to, carried(entry, from.zone as SlotZone, to.zone as SlotZone));
+    writeSlot(source, from, displaced === null ? null : carried(displaced, to.zone as SlotZone, from.zone as SlotZone));
     return;
   }
 
@@ -709,7 +725,7 @@ function moveCard(board: SandboxBoard, works: WorkBoard, from: CardLoc, to: Card
   if (!fromSlot && toSlot) {
     const displaced = readEntry(target, to);
     sourcePile.splice(from.index, 1);
-    writeSlot(target, to, cardOf(entry));
+    writeSlot(target, to, placedEntry(to.zone, cardOf(entry)));
     if (displaced !== null) sourcePile.splice(Math.min(from.index, sourcePile.length), 0, cardOf(displaced));
     return;
   }
