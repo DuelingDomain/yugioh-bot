@@ -26,6 +26,7 @@ async function loadAuthorizedCallback() {
   await import("../src/lib/auth");
   return (authState.config as unknown as {
     callbacks: {
+      jwt: (args: Record<string, unknown>) => Promise<Record<string, unknown>>;
       authorized: (args: {
         auth: { user?: unknown } | null;
         request: { nextUrl: URL };
@@ -35,6 +36,18 @@ async function loadAuthorizedCallback() {
 }
 
 describe("auth public routes", () => {
+  it("leaves database access deferred for anonymous routes and invalid legacy JWTs", async () => {
+    vi.doMock("@/lib/db", () => ({ getDb: () => { throw new Error("Unexpected database access"); } }));
+    try {
+      const authorized = await loadAuthorizedCallback();
+      expect(await authorized({ auth: null, request: { nextUrl: new URL("http://localhost/api/waitlist") } })).toBe(true);
+      const config = authState.config as unknown as { callbacks: { jwt: (args: Record<string, unknown>) => Promise<Record<string, unknown>> } };
+      expect(await config.callbacks.jwt({ token: { sub: "101", userId: 101 } })).not.toHaveProperty("userId");
+    } finally {
+      vi.doUnmock("@/lib/db");
+    }
+  });
+
   it("allows exactly the anonymous waitlist endpoint", async () => {
     const authorized = await loadAuthorizedCallback();
     expect(await authorized({ auth: null, request: { nextUrl: new URL("http://localhost/api/waitlist") } })).toBe(true);

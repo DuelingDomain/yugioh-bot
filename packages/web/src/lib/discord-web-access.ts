@@ -4,14 +4,13 @@ import { verifyDiscordGuildAdmin } from "./discord-guild-admin";
 
 export type WebAccessLevel = "member" | "admin";
 
-// Keep the web access policy in one place, shared by sign-in, middleware and routes.
-// This module uses only Web APIs so auth.ts can also run in Edge middleware.
+// Keep the Discord access policy in one place, shared by sign-in, proxy and routes.
 export async function checkDiscordWebAccess(
-  userId: string,
+  discordUserId: string,
   level: WebAccessLevel = "member",
 ): Promise<DiscordGuildMembershipDecision> {
   if (!env.discordGuildId) return { ok: false, status: 503 };
-  const input = { guildId: env.discordGuildId, userId, botToken: process.env.DISCORD_TOKEN ?? "" };
+  const input = { guildId: env.discordGuildId, userId: discordUserId, botToken: process.env.DISCORD_TOKEN ?? "" };
   const membership = await verifyDiscordGuildMembership(input);
   if (!membership.ok || level === "member") return membership;
   return verifyDiscordGuildAdmin(input);

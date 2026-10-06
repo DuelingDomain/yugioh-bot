@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Only replace the session read. The exported NextAuth handler, authorized
 // callback, access policy and Discord membership helper all run normally.
-const state = vi.hoisted(() => ({ session: null as { user: { id: string }; expires: string } | null }));
+const state = vi.hoisted(() => ({ session: null as { user: { id: string; discordUserId: string | null }; expires: string } | null }));
 vi.mock("@auth/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@auth/core")>();
   return {
@@ -34,7 +34,7 @@ describe("exported proxy enforces configured-guild membership", () => {
     vi.stubEnv("DISCORD_TOKEN", "bot-token");
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("DUEL_FX_LAB", "");
-    state.session = { user: { id: "member" }, expires: "2099-01-01T00:00:00Z" };
+    state.session = { user: { id: "101", discordUserId: "900000000000000101" }, expires: "2099-01-01T00:00:00Z" };
     fetchMock = vi.fn().mockImplementation(async () => Response.json({ roles: [] }));
     vi.stubGlobal("fetch", fetchMock);
     // NextAuth supports inline proxy calls at runtime, but omits that overload.
@@ -50,6 +50,8 @@ describe("exported proxy enforces configured-guild membership", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("x-middleware-next")).toBe("1");
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("https://discord.com/api/v10/guilds/guild-1/members/900000000000000101", expect.any(Object));
+    expect(fetchMock).not.toHaveBeenCalledWith("https://discord.com/api/v10/guilds/guild-1/members/101", expect.any(Object));
   });
 
   it.each([404, 500])("denies page and API requests after Discord returns %s", async (status) => {
@@ -68,7 +70,7 @@ describe("exported proxy enforces configured-guild membership", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it.each(["/login", "/api/auth", "/api/auth/session", "/api/auth/callback/discord", "/api/auth/signout", "/_next/static/app.js", "/_next/image", "/favicon.ico", "/icons/spell.svg"])("passes public path %s without membership checks", async (path) => {
+  it.each(["/login", "/api/waitlist", "/api/auth", "/api/auth/session", "/api/auth/callback/discord", "/api/auth/signout", "/_next/static/app.js", "/_next/image", "/favicon.ico", "/icons/spell.svg"])("passes public path %s without membership checks", async (path) => {
     state.session = null;
     expect((await request(path)).headers.get("x-middleware-next")).toBe("1");
     expect(fetchMock).not.toHaveBeenCalled();
@@ -86,7 +88,7 @@ describe("exported proxy enforces configured-guild membership", () => {
     // Exercise the real public NextAuth endpoint with its CSRF cookie and a JWT.
     const { GET, POST } = await import("../app/api/auth/[...nextauth]/route");
     const { encode } = await import("@auth/core/jwt");
-    const token = await encode({ token: { sub: "member", discordId: "member" }, secret: "session-secret", salt: "authjs.session-token" });
+    const token = await encode({ token: { sub: "900000000000000101", discordId: "900000000000000101" }, secret: "session-secret", salt: "authjs.session-token" });
     const csrf = await GET(new NextRequest("http://localhost/api/auth/csrf"));
     const { csrfToken } = await csrf.json();
     const cookies = csrf.headers.getSetCookie().map((cookie) => cookie.split(";")[0]);

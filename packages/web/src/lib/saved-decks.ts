@@ -10,19 +10,17 @@ import {
   type DeckRegistrationMark,
   type SavedDeckService,
 } from "@yugidraft/shared/services";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 
 export type SavedDeckActor =
-  | { ok: true; guildId: string; ownerUserId: string; decks: SavedDeckService }
+  | { ok: true; guildId: string; ownerUserId: number; discordUserId: string; decks: SavedDeckService }
   | { ok: false; response: NextResponse };
 
 export async function requireSavedDeckActor(): Promise<SavedDeckActor> {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return { ok: false, response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
-  }
+  const actor = await requireWebAccess();
+  if (!actor.ok) return actor;
   const guildId = env.discordGuildId;
   if (!guildId) {
     return { ok: false, response: NextResponse.json({ error: "Guild is not configured" }, { status: 500 }) };
@@ -30,7 +28,8 @@ export async function requireSavedDeckActor(): Promise<SavedDeckActor> {
   return {
     ok: true,
     guildId,
-    ownerUserId: session.user.id,
+    ownerUserId: actor.userId,
+    discordUserId: actor.discordUserId,
     decks: createSavedDeckService(getDb()),
   };
 }
@@ -74,7 +73,7 @@ export function savedDeckErrorResponse(error: unknown) {
 export type SavedDeckWithRegistration = SavedDeck & { registration: DeckRegistrationMark | null };
 
 /** The player's registered decks for pending and active tournaments (empty when they have no player row yet). */
-export function loadDeckRegistrations(guildId: string, ownerUserId: string): DeckRegistration[] {
+export function loadDeckRegistrations(guildId: string, ownerUserId: number): DeckRegistration[] {
   const db = getDb();
   const player = createPlayerService(db).findByGuildAndUser(guildId, ownerUserId);
   return player ? createTournamentRegistrationService(db).deckRegistrations(player.id, guildId) : [];
