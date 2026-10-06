@@ -1337,6 +1337,8 @@ function projectPrompt(
   const projected: DuelPrompt = {
     ...prompt,
     options: prompt.options.map((option) => {
+      // A zone choice names a place (label from zoneLabel), never a card, so it hides nothing.
+      if (prompt.kind === "places") return option;
       const card = cardAt(seats, option.controller ?? -1, option.location ?? -1, option.sequence ?? -1);
       if (promptOptionVisible(option, viewer, seats, reveals)) {
         return card?.level != null ? { ...option, currentLevel: card.level } : option;
