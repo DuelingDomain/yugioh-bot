@@ -80,7 +80,18 @@ export function useDropTarget(onDrop: (drag: SandboxDrag) => void) {
 export function CardThumb({ code, name, className }: { code: number; name?: string; className?: string }) {
   const [failed, setFailed] = useState<number | null>(null);
   if (failed === code) return <span className={cn(styles.thumbFallback, className)}>{name ?? code}</span>;
-  return <img className={className} src={cardArtUrl(code, "small")} alt="" loading="lazy" draggable={false} onError={() => setFailed(code)} />;
+  return (
+    <img
+      className={className}
+      src={cardArtUrl(code, "small")}
+      alt=""
+      loading="lazy"
+      draggable={false}
+      // A picture that failed before hydration never fires onError in React.
+      ref={(img) => { if (img && img.complete && img.naturalWidth === 0 && img.currentSrc) setFailed(code); }}
+      onError={() => setFailed(code)}
+    />
+  );
 }
 
 export function specOf(entry: SandboxCardEntry) {

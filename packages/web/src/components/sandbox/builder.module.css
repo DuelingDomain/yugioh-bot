@@ -105,7 +105,7 @@
 
 .slotWrap { position: relative; display: grid; justify-items: center; min-width: 0; }
 .slot {
-  position: relative; display: grid; place-items: center; width: 100%; max-width: 92px; aspect-ratio: 59 / 86; padding: 0;
+  position: relative; display: grid; place-items: center; width: 100%; max-width: 120px; aspect-ratio: 59 / 86; padding: 0;
   border: 1px solid var(--rule-lo); border-radius: 6px; background: rgb(14 23 41 / 0.7); color: var(--ink-3); cursor: pointer;
   transition: border-color 0.14s var(--ease), background 0.14s var(--ease), box-shadow 0.14s var(--ease);
 }
