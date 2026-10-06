@@ -51,28 +51,70 @@ export function isIdentity(view: View): boolean {
   return Math.abs(view.s - 1) < 1e-4 && Math.abs(view.x) < 0.05 && Math.abs(view.y) < 0.05;
 }
 
+/** How far the HUD reaches into the board box from each edge (board-box px). */
+export interface Insets {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+export const NO_INSETS: Insets = Object.freeze({ top: 0, right: 0, bottom: 0, left: 0 });
+
+/** The zoom over the camera pose at which a pan may use all of the HUD insets; it grows from none at 1x. */
+const INSET_RAMP = 0.5;
+
 /**
  * The view inside its limits: the scale between min and max, and a pan that keeps the board on the screen. A zoomed
- * board always covers the whole board box, so no edge of it comes into the box; at scale 1 the board does not move.
+ * board covers the whole board box except, at most, the bands that the HUD covers at the edges (`insets`): an edge of
+ * the board may come in under the HUD, so every card can be panned out from under it into the free part of the box.
+ * The allowance grows with the zoom from none at 1x (at 1x the board does not move).
  */
-export function clampView(view: View, box: Size): View {
+export function clampView(view: View, box: Size, insets: Insets = NO_INSETS): View {
   const s = clamp(Number.isFinite(view.s) ? view.s : 1, VIEW_ZOOM.min, VIEW_ZOOM.max);
-  // x + s * 0 <= 0 (left edge) and x + s * width >= width (right edge).
-  const x = clamp(Number.isFinite(view.x) ? view.x : 0, box.width * (1 - s), 0);
-  const y = clamp(Number.isFinite(view.y) ? view.y : 0, box.height * (1 - s), 0);
   if (s <= VIEW_ZOOM.min) return { s: VIEW_ZOOM.min, x: 0, y: 0 };
+  const t = clamp((s - VIEW_ZOOM.min) / INSET_RAMP, 0, 1);
+  const edge = (value: number) => (Number.isFinite(value) && value > 0 ? value * t : 0);
+  // x + s * 0 <= left inset (left edge) and x + s * width >= width - right inset (right edge).
+  const x = clamp(Number.isFinite(view.x) ? view.x : 0, box.width * (1 - s) - edge(insets.right), edge(insets.left));
+  const y = clamp(Number.isFinite(view.y) ? view.y : 0, box.height * (1 - s) - edge(insets.bottom), edge(insets.top));
   return { s, x, y };
 }
 
-/** Zoom by `factor` about `point` (board-box px): the board point under it stays under it, then the clamps. */
-export function zoomAt(view: View, point: Point, factor: number, box: Size): View {
-  const s = clamp(view.s * (Number.isFinite(factor) && factor > 0 ? factor : 1), VIEW_ZOOM.min, VIEW_ZOOM.max);
-  const ratio = s / view.s;
-  return clampView({ s, x: point.x - (point.x - view.x) * ratio, y: point.y - (point.y - view.y) * ratio }, box);
+/**
+ * The insets of the HUD rects (board-box px): each rect that is on the box is given to the edge it costs the least
+ * free area to give up (the depth of its band times the length of that edge).
+ */
+export function edgeInsets(rects: readonly Rect[], box: Size): Insets {
+  const out = { top: 0, right: 0, bottom: 0, left: 0 };
+  for (const rect of rects) {
+    const x0 = Math.max(0, rect.x);
+    const y0 = Math.max(0, rect.y);
+    const x1 = Math.min(box.width, rect.x + rect.width);
+    const y1 = Math.min(box.height, rect.y + rect.height);
+    if (x1 - x0 < 1 || y1 - y0 < 1) continue;
+    const bands: [keyof Insets, number, number][] = [
+      ["top", y1, box.width],
+      ["bottom", box.height - y0, box.width],
+      ["left", x1, box.height],
+      ["right", box.width - x0, box.height],
+    ];
+    let best = bands[0];
+    for (const band of bands) if (band[1] * band[2] < best[1] * best[2]) best = band;
+    out[best[0]] = Math.max(out[best[0]], best[1]);
+  }
+  return out;
 }
 
-export function panBy(view: View, dx: number, dy: number, box: Size): View {
-  return clampView({ s: view.s, x: view.x + dx, y: view.y + dy }, box);
+/** Zoom by `factor` about `point` (board-box px): the board point under it stays under it, then the clamps. */
+export function zoomAt(view: View, point: Point, factor: number, box: Size, insets: Insets = NO_INSETS): View {
+  const s = clamp(view.s * (Number.isFinite(factor) && factor > 0 ? factor : 1), VIEW_ZOOM.min, VIEW_ZOOM.max);
+  const ratio = s / view.s;
+  return clampView({ s, x: point.x - (point.x - view.x) * ratio, y: point.y - (point.y - view.y) * ratio }, box, insets);
+}
+
+export function panBy(view: View, dx: number, dy: number, box: Size, insets: Insets = NO_INSETS): View {
+  return clampView({ s: view.s, x: view.x + dx, y: view.y + dy }, box, insets);
 }
 
 /**
@@ -89,7 +131,7 @@ export function wheelFactor(deltaY: number, deltaMode: number, ctrlKey: boolean)
  * A two-finger pinch: the view that keeps the board point under the first midpoint under the new midpoint, scaled by
  * how far the fingers moved apart.
  */
-export function pinchView(start: View, a0: Point, b0: Point, a: Point, b: Point, box: Size): View {
+export function pinchView(start: View, a0: Point, b0: Point, a: Point, b: Point, box: Size, insets: Insets = NO_INSETS): View {
   const d0 = Math.hypot(b0.x - a0.x, b0.y - a0.y);
   const d = Math.hypot(b.x - a.x, b.y - a.y);
   const s = clamp(start.s * (d0 > 1 ? d / d0 : 1), VIEW_ZOOM.min, VIEW_ZOOM.max);
@@ -98,7 +140,7 @@ export function pinchView(start: View, a0: Point, b0: Point, a: Point, b: Point,
   // The board point under the first midpoint.
   const px = (m0.x - start.x) / start.s;
   const py = (m0.y - start.y) / start.s;
-  return clampView({ s, x: m.x - px * s, y: m.y - py * s }, box);
+  return clampView({ s, x: m.x - px * s, y: m.y - py * s }, box, insets);
 }
 
 /** One frame of the ease toward `target`: exponential, `tauMs` is the time constant. Snaps when close. */

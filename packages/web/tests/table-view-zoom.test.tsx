@@ -6,6 +6,7 @@ import { useViewZoom } from "@/components/duel/table/use-view-zoom";
 import {
   clampView,
   DRAG_THRESHOLD_PX,
+  edgeInsets,
   followCss,
   isZoomed,
   layerOffset,
@@ -130,6 +131,34 @@ describe("HUD that follows the board", () => {
     const left = 300 + u.x + (s - 1) * 350;
     expect(left).toBeGreaterThanOrEqual(u.x + s * 300);
     expect(left + 100).toBeLessThanOrEqual(u.x + s * 400);
+  });
+});
+
+describe("safe frame", () => {
+  const HUD = { top: 0, right: 120, bottom: 80, left: 0 };
+
+  it("changes nothing at rest", () => {
+    expect(clampView({ s: 1, x: -50, y: -50 }, BOX, HUD)).toEqual({ s: 1, x: 0, y: 0 });
+  });
+
+  it("lets a zoomed board edge come in under the HUD, by the zoom past 1x up to the whole inset", () => {
+    // At 2x: x from 1000 * (1 - 2) - 120 = -1120 to 0; y from -600 - 80 = -680 to 0.
+    expect(clampView({ s: 2, x: -5000, y: -5000 }, BOX, HUD)).toEqual({ s: 2, x: -1120, y: -680 });
+    // At 1.25x half of it: x down to -250 - 60.
+    expect(clampView({ s: 1.25, x: -5000, y: 0 }, BOX, HUD).x).toBeCloseTo(-310, 6);
+    expect(panBy({ s: 2, x: -1000, y: 0 }, -500, 0, BOX, HUD).x).toBe(-1120);
+  });
+
+  it("gives each HUD rect to the edge where it costs the least room", () => {
+    const insets = edgeInsets(
+      [
+        { x: 860, y: 450, width: 140, height: 150 }, // bottom-right corner cluster: the right edge (140 x 600 < 150 x 1000)
+        { x: 300, y: 540, width: 300, height: 60 }, // a bar at the bottom
+        { x: -20, y: 10, width: 10, height: 10 }, // off the box
+      ],
+      BOX,
+    );
+    expect(insets).toEqual({ top: 0, right: 140, bottom: 60, left: 0 });
   });
 });
 
