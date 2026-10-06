@@ -86,6 +86,8 @@ export const {
     Discord({
       clientId: process.env.DISCORD_CLIENT_ID!,
       clientSecret: process.env.DISCORD_CLIENT_SECRET!,
+      // Discord sends an RFC 9207 `iss` on the callback, and Auth.js checks it against this value.
+      issuer: "https://discord.com",
     }),
     ...(e2eEnabled ? [e2eProvider()] : []),
   ],

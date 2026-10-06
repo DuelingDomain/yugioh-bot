@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import Discord from "next-auth/providers/discord";
 
 const authState = vi.hoisted(() => ({
   config: null as Record<string, unknown> | null,
@@ -35,6 +36,13 @@ async function loadAuthorizedCallback() {
 }
 
 describe("auth public routes", () => {
+  it("configures the Discord issuer for RFC 9207 callback validation", async () => {
+    await loadAuthorizedCallback();
+    expect(Discord).toHaveBeenLastCalledWith(
+      expect.objectContaining({ issuer: "https://discord.com" })
+    );
+  });
+
   it("allows exactly the anonymous waitlist endpoint", async () => {
     const authorized = await loadAuthorizedCallback();
     expect(await authorized({ auth: null, request: { nextUrl: new URL("http://localhost/api/waitlist") } })).toBe(true);
