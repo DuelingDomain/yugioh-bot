@@ -56,4 +56,18 @@ describe("useCardPress", () => {
     expect(actions.remove).toHaveBeenCalledTimes(1);
     expect(actions.select).toHaveBeenCalledTimes(2);
   });
+
+  it("never removes on a keyboard click, even after a press that left the tile armed", () => {
+    const { actions, press, pointer, click, contextMenu } = setup();
+    // Ctrl+click on a Mac: a press and a contextmenu, no click.
+    press.onPointerDown(pointer("mouse", { ctrlKey: true }));
+    press.onContextMenu(contextMenu());
+    press.onClick(click({ detail: 0 }));
+    expect(actions.remove).not.toHaveBeenCalled();
+    expect(actions.select).toHaveBeenCalledTimes(1);
+    // A press that never clicked (dragged off) and then a keyboard click.
+    press.onPointerDown(pointer("mouse"));
+    press.onClick(click({ detail: 0 }));
+    expect(actions.remove).not.toHaveBeenCalled();
+  });
 });

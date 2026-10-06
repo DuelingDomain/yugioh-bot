@@ -23,8 +23,10 @@ export function ArtChip({ otherArts, corner = false, open = false, onOpen }: {
       className={cn("num", styles.chip, corner && styles.corner)}
       data-open={open ? "true" : undefined}
       data-action={onOpen ? "" : undefined}
-      title={onOpen ? `${label}. Click or right-click to change the art.` : `${label}. Select the card to choose one.`}
+      title={onOpen ? `${label}. Click or right-click to change the art.` : undefined}
       aria-hidden="true"
+      // The press stops here on purpose: it must not arm a removal on the tile, and it also hides from the
+      // art menu's outside-press listener, so a chip click on another tile swaps the menu instead of closing it.
       onPointerDown={onOpen ? (event: PointerEvent<HTMLElement>) => event.stopPropagation() : undefined}
       onClick={onOpen ? (event: MouseEvent<HTMLElement>) => {
         event.stopPropagation();

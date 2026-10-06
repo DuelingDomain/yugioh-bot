@@ -323,7 +323,7 @@ describe("deck editor art", () => {
   it("shows the art count on cards that have other arts", async () => {
     render(<SavedDeckEditor />);
     const tile = await screen.findByRole("button", { name: "Blue-Eyes White Dragon, 3 arts" });
-    expect(within(tile).getByTitle("3 arts. Select the card to choose one.")).toBeInTheDocument();
+    expect(within(tile).getByText("3")).toBeInTheDocument();
     const pot = screen.getByRole("button", { name: "Pot of Greed" });
     expect(within(pot).queryByText(/arts/)).toBeNull();
   });
@@ -660,6 +660,15 @@ describe("deck art menu details", () => {
     expect(tile).toHaveAttribute("aria-keyshortcuts", "Delete ContextMenu Shift+F10");
     expect(tile).not.toHaveAttribute("aria-haspopup");
     expect(tile).not.toHaveAttribute("aria-expanded");
+  });
+
+  it("stays open when another panel scrolls, such as the card details", async () => {
+    stored = savedDeck([MAIN.code]);
+    render(<SavedDeckEditor deckId="7" />);
+    fireEvent.contextMenu(await screen.findByRole("button", { name: copyName }));
+    await screen.findByRole("dialog", { name: menuName });
+    fireEvent.scroll(screen.getByRole("complementary", { name: "Card details" }));
+    expect(screen.getByRole("dialog", { name: menuName })).toBeInTheDocument();
   });
 
   it("keeps Tab inside the menu", async () => {

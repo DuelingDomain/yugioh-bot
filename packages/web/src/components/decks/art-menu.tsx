@@ -25,11 +25,11 @@ const FOCUSABLE = 'button:not(:disabled):not([tabindex="-1"]), a[href]';
 /**
  * The press that closes the menu is followed by a click on whatever was under the pointer, and on a deck
  * tile that click would remove a card. The next click is stopped before it reaches the page; the next
- * pointerdown starts a new gesture and drops the guard, and so does a second of waiting.
+ * pointerdown starts a new gesture and drops the guard, and so does half a second of waiting.
  */
 function swallowNextClick() {
-  // A press with no click after it (a drag, a scroll) ends the guard too, and so does a long wait.
-  const timer = window.setTimeout(() => drop(), 1000);
+  // A press with no click after it (a drag, a scroll) ends the guard too, and so does a wait.
+  const timer = window.setTimeout(() => drop(), 500);
   const drop = () => {
     window.clearTimeout(timer);
     document.removeEventListener("click", stop, true);
@@ -105,8 +105,11 @@ export function DeckArtMenu({ target, knownCount, busy, disabled, onClose, onFam
       close.current();
       swallowNextClick();
     }
+    // Only a scroll that moves the card away closes the menu; another panel scrolling (the card details
+    // jump to the top when the hover changes) leaves it open.
     function onScroll(event: Event) {
-      if (panel.current && !panel.current.contains(event.target as Node)) close.current();
+      const scrolled = event.target;
+      if (scrolled === document || (scrolled instanceof Node && scrolled.contains(anchor))) close.current();
     }
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") {

@@ -91,11 +91,14 @@ export function useCardPress() {
       // The second click of a double-click: the first one already acted.
       if (event.detail > 1) return;
       if (event.ctrlKey || event.metaKey) actions.moveSide();
-      else if (wasArmed) actions.remove();
+      // A keyboard click (detail 0) never removes, whatever press came before it.
+      else if (wasArmed && event.detail >= 1) actions.remove();
       else actions.select();
     },
     onContextMenu(event: MouseEvent<HTMLElement>) {
       event.preventDefault();
+      // Ctrl+click on a Mac is a right-click with no click after it: the press must not stay armed.
+      armed.current = null;
       // Android sends contextmenu after the long press that already opened the menu.
       if (longPressed.current) return;
       actions.menu(event.currentTarget);
