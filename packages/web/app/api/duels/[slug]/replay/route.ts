@@ -9,7 +9,11 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
   const { slug } = await params;
 
   try {
-    actor.duels.room(slug, actor.guildId, actor.playerId);
+    const room = actor.duels.room(slug, actor.guildId, actor.playerId);
+    if (room.session.sandbox) {
+      const admin = await requireDuelActor("admin");
+      if (!admin.ok) return admin.response;
+    }
   } catch (error) {
     return duelErrorResponse(error);
   }
