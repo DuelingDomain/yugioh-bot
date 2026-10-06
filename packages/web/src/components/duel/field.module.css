@@ -2237,6 +2237,33 @@
   inset: calc((var(--z) - var(--cw)) / 2 - 1px) calc((var(--z) - var(--cw)) / -2 - 1px);
 }
 
+/* A wide 3-way table does the same (the seat wrapper sets `data-def-full`; geometry.ts SEAT_BOX_FULL_DEF is the width). */
+:global([data-def-full]) .seatField {
+  --dfit: 1;
+  width: calc(var(--z) * (5.83 + 1.571));
+}
+
+:global([data-def-full]) .seatField .sfGrid {
+  width: calc(var(--z) * (5.58 + 1.571));
+}
+
+:global([data-def-full]) .seatField[data-master-rule="3"] {
+  width: calc(var(--z) * (7.35 + 1.571));
+}
+
+:global([data-def-full]) .seatField[data-master-rule="3"] .sfGrid {
+  width: calc(var(--z) * (7.1 + 1.571));
+}
+
+:global([data-def-full]) .seatField .emzPair > .zone {
+  flex-basis: var(--z);
+  width: var(--z);
+}
+
+:global([data-def-full]) .seatField .zone[data-defense="true"] .glow {
+  inset: calc((var(--z) - var(--cw)) / 2 - 1px) calc((var(--z) - var(--cw)) / -2 - 1px);
+}
+
 /* Labels, stats, counters and marks turn against the field so they read level (--lab). */
 .seatField .pileLabel,
 .seatField .plate,

@@ -50,6 +50,8 @@ export interface SeatPose {
   scale: number;
   rotateDeg: number; // effective rotation (text counter-rotates when upright)
   tiltDeg?: number; // perspective tilt of a far field (rotateX), default 0
+  /** Width of the field box at scale 1 (default SEAT_BOX.width): a wide 3-way table gives every zone column a card height, for full-size Defense cards. */
+  width?: number;
   slot?: PoseSlot; // named place of the pose (3-way and 4-way): the ring, the holo panels and the docks read it
   z: number;
   docked: boolean;

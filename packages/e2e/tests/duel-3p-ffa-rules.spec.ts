@@ -1,43 +1,38 @@
 import { test, expect } from "../helpers/fixtures";
 import { handCard, pickLegalZone, useCard } from "../helpers/board";
-import { collectTableErrors, expectRealCore, readTable, readTableTrace, startTablePreset, tableLp } from "../helpers/table";
+import { collectTableErrors, confirmLockedAim, expectRealCore, readTable, readTableTrace, startTablePreset, tableLp } from "../helpers/table";
 import { declineToAction, expectRulesPriority, expectRulesUi, pickRulesCard, rulesPanel, rulesZone, summonRulesExtra, waitRulesPrompt } from "../helpers/table-rules";
 import type { Page } from "@playwright/test";
 
 const monsters = async (page: Page, slug: string) => (await readTable(page, slug)).engine!.seats.map((seat) => seat.monsters.filter(Boolean).map((card) => card!.name));
 
-async function activateHand(page: Page, name: string): Promise<void> {
+/** Activate a hand spell. R-FFA-OPP-ONE: a spell that hits an opponent asks for the opponent first, then for the zone. */
+async function activateHand(page: Page, name: string, opponent?: number): Promise<void> {
   await useCard(page, handCard(page, name), "Activate");
+  if (opponent != null) await page.getByTestId(`holo-pick-${opponent}`).click();
   await pickLegalZone(page, "st");
 }
 
 test.describe("FFA3 opponent and chain rules on the real core", () => {
-  for (const adr of [false, true]) {
-    test(adr
-      ? "R-FFA-OPP-ONE: three seats declare one opponent before Raigeki clears only that field"
-      : "current engine: R-COMMON-OPP-FIELD retired, three-seat Raigeki clears both opponent fields", async ({ player }, info) => {
-      const { page } = await player("p1");
-      const errors = collectTableErrors(page);
-      const slug = await startTablePreset(page, "ffa3-rules-opponent-field");
-      await expectRealCore(page, slug, "scripted", info);
-      expect((await readTable(page, slug)).session.format).toBe("ffa3");
-      await activateHand(page, "Raigeki");
-      if (adr) {
-        test.fail(true, "R-FFA-OPP-ONE pending engine change");
-        // Default assertion timeout after test.fail: the failure must be at a rule assertion.
-        await expect.poll(async () => (await readTable(page, slug)).engine!.prompt?.context?.type).toBe("opponent");
-        const prompt = (await readTable(page, slug)).engine!.prompt!;
-        expect(prompt.options.map((option) => option.controller)).toEqual([1, 2]);
-        for (const seat of [1, 2]) await expect(page.getByTestId(`holo-pick-${seat}`)).toBeVisible();
-        await expect(page.getByTestId("holo-pick-0")).toHaveCount(0);
-        await page.getByTestId("holo-pick-2").click();
-      }
-      await expect.poll(() => monsters(page, slug)).toEqual(adr ? [["Mystical Elf"], ["Battle Ox"], []] : [["Mystical Elf"], [], []]);
-      expect((await readTable(page, slug)).engine!.seats.map((seat) => seat.graveyard.map((card) => card.name))).toEqual(adr ? [["Raigeki"], [], ["Silver Fang"]] : [["Raigeki"], ["Battle Ox"], ["Silver Fang"]]);
-      await expectRulesUi(page, slug, info);
-      expect(errors).toEqual([]);
-    });
-  }
+  test("R-FFA-OPP-ONE: three seats declare one opponent before Raigeki clears only that field", async ({ player }, info) => {
+    const { page } = await player("p1");
+    const errors = collectTableErrors(page);
+    const slug = await startTablePreset(page, "ffa3-rules-opponent-field");
+    await expectRealCore(page, slug, "scripted", info);
+    expect((await readTable(page, slug)).session.format).toBe("ffa3");
+    await useCard(page, handCard(page, "Raigeki"), "Activate");
+    await expect.poll(async () => (await readTable(page, slug)).engine!.prompt?.context?.type).toBe("opponent");
+    const prompt = (await readTable(page, slug)).engine!.prompt!;
+    expect(prompt.options.map((option) => option.controller)).toEqual([1, 2]);
+    for (const seat of [1, 2]) await expect(page.getByTestId(`holo-pick-${seat}`)).toBeVisible();
+    await expect(page.getByTestId("holo-pick-0")).toHaveCount(0);
+    await page.getByTestId("holo-pick-2").click();
+    await pickLegalZone(page, "st");
+    await expect.poll(() => monsters(page, slug)).toEqual([["Mystical Elf"], ["Battle Ox"], []]);
+    expect((await readTable(page, slug)).engine!.seats.map((seat) => seat.graveyard.map((card) => card.name))).toEqual([["Raigeki"], [], ["Silver Fang"]]);
+    await expectRulesUi(page, slug, info);
+    expect(errors).toEqual([]);
+  });
 
   test("R-COMMON-OPP-PICK: Hinotama declares one rival and changes only that rival's LP", async ({ player }, info) => {
     const { page } = await player("p1");
@@ -45,12 +40,13 @@ test.describe("FFA3 opponent and chain rules on the real core", () => {
     // A dedicated LP preset complements the existing Mind Crush hand proof.
     const slug = await startTablePreset(page, "ffa3-rules-opponent-lp");
     await expectRealCore(page, slug, "scripted", info);
-    await activateHand(page, "Hinotama");
+    await useCard(page, handCard(page, "Hinotama"), "Activate");
     const prompt = await waitRulesPrompt(page, slug, (p) => p.context?.type === "opponent");
     expect(prompt.options.map((option) => option.controller)).toEqual([1, 2]);
     for (const seat of [1, 2]) await expect(page.getByTestId(`holo-pick-${seat}`)).toBeVisible();
     await expect(page.getByTestId("holo-pick-0")).toHaveCount(0);
     await page.getByTestId("holo-pick-2").click();
+    await pickLegalZone(page, "st");
     await expect.poll(async () => (await readTable(page, slug)).engine!.seats.map((seat) => seat.lp)).toEqual([8000, 8000, 7500]);
     await expectRulesUi(page, slug, info);
     for (const seat of [0, 1]) await expect(tableLp(page, seat).locator("[data-damage-chip]")).toHaveCount(0);
@@ -69,10 +65,10 @@ test.describe("FFA3 opponent and chain rules on the real core", () => {
     await declineToAction(page, slug, 4);
     const checkpoint = (await readTableTrace(page, slug)).promptLog.at(-1)!.revision;
     await useCard(page, rulesZone(page, 0, 0).locator("button"), "Attack");
-    const prompt = await waitRulesPrompt(page, slug, (p) => p.options.length === 2 && p.options.every((option) => option.id.startsWith("opt:") && option.controller != null));
+    const prompt = await waitRulesPrompt(page, slug, (p) => p.options.length === 2 && p.options.every((option) => option.id.startsWith("direct:") && option.controller != null));
     expect(prompt.options.map((option) => option.controller)).toEqual([1, 2]);
     await page.getByTestId("holo-pick-1").click();
-    await page.getByTestId("aim-confirm").click();
+    await confirmLockedAim(page, prompt.id, slug);
     // Attack declaration opens the turn player's empty-chain quick-effect
     // window first. Pass it through the UI before expecting B's trigger link.
     for (let step = 0; step < 8; step += 1) {
@@ -84,7 +80,8 @@ test.describe("FFA3 opponent and chain rules on the real core", () => {
       await expect.poll(async () => (await readTableTrace(page, slug)).promptLog.at(-1)?.promptId).not.toBe(response.id);
     }
     await expect.poll(async () => (await readTable(page, slug)).engine!.chain.map((link) => link.seat)).toEqual([1]);
-    await expectRulesPriority(page, [0, 1, 2]);
+    // R-FFA-CHAIN: after B's link the next duelist clockwise (C) answers first, then A, then B.
+    await expectRulesPriority(page, [2, 0, 1]);
     await expect(page.getByRole("list", { name: "Current chain" })).toContainText("Battle Fader");
     const trace = await readTableTrace(page, slug);
     expect(trace.seats[1]!.view.seats[1]!.hand.some((card) => card.name === "Battle Fader")).toBe(true);
@@ -135,7 +132,7 @@ test.describe("FFA3 opponent and chain rules on the real core", () => {
     const errors = collectTableErrors(page);
     const slug = await startTablePreset(page, "ffa3-rules-negate");
     await expectRealCore(page, slug, "scripted", info);
-    await activateHand(page, "Raigeki");
+    await activateHand(page, "Raigeki", 1);
     await expect.poll(async () => (await readTable(page, slug)).engine!.chain.map((link) => link.seat)).toEqual([0, 2]);
     await expectRulesPriority(page, [0, 1, 2]);
     await expect(page.getByRole("list", { name: "Current chain" })).toContainText("Solemn Judgment");
@@ -183,10 +180,8 @@ test.describe("FFA3 opponent and chain rules on the real core", () => {
     expect(errors).toEqual([]);
   });
 
-  for (const adr of [false, true]) {
-    test(adr
-      ? "R-FFA-ACTIVATED-LOCK: Abyss Dweller declares one rival and leaves the other GY trigger available"
-      : "current engine: Abyss Dweller locks both rivals' Graveyard triggers without an opponent declaration", async ({ player }, info) => {
+  {
+    test("R-FFA-ACTIVATED-LOCK: Abyss Dweller declares one rival and leaves the other GY trigger available", async ({ player }, info) => {
       const { page } = await player("p1");
       const errors = collectTableErrors(page);
       const slug = await startTablePreset(page, "ffa3-rules-activated-lock");
@@ -201,7 +196,7 @@ test.describe("FFA3 opponent and chain rules on the real core", () => {
         const engine = (await readTable(page, slug)).engine!;
         const detached = engine.seats[0]!.graveyard.some((card) => card.name === "Mystical Elf");
         if (detached && (declared || ["action", "chain"].includes(prompt.context?.type ?? ""))) break;
-        if (prompt.context?.type === "opponent" && adr) {
+        if (prompt.context?.type === "opponent") {
           await page.getByTestId("holo-pick-1").click();
           declared = true;
           await expect.poll(async () => (await readTableTrace(page, slug)).promptLog.at(-1)?.promptId).not.toBe(prompt.id);
@@ -212,26 +207,21 @@ test.describe("FFA3 opponent and chain rules on the real core", () => {
         }
       }
       await expect.poll(async () => (await readTable(page, slug)).engine!.seats[0]!.graveyard.map((card) => card.name)).toContain("Mystical Elf");
-      if (adr) {
-        test.fail(true, "R-FFA-ACTIVATED-LOCK pending engine change");
-        expect(declared).toBe(true);
-      }
+      expect(declared).toBe(true);
       await declineToAction(page, slug);
       await activateHand(page, "Dark Hole");
       await declineToAction(page, slug);
       const engine = (await readTable(page, slug)).engine!;
       const triggers = engine.events.filter((event) => event.kind === "activate" && ["Sangan", "Witch of the Black Forest"].includes(event.card?.name ?? ""));
-      expect(triggers.map((event) => event.seat)).toEqual(adr ? [2] : []);
+      expect(triggers.map((event) => event.seat)).toEqual([2]);
       expect(engine.seats.map((seat) => seat.graveyard.length)).toEqual([3, 1, 1]);
       await expectRulesUi(page, slug, info);
       expect(errors).toEqual([]);
     });
   }
 
-  for (const adr of [false, true]) {
-    test(adr
-      ? "R-FFA-RESOURCE-ROTATION: Creature Swap rotates monsters 0 to 1 to 2 to 0"
-      : "current engine: Creature Swap exchanges a pair and leaves the third monster alone", async ({ player }, info) => {
+  {
+    test("R-FFA-RESOURCE-ROTATION: Creature Swap rotates monsters 0 to 1 to 2 to 0", async ({ player }, info) => {
       const { page } = await player("p1");
       const errors = collectTableErrors(page);
       const slug = await startTablePreset(page, "ffa3-rules-resource-rotation");
@@ -252,8 +242,7 @@ test.describe("FFA3 opponent and chain rules on the real core", () => {
         await expect.poll(async () => (await readTableTrace(page, slug)).promptLog.at(-1)?.promptId).not.toBe(placement.id);
       }
       await declineToAction(page, slug);
-      if (adr) test.fail(true, "R-FFA-RESOURCE-ROTATION pending engine change");
-      expect(await monsters(page, slug)).toEqual(adr ? [["Silver Fang"], ["Mystical Elf"], ["Battle Ox"]] : [["Battle Ox"], ["Mystical Elf"], ["Silver Fang"]]);
+      expect(await monsters(page, slug)).toEqual([["Silver Fang"], ["Mystical Elf"], ["Battle Ox"]]);
       const engine = (await readTable(page, slug)).engine!;
       expect(engine.seats.map((seat) => seat.monsters.find(Boolean)?.controller)).toEqual([0, 1, 2]);
       expect(engine.seats.map((seat) => seat.graveyard.length)).toEqual([1, 0, 0]);

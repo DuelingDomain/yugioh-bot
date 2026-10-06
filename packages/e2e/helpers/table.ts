@@ -133,3 +133,13 @@ export async function tableShot(page: Page, slug: string, info: TestInfo, name: 
   await page.screenshot({ path: info.outputPath(`live-ffa3-${name}.png`), fullPage: true, animations: "disabled" });
   writeFileSync(info.outputPath(`live-ffa3-${name}.json`), JSON.stringify(await readTable(page, slug), null, 2));
 }
+
+/**
+ * Sends a locked direct-attack aim. The first click on a rival locks the aim; a pointer that already hovers the rival makes the
+ * same click send it. Press Attack only when the aim is still locked, then wait until the prompt is answered.
+ */
+export async function confirmLockedAim(page: Page, promptId: string, slug: string): Promise<void> {
+  const confirm = page.getByTestId("aim-confirm");
+  await expect.poll(async () => (await confirm.count()) > 0 || (await readTable(page, slug)).engine!.prompt?.id !== promptId).toBe(true);
+  if (await confirm.count()) await confirm.click();
+}

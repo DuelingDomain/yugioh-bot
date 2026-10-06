@@ -607,6 +607,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
       data-stage-scale={((placed?.sizes.equal ?? 0) / SEAT_Z).toFixed(3)}
       data-ready={placed ? "true" : "false"}
       data-battle={engine.phase === "battle" ? "true" : undefined}
+      data-turn-seat={engine.turnSeat ?? undefined}
       data-pick-kind={pickKind ?? undefined}
     >
       <div className={styles.world} onClick={onClick} onFocusCapture={onFocus}>
