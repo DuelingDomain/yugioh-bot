@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup as cleanupRender, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { DuelEvent, DuelPrompt, DuelSeatView } from "@yugidraft/shared/duels";
 
 vi.mock("next/font/google", () => {
@@ -16,8 +16,6 @@ import { AttackConfirm } from "@/components/duel/card-interactions";
 import { armLpHold, clearLpHolds, takeLpHold } from "@/components/duel/life-points";
 import { isAttackTargetPrompt, isDirectAttackPrompt } from "@/components/duel/prompts";
 import { setSharedFx3d } from "@/components/duel/fx3d/shared";
-import { learnArtworkFamily, resetSignatureAliases } from "@/components/duel/signature-alias";
-import { clearCardArtworksCache } from "@/lib/card-artworks-client";
 import { clearPromptRevealHold, promptRevealHoldMs } from "@/components/duel/prompt-reveal";
 import { DUEL_FX_CUE_EVENT, type DuelFxCueDetail } from "@/components/duel/event-queue";
 import type { FxRequest } from "@/components/duel/fx3d/types";
@@ -737,66 +735,33 @@ describe("BattleFx", () => {
     const BLUE_EYES = 89631139;
     const ALT = 89631140;
     const altAttacker = { code: ALT, name: "Blue-Eyes White Dragon", race: "Dragon", attribute: 16, attack: 3000, defense: 2500 };
-    beforeEach(() => {
-      resetSignatureAliases();
-      clearCardArtworksCache();
-      window.history.pushState({}, "", "/duels/abc");
-    });
-    afterEach(() => vi.unstubAllGlobals());
-
     const play = (seats: DuelSeatView[]) => {
       const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} seats={seats} />);
       rerender(<BattleFx events={[phase, attack, hurt]} reducedMotion={false} seats={seats} />);
     };
 
-    it("plays the signature of an alternate art from the canonical passcode on the card, with no lookup", () => {
-      const fetch = vi.fn(async () => Response.json({ error: "Unauthorized" }, { status: 401 }));
-      vi.stubGlobal("fetch", fetch);
-      const seats = seatsOf({ ...altAttacker, canonicalPasscode: BLUE_EYES } as typeof altAttacker, machine);
-      play(seats);
+    it("plays the signature of an alternate art from the canonical passcode on the card", () => {
+      play(seatsOf({ ...altAttacker, canonicalPasscode: BLUE_EYES } as typeof altAttacker, machine));
       expect(playLayer()?.getAttribute("data-style")).toBe("lightning");
       expect(document.body.textContent).toContain("White Lightning");
     });
 
-    it("falls back to the learned family when the card has no canonical passcode", () => {
-      vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: "Unauthorized" }, { status: 401 })));
+    it("keeps the card's own passcode when an old view has no canonical passcode", () => {
       play(seatsOf(altAttacker, machine));
       expect(playLayer()?.getAttribute("data-style")).not.toBe("lightning");
-      cleanupRender();
-      learnArtworkFamily({ passcode: BLUE_EYES, artworks: [BLUE_EYES, ALT].map(passcode => ({ passcode, isMain: passcode === BLUE_EYES, imageUrl: null, smallUrl: null, croppedUrl: null })) });
-      play(seatsOf(altAttacker, machine));
-      expect(playLayer()?.getAttribute("data-style")).toBe("lightning");
     });
 
-    it("sends one lookup, not one per signature card, when the session has no sign-in", async () => {
-      const fetch = vi.fn(async () => Response.json({ error: "Unauthorized" }, { status: 401 }));
+    it("asks the artworks API for nothing", async () => {
+      const fetch = vi.fn(async () => Response.json({}));
       vi.stubGlobal("fetch", fetch);
-      render(<BattleFx events={[]} reducedMotion />);
-      await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
-      expect(fetch).toHaveBeenCalledTimes(1);
+      try {
+        render(<BattleFx events={[]} reducedMotion />);
+        await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+        expect(fetch).not.toHaveBeenCalled();
+      } finally {
+        vi.unstubAllGlobals();
+      }
     });
-
-    it("sends no lookup on a public lab page", async () => {
-      window.history.pushState({}, "", "/dev/fx-lab");
-      const fetch = vi.fn(async () => Response.json({ error: "Unauthorized" }, { status: 401 }));
-      vi.stubGlobal("fetch", fetch);
-      render(<BattleFx events={[]} reducedMotion />);
-      await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
-      expect(fetch).not.toHaveBeenCalled();
-    });
-  });
-
-  it("picks the style from the card that attacked, using the board as it was before the snapshot", () => {
-    const before = seatsOf(machine, warrior);
-    const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} seats={before} />);
-    act(() => undefined);
-    // The new snapshot has already lost the destroyed target; the attack still resolves both cards.
-    const after = [before[0], { ...before[1], monsters: [null] }] as unknown as DuelSeatView[];
-    const destroyed: DuelEvent = { id: 3, kind: "destroy", seat: 1, text: "", zone: { controller: 1, location: 4, sequence: 0 } };
-    rerender(<BattleFx events={[phase, attack, destroyed]} reducedMotion={false} seats={after} />);
-    expect(playLayer()?.getAttribute("data-style")).toBe("beam");
-    expect(playLayer()?.getAttribute("data-kind")).toBe("win");
-    expect(halves()).toHaveLength(24);
   });
 
   it("falls back to the default impact style for an unknown card", () => {

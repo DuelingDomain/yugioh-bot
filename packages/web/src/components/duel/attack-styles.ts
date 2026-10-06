@@ -9,7 +9,7 @@
  * The tint comes from the attacker's attribute unless the signature sets its own.
  *
  * To add a signature: add one entry to SIGNATURES keyed by the passcode of the original card. A
- * chosen alternate art is sent back to that passcode first (signature-alias.ts); a reprint with its
+ * chosen alternate art is sent back to that passcode first (signature-alias.ts, from the server's canonical passcode); a reprint with its
  * own card id still needs its own entry.
  */
 

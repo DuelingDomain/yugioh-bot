@@ -1,5 +1,5 @@
 import type { DuelEvent } from "@yugidraft/shared/duels";
-import { canonicalOf, signatureCode } from "../signature-alias";
+import { signatureCode } from "../signature-alias";
 import { clamp01, ramp } from "./ease";
 import { MIRROR, mirrorAt, mirrorGeo, mirrorHitSec } from "./mirror-math";
 import { DEMO_CW, DEMO_H, DEMO_W, hash1, timeWarp } from "./wipe-math";
@@ -48,10 +48,7 @@ const GENERIC_PIECES: ReadonlySet<FxScenePiece> = new Set<FxScenePiece>(["trap",
 const LOC_MZONE = 0x04;
 const LOC_SZONE = 0x08;
 
-export type SceneEventLike = Pick<DuelEvent, "id" | "kind" | "cause" | "sourceCode" | "sourceKind" | "sourceSeat" | "zone" | "reason" | "from"> & {
-  /** The passcode of the original source card, once the server names it (see signature-alias.ts). */
-  canonicalSourceCode?: number;
-};
+export type SceneEventLike = Pick<DuelEvent, "id" | "kind" | "cause" | "sourceCode" | "sourceKind" | "sourceSeat" | "zone" | "reason" | "from" | "sourceCanonicalCode">;
 
 /** A banish or a send from the field by a card effect: one card of a "banish-all" group. */
 function isFieldLeave(event: SceneEventLike): boolean {
@@ -69,7 +66,7 @@ function isFieldLeave(event: SceneEventLike): boolean {
 export function pieceOf(event: SceneEventLike): FxScenePiece | null {
   if (isFieldLeave(event)) return "banish-all";
   if (event.kind !== "destroy" || event.cause !== "effect" || !event.zone) return null;
-  const known = event.sourceCode != null ? SOURCE_PIECES[signatureCode(event.sourceCode, canonicalOf(event, "canonicalSourceCode"))] : undefined;
+  const known = event.sourceCode != null ? SOURCE_PIECES[signatureCode(event.sourceCode, event.sourceCanonicalCode)] : undefined;
   if (known) return known;
   if (event.sourceKind === "trap") return "trap";
   if (event.sourceKind === "spell") return "spell";
