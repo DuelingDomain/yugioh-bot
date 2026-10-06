@@ -142,6 +142,30 @@ it("keeps pre-release card scripts only for loaded release codes and prefers off
   expect(existsSync(join(dir, "pre-release/c3.lua"))).toBe(false);
 });
 
+it("loads official scripts before pre-release and other duplicate basenames while preserving explicit paths", async () => {
+  const { request, directory } = fixture();
+  await prepareData(directory, request);
+  const scriptRoot = join(directory, "card-scripts");
+  for (const folder of ["official", "pre-release", "pre-errata", "unofficial"]) {
+    mkdirSync(join(scriptRoot, folder), { recursive: true });
+    for (const code of [95200011, 95200012, 95200013, 95200102]) writeFileSync(join(scriptRoot, folder, `c${code}.lua`), folder);
+  }
+  writeFileSync(join(scriptRoot, "pre-release/c17242022.lua"), "pre-release");
+  writeFileSync(join(scriptRoot, "unofficial/c17242022.lua"), "unofficial");
+  writeFileSync(join(scriptRoot, "unofficial/helper.lua"), "other helper");
+  writeFileSync(join(scriptRoot, "helper.lua"), "root helper");
+  const cards = loadCardDatabase(directory);
+  try {
+    for (const code of [95200011, 95200012, 95200013, 95200102]) {
+      expect(cards.readScript(`c${code}.lua`)).toBe("official");
+      expect(cards.readScript(`unofficial/c${code}.lua`)).toBe("unofficial");
+      expect(cards.readScript(`pre-errata/c${code}.lua`)).toBe("pre-errata");
+    }
+    expect(cards.readScript("c17242022.lua")).toBe("pre-release");
+    expect(cards.readScript("helper.lua")).toBe("root helper");
+  } finally { cards.close(); }
+});
+
 it("prepares a versioned merged manifest visible to artwork identity, engine readers and duel deck validation", async () => {
   const { request, databases, directory } = fixture();
   const result = await prepareData(directory, request);
