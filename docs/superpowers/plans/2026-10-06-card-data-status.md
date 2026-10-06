@@ -1,5 +1,8 @@
 # Card data status backend plan
 
+Historical initial implementation. The [backend follow-up](2026-10-06-card-data-status-follow-up.md)
+supersedes its catalog-only gap, reverse gap, manifest-mtime estimate, and remote cache behavior.
+
 The operator-facing API is `GET /api/admin/card-data-status`, guarded by the existing Discord guild admin policy. A signed `engine-data-status` duel-host operation returns the shared `CardDataStatus` type: engine pins and bundle metadata, GitHub upstream freshness, catalog freshness, alias-aware gaps, and the weekly update workflow/PR status.
 
 - [x] Add shared response types and targeted catalog sync/migration tests. Preserve TCG release dates; reuse successful `card_sets.synced_at` timestamps. Add a singleton revision with triggers to invalidate status only when catalog/set/artwork data changes.

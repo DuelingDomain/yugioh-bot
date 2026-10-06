@@ -14,20 +14,30 @@ export const runtime = "nodejs";
  *   generatedAt: ISO timestamp,
  *   engine: { bundleVersion, preparedAt, preparedAtSource, sources: { database, scripts, strings }, cardCount, cdbFiles },
  *   catalog: { lastSuccessfulSyncAt, lastCardCachedAt, totalCards, revision, newestSets },
- *   gap: { catalogMissingFromEngineCount, catalogMissingFromEngine: [{ id, name, setCode, setReleaseDate }], engineMissingFromCatalogCount },
+ *   gap: { recentSetsMissingFromEngineCount, recentSets, cachedCatalogMissingCount, cachedCatalogMissing, cachedCatalogIdMismatch },
  *   upstream: { checkedAt, expiresAt, sources: { database, scripts, strings }, babelCdbFiles: { status, files } },
  *   updateWorkflow: { lastRunStatus, lastRun, pullRequestStatus, openPullRequest }
  * }
- * Engine source pins include repository/pinnedSha/pinnedCommitDate. Upstream sources
+ * Engine source pins include repository/pinnedSha/pinnedCommitDate (the source's "data as of" date). Upstream sources
  * include status/defaultBranch/latestSha/latestCommitDate/behindCommits/behindDays/comparison.
  * Unknown remote values are null with status="unknown"; an empty successful workflow/PR
  * lookup is null with status="ok". Dates are ISO timestamps or YYYY-MM-DD release dates.
  * Local SQLite/engine failures return 503; GitHub failures preserve a 200 local snapshot.
- * lastSuccessfulSyncAt is the scheduled SETS sync, not a full card import. Counts describe
- * the local cached catalog; gaps count alias/artwork families, newest known printing first.
- * preparedAtSource="manifest-mtime" explicitly identifies an estimate for old bundles.
- * GitHub results cache for one hour (including failures); local gaps cache by bundleVersion
- * and persisted catalog revision. HTTP responses are never cached. Guild admin access uses
+ * lastSuccessfulSyncAt is the scheduled SETS sync, not a full card import. The primary gap
+ * covers sets released in the last 12 calendar months, fetched through the shared card queue.
+ * Each recentSets row has name/code/releaseDate/status/checkedAt/total/missingCount/missingCards/idMismatch.
+ * Counts are playable alias/artwork families, excluding skills and tokens. Unknown set totals
+ * and missing counts are null; the primary count is also null before the first set sync.
+ * Same-name/type passcode differences are idMismatch, not missing.
+ * The cachedCatalog fields are secondary diagnostics for the incomplete on-demand catalog.
+ * Set lists persist in SQLite; sets <=60 days old refresh daily, older sets are immutable.
+ * preparedAt is null and preparedAtSource is unknown; file mtime is not a preparation date.
+ * GitHub metadata caches one hour; failures retry after five minutes or the rate-limit reset.
+ * Cold/stale remote metadata returns immediately while refreshing in the background; checkedAt
+ * identifies the last fetch. defaultBranch is null: HEAD is resolved through the default-branch
+ * commits endpoint without a separate repo lookup. The web call has a five-second deadline.
+ * Local snapshots live at least 60 seconds and use the host's startup bundle manifest.
+ * HTTP responses are never cached. Guild admin access uses
  * discord-web-access via requireWebAccess: no session=401, denied=403, verification down=503.
  */
 export async function GET() {
