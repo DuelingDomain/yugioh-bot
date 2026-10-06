@@ -22,7 +22,7 @@ export function playHref(id: number): string {
   return `/sandbox/${id}?play=1`;
 }
 
-/** Full share link for a saved scenario. It starts the duel at once for any admin who opens it. */
+/** Full share link for a saved scenario. It starts the duel at once for any developer who opens it. */
 export function shareUrl(origin: string, id: number): string {
   return `${origin}${playHref(id)}`;
 }

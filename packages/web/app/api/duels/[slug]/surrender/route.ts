@@ -14,8 +14,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
   try {
     const room = actor.duels.room(slug, actor.guildId, actor.playerId);
     if (room.session.sandbox && !sandboxQuery) {
-      const admin = await requireSandboxActor();
-      if (!admin.ok) return admin.response;
+      const sandboxActor = await requireSandboxActor();
+      if (!sandboxActor.ok) return sandboxActor.response;
     }
     const result = await callDuelHost({
       op: "surrender", slug, guildId: actor.guildId, playerId: actor.playerId, ...sandboxQueryOptions(request),

@@ -5,8 +5,8 @@ export interface NavItem {
   label: string;
   icon: LucideIcon;
   match: "exact" | "prefix";
-  /** Shown only to guild admins. The shell asks `/api/sandbox/access`; pages and APIs still gate on their own. */
-  adminOnly?: boolean;
+  /** Shown only to listed developers. The shell asks `/api/sandbox/access`; pages and APIs still gate on their own. */
+  sandboxOnly?: boolean;
 }
 
 export const navItems: NavItem[] = [
@@ -16,7 +16,7 @@ export const navItems: NavItem[] = [
   { href: "/duels", label: "Duels", icon: Swords, match: "prefix" },
   { href: "/decks", label: "Decks", icon: Library, match: "prefix" },
   { href: "/cubes", label: "Cubes", icon: Boxes, match: "prefix" },
-  { href: "/sandbox", label: "Sandbox", icon: FlaskConical, match: "prefix", adminOnly: true },
+  { href: "/sandbox", label: "Sandbox", icon: FlaskConical, match: "prefix", sandboxOnly: true },
   { href: "/leaderboard", label: "Leaderboard", icon: Medal, match: "exact" },
   { href: "/settings", label: "Settings", icon: Settings, match: "exact" },
 ];

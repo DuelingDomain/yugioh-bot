@@ -107,6 +107,7 @@ The bot wraps all discord.js interactions into framework-agnostic `*Like` types 
 - Admin = guild owner or a member with Manage Server / Administrator. Season start/end and settings writes require admin; cubes are editable by their owner or admin. Every server-data read is scoped to the configured guild, including slug/id lookups and linked resources.
 - `/dev/fx-lab`, `/dev/table-preview`, `/dev/solid-preview` and their card-image routes are public with `DUEL_FX_LAB=1` or in `next dev`; the lab returns 404 otherwise (`src/lib/fx-lab.ts`).
 - Draft lobby test bots (Add bot button, `POST /api/drafts/[slug]/join-bot`, host only) are off in production unless the web server has `DRAFT_TEST_BOTS=1`; any non-production build allows them. The draft API returns `botsEnabled` so the page never reads the env (`src/lib/draft-test-bots.ts`). Bots pick through the pick route (they auto-pick after each human pick) and through pick-deadline expiry.
+- Dev sandbox (pages, APIs, duel controls and nav) requires sign-in, guild membership and a Discord ID in the web server's `SANDBOX_DISCORD_IDS` (comma-separated, trimmed, 17–20 digits per ID; empty/invalid entries ignored). Unset or empty denies everyone, including admins and local dev; `canUseSandbox` in `src/lib/sandbox-access.ts` is the single swap point for a future role system. Set it in the local web process environment (or Compose `.env`) and the production VM's private Compose `.env`, then recreate web.
 
 ### Draft flow
 

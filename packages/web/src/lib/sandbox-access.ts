@@ -1,14 +1,40 @@
 import { NextResponse } from "next/server";
 import { SandboxBoardError } from "@yugidraft/shared/duels";
-import { createSandboxScenarioService, SandboxScenarioServiceError } from "@yugidraft/shared/services";
+import { createDuelService, createPlayerService, createSandboxScenarioService, SandboxScenarioServiceError } from "@yugidraft/shared/services";
 import { getDb } from "@/lib/db";
-import { duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
+import { duelErrorResponse } from "@/lib/duel-host";
+import { auth } from "@/lib/auth";
+import { env } from "@/lib/env";
+import { checkDiscordWebAccess, webAccessError } from "@/lib/discord-web-access";
 
-/** No environment bypass: the shared Discord entry point checks membership and admin rights. */
+/** single swap point for a future role system. No environment or guild-admin bypass. */
+export async function canUseSandbox(discordUserId: string | null | undefined): Promise<
+  { ok: true } | { ok: false; status: 401 | 403 | 503 }
+> {
+  if (!discordUserId) return { ok: false, status: 401 };
+  const allowed = (process.env.SANDBOX_DISCORD_IDS ?? "").split(",")
+    .map((id) => id.trim())
+    .filter((id) => /^[0-9]{17,20}$/.test(id));
+  if (!allowed.includes(discordUserId)) return { ok: false, status: 403 };
+  return checkDiscordWebAccess(discordUserId, "member");
+}
+
 export async function requireSandboxActor() {
-  const actor = await requireDuelActor("admin");
-  if (!actor.ok) return actor;
-  return { ...actor, scenarios: createSandboxScenarioService(getDb()) };
+  const session = await auth();
+  const access = await canUseSandbox(session?.user?.id);
+  if (!access.ok) {
+    return { ok: false as const, response: NextResponse.json(
+      { error: access.status === 401 ? "Unauthorized" : webAccessError(access.status) },
+      { status: access.status },
+    ) };
+  }
+  const db = getDb();
+  const guildId = env.discordGuildId;
+  const player = createPlayerService(db).findOrCreate(guildId, session!.user!.id!, session!.user!.name ?? "Unknown");
+  return {
+    ok: true as const, guildId, playerId: player.id,
+    duels: createDuelService(db), scenarios: createSandboxScenarioService(db),
+  };
 }
 
 export class SandboxRequestError extends Error {

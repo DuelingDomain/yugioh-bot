@@ -67,7 +67,7 @@ export function ScenarioEditor(props: ScenarioEditorProps) {
       setDirty(false);
       return id;
     }
-    // New board, or another admin's board: both make a new scenario that you own.
+    // New board, or another developer's board: both make a new scenario that you own.
     const created = await createScenario({
       name: copyMode && trimmed === scenario?.name ? copyName(trimmed) : trimmed,
       board: state.board,
@@ -89,7 +89,7 @@ export function ScenarioEditor(props: ScenarioEditorProps) {
 
   async function onShare(state: SandboxBuilderState) {
     let target = id;
-    let text = "Link copied. Any admin who opens it starts the duel at once.";
+    let text = "Link copied. Any developer who opens it starts the duel at once.";
     if (target === undefined || (mine && dirty)) {
       target = await persist(state);
     } else if (dirty) {
@@ -120,7 +120,7 @@ export function ScenarioEditor(props: ScenarioEditorProps) {
   }
 
   const title = scenario || saved ? name.trim() || "Scenario" : "New scenario";
-  const sub = copyMode ? `By ${scenario?.ownerName ?? "another admin"}. Play it, or save a copy to change it.` : saved ? "Your scenario" : undefined;
+  const sub = copyMode ? `By ${scenario?.ownerName ?? "another developer"}. Play it, or save a copy to change it.` : saved ? "Your scenario" : undefined;
 
   return (
     <PageFrame

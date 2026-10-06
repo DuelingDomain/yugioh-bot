@@ -125,7 +125,7 @@ export async function searchPlayers(q: string, signal?: AbortSignal): Promise<{ 
 }
 
 /**
- * Dev sandbox only: the seat the admin acts as and whether the other seats' hands show. The routes read them from the
+ * Dev sandbox only: the seat the developer acts as and whether the other seats' hands show. The routes read them from the
  * query string (view and actions) or from the body (sandbox controls). Both are optional; a plain duel never sends them.
  */
 export interface SandboxView {
@@ -405,7 +405,7 @@ export async function reportEnabled(slug: string): Promise<boolean> {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Dev sandbox controls (`POST /api/duels/[slug]/sandbox`). Admin only; the host checks the organizer.
+// Dev sandbox controls (`POST /api/duels/[slug]/sandbox`). Listed developers only; the host checks the organizer.
 
 export type SandboxWalkPhase = "standby" | "main1" | "battle" | "main2" | "end";
 

@@ -1,3 +1,4 @@
+import { requireSandboxActor } from "@/lib/sandbox-access";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { NextResponse } from "next/server";
@@ -40,8 +41,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
     // Same access rule as the room: throws when this player may not see the duel.
     const room = actor.duels.room(slug, actor.guildId, actor.playerId);
     if (room.session.sandbox) {
-      const admin = await requireDuelActor("admin");
-      if (!admin.ok) return admin.response;
+      const sandboxActor = await requireSandboxActor();
+      if (!sandboxActor.ok) return sandboxActor.response;
     }
   } catch (error) {
     return duelErrorResponse(error);

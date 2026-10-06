@@ -98,10 +98,10 @@ describe("SandboxList", () => {
     item({ id: 2, name: "Theirs", mine: false, ownerName: "Rin", format: "ffa4", mode: "domain" }),
   ];
 
-  it("splits your scenarios from other admins and links Play to the share route", () => {
+  it("splits your scenarios from other developers and links Play to the share route", () => {
     render(<SandboxList items={items} />);
     const mine = screen.getByRole("region", { name: "Your scenarios" });
-    const others = screen.getByRole("region", { name: "Other admins" });
+    const others = screen.getByRole("region", { name: "Other developers" });
     expect(within(mine).getByRole("link", { name: "Play Mine" })).toHaveAttribute("href", "/sandbox/1?play=1");
     expect(within(others).getByRole("link", { name: "Play Theirs" })).toHaveAttribute("href", "/sandbox/2?play=1");
     expect(within(others).getByText("by Rin")).toBeInTheDocument();
@@ -116,7 +116,7 @@ describe("SandboxList", () => {
     expect(screen.queryByRole("button", { name: "Save Mine as copy" })).toBeNull();
   });
 
-  it("saves another admin's scenario as your copy and opens it", async () => {
+  it("saves another developer's scenario as your copy and opens it", async () => {
     mocks.getScenario.mockResolvedValue({ id: 2, board, run });
     mocks.createScenario.mockResolvedValue({ id: 9 });
     render(<SandboxList items={items} />);
@@ -193,7 +193,7 @@ describe("ScenarioEditor", () => {
     replaceState.mockRestore();
   });
 
-  it("gives another admin Save as copy, never an update or a delete", async () => {
+  it("gives another developer Save as copy, never an update or a delete", async () => {
     mocks.createScenario.mockResolvedValue({ id: 12, name: "Theirs (copy)" });
     const replaceState = vi.spyOn(window.history, "replaceState").mockImplementation(() => undefined);
     render(<ScenarioEditor capabilities={caps} scenario={data({ id: 3, name: "Theirs", mine: false, ownerName: "Rin" })} />);

@@ -37,7 +37,7 @@ export function toListItems(guildId: string, playerId: number, scenarios: Sandbo
     name: s.name,
     format: s.format,
     mode: s.mode,
-    ownerName: names.get(s.ownerPlayerId) ?? "An admin",
+    ownerName: names.get(s.ownerPlayerId) ?? "A developer",
     updatedAt: s.updatedAt,
     mine: s.ownerPlayerId === playerId,
   }));

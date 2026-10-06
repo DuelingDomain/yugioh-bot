@@ -15,11 +15,11 @@ export function navItemByHref(href: string): NavItem | undefined {
   return navItems.find((item) => item.href === href);
 }
 
-/** Admin-only links (Sandbox) stay out unless `isAdmin` is true. */
-export function groupedNav(isAdmin = false): { label: string | null; items: NavItem[] }[] {
+/** Sandbox links stay out unless `sandboxAllowed` is true. */
+export function groupedNav(sandboxAllowed = false): { label: string | null; items: NavItem[] }[] {
   return NAV_GROUPS.map((g) => ({
     label: g.label,
-    items: g.hrefs.map(navItemByHref).filter((i): i is NavItem => Boolean(i) && (isAdmin || !i!.adminOnly)),
+    items: g.hrefs.map(navItemByHref).filter((i): i is NavItem => Boolean(i) && (sandboxAllowed || !i!.sandboxOnly)),
   }));
 }
 

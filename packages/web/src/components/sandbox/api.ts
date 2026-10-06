@@ -28,7 +28,7 @@ export interface ScenarioSummary {
 export interface Scenario extends ScenarioSummary {
   board: SandboxBoard;
   run: SandboxRun;
-  /** True when the signed-in admin made it. Others get "Save as copy". */
+  /** True when the signed-in developer made it. Others get "Save as copy". */
   mine?: boolean;
 }
 

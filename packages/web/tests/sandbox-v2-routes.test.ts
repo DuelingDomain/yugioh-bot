@@ -5,6 +5,10 @@ import { openDatabase } from "@yugidraft/shared/db";
 import { SANDBOX_OPS } from "@yugidraft/shared/duels";
 import { createDuelService, createPlayerService, createSandboxScenarioService } from "@yugidraft/shared/services";
 
+// Synthetic IDs, not real Discord accounts.
+const developer = "1".repeat(18);
+const otherDeveloper = "2".repeat(18);
+
 const mocks = vi.hoisted(() => ({ auth: vi.fn(), access: vi.fn(), membership: vi.fn(), post: vi.fn(), db: null as Database.Database | null }));
 vi.mock("@/lib/auth", () => ({ auth: mocks.auth }));
 vi.mock("@/lib/discord-web-access", () => ({ checkDiscordWebAccess: mocks.access, webAccessError: () => "Access denied" }));
@@ -37,11 +41,12 @@ let slug: string;
 beforeEach(() => {
   vi.resetAllMocks();
   vi.stubEnv("DUEL_SCENARIOS", "1");
+  vi.stubEnv("SANDBOX_DISCORD_IDS", `${developer},${otherDeveloper}`);
   mocks.db = openDatabase(":memory:");
-  owner = createPlayerService(mocks.db).findOrCreate("guild", "admin", "Admin").id;
+  owner = createPlayerService(mocks.db).findOrCreate("guild", developer, "Developer").id;
   slug = createDuelService(mocks.db).create({ guildId: "guild", organizerPlayerId: owner, name: "Sandbox", mode: "normal", masterRule: 5, sandbox: true }).slug;
-  mocks.auth.mockResolvedValue({ user: { id: "admin", name: "Admin" } });
-  mocks.access.mockResolvedValue({ ok: true });
+  mocks.auth.mockResolvedValue({ user: { id: developer, name: "Developer" } });
+  mocks.access.mockImplementation(async (_id, level) => level === "member" ? { ok: true } : { ok: false, status: 403 });
   mocks.membership.mockResolvedValue({ ok: true });
   mocks.post.mockImplementation(async (_path: string, raw: string) => ({ ok: true, status: 200, text: JSON.stringify(JSON.parse(raw).op === SANDBOX_OPS.snapshot ? snapshot : JSON.parse(raw).op === "report" ? { path: "/tmp/test-report" } : { ok: true }) }));
 });
@@ -61,6 +66,12 @@ describe("v2 sandbox actions", () => {
         expect((await sandbox(request(body), params(slug))).status).toBe(status);
         expect(mocks.post).not.toHaveBeenCalled();
         expect(scenarios().list("guild")).toEqual([]);
+      });
+      it("denies an unlisted admin before calling the host", async () => {
+        vi.stubEnv("SANDBOX_DISCORD_IDS", undefined);
+        mocks.access.mockResolvedValue({ ok: true });
+        expect((await sandbox(request(body), params(slug))).status).toBe(403);
+        expect(mocks.post).not.toHaveBeenCalled();
       });
       it.each([403, 404, 409])("preserves host refusal %i and does not save", async (status) => {
         mocks.post.mockResolvedValue({ ok: false, status, text: '{"error":"Host refusal","code":"sandbox-refused"}' });
@@ -163,11 +174,17 @@ const routes = [
 for (const route of routes) {
   describe(`sandbox ${route.name} access`, () => {
     const invoke = (target = slug) => route.handler(request(route.body, route.method), params(target));
-    it.each(["development", "production", "test"])("denies a non-admin organizer in %s without sandbox query options", async (mode) => {
+    it.each(["development", "production", "test"])("denies a listed non-member organizer in %s without sandbox query options", async (mode) => {
       vi.stubEnv("NODE_ENV", mode);
       mocks.access.mockResolvedValue({ ok: false, status: 403 });
       expect((await invoke()).status).toBe(403);
-      expect(mocks.access).toHaveBeenCalledWith("admin", "admin");
+      expect(mocks.access).toHaveBeenCalledWith(developer, "member");
+      expect(mocks.post).not.toHaveBeenCalled();
+    });
+    it.each([undefined, "", "3".repeat(18)])("denies an unlisted admin with list %s", async (list) => {
+      vi.stubEnv("SANDBOX_DISCORD_IDS", list);
+      mocks.access.mockResolvedValue({ ok: true });
+      expect((await invoke()).status).toBe(403);
       expect(mocks.post).not.toHaveBeenCalled();
     });
     it("returns 401 when signed out", async () => {
@@ -175,7 +192,7 @@ for (const route of routes) {
       expect((await invoke()).status).toBe(401);
       expect(mocks.post).not.toHaveBeenCalled();
     });
-    it("returns 503 when admin access is unavailable", async () => {
+    it("returns 503 when developer access is unavailable", async () => {
       mocks.access.mockResolvedValue({ ok: false, status: 503 });
       expect((await invoke()).status).toBe(503);
       expect(mocks.post).not.toHaveBeenCalled();
@@ -184,15 +201,15 @@ for (const route of routes) {
       expect((await invoke("missing")).status).toBe(404);
       expect(mocks.post).not.toHaveBeenCalled();
     });
-    it("refuses a different admin who does not own the sandbox", async () => {
-      mocks.auth.mockResolvedValue({ user: { id: "other-admin" } });
+    it("refuses a different developer who does not own the sandbox", async () => {
+      mocks.auth.mockResolvedValue({ user: { id: otherDeveloper } });
       expect((await invoke()).status).toBe(403);
       expect(mocks.post).not.toHaveBeenCalled();
     });
-    it("allows the admin organizer through the access gate", async () => {
+    it("allows the developer organizer through the access gate", async () => {
       const response = await invoke();
       expect(response.status).toBe(route.name === "leave" ? 409 : 200);
-      expect(mocks.access).toHaveBeenCalledWith("admin", "admin");
+      expect(mocks.access).toHaveBeenCalledWith(developer, "member");
       if (route.name === "connection") expect(await response.json()).toMatchObject({ token: expect.any(String), guildId: "guild" });
       else if (route.name === "leave") expect(mocks.post).not.toHaveBeenCalled();
       else expect(payloads()[0]).toMatchObject({ op: route.name, slug, guildId: "guild", playerId: owner });

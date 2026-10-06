@@ -94,7 +94,7 @@ export function ShareDialog({ mode, code = "", onImport, onClose }: ShareDialogP
         </div>
         {importing ? (
           <>
-            <p className={styles.hint}>Paste a code from another admin. It replaces the board in the builder. Undo brings the old board back.</p>
+            <p className={styles.hint}>Paste a code from another developer. It replaces the board in the builder. Undo brings the old board back.</p>
             <label className={styles.field}>
               <span>Share code</span>
               <textarea
@@ -121,7 +121,7 @@ export function ShareDialog({ mode, code = "", onImport, onClose }: ShareDialogP
           </>
         ) : (
           <>
-            <p className={styles.hint}>The browser did not let us copy it. Copy the code below and send it. Any admin can import it.</p>
+            <p className={styles.hint}>The browser did not let us copy it. Copy the code below and send it. Any developer can import it.</p>
             <label className={styles.field}>
               <span>Share code</span>
               <textarea className={`input ${styles.code}`} value={code} rows={5} readOnly spellCheck={false} onFocus={(event) => event.currentTarget.select()} />

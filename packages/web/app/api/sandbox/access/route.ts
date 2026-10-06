@@ -3,8 +3,12 @@ import { requireSandboxActor } from "@/lib/sandbox-access";
 
 export const runtime = "nodejs";
 
-/** Tells the shell whether to show the Sandbox link. Always 200 with `{ admin }` so a member sees no error. */
+/** Tells the shell whether this developer may see the Sandbox link. */
 export async function GET() {
   const actor = await requireSandboxActor();
-  return NextResponse.json({ admin: actor.ok }, { headers: { "Cache-Control": "no-store" } });
+  if (!actor.ok) {
+    actor.response.headers.set("Cache-Control", "no-store");
+    return actor.response;
+  }
+  return NextResponse.json({ allowed: true }, { headers: { "Cache-Control": "no-store" } });
 }

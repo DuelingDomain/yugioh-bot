@@ -15,8 +15,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
     const options = sandboxQueryOptions(request);
     const room = actor.duels.room(slug, actor.guildId, actor.playerId);
     if (room.session.sandbox && !sandboxQuery) {
-      const admin = await requireSandboxActor();
-      if (!admin.ok) return admin.response;
+      const sandboxActor = await requireSandboxActor();
+      if (!sandboxActor.ok) return sandboxActor.response;
     }
     // A lobby with a timed-out rock-paper-scissors opening goes to the host, which settles it.
     const openingDue = room.session.status === "lobby" && room.opening != null

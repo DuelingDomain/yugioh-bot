@@ -16,8 +16,8 @@ export async function GET(request: NextRequest) {
     if (slug) {
       const room = actor.duels.room(slug, actor.guildId, actor.playerId);
       if (room.session.sandbox && !sandboxQuery) {
-        const admin = await requireSandboxActor();
-        if (!admin.ok) return admin.response;
+        const sandboxActor = await requireSandboxActor();
+        if (!sandboxActor.ok) return sandboxActor.response;
       }
     }
     const result = await callDuelHost({

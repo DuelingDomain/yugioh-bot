@@ -143,13 +143,13 @@ export function SandboxList({ items: initial }: { items: ScenarioListItem[] }) {
       }
     >
       <p className={styles.lede}>
-        Set up any board, then play it at once against bots. Only you can change or delete your scenarios. Other admins can play them or save a copy.
+        Set up any board, then play it at once against bots. Only you can change or delete your scenarios. Other developers can play them or save a copy.
       </p>
 
       {error ? <div role="alert"><StatusLine tone="block">{error}</StatusLine></div> : null}
       {copied ? (
         <div role="status" className={styles.notice}>
-          <StatusLine tone={copied.ok ? "ready" : "warn"}>{copied.ok ? "Link copied. Any admin who opens it starts the duel at once." : "Could not copy. Copy the link below."}</StatusLine>
+          <StatusLine tone={copied.ok ? "ready" : "warn"}>{copied.ok ? "Link copied. Any developer who opens it starts the duel at once." : "Could not copy. Copy the link below."}</StatusLine>
           {copied.ok ? null : <span className={styles.noticeLink}>{copied.url}</span>}
         </div>
       ) : null}
@@ -169,7 +169,7 @@ export function SandboxList({ items: initial }: { items: ScenarioListItem[] }) {
 
       {others.length > 0 ? (
         <section className={styles.section} aria-labelledby="sbx-others">
-          <SectionHead id="sbx-others" title="Other admins" note={String(others.length)} />
+          <SectionHead id="sbx-others" title="Other developers" note={String(others.length)} />
           <FloorList aria-labelledby="sbx-others">{others.map(row)}</FloorList>
         </section>
       ) : null}

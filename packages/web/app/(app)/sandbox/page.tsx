@@ -3,7 +3,7 @@ import { requireSandboxActor } from "@/lib/sandbox-access";
 import { SandboxList } from "./_components/sandbox-list";
 import { toListItems } from "./_lib/load";
 
-// Admin rights can change after the web build.
+// Sandbox access can change after the web build.
 export const dynamic = "force-dynamic";
 
 export default async function SandboxPage() {

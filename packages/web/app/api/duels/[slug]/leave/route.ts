@@ -1,3 +1,4 @@
+import { requireSandboxActor } from "@/lib/sandbox-access";
 import { NextResponse } from "next/server";
 import { duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
 import { notifyDuelChange } from "@/lib/notify-duel";
@@ -12,8 +13,8 @@ export async function POST(_request: Request, { params }: { params: Promise<{ sl
   try {
     const room = actor.duels.room(slug, actor.guildId, actor.playerId);
     if (room.session.sandbox) {
-      const admin = await requireDuelActor("admin");
-      if (!admin.ok) return admin.response;
+      const sandboxActor = await requireSandboxActor();
+      if (!sandboxActor.ok) return sandboxActor.response;
     }
     const session = actor.duels.leave(slug, actor.guildId, actor.playerId);
     try {

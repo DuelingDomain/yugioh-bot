@@ -5,9 +5,9 @@ Paths are relative to the repo root. `ds/` = `packages/duel-server/src`, `sh/` =
 
 ## 0. Goal and scope
 
-An admin builds any board (per seat: LP, hand, Main/Extra Monster Zones, S/T Zones, Field, Pendulum, GY, banished,
+A listed developer builds any board (per seat: LP, hand, Main/Extra Monster Zones, S/T Zones, Field, Pendulum, GY, banished,
 Deck top + size, Extra Deck, Deck Master in Domain), then starts it in 1v1, ffa3, ffa4 or Tag. Bots auto-pass by
-default. The admin can act for any seat at any time. Boards save by name (guild scope) and share by link. A running
+default. The developer can act for any seat at any time. Boards save by name (guild scope) and share by link. A running
 sandbox duel has Restart (same seed + same board).
 
 Reuse, do not fork: `BoardSpec` + `compileBoard` (`ds/presets/board.ts:79-240`), `resolveCard` (`ds/presets/catalog.ts:66`),
@@ -40,7 +40,7 @@ Index: `(guild_id, updated_at)`. Limit: 200 scenarios per owner per guild (servi
 - `SandboxBoard` = JSON-only subset of `BoardSpec`: every card ref is a **number** (passcode). No `teams`, no
   `withoutCoreFunctions` (parser rejects them). Added fields: `startAt?: "draw" | "main1"` (default `main1`).
 - `SandboxRun` = `{ bots: Record<"1"|"2"|"3", "pass"|"practice"|"manual">, seed?: [string,string,string,string] }`.
-  Seat 0 is always the admin (manual).
+  Seat 0 is always the developer (manual).
 - `parseSandboxBoard(unknown): SandboxBoard` throws `SandboxBoardError { path, message }`. Structure only, no catalog.
   Limits per seat: hand <= 20, monsters <= 7 (index 5-6 = EMZ, Master Rule >= 4 only), spells <= 5, pendulum <= 2,
   grave <= 60, banished <= 60, deck top <= 60, `deckSize` 0-60 and >= deck top, extra <= 30, Xyz materials <= 10,
@@ -103,10 +103,17 @@ New module `ds/sandbox.ts` holds the logic. `ds/host.ts` only wires ops and two 
 
 ## 3. Security
 
-- **Gate (web).** New `web/src/lib/sandbox-access.ts` `requireSandboxActor()` = `requireDuelActor()` +, when
-  `NODE_ENV === "production"`, `checkDiscordWebAccess(userId, "admin")` (`web/src/lib/discord-web-access.ts:9`).
-  Every sandbox route and every sandbox param (`as`, `reveal`, control, restart) on duel routes uses it. Statuses:
-  401 / 403 / 503 as the rest of the app. The pages call it server side and `notFound()` on deny.
+- **Gate (web), owner decision 2026-10-06.** `canUseSandbox(discordUserId)` in
+  `web/src/lib/sandbox-access.ts` is the single swap point for a future role system. Require sign-in,
+  membership via `checkDiscordWebAccess(userId, "member")`, and an ID in `SANDBOX_DISCORD_IDS`.
+  The value is comma-separated Discord user IDs: trim each entry, ignore empty entries and entries that
+  are not exactly 17–20 ASCII digits. Unset or empty means nobody, including admins and local dev.
+  There is no bypass. The allowlist replaces the guild-admin requirement; scenario owner, duel organizer,
+  guild scope and host authentication checks remain intact.
+  `requireSandboxActor()` applies this rule to all sandbox APIs, sandbox duel routes (including ordinary
+  duel URLs without sandbox query options), and pages. APIs return 401 when signed out, 403 when denied,
+  and 503 when membership verification is unavailable. Pages return 404 on denial. The nav stays hidden
+  unless `GET /api/sandbox/access` returns 200 with `{ allowed: true }`; denied access returns 403.
 - **Gate (host).** Host trusts only signed calls (as today). It also checks: duel row `sandbox = 1` and
   `actor === organizerPlayerId` for `as`, `reveal`, control, restart, info. Sandbox ops do not need `DUEL_SCENARIOS`.
 - **No stats.** Plain duels write no matches/ELO (only series do, `sh/services/duel-series.ts`). Enforce anyway:
@@ -125,13 +132,16 @@ New module `ds/sandbox.ts` holds the logic. `ds/host.ts` only wires ops and two 
 ### 4.1 Routes and API (contract for parallel work)
 
 - Pages: `/sandbox` (list + New), `/sandbox/new?format=ffa3&from=<slug>`, `/sandbox/[id]` (builder),
-  `/sandbox/[id]?play=1` (share link that starts at once). Nav item for admins only (`web/src/lib/nav-items.ts`).
+  `/sandbox/[id]?play=1` (share link that starts at once). Nav item for listed developers only (`web/src/lib/nav-items.ts`).
 - API: `GET/POST /api/sandbox/scenarios`, `GET/PUT/DELETE /api/sandbox/scenarios/[id]`,
   `POST /api/sandbox/validate`, `POST /api/sandbox/start` (`{ board, run, scenarioId? }` -> `{ slug }`),
   `POST /api/duels/[slug]/sandbox` (`{ action: "control"|"restart", seat?, control? }`),
   `GET /api/duels/[slug]/sandbox` (info). Duel view route and actions route pass `as` and `reveal`.
-- Rights: any admin of the guild can list, open and start a scenario. Only its owner can update or delete it;
-  others get "Save as copy".
+- Rights (2026-10-06): only listed developers who are signed-in guild members can list, open and start
+  a scenario. Only its owner can update or delete it; other listed developers get "Save as copy".
+  Set `SANDBOX_DISCORD_IDS` privately for the local web process (or root `.env` for Compose) and in the
+  production VM's Compose `.env`; recreate the web service after changing it. The deploy workflow uses
+  that VM file rather than enumerating application runtime env vars. Never commit real Discord IDs.
 
 ### 4.2 Builder layout (dark, minimal chrome, `.impeccable.md`)
 
@@ -194,7 +204,7 @@ UI = sonnet-high, review = Opus high.
 | B5 | Pure seat helpers | new `ds/sandbox-seats.ts` (`resolveActingSeat`, `mergeRevealedHands`, `policiesForRun`) | B1 | `packages/duel-server/tests/sandbox-seats.test.ts` |
 | B6 | Host ops: validate-board, start-sandbox, restart, info, limits | new `ds/sandbox.ts`, `ds/host.ts` (op wiring, `policiesOf`, `LiveGame.manualSeats`) | B3 B4 B5 | `packages/duel-server/tests/host-sandbox.test.ts` (start 1v1, restart gives same first view) |
 | B7 | Host seat control: `as`, `reveal`, control op, `autoSeatsOf` | `ds/host.ts` (view/respond/surrender/project hooks), `ds/sandbox.ts` | B6 | `host-sandbox-control.test.ts` (act as seat 1, switch back, bot passes) |
-| W1 | Web gate + API routes | new `web/src/lib/sandbox-access.ts`, `web/src/lib/duel-host.ts` (op union, `as`/`reveal` passthrough), new `web/app/api/sandbox/**`, `web/app/api/duels/[slug]/sandbox/route.ts`, view + actions routes | B1 B2 (host stubbed) | `npx vitest run packages/web/tests/sandbox-routes.test.ts -c packages/web/vitest.config.ts` (admin 200, member 403 in prod mode) |
+| W1 | Web gate + API routes | new `web/src/lib/sandbox-access.ts`, `web/src/lib/duel-host.ts` (op union, `as`/`reveal` passthrough), new `web/app/api/sandbox/**`, `web/app/api/duels/[slug]/sandbox/route.ts`, view + actions routes | B1 B2 (host stubbed) | `npx vitest run packages/web/tests/sandbox-routes.test.ts -c packages/web/vitest.config.ts` (listed non-admin member 200, unlisted admin 403 in every mode) |
 | U1 | Builder state model | new `web/src/components/sandbox/board-model.ts` (reducer: place, move, position, materials, piles, format change trims seats) | B1 | `packages/web/tests/sandbox-board-model.test.ts` |
 | U2 | Builder UI | new `web/src/components/sandbox/{builder,seat-board,zone-slot,pile-row,slot-popover}.tsx` + css, `components/sandbox/api.ts` | U1, W1 contract | `packages/web/tests/sandbox-builder.test.tsx` (place card, set position, Xyz material) |
 | U3 | Pages, list, save/load/delete, share, nav; in-duel bar | new `web/app/(app)/sandbox/**`, `web/src/lib/nav-items.ts`, new `web/src/components/duel/sandbox-bar.tsx` + css, `room.tsx` (bar mount + `as` in URL), `components/duel/api.ts` | U2, W1, B7 contract | `packages/web/tests/sandbox-bar.test.tsx` (chip click sends control + as) |
@@ -204,7 +214,7 @@ after B2); wave 3 = B6, W1, U2; wave 4 = B7, U3. B6 and B7 are sequential becaus
 big, split the in-duel bar (sandbox-bar, room.tsx, api.ts) into its own task after B7.
 
 Manual check at the end (owner, local): build a 4-way board, start, act for seat 2, switch back, Restart, open the
-share link in a second browser profile as admin, then as a non-admin on a prod-like build (403).
+share link in a second browser profile as a listed developer, then as an unlisted admin on a prod-like build (403).
 
 ## 7. Risks
 
@@ -228,7 +238,8 @@ share link in a second browser profile as admin, then as a non-admin on a prod-l
 
 1. Reveal hands: default ON, no spectators on sandbox duels. (as proposed)
 2. Saved scenarios: only the maker edits/deletes; other admins open + "Save as copy". (as proposed)
-3. Gate: admin required everywhere (local and prod). No extra env flag. (Owner is admin locally too.)
+3. Gate (superseded by the 2026-10-06 decision in sections 3 and 4.1): originally admin everywhere.
+   Now only listed developers with guild membership, in every environment; no admin or dev bypass.
 4. Start: the duel starts at the Draw Phase. From there the owner must be able to move to ANY phase
    (Standby, Main 1, Battle, Main 2, End) with real engine phase changes, so all phase triggers and
    "can activate in this phase" windows happen as in a real duel. Add a "Go to phase" control in the
@@ -303,13 +314,13 @@ New `sh/duels/sandbox-share.ts`, exported from `@yugidraft/shared/duels`:
   All validation failures throw `SandboxBoardError`; transport errors use path `share`, name errors use `name`,
   and board/run parser errors keep their existing paths. This is a data format, not a signature.
 - Decode in the client and load the result into the builder. **Import code** also works on `/sandbox/new`.
-  No share-code server route is needed. Normal save/start validation and admin gates still apply.
+  No share-code server route is needed. Normal save/start validation and developer allowlist gates still apply.
 
 ### 10.4 Host operations (H1/H2)
 
 Add these keys to shared `SANDBOX_OPS` (S1). Existing operations remain unchanged.
 All operations use the existing signed host envelope with slug, guild and actor. Require a sandbox duel
-and its organizer. Web access also requires guild admin in every environment.
+and its organizer. Web access also requires a listed developer with guild membership in every environment.
 
 | key / op | input beyond envelope | result | owner |
 |---|---|---|---|
@@ -350,7 +361,7 @@ Extend `POST /api/duels/[slug]/sandbox` with:
 
 `save-state` snapshots the live duel, then creates a scenario, or updates `scenarioId` only when the caller
 owns it in the same guild. Keep existing scenario service limits and errors; do not silently overwrite
-another owner's scenario. All four actions require guild admin and a sandbox duel; the host also checks
+another owner's scenario. All four actions require a listed developer with guild membership and a sandbox duel; the host also checks
 organizer ownership. Existing control/restart/phase/next-turn actions remain supported.
 
 U7 implements Save & close as save-state followed by close, then navigation to `/sandbox`. Close sends

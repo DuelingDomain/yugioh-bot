@@ -126,7 +126,7 @@ export async function callDuelHost(input: {
   choice?: DuelFirstChoice;
   /** chain-mode only: the response switch position for the caller's own seat. */
   chainMode?: DuelChainMode;
-  /** Sandbox-only options. Routes require admin access; the host checks the organizer. */
+  /** Sandbox-only options. Routes require sandbox access; the host checks the organizer. */
   as?: number;
   reveal?: boolean;
   board?: SandboxBoard;

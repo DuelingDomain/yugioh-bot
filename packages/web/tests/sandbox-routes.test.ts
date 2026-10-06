@@ -10,6 +10,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { openDatabase } from "@yugidraft/shared/db";
 import { createDuelService, createPlayerService, createSandboxScenarioService } from "@yugidraft/shared/services";
 
+// Synthetic IDs, not real Discord accounts.
+const developer = "1".repeat(18);
+const otherDeveloper = "2".repeat(18);
+
 const mocks = vi.hoisted(() => ({ auth: vi.fn(), access: vi.fn(), membership: vi.fn(), post: vi.fn(), db: null as Database.Database | null }));
 vi.mock("@/lib/auth", () => ({ auth: mocks.auth }));
 vi.mock("@/lib/discord-web-access", () => ({
@@ -34,9 +38,10 @@ let owner: number;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubEnv("SANDBOX_DISCORD_IDS", `${developer},${otherDeveloper}`);
   mocks.db = openDatabase(":memory:");
-  owner = createPlayerService(mocks.db).findOrCreate("guild", "admin", "Admin").id;
-  mocks.auth.mockResolvedValue({ user: { id: "admin", name: "Admin" } });
+  owner = createPlayerService(mocks.db).findOrCreate("guild", developer, "Developer").id;
+  mocks.auth.mockResolvedValue({ user: { id: developer, name: "Developer" } });
   mocks.access.mockResolvedValue({ ok: true });
   mocks.membership.mockResolvedValue({ ok: true });
   mocks.post.mockImplementation(async (_path: string, raw: string) => {
@@ -58,19 +63,20 @@ function duel(sandbox = true) {
 }
 
 // Exercise the real guard; only Discord and the signed host transport are stubbed.
-describe("sandbox admin gate", () => {
-  it.each(["production", "development", "test"])("denies members in %s through the shared admin entry point", async (mode) => {
+describe("sandbox developer gate", () => {
+  it.each(["production", "development", "test"])("denies listed non-members in %s through the shared membership entry point", async (mode) => {
     vi.stubEnv("NODE_ENV", mode);
     mocks.access.mockResolvedValue({ ok: false, status: 403 });
-    const { requireDuelActor } = await import("@/lib/duel-host");
-    const actor = await requireDuelActor("admin");
+    const { requireSandboxActor } = await import("@/lib/sandbox-access");
+    const actor = await requireSandboxActor();
     expect(actor.ok).toBe(false);
     if (!actor.ok) expect(actor.response.status).toBe(403);
-    expect(mocks.access).toHaveBeenCalledWith("admin", "admin");
+    expect(mocks.access).toHaveBeenCalledWith(developer, "member");
     expect(mocks.membership).not.toHaveBeenCalled();
   });
-  it("allows an admin with only the shared access entry point", async () => {
+  it("allows a listed non-admin developer with only the shared access entry point", async () => {
     mocks.membership.mockRejectedValue(new Error("Do not use the direct membership guard"));
+    mocks.access.mockImplementation(async (_id, level) => level === "member" ? { ok: true } : { ok: false, status: 403 });
     const { requireSandboxActor } = await import("@/lib/sandbox-access");
     expect(await requireSandboxActor()).toMatchObject({ ok: true, guildId: "guild", playerId: owner });
   });
@@ -84,9 +90,9 @@ describe("sandbox admin gate", () => {
 });
 
 describe("route access coverage", () => {
-  it.each(["production", "development"])("requires admin on every endpoint in %s", async (mode) => {
+  it.each(["production", "development"])("denies an unlisted admin on every endpoint in %s", async (mode) => {
     vi.stubEnv("NODE_ENV", mode);
-    mocks.access.mockResolvedValue({ ok: false, status: 403 });
+    vi.stubEnv("SANDBOX_DISCORD_IDS", "");
     const collection = await import("../app/api/sandbox/scenarios/route");
     const item = await import("../app/api/sandbox/scenarios/[id]/route");
     const validate = await import("../app/api/sandbox/validate/route");
@@ -111,7 +117,7 @@ describe("route access coverage", () => {
     expect(mocks.membership).not.toHaveBeenCalled();
     expect(createSandboxScenarioService(mocks.db!).list("guild")).toEqual([]);
   });
-  it("allows admin requests in production with no scenario env flag", async () => {
+  it("allows developer requests in production with no scenario env flag", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("DUEL_SCENARIOS", "0");
     const { POST } = await import("../app/api/sandbox/start/route");
@@ -135,9 +141,9 @@ describe("scenario routes", () => {
     expect((await item.DELETE(request("/", undefined, "DELETE"), idParams(saved.id))).status).toBe(200);
     expect((await item.GET(request("/", undefined, "GET"), idParams(saved.id))).status).toBe(404);
   });
-  it("lets another admin read and copy, but not update or delete", async () => {
+  it("lets another developer read and copy, but not update or delete", async () => {
     const saved = scenario();
-    mocks.auth.mockResolvedValue({ user: { id: "other", name: "Other" } });
+    mocks.auth.mockResolvedValue({ user: { id: otherDeveloper, name: "Other" } });
     const item = await import("../app/api/sandbox/scenarios/[id]/route");
     const collection = await import("../app/api/sandbox/scenarios/route");
     expect((await item.GET(request("/", undefined, "GET"), idParams(saved.id))).status).toBe(200);
@@ -272,7 +278,7 @@ describe("duel sandbox operations", () => {
     }
     expect(payloads()[0]).toEqual({ op, slug: session.slug, guildId: "guild", playerId: owner, ...fields });
   });
-  it("forwards the Manual seat for card search and checks sandbox admin access", async () => {
+  it("forwards the Manual seat for card search and checks sandbox developer access", async () => {
     const session = duel();
     const { GET } = await import("../app/api/duels/cards/route");
     const path = `/api/duels/cards?slug=${session.slug}&q=Elf&as=1`;
@@ -310,7 +316,7 @@ describe("duel sandbox operations", () => {
     const response = await GET(request("/?as=0&reveal=false", undefined, "GET"), slugParams(session.slug));
     expect(response.status).toBe(200);
     expect(payloads()[0]).toMatchObject({ op: "view", as: 0, reveal: false });
-    expect(mocks.access).toHaveBeenCalledWith("admin", "admin");
+    expect(mocks.access).toHaveBeenCalledWith(developer, "member");
   });
   it("passes action query options without changing the command", async () => {
     const session = duel();
@@ -325,9 +331,9 @@ describe("duel sandbox operations", () => {
     expect((await GET(request(`/?${query}`, undefined, "GET"), slugParams(session.slug))).status).toBe(400);
     expect(mocks.post).not.toHaveBeenCalled();
   });
-  it.each(["view", "actions"])("requires admin on sandbox %s without query options", async (route) => {
+  it.each(["view", "actions"])("denies unlisted admins on sandbox %s without query options", async (route) => {
     const session = duel();
-    mocks.access.mockResolvedValue({ ok: false, status: 403 });
+    vi.stubEnv("SANDBOX_DISCORD_IDS", undefined);
     const view = await import("../app/api/duels/[slug]/route");
     const actions = await import("../app/api/duels/[slug]/actions/route");
     const response = route === "view" ? await view.GET(request("/", undefined, "GET"), slugParams(session.slug))

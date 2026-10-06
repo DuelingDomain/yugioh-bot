@@ -361,7 +361,7 @@ export function SandboxBuilder({
     return message || "Nothing to add.";
   }
 
-  /** Copy a code that holds the whole board and the bot settings. Another admin loads it with Import code. */
+  /** Copy a code that holds the whole board and the bot settings. Another developer loads it with Import code. */
   async function copyShareCode() {
     setProblem(null);
     const current = stateRef.current;
@@ -375,7 +375,7 @@ export function SandboxBuilder({
     }
     try {
       await navigator.clipboard.writeText(code);
-      say("Share code copied. Send it to another admin: Import code loads it.");
+      say("Share code copied. Send it to another developer: Import code loads it.");
     } catch {
       setDialog({ mode: "export", code });
     }
