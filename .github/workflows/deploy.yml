@@ -10,6 +10,9 @@ concurrency:
   group: deploy-production
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   deploy:
     name: Deploy to Production VM
@@ -54,14 +57,21 @@ jobs:
           node-version: "22"
           cache: npm
 
-      - name: Build pinned duel-engine bundle
+      - name: Install duel-engine build dependencies
         if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' && steps.bundle.outputs.cache-hit != 'true' }}
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
         run: |
           npm ci --ignore-scripts
           npx patch-package --error-on-fail
-          npm run duel:prepare
+
+      - name: Prepare card data and scripts
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' && steps.bundle.outputs.cache-hit != 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: npm run duel:prepare
+
+      - name: Build pinned duel-engine cores
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' && steps.bundle.outputs.cache-hit != 'true' }}
+        run: |
           docker pull docker.io/emscripten/emsdk:4.0.9@sha256:3c853ef9c3b4c2708da1adac2fdfdba49c775fdc4144ceef4989423963e96811
           npx tsx packages/duel-server/scripts/build-domain-core.ts
           npx tsx packages/duel-server/scripts/build-domain-core.ts standard

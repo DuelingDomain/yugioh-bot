@@ -121,14 +121,21 @@ jobs:
           node-version: "22"
           cache: npm
 
-      - name: Build pinned duel-engine bundle
+      - name: Install duel-engine build dependencies
         if: ${{ inputs.action == 'deploy' && steps.bundle.outputs.cache-matched-key == '' }}
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
         run: |
           npm ci --ignore-scripts
           npx patch-package --error-on-fail
-          npm run duel:prepare
+
+      - name: Prepare card data and scripts
+        if: ${{ inputs.action == 'deploy' && steps.bundle.outputs.cache-matched-key == '' }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: npm run duel:prepare
+
+      - name: Build pinned duel-engine cores
+        if: ${{ inputs.action == 'deploy' && steps.bundle.outputs.cache-matched-key == '' }}
+        run: |
           docker pull "$EMSDK_IMAGE"
           npx tsx packages/duel-server/scripts/build-domain-core.ts
           npx tsx packages/duel-server/scripts/build-domain-core.ts standard
