@@ -1,12 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type KeyboardEvent } from "react";
-import { Dices, Eraser, Play, Redo2, Undo2 } from "lucide-react";
+import { ClipboardPaste, Dices, Eraser, Link2, Play, Redo2, Share2, Undo2, UserMinus, UserPlus } from "lucide-react";
 import {
   DUEL_FORMATS,
   MULTI_CORE_UNAVAILABLE_MESSAGE,
   SANDBOX_LIMITS,
+  SANDBOX_START_PHASES,
   emptyCardQuery,
+  encodeSandboxShare,
   multiDomainBlockReason,
   multiplayerTablesBlockReason,
   type CardArchetype,
@@ -17,6 +19,8 @@ import {
   type DuelMode,
   type DuelTableCapabilities,
   type SandboxDuelistId,
+  type SandboxShare,
+  type SandboxStartPhase,
 } from "@yugidraft/shared/duels";
 import { CardBrowser } from "@/components/decks/card-browser";
 import { getDeckCardFacets } from "@/components/decks/api";
@@ -26,15 +30,20 @@ import { SandboxRequestError, defaultServices, pickByName, type BuilderServices 
 import {
   DEFAULT_DECK_SIZE,
   applyAction,
+  battleBlockReason,
   boardCodes,
   checkBuilderState,
   createBuilderState,
   createHistory,
   getEntry,
   historyReducer,
+  isEliminated,
+  loadBuilderState,
+  activeSeats,
   resolveCardListAsync,
   seatSummary,
   seatsOf,
+  supportsElimination,
   type CardLoc,
   type PileZone,
   type SandboxAction,
@@ -44,8 +53,11 @@ import { firstEmptySlot, routeCard, slotRefusal, zoneName, type AddTarget } from
 import { QuickAdd } from "./quick-add";
 import { SeatBoard, sameLoc, type SeatBoardActions } from "./seat-board";
 import { isSlotZone } from "./board-model";
+import { ShareDialog, shareErrorText, type ShareDialogMode } from "./share-dialog";
+import { SandboxTableView } from "./table-view";
 import type { CardInfoMap, SandboxDrag } from "./zone-slot";
 import styles from "./builder.module.css";
+import extra from "./builder-extras.module.css";
 
 const FORMAT_CHOICES: readonly { value: DuelFormat; label: string }[] = [
   { value: "1v1", label: "1v1" },
@@ -54,6 +66,14 @@ const FORMAT_CHOICES: readonly { value: DuelFormat; label: string }[] = [
   { value: "tag", label: "Tag" },
 ];
 const MASTER_RULES: readonly DuelMasterRule[] = [1, 2, 3, 4, 5];
+const PHASE_LABEL: Record<SandboxStartPhase, string> = {
+  draw: "Draw",
+  standby: "Standby",
+  main1: "Main 1",
+  battle: "Battle",
+  main2: "Main 2",
+  end: "End",
+};
 const PASTE_PARALLEL = 6;
 
 export interface SandboxBuilderProps {
@@ -132,6 +152,7 @@ export function SandboxBuilder({
   const [side, setSide] = useState<"quick" | "browse">("quick");
   const [busy, setBusy] = useState<"start" | "save" | "share" | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  const [dialog, setDialog] = useState<{ mode: ShareDialogMode; code?: string } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const requested = useRef(new Set<number>());
 
@@ -188,6 +209,7 @@ export function SandboxBuilder({
       return false;
     }
     dispatch(action);
+    if (result.notice) setStatus({ kind: "warn", text: result.notice });
     return true;
   }, []);
 
@@ -339,6 +361,39 @@ export function SandboxBuilder({
     return message || "Nothing to add.";
   }
 
+  /** Copy a code that holds the whole board and the bot settings. Another admin loads it with Import code. */
+  async function copyShareCode() {
+    setProblem(null);
+    const current = stateRef.current;
+    let code: string;
+    try {
+      const label = name?.trim();
+      code = encodeSandboxShare({ ...(label ? { name: label } : {}), board: current.board, run: current.run });
+    } catch (error) {
+      setProblem(shareErrorText(error));
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(code);
+      say("Share code copied. Send it to another admin: Import code loads it.");
+    } catch {
+      setDialog({ mode: "export", code });
+    }
+  }
+
+  /** Load a decoded share into the builder. Throws a text the dialog shows when this table cannot run it. */
+  function importShare(share: SandboxShare) {
+    const next = loadBuilderState(share.board, share.run);
+    const blocked = formatBlockReason(capabilities, next.board.format ?? "1v1", next.board.mode ?? "normal");
+    if (blocked) throw new Error(blocked);
+    dispatch({ type: "replace", state: next });
+    if (share.name && onNameChange && !(name ?? "").trim()) onNameChange(share.name);
+    setSeat("p0");
+    setOpen(null);
+    setProblem(null);
+    say(`Imported ${share.name ? `"${share.name}"` : "the board"}. Undo brings the old board back.`);
+  }
+
   async function run(kind: "start" | "save" | "share") {
     if (busy) return;
     setBusy(kind);
@@ -407,6 +462,9 @@ export function SandboxBuilder({
   }, [open]);
 
   const errorSeat = check.error ? (check.error.path.match(/^p[0-3]/)?.[0] ?? null) : null;
+  const battleReason = battleBlockReason(state.board);
+  const table = supportsElimination(state.board.format);
+  const outSeats = seats.filter((id) => isEliminated(state.board, id));
   const seatLabel = activeSeat === "p0" ? "P0 (You)" : activeSeat.toUpperCase();
 
   return (
@@ -491,6 +549,24 @@ export function SandboxBuilder({
           </label>
 
           <div className={styles.group}>
+            <label className={styles.legend} htmlFor="sbx-start-in">Start in</label>
+            <select
+              id="sbx-start-in"
+              className="input select"
+              value={state.board.startAt ?? "draw"}
+              aria-describedby={battleReason ? "sbx-start-hint" : undefined}
+              onChange={(event) => act({ type: "setStartAt", phase: event.target.value as SandboxStartPhase })}
+            >
+              {SANDBOX_START_PHASES.map((phase) => (
+                <option key={phase} value={phase} disabled={phase === "battle" && battleReason !== null}>
+                  {PHASE_LABEL[phase]} Phase
+                </option>
+              ))}
+            </select>
+            {battleReason ? <span id="sbx-start-hint" className={extra.startHint}>{battleReason}</span> : null}
+          </div>
+
+          <div className={styles.group}>
             <span className={styles.legend}>Seed</span>
             <div className={styles.seedRow}>
               <div className="seg" role="group" aria-label="Seed">
@@ -520,7 +596,17 @@ export function SandboxBuilder({
           </div>
           <div className={styles.spacer} />
           {!check.ok && check.error ? <p className={styles.invalid} role="alert">{check.error.path}: {check.error.message}</p> : null}
-          {onShare ? <button type="button" className="btn btn-secondary btn-sm" disabled={busy !== null} onClick={() => void run("share")}>Share</button> : null}
+          <button type="button" className="btn btn-quiet btn-sm" onClick={() => setDialog({ mode: "import" })} title="Load a board from a share code">
+            <ClipboardPaste size={14} aria-hidden /> Import code
+          </button>
+          <button type="button" className="btn btn-secondary btn-sm" disabled={!check.ok} onClick={() => void copyShareCode()} title="Copy a code that holds this whole board">
+            <Share2 size={14} aria-hidden /> Copy share code
+          </button>
+          {onShare ? (
+            <button type="button" className="btn btn-secondary btn-sm" disabled={busy !== null} onClick={() => void run("share")} title="Copy a link that starts this saved scenario">
+              <Link2 size={14} aria-hidden /> Copy link
+            </button>
+          ) : null}
           {onSave ? <button type="button" className="btn btn-secondary btn-sm" disabled={busy !== null || !check.ok} onClick={() => void run("save")}>{busy === "save" ? "Saving…" : saveLabel}</button> : null}
           <button type="button" className="btn btn-primary" disabled={busy !== null || !check.ok} onClick={() => void run("start")}>
             <Play size={15} aria-hidden /> {busy === "start" ? "Starting…" : "Start"}
@@ -534,24 +620,53 @@ export function SandboxBuilder({
           <div className={styles.seatTabs} role="tablist" aria-label="Seats">
             {seats.map((id) => {
               const sum = seatSummary(state, id);
+              const out = isEliminated(state.board, id);
+              const toggleReason = !table ? null : out ? null : (state.board.turn ?? "p0") === id ? "The turn player stays in." : activeSeats(state.board).length <= 2 ? "Two players must stay in." : null;
               return (
-                <button
-                  key={id}
-                  type="button"
-                  role="tab"
-                  aria-selected={id === activeSeat}
-                  className={styles.seatTab}
-                  data-error={errorSeat === id ? "true" : undefined}
-                  onClick={() => { setSeat(id); setOpen(null); }}
-                >
-                  <strong>{id.toUpperCase()}{id === "p0" ? " You" : ""}</strong>
-                  <span className="num">{sum.hand} hand · {sum.field} field · {sum.grave} GY</span>
-                </button>
+                <div key={id} className={extra.seatTabWrap}>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={id === activeSeat}
+                    className={styles.seatTab}
+                    data-error={errorSeat === id ? "true" : undefined}
+                    data-out={out ? "true" : undefined}
+                    onClick={() => { setSeat(id); setOpen(null); }}
+                  >
+                    <strong>{id.toUpperCase()}{id === "p0" ? " You" : ""}{out ? " (out)" : ""}</strong>
+                    <span className="num">{out ? "Out of the duel" : `${sum.hand} hand · ${sum.field} field · ${sum.grave} GY`}</span>
+                  </button>
+                  {table ? (
+                    <button
+                      type="button"
+                      className={cn("btn btn-quiet btn-sm", extra.outToggle)}
+                      aria-label={out ? `Put ${id.toUpperCase()} back in` : `Take ${id.toUpperCase()} out`}
+                      title={toggleReason ?? (out ? "Put this player back in. The seat comes back empty." : "Take this player out. Its cards go away and it keeps its place.")}
+                      disabled={toggleReason !== null}
+                      onClick={() => act({ type: "toggleEliminated", seat: id })}
+                    >
+                      {out ? <UserPlus size={14} aria-hidden /> : <UserMinus size={14} aria-hidden />} {out ? "Put in" : "Take out"}
+                    </button>
+                  ) : null}
+                </div>
               );
             })}
           </div>
           <p className={cn(styles.statusLine, status?.kind === "warn" && styles.statusWarn)} role="status" aria-live="polite">{status?.text ?? ""}</p>
-          <SeatBoard state={state} seat={activeSeat} infos={infos as CardInfoMap} armedCode={armed?.code ?? null} target={target} open={open} actions={actions} />
+          {table ? (
+            <SandboxTableView
+              state={state}
+              seat={activeSeat}
+              onSelectSeat={(id) => { setSeat(id); setOpen(null); }}
+              infos={infos as CardInfoMap}
+              armedCode={armed?.code ?? null}
+              target={target}
+              open={open}
+              actions={actions}
+            />
+          ) : (
+            <SeatBoard state={state} seat={activeSeat} infos={infos as CardInfoMap} armedCode={armed?.code ?? null} target={target} open={open} actions={actions} />
+          )}
           <p className={styles.note}>
             Cards are placed by script, like an EDOPro puzzle. They have no &ldquo;this turn&rdquo; state, equip links or counters, so a result here can differ from real play.
           </p>
@@ -587,6 +702,7 @@ export function SandboxBuilder({
           ) : null}
         </aside>
       </div>
+      {dialog ? <ShareDialog mode={dialog.mode} code={dialog.code} onImport={importShare} onClose={() => setDialog(null)} /> : null}
     </div>
   );
 }

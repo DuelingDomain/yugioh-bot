@@ -12,6 +12,7 @@
 import {
   DUEL_FORMATS,
   SANDBOX_LIMITS,
+  SANDBOX_START_PHASES,
   parseSandboxBoard,
   parseSandboxRun,
   seatCountFor,
@@ -27,6 +28,7 @@ import {
   type SandboxDuelistSetup,
   type SandboxRun,
   type SandboxStance,
+  type SandboxStartPhase,
 } from "@yugidraft/shared/duels";
 
 export const SANDBOX_SEATS: readonly SandboxDuelistId[] = ["p0", "p1", "p2", "p3"];
@@ -73,6 +75,10 @@ export type SandboxAction =
   | { type: "setTurn"; turn: SandboxDuelistId }
   | { type: "setDeckSize"; deckSize: number }
   | { type: "setAttackFirstTurn"; value: boolean }
+  /** Phase the duel starts in. The host walks the real engine from Draw Phase to it. */
+  | { type: "setStartAt"; phase: SandboxStartPhase }
+  /** 3-way and 4-way only. Out: the seat keeps its place, loses its cards, and cannot act. In: the seat comes back empty. */
+  | { type: "toggleEliminated"; seat: SandboxDuelistId }
   | { type: "setBotMode"; seat: 1 | 2 | 3; mode: SandboxBotMode }
   | { type: "setSeed"; seed: SandboxRun["seed"] | null };
 
@@ -84,6 +90,8 @@ export interface ApplyResult {
   added?: number;
   /** `paste`: cards dropped because the pile was full. */
   overflow?: number;
+  /** The action worked, but the model also changed something else. Show it to the owner. */
+  notice?: string;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -131,6 +139,35 @@ export function seatsOf(format: DuelFormat | undefined): SandboxDuelistId[] {
 
 export function seatIndex(seat: SandboxDuelistId): number {
   return SANDBOX_SEATS.indexOf(seat);
+}
+
+/** Formats that can have players out. */
+export function supportsElimination(format: DuelFormat | undefined): boolean {
+  return format === "ffa3" || format === "ffa4";
+}
+
+/** Seats that are out, in seat order. Always empty for 1v1 and Tag. */
+export function eliminatedSeats(board: SandboxBoard): SandboxDuelistId[] {
+  if (!supportsElimination(board.format)) return [];
+  const seats = seatsOf(board.format);
+  return SANDBOX_SEATS.filter((id) => seats.includes(id) && board.eliminated?.includes(id));
+}
+
+export function isEliminated(board: SandboxBoard, seat: SandboxDuelistId): boolean {
+  return eliminatedSeats(board).includes(seat);
+}
+
+/** Seats still in the duel. */
+export function activeSeats(board: SandboxBoard): SandboxDuelistId[] {
+  const out = eliminatedSeats(board);
+  return seatsOf(board.format).filter((id) => !out.includes(id));
+}
+
+/** Same rule as the shared parser: Battle Phase on turn 1 (turn player P0) needs "attack first turn". */
+export function battleBlockReason(board: SandboxBoard): string | null {
+  return (board.turn ?? "p0") === "p0" && board.attackFirstTurn !== true
+    ? "Battle Phase on turn 1 needs \u201cAttack on turn 1\u201d."
+    : null;
 }
 
 /** Slot count of a zone on this board. Monster slots 5 and 6 need Master Rule 4 or 5. */
@@ -204,6 +241,12 @@ function expand(setup: SandboxDuelistSetup | undefined): Work {
   return work;
 }
 
+function emptyWork(lp: number | undefined): Work {
+  const work = expand(undefined);
+  if (lp !== undefined) work.lp = lp;
+  return work;
+}
+
 /** Saved form of a slot entry: default position, default `summoned` and empty materials are left out. */
 function compactSlot(entry: SandboxCardEntry | null, zone: SlotZone): SandboxCardEntry | null {
   if (entry === null) return null;
@@ -250,9 +293,11 @@ function boardHead(board: SandboxBoard): SandboxBoard {
     masterRule: board.masterRule ?? 5,
     turn: board.turn ?? "p0",
     deckSize: board.deckSize ?? DEFAULT_DECK_SIZE,
-    startAt: "draw",
+    startAt: board.startAt ?? "draw",
   };
   if (board.attackFirstTurn === true) head.attackFirstTurn = true;
+  const out = eliminatedSeats(board);
+  if (out.length > 0) head.eliminated = out;
   return head;
 }
 
@@ -268,6 +313,8 @@ function fitDeckSize(head: SandboxBoard, works: WorkBoard): void {
 
 function build(head: SandboxBoard, works: WorkBoard): SandboxBoard {
   const board = boardHead(head);
+  // A seat that is out holds no cards. Its LP stays (the parser takes 0 to 999999 there).
+  for (const id of eliminatedSeats(board)) works[id] = emptyWork(works[id].lp);
   fitDeckSize(board, works);
   const seats = seatsOf(board.format);
   for (const id of seats) {
@@ -324,6 +371,7 @@ export function checkBuilderState(state: SandboxBuilderState): BoardCheck {
 
 function checkLoc(board: SandboxBoard, loc: CardLoc): void {
   if (!seatsOf(board.format).includes(loc.seat)) fail(`${loc.seat.toUpperCase()} is not a seat in ${board.format ?? "1v1"}.`);
+  if (isEliminated(board, loc.seat)) fail(`${loc.seat.toUpperCase()} is out. Put the player back in to change its cards.`);
   if (!Number.isInteger(loc.index) || loc.index < 0) fail("Bad position.");
   if (isSlotZone(loc.zone)) {
     if (loc.zone === "deckMaster" && board.mode !== "domain") fail("Deck Masters need Domain mode.");
@@ -533,8 +581,10 @@ function runAction(state: SandboxBuilderState, action: SandboxAction, result: Ap
         delete works[action.seat].lp;
         break;
       }
-      if (!Number.isInteger(action.lp) || action.lp < SANDBOX_LIMITS.lpMin || action.lp > SANDBOX_LIMITS.lpMax) {
-        fail(`LP must be a whole number from ${SANDBOX_LIMITS.lpMin} to ${SANDBOX_LIMITS.lpMax}.`);
+      // Same as the parser: a seat that is out may have 0 LP.
+      const lpMin = isEliminated(board, action.seat) ? 0 : SANDBOX_LIMITS.lpMin;
+      if (!Number.isInteger(action.lp) || action.lp < lpMin || action.lp > SANDBOX_LIMITS.lpMax) {
+        fail(`LP must be a whole number from ${lpMin} to ${SANDBOX_LIMITS.lpMax}.`);
       }
       works[action.seat].lp = action.lp;
       break;
@@ -544,6 +594,11 @@ function runAction(state: SandboxBuilderState, action: SandboxAction, result: Ap
       head.format = action.format;
       // Seats outside the new format lose their cards; build() drops them. A turn on a lost seat goes back to P0.
       if (seatIndex(head.turn ?? "p0") >= seatCountFor(action.format)) head.turn = "p0";
+      // Players out only exist on 3-way and 4-way tables, and two must stay in.
+      head.eliminated = eliminatedSeats(head);
+      if (seatsOf(action.format).length - head.eliminated.length < 2) head.eliminated = [];
+      if (head.turn && head.eliminated.includes(head.turn)) head.eliminated = head.eliminated.filter((id) => id !== head.turn);
+      fixBattleStart(head, result);
       break;
     }
     case "setMode":
@@ -555,7 +610,9 @@ function runAction(state: SandboxBuilderState, action: SandboxAction, result: Ap
       break;
     case "setTurn":
       if (!seatsOf(head.format).includes(action.turn)) fail(`${action.turn.toUpperCase()} is not a seat in ${head.format}.`);
+      if (isEliminated(board, action.turn)) fail(`${action.turn.toUpperCase()} is out. The turn player must stay in.`);
       head.turn = action.turn;
+      fixBattleStart(head, result);
       break;
     case "setDeckSize": {
       if (!Number.isInteger(action.deckSize) || action.deckSize < 0 || action.deckSize > SANDBOX_LIMITS.deckSize) {
@@ -569,7 +626,31 @@ function runAction(state: SandboxBuilderState, action: SandboxAction, result: Ap
     case "setAttackFirstTurn":
       if (action.value) head.attackFirstTurn = true;
       else delete head.attackFirstTurn;
+      fixBattleStart(head, result);
       break;
+    case "setStartAt": {
+      if (!(SANDBOX_START_PHASES as readonly string[]).includes(action.phase)) fail("Unknown phase.");
+      if (action.phase === "battle") {
+        const reason = battleBlockReason(head);
+        if (reason) fail(reason);
+      }
+      head.startAt = action.phase;
+      break;
+    }
+    case "toggleEliminated": {
+      if (!supportsElimination(head.format)) fail("Only 3-way and 4-way tables can have players out.");
+      if (!seatsOf(head.format).includes(action.seat)) fail(`${action.seat.toUpperCase()} is not a seat in ${head.format}.`);
+      const out = new Set(eliminatedSeats(head));
+      if (out.has(action.seat)) {
+        out.delete(action.seat);
+      } else {
+        if ((head.turn ?? "p0") === action.seat) fail(`${action.seat.toUpperCase()} is the turn player. Pick another turn player first.`);
+        if (seatsOf(head.format).length - out.size - 1 < 2) fail("At least two players must stay in.");
+        out.add(action.seat);
+      }
+      head.eliminated = SANDBOX_SEATS.filter((id) => out.has(id));
+      break;
+    }
     case "setBotMode": {
       if (![1, 2, 3].includes(action.seat)) fail("Seat 0 is always manual.");
       if (!["pass", "practice", "manual"].includes(action.mode)) fail("Unknown bot mode.");
@@ -587,6 +668,14 @@ function runAction(state: SandboxBuilderState, action: SandboxAction, result: Ap
   }
 
   return { board: build(head, works), run: runValue };
+}
+
+/** The start phase must stay legal when the turn player or "attack on turn 1" changes. Fall back to Main 1 and say so. */
+function fixBattleStart(head: SandboxBoard, result: ApplyResult): void {
+  if (head.startAt === "battle" && battleBlockReason(head)) {
+    head.startAt = "main1";
+    result.notice = "Start phase changed to Main 1: Battle Phase on turn 1 needs \u201cAttack on turn 1\u201d.";
+  }
 }
 
 function moveCard(board: SandboxBoard, works: WorkBoard, from: CardLoc, to: CardLoc): void {
@@ -852,7 +941,7 @@ export interface BuilderHistory {
   future: SandboxBuilderState[];
 }
 
-export type HistoryAction = SandboxAction | { type: "undo" } | { type: "redo" } | { type: "load"; state: SandboxBuilderState };
+export type HistoryAction = SandboxAction | { type: "undo" } | { type: "redo" } | { type: "load"; state: SandboxBuilderState } | { type: "replace"; state: SandboxBuilderState };
 
 const HISTORY_LIMIT = 50;
 
@@ -873,6 +962,11 @@ export function historyReducer(history: BuilderHistory, action: HistoryAction): 
     return { past: [...history.past, history.present].slice(-HISTORY_LIMIT), present: next, future: history.future.slice(1) };
   }
   if (action.type === "load") return createHistory(action.state);
+  // Import: swap the whole board but keep undo, so a wrong code is one step back.
+  if (action.type === "replace") {
+    if (JSON.stringify(action.state) === JSON.stringify(history.present)) return history;
+    return { past: [...history.past, history.present].slice(-HISTORY_LIMIT), present: action.state, future: [] };
+  }
   const { state, error } = applyAction(history.present, action);
   if (error || JSON.stringify(state) === JSON.stringify(history.present)) return history;
   return { past: [...history.past, history.present].slice(-HISTORY_LIMIT), present: state, future: [] };
