@@ -1,3 +1,4 @@
+import Database from "better-sqlite3";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -42,13 +43,33 @@ describe("prepared candidate report", () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("Prepared scripts pin differs from candidate");
   });
-  it("records probe setup failures and overlay status without failing validation", () => {
+  it("blocks an incomplete artwork scan while preserving probe and overlay findings", () => {
     const f = fixture(true);
     const result = f.run();
-    expect(result.status, result.stderr).toBe(0);
+    expect(result.status, result.stderr).toBe(1);
     const report = readFileSync(join(f.root, "report.md"), "utf8");
+    expect(report).toContain("BLOCKING: artwork script safety scan failed");
     expect(report).toContain("probe errors 1, overlay check exit 1");
     expect(report).toContain("overlay drift");
     expect(JSON.parse(readFileSync(join(f.root, "probe.json"), "utf8")).errors).toHaveLength(1);
   });
+});
+
+it("writes a blocking report and fails validation for artwork script fallback", () => {
+  const f = fixture(true);
+  const db = new Database(join(f.data, "cards.cdb"));
+  db.exec(`create table datas (id integer primary key, ot integer, alias integer, setcode integer, type integer, atk integer, def integer, level integer, race integer, attribute integer);
+    create table texts (id integer primary key, name text, desc text);
+    insert into datas values (10,3,0,0,33,1000,1000,4,1,1),(11,3,10,0,33,1000,1000,4,1,1);
+    insert into texts values (10,'Dragon',''),(11,'Dragon','');`); db.close();
+  mkdirSync(join(f.data, "card-scripts"));
+  writeFileSync(join(f.data, "strings.conf"), "");
+  writeFileSync(join(f.data, "card-scripts/c10.lua"), "local s,id=GetID()\nfunction s.initial_effect(c) end");
+  const result = f.run();
+  expect(result.status, result.stderr).toBe(1);
+  const report = readFileSync(join(f.root, "report.md"), "utf8");
+  expect(report).toContain("BLOCKING: 1 artwork script fallback");
+  expect(report).toContain("c11.lua → c10.lua");
+  expect(report).toContain("GetID()");
+  expect(readFileSync(join(f.root, "pr-body.md"), "utf8")).toBe(report);
 });

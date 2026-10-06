@@ -16,8 +16,8 @@ const engineCache = new Map<string, { mtime: number; cards: CardIdentityCatalog 
 let warnedMissingIdentity = false;
 
 /** Share the engine's artwork identity rule without opening its database for writes. */
-export function loadArtworkIdentityCatalog(): CardIdentityCatalog {
-  const path = resolve(process.cwd(), process.env.DUEL_DATA_DIR ?? "data/duel-engine", "cards.cdb");
+export function loadArtworkIdentityCatalog(dataDirectory = process.env.DUEL_DATA_DIR ?? "data/duel-engine"): CardIdentityCatalog {
+  const path = resolve(dataDirectory, "cards.cdb");
   if (!existsSync(path)) {
     if (!warnedMissingIdentity) {
       console.warn(`[card-artworks] Engine identity is missing at ${path}; artwork sync will preserve known mains, prefer the API passcode, or fall back to the lowest passcode.`);

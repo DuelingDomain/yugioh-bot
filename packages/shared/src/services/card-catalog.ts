@@ -332,6 +332,12 @@ export function createCardCatalogService(
       );
       // All foreign-key targets exist before artwork mappings are inserted.
       for (const parent of previousParents) db.prepare("update card_artworks set is_main = 0 where card_id = ?").run(parent);
+      // Retained engine-only arts are deliberately absent from API images, but
+      // must follow a reconciled family main without gaining API provenance.
+      for (const image of known) {
+        if (image.source === "engine") db.prepare("update card_artworks set card_id = ?, is_main = ? where artwork_id = ?")
+          .run(cardId, Number(image.artwork_id === cardId), image.artwork_id);
+      }
       for (const [artworkId, image] of images) upsertArtwork.run(cardId, artworkId, image.image_url,
         image.image_url_small, image.image_url_cropped ?? null, Number(artworkId === cardId));
       if (synthesizedMain) db.prepare("update card_artworks set source = 'engine' where artwork_id = ?").run(cardId);
@@ -384,8 +390,11 @@ export function createCardCatalogService(
   // supplies their image record. The image route can still try their own URL.
   const ensureEngineArtwork = (id: number) => {
     if (artworkById.get(id)) return;
-    const originalId = canonicalCardCode(id, engineIdentity());
-    if (originalId === id) return;
+    const engineMain = canonicalCardCode(id, engineIdentity());
+    if (engineMain === id) return;
+    // The catalog may have been synced without engine data. Preserve its established
+    // family main until a full sync reconciles it, just as canonicalId does.
+    const originalId = canonicalId(engineMain);
     const row = catalogRowById.get(originalId) as any;
     if (!row) return;
     if (!artworkById.get(originalId)) {
@@ -432,19 +441,21 @@ export function createCardCatalogService(
 
   return {
     /** One full API dump, one transaction per existing family; callback runs only after commit. */
-    async backfillExistingArtworks(options: { afterId?: number; onProgress?: (id: number) => void } = {}) {
+    async backfillExistingArtworks(options: { afterId?: number; dryRun?: boolean; onProgress?: (id: number) => void } = {}) {
       const rows = db.prepare("select ygoprodeck_id, name, type from card_catalog").all() as Array<{ ygoprodeck_id: number; name: string; type: string }>;
       const key = (card: { name: string; type: string }) => JSON.stringify([normalizeName(card.name), card.type]);
       const wanted = new Set(rows.map(key));
       const cards = (await fetchCardsWith({})).filter(card => wanted.has(key(card))).sort((a, b) => a.id - b.id);
       const matched = new Set(cards.map(key));
+      const unmatched = rows.filter(row => !matched.has(key(row))).map(row => row.ygoprodeck_id).sort((a, b) => a - b);
+      if (options.dryRun) return { synced: 0, wouldSync: cards.filter(card => card.id > (options.afterId ?? 0)).length, unmatched };
       let synced = 0;
       for (const card of cards) {
         if (card.id <= (options.afterId ?? 0)) continue;
         synced += upsertCards([card]).length;
         options.onProgress?.(card.id);
       }
-      return { synced, unmatched: rows.filter(row => !matched.has(key(row))).map(row => row.ygoprodeck_id).sort((a, b) => a - b) };
+      return { synced, unmatched };
     },
 
     async syncDraftPool(input: SyncDraftPoolInput) {

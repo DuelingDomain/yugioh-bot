@@ -39,7 +39,12 @@ export interface CardDatabase {
   close(): void;
 }
 
-const cache = new Map<string, CardDatabase>();
+export interface LoadedCardDatabase extends CardDatabase {
+  /** Alternate scripts that would load a main script under a different GetID context. */
+  artworkScriptFallbacks(): Array<{ passcode: number; main: number }>;
+}
+
+const cache = new Map<string, LoadedCardDatabase>();
 
 function asNumber(value: number | bigint): number {
   return typeof value === "bigint" ? Number(value) : value;
@@ -124,7 +129,7 @@ function parseConf(contents: string, prefix: string): Map<number, string> {
   return values;
 }
 
-function loadFromDisk(root: string): CardDatabase {
+function loadFromDisk(root: string): LoadedCardDatabase {
   const cdbPath = join(root, "cards.cdb");
   const stringsPath = join(root, "strings.conf");
   const scriptRoot = join(root, "card-scripts");
@@ -210,6 +215,13 @@ function loadFromDisk(root: string): CardDatabase {
     });
   }
 
+  // Resolve after the whole catalog is loaded: an alias target may appear later.
+  for (const [code, card] of deckCards) {
+    const canonicalPasscode = canonicalCardCode(code, deckCards);
+    card.canonicalPasscode = canonicalPasscode;
+    info.get(code)!.canonicalPasscode = canonicalPasscode;
+  }
+
   const stringsFile = readFileSync(stringsPath, "utf8");
   const system = parseConf(stringsFile, "system");
   const victory = parseConf(stringsFile, "victory");
@@ -217,7 +229,8 @@ function loadFromDisk(root: string): CardDatabase {
   const setnames = parseConf(stringsFile, "setname");
   const scripts = indexScripts(scriptRoot);
 
-  const database: CardDatabase = {
+  const warnedFallbacks = new Set<string>();
+  const database: LoadedCardDatabase = {
     search(query: string, matches?: (card: OcgCardData) => boolean) {
       const needle = query.trim().toLowerCase();
       if (!needle && !matches) return [];
@@ -289,11 +302,24 @@ function loadFromDisk(root: string): CardDatabase {
           const main = canonicalCardCode(Number(match[1]), deckCards);
           scriptName = `c${main}.lua`;
           file = scripts.get(scriptName);
-          if (file) resolvedName = scriptName;
+          if (file) {
+            resolvedName = scriptName;
+            if (!warnedFallbacks.has(normalized)) {
+              warnedFallbacks.add(normalized);
+              console.warn(`[cards] Artwork script fallback ${normalized} → ${scriptName}; core self_code and GetID() remain ${match[1]}, not ${main}. Validate this engine bundle before deployment.`);
+            }
+          }
         }
       }
       const original = file ? readFileSync(file, "utf8") : null;
       return overlay ? overlay.apply(resolvedName, original) : original;
+    },
+    artworkScriptFallbacks() {
+      return [...deckCards.keys()].flatMap(passcode => {
+        if (scripts.has(`c${passcode}.lua`)) return [];
+        const main = canonicalCardCode(passcode, deckCards);
+        return main !== passcode && scripts.has(`c${main}.lua`) ? [{ passcode, main }] : [];
+      }).sort((a, b) => a.passcode - b.passcode);
     },
     close() {
       cache.delete(root);
@@ -303,7 +329,7 @@ function loadFromDisk(root: string): CardDatabase {
 }
 
 /** Loads CDB, strings, and script index. Cached per absolute data directory. */
-export function loadCardDatabase(dataDirectory: string): CardDatabase {
+export function loadCardDatabase(dataDirectory: string): LoadedCardDatabase {
   const root = resolve(dataDirectory);
   const existing = cache.get(root);
   if (existing) return existing;

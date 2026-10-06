@@ -53,6 +53,7 @@ const NEEDS_ENGINE = [
   "tests/engine-eliminate.test.ts",
   "tests/engine-elimination-order.test.ts",
   "tests/engine-multi-scripts.test.ts",
+  "tests/engine-artwork-start.test.ts",
   "tests/engine-events.test.ts",
   "tests/engine-first-seat.test.ts",
   "tests/engine-master-rule.test.ts",

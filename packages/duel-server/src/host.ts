@@ -2222,7 +2222,7 @@ export function createDuelHost(options: {
       const missing: number[] = [];
       for (const code of new Set<number>(body.codes)) {
         const card = catalog.deckCard(code);
-        if (card) cards.push(card);
+        if (card) cards.push({ ...card, altArtCount: (cardArtworkFamily(catalog, code)?.artworks.length ?? 1) - 1 });
         else missing.push(code);
       }
       return { cards, missing };

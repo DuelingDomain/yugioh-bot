@@ -6,7 +6,7 @@ import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { createCardCatalogService, createCubeService, createPlayerService } from "@yugidraft/shared/services";
 import { isPasscode, loadCardArtworkFamily } from "@/lib/card-artworks";
-import { swapCubeArtwork } from "@/lib/cube-artworks";
+import { CubeArtworkConflict, swapCubeArtwork } from "@/lib/cube-artworks";
 import { cubeDetail } from "@/lib/cube-detail";
 import { importYdkIntoCube } from "@/lib/cube-ydk";
 import { ensureCatalogCards, parsePoolEntries } from "@/lib/cube-pool";
@@ -53,7 +53,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         }
         const player = createPlayerService(db).findOrCreate(env.discordGuildId, actor.userId, actor.userName);
         const result = await loadCardArtworkFamily({ guildId: env.discordGuildId, playerId: player.id }, body.catalogCardId);
-        if (!result.ok) return result.response;
+        if (!result.ok) return result.response.status === 404
+          ? NextResponse.json({ error: "Source card not found in the duel engine" }, { status: 400 })
+          : result.response;
         swapCubeArtwork(db, cubeId, body.catalogCardId, body.artworkPasscode, result.family);
         break;
       }
@@ -113,7 +115,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const fetchFailure = cardFetchErrorResponse(error);
     if (fetchFailure) return fetchFailure;
     const message = error instanceof Error ? error.message : "Cube update failed";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return NextResponse.json({ error: message }, { status: error instanceof CubeArtworkConflict ? 409 : 400 });
   }
 
   return NextResponse.json(cubeDetail(cubeId, cubes, catalog));
