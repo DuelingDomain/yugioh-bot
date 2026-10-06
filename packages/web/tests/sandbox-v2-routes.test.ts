@@ -92,14 +92,14 @@ describe("save-state", () => {
     expect(response.status).toBe(200);
     const [saved] = scenarios().list("guild");
     expect(saved).toMatchObject({ name: "Live state", ownerPlayerId: owner, board: snapshot.board, run: snapshot.run });
-    expect(await response.json()).toEqual({ scenarioId: saved.id, lost: snapshot.lost });
+    expect(await response.json()).toEqual({ scenario: { id: saved.id, name: saved.name }, lost: snapshot.lost });
     expect(payloads()).toEqual([{ op: SANDBOX_OPS.snapshot, slug, guildId: "guild", playerId: owner }]);
   });
   it("updates only the selected scenario owned by the caller", async () => {
     const saved = scenarios().create("guild", owner, { name: "Before", board: {}, run: snapshot.run });
     const response = await sandbox(request({ action: "save-state", name: "After", scenarioId: saved.id }), params(slug));
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ scenarioId: saved.id, lost: snapshot.lost });
+    expect(await response.json()).toEqual({ scenario: { id: saved.id, name: "After" }, lost: snapshot.lost });
     expect(scenarios().list("guild")).toHaveLength(1);
     expect(scenarios().get(saved.id, "guild")).toMatchObject({ name: "After", board: snapshot.board, run: snapshot.run });
   });

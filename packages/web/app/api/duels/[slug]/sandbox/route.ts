@@ -71,7 +71,7 @@ export async function POST(request: Request, { params }: Context) {
         const scenario = scenarioId === undefined
           ? actor.scenarios.create(actor.guildId, actor.playerId, write)
           : actor.scenarios.update(scenarioId, actor.guildId, actor.playerId, write);
-        return NextResponse.json({ scenarioId: scenario.id, lost: snapshot.lost });
+        return NextResponse.json({ scenario: { id: scenario.id, name: scenario.name }, lost: snapshot.lost });
       }
       case "close":
         input = { ...common, op: SANDBOX_OPS.close };
