@@ -95,13 +95,13 @@ export function pickKindOf(legalKeys: ReadonlySet<string>): PickKind {
   return field ? "field" : hand ? "hand" : null;
 }
 
-/** The pick bar as the room plans it (board px): its widest size and its height in one row, or stacked when narrow. */
 /** The HUD the pick bar keeps off when it docks at the bottom of the board at rest. */
 export const BAR_HUD = "[data-grid-controls], [data-view-reset], [data-camera-panel], [data-testid='hud-corner'], [data-testid='hud-top'], [data-testid='hud-master'], [data-opponent-bar], [data-table-chrome]";
 
 /** A target under the pick bar costs this many times what another zone under it costs. */
 const OTHER_WEIGHT = 1000;
 
+/** The pick bar as the room plans it (board px): its widest size and its height in one row, or stacked when narrow. */
 export const PICK_BAR = { max: 420, row: 400, rowHeight: 92, stackHeight: 136, edge: 12, clear: 6 } as const;
 
 const overlap = (a: GridRect, b: GridRect) =>
