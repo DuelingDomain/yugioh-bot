@@ -396,15 +396,15 @@ html:not(.js) .step .flip { transform: rotateY(180deg); }
 .foot a { color: var(--text-2); text-underline-offset: 3px; }
 .foot a:hover { color: var(--text); }
 
-/* ---------- privacy and not-found pages ---------- */
+/* ---------- privacy, terms and not-found pages ---------- */
 .brand-defs { position: absolute; }
-.page-privacy .nav, .page-404 .nav { position: relative; }
-.page-privacy .privacy-copy { width: min(65ch, 100% - var(--gut) * 2); margin: 0 auto; padding: 56px 0 96px; font-size: 18px; line-height: 1.75; overflow-wrap: anywhere; }
-.page-privacy h1 { font-size: clamp(44px, 7vw, 72px); line-height: 1.1; }
-.page-privacy .privacy-date { margin-top: 16px; color: var(--text-2); font-size: 15px; }
-.page-privacy h2 { margin-top: 40px; margin-bottom: 12px; font-size: clamp(23px, 3vw, 28px); line-height: 1.25; text-wrap: pretty; }
-.page-privacy .privacy-copy p + p { margin-top: 16px; }
-.page-privacy .privacy-copy a { color: var(--gold-hi); text-underline-offset: 4px; }
+.page-privacy .nav, .page-terms .nav, .page-404 .nav { position: relative; }
+.page-privacy .privacy-copy, .page-terms .privacy-copy { width: min(65ch, 100% - var(--gut) * 2); margin: 0 auto; padding: 56px 0 96px; font-size: 18px; line-height: 1.75; overflow-wrap: anywhere; }
+.page-privacy h1, .page-terms h1 { font-size: clamp(44px, 7vw, 72px); line-height: 1.1; }
+.page-privacy .privacy-date, .page-terms .privacy-date { margin-top: 16px; color: var(--text-2); font-size: 15px; }
+.page-privacy h2, .page-terms h2 { margin-top: 40px; margin-bottom: 12px; font-size: clamp(23px, 3vw, 28px); line-height: 1.25; text-wrap: pretty; }
+.page-privacy .privacy-copy p + p, .page-terms .privacy-copy p + p { margin-top: 16px; }
+.page-privacy .privacy-copy a, .page-terms .privacy-copy a { color: var(--gold-hi); text-underline-offset: 4px; }
 .page-404 { min-height: 100svh; display: flex; flex-direction: column; isolation: isolate; }
 .page-404 .error-bg { position: fixed; inset: 0; z-index: -1; pointer-events: none; background: radial-gradient(60% 70% at 50% 46%, rgba(124, 58, 237, .24), transparent 70%), radial-gradient(40% 50% at 12% 0%, rgba(245, 158, 11, .07), transparent 70%), linear-gradient(180deg, #0A0E1A, #0B1020 70%, #0A0E1A); }
 .page-404 .error-rings { position: fixed; left: 50%; top: 46%; width: min(1000px, 130vw); aspect-ratio: 1; translate: -50% -50%; color: var(--gold-soft); z-index: -1; pointer-events: none; }
@@ -418,7 +418,7 @@ html:not(.js) .step .flip { transform: rotateY(180deg); }
 .page-404 .btn { margin-top: 32px; text-decoration: none; height: auto; min-height: 54px; padding-block: 12px; }
 @media (max-width: 900px) {
   .foot .legal { flex: initial; }
-  .page-privacy .privacy-copy { padding-top: 32px; font-size: 17px; }
+  .page-privacy .privacy-copy, .page-terms .privacy-copy { padding-top: 32px; font-size: 17px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }

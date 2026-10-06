@@ -34,6 +34,8 @@ async function layout(page, notices = false) {
   const measurements = await page.evaluate(checkNotices => ({
     width: window.innerWidth, scroll: document.documentElement.scrollWidth,
     csp: window.cspErrors || [],
+    footerLinks: [...document.querySelectorAll('footer a[href="/privacy"], footer a[href="/terms"]')]
+      .map(el => [el.getAttribute('href'), el.textContent]),
     notices: checkNotices ? [...document.querySelectorAll('.claim-consent')].map(el => ({
       height: el.getBoundingClientRect().height, line: parseFloat(getComputedStyle(el).lineHeight),
       visible: getComputedStyle(el).display !== 'none', href: el.querySelector('a').getAttribute('href'),
@@ -42,6 +44,7 @@ async function layout(page, notices = false) {
   }), notices);
   assert(measurements.scroll <= measurements.width, JSON.stringify(measurements));
   assert.deepEqual(measurements.csp, []);
+  assert.deepEqual(measurements.footerLinks, [['/privacy', 'Privacy'], ['/terms', 'Terms']]);
   for (const notice of measurements.notices) {
     assert(notice.visible && notice.height > 0 && notice.href === '/privacy');
     assert(notice.right <= measurements.width);
@@ -65,10 +68,10 @@ try {
       if (reply.hold) await new Promise(resolve => { release = resolve; });
       await route.fulfill({ status: reply.status, contentType: 'application/json', body: JSON.stringify(reply.body) });
     });
-    for (const route of ['/', '/privacy', '/missing/deep/path']) {
+    for (const [route, shot] of [['/', 'index-idle'], ['/privacy', 'privacy'], ['/terms', 'terms'], ['/missing/deep/path', '404']]) {
       await visit(page, route, route.startsWith('/missing') ? 404 : 200);
       await layout(page, route === '/');
-      await page.screenshot({ path: path.join(output, `${width}-${route === '/' ? 'index-idle' : route === '/privacy' ? 'privacy' : '404'}.png`), fullPage: true });
+      await page.screenshot({ path: path.join(output, `${width}-${shot}.png`), fullPage: true });
     }
     for (const [state, reply] of Object.entries(states)) {
       mock = reply;

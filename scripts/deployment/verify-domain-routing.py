@@ -155,7 +155,8 @@ def main():
     public = ARTIFACTS / "public"
     public.mkdir()
     for file, text in {"index.html": "marketing index", "404.html": "marketing custom 404",
-                       "privacy.html": "privacy clean URL", "style.css": "body{}", "logo.svg": "<svg/>"}.items():
+                       "privacy.html": "privacy clean URL", "terms.html": "terms clean URL",
+                       "style.css": "body{}", "logo.svg": "<svg/>"}.items():
         (public / file).write_text(text)
     for name in ("sitemap.xml", "site.webmanifest", "robots.txt"):
         (public / name).write_bytes((ROOT / "site/public" / name).read_bytes())
@@ -186,13 +187,14 @@ def main():
     assert headers["x-content-type-options"] == "nosniff"
     assert headers["referrer-policy"] == "strict-origin-when-cross-origin"
     check(p, "marketing.localhost", status=304, extra=["-H", "If-None-Match: " + headers["etag"]])
-    check(p, "marketing.localhost", "/privacy", body="privacy clean URL")
-    check(p, "marketing.localhost", "/privacy.html", body="privacy clean URL")
+    for page in ("privacy", "terms"):
+        check(p, "marketing.localhost", f"/{page}", body=f"{page} clean URL")
+        check(p, "marketing.localhost", f"/{page}.html", body=f"{page} clean URL")
     _, headers, sitemap = check(p, "marketing.localhost", "/sitemap.xml")
     assert headers["content-type"].split(";")[0] in ("application/xml", "text/xml")
     assert headers["cache-control"] == "public, max-age=300, must-revalidate"
     urls = [node.text for node in ET.fromstring(sitemap).iter("{http://www.sitemaps.org/schemas/sitemap/0.9}loc")]
-    assert urls == ["https://duelingdomain.com/", "https://duelingdomain.com/privacy"], urls
+    assert urls == ["https://duelingdomain.com/", "https://duelingdomain.com/privacy", "https://duelingdomain.com/terms"], urls
     _, headers, manifest = check(p, "marketing.localhost", "/site.webmanifest")
     assert headers["content-type"] == "application/manifest+json", headers
     assert json.loads(manifest)["name"] == "Dueling Domain"
@@ -217,8 +219,10 @@ def main():
         for host in ("legacy.localhost", "www.legacy.localhost"):
             for path in ("/draft/abc?x=1", "/robots.txt"):
                 check(p, host, path, scheme=scheme, status=308, location="https://app.localhost" + path)
-        check(p, "www.marketing.localhost", "/privacy?x=1", scheme=scheme, status=308, location="https://marketing.localhost/privacy?x=1")
-    check(p, "marketing.localhost", "/privacy", scheme="http", status=308, location="https://marketing.localhost/privacy")
+        for page in ("privacy", "terms"):
+            check(p, "www.marketing.localhost", f"/{page}?x=1", scheme=scheme, status=308, location=f"https://marketing.localhost/{page}?x=1")
+    for page in ("privacy", "terms"):
+        check(p, "marketing.localhost", f"/{page}", scheme="http", status=308, location=f"https://marketing.localhost/{page}")
     check(p, "app.localhost", "/draft/abc", scheme="http", status=308, location="https://app.localhost/draft/abc")
     check(p, "198.51.100.2", "/draft/abc", scheme="http", status=308, location="https://app.localhost/draft/abc")
 

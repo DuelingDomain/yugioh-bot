@@ -81,7 +81,7 @@ def main():
                 assert 0 < len(value) <= 155, (name, 'description length', len(value))
                 descriptions.append(value)
             if tag == 'link':
-                expected = {'index.html': '/', 'privacy.html': '/privacy', '404.html': '/404.html'}[name]
+                expected = {'index.html': '/', 'privacy.html': '/privacy', 'terms.html': '/terms', '404.html': '/404.html'}[name]
                 assert value == 'https://duelingdomain.com' + expected, (name, 'canonical', value)
                 canonicals.append(value)
         assert page.find('link', rel='manifest', href='/site.webmanifest'), name
@@ -90,7 +90,9 @@ def main():
         assert foot in legal['ancestors']
         if disclaimer is None: disclaimer = legal['text']
         assert legal['text'] == disclaimer, name
-        assert any(e['attrs'].get('href') == '/privacy' and foot in e['ancestors'] for e in page.find('a')), name
+        footer_links = [(e['attrs'].get('href'), e['text']) for e in page.find('a')
+                        if foot in e['ancestors'] and e['attrs'].get('href') in ('/privacy', '/terms')]
+        assert footer_links == [('/privacy', 'Privacy'), ('/terms', 'Terms')], (name, 'footer links', footer_links)
         sponsor = 'ko' + 'nami'
         assert page.file.read_text().lower().count(sponsor) == 1, name
         assert sponsor in legal['text'].lower(), name
@@ -130,11 +132,22 @@ def main():
         print(f'PASS {name}: structure, unique IDs, one h1, metadata, links, image dimensions, footer')
     assert len(set(titles)) == len(pages) and len(set(descriptions)) == len(pages) and len(set(canonicals)) == len(pages)
     assert pages['404.html'].find('meta', name='robots', content='noindex')
-    privacy = pages['privacy.html']
-    for attr in ('og:title', 'og:description', 'og:url', 'og:image'):
-        assert privacy.find('meta', property=attr)
-    for attr in ('twitter:card', 'twitter:title', 'twitter:description', 'twitter:image'):
-        assert privacy.find('meta', name=attr)
+    for name in ('privacy.html', 'terms.html'):
+        page = pages[name]
+        title = Path(name).stem.title() + ' | Dueling Domain'
+        assert page.find('title')[0]['text'] == title, name
+        for attr in ('og:type', 'og:site_name', 'og:title', 'og:description', 'og:url',
+                     'og:image', 'og:image:width', 'og:image:height', 'og:image:alt'):
+            assert len(page.find('meta', property=attr)) == 1, (name, attr)
+        for attr in ('twitter:card', 'twitter:title', 'twitter:description', 'twitter:image', 'twitter:image:alt'):
+            assert len(page.find('meta', name=attr)) == 1, (name, attr)
+        assert page.find('meta', property='og:title', content=title), name
+        assert page.find('meta', name='twitter:title', content=title), name
+        canonical = page.find('link', rel='canonical')[0]['attrs']['href']
+        assert page.find('meta', property='og:url', content=canonical), name
+        assert all(script['attrs'].get('src') and not script['text'].strip()
+                   for script in page.find('script')), (name, 'inline script')
+        assert not page.find('style') and not any('style' in e['attrs'] for e in page.elements), (name, 'inline style')
     index = pages['index.html']
     visible = ' '.join(index.text)
     assert all(text in visible for text in ['Rip it', 'open.', 'Draft night', 'Domain format', 'No install', 'Tag & free-for-all', 'Season ladder', 'Behind glass, for now.', 'Join the list', 'Your wave opens', 'Your invite'])
@@ -155,7 +168,9 @@ def main():
         assert loc in canonicals and loc != 'https://duelingdomain.com/404.html', loc
         resolve(urlsplit(loc).path)
         assert re.fullmatch(r'\d{4}-\d{2}-\d{2}', url.find('{*}lastmod').text)
-    assert len(sitemap.getroot()) == 2
+    sitemap_urls = [url.find('{*}loc').text for url in sitemap.getroot()]
+    assert len(sitemap_urls) == len(set(sitemap_urls)) == 3
+    assert set(sitemap_urls) == set(canonicals) - {'https://duelingdomain.com/404.html'}
     assert 'Sitemap: https://duelingdomain.com/sitemap.xml' in (PUBLIC/'robots.txt').read_text()
     manifest = json.loads((PUBLIC/'site.webmanifest').read_text())
     assert manifest['theme_color'] == manifest['background_color'] == '#0A0E1A'
@@ -170,10 +185,10 @@ def main():
         assert not forbidden.search(file.name), file.name
         if file.suffix in ('.html', '.css', '.js', '.mjs', '.py', '.md', '.svg', '.txt', '.xml', '.webmanifest'):
             assert not forbidden.search(file.read_text()), file
-    for name in ('index.html', '404.html'):
+    for name in ('index.html', '404.html', 'terms.html'):
         assert 'discord' not in pages[name].file.read_text().lower(), name
     if google:
-        assert 'browser contacts Google' in privacy.file.read_text()
+        assert 'browser contacts Google' in pages['privacy.html'].file.read_text()
         print('FALLBACK: Google Fonts retained after sandbox DNS failure. Run self-host-fonts.py before launch.')
     else:
         for file in [*(PUBLIC.glob('*.html')), PUBLIC/'style.css', PUBLIC.parent/'src/og.html']:
@@ -185,8 +200,9 @@ def main():
         assert len(list((PUBLIC/'fonts').glob('*OFL.txt'))) == 2
         print('PASS local fonts: five faces, two preloads/page, licenses, no remote font references')
     print('PASS JSON-LD, sitemap, manifest, CSS URLs, consent persistence, IP text rules')
-    for comment in re.findall(r'<!-- OWNER: (.*?) -->', privacy.file.read_text()):
-        print('Owner confirmation:', comment)
+    for name in ('privacy.html', 'terms.html'):
+        for comment in re.findall(r'<!-- OWNER: (.*?) -->', pages[name].file.read_text()):
+            print(f'Owner confirmation ({name}):', comment)
 
 
 if __name__ == '__main__':
