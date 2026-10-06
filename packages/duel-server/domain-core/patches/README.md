@@ -169,6 +169,12 @@ The rest of that owner decision is implemented by:
 
 Removed links retain private storage until safe cleanup. Their original numeric IDs remain stable for living links that saved a target. In FFA, `Duel.GetCurrentChain()` returns the current living link's original ID; `Duel.GetCurrentChain(true)` counts completed living activations. `Duel.MPChainCount()` counts active links, including the current activation's target step. `Duel.MPPreviousChain([true])` returns the previous active link's original ID, or zero. FFA card suffixes use these helpers for counts and adjacency, save selected IDs before yielding, and tolerate a removed source when a living operation resolves. Tag keeps its existing functions; 1v1 does not load the suffixes.
 
+`0108-ffa-cost-elimination-response.patch` implements the 2026-10-06 R-FFA-CHAIN owner decision.
+QuickEffect refreshes a queued responder after activation costs remove links. A surviving chain starts after its
+newest living link; an empty chain is cleaned up before the single normal post-chain open round. It changes only
+FFA3/FFA4 paths with removed links. Tag and two-player paths are unchanged. Native checks:
+`cost-elimination-response`, `nduel-response-order`, `response-order`, `response-cursor`, `surrender-response-window`.
+
 ## How to add a patch
 
 1. Prepare the tree with all patches applied.
