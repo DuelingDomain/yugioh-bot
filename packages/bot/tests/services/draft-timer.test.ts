@@ -1,3 +1,4 @@
+import { createUserService } from "@yugidraft/shared/services";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "../../src/db/schema.js";
@@ -82,9 +83,9 @@ describe("draft timer service", () => {
 
   it("expires overdue picks and updates status", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-7", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-9", "Kaiba");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-7", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000116", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000117", "Kaiba");
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" }).id, yugi.id);
     app.drafts.join(draft.id, kaiba.id);
     seedDraftCatalog(app, 80);
     app.drafts.start(draft.id);
@@ -105,9 +106,9 @@ describe("draft timer service", () => {
 
   it("does not expire picks before deadline", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-7", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-9", "Kaiba");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-7", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000116", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000117", "Kaiba");
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" }).id, yugi.id);
     app.drafts.join(draft.id, kaiba.id);
     seedDraftCatalog(app, 80);
     app.drafts.start(draft.id);
@@ -127,9 +128,9 @@ describe("draft timer service", () => {
 
   it("recovers drafts on startup tick", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-7", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-9", "Kaiba");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-7", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000116", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000117", "Kaiba");
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" }).id, yugi.id);
     app.drafts.join(draft.id, kaiba.id);
     seedDraftCatalog(app, 80);
     app.drafts.start(draft.id);

@@ -1,3 +1,4 @@
+import { createUserService } from "@yugidraft/shared/services";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "../../src/db/schema.js";
@@ -82,7 +83,7 @@ function fakeSelectMenu(input: Partial<SelectMenuInteractionLike> = {}) {
     customId: "dashboard_create_event_format",
     channelId: "channel-1",
     guildId: "guild-1",
-    user: { id: "user-1", username: "Yugi" },
+    user: { id: "900000000000000112", username: "Yugi" },
     values: ["round_robin"],
     showModal: (modal) => {
       modals.push(modal);
@@ -98,12 +99,12 @@ function fakeSelectMenu(input: Partial<SelectMenuInteractionLike> = {}) {
 
 function cappedMenuDraft() {
   const app = setup();
-  const player = app.players.upsert("guild-1", "user-7", "Yugi");
-  const other = app.players.upsert("guild-1", "user-9", "Kaiba");
+  const player = app.players.upsert("guild-1", "900000000000000116", "Yugi");
+  const other = app.players.upsert("guild-1", "900000000000000117", "Kaiba");
   seedDraftCatalog(app, 16);
   const draft = app.drafts.create("guild-1", "c", "cap messages", {
     packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8,
-  }, "user-7", player.id);
+  }, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" }).id, player.id);
   app.drafts.join(draft.id, other.id);
   app.drafts.start(draft.id);
   const pack = app.drafts.currentPackOptions(draft.id, player.id);
@@ -117,7 +118,7 @@ function cappedMenuDraft() {
     }
   };
   const menu = () => fakeSelectMenu({
-    customId: `draft_pick_card:${draft.id}`, user: { id: "user-7", username: "Yugi" }, values: [String(pack[0].id)],
+    customId: `draft_pick_card:${draft.id}`, user: { id: "900000000000000116", username: "Yugi" }, values: [String(pack[0].id)],
   });
   return { app, draft, player, pack, cap, menu };
 }
@@ -241,16 +242,16 @@ describe("select menu interactions", () => {
 
   it("records a draft pick from select menu and replies with card name", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-7", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-9", "Kaiba");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-7", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000116", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000117", "Kaiba");
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" }).id, yugi.id);
     app.drafts.join(draft.id, kaiba.id);
     seedDraftCatalog(app, 80);
     app.drafts.start(draft.id);
     const yugiOptions = app.drafts.pickOptions(draft.id, yugi.id);
     const { interaction, replies } = fakeSelectMenu({
       customId: `draft_pick_card:${draft.id}`,
-      user: { id: "user-7", username: "Yugi" },
+      user: { id: "900000000000000116", username: "Yugi" },
       values: [String(yugiOptions[0].id)],
     });
 
@@ -265,9 +266,9 @@ describe("select menu interactions", () => {
 
   it("updates status after the final player picks a step", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-7", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-9", "Kaiba");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-7", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000116", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000117", "Kaiba");
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" }).id, yugi.id);
     app.drafts.join(draft.id, kaiba.id);
     seedDraftCatalog(app, 80);
     app.drafts.start(draft.id);
@@ -277,7 +278,7 @@ describe("select menu interactions", () => {
     await handleSelectMenu(
       fakeSelectMenu({
         customId: `draft_pick_card:${draft.id}`,
-        user: { id: "user-7", username: "Yugi" },
+        user: { id: "900000000000000116", username: "Yugi" },
         values: [String(yugiOptions[0].id)],
       }).interaction,
       app,
@@ -288,7 +289,7 @@ describe("select menu interactions", () => {
     await handleSelectMenu(
       fakeSelectMenu({
         customId: `draft_pick_card:${draft.id}`,
-        user: { id: "user-9", username: "Kaiba" },
+        user: { id: "900000000000000117", username: "Kaiba" },
         values: [String(kaibaOptions[0].id)],
       }).interaction,
       app,
@@ -300,9 +301,9 @@ describe("select menu interactions", () => {
 
   it("records draft picks from direct message prompts", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-7", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-9", "Kaiba");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-7", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000116", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000117", "Kaiba");
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" }).id, yugi.id);
     app.drafts.join(draft.id, kaiba.id);
     seedDraftCatalog(app, 80);
     app.drafts.start(draft.id);
@@ -310,7 +311,7 @@ describe("select menu interactions", () => {
     const { interaction, replies } = fakeSelectMenu({
       customId: `draft_pick_card:${draft.id}`,
       guildId: null,
-      user: { id: "user-7", username: "Yugi" },
+      user: { id: "900000000000000116", username: "Yugi" },
       values: [String(yugiOptions[0].id)],
     });
 
@@ -324,9 +325,9 @@ describe("select menu interactions", () => {
 
   it("tells a player they already picked when they try again", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-7", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-9", "Kaiba");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-7", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000116", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000117", "Kaiba");
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" }).id, yugi.id);
     app.drafts.join(draft.id, kaiba.id);
     seedDraftCatalog(app, 80);
     app.drafts.start(draft.id);
@@ -335,7 +336,7 @@ describe("select menu interactions", () => {
     await handleSelectMenu(
       fakeSelectMenu({
         customId: `draft_pick_card:${draft.id}`,
-        user: { id: "user-7", username: "Yugi" },
+        user: { id: "900000000000000116", username: "Yugi" },
         values: [String(yugiOptions[0].id)],
       }).interaction,
       app,
@@ -343,7 +344,7 @@ describe("select menu interactions", () => {
 
     const { interaction, replies } = fakeSelectMenu({
       customId: `draft_pick_card:${draft.id}`,
-      user: { id: "user-7", username: "Yugi" },
+      user: { id: "900000000000000116", username: "Yugi" },
       values: [String(yugiOptions[1].id)],
     });
 

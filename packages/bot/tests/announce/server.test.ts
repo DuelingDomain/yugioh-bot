@@ -12,7 +12,7 @@ describe("announce server", () => {
     const handler = vi.fn();
     const app = createAnnounceServer({
       secret,
-      handlers: { onDraftCreated: handler, onDraftStarted: handler, onDraftCompleted: handler, onTournamentCreated: handler, onTournamentStarted: handler, onMatchReportPending: handler, onMatchResolved: handler, onTournamentCompleted: handler, onDuelInvite: handler },
+      handlers: { onDraftStatus: handler, onDraftCreated: handler, onDraftStarted: handler, onDraftCompleted: handler, onTournamentCreated: handler, onTournamentStarted: handler, onMatchReportPending: handler, onMatchResolved: handler, onTournamentCompleted: handler, onDuelInvite: handler },
     });
     const res = await app.handle(new Request("http://x/internal/announce/draft-created", {
       method: "POST",
@@ -28,6 +28,7 @@ describe("announce server", () => {
     const app = createAnnounceServer({
       secret,
       handlers: {
+        onDraftStatus: vi.fn(),
         onDraftCreated,
         onDraftStarted: vi.fn(),
         onDraftCompleted: vi.fn(),
@@ -48,4 +49,14 @@ describe("announce server", () => {
     expect(res.status).toBe(204);
     expect(onDraftCreated).toHaveBeenCalledWith({ draftId: 1, channelId: "c1", name: "Test", webSlug: "abcd1234" });
   });
+});
+
+it("dispatches signed draft-status", async () => {
+  const handler=vi.fn(async () => {});
+  const app=createAnnounceServer({secret,handlers:{onDraftCreated:handler,onDraftStarted:handler,onDraftCompleted:handler,
+    onDraftStatus:handler,onTournamentCreated:handler,onTournamentStarted:handler,onMatchReportPending:handler,
+    onMatchResolved:handler,onTournamentCompleted:handler,onDuelInvite:handler}});
+  const body=JSON.stringify({draftId:13});
+  const response=await app.handle(new Request("http://x/internal/announce/draft-status",{method:"POST",headers:{"x-announce-signature":sign(body)},body}));
+  expect(response.status).toBe(204); expect(handler).toHaveBeenCalledWith({draftId:13});
 });

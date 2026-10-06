@@ -1,3 +1,4 @@
+import { createPlayerService } from "@yugidraft/shared/services";
 import Database from "better-sqlite3";
 import { describe, expect, it, vi } from "vitest";
 import { migrate } from "../../src/db/schema.js";
@@ -6,8 +7,8 @@ import { deleteNotifyMessage } from "../../src/lib/notify-message.js";
 function dbWithMatch(notify: { channel: string | null; message: string | null }) {
   const db = new Database(":memory:");
   migrate(db);
-  const a = Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g','a','A')").run().lastInsertRowid);
-  const b = Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g','b','B')").run().lastInsertRowid);
+  const a = createPlayerService(db).findOrCreateByDiscord("g", "900000000000000101", "A").id;
+  const b = createPlayerService(db).findOrCreateByDiscord("g", "900000000000000102", "B").id;
   const id = Number(
     db.prepare(
       "insert into matches (guild_id, player_one_id, player_two_id, reporter_id, status, source, notify_channel_id, notify_message_id) values ('g',?,?,?, 'approved','tournament',?,?)",
