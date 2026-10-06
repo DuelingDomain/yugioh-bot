@@ -1,27 +1,17 @@
 import {afterEach,expect,it,vi} from "vitest";
-import {recordingTransport, type SignedPostTransport} from "@yugidraft/shared/notify";
-import {createEffects, effectsFromEnv, type WorkerEffects} from "../src/effects.js";
+import {recordingTransport, type AnnouncePayload} from "@yugidraft/shared/notify";
+import {createEffects, effectsFromEnv} from "../src/effects.js";
 afterEach(() => {vi.restoreAllMocks();vi.unstubAllGlobals();});
-// T6 MERGE GATE: replace this local typed contract stub and the test-only cast
-// with shared AnnouncePayload once T6's draft-status variant is merged.
-// The real shared announcer/transport still runs in these tests.
-type AnnounceContractStub =
-  | {kind:"draft-status";draftId:number}
-  | {kind:"draft-completed";draftId:number;channelId:string;name:string;webSlug:string}
-  | {kind:"tournament-completed";tournamentId:number}
-  | {kind:"match-resolved";matchId:number};
-function effectsForContract(input:{enabled:boolean;ws:SignedPostTransport;bot:SignedPostTransport}) {
-  return createEffects(input) as Omit<WorkerEffects,"discord"> & {
-    discord(payload:AnnounceContractStub):Promise<void>;
-  };
-}
 it("keeps WS effects when Discord fails and forwards status/completion/resolve",async()=>{
   const ws=recordingTransport(),bot=recordingTransport();
-  const effects=effectsForContract({enabled:true,ws:ws.transport,bot:bot.transport});
-  await effects.discord({kind:"draft-status",draftId:13});
-  await effects.discord({kind:"draft-completed",draftId:13,channelId:"channel",name:"Draft",webSlug:"draft"});
-  await effects.discord({kind:"tournament-completed",tournamentId:11});
-  await effects.discord({kind:"match-resolved",matchId:7});
+  const effects=createEffects({enabled:true,ws:ws.transport,bot:bot.transport});
+  const payloads:AnnouncePayload[]=[
+    {kind:"draft-status",draftId:13},
+    {kind:"draft-completed",draftId:13,channelId:"channel",name:"Draft",webSlug:"draft"},
+    {kind:"tournament-completed",tournamentId:11},
+    {kind:"match-resolved",matchId:7},
+  ];
+  for(const payload of payloads) await effects.discord(payload);
   expect(bot.calls.map(c=>c.path)).toEqual(["draft-status","draft-completed","tournament-completed","match-resolved"].map(k=>`/internal/announce/${k}`));
   expect(bot.calls.map(c=>JSON.parse(c.body))).toEqual([
     {draftId:13},
@@ -38,7 +28,7 @@ it("keeps WS effects when Discord fails and forwards status/completion/resolve",
 });
 it("does no Discord I/O when disabled",async()=>{
   const ws=recordingTransport(),bot=recordingTransport();
-  const effects=effectsForContract({enabled:false,ws:ws.transport,bot:bot.transport});
+  const effects=createEffects({enabled:false,ws:ws.transport,bot:bot.transport});
   await effects.discord({kind:"draft-status",draftId:13});
   await effects.draft({kind:"complete",slug:"draft"});
   expect(bot.calls).toEqual([]);expect(ws.calls).toHaveLength(1);
