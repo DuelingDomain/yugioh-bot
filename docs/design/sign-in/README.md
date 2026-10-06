@@ -70,7 +70,7 @@ The brief intentionally removes the identifier field, divider and email Continue
 
 Error titles must not put alarming words in the gold `<em>` emphasis. Emphasise only neutral or positive words, such as “alpha”. In `err-banned`, “sign in” is plain title text. The archived screenshots predate this correction.
 
-## Open items
+## Decisions and notes
 
-- banned screen needs a contact route (owner to decide)
+- The `err-banned` screen's contact route is `support@duelingdomain.com`, shown as a `mailto:support@duelingdomain.com` link on its secondary `.btn.btn-alt` action with the visible text “Contact support” (owner, 2026-10-06).
 - The supplied A mock contains `.pack-hit`, `.pack-tilt`, and `--sx`/`--sy` lighting styles, but no pointer handler or tilt angles/easing. The application adds a small fine-pointer-only handler; that interaction cannot be compared exactly with the supplied mock. All supplied CSS motion values remain the reference.

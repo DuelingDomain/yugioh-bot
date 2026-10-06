@@ -89,7 +89,8 @@
       '<button type="button" class="btn btn-alt" data-go="signin">' + (kind === 'signin' ? 'Try a different email' : 'Back to sign in') + '</button></div>';
   }
   function banned() {
-    return '<div class="form" data-clerk="account-locked"><button type="button" class="btn btn-alt" data-go="signin">Back to sign in</button></div>';
+    return '<div class="form" data-clerk="account-locked"><button type="button" class="btn btn-alt" data-go="signin">Back to sign in</button>' +
+      '<a class="btn btn-alt" href="mailto:support@duelingdomain.com">Contact support</a></div>';
   }
   function signing() {
     return '<div class="form"><div class="signing" role="status" aria-live="polite"><span class="spinner" aria-hidden="true"></span><span>Opening Dueling Domain…</span></div></div>';
