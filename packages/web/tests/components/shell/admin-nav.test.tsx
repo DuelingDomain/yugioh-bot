@@ -71,8 +71,24 @@ describe("AppShell admin lookup", () => {
     expect(vi.mocked(global.fetch).mock.calls.some(([u]) => String(u).includes("/api/admin/access"))).toBe(false);
   });
 
+  it("does not use a hint that belongs to another user", async () => {
+    window.sessionStorage.setItem("dd:admin-hint", JSON.stringify({ admin: true, at: Date.now(), user: "someone-else" }));
+    stubFetch(undefined, undefined, undefined, false);
+    render(<AppShell><p>page</p></AppShell>);
+    await waitFor(() => expect(vi.mocked(global.fetch).mock.calls.some(([u]) => String(u).includes("/api/admin/access"))).toBe(true));
+    expect(screen.queryByRole("link", { name: "Card data" })).toBeNull();
+  });
+
+  it("clears the hint and asks nothing when nobody is signed in", async () => {
+    window.sessionStorage.setItem("dd:admin-hint", JSON.stringify({ admin: true, at: Date.now(), user: "Imran" }));
+    stubFetch({});
+    render(<AppShell><p>page</p></AppShell>);
+    await waitFor(() => expect(window.sessionStorage.getItem("dd:admin-hint")).toBeNull());
+    expect(vi.mocked(global.fetch).mock.calls.some(([u]) => String(u).includes("/api/admin/access"))).toBe(false);
+  });
+
   it("asks again once the hint is older than five minutes", async () => {
-    window.sessionStorage.setItem("dd:admin-hint", JSON.stringify({ admin: true, at: Date.now() - 6 * 60_000 }));
+    window.sessionStorage.setItem("dd:admin-hint", JSON.stringify({ admin: true, at: Date.now() - 6 * 60_000, user: "Imran" }));
     stubFetch(undefined, undefined, undefined, false);
     render(<AppShell><p>page</p></AppShell>);
     await waitFor(() => expect(vi.mocked(global.fetch).mock.calls.some(([u]) => String(u).includes("/api/admin/access"))).toBe(true));
