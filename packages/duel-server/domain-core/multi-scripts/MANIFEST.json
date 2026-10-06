@@ -2476,6 +2476,20 @@
       "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
     },
     {
+      "code": 27572350,
+      "file": "c27572350.lua",
+      "name": "Bystial Dis Pater",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "QUICK_O",
+      "redefined": [
+        "destg",
+        "desop"
+      ],
+      "stockSha256": "55bed0bfa7962b78ec92de728c506330b0000924299da156e42babc309943803",
+      "note": "Script fix (#217): own deck destroys, the deck of the opponent that activated the monster effect negates (Duel.MPChainSeat), any other deck does nothing else. Compares real seats, not 1-tp."
+    },
+    {
       "code": 27769400,
       "file": "c27769400.lua",
       "name": "Tualatin",
@@ -5514,7 +5528,7 @@
     {
       "code": 62098216,
       "file": "c62098216.lua",
-      "name": "Evil★Twins Ki-sikil & Lil-la",
+      "name": "Evil\u2605Twins Ki-sikil & Lil-la",
       "kind": "chooser",
       "classes": [
         "CHOOSER"
@@ -7194,7 +7208,7 @@
     {
       "code": 82699999,
       "file": "c82699999.lua",
-      "name": "Live☆Twin Lil-la Sweet",
+      "name": "Live\u2606Twin Lil-la Sweet",
       "kind": "hand",
       "classes": [
         "LEAVE"
