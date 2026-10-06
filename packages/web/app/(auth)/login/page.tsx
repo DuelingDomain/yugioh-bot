@@ -26,7 +26,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
       {message?.presentation === "panel" ? (
         <SignInErrorPanel
           title={message.title}
-          body={message.body}
+          body={marketingUrl && message.waitlistNote ? `${message.body} ${message.waitlistNote}` : message.body}
           action={<>
             {marketingUrl && <a className={`${styles.btn} ${styles["btn-primary"]}`} href={`${marketingUrl}/#join`}>Join the waitlist</a>}
             <a className={`${styles.btn} ${styles["btn-alt"]}`} href="/login">Try a different account</a>

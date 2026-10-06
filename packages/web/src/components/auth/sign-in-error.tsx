@@ -27,8 +27,13 @@ export function SignInBanner({ tone, children, code }: SignInBannerProps) {
   return (
     <div className={styles.banner} data-tone={tone} role={tone === "bad" ? "alert" : "status"}>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
-        <path d="M12 3 2.5 20h19Z" />
-        <path d="M12 10v4.5M12 17.4v.1" />
+        {tone === "info" ? <>
+          <circle cx="12" cy="12" r="9.5" />
+          <path d="M12 11v5.5M12 7.6v.1" />
+        </> : <>
+          <path d="M12 3 2.5 20h19Z" />
+          <path d="M12 10v4.5M12 17.4v.1" />
+        </>}
       </svg>
       <span>{children}{code && <span className={styles.code}>Error: {code}</span>}</span>
     </div>

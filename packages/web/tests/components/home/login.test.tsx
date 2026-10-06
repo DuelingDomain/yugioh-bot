@@ -42,15 +42,15 @@ async function renderPage(error?: string) {
 const banners = [
   {
     error: "OAuthCallbackError", tone: "info", role: "status",
-    copy: "Sign-in didn't finish. If you pressed Cancel on Discord, that's all this is. Try again when you're ready.",
+    copy: "Sign-in didn’t finish. If you pressed Cancel on Discord, that’s all this is. Try again when you’re ready.",
   },
   {
     error: "Configuration", tone: "bad", role: "alert",
-    copy: "Couldn't sign you in. The problem is on our side, not your Discord account. Try again in a minute.",
+    copy: "Couldn’t sign you in. The problem is on our side, not your Discord account. Try again in a minute.",
   },
   {
     error: "GuildMembershipUnavailable", tone: "bad", role: "alert",
-    copy: "Couldn't check your access just now. Try again in a minute.",
+    copy: "Couldn’t check your access just now. Try again in a minute.",
   },
 ];
 
@@ -95,11 +95,11 @@ describe("LoginPage", () => {
   it("maps GuildMembershipRequired to the full access panel with neutral emphasis", async () => {
     vi.stubEnv("MARKETING_URL", "https://marketing.example");
     const { container } = await renderPage("GuildMembershipRequired");
-    const title = screen.getByRole("heading", { level: 1, name: "This account isn't in the alpha yet" });
+    const title = screen.getByRole("heading", { level: 1, name: "Not in the alpha yet" });
     expect(title.querySelector("em")).toHaveTextContent(/^alpha$/);
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(container.querySelector('[data-screen="err-invite"]')).toContainElement(title);
-    screen.getByText("Access opens in waves. Join the waitlist and we'll email you when it's your turn.");
+    screen.getByText("Access opens in waves, and this Discord account isn’t in one yet. Join the waitlist and we’ll email you when it’s your turn.");
     const waitlist = screen.getByRole("link", { name: "Join the waitlist" });
     expect(waitlist).toHaveAttribute("href", "https://marketing.example/#join");
     expect(waitlist.className).toContain("btn-primary");
@@ -110,7 +110,7 @@ describe("LoginPage", () => {
 
   it("keeps the retry and diagnostic code for unknown errors", async () => {
     await renderPage("AccessDenied");
-    expect(screen.getByRole("alert")).toHaveTextContent("Sign-in didn't work. Try again when you're ready.");
+    expect(screen.getByRole("alert")).toHaveTextContent("Sign-in didn’t work. Try again when you’re ready.");
     expect(screen.getByRole("alert")).toHaveTextContent("Error: AccessDenied");
     screen.getByRole("button", { name: "Continue with Discord" });
   });
@@ -131,7 +131,11 @@ describe("LoginPage", () => {
     expect(screen.queryByRole("link", { name: "Dueling Domain, home" })).toBeNull();
     for (const name of ["Back to site", "Join the waitlist", "Privacy"]) expect(screen.queryByRole("link", { name })).toBeNull();
     expect(container.querySelectorAll('a[href^="http"]')).toHaveLength(0);
-    if (error) expect(screen.getByRole("link", { name: "Try a different account" })).toHaveAttribute("href", "/login");
+    if (error) {
+      screen.getByText("Access opens in waves, and this Discord account isn’t in one yet.");
+      expect(screen.queryByText(/Join the waitlist/)).toBeNull();
+      expect(screen.getByRole("link", { name: "Try a different account" })).toHaveAttribute("href", "/login");
+    }
   });
 
   it.each([undefined, ...banners.map(({ error }) => error), "GuildMembershipRequired", "AccessDenied"])("contains no retired or prohibited vocabulary (%s)", async (error) => {
@@ -158,6 +162,13 @@ describe("describeLoginError", () => {
   it("shows nothing without an error", () => {
     expect(describeLoginError(undefined)).toBeNull();
     expect(describeLoginError("")).toBeNull();
+  });
+
+  it("returns the access message and optional waitlist note without a marketing URL", () => {
+    expect(describeLoginError("GuildMembershipRequired")).toMatchObject({
+      body: "Access opens in waves, and this Discord account isn’t in one yet.",
+      waitlistNote: "Join the waitlist and we’ll email you when it’s your turn.",
+    });
   });
 });
 

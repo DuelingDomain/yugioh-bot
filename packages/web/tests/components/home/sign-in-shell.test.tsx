@@ -48,7 +48,7 @@ describe("SignInShell", () => {
     rerender(<SignInShell packState="open"><h1>Welcome</h1></SignInShell>);
     expect(container.querySelector("[data-pack-state]")).toHaveAttribute("data-pack-state", "open");
     expect(container.querySelector(`.${styles.pack}`)).toHaveClass(styles["is-open"], styles["mark-play"]);
-    expect(container.querySelector(`.${styles.t2}`)).toHaveTextContent("Pack's open");
+    expect(container.querySelector(`.${styles.t2}`)).toHaveTextContent("Pack’s open");
   });
 });
 

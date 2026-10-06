@@ -160,7 +160,7 @@ export function SignInShell({ children, marketingUrl, packState = "sealed", tone
               </svg>
             </i>
             <span className={styles["t1"]}>Sealed until you sign in</span>
-            <span className={styles["t2"]}>Pack's open</span>
+            <span className={styles["t2"]}>Pack’s open</span>
           </div>
         </div>
       </main>
