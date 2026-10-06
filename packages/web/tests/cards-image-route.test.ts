@@ -146,7 +146,7 @@ describe("GET /api/cards/[passcode]/image", () => {
     const first = await getImage("89631133");
     expect(first.headers.get("Cache-Control")).toBe("public, max-age=3600");
     const filename = cachePath("89631133", "full", "ignis");
-    const expired = new Date(Date.now() - 3600 * 1000 - 1);
+    const expired = new Date(Date.now() - 7 * 24 * 3600 * 1000 - 1);
     utimesSync(filename, expired, expired);
     const upstream = vi.fn(async () => new Response(new Uint8Array(ownArt)));
     vi.stubGlobal("fetch", upstream);
@@ -154,6 +154,75 @@ describe("GET /api/cards/[passcode]/image", () => {
     expect(readFileSync(cachePath("89631133"))).toEqual(ownArt);
     expect(upstream).toHaveBeenCalledWith(`${IMAGES}/89631133.jpg`, expect.anything());
     expect(upstream).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["full", "small"])("keeps six-day-old Ignis %s art without fetching", async variant => {
+    const filename = cachePath("89631133", variant, "ignis");
+    writeFileSync(filename, RITUAL_ART);
+    const sixDaysAgo = new Date(Date.now() - 6 * 24 * 3600 * 1000);
+    utimesSync(filename, sixDaysAgo, sixDaysAgo);
+
+    const response = await getImage("89631133", `?variant=${variant}`);
+
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(RITUAL_ART);
+    expect(response.headers.get("Cache-Control")).toBe("public, max-age=3600");
+    expect(fetched).toEqual([]);
+    expect(callDuelHost).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["primary", "network"], ["primary", "timeout"], ["primary", "429"], ["primary", "503"],
+    ["ignis", "network"], ["ignis", "403"], ["ignis", "503"], ["ignis", "404"],
+  ])("serves expired Ignis art after a %s %s refresh failure", async (source, failure) => {
+    const ownArt = await jpeg("expired alternate art");
+    const filename = cachePath("10000100", "full", "ignis");
+    writeFileSync(filename, ownArt);
+    writeFileSync(cachePath("5405694"), RITUAL_ART);
+    const expired = new Date(Date.now() - 8 * 24 * 3600 * 1000);
+    utimesSync(filename, expired, expired);
+    const upstream = vi.fn(async (url: string) => {
+      fetched.push(url);
+      if (source === "ignis" && url.startsWith(IMAGES)) return new Response("missing", { status: 404 });
+      if (failure === "network") throw new TypeError("offline");
+      if (failure === "timeout") throw new DOMException("timeout", "TimeoutError");
+      return new Response("unavailable", { status: Number(failure) });
+    });
+    vi.stubGlobal("fetch", upstream);
+
+    const response = await getImage("10000100");
+
+    expect(response.status).toBe(200);
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(ownArt);
+    expect(response.headers.get("Cache-Control")).toBe("public, max-age=3600");
+    expect(readFileSync(filename)).toEqual(ownArt);
+    expect(fetched).toEqual(source === "primary" ? [`${IMAGES}/10000100.jpg`]
+      : [`${IMAGES}/10000100.jpg`, `${IGNIS}/10000100.jpg`]);
+    expect(requireDuelActor).not.toHaveBeenCalled();
+    expect(callDuelHost).not.toHaveBeenCalled();
+  });
+
+  it("reuses a verified alias and reads its current cache file for ten minutes", async () => {
+    writeFileSync(cachePath("5405694"), RITUAL_ART);
+    const upstream = vi.fn(async () => new Response("unavailable", { status: 503 }));
+    vi.stubGlobal("fetch", upstream);
+    const now = vi.spyOn(Date, "now").mockReturnValue(Date.now());
+    try {
+      const first = await getImage("10000100");
+      expect(Buffer.from(await first.arrayBuffer())).toEqual(RITUAL_ART);
+      const updatedAlias = await jpeg("updated alias image");
+      writeFileSync(cachePath("5405694"), updatedAlias);
+      now.mockReturnValue(now() + 9 * 60 * 1000);
+      const second = await getImage("10000100");
+      expect(Buffer.from(await second.arrayBuffer())).toEqual(updatedAlias);
+      expect(requireDuelActor).toHaveBeenCalledTimes(1);
+      expect(callDuelHost).toHaveBeenCalledTimes(1);
+      now.mockReturnValue(now() + 60 * 1000 + 1);
+      const third = await getImage("10000100");
+      expect(Buffer.from(await third.arrayBuffer())).toEqual(updatedAlias);
+      expect(requireDuelActor).toHaveBeenCalledTimes(2);
+      expect(callDuelHost).toHaveBeenCalledTimes(2);
+      expect(upstream).toHaveBeenCalledTimes(3);
+    } finally { now.mockRestore(); }
   });
 
   it("suppresses repeated two-source misses for ten minutes, separately by variant", async () => {
@@ -164,13 +233,13 @@ describe("GET /api/cards/[passcode]/image", () => {
     expect(callDuelHost).toHaveBeenCalledTimes(1);
     expect((await getImage("12345678", "?variant=small")).status).toBe(404);
     expect(fetched).toHaveLength(4);
-    expect(callDuelHost).toHaveBeenCalledTimes(2);
+    expect(callDuelHost).toHaveBeenCalledTimes(1);
     const realNow = Date.now.bind(Date);
     const now = vi.spyOn(Date, "now").mockImplementation(() => realNow() + 10 * 60 * 1000 + 1);
     try {
       expect((await getImage("12345678")).status).toBe(404);
       expect(fetched).toHaveLength(6);
-      expect(callDuelHost).toHaveBeenCalledTimes(3);
+      expect(callDuelHost).toHaveBeenCalledTimes(2);
     } finally { now.mockRestore(); }
   });
 

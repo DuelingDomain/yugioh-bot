@@ -16,10 +16,12 @@ type ImageVariant = "full" | "small" | "cropped";
 type CachedImage = { image: Buffer; cacheControl: string };
 type FetchedImage = { image: Buffer | null; source: CardImageSource; ignisError?: unknown };
 type ArtworkRow = { card_id: number; image_url: string; image_url_small: string; image_url_cropped: string | null; source: "api" | "engine" };
-const FALLBACK_TTL_MS = 60 * 60 * 1000;
+const FALLBACK_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MISSING_TTL_MS = 10 * 60 * 1000;
+const ALIAS_TTL_MS = 10 * 60 * 1000;
 const inFlight = new Map<string, Promise<CachedImage>>();
 const missingImages = new Map<string, number>();
+const aliases = new Map<number, { alias: number | null; expires: number }>();
 const OWN_CACHE_CONTROL = "public, max-age=86400, immutable";
 const FALLBACK_CACHE_CONTROL = "public, max-age=3600";
 
@@ -48,7 +50,7 @@ async function fetchImage(passcode: number, variant: ImageVariant): Promise<Fetc
   const image = await fetchCardResource(url, fetch, readOrMiss, [404]);
   if (image || variant === "cropped") return { image, source: "ygoprodeck" };
   // Ignis only has 177x254 full-card JPEGs, with no HQ or cropped endpoint.
-  // Its separate, one-hour disk cache lets later YGOPRODeck/HQ art replace it.
+  // Its separate disk cache lets later YGOPRODeck/HQ art replace it.
   try {
     return { image: await fetchCardResource(`${PROJECT_IGNIS_IMAGE_URL}/${passcode}.jpg`, fetch, readOrMiss, [404]), source: "ignis" };
   } catch (ignisError) {
@@ -63,8 +65,11 @@ async function fetchImage(passcode: number, variant: ImageVariant): Promise<Fetc
  * but its alias (the Ritual Monster, 5405694) does.
  */
 async function aliasOf(passcode: number): Promise<number | null | undefined> {
+  const cached = aliases.get(passcode);
+  if (cached && cached.expires > Date.now()) return cached.alias;
+  aliases.delete(passcode);
   const artwork = artworkOf(passcode);
-  if (artwork && artwork.card_id !== passcode) return artwork.card_id;
+  if (artwork && artwork.card_id !== passcode) return rememberAlias(passcode, artwork.card_id);
   const actor = await requireDuelActor();
   if (!actor.ok) {
     if (actor.response.status === 401 || actor.response.status === 403) return undefined;
@@ -74,7 +79,13 @@ async function aliasOf(passcode: number): Promise<number | null | undefined> {
   if (!result.ok) throw new CardFetchError(1, result.response.status);
   const cards = (result.data as { cards?: { code: number; alias: number }[] }).cards ?? [];
   const alias = cards.find((card) => card.code === passcode)?.alias ?? 0;
-  return alias > 0 && alias !== passcode ? alias : null;
+  return rememberAlias(passcode, alias > 0 && alias !== passcode ? alias : null);
+}
+
+function rememberAlias(passcode: number, alias: number | null): number | null {
+  if (aliases.size >= 1024) aliases.delete(aliases.keys().next().value!);
+  aliases.set(passcode, { alias, expires: Date.now() + ALIAS_TTL_MS });
+  return alias;
 }
 
 function imageFilename(passcode: number, variant: ImageVariant): string {
@@ -100,9 +111,13 @@ async function readCachedImage(passcode: number, filename: string): Promise<Cach
       } catch { /* Fetch if the legacy image cannot be migrated. */ }
     }
   }
+  return readCachedIgnis(filename);
+}
+
+async function readCachedIgnis(filename: string, allowExpired = false): Promise<CachedImage | null> {
   try {
     const path = cardImageCachePath(filename, "ignis");
-    if (Date.now() - (await stat(path)).mtimeMs < FALLBACK_TTL_MS) {
+    if (allowExpired || Date.now() - (await stat(path)).mtimeMs < FALLBACK_TTL_MS) {
       return { image: await validateCardImage(await readFile(path)), cacheControl: FALLBACK_CACHE_CONTROL };
     }
   } catch { /* Fetch a missing, invalid or expired fallback image. */ }
@@ -137,6 +152,10 @@ async function loadImage(passcode: number, variant: ImageVariant, filename: stri
     await writeCachedImage(filename, fetched.source, fetched.image);
     return { image: fetched.image, cacheControl: fetched.source === "ignis" ? FALLBACK_CACHE_CONTROL : OWN_CACHE_CONTROL };
   }
+
+  // A failed refresh must preserve this passcode's art before considering aliases.
+  const expired = await readCachedIgnis(filename, true);
+  if (expired) return expired;
 
   let alias: number | null | undefined;
   try { alias = await aliasOf(passcode); }
