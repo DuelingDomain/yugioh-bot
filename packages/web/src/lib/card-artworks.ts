@@ -1,10 +1,10 @@
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
 import { NextResponse } from "next/server";
 import type { CardArtworkFamily, CardArtworksResponse } from "@yugidraft/shared/duels";
 import { validateCardImage } from "@yugidraft/shared/services";
 import { callDuelHost } from "@/lib/duel-host";
 import { getDb } from "@/lib/db";
+import { cardImageCachePath } from "@/lib/card-image-cache";
 
 export function isPasscode(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0 && value <= 0xffffffff;
@@ -29,7 +29,7 @@ export async function loadCardArtworkFamily(actor: { guildId: string; playerId: 
 // Keep full validation, but avoid decoding every variant on every no-store request.
 const imageChecks = new Map<string, { expires: number; present: Promise<boolean> }>();
 function cachedImage(filename: string): Promise<boolean> {
-  const path = resolve(process.env.CARD_IMAGE_CACHE_DIR ?? "./data/card-images", filename);
+  const path = cardImageCachePath(filename, "ygoprodeck");
   const now = Date.now();
   const previous = imageChecks.get(path);
   if (previous && previous.expires > now) return previous.present;
@@ -43,18 +43,14 @@ function cachedImage(filename: string): Promise<boolean> {
   return present;
 }
 
-/** Local metadata is evidence of availability, never evidence that the engine accepts a passcode. */
+/** Engine arts can fetch full/small images on demand, including arts absent from API metadata. */
 export async function withArtworkImages(family: CardArtworkFamily): Promise<CardArtworksResponse> {
-  const lookup = getDb().prepare("select image_url, image_url_small, image_url_cropped from card_artworks where artwork_id = ? and source = 'api'");
+  const lookup = getDb().prepare("select image_url_cropped from card_artworks where artwork_id = ? and source = 'api'");
   const artworks = await Promise.all(family.artworks.map(async art => {
-    const row = lookup.get(art.passcode) as { image_url: string; image_url_small: string; image_url_cropped: string | null } | undefined;
+    const row = lookup.get(art.passcode) as { image_url_cropped: string | null } | undefined;
     const base = `/api/cards/${art.passcode}/image`;
-    const [full, small, cropped] = await Promise.all([
-      row?.image_url || cachedImage(`${art.passcode}.jpg`),
-      row?.image_url_small || cachedImage(`${art.passcode}-small.jpg`),
-      row?.image_url_cropped || cachedImage(`${art.passcode}-cropped.jpg`),
-    ]);
-    return { ...art, imageUrl: full ? base : null, smallUrl: small ? `${base}?variant=small` : null, croppedUrl: cropped ? `${base}?variant=cropped` : null };
+    const cropped = row?.image_url_cropped || await cachedImage(`${art.passcode}-cropped.jpg`);
+    return { ...art, imageUrl: base, smallUrl: `${base}?variant=small`, croppedUrl: cropped ? `${base}?variant=cropped` : null };
   }));
   return { passcode: family.passcode, artworks };
 }
