@@ -1,5 +1,6 @@
 n	mode	seed	steps	hash
 # turns=60 lp=3000
+# data-pins-sha256=c83bf29ede8294e582284c53222bf33ed97d1b68fa459e4e104882ff8c3629cb
 2	ffa	1	542	108720a78b63271f
 2	ffa	2	217	b47c481e75237f01
 2	ffa	3	864	ade423d8bcd0448c

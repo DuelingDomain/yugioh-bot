@@ -1,0 +1,173 @@
+name: Engine data update
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      scripts:
+        description: "Optional full CardScripts commit SHA"
+        type: string
+        required: false
+      database:
+        description: "Optional full BabelCDB commit SHA"
+        type: string
+        required: false
+      strings:
+        description: "Optional full Distribution commit SHA"
+        type: string
+        required: false
+      dry_run:
+        description: "Report and validate candidate data without publishing"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: engine-data-update
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      changed: ${{ steps.update.outputs.changed }}
+      base_sha: ${{ steps.paths.outputs.base_sha }}
+    env:
+      UPDATE_ARTIFACT_DIR: .status/engine-data-update
+    steps:
+      - name: Checkout the default branch without credentials
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch || 'main' }}
+          persist-credentials: false
+
+      - name: Set temporary paths
+        id: paths
+        run: |
+          echo "DUEL_DATA_DIR=$RUNNER_TEMP/engine-data-bundle" >> "$GITHUB_ENV"
+          echo "base_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          mkdir -p "$UPDATE_ARTIFACT_DIR"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install without a write token
+        run: prlimit --core=1:1 -- npm ci
+
+      # Even a workflow dry run applies candidates in this disposable, read-only-token job.
+      - name: Resolve pins and write report
+        id: update
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SCRIPTS_SHA: ${{ inputs.scripts }}
+          DATABASE_SHA: ${{ inputs.database }}
+          STRINGS_SHA: ${{ inputs.strings }}
+        run: |
+          args=(--defer-validation --report "$UPDATE_ARTIFACT_DIR/report.md" --metadata "$UPDATE_ARTIFACT_DIR/update.json")
+          if [ -n "$SCRIPTS_SHA" ]; then args+=(--scripts "$SCRIPTS_SHA"); fi
+          if [ -n "$DATABASE_SHA" ]; then args+=(--database "$DATABASE_SHA"); fi
+          if [ -n "$STRINGS_SHA" ]; then args+=(--strings "$STRINGS_SHA"); fi
+          prlimit --core=1:1 -- node --import tsx packages/duel-server/scripts/update-engine-data.ts "${args[@]}"
+
+      - name: Download and validate candidate engine bundle
+        if: steps.update.outputs.changed == 'true'
+        run: prlimit --core=1:1 -- npm run duel:prepare
+
+      - name: Check multiplayer overlay and record result
+        if: steps.update.outputs.changed == 'true'
+        run: |
+          result=0
+          prlimit --core=1:1 -- node --import tsx packages/duel-server/scripts/generate-multi-scripts.ts --check > "$UPDATE_ARTIFACT_DIR/overlay-check.log" 2>&1 || result=$?
+          cat "$UPDATE_ARTIFACT_DIR/overlay-check.log"
+          printf '%s\n' "$result" > "$UPDATE_ARTIFACT_DIR/overlay-exit.txt"
+
+      - name: Probe the prepared candidate and finalize report
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: prlimit --core=1:1 -- node --import tsx packages/duel-server/scripts/validate-engine-data.ts
+
+      - name: Export only the reported pin patch
+        if: steps.update.outputs.changed == 'true'
+        run: |
+          mapfile -t files < <(jq -r '.files[]' "$UPDATE_ARTIFACT_DIR/update.json")
+          test "${#files[@]}" -gt 0
+          git diff --binary -- "${files[@]}" > "$UPDATE_ARTIFACT_DIR/update.patch"
+
+      - name: Publish available report if validation failed
+        if: failure()
+        run: |
+          if [ -f "$UPDATE_ARTIFACT_DIR/pr-body.md" ]; then
+            printf '\n\nExport failed. See the workflow logs and report artifact.\n' >> "$GITHUB_STEP_SUMMARY"
+          elif [ -f "$UPDATE_ARTIFACT_DIR/report.md" ]; then
+            prlimit --core=0:0 -- node --import tsx --input-type=module <<'JS'
+          import { readFile, appendFile } from 'node:fs/promises';
+          import { boundedReport } from './packages/duel-server/scripts/engine-data-report.ts';
+          const url = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+          const report = await readFile(`${process.env.UPDATE_ARTIFACT_DIR}/report.md`, 'utf8');
+          await appendFile(process.env.GITHUB_STEP_SUMMARY, boundedReport(report, url, 990000) + `\n\nValidation failed. Full report: [artifact](${url}#artifacts).\n`);
+          JS
+          fi
+
+      - name: Save patch and complete report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: engine-data-update-report
+          path: .status/engine-data-update/
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Remove downloaded candidate data
+        if: always()
+        run: rm -rf -- "$DUEL_DATA_DIR"
+
+  publish:
+    needs: prepare
+    if: needs.prepare.outputs.changed == 'true' && !inputs.dry_run
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    env:
+      UPDATE_ARTIFACT_DIR: .status/engine-data-update
+      GH_REPO: ${{ github.repository }}
+      UPDATE_BRANCH: chore/engine-data-update
+      BASE_BRANCH: ${{ github.event.repository.default_branch || 'main' }}
+    steps:
+      - name: Checkout prepared base without credentials
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.base_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js without installing dependencies
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Download prepared patch and report
+        uses: actions/download-artifact@v4
+        with:
+          name: engine-data-update-report
+          path: .status/engine-data-update
+
+      - name: Preserve reviewed edits or publish the candidate
+        env:
+          GH_TOKEN: ${{ secrets.ENGINE_DATA_PR_TOKEN || github.token }}
+          HAS_PR_TOKEN: ${{ secrets.ENGINE_DATA_PR_TOKEN != '' }}
+        run: |
+          gh auth setup-git
+          prlimit --core=1:1 -- node scripts/ci/publish-engine-data.mjs
