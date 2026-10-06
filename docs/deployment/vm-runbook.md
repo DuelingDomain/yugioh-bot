@@ -85,19 +85,22 @@ The deploy workflow requires these GitHub Actions secrets:
    For a new multi core under an identical base bundle, only an active Tag/FFA duel refuses. On refusal, the old
    checkout, images and containers stay as they were. The transfer tarball and preflight files use
    `mktemp` paths and are removed on refusal or any other exit.
-   After the preflight the workflow resets `/opt/yugioh-bot` to the same CI commit, prepares the ignored
-   `.deploy-duel-engine` named `engine` context from the tarball, tags the current duel/web/bot container
-   images as `:prev`, rebuilds Compose images, stops **web**
-   (ingress) only, then installs the bundle into `/opt/yugioh-bot/data/duel-engine` **before** `docker compose down`.
-   The duel engine stays up during the check. Install is a no-op when `manifest.json` is identical. The install
-   script checks the active duels once more (a table could start during the build, which takes minutes); on that
-   second refusal or any exit after stopping web, an EXIT trap runs `docker compose start web` and
-   cleans temporary files. The web recovery trap is cleared after `up -d` succeeds. It never writes `data/bot.sqlite`.
+   After preflight, the workflow saves matching checkout/deploy commits, actual container image IDs
+   for duel/web/bot/WS/worker, protected env and a WAL-safe online backup under
+   `/var/backups/yugioh-bot/pr1-<UTC timestamp>` (directory 0700, env 0600). It tags those image IDs
+   as `:prev` before resetting the checkout or rebuilding, then prepares the ignored `.deploy-duel-engine`
+   context and builds all images. Set literal `DISCORD_BOT_ENABLED=1` in the protected `.env` before PR 1.
+   It stops web/bot/duel/worker and WS, captures a final drained backup, installs the engine bundle,
+   and runs one migration with the new worker image before starting consumers. FK and integrity
+   failures abort. The EXIT trap only cleans temporary files; after the coordinated stop, failure
+   leaves traffic stopped and backups intact. Never restart old binaries against the migrated schema.
+   The install script rechecks active duels: a table may have started during the build. Drain those
+   games under the existing procedure before retrying; engine data is never replaced before preflight.
    Each multi core is installed independently (atomic renames per file, checked against its `.sha256`),
    also when `manifest.json` is identical. A changed multi core is refused while a Tag or free-for-all duel is active.
    A 1v1 duel never blocks it and never reads it. Without the multi core, a Tag, 3 or 4 player table answers 409
    with a clear message when it starts.
-5. Compose starts bot, ws, duel, web, and caddy. The duel container verifies
+5. Compose starts WS, duel, web, the updated bot and exactly one worker, then recreates Caddy. The duel container verifies
    the volume bundle and runs `node packages/duel-server/dist/server.js`. The `duel-bundled` image carries
    the same bundle at `/opt/duel-engine`, outside the data mount, and verifies it in place during the
    image build. Production sets `DUEL_BUNDLE_SRC=${DUEL_BUNDLE_SRC_ON_START:-}` to empty by default:
@@ -105,7 +108,7 @@ The deploy workflow requires these GitHub Actions secrets:
    by the compiled host). Set `DUEL_BUNDLE_SRC_ON_START=/opt/duel-engine` only for a deliberate fresh-volume
    installation with drained duels; normal production starts should leave it unset. Container restarts
    do not replace, re-download or recompile the bundle.
-   After the duel container passes the startup check (`running restarts=0`), the workflow runs
+   After the duel startup check (`running restarts=0`) and WS/worker health checks (`running 0 healthy`), the workflow runs
    `docker image prune -f` to remove dangling images. The `:prev` tags retain the rollback images.
 6. Caddy serves `https://<SITE_DOMAIN>` and 308-redirects `www.<SITE_DOMAIN>`
    and every plain-HTTP host (including old IP links), preserving path and query.
@@ -177,34 +180,11 @@ Checks and limits:
 
 ### Rollback
 
-Before each production build, the workflow tags the images used by the existing duel, web and bot
-containers as `:prev` (normally `yugioh-bot-duel:prev`, `yugioh-bot-web:prev`, and
-`yugioh-bot-bot:prev`). It uses container image IDs, so an earlier failed build cannot replace the
-rollback snapshot with an unused image. These tags survive the dangling-image prune.
+Before PR 1, obtain a WAL-safe backup using `scripts/backup/dueling-backup`, save matching commit/image IDs/env, and rehearse migration on an owner-provided copy. Drain active games under the existing engine procedure. Build all images, stop web/bot/duel/worker and WS, capture the final drained backup, migrate once using the new worker image, and verify counts, ownership mappings, unchanged player/gameplay IDs, foreign keys and integrity before accepting traffic. Start WS/duel/web, the updated bot with literal `DISCORD_BOT_ENABLED=1`, and one worker. Check worker/WS health, unattended deadlines, Discord commands/status/completion, reconnecting draft sockets and existing NextAuth sessions. The owner then asks members to sign in for verified-email capture; retain NextAuth credentials.
 
-For a fast rollback when the installed engine bundle is compatible with the previous code, retag
-those snapshots to the current image names and recreate the three services without building:
+Old binaries cannot read the integer-owner schema. If rollback is needed, stop every writer and WS first. Preserve the current DB/WAL/SHM and record intervening writes for reconciliation. Restore the pre-PR1 drained backup and its matching code, images and env using the existing checksum/integrity/ownership-preserving restore procedure below, then start the old service set without the worker. Never start the old bot on the new schema, and never run old bot timers alongside the worker. If a matched restore is unavailable, keep writers stopped and fix forward. Image retagging alone is not a PR 1 rollback. Keep the matching engine bundle for replay compatibility; follow the existing engine drain/install procedure if it must change.
 
-```sh
-cd /opt/yugioh-bot
-for service in duel web bot; do
-  docker tag "yugioh-bot-$service:prev" "yugioh-bot-$service:latest"
-done
-docker compose -f docker-compose.yml up -d --no-build --no-deps --force-recreate duel web bot
-```
-
-This restores the three image snapshots; it does not roll back the checkout, ws, database or engine
-volume. Use the actual image names if the Compose project name is customized. If the engine bundle
-also needs to change, drain active duels and use the workflow rollback below, which installs the
-matching bundle and rebuilds every service:
-
-1. Revert the merge commit on `main` (`git revert -m 1 <merge sha>`), and push it.
-2. Make sure no duel is active (see above), or let the preflight refuse until it is true.
-3. The deploy workflow builds the old bundle and installs it. The multi core file stays in the data directory and
-   is not read by the old code.
-4. The database is safe: the schema change only adds columns (`format` with default `'1v1'`, `snapshot_seats_json`,
-   `setup_json`), so the old code runs on the new database. Replays of duels from before the bundle change stop
-   working, as after every bundle change.
+The protected release directory records exact image IDs; `:prev` tags are convenience references that a later release may replace. Use the recorded IDs and matching checkout/env for recovery. Do not run the deployment workflow with old code against the new schema as a rollback shortcut.
 
 ## First-turn draw records (2026-10-02)
 
@@ -321,11 +301,19 @@ NEXTAUTH_SECRET=  # generate with: openssl rand -base64 32
 NEXTAUTH_URL=https://${SITE_DOMAIN}
 WEB_URL=https://${SITE_DOMAIN}
 
-WS_INTERNAL_SECRET=  # openssl rand -hex 32; same on web, bot, duel, ws
+WS_INTERNAL_SECRET=  # openssl rand -hex 32; same on web, bot, duel, worker, ws
 BOT_ANNOUNCE_SECRET=  # openssl rand -hex 32
 DUEL_INTERNAL_SECRET=  # openssl rand -hex 32; same on web and duel
 
-DATABASE_PATH=./data/bot.sqlite
+# Compose explicitly sets these for all consumers; native development needs absolute paths.
+DATABASE_PATH=/app/data/bot.sqlite
+CARD_IMAGE_CACHE_DIR=/app/data/card-images
+DISCORD_BOT_ENABLED=1
+CARD_IMAGE_CACHE_MAX_BYTES=16106127360
+SETS_SYNC_CRON=0 6 * * *
+SETS_SYNC_TIMEZONE=UTC
+IMAGE_CLEANUP_CRON=0 4 * * *
+IMAGE_CLEANUP_TIMEZONE=UTC
 REMINDER_CRON=0 10 * * *
 REMINDER_TIMEZONE=America/New_York
 ```
@@ -448,7 +436,7 @@ rm -rf -- /home/imran/backups/dueling-system
 
 Also delete retained SQLite backups and SHA-256 sidecars from any configured `MIRROR_DIR` and other workstation copies.
 
-**RESTORE** — run as root on the VM, choose an existing backup below, and stop on any failed command. Pause the timer and take a fresh snapshot before verifying the chosen backup. Keep the original database and WAL/SHM together in the dated folder; only remove these live files after all four writers stop.
+**RESTORE** — run as root on the VM, choose an existing backup below, and stop on any failed command. Pause the timer and take a fresh snapshot before verifying the chosen backup. Keep the original database and WAL/SHM together in the dated folder; only remove these live files after every writer and WS stop. The commands below restore a backup compatible with the current release. For pre-PR1 rollback, also restore the matching code/images/env, remove worker from the service list before restarting, and keep it stopped while the old bot owns timers.
 
 ```bash
 sudo -i
@@ -457,7 +445,7 @@ cd /opt/yugioh-bot
 unit=dueling-backup
 db=data/bot.sqlite
 compose=(docker compose -f docker-compose.yml)
-services=(bot web duel ws)
+services=(bot web duel worker ws)
 systemctl stop "$unit.timer"
 systemctl start "$unit.service"
 backup=/var/backups/yugioh-bot/bot-YYYYmmdd-HHMMSSZ.sqlite

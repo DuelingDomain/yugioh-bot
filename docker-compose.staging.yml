@@ -6,11 +6,11 @@
 #   docker compose --env-file .env.staging -p yugidraft-staging -f docker-compose.staging.yml <command>
 #
 # What is different from docker-compose.yml:
-#   - Services are ws, duel, web and caddy only. There is NO bot: a second bot with the same Discord token
+#   - Services are ws, duel, web, worker and caddy only. There is NO bot: a second bot with the same Discord token
 #     would answer every command twice. Without a bot, announcements are off (BOT_ANNOUNCE_URL is empty).
 #   - Its own project name, its own Docker network, its own data directory and its own Caddy.
 #   - Memory, CPU and log limits on every service, so staging cannot starve production (4 GB VM).
-#   - The same Dockerfile targets (ws, duel, web). No dev override file.
+#   - The same Dockerfile targets (ws, duel, web, worker). No dev override file.
 name: yugidraft-staging
 
 x-staging-service: &staging-service
@@ -115,6 +115,8 @@ services:
     environment:
       - NODE_OPTIONS=--max-old-space-size=${STAGING_WEB_HEAP_MB:-384}
       - DATABASE_PATH=/app/data/bot.sqlite
+      - CARD_IMAGE_CACHE_DIR=/app/data/card-images
+      - DISCORD_BOT_ENABLED=0
       - WS_INTERNAL_URL=http://ws:4002
       - WS_INTERNAL_SECRET=${WS_INTERNAL_SECRET:?WS_INTERNAL_SECRET is missing, run scripts/staging/make-staging-env.sh}
       - DUEL_INTERNAL_URL=http://duel:4003
@@ -134,6 +136,36 @@ services:
       - ws
       - duel
 
+  worker:
+    build:
+      context: .
+      target: worker
+    <<: *staging-service
+    user: "${STAGING_UID:-1000}:${STAGING_GID:-1000}"
+    stop_grace_period: 150s
+    mem_limit: ${STAGING_MEM_WORKER:-192m}
+    memswap_limit: ${STAGING_MEM_WORKER:-192m}
+    cpus: 0.5
+    environment:
+      - NODE_OPTIONS=--max-old-space-size=128
+      - DATABASE_PATH=/app/data/bot.sqlite
+      - CARD_IMAGE_CACHE_DIR=/app/data/card-images
+      - CARD_IMAGE_CACHE_MAX_BYTES=${CARD_IMAGE_CACHE_MAX_BYTES:-16106127360}
+      - WORKER_HEALTH_PATH=/tmp/yugidraft-worker-health.json
+      - DISCORD_BOT_ENABLED=0
+      - WS_INTERNAL_URL=http://ws:4002
+      - WS_INTERNAL_SECRET=${WS_INTERNAL_SECRET}
+      - BOT_ANNOUNCE_URL=
+      - BOT_ANNOUNCE_SECRET=
+      - SETS_SYNC_CRON=${SETS_SYNC_CRON:-0 6 * * *}
+      - SETS_SYNC_TIMEZONE=${SETS_SYNC_TIMEZONE:-UTC}
+      - IMAGE_CLEANUP_CRON=${IMAGE_CLEANUP_CRON:-0 4 * * *}
+      - IMAGE_CLEANUP_TIMEZONE=${IMAGE_CLEANUP_TIMEZONE:-UTC}
+    volumes:
+      - ${STAGING_DATA_DIR:-./data-staging}:/app/data
+    depends_on:
+      - ws
+
   caddy:
     <<: *staging-service
     image: caddy:2-alpine
@@ -152,7 +184,7 @@ services:
       - web
       - ws
 
-# A network of its own. The names web, ws and duel mean the staging services only here.
+# A network of its own. The names web, ws, duel and worker mean the staging services only here.
 networks:
   staging:
     name: yugidraft-staging-net

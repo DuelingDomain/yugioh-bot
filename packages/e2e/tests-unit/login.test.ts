@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { request } from "@playwright/test";
 import { authenticatePlayer } from "../stack/login-auth.mjs";
 
-async function provider(sessionId: string | null) {
+async function provider(sessionId: string | null, discordId = "900000000000000101") {
   let credentials: URLSearchParams | null = null;
   const server = createServer(async (req, res) => {
     if (req.url === "/api/auth/csrf") {
@@ -20,7 +20,7 @@ async function provider(sessionId: string | null) {
       res.end();
     } else if (req.url === "/api/auth/session") {
       assert.match(req.headers.cookie ?? "", /session=signed/);
-      res.end(JSON.stringify(sessionId ? { user: { id: sessionId } } : {}));
+      res.end(JSON.stringify(sessionId ? { user: { id: sessionId, discordUserId: discordId } } : {}));
     } else { res.writeHead(404); res.end(); }
   });
   await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
@@ -32,9 +32,9 @@ async function provider(sessionId: string | null) {
 }
 
 test("manual login sends CSRF and E2E credentials and verifies the player session", async () => {
-  const login = await provider("900000000000000101");
+  const login = await provider("101");
   try {
-    await authenticatePlayer(login.api, { discordId: "900000000000000101", name: "E2E Alice" }, "throwaway-secret", login.webUrl);
+    await authenticatePlayer(login.api, { userId: 101, discordId: "900000000000000101", name: "E2E Alice" }, "throwaway-secret", login.webUrl);
     assert.equal(login.credentials()?.get("csrfToken"), "csrf-token");
     assert.equal(login.credentials()?.get("discordId"), "900000000000000101");
     assert.equal(login.credentials()?.get("name"), "E2E Alice");
@@ -46,7 +46,7 @@ test("manual login sends CSRF and E2E credentials and verifies the player sessio
 test("manual login rejects a callback that did not create the requested session", async () => {
   const login = await provider(null);
   try {
-    await assert.rejects(authenticatePlayer(login.api, { discordId: "900000000000000101", name: "E2E Alice" }, "throwaway-secret", login.webUrl), /did not create.*session/i);
+    await assert.rejects(authenticatePlayer(login.api, { userId: 101, discordId: "900000000000000101", name: "E2E Alice" }, "throwaway-secret", login.webUrl), /did not create.*session/i);
   } finally { await login.close(); }
 });
 
@@ -55,3 +55,11 @@ test("login CLI rejects unknown players before opening a browser", () => {
   assert.equal(result.status, 1);
   assert.match(result.stderr, /p1.*p2.*p3.*p4.*p5/);
 });
+
+for (const [id, discordId] of [["900000000000000101", "900000000000000101"], ["101", "900000000000000102"]]) {
+  test("manual login rejects mismatched application or Discord identity: " + id + "/" + discordId, async () => {
+    const login = await provider(id, discordId);
+    try { await assert.rejects(authenticatePlayer(login.api, {userId:101, discordId:"900000000000000101", name:"E2E Alice"}, "throwaway-secret", login.webUrl), /did not create.*session/i); }
+    finally { await login.close(); }
+  });
+}

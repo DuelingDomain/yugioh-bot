@@ -67,7 +67,7 @@ test("all ten slots have disjoint ports and private output directories", () => {
       seen.add(port);
     }
     assert.equal(c.stackDir, resolve(c.e2eRoot, `.stack-${slot}`));
-    for (const path of [c.dbPath, c.stackLogFile, c.cardImageDir, c.manualInfoFile, c.authDir, c.resultsDir, c.htmlReportDir, c.jsonReportFile, c.multiStatusDir]) {
+    for (const path of [c.dbPath, c.workerHealthPath, c.stackLogFile, c.cardImageDir, c.manualInfoFile, c.authDir, c.resultsDir, c.htmlReportDir, c.jsonReportFile, c.multiStatusDir]) {
       assert.ok(path.startsWith(c.stackDir + "/"), `slot ${slot}: ${path}`);
     }
     assert.equal(c.nextDistDir, `.next-e2e-${slot}`);

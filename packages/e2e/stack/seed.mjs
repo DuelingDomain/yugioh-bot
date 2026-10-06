@@ -9,17 +9,17 @@ export async function seedDatabase({ databasePath = dbPath, savedDecks = [] } = 
   mkdirSync(dirname(databasePath), { recursive: true });
   for (const suffix of ["", "-wal", "-shm"]) rmSync(databasePath + suffix, { force: true });
   const { openDatabase } = await import("@yugidraft/shared/db");
-  const { createSavedDeckService } = await import("@yugidraft/shared/services");
+  const { createSavedDeckService, createPlayerService } = await import("@yugidraft/shared/services");
   const db = openDatabase(databasePath);
   try {
     const decks = createSavedDeckService(db);
-    const insert = db.prepare(
-      "insert into players (guild_id, discord_user_id, display_name) values (?, ?, ?) on conflict (guild_id, discord_user_id) do update set display_name = excluded.display_name",
-    );
+    const playerService = createPlayerService(db);
+    const insert = db.prepare("insert into users(id,username,display_name,discord_user_id) values(?,?,?,?)");
     db.transaction(() => {
       for (const player of players) {
-        insert.run(guildId, player.discordId, player.name);
-        for (const deck of savedDecks) decks.create(guildId, player.discordId, deck);
+        insert.run(player.userId, player.name, player.name, player.discordId);
+        playerService.findOrCreate(guildId, player.userId, player.name);
+        for (const deck of savedDecks) decks.create(guildId, player.userId, deck);
       }
     })();
   } finally {

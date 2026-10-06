@@ -14,11 +14,12 @@ COPY packages/web/package*.json packages/web/
 COPY packages/shared/package*.json packages/shared/
 COPY packages/duel-server/package*.json packages/duel-server/
 COPY packages/e2e/package*.json packages/e2e/
+COPY packages/worker/package*.json packages/worker/
 COPY patches/ patches/
 RUN npm ci
 
 # ── build ────────────────────────────────────────────────────────────────────
-# Build all packages via turbo (respects dependency order: shared → bot/ws/web/duel-server).
+# Build all packages via turbo (respects dependency order: shared → bot/ws/web/duel-server/worker).
 # Prune without lifecycle scripts so native addons and patch-package edits are not
 # re-extracted from the registry. Re-apply patches afterward (postinstall would
 # not run under --ignore-scripts).
@@ -104,6 +105,22 @@ VOLUME ["/app/data"]
 EXPOSE 3000
 CMD ["node", "packages/web/server.js"]
 
+# ── worker ───────────────────────────────────────────────────────────────────
+# One scheduling process per SQLite file; no public port.
+FROM node:22-bookworm-slim AS worker
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=build /app/package*.json ./
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/packages/shared/package*.json packages/shared/
+COPY --from=build /app/packages/shared/dist packages/shared/dist
+COPY --from=build /app/packages/worker/package*.json packages/worker/
+COPY --from=build /app/packages/worker/dist packages/worker/dist
+RUN mkdir -p /app/data
+VOLUME ["/app/data"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD ["node", "packages/worker/dist/healthcheck.js"]
+CMD ["node", "packages/worker/dist/index.js"]
+
 # ── web-dev ──────────────────────────────────────────────────────────────────
 # Development stage: runs `next dev` with HMR.
 # Source directories are bind-mounted by docker-compose.override.yml at runtime.
@@ -122,6 +139,7 @@ COPY packages/web/package*.json packages/web/
 COPY packages/shared/package*.json packages/shared/
 COPY packages/duel-server/package*.json packages/duel-server/
 COPY packages/e2e/package*.json packages/e2e/
+COPY packages/worker/package*.json packages/worker/
 # Copy full source — bind mounts in docker-compose.override.yml overlay these at runtime
 COPY . .
 # Next dev regenerates next-env.d.ts and writes .next/.turbo at runtime, but

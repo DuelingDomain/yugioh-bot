@@ -1,7 +1,7 @@
 /**
  * Sign in through the E2E provider, with the same cookie jar the browser will use.
  * @param {import("@playwright/test").APIRequestContext} api
- * @param {{ discordId: string, name: string }} player
+ * @param {{ userId: number, discordId: string, name: string }} player
  * @param {string} secret
  * @param {string} webUrl
  */
@@ -18,5 +18,5 @@ export async function authenticatePlayer(api, player, secret, webUrl) {
   const sessionResponse = await api.get("/api/auth/session");
   if (!sessionResponse.ok()) throw new Error(`Session endpoint returned HTTP ${sessionResponse.status()}.`);
   const session = await sessionResponse.json();
-  if (session.user?.id !== player.discordId) throw new Error("E2E login did not create the requested player session. Restart the manual stack and try again.");
+  if (session.user?.id !== String(player.userId) || session.user?.discordUserId !== player.discordId) throw new Error("E2E login did not create the requested player session. Restart the manual stack and try again.");
 }

@@ -88,10 +88,10 @@ test("prepare refuses occupied ports even without a local supervisor pid", async
   }
 });
 
-for (const name of ["ws", "duel-server"]) {
+for (const [name, entry] of [["ws", "server.js"], ["duel-server", "server.js"], ["worker", "index.js"]]) {
   test(`parallel prepare rejects stale ${name} dist instead of rebuilding it`, () => {
     const fixture = stackFixture();
-    utimesSync(fixture.at(`packages/${name}/dist/server.js`), 0, 0);
+    utimesSync(fixture.at(`packages/${name}/dist/${entry}`), 0, 0);
     try {
       const result = spawnSync(process.execPath, [fixture.at("packages/e2e/stack/prepare.mjs")], {
         cwd: fixture.root, env: fixture.env, encoding: "utf8", timeout: 4000,
@@ -123,6 +123,7 @@ test("unset prepare still builds stale services and uses the ordinary web build"
   const fixture = stackFixture();
   utimesSync(fixture.at("packages/ws/dist/server.js"), 0, 0);
   utimesSync(fixture.at("packages/duel-server/dist/server.js"), 0, 0);
+  utimesSync(fixture.at("packages/worker/dist/index.js"), 0, 0);
   const { E2E_SLOT, ...env } = fixture.env;
   try {
     const result = spawnSync(process.execPath, [fixture.at("packages/e2e/stack/prepare.mjs")], {
@@ -133,6 +134,7 @@ test("unset prepare still builds stale services and uses the ordinary web build"
     assert.deepEqual(commands, [
       ["run", "build", "--workspace=packages/ws"],
       ["run", "build", "--workspace=packages/duel-server"],
+      ["run", "build", "--workspace=packages/worker"],
       ["run", "build", "--workspace=packages/web"],
     ]);
   } finally { fixture.cleanup(); }

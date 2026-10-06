@@ -224,6 +224,27 @@ jobs:
              if [ -n "$staging_ids" ]; then
                docker stop $staging_ids || true
              fi
+             # Preserve matching rollback code/env and the actual container image IDs before reset/build.
+             # The old checkout may not yet define worker; inspect its whole existing service set.
+             umask 077
+             release_dir="/var/backups/yugioh-bot/pr1-$(date -u +%Y%m%d-%H%M%SZ)"
+             mkdir -m 0700 "$release_dir"
+             git rev-parse HEAD > "$release_dir/checkout-commit"
+             printf '%s\n' "$DEPLOY_COMMIT" > "$release_dir/deploy-commit"
+             cp -p .env "$release_dir/runtime.env"
+             chmod 0600 "$release_dir/runtime.env"
+             : > "$release_dir/images.jsonl"
+             for container in $(docker compose -f docker-compose.yml ps -aq); do
+               service=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.service"}}' "$container")
+               case "$service" in duel|web|bot|ws|worker)
+                 image_id=$(docker inspect -f '{{.Image}}' "$container")
+                 image_ref=$(docker inspect -f '{{.Config.Image}}' "$container")
+                 docker inspect -f '{"service":"{{index .Config.Labels "com.docker.compose.service"}}","imageId":"{{.Image}}","imageRef":"{{.Config.Image}}"}' "$container" >> "$release_dir/images.jsonl"
+                 docker tag "$image_id" "${image_ref%:*}:prev"
+                 ;;
+               esac
+             done
+             DUELING_BACKUP_DIR="$release_dir/online" python3 scripts/backup/dueling-backup
              git reset --hard "$DEPLOY_COMMIT"
              sh scripts/ensure-env-secrets.sh .env DUEL_INTERNAL_SECRET
              # The image carries the same verified bundle as the data volume.
@@ -231,24 +252,26 @@ jobs:
              mkdir .deploy-duel-engine
              context_ready=1
              cp -a "$bundle_src/." .deploy-duel-engine/
-             # Preserve the images of the current containers, even after a previous failed build retagged :latest.
-             for service in duel web bot; do
-               container=$(docker compose -f docker-compose.yml ps -aq "$service")
-               if [ -n "$container" ]; then
-                 image_id=$(docker inspect -f '{{.Image}}' "$container")
-                 image_ref=$(docker inspect -f '{{.Config.Image}}' "$container")
-                 docker tag "$image_id" "${image_ref%:*}:prev"
-               fi
-             done
              docker compose -f docker-compose.yml build
-             docker compose -f docker-compose.yml stop web || true
-             trap 'docker compose -f docker-compose.yml start web || true; cleanup' EXIT
+             docker compose -f docker-compose.yml stop web bot duel worker ws
+             # Once schema work can begin, failure must leave traffic stopped. Never restart old binaries.
+             trap cleanup EXIT
+             DUELING_BACKUP_DIR="$release_dir/drained" python3 scripts/backup/dueling-backup
              if ! DUEL_BUNDLE_SRC="$bundle_src" DUEL_DATA_DIR=/opt/yugioh-bot/data/duel-engine \
                sh packages/duel-server/scripts/install-engine-bundle.sh; then
                exit 1
              fi
+             docker compose -f docker-compose.yml run --rm --no-deps worker node --input-type=module -e '
+               import {openDatabase} from "@yugidraft/shared/db";
+               const db=openDatabase(process.env.DATABASE_PATH);
+               try {
+                 if(db.pragma("foreign_key_check").length)throw new Error("Foreign key check failed");
+                 if(db.pragma("integrity_check",{simple:true})!=="ok")throw new Error("Integrity check failed");
+                 console.log("identity migration verified");
+               } finally {db.close();}
+             '
              docker compose -f docker-compose.yml down --remove-orphans
-             docker compose -f docker-compose.yml up -d
+             docker compose -f docker-compose.yml up -d ws duel web bot worker caddy
              trap - EXIT
              cleanup
              docker compose -f docker-compose.yml ps
@@ -261,5 +284,15 @@ jobs:
                echo "The duel container is not running cleanly." >&2
                exit 1
              fi
+             for service in ws worker; do
+               healthy=0
+               for attempt in $(seq 1 36); do
+                 container=$(docker compose -f docker-compose.yml ps -q "$service")
+                 state=$(docker inspect -f '{{.State.Status}} {{.RestartCount}} {{.State.Health.Status}}' "$container")
+                 if [ "$state" = "running 0 healthy" ]; then healthy=1; break; fi
+                 sleep 5
+               done
+               [ "$healthy" = 1 ] || { docker compose -f docker-compose.yml logs --tail=60 "$service"; exit 1; }
+             done
              docker image prune -f
           REMOTE

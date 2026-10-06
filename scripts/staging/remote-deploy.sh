@@ -71,7 +71,7 @@ compose="sh scripts/staging/compose.sh"
 
 if [ "$action" = "stop" ]; then
   if [ -f .env.staging ]; then
-    # --rmi local removes the three images that staging built (not the public caddy image).
+    # --rmi local removes the four images that staging built (not the public caddy image).
     $compose down --rmi local --remove-orphans
     echo "remote-deploy: staging is stopped and its built images are removed. Its data stays in $staging_dir/data-staging."
   else
@@ -114,10 +114,9 @@ fi
 # The disk is shared with the production database. Each staging image holds a full node_modules.
 sh scripts/staging/check-resources.sh "before build" "${STAGING_MIN_BUILD_MB:-1100}" "${STAGING_MIN_DISK_MB:-6000}" /opt
 
-# The card image cache of staging has no size limit (only the bot evicts images). It is a cache: drop it.
-rm -rf data-staging/card-images
+# Worker startup and IMAGE_CLEANUP_CRON evict the oldest cached images to the configured byte limit.
 
-# 3. Build the three images. Remember the ids of the old ones, to remove them after a healthy start.
+# 3. Build the four images. Remember the ids of the old ones, to remove them after a healthy start.
 # CI already compiled both multi cores; bake this exact bundle into the duel image.
 rm -rf .deploy-duel-engine
 mkdir .deploy-duel-engine
@@ -145,8 +144,19 @@ for core in ocgcore.multi ocgcore.multi-domain; do
   cat "data-staging/duel-engine/$core.SOURCE"
 done
 
+# Migrate the isolated, stopped staging database once before any consumers start.
+$compose run --rm --no-deps worker node --input-type=module -e '
+  import {openDatabase} from "@yugidraft/shared/db";
+  const db=openDatabase(process.env.DATABASE_PATH);
+  try {
+    if(db.pragma("foreign_key_check").length)throw new Error("Foreign key check failed");
+    if(db.pragma("integrity_check",{simple:true})!=="ok")throw new Error("Integrity check failed");
+    console.log("staging identity migration verified");
+  } finally {db.close();}
+'
+
 # 6. Start, only when the VM has the memory for the limits of the stack.
-sh scripts/staging/check-resources.sh "before start" "${STAGING_MIN_START_MB:-1700}"
+sh scripts/staging/check-resources.sh "before start" "${STAGING_MIN_START_MB:-1900}"
 $compose up -d
 $compose ps
 

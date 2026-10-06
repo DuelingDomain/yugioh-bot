@@ -1,6 +1,7 @@
-// Preloaded into the WEB server only (NODE_OPTIONS=--import). It answers the two
-// outside calls the duel flows make, so the test needs no Discord and no internet:
+// Preloaded into the web and worker (NODE_OPTIONS=--import). It answers the
+// external calls used by the isolated stack, so tests need no Discord or internet:
 //  - Discord "get guild member" for the fake E2E players -> 200, anyone else -> 404
+//  - worker card-set metadata -> offline Metal Raiders fixture
 //  - card images from images.ygoprodeck.com -> a 1x1 JPEG
 // Everything else goes to the real fetch. Production code is not changed.
 import { readFile } from "node:fs/promises";
@@ -25,6 +26,9 @@ globalThis.fetch = async function e2eFetch(input, init) {
       status: ok ? 200 : 404,
       headers: { "content-type": "application/json" },
     });
+  }
+  if (new URL(url).origin === "https://db.ygoprodeck.com" && new URL(url).pathname === "/api/v7/cardsets.php") {
+    return Response.json([{set_name:"Metal Raiders",set_code:"MRD",num_of_cards:144,tcg_date:"2002-06-26"}]);
   }
   if (url.startsWith("https://images.ygoprodeck.com/")) {
     if (manualMode) {

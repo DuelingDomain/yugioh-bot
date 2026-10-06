@@ -17,6 +17,10 @@ flowchart LR
   web -->|signed /internal/announce| bot
   web & bot & duel -->|signed /internal/* :4002| ws
   web & bot & duel --> db[(SQLite<br/>data/bot.sqlite)]
+  worker[worker<br/>timers + cron] --> db
+  worker -->|signed updates| ws
+  worker -->|signed Discord effects| bot
+  worker -->|set metadata| ygo
   duel --> bundle[[Engine bundle<br/>data/duel-engine]]
   web & bot -->|card data + images| ygo([ygoprodeck.com])
 ```
@@ -25,9 +29,17 @@ flowchart LR
 |---|---|---|
 | web | Pages, API routes, Discord sign-in | `packages/web` |
 | ws | Live pushes only. Never carries hidden game data | `packages/ws` |
-| bot | Slash commands, announcements, timers, card sync | `packages/bot` |
+| bot | Commands, Discord announcements, notification cleanup, reminders | `packages/bot` |
 | duel | Runs the rules engine. Private, internal port only | `packages/duel-server` |
+| worker | Draft expiry, report approval, tournament deadlines, set sync, image eviction | `packages/worker` |
+| e2e | Isolated web/WS/duel/worker with offline NextAuth login | `packages/e2e` |
 | shared | DB schema and all business services | `packages/shared` |
+
+There are seven packages. Run `npm run dev:worker` alongside web/WS/duel/bot and `npm test --workspace=packages/worker` after building shared. Exactly one worker uses each SQLite file. Startup sweeps catch durable deadlines; SIGTERM drains in-flight work. The bot is retained in PR 1, then shelved after cutover, behind literal `DISCORD_BOT_ENABLED=1` on both entrypoints; it owns none of the four migrated schedulers. The duel host retains its engine clocks and archive/series sweeps.
+
+`users.id` is application identity, `players.user_id` links to it, and gameplay player IDs stay unchanged. Owners/creators are integer user IDs; `session.user.id` is their decimal string and `session.user.discordUserId` supplies Discord checks/mentions/DMs. NextAuth remains; verified provider email is captured at sign-in, and old JWTs resolve via Discord identity. Draft tokens use v2 application IDs; duel tokens still use player IDs.
+
+All DB consumers use the same absolute `DATABASE_PATH`. `openDatabase` enables WAL, a 5000-ms busy timeout and foreign keys. Worker/web/bot share an absolute image-cache path; worker publishes committed WS state before separate signed Discord effects. The worker has no public port and uses a local heartbeat healthcheck. E2E supervises four processes per isolated DB/cache/heartbeat, authenticating offline with NextAuth credentials.
 
 All internal calls are HMAC-signed POSTs (`shared/src/notify/signed-post.ts`). Ports 4001, 4002 and 4003 are never public.
 
