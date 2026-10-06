@@ -45,8 +45,6 @@ import {
   formatTournamentReminder,
   selectTournamentReminderTargets,
 } from "./reminders/tournament-reminders.js";
-import { createDraftTimerService } from "./services/draft-timer.js";
-import { createTournamentTimerService } from "./services/tournament-timer.js";
 import { createNotifyCleanupService } from "./services/notify-cleanup.js";
 import { createMatchService } from "@yugidraft/shared/services";
 import { createTournamentService } from "@yugidraft/shared/services";
@@ -66,7 +64,6 @@ if (!token) {
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const db = openDatabase();
 const cardImageCacheDir = process.env.CARD_IMAGE_CACHE_DIR ?? "./data/card-images";
-const cardImageCacheMaxBytes = Number(process.env.CARD_IMAGE_CACHE_MAX_BYTES ?? "16106127360"); // 15 GB default
 const cleanup = createDraftCleanupService(db, { imageCacheDir: cardImageCacheDir });
 
 function buildDraftStatus(draft: Draft) {
@@ -199,81 +196,6 @@ const deps = {
   } as DraftMessenger,
 };
 
-const draftTimer = createDraftTimerService({
-  drafts: deps.drafts,
-  messenger: deps.messenger,
-  broadcaster,
-  onDraftCompleted: async (draftId) => {
-    const draft = deps.drafts.findById(draftId);
-    if (!draft.webSlug || !draft.channelId) return;
-    const announceHandlers = createAnnounceHandlers({
-      client,
-      db,
-      drafts: deps.drafts,
-      messenger: deps.messenger,
-      guildSettings: deps.guildSettings,
-    });
-    await announceHandlers.onDraftCompleted({
-      draftId: draft.id,
-      channelId: draft.channelId,
-      name: draft.name,
-      webSlug: draft.webSlug,
-    });
-  },
-});
-
-const tournamentTimer = createTournamentTimerService({
-  tournaments: deps.tournaments,
-  matches: deps.matches,
-  notifyDuelChange: deps.notifyDuelChange,
-  onMatchAutoResolved: async (match) => {
-    // Clean up the pending approval message (mirrors approve path).
-    await deps.deleteNotifyMessage(match.id).catch((err) =>
-      console.warn(`[tournament-timer] deleteNotifyMessage failed for ${match.id}:`, err),
-    );
-
-    if (match.tournamentId) {
-      // Announce completion once if this auto-approval finished the tournament.
-      if (deps.matches.claimTournamentCompletionAnnouncement(match.tournamentId)) {
-        await deps.announceTournamentCompleted(match.tournamentId).catch((err) =>
-          console.warn(`[tournament-timer] announce failed for ${match.tournamentId}:`, err),
-        );
-      }
-      const row = deps.db
-        .prepare("select web_slug from tournaments where id = ?")
-        .get(match.tournamentId) as { web_slug: string | null } | undefined;
-      if (row?.web_slug) {
-        void broadcaster.tournament({ kind: "match-updated", slug: row.web_slug });
-      }
-    }
-  },
-  completedSweep: {
-    // Only recent completions: older tournaments were finished before the claim column existed.
-    findUnannounced: () =>
-      (
-        deps.db
-          .prepare(
-            `select id from tournaments
-             where status = 'completed' and completed_announced_at is null
-               and ended_at >= datetime('now', '-1 day')
-             order by id asc limit 20`,
-          )
-          .all() as Array<{ id: number }>
-      ).map((row) => row.id),
-    announce: (tournamentId) => deps.announceTournamentCompleted(tournamentId),
-  },
-  onTournamentClosed: async (tournament) => {
-    if (deps.matches.claimTournamentCompletionAnnouncement(tournament.id)) {
-      await deps.announceTournamentCompleted(tournament.id).catch((err) =>
-        console.warn(`[tournament-timer] announce failed for ${tournament.id}:`, err),
-      );
-    }
-    if (tournament.webSlug) {
-      void broadcaster.tournament({ kind: "match-updated", slug: tournament.webSlug });
-    }
-  },
-});
-
 function toCommandInteraction(
   interaction: ChatInputCommandInteraction,
 ): CommandInteractionLike {
@@ -392,74 +314,6 @@ function toAutocompleteInteraction(
 
 client.once("ready", () => {
   console.log(`Logged in as ${client.user?.tag ?? "unknown bot"}`);
-
-  const setCount = db.prepare("select count(*) as count from card_sets").get() as { count: number };
-
-  if (setCount.count === 0) {
-    console.log("Card sets cache is empty. Syncing on startup...");
-    deps.cards.syncSets()
-      .then((count) => console.log(`Synced ${count} card sets on startup`))
-      .catch((error) => console.error("Failed to sync card sets on startup:", error));
-  }
-
-  const setsCron = process.env.SETS_SYNC_CRON ?? "0 6 * * *";
-  const setsTimezone = process.env.SETS_SYNC_TIMEZONE ?? "UTC";
-
-  cron.schedule(
-    setsCron,
-    async () => {
-      try {
-        const count = await deps.cards.syncSets();
-        console.log(`Synced ${count} card sets`);
-      } catch (error) {
-        console.error("Failed to sync card sets:", error);
-      }
-    },
-    { timezone: setsTimezone },
-  );
-
-  const imageCleanupCron = process.env.IMAGE_CLEANUP_CRON ?? "0 4 * * *";
-  const imageCleanupTimezone = process.env.IMAGE_CLEANUP_TIMEZONE ?? "UTC";
-
-  cron.schedule(
-    imageCleanupCron,
-    async () => {
-      try {
-        const currentBytes = await cleanup.imageCacheBytes();
-        const maxMb = Math.round(cardImageCacheMaxBytes / 1024 / 1024);
-        const currentMb = Math.round(currentBytes / 1024 / 1024);
-
-        if (currentBytes <= cardImageCacheMaxBytes) {
-          console.log(`Image cache is ${currentMb}MB / ${maxMb}MB. No cleanup needed.`);
-          return;
-        }
-
-        const deleted = await cleanup.removeOldestImages(cardImageCacheMaxBytes);
-        console.log(`Image cache was ${currentMb}MB / ${maxMb}MB. Deleted ${deleted} oldest images.`);
-      } catch (error) {
-        console.error("Failed to clean up image cache:", error);
-      }
-    },
-    { timezone: imageCleanupTimezone },
-  );
-
-  draftTimer
-    .tick()
-    .then(() => {
-      draftTimer.start();
-    })
-    .catch((error) => {
-      console.error("Failed to run initial draft timer tick:", error);
-      draftTimer.start();
-    });
-
-  tournamentTimer
-    .tick()
-    .then(() => tournamentTimer.start())
-    .catch((error) => {
-      console.error("Failed to run initial tournament timer tick:", error);
-      tournamentTimer.start();
-    });
 
   const notifyCleanup = createNotifyCleanupService({
     db,

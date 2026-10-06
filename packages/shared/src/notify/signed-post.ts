@@ -6,7 +6,7 @@ export type SignedPostTransport = {
   post(path: string, body: string): Promise<SignedPostResult>;
 };
 
-export function httpTransport(cfg: { url: string; secret: string }): SignedPostTransport {
+export function httpTransport(cfg: { url: string; secret: string; timeoutMs?: number }): SignedPostTransport {
   return {
     async post(path, body) {
       if (!cfg.url || !cfg.secret) return { ok: false, status: 0, text: "not configured" };
@@ -16,6 +16,7 @@ export function httpTransport(cfg: { url: string; secret: string }): SignedPostT
           method: "POST",
           headers: { "content-type": "application/json", "x-announce-signature": sig },
           body,
+          signal: AbortSignal.timeout(cfg.timeoutMs ?? 5000),
         });
         const text = await res.text();
         return { ok: res.ok, status: res.status, text };

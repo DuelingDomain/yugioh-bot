@@ -1,3 +1,4 @@
+import { createImageCacheCleanup } from "@yugidraft/shared/services";
 import { readdir, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import type Database from "better-sqlite3";
@@ -15,13 +16,6 @@ async function listDirectoryEntries(directory: string) {
     throw error;
   }
 }
-
-type FileEntry = {
-  name: string;
-  path: string;
-  size: number;
-  mtimeMs: number;
-};
 
 export function createDraftCleanupService(
   db: Database.Database,
@@ -97,64 +91,7 @@ export function createDraftCleanupService(
       );
     },
 
-    async imageCacheBytes(): Promise<number> {
-      const entries = await listDirectoryEntries(imageCacheDir);
-      let total = 0;
-
-      for (const entry of entries) {
-        if (!entry.isFile()) {
-          continue;
-        }
-
-        const file = await stat(join(imageCacheDir, entry.name));
-        total += file.size;
-      }
-
-      return total;
-    },
-
-    async removeOldestImages(maxBytes: number): Promise<number> {
-      const entries = await listDirectoryEntries(imageCacheDir);
-      const files: FileEntry[] = [];
-
-      for (const entry of entries) {
-        if (!entry.isFile()) {
-          continue;
-        }
-
-        const filePath = join(imageCacheDir, entry.name);
-        const fileStat = await stat(filePath);
-
-        files.push({
-          name: entry.name,
-          path: filePath,
-          size: fileStat.size,
-          mtimeMs: fileStat.mtimeMs,
-        });
-      }
-
-      const currentBytes = files.reduce((sum, f) => sum + f.size, 0);
-
-      if (currentBytes <= maxBytes) {
-        return 0;
-      }
-
-      const sorted = files.sort((a, b) => a.mtimeMs - b.mtimeMs);
-      let deletedCount = 0;
-      let bytesFreed = 0;
-
-      for (const file of sorted) {
-        if (currentBytes - bytesFreed <= maxBytes) {
-          break;
-        }
-
-        await unlink(file.path);
-        bytesFreed += file.size;
-        deletedCount += 1;
-      }
-
-      return deletedCount;
-    },
+    ...createImageCacheCleanup({ imageCacheDir }),
   };
 }
 
