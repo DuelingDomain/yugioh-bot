@@ -690,6 +690,30 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     dropCard(source, defaultAddSection(card));
   }
 
+  /**
+   * Ctrl+right-click or the + key on a deck card: one more copy, with the same art passcode, goes into the
+   * same section right after it. It takes the add path of the card list (roomFor and poolRoomFor), so the
+   * copy limit, the banlist and the draft pool count apply, and a blocked add shows their notice. One undo step.
+   */
+  function copyCard(source: { code: number; section: DeckSection | "deckMaster"; index: number }) {
+    if (busy) return;
+    const card = catalog.get(source.code);
+    if (card) {
+      if (!roomFor(card)) return;
+    } else if (poolMap) {
+      if (!poolRoomFor(source.code)) return;
+    } else {
+      setNotice("Card details are still loading. Try again in a moment.");
+      return;
+    }
+    // The Deck Master counts as one copy, and its extra copy goes where a new card of its type goes.
+    const to: DeckSection = source.section === "deckMaster" ? (card ? defaultAddSection(card) : "main") : source.section;
+    const placed = placeCardAt(selection, { code: source.code, from: "list" }, to, source.section === "deckMaster" ? undefined : source.index + 1);
+    commit(placed.selection);
+    setSelected({ section: to, code: source.code, index: placed.index });
+    setInspectCode(source.code);
+  }
+
   function makeMaster(code: number, section?: DeckSection) {
     const card = catalog.get(code);
     if (card && (card.type & TYPE_MONSTER) === 0) {
@@ -930,6 +954,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     moveSide: () => setNotice("Domain has no Side Deck."),
     select: () => { if (deck.deckMaster != null) inspect(deck.deckMaster, null, true, true); },
     menu: (anchor) => { if (deck.deckMaster != null) openArtMenu({ section: "deckMaster", index: 0, code: deck.deckMaster, anchor }); },
+    copy: () => { if (deck.deckMaster != null) copyCard({ code: deck.deckMaster, section: "deckMaster", index: 0 }); },
   });
   const checkProps: DeckCheckProps = { problems, notes, banlistName, flag, tone, pool: !!pool, onProblem: showProblem };
   const sectionProps = {
@@ -938,6 +963,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     onHover: pointAt,
     onRemove: removeCopy,
     onMoveSide: toggleSide,
+    onCopy: copyCard,
     onDrop: dropCard,
     onArtMenu: openArtMenu,
     artMenu,

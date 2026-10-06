@@ -747,6 +747,163 @@ describe("deck card clicks", () => {
   });
 });
 
+describe("deck card copy", () => {
+  const sideCards = () => within(screen.getByRole("region", { name: "Side Deck" })).queryAllByRole("button", { name: /Side Deck card/ });
+  const extraCards = () => within(screen.getByRole("region", { name: "Extra Deck" })).queryAllByRole("button", { name: /Extra Deck card/ });
+  const base = card(81480460, "Barrel Dragon", 0x21, 7);
+  const art = { ...base, code: 81480461, alias: base.code, altArtCount: 1 };
+  /** The text of the editor notice; the card panel has status lines of its own. */
+  const notices = () => screen.getAllByRole("status").map((node) => node.textContent).join(" | ");
+  /** A right-click with the mouse: the secondary press, then contextmenu. */
+  const rightClick = (element: Element, init: { ctrlKey?: boolean; metaKey?: boolean } = {}) => {
+    fireEvent.pointerDown(element, { pointerType: "mouse", button: 2, ...init });
+    return fireEvent.contextMenu(element, { button: 2, ...init });
+  };
+
+  function withArt() {
+    const fetch = vi.mocked(globalThis.fetch);
+    const original = fetch.getMockImplementation()!;
+    fetch.mockImplementation(async (url, init) => {
+      if (url === "/api/duels/cards") {
+        const { codes } = JSON.parse(String(init?.body)) as { codes: number[] };
+        return Response.json({ cards: [...CARDS, base, art].filter((entry) => codes.includes(entry.code)), missing: [] });
+      }
+      return original(url, init);
+    });
+  }
+
+  it("adds a copy next to the clicked card on Ctrl+right-click, without the browser menu or the art menu", async () => {
+    withArt();
+    stored = savedDeck([art.code, POT.code]);
+    render(<SavedDeckEditor deckId="7" />);
+    await screen.findAllByRole("button", { name: /Main Deck card/ });
+    expect(rightClick(mainCards()[0]!, { ctrlKey: true })).toBe(false);
+    expect(mainCards().map((tile) => tile.getAttribute("aria-label")?.split(",")[0])).toEqual(["Barrel Dragon", "Barrel Dragon", "Pot of Greed"]);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(mainCards()[1]).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("keeps the art passcode of the clicked copy", async () => {
+    withArt();
+    stored = savedDeck([art.code, base.code]);
+    render(<SavedDeckEditor deckId="7" />);
+    await screen.findAllByRole("button", { name: /Main Deck card/ });
+    const artOf = (tile: Element) => tile.querySelector("img")?.getAttribute("src") ?? "";
+    const before = mainCards().map(artOf);
+    rightClick(mainCards()[0]!, { ctrlKey: true });
+    const after = mainCards().map(artOf);
+    expect(after).toHaveLength(3);
+    expect(after[0]).toBe(before[0]);
+    expect(after[1]).toBe(before[0]);
+    expect(after[2]).toBe(before[1]);
+    expect(before[0]).not.toBe(before[1]);
+  });
+
+  it("copies into the Extra and Side Decks where the clicked card sits", async () => {
+    stored = { ...savedDeck([]), deck: { main: [], extra: [FUSION.code], side: [POT.code] } };
+    render(<SavedDeckEditor deckId="7" />);
+    await screen.findAllByRole("button", { name: /Extra Deck card/ });
+    rightClick(extraCards()[0]!, { ctrlKey: true });
+    rightClick(sideCards()[0]!, { ctrlKey: true });
+    expect(extraCards()).toHaveLength(2);
+    expect(sideCards()).toHaveLength(2);
+    expect(mainCards()).toHaveLength(0);
+  });
+
+  it("is blocked at three copies, with the notice of a blocked add", async () => {
+    stored = savedDeck([BLUE_EYES.code, BLUE_EYES.code, BLUE_EYES.code]);
+    render(<SavedDeckEditor deckId="7" />);
+    await screen.findAllByRole("button", { name: /Main Deck card/ });
+    rightClick(mainCards()[0]!, { ctrlKey: true });
+    expect(mainCards()).toHaveLength(3);
+    expect(notices()).toContain("you already have 3 copies");
+    expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
+  });
+
+  it("counts copies across Main, Extra and Side against the limit of three", async () => {
+    stored = { ...savedDeck([BLUE_EYES.code]), deck: { main: [BLUE_EYES.code], extra: [], side: [BLUE_EYES.code, BLUE_EYES.code] } };
+    render(<SavedDeckEditor deckId="7" />);
+    await screen.findAllByRole("button", { name: /Main Deck card/ });
+    rightClick(mainCards()[0]!, { ctrlKey: true });
+    expect(mainCards()).toHaveLength(1);
+    expect(sideCards()).toHaveLength(2);
+    expect(notices()).toContain("you already have 3 copies");
+  });
+
+  it("is blocked at the banlist limit", async () => {
+    stored = savedDeck([BLUE_EYES.code, BLUE_EYES.code]);
+    render(<SavedDeckEditor deckId="7" />);
+    await screen.findAllByRole("button", { name: /Main Deck card/ });
+    fireEvent.change(screen.getByLabelText("Banlist"), { target: { value: "tcg-2026-09" } });
+    await screen.findByRole("button", { name: "Pot of Greed, Forbidden" });
+    rightClick(mainCards()[0]!, { ctrlKey: true });
+    expect(mainCards()).toHaveLength(2);
+    expect(notices()).toContain("Blue-Eyes White Dragon");
+  });
+
+  it("is blocked when the draft pool has no copy left, and adds while it has one", async () => {
+    const pool = { slug: "retro", draftId: 3, draftName: "Retro draft", cards: [{ code: BLUE_EYES.code, count: 2 }], mainPoolCount: 2, unresolved: [], savedDeckId: null, registration: null };
+    render(<SavedDeckEditor pool={pool} />);
+    fireEvent.doubleClick(await screen.findByRole("button", { name: /^Blue-Eyes White Dragon, 2 copies left in your pool/ }));
+    rightClick(mainCards()[0]!, { ctrlKey: true });
+    expect(mainCards()).toHaveLength(2);
+    rightClick(mainCards()[0]!, { ctrlKey: true });
+    expect(mainCards()).toHaveLength(2);
+    expect(notices()).toContain("no copies left in your pool");
+  });
+
+  it("opens the art menu on a plain right-click and adds nothing", async () => {
+    withArt();
+    stored = savedDeck([art.code]);
+    render(<SavedDeckEditor deckId="7" />);
+    await screen.findAllByRole("button", { name: /Main Deck card/ });
+    rightClick(mainCards()[0]!);
+    expect(await screen.findByRole("dialog", { name: "Change art of Barrel Dragon" })).toBeInTheDocument();
+    expect(mainCards()).toHaveLength(1);
+  });
+
+  it("adds a copy with the + and = keys and undoes it in one step", async () => {
+    stored = savedDeck([BLUE_EYES.code]);
+    render(<SavedDeckEditor deckId="7" />);
+    await screen.findAllByRole("button", { name: /Main Deck card/ });
+    expect(mainCards()[0]).toHaveAttribute("aria-keyshortcuts", expect.stringContaining("Plus"));
+    fireEvent.keyDown(mainCards()[0]!, { key: "+", shiftKey: true });
+    expect(mainCards()).toHaveLength(2);
+    fireEvent.keyDown(mainCards()[0]!, { key: "=" });
+    expect(mainCards()).toHaveLength(3);
+    fireEvent.keyDown(mainCards()[0]!, { key: "+" });
+    expect(mainCards()).toHaveLength(3);
+    expect(notices()).toContain("you already have 3 copies");
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(mainCards()).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(mainCards()).toHaveLength(1);
+  });
+
+  it("makes the copy dirty so the deck can be saved", async () => {
+    stored = savedDeck([BLUE_EYES.code]);
+    render(<SavedDeckEditor deckId="7" />);
+    await screen.findAllByRole("button", { name: /Main Deck card/ });
+    expect(screen.queryByText("Unsaved changes")).toBeNull();
+    rightClick(mainCards()[0]!, { ctrlKey: true });
+    expect(screen.getAllByText("Unsaved changes").length).toBeGreaterThan(0);
+  });
+
+  it("copies the Deck Master into Main when the limit allows, and counts the Master as a copy", async () => {
+    stored = { ...savedDeck([]), mode: "domain", deck: { main: [], extra: [], side: [], deckMaster: BLUE_EYES.code } };
+    render(<SavedDeckEditor deckId="7" />);
+    const slot = await screen.findByRole("button", { name: "Deck Master: Blue-Eyes White Dragon" });
+    rightClick(slot, { ctrlKey: true });
+    expect(mainCards()).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Deck Master: Blue-Eyes White Dragon" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    rightClick(screen.getByRole("button", { name: "Deck Master: Blue-Eyes White Dragon" }), { ctrlKey: true });
+    rightClick(screen.getByRole("button", { name: "Deck Master: Blue-Eyes White Dragon" }), { ctrlKey: true });
+    expect(mainCards()).toHaveLength(2);
+    expect(notices()).toContain("you already have 3 copies");
+  });
+});
+
 describe("deck controls legend", () => {
   it("lists the deck and card list clicks in the left panel", async () => {
     render(<SavedDeckEditor />);
@@ -754,6 +911,7 @@ describe("deck controls legend", () => {
     expect(legend).toHaveTextContent("Left-click remove");
     expect(legend).toHaveTextContent("Ctrl+click move to/from Side Deck");
     expect(legend).toHaveTextContent("Right-click change art");
+    expect(legend).toHaveTextContent("Ctrl+right-click add a copy");
     expect(legend).toHaveTextContent("Click preview");
     expect(legend).toHaveTextContent("Double-click or Right-click add");
     expect(within(screen.getByRole("complementary", { name: "Card details" })).getByRole("region", { name: "Controls" })).toBe(legend);
@@ -845,6 +1003,7 @@ describe("deck card hover and click guards", () => {
     render(<SavedDeckEditor />);
     const legend = await screen.findByRole("region", { name: "Controls" });
     expect(legend).toHaveTextContent("Enter or Space select");
+    expect(legend).toHaveTextContent("+ or = add a copy");
     expect(legend).toHaveTextContent("Ctrl+Enter move to/from Side Deck");
     expect(screen.getByText(/Ctrl\+click a deck card/)).toBeInTheDocument();
   });
