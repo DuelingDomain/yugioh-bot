@@ -10,7 +10,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const { slug } = await params;
 
   try {
-    actor.duels.room(slug, actor.guildId, actor.playerId);
+    const room = actor.duels.room(slug, actor.guildId, actor.playerId);
+    if (room.session.sandbox) {
+      const admin = await requireDuelActor("admin");
+      if (!admin.ok) return admin.response;
+    }
   } catch (error) {
     return duelErrorResponse(error);
   }

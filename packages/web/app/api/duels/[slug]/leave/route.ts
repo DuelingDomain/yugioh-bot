@@ -10,6 +10,11 @@ export async function POST(_request: Request, { params }: { params: Promise<{ sl
   const { slug } = await params;
 
   try {
+    const room = actor.duels.room(slug, actor.guildId, actor.playerId);
+    if (room.session.sandbox) {
+      const admin = await requireDuelActor("admin");
+      if (!admin.ok) return admin.response;
+    }
     const session = actor.duels.leave(slug, actor.guildId, actor.playerId);
     try {
       await notifyDuelChange(session.slug, actor.guildId);

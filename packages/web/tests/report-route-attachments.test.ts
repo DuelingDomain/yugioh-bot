@@ -22,6 +22,7 @@ describe("report route client-attachments.json", () => {
     vi.stubEnv("DUEL_SCENARIOS", "1");
     callDuelHost.mockReset();
     actor.duels.room.mockReset();
+    actor.duels.room.mockReturnValue({ session: { sandbox: false } });
     dir = mkdtempSync(join(tmpdir(), "report-att-"));
     dirs.push(dir);
     callDuelHost.mockResolvedValue({ ok: true, data: { path: dir } });

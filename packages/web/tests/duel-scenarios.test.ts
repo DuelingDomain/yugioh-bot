@@ -23,6 +23,7 @@ describe("duel scenario routes", () => {
   beforeEach(() => {
     callDuelHost.mockReset();
     actor.duels.room.mockReset();
+    actor.duels.room.mockReturnValue({ session: { sandbox: false } });
   });
   afterEach(() => vi.unstubAllEnvs());
 

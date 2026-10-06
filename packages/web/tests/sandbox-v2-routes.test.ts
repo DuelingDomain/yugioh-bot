@@ -20,6 +20,12 @@ import { GET as connection } from "../app/api/duels/[slug]/connection/route";
 import { GET as replay } from "../app/api/duels/[slug]/replay/route";
 import { POST as chainMode } from "../app/api/duels/[slug]/chain-mode/route";
 
+import { GET as debugTrace } from "../app/api/duels/[slug]/debug-trace/route";
+import { POST as report } from "../app/api/duels/[slug]/report/route";
+import { POST as archive } from "../app/api/duels/[slug]/archive/route";
+import { POST as deck } from "../app/api/duels/[slug]/deck/route";
+import { POST as leave } from "../app/api/duels/[slug]/leave/route";
+
 const snapshot = { board: { format: "ffa3", startAt: "main2", p0: { hand: [46986414], lp: 3200 } }, run: { bots: { "1": "manual", "2": "pass", "3": "pass" } }, lost: ["Turn count", "Counters"] };
 const request = (body?: unknown, method = "POST", query = "") => new NextRequest(`http://local/${query}`, { method, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 const params = (slug: string) => ({ params: Promise.resolve({ slug }) });
@@ -30,13 +36,14 @@ let slug: string;
 
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.stubEnv("DUEL_SCENARIOS", "1");
   mocks.db = openDatabase(":memory:");
   owner = createPlayerService(mocks.db).findOrCreate("guild", "admin", "Admin").id;
   slug = createDuelService(mocks.db).create({ guildId: "guild", organizerPlayerId: owner, name: "Sandbox", mode: "normal", masterRule: 5, sandbox: true }).slug;
   mocks.auth.mockResolvedValue({ user: { id: "admin", name: "Admin" } });
   mocks.access.mockResolvedValue({ ok: true });
   mocks.membership.mockResolvedValue({ ok: true });
-  mocks.post.mockImplementation(async (_path: string, raw: string) => ({ ok: true, status: 200, text: JSON.stringify(JSON.parse(raw).op === SANDBOX_OPS.snapshot ? snapshot : { ok: true }) }));
+  mocks.post.mockImplementation(async (_path: string, raw: string) => ({ ok: true, status: 200, text: JSON.stringify(JSON.parse(raw).op === SANDBOX_OPS.snapshot ? snapshot : JSON.parse(raw).op === "report" ? { path: "/tmp/test-report" } : { ok: true }) }));
 });
 afterEach(() => { mocks.db?.close(); vi.unstubAllEnvs(); });
 
@@ -142,6 +149,11 @@ describe("save-state", () => {
 });
 
 const routes = [
+  { name: "debug-trace", handler: debugTrace, method: "GET", body: undefined },
+  { name: "report", handler: report, method: "POST", body: { note: "Test" } },
+  { name: "archive", handler: archive, method: "POST", body: undefined },
+  { name: "deck", handler: deck, method: "POST", body: { main: [], extra: [], side: [] } },
+  { name: "leave", handler: leave, method: "POST", body: undefined },
   { name: "surrender", handler: surrender, method: "POST", body: undefined },
   { name: "cancel", handler: cancel, method: "POST", body: undefined },
   { name: "connection", handler: connection, method: "GET", body: undefined },
@@ -177,17 +189,18 @@ for (const route of routes) {
       expect((await invoke()).status).toBe(403);
       expect(mocks.post).not.toHaveBeenCalled();
     });
-    it("allows the admin organizer", async () => {
+    it("allows the admin organizer through the access gate", async () => {
       const response = await invoke();
-      expect(response.status).toBe(200);
+      expect(response.status).toBe(route.name === "leave" ? 409 : 200);
       expect(mocks.access).toHaveBeenCalledWith("admin", "admin");
       if (route.name === "connection") expect(await response.json()).toMatchObject({ token: expect.any(String), guildId: "guild" });
+      else if (route.name === "leave") expect(mocks.post).not.toHaveBeenCalled();
       else expect(payloads()[0]).toMatchObject({ op: route.name, slug, guildId: "guild", playerId: owner });
     });
     it("keeps ordinary duels available to members", async () => {
       const normal = createDuelService(mocks.db!).create({ guildId: "guild", organizerPlayerId: owner, name: "Normal", mode: "normal", masterRule: 5 });
       mocks.access.mockResolvedValue({ ok: false, status: 403 });
-      expect((await invoke(normal.slug)).status).toBe(200);
+      expect((await invoke(normal.slug)).status).toBe(route.name === "leave" ? 409 : 200);
       expect(mocks.access).not.toHaveBeenCalled();
     });
   });
