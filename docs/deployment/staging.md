@@ -153,6 +153,24 @@ The 96-patch CI builds use `LUA_FIXED_SEED=1` with the pinned image above. Patch
 | Domain multiplayer | `cc1ec5f175c14f2e4465b3db87d96fe4f0a320bd15701f544d49d5cb0137cf0c` |
 | Domain 1v1 | `01611db77c00ddef07a3d4cfc88800f5c523e3a388c3732616a79fa19b3c4a63` |
 
+The released-card preparation change uses `cards.cdb` plus `release-betb.cdb` at the
+current BabelCDB pin, yielding 14,845 passcodes (86 added). The core/Lua hashes above
+and in both `expected-sha256.txt` files are unchanged. These data hashes were verified
+in scratch preparation on 2026-10-06:
+
+| Card data | SHA-256 |
+| --- | --- |
+| Base cards.cdb input | `3530f406ba92b0f8d5699aa107e95158a1f1b4816f8f5ca2dd82c490301ef632` |
+| Release BETB input | `939a33357d6d43e0c392a33df4e31034152a7bec09696041239cded0d8d8e3ae` |
+| Merged cards.cdb output | `4c4025613e2fb7588ad8e520a16af72d9d7e509f7848a9bffec461f1cbcd0548` |
+
+The prepared bundle version without optional built-core metadata changes from
+`23993561abcaedcdf5aacadbfb9b4f43c4484b2590a99e9906efe29fb59cdfa8` to
+`019e8c1ce3e85b5c9757d627e1fdc91be9ce53101e13fa69888edc1fd9b1437e`.
+Versions with built-core metadata change too. The owner must approve merging/deployment;
+active-duel and replay version checks still apply. Selection, merge ordering and script
+coverage are documented in [engine data updates](engine-data-updates.md#released-card-data).
+
 Deploys omit `LUA_FIXED_SEED`; the differential test workflow uses it. The multi cache keys include all
 build/packaging scripts, pins, patches and Domain sources. Each cache stores both WASMs and their
 build-info JSON files. `package-deploy-multi-cores.mjs` checks those records and rejects test-seeded or
