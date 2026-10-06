@@ -47,6 +47,8 @@ export function DeckSectionGrid({
   onHover,
   onRemove,
   onMoveSide,
+  onCopy,
+  copyable = true,
   onDrop,
   onArtMenu,
   artMenu,
@@ -74,6 +76,10 @@ export function DeckSectionGrid({
   onRemove: (source: CardSource) => void;
   /** Ctrl+click or Cmd+click: the copy goes to the Side Deck, or from the Side Deck to where it belongs. */
   onMoveSide: (source: CardSource & { from: DeckSection; index: number }) => void;
+  /** Ctrl+right-click or the + key: one more copy of this card, art included, goes into the same section next to it. */
+  onCopy: (copy: { code: number; section: DeckSection; index: number }) => void;
+  /** False in Domain, where a deck is singleton: the + key does nothing and is not listed. */
+  copyable?: boolean;
   onDrop: (source: CardSource, section: DeckSection, at?: number) => void;
   /** Right-click, long press or the menu key on a card: the art menu opens beside `anchor`. */
   onArtMenu: (request: { section: DeckSection; index: number; code: number; anchor: HTMLElement }) => void;
@@ -165,6 +171,7 @@ export function DeckSectionGrid({
               moveSide: () => onMoveSide({ code, from: section, index }),
               select: () => onSelect({ section, code, index }),
               menu: (anchor) => openMenu(anchor, code, index),
+              copy: () => onCopy({ code, section, index }),
             });
             return (
               <li
@@ -177,7 +184,7 @@ export function DeckSectionGrid({
                   type="button"
                   className={styles["de-c"]}
                   aria-pressed={isSelected}
-                  aria-keyshortcuts="Delete ContextMenu Shift+F10"
+                  aria-keyshortcuts={copyable ? "Delete Plus = ContextMenu Shift+F10" : "Delete ContextMenu Shift+F10"}
                   aria-label={`${name}, ${title} Deck card ${index + 1}${missing ? ", not in the card database" : ""}${isOver ? ", too many copies" : ""}${arts > 0 ? `, ${artCountLabel(arts)}` : ""}`}
                   title={name}
                   data-unknown={missing ? "true" : undefined}
@@ -197,6 +204,10 @@ export function DeckSectionGrid({
                     if (event.key === "Delete" || event.key === "Backspace" || event.key === "-") {
                       event.preventDefault();
                       removeAndRefocus(code, index);
+                    } else if (copyable && (event.key === "+" || event.key === "=")) {
+                      event.preventDefault();
+                      // A held key repeats; one press adds one copy.
+                      if (!event.repeat) onCopy({ code, section, index });
                     }
                   }}
                 >

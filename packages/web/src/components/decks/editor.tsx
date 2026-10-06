@@ -167,6 +167,8 @@ function draftDeckName(draftName: string): string {
   return `${draftName.trim() || "Draft"} deck`.slice(0, MAX_NAME_LENGTH);
 }
 
+const DOMAIN_ONE_COPY = "Domain decks hold one copy of each card.";
+
 function copiesText(max: number): string {
   if (max === 0) return "is Forbidden";
   return `allows ${max} ${max === 1 ? "copy" : "copies"}`;
@@ -471,7 +473,10 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   const limitsPending = !banlistOff && facets == null && !facetsError;
   const banlistName = banlistOff ? null : banlistLabel(query.banlist);
   const counts = useMemo(() => copyCounts(deck, catalog), [deck, catalog]);
-  const problems = useMemo(() => (pool ? [] : copyProblems(deck, catalog, limits)), [pool, deck, catalog, limits]);
+  const problems = useMemo(
+    () => (pool ? (mode === "domain" ? copyProblems(deck, catalog, null, true) : []) : copyProblems(deck, catalog, limits, mode === "domain")),
+    [pool, deck, catalog, limits, mode],
+  );
   const poolMap = useMemo(() => (pool ? poolCounts(pool.cards, catalog) : null), [pool, catalog]);
   const forcedMap = useMemo(() => forcedCounts(pool?.forcedCopies, catalog), [pool, catalog]);
   const usage = useMemo(() => deckUsage(deck, catalog), [deck, catalog]);
@@ -622,15 +627,23 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   }
 
   function roomFor(card: DeckCardInfo): boolean {
+    // Domain is singleton in a draft deck too: the pool may hold more copies, the deck takes one.
+    if (mode === "domain" && deckCount(card) >= 1) {
+      setNotice(DOMAIN_ONE_COPY);
+      return false;
+    }
     if (poolMap) return poolRoomFor(card.code);
     if (limitsPending) {
       setNotice("Loading the banlist. Try again in a moment.");
       return false;
     }
-    const max = limits ? cardLimit(limits, card) : 3;
+    const listed = limits ? cardLimit(limits, card) : 3;
+    // Domain decks are singleton: one copy of each card, alternate arts included.
+    const max = mode === "domain" ? Math.min(1, listed) : listed;
     const have = deckCount(card);
     if (have < max) return true;
-    setNotice(max === 3
+    if (mode === "domain" && listed >= 1) setNotice(DOMAIN_ONE_COPY);
+    else setNotice(max === 3
       ? `${card.name}: you already have 3 copies.`
       : `${card.name}: ${banlistName ?? "the banlist"} ${copiesText(max)}.`);
     return false;
@@ -690,6 +703,42 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     dropCard(source, defaultAddSection(card));
   }
 
+  /**
+   * Ctrl+right-click or the + key on a deck card: one more copy, with the same art passcode, goes into the
+   * same section right after it. It takes the add path of the card list (roomFor and poolRoomFor), so the
+   * copy limit, the banlist and the draft pool count apply, and a blocked add shows their notice. One undo step.
+   */
+  function copyCard(source: { code: number; section: DeckSection; index: number }) {
+    if (busy) return;
+    // A Domain deck is singleton, so a deck card never has room for a copy, and the pool rules do not apply.
+    if (mode === "domain") {
+      setNotice(DOMAIN_ONE_COPY);
+      return;
+    }
+    if (unknown.has(source.code)) {
+      setNotice(`${source.code} is not in the card database.`);
+      return;
+    }
+    const card = catalog.get(source.code);
+    if (card) {
+      if (!roomFor(card)) return;
+    } else if (poolMap) {
+      if (!poolRoomFor(source.code)) return;
+    } else {
+      setNotice("Card details are still loading. Try again in a moment.");
+      return;
+    }
+    const to = source.section;
+    const placed = placeCardAt(selection, { code: source.code, from: "list" }, to, source.index + 1);
+    commit(placed.selection);
+    setSelected({ section: to, code: source.code, index: placed.index });
+    setInspectCode(source.code);
+    // The notice region is a status line, so a screen reader hears that the copy went in.
+    const have = card ? deckCount(card) + 1 : (usage.get(poolCode(source.code)) ?? 0) + 1;
+    const max = poolMap ? deckAllowance(poolMap, poolCode(source.code), forcedMap) : copyLimit(source.code, catalog, limits);
+    setNotice(`Added ${cardName(source.code)} (${have} of ${max}).`);
+  }
+
   function makeMaster(code: number, section?: DeckSection) {
     const card = catalog.get(code);
     if (card && (card.type & TYPE_MONSTER) === 0) {
@@ -698,7 +747,9 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     }
     // A Deck Master that is not in the deck yet is a new copy, so it must fit the copy limit.
     const inDeck = deck.main.includes(code) || deck.extra.includes(code) || deck.side.includes(code);
-    if (card && !inDeck && !roomFor(card)) return;
+    // Another art of the current Master (no copy of it waits in a section) replaces it and adds no copy.
+    const swapsArt = deck.deckMaster != null && masterOrigin == null && copyKey(code, catalog) === copyKey(deck.deckMaster, catalog);
+    if (card && !inDeck && !swapsArt && !roomFor(card)) return;
     commit(chooseMaster(selection, code, section));
     setInspectCode(code);
     setSelected(null);
@@ -930,6 +981,8 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     moveSide: () => setNotice("Domain has no Side Deck."),
     select: () => { if (deck.deckMaster != null) inspect(deck.deckMaster, null, true, true); },
     menu: (anchor) => { if (deck.deckMaster != null) openArtMenu({ section: "deckMaster", index: 0, code: deck.deckMaster, anchor }); },
+    // The Master cannot also be in Main, Extra or Side, so Ctrl+right-click copies nothing (and opens no menu).
+    copy: () => setNotice("The Deck Master cannot also be in the deck."),
   });
   const checkProps: DeckCheckProps = { problems, notes, banlistName, flag, tone, pool: !!pool, onProblem: showProblem };
   const sectionProps = {
@@ -938,6 +991,8 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     onHover: pointAt,
     onRemove: removeCopy,
     onMoveSide: toggleSide,
+    onCopy: copyCard,
+    copyable: mode !== "domain",
     onDrop: dropCard,
     onArtMenu: openArtMenu,
     artMenu,
