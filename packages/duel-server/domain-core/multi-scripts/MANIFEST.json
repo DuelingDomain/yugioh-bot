@@ -1163,10 +1163,12 @@
         "LEAVE"
       ],
       "redefined": [
-        "damop"
+        "damop",
+        "condition",
+        "operation"
       ],
       "stockSha256": "747ddad8a7d7e9c7fd48aed984d67a5b3e4718ce5a3c830f2a8db3628a07afbf",
-      "note": "FFA operations tolerate a removed source link and preserve independent actions. Tag and 1v1 keep the stock functions."
+      "note": "Tag: apply battle damage protection to both partners (R-TAG-TEAM-DAMAGE, owner decision 2026-10-06). Keep existing FFA and 1v1 behavior. Keep the FFA removed-source-link guard in damop."
     },
     {
       "code": 14220547,
@@ -3353,7 +3355,12 @@
       "classes": [
         "R1"
       ],
-      "stockSha256": "42f98b5f285c5e65180ef86610cc026ebe67f409b01e1024ad63f7a9cda5d554"
+      "stockSha256": "42f98b5f285c5e65180ef86610cc026ebe67f409b01e1024ad63f7a9cda5d554",
+      "redefined": [
+        "dmcon",
+        "dmop"
+      ],
+      "note": "Tag: apply battle damage protection to both partners (R-TAG-TEAM-DAMAGE, owner decision 2026-10-06). Keep existing FFA and 1v1 behavior. Register prevention for both partners, but run the existing per-duelist 1000 effect damage only once."
     },
     {
       "code": 37806313,
@@ -3621,6 +3628,19 @@
       "classes": [],
       "stockSha256": "8107286c8d9684d7ef953d80e6296a84461cb830d962bb9962009625098b5097",
       "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
+    },
+    {
+      "code": 40640057,
+      "file": "c40640057.lua",
+      "name": "Kuriboh",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "con",
+        "op"
+      ],
+      "stockSha256": "09622bcf802fc9ce22e4c180b9a6876f8aa31aef6386d61d29a52b762828eafb",
+      "note": "Tag: test battle damage on either living partner and register damage prevention for both. Keep the stock opponent-turn check; FFA and 1v1 keep the stock effect."
     },
     {
       "code": 41424250,
@@ -4709,6 +4729,20 @@
       "note": "The global battle flag reaches every seat in FFA and every team in Tag. The activation reads the flag of its own holder, so a Tag holder on team 1 does not pick an opponent."
     },
     {
+      "code": 54569495,
+      "file": "c54569495.lua",
+      "name": "Marincess Crown Tail",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "spop",
+        "damop1",
+        "damcon3"
+      ],
+      "stockSha256": "810613615961641b369cb071c22b210e712023408ab435e08a6f4987bf436bd1",
+      "note": "Tag: apply battle damage protection to both partners (R-TAG-TEAM-DAMAGE, owner decision 2026-10-06). Keep existing FFA and 1v1 behavior. Summon once; halve team battle damage. The grave effect checks actual team damage against the shared grave Link Rating threshold."
+    },
+    {
       "code": 54635100,
       "file": "c54635100.lua",
       "name": "Linkerbell",
@@ -5002,6 +5036,18 @@
       "stockSha256": "097e75c8fc07cf7560b7fddcc127abba6c513cd8e741361c514f7049ff8f8a34",
       "note": "Decision-only opponent pick at resolution; no activation declaration.",
       "chooserClass": "CH-DECISION"
+    },
+    {
+      "code": 58012707,
+      "file": "c58012707.lua",
+      "name": "Giant Ballpark",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "con"
+      ],
+      "stockSha256": "c68e7a905c1b7ac6746c8b9599d91989a47068de627e382ef280284501b874c9",
+      "note": "Test battle damage to every living player."
     },
     {
       "code": 58071123,
@@ -5358,6 +5404,19 @@
       "chooserClass": "CH-DECISION"
     },
     {
+      "code": 60953118,
+      "file": "c60953118.lua",
+      "name": "Arcana Force XIV - Temperance",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "damcon",
+        "damop"
+      ],
+      "stockSha256": "40805225a151085b538dcca97ce713811839c7fb005bf0bf8c99b59d527ca52f",
+      "note": "Tag: apply battle damage protection to both partners (R-TAG-TEAM-DAMAGE, owner decision 2026-10-06). Keep existing FFA and 1v1 behavior."
+    },
+    {
       "code": 61318483,
       "file": "c61318483.lua",
       "name": "Ghostrick Jackfrost",
@@ -5526,6 +5585,19 @@
         "damtg",
         "damop"
       ]
+    },
+    {
+      "code": 63009228,
+      "file": "c63009228.lua",
+      "name": "Rescue Interlacer",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "damcon",
+        "damop"
+      ],
+      "stockSha256": "ddae04d6e7022f309d8e5820e049b8059cb21ab243c6f1331f363b54e2ea89be",
+      "note": "Tag: apply battle damage protection to both partners (R-TAG-TEAM-DAMAGE, owner decision 2026-10-06). Keep existing FFA and 1v1 behavior."
     },
     {
       "code": 63378869,

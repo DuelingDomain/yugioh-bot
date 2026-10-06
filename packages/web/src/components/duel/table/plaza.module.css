@@ -151,13 +151,13 @@
   }
 }
 
-/* The seats regroup: the pads wait for the crumble (0.65 s), then glide for 1 s with the boards. */
+/* The seats regroup: the pads wait for the crumble and the beat (2.2 s), then glide with the boards (rival-field.module.css). */
 .plaza[data-glide="true"] .pad:not(.padOut) {
   transition:
-    left 1s cubic-bezier(0.3, 0.7, 0.2, 1) 0.65s,
-    top 1s cubic-bezier(0.3, 0.7, 0.2, 1) 0.65s,
-    rotate 1s cubic-bezier(0.3, 0.7, 0.2, 1) 0.65s,
-    scale 1s cubic-bezier(0.3, 0.7, 0.2, 1) 0.65s;
+    left 1.4s cubic-bezier(0.5, 0, 0.2, 1) 2.2s,
+    top 1.4s cubic-bezier(0.5, 0, 0.2, 1) 2.2s,
+    rotate 1.4s cubic-bezier(0.5, 0, 0.2, 1) 2.2s,
+    scale 1.4s cubic-bezier(0.5, 0, 0.2, 1) 2.2s;
 }
 
 @media (prefers-reduced-motion: reduce) {

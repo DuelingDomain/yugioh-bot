@@ -447,11 +447,11 @@
   }
 }
 
-/* The seats regroup: the panel waits for the crumble, then glides to its new corner. */
+/* The seats regroup: the panel waits for the crumble and the beat, then glides to its new corner with the boards. */
 .holo[data-glide="true"] {
   transition:
     opacity 0.35s,
-    translate 0.9s cubic-bezier(0.3, 0.7, 0.2, 1) 0.71s;
+    translate 1.4s cubic-bezier(0.5, 0, 0.2, 1) 2.2s;
 }
 
 @keyframes holoIn {

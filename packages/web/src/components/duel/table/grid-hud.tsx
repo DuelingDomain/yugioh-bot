@@ -22,6 +22,8 @@ export type HudPane = "card" | "log" | "settings" | "chain" | "master" | "other"
 export const DOCK_PANES = ["log", "settings", "chain"] as const;
 /** The dock of a table with a camera panel. */
 export const DOCK_PANES_CAMERA = [...DOCK_PANES, "camera"] as const;
+/** A dock icon. */
+export type DockPane = (typeof DOCK_PANES_CAMERA)[number];
 
 export const HUD_PANE_LABEL: Record<HudPane, string> = {
   card: "Card",
@@ -73,7 +75,7 @@ export function useHudDismiss(active: boolean, suspended: boolean, onClose: () =
 export function GridDock({ pane, onToggle, unread, chainCount, panes = DOCK_PANES }: {
   pane: HudPane | null;
   /** The icons, top to bottom. Default: Log, Settings, Chain. */
-  panes?: readonly (typeof DOCK_PANES_CAMERA)[number][];
+  panes?: readonly DockPane[];
   /** The same icon again closes the pane. */
   onToggle: (pane: HudPane) => void;
   /** New log rows since the Log pane was last in view. */

@@ -17,9 +17,13 @@ const ownMonsters = (page: Page) => page.locator('[data-seat-field][data-side="y
 /** TableShell gives each seat exactly one holographic LP panel. */
 /** The phase bar. The Battle plate is a button only while the engine offers the Battle Phase. */
 const toBattle = (page: Page) => page.getByRole("button", { name: /^To Battle/ });
-/** The Battle plate in the list of phase plates (not the primary dock button, which also names the Battle Phase). */
+/**
+ * The Battle plate in the strip of phase plates (not the primary dock button, which also names the Battle Phase).
+ * The 4-way grid draws its phases as the on-board hub (`phase-hub`, a chip with `data-phase="BP"`); the other layouts list them in the bar.
+ */
 const battlePlate = (page: Page) =>
-  page.getByRole("navigation", { name: "Duel phases" }).getByRole("list").getByRole("button", { name: /battle/i });
+  page.getByRole("navigation", { name: "Duel phases" }).getByRole("list").getByRole("button", { name: /battle/i })
+    .or(page.getByTestId("phase-hub").locator("button[data-phase='BP']"));
 
 /** Waits until the seat shows turn `turn` and its End Turn button works, so a "no Battle Phase" check cannot pass on a page that is not ready. */
 async function expectTurnReady(seat: Seat, turn: number): Promise<void> {
@@ -46,7 +50,8 @@ test.describe("4-player FFA", () => {
       await expect(seat.page.locator("[data-table-shell]")).toBeVisible();
       await expect(seat.page.locator("[data-table-stage='ffa4'] [data-seat-field]")).toHaveCount(4);
       await expect(seat.page.locator("[data-lp-seat]")).toHaveCount(4);
-      await expect(seat.page.locator("[data-arc='0']")).toHaveAttribute("data-lit", "true");
+      // The grid has no turn ring: its stage names the seat of the turn duelist (seat 0 on turn 1).
+      await expect(seat.page.locator("[data-table-stage='ffa4']")).toHaveAttribute("data-turn-seat", "0");
     }
   });
 
@@ -59,7 +64,7 @@ test.describe("4-player FFA", () => {
     await endTurn(alice.page, 5);
   });
 
-  test("current engine: no BP on turns 1-4", async ({ player }) => {
+  test("R-FFA-NO-ATTACK: no BP on turns 1-3, the last duelist gets the first BP on turn 4", async ({ player }) => {
     const seats = await openSeats(player);
     await startTable(seats, "ffa4 no attack", decks([FILLER, FILLER]));
     const [alice, bob, carol, dave] = seats as [Seat, Seat, Seat, Seat];
@@ -69,13 +74,18 @@ test.describe("4-player FFA", () => {
     await expect(toBattle(alice.page)).toHaveCount(0);
     await expect(battlePlate(alice.page)).toHaveCount(0);
     await endTurn(alice.page, 2);
-    for (const [index, seat] of [bob, carol, dave].entries()) {
+    for (const [index, seat] of [bob, carol].entries()) {
       await expectTurnReady(seat, index + 2);
       await expect(toBattle(seat.page)).toHaveCount(0);
       await expect(battlePlate(seat.page)).toHaveCount(0);
       await endTurn(seat.page, index + 3);
     }
-    // Turn 5 is seat 0 again: the first turn where an attack is allowed. The same two locators now match, so the
+    // Turn 4 is the last duelist's first turn: the Battle Phase window opens for seat 3 (R-FFA-NO-ATTACK, ADR-0002).
+    await expectTurnReady(dave, 4);
+    await expect(toBattle(dave.page)).toBeEnabled();
+    await expect(battlePlate(dave.page)).toHaveCount(1);
+    await endTurn(dave.page, 5);
+    // Turn 5 is seat 0 again: its Battle Phase is open too. The same two locators now match, so the
     // count-0 checks above are real (a locator that never matches would pass them too).
     await expectTurnReady(alice, 5);
     await expect(toBattle(alice.page)).toBeEnabled();
@@ -94,15 +104,15 @@ test.describe("4-player FFA", () => {
     }
     const prompt = (await readTable(seats[3]!.page, slug)).engine!.prompt!;
     expect(prompt.context?.type).toBe("action");
-    test.fail(true, "R-FFA-NO-ATTACK pending engine change");
     expect(prompt.options.some((option) => option.id === "to_bp")).toBe(true);
     await expect(toBattle(seats[3]!.page)).toBeEnabled();
   });
 
-  test("current engine: Raigeki hits all opponents (R-FFA-OPP-ONE pending)", async ({ player }) => {
+  test("R-FFA-OPP-ONE: Raigeki hits only the declared opponent", async ({ player }) => {
     const seats = await openSeats(player);
     // Seat 0 holds Raigeki and summons a filler monster on turn 1. Seats 1 to 3 each summon a filler monster on their own turn.
-    // Raigeki destroys the monsters of the opponents only: the monster of seat 0 must stay (Dark Hole would destroy it too).
+    // Raigeki declares ONE opponent first, then asks for the zone (ADR-0002, R-FFA-OPP-ONE). Seat 2 is picked: only its
+    // monster is destroyed. The monsters of seats 0, 1 and 3 stay (Dark Hole would destroy them all).
     await startTable(seats, "ffa4 raigeki", decks(["Raigeki", FILLER]));
     const [alice, ...others] = seats as [Seat, ...Seat[]];
     await normalSummon(alice);
@@ -119,12 +129,13 @@ test.describe("4-player FFA", () => {
       message: "Inspecting a different card must keep the table stage height stable",
     }).toBeLessThanOrEqual(1);
     await useCard(alice.page, handCard(alice.page, "Raigeki"), "Activate");
+    await alice.page.getByTestId("holo-pick-2").click();
     await pickLegalZone(alice.page, "st");
-    for (const seat of others) {
-      await expect(ownMonsters(seat.page)).toHaveCount(0);
+    // Each opponent had one monster (normalSummon checked that), so the count 0 for seat 2 is a change. The others stay.
+    await expect(ownMonsters(others[1]!.page)).toHaveCount(0);
+    for (const seat of [others[0]!, others[2]!, alice]) {
+      await expect(ownMonsters(seat.page)).toHaveCount(1);
     }
-    // Each opponent had one monster (normalSummon checked that), so the count 0 above is a change. The own monster stays.
-    await expect(ownMonsters(alice.page)).toHaveCount(1);
   });
 
   test("R-FFA-OPP-ONE: Raigeki asks for one opponent and clears only that field", async ({ player }, info) => {
@@ -133,12 +144,12 @@ test.describe("4-player FFA", () => {
     await expectRealCore(alice.page, slug, "scripted", info, 3);
     for (const seat of [0, 1, 2, 3]) await expect(tableField(alice.page, seat).locator("[data-kind='mz'][data-occupied='true']")).toHaveCount(1);
     await useCard(alice.page, handCard(alice.page, "Raigeki"), "Activate");
-    await pickLegalZone(alice.page, "st");
-    test.fail(true, "R-FFA-OPP-ONE pending engine change");
+    // The engine asks for the opponent first (R-FFA-OPP-ONE: "Pick the opponent first, then any cards"), then for the zone.
     await expect.poll(async () => (await readTable(alice.page, slug)).engine!.prompt?.context?.type).toBe("opponent");
     const choice = alice.page.getByTestId("holo-pick-2");
     await expect(choice).toBeVisible();
     await choice.click();
+    await pickLegalZone(alice.page, "st");
     await expect(tableField(alice.page, 2).locator("[data-kind='mz'][data-occupied='true']")).toHaveCount(0);
     for (const seat of [0, 1, 3]) await expect(tableField(alice.page, seat).locator("[data-kind='mz'][data-occupied='true']")).toHaveCount(1);
     expect((await readTable(alice.page, slug)).engine!.seats.map((seat) => seat.monsters.filter(Boolean).length)).toEqual([1, 1, 0, 1]);
@@ -179,7 +190,7 @@ test.describe("4-player FFA", () => {
     }
   });
 
-  test("current engine: direct attack picks one rival, queued surrenders land at turn boundaries, last duelist wins", async ({ player }) => {
+  test("current engine: direct attack picks one rival, surrenders are immediate, last duelist wins", async ({ player }) => {
     const seats = await openSeats(player);
     const { slug } = await startTable(seats, "ffa4 pick surrender", decks([FILLER, FILLER]));
     const [alice, bob, carol, dave] = seats as [Seat, Seat, Seat, Seat];
@@ -217,14 +228,14 @@ test.describe("4-player FFA", () => {
     expect((await readTable(alice.page, slug)).engine!.seats.map((seat) => seat.lp)).toEqual([8000, 8000, 6000, 8000]);
     expect(posts.count, "one POST after damage resolves").toBe(1);
 
-    // Seat 3 surrenders in the middle of the attack. The seat shows "Leaving" until the step is done, and the duel goes on.
+    // Seat 3 surrenders in the middle of the attack. The surrender is immediate (R-COMMON-SURRENDER-EOT): the seat is out
+    // at once, with no "Leaving" step, and the duel goes on.
     await surrender(dave.page);
-    for (const seat of [alice, bob, carol]) await expect(seat.page.locator("[data-holo='3']")).toHaveAttribute("data-leaving", "true");
+    for (const seat of seats) await expect(seat.page.locator("[data-holo='3']")).toHaveAttribute("data-elim", "true");
     await expect(alice.page.getByTestId("duel-result")).toHaveCount(0);
 
-    // Seat 0 ends the turn: seat 3 is out for good. The turn goes 1, 2, then back to 0: seat 3 is skipped.
+    // Seat 0 ends the turn. The turn goes 1, 2, then back to 0: seat 3 is skipped.
     await endTurn(alice.page, 6);
-    for (const seat of seats) await expect(seat.page.locator("[data-holo='3']")).toHaveAttribute("data-elim", "true");
     // The eliminated duelist switches to spectating without a choice panel.
     await expectAutoSpectating(dave.page, slug);
     // Bob and Carol hold 7 cards on their second turn: a summon keeps the hand at the limit, so no discard prompt opens.
@@ -240,12 +251,11 @@ test.describe("4-player FFA", () => {
     await pickLegalZone(alice.page, "mz");
     await expect(ownMonsters(alice.page)).toHaveCount(2);
 
-    // Seat 1 surrenders in the turn of seat 0 and leaves when that turn is done. Then the turn goes to seat 2.
+    // Seat 1 surrenders in the turn of seat 0 and is out at once. Then the turn goes to seat 2.
     await surrender(bob.page);
-    await expect(alice.page.locator("[data-holo='1']")).toHaveAttribute("data-leaving", "true");
+    await expect(alice.page.locator("[data-holo='1']")).toHaveAttribute("data-elim", "true");
     await expect(alice.page.getByTestId("duel-result")).toHaveCount(0);
     await endTurn(alice.page, 9);
-    await expect(alice.page.locator("[data-holo='1']")).toHaveAttribute("data-elim", "true");
     await expect(turnLabel(carol.page)).toHaveText("Turn 9");
 
     // The last surrender leaves one duelist: the game ends and the screens differ for each viewer.
