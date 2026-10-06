@@ -274,6 +274,8 @@ export function SandboxBar({ slug, room, info, acting, reveal, follow, onActAs, 
   const [confirm, setConfirm] = useState<Confirm>(null);
   const [stateName, setStateName] = useState("");
   const [saved, setSaved] = useState<SandboxSaveStateResult | null>(null);
+  const [scenarioId, setScenarioId] = useState(info.scenarioId);
+  useEffect(() => { setScenarioId(info.scenarioId); setSaved(null); }, [slug, info.scenarioId]);
   const [copied, setCopied] = useState(false);
   const barRef = useRef<HTMLDivElement>(null);
   const engine = room.engine;
@@ -388,7 +390,9 @@ export function SandboxBar({ slug, room, info, acting, reveal, follow, onActAs, 
     if (!name) return;
     void guarded(async () => {
       setSaved(null);
-      setSaved(await saveSandboxState(slug, { name }, view));
+      const result = await saveSandboxState(slug, { name, ...(scenarioId != null ? { scenarioId } : {}) }, view);
+      setScenarioId(result.scenario.id);
+      setSaved(result);
     });
   };
 
@@ -396,7 +400,8 @@ export function SandboxBar({ slug, room, info, acting, reveal, follow, onActAs, 
   const saveAndClose = () => {
     void guarded(async () => {
       setSaved(null);
-      const result = await saveSandboxState(slug, { name: defaultStateName(room) }, view);
+      const result = await saveSandboxState(slug, { name: defaultStateName(room), ...(scenarioId != null ? { scenarioId } : {}) }, view);
+      setScenarioId(result.scenario.id);
       setSaved(result);
       await closeSandbox(slug, view);
       onClosed();
@@ -410,8 +415,8 @@ export function SandboxBar({ slug, room, info, acting, reveal, follow, onActAs, 
     });
   };
 
-  const builderHref = info.scenarioId != null ? `/sandbox/${info.scenarioId}` : `/sandbox/new?from=${encodeURIComponent(slug)}`;
-  const shareLink = info.scenarioId != null ? `${typeof window === "undefined" ? "" : window.location.origin}/sandbox/${info.scenarioId}?play=1` : null;
+  const builderHref = scenarioId != null ? `/sandbox/${scenarioId}` : `/sandbox/new?from=${encodeURIComponent(slug)}`;
+  const shareLink = scenarioId != null ? `${typeof window === "undefined" ? "" : window.location.origin}/sandbox/${scenarioId}?play=1` : null;
   const copyLink = () => {
     if (!shareLink) return;
     void navigator.clipboard?.writeText(shareLink).then(

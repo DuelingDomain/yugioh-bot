@@ -285,6 +285,33 @@ describe("SandboxBar save state", () => {
     expect(screen.queryByTestId("sandbox-saved")).toBeNull();
   });
 
+  it("keeps the saved id after dismissal for Save state and Save & close", async () => {
+    api.saveSandboxState.mockResolvedValue({ scenario: { id: 11, name: "State" }, lost: [] });
+    api.closeSandbox.mockResolvedValue({ ok: true });
+    const props = mount();
+    for (let save = 0; save < 2; save++) {
+      fireEvent.click(screen.getByTestId("sandbox-save-state"));
+      fireEvent.click(screen.getByTestId("sandbox-state-save"));
+      await screen.findByTestId("sandbox-saved");
+      expect(api.saveSandboxState.mock.calls[save][1]).toEqual({ name: "Column test - turn 1 Main 1", ...(save ? { scenarioId: 11 } : {}) });
+      fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    }
+    fireEvent.click(screen.getByTestId("sandbox-exit"));
+    fireEvent.click(screen.getByTestId("sandbox-save-close"));
+    await waitFor(() => expect(props.onClosed).toHaveBeenCalled());
+    expect(api.saveSandboxState.mock.calls[2][1]).toMatchObject({ scenarioId: 11 });
+  });
+
+  it.each(["sandbox-state-save", "sandbox-save-close"])("updates the source scenario with %s", async (button) => {
+    api.saveSandboxState.mockResolvedValue({ scenario: { id: 7, name: "State" }, lost: [] });
+    api.closeSandbox.mockResolvedValue({ ok: true });
+    mount({ info: info({ scenarioId: 7 }) });
+    fireEvent.click(screen.getByTestId(button === "sandbox-state-save" ? "sandbox-save-state" : "sandbox-exit"));
+    fireEvent.click(screen.getByTestId(button));
+    await waitFor(() => expect(api.saveSandboxState).toHaveBeenCalledWith("abc",
+      { name: "Column test - turn 1 Main 1", scenarioId: 7 }, { as: 0, reveal: true }));
+  });
+
   it("does not send an empty name", () => {
     mount();
     fireEvent.click(screen.getByTestId("sandbox-save-state"));
