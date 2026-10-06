@@ -96,7 +96,7 @@ export function pickKindOf(legalKeys: ReadonlySet<string>): PickKind {
 
 /** The pick bar as the room plans it (board px): its widest size and its height in one row, or stacked when narrow. */
 /** The HUD the pick bar keeps off when it docks at the bottom of the board at rest. */
-const BAR_HUD = "[data-grid-controls], [data-view-reset], [data-camera-panel], [data-testid='hud-corner'], [data-testid='hud-top'], [data-testid='hud-master'], [data-opponent-bar], [data-table-chrome]";
+export const BAR_HUD = "[data-grid-controls], [data-view-reset], [data-camera-panel], [data-testid='hud-corner'], [data-testid='hud-top'], [data-testid='hud-master'], [data-opponent-bar], [data-table-chrome]";
 
 /** A target under the pick bar costs this many times what another zone under it costs. */
 const OTHER_WEIGHT = 1000;
@@ -162,21 +162,36 @@ export function restBarRoom(
   return best ? pickBarRoom(pair, targets, others) : undefined;
 }
 
-/** The dock room (dockBarRoom) moved along the bottom of the box, nearest the middle first, to the first place clear of `blocks`. */
+/**
+ * The dock room (dockBarRoom) moved along the bottom of the box, nearest the middle first, to the first place clear of
+ * `blocks`; when no place is clear at full width, a narrower bar (it stacks its text and buttons below 400 px) is tried.
+ */
 export function freeDockRoom(box: { width: number; height: number }, blocks: readonly GridRect[]): string | undefined {
-  const dock = dockBarRoom(box)?.split(",").map(Number);
-  if (!dock) return undefined;
-  const [x0, y, width, height] = dock;
-  const step = 24;
-  const reach = Math.max(x0 - PICK_BAR.edge, 0);
-  for (let d = 0; d <= reach; d += step) {
-    for (const x of d === 0 ? [x0] : [x0 - d, x0 + d]) {
-      const room = { x: Math.max(PICK_BAR.edge, Math.min(x, box.width - width - PICK_BAR.edge)), y, width, height };
-      if (blocks.every((r) => overlap(room, r) === 0)) return `${Math.round(room.x)},${y},${width},${height}`;
+  const full = Math.min(PICK_BAR.max, box.width / 2);
+  for (const width of [full, ...DOCK_NARROW.filter((w) => w < full)]) {
+    if (width < 200 || box.height <= 0) continue;
+    const height = width < PICK_BAR.row ? PICK_BAR.stackHeight : PICK_BAR.rowHeight;
+    const x0 = Math.round((box.width - width) / 2);
+    // The middle, then the places just beside each block, nearest the middle first.
+    const xs = [x0, ...blocks.flatMap((r) => [r.x + r.width + PICK_BAR.edge, r.x - width - PICK_BAR.edge])]
+      .map((x) => Math.max(PICK_BAR.edge, Math.min(x, box.width - width - PICK_BAR.edge)))
+      .sort((a, b) => Math.abs(a - x0) - Math.abs(b - x0));
+    // The usual margin under the bar, then a thin one (a short box has little room under the fields).
+    for (const margin of [PICK_BAR.edge, DOCK_THIN_EDGE]) {
+      const y = Math.round(box.height - height - margin);
+      for (const x of xs) {
+        const room = { x, y, width, height };
+        if (blocks.every((r) => overlap(room, r) === 0)) return `${Math.round(x)},${y},${Math.round(width)},${height}`;
+      }
     }
   }
   return undefined;
 }
+
+/** The narrower widths the dock tries when the full bar finds no clear place. */
+const DOCK_NARROW = [380, 340, 300];
+/** The thin margin under a docked bar when the usual one leaves no clear place. */
+const DOCK_THIN_EDGE = 4;
 
 function planBarRoom(pair: GridRect, targets: readonly GridRect[], others: readonly GridRect[]): { box: GridRect; cover: number; far: number } | null {
   if (pair.width <= 0 || pair.height <= 0) return null;

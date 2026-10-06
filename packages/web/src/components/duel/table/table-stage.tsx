@@ -8,7 +8,7 @@ import type { UseGridFocus } from "./grid-focus";
 import { ChainRoomContext, type ChainStripSize } from "./chain-room";
 import { AttackLine } from "./attack-line";
 import { FlyCity } from "./fly-city";
-import { PICK_BAR, pickBarRoom, promptUnit } from "./grid-stage";
+import { BAR_HUD, freeDockRoom, PICK_BAR, pickBarRoom, promptUnit } from "./grid-stage";
 import { aliveLayout, boardBounds, chainBandRooms, chainStripInset, flyWorld, holoAnchor, hubPose, normalizeAngle, ringAngles, CAMERA_HINT, HUD_CORNER, portraitTable, promptRooms, ringPose, type HoloAnchor, type PromptRoom, seatPoses, slotPlan, stageFit, stageSpread, STAGE, wideHoloAnchors } from "./geometry";
 import { holoStatus, HoloLp } from "./holo-lp";
 import { lastSeatDamage } from "./seat-state";
@@ -18,7 +18,7 @@ import { TurnRing } from "./turn-ring";
 import { useFlyGestures } from "./use-fly-gestures";
 import { useFlyWorld } from "./use-fly-world";
 import { GLIDE_MS, useSeatExits } from "./use-seat-exits";
-import { useViewZoom } from "./use-view-zoom";
+import { occluderRects, useViewZoom } from "./use-view-zoom";
 import { ViewReset } from "./view-reset";
 import { followCss } from "./view-zoom";
 import type { CameraMode, SeatFieldProps, SeatPose, SeatTone, TableStageProps } from "./types";
@@ -43,6 +43,8 @@ const sameRects = (a: readonly Rect[], b: readonly Rect[]) =>
   a.length === b.length && a.every((r, i) => r.x === b[i].x && r.y === b[i].y && r.width === b[i].width && r.height === b[i].height);
 /** How long after a change the targets are measured again: the regroup glide and the crumble are over by then. */
 const SETTLE_MS = 1500;
+/** A last measure of the pick targets, after the fields have laid out (their entry runs without DOM changes). */
+const LATE_MEASURE_MS = 400;
 /** Box px from the left edge that the floating HUD's left column (the dock, the chain tower, the Deck Master plate) takes. */
 const HUD_LEFT_COLUMN = 196;
 
@@ -233,22 +235,38 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
       } as CSSProperties)
     : undefined;
   const [targets, setTargets] = useState<readonly Rect[]>([]);
+  const [zones, setZones] = useState<readonly Rect[]>([]);
+  const [hudRects, setHudRects] = useState<readonly Rect[]>([]);
   const legalKey = [...legalKeys].sort().join(",");
   useEffect(() => {
     const root = rootRef.current;
     if (!root || !nearBox) return;
     const measure = () => {
       const board = root.getBoundingClientRect();
-      const next = Array.from(root.querySelectorAll<HTMLElement>('[data-legal="true"]'))
+      const boxes = (selector: string) => Array.from(root.querySelectorAll<HTMLElement>(selector))
         .map((node) => node.getBoundingClientRect())
         .filter((r) => r.width > 1 && r.height > 1)
         .map((r) => ({ x: Math.round(r.left - board.left), y: Math.round(r.top - board.top), width: Math.round(r.width), height: Math.round(r.height) }));
+      const next = boxes('[data-legal="true"]');
+      const rest = boxes('[data-zones]:not([data-legal="true"])');
+      const hud = occluderRects(root, BAR_HUD).map((r) => ({ x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) }));
       setTargets((current) => (sameRects(current, next) ? current : next));
+      setZones((current) => (sameRects(current, rest) ? current : rest));
+      setHudRects((current) => (sameRects(current, hud) ? current : hud));
     };
-    const frame = window.requestAnimationFrame(measure);
+    let frame = window.requestAnimationFrame(measure);
     // Once the seats stand still: a regroup (the FINAL DUEL board) glides them to new places.
     const timer = window.setTimeout(measure, reducedMotion ? 0 : regroup ? GLIDE_MS : SETTLE_MS);
+    // The fields can mount, mark their targets or finish their entry after this effect: measure again then.
+    const observer = new MutationObserver(() => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(measure);
+    });
+    observer.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-legal"] });
+    const late = window.setTimeout(measure, LATE_MEASURE_MS);
     return () => {
+      observer.disconnect();
+      window.clearTimeout(late);
       window.cancelAnimationFrame(frame);
       window.clearTimeout(timer);
     };
@@ -258,16 +276,24 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
     // The bar may run to the edge of your field (the 4-way keeps 12 px inside a pair): a short field has one row band
     // above and one below your monsters, and the bar fits in one of them.
     const edge = PICK_BAR.edge;
-    const found = pickBarRoom({ x: nearBox.x - edge, y: nearBox.y - edge, width: nearBox.width + 2 * edge, height: nearBox.height + 2 * edge }, targets);
+    // The other zones weigh far less than a target: the bar keeps off them too where your field has room.
+    const found = pickBarRoom({ x: nearBox.x - edge, y: nearBox.y - edge, width: nearBox.width + 2 * edge, height: nearBox.height + 2 * edge }, targets, zones);
     const room = found?.split(",").map(Number);
-    const covers = (x: number, y: number, width: number, height: number) =>
-      targets.some((r) => r.x - PICK_BAR.clear < x + width && x < r.x + r.width + PICK_BAR.clear && r.y - PICK_BAR.clear < y + height && y < r.y + r.height + PICK_BAR.clear);
-    if (!room || !covers(room[0], room[1], room[2], room[3])) return found;
-    // Your field is full of targets: the free room off every board, unless that is under the HUD's left column.
+    const hits = (list: readonly Rect[], pad: number) => (x: number, y: number, width: number, height: number) =>
+      list.some((r) => r.x - pad < x + width && x < r.x + r.width + pad && r.y - pad < y + height && y < r.y + r.height + pad);
+    const covers = hits(targets, PICK_BAR.clear);
+    const coversZone = hits(zones, 0);
+    if (room && !covers(room[0], room[1], room[2], room[3]) && !coversZone(room[0], room[1], room[2], room[3])) return found;
+    // No clear place on your field: the free room off every board, unless that is under the HUD's left column; else a
+    // clear place at the bottom of the box, off the hand and the HUD.
     const bar = rooms?.bar;
-    if (bar && bar.x >= HUD_LEFT_COLUMN && !covers(bar.x, bar.y, bar.width, bar.height)) return `${bar.x},${bar.y},${bar.width},${bar.height}`;
-    return found;
-  }, [nearBox, targets, rooms?.bar]);
+    const free = (x: number, y: number, width: number, height: number) =>
+      !covers(x, y, width, height) && !coversZone(x, y, width, height) && !hits(hudRects, 0)(x, y, width, height);
+    if (bar && bar.x >= HUD_LEFT_COLUMN && free(bar.x, bar.y, bar.width, bar.height)) {
+      return `${bar.x},${bar.y},${bar.width},${bar.height}`;
+    }
+    return freeDockRoom(box, [...targets, ...zones, ...hudRects]) ?? found;
+  }, [nearBox, targets, zones, hudRects, rooms?.bar, box]);
 
   const world = useMemo(() => flyWorld(play, camera.fly), [play, camera.fly]);
   const tones = useMemo(() => new Map<number, SeatTone>(layout.slots.map((slot) => [slot.seat, slot.tone])), [layout.slots]);

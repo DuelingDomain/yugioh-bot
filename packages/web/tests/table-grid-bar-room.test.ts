@@ -127,6 +127,12 @@ describe("restBarRoom", () => {
     expect(dock[1]).toBe(1080 - 92 - 12);
     expect(hits(dock, hand) || hits(dock, plate)).toBe(false);
     expect(freeDockRoom(box, [rect(0, 900, 1900, 180)])).toBeUndefined();
+    // A gap of 420 px between the hand and the corner cluster: no full bar fits, a stacked 380 px bar does.
+    const narrow = room(freeDockRoom({ width: 1440, height: 820 }, [rect(0, 660, 870, 160), rect(1290, 600, 150, 220)]))!;
+    expect(narrow[2]).toBe(380);
+    expect(narrow[3]).toBe(136);
+    expect(narrow[0]).toBeGreaterThanOrEqual(870);
+    expect(narrow[0] + narrow[2]).toBeLessThanOrEqual(1290);
   });
 });
 
