@@ -114,8 +114,12 @@ describe("candidate engine data probe", () => {
   });
 
   it("bounds a hanging Lua script and returns an advisory finding", async () => {
-    const root = await fixture({ "hanging-helper.lua": "while true do end" });
+    const root = await fixture({ "hanging-helper.lua": "while true do end", "official/c1002.lua": "local s,id=GetID()" });
+    const db = new Database(join(root, "cards.cdb"));
+    db.exec("insert into datas select 1007,ot,1002,setcode,type,atk,def,level,race,attribute from datas where id = 1002; insert into texts values (1002,'Dragon',''),(1007,'Dragon','')");
+    db.close();
     const result = await probeEngineData(root, ["hanging-helper.lua"], { timeoutMs: 2_000 });
+    expect(result.artworkScriptFallbacks).toEqual([{ passcode: 1007, main: 1002 }]);
     expect(result.errors.join("\n")).toContain("timed out");
   }, 10_000);
 

@@ -22,7 +22,7 @@ if (metadata.changed) {
   const overlayLog = await readFile(join(artifact, "overlay-check.log"), "utf8");
   report = withValidation(report, probe, overlayExit, overlayLog);
   // Write all review artifacts, then fail the job so publication cannot proceed.
-  if (probe.artworkScriptFallbacks?.length) process.exitCode = 1;
+  if (probe.artworkScriptScanError || probe.artworkScriptFallbacks?.length) process.exitCode = 1;
   report += "\n## Bundle validation\n\n`npm run duel:prepare` passed with the candidate pins in a temporary DUEL_DATA_DIR. The core probe above ran against this prepared bundle.\n";
   await writeFile(join(artifact, "probe.json"), JSON.stringify(probe, null, 2) + "\n");
 }

@@ -43,11 +43,12 @@ describe("prepared candidate report", () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("Prepared scripts pin differs from candidate");
   });
-  it("records probe setup failures and overlay status without failing validation", () => {
+  it("blocks an incomplete artwork scan while preserving probe and overlay findings", () => {
     const f = fixture(true);
     const result = f.run();
-    expect(result.status, result.stderr).toBe(0);
+    expect(result.status, result.stderr).toBe(1);
     const report = readFileSync(join(f.root, "report.md"), "utf8");
+    expect(report).toContain("BLOCKING: artwork script safety scan failed");
     expect(report).toContain("probe errors 1, overlay check exit 1");
     expect(report).toContain("overlay drift");
     expect(JSON.parse(readFileSync(join(f.root, "probe.json"), "utf8")).errors).toHaveLength(1);

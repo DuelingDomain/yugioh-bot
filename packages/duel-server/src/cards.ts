@@ -36,12 +36,15 @@ export interface CardDatabase {
   counter(id: number): string | undefined;
   /** Script text by name. `overlay` (duels with more than two seats only) maps the original text; omitted, the text is the original. */
   readScript(name: string, overlay?: ScriptOverlay): string | null;
-  /** Alternate scripts that would load a main script under a different GetID context. */
-  artworkScriptFallbacks(): Array<{ passcode: number; main: number }>;
   close(): void;
 }
 
-const cache = new Map<string, CardDatabase>();
+export interface LoadedCardDatabase extends CardDatabase {
+  /** Alternate scripts that would load a main script under a different GetID context. */
+  artworkScriptFallbacks(): Array<{ passcode: number; main: number }>;
+}
+
+const cache = new Map<string, LoadedCardDatabase>();
 
 function asNumber(value: number | bigint): number {
   return typeof value === "bigint" ? Number(value) : value;
@@ -126,7 +129,7 @@ function parseConf(contents: string, prefix: string): Map<number, string> {
   return values;
 }
 
-function loadFromDisk(root: string): CardDatabase {
+function loadFromDisk(root: string): LoadedCardDatabase {
   const cdbPath = join(root, "cards.cdb");
   const stringsPath = join(root, "strings.conf");
   const scriptRoot = join(root, "card-scripts");
@@ -220,7 +223,7 @@ function loadFromDisk(root: string): CardDatabase {
   const scripts = indexScripts(scriptRoot);
 
   const warnedFallbacks = new Set<string>();
-  const database: CardDatabase = {
+  const database: LoadedCardDatabase = {
     search(query: string, matches?: (card: OcgCardData) => boolean) {
       const needle = query.trim().toLowerCase();
       if (!needle && !matches) return [];
@@ -319,7 +322,7 @@ function loadFromDisk(root: string): CardDatabase {
 }
 
 /** Loads CDB, strings, and script index. Cached per absolute data directory. */
-export function loadCardDatabase(dataDirectory: string): CardDatabase {
+export function loadCardDatabase(dataDirectory: string): LoadedCardDatabase {
   const root = resolve(dataDirectory);
   const existing = cache.get(root);
   if (existing) return existing;
