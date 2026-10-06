@@ -50,4 +50,36 @@ describe("watchMeasure", () => {
       stop();
     }
   });
+
+  it("measures again when a zone gets its size, only while a pick is open", () => {
+    const observed: Element[] = [];
+    let fire: () => void = () => undefined;
+    class FakeResizeObserver {
+      constructor(cb: () => void) {
+        fire = cb;
+      }
+      observe(node: Element) {
+        observed.push(node);
+      }
+      disconnect() {}
+      unobserve() {}
+    }
+    vi.stubGlobal("ResizeObserver", FakeResizeObserver);
+    for (const watch of [false, true]) {
+      observed.length = 0;
+      fire = () => undefined;
+      const root = document.createElement("div");
+      root.innerHTML = '<div data-zones="m1"></div><div data-legal="true"></div><div></div>';
+      const measure = vi.fn();
+      const stop = watchMeasure(root, measure, { settleMs: 5000, watch });
+      flush();
+      measure.mockClear();
+      fire();
+      flush();
+      expect(observed.length).toBe(watch ? 2 : 0);
+      expect(measure).toHaveBeenCalledTimes(watch ? 1 : 0);
+      stop();
+    }
+    vi.unstubAllGlobals();
+  });
 });
