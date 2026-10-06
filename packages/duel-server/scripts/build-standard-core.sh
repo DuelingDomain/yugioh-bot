@@ -76,8 +76,8 @@ manifest.integrity ??= {};
 manifest.sources.standardCore = standardCore;
 manifest.integrity.wrapper = expected.wrapper;
 manifest.integrity.standardWasm = expected.wasm;
-// integrity.multiScripts is not part of bundleVersion (the host pins it for duels with more than two seats only).
-const { multiScripts: _overlay, ...engineIntegrity } = manifest.integrity;
+// Exclude the multiplayer overlay and SQLite output bytes; cards hashes the ordered inputs.
+const { multiScripts: _overlay, cardsMerged: _merged, ...engineIntegrity } = manifest.integrity;
 manifest.bundleVersion = hash(JSON.stringify({ sources: manifest.sources, integrity: engineIntegrity }));
 writeFileSync(path, JSON.stringify(manifest, null, 2) + '\n');
 JS

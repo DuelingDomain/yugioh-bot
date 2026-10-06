@@ -7,6 +7,7 @@ import Database from "better-sqlite3";
 import { afterEach, expect, it, vi } from "vitest";
 import { prepareData, sources } from "../scripts/prepare-data.js";
 import { discoverReleasedDatabases, downloadReleasedCardData, releasedDatabaseFiles, restrictPrereleaseScripts } from "../scripts/released-card-data.js";
+import * as releasedCardData from "../scripts/released-card-data.js";
 import { loadCardDatabase } from "../src/cards.js";
 import { inspectDeck } from "../src/deck-legality.js";
 import { loadArtworkIdentityCatalog, mainArtworkId } from "../../shared/dist/services/card-artworks.js";
@@ -16,7 +17,7 @@ import { createCardCatalogService } from "@yugidraft/shared/services";
 
 const roots: string[] = [];
 const root = () => { const dir = mkdtempSync(join(tmpdir(), "released-data-test-")); roots.push(dir); return dir; };
-afterEach(() => { roots.splice(0).forEach(dir => rmSync(dir, { recursive: true, force: true })); vi.unstubAllEnvs(); vi.useRealTimers(); });
+afterEach(() => { roots.splice(0).forEach(dir => rmSync(dir, { recursive: true, force: true })); vi.unstubAllEnvs(); vi.useRealTimers(); vi.restoreAllMocks(); });
 const hash = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
 const tree = (paths: string[]) => ({ truncated: false, tree: paths.map(path => ({ path, type: "blob", sha: "unused" })) });
 function cdb(dir: string, name: string, rows: Array<[number, number, string]>) {
@@ -51,7 +52,7 @@ function fixture() {
     if (bytes) return new Response(new Uint8Array(bytes));
     throw new Error(`Unexpected download ${url}`);
   });
-  return { request, directory: join(dir, "bundle") };
+  return { request, databases, directory: join(dir, "bundle") };
 }
 
 it.each([
@@ -142,12 +143,13 @@ it("keeps pre-release card scripts only for loaded release codes and prefers off
 });
 
 it("prepares a versioned merged manifest visible to artwork identity, engine readers and duel deck validation", async () => {
-  const { request, directory } = fixture();
+  const { request, databases, directory } = fixture();
   const result = await prepareData(directory, request);
   expect(result.skipped).toBe(false);
   expect(result.sources.databaseFiles).toEqual(["cards.cdb", "release-a.cdb", "release-z.cdb"]);
-  expect(result.integrity.cards).toBe(hash(readFileSync(join(directory, "cards.cdb"))));
-  const { multiScripts: _overlay, ...engine } = result.integrity;
+  expect(result.integrity.cards).toBe(hash(["cards.cdb", "release-a.cdb", "release-z.cdb"].map(file => `${file}:${hash(databases.get(file)!)}`).join("\n")));
+  expect(result.integrity.cardsMerged).toBe(hash(readFileSync(join(directory, "cards.cdb"))));
+  const { multiScripts: _overlay, cardsMerged: _merged, ...engine } = result.integrity;
   expect(result.bundleVersion).toBe(hash(JSON.stringify({ sources: result.sources, integrity: engine })));
   const cards = loadCardDatabase(directory);
   try {
@@ -196,4 +198,38 @@ it("rebuilds an old base-only cache at identical pins and preserves built Domain
   expect(updated.integrity.domainLua).toBe(hash("domain"));
   expect(updated.integrity.domainLegacyLua).toBe(hash("legacy domain"));
   expect(updated.bundleVersion).not.toBe(old.bundleVersion);
+});
+
+it("keeps the bundle version stable when SQLite changes only the merged bytes", async () => {
+  const { request, directory } = fixture();
+  const first = await prepareData(directory, request);
+  const merge = releasedCardData.downloadReleasedCardData;
+  vi.spyOn(releasedCardData, "downloadReleasedCardData").mockImplementation(async (...args) => {
+    const result = await merge(...args);
+    const bytes = Buffer.from(result.bytes);
+    bytes.writeUInt32BE(bytes.readUInt32BE(96) + 1, 96); // SQLite's library version header
+    return { ...result, bytes };
+  });
+  const second = await prepareData(join(root(), "bundle"), request);
+  expect(second.integrity.cardsMerged).not.toBe(first.integrity.cardsMerged);
+  expect(second.integrity.cards).toBe(first.integrity.cards);
+  expect(second.bundleVersion).toBe(first.bundleVersion);
+});
+
+it("rebuilds merged-byte manifests and corrupt output, but changes version only for changed inputs", async () => {
+  const { request, databases, directory } = fixture();
+  const first = await prepareData(directory, request);
+  const { cardsMerged: _merged, ...oldIntegrity } = first.integrity;
+  writeFileSync(join(directory, "manifest.json"), JSON.stringify({ sources: first.sources, integrity: oldIntegrity, bundleVersion: first.bundleVersion }));
+  request.mockClear();
+  expect((await prepareData(directory, request)).skipped).toBe(false);
+  expect(request).toHaveBeenCalled();
+  writeFileSync(join(directory, "cards.cdb"), "corrupt");
+  const repaired = await prepareData(directory, request);
+  expect(repaired.skipped).toBe(false);
+  expect(repaired.integrity.cardsMerged).toBe(first.integrity.cardsMerged);
+  expect(repaired.bundleVersion).toBe(first.bundleVersion);
+  databases.set("release-z.cdb", cdb(root(), "changed.cdb", [[2, 1, "Changed upstream"]]));
+  rmSync(join(directory, "manifest.json"));
+  expect((await prepareData(directory, request)).bundleVersion).not.toBe(first.bundleVersion);
 });

@@ -213,7 +213,9 @@ manifest.sources.domainCoreLegacy = JSON.parse(readFileSync(pins, 'utf8'));
 manifest.integrity.domainLegacyWasm = hash(readFileSync(join(directory, 'ocgcore.domain.legacy.wasm')));
 manifest.integrity.domainLegacyLua = hash(readFileSync(join(directory, 'card-scripts/domain.legacy.lua')));
 manifest.integrity.domainLegacyPatch = hash(Buffer.concat(patchFiles.map(name => readFileSync(join(source, name)))));
-manifest.bundleVersion = hash(JSON.stringify({ sources: manifest.sources, integrity: manifest.integrity }));
+// Match prepare-data.ts: pin data inputs, independently of SQLite output and multiplayer overlays.
+const { multiScripts: _overlay, cardsMerged: _merged, ...engineIntegrity } = manifest.integrity;
+manifest.bundleVersion = hash(JSON.stringify({ sources: manifest.sources, integrity: engineIntegrity }));
 writeFileSync(path, JSON.stringify(manifest, null, 2) + '\n');
 JS
 

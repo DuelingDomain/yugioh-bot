@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { createHash } from "node:crypto";
 import { existsSync, readdirSync, unlinkSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -47,14 +48,17 @@ export async function discoverReleasedDatabases(commit: string, request: Downloa
 
 /** Copy the pinned base byte-for-byte, then merge complete data/text pairs in sorted order.
  * INSERT ... SELECT keeps SQLite's signed 64-bit fields out of JavaScript numbers.
- * Stable inputs, row order and the locked SQLite dependency give a repeatable file hash.
+ * Ordered input hashes identify the data independently of SQLite's output/version header.
  */
 export async function downloadReleasedCardData(commit: string, directory: string, request: Download = fetch) {
   const files = await discoverReleasedDatabases(commit, request);
   await mkdir(directory, { recursive: true });
   const path = join(directory, "cards.cdb");
   const base = await download(`https://raw.githubusercontent.com/ProjectIgnis/BabelCDB/${commit}/cards.cdb`, request);
-  await writeFile(path, Buffer.from(await base.arrayBuffer()));
+  const baseBytes = Buffer.from(await base.arrayBuffer());
+  const inputRecord = (file: string, bytes: Uint8Array) => `${file}:${createHash("sha256").update(bytes).digest("hex")}`;
+  const inputHashes = [inputRecord("cards.cdb", baseBytes)];
+  await writeFile(path, baseBytes);
   const releaseCodes = new Set<number>();
   const db = new Database(path);
   try {
@@ -64,7 +68,9 @@ export async function downloadReleasedCardData(commit: string, directory: string
     for (const file of files.slice(1)) {
       const response = await download(`https://raw.githubusercontent.com/ProjectIgnis/BabelCDB/${commit}/${encodeURIComponent(file)}`, request);
       const releasePath = join(directory, file);
-      await writeFile(releasePath, Buffer.from(await response.arrayBuffer()));
+      const bytes = Buffer.from(await response.arrayBuffer());
+      inputHashes.push(inputRecord(file, bytes));
+      await writeFile(releasePath, bytes);
       db.prepare("ATTACH DATABASE ? AS released").run(releasePath);
       try {
         db.transaction(() => {
@@ -80,7 +86,7 @@ export async function downloadReleasedCardData(commit: string, directory: string
       }
     }
   } finally { db.close(); }
-  return { path, files, releaseCodes, bytes: await readFile(path) };
+  return { path, files, inputHashes, releaseCodes, bytes: await readFile(path) };
 }
 
 /** A released expansion can still have scripts in pre-release/. Keep just its codes;

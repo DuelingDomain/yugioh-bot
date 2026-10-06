@@ -18,9 +18,10 @@ export const sources = {
 const hash = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
 // integrity.multiScripts (the Lua overlay of duels with more than two seats) is not part of bundleVersion: the host pins
 // it for those duels only (pinnedEngineVersion), so an overlay edit never touches a 1v1 duel or its replay.
-// build-domain-core.sh and build-standard-core.sh compute the same value.
+// cardsMerged verifies the output bytes; cards identifies inputs without SQLite version/layout changes.
+// Core builders, CI assembly and manual E2E preparation compute the same value.
 const bundleVersionOf = (sources: Record<string, unknown>, integrity: Record<string, string>) => {
-  const { multiScripts: _overlay, ...engine } = integrity;
+  const { multiScripts: _overlay, cardsMerged: _merged, ...engine } = integrity;
   return hash(JSON.stringify({ sources, integrity: engine }));
 };
 
@@ -55,7 +56,7 @@ async function catalogIsCurrent(directory: string, manifest: Manifest | null): P
   try {
     const cards = await readFile(join(directory, "cards.cdb"));
     const stringsFile = await readFile(join(directory, "strings.conf"));
-    if (hash(cards) !== manifest.integrity.cards) return false;
+    if (hash(cards) !== manifest.integrity.cardsMerged) return false;
     if (hash(stringsFile) !== manifest.integrity.strings) return false;
   } catch {
     return false;
@@ -118,7 +119,8 @@ export async function prepareData(
     const wasm = await readFile(fileURLToPath(import.meta.resolve("ocgcore-wasm/lib/ocgcore.sync.wasm")));
     const wrapper = await readFile(fileURLToPath(import.meta.resolve("ocgcore-wasm")));
     const integrity: Record<string, string> = {
-      cards: hash(cards),
+      cards: hash(database.inputHashes.join("\n")),
+      cardsMerged: hash(cards),
       strings: hash(strings),
       scripts: hash(scripts),
       wasm: hash(wasm),
