@@ -196,6 +196,22 @@ describe("BattleFx", () => {
     expect(document.querySelector("[data-attack-caption]")?.textContent).toBe("Kaiba: direct attack on Joey");
   });
 
+  it("moves the arrow and the ring with the board when it is panned or zoomed", async () => {
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion />);
+    rerender(<BattleFx events={[phase, { ...attack, id: 2 }]} reducedMotion />);
+    const frame = () => act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => resolve())); });
+    await frame();
+    const before = document.querySelector('[data-aim="locked"] path')!.getAttribute("d");
+    const ringBefore = document.querySelector('[data-aim="locked"] rect')!.getAttribute("x");
+    // A pan: the target zone moves 120 px (a transform, so no resize event).
+    boxes["1:4:0"] = { ...boxes["1:4:0"], left: boxes["1:4:0"].left + 120 } as DOMRect;
+    await frame();
+    await frame();
+    expect(document.querySelector('[data-aim="locked"] path')!.getAttribute("d")).not.toBe(before);
+    expect(document.querySelectorAll('[data-aim="locked"] rect')[1]?.getAttribute("x") ?? "").not.toBe(ringBefore);
+    boxes["1:4:0"] = { ...boxes["1:4:0"], left: boxes["1:4:0"].left - 120 } as DOMRect;
+  });
+
   it("names the attacker and the defender on every seat while an attack is declared", () => {
     const names = (seat: number) => ["Ann", "Bo", "Cy", "Di"][seat]!;
     const declaration: DuelEvent = { ...direct, id: 2, seat: 2, targetSeat: 3, zone: { controller: 2, location: 4, sequence: 0 } };

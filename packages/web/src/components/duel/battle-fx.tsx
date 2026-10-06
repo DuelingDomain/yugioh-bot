@@ -22,7 +22,7 @@ import { collectFreshEvents, emitDuelFxCue, maxEventId } from "./event-queue";
 import { duelFontClasses } from "./fonts";
 import { armLpHold } from "./life-points";
 import { battleCalculation } from "./battle-calculation";
-import { declaredCaption, directTargetSeat } from "./declared-attack";
+import { captionSize, declaredCaption, directTargetSeat, placeCaption } from "./declared-attack";
 import { ATTACK_TIMING, paceAttack } from "./duel-timing";
 import { duelFxClock } from "./fx-clock";
 import { centerOfQuad, elementQuad, growQuad, isTurned, quadBox, quadEdgePoint, roundedQuadPath, type Quad } from "./quad";
@@ -590,7 +590,7 @@ function AttackPlay({ play, showStats }: { play: Play; showStats: boolean }) {
 
 /* ---------- aim layer ---------- */
 
-type AimGeom = { mode: BattleAim["mode"]; from: Quad; arrows: Arrow[]; rings: Quad[] };
+type AimGeom = { mode: BattleAim["mode"]; from: Quad; arrows: Arrow[]; rings: Quad[]; caption: Pt | null };
 
 function measureAim(aim: BattleAim | null | undefined): AimGeom | null {
   if (!aim?.from) return null;
@@ -607,7 +607,37 @@ function measureAim(aim: BattleAim | null | undefined): AimGeom | null {
   }
   const arrows = targets.map((target) => arrowBetween(from, target)).filter((arrow): arrow is Arrow => arrow != null);
   if (arrows.length === 0) return null;
-  return { mode: aim.mode, from, arrows, rings: aim.mode === "preview" ? [] : targets };
+  return { mode: aim.mode, from, arrows, rings: aim.mode === "preview" ? [] : targets, caption: aim.caption ? captionSpot(aim.caption, arrows[0]) : null };
+}
+
+const midOf = (arrow: Arrow): Pt => ({ x: (arrow.start.x + arrow.tip.x) / 2, y: (arrow.start.y + arrow.tip.y) / 2 });
+
+/** Every zone on the board, every LP plate and the phase chips: what a caption should keep off. */
+function captionObstacles(): Box[] {
+  const nodes = document.querySelectorAll("[data-zones], [data-lp-seat], [data-testid=\"phase-hub\"] [data-cell] > div");
+  const out: Box[] = [];
+  for (const node of nodes) {
+    const box = boxOf(node);
+    if (box.width > 0 && box.height > 0) out.push(box);
+  }
+  return out;
+}
+
+function captionSpot(text: string, lead: Arrow): Pt {
+  return placeCaption(lead.start, lead.tip, captionSize(text), captionObstacles(), { width: window.innerWidth, height: window.innerHeight });
+}
+
+/** The rects of what the aim points at, as one string: it changes when the board moves under a pan or a zoom. */
+function aimFingerprint(aim: BattleAim | null | undefined): string {
+  if (!aim?.from) return "";
+  const nodes: Array<Element | null> = [zoneNode(aim.from)];
+  if (aim.to.lpSeat != null) nodes.push(document.querySelector(`[data-lp-seat="${aim.to.lpSeat}"]`));
+  for (const key of aim.to.zones ?? []) nodes.push(zoneNode(key));
+  return nodes.map((node) => {
+    if (!node) return "-";
+    const r = node.getBoundingClientRect();
+    return `${r.left.toFixed(1)},${r.top.toFixed(1)},${r.width.toFixed(1)},${r.height.toFixed(1)}`;
+  }).join("|");
 }
 
 function aimSignature(aim: BattleAim | null | undefined): string {
@@ -635,6 +665,16 @@ function AimLayer({ aim, reduced }: { aim: BattleAim; reduced: boolean }) {
     setGeom(measureAim(aimRef.current));
     // The prompt dock or a scrollbar can shift the board a frame later.
     schedule();
+    // A pan or a zoom of the board is a transform: no resize event, no observer. Watch the rects of what the aim touches.
+    let seen = aimFingerprint(aimRef.current);
+    let watch = requestAnimationFrame(function tick() {
+      const now = aimFingerprint(aimRef.current);
+      if (now !== seen) {
+        seen = now;
+        setGeom(measureAim(aimRef.current));
+      }
+      watch = requestAnimationFrame(tick);
+    });
     window.addEventListener("resize", schedule);
     window.addEventListener("scroll", schedule, true);
     const field = document.querySelector("[data-duel-field]");
@@ -642,6 +682,7 @@ function AimLayer({ aim, reduced }: { aim: BattleAim; reduced: boolean }) {
     if (field) observer?.observe(field);
     return () => {
       if (frame != null) cancelAnimationFrame(frame);
+      cancelAnimationFrame(watch);
       window.removeEventListener("resize", schedule);
       window.removeEventListener("scroll", schedule, true);
       observer?.disconnect();
@@ -684,7 +725,7 @@ function AimLayer({ aim, reduced }: { aim: BattleAim; reduced: boolean }) {
     </svg>
     {aim.caption ? (
       <span key={`caption-${signature}`} className={styles.aimCaption} data-attack-caption="true"
-        style={{ left: (lead.start.x + lead.tip.x) / 2, top: (lead.start.y + lead.tip.y) / 2 }}>
+        style={{ left: (geom.caption ?? midOf(lead)).x, top: (geom.caption ?? midOf(lead)).y }}>
         {aim.caption}
       </span>
     ) : null}
