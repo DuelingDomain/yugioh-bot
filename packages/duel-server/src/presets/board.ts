@@ -72,7 +72,7 @@ export interface BoardSpec {
   /** Whose turn the scenario starts in. Default "p0". Skipped turns count toward the turn number. */
   turn?: DuelistId;
   /** Sandbox Draw Phase start, including one draw on turn 1. Omit to keep the format's normal draw rule. */
-  startAt?: "draw";
+  startAt?: "draw" | "standby" | "main1" | "battle" | "main2" | "end";
   /** Skip the opening Draw Phase; later turns draw as usual. Default false, except legacy 1v1 p1 presets without startAt. */
   skipOpeningDraw?: boolean;
   /** Let the turn player attack on the very first turn of the duel. Default false. */
@@ -237,7 +237,7 @@ export function compileBoard(board: BoardSpec, dir?: string): CompiledBoard {
       mode,
       format,
       masterRule: board.masterRule,
-      ...(board.startAt === "draw" ? { firstTurnDraw: !skipOpeningDraw } : {}),
+      ...(board.startAt !== undefined ? { firstTurnDraw: !skipOpeningDraw } : {}),
       decks,
       settings,
       startupScripts: [{ name: "scenario-board.lua", content: lua.join("\n") }],
