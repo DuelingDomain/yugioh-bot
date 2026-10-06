@@ -12,14 +12,16 @@ interface NavListProps {
   size: NavSize;
   /** The Live now answer. The row shows under Dashboard when there is something live. */
   live?: LiveNow | null;
+  /** Adds the Admin group. */
+  isAdmin?: boolean;
   onNavigate?: () => void;
 }
 
 /** The grouped main navigation: Dashboard, Live now (when live), Compete, Build. */
-export function NavList({ activeHref, label, size, live = null, onNavigate }: NavListProps) {
+export function NavList({ activeHref, label, size, live = null, isAdmin = false, onNavigate }: NavListProps) {
   return (
     <nav className={styles.nav} aria-label={label} data-size={size}>
-      {groupedNav().map((g, index) => (
+      {groupedNav(isAdmin).map((g, index) => (
         <div key={g.label ?? "top"} className={styles.navGroup}>
           {g.label ? (
             size === "rail" ? (
@@ -38,7 +40,7 @@ export function NavList({ activeHref, label, size, live = null, onNavigate }: Na
   );
 }
 
-export function SettingsLink({ activeHref, size, onNavigate }: Omit<NavListProps, "label" | "live">) {
+export function SettingsLink({ activeHref, size, onNavigate }: Omit<NavListProps, "label" | "live" | "isAdmin">) {
   const item = navItemByHref(FOOT_HREF);
   if (!item) return null;
   return <NavItem item={item} active={item.href === activeHref} size={size} onNavigate={onNavigate} />;

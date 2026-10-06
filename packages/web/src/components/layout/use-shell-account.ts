@@ -14,9 +14,11 @@ export interface ShellAccount {
   /** Tier name and Elo, from the profile. null until it answers, and when it cannot be read. */
   tier: string | null;
   elo: number | null;
+  /** Guild admin (Manage Server or owner). false until /api/admin/access answers, and when it cannot be read. */
+  isAdmin: boolean;
 }
 
-const INITIAL: ShellAccount = { status: "loading", name: "", image: null, playerId: null, profileSettled: false, tier: null, elo: null };
+const INITIAL: ShellAccount = { status: "loading", name: "", image: null, playerId: null, profileSettled: false, tier: null, elo: null, isAdmin: false };
 
 /** The two requests the old top bar made, plus the profile for the tier and Elo line, once for the whole shell. */
 export function useShellAccount(): ShellAccount {
@@ -58,6 +60,13 @@ export function useShellAccount(): ShellAccount {
       .catch(() => {
         // A failed lookup leaves profile availability unknown.
       });
+    // Only decides whether admin links show. Every admin route still checks access itself.
+    fetch("/api/admin/access")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { admin?: unknown } | null) => {
+        if (live && d?.admin === true) setAccount((a) => ({ ...a, isAdmin: true }));
+      })
+      .catch(() => {});
     return () => {
       live = false;
     };
