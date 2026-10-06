@@ -49,7 +49,7 @@ import {
   type DecisionClockView,
 } from "./clock.js";
 import { chooseScripted, ScriptedBotError, type Rule, type RuleTraceEntry } from "./scripted-bot.js";
-import { SANDBOX_PHASE_WALK_NOTE, createSandboxOps, requireSandboxOwner, setSandboxControl, sandboxPhase, walkSandboxPhases, projectSandboxPhaseWindow, prepareSandboxRoom, type SandboxViewOptions } from "./sandbox.js";
+import { SANDBOX_PHASE_WALK_NOTE, isSandboxPhaseWindow, createSandboxOps, requireSandboxOwner, setSandboxControl, sandboxPhase, walkSandboxPhases, projectSandboxPhaseWindow, prepareSandboxRoom, type SandboxViewOptions } from "./sandbox.js";
 import { policiesForRun, resolveActingSeat, mergeRevealedHands } from "./sandbox-seats.js";
 import { compileBoard } from "./presets/board.js";
 import { setCatalogDirectory } from "./presets/catalog.js";
@@ -723,6 +723,25 @@ export function createDuelHost(options: {
     return true;
   }
 
+  /** Empty sandbox phase hooks are automatic during play; walks call the worker directly. */
+  async function advanceSandboxPhaseWindows(slug: string, guildId: string, game: DuelGameWorker): Promise<void> {
+    const session = service.get(slug, guildId);
+    if (!session.sandbox || session.status !== "active") return;
+    for (let step = 0; step < BOT_ADVANCE_LIMIT; step++) {
+      const publicView = await game.view(null);
+      const seat = publicView.prioritySeat;
+      if (publicView.result || seat == null) return;
+      const view = await game.view(seat);
+      if (!isSandboxPhaseWindow(view.prompt)) return;
+      const command: DuelCommand = { promptId: view.prompt!.id, revision: view.revision, answer: { choice: "num:0" } };
+      const decidedAt = now();
+      await game.answer(seat, command.promptId, command.answer);
+      await persistAcceptedCommand(slug, guildId, seat, command, game, decidedAt, newestEventId(view));
+      await emitChange(slug, guildId);
+    }
+    throw new RequestError("Sandbox phase hooks failed to make progress", 500);
+  }
+
   async function advancePracticeBot(slug: string, guildId: string, game: DuelGameWorker): Promise<void> {
     let stepsInTurn = 0;
     let lastTurn: number | null = null;
@@ -731,6 +750,7 @@ export function createDuelHost(options: {
       const session = service.get(slug, guildId);
       if (session.status !== "active") return;
       const entry = games.get(slug);
+      await advanceSandboxPhaseWindows(slug, guildId, game);
       const autoSeats = autoSeatsOf(session, entry);
       if (autoSeats.length === 0) return;
       const found = await findAutoPrompt(game, autoSeats);
@@ -778,6 +798,7 @@ export function createDuelHost(options: {
       await advancePracticeBot(slug, guildId, game);
       return;
     }
+    await advanceSandboxPhaseWindows(slug, guildId, game);
     startBotLoop(slug, guildId);
   }
 
@@ -903,6 +924,7 @@ export function createDuelHost(options: {
       return null;
     }
     const game = entry.game;
+    await advanceSandboxPhaseWindows(slug, guildId, game);
     let found: AutoPrompt | null;
     try {
       found = await findAutoPrompt(game, autoSeats);
@@ -2535,7 +2557,8 @@ export function createDuelHost(options: {
     if (!command || typeof command.promptId !== "string" || !Number.isSafeInteger(command.revision) || !command.answer || typeof command.answer !== "object") {
       throw new RequestError("Invalid engine command", 400);
     }
-    const game = await recover(slug, guildId);
+    // A walk may expose a phase hook. Validate and accept that exact prompt before auto-play resumes.
+    const game = await recover(slug, guildId, !room.session.sandbox);
     await settleClock(slug, guildId, game);
     if (service.get(slug, guildId).status !== "active") {
       return project(slug, guildId, actor, undefined, false, sandboxView);

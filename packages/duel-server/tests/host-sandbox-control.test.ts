@@ -14,6 +14,8 @@ const run: SandboxRun = { bots: { "1": "pass", "2": "pass", "3": "pass" } };
 const board = { p0: { hand: [15025844], spells: [{ card: 83968380, pos: "set" }] } };
 interface Control {
   promptSeat: number;
+  phaseWindow?: boolean;
+  phaseAfterAnswer?: boolean;
 }
 const resources: Array<{ host: DuelHost; db: Database.Database }> = [];
 afterEach(async () => {
@@ -31,7 +33,8 @@ class FakeWorker implements DuelGameWorker {
     this.created = options;
   }
   async view(viewer: number | null): Promise<DuelEngineView> {
-    const seat = this.revision === 0 ? this.control.promptSeat : 0;
+    const seat = this.control.phaseWindow || this.control.phaseAfterAnswer || this.revision === 0 ? this.control.promptSeat : 0;
+    const boundary = (this.control.phaseWindow && this.revision < 2) || (this.control.phaseAfterAnswer && this.revision > 0 && this.revision < 3);
     return { revision: this.revision, turn: 1, turnSeat: seat, phase: "main1", prioritySeat: seat,
       seats: Array.from({ length: seatCountFor(this.created?.format ?? "1v1") }, (_, index) => ({
         seat: index, lp: 8000, deckCount: 20, extraCount: 1,
@@ -40,7 +43,7 @@ class FakeWorker implements DuelGameWorker {
         monsters: [], spells: [], graveyard: [], banished: [],
       })),
       prompt: viewer === seat ? { id: `prompt-${this.revision}`, seat, kind: "choice", title: "Choose",
-        options: [{ id: "to_ep", label: "End turn" }], min: 1, max: 1, cancelable: false } : null,
+        options: boundary ? [{ id: "num:0", label: "Number", values: [0x53425800] }] : [{ id: "to_ep", label: "End turn" }], min: 1, max: 1, cancelable: false } : null,
       chain: [], events: [], log: [], result: null };
   }
   async answer() { this.revision++; }
@@ -48,7 +51,7 @@ class FakeWorker implements DuelGameWorker {
   async close() { this.running = false; }
 }
 
-function setup(real = false) {
+function setup(real = false, paced = false) {
   vi.stubEnv("DUEL_SCENARIOS", "0");
   vi.stubEnv("MULTIPLAYER_TABLES", "1");
   const db = new Database(":memory:");
@@ -61,7 +64,7 @@ function setup(real = false) {
   const control: Control = { promptSeat: 0 };
   const workers: DuelGameWorker[] = [];
   const host = createDuelHost({ db, dataDirectory: DATA, secret: SECRET, searchCards: () => [],
-    pollIntervalMs: 3_600_000, idleWorkerMs: 3_600_000, stallMs: 0, queueBlockedMs: 0,
+    botStepDelayMs: paced ? 1 : 0, pollIntervalMs: 3_600_000, idleWorkerMs: 3_600_000, stallMs: 0, queueBlockedMs: 0,
     createWorker: () => { const worker = real ? new GameWorker() : new FakeWorker(control); workers.push(worker); return worker; } });
   resources.push({ host, db });
   async function post(op: string, extra: Record<string, unknown> = {}) {
@@ -81,6 +84,32 @@ function setup(real = false) {
 
 const manualRun = { ...run, bots: { ...run.bots, "1": "manual" as const } };
 describe("sandbox seat control", () => {
+  it.each([0, 1])("automatically answers empty phase hooks for Manual seat %i", async (seat) => {
+    const t = setup();
+    t.control.promptSeat = seat;
+    t.control.phaseWindow = true;
+    const slug = await t.start({ run: manualRun });
+    const result = await t.post("view", { slug, as: seat });
+    expect(result.status, result.data.error).toBe(200);
+    expect(result.data.engine.prompt.options[0].id).toBe("to_ep");
+    const commands = t.duels.privateState(slug, "g").commands;
+    expect(commands).toHaveLength(2);
+    expect(commands.every((entry) => entry.seat === seat && entry.command.answer.choice === "num:0")).toBe(true);
+  });
+  it.each([false, true])("passes empty hooks after a Manual response (paced=%s)", async (paced) => {
+    const t = setup(false, paced);
+    t.control.promptSeat = 1;
+    t.control.phaseAfterAnswer = true;
+    const slug = await t.start({ run: manualRun });
+    const before = (await t.post("view", { slug, as: 1 })).data.engine;
+    const result = await t.post("respond", { slug, as: 1, command: {
+      promptId: before.prompt.id, revision: before.revision, answer: { choice: "to_ep" },
+    } });
+    expect(result.status, result.data.error).toBe(200);
+    expect(result.data.engine.revision).toBe(3);
+    expect(result.data.engine.prompt.options[0].id).toBe("to_ep");
+    expect(t.duels.privateState(slug, "g").commands).toHaveLength(3);
+  });
   it("acts as seat 1, reveals hands, journals that seat, and switches back", async () => {
     const t = setup(); t.control.promptSeat = 1;
     const slug = await t.start({ board: { p1: { hand: [15025844] } }, run: manualRun });
@@ -179,9 +208,21 @@ describe("sandbox seat control", () => {
   });
 });
 describeWithCores("sandbox real phase control", [needs.standard(DATA), needs.cards(DATA)], () => {
+  it("accepts Continue at a stopped phase hook before driving normal play", async () => {
+    const t = setup(true), slug = await t.start({ board: { attackFirstTurn: true }, run: manualRun });
+    await t.post("sandbox-next-turn", { slug });
+    const walked = (await t.post("view", { slug, as: 1 })).data.engine;
+    expect(walked.prompt.options[0].id).toBe("num:0");
+    const result = await t.post("respond", { slug, as: 1, command: {
+      promptId: walked.prompt.id, revision: walked.revision, answer: { choice: "num:0" },
+    } });
+    expect(result.status, result.data.error).toBe(200);
+    expect(result.data.engine.revision).toBeGreaterThan(walked.revision);
+    expect(result.data.engine.prompt?.title).not.toBe("Continue this phase");
+  }, 30_000);
   it("walks 1v1 through battle, main2, and end with journaled phase answers", async () => {
     const t = setup(true), slug = await t.start({ board: { attackFirstTurn: true } });
-    for (const to of ["standby", "main1", "battle", "main2", "end"]) {
+    for (const to of ["main1", "battle", "main2", "end"]) {
       const result = await t.post("sandbox-phase", { slug, to });
       expect(result.status, result.data.error).toBe(200);
       expect(result.data.engine.phase).toBe(to === "battle" ? "battle_start" : to);
@@ -196,12 +237,12 @@ describeWithCores("sandbox real phase control", [needs.standard(DATA), needs.car
     expect(first.seats[0].hand).toHaveLength(2);
     expect(first.prompt.options.some((option: any) => option.card?.code === 83968380)).toBe(true);
   }, 30_000);
-  it("starts at Draw and replays phase commands on recovery and restart", async () => {
+  it("passes empty opening hooks and replays phase commands on recovery and restart", async () => {
     const t = setup(true), slug = await t.start({ board: { attackFirstTurn: true } });
     const first = (await t.post("view", { slug })).data.engine;
-    expect(first.phase).toBe("draw");
+    expect(first.phase).toBe("main1");
     expect(first.seats[0].hand).toHaveLength(1);
-    expect(first.prompt.title).toBe("Continue this phase");
+    expect(first.prompt.title).not.toBe("Continue this phase");
     const walked = (await t.post("sandbox-phase", { slug, to: "main2" })).data.engine;
     expect(walked.phase).toBe("main2");
     await t.workers[0].close();
