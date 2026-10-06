@@ -7,6 +7,7 @@ import type { DuelCard } from "@yugidraft/shared/duels";
 import type { BattleAim } from "../../battle-fx";
 import { Sheet } from "@/components/ui/sheet";
 import { DuelAnimationSpeedControl, useDuelAnimationSpeed } from "../../animation-speed-control";
+import { DuelCardTextSizeControl } from "../../card-text-size-control";
 import type { BoardTilt, BoardView } from "../../board-view";
 import { AttackConfirm, CardActionMenu, confirmSide, targetName, zoneAnchor } from "../../card-interactions";
 import { isBattlePhase, LOCATION_HAND, phaseTitle, zoneKey } from "../../constants";
@@ -135,6 +136,7 @@ export function SolidPreviewRoom({ stateId, flat, reduced }: { stateId: SolidSta
     <div className={roomStyles.options}>
       <h2>Presentation</h2>
       <DuelAnimationSpeedControl />
+      <DuelCardTextSizeControl />
       <DuelSoundControls enabled={sound} volume={volume} onEnabledChange={setSound} onVolumeChange={setVolume} />
       <p>Preview only. Nothing here is sent to a duel.</p>
       <Link href="/dev/solid-preview">All states</Link>
@@ -184,7 +186,7 @@ export function SolidPreviewRoom({ stateId, flat, reduced }: { stateId: SolidSta
         turnText={turnText}
         headerPhase={headerPhase}
         battleStep={battleStep}
-        wordmark={<Link href="/duels">Duelists Kingdom</Link>}
+        wordmark={<Link href="/duels">Dueling Domain</Link>}
         spectatorTag={null}
         seriesLabel={null}
         connectionStatus={

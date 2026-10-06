@@ -1,8 +1,8 @@
 -- A declared side opponent shares no column with the summoned monster.
-if not aux.MPGeometryShared then return end
+if not aux.MPColumnGeometry then return end
 local mp_spop=s.spop
 function s.spop(e,tp,eg,ep,ev,re,r,rp)
-	if not aux.MPGeometryShared() then return mp_spop(e,tp,eg,ep,ev,re,r,rp) end
+	if not aux.MPColumnGeometry() then return mp_spop(e,tp,eg,ep,ev,re,r,rp) end
 	if Duel.GetLocationCount(tp,LOCATION_MZONE)<=0 then return end
 	Duel.Hint(HINT_SELECTMSG,tp,HINTMSG_SPSUMMON)
 	local tc=Duel.SelectMatchingCard(tp,s.spfilter,tp,LOCATION_HAND,0,1,1,nil,e,tp):GetFirst()
@@ -10,7 +10,7 @@ function s.spop(e,tp,eg,ep,ev,re,r,rp)
 		local seq=tc:GetSequence()
 		local nseq=4-seq
 		if Duel.CheckLocation(1-tp,LOCATION_MZONE,nseq)
-			and Duel.MPSeat(1-tp)==Duel.MPAcrossSeat(Duel.MPSeatOf(tc)) then
+			and Duel.MPSeat(1-tp)==aux.MPColumnPeerSeat(Duel.MPSeatOf(tc)) then
 			local e1=Effect.CreateEffect(e:GetHandler())
 			e1:SetType(EFFECT_TYPE_FIELD)
 			e1:SetCode(EFFECT_DISABLE_FIELD)
@@ -21,4 +21,9 @@ function s.spop(e,tp,eg,ep,ev,re,r,rp)
 			Duel.RegisterEffect(e1,tp)
 		end
 	end
+end
+
+-- R-FFA-THREE-COLUMNS: choose the column opponent before cards or zones.
+if aux.MPColumnEffects then
+	s.initial_effect=aux.MPColumnEffects(s.initial_effect,{s.spop})
 end

@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in | Dueling Domain (C, Quiet table)</title>
+<meta name="theme-color" content="#0A0E1A">
+<link rel="stylesheet" href="../shared/base.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#form-zone">Skip to the sign-in form</a>
+<div class="c-page">
+  <div class="c-bg" aria-hidden="true"></div>
+  <svg id="table" aria-hidden="true" focusable="false" preserveAspectRatio="none"></svg>
+  <div class="c-top"><a href="https://duelingdomain.com/">Back to site</a></div>
+  <main class="c-stack" id="form-zone">
+    <a class="c-mark" href="https://duelingdomain.com/" aria-label="Dueling Domain, home"><svg viewBox="6 6 84 84" width="44" height="44" aria-hidden="true" focusable="false"><use href="#dd-mark"/></svg></a>
+    <div class="c-panel" id="screens"></div>
+  </main>
+</div>
+
+<template id="tpl-screen">
+  <section class="scr">
+    <h1 class="ttl" data-slot="title"></h1>
+    <p class="lede" data-slot="lede"></p>
+    <div data-slot="form"></div>
+    <div class="foot-links" data-slot="foot"></div>
+  </section>
+</template>
+
+<script src="../shared/forms.js"></script>
+<script>
+  DD.mount(function () { return document.getElementById('screens'); });
+  DD.start();
+</script>
+<script src="table.js"></script>
+</body>
+</html>

@@ -197,11 +197,13 @@ function TableShellBody({
   const gridFits = usesGridLayout(trackedFormat, tracked.engine.seats);
   const gridRefused = useLatch(trackedFormat === "ffa4" && !gridFits);
   const grid = gridFits && !gridRefused;
+  // The 3-way plaza on a wide screen keeps its stage and gets the same floating HUD (no Log: Settings, Chain and Camera).
+  const plazaHud = !narrow && !grid && trackedFormat === "ffa3";
   // The 4-way grid on a wide screen swaps the bars and side columns for the floating HUD (grid-hud.tsx).
-  const hud = !narrow && grid;
+  const hud = !narrow && (grid || plazaHud);
   // The Card pane is a flyout in the HUD: a hover must not fill it, only a click or Inspect does.
-  const hudState = useHudPane();
-  const ui = useTableUi(tracked, { initialPane: hud ? "log" : undefined, hud, onOpenCard: hudState.openCard });
+  const hudState = useHudPane({ camera: plazaHud, log: !plazaHud });
+  const ui = useTableUi(tracked, { initialPane: grid && hud ? "log" : undefined, hud, onOpenCard: hudState.openCard });
   useHudEscape(hudState, hud, ui.suspended);
   const hudOpen = hud && hudState.pane != null;
   // A modal (Surrender) opened from the Settings flyout: the flyout closes so the modal owns Esc.
@@ -241,7 +243,8 @@ function TableShellBody({
     digitsFree: gates.digitsFree,
     escapeFree: gates.escapeFree,
   });
-  // The last two seats of a 4-way glide into one full board in the middle (the 1v1 composition) and say FINAL DUEL.
+  // The last two seats of a 4-way glide into one full board in the middle (the 1v1 composition) and say FINAL DUEL. The 3-way
+  // plaza uses the same caption and timing: its seats regroup face to face (geometry.ts duoFinaleSlots).
   const finale = useGridFinale({ seats: engine.seats, cells: gridSeats, reducedMotion: controller.reducedMotion });
   const [hideResult, setHideResult] = useState(false);
   const [logUnread, setLogUnread] = useState(0);
@@ -427,7 +430,7 @@ function TableShellBody({
   // the last two are: there the out notes are hidden from the eye and not live, and the caption is only drawn.
   const freshOut = grid ? out.filter((entry) => entry.seat !== viewerSeat && !outAtOpen.has(entry.seat)) : [];
   const newestOut = freshOut.reduce<(typeof out)[number] | null>((best, entry) => (best == null || entry.place < best.place ? entry : best), null);
-  const finaleNote = grid && finale.caption ? `Final duel: ${finale.caption.seats.map((seat) => nameOf(seat)).join(" vs ")}.` : "";
+  const finaleNote = (grid || plazaHud) && finale.caption ? `Final duel: ${finale.caption.seats.map((seat) => nameOf(seat)).join(" vs ")}.` : "";
   const liveText = [
     viewerEliminated ? "You are eliminated. You keep watching." : "",
     newestOut ? `${nameOf(newestOut.seat)} is out, ${placeLabel(newestOut.place)}.` : "",
@@ -436,7 +439,7 @@ function TableShellBody({
 
   const identityNode = (
     <div className={roomStyles.identity}>
-      <Link href="/duels">Duelists Kingdom</Link>
+      <Link href="/duels">Dueling Domain</Link>
       {spectator ? (
         <strong className={roomStyles.viewerRole} title="You are watching. Hidden cards stay private.">
           <Eye size={15} strokeWidth={1.5} aria-hidden /> You are spectating
@@ -536,6 +539,7 @@ function TableShellBody({
       data-fit="true"
       data-grid={grid ? "true" : undefined}
       data-hud={hud ? "true" : undefined}
+      data-plaza-hud={plazaHud ? "true" : undefined}
       data-phase={battle ? "battle" : undefined}
       data-turn={spectator ? "watch" : myTurn ? "you" : "opp"}
       data-reduced={controller.reducedMotion ? "true" : "false"}
@@ -662,6 +666,7 @@ function TableShellBody({
                   />
                 ) : undefined}
                 masterChip={masterChip}
+                centerPrompts={plazaHud}
                 renderSeatField={(props) => <SeatField {...props} />}
                 hub={hubOn && !grid ? (
                   <PhaseHub
@@ -688,7 +693,7 @@ function TableShellBody({
                     {fxActive ? <PositionFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
                     {fxActive ? <ChainFx events={withDestroyCards(engine.events)} chain={namedChain} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} playerName={nameOf} seatTones={seatTones} priority={priority} ended={hasResult} table={format} seats={engine.seats} /> : null}
                     {fxActive ? <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} /> : null}
-                    <BattleFx events={withDestroyCards(engine.events)} seats={engine.seats} reducedMotion={controller.reducedMotion} active={fxActive} aim={null} />
+                    <BattleFx events={withDestroyCards(engine.events)} seats={engine.seats} reducedMotion={controller.reducedMotion} active={fxActive} aim={null} nameOf={nameOf} />
                     <DestroyFx events={withDestroyCards(engine.events)} reducedMotion={controller.reducedMotion} active={fxActive} mySeat={viewerSeat ?? 0} />
                   </FxBoundary>
                 }
@@ -749,7 +754,7 @@ function TableShellBody({
                         <Eye size={14} strokeWidth={1.75} aria-hidden /> Spectating
                       </span>
                     ) : null}
-                    {grid ? null : <CameraControls {...cameraProps} variant={narrow && masterRail ? "stage" : "float"} view={narrow ? undefined : { open: drawer.viewOpen }} />}
+                    {grid ? null : plazaHud ? <CameraControls {...cameraProps} variant="stage" /> : <CameraControls {...cameraProps} variant={narrow && masterRail ? "stage" : "float"} view={narrow ? undefined : { open: drawer.viewOpen }} />}
                     {ui.pile ? (
                       <PileViewer
                         title={ui.pile.title}
@@ -802,8 +807,9 @@ function TableShellBody({
           hud={hudState}
           panels={{
             card: cardPanel,
-            log: logPanel,
+            log: plazaHud ? undefined : logPanel,
             settings: <TableSettings controller={controller} preferences={preferences} connection={connection} tools={settingsTools} />,
+            camera: plazaHud ? <CameraControls {...cameraProps} variant="panel" view={{ open: true }} /> : undefined,
           }}
           chain={engine.chain}
           chainOpen={chainOpen}

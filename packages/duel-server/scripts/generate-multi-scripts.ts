@@ -68,7 +68,7 @@ export const CHOOSER_TRIAGE_ADDED = [
 /** Compare AND chooser cards, counted once in the table (the original triage may put them in another group). */
 export const COMPARE_EXTRA = [15693423, 80551022, 90669991]; // Slime's stock Flip operation chooses through local p=1-tp.
 export const MIRROR_GATE = 43452193;
-export const EXPECTED_COUNTS = { compare: 54, chooser: 77, whole: 6, entries: 319, r1: 93, attack: 59 } as const;
+export const EXPECTED_COUNTS = { compare: 54, chooser: 77, whole: 6, entries: 363, r1: 93, attack: 59 } as const;
 /**
  * R1 cards whose stock script already acts on every living duelist after core patch 0053, so they need no suffix and no entry.
  * Pinned (a card is added here only after the script was read). 39513225 only sends a Confirm to the opponent (no effect on each duelist).

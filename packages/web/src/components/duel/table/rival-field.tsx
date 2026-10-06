@@ -53,6 +53,7 @@ export function RivalField({ pose, field, render, angleOffsetDeg = 0, placement,
       style={style}
       data-seat-slot={pose.seat}
       data-pose-scale={pose.scale}
+      data-def-full={pose.width ? "true" : undefined}
       data-docked={pose.docked ? "true" : undefined}
       data-small={placement?.small ? "true" : undefined}
       data-compact={pose.compact ? "true" : undefined}
@@ -97,7 +98,7 @@ export interface ExitingSeatProps {
  * like one, so it lines up with the pad under it. Under reduced motion it only fades down.
  */
 export function ExitingSeat({ pose, tone, view, masterRule, faceUpHand, angleOffsetDeg = 0, reducedMotion, clipTop, onDone }: ExitingSeatProps) {
-  const width = boardWidth(masterRule);
+  const width = pose.width ?? boardWidth(masterRule);
   const cards = useMemo(() => crumbleCards(view, { faceUpHand, width }), [view, faceUpHand, width]);
   const done = useRef(onDone);
   done.current = onDone;

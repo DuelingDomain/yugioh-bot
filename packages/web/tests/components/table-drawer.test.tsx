@@ -8,7 +8,7 @@ vi.mock("next/font/google", () => {
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
 });
 
-import { FFA3_FIXTURES } from "@/components/duel/table/fixtures/ffa3";
+import { FFA4_FIXTURES } from "@/components/duel/table/fixtures/ffa4";
 import { useFixtureController } from "@/components/duel/table/fixtures/use-fixture-controller";
 import { TableShell } from "@/components/duel/table/table-shell";
 import {
@@ -37,8 +37,16 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+// The drawer and the rail belong to the plaza stage without the floating HUD: a 4-way table on a core that shares the
+// Extra Monster Zones between ACROSS seats (0+2, 1+3) keeps that stage. The 3-way plaza has the floating HUD.
+const ACROSS = (() => {
+  const state = structuredClone(FFA4_FIXTURES.states.main);
+  for (const seat of state.room.engine!.seats) seat.sharedExtraWith = (seat.seat + 2) % 4;
+  return state;
+})();
+
 function Shell({ reducedMotion = true }: { reducedMotion?: boolean }) {
-  const controller = useFixtureController(FFA3_FIXTURES.states.main, { reducedMotion });
+  const controller = useFixtureController(ACROSS, { reducedMotion });
   return <TableShell controller={controller} />;
 }
 

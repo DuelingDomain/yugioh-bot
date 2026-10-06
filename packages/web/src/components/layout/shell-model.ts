@@ -56,7 +56,7 @@ export function activeNavHref(pathname: string, playerId: number | null = null, 
   return null;
 }
 
-export const FALLBACK_TITLE = "Duelists Kingdom";
+export const FALLBACK_TITLE = "Dueling Domain";
 
 /** The phone top bar title: the nav label for the current path, with the board's detail titles. */
 export function pageTitle(pathname: string, playerId: number | null = null): string {

@@ -28,6 +28,8 @@ export interface MultiplayerForbidden {
   category: MultiplayerCategory;
   reason: string;
   formats: MultiplayerFormat[];
+  /** Explicit owner decision; suppresses scanner Tag gaps without hiding script changes. */
+  tagDecision?: { allowed: true; source: string };
 }
 
 const FFA: MultiplayerFormat[] = ["ffa3", "ffa4"];
@@ -36,14 +38,14 @@ const NO_RESULT = " A 'you win' effect has no defined result for the other playe
 
 export const MULTIPLAYER_FORBIDDEN: readonly MultiplayerForbidden[] = [
   // --- hand-swap: both hands, one chooser per side
-  { code: 74519184, name: "Hand Destruction", category: "hand-swap", reason: "Turn player and one other player draw and discard. The other players do nothing.", formats: FFA },
-  { code: 72892473, name: "Card Destruction", category: "hand-swap", reason: "Both hands go to the GY, but only two players draw.", formats: FFA },
+  { code: 74519184, name: "Hand Destruction", category: "hand-swap", reason: "Turn player and one other player draw and discard. The other players do nothing.", formats: FFA, tagDecision: { allowed: true, source: "owner 2026-10-06, option A" } },
+  { code: 72892473, name: "Card Destruction", category: "hand-swap", reason: "Both hands go to the GY, but only two players draw.", formats: FFA, tagDecision: { allowed: true, source: "owner 2026-10-06, option A" } },
   { code: 33508719, name: "Morphing Jar", category: "hand-swap", reason: "It discards all hands, but only two players draw 5 cards. In Tag, the partner discards and does not draw.", formats: ALL },
   { code: 14057297, name: "Multiple Destruction", category: "hand-swap", reason: "It reads two hands and two LP totals only. Other players are not part of the cost or the draw.", formats: ALL },
   { code: 17484499, name: "Exchange of the Spirit", category: "hand-swap", reason: "The script swaps the Deck and GY of exactly two players. The condition reads one GY on each side.", formats: ALL },
   // --- symmetry
-  { code: 82301904, name: "Chaos Emperor Dragon - Envoy of the End", category: "symmetry", reason: "It sends both sides and damages both players. More than two players have no defined split.", formats: FFA },
-  { code: 35059553, name: "Kaiser Colosseum", category: "symmetry", reason: "It compares the monster count of two sides to limit summons.", formats: FFA },
+  { code: 82301904, name: "Chaos Emperor Dragon - Envoy of the End", category: "symmetry", reason: "It sends both sides and damages both players. More than two players have no defined split.", formats: FFA, tagDecision: { allowed: true, source: "owner 2026-10-06, option A" } },
+  { code: 35059553, name: "Kaiser Colosseum", category: "symmetry", reason: "It compares the monster count of two sides to limit summons.", formats: FFA, tagDecision: { allowed: true, source: "owner 2026-10-06, option A" } },
   { code: 98139712, name: "Skull Invitation", category: "symmetry", reason: "Damage goes by card owner to 'you' and 'the opponent' only.", formats: FFA },
   { code: 83555666, name: "Ring of Destruction", category: "symmetry", reason: "It damages the activator and one opponent. The opponent LP check reads one player.", formats: FFA },
   { code: 62966332, name: "Convulsion of Nature", category: "symmetry", reason: "It reverses Decks through one global check for two sides. A multiplayer table has more than two Decks.", formats: ALL },
@@ -55,7 +57,7 @@ export const MULTIPLAYER_FORBIDDEN: readonly MultiplayerForbidden[] = [
   // --- turn-order
   { code: 18326736, name: "Tellarknight Ptolemaeus", category: "turn-order", reason: "It skips a turn. FFA turn order has no 'the opponent's turn'.", formats: FFA },
   { code: 23846921, name: "Arcana Force XXI - The World", category: "turn-order", reason: "It skips a turn. FFA turn order has no 'the opponent's turn'.", formats: FFA },
-  { code: 37313786, name: "Gamble", category: "turn-order", reason: "It skips a turn. FFA turn order has no 'the opponent's turn'.", formats: FFA },
+  { code: 37313786, name: "Gamble", category: "turn-order", reason: "It skips a turn. FFA turn order has no 'the opponent's turn'.", formats: FFA, tagDecision: { allowed: true, source: "owner 2026-10-06, option A" } },
   { code: 6357341, name: "The Six Shinobi", category: "turn-order", reason: "It skips a turn. FFA turn order has no 'the opponent's turn'.", formats: FFA },
   { code: 92182447, name: "Mischief of the Time Goddess", category: "turn-order", reason: "It skips a turn. FFA turn order has no 'the opponent's turn'.", formats: FFA },
   // --- alt-win
@@ -80,14 +82,14 @@ export const MULTIPLAYER_FORBIDDEN: readonly MultiplayerForbidden[] = [
   { code: 97795930, name: "Phantasm Spiral Assault", category: "alt-win", reason: `It ends the duel with a win for its controller when its counter reaches 3.${NO_RESULT}`, formats: ALL },
   { code: 48995978, name: "Number 88: Gimmick Puppet of Leo", category: "alt-win", reason: `It ends the duel with a win for its controller when it has 3 counters.${NO_RESULT}`, formats: ALL },
   // --- global-state
-  { code: 27204311, name: "Nibiru, the Primal Being", category: "global-state", reason: "It counts summons in a flag for each of two players and reads the flag of 'the opponent'.", formats: FFA },
+  { code: 27204311, name: "Nibiru, the Primal Being", category: "global-state", reason: "It counts summons in a flag for each of two players and reads the flag of 'the opponent'.", formats: FFA, tagDecision: { allowed: true, source: "owner 2026-10-06, option A" } },
   { code: 94145021, name: "Droll & Lock Bird", category: "global-state", reason: "It keeps a two-slot table of draws for each player.", formats: FFA },
   // --- chooser
-  { code: 57728570, name: "Crush Card Virus", category: "chooser", reason: "It reads the opponent hand, field and Deck, and asks one opponent to choose.", formats: FFA },
+  { code: 57728570, name: "Crush Card Virus", category: "chooser", reason: "It reads the opponent hand, field and Deck, and asks one opponent to choose.", formats: FFA, tagDecision: { allowed: true, source: "owner 2026-10-06, option A" } },
   // --- control-swap
-  { code: 15305240, name: "Creature Seizure", category: "control-swap", reason: "The script swaps control between the activator and one named opponent.", formats: FFA },
+  { code: 15305240, name: "Creature Seizure", category: "control-swap", reason: "The script swaps control between the activator and one named opponent.", formats: FFA, tagDecision: { allowed: true, source: "owner 2026-10-06, option A" } },
   { code: 30426226, name: "Switcheroroo", category: "control-swap", reason: "It needs equal monster counts on two sides and swaps all of them.", formats: FFA },
-  { code: 13532663, name: "Dummy Golem", category: "control-swap", reason: "The script swaps control between the activator and a monster chosen by one named opponent.", formats: FFA },
+  { code: 13532663, name: "Dummy Golem", category: "control-swap", reason: "The script swaps control between the activator and a monster chosen by one named opponent.", formats: FFA, tagDecision: { allowed: true, source: "owner 2026-10-06, option A" } },
   // --- lp-reset
   { code: 17178486, name: "Life Equalizer", category: "lp-reset", reason: "It sets the LP of one named opponent and compares two LP totals.", formats: FFA },
 ];

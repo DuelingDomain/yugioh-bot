@@ -13,6 +13,7 @@ import { FFA4_FIXTURES } from "@/components/duel/table/fixtures/ffa4";
 import type { TableFixtureState } from "@/components/duel/table/fixtures/common";
 import { useFixtureController } from "@/components/duel/table/fixtures/use-fixture-controller";
 import { TableShell } from "@/components/duel/table/table-shell";
+import { GLIDE_MS } from "@/components/duel/table/use-seat-exits";
 
 beforeAll(() => {
   class RO {
@@ -151,7 +152,7 @@ describe("the elimination crumble on a 3-way table", () => {
     expect(after[1]!.transform).not.toEqual(after[0]!.transform);
     expect(container.querySelector("[data-seat-slot='1']")?.getAttribute("data-glide")).toBe("true");
     expect(container.querySelector("[data-plaza]")?.getAttribute("data-glide")).toBe("true");
-    settle(2000);
+    settle(GLIDE_MS + 200);
     expect(crumbles(container)).toBe(0);
     expect(container.querySelector("[data-seat-slot='1']")?.hasAttribute("data-glide")).toBe(false);
     expect(places(container, [0, 1])).toEqual(after);

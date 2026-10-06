@@ -1,0 +1,50 @@
+import { beforeEach, expect, vi } from "vitest";
+import type { OcgCoreSync } from "ocgcore-wasm";
+import { createEngineGame, type EngineStartupScript } from "../../../src/engine.js";
+import { createEngineGame as createLegacyGame } from "../../../src/legacy/engine.js";
+import { engineDataDirectory } from "../../engine-data-dir.js";
+import { compileBoard } from "../../support/board.js";
+import { describeWithCores, needs } from "../../support/cores.js";
+import { runScenarios } from "../../support/runner.js";
+import { Session } from "../../support/session.js";
+import { KURIBOH_SCENARIOS } from "./kuriboh.js";
+
+// Legacy has no startup hook. Use the real core Debug board, as in jet-dragon.test.ts.
+const fixture = vi.hoisted(() => ({ scripts: [] as EngineStartupScript[] }));
+vi.mock("ocgcore-wasm", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("ocgcore-wasm")>();
+  return { ...actual, default: async (options: { sync: true }) => {
+    const core = await actual.default(options);
+    const start = core.startDuel;
+    core.startDuel = ((handle) => {
+      for (const script of fixture.scripts) if (!core.loadScript(handle, script.name, script.content)) throw new Error(`Cannot load ${script.name}`);
+      return start(handle);
+    }) as OcgCoreSync["startDuel"];
+    return core;
+  } };
+});
+beforeEach(() => { fixture.scripts = []; });
+
+for (const legacy of [false, true]) for (const auto of [false, true]) {
+  describeWithCores(`Kuriboh: ${legacy ? "legacy" : "current"}, ${auto ? "Auto" : "Always"}`, [needs.cards(), needs.standard(), needs.domain(), needs.installedMulti()], () => {
+    runScenarios("multiplayer/kuriboh", KURIBOH_SCENARIOS.filter(s => !legacy || s.setup.format === "1v1"), async scenario => {
+      const compiled = compileBoard(scenario.setup);
+      fixture.scripts = legacy ? compiled.options.startupScripts! : [];
+      const create = legacy ? createLegacyGame as unknown as typeof createEngineGame : createEngineGame;
+      const game = await create({ ...compiled.options, dataDirectory: engineDataDirectory, seed: ["1", "2", "3", "4"],
+        settings: { ...compiled.options.settings!, stopAtEveryWindow: !auto } });
+      try {
+        const session = new Session(scenario, game);
+        session.reachMainPhase(); session.startRecording();
+        scenario.steps.forEach((step, index) => {
+          session.run(step, index + 1);
+          if (step.op === "expectOffered") {
+            const seat = Number(step.by![1]);
+            expect(game.view(seat).battleStep).toBe("damage-calculation");
+            expect(game.view(seat).prompt!.options.find(o => o.card?.code === 40640057)).toMatchObject({ controller: seat, location: 2 });
+          }
+        });
+      } finally { game.close(); }
+    });
+  });
+}

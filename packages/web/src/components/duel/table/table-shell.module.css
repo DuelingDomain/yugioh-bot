@@ -95,6 +95,18 @@
   --hud-master-bottom: 14px;
 }
 
+/* The 3-way plaza in the floating HUD: the board runs from edge to edge (the plaza keeps its fields clear of the dock,
+   the Deck Master plate and the corner itself, see `HUD_KEEP` in geometry.ts). The camera chip and its cue stand right
+   of the Deck Master plate, not under it. */
+.shell.shell[data-hud="true"][data-plaza-hud="true"] {
+  --hud-left: 14px;
+}
+
+.shell.shell[data-plaza-hud="true"] :global([data-camera-chip]),
+.shell.shell[data-plaza-hud="true"] :global([data-camera-cue]) {
+  left: 180px;
+}
+
 .shell.shell[data-hud="true"] .hudLayout {
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);

@@ -41,6 +41,9 @@
 #   run-nduel.sh --record   run n=2 (and n>2 when the core has Debug.SetupDuelists) and write golden.tsv
 #   run-nduel.sh --check    rerun every golden row, print one line per mismatch, exit 1 on any mismatch;
 #                           also writes $REPO/.status/nduel-check.json (mismatches with an exact cmd)
+# Golden metadata fingerprints the scripts/database/strings pins from prepare-data.ts, the Lua overlay and patches.
+# A data bump or overlay/patch edit needs an explicit
+# --record before --check can run: the updater must never synchronize this historical fingerprint automatically.
 #   run-nduel.sh --one <case> <seed>   run one duel (case: n2 n2b n2s n3 n4 tag) with its output on the terminal,
 #                           with --trace unless NDUEL_TRACE=0. Builds first unless NDUEL_SKIP_BUILD=1.
 # The summary gives an exact `cmd` (full nduel command line, with --trace) for every trap, failure and census site.
@@ -66,9 +69,69 @@ done
 
 PKG="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO="$(cd "$PKG/../.." && pwd)"
+GOLDEN="$PKG/scripts/native/golden.tsv"
+MULTI_DIR="${DUEL_MULTI_SCRIPTS_DIR:-$PKG/domain-core/multi-scripts}"
+# Check metadata before creating work directories, building a core, dumping card data or running any native duels.
+DATA_PINS_SHA256=""
+MULTI_SCRIPTS_SHA256=""; PATCHES_SHA256=""
+if [[ "$MODE_RUN" == check || "$MODE_RUN" == record ]]; then
+  if [[ ${NDUEL_PATCHES+x} || ${NDUEL_PATCH_LIMIT+x} ]]; then
+    echo "golden modes require NDUEL_PATCHES and NDUEL_PATCH_LIMIT to be unset" >&2; exit 2
+  fi
+  if [[ "$MODE_RUN" == check && ! -f "$GOLDEN" ]]; then
+    echo "no golden file: $GOLDEN (run --record first)" >&2; exit 2
+  fi
+  DATA_PINS_SHA256="$(python3 - "$PKG/scripts/prepare-data.ts" "$GOLDEN" "$MODE_RUN" <<'PY'
+import hashlib, json, re, sys
+source, golden, mode = sys.argv[1:]
+text = open(source).read()
+block = re.search(r"const sources\s*=\s*\{(.*?)\};", text, re.S)
+pins = {}
+for key in ("scripts", "database", "strings"):
+    match = re.search(r'\b' + key + r':\s*"([0-9a-f]{40})"', block.group(1) if block else "")
+    if not match:
+        sys.exit(f"cannot read current {key} data pin from {source}")
+    pins[key] = match.group(1)
+# Canonical JSON uses this key order, no spaces or trailing newline. Only the digest is historical metadata:
+# embedding raw SHAs here would make the data updater mistake them for another live pin to synchronize.
+fingerprint = hashlib.sha256(json.dumps(pins, separators=(",", ":")).encode()).hexdigest()
+if mode == "check":
+    recorded = re.findall(r"^# data-pins-sha256=([0-9a-f]{64})$", open(golden).read(), re.M)
+    if recorded != [fingerprint]:
+        sys.exit("data pins changed: re-record with run-nduel.sh --record")
+print(fingerprint)
+PY
+  )" || exit 1
+  FOLDER_HASHES="$(python3 - "$MULTI_DIR" "$PKG/domain-core/patches" "$GOLDEN" "$MODE_RUN" <<'PY'
+import hashlib, pathlib, re, sys
+overlay, patches, golden, mode = sys.argv[1:]
+def folder_hash(directory, pattern="*"):
+    root = pathlib.Path(directory)
+    if not root.is_dir():
+        sys.exit(f"missing golden input folder: {directory}")
+    # Same algorithm as src/multi-scripts.ts multiScriptsFolderHash: bytewise sorted
+    # relative paths, each followed by NUL, the file's SHA-256 and a newline.
+    # Only *.patch files affect the patch series, as in the core cache keys.
+    files = [p for p in root.rglob(pattern) if p.is_file() and not p.is_symlink()]
+    digest = hashlib.sha256()
+    for path in sorted(files, key=lambda p: p.relative_to(root).as_posix().encode()):
+        name = path.relative_to(root).as_posix()
+        sha = hashlib.sha256(path.read_bytes()).hexdigest()
+        digest.update(f"{name}\0{sha}\n".encode())
+    return digest.hexdigest()
+hashes = {"multi-scripts": folder_hash(overlay), "patches": folder_hash(patches, "*.patch")}
+if mode == "check":
+    metadata = open(golden).read()
+    for field, digest in hashes.items():
+        if re.findall(r"^# " + field + r"-sha256=([0-9a-f]{64})$", metadata, re.M) != [digest]:
+            sys.exit("overlay/patches changed: re-record with run-nduel.sh --record")
+print(*hashes.values())
+PY
+  )" || exit 1
+  read -r MULTI_SCRIPTS_SHA256 PATCHES_SHA256 <<< "$FOLDER_HASHES"
+fi
 P1="$PKG/domain-core/.build/phase1"
 DATA_DIR="${DUEL_DATA_DIR:-$REPO/data/duel-engine-next}"
-MULTI_DIR="${DUEL_MULTI_SCRIPTS_DIR:-$PKG/domain-core/multi-scripts}"
 # Build slots: only where the local lock script exists (it is gitignored, so CI has none).
 LOCKER=()
 if [[ "${NDUEL_NO_LOCK:-0}" != 1 && -f "$P1/run-locked.sh" ]]; then LOCKER=(bash "$P1/run-locked.sh" build 2); fi
@@ -98,11 +161,9 @@ DTREE="$DIR/domain-tree"; DNATIVE="$DIR/domain-native"
 # see scripts/native/lsan.supp. Any other leak still fails the run.
 export LSAN_OPTIONS="suppressions=$PKG/scripts/native/lsan.supp${LSAN_OPTIONS:+:$LSAN_OPTIONS}"
 RUNS="$DIR/runs"
-GOLDEN="$PKG/scripts/native/golden.tsv"
 STATUS_DIR="${NDUEL_STATUS_DIR:-$REPO/.status}"
 mkdir -p "$DIR" "$STATUS_DIR"
 if [[ "$MODE_RUN" == check ]]; then
-  [[ -f "$GOLDEN" ]] || { echo "no golden file: $GOLDEN (run --record first)"; exit 2; }
   TURNS="$(sed -n 's/^#.*turns=\([0-9]*\).*/\1/p' "$GOLDEN" | head -1)"; TURNS="${TURNS:-60}"
   LP="$(sed -n 's/^#.*lp=\([0-9]*\).*/\1/p' "$GOLDEN" | head -1)"; LP="${LP:-3000}"
 fi
@@ -222,7 +283,8 @@ echo "== run $(wc -l < "$JOBFILE") duels, $JOBS at a time"
 xargs -P "$JOBS" -L 1 bash -c 'run_one "$@"' _ < "$JOBFILE"
 
 if [[ "$MODE_RUN" != matrix ]]; then
-  NDUEL_MULTI_DIR="$MULTI_DIR" NDUEL_DATA_DIR="$DATA_DIR" NDUEL_REPO="$REPO" NDUEL_BIN="$BIN" NDUEL_DIRV="$DIR" python3 - "$MODE_RUN" "$RUNS" "$GOLDEN" "$TURNS" "$LP" "$JOBFILE" "$STATUS_DIR/nduel-check.json" <<'PY'
+  NDUEL_MULTI_SCRIPTS_SHA256="$MULTI_SCRIPTS_SHA256" NDUEL_PATCHES_SHA256="$PATCHES_SHA256" \
+  NDUEL_DATA_PINS_SHA256="$DATA_PINS_SHA256" NDUEL_MULTI_DIR="$MULTI_DIR" NDUEL_DATA_DIR="$DATA_DIR" NDUEL_REPO="$REPO" NDUEL_BIN="$BIN" NDUEL_DIRV="$DIR" python3 - "$MODE_RUN" "$RUNS" "$GOLDEN" "$TURNS" "$LP" "$JOBFILE" "$STATUS_DIR/nduel-check.json" <<'PY'
 import os, re, sys
 mode, runs, golden, turns, lp, jobfile, checkout = sys.argv[1:8]
 import json, datetime
@@ -257,6 +319,9 @@ if mode == "record":
     with open(tmp, "w") as fh:
         fh.write("n\tmode\tseed\tsteps\thash\n")
         fh.write(f"# turns={turns} lp={lp}\n")
+        fh.write(f"# data-pins-sha256={os.environ['NDUEL_DATA_PINS_SHA256']}\n")
+        fh.write(f"# multi-scripts-sha256={os.environ['NDUEL_MULTI_SCRIPTS_SHA256']}\n")
+        fh.write(f"# patches-sha256={os.environ['NDUEL_PATCHES_SHA256']}\n")
         for (n, m, seed), v in sorted(rows, key=lambda r: (int(r[0][0]), r[0][1], int(r[0][2]))):
             fh.write(f"{n}\t{m}\t{seed}\t{v[1]}\t{v[2]}\n")
     os.replace(tmp, golden)

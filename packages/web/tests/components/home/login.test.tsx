@@ -1,11 +1,10 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("next/font/google", () => {
-  const font = () => ({ className: "font-class", variable: "font-var", style: {} });
-  return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
-});
+vi.mock("next/font/local", () => ({
+  default: ({ variable }: { variable: string }) => ({ variable, className: "font-class" }),
+}));
 
 const { signIn, redirect, rethrow } = vi.hoisted(() => ({
   signIn: vi.fn(),
@@ -14,104 +13,137 @@ const { signIn, redirect, rethrow } = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/auth", () => ({ signIn }));
 vi.mock("next/navigation", () => ({ redirect, unstable_rethrow: rethrow }));
-vi.mock("next/image", () => ({
-  default: ({ alt, priority: _priority, unoptimized: _unoptimized, ...props }: { alt: string; priority?: boolean; unoptimized?: boolean }) => <img alt={alt} {...props} />,
-}));
 
 let formStatus = { pending: false };
 vi.mock("react-dom", async (orig) => ({ ...(await orig<typeof import("react-dom")>()), useFormStatus: () => formStatus }));
 
 import { AuthError } from "next-auth";
-import LoginPage from "../../../app/(auth)/login/page";
+import LoginPage, { metadata } from "../../../app/(auth)/login/page";
 import { signInWithDiscord } from "../../../app/(auth)/login/actions";
 import { describeLoginError } from "../../../app/(auth)/login/login-errors";
 import { LoginButton } from "../../../app/(auth)/login/login-button";
 
-afterEach(() => { cleanup(); vi.clearAllMocks(); formStatus = { pending: false }; });
-
-describe("login error copy", () => {
-  it("reads a cancel on Discord as a non-event, not a red error", () => {
-    expect(describeLoginError("OAuthCallbackError")).toMatchObject({ tone: "info", title: "Sign-in didn't finish." });
-  });
-  it("blames our side for Configuration and carries the code", () => {
-    expect(describeLoginError("Configuration")).toMatchObject({ tone: "bad", title: "Couldn't sign you in.", code: "Configuration" });
-  });
-  it("keeps the server-membership messages", () => {
-    expect(describeLoginError("GuildMembershipRequired")?.body).toMatch(/member of the Discord server/);
-    expect(describeLoginError("GuildMembershipUnavailable")?.tone).toBe("bad");
-  });
-  it("gives anything else one honest line and its code", () => {
-    expect(describeLoginError("AccessDenied")).toMatchObject({ title: "Sign-in didn't work.", code: "AccessDenied" });
-  });
-  it("shows nothing without an error", () => {
-    expect(describeLoginError(undefined)).toBeNull();
-  });
+beforeEach(() => {
+  vi.stubEnv("MARKETING_URL", "");
+  vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+});
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+  formStatus = { pending: false };
 });
 
+async function renderPage(error?: string) {
+  return render(await LoginPage({ searchParams: Promise.resolve({ error }) }));
+}
+
+const banners = [
+  {
+    error: "OAuthCallbackError", tone: "info", role: "status",
+    copy: "Sign-in didn’t finish. If you pressed Cancel on Discord, that’s all this is. Try again when you’re ready.",
+  },
+  {
+    error: "Configuration", tone: "bad", role: "alert",
+    copy: "Couldn’t sign you in. The problem is on our side, not your Discord account. Try again in a minute.",
+  },
+  {
+    error: "GuildMembershipUnavailable", tone: "bad", role: "alert",
+    copy: "Couldn’t check your access just now. Try again in a minute.",
+  },
+];
+
 describe("LoginPage", () => {
-  it("draws the ring with three real cards in an aria-hidden group, behind two first", async () => {
-    const { container } = render(await LoginPage({ searchParams: Promise.resolve({}) }));
-    const images = Array.from(container.querySelectorAll("img"));
-    expect(images.map((card) => card.getAttribute("src"))).toEqual([
-      "https://images.ygoprodeck.com/images/cards/46986418.jpg",
-      "https://images.ygoprodeck.com/images/cards/23995346.jpg",
-      "https://images.ygoprodeck.com/images/cards/89631146.jpg",
-    ]);
-    for (const card of images) {
-      expect(card).toHaveAttribute("alt", "");
-      expect(card.closest("[aria-hidden='true']")).not.toBeNull();
-    }
-    const group = images[0].closest("[aria-hidden='true']")!;
-    expect(group.querySelectorAll("img")).toHaveLength(3);
-    expect(group.querySelectorAll("svg circle")).toHaveLength(2);
-    expect(group.querySelectorAll("svg path")).toHaveLength(1);
-    expect(screen.queryByRole("img")).toBeNull();
-  });
-
-  it("is the ring, not the old lit field", async () => {
-    const { container } = render(await LoginPage({ searchParams: Promise.resolve({}) }));
-    expect(container.querySelector(".sv-field, .sv-zone, .si-smn, .si-fan")).toBeNull();
-  });
-
-  it("puts one thin beam rule under the brand and the copy in order", async () => {
-    const { container } = render(await LoginPage({ searchParams: Promise.resolve({}) }));
-    const rules = container.querySelectorAll("hr.sv-rule");
-    expect(rules).toHaveLength(1);
-    expect(rules[0]).toHaveAttribute("data-beam", "true");
-    screen.getByText("Drafts, tournaments and duels for your Discord server. Sign in with the account you use there.");
-  });
-
-  it("uses the flat primary button at full width", async () => {
-    render(await LoginPage({ searchParams: Promise.resolve({}) }));
-    const button = screen.getByRole("button", { name: "Sign in with Discord" });
-    expect(button).toHaveClass("sv-btn", "primary", "big", "wide");
-  });
-
-  it("names Duelists Kingdom, says what Discord shares, and shows the code", async () => {
-    render(await LoginPage({ searchParams: Promise.resolve({ error: "Configuration" }) }));
-    screen.getByRole("heading", { level: 1, name: "Duelists Kingdom" });
-    screen.getByText(/Discord shares your name, avatar and email/);
-    expect(screen.getByRole("alert").textContent).toContain("Couldn't sign you in. The problem");
-    expect(screen.getByRole("alert")).toHaveTextContent("Error: Configuration");
-    expect(screen.getByRole("alert").querySelector(".sv-status")).toHaveAttribute("data-tone", "block");
-    expect(screen.getByRole("alert").textContent).toContain("on Duelists Kingdom's side");
-    screen.getByText(/Duelists Kingdom can.t read or send messages as you/);
-    expect(document.body.textContent).not.toMatch(/yugidraft/i);
-    screen.getByRole("button", { name: "Sign in with Discord" });
-  });
-  it("marks the page when a message shows, so the ring leaves room for it", async () => {
-    const plain = render(await LoginPage({ searchParams: Promise.resolve({}) }));
-    expect(plain.container.querySelector("main")).not.toHaveAttribute("data-message");
-    cleanup();
-    const withMessage = render(await LoginPage({ searchParams: Promise.resolve({ error: "Configuration" }) }));
-    expect(withMessage.container.querySelector("main")).toHaveAttribute("data-message");
-  });
-  it("announces a cancel politely", async () => {
-    render(await LoginPage({ searchParams: Promise.resolve({ error: "OAuthCallbackError" }) }));
-    expect(screen.getByRole("status")).toHaveTextContent("Sign-in didn't finish.");
-    expect(screen.getByRole("status").textContent).toContain("Sign-in didn't finish. If you pressed Cancel");
-    expect(screen.getByRole("status").querySelector(".sv-status")).toHaveAttribute("data-tone", "neutral");
+  it("renders the Discord-only step with the mock's title, fine print, and skip link", async () => {
+    const { container } = await renderPage();
+    const title = screen.getByRole("heading", { level: 1, name: "Welcome back" });
+    expect(title.querySelector("em")).toHaveTextContent("back");
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(container.querySelector('[data-slot="eyebrow"]')).toHaveTextContent("Closed alpha");
+    screen.getByText("Sign in to your drafts, decks and duels.");
+    const button = screen.getByRole("button", { name: "Continue with Discord" });
+    expect(button).toHaveAttribute("type", "submit");
+    expect(button).not.toBeDisabled();
+    expect(button.className).toContain("btn-alt");
+    expect(button.className).not.toContain("btn-primary");
+    expect(button).toHaveAttribute("aria-describedby", "fine-discord");
+    expect(button).toHaveAccessibleDescription("Discord shares your name, avatar and email. We can’t read or send messages as you.");
+    expect(button.closest("form")).toContainElement(document.getElementById("fine-discord"));
+    expect(container.querySelectorAll("input")).toHaveLength(0);
+    expect(screen.getAllByRole("button")).toHaveLength(1);
     expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByRole("link", { name: "Skip to the sign-in form" })).toHaveAttribute("href", "#form-zone");
+    expect(document.getElementById("form-zone")).toHaveAttribute("tabindex", "-1");
+    expect(metadata).toMatchObject({ title: "Sign in | Dueling Domain", description: "Sign in to your drafts, decks and duels." });
+  });
+
+  it.each(banners)("maps $error to a $tone banner", async ({ error, tone, role, copy }) => {
+    const { container } = await renderPage(error);
+    const banner = screen.getByRole(role);
+    expect(banner).toHaveAttribute("data-tone", tone);
+    expect(banner).toHaveTextContent(copy);
+    if (error === "Configuration") expect(banner).toHaveTextContent("Error: Configuration");
+    else expect(banner).not.toHaveTextContent("Error:");
+    if (tone === "info") expect(screen.queryByRole("alert")).toBeNull();
+    screen.getByRole("heading", { level: 1, name: "Welcome back" });
+    screen.getByRole("button", { name: "Continue with Discord" });
+    expect(container.querySelector('[data-screen="err-service"]')).toContainElement(banner);
+  });
+
+  it("maps GuildMembershipRequired to the full access panel with neutral emphasis", async () => {
+    vi.stubEnv("MARKETING_URL", "https://marketing.example");
+    const { container } = await renderPage("GuildMembershipRequired");
+    const title = screen.getByRole("heading", { level: 1, name: "Not in the alpha yet" });
+    expect(title.querySelector("em")).toHaveTextContent(/^alpha$/);
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(container.querySelector('[data-screen="err-invite"]')).toContainElement(title);
+    screen.getByText("Access opens in waves, and this Discord account isn’t in one yet. Join the waitlist and we’ll email you when it’s your turn.");
+    const waitlist = screen.getByRole("link", { name: "Join the waitlist" });
+    expect(waitlist).toHaveAttribute("href", "https://marketing.example/#join");
+    expect(waitlist.className).toContain("btn-primary");
+    expect(screen.getByRole("link", { name: "Try a different account" })).toHaveAttribute("href", "/login");
+    expect(screen.queryByRole("button", { name: /Discord/ })).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("keeps the retry and diagnostic code for unknown errors", async () => {
+    await renderPage("AccessDenied");
+    expect(screen.getByRole("alert")).toHaveTextContent("Sign-in didn’t work. Try again when you’re ready.");
+    expect(screen.getByRole("alert")).toHaveTextContent("Error: AccessDenied");
+    screen.getByRole("button", { name: "Continue with Discord" });
+  });
+
+  it.each(["https://marketing.example", "https://marketing.example/"])("uses MARKETING_URL %s for all external links", async (url) => {
+    vi.stubEnv("MARKETING_URL", url);
+    await renderPage();
+    expect(screen.getByRole("link", { name: "Dueling Domain, home" })).toHaveAttribute("href", "https://marketing.example");
+    expect(screen.getByRole("link", { name: "Back to site" })).toHaveAttribute("href", "https://marketing.example");
+    expect(screen.getByRole("link", { name: "Join the waitlist" })).toHaveAttribute("href", "https://marketing.example/#join");
+    expect(screen.getByRole("link", { name: "Privacy" })).toHaveAttribute("href", "https://marketing.example/privacy");
+  });
+
+  it.each([undefined, "GuildMembershipRequired"])("omits external links when MARKETING_URL is unset (%s)", async (error) => {
+    vi.stubEnv("MARKETING_URL", undefined);
+    const { container } = await renderPage(error);
+    expect(screen.getByRole("img", { name: "Dueling Domain" }).closest("a")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Dueling Domain, home" })).toBeNull();
+    for (const name of ["Back to site", "Join the waitlist", "Privacy"]) expect(screen.queryByRole("link", { name })).toBeNull();
+    expect(container.querySelectorAll('a[href^="http"]')).toHaveLength(0);
+    if (error) {
+      screen.getByText("Access opens in waves, and this Discord account isn’t in one yet.");
+      expect(screen.queryByText(/Join the waitlist/)).toBeNull();
+      expect(screen.getByRole("link", { name: "Try a different account" })).toHaveAttribute("href", "/login");
+    }
+  });
+
+  it.each([undefined, ...banners.map(({ error }) => error), "GuildMembershipRequired", "AccessDenied"])("contains no retired or prohibited vocabulary (%s)", async (error) => {
+    const { container } = await renderPage(error);
+    // Encoded to keep the prohibited vocabulary out of source text too.
+    const prohibited = JSON.parse(atob("WyJ5dS1naS1vaCIsICJrb25hbWkiLCAia2luZ2RvbSIsICJkdWVsIG1vbnN0ZXJzIiwgImNyb3duIiwgImNhc3RsZSIsICJweXJhbWlkIiwgIm1pbGxlbm5pdW0iLCAieXVnaWRyYWZ0IiwgInRoZSBib3QiXQ==")) as string[];
+    const output = `${container.innerHTML} ${JSON.stringify(metadata)}`.toLowerCase();
+    for (const word of prohibited) expect(output).not.toContain(word);
   });
 });
 
@@ -122,6 +154,21 @@ describe("LoginButton", () => {
     const button = screen.getByRole("button", { name: "Opening Discord…" });
     expect(button).toBeDisabled();
     expect(button).toHaveAttribute("aria-busy", "true");
+    expect(button).toHaveAttribute("aria-describedby", "fine-discord");
+  });
+});
+
+describe("describeLoginError", () => {
+  it("shows nothing without an error", () => {
+    expect(describeLoginError(undefined)).toBeNull();
+    expect(describeLoginError("")).toBeNull();
+  });
+
+  it("returns the access message and optional waitlist note without a marketing URL", () => {
+    expect(describeLoginError("GuildMembershipRequired")).toMatchObject({
+      body: "Access opens in waves, and this Discord account isn’t in one yet.",
+      waitlistNote: "Join the waitlist and we’ll email you when it’s your turn.",
+    });
   });
 });
 

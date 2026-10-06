@@ -1,0 +1,48 @@
+/* The board while a drag pans it: a closed hand everywhere, and no text selection. */
+.dragging,
+.dragging * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+
+/* The board layer of the grid: the fields, frames and seams (the HUD is outside it). Above the battle wash of the board. */
+.layer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+/* Reset view: a small control on the board, only while the board is zoomed. HUD: it does not zoom. */
+.reset {
+  position: absolute;
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px 0 8px;
+  border: 1px solid rgb(181 153 99 / 0.4);
+  border-radius: 6px;
+  background: rgb(7 11 21 / 0.86);
+  color: #c3bba8;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  pointer-events: auto;
+}
+
+.reset:hover,
+.reset:focus-visible {
+  border-color: rgb(181 153 99 / 0.66);
+  color: #efe7d5;
+  outline: none;
+}
+
+.reset b {
+  color: #c6b6ff;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}

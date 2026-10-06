@@ -62,7 +62,8 @@ describe("3D mode room", () => {
     expect(container.querySelectorAll('[data-sv-clock] [role=timer]')).toHaveLength(2);
     expect(container.querySelectorAll("[data-hand-seat]").length).toBe(2);
     expect(container.querySelectorAll("[data-zones]").length).toBeGreaterThan(20);
-    // Brand text: the 3D header says Duelists Kingdom, never Yugidraft.
+    // Brand text: the 3D header says Dueling Domain, never Yugidraft.
+    expect(screen.getByRole("link", { name: "Dueling Domain" }).getAttribute("href")).toBe("/duels");
     expect(container.textContent ?? "").not.toMatch(/yugidraft/i);
   });
 

@@ -21,7 +21,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { MULTIPLAYER_CARD_RULES, MULTIPLAYER_FORBIDDEN, type MultiplayerFormat } from "../src/banlists/multiplayer.js";
+import { MULTIPLAYER_CARD_RULES, MULTIPLAYER_FORBIDDEN, type MultiplayerFormat, type MultiplayerForbidden } from "../src/banlists/multiplayer.js";
 
 export type Cls = "U" | "C" | "O" | "F";
 export type Tables = "all" | "ffa";
@@ -879,7 +879,7 @@ export const RULES: readonly PatternRule[] = [
     cls: "O",
     ambiguous: false,
     tables: "all",
-    why: "Column groups and column zones are read from one controller's zones: the card controller decides, columns across several fields need MSG_SELECT_PLACE_N (task F8).",
+    why: "Column queries need a format-specific peer: FFA4 uses its fixed living facing seat; FFA3 uses R-FFA-THREE-COLUMNS (a declared opponent for approved activated effects, or the sole remaining opponent for all column logic). Review activated operations for an early opponent declaration; keep Link/EMZ sharing separate.",
     detect: (s) => callRule(s, "column", (c) => c.owner === "method" && (c.fn === "GetColumnGroup" || c.fn === "GetColumnZone")),
   },
   // ----- C: the class behaviour of the fold is enough
@@ -1026,11 +1026,12 @@ export interface ListEntry {
   list: "forbidden" | "card-rule";
   name: string;
   formats?: MultiplayerFormat[];
+  tagDecision?: MultiplayerForbidden["tagDecision"];
 }
 
 export function listIndex(): Map<number, ListEntry> {
   const index = new Map<number, ListEntry>();
-  for (const entry of MULTIPLAYER_FORBIDDEN) index.set(entry.code, { list: "forbidden", name: entry.name, formats: entry.formats });
+  for (const entry of MULTIPLAYER_FORBIDDEN) index.set(entry.code, { list: "forbidden", name: entry.name, formats: entry.formats, tagDecision: entry.tagDecision });
   for (const entry of MULTIPLAYER_CARD_RULES) index.set(entry.code, { list: "card-rule", name: entry.name });
   return index;
 }
@@ -1059,7 +1060,7 @@ export function reconcile(cards: CardScan[]): Reconcile {
       continue;
     }
     if (!card.flagged) falseNegatives.push({ code, name: entry.name, list: entry.list, cls: card.cls, rules: card.rules });
-    if (entry.list === "forbidden" && !entry.formats!.includes("tag")) {
+    if (entry.list === "forbidden" && !entry.formats!.includes("tag") && !entry.tagDecision?.allowed) {
       const wide = card.rules.filter((id) => {
         const rule = RULE_BY_ID.get(id)!;
         return rule.tables === "all" && (rule.cls === "F" || (rule.cls === "O" && rule.ambiguous));

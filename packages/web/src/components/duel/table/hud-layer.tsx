@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FocusEvent, type MouseEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type FocusEvent, type MouseEvent, type ReactNode } from "react";
 import type { DuelCard, DuelCardInfo, DuelChainLink, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import type { DuelHoverHandler } from "../field-keys";
-import { ChainList, ChainTower, DOCK_PANES, DOCK_PANES_CAMERA, GridDock, GridFlyout, useHudDismiss, type HudPane } from "./grid-hud";
+import { ChainList, ChainTower, DOCK_PANES, DOCK_PANES_CAMERA, GridDock, GridFlyout, useHudDismiss, type DockPane, type HudPane } from "./grid-hud";
 import { GridMasterToken } from "./grid-master";
 import { GridHoverPreview } from "./grid-preview";
 import type { DuelActivateHandler, InspectTarget } from "./types";
@@ -26,6 +26,8 @@ export interface HudPaneState {
   openCard: () => void;
   /** The Card tab only shows while it is the open pane: it is not a dock icon. */
   tabs: readonly HudPane[];
+  /** The dock icons, in order. */
+  dock: readonly DockPane[];
 }
 
 /**
@@ -33,17 +35,19 @@ export interface HudPaneState {
  * Inspect on a card) does. A hover or a prompt row never opens the Card flyout, so it cannot cover the response prompt.
  * Call it before `useTableUi`, then pass `openCard` on and give `useHudEscape` the table's `suspended` flag.
  */
-export function useHudPane({ camera = false }: {
-  /** The table has a camera panel (the Tag Rooftop): the dock gets a fourth icon. */
+export function useHudPane({ camera = false, log = true }: {
+  /** The table has a camera panel (the Tag Rooftop, the 3-way plaza): the dock gets a camera icon. */
   camera?: boolean;
+  /** The dock has the Log icon. The 3-way plaza has none: it keeps Settings, Chain and Camera only. */
+  log?: boolean;
 } = {}): HudPaneState {
   const [pane, setPane] = useState<HudPane | null>(null);
   const toggle = useCallback((next: HudPane) => setPane((current) => (current === next ? null : next)), []);
   const close = useCallback(() => setPane(null), []);
   const openCard = useCallback(() => setPane("card"), []);
-  const dock: readonly HudPane[] = camera ? DOCK_PANES_CAMERA : DOCK_PANES;
+  const dock = useMemo<readonly DockPane[]>(() => (camera ? DOCK_PANES_CAMERA : DOCK_PANES).filter((id) => log || id !== "log"), [camera, log]);
   const tabs: readonly HudPane[] = pane === "card" ? ["card", ...dock] : dock;
-  return { pane, setPane, toggle, close, openCard, tabs };
+  return { pane, setPane, toggle, close, openCard, tabs, dock };
 }
 
 /**
@@ -94,8 +98,8 @@ export interface HudMasterProps {
 
 export interface HudLayerProps {
   hud: HudPaneState;
-  /** The Card panel, Log panel and Settings panel; the Chain panel is built here from `chain`. `camera` adds the fourth dock icon. */
-  panels: Pick<Record<HudPane, ReactNode>, "card" | "log" | "settings"> & { camera?: ReactNode };
+  /** The Card panel, Log panel and Settings panel; the Chain panel is built here from `chain`. The dock icons come from `hud.dock`. */
+  panels: Pick<Record<HudPane, ReactNode>, "card" | "settings"> & { log?: ReactNode; camera?: ReactNode };
   chain: readonly DuelChainLink[];
   /** A chain is live: the tower shows under the dock. */
   chainOpen: boolean;
@@ -123,7 +127,7 @@ export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, log
   };
   return (
     <>
-      <GridDock pane={hud.pane} onToggle={hud.toggle} unread={logUnread} chainCount={chainCount} panes={panels.camera != null ? DOCK_PANES_CAMERA : DOCK_PANES} />
+      <GridDock pane={hud.pane} onToggle={hud.toggle} unread={logUnread} chainCount={chainCount} panes={hud.dock} />
       {chainOpen ? <ChainTower chain={chain} nameOf={nameOf} tones={seatTones} onOpen={() => hud.setPane("chain")} /> : null}
       {master ? (
         <GridMasterToken
