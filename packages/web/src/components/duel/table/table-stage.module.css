@@ -28,6 +28,13 @@
   font-family: var(--font-duel-ui, "Arial Narrow"), "Arial Narrow", sans-serif;
 }
 
+/* The board takes the focus back from Reset view (tabIndex -1: never in the Tab order); it draws no ring of its own. Its
+   controls keep their :focus-visible rings. */
+.board:focus,
+.board:focus-visible {
+  outline: none;
+}
+
 .board[data-ready="false"] .canvas {
   visibility: hidden;
 }
