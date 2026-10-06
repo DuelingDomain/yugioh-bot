@@ -23,6 +23,15 @@ function chosen(peer: "p1" | "p2"): Scenario {
       p2: { monsters: peer === "p2" ? [ELF] : [ELF, OX], grave: peer === "p2" ? [OX] : [] },
     })]);
 }
+function peerLeaves(): Scenario {
+  const card = "Sour Scheduling - Red Vinegar Vamoose";
+  return scenario("bound-peer-leaves-before-resolution", {
+    p0: { spells: [null, { card, pos: "set" }, { card: FUSE, pos: "set" }] },
+    p1: { monsters: slots(3, OX) }, p2: { monsters: [null, null, ELF, OX] },
+  }, [activate(card, "p0"), expectPickSeats(["p1", "p2"], "p0"), pickOpponent("p1", "p0"),
+    expectPrompt({ by: "p0", context: "chain" }), surrender("p1"), expectEliminated("p1"), pass("p0"), pass("p0"),
+    expectPrompt({ by: "p0", context: "action" }), expectBoard({ p2: { monsters: [ELF, OX], grave: [], hand: [] } })]);
+}
 function survivor(actor: Seat, peer: Seat, kind: "knight" | "fuse" | "scuffle"): Scenario {
   const dead = SEATS.ffa3.find(s => s !== actor && s !== peer)!;
   const setup: Scenario["setup"] = { [actor]: { hand: [POT] } };
@@ -149,7 +158,7 @@ function fullEmzColumn(card: "Bingo Card" | "Blasting Fuse", eliminated: boolean
         ...(!eliminated ? { p1: { monsters: [OX, spider], spells: ["Dark Hole"], grave: [] } } : {}) }),
     ])]);
 }
-const standard = [...(["Bingo Card", "Blasting Fuse"] as const).flatMap(card => [false, true].flatMap(eliminated => (["none", "own-main", "peer-spell"] as const).map(missing => fullEmzColumn(card, eliminated, missing)))),sour(),emzColumn("p1"),emzColumn("p2"),independentEmzColumn(),moveColumn("Sprind the Irondash Dragon","p1"),moveColumn("Sprind the Irondash Dragon","p2"),moveColumn("Goldilocks the Battle Landscaper","p1"),moveColumn("Goldilocks the Battle Landscaper","p2"),crown("p1",false),crown("p2",false),crown("p1",true),crown("p2",true),paranoia(false),paranoia(true),bingo("p1",false),bingo("p2",false),bingo("p1",true),bingo("p2",true),yajiro(),impermanence("p2",true,false,"p1"),impermanence("p2",true,true,"p1"),impermanence("p1",false), impermanence("p1",false,true), impermanence("p1",true), impermanence("p2",true), impermanence("p1",true,true), impermanence("p2",true,true), disablaster(false),disablaster(true),chosen("p1"), chosen("p2"), passive,
+const standard = [peerLeaves(),...(["Bingo Card", "Blasting Fuse"] as const).flatMap(card => [false, true].flatMap(eliminated => (["none", "own-main", "peer-spell"] as const).map(missing => fullEmzColumn(card, eliminated, missing)))),sour(),emzColumn("p1"),emzColumn("p2"),independentEmzColumn(),moveColumn("Sprind the Irondash Dragon","p1"),moveColumn("Sprind the Irondash Dragon","p2"),moveColumn("Goldilocks the Battle Landscaper","p1"),moveColumn("Goldilocks the Battle Landscaper","p2"),crown("p1",false),crown("p2",false),crown("p1",true),crown("p2",true),paranoia(false),paranoia(true),bingo("p1",false),bingo("p2",false),bingo("p1",true),bingo("p2",true),yajiro(),impermanence("p2",true,false,"p1"),impermanence("p2",true,true,"p1"),impermanence("p1",false), impermanence("p1",false,true), impermanence("p1",true), impermanence("p2",true), impermanence("p1",true,true), impermanence("p2",true,true), disablaster(false),disablaster(true),chosen("p1"), chosen("p2"), passive,
   ...([["p0", "p1"], ["p0", "p2"], ["p1", "p2"]] as const).flatMap(([actor, peer]) =>
     (["knight", "fuse", "scuffle"] as const).map(kind => survivor(actor, peer, kind)))];
 export const FFA3_COLUMN_SCENARIOS = [...standard, ...standard.map(domainVariant)];
