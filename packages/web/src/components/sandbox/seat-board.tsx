@@ -29,7 +29,7 @@ const BOT_CHOICES: readonly { value: SandboxBotMode; label: string }[] = [
   { value: "manual", label: "Manual" },
 ];
 
-const MONSTER_LABEL = ["Monster 1", "Monster 2", "Monster 3", "Monster 4", "Monster 5", "Extra Monster L", "Extra Monster R"];
+export const MONSTER_LABEL = ["Monster 1", "Monster 2", "Monster 3", "Monster 4", "Monster 5", "Extra Monster L", "Extra Monster R"];
 
 export function sameLoc(a: CardLoc | null, b: CardLoc): boolean {
   return a !== null && a.seat === b.seat && a.zone === b.zone && a.index === b.index;
@@ -181,7 +181,8 @@ export function SeatBoard({
   );
 }
 
-function LpField({ state, seat, act }: { state: SandboxBuilderState; seat: SandboxDuelistId; act: (action: SandboxAction) => boolean }) {
+/** The life point input of a seat. The table view reuses it in its seat badge. */
+export function LpField({ state, seat, act }: { state: SandboxBuilderState; seat: SandboxDuelistId; act: (action: SandboxAction) => boolean }) {
   const stored = state.board[seat]?.lp;
   const [text, setText] = useState(stored === undefined ? "" : String(stored));
   useEffect(() => setText(stored === undefined ? "" : String(stored)), [stored, seat]);
