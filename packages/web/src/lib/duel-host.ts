@@ -8,13 +8,14 @@ import {
   TournamentDuelError,
   type DuelService,
 } from "@yugidraft/shared/services";
-import type { CardQuery, DuelChainMode, DuelCommand, DuelDeck, DuelFirstChoice, DuelMasterRule, DuelMode, DuelRpsMove } from "@yugidraft/shared/duels";
+import type { CardQuery, DuelChainMode, DuelCommand, DuelDeck, DuelFirstChoice, DuelMasterRule, DuelMode, DuelRpsMove, SandboxBoard, SandboxRun, SandboxBotMode } from "@yugidraft/shared/duels";
 import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { verifyDiscordGuildMembership } from "@/lib/discord-guild-membership";
+import { checkDiscordWebAccess, webAccessError, type WebAccessLevel } from "@/lib/discord-web-access";
 
-export type DuelHostOp = "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "cards" | "card-details" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "ready" | "unready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "report" | "debug-trace" | "bug-context" | "chain-mode";
+export type DuelHostOp = "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "cards" | "card-details" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "ready" | "unready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "report" | "debug-trace" | "bug-context" | "chain-mode" | "validate-board" | "start-sandbox" | "sandbox-control" | "sandbox-restart" | "sandbox-info" | "sandbox-go-to-phase" | "sandbox-next-turn";
 
 /** Dev scenario tools (presets page, Report button). Server side only. Exactly "1" turns them on. */
 export function scenariosEnabled(): boolean {
@@ -29,25 +30,27 @@ type DuelActor =
   | { ok: true; guildId: string; playerId: number; duels: DuelService }
   | { ok: false; response: NextResponse };
 
-export async function requireDuelActor(): Promise<DuelActor> {
+export async function requireDuelActor(access: WebAccessLevel = "member"): Promise<DuelActor> {
   const session = await auth();
   if (!session?.user?.id) {
     return { ok: false, response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
   }
   const guildId = env.discordGuildId;
   if (!guildId) {
-    return { ok: false, response: NextResponse.json({ error: "Guild is not configured" }, { status: 500 }) };
+    return { ok: false, response: NextResponse.json({ error: "Guild is not configured" }, { status: access === "admin" ? 503 : 500 }) };
   }
-  const membership = await verifyDiscordGuildMembership({
-    guildId,
-    userId: session.user.id,
-    botToken: process.env.DISCORD_TOKEN ?? "",
-  });
+  const membership = access === "admin"
+    ? await checkDiscordWebAccess(session.user.id, "admin")
+    : await verifyDiscordGuildMembership({
+      guildId,
+      userId: session.user.id,
+      botToken: process.env.DISCORD_TOKEN ?? "",
+    });
   if (!membership.ok) {
     return {
       ok: false,
       response: NextResponse.json(
-        { error: membership.status === 403 ? "Forbidden" : "Guild membership is unavailable" },
+        { error: access === "admin" ? webAccessError(membership.status) : membership.status === 403 ? "Forbidden" : "Guild membership is unavailable" },
         { status: membership.status },
       ),
     };
@@ -123,6 +126,14 @@ export async function callDuelHost(input: {
   choice?: DuelFirstChoice;
   /** chain-mode only: the response switch position for the caller's own seat. */
   chainMode?: DuelChainMode;
+  /** Sandbox-only options. Routes require admin access; the host checks the organizer. */
+  as?: number;
+  reveal?: boolean;
+  board?: SandboxBoard;
+  run?: SandboxRun;
+  scenarioId?: number;
+  control?: SandboxBotMode;
+  phase?: string;
 }): Promise<{ ok: true; data: unknown } | { ok: false; response: NextResponse }> {
   const cfg = { url: env.duelInternalUrl, secret: env.duelInternalSecret };
   const configProblem = duelHostConfigProblem(cfg);
@@ -153,6 +164,14 @@ export async function callDuelHost(input: {
   if (input.move !== undefined) payload.move = input.move;
   if (input.choice !== undefined) payload.choice = input.choice;
   if (input.chainMode !== undefined) payload.mode = input.chainMode;
+
+  if (input.as !== undefined) payload.as = input.as;
+  if (input.reveal !== undefined) payload.reveal = input.reveal;
+  if (input.board !== undefined) payload.board = input.board;
+  if (input.run !== undefined) payload.run = input.run;
+  if (input.scenarioId !== undefined) payload.scenarioId = input.scenarioId;
+  if (input.control !== undefined) payload.control = input.control;
+  if (input.phase !== undefined) payload.phase = input.phase;
 
   const result = await transport.post("/internal/duel", JSON.stringify(payload));
   if (!result.ok) {
