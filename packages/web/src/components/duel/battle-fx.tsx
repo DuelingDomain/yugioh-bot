@@ -754,6 +754,13 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
       deferred.clear();
     };
   }, []);
+  // The layer goes off (the table drops the coin layer in the same commit): cancel the waiting plays here,
+  // in a layout effect, before the passive cleanup of the coin layer releases the barrier and starts them.
+  useLayoutEffect(() => {
+    if (active) return;
+    for (const cancel of [...deferredRef.current]) cancel();
+    deferredRef.current.clear();
+  }, [active]);
   const seqRef = useRef(0);
   // Attacks whose strike (a flip-effect sequence) was started.
   const struckRef = useRef(new Set<number>());

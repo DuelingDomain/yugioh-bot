@@ -344,7 +344,8 @@ describe("coin barrier: a battle that waits", () => {
 
   const tree = (events: DuelEvent[], active: boolean) => (
     <>
-      <CoinTossFx events={events} duelKey={KEY} reducedMotion={false} />
+      {/* Like the room and the table: the coin layer goes with the battle layer's active flag. */}
+      {active ? <CoinTossFx events={events} duelKey={KEY} reducedMotion={false} /> : null}
       <BattleFx events={events} reducedMotion={false} seats={seats} active={active} />
     </>
   );
@@ -365,7 +366,7 @@ describe("coin barrier: a battle that waits", () => {
     return { seen, stop: () => window.removeEventListener(DUEL_FX_CUE_EVENT, listen) };
   };
 
-  it("does not play, and makes no sound, after the layer goes off while the coin plays", () => {
+  it("does not play, and makes no sound, when the layer goes off and the coin layer unmounts in one commit", () => {
     const heard = cues();
     const { go } = arrive();
     go(full(), false);
