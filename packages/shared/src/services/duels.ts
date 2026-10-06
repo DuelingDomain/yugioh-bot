@@ -671,7 +671,7 @@ export function createDuelService(db: Database.Database): DuelService {
   const selectDue = db.prepare<[string, number], DuelRow>(
     `
       select * from duels
-      where archived_at is null
+      where sandbox = 0 and archived_at is null
         and status in ('completed', 'interrupted', 'cancelled')
         and ended_at is not null
         and datetime(ended_at) <= datetime('now', ?)
@@ -1217,7 +1217,7 @@ export function createDuelService(db: Database.Database): DuelService {
       >(
         `
           update duels
-          set status = ?, ended_at = datetime('now'), archived_at = coalesce(archived_at, datetime('now')), winner_player_id = ?, winner_seat = ?, result_reason = ?,
+          set status = ?, ended_at = datetime('now'), archived_at = case when sandbox = 1 then archived_at else coalesce(archived_at, datetime('now')) end, winner_player_id = ?, winner_seat = ?, result_reason = ?,
               snapshot_public_json = ?, snapshot_seat0_json = ?, snapshot_seat1_json = ?, snapshot_seats_json = ?, clock_json = null
           where id = ? and status = 'active'
         `,
@@ -1277,7 +1277,7 @@ export function createDuelService(db: Database.Database): DuelService {
     db.prepare<[number]>(
       `
         update duels
-        set status = 'cancelled', ended_at = datetime('now'), archived_at = coalesce(archived_at, datetime('now')), winner_player_id = null, winner_seat = null,
+        set status = 'cancelled', ended_at = datetime('now'), archived_at = case when sandbox = 1 then archived_at else coalesce(archived_at, datetime('now')) end, winner_player_id = null, winner_seat = null,
             result_reason = 'Cancelled', clock_json = null
         where id = ? and status in ('lobby', 'active')
       `,
