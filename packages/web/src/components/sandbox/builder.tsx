@@ -656,7 +656,7 @@ export function SandboxBuilder({
           {table ? (
             <SandboxTableView
               state={state}
-              seat={activeSeat}
+              activeSeat={activeSeat}
               onSelectSeat={(id) => { setSeat(id); setOpen(null); }}
               infos={infos as CardInfoMap}
               armedCode={armed?.code ?? null}

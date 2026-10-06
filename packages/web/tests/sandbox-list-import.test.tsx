@@ -14,7 +14,7 @@ vi.mock("@/components/sandbox/api", () => ({ createScenario: mocks.createScenari
 
 import { SandboxList } from "../app/(app)/sandbox/_components/sandbox-list";
 
-const board = { format: "ffa3", mode: "normal", masterRule: 5, turn: "p0", deckSize: 20, startAt: "draw", eliminated: ["p2"] } as const;
+const board = { format: "ffa3", mode: "normal", masterRule: 5, turn: "p0", deckSize: 20, startAt: "draw", eliminated: ["p2"] as "p2"[] } as const;
 const run = { bots: { "1": "pass", "2": "pass", "3": "pass" } } as const;
 
 beforeEach(() => vi.clearAllMocks());
