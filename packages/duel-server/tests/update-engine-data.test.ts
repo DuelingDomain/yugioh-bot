@@ -6,7 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 import {
-  checkCoreCompatibility, detectOverlayConflicts, diffScripts, findNewRisks, readPins, rewritePins, runUpdate,
+  detectOverlayConflicts, diffScripts, findNewRisks, findListedChanges, readPins, rewritePins, runUpdate, githubOutput,
   type Pins,
 } from "../scripts/update-engine-data.js";
 
@@ -52,9 +52,9 @@ describe("engine data update", () => {
     expect(JSON.stringify(cards)).toBe(before);
   });
 
-  it("checks stock scripts outside official too, including the pre-errata overlay", () => {
+  it("reports removed when only a nonofficial script remains, matching overlay generator hashing", () => {
     const cards = [{ code: 1, file: "c1.lua", stockSha256: sha256("pre-errata") }];
-    expect(detectOverlayConflicts(cards, new Map([["pre-errata/c1.lua", "pre-errata"]]))).toEqual([]);
+    expect(detectOverlayConflicts(cards, new Map([["pre-errata/c1.lua", "pre-errata"]]))).toEqual([{ ...cards[0], actualSha256: null }]);
   });
 
   it("rewrites the allowlisted data source, leaving core pins untouched", async () => {
@@ -112,7 +112,7 @@ describe("engine data update", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
-  it.each([true, false])("reports a complete mocked update (dryRun=%s), preserving overlays and core pins", async (dryRun) => {
+  it.each([[true, nextPins], [false, nextPins], [false, { ...oldPins, database: nextPins.database }]])("reports a complete mocked update (dryRun=%s), preserving overlays and core pins", async (dryRun, overrides) => {
     const { root } = await fixture();
     const manifest = { cards: [{ code: 1, file: "c1.lua", name: "Old card", stockSha256: sha256("old") }] };
     const manifestPath = join(root, "packages/duel-server/domain-core/multi-scripts/MANIFEST.json");
@@ -122,10 +122,12 @@ describe("engine data update", () => {
     await mkdir(stock, { recursive: true });
     await writeFile(join(stock, "c1.lua"), "s.state[tp]=true\n");
     await writeFile(join(stock, "c2.lua"), "-- new script\n");
+    await writeFile(join(stock, "c3.lua"), "-- old script\n");
+    await writeFile(join(stock, "../utility.lua"), "-- shared change\n");
     const archive = execFileSync("tar", ["-czf", "-", "-C", root, "stock"]);
     const dbPath = join(root, "cards.cdb");
     const db = new Database(dbPath);
-    db.exec("CREATE TABLE texts (id INTEGER, name TEXT); INSERT INTO texts VALUES (1, 'Changed card'), (2, 'New card');");
+    db.exec("CREATE TABLE texts (id INTEGER, name TEXT); INSERT INTO texts VALUES (1, '@reviewer Changed #123 card'), (2, 'New card');");
     db.close();
     const database = await readFile(dbPath);
     const request = vi.fn(async (input: string | URL | Request) => {
@@ -134,6 +136,7 @@ describe("engine data update", () => {
       if (url.includes("/git/trees/")) {
         const old = url.includes(oldPins.scripts);
         return Response.json({ truncated: false, tree: [
+          { path: "utility.lua", type: "blob", sha: old ? "old-helper" : "new-helper" },
           { path: "official/c1.lua", type: "blob", sha: old ? "old" : "changed" },
           { path: old ? "official/c3.lua" : "official/c2.lua", type: "blob", sha: "other" },
         ] });
@@ -142,13 +145,26 @@ describe("engine data update", () => {
       if (url.endsWith("/cards.cdb")) return new Response(new Uint8Array(database));
       throw new Error(`Unexpected request: ${url}`);
     });
-    const result = await runUpdate({ root, overrides: nextPins, dryRun, request });
+    const result = await runUpdate({ root, overrides, dryRun, request, validate: false });
     expect(result.changed).toBe(true);
-    expect(await readPins(root)).toEqual(dryRun ? oldPins : nextPins);
+    expect(await readPins(root)).toEqual(dryRun ? oldPins : overrides);
     const report = await readFile(result.reportPath, "utf8");
+    if (overrides.scripts === oldPins.scripts) {
+      expect(report).toContain("New official card scripts (0)");
+      expect(report).toContain("Changed official scripts (0)");
+      expect(report).toContain("Changed shared scripts (0)");
+      expect(result.files).toEqual(["packages/duel-server/scripts/prepare-data.ts"]);
+      return;
+    }
     expect(report).toContain("New official card scripts (1)");
     expect(report).toContain("New card");
     expect(report).toContain("Changed official scripts (1)");
+    expect(report).toContain("&#64;reviewer Changed &#35;123 card");
+    expect(report).toMatch(/^Needs review: 1 conflicts, 1 risks, 1 shared-script changes, probe errors /);
+    expect(report).toContain("Changed shared scripts (1)");
+    expect(report).toContain("mp-utility.lua");
+    expect(report).toContain("re-record");
+    expect(report).toContain("earlier duels");
     expect(report).toContain("Removed official scripts (1)");
     expect(report).toContain("Overlay conflicts (1)");
     expect(report).toContain("New multiplayer risks (1)");
@@ -187,28 +203,19 @@ describe("engine data update", () => {
     expect(await readPins(root)).toEqual(oldPins);
   });
 
-  it("checks cached pinned macro registrations and aliases, excludes Lua helpers, and flags unknown names", async () => {
-    const { root } = await fixture();
-    const cache = join(root, "packages/duel-server/domain-core/.build/ygopro-core");
-    await mkdir(cache, { recursive: true });
-    execFileSync("git", ["init", "-q", cache]);
-    await writeFile(join(cache, "libduel.cpp"), "LUA_STATIC_FUNCTION(Draw) {}\nLUA_FUNCTION_ALIAS(DrawAlias);\n");
-    await writeFile(join(cache, "libcard.cpp"), "LUA_FUNCTION(GetCode) {}\n");
-    await writeFile(join(cache, "libeffect.cpp"), 'LUA_STATIC_FUNCTION(CreateEffect) {}\n{"OldExport", pointer},\n');
-    execFileSync("git", ["-C", cache, "add", "."]);
-    const tree = execFileSync("git", ["-C", cache, "write-tree"], { encoding: "utf8" }).trim();
-    const commit = execFileSync("git", ["-C", cache, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit-tree", tree], {
-      encoding: "utf8", input: "Core fixture\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01Jo347fwscScmug26ujsNN2\n",
-    }).trim();
-    const pinPath = join(root, "packages/duel-server/domain-core/pins.json");
-    const pins = JSON.parse(await readFile(pinPath, "utf8"));
-    pins.ygoproCore.commit = commit;
-    await writeFile(pinPath, JSON.stringify(pins));
-    const source = "Duel.Draw(tp,1,0)\nDuel.DrawAlias(tp)\nCard.GetCode(c)\nEffect.CreateEffect(c)\nEffect.OldExport()\nDuel.Helper()\nDuel.NewAPI()\n";
-    const changed = new Map([["official/c1.lua", source]]);
-    const stock = new Map([...changed, ["utility.lua", "function Duel.Helper() end\n"]]);
-    const notes = await checkCoreCompatibility(root, changed, stock);
-    expect(notes.join("\n")).not.toContain("Skipped");
-    expect(notes.filter((line) => line.startsWith("-"))).toEqual(["- **may need a newer core**: `Duel.NewAPI` (`official/c1.lua`)"]);
+  it("reports changed listed cards without overlays and all format gaps", () => {
+    const scripts = new Map([["official/c94145021.lua", "Duel.GetFieldGroup(tp,LOCATION_HAND,LOCATION_HAND)"]]);
+    expect(findListedChanges(scripts, ["official/c94145021.lua"], new Set())).toEqual([
+      expect.objectContaining({ code: 94145021, changed: true, formatGap: true }),
+    ]);
+    expect(findListedChanges(scripts, [], new Set([94145021]))).toEqual([
+      expect.objectContaining({ code: 94145021, changed: false, formatGap: true }),
+    ]);
+  });
+
+  it("writes single-line GITHUB_OUTPUT values including only reported files", () => {
+    expect(githubOutput({ changed: true, next: nextPins, files: ["packages/duel-server/scripts/prepare-data.ts"] })).toBe(
+      `changed=true\nscripts=${nextPins.scripts}\ndatabase=${nextPins.database}\nstrings=${nextPins.strings}\nfiles=["packages/duel-server/scripts/prepare-data.ts"]\n`,
+    );
   });
 });

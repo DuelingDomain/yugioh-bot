@@ -1,14 +1,15 @@
 /** Weekly card-data updates only. Core, Lua, WASM and toolchain pins are never advanced here. */
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
 import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import Database from "better-sqlite3";
-import { listIndex, scanText, stripComments } from "./scan-multiplayer-scripts.js";
+import { probeEngineData } from "./probe-engine-data.js";
+import { withValidation } from "./engine-data-report.js";
+import { listIndex, reconcile, scanText } from "./scan-multiplayer-scripts.js";
 
 export type Pins = { scripts: string; database: string; strings: string };
 const repositories: Record<keyof Pins, string> = { scripts: "CardScripts", database: "BabelCDB", strings: "Distribution" };
@@ -20,7 +21,7 @@ const sha256 = (bytes: string | Uint8Array) => createHash("sha256").update(bytes
 const official = (path: string) => /^official\/c\d+\.lua$/.test(path);
 const codeOf = (path: string) => Number(/c(\d+)\.lua$/.exec(path)?.[1]);
 const sorted = (paths: string[]) => paths.sort((a, b) => codeOf(a) - codeOf(b));
-const markdown = (value: string) => value.replace(/[\\`*_{}\[\]<>|]/g, "\\$&").replace(/[\r\n]+/g, " ");
+const markdown = (value: string) => value.replace(/[\\`*_{}\[\]<>|]/g, "\\$&").replace(/@|#(?=\d)/g, (match) => match === "@" ? "&#64;" : "&#35;").replace(/[\r\n]+/g, " ");
 
 export async function readPins(root: string): Promise<Pins> {
   const text = await readFile(join(root, preparePath), "utf8");
@@ -42,7 +43,7 @@ export function diffScripts(oldTree: Map<string, string>, newTree: Map<string, s
 type OverlayCard = { code: number; file: string; name?: string; stockSha256?: string };
 export function detectOverlayConflicts(cards: OverlayCard[], stock: Map<string, string>) {
   return cards.flatMap((card) => {
-    const text = stock.get(`official/${card.file}`) ?? [...stock].find(([path]) => path === card.file || path.endsWith(`/${card.file}`))?.[1];
+    const text = stock.get(`official/${card.file}`);
     const actualSha256 = text === undefined ? null : sha256(text);
     return actualSha256 === card.stockSha256 ? [] : [{ ...card, actualSha256 }];
   });
@@ -84,49 +85,22 @@ type Options = {
   report?: string;
   request?: typeof fetch;
   token?: string;
+  validate?: boolean;
 };
 type Tree = { truncated: boolean; tree: { path: string; type: string; sha: string }[] };
 
-export async function checkCoreCompatibility(root: string, changedLua: Map<string, string>, stock: Map<string, string>): Promise<string[]> {
-  const pins = JSON.parse(await readFile(join(root, packagePath, "domain-core/pins.json"), "utf8"));
-  const commit = pins.ygoproCore.commit as string;
-  const caches = ["domain-core/.build/ygopro-core", "domain-core/.build/ocgcore-wasm/cpp/ygo"];
-  for (const cache of caches) {
-    const directory = join(root, packagePath, cache);
-    if (!existsSync(directory)) continue;
-    try {
-      const exported = new Set<string>();
-      for (const [owner, file] of [["Duel", "libduel.cpp"], ["Card", "libcard.cpp"], ["Effect", "libeffect.cpp"]]) {
-        const source = execFileSync("git", ["-C", directory, "show", `${commit}:${file}`], {
-          encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 5_000,
-          env: { ...process.env, GIT_NO_LAZY_FETCH: "1", GIT_TERMINAL_PROMPT: "0" },
-        });
-        const names = [...source.matchAll(/\{\s*"(\w+)"\s*,|LUA_(?:STATIC_)?FUNCTION(?:_ALIAS)?\s*\(\s*(\w+)/g)].map((m) => m[1] ?? m[2]);
-        if (!names.length) throw new Error(`No registrations recognized in ${file}`);
-        for (const name of names) exported.add(`${owner}.${name}`);
-      }
-      // Lua helpers also extend these tables; they do not require a new C++ export.
-      for (const source of stock.values()) {
-        for (const match of stripComments(source).matchAll(/(?:function\s+)?\b((?:Duel|Card|Effect)\.\w+)\s*(?:=|\()/g)) {
-          if (/^function\s/.test(match[0]) || /=\s*$/.test(match[0])) exported.add(match[1]);
-        }
-      }
-      const missing = new Map<string, string[]>();
-      for (const [path, source] of changedLua) {
-        for (const match of stripComments(source).matchAll(/\b((?:Duel|Card|Effect)\.\w+)/g)) {
-          if (!exported.has(match[1])) missing.set(match[1], [...new Set([...(missing.get(match[1]) ?? []), path])]);
-        }
-      }
-      return [
-        `Best effort: checked Duel./Card./Effect. names against offline core \`${commit}\` and candidate Lua helpers. Global constants and colon-method calls are not checked. This is not a compatibility guarantee.`,
-        ...[...missing].sort().map(([name, files]) => `- **may need a newer core**: \`${name}\` (${files.map((p) => `\`${p}\``).join(", ")})`),
-        ...(missing.size ? [] : ["No missing names found in the checked subset."]),
-      ];
-    } catch {
-      // Build caches are optional. Never fetch or advance a core as part of a data update.
-    }
-  }
-  return [`Skipped core API/constant check: pinned core \`${commit}\` sources/registrations are not available in the local build caches. Changed Lua **may need a newer core**; review upstream changes manually. Rules-core pins remain unchanged.`];
+export function findListedChanges(stock: Map<string, string>, paths: string[], overlays: Set<number>) {
+  const listed = listIndex();
+  const changed = new Set(paths.filter(official).map(codeOf));
+  const scans = [...stock].filter(([path]) => official(path) && listed.has(codeOf(path)))
+    .map(([path, source]) => scanText(codeOf(path), source));
+  const gaps = new Set(reconcile(scans).formatGap.map((card) => card.code));
+  return [...listed].filter(([code]) => (changed.has(code) && !overlays.has(code)) || gaps.has(code))
+    .map(([code, entry]) => ({ code, ...entry, changed: changed.has(code), formatGap: gaps.has(code) }));
+}
+
+export function githubOutput(result: { changed: boolean; next: Pins; files: string[] }): string {
+  return [`changed=${result.changed}`, ...keys.map((key) => `${key}=${result.next[key]}`), `files=${JSON.stringify(result.files)}`, ""].join("\n");
 }
 
 export async function runUpdate(options: Options = {}) {
@@ -157,7 +131,7 @@ export async function runUpdate(options: Options = {}) {
     return [key, sha];
   }))) as Pins;
   const changed = keys.some((key) => old[key] !== next[key]);
-  const report = ["# Project Ignis engine data update", "", `Mode: ${options.dryRun ? "dry run (pins unchanged)" : "update"}. Rules core, ocgcore-wasm, Lua and Emscripten pins remain unchanged.`, ""];
+  const report = ["Needs review: 0 conflicts, 0 risks, 0 shared-script changes, probe errors not run, overlay check exit not run", "", "# Project Ignis engine data update", "", `Mode: ${options.dryRun ? "dry run (pins unchanged)" : "update"}. Rules core, ocgcore-wasm, Lua and Emscripten pins remain unchanged.`, ""];
   async function saveReport() {
     await mkdir(dirname(reportPath), { recursive: true });
     await writeFile(reportPath, report.join("\n") + "\n");
@@ -166,7 +140,7 @@ export async function runUpdate(options: Options = {}) {
     report.push("no update: all three data pins already match the requested commits.");
     await saveReport();
     console.log("no update");
-    return { changed, next, reportPath, files: [] as string[] };
+    return { changed, next, reportPath, files: [] as string[], changedPaths: [] as string[] };
   }
   report.push("| Repository | Old → new | Commits ahead |", "| --- | --- | --- |");
   for (const key of keys) {
@@ -188,7 +162,7 @@ export async function runUpdate(options: Options = {}) {
     const diff = diffScripts(oldTree, newTree);
     const archive = join(temporary, "scripts.tar.gz");
     await writeFile(archive, Buffer.from(await (await download(`https://codeload.github.com/ProjectIgnis/CardScripts/tar.gz/${next.scripts}`)).arrayBuffer()));
-    const extracted = join(temporary, "scripts");
+    const extracted = join(temporary, "card-scripts");
     await mkdir(extracted);
     execFileSync("tar", ["-xzf", archive, "--strip-components=1", "-C", extracted]);
     const stock = new Map<string, string>();
@@ -214,25 +188,57 @@ export async function runUpdate(options: Options = {}) {
     const risks = findNewRisks(stock, [...diff.added, ...diff.changed]);
     report.push("", `## New multiplayer risks (${risks.length})`, "", "scan-multiplayer-scripts: new/changed cards flagged F or ambiguous O, absent from MULTIPLAYER_FORBIDDEN / MULTIPLAYER_CARD_RULES.", "",
       ...(risks.length ? risks.map((card) => `- \`c${card.code}.lua\` ${markdown(names.get(card.code) ?? card.name)} — **${card.cls}**, ${card.rules.map((rule) => `\`${rule}\``).join(", ")}`) : ["None."]));
-    const changedLua = new Map([...stock].filter(([path]) => newTree.get(path) !== oldTree.get(path)));
-    report.push("", "## Core compatibility", "", ...await checkCoreCompatibility(root, changedLua, stock));
+    const shared = [...new Set([...oldTree.keys(), ...newTree.keys()])]
+      .filter((path) => path.endsWith(".lua") && !official(path) && oldTree.get(path) !== newTree.get(path)).sort();
+    report.push("", `## Changed shared scripts (${shared.length})`, "",
+      ...(shared.length ? shared.map((path) => `- \`${path}\` (${!newTree.has(path) ? "removed" : !oldTree.has(path) ? "added" : "changed"})`) : ["None."]));
+    if (shared.some((path) => /(?:^|\/)(?:.*utility.*|proc_.*|constant|cards_specific_functions)\.lua$/.test(path))) {
+      report.push("", "**Review `mp-utility.lua`** against these shared helper/constant changes, including multiplayer assumptions and overrides.");
+    }
+    const listed = findListedChanges(stock, [...diff.added, ...diff.changed, ...diff.removed], new Set(manifest.cards.map((card) => card.code)));
+    report.push("", `## Changed listed cards (${listed.length})`, "", "Changed listed scripts without an overlay, plus formatGap cards (including unchanged scripts whose current scan finds a gap).", "",
+      ...(listed.length ? listed.map((card) => `- \`c${card.code}.lua\` ${markdown(names.get(card.code) ?? card.name)} — ${card.list}${card.changed ? "; script changed" : ""}${card.formatGap ? "; **formatGap: review Tag coverage**" : ""}`) : ["None."]));
+    const changedPaths = [...stock.keys()].filter((path) => newTree.get(path) !== oldTree.get(path));
+    report[0] = `Needs review: ${conflicts.length} conflicts, ${risks.length} risks, ${shared.length} shared-script changes, probe errors not run, overlay check exit not run`;
+    report.push("", "## Core compatibility", "", "Pending installed npm ocgcore-wasm@0.1.2 probe against candidate data.");
     const files = await rewritePins(root, old, next, true);
     report.push("", "## Synchronized files", "", ...files.map((path) => `- \`${path}\``));
-    report.push("", "## Deployment", "", "**Live-duel warning:** a data pin bump changes bundleVersion. On recovery after deploy, an active duel whose bundleVersion differs is interrupted. Drain active duels and merge at a quiet time. The deploy preflight may refuse until duels finish.");
+    report.push("", "## Deployment", "", "**Live-duel warning:** a data pin bump changes bundleVersion. On recovery after deploy, an active duel whose bundleVersion differs is interrupted. Drain active duels and merge at a quiet time. The deploy preflight may refuse until duels finish. **Replay-loss warning:** every data bump also makes replays of all earlier duels with a different bundleVersion unavailable; host replay recovery refuses the mismatch. The owner must account for this when deciding update cadence.");
+    report.push("", "## Golden hashes", "", "**Reviewer action in this PR:** re-record golden hashes with `run-nduel.sh --record` against the candidate bundle, review the diff, then run `run-nduel.sh --check`. Data pins change the cards.cdb/scripts inputs. Automated CI dispatch uses `nightly=false`; this does not waive golden re-recording before merge.");
+    if (options.validate !== false) {
+      await writeFile(join(temporary, "strings.conf"), Buffer.from(await (await download(`https://raw.githubusercontent.com/ProjectIgnis/Distribution/${next.strings}/config/strings.conf`)).arrayBuffer()));
+      const probe = await probeEngineData(temporary, changedPaths);
+      let overlayExit = 0;
+      let overlayLog = "";
+      try {
+        overlayLog = execFileSync(process.execPath, ["--import", "tsx", join(root, packagePath, "scripts/generate-multi-scripts.ts"), "--check"],
+          { cwd: root, env: { ...process.env, DUEL_DATA_DIR: temporary }, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 120_000 });
+      } catch (error) {
+        const failure = error as { status?: number; stdout?: string; stderr?: string; message?: string };
+        overlayExit = failure.status || 1;
+        overlayLog = `${failure.stdout ?? ""}${failure.stderr ?? failure.message ?? "Overlay check failed"}`;
+      }
+      report.splice(0, report.length, withValidation(report.join("\n"), probe, overlayExit, overlayLog));
+    }
     await saveReport();
     if (!options.dryRun) await rewritePins(root, old, next, false);
     console.log(`${options.dryRun ? "dry run" : "update"}: ${diff.added.length} new, ${diff.changed.length} changed, ${diff.removed.length} removed official scripts; ${conflicts.length} overlay conflicts; ${risks.length} new multiplayer risks. Report: ${reportPath}`);
-    return { changed, next, reportPath, files };
+    return { changed, next, reportPath, files, changedPaths };
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }
 }
 
 async function main() {
-  const { values } = parseArgs({ options: { scripts: { type: "string" }, database: { type: "string" }, strings: { type: "string" }, "dry-run": { type: "boolean", default: false }, report: { type: "string" } } });
+  const { values } = parseArgs({ options: { scripts: { type: "string" }, database: { type: "string" }, strings: { type: "string" }, "dry-run": { type: "boolean", default: false }, report: { type: "string" }, metadata: { type: "string" }, "defer-validation": { type: "boolean", default: false } } });
   const overrides = Object.fromEntries(keys.filter((key) => values[key] !== undefined).map((key) => [key, values[key]]));
-  const result = await runUpdate({ overrides, dryRun: values["dry-run"], report: values.report });
-  if (process.env.GITHUB_OUTPUT) await appendFile(process.env.GITHUB_OUTPUT, [`changed=${result.changed}`, ...keys.map((key) => `${key}=${result.next[key]}`), ""].join("\n"));
+  const result = await runUpdate({ overrides, dryRun: values["dry-run"], report: values.report, validate: !values["defer-validation"] });
+  if (values.metadata) {
+    const metadataPath = resolve(values.metadata);
+    await mkdir(dirname(metadataPath), { recursive: true });
+    await writeFile(metadataPath, JSON.stringify({ ...result, baseSha: execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8" }).trim() }, null, 2) + "\n");
+  }
+  if (process.env.GITHUB_OUTPUT) await appendFile(process.env.GITHUB_OUTPUT, githubOutput(result));
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   main().catch((error: unknown) => { console.error(error instanceof Error ? error.message : error); process.exitCode = 1; });
