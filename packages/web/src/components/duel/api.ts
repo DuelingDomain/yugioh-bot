@@ -442,3 +442,39 @@ export async function sandboxNextTurn(slug: string, sandbox?: SandboxView): Prom
 export async function restartSandbox(slug: string, sandbox?: SandboxView): Promise<{ slug: string }> {
   return postSandbox(slug, { action: "restart" }, sandbox);
 }
+
+/** The part of a saved scenario the bar shows: its id (for the link) and name. */
+export interface SandboxSavedScenario {
+  id: number;
+  name: string;
+}
+
+/** Answer of `save-state`: the saved scenario and what the board could not keep from the live duel. */
+export interface SandboxSaveStateResult {
+  scenario: SandboxSavedScenario;
+  lost: string[];
+}
+
+/** FFA only: send one seat out through the real elimination path. The answer is the room as the acting seat sees it. */
+export async function eliminateSandboxSeat(slug: string, seat: number, sandbox?: SandboxView): Promise<DuelRoom> {
+  return postSandbox(slug, { action: "eliminate", seat }, sandbox);
+}
+
+/**
+ * Snapshot the live duel and save it as a scenario. `scenarioId` updates one the caller owns; leave it out to make
+ * a new one. Nothing changes in the live duel.
+ */
+export async function saveSandboxState(
+  slug: string, options: { name: string; scenarioId?: number }, sandbox?: SandboxView,
+): Promise<SandboxSaveStateResult> {
+  return postSandbox(slug, {
+    action: "save-state",
+    name: options.name,
+    ...(options.scenarioId !== undefined ? { scenarioId: options.scenarioId } : {}),
+  }, sandbox);
+}
+
+/** End the sandbox duel and release its engine. Repeating it is safe. It saves nothing. */
+export async function closeSandbox(slug: string, sandbox?: SandboxView): Promise<{ ok: true }> {
+  return postSandbox(slug, { action: "close" }, sandbox);
+}
