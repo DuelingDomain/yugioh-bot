@@ -44,7 +44,7 @@ describe("summarize", () => {
     const status = freshStatus();
     status.gap.recentSets = [completeSet("Old", "OL01", "2026-01-01", 50), unknownSet("Rage", "RA05", "2026-09-26")];
     status.gap.recentSetsMissingFromEngineCount = null;
-    expect(summarize(status)).toMatchObject({ state: "unknown", headline: "1 recent set could not be checked against the engine" });
+    expect(summarize(status)).toMatchObject({ state: "unknown", headline: "1 set not checked yet" });
   });
 
   it("is unknown when the recent set list is empty and not synced", () => {

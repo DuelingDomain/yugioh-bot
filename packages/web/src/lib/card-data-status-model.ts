@@ -128,6 +128,16 @@ export function sortSets(sets: CardDataSetGapStatus[]): CardDataSetGapStatus[] {
     .map((entry) => entry.set);
 }
 
+/** Recent sets whose check has not succeeded. One place to read it, so the server count can replace it later. */
+export function unknownSetCount(status: CardDataStatus): number {
+  return status.gap.recentSets.filter((set) => setGapState(set) === "unknown").length;
+}
+
+/** "1 set not checked yet" / "3 sets not checked yet". */
+export function notCheckedSentence(count: number): string {
+  return `${plural(count, "set")} not checked yet`;
+}
+
 /** True when the recent-set answer is incomplete: no count yet, or any set could not be counted. */
 export function recentSetsUnknown(status: CardDataStatus): boolean {
   const { gap } = status;
@@ -174,9 +184,9 @@ export function summarize(status: CardDataStatus): CardDataSummary {
   else if (unknown.length) unknownReasons.push(`${plural(unknown.length, "engine source")} could not be checked against GitHub`);
   if (status.upstream.babelCdbFiles.status !== "ok" && !unknown.length) unknownReasons.push("New release files could not be checked");
   if (recentSetsUnknown(status)) {
-    const count = status.gap.recentSets.filter((set) => setGapState(set) === "unknown").length;
+    const count = unknownSetCount(status);
     unknownReasons.push(
-      count ? `${plural(count, "recent set")} could not be checked against the engine`
+      count ? notCheckedSentence(count)
         : "Recent TCG sets are not synced yet, so new cards cannot be compared",
     );
   }

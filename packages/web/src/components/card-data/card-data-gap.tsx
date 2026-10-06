@@ -8,6 +8,7 @@ import {
   absoluteDate,
   type CardDataSetGapStatus,
   filterGap,
+  notCheckedSentence,
   recentIdMismatch,
   recentSetsUnknown,
   relativeTime,
@@ -178,7 +179,7 @@ export function GapSection({ status, now }: { status: CardDataStatus; now: numbe
           <StatusLine tone="neutral">
             {sets.length === 0
               ? "The recent set list is not synced yet, so new cards cannot be compared."
-              : `${unknownSets || "Some"} recent ${unknownSets === 1 ? "set was" : "sets were"} not loaded from YGOPRODeck yet. They are not counted as complete.`}
+              : `${unknownSets ? notCheckedSentence(unknownSets) : "Some sets not checked yet"}. They are not counted as complete.`}
           </StatusLine>
         ) : null}
         {sets.length > 0 ? (

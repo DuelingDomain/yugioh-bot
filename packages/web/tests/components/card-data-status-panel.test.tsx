@@ -135,7 +135,7 @@ describe("CardDataStatusPanel", () => {
     expect(within(newest).getByText("Unknown")).toBeTruthy();
     expect(within(newest).getByText("never checked")).toBeTruthy();
     expect(within(newest).queryByText(/Complete/)).toBeNull();
-    expect(screen.getByText(/1 recent set was not loaded from YGOPRODeck yet/)).toBeTruthy();
+    expect(screen.getByText(/1 set not checked yet\. They are not counted as complete/)).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Behind" })).toBeTruthy();
     expect(screen.getByText(/At least 2 new TCG cards/)).toBeTruthy();
   });
