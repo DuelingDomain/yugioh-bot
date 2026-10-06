@@ -10,9 +10,11 @@
   --sb-ok: #7fd1a0;
   pointer-events: auto;
   align-self: center;
-  max-width: min(100%, 1180px);
-  margin: 6px 12px 0;
-  padding: 6px 10px;
+  width: fit-content;
+  /* The table shells keep a tool rail about 62px wide on each side. */
+  max-width: calc(100% - 150px);
+  margin: 6px auto 0;
+  padding: 5px 8px;
   border: 1px solid var(--sb-line);
   border-radius: 10px;
   background: var(--sb-bg);
@@ -86,5 +88,5 @@
 .note { margin: 6px 0 0; color: var(--sb-ok); }
 .note[data-tone="stop"] { color: var(--sb-warn); }
 @media (max-width: 640px) {
-  .bar { margin: 4px 8px 0; }
+  .bar { max-width: calc(100% - 16px); margin: 4px 8px 0; }
 }
