@@ -4,14 +4,15 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from
 import type { DuelEngineView, DuelEvent, DuelSeatView } from "@yugidraft/shared/duels";
 import { LOCATION_DMZONE, cardArtUrl, isDefense, isFacedown, zoneKey } from "./constants";
 import { battleOutcome, type BattleOutcome } from "./battle-outcome";
-import { battleTrigger } from "./battle-trigger";
+import { battleOutcomeId, battleTrigger } from "./battle-trigger";
+import { coinBarrierFor, coinTossBefore, whenCoinBarrierClears } from "./coin-barrier";
 import { attackStyleFor, battleKind, battleTiming, DESTROY_TAIL_MS, hasCounterStrike, type AttackCardLike, type AttackStyleId, type BattleKind, type BattleTiming } from "./attack-styles";
 import { artUpsideDown, runAttackFx, screenPose, zoneTurnsArt, type AttackFxPlan, type FxCut, type FxLpHit, type FxSide } from "./attack-fx";
 import { flipAttackAt, flipFightDamageAt } from "./chain-beats";
 import { FlipStrike, type FlipStrikePlan } from "./flip-strike";
 import { flipSequenceSteps } from "./flip-sequence";
 import { armBattleDestroy, attackImpactAt, clearBattleHolds, noteAttackImpact } from "./battle-hold";
-import { battleSeekMs, joinBattleClock, type BattleClock } from "./battle-clock";
+import { battleSeekMs, coinHeldClock, joinBattleClock, type BattleClock } from "./battle-clock";
 import { planBattle } from "./fx3d/battle-plan";
 import { pickBattleRoute } from "./fx3d/routing";
 import { getSharedFx3d, viewportToHost } from "./fx3d/shared";
@@ -742,6 +743,15 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
   const capturesRef = useRef(new Map<number, AttackCapture | null>());
   // The declared attack that waits for its battle to resolve (see battle-trigger.ts).
   const pendingRef = useRef<PendingAttack | null>(null);
+  // Battle plays that wait for a coin toss (coin-barrier.ts); cancelled when the layer goes away.
+  const deferredRef = useRef<Set<() => void>>(new Set());
+  useEffect(() => {
+    const deferred = deferredRef.current;
+    return () => {
+      for (const cancel of [...deferred]) cancel();
+      deferred.clear();
+    };
+  }, []);
   const seqRef = useRef(0);
   // Attacks whose strike (a flip-effect sequence) was started.
   const struckRef = useRef(new Set<number>());
@@ -787,11 +797,14 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
       let route = routeRef.current.get(ready.attack.id);
       if (!route) {
         const three = pickBattleRoute({ reduced: reducedMotion, ready: getSharedFx3d() != null }) === "three" && cap != null;
-        route = { three, clock: { startedAt: stamp } };
+        // A coin toss between the attack and its result is shown first: the battle starts after it (coin-barrier.ts).
+        route = { three, clock: coinHeldClock(stamp, battleOutcomeId(events, ready.attack)) };
         routeRef.current.set(ready.attack.id, route);
         if (routeRef.current.size > 20) routeRef.current.delete(routeRef.current.keys().next().value as number);
       }
-      if (!reducedMotion && cap && attackImpactAt(ready.attack.id) === 0) {
+      const outcomeId = battleOutcomeId(events, ready.attack);
+      // The impact time is noted again when the battle really plays, which is after a coin toss.
+      if (!reducedMotion && cap && attackImpactAt(ready.attack.id) === 0 && (outcomeId == null || !coinTossBefore(outcomeId))) {
         noteAttackImpact(ready.attack.id, route.clock.startedAt + resolveBattle(cap, events, ready.attack, false).timing.impactMs);
       }
       if (!reducedMotion) armBattleDamage(events, ready.attack, cap, route.clock);
@@ -894,22 +907,39 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
     forget();
     if (!ready) return;
     const resolved = ready.attack;
-    const capture = ready.capture ? battleCapture(ready.capture, events, resolved) : null;
-    // The destroy events after the attack (in this snapshot) say which card(s) the battle took.
-    const route = routeRef.current.get(resolved.id);
-    const three = route?.three === true && !reducedRef.current && getSharedFx3d() != null;
-    const next = capture ? buildPlay(++seqRef.current, capture, reducedRef.current, events, resolved, three, indexSeats(seats)) : null;
-    if (next && capture) {
-      const clock = route?.clock ?? { startedAt: duelFxClock.now() };
-      joinBattleClock(clock);
-      // The 3D fight can outlast the DOM one: its shards keep falling after the last break.
-      const long3d = three ? startBattle3d(capture, next, clock, controllersRef.current) : 0;
-      next.fx.startedAt = clock.startedAt;
-      next.sound.startedAt = clock.startedAt;
-      if (!reducedRef.current) noteAttackImpact(resolved.id, clock.startedAt + next.fx.timing.impactMs);
-      holdPromptReveal(Math.max(0, next.totalMs - battleSeekMs(clock.startedAt), long3d));
-      emitDuelFxCue({ cue: "battle", strength: 1, battle: next.sound });
-      setPlay(next);
+    const startPlay = () => {
+      const capture = ready.capture ? battleCapture(ready.capture, events, resolved) : null;
+      // The destroy events after the attack (in this snapshot) say which card(s) the battle took.
+      const route = routeRef.current.get(resolved.id);
+      const three = route?.three === true && !reducedRef.current && getSharedFx3d() != null;
+      const next = capture ? buildPlay(++seqRef.current, capture, reducedRef.current, events, resolved, three, indexSeats(seats)) : null;
+      if (next && capture) {
+        const clock = route?.clock ?? { startedAt: duelFxClock.now() };
+        joinBattleClock(clock);
+        // The 3D fight can outlast the DOM one: its shards keep falling after the last break.
+        const long3d = three ? startBattle3d(capture, next, clock, controllersRef.current) : 0;
+        next.fx.startedAt = clock.startedAt;
+        next.sound.startedAt = clock.startedAt;
+        if (!reducedRef.current) noteAttackImpact(resolved.id, clock.startedAt + next.fx.timing.impactMs);
+        holdPromptReveal(Math.max(0, next.totalMs - battleSeekMs(clock.startedAt), long3d));
+        emitDuelFxCue({ cue: "battle", strength: 1, battle: next.sound });
+        setPlay(next);
+      }
+    };
+    // A coin toss before the result of the fight plays first: the strike, the LP roll and the break wait
+    // for the last coin, so the board never jumps ahead of it. The plan end is the limit of the wait.
+    const outcomeId = battleOutcomeId(events, resolved);
+    const coinWait = outcomeId == null ? 0 : coinBarrierFor(outcomeId) - duelFxClock.now();
+    if (coinWait > 8 && outcomeId != null) {
+      // Keeps the prompt panel away across the hand-over from the coin to the strike.
+      holdPromptReveal(coinWait + 400);
+      const cancel = whenCoinBarrierClears(outcomeId, () => {
+        deferredRef.current.delete(cancel);
+        startPlay();
+      });
+      deferredRef.current.add(cancel);
+    } else {
+      startPlay();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `seats` only names cards for a late capture
   }, [events, active]);

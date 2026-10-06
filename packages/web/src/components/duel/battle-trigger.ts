@@ -86,3 +86,18 @@ export function battleTrigger(events: readonly DuelEvent[], attack: DuelEvent, a
   }
   return { action: "wait" };
 }
+
+/**
+ * The first event that belongs to the result of the fight (battle damage, a destroy, the end of the
+ * calculation, or the effect damage that comes first). A coin toss between the attack and this event
+ * has to be shown before the battle plays. null when the snapshot has no result yet.
+ */
+export function battleOutcomeId(events: readonly DuelEvent[], attack: DuelEvent): number | null {
+  let first: number | null = null;
+  for (const event of events) {
+    if (event.id <= attack.id) continue;
+    if (event.kind !== "damage" && event.kind !== "recover" && event.kind !== "destroy" && event.kind !== "battle-end") continue;
+    if (first == null || event.id < first) first = event.id;
+  }
+  return first;
+}

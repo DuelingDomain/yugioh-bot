@@ -17,6 +17,7 @@ import { createPortal } from "react-dom";
 import type { DuelEvent } from "@yugidraft/shared/duels";
 import { chainBeatAt, holdChainAfter } from "./chain-beats";
 import { holdEffectSequenceUntil } from "./effect-sequence";
+import { coinPlanOf, coinRequestedStart, noteCoinLpEvents, noteCoinToss, releaseCoinBarriers } from "./coin-barrier";
 import { reportDuelClientError } from "./client-error";
 import {
   COIN_FACES,
@@ -236,6 +237,23 @@ export function CoinTossFx({ events, duelKey, reducedMotion, replayFrom = null, 
   const landedRef = useRef<string | null>(null);
   const sizeRef = useRef({ lift: 200 });
 
+  // Render phase on purpose (like BattleFx and ChainFx): the LP counters and the battle layer read the
+  // coin barrier in their own render or layout effects, which can run before this layer's effect.
+  // Noting is idempotent; the plan itself is made later, when the first layer asks (coin-barrier.ts).
+  if (!passive && keyRef.current === duelKey && typeof document !== "undefined" && !document.hidden) {
+    let after = cursorRef.current;
+    if (skipThrough != null) after = Math.max(after ?? skipThrough, skipThrough);
+    if (after == null && replayFrom != null) after = replayFrom;
+    if (after != null) {
+      const { fresh } = collectFreshEvents(events, after);
+      const tosses = fresh.filter((event) => coinResults(event) != null);
+      if (tosses.length > 0) {
+        for (const toss of tosses) noteCoinToss(toss, events, reducedMotion);
+        noteCoinLpEvents(fresh.filter((event) => event.id > tosses[0].id));
+      }
+    }
+  }
+
   const parts = (): Parts => ({
     root: rootRef.current,
     lift: liftRef.current,
@@ -276,6 +294,8 @@ export function CoinTossFx({ events, duelKey, reducedMotion, replayFrom = null, 
     viewKeyRef.current = "";
     shownRef.current = false;
     outRef.current = false;
+    // Whatever waits for the coin (a battle, an LP roll) goes on now: the plan is over or the picture failed.
+    if (!passiveRef.current) releaseCoinBarriers();
     // The lock goes last: by now the cover is leaving and every held line shows.
     lockReleaseRef.current?.();
     lockReleaseRef.current = null;
@@ -394,17 +414,17 @@ export function CoinTossFx({ events, duelKey, reducedMotion, replayFrom = null, 
     const now = duelFxClock.now();
     let added = false;
     for (const event of tosses) {
-      let requested = now;
-      // The coin starts after the chain beat of the link that tosses, so its badge is read first.
-      let resolving: DuelEvent | undefined;
-      for (const candidate of all) {
-        if (candidate.kind === "chain-resolving" && candidate.id < event.id && (!resolving || candidate.id > resolving.id)) resolving = candidate;
+      let plan: CoinEventPlan | null;
+      if (passiveRef.current) {
+        // The replay keeps its own queue: it takes no part in the barrier of the live duel.
+        const requested = coinRequestedStart(event, all, now);
+        const last = segmentsRef.current[segmentsRef.current.length - 1];
+        plan = planCoinToss(event, queueStart(requested, last && last.end > now ? last.end : null), reducedRef.current);
+      } else {
+        // The live plan is shared with the layers that wait for it (coin-barrier.ts).
+        noteCoinToss(event, all, reducedRef.current);
+        plan = coinPlanOf(event.id, true);
       }
-      const beat = resolving ? chainBeatAt(resolving.id) : 0;
-      if (beat > 0) requested = Math.max(requested, beat + COIN_TIMING.chainLeadMs);
-      const last = segmentsRef.current[segmentsRef.current.length - 1];
-      const startAt = queueStart(requested, last && last.end > now ? last.end : null);
-      const plan = planCoinToss(event, startAt, reducedRef.current);
       if (!plan) continue;
       plansRef.current.push(plan);
       segmentsRef.current.push(...plan.segments);
