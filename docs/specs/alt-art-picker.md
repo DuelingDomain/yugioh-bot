@@ -45,6 +45,21 @@ Errors are `{ error: string }`: 400 invalid unsigned positive 32-bit passcode; 4
 
 `POST /api/duels/cards` with `{ codes: number[] }` still returns `{ cards: DeckCardInfo[], missing: number[] }`, up to 1000 codes. Load details for the chosen passcode so deck rendering retains its code. For local alias-aware copy/pool calculations, load **all family members**, including main/intermediate aliases, into the existing identity catalog, or use the artwork response's canonical `passcode`. Do not count each artwork as a separate drafted card. `DeckCardInfo` now has optional `altArtCount?: number`. The details host populates it for each known code using the same engine family index as search (family size minus one, including image-less arts). Deck and cube rows can use it without fetching every artwork list; clients should tolerate its absence from older hosts or locally constructed cards.
 
+## Duel card identity
+
+`DuelCardInfo` now has optional `canonicalPasscode?: number`. Legacy, pinned, and multi engines populate it from the running engine's artwork-family identity: the final matching-name/type alias main, or the card's own `code` when it is not an alternate. Alias chains, missing targets, cycles, and different-name/type aliases follow the identity rules below. The selected artwork passcode stays in `code`.
+
+Visible `DuelCard` snapshots (including materials) also carry `canonicalPasscode`; hidden cards omit it along with their other identity fields. Card info in prompts, events, and Deck Master data comes from the same catalog. Clients can use `card.canonicalPasscode ?? card.code` for signature attack effects and set-piece lookups, while continuing to use `code` for artwork. The optional field permits older hosts and locally constructed card objects.
+
+This lets duel consumers resolve identity immediately from the duel payload, including on public lab pages, without fetching the authenticated artworks API or racing that request at duel start. The picker API's authentication remains unchanged.
+
+Targeted regression: `packages/duel-server/tests/card-canonical-passcode.test.ts` loads a synthetic engine catalog and checks alias identity plus legacy, pinned, and multi snapshot projection/redaction. It needs no engine bundle or live core:
+
+```bash
+prlimit --core=1:1 npm exec --workspace=packages/duel-server -- \
+  vitest run tests/card-canonical-passcode.test.ts --config vitest.unit.config.ts
+```
+
 ## Swap an occurrence in a working deck
 
 `POST /api/decks/artwork` has the same guild/member guard as the artwork list. It validates the source and destination against the running engine's artwork family and returns a new working deck. It does **not** persist or register a deck.

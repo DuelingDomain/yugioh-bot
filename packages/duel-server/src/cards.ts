@@ -215,6 +215,13 @@ function loadFromDisk(root: string): LoadedCardDatabase {
     });
   }
 
+  // Resolve after the whole catalog is loaded: an alias target may appear later.
+  for (const [code, card] of deckCards) {
+    const canonicalPasscode = canonicalCardCode(code, deckCards);
+    card.canonicalPasscode = canonicalPasscode;
+    info.get(code)!.canonicalPasscode = canonicalPasscode;
+  }
+
   const stringsFile = readFileSync(stringsPath, "utf8");
   const system = parseConf(stringsFile, "system");
   const victory = parseConf(stringsFile, "victory");

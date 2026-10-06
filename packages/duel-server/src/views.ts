@@ -214,6 +214,7 @@ function queryToCard(
     sequence,
     position,
     code: query.code,
+    canonicalPasscode: info?.canonicalPasscode,
     name: info?.name,
     description: info?.description,
     attack: query.attack,

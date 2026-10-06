@@ -175,6 +175,7 @@ function queryToCard(
     sequence,
     position,
     code: query.code,
+    canonicalPasscode: info?.canonicalPasscode, // LEGACY-1V1: artwork identity for duel effects
     name: info?.name,
     description: info?.description,
     attack: query.attack,
