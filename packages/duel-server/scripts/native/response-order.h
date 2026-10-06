@@ -29,7 +29,9 @@ struct ResponseOrder {
 		if(tag) {
 			for(int k : {1, 3, 2, 0}) expected.push_back((chain_L + k) % 4);
 		} else {
-			// Removing the last unresolved link opens turn-player-first priority.
+			// FFA3/FFA4 only. With no living link (chain_L < 0), the response round is
+			// one round: the turn player first, then turn order. While a living link
+			// remains, the anchor is the newest living link: start after its owner.
 			const int start = chain_L < 0 ? turn_player : (chain_L + 1) % n;
 			// Keep slots for seats eliminated during this round: an earlier prompt
 			// to such a seat still fixes our position. The driver's eliminated-prompt
