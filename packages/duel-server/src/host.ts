@@ -30,6 +30,7 @@ import { ELIMINATE_PROMPT_PREFIX as ELIMINATE_PREFIX, eliminationCodeOf, elimina
 import { EngineAnswerError } from "./prompts.js";
 import { GameWorker, type DuelGameWorker, type GameOptions, type WorkerDebugState } from "./worker-client.js";
 import { DeckLegalityError, inspectDeck, validateDeck, type InspectDeckOptions } from "./deck-legality.js";
+import { cardArtworkFamily } from "./card-artworks.js";
 import { canonicalEngineCardCode, loadDraftDeckPool, normalizeCardCodes, normalizeImportedDeck } from "./deck-import.js";
 import { loadCardDatabase } from "./cards.js";
 import { cardFacets, queryCards } from "./card-search.js";
@@ -2202,6 +2203,15 @@ export function createDuelHost(options: {
       return startPreset(body, guildId, actor);
     }
     if (op === "report" || op === "debug-trace") requireScenarios();
+    if (op === "card-artworks") {
+      if (!Array.isArray(body.codes) || body.codes.length !== 1
+        || !Number.isSafeInteger(body.codes[0]) || body.codes[0] <= 0 || body.codes[0] > 0xffffffff) {
+        throw new RequestError("Provide one positive card passcode", 400);
+      }
+      const family = cardArtworkFamily(loadCardDatabase(options.dataDirectory), body.codes[0]);
+      if (!family) throw new RequestError("Card not found in the duel engine", 404);
+      return family;
+    }
     if (op === "card-details") {
       if (!Array.isArray(body.codes) || body.codes.length > 1000
         || body.codes.some((code) => !Number.isSafeInteger(code) || code <= 0 || code > 0xffffffff)) {

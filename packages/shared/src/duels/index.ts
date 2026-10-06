@@ -672,3 +672,5 @@ export {
   parseCardQuery,
   parseCardSearchTerms,
 } from "./card-query.js";
+
+export type { CardArtworkFamily, SelectableCardArtwork, CardArtworksResponse } from "./artworks.js";

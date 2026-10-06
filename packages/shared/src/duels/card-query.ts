@@ -219,7 +219,7 @@ export interface DeckCardInfo extends DuelCardInfo {
 }
 
 export interface CardQueryResult {
-  cards: DeckCardInfo[];
+  cards: Array<DeckCardInfo & { altArtCount: number }>;
   total: number;
   offset: number;
 }
