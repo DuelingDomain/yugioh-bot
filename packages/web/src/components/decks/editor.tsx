@@ -695,7 +695,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
    * same section right after it. It takes the add path of the card list (roomFor and poolRoomFor), so the
    * copy limit, the banlist and the draft pool count apply, and a blocked add shows their notice. One undo step.
    */
-  function copyCard(source: { code: number; section: DeckSection | "deckMaster"; index: number }) {
+  function copyCard(source: { code: number; section: DeckSection; index: number }) {
     if (busy) return;
     const card = catalog.get(source.code);
     if (card) {
@@ -706,9 +706,8 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
       setNotice("Card details are still loading. Try again in a moment.");
       return;
     }
-    // The Deck Master counts as one copy, and its extra copy goes where a new card of its type goes.
-    const to: DeckSection = source.section === "deckMaster" ? (card ? defaultAddSection(card) : "main") : source.section;
-    const placed = placeCardAt(selection, { code: source.code, from: "list" }, to, source.section === "deckMaster" ? undefined : source.index + 1);
+    const to = source.section;
+    const placed = placeCardAt(selection, { code: source.code, from: "list" }, to, source.index + 1);
     commit(placed.selection);
     setSelected({ section: to, code: source.code, index: placed.index });
     setInspectCode(source.code);
@@ -954,7 +953,8 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     moveSide: () => setNotice("Domain has no Side Deck."),
     select: () => { if (deck.deckMaster != null) inspect(deck.deckMaster, null, true, true); },
     menu: (anchor) => { if (deck.deckMaster != null) openArtMenu({ section: "deckMaster", index: 0, code: deck.deckMaster, anchor }); },
-    copy: () => { if (deck.deckMaster != null) copyCard({ code: deck.deckMaster, section: "deckMaster", index: 0 }); },
+    // The Master cannot also be in Main, Extra or Side, so Ctrl+right-click copies nothing (and opens no menu).
+    copy: () => setNotice("The Deck Master cannot also be in the deck."),
   });
   const checkProps: DeckCheckProps = { problems, notes, banlistName, flag, tone, pool: !!pool, onProblem: showProblem };
   const sectionProps = {

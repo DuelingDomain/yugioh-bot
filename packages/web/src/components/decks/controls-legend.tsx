@@ -13,7 +13,7 @@ export function ControlsLegend({ phone = false }: { phone?: boolean }) {
         <li><kbd>Left-click</kbd> remove</li>
         <li><kbd>Ctrl+click</kbd> move to/from Side Deck (<kbd>Cmd</kbd> on Mac)</li>
         <li><kbd>Right-click</kbd> change art</li>
-        <li><kbd>Ctrl+right-click</kbd> add a copy (<kbd>Cmd</kbd> on Mac)</li>
+        <li><kbd>Ctrl+right-click</kbd> add a copy (<kbd>Cmd</kbd> on Mac), not the Deck Master</li>
       </ul>
       <p className={styles["de-legend-k"]}>Card list</p>
       <ul>
