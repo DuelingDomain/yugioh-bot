@@ -319,7 +319,7 @@ REMINDER_TIMEZONE=America/New_York
 ```
 
 After editing `.env`, recreate containers with `docker compose -f docker-compose.yml up -d`. `restart` does not re-read `.env`.
-With `DISCORD_BOT_ENABLED` set to anything other than literal `1`, the bot exits successfully and stays stopped under `restart: on-failure`; the worker continues without Discord delivery. Deploy health checks cover duel, WS and worker, so a disabled bot does not fail deployment.
+With `DISCORD_BOT_ENABLED` set to anything other than literal `1`, the long-running bot logs `[bot] disabled` once and idles with only a keep-alive timer, without initializing the database, Discord client or HTTP server. It exits successfully on SIGTERM or SIGINT; the one-off command deployment still exits successfully immediately. The bot uses `restart: unless-stopped`, so enabled bots restart after a Docker daemon or VM reboot and disabled bots remain idle. The worker continues without Discord delivery. Deploy health checks cover duel, WS and worker, so a disabled bot does not fail deployment.
 
 ### Build & Run
 

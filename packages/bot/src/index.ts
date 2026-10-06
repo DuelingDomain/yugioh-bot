@@ -57,8 +57,14 @@ import { createHttpNotifyDuelChange } from "./lib/notify-duel.js";
 import { createBroadcaster, httpTransport } from "@yugidraft/shared/notify";
 
 if (process.env.DISCORD_BOT_ENABLED !== "1") {
-  writeSync(1, "[bot] disabled\n");
-  process.exit(0);
+  await new Promise<never>(() => {
+    const stop = () => process.exit(0);
+    process.once("SIGTERM", stop);
+    process.once("SIGINT", stop);
+    // A referenced timer keeps the disabled service idle under unless-stopped.
+    setInterval(() => {}, 2_147_483_647);
+    writeSync(1, "[bot] disabled\n");
+  });
 }
 
 const token = process.env.DISCORD_TOKEN;

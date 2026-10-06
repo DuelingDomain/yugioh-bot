@@ -5,7 +5,8 @@ services:
     build:
       context: .
       target: bot
-    restart: on-failure
+    # Disabled bots idle; enabled bots also restart after a Docker daemon reboot.
+    restart: unless-stopped
     user: *user
     env_file:
       - .env
