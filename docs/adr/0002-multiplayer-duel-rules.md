@@ -51,7 +51,7 @@ New multiplayer surrender requires Debug.SurrenderDuelist and Debug.EliminateDue
 ## 2v2 Tag (official TCG Tag Duel rules)
 
 - `[R-TAG-LP]` Two teams of two duelists. **Each team shares one LP total**, equal to the sum of its members' starting LP (16,000 with the default 8,000).
-- `[R-TAG-TEAM-DAMAGE]` An effect that says "you take no battle damage", or otherwise prevents or reduces battle damage to "you", protects the whole team in Tag because the team shares one LP total (owner decision, 2026-10-06). Keep all other activation conditions, costs and effect limits.
+- `[R-TAG-TEAM-DAMAGE]` An effect that says "you take no battle damage", or otherwise prevents or reduces battle damage to "you", protects the whole team in Tag because the team shares one LP total (owner decision, 2026-10-06). In Tag, a condition about battle damage to "you" is also met by battle damage to the partner. Keep all other activation conditions, costs and effect limits.
 - `[R-TAG-ORDER]` Turn order is 1A, 2A, 1B, 2B. First draws follow R-FFA-FIRST-DRAW. The first three duelists cannot attack; the first Battle Phase is turn 4.
 - `[R-TAG-SHARED-CARDS]` "You control", "your field" and "your Graveyard" include your partner's cards. "Your hand" and "your Deck" mean only your own.
 - `[R-TAG-UNIQUE]` **Unique cards.** In Tag, a unique-on-field limit ("You can only control 1") permits one copy per team. Both team fields count.

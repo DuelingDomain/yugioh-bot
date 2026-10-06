@@ -4840,6 +4840,18 @@
       "chooserClass": "CH-DECISION"
     },
     {
+      "code": 58012707,
+      "file": "c58012707.lua",
+      "name": "Giant Ballpark",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "con"
+      ],
+      "stockSha256": "c68e7a905c1b7ac6746c8b9599d91989a47068de627e382ef280284501b874c9",
+      "note": "Test battle damage to every living player."
+    },
+    {
       "code": 58071123,
       "file": "c58071123.lua",
       "name": "Oxygeddon",
