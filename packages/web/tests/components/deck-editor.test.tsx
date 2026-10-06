@@ -904,6 +904,35 @@ describe("deck card copy", () => {
   });
 });
 
+describe("Domain one copy of each card", () => {
+  const domainDeck = (main: number[]): SavedDeck => ({ ...savedDeck(main), mode: "domain" });
+
+  it("blocks a second copy added from the card list, and flags two copies in the deck", async () => {
+    stored = domainDeck([BLUE_EYES.code]);
+    render(<SavedDeckEditor deckId="7" />);
+    await screen.findByRole("button", { name: /^Blue-Eyes White Dragon, Main Deck card 1/ });
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "blue eyes" } });
+    await waitFor(() => expect(queries.at(-1)?.text).toBe("blue eyes"));
+    fireEvent.doubleClick(await screen.findByRole("button", { name: /^Blue-Eyes White Dragon, 1 in deck/ }));
+    expect(mainCards()).toHaveLength(1);
+    expect(screen.getAllByRole("status").map((node) => node.textContent).join(" | ")).toContain("Domain decks hold one copy of each card.");
+  });
+
+  it("flags a Domain deck that holds two copies of a card", async () => {
+    stored = domainDeck([POT.code, POT.code]);
+    render(<SavedDeckEditor deckId="7" />);
+    await screen.findByRole("button", { name: /^Pot of Greed, Main Deck card 1/ });
+    expect(screen.getAllByText(/1 card has too many copies/).length).toBeGreaterThan(0);
+  });
+
+  it("does not flag two copies in a Standard deck", async () => {
+    stored = savedDeck([POT.code, POT.code]);
+    render(<SavedDeckEditor deckId="7" />);
+    await screen.findByRole("button", { name: /^Pot of Greed, Main Deck card 1/ });
+    expect(screen.queryByText(/too many copies/)).toBeNull();
+  });
+});
+
 describe("deck controls legend", () => {
   it("lists the deck and card list clicks in the left panel", async () => {
     render(<SavedDeckEditor />);

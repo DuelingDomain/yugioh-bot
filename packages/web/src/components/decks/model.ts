@@ -215,13 +215,16 @@ export interface CopyProblem {
   max: number;
 }
 
-/** Cards with more copies than the banlist (or the 3-copy rule) allows. */
-export function copyProblems(deck: DuelDeck, catalog: CardCatalog, limits: BanlistLimits | null): CopyProblem[] {
+/**
+ * Cards with more copies than the banlist (or the 3-copy rule) allows. `singleton` is the Domain rule: one
+ * copy of each card across the deck, alternate arts included, and the Deck Master counts as that copy.
+ */
+export function copyProblems(deck: DuelDeck, catalog: CardCatalog, limits: BanlistLimits | null, singleton = false): CopyProblem[] {
   const counts = copyCounts(deck, catalog);
   const groups = new Map<string, { code: number; max: number }>();
   for (const code of uniqueCodes(allCodes(deck))) {
     const key = copyKey(code, catalog);
-    const max = Math.min(groups.get(key)?.max ?? 3, copyLimit(code, catalog, limits));
+    const max = Math.min(groups.get(key)?.max ?? 3, copyLimit(code, catalog, limits), singleton ? 1 : 3);
     groups.set(key, { code: groups.get(key)?.code ?? code, max });
   }
   const problems: CopyProblem[] = [];

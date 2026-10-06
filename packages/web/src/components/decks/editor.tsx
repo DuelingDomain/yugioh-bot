@@ -167,6 +167,8 @@ function draftDeckName(draftName: string): string {
   return `${draftName.trim() || "Draft"} deck`.slice(0, MAX_NAME_LENGTH);
 }
 
+const DOMAIN_ONE_COPY = "Domain decks hold one copy of each card.";
+
 function copiesText(max: number): string {
   if (max === 0) return "is Forbidden";
   return `allows ${max} ${max === 1 ? "copy" : "copies"}`;
@@ -471,7 +473,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   const limitsPending = !banlistOff && facets == null && !facetsError;
   const banlistName = banlistOff ? null : banlistLabel(query.banlist);
   const counts = useMemo(() => copyCounts(deck, catalog), [deck, catalog]);
-  const problems = useMemo(() => (pool ? [] : copyProblems(deck, catalog, limits)), [pool, deck, catalog, limits]);
+  const problems = useMemo(() => (pool ? [] : copyProblems(deck, catalog, limits, mode === "domain")), [pool, deck, catalog, limits, mode]);
   const poolMap = useMemo(() => (pool ? poolCounts(pool.cards, catalog) : null), [pool, catalog]);
   const forcedMap = useMemo(() => forcedCounts(pool?.forcedCopies, catalog), [pool, catalog]);
   const usage = useMemo(() => deckUsage(deck, catalog), [deck, catalog]);
@@ -627,10 +629,13 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
       setNotice("Loading the banlist. Try again in a moment.");
       return false;
     }
-    const max = limits ? cardLimit(limits, card) : 3;
+    const listed = limits ? cardLimit(limits, card) : 3;
+    // Domain decks are singleton: one copy of each card, alternate arts included.
+    const max = mode === "domain" ? Math.min(1, listed) : listed;
     const have = deckCount(card);
     if (have < max) return true;
-    setNotice(max === 3
+    if (mode === "domain" && listed >= 1) setNotice(DOMAIN_ONE_COPY);
+    else setNotice(max === 3
       ? `${card.name}: you already have 3 copies.`
       : `${card.name}: ${banlistName ?? "the banlist"} ${copiesText(max)}.`);
     return false;

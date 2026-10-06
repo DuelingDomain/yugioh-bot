@@ -162,6 +162,20 @@ describe("copyProblems", () => {
     expect(copyProblems(selection([3]).deck, catalog, { 3: 0 })).toHaveLength(1);
     expect(copyProblems(selection([3, 3]).deck, catalog, { 3: 2 })).toEqual([]);
   });
+
+  it("allows one copy of each card in a singleton (Domain) deck, alternate arts and the Deck Master included", () => {
+    expect(copyProblems(selection([1, 4]).deck, catalog, null, true)).toEqual([]);
+    expect(copyProblems(selection([1, 2]).deck, catalog, null, true)).toEqual([
+      { key: "name:Blue-Eyes White Dragon", name: "Blue-Eyes White Dragon", count: 2, max: 1 },
+    ]);
+    expect(copyProblems({ ...selection([1]).deck, deckMaster: 2 }, catalog, null, true)).toHaveLength(1);
+    // A banlist limit of 0 still wins over the singleton rule.
+    expect(copyProblems(selection([3]).deck, catalog, { 3: 0 }, true)).toEqual([
+      { key: "name:Pot of Greed", name: "Pot of Greed", count: 1, max: 0 },
+    ]);
+    // Without the flag two copies stay fine.
+    expect(copyProblems(selection([1, 1]).deck, catalog, null)).toEqual([]);
+  });
 });
 
 describe("sectionBreakdown", () => {
