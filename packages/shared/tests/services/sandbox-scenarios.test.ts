@@ -134,7 +134,7 @@ describe("sandbox scenario service", () => {
   it.each([
     [{ ...input, board: { withoutCoreFunctions: [] } }, "withoutCoreFunctions"],
     [{ ...input, board: { p0: { hand: ["Dark Magician"] } } }, "p0.hand[0]"],
-    [{ ...input, board: { startAt: "main1" } }, "startAt"],
+    [{ ...input, board: { startAt: "other" } }, "startAt"],
     [{ ...input, run: { bots: { "1": "invalid", "2": "pass", "3": "pass" } } }, "bots.1"],
     [{ ...input, run: { ...run, seed: ["0", "2", "3", "4"] } }, "seed[0]"],
     [{ ...input, run: { ...run, seed: ["0".repeat(1024) + "1", "2", "3", "4"] } }, "$"],

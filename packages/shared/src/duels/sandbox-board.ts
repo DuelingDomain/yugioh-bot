@@ -21,6 +21,9 @@ export const SANDBOX_LIMITS = Object.freeze({
 });
 
 export type SandboxDuelistId = "p0" | "p1" | "p2" | "p3";
+export const SANDBOX_START_PHASES = Object.freeze(["draw", "standby", "main1", "battle", "main2", "end"] as const);
+export type SandboxStartPhase = typeof SANDBOX_START_PHASES[number];
+
 export type SandboxStance = "atk" | "def" | "set" | "up";
 
 /** Numeric subset of the compiler's CardSpec. Catalog validity is checked by the server. */
@@ -51,7 +54,7 @@ export interface SandboxDuelistSetup {
 
 /**
  * JSON-only BoardSpec subset, assignable to the compiler without conversion.
- * No teams, Lua, or withoutCoreFunctions. Owner answer 9.4 requires a Draw Phase start.
+ * No teams, Lua, or withoutCoreFunctions. The host walks from Draw Phase to startAt.
  * Optional fields keep board drafts small; parseSandboxBoard fills the board-level defaults.
  */
 export interface SandboxBoard {
@@ -59,7 +62,9 @@ export interface SandboxBoard {
   mode?: DuelMode;
   masterRule?: DuelMasterRule;
   turn?: SandboxDuelistId;
-  startAt?: "draw";
+  startAt?: SandboxStartPhase;
+  /** FFA only. Seats stay in place and must contain no cards; at least two seats remain active. */
+  eliminated?: SandboxDuelistId[];
   /** Only false is allowed: a sandbox must visit Draw Phase. */
   skipOpeningDraw?: false;
   attackFirstTurn?: boolean;
@@ -88,8 +93,8 @@ export class SandboxBoardError extends Error {
 }
 
 const SEATS: readonly SandboxDuelistId[] = ["p0", "p1", "p2", "p3"];
-const SEAT_KEYS = ["lp", "hand", "monsters", "spells", "field", "pendulum", "grave", "banished", "deck", "extra", "deckMaster"];
-const BOARD_KEYS = ["format", "mode", "masterRule", "turn", "startAt", "skipOpeningDraw", "attackFirstTurn", "deckSize", ...SEATS];
+const SEAT_KEYS = ["lp", "hand", "monsters", "spells", "field", "pendulum", "grave", "banished", "deck", "extra", "deckMaster"] as const;
+const BOARD_KEYS = ["format", "mode", "masterRule", "turn", "startAt", "eliminated", "skipOpeningDraw", "attackFirstTurn", "deckSize", ...SEATS];
 
 function fail(path: string, message: string): never {
   throw new SandboxBoardError(path, message);
@@ -148,10 +153,10 @@ function slot(value: unknown, path: string): SandboxCardEntry | null {
   return value === null ? null : cardEntry(value, path);
 }
 
-function duelist(value: unknown, path: string): SandboxDuelistSetup {
+function duelist(value: unknown, path: string, eliminated: boolean): SandboxDuelistSetup {
   const input = object(value, path, SEAT_KEYS);
   const result: SandboxDuelistSetup = {};
-  if (Object.hasOwn(input, "lp")) result.lp = integer(input.lp, `${path}.lp`, SANDBOX_LIMITS.lpMin, SANDBOX_LIMITS.lpMax);
+  if (Object.hasOwn(input, "lp")) result.lp = integer(input.lp, `${path}.lp`, eliminated ? 0 : SANDBOX_LIMITS.lpMin, SANDBOX_LIMITS.lpMax);
   if (Object.hasOwn(input, "hand")) result.hand = list(input.hand, `${path}.hand`, SANDBOX_LIMITS.hand, cardEntry);
   for (const key of ["monsters", "spells"] as const) {
     if (Object.hasOwn(input, key)) result[key] = list(input[key], `${path}.${key}`, SANDBOX_LIMITS[key], slot);
@@ -188,20 +193,45 @@ export function parseSandboxBoard(value: unknown): SandboxBoard {
   const masterRule = Object.hasOwn(input, "masterRule") ? choice(input.masterRule, "masterRule", [1, 2, 3, 4, 5] as const) : 5;
   const turn = Object.hasOwn(input, "turn") ? choice(input.turn, "turn", SEATS) : "p0";
   const deckSize = Object.hasOwn(input, "deckSize") ? integer(input.deckSize, "deckSize", 0, SANDBOX_LIMITS.deckSize) : 20;
-  const startAt = Object.hasOwn(input, "startAt") ? choice(input.startAt, "startAt", ["draw"] as const) : "draw";
+  const startAt = Object.hasOwn(input, "startAt") ? choice(input.startAt, "startAt", SANDBOX_START_PHASES) : "draw";
   const result: SandboxBoard = { format, mode, masterRule, turn, deckSize, startAt };
   if (Object.hasOwn(input, "skipOpeningDraw")) result.skipOpeningDraw = choice(input.skipOpeningDraw, "skipOpeningDraw", [false] as const);
   if (Object.hasOwn(input, "attackFirstTurn")) result.attackFirstTurn = choice(input.attackFirstTurn, "attackFirstTurn", [true, false]);
 
+  if (startAt === "battle" && turn === "p0" && result.attackFirstTurn !== true) {
+    fail("startAt", "Battle Phase on turn 1 requires attackFirstTurn to be true.");
+  }
+
   const seatCount = seatCountFor(format);
+  const eliminated = new Set<SandboxDuelistId>();
+  if (Object.hasOwn(input, "eliminated")) {
+    if (format !== "ffa3" && format !== "ffa4") fail("eliminated", "Eliminated seats require ffa3 or ffa4.");
+    result.eliminated = list(input.eliminated, "eliminated", SEATS.length, (entry, path) => {
+      const seat = choice(entry, path, SEATS.slice(0, seatCount));
+      if (eliminated.has(seat)) fail(path, "Seat is already in eliminated.");
+      eliminated.add(seat);
+      return seat;
+    });
+    if (seatCount - eliminated.size < 2) fail("eliminated", "At least two seats must remain active.");
+    if (eliminated.has(turn)) fail("turn", "Turn player cannot be eliminated.");
+  }
   if (SEATS.indexOf(turn) >= seatCount) fail("turn", `Turn player must be a seat of ${format}.`);
   for (const [index, id] of SEATS.entries()) {
     if (index >= seatCount) {
       if (Object.hasOwn(input, id)) fail(id, `Seat does not exist in ${format}.`);
       continue;
     }
-    const setup = Object.hasOwn(input, id) ? duelist(input[id], id) : undefined;
+    const setup = Object.hasOwn(input, id) ? duelist(input[id], id, eliminated.has(id)) : undefined;
     if (setup) {
+      if (eliminated.has(id)) {
+        for (const key of SEAT_KEYS) {
+          if (key === "lp") continue;
+          const zone = setup[key];
+          if (Array.isArray(zone) ? zone.some((card) => card !== null) : zone !== undefined) {
+            fail(`${id}.${key}`, "Remove all cards from an eliminated seat.");
+          }
+        }
+      }
       if (format === "tag" && index >= 2 && setup.lp !== undefined) fail(`${id}.lp`, "Set team LP on p0 or p1 only.");
       if ((setup.deck?.length ?? 0) > deckSize) fail(`${id}.deck`, "Deck top must fit in board.deckSize.");
       if (masterRule < 4) {
@@ -212,7 +242,7 @@ export function parseSandboxBoard(value: unknown): SandboxBoard {
       if (mode !== "domain" && setup.deckMaster !== undefined) fail(`${id}.deckMaster`, "Deck Masters require Domain mode.");
       result[id] = setup;
     }
-    if (mode === "domain" && setup?.deckMaster === undefined) fail(`${id}.deckMaster`, "Every Domain seat needs a Deck Master.");
+    if (mode === "domain" && !eliminated.has(id) && setup?.deckMaster === undefined) fail(`${id}.deckMaster`, "Every active Domain seat needs a Deck Master.");
   }
   checkSize(result, SANDBOX_LIMITS.boardBytes);
   return result;

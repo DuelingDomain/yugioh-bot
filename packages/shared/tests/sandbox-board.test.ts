@@ -133,7 +133,7 @@ describe("sandbox board contract", () => {
     [{ p0: { hand: [{ card: code, pos: "bad" }] } }, "p0.hand[0].pos"],
     [{ p0: { monsters: [{ card: code, summoned: "yes" }] } }, "p0.monsters[0].summoned"],
     [{ p0: { monsters: [{ card: code, materials: null }] } }, "p0.monsters[0].materials"],
-    [{ attackFirstTurn: 1 }, "attackFirstTurn"], [{ startAt: "main1" }, "startAt"],
+    [{ attackFirstTurn: 1 }, "attackFirstTurn"], [{ startAt: "other" }, "startAt"],
     [{ startAt: "battle" }, "startAt"], [{ skipOpeningDraw: true }, "skipOpeningDraw"],
     [{ skipOpeningDraw: "false" }, "skipOpeningDraw"], [{ startAt: undefined }, "startAt"],
     [{ teams: [] }, "teams"], [{ withoutCoreFunctions: [] }, "withoutCoreFunctions"],
