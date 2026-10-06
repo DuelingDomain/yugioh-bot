@@ -1,3 +1,4 @@
+import { writeSync } from "node:fs";
 import { reportInteractionError } from "./interactions/errors.js";
 import "dotenv/config";
 import cron from "node-cron";
@@ -54,6 +55,11 @@ import { deleteNotifyMessage } from "./lib/notify-message.js";
 import { announceTournamentCompleted } from "./lib/announce-tournament-completed.js";
 import { createHttpNotifyDuelChange } from "./lib/notify-duel.js";
 import { createBroadcaster, httpTransport } from "@yugidraft/shared/notify";
+
+if (process.env.DISCORD_BOT_ENABLED !== "1") {
+  writeSync(1, "[bot] disabled\n");
+  process.exit(0);
+}
 
 const token = process.env.DISCORD_TOKEN;
 
@@ -156,6 +162,7 @@ const deps = {
   notifyDuelChange,
   messenger: {
     async postStatus(draft: Draft) {
+      if (!draft.channelId) return;
       const channel = await client.channels.fetch(draft.channelId);
 
       if (channel?.type !== ChannelType.GuildText) {
@@ -179,6 +186,7 @@ const deps = {
         return;
       }
 
+      if (!draft.channelId) return;
       const channel = await client.channels.fetch(draft.channelId);
 
       if (channel?.type !== ChannelType.GuildText) {

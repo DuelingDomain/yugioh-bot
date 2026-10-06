@@ -97,7 +97,7 @@ export async function handleModal(
     }
 
     const creator = deps.players.upsert(guildId, interaction.user.id, interaction.user.displayName ?? interaction.user.username);
-    const draft = deps.drafts.create(guildId, channelId, name, { ...config, randomizeSeats: true }, interaction.user.id, creator.id);
+    const draft = deps.drafts.create(guildId, channelId, name, { ...config, randomizeSeats: true }, creator.userId, creator.id);
 
     await interaction.reply(draftSignupPostReply(draft));
     return;
@@ -121,7 +121,8 @@ export async function handleModal(
     return;
   }
 
-  const tournament = deps.tournaments.create(guildId, name, format, interaction.user.id);
+  const actorUserId = deps.players.ensureUser(interaction.user.id, interaction.user.displayName ?? interaction.user.username).id;
+  const tournament = deps.tournaments.create(guildId, name, format, actorUserId);
 
   await interaction.reply(tournamentSignupPostReply(tournament));
 }

@@ -1,3 +1,5 @@
+import { createPlayerService } from "@yugidraft/shared/services";
+import { createUserService } from "@yugidraft/shared/services";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "../../src/db/schema.js";
@@ -16,11 +18,8 @@ function setup() {
     );
   `);
   migrate(db);
-  const insertPlayer = db.prepare(
-    "insert into players (guild_id, discord_user_id, display_name) values (?, ?, ?)",
-  );
-  const p1 = Number(insertPlayer.run("g1", "u1", "Yugi").lastInsertRowid);
-  const p2 = Number(insertPlayer.run("g1", "u2", "Kaiba").lastInsertRowid);
+  const p1 = createPlayerService(db).findOrCreateByDiscord("g1", "900000000000000110", "Yugi").id;
+  const p2 = createPlayerService(db).findOrCreateByDiscord("g1", "900000000000000111", "Kaiba").id;
   return { db, matches: createMatchService(db), tournaments: createTournamentService(db), p1, p2 };
 }
 
@@ -30,7 +29,7 @@ describe("tournament timer service", () => {
 
   it("auto-approves overdue pending confirmations and invokes the callback", async () => {
     const app = setup();
-    const t = app.tournaments.create("g1", "Cup", "round_robin", "u1", { reportConfirmWindowHours: 1 });
+    const t = app.tournaments.create("g1", "Cup", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000110", displayName: "Host" }).id, { reportConfirmWindowHours: 1 });
     app.tournaments.join(t.id, app.p1);
     app.tournaments.join(t.id, app.p2);
     app.tournaments.start(t.id);
@@ -56,7 +55,7 @@ describe("tournament timer service", () => {
 
   it("auto-closes tournaments past their deadline and invokes the callback", async () => {
     const app = setup();
-    const t = app.tournaments.create("g1", "Cup", "round_robin", "u1", { deadlineAt: "2026-05-20T00:00:00.000Z" });
+    const t = app.tournaments.create("g1", "Cup", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000110", displayName: "Host" }).id, { deadlineAt: "2026-05-20T00:00:00.000Z" });
     app.tournaments.join(t.id, app.p1);
     app.tournaments.join(t.id, app.p2);
     app.tournaments.start(t.id);
@@ -78,7 +77,7 @@ describe("tournament timer service", () => {
 
   it("notifies each duel game closed with a tournament past its deadline", async () => {
     const app = setup();
-    const t = app.tournaments.create("g1", "Cup", "round_robin", "u1", { deadlineAt: "2026-05-20T00:00:00.000Z" });
+    const t = app.tournaments.create("g1", "Cup", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000110", displayName: "Host" }).id, { deadlineAt: "2026-05-20T00:00:00.000Z" });
     app.tournaments.join(t.id, app.p1);
     app.tournaments.join(t.id, app.p2);
     app.tournaments.start(t.id);
@@ -105,7 +104,7 @@ describe("tournament timer service", () => {
   it("continues past a callback that throws", async () => {
     const app = setup();
     const mk = (name: string) => {
-      const t = app.tournaments.create("g1", name, "round_robin", "u1", { deadlineAt: "2026-05-20T00:00:00.000Z" });
+      const t = app.tournaments.create("g1", name, "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000110", displayName: "Host" }).id, { deadlineAt: "2026-05-20T00:00:00.000Z" });
       app.tournaments.join(t.id, app.p1);
       app.tournaments.join(t.id, app.p2);
       app.tournaments.start(t.id);
@@ -133,7 +132,7 @@ describe("tournament timer service", () => {
 
   describe("completion sweep", () => {
     function completedTournament(app: ReturnType<typeof setup>, name: string) {
-      const t = app.tournaments.create("g1", name, "round_robin", "u1");
+      const t = app.tournaments.create("g1", name, "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000110", displayName: "Host" }).id);
       app.db.prepare("update tournaments set status = 'completed', ended_at = ? where id = ?").run("2026-05-20T00:00:00.000Z", t.id);
       return t;
     }
