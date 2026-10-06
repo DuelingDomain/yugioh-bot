@@ -26,9 +26,8 @@ vi.mock("ocgcore-wasm", async (importOriginal) => {
 beforeEach(() => { fixture.scripts = []; });
 
 for (const legacy of [false, true]) for (const auto of [false, true]) {
-  const scenarios = KURIBOH_SCENARIOS.filter(s => !legacy || s.setup.format === "1v1");
   describeWithCores(`Kuriboh: ${legacy ? "legacy" : "current"}, ${auto ? "Auto" : "Always"}`, [needs.cards(), needs.standard(), needs.domain(), needs.installedMulti()], () => {
-    runScenarios("multiplayer/kuriboh", scenarios, async scenario => {
+    runScenarios("multiplayer/kuriboh", KURIBOH_SCENARIOS.filter(s => !legacy || s.setup.format === "1v1"), async scenario => {
       const compiled = compileBoard(scenario.setup);
       fixture.scripts = legacy ? compiled.options.startupScripts! : [];
       const create = legacy ? createLegacyGame as unknown as typeof createEngineGame : createEngineGame;

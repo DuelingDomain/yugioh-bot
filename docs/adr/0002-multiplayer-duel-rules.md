@@ -1,6 +1,6 @@
 # Multi-player duels use Domain Format rules for free-for-all and official TCG Tag rules for 2v2
 
-**Status:** accepted; updated 2026-10-04 by the product owner. Standard and Domain FFA3 and FFA4 use the [Domain Format rules](https://www.domainformat.com/rules) and the [TCGplayer Domain Format article](https://www.tcgplayer.com/content/article/How-To-Play-Domain-Yu-Gi-Oh-s-New-Multiplayer-Commander-Format/84ab787e-a192-4882-a721-3a71d57c650e/). Tag keeps the official TCG Tag rules. Every rule here has an outcome test (`docs/specs/multiplayer-rule-coverage.md` lists them); the known gaps are under "Open points for the engine test".
+**Status:** accepted; updated 2026-10-06 by the product owner. Standard and Domain FFA3 and FFA4 use the [Domain Format rules](https://www.domainformat.com/rules) and the [TCGplayer Domain Format article](https://www.tcgplayer.com/content/article/How-To-Play-Domain-Yu-Gi-Oh-s-New-Multiplayer-Commander-Format/84ab787e-a192-4882-a721-3a71d57c650e/). Tag keeps the official TCG Tag rules. Every rule here has an outcome test (`docs/specs/multiplayer-rule-coverage.md` lists them); the known gaps are under "Open points for the engine test".
 
 We are adding three multi-player formats next to the current 1v1 duel: **2v2 Tag**, **3-player free-for-all** and **4-player free-for-all**. All three work in both Standard and Domain duels. Tag, FFA3 and FFA4 allow only Master Rule 5. Master Rules 1 to 5 are available only for 1v1. The old-rule duel flags `OATH_OLD`, `ONCE_OLD_NEGATE` and `1_FACEUP_FIELD` stay refused at 3-4 seats. Each duelist has their own main field. In FFA4, facing seats 0/1 and 2/3 share the Extra Monster Zones and columns, as specified below. The EDOPro shared-field tag (one field and one LP total per team, partners swap each turn) was considered and rejected.
 
@@ -51,6 +51,7 @@ New multiplayer surrender requires Debug.SurrenderDuelist and Debug.EliminateDue
 ## 2v2 Tag (official TCG Tag Duel rules)
 
 - `[R-TAG-LP]` Two teams of two duelists. **Each team shares one LP total**, equal to the sum of its members' starting LP (16,000 with the default 8,000).
+- `[R-TAG-TEAM-DAMAGE]` An effect that says "you take no battle damage", or otherwise prevents or reduces battle damage to "you", protects the whole team in Tag because the team shares one LP total (owner decision, 2026-10-06). Keep all other activation conditions, costs and effect limits.
 - `[R-TAG-ORDER]` Turn order is 1A, 2A, 1B, 2B. First draws follow R-FFA-FIRST-DRAW. The first three duelists cannot attack; the first Battle Phase is turn 4.
 - `[R-TAG-SHARED-CARDS]` "You control", "your field" and "your Graveyard" include your partner's cards. "Your hand" and "your Deck" mean only your own.
 - `[R-TAG-UNIQUE]` **Unique cards.** In Tag, a unique-on-field limit ("You can only control 1") permits one copy per team. Both team fields count.

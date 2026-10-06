@@ -28,7 +28,7 @@ export function kuribohCase(format: DuelFormat, mode: DuelMode, owner: number, p
   }
   return defineScenario({ id: `kuriboh-${mode}-${format}-p${owner}-${wrongTeam ? "opponent-damage-negative" : partner ? "partner" : "defender"}`,
     title: `${format} ${mode}: p${owner} ${wrongTeam ? "cannot prevent the other team's damage" : "prevents battle damage"}${partner ? " to its partner" : ""}`,
-    source: "card-scripts/official/c40640057.lua", tags: ["multiplayer", "hand-effects", "card:40640057", format, mode], setup, steps });
+    source: "card-scripts/official/c40640057.lua", rules: format === "tag" ? ["R-TAG-TEAM-DAMAGE"] : [], tags: ["multiplayer", "hand-effects", "card:40640057", format, mode], setup, steps });
 }
 
 export const KURIBOH_SCENARIOS = (["normal", "domain"] as const).flatMap(mode =>
