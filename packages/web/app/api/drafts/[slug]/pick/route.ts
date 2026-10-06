@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
 import { env } from "@/lib/env";
 import { createDraftService } from "@yugidraft/shared/services";
 import { buildDraftResponse } from "../helpers";
@@ -28,10 +28,8 @@ export async function POST(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const actor = await requireWebAccess();
+    if (!actor.ok) return actor.response;
 
     const body = await request.json();
     const { cardId } = body as { cardId?: unknown };
@@ -53,8 +51,8 @@ export async function POST(
     }
 
     const player = db
-      .prepare("select id from players where guild_id = ? and discord_user_id = ?")
-      .get(draft.guild_id, session.user.id) as { id: number } | undefined;
+      .prepare("select id from players where guild_id = ? and user_id = ?")
+      .get(draft.guild_id, actor.userId) as { id: number } | undefined;
 
     if (!player) {
       return NextResponse.json({ error: "You are not a participant in this draft" }, { status: 400 });
@@ -137,7 +135,7 @@ export async function POST(
     }
 
     // Return updated draft state
-    const response = await buildDraftResponse(slug, session.user.id);
+    const response = await buildDraftResponse(slug, actor);
 
     if (!response) {
       return NextResponse.json({ error: "Draft not found" }, { status: 404 });

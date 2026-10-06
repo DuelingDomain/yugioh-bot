@@ -83,7 +83,8 @@ function mapDraftCardDetails(
   });
 }
 
-export async function buildDraftResponse(slug: string, userId: string) {
+export async function buildDraftResponse(slug: string, actor: { userId: number; discordUserId: string }) {
+  const userId = actor.userId;
   const db = getDb();
   const drafts = createDraftService(db);
   const guildId = env.discordGuildId;
@@ -97,7 +98,7 @@ export async function buildDraftResponse(slug: string, userId: string) {
   }
 
   if (draftIdRow.status === "active") {
-    // The timeout sweep also runs in the bot timer. If it fails here, the page still loads the draft as it is.
+    // The timeout sweep also runs in the worker timer. If it fails here, the page still loads the draft as it is.
     const { autoPickedPlayerIds } = degrade(slug, "pick expiry", { autoPickedPlayerIds: [] as number[] }, () =>
       drafts.expireCurrentPickStep(draftIdRow.id),
     );
@@ -171,7 +172,7 @@ export async function buildDraftResponse(slug: string, userId: string) {
     }));
 
   const currentPlayer = db
-    .prepare("select id from players where guild_id = ? and discord_user_id = ?")
+    .prepare("select id from players where guild_id = ? and user_id = ?")
     .get(draft.guild_id, userId) as { id: number } | undefined;
 
   const isParticipant = currentPlayer
@@ -336,7 +337,7 @@ export async function buildDraftResponse(slug: string, userId: string) {
       canCreateTournament = true;
     } else {
       try {
-        canCreateTournament = (await checkDiscordWebAccess(userId, "admin")).ok;
+        canCreateTournament = (await checkDiscordWebAccess(actor.discordUserId, "admin")).ok;
       } catch {
         // The draft remains readable when Discord verification is unavailable.
         canCreateTournament = false;

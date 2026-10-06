@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId } from "./fixtures/identity";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -20,7 +21,7 @@ describe("POST /api/drafts/[slug]/pick", () => {
     vi.resetModules();
     auth.mockReset();
     auth.mockResolvedValue({
-      user: { id: "196382527131222016", name: "imran443" },
+      user: { id: String(fixtureUserId("196382527131222016")), discordUserId: fixtureDiscordId("196382527131222016"), name: "imran443" },
     });
   });
 
@@ -294,7 +295,7 @@ describe("POST /api/drafts/[slug]/pick", () => {
 
     // Authenticate as a different user who is not a participant
     auth.mockResolvedValue({
-      user: { id: "non-participant-123", name: "Stranger" },
+      user: { id: String(fixtureUserId("non-participant-123")), discordUserId: fixtureDiscordId("non-participant-123"), name: "Stranger" },
     });
 
     const { POST: pickCard } = await import("../app/api/drafts/[slug]/pick/route");
@@ -312,3 +313,8 @@ describe("POST /api/drafts/[slug]/pick", () => {
     expect(payload.error).toContain("not a participant");
   }, testTimeoutMs);
 });
+
+const FIXTURE_KEYS = ["196382527131222016", "non-participant-123"] as const;
+
+// Membership is a dependency of these routes; authorization still runs through the real web boundary.
+vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));

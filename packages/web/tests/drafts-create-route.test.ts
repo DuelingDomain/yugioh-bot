@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -15,7 +16,7 @@ describe("POST /api/drafts", () => {
   beforeEach(() => {
     vi.resetModules();
     auth.mockReset();
-    auth.mockResolvedValue({ user: { id: "creator-user", name: "Yugi" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("creator-user")), discordUserId: fixtureDiscordId("creator-user"), name: "Yugi" } });
   });
 
   afterEach(() => {
@@ -44,6 +45,7 @@ describe("POST /api/drafts", () => {
     const { migrate } = await import("@yugidraft/shared/db");
     const db = new Database(dbPath);
     migrate(db);
+    seedFixtureUsers(db, FIXTURE_KEYS);
     db.close();
 
     const { POST } = await import("../app/api/drafts/route");
@@ -79,6 +81,7 @@ describe("POST /api/drafts", () => {
     const { migrate } = await import("@yugidraft/shared/db");
     const db = new Database(dbPath);
     migrate(db);
+    seedFixtureUsers(db, FIXTURE_KEYS);
     const insCard = db.prepare(
       `insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
        values (?,?,?,?,?,?,?,?)`,
@@ -87,7 +90,7 @@ describe("POST /api/drafts", () => {
     for (const id of mainIds) insCard.run(id, `Main ${id}`, "Effect Monster", "effect", "i", "i", "[]", "t");
     insCard.run(2000, "Extra 2000", "Fusion Monster", "fusion", "i", "i", "[]", "t");
     const cube = Number(
-      db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1', 'Dark Magician', 'u')").run()
+      db.prepare(`insert into cubes (guild_id, name, created_by_user_id) values ('guild-1', 'Dark Magician', ${fixtureUserId("u")})`).run()
         .lastInsertRowid,
     );
     const insCube = db.prepare("insert into cube_cards (cube_id, catalog_card_id, pool, max_copies) values (?, ?, ?, ?)");
@@ -128,9 +131,10 @@ describe("POST /api/drafts", () => {
     const draft = drafts.findById(id);
     expect([...(draft.config.cubeCardIds ?? [])].sort()).toEqual([...expected].sort());
 
-    const insPlayer = verifyDb.prepare("insert into players (guild_id, discord_user_id, display_name) values ('guild-1', ?, ?)");
+    seedFixtureUsers(verifyDb, ["a", "b"]);
+    const insPlayer = verifyDb.prepare("insert into players (guild_id, user_id, discord_user_id, display_name) values ('guild-1', ?, ?, ?)");
     for (const n of ["a", "b"]) {
-      const pid = Number(insPlayer.run(n, n).lastInsertRowid);
+      const pid = Number(insPlayer.run(fixtureUserId(n), fixtureDiscordId(n), n).lastInsertRowid);
       drafts.join(id, pid);
     }
     drafts.start(id);
@@ -144,3 +148,8 @@ describe("POST /api/drafts", () => {
     verifyDb.close();
   });
 });
+
+const FIXTURE_KEYS = ["creator-user", "u"] as const;
+
+// Membership is a dependency of these routes; authorization still runs through the real web boundary.
+vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));

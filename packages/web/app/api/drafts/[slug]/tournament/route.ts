@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
 import { env } from "@/lib/env";
 import { checkDiscordWebAccess, webAccessError } from "@/lib/discord-web-access";
 import { createDraftTournamentService, TournamentDuelError } from "@yugidraft/shared/services";
@@ -13,11 +13,9 @@ export async function POST(
   { params }: { params: Promise<{ slug: string }> },
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    const userId = session.user.id;
+    const actor = await requireWebAccess();
+    if (!actor.ok) return actor.response;
+    const userId = actor.userId;
 
     const { slug } = await params;
     const db = getDb();
@@ -27,7 +25,7 @@ export async function POST(
       .prepare("select id, created_by_user_id, status, tournament_id from drafts where web_slug = ? and guild_id = ?")
       .get(slug, guildId) as {
         id: number;
-        created_by_user_id: string;
+        created_by_user_id: number;
         status: string;
         tournament_id: number | null;
       } | undefined;
@@ -38,7 +36,7 @@ export async function POST(
 
     let actorIsAdmin = false;
     if (draft.created_by_user_id !== userId) {
-      const decision = await checkDiscordWebAccess(userId, "admin");
+      const decision = await checkDiscordWebAccess(actor.discordUserId, "admin");
       if (!decision.ok) {
         return NextResponse.json({ error: webAccessError(decision.status) }, { status: decision.status });
       }

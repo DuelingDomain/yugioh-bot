@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "../fixtures/identity";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
@@ -27,8 +28,9 @@ describe("DashboardPage", () => {
   beforeEach(() => {
     db = new Database(":memory:");
     migrate(db);
+    seedFixtureUsers(db, FIXTURE_KEYS);
     getDb.mockReturnValue(db);
-    auth.mockResolvedValue({ user: { id: "u1", name: "Yugi" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1"), name: "Yugi" } });
   });
 
   afterEach(() => {
@@ -50,7 +52,7 @@ describe("DashboardPage", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-03T00:30:00Z"));
     vi.stubEnv("TZ", "UTC");
-    db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', 'u1', 'Yugi')").run();
+    db.prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('g1', ${fixtureUserId("u1")}, '${fixtureDiscordId("u1")}', 'Yugi')`).run();
     const page = await DashboardPage();
     const container = document.createElement("div");
     container.innerHTML = renderToString(page);
@@ -64,9 +66,8 @@ describe("DashboardPage", () => {
 
   it("counts approved wins and losses in the configured guild only", async () => {
     db.prepare(
-      `insert into players (id, guild_id, discord_user_id, display_name) values
-       (1, 'g1', 'u1', 'Yugi'), (2, 'g1', 'u2', 'Kaiba'), (3, 'g1', 'u3', 'Joey'),
-       (4, 'g2', 'u1', 'Yugi'), (5, 'g2', 'u2', 'Kaiba')`,
+      `insert into players (id, guild_id, user_id, discord_user_id, display_name) values (1, 'g1', ${fixtureUserId("u1")}, '${fixtureDiscordId("u1")}', 'Yugi'), (2, 'g1', ${fixtureUserId("u2")}, '${fixtureDiscordId("u2")}', 'Kaiba'), (3, 'g1', ${fixtureUserId("u3")}, '${fixtureDiscordId("u3")}', 'Joey'),
+       (4, 'g2', ${fixtureUserId("u1")}, '${fixtureDiscordId("u1")}', 'Yugi'), (5, 'g2', ${fixtureUserId("u2")}, '${fixtureDiscordId("u2")}', 'Kaiba')`,
     ).run();
     db.prepare(
       `insert into matches (guild_id, player_one_id, player_two_id, winner_id, reporter_id, status, source) values
@@ -86,14 +87,14 @@ describe("DashboardPage", () => {
   });
 
   it("shows a zero record for a player with no matches", async () => {
-    db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', 'u1', 'Yugi')").run();
+    db.prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('g1', ${fixtureUserId("u1")}, '${fixtureDiscordId("u1")}', 'Yugi')`).run();
     render(await DashboardPage());
     expect(readout("Record")).toHaveTextContent("0–0");
     expect(readout("Record")).toHaveTextContent("0% won");
   });
 
   it("reads tier, Elo and winnings from the profile", async () => {
-    db.prepare("insert into players (id, guild_id, discord_user_id, display_name) values (1, 'g1', 'u1', 'Yugi')").run();
+    db.prepare(`insert into players (id, guild_id, user_id, discord_user_id, display_name) values (1, 'g1', ${fixtureUserId("u1")}, '${fixtureDiscordId("u1")}', 'Yugi')`).run();
     render(await DashboardPage());
     const standing = screen.getByRole("heading", { name: "Your standing" }).closest("section") as HTMLElement;
     within(standing).getByText("Silver");
@@ -103,10 +104,10 @@ describe("DashboardPage", () => {
 
   it("lists live tournaments and drafts first, open and running only, each with the purple edge", async () => {
     db.prepare(
-      `insert into players (id, guild_id, discord_user_id, display_name) values (1, 'g1', 'u1', 'Yugi'), (2, 'g1', 'u2', 'Kaiba')`,
+      `insert into players (id, guild_id, user_id, discord_user_id, display_name) values (1, 'g1', ${fixtureUserId("u1")}, '${fixtureDiscordId("u1")}', 'Yugi'), (2, 'g1', ${fixtureUserId("u2")}, '${fixtureDiscordId("u2")}', 'Kaiba')`,
     ).run();
     const t = db.prepare(
-      "insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug, created_at) values ('g1', ?, 'round_robin', ?, 'u1', ?, ?)",
+      `insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug, created_at) values ('g1', ?, 'round_robin', ?, ${fixtureUserId("u1")}, ?, ?)`,
     );
     t.run("Open Cup", "pending", "open-cup", "2026-10-02 10:00:00");
     t.run("Running Cup", "active", "running-cup", "2026-10-01 10:00:00");
@@ -132,10 +133,11 @@ describe("DashboardPage", () => {
   });
 
   it("names the round an in-progress tournament is in, and says only 'In progress' when it has no pairings yet", async () => {
-    const ps = db.prepare("insert into players (id, guild_id, discord_user_id, display_name) values (?, 'g1', ?, ?)");
-    [1, 2, 3, 4].forEach((id) => ps.run(id, `u${id}`, `Player ${id}`));
+    const ps = db.prepare("insert into players (id, guild_id, user_id, discord_user_id, display_name) values (?, 'g1', ?, ?, ?)");
+    seedFixtureUsers(db, ["u1", "u2", "u3", "u4"]);
+    [1, 2, 3, 4].forEach((id) => ps.run(id, fixtureUserId(`u${id}`), fixtureDiscordId(`u${id}`), `Player ${id}`));
     const t = db.prepare(
-      "insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug, created_at) values ('g1', ?, 'round_robin', 'active', 'u1', ?, ?)",
+      `insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug, created_at) values ('g1', ?, 'round_robin', 'active', ${fixtureUserId("u1")}, ?, ?)`,
     );
     t.run("Paired Cup", "paired-cup", "2026-10-02 10:00:00");
     t.run("Unpaired Cup", "unpaired-cup", "2026-10-01 10:00:00");
@@ -161,3 +163,8 @@ describe("DashboardPage", () => {
     within(rows[1]).getByText("In progress");
   });
 });
+
+const FIXTURE_KEYS = ["u1", "u2", "u3"] as const;
+
+// Membership is a dependency of these routes; authorization still runs through the real web boundary.
+vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));

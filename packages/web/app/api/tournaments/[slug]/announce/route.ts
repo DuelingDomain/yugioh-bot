@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
 import { env } from "@/lib/env";
-import { createTournamentService, createGuildSettingsService } from "@yugidraft/shared/services";
+import { createTournamentService, createGuildSettingsService, createUserService } from "@yugidraft/shared/services";
 import { announcer } from "@/lib/notify";
 
 export const runtime = "nodejs";
@@ -17,10 +17,8 @@ export async function POST(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const actor = await requireWebAccess();
+    if (!actor.ok) return actor.response;
 
     const { slug } = await params;
     const db = getDb();
@@ -28,14 +26,14 @@ export async function POST(
     const tournament = db
       .prepare("select id, guild_id, name, format, status, created_by_user_id, web_slug from tournaments where web_slug = ? and guild_id = ?")
       .get(slug, env.discordGuildId) as
-      | { id: number; guild_id: string; name: string; format: string; status: string; created_by_user_id: string; web_slug: string }
+      | { id: number; guild_id: string; name: string; format: string; status: string; created_by_user_id: number; web_slug: string }
       | undefined;
 
     if (!tournament) {
       return NextResponse.json({ error: "Tournament not found" }, { status: 404 });
     }
 
-    if (tournament.created_by_user_id !== session.user.id) {
+    if (tournament.created_by_user_id !== actor.userId) {
       return NextResponse.json({ error: "Only the organizer can announce" }, { status: 403 });
     }
 
@@ -54,6 +52,10 @@ export async function POST(
     const tournaments = createTournamentService(db);
     const participantCount = tournaments.participantCount(tournament.id);
 
+    const organizer = createUserService(db).findById(tournament.created_by_user_id);
+    if (!organizer?.discordUserId) {
+      return NextResponse.json({ error: "Organizer has no linked Discord account" }, { status: 400 });
+    }
     const result = await announcer.announce(
       {
         kind: "tournament-created",
@@ -62,7 +64,7 @@ export async function POST(
         name: tournament.name,
         format: tournament.format,
         webSlug: tournament.web_slug,
-        organizerUserId: tournament.created_by_user_id,
+        organizerUserId: organizer.discordUserId,
         participantCount,
       },
     );

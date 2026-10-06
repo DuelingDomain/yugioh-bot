@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -19,7 +20,7 @@ describe("GET /api/drafts/[slug]", () => {
     vi.resetModules();
     auth.mockReset();
     auth.mockResolvedValue({
-      user: { id: "196382527131222016", name: "imran443" },
+      user: { id: String(fixtureUserId("196382527131222016")), discordUserId: fixtureDiscordId("196382527131222016"), name: "imran443" },
     });
   });
 
@@ -200,16 +201,17 @@ describe("GET /api/drafts/[slug]", () => {
     const { createDraftService, createPlayerService } = await import("@yugidraft/shared/services");
     const db = new Database(dbPath);
     migrate(db);
+    seedFixtureUsers(db, FIXTURE_KEYS);
     const players = createPlayerService(db);
-    const creator = players.findOrCreate(guildId, creatorUserId, "imran443");
-    const opponent = players.findOrCreate(guildId, "opponent-user", "Kaiba");
+    const creator = players.findOrCreate(guildId, fixtureUserId(creatorUserId), "imran443");
+    const opponent = players.findOrCreate(guildId, fixtureUserId("opponent-user"), "Kaiba");
     const drafts = createDraftService(db);
     const draft = drafts.create(
       guildId,
       "channel-1",
       "uncached metal draft",
       { setNames: ["Metal Raiders"], packSize: 1, packsPerPlayer: 1, cardsPerPlayer: 1 },
-      creatorUserId,
+      fixtureUserId(creatorUserId),
       creator.id,
     );
     drafts.join(draft.id, opponent.id);
@@ -284,6 +286,7 @@ describe("GET /api/drafts/[slug]", () => {
     const { migrate } = await import("@yugidraft/shared/db");
     const db = new Database(dbPath);
     migrate(db);
+    seedFixtureUsers(db, FIXTURE_KEYS);
     const ins = db.prepare(
       `insert into card_catalog (ygoprodeck_id, name, type, frame_type, image_url, image_url_small, card_sets_json, cached_at)
        values (?, ?, 'Spellcaster / Normal Monster', 'normal', '', '', '[]', '2026-01-01T00:00:00Z')`,
@@ -346,9 +349,10 @@ describe("GET /api/drafts/[slug]", () => {
     const { createDraftService, createPlayerService } = await import("@yugidraft/shared/services");
     const db = new Database(dbPath);
     migrate(db);
+    seedFixtureUsers(db, FIXTURE_KEYS);
     const players = createPlayerService(db);
-    const creator = players.findOrCreate(guildId, creatorUserId, "imran443");
-    const opponent = players.findOrCreate(guildId, "opponent-user", "Kaiba");
+    const creator = players.findOrCreate(guildId, fixtureUserId(creatorUserId), "imran443");
+    const opponent = players.findOrCreate(guildId, fixtureUserId("opponent-user"), "Kaiba");
     const drafts = createDraftService(db);
     // 2 players × packSize 1 => 2 distinct cards required to start.
     const draft = drafts.create(
@@ -356,7 +360,7 @@ describe("GET /api/drafts/[slug]", () => {
       "channel-1",
       "uncached custom draft",
       { customCardIds: [70781052, 89631139], packSize: 1, packsPerPlayer: 1, cardsPerPlayer: 1 },
-      creatorUserId,
+      fixtureUserId(creatorUserId),
       creator.id,
     );
     drafts.join(draft.id, opponent.id);
@@ -414,3 +418,8 @@ describe("GET /api/drafts/[slug]", () => {
     verifyDb.close();
   }, testTimeoutMs);
 });
+
+const FIXTURE_KEYS = ["196382527131222016", "opponent-user", "196382772699332609", "111111111111111111", "987654321098765432", "u"] as const;
+
+// Membership is a dependency of these routes; authorization still runs through the real web boundary.
+vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));

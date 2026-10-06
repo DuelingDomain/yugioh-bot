@@ -26,7 +26,7 @@ export async function POST(
     const tournament = db
       .prepare("select id, name, status, created_by_user_id from tournaments where web_slug = ? and guild_id = ?")
       .get(slug, actor.guildId) as
-      | { id: number; name: string; status: string; created_by_user_id: string }
+      | { id: number; name: string; status: string; created_by_user_id: number }
       | undefined;
     if (!tournament) return NextResponse.json({ error: "Tournament not found" }, { status: 404 });
     const slot = Number.isInteger(tournamentMatchId)
@@ -44,10 +44,10 @@ export async function POST(
     // must not make the server link or map the players' decks.
     if (slot.player_two_id === null) return NextResponse.json({ error: "A bye has no duel to play" }, { status: 400 });
     const isPlayer = actor.playerId === slot.player_one_id || actor.playerId === slot.player_two_id;
-    const actorRow = db.prepare("select discord_user_id from players where id = ? and guild_id = ?").get(actor.playerId, actor.guildId) as
-      | { discord_user_id: string }
+    const actorRow = db.prepare("select user_id from players where id = ? and guild_id = ?").get(actor.playerId, actor.guildId) as
+      | { user_id: number }
       | undefined;
-    if (!isPlayer && actorRow?.discord_user_id !== tournament.created_by_user_id) {
+    if (!isPlayer && actorRow?.user_id !== tournament.created_by_user_id) {
       return NextResponse.json({ error: "Only a match player or the tournament organizer can start this duel" }, { status: 403 });
     }
     if (tournament.status !== "active") {
@@ -82,7 +82,7 @@ export async function POST(
       for (const playerId of series.playerIds) {
         if (playerId === actor.playerId) continue;
         const recipient = playerIdentity(db, playerId);
-        if (!recipient) continue;
+        if (!recipient?.discordUserId) continue;
         announceDuelInvite(
           {
             slug: duel.slug,

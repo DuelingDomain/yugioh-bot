@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId } from "./fixtures/identity";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -62,7 +63,7 @@ describe("draft card types from the duel engine", () => {
     });
     const { buildDraftResponse } = await import("../app/api/drafts/[slug]/helpers");
 
-    const response = await buildDraftResponse("slug-1", "drafter");
+    const response = await buildDraftResponse("slug-1", { userId: fixtureUserId("drafter"), discordUserId: fixtureDiscordId("drafter") });
 
     expect(response?.myPool).toMatchObject([
       { passcode: 11, race: "Spellcaster", spellTrapType: null },
@@ -72,7 +73,7 @@ describe("draft card types from the duel engine", () => {
     expect(callDuelHost).toHaveBeenCalledTimes(1);
     expect(callDuelHost).toHaveBeenCalledWith(expect.objectContaining({ op: "card-details", codes: [11, 12, 13] }));
 
-    await buildDraftResponse("slug-1", "drafter");
+    await buildDraftResponse("slug-1", { userId: fixtureUserId("drafter"), discordUserId: fixtureDiscordId("drafter") });
     expect(callDuelHost).toHaveBeenCalledTimes(1);
   });
 
@@ -82,7 +83,7 @@ describe("draft card types from the duel engine", () => {
     callDuelHost.mockResolvedValue({ ok: false, response: { status: 503 } });
     const { buildDraftResponse } = await import("../app/api/drafts/[slug]/helpers");
 
-    const response = await buildDraftResponse("slug-1", "drafter");
+    const response = await buildDraftResponse("slug-1", { userId: fixtureUserId("drafter"), discordUserId: fixtureDiscordId("drafter") });
 
     expect(response?.myPool).toMatchObject([
       { passcode: 11, race: null, spellTrapType: null },

@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -19,11 +20,12 @@ async function seed() {
   const { migrate } = await import("@yugidraft/shared/db");
   const db = new Database(dbPath);
   migrate(db);
+  seedFixtureUsers(db, FIXTURE_KEYS);
   db.close();
 }
 
 describe("POST /api/admin/season", () => {
-  beforeEach(() => { vi.resetModules(); auth.mockReset(); auth.mockResolvedValue({ user: { id: "u1", name: "Admin" } }); discord = mockDiscordAccess(); });
+  beforeEach(() => { vi.resetModules(); auth.mockReset(); auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1"), name: "Admin" } }); discord = mockDiscordAccess(); });
   afterEach(() => {
     vi.unstubAllGlobals(); vi.unstubAllEnvs();
     delete process.env.DATABASE_PATH; delete process.env.DISCORD_GUILD_ID;
@@ -90,3 +92,5 @@ describe("POST /api/admin/season", () => {
     expect((await GET()).status).toBe(200);
   });
 });
+
+const FIXTURE_KEYS = ["u1"] as const;

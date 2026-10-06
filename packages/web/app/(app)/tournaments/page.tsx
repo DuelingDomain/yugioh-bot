@@ -1,6 +1,7 @@
 import { env } from "@/lib/env";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
+import { parseUserId } from "@/lib/user-id";
 import { getDb } from "@/lib/db";
 import { FloorList, SectionHead, SvButton } from "@/components/sheet";
 import { PageFrame } from "@/components/dashboard/page-frame";
@@ -16,7 +17,8 @@ import {
 
 export default async function TournamentsPage() {
   const session = await auth();
-  if (!session?.user?.id) redirect("/login");
+  const userId = parseUserId(session?.user?.id);
+  if (userId === null) redirect("/login");
 
   const db = getDb();
   const tournaments: TournamentListItem[] = db
@@ -44,8 +46,8 @@ export default async function TournamentsPage() {
 
   // Round strips and duel actions need the pairings of the tournaments still in play.
   const viewer = db
-    .prepare("select id from players where discord_user_id = ? and guild_id = ?")
-    .get(session.user.id, env.discordGuildId) as { id: number } | undefined;
+    .prepare("select id from players where user_id = ? and guild_id = ?")
+    .get(userId, env.discordGuildId) as { id: number } | undefined;
   const viewerId = viewer?.id ?? null;
   const rounds = loadTournamentRounds(db, env.discordGuildId, [...groups.running, ...groups.open]);
 

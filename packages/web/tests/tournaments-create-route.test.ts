@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 // packages/web/tests/tournaments-create-route.test.ts
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -18,6 +19,7 @@ async function setupDb() {
   const { migrate } = await import("@yugidraft/shared/db");
   const db = new Database(dbPath);
   migrate(db);
+  seedFixtureUsers(db, FIXTURE_KEYS);
   db.close();
 }
 
@@ -40,7 +42,7 @@ describe("POST /api/tournaments timing options", () => {
   beforeEach(() => {
     vi.resetModules();
     auth.mockReset();
-    auth.mockResolvedValue({ user: { id: "host", name: "Yugi" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("host")), discordUserId: fixtureDiscordId("host"), name: "Yugi" } });
   });
   afterEach(() => {
     delete process.env.DATABASE_PATH;
@@ -127,3 +129,8 @@ describe("POST /api/tournaments timing options", () => {
     expect(high.status).toBe(400);
   });
 });
+
+const FIXTURE_KEYS = ["host"] as const;
+
+// Membership is a dependency of these routes; authorization still runs through the real web boundary.
+vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));

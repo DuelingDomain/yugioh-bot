@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -34,14 +35,15 @@ async function seed() {
   const { migrate } = await import("@yugidraft/shared/db");
   const db = new Database(process.env.DATABASE_PATH);
   migrate(db);
-  db.prepare("insert into players (id, guild_id, discord_user_id, display_name) values (1, ?, ?, 'Seraphina Quill')").run(GUILD, DISCORD_ID);
+  seedFixtureUsers(db, FIXTURE_KEYS);
+  db.prepare("insert into players (id, guild_id, user_id, discord_user_id, display_name) values (1, ?, ?, ?, 'Seraphina Quill')").run(GUILD, fixtureUserId(DISCORD_ID), fixtureDiscordId(DISCORD_ID));
   db.prepare("insert into duels (guild_id, web_slug, name, organizer_player_id, mode, status, format) values (?, 'duel-a', 'T', 1, 'normal', 'active', 'ffa3')").run(GUILD);
   // An invite-only duel of the same guild that the reporter (player 1) has no seat, grant or organizer role in.
-  db.prepare("insert into players (id, guild_id, discord_user_id, display_name) values (3, ?, 'other-owner', 'Other Owner')").run(GUILD);
+  db.prepare(`insert into players (id, guild_id, user_id, discord_user_id, display_name) values (3, ?, ${fixtureUserId("other-owner")}, '${fixtureDiscordId("other-owner")}', 'Other Owner')`).run(GUILD);
   const { defaultDuelSettings } = await import("@yugidraft/shared/duels");
   db.prepare("insert into duels (guild_id, web_slug, name, organizer_player_id, mode, status, format, settings_json) values (?, 'duel-private', 'T', 3, 'normal', 'active', 'ffa3', ?)")
     .run(GUILD, JSON.stringify({ ...defaultDuelSettings("normal"), visibility: "private" }));
-  db.prepare("insert into players (id, guild_id, discord_user_id, display_name) values (2, 'guild-2', 'x', 'X')").run();
+  db.prepare(`insert into players (id, guild_id, user_id, discord_user_id, display_name) values (2, 'guild-2', ${fixtureUserId("x")}, '${fixtureDiscordId("x")}', 'X')`).run();
   db.prepare("insert into duels (guild_id, web_slug, name, organizer_player_id, mode, status) values ('guild-2', 'duel-other', 'T', 2, 'normal', 'active')").run();
   db.close();
 }
@@ -83,7 +85,7 @@ describe("POST /api/bug-reports", () => {
   beforeEach(async () => {
     vi.resetModules();
     auth.mockReset();
-    auth.mockResolvedValue({ user: { id: DISCORD_ID, name: "Seraphina Quill" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId(DISCORD_ID)), discordUserId: fixtureDiscordId(DISCORD_ID), name: "Seraphina Quill" } });
     callDuelHost.mockReset();
     callDuelHost.mockResolvedValue(hostAnswer());
     discord = mockDiscordAccess();
@@ -105,7 +107,7 @@ describe("POST /api/bug-reports", () => {
     const POST = await route();
     auth.mockResolvedValue(null);
     expect((await POST(post(body()))).status).toBe(401);
-    auth.mockResolvedValue({ user: { id: DISCORD_ID, name: "Seraphina Quill" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId(DISCORD_ID)), discordUserId: fixtureDiscordId(DISCORD_ID), name: "Seraphina Quill" } });
     discord.memberStatus = 404;
     expect((await POST(post(body()))).status).toBe(403);
     expect(github).not.toHaveBeenCalled();
@@ -399,7 +401,7 @@ describe("POST /api/bug-reports with duplicateOf", () => {
   beforeEach(async () => {
     vi.resetModules();
     auth.mockReset();
-    auth.mockResolvedValue({ user: { id: DISCORD_ID, name: "Seraphina Quill" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId(DISCORD_ID)), discordUserId: fixtureDiscordId(DISCORD_ID), name: "Seraphina Quill" } });
     callDuelHost.mockReset();
     callDuelHost.mockResolvedValue(hostAnswer());
     discord = mockDiscordAccess();
@@ -554,3 +556,5 @@ describe("POST /api/bug-reports with duplicateOf", () => {
     expect(comments()).toHaveLength(5);
   });
 });
+
+const FIXTURE_KEYS = ["other-owner", "x", "810293847561029384"] as const;

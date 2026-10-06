@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -31,16 +32,17 @@ async function createPendingDraftDb() {
   const { createDraftService, createPlayerService } = await import("@yugidraft/shared/services");
   const db = new Database(dbPath);
   migrate(db);
+  seedFixtureUsers(db, FIXTURE_KEYS);
 
   const players = createPlayerService(db);
-  const creator = players.findOrCreate("guild-1", "creator-user", "Yugi");
+  const creator = players.findOrCreate("guild-1", fixtureUserId("creator-user"), "Yugi");
   const drafts = createDraftService(db);
   const draft = drafts.create(
     "guild-1",
     "channel-1",
     "pending bot draft",
     { setNames: ["Metal Raiders"], packSize: 2, packsPerPlayer: 1 },
-    "creator-user",
+    fixtureUserId("creator-user"),
     creator.id,
   );
 
@@ -54,7 +56,7 @@ describe("POST /api/drafts/[slug]/join-bot", () => {
     vi.resetModules();
     auth.mockReset();
     broadcaster.draft.mockReset();
-    auth.mockResolvedValue({ user: { id: "creator-user", name: "Yugi" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("creator-user")), discordUserId: fixtureDiscordId("creator-user"), name: "Yugi" } });
   });
 
   afterEach(() => {
@@ -116,7 +118,7 @@ describe("POST /api/drafts/[slug]/join-bot", () => {
 
   it("rejects anyone other than the draft host", async () => {
     const draft = await createPendingDraftDb();
-    auth.mockResolvedValue({ user: { id: "other-member" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("other-member")), discordUserId: fixtureDiscordId("other-member") } });
     const { POST } = await import("../app/api/drafts/[slug]/join-bot/route");
     const res = await POST(new Request("http://localhost", { method: "POST" }), {
       params: Promise.resolve({ slug: draft.webSlug ?? "" }),
@@ -126,3 +128,8 @@ describe("POST /api/drafts/[slug]/join-bot", () => {
     expect(getDb().prepare("select count(*) as n from draft_players where draft_id = ?").get(draft.id)).toEqual({ n: 1 });
   });
 });
+
+const FIXTURE_KEYS = ["creator-user", "other-member"] as const;
+
+// Membership is a dependency of these routes; authorization still runs through the real web boundary.
+vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));

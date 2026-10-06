@@ -1,3 +1,4 @@
+import { fixtureUserId } from "./identity";
 import type { DuelSeriesSummary, Match, TournamentDetail } from "../../src/components/tournament/types";
 import { defaultDuelSettings } from "@yugidraft/shared/duels";
 import type { PlayerRatings } from "../../src/components/tournament/sheet-contracts";
@@ -47,7 +48,7 @@ export const matches: Match[] = [
 
 export function tournament(overrides: Partial<TournamentDetail> = {}): TournamentDetail {
   return {
-    id: 12, name: "Friday Night Duels #12", format: "round_robin", status: "active", createdByUserId: "organizer", isParticipant: true, currentUserPlayerId: 5,
+    id: 12, name: "Friday Night Duels #12", format: "round_robin", status: "active", createdByUserId: fixtureUserId("organizer"), isParticipant: true, currentUserPlayerId: 5,
     participants: [1, 5, 2, 3, 4, 6].map(playerId => ({ playerId, displayName: names[playerId], deckRegistered: playerId !== 6, deckLocked: [1, 5, 2].includes(playerId) })),
     matches: [...matches], bestOf: 3,
     duelRules: { bestOf: 3, mode: "normal", masterRule: 5, settings: { ...defaultDuelSettings("normal"), turnSeconds: 180 }, draftId: null },
@@ -64,3 +65,5 @@ export function deckResponse(locked = true) {
     savedDeckOptions: [{ id: 8, name: "Branded Despia", mainCount: 40 }], draft: null,
   };
 }
+
+const FIXTURE_KEYS = ["organizer"] as const;

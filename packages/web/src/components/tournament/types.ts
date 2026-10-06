@@ -48,7 +48,7 @@ export interface TournamentDetail {
   name: string;
   format: string;
   status: string;
-  createdByUserId: string;
+  createdByUserId: number;
   participants: Participant[];
   matches: Match[];
   isParticipant: boolean;

@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -17,13 +18,13 @@ async function setup(configJson: string) {
   const { migrate } = await import("@yugidraft/shared/db");
   const db = new Database(dbPath);
   migrate(db);
+  seedFixtureUsers(db, FIXTURE_KEYS);
   db.prepare(
     `insert into card_catalog (ygoprodeck_id, name, type, frame_type, effect_text, atk, def, attribute, level, image_url, image_url_small, card_sets_json, cached_at)
      values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(46986414, "Dark Magician", "Spellcaster / Normal Monster", "normal", "x", 2500, 2100, "DARK", 7, "u1", "s1", JSON.stringify([{ set_name: "Metal Raiders" }]), new Date().toISOString());
   db.prepare(
-    `insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug)
-     values ('guild-1', 'ch1', 'D', 'pending', 'u', ?, 'slug-1')`,
+    `insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug) values ('guild-1', 'ch1', 'D', 'pending', ${fixtureUserId("u")}, ?, 'slug-1')`,
   ).run(configJson);
   db.close();
 }
@@ -32,7 +33,7 @@ describe("GET /api/drafts/[slug]/pool", () => {
   beforeEach(() => {
     vi.resetModules();
     auth.mockReset();
-    auth.mockResolvedValue({ user: { id: "u", name: "Yugi" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u")), discordUserId: fixtureDiscordId("u"), name: "Yugi" } });
   });
   afterEach(() => {
     delete process.env.DATABASE_PATH;
@@ -90,3 +91,8 @@ describe("GET /api/drafts/[slug]/pool", () => {
     expect(json.cards).toEqual([]);
   });
 });
+
+const FIXTURE_KEYS = ["u"] as const;
+
+// Membership is a dependency of these routes; authorization still runs through the real web boundary.
+vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));

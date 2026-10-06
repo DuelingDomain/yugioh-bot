@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -19,7 +20,7 @@ describe("draft load resilience", () => {
     vi.resetModules();
     auth.mockReset();
     broadcaster.draft.mockReset();
-    auth.mockResolvedValue({ user: { id: "host", name: "Yugi" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("host")), discordUserId: fixtureDiscordId("host"), name: "Yugi" } });
   });
 
   afterEach(() => {
@@ -44,20 +45,21 @@ describe("draft load resilience", () => {
     const { createDraftService, createPlayerService } = await import("@yugidraft/shared/services");
     const db = new Database(dbPath);
     migrate(db);
+    seedFixtureUsers(db, FIXTURE_KEYS);
     const ins = db.prepare(
       "insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (?,?,?,?,?,?,?,?)",
     );
     const ids = Array.from({ length: 16 }, (_, i) => 700 + i);
     for (const id of ids) ins.run(id, `Card ${id}`, "Effect Monster", "effect", "i", "i", "[]", "t");
     const players = createPlayerService(db);
-    const host = players.findOrCreate("guild-1", "host", "Yugi");
-    const other = players.findOrCreate("guild-1", "other", "Kaiba");
-    const outsider = players.findOrCreate("guild-1", "outsider", "Joey");
+    const host = players.findOrCreate("guild-1", fixtureUserId("host"), "Yugi");
+    const other = players.findOrCreate("guild-1", fixtureUserId("other"), "Kaiba");
+    const outsider = players.findOrCreate("guild-1", fixtureUserId("outsider"), "Joey");
     const drafts = createDraftService(db);
     const draft = drafts.create(
       "guild-1", "channel-1", "reconnect night",
       { setNames: [], customCardIds: ids, cubeCardIds: ids, packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8 },
-      "host", host.id,
+      fixtureUserId("host"), host.id,
     );
     drafts.join(draft.id, other.id);
     drafts.start(draft.id);
@@ -66,7 +68,7 @@ describe("draft load resilience", () => {
 
   const load = async (slug: string, userId: string) => {
     const { buildDraftResponse } = await import("../app/api/drafts/[slug]/helpers");
-    return buildDraftResponse(slug, userId);
+    return buildDraftResponse(slug, { userId: fixtureUserId(userId), discordUserId: fixtureDiscordId(userId) });
   };
 
   it("opens when a card in the pack has a catalog row with broken JSON", async () => {
@@ -87,7 +89,7 @@ describe("draft load resilience", () => {
     const { db, draft, slug, host } = await setup();
     db.prepare("update drafts set status = 'completed', ended_at = ? where id = ?").run(new Date().toISOString(), draft.id);
     db.prepare(
-      "insert into saved_decks (guild_id, owner_user_id, name, mode, deck_json, draft_id) values ('guild-1','host','Deck','normal','{broken',?)",
+      `insert into saved_decks (guild_id, owner_user_id, name, mode, deck_json, draft_id) values ('guild-1', ${fixtureUserId("host")}, 'Deck', 'normal', '{broken', ?)`,
     ).run(draft.id);
 
     const response = await load(slug, "host");
@@ -145,3 +147,8 @@ describe("draft load resilience", () => {
     db.close();
   });
 });
+
+const FIXTURE_KEYS = ["host", "other", "outsider"] as const;
+
+// Membership is a dependency of these routes; authorization still runs through the real web boundary.
+vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));

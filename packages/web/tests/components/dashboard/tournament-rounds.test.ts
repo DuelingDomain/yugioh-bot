@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "../../fixtures/identity";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { migrate } from "../../../../shared/src/db/schema";
@@ -9,11 +10,11 @@ describe("loadTournamentRounds", () => {
   beforeEach(() => {
     db = new Database(":memory:");
     migrate(db);
+    seedFixtureUsers(db, FIXTURE_KEYS);
     db.prepare(
-      `insert into players (id, guild_id, discord_user_id, display_name) values
-       (1, 'g1', 'u1', 'Yugi'), (2, 'g1', 'u2', 'Kaiba'), (3, 'g1', 'u3', 'Joey')`,
+      `insert into players (id, guild_id, user_id, discord_user_id, display_name) values (1, 'g1', ${fixtureUserId("u1")}, '${fixtureDiscordId("u1")}', 'Yugi'), (2, 'g1', ${fixtureUserId("u2")}, '${fixtureDiscordId("u2")}', 'Kaiba'), (3, 'g1', ${fixtureUserId("u3")}, '${fixtureDiscordId("u3")}', 'Joey')`,
     ).run();
-    const t = db.prepare("insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug) values ('g1', ?, ?, ?, 'u1', ?)");
+    const t = db.prepare(`insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug) values ('g1', ?, ?, ?, ${fixtureUserId("u1")}, ?)`);
     t.run("Cup A", "round_robin", "active", "cup-a");
     t.run("Cup B", "single_elim", "pending", null);
     const tp = db.prepare("insert into tournament_participants (tournament_id, player_id) values (?, ?)");
@@ -84,3 +85,5 @@ describe("loadTournamentRounds", () => {
     expect(() => loadTournamentRounds(db, "g1", list)).not.toThrow();
   });
 });
+
+const FIXTURE_KEYS = ["u1", "u2", "u3"] as const;

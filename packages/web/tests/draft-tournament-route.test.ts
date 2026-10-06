@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -11,14 +12,14 @@ const tempDirs: string[] = [];
 vi.mock("@/lib/auth", () => ({ auth }));
 vi.mock("@/lib/discord-web-access", async (importOriginal) => ({
   ...await importOriginal<typeof import("../src/lib/discord-web-access")>(),
-  checkDiscordWebAccess,
+  checkDiscordWebAccess: (id: string, level: string) => level === "member" ? Promise.resolve({ ok: true }) : checkDiscordWebAccess(id, level),
 }));
 
 describe("POST /api/drafts/[slug]/tournament", () => {
   beforeEach(() => {
     vi.resetModules();
     auth.mockReset();
-    auth.mockResolvedValue({ user: { id: "creator-user", name: "Yugi" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("creator-user")), discordUserId: fixtureDiscordId("creator-user"), name: "Yugi" } });
     checkDiscordWebAccess.mockReset();
     checkDiscordWebAccess.mockResolvedValue({ ok: false, status: 403 });
   });
@@ -43,15 +44,15 @@ describe("POST /api/drafts/[slug]/tournament", () => {
     const { migrate } = await import("@yugidraft/shared/db");
     const db = new Database(dbPath);
     migrate(db);
+    seedFixtureUsers(db, FIXTURE_KEYS);
 
-    db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('guild-1', 'creator-user', 'Yugi')").run();
-    db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('guild-1', 'other-user', 'Kaiba')").run();
-    const p1 = db.prepare("select id from players where discord_user_id = 'creator-user'").get() as { id: number };
-    const p2 = db.prepare("select id from players where discord_user_id = 'other-user'").get() as { id: number };
+    db.prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('guild-1', ${fixtureUserId("creator-user")}, '${fixtureDiscordId("creator-user")}', 'Yugi')`).run();
+    db.prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('guild-1', ${fixtureUserId("other-user")}, '${fixtureDiscordId("other-user")}', 'Kaiba')`).run();
+    const p1 = db.prepare(`select id from players where user_id = ${fixtureUserId("creator-user")}`).get() as { id: number };
+    const p2 = db.prepare(`select id from players where user_id = ${fixtureUserId("other-user")}`).get() as { id: number };
 
     db.prepare(
-      `insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug)
-       values ('guild-1', 'ch1', 'My Draft', 'completed', 'creator-user', '{}', 'test-slug')`,
+      `insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug) values ('guild-1', 'ch1', 'My Draft', 'completed', ${fixtureUserId("creator-user")}, '{}', 'test-slug')`,
     ).run();
     db.prepare("insert into draft_players (draft_id, player_id) values (1, ?)").run(p1.id);
     db.prepare("insert into draft_players (draft_id, player_id) values (1, ?)").run(p2.id);
@@ -93,7 +94,7 @@ describe("POST /api/drafts/[slug]/tournament", () => {
 
   it("returns 403 when a non-creator is not an admin", async () => {
     await setupCompletedDraft();
-    auth.mockResolvedValue({ user: { id: "other-user", name: "Kaiba" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("other-user")), discordUserId: fixtureDiscordId("other-user"), name: "Kaiba" } });
     const { POST } = await import("../app/api/drafts/[slug]/tournament/route");
     const request = new Request("http://localhost/api/drafts/test-slug/tournament", {
       method: "POST",
@@ -106,7 +107,7 @@ describe("POST /api/drafts/[slug]/tournament", () => {
     expect(await response.json()).toEqual({
       error: "You must be a member of the Discord server and have permission for this action",
     });
-    expect(checkDiscordWebAccess).toHaveBeenCalledExactlyOnceWith("other-user", "admin");
+    expect(checkDiscordWebAccess).toHaveBeenCalledExactlyOnceWith(fixtureDiscordId("other-user"), "admin");
   });
 
   it("allows the creator when Discord verification is unavailable", async () => {
@@ -118,14 +119,14 @@ describe("POST /api/drafts/[slug]/tournament", () => {
 
   it("returns 201 for an admin who did not create or join the draft", async () => {
     await setupCompletedDraft();
-    auth.mockResolvedValue({ user: { id: "admin-user" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("admin-user")), discordUserId: fixtureDiscordId("admin-user") } });
     checkDiscordWebAccess.mockResolvedValue({ ok: true });
 
     const created = await postWithBody({ format: "round_robin" });
     expect(created.status).toBe(201);
     const tournament = await created.json();
     expect(tournament).toMatchObject({ name: "My Draft", format: "round_robin" });
-    expect(checkDiscordWebAccess).toHaveBeenCalledExactlyOnceWith("admin-user", "admin");
+    expect(checkDiscordWebAccess).toHaveBeenCalledExactlyOnceWith(fixtureDiscordId("admin-user"), "admin");
 
     const duplicate = await postWithBody({ format: "single_elim" });
     expect(duplicate.status).toBe(409);
@@ -134,7 +135,7 @@ describe("POST /api/drafts/[slug]/tournament", () => {
 
   it("returns 503 when a non-creator's admin verification is unavailable", async () => {
     await setupCompletedDraft();
-    auth.mockResolvedValue({ user: { id: "other-user" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("other-user")), discordUserId: fixtureDiscordId("other-user") } });
     checkDiscordWebAccess.mockResolvedValue({ ok: false, status: 503 });
 
     const response = await postWithBody({ format: "round_robin" });
@@ -142,7 +143,7 @@ describe("POST /api/drafts/[slug]/tournament", () => {
     expect(await response.json()).toEqual({
       error: "Cannot verify Discord server membership or permissions. Please try again later.",
     });
-    expect(checkDiscordWebAccess).toHaveBeenCalledExactlyOnceWith("other-user", "admin");
+    expect(checkDiscordWebAccess).toHaveBeenCalledExactlyOnceWith(fixtureDiscordId("other-user"), "admin");
   });
 
   it("returns 400 for invalid format", async () => {
@@ -195,3 +196,5 @@ describe("POST /api/drafts/[slug]/tournament", () => {
     expect((await response.json()).error).toMatch(/bestOf/);
   });
 });
+
+const FIXTURE_KEYS = ["creator-user", "other-user", "admin-user"] as const;

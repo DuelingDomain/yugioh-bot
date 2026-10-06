@@ -38,7 +38,7 @@ import {
 export interface BaseMeta {
   cubeId: number;
   name: string;
-  creatorId: string;
+  creatorId: number | null;
   creatorName: string | null;
   canEdit: boolean;
   extraCount: number;
@@ -78,7 +78,7 @@ export interface PoolEditor {
   mode: Mode;
   setMode: (mode: Mode) => void;
   cubes: CubeOption[];
-  userId: string | null;
+  userId: number | null;
   pickerOpen: boolean;
   openPicker: () => void;
   closePicker: () => void;
@@ -127,7 +127,7 @@ export function usePoolEditor(options: PoolEditorOptions): PoolEditor {
   const enabled = options.variant === "lobby" ? options.enabled !== false : true;
 
   const [cubes, setCubes] = React.useState<CubeOption[] | null>(null);
-  const [userId, setUserId] = React.useState<string | null>(null);
+  const [userId, setUserId] = React.useState<number | null>(null);
   const [mode, setModeState] = React.useState<Mode>("scratch");
   const [pickerOpen, setPickerOpen] = React.useState(false);
   const [picking, setPicking] = React.useState<number | null>(null);
@@ -201,7 +201,7 @@ export function usePoolEditor(options: PoolEditorOptions): PoolEditor {
           const meta: BaseMeta = {
             cubeId: source.cubeId,
             name: option?.name ?? source.cubeName,
-            creatorId: option?.createdByUserId ?? "",
+            creatorId: option?.createdByUserId ?? null,
             creatorName: option?.createdByName ?? null,
             canEdit: option?.canEdit ?? false,
             extraCount: detail.extraCount,
@@ -356,6 +356,7 @@ export function usePoolEditor(options: PoolEditorOptions): PoolEditor {
 
   const saveAsNew = React.useCallback(
     async (rawName: string): Promise<SaveResult> => {
+      if (userId === null) return { ok: false, error: "Sign in to save a cube." };
       const name = rawName.trim();
       if (!name) return { ok: false, error: "Give the cube a name." };
       const taken = (cubes ?? []).some((c) => c.name.trim().toLowerCase() === name.toLowerCase());
@@ -373,7 +374,7 @@ export function usePoolEditor(options: PoolEditorOptions): PoolEditor {
         const meta: BaseMeta = {
           cubeId: saved.id,
           name: saved.name,
-          creatorId: userId ?? "",
+          creatorId: saved.createdByUserId,
           creatorName: null,
           canEdit: true,
           extraCount: from?.extraCount ?? 0,
@@ -382,7 +383,7 @@ export function usePoolEditor(options: PoolEditorOptions): PoolEditor {
         const option: CubeOption = {
           id: saved.id,
           name: saved.name,
-          createdByUserId: userId ?? "",
+          createdByUserId: saved.createdByUserId,
           createdByName: null,
           canEdit: true,
           draftType: null,

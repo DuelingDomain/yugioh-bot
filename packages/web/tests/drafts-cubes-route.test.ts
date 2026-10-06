@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -19,10 +20,11 @@ async function seedBlankThemeDraft() {
   const { migrate } = await import("@yugidraft/shared/db");
   const db = new Database(dbPath);
   migrate(db);
-  db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('guild-1','u1','P1')").run();
+  seedFixtureUsers(db, FIXTURE_KEYS);
+  db.prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('guild-1', ${fixtureUserId("u1")}, '${fixtureDiscordId("u1")}', 'P1')`).run();
   const config = { mode: "theme", allowedCubeIds: [], themePackSize: 3, cardsPerPlayer: 40, extraDeckEnabled: false, pickSeconds: 45 };
   db.prepare(
-    "insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug, current_wave_number, current_pick_step) values ('guild-1','c','Theme Night','pending','u1',?,?,0,0)",
+    `insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug, current_wave_number, current_pick_step) values ('guild-1', 'c', 'Theme Night', 'pending', ${fixtureUserId("u1")}, ?, ?, 0, 0)`,
   ).run(JSON.stringify(config), "theme-slug");
   db.close();
 }
@@ -31,7 +33,7 @@ describe("POST/DELETE /api/drafts/[slug]/cubes (draft cubes)", () => {
   beforeEach(() => {
     vi.resetModules();
     auth.mockReset();
-    auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1"), name: "P1" } });
   });
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -99,7 +101,7 @@ describe("POST/DELETE /api/drafts/[slug]/cubes (draft cubes)", () => {
     const Database = (await import("better-sqlite3")).default;
     const seed = new Database(process.env.DATABASE_PATH!);
     const libCubeId = Number(
-      seed.prepare("insert into cubes (guild_id, name, created_by_user_id, created_at, updated_at) values ('guild-1','Goat format','u1','t','t')").run().lastInsertRowid,
+      seed.prepare(`insert into cubes (guild_id, name, created_by_user_id, created_at, updated_at) values ('guild-1', 'Goat format', ${fixtureUserId("u1")}, 't', 't')`).run().lastInsertRowid,
     );
     seed.close();
 
@@ -135,7 +137,7 @@ describe("POST/DELETE /api/drafts/[slug]/cubes (draft cubes)", () => {
 
   it("rejects a non-host", async () => {
     await seedBlankThemeDraft();
-    auth.mockResolvedValue({ user: { id: "someone-else" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("someone-else")), discordUserId: fixtureDiscordId("someone-else") } });
     const { POST } = await import("../app/api/drafts/[slug]/cubes/route");
     const res = await POST(
       new Request("http://localhost/api/drafts/theme-slug/cubes", { method: "POST", body: JSON.stringify({ kind: "blank", name: "X" }) }) as any,
@@ -144,3 +146,8 @@ describe("POST/DELETE /api/drafts/[slug]/cubes (draft cubes)", () => {
     expect(res.status).toBe(403);
   }, 30000);
 });
+
+const FIXTURE_KEYS = ["u1", "someone-else"] as const;
+
+// Membership is a dependency of these routes; authorization still runs through the real web boundary.
+vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));

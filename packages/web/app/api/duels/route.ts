@@ -112,7 +112,7 @@ export async function POST(request: NextRequest) {
         const db = getDb();
         const opponent = playerIdentity(db, opponentPlayerId as number);
         const challenger = playerIdentity(db, actor.playerId);
-        if (opponent) {
+        if (opponent?.discordUserId) {
           notified = await sendDuelInvite(
             {
               slug: duel.slug,

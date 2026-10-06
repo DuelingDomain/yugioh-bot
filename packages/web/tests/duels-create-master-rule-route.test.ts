@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import Database from "better-sqlite3";
 import type { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -26,8 +27,9 @@ beforeEach(() => {
   vi.stubEnv("MULTIPLAYER_TABLES", "1");
   db = new Database(":memory:");
   migrate(db);
+  seedFixtureUsers(db, FIXTURE_KEYS);
   const playerId = Number(db.prepare(
-    "insert into players (guild_id, discord_user_id, display_name) values ('g1', 'u1', 'P1')",
+    `insert into players (guild_id, user_id, discord_user_id, display_name) values ('g1', ${fixtureUserId("u1")}, '${fixtureDiscordId("u1")}', 'P1')`,
   ).run().lastInsertRowid);
   requireDuelActor.mockReset().mockResolvedValue({ ok: true, guildId: "g1", playerId, duels: createDuelService(db) });
   callDuelHost.mockReset().mockResolvedValue({
@@ -86,3 +88,8 @@ describe("POST /api/duels Master Rule validation through the shared service", ()
     expect(callDuelHost).not.toHaveBeenCalled();
   });
 });
+
+const FIXTURE_KEYS = ["u1"] as const;
+
+// Membership is a dependency of these routes; authorization still runs through the real web boundary.
+vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));

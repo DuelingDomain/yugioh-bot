@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -22,9 +23,10 @@ function seed() {
   process.env.DUEL_INTERNAL_SECRET = "s3cret";
   const db = new Database(process.env.DATABASE_PATH);
   migrate(db);
-  const insert = db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', ?, ?)");
-  const host = Number(insert.run("u-host", "Yugi").lastInsertRowid);
-  insert.run("u-other", "Kaiba");
+  seedFixtureUsers(db, FIXTURE_KEYS);
+  const insert = db.prepare("insert into players (guild_id, user_id, discord_user_id, display_name) values ('g1', ?, ?, ?)");
+  const host = Number(insert.run(fixtureUserId("u-host"), fixtureDiscordId("u-host"), "Yugi").lastInsertRowid);
+  insert.run(fixtureUserId("u-other"), fixtureDiscordId("u-other"), "Kaiba");
   const duels = createDuelService(db);
   const session = duels.create({ guildId: "g1", organizerPlayerId: host, name: "Table", mode: "normal" });
   return { slug: session.slug };
@@ -44,7 +46,7 @@ describe("POST /api/duels/[slug]/series/first", () => {
   beforeEach(() => {
     vi.resetModules();
     auth.mockReset();
-    auth.mockResolvedValue({ user: { id: "u-host", name: "Yugi" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-host")), discordUserId: fixtureDiscordId("u-host"), name: "Yugi" } });
     hostReply = () => Response.json({ session: { status: "lobby" } });
     // The Discord member check answers 200; the duel host answers with `hostReply`.
     fetchMock = vi.fn(async (url: unknown) => (String(url).startsWith("http://duel.test:4003") ? hostReply() : new Response("{}", { status: 200 })));
@@ -131,3 +133,8 @@ describe("POST /api/duels/[slug]/series/first", () => {
     expect(hostCalls()).toHaveLength(0);
   });
 });
+
+const FIXTURE_KEYS = ["u-host", "u-other"] as const;
+
+// Membership is a dependency of these routes; authorization still runs through the real web boundary.
+vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));

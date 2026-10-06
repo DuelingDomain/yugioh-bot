@@ -1,3 +1,4 @@
+import { fixtureUserId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -16,9 +17,9 @@ async function setupDb() {
   const { migrate } = await import("@yugidraft/shared/db");
   const db = new Database(dbPath);
   migrate(db);
+  seedFixtureUsers(db, FIXTURE_KEYS);
   const ins = db.prepare(
-    `insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug)
-     values ('guild-1', ?, 'round_robin', ?, 'host', ?)`,
+    `insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug) values ('guild-1', ?, 'round_robin', ?, ${fixtureUserId("host")}, ?)`,
   );
   ins.run("Active Cup", "active", "slug-a");
   ins.run("Pending Cup", "pending", "slug-p");
@@ -51,3 +52,8 @@ describe("GET /api/tournaments includes completed", () => {
     expect(json.some((t) => t.status === "cancelled")).toBe(false);
   });
 });
+
+const FIXTURE_KEYS = ["host"] as const;
+
+// Membership is a dependency of these routes; authorization still runs through the real web boundary.
+vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));

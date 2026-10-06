@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "../../fixtures/identity";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
@@ -21,8 +22,9 @@ describe("TournamentsPage", () => {
   beforeEach(() => {
     db = new Database(":memory:");
     migrate(db);
+    seedFixtureUsers(db, FIXTURE_KEYS);
     getDb.mockReturnValue(db);
-    auth.mockResolvedValue({ user: { id: "u1" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1") } });
   });
   afterEach(() => {
     cleanup();
@@ -32,7 +34,7 @@ describe("TournamentsPage", () => {
 
   const add = (name: string, status: string, createdAt: string, slug: string | null = null, format = "round_robin", guild = "g1") =>
     db
-      .prepare("insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug, created_at) values (?, ?, ?, ?, 'u1', ?, ?)")
+      .prepare(`insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug, created_at) values (?, ?, ?, ?, ${fixtureUserId("u1")}, ?, ?)`)
       .run(guild, name, format, status, slug, createdAt);
 
   it("shows the empty state naming /event create", async () => {
@@ -99,3 +101,8 @@ describe("TournamentsPage", () => {
     expect(screen.queryByRole("button", { name: /show all/i })).toBeNull();
   });
 });
+
+const FIXTURE_KEYS = ["u1"] as const;
+
+// Membership is a dependency of these routes; authorization still runs through the real web boundary.
+vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));

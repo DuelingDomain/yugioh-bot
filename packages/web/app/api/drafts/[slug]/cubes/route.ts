@@ -1,6 +1,6 @@
 import { cardFetchErrorResponse } from "@/lib/card-fetch-errors";
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { createCardCatalogService, createDraftService, createCubeService } from "@yugidraft/shared/services";
@@ -14,7 +14,7 @@ async function loadDraft(slug: string) {
   const guildId = env.discordGuildId;
   const row = db
     .prepare("select id, status, created_by_user_id from drafts where web_slug = ? and guild_id = ?")
-    .get(slug, guildId) as { id: number; status: string; created_by_user_id: string } | undefined;
+    .get(slug, guildId) as { id: number; status: string; created_by_user_id: number } | undefined;
   return { db, guildId, row };
 }
 
@@ -26,16 +26,14 @@ function persistAllowedCubeIds(db: ReturnType<typeof getDb>, draftId: number, al
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ slug: string }> }) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const actor = await requireWebAccess();
+  if (!actor.ok) return actor.response;
   const { slug } = await params;
   const { db, row } = await loadDraft(slug);
   if (!row) {
     return NextResponse.json({ error: "Draft not found" }, { status: 404 });
   }
-  if (row.created_by_user_id !== session.user.id) {
+  if (row.created_by_user_id !== actor.userId) {
     return NextResponse.json({ error: "Only the host can edit cubes" }, { status: 403 });
   }
   if (row.status !== "pending") {
@@ -62,7 +60,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
       if (!archetype) {
         return NextResponse.json({ error: "archetype is required" }, { status: 400 });
       }
-      cube = await cubes.createFromArchetype(guildId, archetype, session.user.id, {
+      cube = await cubes.createFromArchetype(guildId, archetype, actor.userId, {
         name: archetype,
       });
     } else if (body.kind === "existing") {
@@ -85,7 +83,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
       if (!name) {
         return NextResponse.json({ error: "name is required" }, { status: 400 });
       }
-      cube = cubes.createBlank(guildId, name, session.user.id);
+      cube = cubes.createBlank(guildId, name, actor.userId);
     }
     // A cube made inside a theme draft is for theme drafts. An attached library cube keeps its type.
     if (body.kind !== "existing") setCubeDraftType(db, cube.id, "theme");
@@ -117,16 +115,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
 }
 
 export async function DELETE(request: Request, { params }: { params: Promise<{ slug: string }> }) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const actor = await requireWebAccess();
+  if (!actor.ok) return actor.response;
   const { slug } = await params;
   const { db, row } = await loadDraft(slug);
   if (!row) {
     return NextResponse.json({ error: "Draft not found" }, { status: 404 });
   }
-  if (row.created_by_user_id !== session.user.id) {
+  if (row.created_by_user_id !== actor.userId) {
     return NextResponse.json({ error: "Only the host can edit cubes" }, { status: 403 });
   }
   if (row.status !== "pending") {

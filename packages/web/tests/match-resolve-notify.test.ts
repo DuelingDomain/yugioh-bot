@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -19,10 +20,11 @@ function scenario() {
   process.env.DISCORD_GUILD_ID = "g1";
   const db = new Database(process.env.DATABASE_PATH);
   migrate(db);
-  const aId = Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1','u-a','A')").run().lastInsertRowid);
-  const bId = Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1','u-b','B')").run().lastInsertRowid);
+  seedFixtureUsers(db, FIXTURE_KEYS);
+  const aId = Number(db.prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('g1', ${fixtureUserId("u-a")}, '${fixtureDiscordId("u-a")}', 'A')`).run().lastInsertRowid);
+  const bId = Number(db.prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('g1', ${fixtureUserId("u-b")}, '${fixtureDiscordId("u-b")}', 'B')`).run().lastInsertRowid);
   const t = createTournamentService(db);
-  const tour = t.create("g1", "RR", "round_robin", "u-creator");
+  const tour = t.create("g1", "RR", "round_robin", fixtureUserId("u-creator"));
   db.prepare("update tournaments set web_slug = 'slug1' where id = ?").run(tour.id);
   t.join(tour.id, aId); t.join(tour.id, bId); t.start(tour.id);
   const tm = db.prepare("select * from tournament_matches where tournament_id = ?").get(tour.id) as any;
@@ -35,7 +37,7 @@ describe("approve/deny emit match-resolved", () => {
     vi.resetModules();
     auth.mockReset();
     announcer.announce.mockClear();
-    auth.mockResolvedValue({ user: { id: "u-b", name: "B" } }); // opponent resolves
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-b")), discordUserId: fixtureDiscordId("u-b"), name: "B" } }); // opponent resolves
   });
   afterEach(() => {
     delete process.env.DATABASE_PATH;
@@ -63,3 +65,8 @@ describe("approve/deny emit match-resolved", () => {
     );
   });
 });
+
+const FIXTURE_KEYS = ["u-a", "u-b", "u-creator"] as const;
+
+// Membership is a dependency of these routes; authorization still runs through the real web boundary.
+vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));

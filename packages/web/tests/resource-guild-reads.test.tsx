@@ -1,3 +1,4 @@
+import { seedFixtureUsers, fixtureUserId, fixtureDiscordId } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -13,19 +14,20 @@ let db: ReturnType<typeof getDb>;
 describe("resource reads stay in the configured guild", () => {
   beforeEach(async () => {
     vi.resetModules();
-    auth.mockResolvedValue({ user: { id: "host", name: "Host" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("host")), discordUserId: fixtureDiscordId("host"), name: "Host" } });
     tempDir = mkdtempSync(join(tmpdir(), "yugioh-guild-reads-"));
     vi.stubEnv("DATABASE_PATH", join(tempDir, "test.sqlite"));
     vi.stubEnv("DISCORD_GUILD_ID", "local");
     db = (await import("../src/lib/db")).getDb();
+    seedFixtureUsers(db, FIXTURE_KEYS);
     // Foreign rows go first, including the same Discord user in both guilds.
     for (const guild of ["foreign", "local"]) {
-      const player = Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values (?, 'host', ?)").run(guild, `${guild} player`).lastInsertRowid);
-      const opponent = Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values (?, 'guest', ?)").run(guild, `${guild} guest`).lastInsertRowid);
+      const player = Number(db.prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values (?, ${fixtureUserId("host")}, '${fixtureDiscordId("host")}', ?)`).run(guild, `${guild} player`).lastInsertRowid);
+      const opponent = Number(db.prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values (?, ${fixtureUserId("guest")}, '${fixtureDiscordId("guest")}', ?)`).run(guild, `${guild} guest`).lastInsertRowid);
       for (const status of ["pending", "active", "completed"]) {
-        const tournament = Number(db.prepare("insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug) values (?, ?, 'round_robin', ?, 'host', ?)").run(guild, `${guild} tournament ${status}`, status, `${guild}-${status}`).lastInsertRowid);
+        const tournament = Number(db.prepare(`insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug) values (?, ?, 'round_robin', ?, ${fixtureUserId("host")}, ?)`).run(guild, `${guild} tournament ${status}`, status, `${guild}-${status}`).lastInsertRowid);
         db.prepare("insert into tournament_participants (tournament_id, player_id) values (?, ?)").run(tournament, player);
-        const draft = Number(db.prepare("insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug) values (?, 'c', ?, ?, 'host', '{}', ?)").run(guild, `${guild} draft ${status}`, status, `${guild}-${status}`).lastInsertRowid);
+        const draft = Number(db.prepare(`insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug) values (?, 'c', ?, ?, ${fixtureUserId("host")}, '{}', ?)`).run(guild, `${guild} draft ${status}`, status, `${guild}-${status}`).lastInsertRowid);
         db.prepare("insert into draft_players (draft_id, player_id) values (?, ?)").run(draft, player);
       }
       db.prepare("insert into matches (guild_id, player_one_id, player_two_id, winner_id, reporter_id, status, source) values (?, ?, ?, ?, ?, 'approved', 'casual')").run(guild, player, opponent, player, player);
@@ -105,3 +107,8 @@ describe("resource reads stay in the configured guild", () => {
   });
 
 });
+
+const FIXTURE_KEYS = ["host", "guest"] as const;
+
+// Membership is a dependency of these routes; authorization still runs through the real web boundary.
+vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "../../fixtures/identity";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
@@ -22,9 +23,10 @@ describe("DraftsPage", () => {
   beforeEach(() => {
     db = new Database(":memory:");
     migrate(db);
+    seedFixtureUsers(db, FIXTURE_KEYS);
     getDb.mockReturnValue(db);
-    auth.mockResolvedValue({ user: { id: "u1" } });
-    playerId = Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1','u1','Me')").run().lastInsertRowid);
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1") } });
+    playerId = Number(db.prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('g1', ${fixtureUserId("u1")}, '${fixtureDiscordId("u1")}', 'Me')`).run().lastInsertRowid);
   });
   afterEach(() => {
     cleanup();
@@ -38,14 +40,15 @@ describe("DraftsPage", () => {
     const id = Number(
       db
         .prepare(
-          "insert into drafts (guild_id, channel_id, created_by_user_id, name, status, web_slug, config_json, current_wave_number, current_pick_step, created_at, ended_at) values (?,'c','u1',?,?,?,?,?,?,?,?)",
+          `insert into drafts (guild_id, channel_id, created_by_user_id, name, status, web_slug, config_json, current_wave_number, current_pick_step, created_at, ended_at) values (?, 'c', ${fixtureUserId("u1")}, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(o.guild ?? "g1", name, status, o.slug === undefined ? `s${n}` : o.slug, JSON.stringify(o.config ?? {}), o.wave ?? 0, o.pick ?? 0, o.createdAt ?? "2026-09-01 00:00:00", o.endedAt ?? null)
         .lastInsertRowid,
     );
     if (o.joined !== false) db.prepare("insert into draft_players (draft_id, player_id) values (?, ?)").run(id, playerId);
     for (let i = 1; i < (o.players ?? 1); i++) {
-      const pid = Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', ?, ?)").run(`x${n}-${i}`, `P${i}`).lastInsertRowid);
+      seedFixtureUsers(db, [`x${n}-${i}`]);
+      const pid = Number(db.prepare("insert into players (guild_id, user_id, discord_user_id, display_name) values ('g1', ?, ?, ?)").run(fixtureUserId(`x${n}-${i}`), fixtureDiscordId(`x${n}-${i}`), `P${i}`).lastInsertRowid);
       db.prepare("insert into draft_players (draft_id, player_id) values (?, ?)").run(id, pid);
     }
     return id;
@@ -130,3 +133,8 @@ describe("DraftsPage", () => {
     expect(within(stages).getByText("Extra deck").closest("li")).toHaveAttribute("aria-current", "step");
   });
 });
+
+const FIXTURE_KEYS = ["u1", "Hosting"] as const;
+
+// Membership is a dependency of these routes; authorization still runs through the real web boundary.
+vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));

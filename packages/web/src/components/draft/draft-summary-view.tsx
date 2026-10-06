@@ -37,7 +37,7 @@ interface DraftSummaryViewProps {
     id: number;
     name: string;
     status: string;
-    createdByUserId: string;
+    createdByUserId: number;
     createdAt: string;
     startedAt?: string;
     endedAt?: string;

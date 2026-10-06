@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
+import { parseUserId } from "@/lib/user-id";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { createScoringService, createSeasonService } from "@yugidraft/shared/services";
@@ -25,7 +26,8 @@ function NotFound() {
 
 export default async function PlayerProfilePage({ params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
-  if (!session?.user?.id) redirect("/login");
+  const userId = parseUserId(session?.user?.id);
+  if (userId === null) redirect("/login");
 
   const { id } = await params;
   const playerId = Number(id);
@@ -41,8 +43,8 @@ export default async function PlayerProfilePage({ params }: { params: Promise<{ 
   if (!playerRow) return <NotFound />;
 
   const me = db
-    .prepare("select id from players where discord_user_id = ? and guild_id = ?")
-    .get(session.user.id, guildId) as { id: number } | undefined;
+    .prepare("select id from players where user_id = ? and guild_id = ?")
+    .get(userId, guildId) as { id: number } | undefined;
   const season = createSeasonService(db).getActive(guildId);
   const hasSeason = Boolean(season);
 

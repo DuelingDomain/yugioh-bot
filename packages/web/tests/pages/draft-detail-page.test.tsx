@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { fixtureUserId, fixtureDiscordId } from "../fixtures/identity";
 import React from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -33,7 +34,7 @@ vi.mock("../../src/lib/hooks/use-draft-expiry-resync", () => ({
 // view is shown without needing full component trees.
 // ---------------------------------------------------------------------------
 vi.mock("../../src/components/draft/draft-manage-view", () => ({
-  DraftManageView: () => <div data-testid="draft-manage-view">Manage</div>,
+  DraftManageView: ({ isCreator }: { isCreator: boolean }) => <div data-testid="draft-manage-view" data-is-creator={String(isCreator)}>Manage</div>,
 }));
 vi.mock("../../src/components/draft/draft-summary-view", () => ({
   DraftSummaryView: () => <div data-testid="draft-summary-view">Summary</div>,
@@ -83,7 +84,7 @@ const activeDraftResponse = {
   id: 1,
   name: "Test Draft",
   status: DRAFT_STATUS.active,
-  createdByUserId: "user-1",
+  createdByUserId: fixtureUserId("user-1"),
   createdAt: "2026-05-06T12:00:00.000Z",
   config: { packSize: 5, packsPerPlayer: 3, pickSeconds: 60, setNames: [] },
   players: [],
@@ -123,7 +124,7 @@ describe("DraftDetailPage — completion transition", () => {
   it("renders the active draft view when status is active", async () => {
     global.fetch = vi.fn().mockImplementation((url: string) => {
       if (url === "/api/auth/session") {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ user: { id: "user-1" } }) } as Response);
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ user: { id: String(fixtureUserId("user-1")), discordUserId: fixtureDiscordId("user-1") } }) } as Response);
       }
       return Promise.resolve({
         ok: true,
@@ -145,7 +146,7 @@ describe("DraftDetailPage — completion transition", () => {
     let calls = 0;
     global.fetch = vi.fn().mockImplementation((url: string) => {
       if (url === "/api/auth/session") {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ user: { id: "user-1" } }) } as Response);
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ user: { id: String(fixtureUserId("user-1")), discordUserId: fixtureDiscordId("user-1") } }) } as Response);
       }
       calls += 1;
       const body = calls === 1 ? activeDraftResponse : completedDraftResponse;
@@ -179,7 +180,7 @@ describe("DraftDetailPage — completion transition", () => {
     let completed = false;
     global.fetch = vi.fn().mockImplementation((url: string) => {
       const body = url === "/api/auth/session"
-        ? { user: { id: userId } }
+        ? { user: { id: String(fixtureUserId(userId)), discordUserId: fixtureDiscordId(userId) } }
         : url === "/api/drafts/test-draft/pool"
           ? { cards: [] }
           : completed
@@ -203,7 +204,7 @@ describe("DraftDetailPage — completion transition", () => {
     let completed = false;
     global.fetch = vi.fn().mockImplementation((url: string) => {
       const body = url === "/api/auth/session"
-        ? { user: { id: "user-1" } }
+        ? { user: { id: String(fixtureUserId("user-1")), discordUserId: fixtureDiscordId("user-1") } }
         : url === "/api/drafts/test-draft/pool"
           ? { cards: [] }
           : completed
@@ -232,7 +233,7 @@ describe("DraftDetailPage — completion transition", () => {
       if (url === "/api/auth/session") {
         return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve({ user: { id: "user-1" } }),
+          json: () => Promise.resolve({ user: { id: String(fixtureUserId("user-1")), discordUserId: fixtureDiscordId("user-1") } }),
         } as Response);
       }
       // Pool image-prefetch endpoint (fires while active) — not the draft-detail
@@ -286,7 +287,7 @@ describe("DraftDetailPage — completion transition", () => {
 
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       if (url === "/api/auth/session") {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ user: { id: "user-1" } }) } as Response);
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ user: { id: String(fixtureUserId("user-1")), discordUserId: fixtureDiscordId("user-1") } }) } as Response);
       }
       return Promise.resolve({
         ok: true,
@@ -338,7 +339,7 @@ describe("DraftDetailPage — completion transition", () => {
 
     global.fetch = vi.fn().mockImplementation((url: string) => {
       if (url === "/api/auth/session") {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ user: { id: "user-1" } }) } as Response);
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ user: { id: String(fixtureUserId("user-1")), discordUserId: fixtureDiscordId("user-1") } }) } as Response);
       }
       return Promise.resolve({
         ok: true,
@@ -361,7 +362,7 @@ describe("DraftDetailPage — completion transition", () => {
 
     global.fetch = vi.fn().mockImplementation((url: string) => {
       if (url === "/api/auth/session") {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ user: { id: "user-1" } }) } as Response);
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ user: { id: String(fixtureUserId("user-1")), discordUserId: fixtureDiscordId("user-1") } }) } as Response);
       }
       if (url === "/api/drafts/test-draft") {
         draftApiCallCount += 1;
@@ -394,7 +395,7 @@ describe("DraftDetailPage — completion transition", () => {
 
     global.fetch = vi.fn().mockImplementation((url: string) => {
       if (url === "/api/auth/session") {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ user: { id: "user-1" } }) } as Response);
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ user: { id: String(fixtureUserId("user-1")), discordUserId: fixtureDiscordId("user-1") } }) } as Response);
       }
       if (url === "/api/drafts/test-draft") {
         draftApiCallCount += 1;
@@ -432,7 +433,7 @@ describe("DraftDetailPage — load failures", () => {
   const respondWith = (status: number, body: unknown) =>
     vi.fn().mockImplementation((url: string) => {
       if (url === "/api/auth/session") {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ user: { id: "user-2" } }) } as Response);
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ user: { id: String(fixtureUserId("user-2")), discordUserId: fixtureDiscordId("user-2") } }) } as Response);
       }
       return Promise.resolve({ ok: false, status, json: () => Promise.resolve(body) } as Response);
     });
@@ -490,7 +491,7 @@ describe("DraftDetailPage — load failures", () => {
     let draftCalls = 0;
     global.fetch = vi.fn().mockImplementation((url: string) => {
       if (url === "/api/auth/session") {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ user: { id: "user-1" } }) } as Response);
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ user: { id: String(fixtureUserId("user-1")), discordUserId: fixtureDiscordId("user-1") } }) } as Response);
       }
       draftCalls += 1;
       if (draftCalls === 1) {
@@ -511,4 +512,14 @@ describe("DraftDetailPage — load failures", () => {
     expect(screen.getByTestId("draft-room")).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "This draft didn't load" })).toBeNull();
   });
+});
+
+const FIXTURE_KEYS = ["user-1", "user-2", "admin-9"] as const;
+
+it.each([[101, true], [102, false]] as const)("session 101 owns the pending draft only for API creator %i", async (creator, controls) => {
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => Response.json(url === "/api/auth/session"
+    ? { user: { id: "101", discordUserId: "900000000000000101" } }
+    : { ...activeDraftResponse, status: "pending", createdByUserId: creator })));
+  render(<DraftDetailPage />);
+  await waitFor(() => expect(screen.getByTestId("draft-manage-view")).toHaveAttribute("data-is-creator", String(controls)));
 });

@@ -1,7 +1,7 @@
 import { withCardFetchErrors } from "@/lib/card-fetch-errors";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
 import { cubeReferenceAccess } from "@/lib/cube-access";
 import { env } from "@/lib/env";
 import { analyzeCube, prepareBoosterPool, themeDraftNumberError, createCardCatalogService, createDraftService, createPlayerService } from "@yugidraft/shared/services";
@@ -15,17 +15,15 @@ export const runtime = "nodejs";
 
 export async function GET() {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const actor = await requireWebAccess();
+    if (!actor.ok) return actor.response;
 
-    const discordUserId = session.user.id;
+    const userId = actor.userId;
     const db = getDb();
 
     const playerRows = db
-      .prepare("select id from players where discord_user_id = ? and guild_id = ?")
-      .all(discordUserId, env.discordGuildId) as Array<{ id: number }>;
+      .prepare("select id from players where user_id = ? and guild_id = ?")
+      .all(userId, env.discordGuildId) as Array<{ id: number }>;
 
     const playerIds = playerRows.map((r) => r.id);
 
@@ -106,10 +104,8 @@ export async function GET() {
 }
 
 async function handlePOST(request: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const actor = await requireWebAccess();
+  if (!actor.ok) return actor.response;
 
   const body = await request.json();
   const { name, channelId, config: rawConfig } = body as {
@@ -142,7 +138,7 @@ async function handlePOST(request: NextRequest) {
       return NextResponse.json({ error: "name is required" }, { status: 400 });
     }
     const players = createPlayerService(db);
-    const player = players.findOrCreate(guildId, session.user.id, session.user.name ?? "Unknown");
+    const player = players.findOrCreate(guildId, actor.userId, actor.userName);
     const assignmentError = hostThemeAssignmentError(db, guildId, config, [player.id]);
     if (assignmentError) {
       return NextResponse.json({ error: assignmentError }, { status: 400 });
@@ -153,17 +149,19 @@ async function handlePOST(request: NextRequest) {
       resolvedChannelId,
       name,
       { ...config, allowedCubeIds: config.allowedCubeIds ?? [] },
-      session.user.id,
+      actor.userId,
       player.id,
     );
 
-    void announcer.announce({
-      kind: "draft-created",
-      draftId: draft.id,
-      channelId: draft.channelId,
-      name: draft.name,
-      webSlug: draft.webSlug ?? "",
-    });
+    if (draft.channelId && draft.webSlug) {
+      void announcer.announce({
+        kind: "draft-created",
+        draftId: draft.id,
+        channelId: draft.channelId,
+        name: draft.name,
+        webSlug: draft.webSlug ?? "",
+      });
+    }
 
     return NextResponse.json(
       { id: draft.id, name: draft.name, status: draft.status, webSlug: draft.webSlug, warnings: [], errors: [] },
@@ -179,7 +177,7 @@ async function handlePOST(request: NextRequest) {
   }
 
   const players = createPlayerService(db);
-  const player = players.findOrCreate(guildId, session.user.id, session.user.name ?? "Unknown");
+  const player = players.findOrCreate(guildId, actor.userId, actor.userName);
   const drafts = createDraftService(db);
 
   const cards = createCardCatalogService(db);
@@ -216,19 +214,21 @@ async function handlePOST(request: NextRequest) {
     resolvedChannelId,
     name,
     configWithPool,
-    session.user.id,
+    actor.userId,
     player.id,
   );
 
-  void announcer.announce(
-    {
-      kind: "draft-created",
-      draftId: draft.id,
-      channelId: draft.channelId,
-      name: draft.name,
-      webSlug: draft.webSlug ?? "",
-    },
-  );
+  if (draft.channelId && draft.webSlug) {
+    void announcer.announce(
+      {
+        kind: "draft-created",
+        draftId: draft.id,
+        channelId: draft.channelId,
+        name: draft.name,
+        webSlug: draft.webSlug ?? "",
+      },
+    );
+  }
 
   return NextResponse.json(
     {

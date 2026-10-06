@@ -10,6 +10,7 @@ import { WelcomePanel } from "@/components/dashboard/welcome-panel";
 import { DashboardDate } from "@/components/dashboard/dashboard-date";
 import styles from "@/components/dashboard/dashboard.module.css";
 import { auth } from "@/lib/auth";
+import { parseUserId } from "@/lib/user-id";
 import { getDb } from "@/lib/db";
 import { createScoringService } from "@yugidraft/shared/services";
 import { RejoinDraftBanner } from "@/components/draft/rejoin-draft";
@@ -22,14 +23,14 @@ interface Stats {
 
 export default async function DashboardPage() {
   const session = await auth();
-  if (!session?.user?.id) redirect("/login");
+  const userId = parseUserId(session?.user?.id);
+  if (userId === null) redirect("/login");
 
-  const discordUserId = session.user.id;
   const db = getDb();
 
   const playerRows = db
-    .prepare("select id, guild_id from players where discord_user_id = ? and guild_id = ?")
-    .all(discordUserId, env.discordGuildId) as Array<{ id: number; guild_id: string }>;
+    .prepare("select id, guild_id from players where user_id = ? and guild_id = ?")
+    .all(userId, env.discordGuildId) as Array<{ id: number; guild_id: string }>;
   const playerIds = playerRows.map((r) => r.id);
 
   let tournaments: DashboardTournament[] = [];
@@ -134,7 +135,7 @@ export default async function DashboardPage() {
   const hasPlayer = playerIds.length > 0;
   const rounds = loadTournamentRounds(db, env.discordGuildId, tournaments);
   const viewerId = playerIds[0] ?? null;
-  const rejoin = hasPlayer ? findRejoinDrafts(db, env.discordGuildId, discordUserId) : [];
+  const rejoin = hasPlayer ? findRejoinDrafts(db, env.discordGuildId, userId) : [];
 
   return (
     <PageFrame title="Dashboard" sub={hasPlayer ? <DashboardDate /> : undefined}>

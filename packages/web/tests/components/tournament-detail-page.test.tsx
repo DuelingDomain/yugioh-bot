@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { fixtureUserId, fixtureDiscordId } from "../fixtures/identity";
 import React from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -27,7 +28,7 @@ const SLUG = "/api/tournaments/friday-night-12";
 
 function setup(data: TournamentDetail = sheetTournament, userId = "host") {
   const fetchMock = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
-    if (String(url) === "/api/auth/session") return Response.json({ user: { id: userId } });
+    if (String(url) === "/api/auth/session") return Response.json({ user: { id: String(fixtureUserId(userId)), discordUserId: fixtureDiscordId(userId) } });
     if (String(url) === "/api/leaderboard?scope=all") return Response.json({ rows: sheetRatings });
     if (String(url) === SLUG && !init?.method) return Response.json(data);
     return Response.json({});
@@ -83,7 +84,7 @@ describe("TournamentDetailPage one sheet", () => {
   });
 
   it("gives another viewer no host tools and no deck state", async () => {
-    setup({ ...sheetTournament, createdByUserId: "somebody-else" }, "spectator");
+    setup({ ...sheetTournament, createdByUserId: fixtureUserId("somebody-else") }, "spectator");
     render(<TournamentDetailPage />);
     await ready();
     expect(screen.queryByRole("button", { name: "Host tools" })).toBeNull();
@@ -199,7 +200,7 @@ describe("TournamentDetailPage one sheet", () => {
     await screen.findByRole("heading", { name: sheetTournament.name });
     expect(screen.queryByRole("button", { name: "Host tools" })).toBeNull();
     first.unmount();
-    setup({ ...sheetTournament, status: "completed", createdByUserId: "somebody-else" }, "spectator");
+    setup({ ...sheetTournament, status: "completed", createdByUserId: fixtureUserId("somebody-else") }, "spectator");
     render(<TournamentDetailPage />);
     await screen.findByRole("heading", { name: sheetTournament.name });
     expect(screen.queryByRole("button", { name: "Host tools" })).toBeNull();
@@ -399,7 +400,7 @@ describe("TournamentDetailPage one sheet", () => {
   it("keeps a ratings failure separate from a tournament refresh failure", async () => {
     const fetchMock = setup();
     fetchMock.mockImplementation(async (url) => {
-      if (String(url) === "/api/auth/session") return Response.json({ user: { id: "host" } });
+      if (String(url) === "/api/auth/session") return Response.json({ user: { id: String(fixtureUserId("host")), discordUserId: fixtureDiscordId("host") } });
       if (String(url) === SLUG) return Response.json(sheetTournament);
       if (String(url) === "/api/leaderboard?scope=all") return Response.json({}, { status: 500 });
       return Response.json({});
@@ -452,4 +453,18 @@ describe("old ?tab= links", () => {
     await act(async () => {});
     expect(scrolls).toHaveLength(1);
   });
+});
+
+const FIXTURE_KEYS = ["somebody-else", "host", "player-deck-marker-3", "players"] as const;
+
+// The API owner is numeric while NextAuth serializes the session owner as text.
+it.each([[101, true], [102, false]] as const)("session 101 sees host controls only for API creator %i", async (creator, controls) => {
+  vi.stubGlobal("fetch", vi.fn(async (url: RequestInfo | URL) => {
+    if (String(url) === "/api/auth/session") return Response.json({ user: { id: "101", discordUserId: "900000000000000101" } });
+    if (String(url) === "/api/leaderboard?scope=all") return Response.json({ rows: sheetRatings });
+    return Response.json({ ...sheetTournament, createdByUserId: creator });
+  }));
+  render(<TournamentDetailPage />);
+  await ready();
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Host tools" }) !== null).toBe(controls));
 });

@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -31,16 +32,17 @@ async function createCompletedDraftWithDeal(status = "completed", withPass = fal
   const { createDraftService, createPlayerService } = await import("@yugidraft/shared/services");
   const db = new Database(dbPath);
   migrate(db);
+  seedFixtureUsers(db, FIXTURE_KEYS);
 
   const players = createPlayerService(db);
-  const creator = players.findOrCreate("guild-1", "creator-user", "Yugi");
+  const creator = players.findOrCreate("guild-1", fixtureUserId("creator-user"), "Yugi");
   const drafts = createDraftService(db);
   const draft = drafts.create(
     "guild-1",
     "channel-1",
     "completed deal draft",
     { setNames: ["Metal Raiders"], packSize: 2, packsPerPlayer: 1 },
-    "creator-user",
+    fixtureUserId("creator-user"),
     creator.id,
   );
 
@@ -68,7 +70,7 @@ describe("DELETE /api/drafts/[slug]", () => {
     vi.resetModules();
     auth.mockReset();
     broadcaster.draft.mockReset();
-    auth.mockResolvedValue({ user: { id: "creator-user", name: "Yugi" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("creator-user")), discordUserId: fixtureDiscordId("creator-user"), name: "Yugi" } });
   });
 
   afterEach(() => {
@@ -138,20 +140,21 @@ describe("DELETE /api/drafts/[slug]", () => {
     const { createDraftService, createPlayerService } = await import("@yugidraft/shared/services");
     const db = new Database(dbPath);
     migrate(db);
+    seedFixtureUsers(db, FIXTURE_KEYS);
 
     const players = createPlayerService(db);
-    const creator = players.findOrCreate("guild-1", "creator-user", "Yugi");
+    const creator = players.findOrCreate("guild-1", fixtureUserId("creator-user"), "Yugi");
     const drafts = createDraftService(db);
     const draft = drafts.create(
       "guild-1",
       "channel-1",
       "completed theme draft",
       { mode: "theme", allowedCubeIds: [] },
-      "creator-user",
+      fixtureUserId("creator-user"),
       creator.id,
     );
     const cubeId = Number(
-      db.prepare("insert into cubes (guild_id, name, created_by_user_id, created_at, updated_at) values ('guild-1','Blue-Eyes','creator-user','t','t')").run().lastInsertRowid,
+      db.prepare(`insert into cubes (guild_id, name, created_by_user_id, created_at, updated_at) values ('guild-1', 'Blue-Eyes', ${fixtureUserId("creator-user")}, 't', 't')`).run().lastInsertRowid,
     );
     // FK row that previously blocked deletion.
     db.prepare("insert into draft_player_cube (draft_id, player_id, cube_id) values (?, ?, ?)").run(draft.id, creator.id, cubeId);
@@ -178,3 +181,8 @@ describe("DELETE /api/drafts/[slug]", () => {
     expect(cubeRow).toBeTruthy(); // the reusable cube itself survives
   });
 });
+
+const FIXTURE_KEYS = ["creator-user"] as const;
+
+// Membership is a dependency of these routes; authorization still runs through the real web boundary.
+vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));

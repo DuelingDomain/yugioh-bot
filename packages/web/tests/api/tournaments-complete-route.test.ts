@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "../fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -13,9 +14,10 @@ function seedActive(dbPath: string) {
     const { migrate } = await import("../../../shared/src/db/schema");
     const seedDb = new Database(dbPath);
     migrate(seedDb);
+    seedFixtureUsers(seedDb, FIXTURE_KEYS);
     seedDb
       .prepare(
-        "insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug) values ('g1','T','round_robin','active','u-org','slug-1')",
+        `insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug) values ('g1', 'T', 'round_robin', 'active', ${fixtureUserId("u-org")}, 'slug-1')`,
       )
       .run();
     seedDb.close();
@@ -27,7 +29,7 @@ describe("POST /api/tournaments/[slug]/complete", () => {
     vi.resetModules();
     vi.stubEnv("DISCORD_GUILD_ID", "g1");
     auth.mockReset();
-    auth.mockResolvedValue({ user: { id: "u-org", name: "Org" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-org")), discordUserId: fixtureDiscordId("u-org"), name: "Org" } });
   });
 
   afterEach(() => {
@@ -77,9 +79,10 @@ describe("POST /api/tournaments/[slug]/complete", () => {
     const { migrate } = await import("../../../shared/src/db/schema");
     const seedDb = new Database(dbPath);
     migrate(seedDb);
+    seedFixtureUsers(seedDb, FIXTURE_KEYS);
     seedDb
       .prepare(
-        "insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug) values ('g1','T','round_robin','pending','u-org','slug-1')",
+        `insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug) values ('g1', 'T', 'round_robin', 'pending', ${fixtureUserId("u-org")}, 'slug-1')`,
       )
       .run();
     seedDb.close();
@@ -100,7 +103,7 @@ describe("POST /api/tournaments/[slug]/complete", () => {
     tempDirs.push(tempDir);
     process.env.DATABASE_PATH = dbPath;
     await seedActive(dbPath);
-    auth.mockResolvedValue({ user: { id: "u-someone-else", name: "Nope" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-someone-else")), discordUserId: fixtureDiscordId("u-someone-else"), name: "Nope" } });
 
     const { POST } = await import("../../app/api/tournaments/[slug]/complete/route");
     const res = await POST(
@@ -110,3 +113,8 @@ describe("POST /api/tournaments/[slug]/complete", () => {
     expect(res.status).toBe(403);
   });
 });
+
+const FIXTURE_KEYS = ["u-org", "u-someone-else"] as const;
+
+// Membership is a dependency of these routes; authorization still runs through the real web boundary.
+vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));

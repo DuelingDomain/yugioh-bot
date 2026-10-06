@@ -17,7 +17,7 @@ interface TournamentLobbyProps {
   tournament: TournamentDetail;
   tournamentSlug: string;
   isCreator: boolean;
-  currentUserId: string | null;
+  currentUserId: number | null;
   onChanged: () => void;
   ratings?: PlayerRatings;
 }
