@@ -346,6 +346,35 @@ describe("useViewZoom on a board", () => {
     expect(zoom!.view.y).toBeCloseTo(BOX.height * (1 - s), 1);
   });
 
+  it("keeps a refit that comes during a drag: the next move uses the new insets", () => {
+    let hudOn = true;
+    const rect = (x: number, y: number, width: number, height: number) => ({ left: x, top: y, right: x + width, bottom: y + height, width, height, x, y, toJSON: () => ({}) }) as DOMRect;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      if (this.dataset.zoomOccluder != null) return hudOn ? rect(0, 540, BOX.width, 60) : rect(0, 0, 0, 0);
+      return rect(0, 0, BOX.width, BOX.height);
+    });
+    let zoom: ReturnType<typeof useViewZoom> | null = null;
+    const { getByTestId } = render(<Board onZone={() => undefined} onBoard={() => undefined} hud onZoom={(z) => (zoom = z)} />);
+    const root = getByTestId("root");
+    act(() => {
+      root.dispatchEvent(new WheelEvent("wheel", { deltaY: -240, clientX: 500, clientY: 300, bubbles: true, cancelable: true, ctrlKey: true }));
+    });
+    const floor = getByTestId("floor");
+    act(() => {
+      fireEvent.pointerDown(floor, { pointerId: 1, button: 0, clientX: 500, clientY: 300, pointerType: "mouse" });
+      fireEvent.pointerMove(floor, { pointerId: 1, clientX: 500, clientY: -3000, pointerType: "mouse" });
+    });
+    // The HUD goes in the middle of the drag; the refit takes the board to the new limit.
+    hudOn = false;
+    act(() => zoom!.refit());
+    act(() => {
+      fireEvent.pointerMove(floor, { pointerId: 1, clientX: 500, clientY: -3010, pointerType: "mouse" });
+      fireEvent.pointerUp(floor, { pointerId: 1, clientX: 500, clientY: -3010, pointerType: "mouse" });
+    });
+    const s = zoom!.view.s;
+    expect(zoom!.view.y).toBeCloseTo(BOX.height * (1 - s), 1);
+  });
+
   it("reads the HUD once per gesture, not on every move of a drag", () => {
     const { getByTestId } = render(<Board onZone={() => undefined} onBoard={() => undefined} hud />);
     const root = getByTestId("root");

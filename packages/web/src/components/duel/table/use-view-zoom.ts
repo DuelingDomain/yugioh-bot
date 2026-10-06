@@ -73,6 +73,9 @@ const AFTER_DRAG_MS = 400;
 /** Wheel events this close together are one gesture: the HUD insets are read at its first event only. */
 const WHEEL_GESTURE_MS = 250;
 
+/** The box and the HUD insets one gesture works with. */
+type Held = { box: ReturnType<typeof sizeOf>; insets: Insets };
+
 export interface UseViewZoomOptions {
   /** The board box: it takes the wheel, the presses and the touches. */
   rootRef: RefObject<HTMLElement | null>;
@@ -114,7 +117,8 @@ const sizeOf = (node: HTMLElement) => ({ width: node.clientWidth, height: node.c
  */
 export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKey, frame = FLAT_FRAME, occluders = VIEW_OCCLUDERS }: UseViewZoomOptions): UseViewZoom {
   const [rest, setRest] = useState<View>(VIEW_IDENTITY);
-  const live = useRef({ current: VIEW_IDENTITY as View, target: VIEW_IDENTITY as View, frame, reducedMotion, enabled, raf: 0, last: 0 });
+  // `held`: the box and the HUD insets a gesture (a drag, a pinch, a wheel run) reads at its start and keeps.
+  const live = useRef({ current: VIEW_IDENTITY as View, target: VIEW_IDENTITY as View, frame, reducedMotion, enabled, raf: 0, last: 0, held: null as Held | null });
   live.current.frame = frame;
   live.current.reducedMotion = reducedMotion;
   live.current.enabled = enabled;
@@ -202,7 +206,10 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
     const root = rootRef.current;
     const state = live.current;
     if (!root || !isZoomed(state.target)) return;
-    const next = clampView(state.target, sizeOf(root), insetsOf(root));
+    // A gesture that is on now keeps these new insets: with its old ones its next move would pull the board back.
+    const held = { box: sizeOf(root), insets: insetsOf(root) };
+    if (state.held) state.held = held;
+    const next = clampView(state.target, held.box, held.insets);
     if (!viewsClose(next, state.target)) go(next, false);
   }, [go, insetsOf, rootRef]);
 
@@ -257,14 +264,15 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
     };
     // The box and the HUD insets are read once at the start of a gesture (a drag, a pinch, a wheel run), not on every
     // move: a read right after a transform write would force a style and layout pass on each frame.
-    let held: { box: ReturnType<typeof sizeOf>; insets: Insets } | null = null;
+    // A refit while a gesture is on gives it the new insets (see refit).
+    state.held = null;
     let wheelAt = -Infinity;
     const readInsets = () => {
-      held = { box: sizeOf(root), insets: insetsOf(root) };
-      return held;
+      state.held = { box: sizeOf(root), insets: insetsOf(root) };
+      return state.held;
     };
-    const box = () => (held ?? readInsets()).box;
-    const insets = () => (held ?? readInsets()).insets;
+    const box = () => (state.held ?? readInsets()).box;
+    const insets = () => (state.held ?? readInsets()).insets;
     const endDrag = () => {
       root.classList.remove(styles.dragging);
       dragEnd = performance.now();
