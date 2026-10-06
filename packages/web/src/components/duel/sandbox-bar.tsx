@@ -6,8 +6,9 @@ import { useRouter } from "next/navigation";
 import { seatCountFor } from "@yugidraft/shared/duels";
 import type { DuelPrompt, DuelRoom, SandboxBoard, SandboxBotMode, SandboxRun } from "@yugidraft/shared/duels";
 import {
-  getDuelRoom, restartSandbox, sandboxGoToPhase, sandboxNextTurn, setSandboxSeatControl,
-  type SandboxView, type SandboxWalkPhase,
+  closeSandbox, eliminateSandboxSeat, getDuelRoom, restartSandbox, sandboxGoToPhase, sandboxNextTurn,
+  saveSandboxState, setSandboxSeatControl,
+  type SandboxSaveStateResult, type SandboxView, type SandboxWalkPhase,
 } from "./api";
 import { phaseLabel } from "./constants";
 import styles from "./sandbox-bar.module.css";
@@ -213,11 +214,12 @@ export function useSandboxRoom({ slug, room, viewRef, setRoom, refresh }: Sandbo
   const restarted = useCallback((nextSlug: string) => {
     router.replace(`/duels/${encodeURIComponent(nextSlug)}${acting ? `?as=${acting}` : ""}`);
   }, [router, acting]);
+  const closed = useCallback(() => { router.push("/sandbox"); }, [router]);
 
   const bar = info && room ? (
     <SandboxBar
       slug={slug} room={room} info={info} acting={acting} reveal={reveal} follow={follow}
-      onActAs={actAs} onRoom={setRoom} onReveal={setReveal} onFollow={setFollow} onRestarted={restarted}
+      onActAs={actAs} onRoom={setRoom} onReveal={setReveal} onFollow={setFollow} onRestarted={restarted} onClosed={closed}
     />
   ) : null;
   return { bar };
@@ -240,23 +242,47 @@ export interface SandboxBarProps {
   onReveal: (value: boolean) => void;
   onFollow: (value: boolean) => void;
   onRestarted: (slug: string) => void;
+  /** The duel is closed (Save & close or Close): leave for the sandbox list. */
+  onClosed: () => void;
 }
 
 function messageOf(error: unknown): string {
   return error instanceof Error && error.message ? error.message : "The sandbox request failed.";
 }
 
-export function SandboxBar({ slug, room, info, acting, reveal, follow, onActAs, onRoom, onReveal, onFollow, onRestarted }: SandboxBarProps) {
+/** Name the scenario gets when the person does not type one: "<duel name> - turn N <phase>", at most 80 characters. */
+export function defaultStateName(room: DuelRoom): string {
+  const engine = room.engine;
+  const tail = engine ? ` - turn ${engine.turn} ${phaseLabel(engine.phase)}` : " - state";
+  const base = (room.session.name || "Sandbox").trim().slice(0, Math.max(1, 80 - tail.length)).trim() || "Sandbox";
+  return `${base}${tail}`;
+}
+
+type BarMenu = "phase" | "save" | "exit" | number | null;
+type Confirm = { kind: "eliminate"; seat: number } | { kind: "close" } | null;
+
+/** Seats the engine already sent out (FFA). Empty for a room that has no engine yet. */
+export function eliminatedSeatsOf(room: DuelRoom): Set<number> {
+  return new Set((room.engine?.seats ?? []).filter((view) => view.eliminated).map((view) => view.seat));
+}
+
+export function SandboxBar({ slug, room, info, acting, reveal, follow, onActAs, onRoom, onReveal, onFollow, onRestarted, onClosed }: SandboxBarProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<WalkNote | null>(null);
-  const [menu, setMenu] = useState<"phase" | number | null>(null);
+  const [menu, setMenu] = useState<BarMenu>(null);
+  const [confirm, setConfirm] = useState<Confirm>(null);
+  const [stateName, setStateName] = useState("");
+  const [saved, setSaved] = useState<SandboxSaveStateResult | null>(null);
   const [copied, setCopied] = useState(false);
   const barRef = useRef<HTMLDivElement>(null);
   const engine = room.engine;
   const seats = useMemo(() => Array.from({ length: seatCountFor(room.session.format) }, (_, seat) => seat), [room.session.format]);
   const live = room.session.status === "active" && engine != null && !engine.result;
   const view: SandboxView = { as: acting, reveal };
+  const isFfa = room.session.format === "ffa3" || room.session.format === "ffa4";
+  const out = useMemo(() => eliminatedSeatsOf(room), [room]);
+  const aliveCount = seats.length - out.size;
   const rank = phaseRank(engine?.phase);
 
   const guarded = useCallback(async (work: () => Promise<void>) => {
@@ -271,6 +297,9 @@ export function SandboxBar({ slug, room, info, acting, reveal, follow, onActAs, 
       setBusy(false);
     }
   }, []);
+
+  // A confirmation belongs to the menu that asked for it.
+  useEffect(() => { if (menu == null) setConfirm(null); }, [menu]);
 
   // Close an open menu on a click elsewhere or Escape.
   useEffect(() => {
@@ -337,6 +366,48 @@ export function SandboxBar({ slug, room, info, acting, reveal, follow, onActAs, 
     });
   };
 
+  const eliminate = (seat: number) => {
+    void guarded(async () => {
+      const next = await eliminateSandboxSeat(slug, seat, view);
+      // An eliminated seat has nothing left to act for: go back to seat 0.
+      if (seat === acting && seat !== 0) await switchTo(0);
+      else await onRoom(next);
+    });
+  };
+
+  const openSave = () => {
+    if (menu === "save") { setMenu(null); return; }
+    setStateName(defaultStateName(room));
+    setMenu("save");
+  };
+
+  const saveState = () => {
+    const name = stateName.trim();
+    if (!name) return;
+    void guarded(async () => {
+      setSaved(null);
+      setSaved(await saveSandboxState(slug, { name }, view));
+    });
+  };
+
+  // Save & close: the save must succeed first. A failed save (or close) leaves the duel open with the error shown.
+  const saveAndClose = () => {
+    void guarded(async () => {
+      setSaved(null);
+      const result = await saveSandboxState(slug, { name: defaultStateName(room) }, view);
+      setSaved(result);
+      await closeSandbox(slug, view);
+      onClosed();
+    });
+  };
+
+  const closeOnly = () => {
+    void guarded(async () => {
+      await closeSandbox(slug, view);
+      onClosed();
+    });
+  };
+
   const builderHref = info.scenarioId != null ? `/sandbox/${info.scenarioId}` : `/sandbox/new?from=${encodeURIComponent(slug)}`;
   const shareLink = info.scenarioId != null ? `${typeof window === "undefined" ? "" : window.location.origin}/sandbox/${info.scenarioId}?play=1` : null;
   const copyLink = () => {
@@ -355,28 +426,44 @@ export function SandboxBar({ slug, room, info, acting, reveal, follow, onActAs, 
           {seats.map((seat) => {
             const mode = seatModeOf(info, seat);
             const isActing = seat === acting;
+            const isOut = out.has(seat);
             return (
               <span key={seat} className={styles.chipWrap} data-acting={isActing ? "true" : undefined}>
-                <button type="button" className={styles.chip} disabled={busy} aria-pressed={isActing}
-                  data-testid={`sandbox-seat-${seat}`} data-mode={mode}
-                  title={isActing ? `Acting as P${seat}` : mode === "manual" || mode === "you" ? `Act as P${seat}` : `Take control of P${seat} and act as it`}
+                <button type="button" className={styles.chip} disabled={busy || isOut} aria-pressed={isActing}
+                  data-testid={`sandbox-seat-${seat}`} data-mode={mode} data-out={isOut ? "true" : undefined}
+                  title={isOut ? `P${seat} is eliminated` : isActing ? `Acting as P${seat}` : mode === "manual" || mode === "you" ? `Act as P${seat}` : `Take control of P${seat} and act as it`}
                   onClick={() => chooseSeat(seat)}>
                   {waiting === seat ? <span className={styles.dot} aria-label="The engine waits on this seat" role="img" /> : null}
-                  <b>P{seat}</b> {SEAT_MODE_LABEL[mode]}
+                  <b>P{seat}</b> {isOut ? "Out" : SEAT_MODE_LABEL[mode]}
                 </button>
-                {seat > 0 ? (
-                  <button type="button" className={styles.caret} disabled={busy} aria-label={`Set P${seat} mode`}
+                {!isOut && (seat > 0 || isFfa) ? (
+                  <button type="button" className={styles.caret} disabled={busy} aria-label={seat > 0 ? `Set P${seat} mode` : `P${seat} options`}
                     aria-haspopup="menu" aria-expanded={menu === seat}
                     onClick={() => setMenu(menu === seat ? null : seat)}>▾</button>
                 ) : null}
                 {menu === seat ? (
-                  <div className={styles.menu} role="menu" aria-label={`P${seat} mode`}>
-                    {BOT_MODES.map((option) => (
+                  <div className={styles.menu} role="menu" aria-label={seat > 0 ? `P${seat} mode` : `P${seat} options`}>
+                    {seat > 0 ? BOT_MODES.map((option) => (
                       <button key={option} type="button" role="menuitemradio" aria-checked={mode === option}
                         className={styles.menuItem} onClick={() => setMode(seat, option)}>
                         {SEAT_MODE_LABEL[option]}
                       </button>
-                    ))}
+                    )) : null}
+                    {isFfa ? (confirm?.kind === "eliminate" && confirm.seat === seat ? (
+                      <div className={styles.confirm} role="group" aria-label={`Eliminate P${seat}`}>
+                        <span>Eliminate P{seat}?</span>
+                        <button type="button" className={styles.danger} data-testid={`sandbox-eliminate-confirm-${seat}`}
+                          onClick={() => eliminate(seat)}>Eliminate</button>
+                        <button type="button" className={styles.menuItem} onClick={() => setConfirm(null)}>Cancel</button>
+                      </div>
+                    ) : (
+                      <button type="button" role="menuitem" className={styles.menuItem} data-testid={`sandbox-eliminate-${seat}`}
+                        disabled={!live || aliveCount <= 2}
+                        title={aliveCount <= 2 ? "Two seats must stay in the duel" : `Send P${seat} out of the duel`}
+                        onClick={() => setConfirm({ kind: "eliminate", seat })}>
+                        Eliminate…
+                      </button>
+                    )) : null}
                   </div>
                 ) : null}
               </span>
@@ -416,6 +503,21 @@ export function SandboxBar({ slug, room, info, acting, reveal, follow, onActAs, 
           Reveal hands
         </label>
         <span className={styles.sep} aria-hidden />
+        <span className={styles.chipWrap}>
+          <button type="button" className={styles.btn} disabled={busy || !live} aria-haspopup="dialog" aria-expanded={menu === "save"}
+            data-testid="sandbox-save-state" onClick={openSave}>Save state</button>
+          {menu === "save" ? (
+            <form className={`${styles.menu} ${styles.saveMenu}`} aria-label="Save state"
+              onSubmit={(event) => { event.preventDefault(); saveState(); }}>
+              <label className={styles.nameLabel}>
+                Scenario name
+                <input className={styles.nameInput} value={stateName} maxLength={80} autoFocus data-testid="sandbox-state-name"
+                  onChange={(event) => setStateName(event.target.value)} />
+              </label>
+              <button type="submit" className={styles.btn} disabled={busy || !stateName.trim()} data-testid="sandbox-state-save">Save</button>
+            </form>
+          ) : null}
+        </span>
         <button type="button" className={styles.btn} disabled={busy} data-testid="sandbox-restart" onClick={restart}>Restart</button>
         <Link className={styles.btn} href={builderHref} data-testid="sandbox-builder">Back to builder</Link>
         {shareLink ? (
@@ -423,7 +525,46 @@ export function SandboxBar({ slug, room, info, acting, reveal, follow, onActAs, 
             {copied ? "Link copied" : "Copy link"}
           </button>
         ) : null}
+        <span className={styles.sep} aria-hidden />
+        <span className={`${styles.chipWrap} ${styles.exitWrap}`}>
+          <button type="button" className={`${styles.btn} ${styles.exit}`} disabled={busy} aria-haspopup="menu" aria-expanded={menu === "exit"}
+            data-testid="sandbox-exit" onClick={() => setMenu(menu === "exit" ? null : "exit")}>
+            Exit sandbox ▾
+          </button>
+          {menu === "exit" ? (
+            <div className={`${styles.menu} ${styles.menuEnd}`} role="menu" aria-label="Exit sandbox">
+              <button type="button" role="menuitem" className={styles.menuItem} disabled={!live}
+                title={live ? "Save the live state as a scenario, then close" : "The duel is over; there is no live state to save"}
+                data-testid="sandbox-save-close" onClick={saveAndClose}>Save &amp; close</button>
+              {confirm?.kind === "close" ? (
+                <div className={styles.confirm} role="group" aria-label="Close without saving">
+                  <span>Close without saving?</span>
+                  <button type="button" className={styles.danger} data-testid="sandbox-close-confirm" onClick={closeOnly}>Close</button>
+                  <button type="button" className={styles.menuItem} onClick={() => setConfirm(null)}>Cancel</button>
+                </div>
+              ) : (
+                <button type="button" role="menuitem" className={styles.menuItem} data-testid="sandbox-close"
+                  onClick={() => setConfirm({ kind: "close" })}>Close…</button>
+              )}
+            </div>
+          ) : null}
+        </span>
       </div>
+      {saved ? (
+        <div className={styles.note} data-testid="sandbox-saved" role="status">
+          Saved &quot;{saved.scenario.name}&quot;.{" "}
+          <Link className={styles.noteLink} href={`/sandbox/${saved.scenario.id}`} data-testid="sandbox-saved-link">Open scenario</Link>
+          {" "}<button type="button" className={styles.noteBtn} onClick={() => setSaved(null)}>Dismiss</button>
+          {saved.lost.length ? (
+            <>
+              <span> The board cannot keep:</span>
+              <ul className={styles.lost} data-testid="sandbox-lost">
+                {saved.lost.map((item) => <li key={item}>{item}</li>)}
+              </ul>
+            </>
+          ) : null}
+        </div>
+      ) : null}
       {error ? <p className={styles.note} data-tone="stop" role="alert">{error}</p> : null}
       {!error && shownNote ? <p className={styles.note} data-tone={shownNote.tone} role="status">{shownNote.text}</p> : null}
       {!live && room.session.status === "active" && !error && !shownNote ? <p className={styles.note} role="status">The engine is not ready.</p> : null}

@@ -86,7 +86,36 @@
 .toggle { display: inline-flex; align-items: center; gap: 5px; color: var(--sb-dim); cursor: pointer; white-space: nowrap; }
 .toggle input { accent-color: var(--sb-violet); }
 .note { margin: 6px 0 0; color: var(--sb-ok); }
+.noteLink, .noteBtn { color: var(--sb-accent); font: inherit; text-decoration: underline; background: none; border: 0; padding: 0; cursor: pointer; }
+.lost { margin: 4px 0 0; padding-left: 16px; color: var(--sb-warn); }
 .note[data-tone="stop"] { color: var(--sb-warn); }
+.chip[data-out="true"] { text-decoration: line-through; color: var(--sb-dim); }
+.menuEnd { left: auto; right: 0; }
+.saveMenu { min-width: 230px; padding: 8px; gap: 6px; }
+.nameLabel { display: flex; flex-direction: column; gap: 3px; color: var(--sb-dim); }
+.nameInput {
+  min-height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--sb-line);
+  border-radius: 6px;
+  background: rgb(0 0 0 / 0.35);
+  color: var(--sb-text);
+  font: inherit;
+}
+.nameInput:focus-visible { outline: 2px solid var(--sb-violet); outline-offset: 1px; }
+.confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 2px 4px; color: var(--sb-warn); }
+.danger {
+  min-height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--sb-warn);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--sb-warn) 18%, transparent);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.danger:focus-visible { outline: 2px solid var(--sb-violet); outline-offset: 1px; }
+.exit { border-color: color-mix(in srgb, var(--sb-warn) 55%, transparent); }
 @media (max-width: 640px) {
   .bar { max-width: calc(100% - 16px); margin: 4px 8px 0; }
 }
