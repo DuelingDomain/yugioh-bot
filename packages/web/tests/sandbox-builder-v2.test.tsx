@@ -10,8 +10,8 @@ import { applyAction, createBuilderState, type SandboxBuilderState } from "@/com
 
 // U5 owns the real table view. The builder only needs its props contract here.
 vi.mock("@/components/sandbox/table-view", () => ({
-  SandboxTableView: (props: { state: SandboxBuilderState; seat: string; onSelectSeat: (seat: string) => void }) => (
-    <div data-testid="table-view" data-seat={props.seat} data-out={(props.state.board.eliminated ?? []).join(",")}>
+  SandboxTableView: (props: { state: SandboxBuilderState; activeSeat: string; onSelectSeat: (seat: string) => void }) => (
+    <div data-testid="table-view" data-seat={props.activeSeat} data-out={(props.state.board.eliminated ?? []).join(",")}>
       <button type="button" onClick={() => props.onSelectSeat("p2")}>pick p2</button>
     </div>
   ),
