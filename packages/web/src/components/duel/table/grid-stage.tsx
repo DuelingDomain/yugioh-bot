@@ -113,6 +113,20 @@ export function promptUnit(height: number, finale: boolean): number {
 export const PROMPT_UNIT = { pair: 680, finale: 820, min: 0.72, max: 1.15 } as const;
 
 /**
+ * The room of the pick bar while the board is zoomed: a strip at the bottom middle of the board box. A bar in the middle
+ * of the pair would sit over the zoomed cards; at the edge it is part of the safe frame (useViewZoom), so the pan takes
+ * any target out from under it. The bottom right corner is the shell's dock: the strip is in the middle half.
+ */
+export function dockBarRoom(box: { width: number; height: number }): string | undefined {
+  const width = Math.min(PICK_BAR.max, box.width / 2);
+  if (width < 200 || box.height <= 0) return undefined;
+  const height = width < PICK_BAR.row ? PICK_BAR.stackHeight : PICK_BAR.rowHeight;
+  const x = Math.round((box.width - width) / 2);
+  const y = Math.round(box.height - height - PICK_BAR.edge);
+  return `${x},${y},${Math.round(width)},${height}`;
+}
+
+/**
  * The room of the pick bar (zone and card picks on the board) in YOUR pair, as "x,y,width,height" for `data-bar-room`:
  * as near the middle of the pair as it can be (the band between the two fields, as in the 1v1 room), and never over a
  * target. `pair` is the frame of your pair (or the finale board, or the pair a spectator looks at); `targets` are the
@@ -517,9 +531,9 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
       window.clearTimeout(timer);
     };
   }, [placed, legalKey, reducedMotion, zoom.view]);
-  const barRoom = useMemo(() => (promptPair ? pickBarRoom(promptPair, targets) : undefined),
+  const barRoom = useMemo(() => (!promptPair ? undefined : zoom.zoomed ? dockBarRoom(box) : pickBarRoom(promptPair, targets)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [promptPair?.x, promptPair?.y, promptPair?.width, promptPair?.height, targets]);
+    [promptPair?.x, promptPair?.y, promptPair?.width, promptPair?.height, targets, zoom.zoomed, box.width, box.height]);
 
   return (
     <div

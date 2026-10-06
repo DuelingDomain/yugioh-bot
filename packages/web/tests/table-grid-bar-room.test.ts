@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { pickBarRoom, promptUnit } from "../src/components/duel/table/grid-stage";
+import { dockBarRoom, pickBarRoom, promptUnit } from "../src/components/duel/table/grid-stage";
 
 const rect = (x: number, y: number, width: number, height: number) => ({ x, y, width, height });
 const room = (value: string | undefined) => value?.split(",").map(Number);
@@ -99,5 +99,14 @@ describe("promptUnit", () => {
     expect(prompts).toMatch(/\[data-prompt-dense\]\) \.btn \{ min-height: max\(32px/);
     const source = readFileSync(join(__dirname, "../src/components/duel/table/grid-stage.tsx"), "utf8");
     expect(source).toMatch(/"--pr-unit" as string\]: `\$\{promptUnit\(/);
+  });
+});
+
+describe("dockBarRoom", () => {
+  it("docks the bar of a zoomed board at the bottom middle of the box, in the middle half", () => {
+    expect(room(dockBarRoom({ width: 1230, height: 815 }))).toEqual([405, 711, 420, 92]);
+    // A narrow box: the bar is half the box wide and stacks.
+    expect(room(dockBarRoom({ width: 760, height: 600 }))).toEqual([190, 452, 380, 136]);
+    expect(dockBarRoom({ width: 300, height: 600 })).toBeUndefined();
   });
 });

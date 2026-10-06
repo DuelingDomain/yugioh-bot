@@ -181,17 +181,15 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
     if (!(k > 0) || fly) return null;
     if (portrait) return { panel: null, bar: null, chain: chainSize ? { x: 6, y: 48, ...chainSize } : null };
     if (chainInset && chainSize) return chainBandRooms(chainSize, box);
-    // A zoomed board covers the free rooms between the boards: the panel and the pick bar take their usual places, as
-    // in the fly-in view (the bar then places itself from the zones as they show). The rooms of the phone and of the
-    // chain band above are off the board, so they stay.
-    if (zoom.zoomed) return { panel: null, bar: null, chain: null };
+    // A zoomed board keeps the rooms of the camera pose: the panel and the pick bar stay where they are at rest, clear
+    // of every card there, and the pan can take any card out from under them (the safe frame of useViewZoom).
     const anchors = new Map(play.slots.map((slot) => [slot.seat, wideAnchors?.get(slot.seat) ?? holoAnchor(play, slot.seat, camera)] as const));
     const found = promptRooms({ layout: play, camera, poses, anchors, spread, meFooter: hasChip, box, k, chainSize });
     const dx = (box.width - STAGE.width * k) / 2;
     const dy = stageTop + (stageHeight - canvasHeight * k) / 2;
     const toBox = (room: PromptRoom | null) => room && { x: Math.round(dx + room.x * k), y: Math.round(dy + room.y * k), width: Math.round(room.width * k), height: Math.round(room.height * k) };
     return { panel: toBox(found.panel), bar: toBox(found.bar), chain: toBox(found.chain) };
-  }, [play, camera, poses, spread, hasChip, k, fly, box, canvasHeight, wideAnchors, chainSize, chainInset, stageHeight, stageTop, portrait, zoom.zoomed]);
+  }, [play, camera, poses, spread, hasChip, k, fly, box, canvasHeight, wideAnchors, chainSize, chainInset, stageHeight, stageTop, portrait]);
 
   const world = useMemo(() => flyWorld(play, camera.fly), [play, camera.fly]);
   const tones = useMemo(() => new Map<number, SeatTone>(layout.slots.map((slot) => [slot.seat, slot.tone])), [layout.slots]);
