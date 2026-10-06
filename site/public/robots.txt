@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://duelingdomain.com/sitemap.xml

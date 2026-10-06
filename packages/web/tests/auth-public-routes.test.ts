@@ -35,6 +35,18 @@ async function loadAuthorizedCallback() {
 }
 
 describe("auth public routes", () => {
+  it("allows exactly the anonymous waitlist endpoint", async () => {
+    const authorized = await loadAuthorizedCallback();
+    expect(await authorized({ auth: null, request: { nextUrl: new URL("http://localhost/api/waitlist") } })).toBe(true);
+  });
+
+  it.each(["/api/waitlistx", "/api/waitlist/extra", "/api/anything-else"])("keeps %s protected", async (path) => {
+    const authorized = await loadAuthorizedCallback();
+    const result = await authorized({ auth: null, request: { nextUrl: new URL(`http://localhost${path}`) } });
+    expect(result).toBeInstanceOf(Response);
+    expect((result as Response).status).toBe(401);
+  });
+
   beforeEach(() => {
     process.env.DISCORD_CLIENT_ID = "discord-client-id";
     process.env.DISCORD_CLIENT_SECRET = "discord-client-secret";

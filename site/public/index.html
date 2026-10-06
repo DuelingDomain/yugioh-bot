@@ -1,0 +1,474 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dueling Domain | Online card drafts &amp; browser duels</title>
+<meta name="description" content="Draft cards with friends, build your deck and duel in your browser. Join the free Dueling Domain closed alpha waitlist.">
+<link rel="canonical" href="https://duelingdomain.com/">
+<meta name="theme-color" content="#0A0E1A">
+<meta name="color-scheme" content="dark">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Dueling Domain">
+<meta property="og:title" content="Dueling Domain | Online card drafts &amp; browser duels">
+<meta property="og:description" content="Live drafts, real duels in the browser, and your whole playgroup in one place. Join the waitlist for the closed alpha.">
+<meta property="og:url" content="https://duelingdomain.com/">
+<meta property="og:image" content="https://duelingdomain.com/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Dueling Domain logo with the line Closed alpha, on a dark navy background.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Dueling Domain | Online card drafts &amp; browser duels">
+<meta name="twitter:description" content="Live drafts, real duels in the browser, and your whole playgroup in one place. Join the waitlist for the closed alpha.">
+<meta name="twitter:image" content="https://duelingdomain.com/og.png">
+<meta name="twitter:image:alt" content="Dueling Domain logo with the line Closed alpha, on a dark navy background.">
+
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="icon" href="/favicon-16.png" type="image/png" sizes="16x16">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+
+<link rel="preload" href="/fonts/russo-one-400-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/chakra-petch-400-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/style.css">
+<script src="/app.js" defer></script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebSite",
+      "@id": "https://duelingdomain.com/#website",
+      "name": "Dueling Domain",
+      "url": "https://duelingdomain.com/",
+      "inLanguage": "en",
+      "publisher": {
+        "@id": "https://duelingdomain.com/#organization"
+      }
+    },
+    {
+      "@type": "Organization",
+      "@id": "https://duelingdomain.com/#organization",
+      "name": "Dueling Domain",
+      "url": "https://duelingdomain.com/",
+      "logo": "https://duelingdomain.com/logo-512.png"
+    },
+    {
+      "@type": "WebApplication",
+      "@id": "https://duelingdomain.com/#application",
+      "name": "Dueling Domain",
+      "url": "https://app.duelingdomain.com/",
+      "applicationCategory": "GameApplication",
+      "operatingSystem": "Web browser",
+      "browserRequirements": "Requires a modern web browser and JavaScript.",
+      "creativeWorkStatus": "Closed alpha",
+      "description": "Card drafts and browser duels with friends. Free closed alpha; access is by invitation in waves.",
+      "publisher": {
+        "@id": "https://duelingdomain.com/#organization"
+      },
+      "offers": {
+        "@type": "Offer",
+        "name": "Free closed alpha access",
+        "price": "0",
+        "priceCurrency": "CAD",
+        "availability": "https://schema.org/LimitedAvailability",
+        "url": "https://duelingdomain.com/#join",
+        "description": "Join the waitlist. Invitations are sent in waves; joining does not guarantee access."
+      }
+    }
+  ]
+}
+</script>
+</head>
+<body>
+<a class="skip" href="#email-hero">Skip to the sign-up form</a>
+
+<!-- Shared SVG parts: the logo lockup and the pack mark definitions. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="dd-lockup" viewBox="18 12 455 72">
+      <g fill="#C9A45C"><path fill-rule="evenodd" d="M18 12H56L78 34V62L56 84H18Z M33 26H55A3 3 0 0 1 58 29V67A3 3 0 0 1 55 70H33A3 3 0 0 1 30 67V29A3 3 0 0 1 33 26Z"/><path d="M44 41L51 48L44 55L37 48Z"/></g>
+      <g fill="#E8ECF4"><path transform="translate(120 32)" d="M0 0H16L24 8V24L16 32H0Z M6 6V26H13L18 21V11L13 6Z"/><path transform="translate(149 32)" d="M0 0H6V24L8 26H16L18 24V0H24V26L18 32H6L0 26Z"/><path transform="translate(178 32)" d="M0 0H22V6H6V13H19V19H6V26H22V32H0Z"/><path transform="translate(205 32)" d="M0 0H6V26H22V32H0Z"/><path transform="translate(232 32)" d="M0 0H6V32H0Z"/><path transform="translate(243 32)" d="M0 32V0H6L18 21V0H24V32H18L6 11V32Z"/><path transform="translate(272 32)" d="M6 0H24V6H9L6 9V23L9 26H18V19H12V13H24V32H6L0 26V6Z"/></g>
+      <g fill="#C9A45C"><path transform="translate(318 32)" d="M0 0H16L24 8V24L16 32H0Z M6 6V26H13L18 21V11L13 6Z"/><path transform="translate(347 32)" d="M6 0H18L24 6V26L18 32H6L0 26V6Z M8 6L6 8V24L8 26H16L18 24V8L16 6Z"/><path transform="translate(376 32)" d="M0 32V0H6L14 12L22 0H28V32H22V11L14 23L6 11V32Z"/><path transform="translate(409 32)" d="M0 32V8L8 0H16L24 8V32H18V21H6V32Z M6 15H18V10L14 6H10L6 10Z"/><path transform="translate(438 32)" d="M0 0H6V32H0Z"/><path transform="translate(449 32)" d="M0 32V0H6L18 21V0H24V32H18L6 11V32Z"/></g>
+    </symbol>
+    <clipPath id="dd-clip"><path fill-rule="evenodd" d="M18 12H56L78 34V62L56 84H18Z M33 26H55A3 3 0 0 1 58 29V67A3 3 0 0 1 55 70H33A3 3 0 0 1 30 67V29A3 3 0 0 1 33 26Z"/></clipPath>
+    <linearGradient id="dd-glint" x1="0" x2="1"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#FFF3D6" stop-opacity=".75"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+  </defs>
+</svg>
+
+
+
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="brand" href="#top" aria-label="Dueling Domain, top of page"><svg class="lockup" aria-hidden="true" focusable="false"><use href="#dd-lockup"/></svg></a>
+    <div class="nav-r">
+      <span class="chip"><i></i>Closed alpha</span>
+      <a class="signin" href="/login">Sign in</a>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+<!-- ============ HERO ============ -->
+<section class="hero" id="hero">
+  <div class="hero-bg" aria-hidden="true">
+    <div class="rings">
+      <svg viewBox="0 0 1000 1000" fill="none" stroke="currentColor"><g class="r1" style="transform-origin:500px 500px"><circle cx="500" cy="500" r="470" stroke-opacity=".16"/><circle cx="500" cy="500" r="470" stroke-opacity=".5" stroke-width="5" stroke-dasharray="1 29.5" /></g></svg>
+      <svg viewBox="0 0 1000 1000" fill="none" stroke="currentColor"><g class="r2" style="transform-origin:500px 500px"><circle cx="500" cy="500" r="385" stroke-opacity=".2"/><circle cx="500" cy="500" r="385" stroke-opacity=".28" stroke-width="12" stroke-dasharray="2 60"/></g></svg>
+      <svg viewBox="0 0 1000 1000" fill="none" stroke="currentColor"><g class="r3" style="transform-origin:500px 500px"><circle cx="500" cy="500" r="300" stroke-opacity=".22"/><path d="M500 190v28M500 782v28M190 500h28M782 500h28" stroke-opacity=".5" stroke-width="2"/></g></svg>
+    </div>
+    <div class="ghost g1"><div class="ghost-in"></div></div>
+    <div class="ghost g2"><div class="ghost-in"></div></div>
+    <div class="ghost g3"><div class="ghost-in"></div></div>
+    <div class="ghost g4"><div class="ghost-in"></div></div>
+    <div class="dust" id="dust"></div>
+  </div>
+
+  <div class="wrap hero-grid">
+    <div class="hero-copy">
+      <p class="eyebrow">Closed alpha · Waitlist open</p>
+      <h1><span class="ln">Rip it</span> <em class="ln">open.</em></h1>
+      <p class="sub">Live card drafts with friends, real browser duels, your whole playgroup in one place. Join the list and get into the alpha first.</p>
+      <div class="claim" data-claim="hero" data-state="idle">
+        <form class="claim-form" method="post" action="/api/waitlist" novalidate>
+          <label class="sr" for="email-hero">Email address</label>
+          <div class="claim-row">
+            <input id="email-hero" type="email" name="email" inputmode="email" autocomplete="email" placeholder="you@email.com" spellcheck="false" autocapitalize="off" required aria-describedby="msg-hero consent-hero">
+            <button class="btn" type="submit"><span class="btn-spin" aria-hidden="true"></span><span class="btn-label">Claim your alpha pack</span></button>
+          </div>
+          <input type="hidden" name="source" value="hero">
+          <div class="hp" aria-hidden="true"><label>Company<input type="text" name="company" value="" tabindex="-1" autocomplete="off"></label></div>
+        </form>
+        <p class="claim-msg" id="msg-hero" data-msg>Email only. One pack per email.</p>
+        <div class="claim-done" data-done>
+          <span class="done-gem" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 10 17.5 19 7"/></svg></span>
+          <div>
+            <p class="done-t" data-done-t>You're on the list.</p>
+            <p class="done-s" data-done-s>We'll email your invite and a sign-in link when your wave opens.</p>
+            <button type="button" class="done-again" data-again>Use a different email</button>
+          </div>
+        </div>
+        <p class="claim-consent" id="consent-hero">We'll only email you about the alpha. Unsubscribe or delete anytime. <a href="/privacy">Privacy</a></p>
+        <p class="sr" role="status" aria-live="polite" data-live></p>
+      </div>
+
+    </div>
+
+    <div class="hero-stage">
+      <div class="pack-stage3d">
+        <div class="pack-enter"><div class="pack-bob">
+          <a class="pack-hit" id="heroPack" href="#cards" aria-label="Open the pack. Your five cards are below.">
+  <div class="pack-tilt">
+    <div class="pack">
+      <div class="pk-peek" aria-hidden="true">
+        <img src="assets/card-back-main-hd.webp" alt="" width="200" height="292" decoding="async">
+        <img src="assets/card-back-extra-hd.webp" alt="" width="200" height="292" decoding="async">
+        <img src="assets/card-back-main-hd.webp" alt="" width="200" height="292" decoding="async">
+      </div>
+      <div class="pk-rays"></div>
+      <div class="pk-lip"></div>
+      <div class="pk-body">
+        <div class="pk-foil"></div>
+        <div class="pk-holo"><div class="holo-x"><div class="holo"></div></div></div>
+        <div class="pk-light"></div>
+        <div class="pk-face">
+          <div class="pk-name"><span class="a">Dueling</span><span class="b">Domain</span></div>
+          <!-- The logo mark in the pack window. Its entrance (card drops into the slot, becomes the gem) plays when the pack opens. -->
+          <svg class="pk-glyph" viewBox="6 6 84 84" aria-hidden="true" focusable="false">
+            <g class="mk-body"><path fill-rule="evenodd" d="M18 12H56L78 34V62L56 84H18Z M33 26H55A3 3 0 0 1 58 29V67A3 3 0 0 1 55 70H33A3 3 0 0 1 30 67V29A3 3 0 0 1 33 26Z"/></g>
+            <g class="mk-card"><rect x="30" y="26" width="28" height="44" rx="3"/></g>
+            <g class="mk-gem"><path d="M44 41L51 48L44 55L37 48Z"/></g>
+            <g clip-path="url(#dd-clip)"><g transform="rotate(20 48 48)"><rect class="mk-glint" x="-40" y="-10" width="18" height="120" fill="url(#dd-glint)"/></g></g>
+          </svg>
+        </div>
+        <div class="pk-ribbon">Alpha edition</div>
+        <div class="pk-tag">Draft · Duel · Domain</div>
+        <div class="pk-crimp b"></div>
+        <div class="pk-edge"></div>
+      </div>
+      <div class="pk-burst"></div>
+      <div class="pk-top">
+        <div class="pk-foil"></div>
+        <div class="pk-holo"><div class="holo-x"><div class="holo"></div></div></div>
+        <div class="pk-crimp t"></div>
+        <div class="pk-band"><i></i>Closed alpha<i></i></div>
+        <div class="pk-edge"></div>
+      </div>
+    </div>
+  </div>
+          </a>
+        </div></div>
+      </div>
+      <div class="pack-hint" aria-hidden="true"><i><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4.5 6 8.5 10 4.5"/></svg></i><span class="t1">Open it</span><span class="t2">Pack's open. Cards below</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FEATURES AS CARDS ============ -->
+<section class="features" id="cards" aria-labelledby="cards-h">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <p class="eyebrow">What's in the pack</p>
+      <h2 id="cards-h">Here's what you pulled.</h2>
+      <p>Draft with friends, then duel with the deck you built. Hover a card. The gold one is the rare.</p>
+    </div>
+    <div class="fgrid" id="fgrid" role="list">
+
+      <!-- 1 Draft night -->
+      <div class="fslot" role="listitem"><div class="fcard"><div class="fcard-in" data-kind="spell">
+        <div class="card">
+          <div class="c-name"><h3>Draft night</h3><span class="c-gem"></span></div>
+          <div class="c-art"><svg viewBox="0 0 100 66" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true">
+            <ellipse cx="50" cy="33" rx="30" ry="21" stroke="#C9A45C" stroke-opacity=".35"/>
+            <circle cx="50" cy="33" r="21" stroke="#C9A45C" stroke-opacity=".5" stroke-dasharray="2 3"/>
+            <g class="orbit" fill="#0A0E1A" stroke-width="1.3">
+              <rect x="47" y="7.5" width="6" height="9" rx="1" /><rect x="65.2" y="39" width="6" height="9" rx="1" transform="rotate(120 68.2 43.5)"/><rect x="28.8" y="39" width="6" height="9" rx="1" transform="rotate(240 31.8 43.5)"/>
+            </g>
+            <g fill="currentColor" stroke="none"><circle cx="50" cy="4.5" r="3.2"/><circle cx="77.6" cy="24" r="3.2"/><circle cx="67" cy="56.5" r="3.2"/><circle cx="33" cy="56.5" r="3.2"/><circle cx="22.4" cy="24" r="3.2"/></g>
+            <path d="M50 28.5 54.5 33 50 37.5 45.5 33Z" fill="#E7C27A" stroke="none"/>
+          </svg></div>
+          <div class="c-type">[Spell: Continuous]</div>
+          <p class="c-text">Live cube and theme drafts. Packs pass around the table, the pick clock runs, and the pool you build is the deck you play.</p>
+          <div class="c-foot"><span>A-01</span><span>Dueling Domain</span></div>
+          <i class="glint"></i>
+        </div>
+      </div></div></div>
+
+      <!-- 2 Domain format: the rare -->
+      <div class="fslot" role="listitem"><div class="fcard"><div class="fcard-in" data-kind="extra" data-rare>
+        <div class="rare-ring"><div class="rare-spin"></div></div>
+        <div class="card">
+          <div class="c-name"><h3>Domain format</h3><span class="c-gem"></span></div>
+          <div class="c-art"><svg viewBox="0 0 100 66" fill="none" stroke="currentColor" stroke-width="1.1" aria-hidden="true">
+            <rect x="8" y="8" width="84" height="50" rx="4" stroke="#C9A45C" stroke-opacity=".5"/>
+            <g class="zonepulse"><rect x="14" y="22" width="16" height="24" rx="2" fill="#F5C45A" fill-opacity=".14" stroke="#F3DDA0" stroke-width="1.4"/></g>
+            <rect x="17" y="26" width="10" height="16" rx="1.5" fill="#0A0E1A" stroke="#F3DDA0"/>
+            <path d="M22 30.5 25 34 22 37.5 19 34Z" fill="#F3DDA0" stroke="none"/>
+            <g stroke-opacity=".7"><rect x="38" y="16" width="9" height="12" rx="1.5"/><rect x="50" y="16" width="9" height="12" rx="1.5"/><rect x="62" y="16" width="9" height="12" rx="1.5"/><rect x="74" y="16" width="9" height="12" rx="1.5"/>
+            <rect x="38" y="38" width="9" height="12" rx="1.5"/><rect x="50" y="38" width="9" height="12" rx="1.5"/><rect x="62" y="38" width="9" height="12" rx="1.5"/><rect x="74" y="38" width="9" height="12" rx="1.5"/></g>
+            <path d="M30 34h6" stroke="#F3DDA0" stroke-dasharray="1.5 2"/>
+          </svg></div>
+          <div class="c-type">[Extra: Domain / Deck Master]</div>
+          <p class="c-text">A 1v1 format where each player keeps a Deck Master in its own zone. Build your deck around it.</p>
+          <div class="c-foot"><span>A-02 · Rare</span><span>Dueling Domain</span></div>
+          <i class="glint"></i>
+        </div>
+        <span class="rare-tag">RARE</span>
+        <i class="sparkle" style="left:9%;top:34%"></i><i class="sparkle" style="right:8%;top:50%;animation-delay:-1.2s;width:4cqw"></i><i class="sparkle" style="left:46%;top:8%;animation-delay:-2.1s;width:3.6cqw"></i>
+      </div></div></div>
+
+      <!-- 3 No install -->
+      <div class="fslot" role="listitem"><div class="fcard"><div class="fcard-in" data-kind="spell">
+        <div class="card">
+          <div class="c-name"><h3>No install</h3><span class="c-gem"></span></div>
+          <div class="c-art"><svg viewBox="0 0 100 66" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true">
+            <rect x="12" y="7" width="76" height="52" rx="3.5" stroke="#C9A45C" stroke-opacity=".6"/>
+            <path d="M12 17h76" stroke="#C9A45C" stroke-opacity=".45"/>
+            <g fill="currentColor" stroke="none"><circle cx="18.5" cy="12" r="1.5"/><circle cx="24" cy="12" r="1.5" opacity=".6"/><circle cx="29.5" cy="12" r="1.5" opacity=".35"/></g>
+            <g stroke-opacity=".38"><rect x="20" y="22" width="10" height="13" rx="1.5"/><rect x="33" y="22" width="10" height="13" rx="1.5"/><rect x="57" y="22" width="10" height="13" rx="1.5"/><rect x="70" y="22" width="10" height="13" rx="1.5"/><rect x="20" y="40" width="10" height="13" rx="1.5"/><rect x="33" y="40" width="10" height="13" rx="1.5"/><rect x="57" y="40" width="10" height="13" rx="1.5"/><rect x="70" y="40" width="10" height="13" rx="1.5"/></g>
+            <path class="bolt" d="M54 20 44 38h7l-5 14 14-20h-8Z" fill="currentColor" stroke="none"/>
+          </svg></div>
+          <div class="c-type">[Spell: Quick-play]</div>
+          <p class="c-text">Duel from a browser tab. A full rules engine only allows legal plays, so the only thing left to argue about is the topdeck.</p>
+          <div class="c-foot"><span>A-03</span><span>Dueling Domain</span></div>
+          <i class="glint"></i>
+        </div>
+      </div></div></div>
+
+      <!-- 4 Tag & free-for-all -->
+      <div class="fslot" role="listitem"><div class="fcard"><div class="fcard-in" data-kind="monster">
+        <div class="card">
+          <div class="c-name"><h3>Tag &amp; free-for-all</h3><span class="c-gem"></span></div>
+          <div class="c-art"><svg viewBox="0 0 100 66" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true">
+            <rect x="22" y="12" width="56" height="42" rx="8" stroke="#C9A45C" stroke-opacity=".5"/>
+            <path d="M22 12 78 54M78 12 22 54" stroke="#C9A45C" stroke-opacity=".35" stroke-dasharray="2 3"/>
+            <path d="M22 12V54M78 12V54" stroke-width="2.6" stroke-linecap="round"/>
+            <g fill="currentColor" stroke="#0A0E1A" stroke-width="2"><circle cx="22" cy="12" r="5.5"/><circle cx="78" cy="12" r="5.5"/><circle cx="22" cy="54" r="5.5"/><circle cx="78" cy="54" r="5.5"/></g>
+            <path d="M50 27 56 33 50 39 44 33Z" fill="#E7C27A" stroke="none"/>
+          </svg></div>
+          <div class="c-type">[Monster: Party / Effect]</div>
+          <p class="c-text">Tag duels for two teams of two, plus 3- and 4-player free-for-all. Bring the whole group. Nobody sits out.</p>
+          <div class="c-foot"><span>A-04</span><span>Dueling Domain</span></div>
+          <i class="glint"></i>
+        </div>
+      </div></div></div>
+
+      <!-- 5 Season ladder -->
+      <div class="fslot" role="listitem"><div class="fcard"><div class="fcard-in" data-kind="trap">
+        <div class="card">
+          <div class="c-name"><h3>Season ladder</h3><span class="c-gem"></span></div>
+          <div class="c-art"><svg viewBox="0 0 100 66" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+            <path d="M36 62 40 4M64 62 60 4" stroke-width="1.8"/>
+            <path d="M37.6 52h24.8M37.3 42h25.4M37 32h26M38.4 22h23.2M39 12h22" stroke-opacity=".75"/>
+            <g stroke="#C9A45C" stroke-opacity=".55"><path d="M20 52h8M20 42h8M20 32h8M20 22h8M20 12h8M72 52h8M72 42h8M72 32h8M72 22h8M72 12h8"/></g>
+            <g class="climb"><path d="M50 4 56 10 50 16 44 10Z" fill="#F3DDA0" stroke="none"/></g>
+          </svg></div>
+          <div class="c-type">[Trap: Continuous]</div>
+          <p class="c-text">Brackets, standings and season leaderboards. Every match moves your rating, and everyone can see it.</p>
+          <div class="c-foot"><span>A-05</span><span>Dueling Domain</span></div>
+          <i class="glint"></i>
+        </div>
+      </div></div></div>
+    </div>
+    <div class="fdots" id="fdots" aria-hidden="true"><i class="on"></i><i></i><i></i><i></i><i></i></div>
+    <p class="fnote rv">Swipe the fan.</p>
+  </div>
+</section>
+
+<div class="rule" aria-hidden="true"></div>
+
+<!-- ============ VIDEO ============ -->
+<section class="showcase" aria-labelledby="video-h">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <p class="eyebrow">Showcase</p>
+      <h2 id="video-h">Behind glass, for now.</h2>
+      <p>The trailer goes in this case. Until it's ready, here's an illustration of a three-player table.</p>
+    </div>
+  </div>
+  <div class="case-wrap rv">
+    <img class="sleeve l" src="assets/card-back-extra-hd.webp" alt="" width="150" height="219" loading="lazy" decoding="async">
+    <img class="sleeve r" src="assets/card-back-main-hd.webp" alt="" width="150" height="219" loading="lazy" decoding="async">
+    <div class="case">
+      <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+      <div class="window">
+        <img class="poster" src="assets/arena-poster.webp" alt="Illustration of a three-player card table using original card backs, reserved as the trailer poster." width="1440" height="900" loading="lazy" decoding="async">
+        <div class="glare" aria-hidden="true"><i></i></div>
+        <button class="play" id="play" type="button" aria-label="Play trailer. Trailer coming soon.">
+          <span class="ring"></span><span class="ring r2"></span>
+          <span class="disc"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 3.5v17L21 12Z"/></svg></span>
+        </button>
+      </div>
+    </div>
+    <div class="plate" id="plate"><b id="plate-t">Trailer: coming soon</b><small id="plate-s">Reserved for the launch trailer</small></div>
+  </div>
+</section>
+
+<div class="rule" aria-hidden="true"></div>
+
+<!-- ============ HOW IT WORKS ============ -->
+<section class="how" aria-labelledby="how-h">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <p class="eyebrow">How the alpha works</p>
+      <h2 id="how-h">Turn three cards over.</h2>
+      <p>Face down now. Not for long.</p>
+    </div>
+    <div class="steps" id="steps">
+      <div class="step"><div class="flip">
+        <div class="back" aria-hidden="true"><img src="assets/card-back-main-hd.webp" alt="" width="300" height="437" loading="lazy" decoding="async"></div>
+        <div class="face"><span class="num">01</span>
+          <svg viewBox="0 0 100 32" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><rect x="32" y="3" width="36" height="26" rx="3"/><path d="M32 6 50 19 68 6"/></svg>
+          <h3>Join the list</h3><p>Drop your email above or below. That's the whole sign-up.</p></div>
+      </div></div>
+      <div class="step"><div class="flip">
+        <div class="back" aria-hidden="true"><img src="assets/card-back-main-hd.webp" alt="" width="300" height="437" loading="lazy" decoding="async"></div>
+        <div class="face"><span class="num">02</span>
+          <svg viewBox="0 0 100 32" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="50" cy="16" r="3" fill="currentColor"/><circle cx="50" cy="16" r="8.5" opacity=".75"/><circle cx="50" cy="16" r="14" opacity=".45"/><path d="M12 16h14M74 16h14" opacity=".4" stroke-dasharray="2 3"/></svg>
+          <h3>Your wave opens</h3><p>We let players in wave by wave. We'll email you when it's yours.</p></div>
+      </div></div>
+      <div class="step"><div class="flip">
+        <div class="back" aria-hidden="true"><img src="assets/card-back-main-hd.webp" alt="" width="300" height="437" loading="lazy" decoding="async"></div>
+        <div class="face"><span class="num">03</span>
+          <svg viewBox="0 0 100 32" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M28 5h44a3 3 0 0 1 3 3v5a3 3 0 0 0 0 6v5a3 3 0 0 1-3 3H28a3 3 0 0 1-3-3v-5a3 3 0 0 0 0-6V8a3 3 0 0 1 3-3Z"/><path d="M50 10.5 55.5 16 50 21.5 44.5 16Z" fill="currentColor"/></svg>
+          <h3>Your invite</h3><p>We email your invite and a sign-in link. Draft night starts there.</p></div>
+      </div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FINAL PACK ============ -->
+<section class="final" id="join" aria-labelledby="final-h">
+  <div class="rings" aria-hidden="true">
+    <svg viewBox="0 0 1000 1000" fill="none" stroke="currentColor"><g class="r1" style="transform-origin:500px 500px"><circle cx="500" cy="500" r="470" stroke-opacity=".14"/><circle cx="500" cy="500" r="470" stroke-opacity=".45" stroke-width="5" stroke-dasharray="1 29.5"/></g></svg>
+    <svg viewBox="0 0 1000 1000" fill="none" stroke="currentColor"><g class="r2" style="transform-origin:500px 500px"><circle cx="500" cy="500" r="340" stroke-opacity=".2"/></g></svg>
+  </div>
+  <div class="wrap final-grid">
+    <div class="final-stage">
+      <div class="pack-stage3d"><div class="pack-bob"><div class="pack-hit" id="finalPack" aria-hidden="true">
+  <div class="pack-tilt">
+    <div class="pack pack--sm">
+      <div class="pk-peek" aria-hidden="true">
+        <img src="assets/card-back-main-hd.webp" alt="" width="200" height="292" loading="lazy" decoding="async">
+        <img src="assets/card-back-extra-hd.webp" alt="" width="200" height="292" loading="lazy" decoding="async">
+        <img src="assets/card-back-main-hd.webp" alt="" width="200" height="292" loading="lazy" decoding="async">
+      </div>
+      <div class="pk-rays"></div>
+      <div class="pk-lip"></div>
+      <div class="pk-body">
+        <div class="pk-foil"></div>
+        <div class="pk-holo"><div class="holo-x"><div class="holo"></div></div></div>
+        <div class="pk-light"></div>
+        <div class="pk-face">
+          <div class="pk-name"><span class="a">Dueling</span><span class="b">Domain</span></div>
+          <!-- The logo mark in the pack window. Its entrance (card drops into the slot, becomes the gem) plays when the pack opens. -->
+          <svg class="pk-glyph" viewBox="6 6 84 84" aria-hidden="true" focusable="false">
+            <g class="mk-body"><path fill-rule="evenodd" d="M18 12H56L78 34V62L56 84H18Z M33 26H55A3 3 0 0 1 58 29V67A3 3 0 0 1 55 70H33A3 3 0 0 1 30 67V29A3 3 0 0 1 33 26Z"/></g>
+            <g class="mk-card"><rect x="30" y="26" width="28" height="44" rx="3"/></g>
+            <g class="mk-gem"><path d="M44 41L51 48L44 55L37 48Z"/></g>
+            <g clip-path="url(#dd-clip)"><g transform="rotate(20 48 48)"><rect class="mk-glint" x="-40" y="-10" width="18" height="120" fill="url(#dd-glint)"/></g></g>
+          </svg>
+        </div>
+        <div class="pk-ribbon">Alpha edition</div>
+        <div class="pk-tag">Draft · Duel · Domain</div>
+        <div class="pk-crimp b"></div>
+        <div class="pk-edge"></div>
+      </div>
+      <div class="pk-burst"></div>
+      <div class="pk-top">
+        <div class="pk-foil"></div>
+        <div class="pk-holo"><div class="holo-x"><div class="holo"></div></div></div>
+        <div class="pk-crimp t"></div>
+        <div class="pk-band"><i></i>Closed alpha<i></i></div>
+        <div class="pk-edge"></div>
+      </div>
+    </div>
+  </div>
+</div></div></div>
+    </div>
+    <div class="final-copy rv">
+      <p class="eyebrow">Last card in the pack</p>
+      <h2 id="final-h">Your pack is still sealed.</h2>
+      <p class="lead">The closed alpha is free. One pack per email. We'll send your invite and news about the alpha.</p>
+      <div class="claim" data-claim="footer" data-state="idle">
+        <form class="claim-form" method="post" action="/api/waitlist" novalidate>
+          <label class="sr" for="email-footer">Email address</label>
+          <div class="claim-row">
+            <input id="email-footer" type="email" name="email" inputmode="email" autocomplete="email" placeholder="you@email.com" spellcheck="false" autocapitalize="off" required aria-describedby="msg-footer consent-footer">
+            <button class="btn" type="submit"><span class="btn-spin" aria-hidden="true"></span><span class="btn-label">Claim your alpha pack</span></button>
+          </div>
+          <input type="hidden" name="source" value="footer">
+          <div class="hp" aria-hidden="true"><label>Company<input type="text" name="company" value="" tabindex="-1" autocomplete="off"></label></div>
+        </form>
+        <p class="claim-msg" id="msg-footer" data-msg>Email only. One pack per email.</p>
+        <div class="claim-done" data-done>
+          <span class="done-gem" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 10 17.5 19 7"/></svg></span>
+          <div>
+            <p class="done-t" data-done-t>You're on the list.</p>
+            <p class="done-s" data-done-s>We'll email your invite and a sign-in link when your wave opens.</p>
+            <button type="button" class="done-again" data-again>Use a different email</button>
+          </div>
+        </div>
+        <p class="claim-consent" id="consent-footer">We'll only email you about the alpha. Unsubscribe or delete anytime. <a href="/privacy">Privacy</a></p>
+        <p class="sr" role="status" aria-live="polite" data-live></p>
+      </div>
+
+      <p class="signin-line">Already in the alpha? <a href="/login">Sign in</a></p>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-in">
+    <a class="brand" href="#top" aria-label="Dueling Domain, top of page"><svg class="lockup" aria-hidden="true" focusable="false"><use href="#dd-lockup"/></svg></a>
+    <p class="legal">Unofficial fan project. Not affiliated with or endorsed by Konami.</p>
+    <p>© 2026 Dueling Domain</p>
+    <p><a href="/privacy">Privacy</a></p>
+  </div>
+</footer>
+
+</body>
+</html>
