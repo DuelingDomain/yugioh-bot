@@ -1,0 +1,28 @@
+/* Share code dialog. A native <dialog> sits in the top layer; tokens still come from the .ms ancestor. */
+
+.dialog {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  padding: 0;
+  border: 1px solid var(--rule-hi);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--ink);
+  overflow: auto;
+}
+.dialog::backdrop { background: rgb(5 4 9 / 0.72); }
+
+.panel { display: grid; gap: 12px; padding: 16px; }
+.head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.head h2 { margin: 0; font-family: var(--f-disp); font-size: 16px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-2); }
+.close {
+  display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0;
+  border: 0; border-radius: 6px; background: none; color: var(--ink-3); cursor: pointer;
+}
+@media (hover: hover) and (pointer: fine) { .close:hover { color: var(--ink); background: rgb(239 231 213 / 0.07); } }
+
+.hint { margin: 0; font-size: 13px; color: var(--ink-3); }
+.field { display: grid; gap: 5px; font-size: 11.5px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink-3); }
+.code { width: 100%; resize: vertical; min-height: 96px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; letter-spacing: 0; text-transform: none; word-break: break-all; }
+.error { margin: 0; padding: 8px 10px; border: 1px solid rgb(228 90 77 / 0.4); border-radius: 7px; background: var(--loss-soft); color: var(--loss-ink); font-size: 13.5px; }
+.acts { display: flex; justify-content: flex-end; gap: 8px; }
