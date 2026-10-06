@@ -663,6 +663,7 @@ export function SandboxBuilder({
               target={target}
               open={open}
               actions={actions}
+              onToggleEliminated={(id) => act({ type: "toggleEliminated", seat: id })}
             />
           ) : (
             <SeatBoard state={state} seat={activeSeat} infos={infos as CardInfoMap} armedCode={armed?.code ?? null} target={target} open={open} actions={actions} />
