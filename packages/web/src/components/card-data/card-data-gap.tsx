@@ -1,12 +1,11 @@
 "use client";
 
 import * as React from "react";
-import type { CardDataGapCard, CardDataStatus } from "@yugidraft/shared/types";
+import type { CardDataGapCard, CardDataSetGapStatus, CardDataStatus } from "@yugidraft/shared/types";
 import { StatusLine, SvButton } from "@/components/sheet";
 import { cardImageUrl } from "@/lib/card-image-url";
 import {
   absoluteDate,
-  type CardDataSetGapStatus,
   filterGap,
   notCheckedSentence,
   recentIdMismatch,
@@ -15,6 +14,7 @@ import {
   setGapState,
   sortGap,
   sortSets,
+  unknownSetCount,
 } from "@/lib/card-data-status-model";
 import { requestImageSlot } from "@/lib/image-queue";
 import styles from "./card-data.module.css";
@@ -152,7 +152,7 @@ export function GapSection({ status, now }: { status: CardDataStatus; now: numbe
   const query = useDebounced(input);
   const sets = React.useMemo(() => sortSets(gap.recentSets), [gap.recentSets]);
   const mismatch = React.useMemo(() => recentIdMismatch(status), [status]);
-  const unknownSets = sets.filter((set) => setGapState(set) === "unknown").length;
+  const unknownSets = unknownSetCount(status);
   const count = gap.recentSetsMissingFromEngineCount;
   const hasMissing = sets.some((set) => setGapState(set) === "missing");
   const shownSets = sets.filter((set) => !query.trim() || filterGap(set.missingCards, query).length > 0);
@@ -168,6 +168,7 @@ export function GapSection({ status, now }: { status: CardDataStatus; now: numbe
             <dt>Not in the engine yet</dt>
             <dd data-bad={(count ?? 0) > 0 ? "true" : undefined}>
               {count === null ? <span className={styles.mute}>unknown</span> : count.toLocaleString("en-US")}
+              {count !== null && unknownSets > 0 ? <span className={styles.note}>known sets only</span> : null}
             </dd>
           </div>
           <div>

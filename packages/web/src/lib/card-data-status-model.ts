@@ -1,12 +1,10 @@
 import type {
   CardDataGapCard,
+  CardDataSetGapStatus,
   CardDataStatus,
   EngineDataSource,
   UpstreamSourceStatus,
 } from "@yugidraft/shared/types";
-
-/** The per-set gap entry. The shared index does not export it by name yet. */
-export type CardDataSetGapStatus = CardDataStatus["gap"]["recentSets"][number];
 
 export const SOURCE_ORDER: EngineDataSource[] = ["database", "scripts", "strings"];
 
@@ -128,9 +126,9 @@ export function sortSets(sets: CardDataSetGapStatus[]): CardDataSetGapStatus[] {
     .map((entry) => entry.set);
 }
 
-/** Recent sets whose check has not succeeded. One place to read it, so the server count can replace it later. */
+/** Recent sets whose check has not succeeded, as counted by the server. */
 export function unknownSetCount(status: CardDataStatus): number {
-  return status.gap.recentSets.filter((set) => setGapState(set) === "unknown").length;
+  return status.gap.recentSetsUnknownCount;
 }
 
 /** "1 set not checked yet" / "3 sets not checked yet". */
@@ -141,7 +139,7 @@ export function notCheckedSentence(count: number): string {
 /** True when the recent-set answer is incomplete: no count yet, or any set could not be counted. */
 export function recentSetsUnknown(status: CardDataStatus): boolean {
   const { gap } = status;
-  return gap.recentSetsMissingFromEngineCount === null || gap.recentSets.some((set) => setGapState(set) === "unknown");
+  return gap.recentSetsMissingFromEngineCount === null || gap.recentSetsUnknownCount > 0;
 }
 
 /** The newest pinned commit date: "data as of" for bundles that record no preparation time. */
@@ -167,22 +165,24 @@ export function summarize(status: CardDataStatus): CardDataSummary {
   const newCdbs = newUpstreamCdbFiles(status);
   const missingSets = status.gap.recentSets.filter((set) => setGapState(set) === "missing");
   const setsWithMissing = missingSets.length;
-  // The unique count is null when any set is unknown; the per-set sum is then a lower bound.
+  // The unique count covers known sets only (null before the set index syncs), so unknown sets make it a lower bound.
   const exact = status.gap.recentSetsMissingFromEngineCount;
   const missing = exact ?? missingSets.reduce((sum, set) => sum + (set.missingCount ?? 0), 0);
+  const lowerBound = exact === null || unknownSetCount(status) > 0;
 
   const reasons: string[] = [];
   if (behind.length) reasons.push(behindSentence(behind));
   if (newCdbs.length) reasons.push(`${plural(newCdbs.length, "new release file")} upstream not loaded`);
   if (missing > 0 || setsWithMissing > 0) {
     const sets = setsWithMissing ? ` in ${plural(setsWithMissing, "recent set")}` : "";
-    reasons.push(`${exact === null ? "At least " : ""}${plural(missing, "new TCG card")} not in the engine yet${sets}`);
+    reasons.push(`${lowerBound ? "At least " : ""}${plural(missing, "new TCG card")} not in the engine yet${sets}`);
   }
 
   const unknownReasons: string[] = [];
   if (unknown.length === sources.length) unknownReasons.push("Cannot reach GitHub, so engine data age is unknown");
   else if (unknown.length) unknownReasons.push(`${plural(unknown.length, "engine source")} could not be checked against GitHub`);
   if (status.upstream.babelCdbFiles.status !== "ok" && !unknown.length) unknownReasons.push("New release files could not be checked");
+  if (status.upstream.checkedAt === null && !unknown.length) unknownReasons.push("GitHub has not been checked yet");
   if (recentSetsUnknown(status)) {
     const count = unknownSetCount(status);
     unknownReasons.push(

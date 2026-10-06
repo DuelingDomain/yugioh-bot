@@ -126,7 +126,8 @@ describe("CardDataStatusPanel", () => {
       unknownSet("Newest Set", "NW01", "2026-09-26"),
       missingSet("Middle Set", "MD01", "2026-06-01", 40, 2),
     ];
-    status.gap.recentSetsMissingFromEngineCount = null;
+    status.gap.recentSetsMissingFromEngineCount = 2;
+    status.gap.recentSetsUnknownCount = 1;
     await renderWith(status);
     const list = screen.getByRole("list", { name: "Recent TCG sets" });
     const names = within(list).getAllByRole("listitem").map((item) => item.querySelector("span")?.textContent);
@@ -138,6 +139,14 @@ describe("CardDataStatusPanel", () => {
     expect(screen.getByText(/1 set not checked yet\. They are not counted as complete/)).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Behind" })).toBeTruthy();
     expect(screen.getByText(/At least 2 new TCG cards/)).toBeTruthy();
+  });
+
+  it("says GitHub has not been checked on a cold read", async () => {
+    const status = freshStatus();
+    status.upstream.checkedAt = null;
+    await renderWith(status);
+    expect(screen.getByRole("heading", { name: "Unknown" })).toBeTruthy();
+    expect(screen.getByText(/GitHub has not been checked yet\./)).toBeTruthy();
   });
 
   it("shows Unknown when no recent sets are synced", async () => {

@@ -43,7 +43,8 @@ describe("summarize", () => {
   it("is unknown, never up to date, when a recent set was never checked", () => {
     const status = freshStatus();
     status.gap.recentSets = [completeSet("Old", "OL01", "2026-01-01", 50), unknownSet("Rage", "RA05", "2026-09-26")];
-    status.gap.recentSetsMissingFromEngineCount = null;
+    status.gap.recentSetsMissingFromEngineCount = 0;
+    status.gap.recentSetsUnknownCount = 1;
     expect(summarize(status)).toMatchObject({ state: "unknown", headline: "1 set not checked yet" });
   });
 
@@ -57,7 +58,8 @@ describe("summarize", () => {
   it("says at least when a known gap sits beside an unknown set", () => {
     const status = freshStatus();
     status.gap.recentSets = [missingSet("A", "A1", "2026-09-26", 60, 4), unknownSet("B", "B1", "2026-08-01")];
-    status.gap.recentSetsMissingFromEngineCount = null;
+    status.gap.recentSetsMissingFromEngineCount = 4;
+    status.gap.recentSetsUnknownCount = 1;
     const summary = summarize(status);
     expect(summary.state).toBe("behind");
     expect(summary.headline).toBe("At least 4 new TCG cards not in the engine yet in 1 recent set");
@@ -100,6 +102,14 @@ describe("summarize", () => {
     const summary = summarize(status);
     expect(summary.state).toBe("behind");
     expect(summary.reasons).toContain("1 engine source could not be checked against GitHub");
+  });
+});
+
+describe("cold GitHub read", () => {
+  it("is unknown, not up to date, when GitHub has not been checked yet", () => {
+    const status = freshStatus();
+    status.upstream.checkedAt = null;
+    expect(summarize(status)).toMatchObject({ state: "unknown", headline: "GitHub has not been checked yet" });
   });
 });
 

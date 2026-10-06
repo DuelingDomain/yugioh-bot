@@ -41,6 +41,7 @@ export function freshStatus(): CardDataStatus {
     },
     gap: {
       recentSetsMissingFromEngineCount: 0,
+      recentSetsUnknownCount: 0,
       recentSets: [completeSet("Rage of the Abyss", "RA05", "2026-09-26", 60)],
       cachedCatalogMissingCount: 0,
       cachedCatalogMissing: [],

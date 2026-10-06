@@ -102,7 +102,7 @@ export function CardDataStatusPanel() {
             <RefreshCw className="ic sm" aria-hidden="true" /> {loading ? "Refreshing" : "Refresh"}
           </SvButton>
           <p className={styles.rowNote}>
-            GitHub checked {checked ?? "at an unknown time"}.
+            {status.upstream.checkedAt === null ? "GitHub has not been checked yet." : `GitHub checked ${checked ?? "at an unknown time"}.`}
             {expires ? <> It is cached until {expires}.</> : null}
           </p>
           <p role="status" className="sv-sr">{updated ? "Card data status updated" : ""}</p>
