@@ -86,8 +86,9 @@ export interface CardDataStatus {
   catalog: CardCatalogStatus;
   gap: CardDataGapStatus;
   upstream: {
-    /** Oldest fetch time and earliest expiry of the cached GitHub resources. */
-    checkedAt: string;
+    /** Oldest GitHub resource fetch time; null on a cold read before any completed refresh. */
+    checkedAt: string | null;
+    /** Earliest expiry of the cached GitHub resources. */
     expiresAt: string;
     sources: Record<EngineDataSource, UpstreamSourceStatus>;
     babelCdbFiles: { status: DataStatus; files: string[] };

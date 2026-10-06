@@ -47,7 +47,7 @@ type GithubStatus = Pick<CardDataStatus, "engine" | "upstream" | "updateWorkflow
 
 function unknownStatus(engine: EngineDataStatus, now: number): GithubStatus {
   return { engine, upstream: {
-    checkedAt: new Date(now).toISOString(), expiresAt: new Date(now).toISOString(),
+    checkedAt: null, expiresAt: new Date(now).toISOString(),
     sources: Object.fromEntries(Object.entries(ENGINE_SOURCE_REPOSITORIES).map(([source, repository]) => [source, {
       status: "unknown", repository, defaultBranch: null, latestSha: null, latestCommitDate: null,
       behindCommits: null, behindDays: null, comparison: "unknown",
@@ -100,8 +100,18 @@ export function createGithubCardDataStatus(options: {
             controller.signal.throwIfAborted();
             if (!res.ok) {
               if (res.status === 403 || res.status === 429) {
-                const reset = Number(res.headers.get("x-ratelimit-reset"));
-                if (Number.isFinite(reset) && reset > 0) rateLimitedUntil = Math.max(rateLimitedUntil, reset * 1000);
+                const clock = now(), exhausted = res.headers.get("x-ratelimit-remaining") === "0";
+                const reset = exhausted ? Number(res.headers.get("x-ratelimit-reset")) * 1000 : NaN;
+                const retryAfter = res.headers.get("retry-after");
+                const retry = retryAfter && /^\d+(\.\d+)?$/.test(retryAfter)
+                  ? clock + Number(retryAfter) * 1000 : Date.parse(retryAfter ?? "");
+                const until = Number.isFinite(reset) && reset > clock ? reset
+                  : Number.isFinite(retry) && retry > clock ? retry : null;
+                // A permission 403 only backs off its own resource. Exhausted
+                // budgets and secondary limits pause all GitHub requests.
+                if (until !== null || exhausted || res.status === 429) {
+                  rateLimitedUntil = Math.max(rateLimitedUntil, until ?? clock + 5 * 60_000);
+                }
               }
               throw new Error("GitHub unavailable");
             }
@@ -115,7 +125,8 @@ export function createGithubCardDataStatus(options: {
         }
       } catch { /* Unknown upstream values preserve the local response. */ }
       finally { clearTimeout(timer); controller.abort(); controllers.delete(controller); }
-      const result = { value, checkedAt, expiresAt: value !== null ? now() + ttl : Math.max(now() + 5 * 60_000, rateLimitedUntil) };
+      const result = { value, checkedAt, expiresAt: value !== null ? now() + ttl
+        : rateLimitedUntil > now() ? rateLimitedUntil : now() + 5 * 60_000 };
       if (!stopped) insert(path, result);
       return result;
     })();

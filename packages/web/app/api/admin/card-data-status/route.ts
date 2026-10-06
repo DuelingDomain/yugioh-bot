@@ -34,9 +34,11 @@ export const runtime = "nodejs";
  * Set lists persist in SQLite and refresh on view, at most daily for sets <=60 days old
  * and at most weekly for older sets. Background fetches run one set at a time.
  * preparedAt is null and preparedAtSource is unknown; file mtime is not a preparation date.
- * GitHub metadata caches one hour; failures retry after five minutes or the rate-limit reset.
+ * GitHub metadata caches one hour; failures retry after five minutes, Retry-After, or an
+ * exhausted rate-limit reset (x-ratelimit-remaining=0). Permission failures stay per-resource.
  * Cold/stale remote metadata returns immediately while refreshing in the background; checkedAt
- * identifies the last fetch. defaultBranch is null: HEAD is resolved through the default-branch
+ * identifies the last fetch and is null on a cold read before the first refresh completes.
+ * defaultBranch is null: HEAD is resolved through the default-branch
  * commits endpoint without a separate repo lookup. The web call has a five-second deadline.
  * Local snapshots live at least 60 seconds and use the host's startup bundle manifest.
  * HTTP responses are never cached. Guild admin access uses

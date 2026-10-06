@@ -48,6 +48,7 @@ it("returns cold unknown and stale values immediately, deduplicating background 
   });
   const read = createGithubCardDataStatus({ fetch, now: () => now });
   const cold = await read(engine); expect(cold.upstream.sources.database.status).toBe("unknown");
+  expect(cold.upstream.checkedAt).toBeNull();
   await read.refresh(engine); expect(fetch).toHaveBeenCalledTimes(9);
   const fresh = await read(engine);
   now = 3_599_999; await read(engine); expect(fetch).toHaveBeenCalledTimes(9);
@@ -94,7 +95,7 @@ it.each(["request", "body"])("times out a hanging %s, aborts it, and retries unk
 
 it.each([403, 429])("honors x-ratelimit-reset for %i", async status => {
   let now = 0;
-  const fetch = vi.fn(async () => new Response("rate limited", { status, headers: { "x-ratelimit-reset": "900" } }));
+  const fetch = vi.fn(async () => new Response("rate limited", { status, headers: { "x-ratelimit-reset": "900", "x-ratelimit-remaining": "0" } }));
   const { read, result } = await warm({ fetch, now: () => now });
   expect(result.upstream.expiresAt).toBe("1970-01-01T00:15:00.000Z");
   const calls = fetch.mock.calls.length;
@@ -172,4 +173,54 @@ it.each(["request", "body"])("closes immediately during a hanging GitHub %s and 
   } finally { await vi.runAllTimersAsync(); await Promise.all([closing, pending]); }
   expect(fetch).toHaveBeenCalledTimes(5); expect(cache.size).toBe(0);
   await read.refresh(engine); expect(fetch).toHaveBeenCalledTimes(5);
+});
+
+
+it.each(["42", null])("ignores the reset header for a non-rate-limit 403 with remaining=%s", async remaining => {
+  let now = 0;
+  const headers = new Headers({ "x-ratelimit-reset": "900" });
+  if (remaining !== null) headers.set("x-ratelimit-remaining", remaining);
+  const fetch = vi.fn(async () => new Response("Forbidden", { status: 403, headers }));
+  const { read, result } = await warm({ fetch, now: () => now });
+  expect(result.upstream.expiresAt).toBe("1970-01-01T00:05:00.000Z");
+  const calls = fetch.mock.calls.length;
+  now = 299_999; await read.refresh(engine); expect(fetch).toHaveBeenCalledTimes(calls);
+  now = 300_001; await read.refresh(engine); expect(fetch).toHaveBeenCalledTimes(calls * 2);
+});
+
+it("isolates a permission 403 without suppressing other GitHub resources", async () => {
+  const { result } = await warm({ fetch: async url => url.includes("CardScripts")
+    ? new Response("Forbidden", { status: 403, headers: { "x-ratelimit-reset": "900", "x-ratelimit-remaining": "42" } })
+    : Response.json(fixture(url)), now: () => 0 });
+  expect(result.upstream.sources.scripts.status).toBe("unknown");
+  expect(result.upstream.sources.database.comparison).toBe("ahead");
+  expect(result.upstream.babelCdbFiles.status).toBe("ok");
+});
+
+it.each([403, 429])("honors Retry-After rather than a nonexhausted reset for %i", async status => {
+  let now = 0;
+  const fetch = vi.fn(async () => new Response("Slow down", { status, headers: {
+    "x-ratelimit-reset": "1800", "x-ratelimit-remaining": "42", "Retry-After": "900",
+  } }));
+  const { read, result } = await warm({ fetch, now: () => now });
+  expect(result.upstream.expiresAt).toBe("1970-01-01T00:15:00.000Z");
+  const calls = fetch.mock.calls.length;
+  now = 899_999; await read.refresh(engine); expect(fetch).toHaveBeenCalledTimes(calls);
+  now = 900_001; await read.refresh(engine); expect(fetch).toHaveBeenCalledTimes(calls * 2);
+});
+
+it.each(["60", "Thu, 01 Jan 1970 00:01:00 GMT"])("uses a valid short Retry-After %s as the retry deadline", async retryAfter => {
+  let now = 0;
+  const fetch = vi.fn(async () => new Response("Slow down", { status: 429, headers: { "Retry-After": retryAfter } }));
+  const { read, result } = await warm({ fetch, now: () => now });
+  expect(result.upstream.expiresAt).toBe("1970-01-01T00:01:00.000Z");
+  const calls = fetch.mock.calls.length;
+  now = 59_999; await read.refresh(engine); expect(fetch).toHaveBeenCalledTimes(calls);
+  now = 60_001; await read.refresh(engine); expect(fetch).toHaveBeenCalledTimes(calls * 2);
+});
+
+it.each([null, "invalid"])("falls back to five minutes for Retry-After=%s", async retryAfter => {
+  const headers = new Headers(); if (retryAfter !== null) headers.set("Retry-After", retryAfter);
+  const { result } = await warm({ fetch: async () => new Response("Slow down", { status: 429, headers }), now: () => 0 });
+  expect(result.upstream.expiresAt).toBe("1970-01-01T00:05:00.000Z");
 });
