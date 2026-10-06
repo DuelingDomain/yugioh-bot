@@ -1,5 +1,5 @@
-# Verified CI binary hashes from docs/deployment/staging.md (emsdk 4.0.9; multiplayer LUA_FIXED_SEED=1).
+# Verified fixed-seed binary hashes from docs/deployment/staging.md (emsdk 4.0.9; multiplayer LUA_FIXED_SEED=1).
 # Update the corresponding pin when intentionally changing a pinned core's build inputs.
 01611db77c00ddef07a3d4cfc88800f5c523e3a388c3732616a79fa19b3c4a63  ocgcore.domain.sync.wasm
-e16881f178c1aff4e2df8c7aebc46ba30a9595e8ba52e61791157172f0d098be  ocgcore.multi.sync.wasm
-cc1ec5f175c14f2e4465b3db87d96fe4f0a320bd15701f544d49d5cb0137cf0c  ocgcore.multi-domain.sync.wasm
+5070da424a30ee8bf8ec18ed799af263eb44a01ff99ec1cdc6f35c9faef17f4f  ocgcore.multi.sync.wasm
+51e41ea7e8620b46fbdb5685341d2b20eae224bfb0870aec6fea52c09d15cac4  ocgcore.multi-domain.sync.wasm
