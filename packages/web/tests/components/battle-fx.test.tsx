@@ -184,6 +184,18 @@ describe("BattleFx", () => {
     }
   });
 
+  it("renames the caption of a declared attack when the player names load", () => {
+    const declaration: DuelEvent = { id: 2, kind: "attack", seat: 2, text: "attack", zone: { controller: 2, location: 4, sequence: 0 }, targetSeat: 3 };
+    board.insertAdjacentHTML("beforeend", '<div data-zones="2:4:0"><div data-card-art></div></div>');
+    boxes["2:4:0"] = { left: 500, top: 300, width: 60, height: 88 } as DOMRect;
+    const names = (map: Record<number, string>) => (seat: number) => map[seat] ?? `Player ${seat + 1}`;
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion nameOf={names({})} />);
+    rerender(<BattleFx events={[phase, declaration]} reducedMotion nameOf={names({})} />);
+    expect(document.querySelector("[data-attack-caption]")?.textContent).toBe("Player 3: direct attack on Player 4");
+    rerender(<BattleFx events={[phase, declaration]} reducedMotion nameOf={names({ 2: "Kaiba", 3: "Joey" })} />);
+    expect(document.querySelector("[data-attack-caption]")?.textContent).toBe("Kaiba: direct attack on Joey");
+  });
+
   it("names the attacker and the defender on every seat while an attack is declared", () => {
     const names = (seat: number) => ["Ann", "Bo", "Cy", "Di"][seat]!;
     const declaration: DuelEvent = { ...direct, id: 2, seat: 2, targetSeat: 3, zone: { controller: 2, location: 4, sequence: 0 } };

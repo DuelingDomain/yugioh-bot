@@ -784,6 +784,14 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
   const prevIndexRef = useRef<CardIndex>(new Map());
   const nowIndex = indexSeats(seats);
 
+  // The caption names players that may load after the declaration: re-read them (every commit; it only sets state on a change).
+  useEffect(() => {
+    const pending = pendingRef.current;
+    if (!pending) return;
+    const marker = declaredAim(pending.attack, seatCountRef.current, nameOfRef.current);
+    setDeclared((current) => (current && aimSignature(current) !== aimSignature(marker) ? marker : current));
+  });
+
   // Events already in the first snapshot never play: a reload must not replay the last fight.
   if (initialRef.current == null) initialRef.current = maxEventId(events) ?? 0;
 
