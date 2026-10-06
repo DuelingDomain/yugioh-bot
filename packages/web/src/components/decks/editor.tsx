@@ -40,6 +40,7 @@ import { cn } from "@/lib/utils";
 import { useNavigationLeaveGuard } from "@/lib/hooks/use-duel-leave-guard";
 import { DeckRequestError, createSavedDeck, deleteSavedDeck, getDeckCardFacets, getDeckCards, getSavedDeck, readRegistration, saveDraftDeck, swapDeckArtwork, updateSavedDeck, type DeckRegistrationMark, type SavedDeckView } from "./api";
 import { ArtworkPicker } from "@/components/artwork/artwork-picker";
+import { useCardPress } from "./card-press";
 import { DeckArtMenu, type ArtMenuTarget } from "./art-menu";
 import { CardActions, CardCopyCount } from "./card-actions";
 import { CardArt } from "./card-art";
@@ -236,6 +237,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   const [artError, setArtError] = useState<string | null>(null);
   // The deck copy whose art menu is open, from a right-click, a long press or the menu key.
   const [artMenu, setArtMenu] = useState<ArtMenuTarget | null>(null);
+  const press = useCardPress();
   const importGeneration = useRef(0);
   const searchRef = useRef<HTMLInputElement>(null);
   const inspectScrollRef = useRef<HTMLDivElement>(null);
@@ -668,6 +670,24 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     }
   }
 
+  /** Ctrl+click or Cmd+click: a copy goes to the Side Deck, and a Side Deck copy goes back to Main or Extra. */
+  function toggleSide(source: CardSource & { from: DeckSection; index: number }) {
+    if (source.from !== "side") {
+      if (mode === "domain") {
+        setNotice("Domain has no Side Deck.");
+        return;
+      }
+      dropCard(source, "side");
+      return;
+    }
+    const card = catalog.get(source.code);
+    if (!card) {
+      setNotice("Card details are still loading. Try again in a moment.");
+      return;
+    }
+    dropCard(source, defaultAddSection(card));
+  }
+
   function makeMaster(code: number, section?: DeckSection) {
     const card = catalog.get(code);
     if (card && (card.type & TYPE_MONSTER) === 0) {
@@ -902,12 +922,19 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     const section = (["main", "extra", "side"] as const).find((value) => deck[value].includes(code));
     inspect(code, section ? { section, code, index: deck[section].indexOf(code) } : null);
   }
+  const masterGesture = press({
+    remove: () => commit(selectDomainMaster(selection, undefined)),
+    moveSide: () => setNotice("Domain has no Side Deck."),
+    select: () => { if (deck.deckMaster != null) inspect(deck.deckMaster, null, true, true); },
+    menu: (anchor) => { if (deck.deckMaster != null) openArtMenu({ section: "deckMaster", index: 0, code: deck.deckMaster, anchor }); },
+  });
   const checkProps: DeckCheckProps = { problems, notes, banlistName, flag, tone, pool: !!pool, onProblem: showProblem };
   const sectionProps = {
     catalog, unknown, limits, over, selected,
     onSelect: (stack: SelectedStack, openSheet?: boolean) => inspect(stack.code, stack, openSheet),
     onHover: pointAt,
     onRemove: removeCopy,
+    onMoveSide: toggleSide,
     onDrop: dropCard,
     onArtMenu: openArtMenu,
     artMenu,
@@ -1112,7 +1139,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
                 onDragOver={(event) => { if (hasCardDrag(event)) { event.preventDefault(); setMasterDropping(true); } }}
                 onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setMasterDropping(false); }}
                 onDrop={(event) => { setMasterDropping(false); const drag = readCardDrag(event); if (!drag || drag.from === "master") return; event.preventDefault(); makeMaster(drag.code, drag.from === "list" ? undefined : drag.from); }}>
-                <div className={styles["de-mslot"]}>{deck.deckMaster != null ? <button type="button" className={styles["de-c"]} aria-label={`Deck Master: ${cardName(deck.deckMaster)}`} aria-pressed={inspectCode === deck.deckMaster && selected == null} title={cardName(deck.deckMaster)} draggable onClick={(event) => { event.currentTarget.focus(); inspect(deck.deckMaster!, null, true, true); }} onPointerEnter={(event) => { if (event.pointerType !== "touch") pointAt({ code: deck.deckMaster!, from: "master" }); }} onPointerLeave={() => pointAt(null)} onDragStart={(event) => writeCardDrag(event, { code: deck.deckMaster!, from: "master" })} onContextMenu={(event) => { event.preventDefault(); openArtMenu({ section: "deckMaster", index: 0, code: deck.deckMaster!, anchor: event.currentTarget }); }} onKeyDown={(event) => { if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) { event.preventDefault(); openArtMenu({ section: "deckMaster", index: 0, code: deck.deckMaster!, anchor: event.currentTarget }); } }}><CardArt code={deck.deckMaster} name={cardName(deck.deckMaster)} /></button> : <Zone state="dashed" size="md" style={{ "--zw": "58px" } as CSSProperties} />}</div>
+                <div className={styles["de-mslot"]}>{deck.deckMaster != null ? <button type="button" className={styles["de-c"]} aria-label={`Deck Master: ${cardName(deck.deckMaster)}`} aria-pressed={inspectCode === deck.deckMaster && selected == null} title={cardName(deck.deckMaster)} draggable {...masterGesture} onPointerEnter={(event) => { if (event.pointerType !== "touch") pointAt({ code: deck.deckMaster!, from: "master" }); }} onPointerLeave={() => pointAt(null)} onDragStart={(event) => { masterGesture.onDragStart(); writeCardDrag(event, { code: deck.deckMaster!, from: "master" }); }}><CardArt code={deck.deckMaster} name={cardName(deck.deckMaster)} /></button> : <Zone state="dashed" size="md" style={{ "--zw": "58px" } as CSSProperties} />}</div>
                 <div className={styles.masterText}><h2 className={styles["de-st"]}>Deck Master</h2><p className="small">{deck.deckMaster != null ? `${cardName(deck.deckMaster)}. ` : ""}Drag a monster here, or select one and press Use as Deck Master.</p>{deck.deckMaster != null ? <SvButton variant="quiet" disabled={busy} onClick={() => commit(selectDomainMaster(selection, undefined))}>Clear</SvButton> : null}</div>
               </section>
             ) : null}

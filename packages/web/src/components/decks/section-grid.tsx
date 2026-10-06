@@ -4,6 +4,7 @@ import { useRef, useState, type DragEvent, type ReactNode } from "react";
 import { Zone } from "@/components/sheet";
 import { cn } from "@/lib/utils";
 import { CardArt } from "./card-art";
+import { useCardPress } from "./card-press";
 import { hasCardDrag, readCardDrag, writeCardDrag } from "./drag";
 import { LimitBadge } from "./limit-badge";
 import {
@@ -43,6 +44,7 @@ export function DeckSectionGrid({
   onSelect,
   onHover,
   onRemove,
+  onMoveSide,
   onDrop,
   onArtMenu,
   artMenu,
@@ -66,7 +68,10 @@ export function DeckSectionGrid({
   children?: ReactNode;
   onSelect: (stack: SelectedStack, openSheet?: boolean) => void;
   onHover: (copy: HoveredCopy | null) => void;
+  /** Left-click: takes the copy out of the deck. */
   onRemove: (source: CardSource) => void;
+  /** Ctrl+click or Cmd+click: the copy goes to the Side Deck, or from the Side Deck to where it belongs. */
+  onMoveSide: (source: CardSource & { from: DeckSection; index: number }) => void;
   onDrop: (source: CardSource, section: DeckSection, at?: number) => void;
   /** Right-click, long press or the menu key on a card: the art menu opens beside `anchor`. */
   onArtMenu: (request: { section: DeckSection; index: number; code: number; anchor: HTMLElement }) => void;
@@ -76,11 +81,12 @@ export function DeckSectionGrid({
   const [dropping, setDropping] = useState(false);
   const [insertAt, setInsertAt] = useState<number | null>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const press = useCardPress();
   const state = sizeState(codes.length, minimum, maximum);
   const difference = state === "under" ? minimum - codes.length : codes.length - maximum;
 
-  /** Removes a copy from the keyboard and keeps focus on the card that takes its place. */
-  function removeFromKeyboard(code: number, index: number) {
+  /** Removes a copy and keeps focus on the card that takes its place. */
+  function removeAndRefocus(code: number, index: number) {
     onRemove({ code, from: section, index });
     requestAnimationFrame(() => {
       const items = listRef.current?.children;
@@ -152,6 +158,12 @@ export function DeckSectionGrid({
             const isOver = over.has(copyKey(code, catalog));
             const arts = altArtCount(code, catalog);
             const menuOpen = artMenu?.section === section && artMenu.index === index;
+            const gesture = press({
+              remove: () => removeAndRefocus(code, index),
+              moveSide: () => onMoveSide({ code, from: section, index }),
+              select: () => onSelect({ section, code, index }),
+              menu: (anchor) => openMenu(anchor, code, index),
+            });
             return (
               <li
                 key={`${section}-${index}`}
@@ -170,24 +182,18 @@ export function DeckSectionGrid({
                   data-unknown={missing ? "true" : undefined}
                   data-over={isOver ? "true" : undefined}
                   draggable
+                  {...gesture}
                   onDragStart={(event) => {
+                    gesture.onDragStart();
                     onSelect({ section, code, index }, false);
                     writeCardDrag(event, { code, from: section, index });
                   }}
-                  onClick={(event) => { event.currentTarget.focus(); onSelect({ section, code, index }); }}
-                  onPointerEnter={(event) => { if (event.pointerType !== "touch") onHover({ section, index }); }}
-                  onPointerLeave={() => onHover(null)}
-                  onContextMenu={(event) => { event.preventDefault(); openMenu(event.currentTarget, code, index); }}
                   onKeyDown={(event) => {
-                    if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
-                      event.preventDefault();
-                      openMenu(event.currentTarget, code, index);
-                      return;
-                    }
-                    if (event.ctrlKey || event.metaKey || event.altKey) return;
+                    gesture.onKeyDown(event);
+                    if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
                     if (event.key === "Delete" || event.key === "Backspace" || event.key === "-") {
                       event.preventDefault();
-                      removeFromKeyboard(code, index);
+                      removeAndRefocus(code, index);
                     }
                   }}
                 >
