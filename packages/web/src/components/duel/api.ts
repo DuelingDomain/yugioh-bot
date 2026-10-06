@@ -17,6 +17,7 @@ import type {
   DuelSeriesSummary,
   DuelSession,
   DuelSettings,
+  SandboxBotMode,
 } from "@yugidraft/shared/duels";
 
 export class DuelRequestError extends Error {
@@ -123,8 +124,25 @@ export async function searchPlayers(q: string, signal?: AbortSignal): Promise<{ 
   return parseBody(await fetch(`/api/players?${new URLSearchParams({ q }).toString()}`, { cache: "no-store", signal }));
 }
 
-export async function getDuelRoom(slug: string, spectate = false): Promise<DuelRoom> {
-  return parseBody(await fetch(duelRoomKey(slug, spectate), { cache: "no-store" }));
+/**
+ * Dev sandbox only: the seat the admin acts as and whether the other seats' hands show. The routes read them from the
+ * query string (view and actions) or from the body (sandbox controls). Both are optional; a plain duel never sends them.
+ */
+export interface SandboxView {
+  as?: number;
+  reveal?: boolean;
+}
+
+function withSandboxQuery(url: string, sandbox?: SandboxView): string {
+  if (!sandbox || (sandbox.as === undefined && sandbox.reveal === undefined)) return url;
+  const query = new URLSearchParams();
+  if (sandbox.as !== undefined) query.set("as", String(sandbox.as));
+  if (sandbox.reveal !== undefined) query.set("reveal", sandbox.reveal ? "1" : "0");
+  return `${url}${url.includes("?") ? "&" : "?"}${query.toString()}`;
+}
+
+export async function getDuelRoom(slug: string, spectate = false, sandbox?: SandboxView): Promise<DuelRoom> {
+  return parseBody(await fetch(withSandboxQuery(duelRoomKey(slug, spectate), sandbox), { cache: "no-store" }));
 }
 
 export async function acceptDuelInvite(slug: string, inviteCode: string): Promise<DuelRoom> {
@@ -273,9 +291,10 @@ export async function startDuel(slug: string): Promise<DuelRoom> {
 export async function sendDuelAction(
   slug: string,
   command: DuelCommand,
+  sandbox?: SandboxView,
 ): Promise<DuelRoom> {
   return parseBody(
-    await fetch(`/api/duels/${encodeURIComponent(slug)}/actions`, {
+    await fetch(withSandboxQuery(`/api/duels/${encodeURIComponent(slug)}/actions`, sandbox), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(command),
@@ -382,4 +401,43 @@ export async function reportEnabled(slug: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Dev sandbox controls (`POST /api/duels/[slug]/sandbox`). Admin only; the host checks the organizer.
+
+export type SandboxWalkPhase = "standby" | "main1" | "battle" | "main2" | "end";
+
+async function postSandbox<T>(slug: string, payload: Record<string, unknown>, sandbox?: SandboxView): Promise<T> {
+  return parseBody<T>(await fetch(`/api/duels/${encodeURIComponent(slug)}/sandbox`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...payload,
+      ...(sandbox?.as !== undefined ? { as: sandbox.as } : {}),
+      ...(sandbox?.reveal !== undefined ? { reveal: sandbox.reveal } : {}),
+    }),
+  }));
+}
+
+/** Set one bot seat (1 to 3) to Auto-pass, Practice bot or Manual. The answer is the room as the acting seat sees it. */
+export async function setSandboxSeatControl(
+  slug: string, seat: number, control: SandboxBotMode, sandbox?: SandboxView,
+): Promise<DuelRoom> {
+  return postSandbox(slug, { action: "control", seat, control }, sandbox);
+}
+
+/** Walk the real engine through each phase (bots pass) until `phase`. The room tells where it stopped. */
+export async function sandboxGoToPhase(slug: string, phase: SandboxWalkPhase, sandbox?: SandboxView): Promise<DuelRoom> {
+  return postSandbox(slug, { action: "go-to-phase", phase }, sandbox);
+}
+
+/** Walk the real engine to the start of the next turn. */
+export async function sandboxNextTurn(slug: string, sandbox?: SandboxView): Promise<DuelRoom> {
+  return postSandbox(slug, { action: "next-turn" }, sandbox);
+}
+
+/** New duel with the same board, seed and bot modes. The old one is cancelled. */
+export async function restartSandbox(slug: string, sandbox?: SandboxView): Promise<{ slug: string }> {
+  return postSandbox(slug, { action: "restart" }, sandbox);
 }
