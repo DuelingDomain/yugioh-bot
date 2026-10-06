@@ -50,6 +50,35 @@ it("fetches set cards through the shared queue, caches compact per-set identitie
   await restarted.refresh(sets); expect(fetch).toHaveBeenCalledTimes(2);
 });
 
+it("shares one in-flight refresh across reads and later refresh callers", async () => {
+  const db = database();
+  let release: ((response: Response) => void) | undefined;
+  const fetch = vi.fn(async (input: string | URL | Request) => {
+    const set = new URL(String(input)).searchParams.get("cardset")!;
+    if (set === sets[0].name && !release) return new Promise<Response>(resolve => { release = resolve; });
+    return Response.json(payload(set));
+  });
+  const cache = createRecentCardSetCache(db, { fetch, now: () => today });
+  cache.read([sets[0]]);
+  const pending = cache.refresh([sets[0]]), later = cache.refresh(sets);
+  cache.read(sets);
+  try {
+    await vi.waitFor(() => expect(release).toBeDefined());
+    expect(later).toBe(pending);
+    release!(Response.json(payload(sets[0].name)));
+    await Promise.all([pending, later]);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const next = cache.refresh(sets);
+    expect(next).not.toBe(pending);
+    await next;
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(db.prepare("select count(*) as count from card_data_set_cache").get()).toEqual({ count: 2 });
+  } finally {
+    release?.(Response.json(payload(sets[0].name)));
+    await cache.close(); await Promise.all([pending, later]);
+  }
+});
+
 it("serves stale immediately and refreshes <=60-day sets daily and older sets weekly", async () => {
   const db = database(); let now = today;
   let release: ((response: Response) => void) | undefined;
@@ -66,6 +95,7 @@ it("serves stale immediately and refreshes <=60-day sets daily and older sets we
   expect(fetch).toHaveBeenCalledTimes(3);
   release!(Response.json(payload(sets[0].name, 101))); await pending;
   expect(cache.read(sets)[0].cards?.[0].id).toBe(101);
+  await cache.refresh(sets);
   hang = false;
   now = today + 7 * 86_400_000 - 1; await cache.refresh(sets); expect(fetch).toHaveBeenCalledTimes(4);
   now++; await cache.refresh(sets); expect(fetch).toHaveBeenCalledTimes(5);
@@ -110,6 +140,7 @@ it("retains successful stale cards after a refresh fails and backs off cold fail
   const cache = createRecentCardSetCache(db, { fetch, now: () => now });
   await cache.refresh([sets[0]]);
   const before = cache.read([sets[0]])[0];
+  await cache.refresh([sets[0]]);
   now += 86_400_000;
   fetch.mockImplementation(async () => new Response("offline", { status: 503 }));
   await cache.refresh(sets);
@@ -131,6 +162,22 @@ it("caches a 400 no-match response as a durable empty set without five-minute re
   const restarted = createRecentCardSetCache(db, { fetch, now: () => now });
   await restarted.refresh([sets[0]]); expect(fetch).toHaveBeenCalledTimes(1);
 });
+
+it.each(["Invalid cardset parameter.", "Request failed: No card matching your query was found."])(
+  "keeps other 400 errors unknown and retries after five minutes: %s", async error => {
+    const db = database(); let now = today;
+    const fetch = vi.fn(async () => Response.json(payload(sets[0].name)))
+      .mockResolvedValueOnce(Response.json({ error }, { status: 400 }));
+    const cache = createRecentCardSetCache(db, { fetch, now: () => now });
+    await cache.refresh([sets[0]]);
+    expect(cache.read([sets[0]])[0]).toMatchObject({ cards: null, checkedAt: null });
+    expect(db.prepare("select count(*) as count from card_data_set_cache").get()).toEqual({ count: 0 });
+    now += 299_999; await cache.refresh([sets[0]]); expect(fetch).toHaveBeenCalledTimes(1);
+    now++; await cache.refresh([sets[0]]); expect(fetch).toHaveBeenCalledTimes(2);
+    expect(cache.read([sets[0]])[0].cards?.[0].id).toBe(99);
+    await cache.refresh([sets[0]]);
+  },
+);
 
 it("counts known missing families when another set is unknown", () => {
   const missing = payload(sets[0].name).data[0];
