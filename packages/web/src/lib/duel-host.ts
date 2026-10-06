@@ -8,14 +8,14 @@ import {
   TournamentDuelError,
   type DuelService,
 } from "@yugidraft/shared/services";
-import type { CardQuery, DuelChainMode, DuelCommand, DuelDeck, DuelFirstChoice, DuelMasterRule, DuelMode, DuelRpsMove, SandboxBoard, SandboxRun, SandboxBotMode } from "@yugidraft/shared/duels";
+import type { SandboxHostOp, CardQuery, DuelChainMode, DuelCommand, DuelDeck, DuelFirstChoice, DuelMasterRule, DuelMode, DuelRpsMove, SandboxBoard, SandboxRun, SandboxBotMode } from "@yugidraft/shared/duels";
 import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { verifyDiscordGuildMembership } from "@/lib/discord-guild-membership";
 import { checkDiscordWebAccess, webAccessError, type WebAccessLevel } from "@/lib/discord-web-access";
 
-export type DuelHostOp = "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "cards" | "card-details" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "ready" | "unready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "report" | "debug-trace" | "bug-context" | "chain-mode" | "validate-board" | "start-sandbox" | "sandbox-control" | "sandbox-restart" | "sandbox-info" | "sandbox-go-to-phase" | "sandbox-next-turn";
+export type DuelHostOp = "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "cards" | "card-details" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "ready" | "unready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "report" | "debug-trace" | "bug-context" | "chain-mode" | SandboxHostOp;
 
 /** Dev scenario tools (presets page, Report button). Server side only. Exactly "1" turns them on. */
 export function scenariosEnabled(): boolean {
@@ -133,7 +133,7 @@ export async function callDuelHost(input: {
   run?: SandboxRun;
   scenarioId?: number;
   control?: SandboxBotMode;
-  phase?: string;
+  to?: string;
 }): Promise<{ ok: true; data: unknown } | { ok: false; response: NextResponse }> {
   const cfg = { url: env.duelInternalUrl, secret: env.duelInternalSecret };
   const configProblem = duelHostConfigProblem(cfg);
@@ -171,7 +171,7 @@ export async function callDuelHost(input: {
   if (input.run !== undefined) payload.run = input.run;
   if (input.scenarioId !== undefined) payload.scenarioId = input.scenarioId;
   if (input.control !== undefined) payload.control = input.control;
-  if (input.phase !== undefined) payload.phase = input.phase;
+  if (input.to !== undefined) payload.to = input.to;
 
   const result = await transport.post("/internal/duel", JSON.stringify(payload));
   if (!result.ok) {

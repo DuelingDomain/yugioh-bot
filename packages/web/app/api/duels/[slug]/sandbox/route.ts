@@ -1,3 +1,4 @@
+import { SANDBOX_OPS } from "@yugidraft/shared/duels";
 import { NextResponse } from "next/server";
 import { callDuelHost } from "@/lib/duel-host";
 import {
@@ -13,7 +14,7 @@ export async function GET(_request: Request, { params }: Context) {
   if (!actor.ok) return actor.response;
   try {
     const { slug } = await params;
-    const result = await callDuelHost({ op: "sandbox-info", slug, guildId: actor.guildId, playerId: actor.playerId });
+    const result = await callDuelHost({ op: SANDBOX_OPS.info, slug, guildId: actor.guildId, playerId: actor.playerId });
     return result.ok ? NextResponse.json(result.data) : result.response;
   } catch (error) {
     return sandboxErrorResponse(error);
@@ -40,20 +41,20 @@ export async function POST(request: Request, { params }: Context) {
         if (body.control !== "pass" && body.control !== "practice" && body.control !== "manual") {
           throw new SandboxRequestError("control must be pass, practice or manual");
         }
-        input = { ...common, op: "sandbox-control", seat: body.seat, control: body.control };
+        input = { ...common, op: SANDBOX_OPS.control, seat: body.seat, control: body.control };
         break;
       }
       case "restart":
-        input = { ...common, op: "sandbox-restart" };
+        input = { ...common, op: SANDBOX_OPS.restart };
         break;
       case "go-to-phase":
         if (typeof body.phase !== "string" || !["draw", "standby", "main1", "battle", "main2", "end"].includes(body.phase)) {
           throw new SandboxRequestError("phase must be draw, standby, main1, battle, main2 or end");
         }
-        input = { ...common, op: "sandbox-go-to-phase", phase: body.phase };
+        input = { ...common, op: SANDBOX_OPS.phase, to: body.phase };
         break;
       case "next-turn":
-        input = { ...common, op: "sandbox-next-turn" };
+        input = { ...common, op: SANDBOX_OPS.nextTurn };
         break;
       default:
         throw new SandboxRequestError("Unknown sandbox action");

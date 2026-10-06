@@ -1,3 +1,4 @@
+import { SANDBOX_OPS } from "@yugidraft/shared/duels";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -2240,8 +2241,8 @@ export function createDuelHost(options: {
     if (op === "capabilities") {
       return { multiplayerTables: multiplayerTablesEnabled(), multiCoreReady: multiCoreAvailable(options.dataDirectory), multiDomainCoreReady: multiDomainCoreAvailable(options.dataDirectory) };
     }
-    if (op === "validate-board") return sandbox.validate(body.board);
-    if (op === "start-sandbox") return sandbox.start(body, guildId, actor);
+    if (op === SANDBOX_OPS.validate) return sandbox.validate(body.board);
+    if (op === SANDBOX_OPS.start) return sandbox.start(body, guildId, actor);
     if (op === "list-presets") {
       requireScenarios();
       return {
@@ -2319,11 +2320,11 @@ export function createDuelHost(options: {
     }
     if (typeof body.slug !== "string" || !body.slug || body.slug.length > 128) throw new RequestError("Duel slug is required", 400);
     const slug = body.slug;
-    if (op === "sandbox-info") return sandbox.info(slug, guildId, actor);
-    if (op === "sandbox-restart") return sandbox.restart(slug, guildId, actor);
+    if (op === SANDBOX_OPS.info) return sandbox.info(slug, guildId, actor);
+    if (op === SANDBOX_OPS.restart) return sandbox.restart(slug, guildId, actor);
     const room = service.room(slug, guildId, actor);
     const sandboxView: SandboxViewOptions = { as: body.as, reveal: body.reveal };
-    if (body.as !== undefined || body.reveal !== undefined || op === "sandbox-control" || op === "sandbox-phase" || op === "sandbox-next-turn") {
+    if (body.as !== undefined || body.reveal !== undefined || op === SANDBOX_OPS.control || op === SANDBOX_OPS.phase || op === SANDBOX_OPS.nextTurn) {
       requireSandboxOwner(service, slug, guildId, actor);
       if (body.reveal !== undefined && typeof body.reveal !== "boolean") throw new RequestError("reveal must be a boolean", 400);
     }
@@ -2332,7 +2333,7 @@ export function createDuelHost(options: {
       room.mySeat = resolveActingSeat({ ...room.session, actor, mySeat: room.mySeat,
         manualSeats: info ? policiesForRun(info.run, room.session.format).manualSeats : new Set(), as: body.as });
     }
-    if (op === "sandbox-control") {
+    if (op === SANDBOX_OPS.control) {
       // Recover without answering the seat that is about to become Manual.
       const run = setSandboxControl(service, slug, guildId, actor, body.seat, body.control);
       const game = await recover(slug, guildId, false);
@@ -2341,8 +2342,8 @@ export function createDuelHost(options: {
       await driveBot(slug, guildId, game);
       return project(slug, guildId, actor, game, false, sandboxView);
     }
-    if (op === "sandbox-phase" || op === "sandbox-next-turn") {
-      const to = op === "sandbox-phase" ? sandboxPhase(body.to) : undefined;
+    if (op === SANDBOX_OPS.phase || op === SANDBOX_OPS.nextTurn) {
+      const to = op === SANDBOX_OPS.phase ? sandboxPhase(body.to) : undefined;
       if (room.session.status !== "active") throw new RequestError("This duel is not active", 409);
       cancelBotLoop(slug);
       const game = await recover(slug, guildId, false);
@@ -2773,7 +2774,7 @@ export function createDuelHost(options: {
         if (!body || typeof body !== "object" || Array.isArray(body)) throw new RequestError("Invalid request", 400);
         // Start and restart share the actor queue so the active and rate limits cannot race.
         // They can then acquire old duel queues for cancellation without holding another duel queue.
-        const key = body.op === "start-sandbox" || body.op === "sandbox-restart"
+        const key = body.op === SANDBOX_OPS.start || body.op === SANDBOX_OPS.restart
           ? `sandbox-player:${body.playerId}` : typeof body.slug === "string" ? body.slug : "catalog";
         // debug-trace and bug-context must answer while the duel queue is stuck inside the core, so they skip the queue.
         const ctl = { abandoned: false };

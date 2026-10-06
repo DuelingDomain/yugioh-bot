@@ -1,3 +1,9 @@
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createHmac } from "node:crypto";
+import { createDuelHost } from "../../duel-server/src/host";
+import type { DuelEngineView } from "@yugidraft/shared/duels";
 import type Database from "better-sqlite3";
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -211,10 +217,48 @@ describe("validation and start", () => {
 });
 
 describe("duel sandbox operations", () => {
+  it("sends the real web phase payload through the host contract", async () => {
+    const session = duel();
+    const dataDirectory = mkdtempSync(join(tmpdir(), "sandbox-contract-"));
+    writeFileSync(join(dataDirectory, "manifest.json"), JSON.stringify({ bundleVersion: "contract-test" }));
+    mocks.db!.prepare("update duels set status = 'active', seed_json = '[\"1\",\"2\",\"3\",\"4\"]', bundle_version = 'contract-test' where id = ?").run(session.id);
+    let revision = 0;
+    const host = createDuelHost({ db: mocks.db!, dataDirectory, secret: "test", searchCards: () => [],
+      createWorker: () => ({
+        running: true, create: async () => {}, close: async () => {}, search: async () => [],
+        answer: async () => { revision++; },
+        view: async (viewer): Promise<DuelEngineView> => ({
+          revision, turn: 1, turnSeat: 0, prioritySeat: 0, phase: revision ? "main2" : "main1",
+          seats: [0, 1].map((seat) => ({ seat, lp: 8000, hand: [], deckCount: 20, extraCount: 0,
+            extra: [], monsters: [], spells: [], graveyard: [], banished: [] })),
+          prompt: viewer === 0 ? { id: `p${revision}`, seat: 0, kind: "choice", title: "Phase",
+            options: [{ id: revision ? "to_ep" : "to_m2", label: "Next phase" }] } : null,
+          chain: [], events: [], log: [], result: null,
+        }),
+      }),
+    });
+    mocks.post.mockImplementation(async (_path: string, raw: string) => {
+      const response = await host.handle(new Request("http://host/internal/duel", {
+        method: "POST", body: raw,
+        headers: { "x-announce-signature": "sha256=" + createHmac("sha256", "test").update(raw).digest("hex") },
+      }));
+      return { ok: response.ok, status: response.status, text: await response.text() };
+    });
+    try {
+      const { POST } = await import("../app/api/duels/[slug]/sandbox/route");
+      const response = await POST(request("/", { action: "go-to-phase", phase: "main2" }), slugParams(session.slug));
+      expect(response.status).toBe(200);
+      expect((await response.json()).engine.phase).toBe("main2");
+      expect(revision).toBe(1);
+    } finally {
+      await host.close();
+      rmSync(dataDirectory, { recursive: true, force: true });
+    }
+  });
   it.each([
     [{ action: "control", seat: 1, control: "manual" }, "sandbox-control"],
     [{ action: "restart" }, "sandbox-restart"],
-    [{ action: "go-to-phase", phase: "main2", as: 0, reveal: false }, "sandbox-go-to-phase"],
+    [{ action: "go-to-phase", phase: "main2", as: 0, reveal: false }, "sandbox-phase"],
     [{ action: "next-turn", as: 1, reveal: true }, "sandbox-next-turn"],
   ] as const)("forwards %j", async (body, op) => {
     const session = duel();
@@ -222,6 +266,10 @@ describe("duel sandbox operations", () => {
     const response = await POST(request("/", body), slugParams(session.slug));
     expect(response.status).toBe(200);
     const { action: _action, ...fields } = body;
+    if ("phase" in fields) {
+      Object.assign(fields, { to: fields.phase });
+      delete (fields as { phase?: string }).phase;
+    }
     expect(payloads()[0]).toEqual({ op, slug: session.slug, guildId: "guild", playerId: owner, ...fields });
   });
   it("forwards sandbox info", async () => {
