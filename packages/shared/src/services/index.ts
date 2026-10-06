@@ -52,3 +52,4 @@ export { createBugReportService, BugReportServiceError, BUG_REPORT_LIMIT } from 
 export type { BugReportService, BugReport, BugReportInput, BugReportLimit } from "./bug-reports.js";
 export { createWaitlistService } from "./waitlist.js";
 export type { WaitlistService, WaitlistMeta } from "./waitlist.js";
+export * from "./image-cache-cleanup.js";
