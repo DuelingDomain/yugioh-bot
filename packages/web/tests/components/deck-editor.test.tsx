@@ -739,3 +739,26 @@ describe("deck card clicks", () => {
     expect(screen.getByRole("button", { name: "Deck Master: Blue-Eyes White Dragon" })).toBeInTheDocument();
   });
 });
+
+describe("deck controls legend", () => {
+  it("lists the deck and card list clicks in the left panel", async () => {
+    render(<SavedDeckEditor />);
+    const legend = await screen.findByRole("region", { name: "Controls" });
+    expect(legend).toHaveTextContent("Left-click remove");
+    expect(legend).toHaveTextContent("Ctrl+click move to/from Side Deck");
+    expect(legend).toHaveTextContent("Right-click change art");
+    expect(legend).toHaveTextContent("Click preview");
+    expect(legend).toHaveTextContent("Double-click or Right-click add");
+    expect(within(screen.getByRole("complementary", { name: "Card details" })).getByRole("region", { name: "Controls" })).toBe(legend);
+  });
+
+  it("shows the touch hint in the deck column on a phone", async () => {
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(private callback: (entries: Array<{ contentRect: { width: number } }>) => void) {}
+      observe() { this.callback([{ contentRect: { width: 390 } }]); }
+      disconnect() {}
+    });
+    render(<SavedDeckEditor />);
+    expect(await screen.findByText("Tap: select a card · Hold: change art")).toBeInTheDocument();
+  });
+});
