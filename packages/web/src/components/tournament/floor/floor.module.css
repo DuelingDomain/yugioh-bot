@@ -184,9 +184,9 @@ a.tc:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 2px; }
 @keyframes svDrift { 0%, 100% { opacity: 0.34; } 50% { opacity: 0.62; } }
 @keyframes svBreathe { 0%, 100% { opacity: 0.3; } 50% { opacity: 0.95; } }
 :global([data-motion="full"]) .half[data-kind="lit"]::before { animation: svDrift 9s ease-in-out infinite; }
-:global([data-motion]) :global(.ms) :global(.sv-zone[data-state="now"] .sv-zone-box)::before { animation: none; }
-:global([data-motion="full"]) :global(.ms) :global(.sv-zone[data-state="now"] .sv-zone-box)::before { animation: svBreathe 3.6s ease-in-out infinite; }
-:global([data-motion="off"]) :global(.ms) *, :global([data-motion="off"]) :global(.ms) *::before, :global([data-motion="off"]) :global(.ms) *::after { animation: none !important; transition: none !important; }
+:global([data-motion]) :global(.ms) .half :global(.sv-zone[data-state="now"] .sv-zone-box)::before { animation: none; }
+:global([data-motion="full"]) :global(.ms) .half :global(.sv-zone[data-state="now"] .sv-zone-box)::before { animation: svBreathe 3.6s ease-in-out infinite; }
+:global([data-motion="off"]) :global(.ms) .half *, :global([data-motion="off"]) :global(.ms) .half *::before, :global([data-motion="off"]) :global(.ms) .half *::after { animation: none !important; transition: none !important; }
 @media (prefers-reduced-motion: reduce) {
   .half[data-kind="lit"]::before { animation: none !important; }
 }

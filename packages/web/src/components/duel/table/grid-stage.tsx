@@ -31,6 +31,10 @@ import { SEAT_Z } from "./geometry";
 import { hexToRgbTriplet } from "./seat-angle";
 import { bandHubFit } from "../phase-hub-model";
 import { SEAT_TONE_HEX, type SeatFieldProps, type SeatPose, type SeatTone } from "./types";
+import { useViewZoom } from "./use-view-zoom";
+import { ViewReset } from "./view-reset";
+import { visibleRect } from "./view-zoom";
+import zoomStyles from "./view-zoom.module.css";
 import type { TableStageViewProps } from "./table-stage";
 import styles from "./grid-stage.module.css";
 
@@ -199,6 +203,7 @@ const exitPose = (seat: number, spot: GridCellRect, rotateDeg: 0 | 180): SeatPos
 export function GridStage({ controller, layout, camera, renderSeatField, fx, promptCenter, overlay, wantMode, locked = false, grid, placeLabels, gridFinale = null, gridHub, hubPlace = "band" }: TableStageViewProps) {
   const { engine, room, viewerSeat, nameOf, legalKeys, selectedKeys, reducedMotion } = controller;
   const rootRef = useRef<HTMLDivElement>(null);
+  const layerRef = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ width: 0, height: 0 });
   // In the floating HUD the board runs to the right edge of the screen, under the corner of turn controls: the layout
   // keeps that corner clear of every field (HUD_CORNER in grid-layout.ts).
@@ -397,6 +402,10 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
   for (const seat of outSeats) if (!lateOutline.current.has(seat)) lateOutline.current.set(seat, exitState.exits.some((exit) => exit.seat === seat));
   for (const seat of [...lateOutline.current.keys()]) if (!outSeats.includes(seat)) lateOutline.current.delete(seat);
 
+  // Zoom and pan of the board (view-zoom.ts): the fields zoom, the life plates, the hub and the prompts stay. A new
+  // focus, a seat that goes out or the final duel resets it.
+  const zoom = useViewZoom({ rootRef, layerRef, enabled: placed != null, reducedMotion, resetKey: `${focus.seat ?? "all"}|${finaleKey ?? ""}|${outSeats.join(",")}` });
+
   // A focused seat that goes out stays in focus while its field crumbles, then the focus goes home (grid-focus.ts).
   const crumbling = useMemo(() => exitState.exits.map((exit) => exit.seat), [exitState.exits]);
   const { hold } = focusControl;
@@ -463,14 +472,17 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
   // the middle of the board: on the finale board the middle of that board; a spectator's, the pair in focus (else the
   // middle of the table). The prompt slot carries that box as --pr-* (board px) for the panels and the yes/no bar.
   const promptColumn: 0 | 1 | null = finale ? finale.bottom.column : viewerSeat != null ? homeColumn : focusCell?.column ?? null;
-  const promptPair = promptColumn != null ? frames[promptColumn] : null;
-  const promptStyle = promptPair
+  const pairFrame = promptColumn != null ? frames[promptColumn] : null;
+  // Under a zoom the prompts keep their size and sit in the part of that pair that is on the screen (the whole board
+  // when none of it is); the pick bar plans its room there too, from the targets as they show after the zoom.
+  const promptPair = pairFrame && zoom.zoomed ? visibleRect(zoom.view, pairFrame, box) ?? { x: 0, y: 0, width: box.width, height: box.height } : pairFrame;
+  const promptStyle = promptPair && pairFrame
     ? ({
         ["--pr-cx" as string]: `${Math.round(promptPair.x + promptPair.width / 2)}px`,
         ["--pr-cy" as string]: `${Math.round(promptPair.y + promptPair.height / 2)}px`,
         ["--pr-w" as string]: `${Math.round(promptPair.width)}px`,
         ["--pr-h" as string]: `${Math.round(promptPair.height)}px`,
-        ["--pr-unit" as string]: `${promptUnit(promptPair.height, finale != null)}px`,
+        ["--pr-unit" as string]: `${promptUnit(pairFrame.height, finale != null)}px`,
       } as CSSProperties)
     : undefined;
 
@@ -496,7 +508,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
       window.cancelAnimationFrame(frame);
       window.clearTimeout(timer);
     };
-  }, [placed, legalKey, reducedMotion]);
+  }, [placed, legalKey, reducedMotion, zoom.view]);
   const barRoom = useMemo(() => (promptPair ? pickBarRoom(promptPair, targets) : undefined),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [promptPair?.x, promptPair?.y, promptPair?.width, promptPair?.height, targets]);
@@ -520,9 +532,11 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
       data-stage-scale={((placed?.sizes.equal ?? 0) / SEAT_Z).toFixed(3)}
       data-ready={placed ? "true" : "false"}
       data-battle={engine.phase === "battle" ? "true" : undefined}
+      data-turn-seat={engine.turnSeat ?? undefined}
       data-pick-kind={pickKind ?? undefined}
     >
       <div className={styles.world} onClick={onClick} onFocusCapture={onFocus}>
+        <div ref={layerRef} className={zoomStyles.layer} data-view-layer>
           {placed
             ? ([0, 1] as const).map((column) => {
             const rect = frames[column];
@@ -679,6 +693,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
             );
               })
             : null}
+        </div>
           {placed
             ? cells.map((cell) => {
             const view = engine.seats.find((entry) => entry.seat === cell.seat);
@@ -740,6 +755,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
           All fields
         </button>
       </div>
+      <ViewReset zoomed={zoom.zoomed} scale={zoom.view.s} onReset={zoom.reset} style={{ right: 10, top: 44 }} />
       {fx ? <div className={styles.slot} data-slot="fx">{fx}</div> : null}
       {promptCenter ? <div className={styles.slot} data-slot="prompt" data-seat-pick={picks ? "true" : undefined} data-prompt-pair={promptPair ? promptColumn ?? undefined : undefined} data-prompt-dense={promptPair ? "true" : undefined} style={promptStyle}>{promptCenter}</div> : null}
       {overlay ? <div className={styles.slot} data-slot="overlay">{overlay}</div> : null}
