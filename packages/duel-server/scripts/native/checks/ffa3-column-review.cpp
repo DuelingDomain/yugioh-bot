@@ -32,6 +32,7 @@ static void ffa3_bound_and_losing() {
  uint8_t bound=1, response=2;
  lua->push_scope(0,&bound,false,false,&first);
  EXPECT(f.column_peer_of(0)==1,"first link must read peer 1");
+ EXPECT(lua->current_scope()->touched && bound==1,"column reads must mark the probe without changing its binding");
  lua->push_scope(0,&response,false,false,&second);
  EXPECT(f.column_peer_of(0)==2,"nested response must read peer 2");
  lua->pop_scope();
@@ -39,7 +40,7 @@ static void ffa3_bound_and_losing() {
  f.player[1].eliminated=true;
  EXPECT(lua->scope_bound_opp()==1,"ordinary reads must retain departed peer");
  EXPECT(f.column_peer_of(0)==1,"column reads must retain departed peer");
- sd::lua(d,"assert(source:GetColumnGroupCount()==0,'departed peer must not expose survivor cards')");
+ sd::lua(d,"Duel.MPWindow(0); assert(Duel.GetFieldGroupCount(0,0,LOCATION_MZONE)==0,'ordinary read must see the departed peer empty'); assert(source:GetColumnGroupCount()==0,'departed peer must not expose survivor cards'); Duel.MPWindowEnd()");
  lua->pop_scope();
  EXPECT(f.column_peer_of(0)==2,"outside the link the survivor becomes the peer");
  f.player[1].eliminated=false;

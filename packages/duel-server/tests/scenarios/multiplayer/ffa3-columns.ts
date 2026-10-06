@@ -11,17 +11,27 @@ function scenario(id: string, setup: Scenario["setup"], steps: Step[]): Scenario
     source: "Owner decision 2026-10-05 [R-FFA-THREE-COLUMNS]", rules: ["R-FFA-THREE-COLUMNS"],
     tags: ["multiplayer", "ffa3", "column"], setup: { ...setup, format: "ffa3" }, steps });
 }
-function chosen(peer: "p1" | "p2"): Scenario {
-  return scenario(`choose-${peer}-mirrored-only`, {
-    p0: { spells: [null, { card: FUSE, pos: "set" }] },
-    p1: { monsters: [ELF, null, null, OX], spells: [null, null, null, { card: POT, pos: "set" }] },
-    p2: { monsters: [ELF, null, null, OX], spells: [null, null, null, { card: POT, pos: "set" }] },
-  }, [activate(FUSE, "p0"), expectPickSeats(["p1", "p2"], "p0"), pickOpponent(peer, "p0"),
-    expectPickOptions([{ seat: peer, card: OX }, { seat: peer, label: "Face-down card" }], "p0"), select({ card: OX, owner: peer }),
-    expectPrompt({ by: "p0", context: "action" }), expectBoard({
-      p0: { grave: [FUSE] }, p1: { monsters: peer === "p1" ? [ELF] : [ELF, OX], grave: peer === "p1" ? [OX] : [] },
-      p2: { monsters: peer === "p2" ? [ELF] : [ELF, OX], grave: peer === "p2" ? [OX] : [] },
+function chosen(peer: Seat, actor: Seat = "p0"): Scenario {
+  const other = SEATS.ffa3.find(seat => seat !== actor && seat !== peer)!;
+  const opposing = { monsters: [ELF, null, null, OX], spells: [null, null, null, { card: POT, pos: "set" as const }] };
+  return scenario(`choose-${actor}-${peer}-mirrored-only`, {
+    [actor]: { spells: [null, { card: FUSE, pos: "set" }] }, [peer]: opposing, [other]: opposing,
+  }, [...turnsBefore("ffa3", actor).flatMap(step => [step, ...Array.from({ length: 5 }, () => pass(actor))]),
+    activate(FUSE, actor), expectPickSeats([peer, other], actor), pickOpponent(peer, actor),
+    expectPickOptions([{ seat: peer, card: OX }, { seat: peer, label: "Face-down card" }], actor), select({ card: OX, owner: peer }),
+    expectPrompt({ by: actor, context: "action" }), expectBoard({
+      [actor]: { grave: [FUSE] }, [peer]: { monsters: [ELF], grave: [OX] }, [other]: { monsters: [ELF, OX], grave: [] },
     })]);
+}
+function responseChain(): Scenario {
+  return scenario("response-chain-keeps-two-peers", {
+    p0: { spells: [null, { card: FUSE, pos: "set" }, { card: FUSE, pos: "set" }] },
+    p1: { monsters: [null, null, ELF, OX] }, p2: { monsters: [null, null, ELF, OX] },
+  }, [activate({ card: FUSE, seq: 1 }, "p0"), expectPickSeats(["p1", "p2"], "p0"), pickOpponent("p1", "p0"),
+    expectPrompt({ by: "p0", context: "chain" }), activate({ card: FUSE, seq: 2 }, "p0"),
+    expectPickSeats(["p1", "p2"], "p0"), pickOpponent("p2", "p0"),
+    expectPrompt({ by: "p0", context: "action" }),
+    expectBoard({ p0: { grave: [FUSE, FUSE] }, p1: { monsters: [ELF], grave: [OX] }, p2: { monsters: [OX], grave: [ELF] } })]);
 }
 function peerLeaves(): Scenario {
   const card = "Sour Scheduling - Red Vinegar Vamoose";
@@ -65,12 +75,14 @@ function impermanence(peer: "p1" | "p2", eliminated: boolean, continuous = false
   const remedy = "Goblin's Secret Remedy", tenki = "Fire Formation - Tenki", wolf = "Gene-Warped Warwolf";
   return scenario(`impermanence-${actor}-${peer}-${eliminated ? "two" : "three"}-alive-${continuous ? "continuous" : "activation"}`, {
     [actor]: { spells: [null, { card: IMP, pos: "set" }] },
+    ...(!eliminated ? { [dead]: { monsters: slots(4, wolf), spells: [null, null, null, tenki] } } : {}),
     [peer]: { monsters: ["Giant Rat", null, null, null, wolf], hand: [remedy, POT], ...(continuous ? { spells: [null,null,null,tenki] } : {}) },
   }, [...turnsBefore("ffa3",actor), ...(actor !== "p0" ? Array.from({length:5},()=>pass(actor)) : []), ...(eliminated ? [surrender(dead), expectEliminated(dead)] : []), endTurn(actor), pass(actor),
     activate(IMP, actor), activate(remedy, peer), zone(peer,"s0",peer),
     activate(POT, peer), zone(peer,continuous ? "s0" : "s3",peer), expectPrompt({by:peer,context:"action"}),
     expectBoard({ [peer]: { hand: Array(continuous ? 3 : 1).fill(ELF),
-      zones: { m4: {card:wolf,attack: 2000} }, grave:[remedy,POT] } })]);
+      zones: { m4: {card:wolf,attack: 2000} }, grave:[remedy,POT] },
+      ...(!eliminated ? { [dead]: { zones: { m4: { card: wolf, attack: 2100 } } } } : {}) })]);
 }
 function impermanenceControlChange(): Scenario {
   const control = "Enemy Controller", tenki = "Fire Formation - Tenki", wolf = "Gene-Warped Warwolf";
@@ -169,7 +181,7 @@ function fullEmzColumn(card: "Bingo Card" | "Blasting Fuse", eliminated: boolean
         ...(!eliminated ? { p1: { monsters: [OX, spider], spells: ["Dark Hole"], grave: [] } } : {}) }),
     ])]);
 }
-const standard = [impermanenceControlChange(),peerLeaves(),...(["Bingo Card", "Blasting Fuse"] as const).flatMap(card => [false, true].flatMap(eliminated => (["none", "own-main", "peer-spell"] as const).map(missing => fullEmzColumn(card, eliminated, missing)))),sour(),emzColumn("p1"),emzColumn("p2"),independentEmzColumn(),moveColumn("Sprind the Irondash Dragon","p1"),moveColumn("Sprind the Irondash Dragon","p2"),moveColumn("Goldilocks the Battle Landscaper","p1"),moveColumn("Goldilocks the Battle Landscaper","p2"),crown("p1",false),crown("p2",false),crown("p1",true),crown("p2",true),paranoia(false),paranoia(true),bingo("p1",false),bingo("p2",false),bingo("p1",true),bingo("p2",true),yajiro(),impermanence("p2",true,false,"p1"),impermanence("p2",true,true,"p1"),impermanence("p1",false), impermanence("p1",false,true), impermanence("p1",true), impermanence("p2",true), impermanence("p1",true,true), impermanence("p2",true,true), disablaster(false),disablaster(true),chosen("p1"), chosen("p2"), passive,
+const standard = [impermanenceControlChange(),responseChain(), peerLeaves(), chosen("p0", "p1"), chosen("p2", "p1"), chosen("p0", "p2"), chosen("p1", "p2"),...(["Bingo Card", "Blasting Fuse"] as const).flatMap(card => [false, true].flatMap(eliminated => (["none", "own-main", "peer-spell"] as const).map(missing => fullEmzColumn(card, eliminated, missing)))),sour(),emzColumn("p1"),emzColumn("p2"),independentEmzColumn(),moveColumn("Sprind the Irondash Dragon","p1"),moveColumn("Sprind the Irondash Dragon","p2"),moveColumn("Goldilocks the Battle Landscaper","p1"),moveColumn("Goldilocks the Battle Landscaper","p2"),crown("p1",false),crown("p2",false),crown("p1",true),crown("p2",true),paranoia(false),paranoia(true),bingo("p1",false),bingo("p2",false),bingo("p1",true),bingo("p2",true),yajiro(),impermanence("p2",true,false,"p1"),impermanence("p2",true,true,"p1"),impermanence("p1",false), impermanence("p1",false,true), impermanence("p1",true), impermanence("p2",true), impermanence("p1",true,true), impermanence("p2",true,true), disablaster(false),disablaster(true),chosen("p1"), chosen("p2"), passive,
   ...([["p0", "p1"], ["p0", "p2"], ["p1", "p2"]] as const).flatMap(([actor, peer]) =>
     (["knight", "fuse", "scuffle"] as const).map(kind => survivor(actor, peer, kind)))];
 export const FFA3_COLUMN_SCENARIOS = [...standard, ...standard.map(domainVariant)];

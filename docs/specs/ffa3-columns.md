@@ -4,13 +4,15 @@ Owner decision: 2026-10-05. Rule: **R-FFA-THREE-COLUMNS**. Base: `origin/main` a
 
 With three living duelists, an activated effect that affects opponent cards selects one living opponent before card or zone choices. With two, all column logic uses the remaining opponent and gives no opponent prompt. Main column `s` faces `4-s`. EMZ sequences 5 and 6 map to columns 1 and 3. FFA3 EMZ remain separate: two independently occupied mirrored EMZ can contribute two cards to one column. Link arrows do not change. FFA4 keeps seats 0/1 and 2/3, without re-facing after a loss. Tag and 1v1 do not change.
 
+A chain keeps its bound peer if that peer leaves. Its column reads see the departed seat's empty field; they do not switch to the survivor. Before a peer is bound, column reads use the same pending-loss eligibility as the opponent pick. Infinite Impermanence saves the negated target's controller at resolution and uses that seat for its lasting column negation.
+
 ## Card groups
 
 A card can occur in both (a) and (c): classify each effect, not the whole card. These lists come from the pinned stock scripts. They do not add cards to the production database.
 
 ### (a) Three live duelists: activated opponent column effects (48 cards)
 
-The named operations opt into column peers. Their target checks use the existing opponent probe. A sole legal opponent is bound without a menu; existing causal response bindings remain in force. Sunlit Sentinel registers its effect later, so its registration wrapper runs in `regop`.
+The named operations opt into column peers. Their target checks use the existing opponent probe. A sole opponent that passes the target probe is bound without a menu; existing causal response bindings remain in force. Sunlit Sentinel registers its effect later, so its registration wrapper runs in `regop`.
 
 | Card | Code | Activated operation |
 |---|---:|---|
@@ -65,7 +67,7 @@ The named operations opt into column peers. Their target checks use the existing
 
 ### (b) Two live duelists: all column logic (99 distinct cards)
 
-All cards in (a) and (c) use the remaining opponent. The stock scan also has these 10 column readers. They use the same core/Lua column functions with two live seats:
+Outside an already bound chain, all cards in (a) and (c) use the remaining opponent. The stock scan also has these 10 column readers. They use the same core/Lua column functions with two live seats:
 
 Early Palm Gets the Win (58995660), Girsu, the Orcust Mekk-Knight (69811710), Han-Shi Kyudo Spirit (53270092), Magical Musketeer Calamity (68024506), Magical Musketeer Kidbrave (5230799), Magical Musketeer Starfire (31629407), Magical Musketeer Wild (94418111), S-Force Bridgehead (23377425), S-Force Signify (19951423), S-Force Specimen (82977464).
 
@@ -83,6 +85,10 @@ Alien Infiltrator (76573247), Defense Zone (59687381), Disablaster the Negation 
 
 The owner limited (a) to effects that affect opponent cards. This implementation leaves activated effects that affect only own cards on the own field with three live seats; they do not ask for an opponent. The existing Kidbrave scenario now checks that interpretation. Examples include Girsu, S-Force Signify and Magical Musketeer draw/search effects. An optional owner question was sent for this case. All their column logic uses the remaining opponent with two live seats.
 
+### Deferred menu refinement (review item 6)
+
+The target probe excludes an opponent when that opponent's `chk==0` check fails. An own-card choice can make that Boolean check pass for every opponent. Such effects can still show an opponent menu. A general `MPTarget` change cannot safely identify which side supplied the legal choice. The optional refinement is deferred; no target callbacks or menus were changed for it.
+
 ## Host and web
 
 No host or preset change is needed for prompt order. `aux.MPTarget` uses the current opponent probe and `aux.MPOne` binding. The host already maps the `0xFFFE0000 | seat` SELECT_OPTION values to `context.type = "opponent"`, then processes the next card or zone prompt. The live tests exercise this path.
@@ -98,8 +104,8 @@ The UI agent on `feat/ffa3-pass` should:
 
 ## Scope and integration
 
-- New patch: `0106-ffa3-column-peer.patch`. No existing patch file is edited. `across_of()` stays unchanged.
+- New patches: `0106-ffa3-column-peer.patch` and `0107-ffa3-column-peer-lifetime.patch`. The review leaves all prior patch files unchanged. `across_of()` stays unchanged.
 - 39 new suffix files join 8 existing activated suffixes. Existing passive guards use column peers separately from Link helpers. Every suffix keeps a checked `stockSha256` entry.
-- The final check of `fix/hand-effects-multi` shows two shared files: `multi-scripts/MANIFEST.json` and the expected manifest count in `scripts/generate-multi-scripts.ts`. Preserve both branches' new manifest entries and combine the count changes when integrating. No engine patch file overlaps. Its uncommitted files were not read.
+- The final check of `fix/hand-effects-multi` shows two shared files: `multi-scripts/MANIFEST.json` and the expected manifest count in `scripts/generate-multi-scripts.ts`. Preserve both branches' new manifest entries and set combined `EXPECTED_COUNTS.entries = 360` when integrating. Do not merge as part of this task. No engine patch file overlaps. Its uncommitted files were not read.
 - Bingo Card has a pinned stock script but no pinned `cards.cdb` row. Its live test adds a Normal Trap row only to a private temporary database. Production data stays unchanged.
 - `CONTEXT.md` has no multiplayer column rule to update.
