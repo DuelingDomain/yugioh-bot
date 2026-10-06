@@ -203,7 +203,8 @@ export function DeckSectionGrid({
                       removeAndRefocus(code, index);
                     } else if (event.key === "+" || event.key === "=") {
                       event.preventDefault();
-                      onCopy({ code, section, index });
+                      // A held key repeats; one press adds one copy.
+                      if (!event.repeat) onCopy({ code, section, index });
                     }
                   }}
                 >

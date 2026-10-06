@@ -707,6 +707,10 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
       setNotice(DOMAIN_ONE_COPY);
       return;
     }
+    if (unknown.has(source.code)) {
+      setNotice(`${source.code} is not in the card database.`);
+      return;
+    }
     const card = catalog.get(source.code);
     if (card) {
       if (!roomFor(card)) return;
@@ -721,6 +725,10 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     commit(placed.selection);
     setSelected({ section: to, code: source.code, index: placed.index });
     setInspectCode(source.code);
+    // The notice region is a status line, so a screen reader hears that the copy went in.
+    const have = card ? deckCount(card) + 1 : (usage.get(poolCode(source.code)) ?? 0) + 1;
+    const max = poolMap ? deckAllowance(poolMap, poolCode(source.code), forcedMap) : copyLimit(source.code, catalog, limits);
+    setNotice(`Added ${cardName(source.code)} (${have} of ${max}).`);
   }
 
   function makeMaster(code: number, section?: DeckSection) {

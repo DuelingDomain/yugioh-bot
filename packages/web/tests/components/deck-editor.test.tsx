@@ -904,6 +904,53 @@ describe("deck card copy", () => {
   });
 });
 
+describe("deck card copy feedback and guards", () => {
+  const notices = () => screen.getAllByRole("status").map((node) => node.textContent).join(" | ");
+
+  it("says what was added and how many copies the deck has now", async () => {
+    stored = savedDeck([BLUE_EYES.code]);
+    render(<SavedDeckEditor deckId="7" />);
+    const tile = await screen.findByRole("button", { name: /^Blue-Eyes White Dragon, Main Deck card 1/ });
+    fireEvent.keyDown(tile, { key: "=" });
+    expect(notices()).toContain("Added Blue-Eyes White Dragon (2 of 3).");
+  });
+
+  it("adds one copy for one key press, not for a held key", async () => {
+    stored = savedDeck([BLUE_EYES.code]);
+    render(<SavedDeckEditor deckId="7" />);
+    const tile = await screen.findByRole("button", { name: /^Blue-Eyes White Dragon, Main Deck card 1/ });
+    fireEvent.keyDown(tile, { key: "+", repeat: true });
+    fireEvent.keyDown(tile, { key: "+", repeat: true });
+    expect(mainCards()).toHaveLength(1);
+    fireEvent.keyDown(tile, { key: "+" });
+    expect(mainCards()).toHaveLength(2);
+  });
+
+  it("adds nothing on Ctrl+= or Cmd++, which stay with the browser", async () => {
+    stored = savedDeck([BLUE_EYES.code]);
+    render(<SavedDeckEditor deckId="7" />);
+    const tile = await screen.findByRole("button", { name: /^Blue-Eyes White Dragon, Main Deck card 1/ });
+    fireEvent.keyDown(tile, { key: "=", ctrlKey: true });
+    fireEvent.keyDown(tile, { key: "+", metaKey: true });
+    fireEvent.keyDown(tile, { key: "+", ctrlKey: true, shiftKey: true });
+    expect(mainCards()).toHaveLength(1);
+  });
+
+  it("does not copy a card that is not in the card database", async () => {
+    stored = savedDeck([123456789]);
+    vi.mocked(globalThis.fetch).mockImplementation(async (url, init) => {
+      if (url === "/api/duels/cards") return Response.json({ cards: [], missing: [123456789] });
+      if (url === "/api/decks/7") return Response.json({ deck: stored });
+      return Response.json({ archetypes: [], banlists: {}, cards: [], total: 0, offset: 0 });
+    });
+    render(<SavedDeckEditor deckId="7" />);
+    const tile = await screen.findByRole("button", { name: /not in the card database/ });
+    fireEvent.keyDown(tile, { key: "+" });
+    expect(mainCards()).toHaveLength(1);
+    expect(notices()).toContain("123456789 is not in the card database.");
+  });
+});
+
 describe("Domain one copy of each card", () => {
   const domainDeck = (main: number[]): SavedDeck => ({ ...savedDeck(main), mode: "domain" });
 
