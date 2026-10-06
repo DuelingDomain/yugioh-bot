@@ -5,6 +5,7 @@ import { AlertTriangle, ArrowDownWideNarrow, ArrowUpNarrowWide, LayoutGrid, List
 import { cardLimit, type CardArchetype, type CardQuery, type DeckCardInfo } from "@yugidraft/shared/duels";
 import { TYPE_LINK, cardDetailsText, cardStatsText } from "@/components/duel/constants";
 import { cn } from "@/lib/utils";
+import { artCountLabel } from "@/components/artwork/artwork-picker";
 import { DeckButton, DeckSelect, DeckSegmented } from "./controls";
 import { queryDeckCards } from "./api";
 import { CardArt } from "./card-art";
@@ -24,9 +25,12 @@ const SCOPE_CHOICES = [
   { value: "name" as const, label: "Name only" },
 ];
 
+/** A search result. Server searches say how many other arts the card has; the pool list does not. */
+export type BrowserCard = DeckCardInfo & { altArtCount?: number };
+
 type Results = {
   key: string;
-  cards: DeckCardInfo[];
+  cards: BrowserCard[];
   total: number;
   error: string | null;
 };
@@ -376,6 +380,7 @@ export function CardBrowser({
                       <button type="button" className={styles["de-t"]} aria-label={label} data-full={pool && full ? "true" : undefined} title={card.name} {...handlers}>
                         <CardArt code={card.code} name={card.name} />
                         <LimitBadge limit={limit} />
+                        {card.altArtCount ? <span className={cn("num", styles["de-arts"])} title="Alternate arts. Select the card to choose one.">{artCountLabel(card.altArtCount)}</span> : null}
                         {pool ? (
                           <span className={cn("num", styles["de-left"])} data-zero={left <= 0 ? "true" : undefined} title="Copies left in your pool">{left} left</span>
                         ) : count > 0 ? <span className={cn("num", styles["de-have"])}>×{count}</span> : null}
@@ -394,6 +399,7 @@ export function CardBrowser({
                       <span className={styles.rowText}>
                         <strong>{card.name}</strong>{" "}
                         <span>{cardDetailsText(card)}</span>{" "}
+                        {card.altArtCount ? <span className={cn("num", styles.rowArts)} title="Alternate arts. Select the card to choose one.">{artCountLabel(card.altArtCount)}</span> : null}{" "}
                         {stats ? <span className={cn("num", styles.rowStats)}>{(card.type & TYPE_LINK) ? `ATK ${stats}` : stats}</span> : null}
                       </span>{" "}
                       {pool ? (
