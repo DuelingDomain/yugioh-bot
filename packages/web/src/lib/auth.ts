@@ -127,6 +127,8 @@ export const {
         nextUrl.pathname.startsWith("/api/auth/") ||
         nextUrl.pathname.startsWith("/_next") ||
         nextUrl.pathname === "/favicon.ico" ||
+        nextUrl.pathname === "/icon.svg" ||
+        nextUrl.pathname === "/apple-icon.png" ||
         nextUrl.pathname.startsWith("/icons/");
 
       if (isPublicRoute) return true;
