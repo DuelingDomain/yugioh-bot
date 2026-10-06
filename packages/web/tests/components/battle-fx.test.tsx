@@ -764,6 +764,19 @@ describe("BattleFx", () => {
     });
   });
 
+  it("picks the style from the card that attacked, using the board as it was before the snapshot", () => {
+    const before = seatsOf(machine, warrior);
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} seats={before} />);
+    act(() => undefined);
+    // The new snapshot has already lost the destroyed target; the attack still resolves both cards.
+    const after = [before[0], { ...before[1], monsters: [null] }] as unknown as DuelSeatView[];
+    const destroyed: DuelEvent = { id: 3, kind: "destroy", seat: 1, text: "", zone: { controller: 1, location: 4, sequence: 0 } };
+    rerender(<BattleFx events={[phase, attack, destroyed]} reducedMotion={false} seats={after} />);
+    expect(playLayer()?.getAttribute("data-style")).toBe("beam");
+    expect(playLayer()?.getAttribute("data-kind")).toBe("win");
+    expect(halves()).toHaveLength(24);
+  });
+
   it("falls back to the default impact style for an unknown card", () => {
     const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} />);
     act(() => undefined);
