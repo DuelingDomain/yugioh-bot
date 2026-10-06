@@ -17,6 +17,12 @@ static void ffa4_unbound() {
  Duel.MPBindSeat()
  )");
  lua->pop_scope();
+ sd::lua(d,"peer_card=Debug.AddCard(2,1,1,LOCATION_MZONE,3,POS_FACEUP_ATTACK)");
+ lua->push_scope(0);
+ sd::lua(d,"assert(not probe_card:IsColumn(1,1,LOCATION_MZONE), 'FFA4 P0 unbound Lua 1 must reject seat 0')");
+ sd::lua(d,"assert(not peer_card:IsColumn(3,1,LOCATION_MZONE), 'FFA4 P0 unbound Lua 1 must reject seat 1')");
+ EXPECT(!lua->current_scope()->touched,"FFA4 unbound column rejection must not touch the opponent probe");
+ lua->pop_scope();
  EXPECT(sd::stray_logs==0,"FFA4 Lua assertions must pass");
  OCG_DestroyDuel(d);
 }
