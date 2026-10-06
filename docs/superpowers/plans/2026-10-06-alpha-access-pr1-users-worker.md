@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Execute in `/home/imran/orca/workspaces/yugioh-discord-bot/alpha-access`, branch `alpha-access`. Executors are Codex `gpt-6-astra`, reasoning `xhigh`, one task at a time; each receives this section and its complete task, including its file lists and Interfaces.
+- Execute in `/home/imran/orca/workspaces/yugioh-discord-bot/alpha-access`, branch `alpha-access`. Executors are Codex `gpt-6.1-sol`, reasoning `high`, one task at a time; each receives this section and its complete task, including its file lists and Interfaces.
 - Every shell, including read-only inspection, starts with `export PATH=$HOME/.nvm/versions/node/v22.23.2/bin:$PATH`. Verify `node --version` is `v22.23.2`.
 - Build shared before consumers: `npm run build --workspace=packages/shared`. Imports resolve to shared/dist.
 - `users.id` is a positive safe integer. `session.user.id = String(users.id)`. Parse a canonical positive decimal string exactly once at each server boundary. Never treat users.id as a Discord snowflake; never coerce owner equality.
@@ -27,7 +27,7 @@
 - This document's creation is DOCS-ONLY: no execution of the steps below is authorized by writing the plan. The plan-writing task creates exactly this file and stages nothing.
 - Use package commands from `CLAUDE.md`: `npm test --workspace=packages/shared`, `npm test --workspace=packages/web`, `npm test --workspace=packages/bot`, `npm test --workspace=packages/ws`, `npm test --workspace=packages/duel-server`; worker adds `npm test --workspace=packages/worker`. A focused web run MUST use `npx vitest run packages/web/tests/auth-identity.test.ts -c packages/web/vitest.config.ts` for the auth-identity test; each task gives its exact focused file list.
 - Read the actual current files before applying each step. References below are inspected pre-merge line numbers, not patch offsets; re-anchor after T0. Keep unrelated changes from origin/main. One review, one fix pass, one re-review; remaining blockers prevent shipment.
-- Evidence belongs in protected `/tmp/alpha-access-pr1-evidence/`, not additional tracked documentation. Do not include credentials or whole identity records in review output. Production rehearsal uses the online backup COPY at `/home/imran/dueling-db-copies/bot-20261006-073526Z.sqlite` (mode 0600; integrity ok; 11 players, 1 guild, no synthetic or orphan owner keys). Never modify that file: copy it into `/tmp/alpha-access-pr1-evidence/` for each rehearsal run. Never touch the live database; no scrubbing is needed for PR 1.
+- Evidence belongs in protected `/tmp/alpha-access-pr1-evidence/`, not additional tracked documentation. Do not include credentials or whole identity records in review output. Production rehearsal uses the online backup COPY at `/home/imran/dueling-db-copies/bot-20261006-193900Z.sqlite` (pre-cutover backup taken 2026-10-06 19:39 UTC; mode 0600; integrity ok; 11 players, 1 guild, no synthetic or orphan owner keys), with `/home/imran/dueling-db-copies/bot-20261006-073526Z.sqlite` retained as a fallback. Never modify that file: copy it into `/tmp/alpha-access-pr1-evidence/` for each rehearsal run. Never touch the live database; no scrubbing is needed for PR 1.
 
 ## Review Focus
 
