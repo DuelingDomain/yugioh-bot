@@ -22,6 +22,7 @@ import { collectFreshEvents, emitDuelFxCue, maxEventId } from "./event-queue";
 import { duelFontClasses } from "./fonts";
 import { armLpHold } from "./life-points";
 import { battleCalculation } from "./battle-calculation";
+import { declaredCaption, directTargetSeat } from "./declared-attack";
 import { ATTACK_TIMING, paceAttack } from "./duel-timing";
 import { duelFxClock } from "./fx-clock";
 import baseStyles from "./battle-fx.module.css";
@@ -65,6 +66,8 @@ export type BattleAim = {
   from: string | null;
   /** Where the arrow points: zone keys of card targets and/or a seat whose LP tally is the target. */
   to: { zones?: readonly string[]; lpSeat?: number | null };
+  /** "<attacker> attacks <player>": the line every seat reads while the attack is declared. */
+  caption?: string;
 };
 
 export type BattleFxProps = {
@@ -79,6 +82,8 @@ export type BattleFxProps = {
   result?: DuelEngineView["result"];
   /** Current engine window; playback visibility follows the captured battle instead. */
   battleStep?: DuelEngineView["battleStep"];
+  /** Names a seat in the caption of a declared attack. Optional: "Player N". */
+  nameOf?: (seat: number) => string;
 };
 
 /* ---------- geometry ---------- */
@@ -111,6 +116,17 @@ function lpBox(seat: number): Box | null {
   if (!node) return null;
   const box = boxOf(node.querySelector("strong") ?? node);
   return box.width > 0 && box.height > 0 ? box : null;
+}
+
+/** The seats that have an LP tally on screen. */
+function lpSeatsOnScreen(): number[] {
+  return Array.from(document.querySelectorAll<HTMLElement>("[data-lp-seat]"), (node) => Number(node.dataset.lpSeat)).filter(Number.isFinite);
+}
+
+/** The LP tally a direct attack hits; null when its defender is not known (no wrong guess in a 3 or 4 seat duel). */
+function directLpBox(event: DuelEvent): Box | null {
+  const seat = directTargetSeat(event, lpSeatsOnScreen());
+  return seat == null ? null : lpBox(seat);
 }
 
 /** The point where a ray from the box centre toward `toward` leaves the box, pushed out by `gap`. */
@@ -338,7 +354,7 @@ function captureAttack(event: DuelEvent, prev: CardIndex, now: CardIndex): Attac
     const targetInDefense = targetCard.position == null ? node.dataset.defense === "true" : isDefense(targetCard.position);
     return { ...base, to, direct: false, target, toEl: node.querySelector("[data-card-art]"), targetCard, targetInDefense, targetTurned: artUpsideDown(node, node.querySelector<HTMLElement>("[data-card-art]")) };
   }
-  const to = lpBox(event.targetSeat ?? 1 - zone.controller);
+  const to = directLpBox(event);
   if (!to) return null;
   return { ...base, to, direct: true, target: null, toEl: null, targetCard: null, targetInDefense: false, targetTurned: false };
 }
@@ -369,7 +385,7 @@ function remeasureCapture(capture: AttackCapture, event: DuelEvent): AttackCaptu
   let target = capture.target;
   let to = capture.to;
   if (capture.direct) {
-    to = lpBox(event.targetSeat ?? 1 - zone.controller) ?? to;
+    to = directLpBox(event) ?? to;
   } else if (event.target) {
     const node = zoneNode(keyOfZone(event.target));
     target = refreshCut(capture.target, node, capture.targetCard);
@@ -598,7 +614,7 @@ function measureAim(aim: BattleAim | null | undefined): AimGeom | null {
 
 function aimSignature(aim: BattleAim | null | undefined): string {
   if (!aim?.from) return "";
-  return `${aim.mode}|${aim.from}|${(aim.to.zones ?? []).join(",")}|${aim.to.lpSeat ?? ""}`;
+  return `${aim.mode}|${aim.from}|${(aim.to.zones ?? []).join(",")}|${aim.to.lpSeat ?? ""}|${aim.caption ?? ""}`;
 }
 
 function AimLayer({ aim, reduced }: { aim: BattleAim; reduced: boolean }) {
@@ -646,7 +662,9 @@ function AimLayer({ aim, reduced }: { aim: BattleAim; reduced: boolean }) {
       rx={9}
     />
   );
+  const lead = geom.arrows[0];
   return (
+    <>
     <svg className={styles.svg} aria-hidden data-aim={geom.mode} data-reduced={reduced ? "true" : "false"}>
       <g key={signature} className={styles.aim} data-mode={geom.mode}>
         {geom.mode !== "preview" ? ring(geom.from, -1, 4) : null}
@@ -661,6 +679,13 @@ function AimLayer({ aim, reduced }: { aim: BattleAim; reduced: boolean }) {
         <circle className={styles.aimOrigin} cx={geom.arrows[0].start.x} cy={geom.arrows[0].start.y} r={3.4} />
       </g>
     </svg>
+    {aim.caption ? (
+      <span key={`caption-${signature}`} className={styles.aimCaption} data-attack-caption="true"
+        style={{ left: (lead.start.x + lead.tip.x) / 2, top: (lead.start.y + lead.tip.y) / 2 }}>
+        {aim.caption}
+      </span>
+    ) : null}
+    </>
   );
 }
 
@@ -724,14 +749,19 @@ function startBattle3d(capture: AttackCapture, play: Play, clock: BattleClock, c
 type PendingAttack = { attack: DuelEvent; capture: AttackCapture | null; at: number };
 
 /** The marker of a declared attack: the attacker and what it attacks stay ringed until it resolves. */
-function declaredAim(attack: DuelEvent): BattleAim | null {
+function declaredAim(attack: DuelEvent, nameOf: (seat: number) => string = defaultName): BattleAim | null {
   if (!attack.zone) return null;
   const from = keyOfZone(attack.zone);
-  if (attack.target) return { mode: "locked", from, to: { zones: [keyOfZone(attack.target)] } };
-  return { mode: "locked", from, to: { lpSeat: attack.targetSeat ?? 1 - attack.zone.controller } };
+  const lpSeats = lpSeatsOnScreen();
+  const caption = declaredCaption(attack, lpSeats, nameOf) ?? undefined;
+  if (attack.target) return { mode: "locked", from, to: { zones: [keyOfZone(attack.target)] }, caption };
+  const lpSeat = directTargetSeat(attack, lpSeats);
+  return lpSeat == null ? null : { mode: "locked", from, to: { lpSeat }, caption };
 }
 
-export function BattleFx({ events, reducedMotion, active = true, aim = null, seats, result = null }: BattleFxProps) {
+const defaultName = (seat: number): string => `Player ${seat + 1}`;
+
+export function BattleFx({ events, reducedMotion, active = true, aim = null, seats, result = null, nameOf = defaultName }: BattleFxProps) {
   const [mounted, setMounted] = useState(false);
   const [play, setPlay] = useState<Play | null>(null);
   const [declared, setDeclared] = useState<BattleAim | null>(null);
@@ -750,6 +780,8 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
   const controllersRef = useRef(new Set<AbortController>());
   const reducedRef = useRef(reducedMotion);
   reducedRef.current = reducedMotion;
+  const nameOfRef = useRef(nameOf);
+  nameOfRef.current = nameOf;
   // The board's monsters as of the last commit, and as of this render: an attack's cards are read
   // from the older one, because the newer snapshot may already have taken the card that died.
   const prevIndexRef = useRef<CardIndex>(new Map());
@@ -874,7 +906,7 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
     // The battle that resolves in this snapshot plays; one that is still open stays pending.
     const ready = [earlier, incoming].find((entry) => decide(entry) === "play") ?? null;
     pendingRef.current = incoming ? (decide(incoming) === "wait" ? incoming : null) : decide(earlier) === "wait" ? earlier : null;
-    const marker = pendingRef.current ? declaredAim(pendingRef.current.attack) : null;
+    const marker = pendingRef.current ? declaredAim(pendingRef.current.attack, nameOfRef.current) : null;
     setDeclared((current) => (aimSignature(current) === aimSignature(marker) ? current : marker));
     // The attack beat of a flip-effect sequence: the attack that opened it, in this batch or an earlier one.
     const struck = incoming ?? earlier;
@@ -887,7 +919,7 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
         setStrike({
           seq: ++seqRef.current, from: struck.capture.from, to: struck.capture.to, cut: struck.capture.attacker,
           ms: flipSequenceSteps(reduced).attackMs, reduced,
-          delayMs: Math.max(0, startAt - duelFxClock.now()), aim: declaredAim(struck.attack),
+          delayMs: Math.max(0, startAt - duelFxClock.now()), aim: declaredAim(struck.attack, nameOfRef.current),
         });
       }
     }

@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { isDuelChainMode, type DuelChainMode } from "@yugidraft/shared/duels";
+import { isDuelChainMode, type DuelChainMode, type DuelEvent } from "@yugidraft/shared/duels";
 import type { ChainModeControl } from "../../use-chain-mode";
 import { useDuelAnimationSpeed } from "../../animation-speed-control";
 import { duelFontClasses } from "../../fonts";
@@ -72,6 +72,44 @@ function useViewport(): { width: number; height: number } {
   return size;
 }
 
+/**
+ * `?attack=<seat>:<seq>><target>` declares a late attack (after the first snapshot, as a live one) from the monster in
+ * zone <seq> of <seat>: `2:0>3` is a direct attack on seat 3, `1:1>2:0` an attack on the monster in zone 0 of seat 2.
+ * `?as=<seat>|spectator` picks the viewer. For screenshots of what a bystander, the target or a spectator reads.
+ */
+function parseAttackParam(raw: string | null): DuelEvent | null {
+  const match = raw?.match(/^(\d+):(\d+)>(\d+)(?::(\d+))?$/);
+  if (!match) return null;
+  const [seat, seq, target, targetSeq] = match.slice(1).map((part) => (part == null ? null : Number(part)));
+  const zone = { controller: seat!, location: 4, sequence: seq! };
+  return {
+    id: 0, kind: "attack", seat: seat!, text: `Player ${seat! + 1} attacks Player ${target! + 1}`, zone,
+    ...(targetSeq != null ? { target: { controller: target!, location: 4, sequence: targetSeq } } : { targetSeat: target! }),
+  } as DuelEvent;
+}
+
+function useAttackOverride(state: TableFixtureState, query: URLSearchParams): TableFixtureState {
+  const attack = query.get("attack");
+  const as = query.get("as");
+  const [late, setLate] = useState(false);
+  useEffect(() => {
+    if (!attack) return;
+    const timer = setTimeout(() => setLate(true), 1200);
+    return () => clearTimeout(timer);
+  }, [attack]);
+  return useMemo(() => {
+    const engine = state.room.engine;
+    const event = parseAttackParam(attack);
+    let room = state.room;
+    if (as != null) room = { ...room, mySeat: as === "spectator" ? null : Number(as) };
+    if (event && late && engine) {
+      const id = Math.max(0, ...engine.events.map((entry) => entry.id)) + 1;
+      room = { ...room, engine: { ...engine, battleStep: "battle", events: [...engine.events, { ...event, id }] } };
+    }
+    return room === state.room ? state : { ...state, room };
+  }, [state, attack, as, late]);
+}
+
 function HarnessBody({
   state,
   preview,
@@ -104,7 +142,7 @@ export function PreviewHarness({ set, stateId, cam, lock, basePath, renderStage,
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
   const activeId = isTableStateId(stateId) ? stateId : "main";
-  const state = set.states[activeId];
+  const state = useAttackOverride(set.states[activeId], query);
   const chainFromUrl = query.get("chain");
   // The live room draws the switch for a seated player; so does the preview, on Auto, unless `?chain=none`.
   const [chain, setChain] = useState<DuelChainMode | null>(isDuelChainMode(chainFromUrl) ? chainFromUrl : chainFromUrl === "none" ? null : "auto");

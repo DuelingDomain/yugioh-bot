@@ -184,7 +184,36 @@ describe("BattleFx", () => {
     }
   });
 
+  it("names the attacker and the defender on every seat while an attack is declared", () => {
+    const names = (seat: number) => ["Ann", "Bo", "Cy", "Di"][seat]!;
+    const declaration: DuelEvent = { ...direct, id: 2, seat: 2, targetSeat: 3, zone: { controller: 2, location: 4, sequence: 0 } };
+    board.insertAdjacentHTML("beforeend", '<div data-zones="2:4:0"><div data-card-art></div></div>');
+    boxes["2:4:0"] = { left: 500, top: 300, width: 60, height: 88 } as DOMRect;
+    // A bystander (seat 0) and the defender (seat 3) read the same line.
+    for (const viewer of [0, 3]) {
+      for (const node of board.querySelectorAll<HTMLElement>("[data-lp-seat]")) node.dataset.side = Number(node.dataset.lpSeat) === viewer ? "you" : "opp";
+      const { rerender, unmount } = render(<BattleFx events={[phase]} reducedMotion nameOf={names} />);
+      rerender(<BattleFx events={[phase, declaration]} reducedMotion nameOf={names} />);
+      expect(document.querySelector("[data-attack-caption]")?.textContent).toBe("Cy: direct attack on Di");
+      expect(document.querySelector('[data-aim="locked"]')).not.toBeNull();
+      unmount();
+    }
+    const monster: DuelEvent = { ...attack, id: 2, seat: 0, target: { controller: 3, location: 4, sequence: 0 } };
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion nameOf={names} />);
+    rerender(<BattleFx events={[phase, monster]} reducedMotion nameOf={names} />);
+    expect(document.querySelector("[data-attack-caption]")?.textContent).toBe("Ann attacks Di");
+  });
+
+  it("draws no arrow at a defender it does not know in a 3 or 4 seat duel (no 1 - controller guess)", () => {
+    const declaration: DuelEvent = { ...direct, id: 2, seat: 2, zone: { controller: 2, location: 4, sequence: 0 } };
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion />);
+    rerender(<BattleFx events={[phase, declaration]} reducedMotion />);
+    expect(document.querySelector("[data-attack-caption]")).toBeNull();
+    expect(document.querySelector('[data-aim="locked"]')).toBeNull();
+  });
+
   it("keeps the 1v1 LP destination for older events without targetSeat", () => {
+    for (const seat of [2, 3]) board.querySelector(`[data-lp-seat="${seat}"]`)?.remove();
     const { rerender } = render(<BattleFx events={[phase]} reducedMotion />);
     rerender(<BattleFx events={[phase, { ...direct, id: 2 }]} reducedMotion />);
     expect(document.querySelector('[data-aim="locked"] rect[x="15"][y="15"]')).not.toBeNull();
@@ -612,6 +641,7 @@ describe("BattleFx", () => {
   });
 
   it("plays only the newest attack of a burst", () => {
+    for (const seat of [2, 3]) board.querySelector(`[data-lp-seat="${seat}"]`)?.remove(); // a 1v1 board: a direct attack needs no targetSeat
     const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} />);
     act(() => undefined);
     const dealt: DuelEvent = { id: 5, kind: "damage", seat: 1, amount: 800, cause: "battle", text: "" };
