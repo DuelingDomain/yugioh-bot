@@ -223,7 +223,7 @@ export function seatPoses(
   const plan = slotPlan(layout, camera);
   const home = homeTable(layout.format);
   const table = slotTable(layout);
-  const wide = viewport ? wideHomeSlots(layout.format, stageSpread(viewport)) : null;
+  const wide = viewport ? wideHomeSlots(layout.format, stageSpread(viewport), plazaView(viewport)) : null;
   const poses = new Map<number, SeatPose>();
   layout.slots.forEach((slot, place) => {
     const name = plan?.[place];
@@ -297,7 +297,7 @@ const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
  * 4-way: the side rivals grow up to .9 of your size and sit at the outer edges, the far one grows a little.
  * 3-way: the two rivals grow to about .78 and move apart so their boards stay clear of each other.
  */
-export function wideHomeSlots(format: TableFormat, spread: number): Partial<Record<PoseSlot, HomeSlot>> | null {
+export function wideHomeSlots(format: TableFormat, spread: number, view?: PlazaView): Partial<Record<PoseSlot, HomeSlot>> | null {
   if (!(spread > 0) || (format !== "ffa3" && format !== "ffa4")) return null;
   const t = clamp01(spread / 250);
   if (format === "ffa4") {
@@ -321,14 +321,130 @@ export function wideHomeSlots(format: TableFormat, spread: number): Partial<Reco
     };
   }
   const home = FFA3_HOME[0];
-  const rivalScale = 0.66 + 0.12 * t;
-  const half = Math.max(252, (SEAT_BOX.width * rivalScale * 0.93) / 2 + 24);
-  return {
-    home,
-    vL: { x: 550 - half, y: 222, rotateDeg: 158, scale: rivalScale, tiltDeg: 12 },
-    vN: { x: 550 - half, y: 222, rotateDeg: 158, scale: rivalScale, tiltDeg: 12 },
-    vR: { x: 550 + half, y: 222, rotateDeg: 202, scale: rivalScale, tiltDeg: 12 },
-  };
+  const left = ffa3WideRival(spread, view ?? { k: 1, top: 0 });
+  return { home, vL: left, vN: left, vR: { ...left, x: 1100 - left.x, rotateDeg: 360 - left.rotateDeg } };
+}
+
+/** The scale of the stage in the table box (screen px per stage px) and the stage y at the top edge of the box. */
+export interface PlazaView {
+  k: number;
+  top: number;
+}
+
+/** The plaza view of a fitted table box (see `seatPoses`): its scale and the stage y its top edge shows. */
+export function plazaView(fit: { width: number; height: number }): PlazaView {
+  const k = stageFit(fit);
+  if (!(k > 0)) return { k: 1, top: 0 };
+  // The canvas (stage plus the hand row, 956 tall) is centred in the box, whose full height is fit.height * 956 / 860.
+  return { k, top: -((fit.height * 956) / 860 - 956 * k) / (2 * k) };
+}
+
+/**
+ * The floating HUD's left column over a 3-way plaza (the HUD runs to the edge there, see `[data-plaza-hud]` in
+ * table-shell.module.css), in screen px from the top left of the table box, air included: the dock, then the chain tower
+ * under it (up to six links). The rival fields keep clear of it. The Deck Master plate in the bottom left corner and the
+ * turn controls in the bottom right corner sit level with your own field, which never reaches them.
+ */
+export const PLAZA_HUD_KEEP: readonly { x: number; y: number; width: number; height: number }[] = [
+  { x: 0, y: 0, width: 60, height: 170 },
+  { x: 0, y: 170, width: 162, height: 356 },
+];
+
+/**
+ * How a 3-way rival stands at a wide table. The two rivals keep the classic look (tilted, turned 22 degrees to face the
+ * ring) and stay clear of each other, of the turn ring, of your field and of the HUD column, all in screen px. They back
+ * up to the top of the stage and grow no bigger than .76 of your field; a short box makes them smaller, down to .6.
+ */
+const FFA3_WIDE = {
+  maxScale: 0.76,
+  minScale: 0.6,
+  /** The classic turn first; a tight box turns them a little less toward the ring before it makes them smaller. */
+  rotateDeg: [158, 162, 166],
+  tiltDeg: 12,
+  /** Air in screen px: between the two rivals, from your field, from the ring, from the HUD column, from the box edge. */
+  air: { rival: 32, me: 24, ring: 12, keep: 12, edge: 6 },
+} as const;
+/** The turn ring of the 3-way home view with its TURN label (ringPose), in stage px. */
+const FFA3_RING: Bounds = { l: 550 - 64, r: 550 + 64, t: 322 - 64, b: 322 + 80 };
+
+const wideRivalCache = new Map<string, HomeSlot>();
+
+function ffa3WideRival(spread: number, view: PlazaView): HomeSlot {
+  const key = `${spread}|${view.k.toFixed(4)}|${view.top.toFixed(1)}`;
+  const hit = wideRivalCache.get(key);
+  if (hit) return hit;
+  const { k } = view;
+  const air = FFA3_WIDE.air;
+  const me = seatQuad(FFA3_HOME[0], 0, 0, SEAT_BOX.width, SEAT_BOX.height);
+  const ring = boundsQuad(FFA3_RING);
+  // The HUD column in stage px: the box's left edge is at -spread, its top edge at view.top.
+  const keep = PLAZA_HUD_KEEP.map((r) => boundsQuad({ l: -spread + r.x / k, r: -spread + (r.x + r.width) / k, t: view.top + r.y / k, b: view.top + (r.y + r.height) / k }));
+  let found: HomeSlot | null = null;
+  for (let scale = FFA3_WIDE.maxScale; scale >= FFA3_WIDE.minScale - 1e-9 && !found; scale -= 0.02) {
+    for (const rotateDeg of FFA3_WIDE.rotateDeg) for (let y = 120; y <= 330 && !found; y += 4) {
+      const base = { rotateDeg, tiltDeg: FFA3_WIDE.tiltDeg };
+      const probe = { ...base, scale, x: 0, y };
+      // The board and the hand backs over its back edge stay inside the box.
+      const top = Math.min(...seatQuad(probe, 0, 0, SEAT_BOX.width, SEAT_BOX.height).concat(seatQuad(probe, 0, 225, SEAT_BOX.width, 70)).map((p) => p.y));
+      if (top - view.top < air.edge / k) continue;
+      for (let half = 240; half <= 1100; half += 4) {
+        const pose = { ...probe, x: 550 - half };
+        const board = seatQuad(pose, 0, 0, SEAT_BOX.width, SEAT_BOX.height);
+        const mirror = board.map((p) => ({ x: 1100 - p.x, y: p.y }));
+        if (polygonGap(board, mirror) < air.rival / k || polygonGap(board, me) < air.me / k || polygonGap(board, ring) < air.ring / k) continue;
+        const hand = seatQuad(pose, 0, 225, SEAT_BOX.width, 70);
+        const ok = Math.min(...board.concat(hand).map((p) => p.x)) >= -spread + air.edge / k &&
+          keep.every((r) => polygonGap(r, board) >= air.keep / k && polygonGap(r, hand) >= air.keep / k);
+        if (ok) found = { ...pose, x: 550 - half };
+        break;
+      }
+    }
+  }
+  // A box with no room for the smallest rival: the classic place, scaled for the spread.
+  const slot = found ?? { rotateDeg: 158, tiltDeg: FFA3_WIDE.tiltDeg, x: 298 - Math.min(spread, 120), y: 222, scale: FFA3_WIDE.minScale };
+  if (wideRivalCache.size > 64) wideRivalCache.clear();
+  wideRivalCache.set(key, slot);
+  return slot;
+}
+
+type Point = { x: number; y: number };
+
+/** The four corners of a rectangle given in a seat's own frame (centre lx, ly; size w by h), on the stage: the seat transform. */
+export function seatQuad(pose: Pick<SeatPose, "x" | "y" | "rotateDeg" | "tiltDeg" | "scale">, lx: number, ly: number, w: number, h: number): Point[] {
+  const rot = (pose.rotateDeg * Math.PI) / 180;
+  const tilt = ((pose.tiltDeg ?? 0) * Math.PI) / 180;
+  const cos = Math.cos(rot);
+  const sin = Math.sin(rot);
+  return [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sx, sy]) => {
+    const px = (lx + (sx * w) / 2) * pose.scale;
+    const py = (ly + (sy * h) / 2) * pose.scale;
+    const x = px * cos - py * sin;
+    const y = px * sin + py * cos;
+    const depth = y * Math.sin(tilt);
+    const d = 1 - depth / PERSPECTIVE;
+    return { x: pose.x + x / d, y: pose.y + (y * Math.cos(tilt)) / d };
+  });
+}
+
+const boundsQuad = (b: Bounds): Point[] => [{ x: b.l, y: b.t }, { x: b.r, y: b.t }, { x: b.r, y: b.b }, { x: b.l, y: b.b }];
+
+/** The gap between two convex polygons along the best separating axis: negative when they overlap. */
+export function polygonGap(a: readonly Point[], b: readonly Point[]): number {
+  let best = -Infinity;
+  for (const poly of [a, b]) {
+    for (let i = 0; i < poly.length; i += 1) {
+      const p = poly[i];
+      const q = poly[(i + 1) % poly.length];
+      const nx = q.y - p.y;
+      const ny = p.x - q.x;
+      const len = Math.hypot(nx, ny) || 1;
+      let a0 = Infinity, a1 = -Infinity, b0 = Infinity, b1 = -Infinity;
+      for (const v of a) { const d = (v.x * nx + v.y * ny) / len; a0 = Math.min(a0, d); a1 = Math.max(a1, d); }
+      for (const v of b) { const d = (v.x * nx + v.y * ny) / len; b0 = Math.min(b0, d); b1 = Math.max(b1, d); }
+      best = Math.max(best, b0 - a1, a0 - b1);
+    }
+  }
+  return best;
 }
 
 export interface Bounds {
