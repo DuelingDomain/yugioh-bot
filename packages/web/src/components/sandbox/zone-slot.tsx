@@ -144,7 +144,7 @@ export function ZoneSlot({
   const faceDown = pos === "set";
 
   return (
-    <div className={styles.slotWrap} data-sbx-slot>
+    <div className={styles.slotWrap} data-sbx-slot data-sbx-loc={`${loc.seat}:${loc.zone}:${loc.index}`}>
       {entry === null ? (
         <button
           type="button"
