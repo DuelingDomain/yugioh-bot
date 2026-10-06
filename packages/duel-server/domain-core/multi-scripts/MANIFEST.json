@@ -7500,6 +7500,19 @@
       "stockSha256": "f0a79bad5d47a018d6388b67fd08b3df27aaca47562441bbd55080e062ab85c0"
     },
     {
+      "code": 85967160,
+      "file": "c85967160.lua",
+      "name": "Aromage Bergamot",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "FIELD",
+      "redefined": [
+        "pccon"
+      ],
+      "stockSha256": "f1d55671c188355c0471133dd8e80132e6db1314a8f3ff73afc1bae9dcc26b41",
+      "note": "Script fix (#215): the piercing condition compares your LP with the LP of the opponent that the attack goes at (Duel.MPAttackedSeat), not with the best case over all opponents. No pick."
+    },
+    {
       "code": 86066372,
       "file": "c86066372.lua",
       "name": "Accesscode Talker",
