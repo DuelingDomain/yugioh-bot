@@ -6,7 +6,7 @@ import type { DuelPresencePayload } from "@yugidraft/shared/ws";
 export const NAV_GROUPS: { label: string | null; hrefs: string[] }[] = [
   { label: null, hrefs: ["/dashboard"] },
   { label: "Compete", hrefs: ["/tournaments", "/drafts", "/duels", "/leaderboard"] },
-  { label: "Build", hrefs: ["/decks", "/cubes"] },
+  { label: "Build", hrefs: ["/decks", "/cubes", "/sandbox"] },
 ];
 
 export const FOOT_HREF = "/settings";
@@ -15,10 +15,11 @@ export function navItemByHref(href: string): NavItem | undefined {
   return navItems.find((item) => item.href === href);
 }
 
-export function groupedNav(): { label: string | null; items: NavItem[] }[] {
+/** Admin-only links (Sandbox) stay out unless `isAdmin` is true. */
+export function groupedNav(isAdmin = false): { label: string | null; items: NavItem[] }[] {
   return NAV_GROUPS.map((g) => ({
     label: g.label,
-    items: g.hrefs.map(navItemByHref).filter((i): i is NavItem => Boolean(i)),
+    items: g.hrefs.map(navItemByHref).filter((i): i is NavItem => Boolean(i) && (isAdmin || !i!.adminOnly)),
   }));
 }
 

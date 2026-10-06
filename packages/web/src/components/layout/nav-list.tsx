@@ -1,5 +1,6 @@
 "use client";
 
+import { useSandboxAccess } from "./use-sandbox-access";
 import { FOOT_HREF, groupedNav, navItemByHref } from "./shell-model";
 import { NavItem, type NavSize } from "./nav-item";
 import { LiveNowRow } from "./live-now";
@@ -17,9 +18,10 @@ interface NavListProps {
 
 /** The grouped main navigation: Dashboard, Live now (when live), Compete, Build. */
 export function NavList({ activeHref, label, size, live = null, onNavigate }: NavListProps) {
+  const isAdmin = useSandboxAccess();
   return (
     <nav className={styles.nav} aria-label={label} data-size={size}>
-      {groupedNav().map((g, index) => (
+      {groupedNav(isAdmin).map((g, index) => (
         <div key={g.label ?? "top"} className={styles.navGroup}>
           {g.label ? (
             size === "rail" ? (
