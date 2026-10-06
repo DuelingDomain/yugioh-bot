@@ -12,7 +12,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
   const { slug } = await params;
 
   try {
-    let room: DuelRoom = actor.duels.room(slug, actor.guildId, actor.playerId);
+    const storedRoom = actor.duels.room(slug, actor.guildId, actor.playerId);
+    if (storedRoom.session.sandbox) {
+      const admin = await requireDuelActor("admin");
+      if (!admin.ok) return admin.response;
+    }
+    let room: DuelRoom = storedRoom;
     if (new URL(request.url).searchParams.get("spectate") === "1") {
       const result = await callDuelHost({ op: "view", slug, guildId: actor.guildId, playerId: actor.playerId, spectate: true });
       if (!result.ok) return result.response;

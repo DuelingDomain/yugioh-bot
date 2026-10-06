@@ -105,7 +105,7 @@ export async function callDuelHost(input: {
   deck?: DuelDeck;
   query?: string;
   codes?: number[];
-  /** add-bot only: the 0-based empty seat to fill. */
+  /** Zero-based seat for add-bot, sandbox control, or sandbox elimination. */
   seat?: number;
   /** start-preset only. */
   presetId?: string;
