@@ -36,6 +36,8 @@ export interface CardDatabase {
   counter(id: number): string | undefined;
   /** Script text by name. `overlay` (duels with more than two seats only) maps the original text; omitted, the text is the original. */
   readScript(name: string, overlay?: ScriptOverlay): string | null;
+  /** Alternate scripts that would load a main script under a different GetID context. */
+  artworkScriptFallbacks(): Array<{ passcode: number; main: number }>;
   close(): void;
 }
 
@@ -217,6 +219,7 @@ function loadFromDisk(root: string): CardDatabase {
   const setnames = parseConf(stringsFile, "setname");
   const scripts = indexScripts(scriptRoot);
 
+  const warnedFallbacks = new Set<string>();
   const database: CardDatabase = {
     search(query: string, matches?: (card: OcgCardData) => boolean) {
       const needle = query.trim().toLowerCase();
@@ -289,11 +292,24 @@ function loadFromDisk(root: string): CardDatabase {
           const main = canonicalCardCode(Number(match[1]), deckCards);
           scriptName = `c${main}.lua`;
           file = scripts.get(scriptName);
-          if (file) resolvedName = scriptName;
+          if (file) {
+            resolvedName = scriptName;
+            if (!warnedFallbacks.has(normalized)) {
+              warnedFallbacks.add(normalized);
+              console.warn(`[cards] Artwork script fallback ${normalized} → ${scriptName}; core self_code and GetID() remain ${match[1]}, not ${main}. Validate this engine bundle before deployment.`);
+            }
+          }
         }
       }
       const original = file ? readFileSync(file, "utf8") : null;
       return overlay ? overlay.apply(resolvedName, original) : original;
+    },
+    artworkScriptFallbacks() {
+      return [...deckCards.keys()].flatMap(passcode => {
+        if (scripts.has(`c${passcode}.lua`)) return [];
+        const main = canonicalCardCode(passcode, deckCards);
+        return main !== passcode && scripts.has(`c${main}.lua`) ? [{ passcode, main }] : [];
+      }).sort((a, b) => a.passcode - b.passcode);
     },
     close() {
       cache.delete(root);

@@ -7,6 +7,7 @@ import { isOptionalCardScript, loadCardDatabase, type CardDatabase } from "../sr
 
 export interface EngineDataProbeResult {
   errors: string[];
+  artworkScriptFallbacks?: Array<{ passcode: number; main: number }>;
   scriptsChecked: number;
   apiSymbolsChecked: number;
   globalsChecked: number;
@@ -64,6 +65,7 @@ async function probeInProcess(dataDirectory: string, changedPaths: string[]): Pr
   try {
     cards = loadCardDatabase(dataDirectory);
     const database = cards;
+    report.artworkScriptFallbacks = database.artworkScriptFallbacks();
     const scriptRoot = resolve(dataDirectory, "card-scripts");
     const changed = [...new Set(changedPaths.map((path) => path.replaceAll("\\", "/")))].filter((path) => path.endsWith(".lua"));
     const changedOfficialSources = new Map<string, string>();

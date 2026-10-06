@@ -3,7 +3,7 @@ import { createHmac } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { createDuelService } from "@yugidraft/shared/services";
 import type { DuelEngineView } from "@yugidraft/shared/duels";
@@ -41,7 +41,12 @@ it("serves signed artwork families and preserves chosen passcodes through deck s
       headers: { "x-announce-signature": `sha256=${createHmac("sha256",secret).update(raw).digest("hex")}` } }));
   };
   try {
-    expect(loadCardDatabase(dir).readScript("c12.lua")).toBe("-- canonical script");
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(loadCardDatabase(dir).artworkScriptFallbacks()).toEqual([{ passcode: 11, main: 10 }, { passcode: 12, main: 10 }]);
+      expect(loadCardDatabase(dir).readScript("c12.lua")).toBe("-- canonical script");
+      expect(warning).toHaveBeenCalledWith(expect.stringMatching(/c12\.lua.*c10\.lua.*GetID/));
+    } finally { warning.mockRestore(); }
     expect(loadCardDatabase(dir).readScript("c99.lua")).toBeNull();
     expect((await host.handle(new Request("http://localhost/internal/duel", { method: "POST", body: "{}" }))).status).toBe(401);
     expect(await (await post({ op: "card-artworks", codes: [12] })).json()).toEqual({ passcode: 10, artworks: [
