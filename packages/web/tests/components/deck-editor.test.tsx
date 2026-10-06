@@ -918,6 +918,19 @@ describe("Domain one copy of each card", () => {
     expect(screen.getAllByRole("status").map((node) => node.textContent).join(" | ")).toContain("Domain decks hold one copy of each card.");
   });
 
+  it("adds no copy on Ctrl+right-click or the + key, and says why", async () => {
+    stored = domainDeck([BLUE_EYES.code]);
+    render(<SavedDeckEditor deckId="7" />);
+    const tile = await screen.findByRole("button", { name: /^Blue-Eyes White Dragon, Main Deck card 1/ });
+    fireEvent.pointerDown(tile, { pointerType: "mouse", button: 2, ctrlKey: true });
+    expect(fireEvent.contextMenu(tile, { button: 2, ctrlKey: true })).toBe(false);
+    expect(mainCards()).toHaveLength(1);
+    expect(screen.getAllByRole("status").map((node) => node.textContent).join(" | ")).toContain("Domain decks hold one copy of each card.");
+    fireEvent.keyDown(tile, { key: "+" });
+    expect(mainCards()).toHaveLength(1);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
   it("flags a Domain deck that holds two copies of a card", async () => {
     stored = domainDeck([POT.code, POT.code]);
     render(<SavedDeckEditor deckId="7" />);

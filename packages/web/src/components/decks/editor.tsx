@@ -702,6 +702,11 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
    */
   function copyCard(source: { code: number; section: DeckSection; index: number }) {
     if (busy) return;
+    // A Domain deck is singleton, so a deck card never has room for a copy, and the pool rules do not apply.
+    if (mode === "domain") {
+      setNotice(DOMAIN_ONE_COPY);
+      return;
+    }
     const card = catalog.get(source.code);
     if (card) {
       if (!roomFor(card)) return;
