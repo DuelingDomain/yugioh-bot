@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  commitUrl, dataAsOf, filterGap, newUpstreamCdbFiles, recentIdMismatch, relativeTime, setGapState, shortSha, sortGap, sortSets, summarize,
+  commitUrl, dataAsOf, missingCardCount, filterGap, newUpstreamCdbFiles, recentIdMismatch, relativeTime, setGapState, shortSha, sortGap, sortSets, summarize,
 } from "../src/lib/card-data-status-model";
 import { behindStatus, coldStatus, completeSet, freshStatus, gapCards, missingSet, unknownSet, unknownSource } from "./fixtures/card-data-status";
 
@@ -120,11 +120,27 @@ describe("cold GitHub read", () => {
     });
   });
 
-  it("never shows less than the recent sets add up to", () => {
+  it("counts a card missing from two sets once", () => {
     const status = freshStatus();
+    // Gap Card 0 to 3 in set A, Gap Card 0 to 2 in set B: 4 unique cards, 7 rows.
     status.gap.recentSets = [missingSet("A", "A1", "2026-09-26", 60, 4), missingSet("B", "B1", "2026-08-01", 60, 3)];
-    status.gap.recentSetsMissingFromEngineCount = 5;
-    expect(summarize(status).headline).toBe("7 new TCG cards not in the engine yet in 2 recent sets");
+    status.gap.recentSetsMissingFromEngineCount = 2;
+    expect(missingCardCount(status)).toBe(4);
+    expect(summarize(status).headline).toBe("4 new TCG cards not in the engine yet in 2 recent sets");
+  });
+
+  it("never shows less than the server count", () => {
+    const status = freshStatus();
+    status.gap.recentSets = [missingSet("A", "A1", "2026-09-26", 60, 2)];
+    status.gap.recentSetsMissingFromEngineCount = 9;
+    expect(missingCardCount(status)).toBe(9);
+  });
+
+  it("has no missing count before anything is known", () => {
+    const status = freshStatus();
+    status.gap.recentSets = [];
+    status.gap.recentSetsMissingFromEngineCount = null;
+    expect(missingCardCount(status)).toBeNull();
   });
 });
 

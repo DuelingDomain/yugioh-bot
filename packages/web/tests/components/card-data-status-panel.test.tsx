@@ -149,6 +149,16 @@ describe("CardDataStatusPanel", () => {
     expect(screen.getByText(/GitHub has not been checked yet\./)).toBeTruthy();
   });
 
+  it("shows the same unique missing count in the summary and the gap section", async () => {
+    const status = freshStatus();
+    status.gap.recentSets = [missingSet("A Set", "A1", "2026-09-26", 60, 4), missingSet("B Set", "B1", "2026-08-01", 60, 3)];
+    status.gap.recentSetsMissingFromEngineCount = 2;
+    await renderWith(status);
+    expect(screen.getByText("4 new TCG cards not in the engine yet in 2 recent sets")).toBeTruthy();
+    const fact = screen.getByText("Not in the engine yet").closest("div");
+    expect(within(fact as HTMLElement).getByText("4")).toBeTruthy();
+  });
+
   it("shows a cold read as a running check, with no cached-until note", async () => {
     await renderWith(coldStatus());
     expect(screen.getByRole("heading", { name: "Unknown" })).toBeTruthy();

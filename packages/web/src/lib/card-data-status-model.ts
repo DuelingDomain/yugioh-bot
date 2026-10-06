@@ -163,6 +163,18 @@ export function isColdRead(status: CardDataStatus): boolean {
   return status.upstream.checkedAt === null;
 }
 
+/**
+ * Unique missing cards: the larger of the server count and the distinct card ids listed across all
+ * recent sets, so a card missing from two sets counts once. null when neither source has an answer.
+ */
+export function missingCardCount(status: CardDataStatus): number | null {
+  const ids = new Set<number>();
+  for (const set of status.gap.recentSets) for (const card of set.missingCards) ids.add(card.id);
+  const server = status.gap.recentSetsMissingFromEngineCount;
+  if (server === null && ids.size === 0) return null;
+  return Math.max(server ?? 0, ids.size);
+}
+
 export function summarize(status: CardDataStatus): CardDataSummary {
   if (isColdRead(status)) {
     const headline = "GitHub check is running. Refresh in a moment.";
@@ -176,8 +188,7 @@ export function summarize(status: CardDataStatus): CardDataSummary {
   const setsWithMissing = missingSets.length;
   // The unique count covers known sets only (null before the set index syncs), so unknown sets make it a lower bound.
   const exact = status.gap.recentSetsMissingFromEngineCount;
-  // Never show less than the sets add up to, even when the server count lags.
-  const missing = Math.max(exact ?? 0, missingSets.reduce((sum, set) => sum + (set.missingCount ?? 0), 0));
+  const missing = missingCardCount(status) ?? 0;
   const lowerBound = exact === null || unknownSetCount(status) > 0;
 
   const reasons: string[] = [];

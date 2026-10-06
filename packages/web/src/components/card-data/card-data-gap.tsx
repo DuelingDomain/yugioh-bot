@@ -7,6 +7,7 @@ import { cardImageUrl } from "@/lib/card-image-url";
 import {
   absoluteDate,
   filterGap,
+  missingCardCount,
   notCheckedSentence,
   recentIdMismatch,
   recentSetsUnknown,
@@ -162,7 +163,7 @@ export function GapSection({ status, now }: { status: CardDataStatus; now: numbe
   const sets = React.useMemo(() => sortSets(gap.recentSets), [gap.recentSets]);
   const mismatch = React.useMemo(() => recentIdMismatch(status), [status]);
   const unknownSets = unknownSetCount(status);
-  const count = gap.recentSetsMissingFromEngineCount;
+  const count = missingCardCount(status);
   const hasMissing = sets.some((set) => setGapState(set) === "missing");
   const shownSets = sets.filter((set) => !query.trim() || filterGap(set.missingCards, query).length > 0);
   return (
