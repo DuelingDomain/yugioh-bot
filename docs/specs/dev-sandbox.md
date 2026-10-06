@@ -15,8 +15,7 @@ scripted bot with empty rules = pass (`ds/scripted-bot.ts:84-112`, `defaultAnswe
 (`ds/host.ts:1452-1530`) as the template for start, `card-query`/`card-facets` ops, `CardBrowser`/`CardFilters`
 (`web/src/components/decks/card-browser.tsx:44`, `card-filters.tsx:281`), the duel room (`web/src/components/duel/room.tsx`).
 
-Out of scope v1: counters, equip links, "this turn" flags (summoned/activated this turn), start in BP/MP2/EP,
-snapshot of a live board back to the builder, free Lua.
+Out of scope: counters, equip links, "this turn" flags (summoned/activated this turn), free Lua.
 
 ## 1. Data model
 
@@ -244,3 +243,137 @@ share link in a second browser profile as admin, then as a non-admin on a prod-l
    - Click a slot to place, click a placed card for position/remove; no deep menus.
    - "Start" is always one click; "Restart" puts the same board back.
 6. v1 leaves out counters, equip links, and "save live board as scenario".
+
+
+## 10. v2 (owner 2026-10-06)
+
+This section overrides conflicting v1 text and section 9. The remaining section 9 answers still apply.
+Visible brand text is **Duelists Kingdom**.
+
+### 10.1 Owner requests
+
+1. Show the real fields in the builder. FFA3 uses the plaza layout. FFA4 uses the 2x2 grid:
+   p0 bottom-left, p1 top-left, p2 top-right, p3 bottom-right. Facing pairs are 0/1 and 2/3.
+   Keep each seat in its real position so placement and column effects can be tested.
+2. Set seats to active or eliminated before start. Allow elimination during a sandbox duel.
+   Eliminated seats keep their positions. The builder can restore a seat before start.
+3. Save and share scenarios, including a snapshot of the **current live duel state**.
+4. Choose the starting phase: Draw, Standby, Main 1, Battle, Main 2 or End.
+5. Add quick **Save & close** and **Close** buttons. Both end the sandbox duel and return to `/sandbox`.
+   Save & close must save successfully before it closes. A save failure leaves the duel open.
+
+### 10.2 Shared board contract (S1)
+
+`sh/duels/sandbox-board.ts`, exported from `@yugidraft/shared/duels`:
+
+- Export `SANDBOX_START_PHASES` and its union type `SandboxStartPhase`:
+  `"draw" | "standby" | "main1" | "battle" | "main2" | "end"`.
+  `SandboxBoard.startAt?: SandboxStartPhase` defaults to `"draw"`.
+- Add `eliminated?: SandboxDuelistId[]`. These are board seat keys (`"p0"` through `"p3"`),
+  not numeric host seats. Only `ffa3` and `ffa4` accept this field, including an empty array.
+  Reject duplicates, seats outside the format, and any selection that leaves fewer than two active seats.
+  The turn player cannot be eliminated. Omission means no eliminated seats.
+- Reject cards on eliminated seats with a `SandboxBoardError` at the seat's zone. This includes all piles,
+  field slots and Deck Master. Empty arrays and null slots are valid. Do not silently drop input cards.
+  LP on an eliminated seat may be 0-999999; active seats retain 1-999999. An eliminated Domain seat needs
+  no Deck Master. All active Domain seats still need one. Ignore filler deck size for eliminated seats
+  when compiling/starting; no cards may be created for those seats.
+- Reject `startAt: "battle"` with turn `p0` and `attackFirstTurn` absent or false. Error path: `startAt`;
+  message explains that Battle Phase on turn 1 needs `attackFirstTurn`. Earlier skipped turns count when
+  starting at p1/p2/p3. The host still checks real engine phase availability, including FFA first-round rules.
+- `skipOpeningDraw` remains false-only. Start through Draw Phase, apply eliminated seats before turn 1,
+  then use the existing real engine phase walk to reach `startAt`. Triggers and response windows run normally.
+  Do not assign a fake phase or silently move to another turn if the requested phase is unavailable.
+
+### 10.3 Portable share codes (S1; U6 consumes)
+
+New `sh/duels/sandbox-share.ts`, exported from `@yugidraft/shared/duels`:
+
+- `SandboxShare = { name?: string; board: SandboxBoard; run: SandboxRun }`.
+- `encodeSandboxShare(value: SandboxShare): string` and `decodeSandboxShare(code: string): SandboxShare`
+  are synchronous. Both validate with `parseSandboxBoard` and `parseSandboxRun` and return fresh data.
+  An optional name is trimmed and must contain 1-80 characters, as in the scenario service.
+  Reject unknown envelope keys and missing board/run.
+- Wire format: `DKSB1:` + unpadded base64url of compact UTF-8 JSON `{name?, board, run}`.
+  v2 uses plain JSON. No shared synchronous deflate codec is installed for Node and browser; do not emit
+  environment-dependent compressed codes. A future compressed format must use a new version prefix.
+- Export `SANDBOX_SHARE_PREFIX` (`"DKSB1:"`) and `SANDBOX_SHARE_MAX_LENGTH` (49152 characters, including
+  prefix). The 48 KiB cap fits the existing 32 KiB board, 1 KiB run and name limits after base64 encoding.
+  Check length before decoding. Reject invalid prefix, base64url, UTF-8, JSON, or board/run data.
+  All validation failures throw `SandboxBoardError`; transport errors use path `share`, name errors use `name`,
+  and board/run parser errors keep their existing paths. This is a data format, not a signature.
+- Decode in the client and load the result into the builder. **Import code** also works on `/sandbox/new`.
+  No share-code server route is needed. Normal save/start validation and admin gates still apply.
+
+### 10.4 Host operations (H1/H2)
+
+Add these keys to shared `SANDBOX_OPS` (S1). Existing operations remain unchanged.
+All operations use the existing signed host envelope with slug, guild and actor. Require a sandbox duel
+and its organizer. Web access also requires guild admin in every environment.
+
+| key / op | input beyond envelope | result | owner |
+|---|---|---|---|
+| `eliminate` / `sandbox-eliminate` | `{ seat: number }` | updated room | H1 |
+| `snapshot` / `sandbox-snapshot` | none | `SandboxSnapshotResult` | H2 |
+| `close` / `sandbox-close` | none | `{ ok: true }` | H1 |
+
+- Eliminate uses the real FFA engine loss path and journal, as surrender/LP 0 does under
+  `docs/adr/0002-multiplayer-duel-rules.md`. Refuse non-FFA, invalid or already eliminated seats, and an
+  action that would leave fewer than two active seats. Do not just hide a seat. Seats never move.
+- Export `SandboxSnapshotResult = { board: SandboxBoard; run: SandboxRun; lost: string[] }`
+  from `sh/duels/sandbox-ops.ts`. Read every seat from the live engine, including hidden zones. Capture
+  zones, positions, face-down cards, Xyz materials, LP, ordered Deck, Extra, GY, banished, Deck Master,
+  turn player, current phase as `startAt`, eliminated seats, format, mode and Master Rule, plus current run settings.
+  Parse the resulting board/run. Empty eliminated seats and omit their Deck Master; preserve zero LP.
+- `lost` lists each state feature that the board cannot restore: counters, equip links, lasting effects,
+  chain state, turn count and this-turn flags, plus any other actual representation loss. v1 has one common
+  deckSize and numeric-only Deck/Extra/GY/banished piles; report unequal deck sizes or pile position loss
+  explicitly. Never silently claim an exact engine restore. H2 must report or reject unrepresentable state;
+  do not change shared board fields outside this contract without an agreed contract update.
+- Snapshot does not modify the live duel. Normalize first-turn attack permission if needed to represent a
+  captured Battle Phase, and report that change in `lost`. Engine phase walks still apply on restart.
+- Close ends/cancels the duel and releases its live resources. It is idempotent: a repeated authorized close
+  returns `{ ok: true }`. It does not surrender a seat or create a scenario.
+- H1 applies starting eliminations before turn 1 and walks to `startAt`. H1 also owns the minimal
+  `ds/presets/board.ts` compatibility changes required for the expanded phases and eliminated Domain seats.
+
+### 10.5 Web API and UI (W2/U5/U6/U7)
+
+Extend `POST /api/duels/[slug]/sandbox` with:
+
+| action | fields | response |
+|---|---|---|
+| `eliminate` | `seat` (numeric) | host's updated room |
+| `snapshot` | none | `SandboxSnapshotResult` |
+| `save-state` | `name`, optional `scenarioId` | `{ scenario, lost }` |
+| `close` | none | `{ ok: true }` |
+
+`save-state` snapshots the live duel, then creates a scenario, or updates `scenarioId` only when the caller
+owns it in the same guild. Keep existing scenario service limits and errors; do not silently overwrite
+another owner's scenario. All four actions require guild admin and a sandbox duel; the host also checks
+organizer ownership. Existing control/restart/phase/next-turn actions remain supported.
+
+U7 implements Save & close as save-state followed by close, then navigation to `/sandbox`. Close sends
+close then navigates there. Show save errors and snapshot losses. U6 handles share/import, phase selection
+and pre-start active/eliminated seats. U5 shows every seat in the real table position, including eliminated
+seats. U6 mounts `<SandboxTableView>` for ffa3/ffa4. Its props use state, dispatch and selected-slot handlers,
+as in the existing seat-board API. Use the existing seat board for other formats.
+
+### 10.6 File ownership and checks
+
+Paths use the aliases at the top of this spec. Each task may add its own tests. Do not edit another task's files.
+
+| task | owned files |
+|---|---|
+| S1 | This spec; `sh/duels/sandbox-board.ts`; new `sh/duels/sandbox-share.ts`; `sh/duels/sandbox-ops.ts`; export lines in `sh/duels/index.ts`; `packages/shared/tests/sandbox-board.test.ts`; the shared scenario service validation tests in `packages/shared/tests/services/sandbox-scenarios.test.ts`; new shared contract tests |
+| H1 | `ds/sandbox.ts`; sandbox hooks/dispatch in `ds/host.ts` except H2 snapshot dispatch; minimal compiler changes in `ds/presets/board.ts` |
+| H2 | New `ds/sandbox-snapshot.ts`; only snapshot dispatch lines in `ds/host.ts` |
+| W2 | `web/app/api/duels/[slug]/sandbox/route.ts`; `web/src/lib/duel-host.ts`; `web/src/lib/sandbox-access.ts`; other duel routes needed for LOW 8 access checks |
+| U5 | New `web/src/components/sandbox/table-view.tsx` and `table-view.module.css`; `web/src/components/sandbox/seat-board.tsx` |
+| U6 | `web/src/components/sandbox/board-model.ts`; `builder.tsx`; `sandbox/api.ts` (full path `web/src/components/sandbox/api.ts`); new `share-dialog.tsx` in that directory |
+| U7 | `web/src/components/duel/sandbox-bar.tsx` and its CSS; `web/src/components/duel/api.ts` |
+
+S1 commits this contract first, then shared code/tests in a separate commit. Later tasks use section 10 on
+`feat/dev-sandbox`. Run only changed/new tests and nearby sandbox tests. Build shared before consumer checks.
+S1 covers all phase values, eliminated-seat validation, share round trips, invalid prefix/length/tampered
+JSON and the operation names. Host/UI tasks test their engine, access, save/close and field-layout behavior.
