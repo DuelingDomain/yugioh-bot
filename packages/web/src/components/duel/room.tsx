@@ -22,6 +22,7 @@ import { applyAnswerResult } from "./answer-result";
 import { useChainModeControl } from "./use-chain-mode";
 import { useDuelLeaveGuard } from "@/lib/hooks/use-duel-leave-guard";
 import { useBlockBrowserContextMenu } from "@/lib/hooks/use-block-browser-context-menu";
+import { sandboxInfoOf, useSandboxRoom } from "./sandbox-bar";
 import {
   acceptDuelInvite,
   addPracticeBot,
@@ -32,6 +33,7 @@ import {
   cancelDuel,
   duelRoomKey,
   getDuelRoom,
+  type SandboxView,
   takeDuelSeat,
   leaveDuel,
   markDuelReady,
@@ -146,6 +148,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   useBlockBrowserContextMenu();
   const router = useRouter();
   const admitted = useRef<{ slug: string; inviteCode: string } | null>(null);
+  // Sandbox duels: the acting seat and Reveal hands ride on every fetch and answer (see sandbox-bar.tsx).
+  const sandboxView = useRef<SandboxView | undefined>(undefined);
   const { data, error, isLoading, mutate } = useSWR(
     slug ? duelRoomKey(slug, spectate) : null,
     async () => {
@@ -164,7 +168,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         }
       }
       try {
-        return await getDuelRoom(slug, spectate);
+        return await getDuelRoom(slug, spectate, sandboxView.current);
       } catch (err) {
         throw admitError ?? err;
       }
@@ -172,9 +176,13 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     { revalidateOnFocus: false, revalidateOnReconnect: false },
   );
   const refreshRoom = useCallback(
-    () => mutate(() => getDuelRoom(slug, spectate), { revalidate: false }),
+    () => mutate(() => getDuelRoom(slug, spectate, sandboxView.current), { revalidate: false }),
     [mutate, slug, spectate],
   );
+  const sandbox = useSandboxRoom({
+    slug, room: data, viewRef: sandboxView, refresh: refreshRoom,
+    setRoom: (next) => mutate(next, { revalidate: false }),
+  });
   // The duel host answers with the last view it built when its queue is blocked (stale). Ask again until it is fresh.
   const roomStale = data?.stale === true;
   useEffect(() => {
@@ -184,7 +192,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   }, [roomStale, refreshRoom]);
   // The change notice that an answer of this player causes is not a reason to shut the prompts (see duel-echo-window.ts).
   const echo = useMemo(() => createEchoWindow(), []);
-  const realtime = useDuelWebsocket(slug, data?.mySeat, refreshRoom, spectate, echo.quiet);
+  const realtime = useDuelWebsocket(slug, sandboxInfoOf(data) ? 0 : data?.mySeat, refreshRoom, spectate, echo.quiet);
   const syncing = realtime.syncing || realtime.recovering;
   const liveFormat = engineFormat(data?.engine);
   // Live tables: FFA mounts TableShell, Tag 2v2 mounts the Rooftop (TagShell). ?stage=legacy keeps MultiSeatStage for both.
@@ -569,7 +577,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         ? { key: zoneKey(attack.controller, attack.location, attack.sequence), direct: /directly/i.test(attack.label) }
         : null);
       // Only an opponent or direct-attack pick gets the general "pick again" notice on a 400 (a seat may have left).
-      void run(() => sendDuelAction(slug, command), isOpponentPick(prompt) || isAttackDuelistPrompt(prompt) ? "seat-pick" : undefined);
+      void run(() => sendDuelAction(slug, command, sandboxView.current), isOpponentPick(prompt) || isAttackDuelistPrompt(prompt) ? "seat-pick" : undefined);
     },
     [data, prompt, error, catchingUp, run, slug, pick.noteAnswer, viewerOut],
   );
@@ -917,6 +925,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       settingsTools: canArchive ? <Button type="button" variant="secondary" size="sm" disabled={busy}
         onClick={() => void run(() => archiveDuel(slug))}>Archive table</Button> : null,
       notices: <>
+        {sandbox.bar}
         {leavingNotice}
         {error ? <div className={styles.error} role="alert">Connection lost. Actions paused until reconnected.
           <button type="button" onClick={() => void mutate()}>Retry</button></div> : null}
@@ -1198,8 +1207,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const seriesBanner = series && !showResult && !(betweenGames && myIndex != null) ? (
     <SeriesBanner room={data} slug={slug} onChanged={() => void refreshRoom()} onNavigate={goToGame} />
   ) : null;
-  const noticesNode = error || actionError || data.error || viewerLeaving ? (
+  const noticesNode = error || actionError || data.error || viewerLeaving || sandbox.bar ? (
     <div className={styles.notices} data-prompt-surface="">
+      {sandbox.bar}
       {leavingNotice}
       {error ? <div className={styles.error} role="alert">Connection lost. Actions paused until reconnected.
         <button type="button" onClick={() => void mutate()}>Retry</button></div> : null}
