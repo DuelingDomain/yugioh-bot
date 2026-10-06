@@ -35,7 +35,7 @@ describe("4-way grid: every zone of every field takes the pointer, also where tw
       /:global\(\[data-grid-stage\]\) \.seatField,\s*:global\(\[data-grid-stage\]\) \.sfMat,\s*:global\(\[data-grid-stage\]\) \.sfGrid \{\s*pointer-events: none;/,
     );
     expect(field).toMatch(/:global\(\[data-grid-stage\]\) \.sfGrid \.zone \{\s*pointer-events: auto;/);
-    expect(field).toMatch(/:global\(\[data-grid-stage\]\) \.seatField > :where\(:not\(\.sfMat\)\) \{\s*pointer-events: auto;/);
+    expect(field).toMatch(/:global\(\[data-grid-stage\]\) \.seatField > :where\(:not\(\.sfMat, \.sfName, \.sfOut\)\) \{\s*pointer-events: auto;/);
     expect(grid).toMatch(/\.world :global\(\[data-seat-slot\]\) \{\s*pointer-events: none;/);
   });
 

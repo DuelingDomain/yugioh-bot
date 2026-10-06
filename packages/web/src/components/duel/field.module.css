@@ -2126,9 +2126,9 @@
   pointer-events: auto;
 }
 
-/* What lies on the field and is not a drawing (the life box, the hand) keeps the pointer. `:where` keeps this rule weaker
-   than the ones that make a label or a hand click-through. */
-:global([data-grid-stage]) .seatField > :where(:not(.sfMat)) {
+/* What lies on the field and is not a drawing (the life box, the hand) keeps the pointer. The mat and the two labels stay
+   click-through. `:where` keeps the rule as weak as it can be, so the hand rule below it (same weight, later) still wins. */
+:global([data-grid-stage]) .seatField > :where(:not(.sfMat, .sfName, .sfOut)) {
   pointer-events: auto;
 }
 
