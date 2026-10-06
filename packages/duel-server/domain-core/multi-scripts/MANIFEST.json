@@ -6555,12 +6555,13 @@
         "R2"
       ],
       "r2Class": "TABLE",
-      "stockSha256": "de3470a725c3adec762ed1307ab9fdae83358473fb4ffd803b02ff3036c0fbe7",
-      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey).",
+      "stockSha256": "79804c0a3024b5358ef45eb9719f1aaed447e286d868231dca13c4fe23ae4432",
+      "note": "R-COMMON-SEAT-STATE (owner Q6): declarations are per FFA seat or Tag team. Keep the mapped table across the stock turn-end reset. Stock AnnounceCard takes the filter table directly.",
       "seatTables": [
         "s.declared_names"
       ],
-      "seatInit": "{}"
+      "seatInit": "{}",
+      "seatExtra": "c74733322.extra.lua"
     },
     {
       "code": 75043725,

@@ -85,3 +85,4 @@ queued-activator-team	queued-activator-team	-	ready	Actual activator clears own/
 queued-permission-prompt	queued-later-prompt	permission	ready	Saved opponent leaves during AddChain step10; skip cost/target and retain link count.
 queued-cost-prompt	queued-later-prompt	cost	ready	Saved opponent leaves during cost prompt; skip target without rechecking or refunding paid cost.
 ffa3-column-review	ffa3-column-review	-	ready	FFA column review: nested scopes, lost and pending-loss peers, probe side effects, and unbound FFA4 compatibility.
+engine-data-cards	engine-data-cards	-	ready	Real Mind Crush and D.D. Designator hit/miss flows, Acropolis searches and declaration resets in FFA3/FFA4/Tag
