@@ -31,6 +31,7 @@ import { SEAT_Z } from "./geometry";
 import { hexToRgbTriplet } from "./seat-angle";
 import { bandHubFit } from "../phase-hub-model";
 import { SEAT_TONE_HEX, type SeatFieldProps, type SeatPose, type SeatTone } from "./types";
+import { seatAtPoint } from "./seat-at-point";
 import { useViewZoom } from "./use-view-zoom";
 import { ViewReset } from "./view-reset";
 import { visibleRect } from "./view-zoom";
@@ -79,24 +80,6 @@ const lpFit = (rect: GridRect) => Math.min(1, rect.height / LP_NATURAL_HEIGHT, r
 
 /** A click on these keeps its own meaning; every other click on a field or life box focuses it. */
 const OWN_CLICK = "button, a, input, select, textarea, [role='button'], [data-zones], [data-legal='true']";
-
-/** The field whose box holds a point (the nearest centre where two facing boxes overlap), out fields excluded. A field box takes no pointer of its own (field.module.css), so a click on empty mat is found here. */
-function seatAtPoint(root: HTMLElement, x: number, y: number): number {
-  let seat = NaN;
-  let best = Infinity;
-  for (const field of root.querySelectorAll<HTMLElement>("[data-seat-field]")) {
-    const cell = field.closest<HTMLElement>("[data-grid-cell]");
-    if (!cell || cell.dataset.cellState === "out") continue;
-    const rect = field.getBoundingClientRect();
-    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) continue;
-    const distance = Math.hypot(x - (rect.left + rect.width / 2), y - (rect.top + rect.height / 2));
-    if (distance < best) {
-      best = distance;
-      seat = Number(cell.dataset.gridCell);
-    }
-  }
-  return seat;
-}
 
 /** What a legal pick is made of: a field pick (zones, cards on the board), a hand pick, or both (an open main phase). */
 export type PickKind = "field" | "hand" | "mixed" | null;

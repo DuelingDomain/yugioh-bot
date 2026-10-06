@@ -6,6 +6,7 @@ import { targetName } from "../card-interactions";
 import { isAttackDuelistPrompt, isAttackTargetPrompt, optionsForKeys, optionZoneKeys, type PromptAim } from "../prompts";
 import type { AimArrowProps, AimPointerSpot } from "./aim-arrow";
 import { isOutOrLeaving } from "../multi-seat";
+import { seatAtPoint } from "./seat-at-point";
 import { targetChoices } from "./targets";
 import type { BattleAim, DuelActivateHandler, SeatPick, SeatTone, TableController, TableLayout } from "./types";
 
@@ -144,7 +145,7 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
 
   /** The legal target under a node: an opposing monster, or (direct attack) the board of a seat that can be hit. */
   const resolve = useCallback(
-    (target: EventTarget | null): { optionId: string; to: NonNullable<BattleAim["to"]> } | null => {
+    (target: EventTarget | null, point?: { x: number; y: number }): { optionId: string; to: NonNullable<BattleAim["to"]> } | null => {
       if (!(target instanceof Element)) return null;
       if (attackTarget) {
         const keys = target.closest("[data-zones]")?.getAttribute("data-zones")?.split(" ") ?? [];
@@ -152,13 +153,18 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
         if (key) return { optionId: targets.get(key)!.id, to: { zones: [key] } };
       }
       if (direct) {
-        const seat = seatOfNode(target);
+        // Empty mat takes no pointer (field.module.css): the target is then the board, and the seat is found from the point.
+        let seat = seatOfNode(target);
+        if (seat == null && point) {
+          const found = seatAtPoint(root.current ?? document, point.x, point.y);
+          seat = Number.isInteger(found) ? found : null;
+        }
         const optionId = seat != null ? direct.get(seat) : undefined;
         if (seat != null && optionId != null) return { optionId, to: { lpSeat: seat } };
       }
       return null;
     },
-    [attackTarget, direct, targets],
+    [attackTarget, direct, root, targets],
   );
   const resolveRef = useRef(resolve);
   resolveRef.current = resolve;
@@ -280,13 +286,13 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
       pointer.current = { x: event.clientX, y: event.clientY };
       setHasMouse(true);
       if (liveRef.current) return;
-      const hit = resolveRef.current(event.target);
+      const hit = resolveRef.current(event.target, { x: event.clientX, y: event.clientY });
       setHover((current) => (sameTo(current, hit?.to ?? null) ? current : (hit?.to ?? null)));
     };
     const onClick = (event: MouseEvent) => {
       // Only a pointer click: Enter or Space on a focused card (detail 0) keeps the lock-then-confirm flow.
       if (event.detail === 0 || event.button !== 0 || suspendedFlag.current || sentFor.current === promptId) return;
-      const hit = resolveRef.current(event.target);
+      const hit = resolveRef.current(event.target, { x: event.clientX, y: event.clientY });
       if (touching.current) {
         // A finger on a card keeps the lock-then-confirm flow of the card itself. A finger on a board (a direct attack)
         // aims at it with the first tap, which lights it and shows the label, and sends with the second tap.
