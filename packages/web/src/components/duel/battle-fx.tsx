@@ -25,6 +25,7 @@ import { battleCalculation } from "./battle-calculation";
 import { declaredCaption, directTargetSeat } from "./declared-attack";
 import { ATTACK_TIMING, paceAttack } from "./duel-timing";
 import { duelFxClock } from "./fx-clock";
+import { centerOfQuad, elementQuad, growQuad, isTurned, quadBox, quadEdgePoint, roundedQuadPath, type Quad } from "./quad";
 import baseStyles from "./battle-fx.module.css";
 import { useSkinStyles } from "./skin";
 import fieldStyles from "./field.module.css";
@@ -111,6 +112,23 @@ function zoneBox(key: string): Box | null {
   return box.width > 0 && box.height > 0 ? box : null;
 }
 
+/** The true outline of a zone's card (it follows a turned field), or null when it is not on screen. */
+function zoneQuad(key: string): Quad | null {
+  const node = zoneNode(key);
+  if (!node) return null;
+  const quad = elementQuad(node.querySelector("[data-card-art]") ?? node);
+  const box = quadBox(quad);
+  return box.width > 0 && box.height > 0 ? quad : null;
+}
+
+function lpQuad(seat: number): Quad | null {
+  const node = document.querySelector<HTMLElement>(`[data-lp-seat="${seat}"]`);
+  if (!node) return null;
+  const quad = elementQuad(node.querySelector("strong") ?? node);
+  const box = quadBox(quad);
+  return box.width > 0 && box.height > 0 ? quad : null;
+}
+
 function lpBox(seat: number): Box | null {
   const node = document.querySelector<HTMLElement>(`[data-lp-seat="${seat}"]`);
   if (!node) return null;
@@ -124,26 +142,11 @@ function directLpBox(event: DuelEvent, seatCount: number): Box | null {
   return seat == null ? null : lpBox(seat);
 }
 
-/** The point where a ray from the box centre toward `toward` leaves the box, pushed out by `gap`. */
-function edgePoint(box: Box, toward: Pt, gap: number): Pt {
-  const c = centerOf(box);
-  const dx = toward.x - c.x;
-  const dy = toward.y - c.y;
-  const len = Math.hypot(dx, dy);
-  if (len < 0.5) return c;
-  const ux = dx / len;
-  const uy = dy / len;
-  const tx = ux === 0 ? Infinity : box.width / 2 / Math.abs(ux);
-  const ty = uy === 0 ? Infinity : box.height / 2 / Math.abs(uy);
-  const t = Math.min(tx, ty);
-  return { x: c.x + ux * (t + gap), y: c.y + uy * (t + gap) };
-}
-
 type Arrow = { d: string; head: string; start: Pt; tip: Pt };
 
-function arrowBetween(from: Box, to: Box): Arrow | null {
-  const s = edgePoint(from, centerOf(to), 4);
-  const e = edgePoint(to, centerOf(from), 8);
+function arrowBetween(from: Quad, to: Quad): Arrow | null {
+  const s = quadEdgePoint(from, centerOfQuad(to), 4);
+  const e = quadEdgePoint(to, centerOfQuad(from), 8);
   const dx = e.x - s.x;
   const dy = e.y - s.y;
   const len = Math.hypot(dx, dy);
@@ -587,20 +590,20 @@ function AttackPlay({ play, showStats }: { play: Play; showStats: boolean }) {
 
 /* ---------- aim layer ---------- */
 
-type AimGeom = { mode: BattleAim["mode"]; from: Box; arrows: Arrow[]; rings: Box[] };
+type AimGeom = { mode: BattleAim["mode"]; from: Quad; arrows: Arrow[]; rings: Quad[] };
 
 function measureAim(aim: BattleAim | null | undefined): AimGeom | null {
   if (!aim?.from) return null;
-  const from = zoneBox(aim.from);
+  const from = zoneQuad(aim.from);
   if (!from) return null;
-  const targets: Box[] = [];
+  const targets: Quad[] = [];
   if (aim.to.lpSeat != null) {
-    const box = lpBox(aim.to.lpSeat);
-    if (box) targets.push(box);
+    const quad = lpQuad(aim.to.lpSeat);
+    if (quad) targets.push(quad);
   }
   for (const key of aim.to.zones ?? []) {
-    const box = zoneBox(key);
-    if (box) targets.push(box);
+    const quad = zoneQuad(key);
+    if (quad) targets.push(quad);
   }
   const arrows = targets.map((target) => arrowBetween(from, target)).filter((arrow): arrow is Arrow => arrow != null);
   if (arrows.length === 0) return null;
@@ -646,17 +649,22 @@ function AimLayer({ aim, reduced }: { aim: BattleAim; reduced: boolean }) {
   }, [signature]);
 
   if (!geom) return null;
-  const ring = (box: Box, index: number, pad: number) => (
-    <rect
-      key={`ring-${index}`}
-      className={styles.aimRing}
-      x={box.left - pad}
-      y={box.top - pad}
-      width={box.width + pad * 2}
-      height={box.height + pad * 2}
-      rx={9}
-    />
-  );
+  // A straight box stays a rect; a turned or tilted card gets an outline on its real corners.
+  const ring = (quad: Quad, index: number, pad: number) => {
+    if (isTurned(quad)) return <path key={`ring-${index}`} className={styles.aimRing} data-turned="true" d={roundedQuadPath(growQuad(quad, pad), 9)} />;
+    const box = quadBox(quad);
+    return (
+      <rect
+        key={`ring-${index}`}
+        className={styles.aimRing}
+        x={box.left - pad}
+        y={box.top - pad}
+        width={box.width + pad * 2}
+        height={box.height + pad * 2}
+        rx={9}
+      />
+    );
+  };
   const lead = geom.arrows[0];
   return (
     <>

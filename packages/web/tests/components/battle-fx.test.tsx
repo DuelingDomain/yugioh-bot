@@ -216,6 +216,25 @@ describe("BattleFx", () => {
     expect(document.querySelector("[data-attack-caption]")?.textContent).toBe("Ann attacks Di");
   });
 
+  it("outlines a turned field on the card's real corners (a straight box stays a rect)", () => {
+    const declared: DuelEvent = { ...attack, id: 2 };
+    // 0:4:0 sits in a field turned 120 degrees; 1:4:0 is straight. A 60 x 88 card.
+    for (const key of ["0:4:0", "1:4:0"]) Object.defineProperty(board.querySelector(`[data-zones="${key}"] [data-card-art]`)!, "offsetWidth", { value: 60 });
+    for (const key of ["0:4:0", "1:4:0"]) Object.defineProperty(board.querySelector(`[data-zones="${key}"] [data-card-art]`)!, "offsetHeight", { value: 88 });
+    const turnedZone = board.querySelector('[data-zones="0:4:0"]')!;
+    const real = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation(((el: Element, pseudo?: string | null) => {
+      const style = real(el, pseudo);
+      return { getPropertyValue: (name: string) => (el === turnedZone && name === "rotate" ? "120deg" : style.getPropertyValue(name)) };
+    }) as never);
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion />);
+    rerender(<BattleFx events={[phase, declared]} reducedMotion />);
+    const svg = document.querySelector('[data-aim="locked"]')!;
+    // The attacker is turned: its ring is a path; the straight target keeps a rect.
+    expect(svg.querySelectorAll("path[data-turned]")).toHaveLength(1);
+    expect(svg.querySelectorAll("rect")).toHaveLength(1);
+  });
+
   /** Engine-view seats with no monsters: only how many seats play matters. */
   const emptySeats = (count: number) => Array.from({ length: count }, (_, seat) => ({ seat, monsters: [] })) as unknown as DuelSeatView[];
 
