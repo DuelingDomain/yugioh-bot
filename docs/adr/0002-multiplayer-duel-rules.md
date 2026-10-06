@@ -130,6 +130,12 @@ These cards stay legal in the deck check. Their rules are listed in `MULTIPLAYER
 
 Convulsion of Nature (62966332) is forbidden in 3-player free-for-all, 4-player free-for-all and 2v2 Tag. Its category is `symmetry`. It reverses Decks through one global check for two sides. A multiplayer table has more than two Decks. Script evidence: `c62966332.lua:5` (`GLOBALFLAG_DECK_REVERSE_CHECK`), `c62966332.lua:14` (`EFFECT_REVERSE_DECK`) and `c62966332.lua:17` (`SetTargetRange(1,1)`).
 
+## Card decision (2026-10-06, product owner)
+
+Option A: Hand Destruction (74519184), Card Destruction (72892473), Chaos Emperor Dragon - Envoy of the End (82301904), Kaiser Colosseum (35059553), Gamble (37313786), Nibiru, the Primal Being (27204311), Crush Card Virus (57728570), Creature Seizure (15305240), and Dummy Golem (13532663) remain allowed in Tag and forbidden in FFA; changed scripts still require review.
+
+This is the owner's format-specific safety decision. The [Domain Format Complete Rulebook v1.4](https://docs.google.com/document/d/1QsBNFfEYHRavu93guIL1eV92Wgt-Ts-vFNnDbLWllQc/export?format=txt), checked on 2026-10-06, says in “Banlist” that there are currently no banned cards; it does not forbid these nine cards in Tag. Their Tag legality is therefore not a difference from that rulebook.
+
 ## Domain deck rules (2026-10-02)
 
 Domain uses exactly 60 Main Deck cards and at most 15 Extra Deck cards. Main and Extra are singleton by card identity, including alternate art and treated-as names. The Deck Master is separate from these counts and cannot also be in the decks. There is no Side Deck and no banlist by default; the host may choose a banlist, and the multiplayer safety list still applies.
