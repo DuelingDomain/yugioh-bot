@@ -116,7 +116,10 @@ try {
     await page.route('**/api/waitlist', route => route.abort());
     await visit(page, '/');
     await page.locator('#heroPack').click({ force: true }); // the pack bobs by design, so it is never "stable"
-    await page.waitForFunction(() => document.querySelector('#fgrid').classList.contains('is-dealt'));
+    // The click scrolls to the grid; allow the visible deal to finish before navigating away.
+    await page.waitForFunction(() => document.querySelector('#fgrid').classList.contains('is-dealt'), null, { timeout: 8000 });
+    assert(await page.locator('#fgrid .fcard.is-dealing').count() > 0, 'Pack click should play the deal after scrolling into view');
+    await page.waitForFunction(() => [...document.querySelectorAll('#fgrid .fcard')].every(card => card.getAnimations().length === 0 && !card.classList.contains('is-dealing')), null, { timeout: 5000 });
     await page.locator('#play').click();
     await page.locator('#steps').scrollIntoViewIfNeeded();
     await page.waitForFunction(() => document.querySelectorAll('.step.is-up').length === 3);

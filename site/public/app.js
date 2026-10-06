@@ -142,6 +142,7 @@
   var stage = $('.hero-stage');
   var grid = $('#fgrid');
   var dealt = false;
+  var dealObserver = null;
 
   /* The logo mark plays its entrance when a pack opens. If that pack is off screen, it waits until it is seen. */
   function playMark(p) {
@@ -170,6 +171,7 @@
   function deal(fromPack, instant) {
     if (dealt) return;
     dealt = true;
+    if (dealObserver) { dealObserver.disconnect(); dealObserver = null; }
     var cards = $$('.fcard', grid);
     if (instant || isRM()) { grid.classList.add('is-dealt'); fromPack.el.classList.add('gave'); return; }
     var pr = fromPack.el.getBoundingClientRect();
@@ -178,25 +180,40 @@
     grid.classList.add('is-dealt');
     cards.forEach(function (c, i) {
       var r = rects[i];
-      var dx = sx - (r.left + r.width / 2), dy = sy - (r.top + r.height / 2);
-      if (narrow.matches) { dx = 0; dy = clamp(dy, -320, 0); }
+      // Keep the slide local even when the pack is far above the viewport.
+      var dx = narrow.matches ? 0 : clamp(sx - (r.left + r.width / 2), -96, 96);
+      var dy = clamp(sy - (r.top + r.height / 2), -r.height * 1.5, 0);
       var rot = (i - (cards.length - 1) / 2) * 9;
+      c.classList.add('is-dealing');
       var a = c.animate([
         { transform: 'translate(' + dx + 'px,' + dy + 'px) scale(.28) rotate(' + rot + 'deg)', opacity: 0 },
         { opacity: 1, offset: 0.18 },
         { transform: 'none', opacity: 1 }
-      ], { duration: 700, delay: i * 75, easing: 'cubic-bezier(0.23, 1, 0.32, 1)', fill: 'both' });
-      a.onfinish = function () { a.cancel(); };
+      ], { duration: 1350, delay: i * 220, easing: 'cubic-bezier(0.25, 0.6, 0.35, 1)', fill: 'both' });
+      a.onfinish = function () { a.cancel(); c.classList.remove('is-dealing'); };
     });
     setTimeout(function () { fromPack.el.classList.add('gave'); }, 120);
   }
 
+  function waitForDeal() {
+    if (dealt || dealObserver) return;
+    if (!('IntersectionObserver' in window)) { deal(heroPack, true); return; }
+    dealObserver = new IntersectionObserver(function (entries) {
+      var entry = entries[entries.length - 1];
+      if (!entry.isIntersecting || entry.intersectionRatio < 0.38) return;
+      // Recheck the live position so a queued entry cannot deal after a fast scroll past.
+      var r = grid.getBoundingClientRect();
+      var visibleHeight = Math.max(0, Math.min(r.bottom, window.innerHeight) - Math.max(r.top, 0));
+      if (r.height > 0 && visibleHeight / r.height >= 0.38) deal(heroPack);
+    }, { threshold: 0.38 });
+    dealObserver.observe(grid);
+  }
+
   var featuresEl = $('#cards');
   function ripFromHero(withScroll, instant) {
-    var already = heroPack.open;
     openPack(heroPack, instant);
-    if (instant) deal(heroPack, true);
-    else setTimeout(function () { deal(heroPack); }, isRM() ? 0 : (already ? 0 : 380));
+    if (instant || isRM()) deal(heroPack, true);
+    else waitForDeal();
     if (withScroll) {
       setTimeout(function () {
         featuresEl.scrollIntoView({ behavior: isRM() ? 'auto' : 'smooth', block: 'start' });
@@ -216,7 +233,8 @@
   var heroEl = $('#hero');
   function pastHero() { return window.scrollY > heroEl.offsetHeight * 0.32; }
   function onScroll() {
-    if (dealt && heroPack.open) return;
+    // An intentional rip owns its pending deal, including during the click's smooth scroll.
+    if (dealt || dealObserver) return;
     if (!pastHero()) return;
     // A jump on arrival (restored scroll position, #join link) opens the pack with no show.
     ripFromHero(false, Date.now() - startedAt < 1200);
