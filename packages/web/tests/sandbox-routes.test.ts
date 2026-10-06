@@ -2,7 +2,7 @@ import type Database from "better-sqlite3";
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { openDatabase } from "@yugidraft/shared/db";
-import { createPlayerService, createSandboxScenarioService } from "@yugidraft/shared/services";
+import { createDuelService, createPlayerService, createSandboxScenarioService } from "@yugidraft/shared/services";
 
 const mocks = vi.hoisted(() => ({ auth: vi.fn(), access: vi.fn(), membership: vi.fn(), post: vi.fn(), db: null as Database.Database | null }));
 vi.mock("@/lib/auth", () => ({ auth: mocks.auth }));
@@ -47,6 +47,10 @@ afterEach(() => { mocks.db?.close(); vi.unstubAllEnvs(); });
 function scenario(guildId = "guild", ownerPlayerId = owner) {
   return createSandboxScenarioService(mocks.db!).create(guildId, ownerPlayerId, write);
 }
+function duel(sandbox = true) {
+  return createDuelService(mocks.db!).create({ guildId: "guild", organizerPlayerId: owner, name: "Test", mode: "normal", masterRule: 5, sandbox });
+}
+
 // Exercise the real guard; only Discord and the signed host transport are stubbed.
 describe("sandbox admin gate", () => {
   it.each(["production", "development", "test"])("denies members in %s through the shared admin entry point", async (mode) => {
@@ -70,6 +74,42 @@ describe("sandbox admin gate", () => {
     const { POST } = await import("../app/api/sandbox/start/route");
     expect((await POST(request("/api/sandbox/start", { board, run }))).status).toBe(status);
     expect(mocks.post).not.toHaveBeenCalled();
+  });
+});
+
+describe("route access coverage", () => {
+  it.each(["production", "development"])("requires admin on every endpoint in %s", async (mode) => {
+    vi.stubEnv("NODE_ENV", mode);
+    mocks.access.mockResolvedValue({ ok: false, status: 403 });
+    const collection = await import("../app/api/sandbox/scenarios/route");
+    const item = await import("../app/api/sandbox/scenarios/[id]/route");
+    const validate = await import("../app/api/sandbox/validate/route");
+    const start = await import("../app/api/sandbox/start/route");
+    const sandbox = await import("../app/api/duels/[slug]/sandbox/route");
+    const view = await import("../app/api/duels/[slug]/route");
+    const actions = await import("../app/api/duels/[slug]/actions/route");
+    const responses = [
+      await collection.GET(), await collection.POST(request("/", write)),
+      await item.GET(request("/", undefined, "GET"), idParams(1)),
+      await item.PUT(request("/", write, "PUT"), idParams(1)),
+      await item.DELETE(request("/", undefined, "DELETE"), idParams(1)),
+      await validate.POST(request("/", { board })), await start.POST(request("/", { board, run })),
+      await sandbox.GET(request("/", undefined, "GET"), slugParams("s")),
+      ...await Promise.all(["control", "restart", "go-to-phase", "next-turn"].map((action) =>
+        sandbox.POST(request("/", { action }), slugParams("s")))),
+      await view.GET(request("/?as=0", undefined, "GET"), slugParams("s")),
+      await actions.POST(request("/?reveal=false", {}), slugParams("s")),
+    ];
+    expect(responses.map((response) => response.status)).toEqual(responses.map(() => 403));
+    expect(mocks.post).not.toHaveBeenCalled();
+    expect(mocks.membership).not.toHaveBeenCalled();
+    expect(createSandboxScenarioService(mocks.db!).list("guild")).toEqual([]);
+  });
+  it("allows admin requests in production with no scenario env flag", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("DUEL_SCENARIOS", "0");
+    const { POST } = await import("../app/api/sandbox/start/route");
+    expect((await POST(request("/", { board, run }))).status).toBe(200);
   });
 });
 
@@ -167,5 +207,131 @@ describe("validation and start", () => {
     const { POST } = await import("../app/api/sandbox/start/route");
     expect((await POST(request("/", { ...write, name: "é".repeat(33000) }))).status).toBe(413);
     expect(mocks.post).not.toHaveBeenCalled();
+  });
+});
+
+describe("duel sandbox operations", () => {
+  it.each([
+    [{ action: "control", seat: 1, control: "manual" }, "sandbox-control"],
+    [{ action: "restart" }, "sandbox-restart"],
+    [{ action: "go-to-phase", phase: "main2", as: 0, reveal: false }, "sandbox-go-to-phase"],
+    [{ action: "next-turn", as: 1, reveal: true }, "sandbox-next-turn"],
+  ] as const)("forwards %j", async (body, op) => {
+    const session = duel();
+    const { POST } = await import("../app/api/duels/[slug]/sandbox/route");
+    const response = await POST(request("/", body), slugParams(session.slug));
+    expect(response.status).toBe(200);
+    const { action: _action, ...fields } = body;
+    expect(payloads()[0]).toEqual({ op, slug: session.slug, guildId: "guild", playerId: owner, ...fields });
+  });
+  it("forwards sandbox info", async () => {
+    const session = duel();
+    const { GET } = await import("../app/api/duels/[slug]/sandbox/route");
+    expect(await (await GET(request("/", undefined, "GET"), slugParams(session.slug))).json()).toEqual({ board, run, scenarioId: 1 });
+    expect(payloads()[0].op).toBe("sandbox-info");
+  });
+  it("leaves organizer and sandbox-only checks to the host", async () => {
+    mocks.post.mockResolvedValue({ ok: false, status: 403, text: '{"error":"Organizer only"}' });
+    const { POST } = await import("../app/api/duels/[slug]/sandbox/route");
+    expect((await POST(request("/", { action: "restart" }), slugParams("foreign"))).status).toBe(403);
+  });
+  it.each([{ action: "invalid" }, { action: "control", seat: "1", control: "manual" }, { action: "control", seat: 1, control: "bad" }, { action: "go-to-phase" }])("rejects malformed control %j", async (body) => {
+    const { POST } = await import("../app/api/duels/[slug]/sandbox/route");
+    expect((await POST(request("/", body), slugParams("room"))).status).toBe(400);
+    expect(mocks.post).not.toHaveBeenCalled();
+  });
+  it("passes view query options, including false and zero, to the host in a lobby", async () => {
+    const session = duel();
+    const { GET } = await import("../app/api/duels/[slug]/route");
+    const response = await GET(request("/?as=0&reveal=false", undefined, "GET"), slugParams(session.slug));
+    expect(response.status).toBe(200);
+    expect(payloads()[0]).toMatchObject({ op: "view", as: 0, reveal: false });
+    expect(mocks.access).toHaveBeenCalledWith("admin", "admin");
+  });
+  it("passes action query options without changing the command", async () => {
+    const session = duel();
+    const { POST } = await import("../app/api/duels/[slug]/actions/route");
+    const command = { promptId: "p", revision: 0, answer: { choice: "opt:0" } };
+    expect((await POST(request("/?as=1&reveal=1", command), slugParams(session.slug))).status).toBe(200);
+    expect(payloads()[0]).toMatchObject({ op: "respond", as: 1, reveal: true, command });
+  });
+  it.each(["as=-1", "as=1.5", "as=x", "as=4", "as=", "reveal=x"])("rejects malformed query %s", async (query) => {
+    const session = duel();
+    const { GET } = await import("../app/api/duels/[slug]/route");
+    expect((await GET(request(`/?${query}`, undefined, "GET"), slugParams(session.slug))).status).toBe(400);
+    expect(mocks.post).not.toHaveBeenCalled();
+  });
+  it.each(["view", "actions"])("requires admin on sandbox %s without query options", async (route) => {
+    const session = duel();
+    mocks.access.mockResolvedValue({ ok: false, status: 403 });
+    const view = await import("../app/api/duels/[slug]/route");
+    const actions = await import("../app/api/duels/[slug]/actions/route");
+    const response = route === "view" ? await view.GET(request("/", undefined, "GET"), slugParams(session.slug))
+      : await actions.POST(request("/", {}), slugParams(session.slug));
+    expect(response.status).toBe(403);
+    expect(mocks.post).not.toHaveBeenCalled();
+  });
+  it("keeps ordinary lobby views available to members", async () => {
+    const session = duel(false);
+    mocks.access.mockResolvedValue({ ok: false, status: 403 });
+    const { GET } = await import("../app/api/duels/[slug]/route");
+    expect((await GET(request("/", undefined, "GET"), slugParams(session.slug))).status).toBe(200);
+    expect(mocks.access).not.toHaveBeenCalled();
+    expect(mocks.post).not.toHaveBeenCalled();
+  });
+});
+
+describe("request boundaries", () => {
+  it("stops and cancels an oversized stream before reading more chunks", async () => {
+    const cancel = vi.fn();
+    let reads = 0;
+    const stream = new ReadableStream({
+      pull(controller) { reads++; controller.enqueue(new Uint8Array(65537)); },
+      cancel,
+    }, { highWaterMark: 0 });
+    const input = new Request("http://local", { method: "POST", body: stream, duplex: "half" } as RequestInit);
+    const { POST } = await import("../app/api/sandbox/start/route");
+    expect((await POST(input)).status).toBe(413);
+    expect(reads).toBe(1);
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(mocks.post).not.toHaveBeenCalled();
+  });
+  it("enforces the same body limit on scenario writes and sandbox actions", async () => {
+    const saved = scenario();
+    const session = duel();
+    const body = { ...write, padding: "x".repeat(65536) };
+    const collection = await import("../app/api/sandbox/scenarios/route");
+    const item = await import("../app/api/sandbox/scenarios/[id]/route");
+    const validate = await import("../app/api/sandbox/validate/route");
+    const sandbox = await import("../app/api/duels/[slug]/sandbox/route");
+    const actions = await import("../app/api/duels/[slug]/actions/route");
+    const responses = [
+      await collection.POST(request("/", body)),
+      await item.PUT(request("/", body, "PUT"), idParams(saved.id)),
+      await validate.POST(request("/", body)),
+      await sandbox.POST(request("/", body), slugParams(session.slug)),
+      await actions.POST(request("/?as=0", body), slugParams(session.slug)),
+    ];
+    expect(responses.map((response) => response.status)).toEqual([413, 413, 413, 413, 413]);
+    expect(mocks.post).not.toHaveBeenCalled();
+  });
+  it("passes validation errors from the compiler back to the builder", async () => {
+    const errors = { ok: false, errors: [{ path: "p0.hand[0]", message: "Unknown card" }], codes: [] };
+    mocks.post.mockResolvedValue({ ok: true, status: 200, text: JSON.stringify(errors) });
+    const { POST } = await import("../app/api/sandbox/validate/route");
+    expect(await (await POST(request("/", { board }))).json()).toEqual(errors);
+  });
+  it("forwards ordinary commands without sandbox options", async () => {
+    const session = duel(false);
+    const command = { promptId: "p", revision: 0, answer: { choice: "opt:0" } };
+    const { POST } = await import("../app/api/duels/[slug]/actions/route");
+    expect((await POST(request("/", command), slugParams(session.slug))).status).toBe(200);
+    expect(payloads()[0]).toEqual({ op: "respond", slug: session.slug, guildId: "guild", playerId: owner, command });
+    expect(mocks.access).not.toHaveBeenCalled();
+  });
+  it("forwards false reveal and seat zero for surrender through the host adapter", async () => {
+    const { callDuelHost } = await import("@/lib/duel-host");
+    await callDuelHost({ op: "surrender", slug: "s", guildId: "guild", playerId: owner, as: 0, reveal: false });
+    expect(payloads()[0]).toMatchObject({ op: "surrender", as: 0, reveal: false });
   });
 });
