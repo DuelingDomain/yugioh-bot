@@ -59,12 +59,12 @@ describe("auth public routes", () => {
     delete process.env.NEXTAUTH_SECRET;
   });
 
-  it("allows public icon asset requests without auth", async () => {
+  it.each(["/icons/spell.svg", "/favicon.ico", "/icon.svg", "/apple-icon.png"])("allows %s without auth", async (path) => {
     const authorized = await loadAuthorizedCallback();
 
     const result = await authorized({
       auth: null,
-      request: { nextUrl: new URL("http://localhost/icons/spell.svg") },
+      request: { nextUrl: new URL(`http://localhost${path}`) },
     });
 
     expect(result).toBe(true);
@@ -89,12 +89,12 @@ describe("auth public routes", () => {
     expect((result as Response).headers.get("location")).toBe("http://localhost/login");
   });
 
-  it("keeps dotted app routes protected", async () => {
+  it.each(["/draft/export.csv", "/icon.svg/private", "/apple-icon.png/private"])("keeps %s protected", async (path) => {
     const authorized = await loadAuthorizedCallback();
 
     const result = await authorized({
       auth: null,
-      request: { nextUrl: new URL("http://localhost/draft/export.csv") },
+      request: { nextUrl: new URL(`http://localhost${path}`) },
     });
 
     expect(result).toBeInstanceOf(Response);

@@ -83,7 +83,7 @@
   padding: 24px;
   color: var(--tx-3);
   font-family: var(--font);
-  font-size: 14px;
+  font-size: var(--ct, 14px);
 }
 [data-look="solid"] .empty svg {
   color: var(--gold-lo);
@@ -95,7 +95,7 @@
   padding: 12px 14px 16px;
   color: var(--tx);
   font-family: var(--font);
-  font-size: 14px;
+  font-size: var(--ct, 14px);
 }
 [data-look="solid"] .art {
   width: 100%;
@@ -115,7 +115,7 @@
   margin: 0 0 6px;
   color: var(--tx);
   font-family: var(--font);
-  font-size: 21px;
+  font-size: calc(var(--ct, 15px) * 1.4);
   font-weight: 500;
   letter-spacing: 0;
   line-height: 1.15;
@@ -128,11 +128,12 @@
 [data-look="solid"] .body .details,
 [data-look="solid"] .body .kind {
   color: var(--tx-2);
-  font-size: 14px;
+  font-size: var(--ct, 14px);
   line-height: 1.35;
 }
 [data-look="solid"] .body .kind {
   color: var(--tx-3);
+  font-size: calc(var(--ct, 14px) * 0.95);
 }
 /* ATK / DEF line: a strip between two hairlines, numbers in the condensed numeric face (concept .insp-stats). */
 [data-look="solid"] .body .combat {
@@ -142,7 +143,7 @@
   border-bottom: 1px solid var(--hair);
   color: var(--tx-2);
   font-family: var(--font-num);
-  font-size: 22px;
+  font-size: calc(var(--ct, 15px) * 1.45);
   font-weight: 500;
   letter-spacing: 0.01em;
   line-height: 1.1;
@@ -152,8 +153,8 @@
   padding: 0;
   border-top: 0;
   color: var(--tx-2);
-  font-size: 14px;
-  line-height: 1.45;
+  font-size: var(--ct, 14px);
+  line-height: 1.5;
 }
 /* Counters, materials and equip links: the concept's purple note box. */
 [data-look="solid"] .metaList {
@@ -167,7 +168,7 @@
   box-shadow: inset 0 0 0 1px var(--pur-a);
   color: var(--tx);
   font-family: var(--font);
-  font-size: 13px;
+  font-size: calc(var(--ct, 14px) * 0.95);
   line-height: 1.4;
 }
 [data-look="solid"] .metaList li {
@@ -178,7 +179,7 @@
   padding: 0 14px 8px;
   color: var(--tx-2);
   font-family: var(--font);
-  font-size: 13px;
+  font-size: calc(var(--ct, 14px) * 0.95);
 }
 [data-look="solid"] .owner b {
   color: var(--tx);

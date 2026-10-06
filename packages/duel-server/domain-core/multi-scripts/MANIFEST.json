@@ -78,6 +78,15 @@
       "stockSha256": "80fc7da42b311e738ba46fac03c62ba816f702bc0afd668463c04626818f9070"
     },
     {
+      "code": 1906812,
+      "file": "c1906812.lua",
+      "name": "Sprind the Irondash Dragon",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "58c4740429f0fd16c3566fd56e79e5b7d240b0040c9f55590d97469029f61cde",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
+    },
+    {
       "code": 2139640,
       "file": "c2139640.lua",
       "name": "Amabie",
@@ -336,6 +345,24 @@
       "note": "FFA4: previous Link and column filters use only the real controller and its across seat."
     },
     {
+      "code": 5087128,
+      "file": "c5087128.lua",
+      "name": "Shelrokket Dragon",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "70f5d545ae1b80bee5ca6f120f6b4b959dbd2a5e0f91495592fcb90fdaba9755",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
+    },
+    {
+      "code": 5208118,
+      "file": "c5208118.lua",
+      "name": "Solving for Pendulum",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "445a44242c84080317e5e4d300de8b92cb11226c6017bb6e4b883328d3794f8f",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
+    },
+    {
       "code": 5605529,
       "file": "c5605529.lua",
       "name": "Vaalmonica Scelta",
@@ -415,6 +442,15 @@
       ],
       "stockSha256": "66b266e9c6457123807f5723343781a528f52baa6263032a4072d4da50702bf2",
       "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
+    },
+    {
+      "code": 5914858,
+      "file": "c5914858.lua",
+      "name": "Junora the Power Patron of Tuning",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "c3fe3c6b375cc4ad28754ce26d257d603c616772bf07b3cf7fd741cb90a1abf0",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
     },
     {
       "code": 6180710,
@@ -1014,6 +1050,24 @@
       ]
     },
     {
+      "code": 12612470,
+      "file": "c12612470.lua",
+      "name": "Procession of the Tea Jar",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "066d1cd830cfd79528dc005410b2fce8e927be2d56752ea718e715c507ccfc07",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
+    },
+    {
+      "code": 12682213,
+      "file": "c12682213.lua",
+      "name": "Iron Thunder",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "1ffdceb7ffb5f6db9dd7c35129cf4dede3b8a532e8b9f201b20a4a2306c559cf",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
+    },
+    {
       "code": 12694768,
       "file": "c12694768.lua",
       "name": "Abaki",
@@ -1109,10 +1163,12 @@
         "LEAVE"
       ],
       "redefined": [
-        "damop"
+        "damop",
+        "condition",
+        "operation"
       ],
       "stockSha256": "747ddad8a7d7e9c7fd48aed984d67a5b3e4718ce5a3c830f2a8db3628a07afbf",
-      "note": "FFA operations tolerate a removed source link and preserve independent actions. Tag and 1v1 keep the stock functions."
+      "note": "Tag: apply battle damage protection to both partners (R-TAG-TEAM-DAMAGE, owner decision 2026-10-06). Keep existing FFA and 1v1 behavior. Keep the FFA removed-source-link guard in damop."
     },
     {
       "code": 14220547,
@@ -2128,6 +2184,15 @@
       "stockSha256": "9e3c4c3787d7eda606ba1d80444ea47aaa0836b459cf074ae13afc6afa1b08bc"
     },
     {
+      "code": 24521754,
+      "file": "c24521754.lua",
+      "name": "Goldilocks the Battle Landscaper",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "0576203fcf9d9e6deba299850efb913d5ab578a9cdbc75a9d663bff507a93b59",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
+    },
+    {
       "code": 24566654,
       "file": "c24566654.lua",
       "name": "Crimson Fire",
@@ -2401,6 +2466,15 @@
       "replace": true
     },
     {
+      "code": 27383719,
+      "file": "c27383719.lua",
+      "name": "S-Force Lapcewell",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "3c6e7bda74804cf69438a2c177ccc2b7c1433fbb9e4d45fcb41ae263ff50e21e",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
+    },
+    {
       "code": 27769400,
       "file": "c27769400.lua",
       "name": "Tualatin",
@@ -2463,6 +2537,24 @@
       "note": "Pin Baller cannot be negated when any living opposing LP pool is greater than its own. The selected equip opponent does not limit this condition."
     },
     {
+      "code": 28904860,
+      "file": "c28904860.lua",
+      "name": "Angelechy Bastion",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "3f955a1ba6ae29d7e81f6ab12e7798394eddd8fbfd6c5c8ad6303cac0e113db8",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
+    },
+    {
+      "code": 29302858,
+      "file": "c29302858.lua",
+      "name": "Vanquish Soul Razen",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "79720e6c478b2a271287e56e0c8ed23c06ae1925c495fbb9f149af02fe643730",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
+    },
+    {
       "code": 29307554,
       "file": "c29307554.lua",
       "name": "Lineage of Destruction",
@@ -2491,6 +2583,15 @@
       "compareIn": [
         "thcon"
       ]
+    },
+    {
+      "code": 29415459,
+      "file": "c29415459.lua",
+      "name": "Mekk-Knight Yellow Star",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "34e5d66ada9b546ea32625c50e59b4454accf0e0cd5ae85af85c24b6c92cc64a",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
     },
     {
       "code": 29599813,
@@ -2719,6 +2820,15 @@
       "chooserClass": "CH-DECISION"
     },
     {
+      "code": 32472237,
+      "file": "c32472237.lua",
+      "name": "Metalrokket Dragon",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "9a564756ad10e9f4257d09ff82f2b8774522878059ad6cc303c90c5610635123",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
+    },
+    {
       "code": 32588805,
       "file": "c32588805.lua",
       "name": "The Despair Uranus",
@@ -2780,6 +2890,15 @@
         "condition"
       ],
       "stockSha256": "8e26bb6c68fe54e3563199d82a4fd5ad7c2295aee014b18365a1dac03e776993"
+    },
+    {
+      "code": 33055499,
+      "file": "c33055499.lua",
+      "name": "Prey of the Jirai Gumo",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "39a724461a157d3c82f10c1af6c8a5166fedc0334947966ca8dc0c7731e895d9",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
     },
     {
       "code": 33298291,
@@ -3236,7 +3355,12 @@
       "classes": [
         "R1"
       ],
-      "stockSha256": "42f98b5f285c5e65180ef86610cc026ebe67f409b01e1024ad63f7a9cda5d554"
+      "stockSha256": "42f98b5f285c5e65180ef86610cc026ebe67f409b01e1024ad63f7a9cda5d554",
+      "redefined": [
+        "dmcon",
+        "dmop"
+      ],
+      "note": "Tag: apply battle damage protection to both partners (R-TAG-TEAM-DAMAGE, owner decision 2026-10-06). Keep existing FFA and 1v1 behavior. Register prevention for both partners, but run the existing per-duelist 1000 effect damage only once."
     },
     {
       "code": 37806313,
@@ -3359,6 +3483,15 @@
         "R1"
       ],
       "stockSha256": "4fd45c718cd3997813bf4402614e42b3023dab2f261190cbf4cdedd7fce3b1cc"
+    },
+    {
+      "code": 39188539,
+      "file": "c39188539.lua",
+      "name": "Storm Shooter",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "706d87d3bfb788c6e3af5605af185b23bbe98696bcd07ffe9522bd1c78c01687",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
     },
     {
       "code": 39552584,
@@ -3486,6 +3619,28 @@
         "spcon"
       ],
       "stockSha256": "b3655ac17db9e94d390cebd6ff604d9971121f735d9afe566bd255ce1ffd85cb"
+    },
+    {
+      "code": 40516623,
+      "file": "c40516623.lua",
+      "name": "Yoko-Zuna Sumo Spirit",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "8107286c8d9684d7ef953d80e6296a84461cb830d962bb9962009625098b5097",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
+    },
+    {
+      "code": 40640057,
+      "file": "c40640057.lua",
+      "name": "Kuriboh",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "con",
+        "op"
+      ],
+      "stockSha256": "09622bcf802fc9ce22e4c180b9a6876f8aa31aef6386d61d29a52b762828eafb",
+      "note": "Tag: test battle damage on either living partner and register damage prevention for both. Keep the stock opponent-turn check; FFA and 1v1 keep the stock effect."
     },
     {
       "code": 41424250,
@@ -3831,6 +3986,15 @@
       "stockSha256": "6abecfeb2cbc06c941b78d2b13c22b9951482655b7b30fdb9fe1d0be1bf358a8"
     },
     {
+      "code": 45702357,
+      "file": "c45702357.lua",
+      "name": "Reversible Beetle",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "5b3681496ae0639457e1bf3fa7ea3233e048f78e308ececf88b44ce514b2597a",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
+    },
+    {
       "code": 45742626,
       "file": "c45742626.lua",
       "name": "Pilgrim Reaper",
@@ -3894,6 +4058,15 @@
         "R1"
       ],
       "stockSha256": "55127880a2557cf77a7fc6de8bcd2ad38c9259a3306d37c9c64286633d8f54b1"
+    },
+    {
+      "code": 46247282,
+      "file": "c46247282.lua",
+      "name": "Iron Dragon Tiamaton",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "063e6f20595d6f5646eea8ce11d97486420bedae20f97fb4ddcf81276ceb2a59",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
     },
     {
       "code": 46613515,
@@ -4262,6 +4435,15 @@
       "stockSha256": "368822aab7b0be98103cf99610c8520553d1b62b86bff1854e64e3a32c0e289f"
     },
     {
+      "code": 50675040,
+      "file": "c50675040.lua",
+      "name": "Beast King Unleashed",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "e86963752e14f14e89c429e67e2231808b038f28506cdf79b8b909e6cd088b06",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
+    },
+    {
       "code": 50756327,
       "file": "c50756327.lua",
       "name": "Crowley, the First Propheseer",
@@ -4303,6 +4485,15 @@
         "R1"
       ],
       "stockSha256": "ac36ccebd90d1564a77f38918805e1090362cadf415e05194d1d7f7fdd679375"
+    },
+    {
+      "code": 51091138,
+      "file": "c51091138.lua",
+      "name": "Fuse Line",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "02ae94128fc73325c1bb53ee275c4f0bc76c74c2df6529224b4fe0a86bb608c6",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
     },
     {
       "code": 51194046,
@@ -4410,6 +4601,15 @@
         "zcon"
       ],
       "stockSha256": "62672b54b42c1ae1d918da63b1179097ad0563e1ad1b2f7f05e1f41a5c43cedb"
+    },
+    {
+      "code": 53330789,
+      "file": "c53330789.lua",
+      "name": "Vanquish Soul Trinity Burst",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "d1122894e616cf2222e0eda8512c9ce9cd52e8de99910c9803a856459aad0ce4",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
     },
     {
       "code": 53334471,
@@ -4529,6 +4729,20 @@
       "note": "The global battle flag reaches every seat in FFA and every team in Tag. The activation reads the flag of its own holder, so a Tag holder on team 1 does not pick an opponent."
     },
     {
+      "code": 54569495,
+      "file": "c54569495.lua",
+      "name": "Marincess Crown Tail",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "spop",
+        "damop1",
+        "damcon3"
+      ],
+      "stockSha256": "810613615961641b369cb071c22b210e712023408ab435e08a6f4987bf436bd1",
+      "note": "Tag: apply battle damage protection to both partners (R-TAG-TEAM-DAMAGE, owner decision 2026-10-06). Keep existing FFA and 1v1 behavior. Summon once; halve team battle damage. The grave effect checks actual team damage against the shared grave Link Rating threshold."
+    },
+    {
       "code": 54635100,
       "file": "c54635100.lua",
       "name": "Linkerbell",
@@ -4556,6 +4770,15 @@
         "spcon"
       ],
       "stockSha256": "1a89e3b7b3a620cfdcab9392c4f955c6a8c841f4f76055c71cf33a83e5bc6416"
+    },
+    {
+      "code": 55393975,
+      "file": "c55393975.lua",
+      "name": "Angelechy Destrier",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "045308c11041b5541ad22339a63e5298108277fe2894c2cd323950fddd3c62de",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
     },
     {
       "code": 55554175,
@@ -4659,6 +4882,15 @@
         "R1"
       ],
       "stockSha256": "29487b2a30b53a90d7e5a2ce9bbe7eccd25c77fd98ea0a3c75ee1cec196fa7b6"
+    },
+    {
+      "code": 56809158,
+      "file": "c56809158.lua",
+      "name": "Mekk-Knight Red Moon",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "645a1e834a91f89797bd84f85472dbaddd79b9b3aa274298c90a8d1459a7f498",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
     },
     {
       "code": 56818742,
@@ -4806,6 +5038,18 @@
       "chooserClass": "CH-DECISION"
     },
     {
+      "code": 58012707,
+      "file": "c58012707.lua",
+      "name": "Giant Ballpark",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "con"
+      ],
+      "stockSha256": "c68e7a905c1b7ac6746c8b9599d91989a47068de627e382ef280284501b874c9",
+      "note": "Test battle damage to every living player."
+    },
+    {
       "code": 58071123,
       "file": "c58071123.lua",
       "name": "Oxygeddon",
@@ -4899,6 +5143,15 @@
       "chooserClass": "CH-DECISION"
     },
     {
+      "code": 58884063,
+      "file": "c58884063.lua",
+      "name": "Gold Pride - Nytro Blaster",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "7f7048944e907f2c7145fa3d9fbae32e4e84504cf608d78667462631b9b7c496",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
+    },
+    {
       "code": 59011257,
       "file": "c59011257.lua",
       "name": "Fallin' Cheatah",
@@ -4977,6 +5230,15 @@
       "compareIn": [
         "spcon"
       ]
+    },
+    {
+      "code": 59900655,
+      "file": "c59900655.lua",
+      "name": "Gold Pride - Nytro Head",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "3d28c3cf3ccf09be1fc32a1fec2f764b5eba0dfd1fb00c73f6bb941d65f98261",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
     },
     {
       "code": 60018643,
@@ -5142,6 +5404,19 @@
       "chooserClass": "CH-DECISION"
     },
     {
+      "code": 60953118,
+      "file": "c60953118.lua",
+      "name": "Arcana Force XIV - Temperance",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "damcon",
+        "damop"
+      ],
+      "stockSha256": "40805225a151085b538dcca97ce713811839c7fb005bf0bf8c99b59d527ca52f",
+      "note": "Tag: apply battle damage protection to both partners (R-TAG-TEAM-DAMAGE, owner decision 2026-10-06). Keep existing FFA and 1v1 behavior."
+    },
+    {
       "code": 61318483,
       "file": "c61318483.lua",
       "name": "Ghostrick Jackfrost",
@@ -5238,7 +5513,7 @@
     {
       "code": 62098216,
       "file": "c62098216.lua",
-      "name": "Evil\u2605Twins Ki-sikil & Lil-la",
+      "name": "Evil★Twins Ki-sikil & Lil-la",
       "kind": "chooser",
       "classes": [
         "CHOOSER"
@@ -5310,6 +5585,19 @@
         "damtg",
         "damop"
       ]
+    },
+    {
+      "code": 63009228,
+      "file": "c63009228.lua",
+      "name": "Rescue Interlacer",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "damcon",
+        "damop"
+      ],
+      "stockSha256": "ddae04d6e7022f309d8e5820e049b8059cb21ab243c6f1331f363b54e2ea89be",
+      "note": "Tag: apply battle damage protection to both partners (R-TAG-TEAM-DAMAGE, owner decision 2026-10-06). Keep existing FFA and 1v1 behavior."
     },
     {
       "code": 63378869,
@@ -5398,6 +5686,15 @@
       "note": "Select one Tag opponent at activation for the optional Trap Set."
     },
     {
+      "code": 65107325,
+      "file": "c65107325.lua",
+      "name": "Sour Scheduling - Red Vinegar Vamoose",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "10d6afdb0de48cd8c22d92aa728995586af398a3bb84106e02bc70c1ac487f1a",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
+    },
+    {
       "code": 65541655,
       "file": "c65541655.lua",
       "name": "Red Nova Dragon - Burning Soul",
@@ -5449,6 +5746,15 @@
         ]
       },
       "stockSha256": "dba91e6dd8fbe138727e2d4e6909fb9e668087799ca082014e945de6b819297c"
+    },
+    {
+      "code": 66401502,
+      "file": "c66401502.lua",
+      "name": "Vanquish Soul Pantera",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "0b54569d0eb3147fc8343a5af5d4832077556d558262efa8b555eb122320a953",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
     },
     {
       "code": 66518509,
@@ -5955,6 +6261,15 @@
       "replace": true
     },
     {
+      "code": 71614230,
+      "file": "c71614230.lua",
+      "name": "Kai-Den Kendo Spirit",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "bc4ebceba6d72e3b8c6fc2aedf9a23597d28285f5dc4281f6192a2af5e741f09",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
+    },
+    {
       "code": 71645242,
       "file": "c71645242.lua",
       "name": "Black Garden",
@@ -5979,6 +6294,15 @@
       ],
       "stockSha256": "cf7595118b4e694f89e6717442775a25bcf083f6ebe2d1e9e86d98f74ae39f86",
       "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
+    },
+    {
+      "code": 71750854,
+      "file": "c71750854.lua",
+      "name": "Bomber Place",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "47b989961eb1c139b7173c331d0702626e332220dfef0f9035d4fe3fdee71b51",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
     },
     {
       "code": 71782404,
@@ -6270,6 +6594,15 @@
       "stockSha256": "720a56596b8015cdb5b0fba6bae7f46f2434e58991569b4a056e774047239085"
     },
     {
+      "code": 75952542,
+      "file": "c75952542.lua",
+      "name": "Vaylantz World - Konig Wissen",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "7080baa48c4a84b1c34dab70e6c880ed617820ebe2890a34e0724ed31a2d63d1",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
+    },
+    {
       "code": 75983808,
       "file": "c75983808.lua",
       "name": "Chaos Mystic Box",
@@ -6478,6 +6811,15 @@
       "note": "global flag registered for the literal seat 0 only: the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag), so each holder reads it with its own player value."
     },
     {
+      "code": 77511331,
+      "file": "c77511331.lua",
+      "name": "Kuro-Obi Karate Spirit",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "750c7b8bb5792658904552c1e1c2f06fa7d5cc554a11003cbb56ad2501123748",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
+    },
+    {
       "code": 77894049,
       "file": "c77894049.lua",
       "name": "Vanquish Soul Rocks",
@@ -6528,6 +6870,15 @@
       "compareIn": [
         "condition"
       ]
+    },
+    {
+      "code": 78360952,
+      "file": "c78360952.lua",
+      "name": "Sunlit Sentinel",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "6538c231d9698152c720dd1e4c5ea4133106ae63f7b1ead5ba7c5b4779182d1a",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
     },
     {
       "code": 78598237,
@@ -6592,6 +6943,15 @@
       ],
       "stockSha256": "f92471e595af4669ae94d55f3db13b4145dfa4111c4f29052f90fb1a51c6f48a",
       "note": "FFA operations tolerate a removed source link and preserve independent actions. Tag and 1v1 keep the stock functions."
+    },
+    {
+      "code": 79176962,
+      "file": "c79176962.lua",
+      "name": "Fantastic Striborg",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "1088dd839643d6716c5fe19759f0f043ed65c1613966d09fb81d5cf2f3af5e03",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
     },
     {
       "code": 80208158,
@@ -6714,6 +7074,15 @@
       "note": "Script fix (R1 target controller, R-COMMON-SEAT-STATE, lead decision 2026-10-01): \"your opponent gains 1000 LP\" reads the Lua value 1-tp, which at 3 or more seats is ONE opponent that the user chooses in a window (Choose an opponent), not the controller of the destroyed monster, so the user could give the 1000 LP to any opponent. The target and the operation now bind the value 1 to the controller of the target (aux.MPForEachController): the controller of the destroyed monster gains the LP, in Tag the team of that controller. Not part of R1 or R2 (a script fix)."
     },
     {
+      "code": 81797573,
+      "file": "c81797573.lua",
+      "name": "Angelechy Enlisted",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "9d8f7fdd75e0a4e08d0cf5b7e425a1d17f655748e0973f4bc6695fd749f25438",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
+    },
+    {
       "code": 81965543,
       "name": "Distrust Paranoia",
       "file": "c81965543.lua",
@@ -6823,7 +7192,7 @@
     {
       "code": 82699999,
       "file": "c82699999.lua",
-      "name": "Live\u2606Twin Lil-la Sweet",
+      "name": "Live☆Twin Lil-la Sweet",
       "kind": "hand",
       "classes": [
         "LEAVE"
@@ -6884,6 +7253,15 @@
         "spcon"
       ],
       "stockSha256": "685fcb6d07576ea3c630084134a2356e3bcd488ff1b6af4ff1dcb5318d782df5"
+    },
+    {
+      "code": 83094004,
+      "file": "c83094004.lua",
+      "name": "Aeropixthree",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "39ea49a542c0662662ad6f549e8b71750b5b33811256f45fc3a23461c212290c",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
     },
     {
       "code": 83116692,
@@ -7047,6 +7425,15 @@
       ],
       "stockSha256": "d1d51096373da9756a04cdd9dc424807b40eb0ee7693cf34e725882312d2af65",
       "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
+    },
+    {
+      "code": 84635192,
+      "file": "c84635192.lua",
+      "name": "Tsuru-Puru-Purun",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "e2f3b81cabd54d27e1740c765177c3dc8c8f9bfbdb501e6450bdedd388d3a348",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
     },
     {
       "code": 84813516,
@@ -7706,6 +8093,15 @@
       ]
     },
     {
+      "code": 93394164,
+      "file": "c93394164.lua",
+      "name": "Parallel Panzer",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "ff582ff60d721a1ec5f9c6a6bd6bc99c1c3ce5d0f21191490e185920b4ae37ae",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
+    },
+    {
       "code": 93437091,
       "file": "c93437091.lua",
       "name": "Bingo Machine, Go!!!",
@@ -7973,6 +8369,15 @@
       "note": "Select one Tag opponent at activation for the optional draw after an own-team summon. An opposing-team summon needs no pick."
     },
     {
+      "code": 95382988,
+      "file": "c95382988.lua",
+      "name": "Regenesis Commands",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "a6a84d4f86ece9acc96580903d80b3e7b38c7ddd9a66eedc0015b0b37da83029",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
+    },
+    {
       "code": 95403418,
       "file": "c95403418.lua",
       "name": "Starduston",
@@ -8070,6 +8475,15 @@
       "chooserClass": "CH-OP",
       "stockSha256": "ddf7aa16cbf1aaf9a19ec929488e2a042fadf5524510bb5c7e438149f83b9094",
       "note": "Chooser card with a compare in an inline condition (MPAny); the file replaces the script. The triage did not list it as a compare card."
+    },
+    {
+      "code": 97729135,
+      "file": "c97729135.lua",
+      "name": "Staring Contest",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "272a00c13cfd733d50822475e971d0a90210bf8b2fe2787bb2d6853b2315a72d",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
     },
     {
       "code": 97926515,
@@ -8194,6 +8608,15 @@
         "R1"
       ],
       "stockSha256": "ab451c525824e8bb1b2c55dedfd270b05ccbdeee6901e7bb8ddea71d470c097b"
+    },
+    {
+      "code": 99788587,
+      "file": "c99788587.lua",
+      "name": "Blasting Fuse",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "ff34836204cef5fcbad4abe9cbbb3017ef81758db683c485fa8f87221840f501",
+      "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
     }
   ]
 }

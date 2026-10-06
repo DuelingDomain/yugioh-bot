@@ -11,6 +11,7 @@ import { battleCalculation } from "./battle-calculation";
  *   - a battle damage event, or
  *   - a destroy event caused by battle (of the attacker or of the target), or
  *   - the engine's Damage Step end, for a calculated fight that leaves neither.
+ * An attack-negated event (MSG_ATTACK_DISABLED) ends the attack at once, with no animation.
  * MSG_BATTLE supplies stats, but after-calculation response windows can still precede destruction.
  * Older replays without calculation events close a fight with neither damage nor destruction
  * (ATK equal to a Defense Position DEF) at the next attack or phase, as a short clash.
@@ -75,6 +76,9 @@ export function battleTrigger(events: readonly DuelEvent[], attack: DuelEvent, a
       case "activate":
         responded = true;
         break;
+      case "attack-negated":
+        // The engine said so (Negate Attack, Magic Cylinder, ...): the declared attack is over, with no fight.
+        return { action: "fizzle", reason: "negated" };
       case "attack":
       case "phase":
         // The battle ended without damage or a destroy.
@@ -85,4 +89,19 @@ export function battleTrigger(events: readonly DuelEvent[], attack: DuelEvent, a
     }
   }
   return { action: "wait" };
+}
+
+/**
+ * The first event that belongs to the result of the fight (battle damage, a destroy, the end of the
+ * calculation, or the effect damage that comes first). A coin toss between the attack and this event
+ * has to be shown before the battle plays. null when the snapshot has no result yet.
+ */
+export function battleOutcomeId(events: readonly DuelEvent[], attack: DuelEvent): number | null {
+  let first: number | null = null;
+  for (const event of events) {
+    if (event.id <= attack.id) continue;
+    if (event.kind !== "damage" && event.kind !== "recover" && event.kind !== "destroy" && event.kind !== "battle-end") continue;
+    if (first == null || event.id < first) first = event.id;
+  }
+  return first;
 }

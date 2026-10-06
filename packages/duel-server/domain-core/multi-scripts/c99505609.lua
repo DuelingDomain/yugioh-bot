@@ -21,3 +21,13 @@ function s.desop(e,tp,eg,ep,ev,re,r,rp)
 		aux.MPForEachDuelist(function(tp_i) Duel.Draw(tp_i,1,REASON_EFFECT) end)
 	end
 end
+
+-- FFA3 columns can contain two independent EMZ; use the core's column mask.
+if aux.MPColumnGeometry() and not aux.MPGeometryShared() then
+	function s.columnfilter(c) return c:IsAllColumn() end
+end
+
+-- R-FFA-THREE-COLUMNS: choose the column opponent before cards or zones.
+if aux.MPColumnEffects then
+	s.initial_effect=aux.MPColumnEffects(s.initial_effect,{s.desop})
+end

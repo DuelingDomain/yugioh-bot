@@ -1,0 +1,199 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Duelists Kingdom Engine <engine@duelistskingdom.com>
+Date: Mon, 5 Oct 2026 00:00:00 +0000
+Subject: [PATCH] Add an FFA3 column peer without changing EMZ or Link sharing
+
+R-FFA-THREE-COLUMNS, owner decision 2026-10-05.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019EpX1AcvnigK9dTsxAa5W9
+---
+diff --git a/card.cpp b/card.cpp
+index b0375ef..b9943ec 100644
+--- a/card.cpp
++++ b/card.cpp
+@@ -1522,13 +1522,17 @@ uint32_t card::get_column_zone(int32_t loc1, int32_t left, int32_t right) {
+ 	auto chkextra = [seq = current.sequence, mzone = (current.location == LOCATION_MZONE)](uint8_t s)->bool { 
+ 		return !mzone || seq < 5 || seq != s;
+ 	};
++	// FFA3 EMZ are independent even when their columns line up. Exclude only
++	// this card below, not the other seat's separately occupied mirrored EMZ.
++	const bool independent_emz = pduel->game_field->n_duelists == 3
++		&& pduel->game_field->n_teams == 3;
+ 	if (loc1 & LOCATION_MZONE) {
+ 		for (int32_t s = seq1; s <= seq2; ++s) {
+ 			zones |= (1u << s) | (1u << (16 + (4 - s)));
+ 			if (pduel->game_field->is_flag(DUEL_EMZONE)) {
+-				if (s == 1 && chkextra(5))
++				if (s == 1 && (chkextra(5) || independent_emz))
+ 					zones |= (1u << 5) | (1u << (16 + 6));
+-				else if (s == 3 && chkextra(6))
++				else if (s == 3 && (chkextra(6) || independent_emz))
+ 					zones |= (1u << 6) | (1u << (16 + 5));
+ 			}
+ 		}
+@@ -1538,7 +1542,7 @@ uint32_t card::get_column_zone(int32_t loc1, int32_t left, int32_t right) {
+ 			zones |= (1u << (8 + s)) | (1u << (16 + 8 + (4 - s)));
+ 	}
+ 	// Separate fields keep only their own columns.
+-	if(pduel->game_field->across_of(current.controler) == DUELIST_NONE)
++	if(pduel->game_field->column_peer_of(current.controler) == DUELIST_NONE)
+ 		zones &= 0xffff;
+ 	zones &= ~((1 << current.sequence) << ((loc2 == LOCATION_SZONE) ? 8 : 0));
+ 	return zones;
+@@ -1550,14 +1554,23 @@ void card::get_column_cards(card_set* cset, int32_t left, int32_t right) {
+ 	int32_t p = current.controler;
+ 	uint32_t column_zone = get_column_zone(LOCATION_ONFIELD, left, right);
+ 	pduel->game_field->get_cards_in_zone(cset, column_zone, p, LOCATION_ONFIELD);
+-	if(pduel->game_field->across_of(current.controler) != DUELIST_NONE)
+-		pduel->game_field->get_cards_in_zone(cset, column_zone >> 16, pduel->game_field->across_of(p), LOCATION_ONFIELD);
++	if(pduel->game_field->column_peer_of(current.controler) != DUELIST_NONE)
++		pduel->game_field->get_cards_in_zone(cset, column_zone >> 16, pduel->game_field->column_peer_of(p), LOCATION_ONFIELD);
+ }
+ int32_t card::is_all_column() {
+ 	if(!(current.location & LOCATION_ONFIELD))
+ 		return FALSE;
+ 	card_set cset;
+ 	get_column_cards(&cset, 0, 0);
++	if(pduel->game_field->n_duelists == 3 && pduel->game_field->n_teams == 3) {
++		// FFA3 has separate EMZ. Count the actual column's available positions,
++		// including both mirrored EMZ when a peer exists; the source is excluded.
++		uint32_t zone = get_column_zone(LOCATION_ONFIELD, 0, 0);
++		uint32_t full = 0;
++		for(; zone; zone &= zone - 1)
++			++full;
++		return full && cset.size() == full;
++	}
+ 	uint32_t full = 3;
+ 	if(pduel->game_field->is_flag(DUEL_EMZONE) && (current.sequence == 1 || current.sequence == 3))
+ 		++full;
+diff --git a/effect.h b/effect.h
+index f34b05f..657d5ab 100644
+--- a/effect.h
++++ b/effect.h
+@@ -78,6 +78,8 @@ public:
+ 	int32_t operation{};
+ 	// Read-only operation metadata: an activated opponent-only field/player effect needs a declaration.
+ 	bool operation_declares_opponent{ false };
++	// Explicit card-overlay opt-in: this activated effect affects opponent columns.
++	bool column_peer{ false };
+ 	bool operation_declaration_incomplete{ false };
+ 	uint64_t category{};
+ 	card* owner{ nullptr };
+diff --git a/field.cpp b/field.cpp
+index 6cd7455..ed3e85b 100644
+--- a/field.cpp
++++ b/field.cpp
+@@ -15,6 +15,28 @@
+ #include "group.h"
+ #include "interpreter.h"
+ 
++// R-FFA-THREE-COLUMNS: a selected peer while three live, the sole peer while two live.
++uint8_t field::column_peer_of(uint8_t p) const {
++	if(n_duelists != 3 || n_teams != n_duelists)
++		return across_of(p);
++	if(!is_alive(p))
++		return DUELIST_NONE;
++	uint8_t opponents[MAX_DUELISTS];
++	if(living_opponents(p, opponents) == 1)
++		return opponents[0];
++	const auto* s = pduel->lua->current_scope();
++	if(!s || !s->eff || !s->eff->column_peer || !(s->eff->type & EFFECT_TYPE_ACTIONS) || (s->eff->type & EFFECT_TYPE_CONTINUOUS))
++		return DUELIST_NONE;
++	// A flagged condition can read columns before its target callback runs.
++	pduel->lua->scope_mark_touched();
++	const auto peer = pduel->lua->scope_bound_opp();
++	if(!is_alive(s->P) || !is_alive(peer) || same_team(s->P, peer))
++		return DUELIST_NONE;
++	if(p == s->P)
++		return peer;
++	return p == peer ? s->P : DUELIST_NONE;
++}
++
+ bool chain::chain_operation_sort(const chain& c1, const chain& c2) {
+ 	return c1.triggering_effect->id < c2.triggering_effect->id;
+ }
+diff --git a/field.h b/field.h
+index d584f2f..e99cc5d 100644
+--- a/field.h
++++ b/field.h
+@@ -558,6 +558,8 @@ public:
+ 		}
+ 		return DUELIST_NONE;
+ 	}
++	// Column-only FFA3 house rule; EMZ and Link geometry still use across_of.
++	uint8_t column_peer_of(uint8_t p) const;
+ 	// The high half of a zone effect: explicit selection, geometry, bound seat,
+ 	// then the physical across field (FFA4) or the existing separate-field fallback.
+ 	uint8_t zone_opponent(effect* peffect) const;
+diff --git a/fold_lib.h b/fold_lib.h
+index 271bcd7..41bb4f9 100644
+--- a/fold_lib.h
++++ b/fold_lib.h
+@@ -206,10 +206,10 @@ inline uint32_t player_zone_mask(duel* pduel, uint8_t viewer, uint32_t zone) {
+ 	return zone & 0xffffu;
+ }
+ 
+-inline uint32_t card_zone_mask(duel* pduel, lua_State* L, int idx, uint8_t cp, card* pcard, uint32_t zone) {
++inline uint32_t card_zone_mask(duel* pduel, lua_State* L, int idx, uint8_t cp, card* pcard, uint32_t zone, bool column = false) {
+ 	const auto& f = *pduel->game_field;
+ 	const auto controller = pcard->current.controler;
+-	const auto across = f.across_of(controller);
++	const auto across = column ? f.column_peer_of(controller) : f.across_of(controller);
+ 	bool own = cp_is_controler(pduel, L, idx, cp, controller);
+ 	bool mirrored = false;
+ 	if(!lua_isnoneornil(L, idx) && across != DUELIST_NONE) {
+diff --git a/libcard.cpp b/libcard.cpp
+index 72008cb..d1d9bca 100644
+--- a/libcard.cpp
++++ b/libcard.cpp
+@@ -309,7 +309,7 @@ LUA_FUNCTION(GetColumnZone) {
+ 	auto cp = lua_get<uint8_t>(L, 5, self->current.controler);
+ 	uint32_t zone = self->get_column_zone(loc, left, right);
+ 	if(pduel->game_field->n_duelists != 2)
+-		lua_pushinteger(L, fold::card_zone_mask(pduel, L, 5, cp, self, zone)); // controller or across field, without a player prompt
++		lua_pushinteger(L, fold::card_zone_mask(pduel, L, 5, cp, self, zone, true)); // controller or across field, without a player prompt
+ 	else if(cp == pduel->game_field->opponent_of(self->current.controler))
+ 		lua_pushinteger(L, (((zone & 0xffff) << 16) | (zone >> 16)));
+ 	else
+diff --git a/libduel.cpp b/libduel.cpp
+index 688992e..53fc9de 100644
+--- a/libduel.cpp
++++ b/libduel.cpp
+@@ -4955,6 +4955,20 @@ LUA_STATIC_FUNCTION(MPAcrossSeat) {
+ 	lua_pushinteger(L, across == DUELIST_NONE ? -1 : across);
+ 	return 1;
+ }
++// Column geometry is distinct from EMZ and Link sharing. Arguments are real seats.
++LUA_STATIC_FUNCTION(MPColumnGeometry) {
++	const auto& f = *pduel->game_field;
++	lua_pushboolean(L, (f.n_duelists == 3 || f.n_duelists == 4) && f.n_teams == f.n_duelists);
++	return 1;
++}
++LUA_STATIC_FUNCTION(MPColumnPeerSeat) {
++	check_param_count(L, 1);
++	const auto& f = *pduel->game_field;
++	const auto p = lua_get<int64_t>(L, 1);
++	const auto peer = f.is_duelist(p) ? f.column_peer_of(static_cast<uint8_t>(p)) : DUELIST_NONE;
++	lua_pushinteger(L, peer == DUELIST_NONE ? -1 : peer);
++	return 1;
++}
+ // Duel.MPBound(): true when an opponent is bound in this scope or chain link.
+ LUA_STATIC_FUNCTION(MPBound) {
+ 	const auto* s = f7_scope(pduel);
+diff --git a/libeffect.cpp b/libeffect.cpp
+index 31363da..679cad6 100644
+--- a/libeffect.cpp
++++ b/libeffect.cpp
+@@ -290,6 +290,11 @@ LUA_FUNCTION(SetValue) {
+ 	}
+ 	return 0;
+ }
++// Fork-private opt-in. Pure own-field column reads must not declare an opponent.
++LUA_FUNCTION(SetColumnPeer) {
++	self->column_peer = lua_get<bool>(L, 2);
++	return 0;
++}
+ LUA_FUNCTION(SetOperation) {
+ 	check_param_count(L, 2);
+ 	if(self->operation)

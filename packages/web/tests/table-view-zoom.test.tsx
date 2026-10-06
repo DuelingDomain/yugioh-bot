@@ -2,11 +2,15 @@
 import React, { useRef } from "react";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useViewZoom } from "@/components/duel/table/use-view-zoom";
+import { useViewZoom, VIEW_OCCLUDERS } from "@/components/duel/table/use-view-zoom";
+import { ViewReset } from "@/components/duel/table/view-reset";
 import {
   clampView,
   DRAG_THRESHOLD_PX,
+  edgeInsets,
+  followCss,
   isZoomed,
+  layerOffset,
   layerTransform,
   panBy,
   pinchView,
@@ -108,6 +112,64 @@ describe("view helpers", () => {
   });
 });
 
+describe("HUD that follows the board", () => {
+  it("puts the anchor of a plate where the zoom takes that board point, at the plate's own size", () => {
+    const frame = { x: 40, y: 10, k: 0.8 };
+    const view = { s: 2, x: -300, y: -120 };
+    const u = layerOffset(view, frame);
+    // A board point q (px of the layer's parent) goes to u + s * q; the follow offset is u + (s - 1) * q.
+    const q = { x: 210, y: 95 };
+    const on = { x: frame.x + frame.k * (u.x + view.s * q.x), y: frame.y + frame.k * (u.y + view.s * q.y) };
+    expect(on.x).toBeCloseTo(view.x + view.s * (frame.x + frame.k * q.x), 6);
+    expect(on.y).toBeCloseTo(view.y + view.s * (frame.y + frame.k * q.y), 6);
+    expect(followCss(200, 210, "x")).toBe("calc(200px + var(--vz-x, 0px) + (var(--vz-s, 1) - 1) * 210px)");
+  });
+
+  it("keeps a plate inside the zoomed box of its place, so it covers no card it did not cover at rest", () => {
+    // Plate 100 px wide at x 300, anchor in its middle: at 2.5x its box is inside the zoomed 300..400 box.
+    const s = 2.5;
+    const u = layerOffset({ s, x: -700, y: 0 });
+    const left = 300 + u.x + (s - 1) * 350;
+    expect(left).toBeGreaterThanOrEqual(u.x + s * 300);
+    expect(left + 100).toBeLessThanOrEqual(u.x + s * 400);
+  });
+});
+
+describe("safe frame", () => {
+  const HUD = { top: 0, right: 120, bottom: 80, left: 0 };
+
+  it("changes nothing at rest", () => {
+    expect(clampView({ s: 1, x: -50, y: -50 }, BOX, HUD)).toEqual({ s: 1, x: 0, y: 0 });
+  });
+
+  it("lets a zoomed board edge come in under the HUD, by the zoom past 1x up to the whole inset", () => {
+    // At 2x: x from 1000 * (1 - 2) - 120 = -1120 to 0; y from -600 - 80 = -680 to 0.
+    expect(clampView({ s: 2, x: -5000, y: -5000 }, BOX, HUD)).toEqual({ s: 2, x: -1120, y: -680 });
+    // At 1.25x half of it: x down to -250 - 60.
+    expect(clampView({ s: 1.25, x: -5000, y: 0 }, BOX, HUD).x).toBeCloseTo(-310, 6);
+    expect(panBy({ s: 2, x: -1000, y: 0 }, -500, 0, BOX, HUD).x).toBe(-1120);
+  });
+
+  it("gives each HUD rect to the edge where it costs the least room", () => {
+    const insets = edgeInsets(
+      [
+        { x: 860, y: 450, width: 140, height: 150 }, // bottom-right corner cluster: the right edge (140 x 600 < 150 x 1000)
+        { x: 300, y: 540, width: 300, height: 60 }, // a bar at the bottom
+        { x: -20, y: 10, width: 10, height: 10 }, // off the box
+      ],
+      BOX,
+    );
+    expect(insets).toEqual({ top: 0, right: 140, bottom: 60, left: 0 });
+  });
+
+  it("leaves out a HUD rect that is not at an edge, as a prompt panel in the middle of the box", () => {
+    // Its cheapest band (the top, 390 deep) is past a quarter of the 600 px height: no inset at all.
+    expect(edgeInsets([{ x: 320, y: 220, width: 360, height: 170 }], BOX)).toEqual({ top: 0, right: 0, bottom: 0, left: 0 });
+    // A bar near the bottom still counts.
+    expect(edgeInsets([{ x: 300, y: 470, width: 400, height: 92 }], BOX).bottom).toBe(130);
+  });
+});
+
 describe("press split", () => {
   it("is a click when the pointer moves no more than the threshold", () => {
     const split = new PressSplit();
@@ -154,10 +216,11 @@ describe("useViewZoom on a board", () => {
     vi.restoreAllMocks();
   });
 
-  function Board({ onZone, onBoard, reducedMotion = true, resetKey = "a" }: { onZone: () => void; onBoard: () => void; reducedMotion?: boolean; resetKey?: string }) {
+  function Board({ onZone, onBoard, reducedMotion = true, resetKey = "a", hud = false, onZoom }: { onZone: () => void; onBoard: () => void; reducedMotion?: boolean; resetKey?: string; hud?: boolean; onZoom?: (zoom: ReturnType<typeof useViewZoom>) => void }) {
     const rootRef = useRef<HTMLDivElement>(null);
     const layerRef = useRef<HTMLDivElement>(null);
     const zoom = useViewZoom({ rootRef, layerRef, enabled: true, reducedMotion, resetKey });
+    onZoom?.(zoom);
     return (
       <div ref={rootRef} data-testid="root" data-scale={zoom.view.s.toFixed(2)} onClick={onBoard}>
         <div ref={layerRef} data-testid="layer">
@@ -169,6 +232,8 @@ describe("useViewZoom on a board", () => {
         <div data-slot="prompt">
           <button type="button" data-testid="prompt">yes</button>
         </div>
+        {hud ? <div data-zoom-occluder data-testid="hud" /> : null}
+        <div data-vz-follow="" data-testid="plate" />
       </div>
     );
   }
@@ -257,6 +322,100 @@ describe("useViewZoom on a board", () => {
     expect(getByTestId("layer").style.transform).toBe("");
   });
 
+  it("eases a view that the HUD let past the new clamps back in when the HUD goes (refit)", () => {
+    // The HUD bar: the bottom 60 px of the box.
+    const rect = (x: number, y: number, width: number, height: number) => ({ left: x, top: y, right: x + width, bottom: y + height, width, height, x, y, toJSON: () => ({}) }) as DOMRect;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      return this.dataset.zoomOccluder != null ? rect(0, 540, BOX.width, 60) : rect(0, 0, BOX.width, BOX.height);
+    });
+    let zoom: ReturnType<typeof useViewZoom> | null = null;
+    const keep = (z: ReturnType<typeof useViewZoom>) => {
+      zoom = z;
+    };
+    const { getByTestId, rerender } = render(<Board onZone={() => undefined} onBoard={() => undefined} hud onZoom={keep} />);
+    const root = getByTestId("root");
+    act(() => {
+      root.dispatchEvent(new WheelEvent("wheel", { deltaY: -240, clientX: 500, clientY: 300, bubbles: true, cancelable: true, ctrlKey: true }));
+    });
+    // Pan to the bottom limit: the board edge comes in under the HUD bar.
+    act(() => press(getByTestId("floor"), [500, 300], [500, -3000]));
+    const s = zoom!.view.s;
+    expect(zoom!.view.y).toBeCloseTo(BOX.height * (1 - s) - 60, 1);
+    rerender(<Board onZone={() => undefined} onBoard={() => undefined} onZoom={keep} />);
+    act(() => zoom!.refit());
+    expect(zoom!.view.y).toBeCloseTo(BOX.height * (1 - s), 1);
+  });
+
+  it("keeps a refit that comes during a drag: the next move uses the new insets", () => {
+    let hudOn = true;
+    const rect = (x: number, y: number, width: number, height: number) => ({ left: x, top: y, right: x + width, bottom: y + height, width, height, x, y, toJSON: () => ({}) }) as DOMRect;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      if (this.dataset.zoomOccluder != null) return hudOn ? rect(0, 540, BOX.width, 60) : rect(0, 0, 0, 0);
+      return rect(0, 0, BOX.width, BOX.height);
+    });
+    let zoom: ReturnType<typeof useViewZoom> | null = null;
+    const { getByTestId } = render(<Board onZone={() => undefined} onBoard={() => undefined} hud onZoom={(z) => (zoom = z)} />);
+    const root = getByTestId("root");
+    act(() => {
+      root.dispatchEvent(new WheelEvent("wheel", { deltaY: -240, clientX: 500, clientY: 300, bubbles: true, cancelable: true, ctrlKey: true }));
+    });
+    const floor = getByTestId("floor");
+    act(() => {
+      fireEvent.pointerDown(floor, { pointerId: 1, button: 0, clientX: 500, clientY: 300, pointerType: "mouse" });
+      fireEvent.pointerMove(floor, { pointerId: 1, clientX: 500, clientY: -3000, pointerType: "mouse" });
+    });
+    // The HUD goes in the middle of the drag; the refit takes the board to the new limit.
+    hudOn = false;
+    act(() => zoom!.refit());
+    act(() => {
+      fireEvent.pointerMove(floor, { pointerId: 1, clientX: 500, clientY: -3010, pointerType: "mouse" });
+      fireEvent.pointerUp(floor, { pointerId: 1, clientX: 500, clientY: -3010, pointerType: "mouse" });
+    });
+    const s = zoom!.view.s;
+    expect(zoom!.view.y).toBeCloseTo(BOX.height * (1 - s), 1);
+  });
+
+  it("reads the HUD once per gesture, not on every move of a drag", () => {
+    const { getByTestId } = render(<Board onZone={() => undefined} onBoard={() => undefined} hud />);
+    const root = getByTestId("root");
+    act(() => {
+      root.dispatchEvent(new WheelEvent("wheel", { deltaY: -240, clientX: 500, clientY: 300, bubbles: true, cancelable: true, ctrlKey: true }));
+    });
+    const reads = vi.spyOn(document, "querySelectorAll");
+    const floor = getByTestId("floor");
+    act(() => {
+      fireEvent.pointerDown(floor, { pointerId: 1, button: 0, clientX: 500, clientY: 300, pointerType: "mouse" });
+      for (let i = 1; i <= 20; i += 1) fireEvent.pointerMove(floor, { pointerId: 1, clientX: 500 - i * 10, clientY: 300, pointerType: "mouse" });
+      fireEvent.pointerUp(floor, { pointerId: 1, clientX: 300, clientY: 300, pointerType: "mouse" });
+    });
+    expect(reads.mock.calls.filter(([selector]) => selector === VIEW_OCCLUDERS)).toHaveLength(1);
+  });
+
+  it("writes the follow vars on the followers each frame, and on the root only at rest", () => {
+    const { getByTestId } = render(<Board onZone={() => undefined} onBoard={() => undefined} />);
+    const root = getByTestId("root");
+    const plate = getByTestId("plate");
+    const vx = (node: HTMLElement) => node.style.getPropertyValue("--vz-x");
+    act(() => {
+      root.dispatchEvent(new WheelEvent("wheel", { deltaY: -240, clientX: 500, clientY: 300, bubbles: true, cancelable: true, ctrlKey: true }));
+    });
+    expect(vx(root)).not.toBe("");
+    expect(vx(plate)).toBe(vx(root));
+    const rested = vx(root);
+    const floor = getByTestId("floor");
+    act(() => {
+      fireEvent.pointerDown(floor, { pointerId: 1, button: 0, clientX: 500, clientY: 300, pointerType: "mouse" });
+      fireEvent.pointerMove(floor, { pointerId: 1, clientX: 400, clientY: 300, pointerType: "mouse" });
+    });
+    // Mid-drag: the plate moves, the root (and the board under it) keeps its style.
+    expect(vx(plate)).not.toBe(rested);
+    expect(vx(root)).toBe(rested);
+    act(() => {
+      fireEvent.pointerUp(floor, { pointerId: 1, clientX: 400, clientY: 300, pointerType: "mouse" });
+    });
+    expect(vx(root)).toBe(vx(plate));
+  });
+
   it("eases without reduced motion", () => {
     const { getByTestId } = render(<Board onZone={() => undefined} onBoard={() => undefined} reducedMotion={false} />);
     const root = getByTestId("root");
@@ -274,5 +433,29 @@ describe("useViewZoom on a board", () => {
       }
     });
     expect(Number(root.dataset.scale)).toBeGreaterThan(1.4);
+  });
+});
+
+describe("Reset view control", () => {
+  afterEach(() => cleanup());
+
+  it("gives the focus back to the board when a click hides it", () => {
+    function Host() {
+      const board = useRef<HTMLDivElement>(null);
+      const [zoomed, setZoomed] = React.useState(true);
+      return (
+        <div ref={board} tabIndex={-1} data-testid="board">
+          <ViewReset zoomed={zoomed} scale={2} onReset={() => setZoomed(false)} board={board} />
+        </div>
+      );
+    }
+    const { getByTestId, queryByTestId } = render(<Host />);
+    const button = getByTestId("view-reset");
+    button.focus();
+    act(() => {
+      fireEvent.click(button);
+    });
+    expect(queryByTestId("view-reset")).toBeNull();
+    expect(document.activeElement).toBe(getByTestId("board"));
   });
 });

@@ -1,5 +1,5 @@
 // R-TAG-PARTNER-COST in Tag: a duelist may use the monsters of the partner as Tributes (Tribute Summon and Tribute Set, from team 0 and from team 1)
-// and as the release cost of an effect, and as Fusion, Ritual, Xyz and Link material. The opposing members are never offered, and the partner never frees
+// and as the release cost of an effect, and as Fusion, Ritual, Synchro, Xyz and Link material. The opposing members are never offered, and the partner never frees
 // a zone of the summoner. FFA3 and FFA4 are unchanged: there is no partner, and the monsters of the other seats are never Tribute material.
 // Plain data (scripts/rule-coverage.ts reads it); tag-partner-cost.test.ts runs it on a live core (NSEAT_LIVE=1). Every scenario ends with the
 // state of EVERY seat. Decisions: docs/adr/0002-multiplayer-duel-rules.md.
@@ -10,6 +10,7 @@ import {
 } from "../../support/dsl.js";
 import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
+import { teamOneVariant } from "./team-variants.js";
 
 type Seat = "p0" | "p1" | "p2" | "p3";
 
@@ -293,6 +294,29 @@ export const TAG_PARTNER_COST_SCENARIOS: Scenario[] = [
       everyTagSeat({ p0: { monsters: ["Gaia the Dragon Champion"], grave: ["Polymerization", "Gaia The Fierce Knight"] }, p1: { monsters: [AXE] }, p2: { grave: ["Curse of Dragon"] } }),
     ],
   ),
+  // Both teams use a partner's FIELD Tuner. Opposing level-4 monsters stay in place.
+  ...([0, 1] as const).map(actor => {
+    const own: Seat = actor === 0 ? "p0" : "p1";
+    const partner: Seat = actor === 0 ? "p2" : "p3";
+    const enemy: Seat = actor === 0 ? "p1" : "p0";
+    const enemyPartner: Seat = actor === 0 ? "p3" : "p2";
+    const tuner = "The Magical King of Dimension Zeta";
+    const synchro = "Stardust Dragon";
+    return tag(`synchro-partner-field-tuner-team-${actor}`,
+      `${own} Synchro Summons Stardust Dragon using the field Tuner of ${partner}`,
+      44508094,
+      { [own]: { monsters: [OX], extra: [synchro] }, [partner]: { monsters: [tuner] },
+        [enemy]: { monsters: [AXE] }, [enemyPartner]: { monsters: [BEAVER] } },
+      [
+        ...(actor === 1 ? [endTurn("p0")] : []),
+        expectOffered("specialSummon", synchro, own),
+        specialSummon(synchro, own),
+        select(tuner, OX),
+        expectEvents({ kind: "summon", card: synchro, by: own, summonKind: "synchro" }),
+        everyTagSeat({ [own]: { monsters: [synchro], extra: [], grave: [OX] },
+          [partner]: { grave: [tuner] }, [enemy]: { monsters: [AXE] }, [enemyPartner]: { monsters: [BEAVER] } }),
+      ]);
+  }),
   // FFA is unchanged
   ffa(
     "ffa3-other-seat-monsters-are-no-tribute",
@@ -342,3 +366,10 @@ export const TAG_PARTNER_COST_SCENARIOS: Scenario[] = [
     "ffa4",
   ),
 ];
+
+// Run the field Fusion, Xyz and Link outcomes for team 1 in this suite too.
+TAG_PARTNER_COST_SCENARIOS.push(...TAG_PARTNER_COST_SCENARIOS.filter(scenario => [
+  "tag-partner-cost-fusion-material-with-a-monster-of-the-partner",
+  "tag-partner-cost-xyz-material-with-a-monster-of-the-partner",
+  "tag-partner-cost-link-material-with-an-own-monster-and-a-monster-of-the-partner",
+].includes(scenario.id)).map(teamOneVariant));

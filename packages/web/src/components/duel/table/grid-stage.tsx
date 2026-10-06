@@ -31,9 +31,11 @@ import { SEAT_Z } from "./geometry";
 import { hexToRgbTriplet } from "./seat-angle";
 import { bandHubFit } from "../phase-hub-model";
 import { SEAT_TONE_HEX, type SeatFieldProps, type SeatPose, type SeatTone } from "./types";
-import { useViewZoom } from "./use-view-zoom";
+import { occluderRects, useViewZoom } from "./use-view-zoom";
+import { watchMeasure } from "./measure-watch";
+import { seatBehindBoard } from "./seat-at-point";
 import { ViewReset } from "./view-reset";
-import { visibleRect } from "./view-zoom";
+import { FOLLOW_ATTR, followShift, followTransform, visibleRect } from "./view-zoom";
 import zoomStyles from "./view-zoom.module.css";
 import type { TableStageViewProps } from "./table-stage";
 import styles from "./grid-stage.module.css";
@@ -94,6 +96,12 @@ export function pickKindOf(legalKeys: ReadonlySet<string>): PickKind {
   return field ? "field" : hand ? "hand" : null;
 }
 
+/** The HUD the pick bar keeps off when it docks at the bottom of the board at rest. */
+export const BAR_HUD = "[data-grid-controls], [data-view-reset], [data-camera-panel], [data-testid='hud-corner'], [data-testid='hud-top'], [data-testid='hud-master'], [data-opponent-bar], [data-table-chrome]";
+
+/** A target under the pick bar costs this many times what another zone under it costs. */
+const OTHER_WEIGHT = 1000;
+
 /** The pick bar as the room plans it (board px): its widest size and its height in one row, or stacked when narrow. */
 export const PICK_BAR = { max: 420, row: 400, rowHeight: 92, stackHeight: 136, edge: 12, clear: 6 } as const;
 
@@ -113,20 +121,90 @@ export function promptUnit(height: number, finale: boolean): number {
 export const PROMPT_UNIT = { pair: 680, finale: 820, min: 0.72, max: 1.15 } as const;
 
 /**
+ * The room of the pick bar while the board is zoomed: a strip at the bottom middle of the board box. A bar in the middle
+ * of the pair would sit over the zoomed cards; at the edge it is part of the safe frame (useViewZoom), so the pan takes
+ * any target out from under it. The bottom right corner is the shell's dock: the strip is in the middle half.
+ */
+export function dockBarRoom(box: { width: number; height: number }): string | undefined {
+  const width = Math.min(PICK_BAR.max, box.width / 2);
+  if (width < 200 || box.height <= 0) return undefined;
+  const height = width < PICK_BAR.row ? PICK_BAR.stackHeight : PICK_BAR.rowHeight;
+  const x = Math.round((box.width - width) / 2);
+  const y = Math.round(box.height - height - PICK_BAR.edge);
+  return `${x},${y},${Math.round(width)},${height}`;
+}
+
+/**
  * The room of the pick bar (zone and card picks on the board) in YOUR pair, as "x,y,width,height" for `data-bar-room`:
  * as near the middle of the pair as it can be (the band between the two fields, as in the 1v1 room), and never over a
  * target. `pair` is the frame of your pair (or the finale board, or the pair a spectator looks at); `targets` are the
  * boxes of every legal zone and card (board px). The bar is planned at its widest size, so a narrower bar is clear too.
  * When no place is clear (targets everywhere) the place that covers the least of them wins.
  */
-export function pickBarRoom(pair: GridRect, targets: readonly GridRect[]): string | undefined {
-  if (pair.width <= 0 || pair.height <= 0) return undefined;
+export function pickBarRoom(pair: GridRect, targets: readonly GridRect[], others: readonly GridRect[] = []): string | undefined {
+  const best = planBarRoom(pair, targets, others);
+  return best ? [best.box.x, best.box.y, best.box.width, best.box.height].map(Math.round).join(",") : undefined;
+}
+
+/**
+ * The pick bar at rest: in the pair (pickBarRoom) where it is clear of every zone, else in the dock at the bottom of the
+ * board box (dockBarRoom) when that is clear, else the pair room that covers the least.
+ */
+export function restBarRoom(
+  pair: GridRect,
+  box: { width: number; height: number },
+  targets: readonly GridRect[],
+  others: readonly GridRect[],
+  hud: readonly GridRect[] = [],
+): string | undefined {
+  const best = planBarRoom(pair, targets, others);
+  if (best && best.cover === 0) return pickBarRoom(pair, targets, others);
+  const dock = freeDockRoom(box, [...targets, ...others, ...hud]);
+  if (dock) return dock;
+  return best ? pickBarRoom(pair, targets, others) : undefined;
+}
+
+/**
+ * The dock room (dockBarRoom) moved along the bottom of the box, nearest the middle first, to the first place clear of
+ * `blocks`; when no place is clear at full width, a narrower bar (it stacks its text and buttons below 400 px) is tried.
+ */
+export function freeDockRoom(box: { width: number; height: number }, blocks: readonly GridRect[]): string | undefined {
+  const full = Math.min(PICK_BAR.max, box.width / 2);
+  for (const width of [full, ...DOCK_NARROW.filter((w) => w < full)]) {
+    if (width < 200 || box.height <= 0) continue;
+    const height = width < PICK_BAR.row ? PICK_BAR.stackHeight : PICK_BAR.rowHeight;
+    const x0 = Math.round((box.width - width) / 2);
+    // The middle, then the places just beside each block, nearest the middle first.
+    const xs = [x0, ...blocks.flatMap((r) => [r.x + r.width + PICK_BAR.edge, r.x - width - PICK_BAR.edge])]
+      .map((x) => Math.max(PICK_BAR.edge, Math.min(x, box.width - width - PICK_BAR.edge)))
+      .sort((a, b) => Math.abs(a - x0) - Math.abs(b - x0));
+    // The usual margin under the bar, then a thin one (a short box has little room under the fields).
+    for (const margin of [PICK_BAR.edge, DOCK_THIN_EDGE]) {
+      const y = Math.round(box.height - height - margin);
+      for (const x of xs) {
+        const room = { x, y, width, height };
+        if (blocks.every((r) => overlap(room, r) === 0)) return `${Math.round(x)},${y},${Math.round(width)},${height}`;
+      }
+    }
+  }
+  return undefined;
+}
+
+/** The narrower widths the dock tries when the full bar finds no clear place. */
+const DOCK_NARROW = [380, 340, 300];
+/** The thin margin under a docked bar when the usual one leaves no clear place. */
+const DOCK_THIN_EDGE = 4;
+
+function planBarRoom(pair: GridRect, targets: readonly GridRect[], others: readonly GridRect[]): { box: GridRect; cover: number; far: number } | null {
+  if (pair.width <= 0 || pair.height <= 0) return null;
   const width = Math.min(PICK_BAR.max, pair.width - 2 * PICK_BAR.edge);
-  if (width < 200) return undefined;
+  if (width < 200) return null;
   const height = Math.min(width < PICK_BAR.row ? PICK_BAR.stackHeight : PICK_BAR.rowHeight, pair.height - 2 * PICK_BAR.edge);
   const blocks = targets
     .filter((r) => r.width > 0 && r.height > 0)
     .map((r) => ({ x: r.x - PICK_BAR.clear, y: r.y - PICK_BAR.clear, width: r.width + 2 * PICK_BAR.clear, height: r.height + 2 * PICK_BAR.clear }));
+  // The other zones (not targets now) are kept clear too where there is room: they weigh far less than a target.
+  const rest = others.filter((r) => r.width > 0 && r.height > 0);
   const centreX = pair.x + pair.width / 2;
   const centreY = pair.y + pair.height / 2;
   const reachX = Math.max(0, (pair.width - width) / 2 - PICK_BAR.edge);
@@ -138,7 +216,7 @@ export function pickBarRoom(pair: GridRect, targets: readonly GridRect[]): strin
       for (let dx = 0; dx <= reachX; dx += 8) {
         for (const sx of dx === 0 ? [0] : [-1, 1]) {
           const box = { x: centreX + sx * dx - width / 2, y: centreY + sy * dy - height / 2, width, height };
-          const cover = blocks.reduce((sum, r) => sum + overlap(box, r), 0);
+          const cover = blocks.reduce((sum, r) => sum + overlap(box, r) * OTHER_WEIGHT, 0) + rest.reduce((sum, r) => sum + overlap(box, r), 0);
           const far = Math.hypot(dx, dy);
           if (!best || cover < best.cover || (cover === best.cover && far < best.far)) best = { box, cover, far };
         }
@@ -147,8 +225,7 @@ export function pickBarRoom(pair: GridRect, targets: readonly GridRect[]): strin
     }
     if (best && best.cover === 0 && best.far <= dy) break;
   }
-  if (!best) return undefined;
-  return [best.box.x, best.box.y, best.box.width, best.box.height].map(Math.round).join(",");
+  return best;
 }
 
 /**
@@ -427,7 +504,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
     const target = event.target as HTMLElement;
     if (target.closest(OWN_CLICK)) return;
     const host = target.closest<HTMLElement>("[data-grid-cell], [data-grid-lp]");
-    const seat = host ? Number(host.dataset.gridCell ?? host.dataset.gridLp) : NaN;
+    const seat = host ? Number(host.dataset.gridCell ?? host.dataset.gridLp) : seatBehindBoard(event.currentTarget, target, event.clientX, event.clientY);
     if (Number.isInteger(seat)) focusOn(seat);
   };
   // Tab into a field that is out of view brings it into view.
@@ -460,12 +537,17 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
       const right = placed.cells[2].rect;
       const gutterX = (left.x + left.width + right.x) / 2;
       const line = placed.bands[0].rect.y + placed.bands[0].rect.height / 2;
-      return { left: gutterX, top: line, ["--hub-z" as string]: `${placed.bands[0].z}px` };
+      // Under a zoom it keeps its size and follows the gutter (followTransform, as its CSS translate centres it; at 1x
+      // that is its 1x place).
+      return { left: gutterX, top: line, transform: followTransform(gutterX, line), ["--hub-z" as string]: `${placed.bands[0].z}px` };
     }
     if (hubColumn == null) return null;
     const band = placed.finale?.band ?? placed.bands[hubColumn];
     const z = band.z;
-    return { left: band.rect.x, top: band.rect.y, width: band.rect.width, height: band.rect.height, ["--z" as string]: `${z}px`, ["--g" as string]: `${z * 0.075}px`, ["--hub-hc" as string]: `${hubFit?.chip ?? 0}px` };
+    const fit = { width: band.rect.width, height: band.rect.height, ["--z" as string]: `${z}px`, ["--g" as string]: `${z * 0.075}px`, ["--hub-hc" as string]: `${hubFit?.chip ?? 0}px` };
+    // The chips of a band sit in the free cells beside the Extra Monster Zones: under a zoom they grow with the board, so
+    // they stay in those cells and off the zones and their markers.
+    return { ...fit, left: band.rect.x, top: band.rect.y, translate: followShift(band.rect.x, band.rect.y), scale: "var(--vz-s, 1)", transformOrigin: "0 0" };
   })();
 
   // Every prompt sits in the middle of YOUR pair (the half of the table where your field is), as the 1v1 room puts it in
@@ -490,33 +572,46 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
   // legal zones and cards are measured when the targets change and again once the fields stand still (a FLIP or the
   // finale glide moves them). The prompt reads `data-bar-room` as "x,y,width,height" in board pixels and follows it.
   const [targets, setTargets] = useState<readonly GridRect[]>([]);
+  const [zones, setZones] = useState<readonly GridRect[]>([]);
+  const [hudRects, setHudRects] = useState<readonly GridRect[]>([]);
   const legalKey = [...legalKeys].sort().join(",");
   useEffect(() => {
     const root = rootRef.current;
     if (!root || !placed) return;
     const measure = () => {
       const board = root.getBoundingClientRect();
-      const next = Array.from(root.querySelectorAll<HTMLElement>('[data-legal="true"]'))
+      const boxes = (selector: string) => Array.from(root.querySelectorAll<HTMLElement>(selector))
         .map((node) => node.getBoundingClientRect())
         .filter((r) => r.width > 1 && r.height > 1)
         .map((r) => ({ x: Math.round(r.left - board.left), y: Math.round(r.top - board.top), width: Math.round(r.width), height: Math.round(r.height) }));
+      const next = boxes('[data-legal="true"]');
+      const rest = boxes('[data-zones]:not([data-legal="true"])');
       setTargets((current) => (sameRects(current, next) ? current : next));
+      setZones((current) => (sameRects(current, rest) ? current : rest));
+      const hud = occluderRects(root, BAR_HUD).map((r) => ({ x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) }));
+      setHudRects((current) => (sameRects(current, hud) ? current : hud));
     };
-    const frame = window.requestAnimationFrame(measure);
-    const timer = window.setTimeout(measure, reducedMotion ? 0 : Math.max(FLIP_MS, FINALE_GLIDE_MS) + 80);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      window.clearTimeout(timer);
-    };
+    // Once the fields stand still, once late (under reduced motion they can lay out after the first frame), and while a
+    // pick is open, again when the fields mount or mark targets.
+    return watchMeasure(root, measure, { settleMs: reducedMotion ? 0 : Math.max(FLIP_MS, FINALE_GLIDE_MS) + 80, watch: legalKey !== "" });
   }, [placed, legalKey, reducedMotion, zoom.view]);
-  const barRoom = useMemo(() => (promptPair ? pickBarRoom(promptPair, targets) : undefined),
+  const barRoom = useMemo(() => (!promptPair ? undefined : zoom.zoomed ? dockBarRoom(box) : restBarRoom(promptPair, box, targets, zones, hudRects)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [promptPair?.x, promptPair?.y, promptPair?.width, promptPair?.height, targets]);
+    [promptPair?.x, promptPair?.y, promptPair?.width, promptPair?.height, targets, zones, hudRects, zoom.zoomed, box.width, box.height]);
+
+  // A prompt that opens, closes or moves changes the HUD insets: the view eases into the new clamps (no gap stays).
+  const hudKey = `${controller.prompt?.id ?? ""}|${promptCenter ? 1 : 0}|${overlay ? 1 : 0}|${picks ? 1 : 0}|${barRoom ?? ""}`;
+  const { refit } = zoom;
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(refit);
+    return () => window.cancelAnimationFrame(frame);
+  }, [hudKey, refit]);
 
   return (
     <div
       ref={rootRef}
       className={styles.board}
+      tabIndex={-1}
       data-bar-room={barRoom}
       data-prompt-scope
       data-table-stage={layout.format}
@@ -700,7 +795,9 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
             const slot = layout.slots.find((entry) => entry.seat === cell.seat);
             if (!view || !slot) return null;
             const lp = placed.cells[cellIndex(cell)].plate;
-            const lpStyle: CSSProperties = { left: lp.x, top: lp.y, width: lp.width, height: lp.height };
+            // Under a zoom the plate keeps its size and follows the middle of its place on the board (followShift; at 1x
+            // that is its 1x place, so the first frame of a zoom moves it with the board).
+            const lpStyle: CSSProperties = { left: lp.x, top: lp.y, translate: followShift(lp.x + lp.width / 2, lp.y + lp.height / 2), width: lp.width, height: lp.height };
             const pickable = picks?.options.has(cell.seat) === true;
             const index = pickOrder.indexOf(cell.seat);
             return (
@@ -708,6 +805,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
                 key={cell.seat}
                 className={styles.lp}
                 data-grid-lp={cell.seat}
+                {...{ [FOLLOW_ATTR]: "" }}
                 data-lp-side={inFinale(cell.seat) ? "left" : undefined}
                 data-gone={finale != null && !inFinale(cell.seat) ? "true" : undefined}
                 style={lpStyle}
@@ -741,7 +839,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
               })
             : null}
           {hubStyle && gridHub ? (
-            <div className={styles.hub} data-grid-hub={hubPlace === "center" && finale == null ? "center" : "band"} data-hub-fit={hubPlace === "center" && finale == null ? undefined : hubFit?.mode} style={hubStyle}>
+            <div className={styles.hub} {...{ [FOLLOW_ATTR]: "" }} data-grid-hub={hubPlace === "center" && finale == null ? "center" : "band"} data-hub-fit={hubPlace === "center" && finale == null ? undefined : hubFit?.mode} style={hubStyle}>
               {gridHub(hubPlace === "center" && finale == null ? "center" : "band")}
             </div>
           ) : null}
@@ -755,7 +853,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
           All fields
         </button>
       </div>
-      <ViewReset zoomed={zoom.zoomed} scale={zoom.view.s} onReset={zoom.reset} style={{ right: 10, top: 44 }} />
+      <ViewReset zoomed={zoom.zoomed} scale={zoom.view.s} onReset={zoom.reset} board={rootRef} style={{ right: 10, top: 44 }} />
       {fx ? <div className={styles.slot} data-slot="fx">{fx}</div> : null}
       {promptCenter ? <div className={styles.slot} data-slot="prompt" data-seat-pick={picks ? "true" : undefined} data-prompt-pair={promptPair ? promptColumn ?? undefined : undefined} data-prompt-dense={promptPair ? "true" : undefined} style={promptStyle}>{promptCenter}</div> : null}
       {overlay ? <div className={styles.slot} data-slot="overlay">{overlay}</div> : null}

@@ -1081,6 +1081,12 @@
   ],
   "overlay": [
     {
+      "script": "c10045474.lua",
+      "line": 26,
+      "expression": "if seat~=own then seq=4-seq end",
+      "result": "Fixed: FFA3 lasting Impermanence negation mirrors only the bound activation peer; other seats are excluded."
+    },
+    {
       "script": "c30010480.lua",
       "line": 12,
       "expression": "local relzone=-(1<<e:GetHandler():GetSequence()+16)",

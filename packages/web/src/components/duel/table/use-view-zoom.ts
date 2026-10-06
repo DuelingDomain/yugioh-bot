@@ -3,10 +3,13 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import {
   clampView,
+  edgeInsets,
   FLAT_FRAME,
   isIdentity,
   isZoomed,
+  layerOffset,
   layerTransform,
+  FOLLOW_ATTR,
   panBy,
   pinchView,
   PressSplit,
@@ -17,6 +20,8 @@ import {
   zoomAt,
   type LayerFrame,
   type Point,
+  type Insets,
+  type Rect,
   type View,
 } from "./view-zoom";
 import styles from "./view-zoom.module.css";
@@ -28,10 +33,48 @@ const NO_WHEEL = "[data-slot='prompt'], [data-slot='overlay'], [data-camera-pane
 /** Not empty board space: a double-click here does not reset the view. */
 const NOT_EMPTY = "[data-uid], [data-zones], [data-hand-seat], [data-pile], button, a, input, select, textarea, [role='button'], [data-legal='true'], [data-holo]";
 
+/**
+ * The HUD that stays in place while the board zooms (the prompts, the controls, the shell's corners and header). The
+ * pan may take the edge of the board in under it (see `clampView`), so no card has to stay under it. The life plates and
+ * the phase hub are not here: they follow the board (see `followCss`).
+ */
+export const VIEW_OCCLUDERS = [
+  "[data-prompt-panel]",
+  "[data-prompt-surface]",
+  "[data-slot='prompt'] [data-place]",
+  "[data-grid-controls]",
+  "[data-view-reset]",
+  "[data-camera-panel]",
+  "[data-testid='hud-corner']",
+  "[data-testid='hud-top']",
+  "[data-testid='hud-master']",
+  "[data-opponent-bar]",
+  "[data-table-chrome]",
+  "[data-zoom-occluder]",
+].join(", ");
+
+/** The rects (px of the root's box) of the fixed HUD that is over the root. */
+export function occluderRects(root: HTMLElement, selector: string = VIEW_OCCLUDERS): Rect[] {
+  const box = root.getBoundingClientRect();
+  const out: Rect[] = [];
+  for (const node of Array.from(root.ownerDocument.querySelectorAll<HTMLElement>(selector))) {
+    const r = node.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) continue;
+    if (r.right <= box.left || r.left >= box.right || r.bottom <= box.top || r.top >= box.bottom) continue;
+    out.push({ x: r.left - box.left, y: r.top - box.top, width: r.width, height: r.height });
+  }
+  return out;
+}
+
 /** Time constant of the ease (ms): a wheel notch settles in about a quarter of a second. */
 const EASE_MS = 70;
 /** A double-click this soon after a drag is part of the drag, not a reset. */
 const AFTER_DRAG_MS = 400;
+/** Wheel events this close together are one gesture: the HUD insets are read at its first event only. */
+const WHEEL_GESTURE_MS = 250;
+
+/** The box and the HUD insets one gesture works with. */
+type Held = { box: ReturnType<typeof sizeOf>; insets: Insets };
 
 export interface UseViewZoomOptions {
   /** The board box: it takes the wheel, the presses and the touches. */
@@ -45,6 +88,8 @@ export interface UseViewZoomOptions {
   resetKey: string;
   /** Where the layer sits in its parent (see `LayerFrame`). */
   frame?: LayerFrame;
+  /** The fixed HUD (a CSS selector, see `VIEW_OCCLUDERS`). */
+  occluders?: string;
 }
 
 export interface UseViewZoom {
@@ -53,6 +98,8 @@ export interface UseViewZoom {
   zoomed: boolean;
   /** Back to the camera pose, eased (at once with reduced motion). */
   reset: () => void;
+  /** The HUD over the board changed (a prompt opened, closed or moved): the view eases into the new clamps. */
+  refit: () => void;
 }
 
 const pointIn = (node: HTMLElement, event: { clientX: number; clientY: number }): Point => {
@@ -68,14 +115,20 @@ const sizeOf = (node: HTMLElement) => ({ width: node.clientWidth, height: node.c
  * only after it moves past the threshold, and the click that ends a pan is dropped, so one press never is both.
  * The layer transform is written to the DOM on every frame; React sees the view only when it comes to rest.
  */
-export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKey, frame = FLAT_FRAME }: UseViewZoomOptions): UseViewZoom {
+export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKey, frame = FLAT_FRAME, occluders = VIEW_OCCLUDERS }: UseViewZoomOptions): UseViewZoom {
   const [rest, setRest] = useState<View>(VIEW_IDENTITY);
-  const live = useRef({ current: VIEW_IDENTITY as View, target: VIEW_IDENTITY as View, frame, reducedMotion, enabled, raf: 0, last: 0 });
+  // `held`: the box and the HUD insets a gesture (a drag, a pinch, a wheel run) reads at its start and keeps.
+  const live = useRef({ current: VIEW_IDENTITY as View, target: VIEW_IDENTITY as View, frame, reducedMotion, enabled, raf: 0, last: 0, held: null as Held | null });
   live.current.frame = frame;
   live.current.reducedMotion = reducedMotion;
   live.current.enabled = enabled;
+  const occluderSelector = useRef(occluders);
+  occluderSelector.current = occluders;
+  /** The HUD insets of the box now (the HUD moves: a prompt opens, a drawer slides), read at each gesture. */
+  const insetsOf = useCallback((root: HTMLElement): Insets => edgeInsets(occluderRects(root, occluderSelector.current), sizeOf(root)), []);
 
-  const write = useCallback(() => {
+  /** Writes the view to the DOM; `atRest` writes the follow vars on the root too (see followShift). */
+  const write = useCallback((atRest = false) => {
     const layer = layerRef.current;
     const root = rootRef.current;
     const state = live.current;
@@ -87,6 +140,19 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
     if (root) {
       if (isZoomed(state.current)) root.dataset.viewZoomed = "true";
       else delete root.dataset.viewZoomed;
+      // The HUD that follows the board (see followShift) reads the layer offset and the scale: on every frame from its
+      // own style, at rest from the root as well (a follower that mounts later inherits it).
+      const u = layerOffset(state.current, state.frame);
+      const x = `${u.x.toFixed(2)}px`;
+      const y = `${u.y.toFixed(2)}px`;
+      const s = state.current.s.toFixed(4);
+      const targets: HTMLElement[] = Array.from(root.querySelectorAll<HTMLElement>(`[${FOLLOW_ATTR}]`));
+      if (atRest) targets.push(root);
+      for (const node of targets) {
+        node.style.setProperty("--vz-x", x);
+        node.style.setProperty("--vz-y", y);
+        node.style.setProperty("--vz-s", s);
+      }
     }
   }, [layerRef, rootRef]);
 
@@ -94,7 +160,7 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
     const state = live.current;
     if (state.raf) cancelAnimationFrame(state.raf);
     state.raf = 0;
-    write();
+    write(true);
     const at = state.current;
     setRest((prev) => (viewsClose(prev, at) ? prev : at));
   }, [write]);
@@ -136,6 +202,17 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
 
   const reset = useCallback(() => go(VIEW_IDENTITY, false), [go]);
 
+  const refit = useCallback(() => {
+    const root = rootRef.current;
+    const state = live.current;
+    if (!root || !isZoomed(state.target)) return;
+    // A gesture that is on now keeps these new insets: with its old ones its next move would pull the board back.
+    const held = { box: sizeOf(root), insets: insetsOf(root) };
+    if (state.held) state.held = held;
+    const next = clampView(state.target, held.box, held.insets);
+    if (!viewsClose(next, state.target)) go(next, false);
+  }, [go, insetsOf, rootRef]);
+
   // A new layout of the board resets the view; with reduced motion at once.
   const lastKey = useRef(resetKey);
   useLayoutEffect(() => {
@@ -158,10 +235,11 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
     if (!root) return;
     const state = live.current;
     const box = sizeOf(root);
-    state.target = clampView(state.target, box);
-    state.current = state.raf ? clampView(state.current, box) : state.target;
-    write();
-  }, [frame.x, frame.y, frame.k, rootRef, write]);
+    const insets = insetsOf(root);
+    state.target = clampView(state.target, box, insets);
+    state.current = state.raf ? clampView(state.current, box, insets) : state.target;
+    write(state.raf === 0);
+  }, [frame.x, frame.y, frame.k, rootRef, write, insetsOf]);
 
   useEffect(() => {
     const root = rootRef.current;
@@ -184,7 +262,17 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
       if (layerRef.current?.contains(node)) return false;
       return node.closest(HUD) != null;
     };
-    const box = () => sizeOf(root);
+    // The box and the HUD insets are read once at the start of a gesture (a drag, a pinch, a wheel run), not on every
+    // move: a read right after a transform write would force a style and layout pass on each frame.
+    // A refit while a gesture is on gives it the new insets (see refit).
+    state.held = null;
+    let wheelAt = -Infinity;
+    const readInsets = () => {
+      state.held = { box: sizeOf(root), insets: insetsOf(root) };
+      return state.held;
+    };
+    const box = () => (state.held ?? readInsets()).box;
+    const insets = () => (state.held ?? readInsets()).insets;
     const endDrag = () => {
       root.classList.remove(styles.dragging);
       dragEnd = performance.now();
@@ -216,6 +304,7 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
           press = null;
           const [[ia, a0], [ib, b0]] = [...touches.entries()];
           pinch = { start: state.target, a0, b0, ids: [ia, ib] };
+          readInsets();
           return;
         }
         if (touches.size > 2) return;
@@ -234,7 +323,7 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
         if (pinch) {
           const a = touches.get(pinch.ids[0]);
           const b = touches.get(pinch.ids[1]);
-          if (a && b) go(pinchView(pinch.start, pinch.a0, pinch.b0, a, b, box()), true);
+          if (a && b) go(pinchView(pinch.start, pinch.a0, pinch.b0, a, b, box(), insets()), true);
           return;
         }
       }
@@ -246,6 +335,7 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
         // One finger pans only a zoomed board; a mouse or a pen drag always pans (at scale 1 the clamps hold it still).
         press.pan = !press.touch || isZoomed(state.target);
         if (press.pan) {
+          readInsets();
           root.classList.add(styles.dragging);
           window.getSelection?.()?.removeAllRanges();
           try {
@@ -255,7 +345,7 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
           }
         }
       }
-      if (press.pan) go(panBy(state.target, at.x - press.last.x, at.y - press.last.y, box()), true);
+      if (press.pan) go(panBy(state.target, at.x - press.last.x, at.y - press.last.y, box(), insets()), true);
       press.last = at;
     };
 
@@ -303,7 +393,10 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
         return;
       }
       event.preventDefault();
-      go(zoomAt(state.target, pointIn(root, event), wheelFactor(event.deltaY, event.deltaMode, event.ctrlKey), box()), false);
+      const now = performance.now();
+      if (now - wheelAt > WHEEL_GESTURE_MS) readInsets();
+      wheelAt = now;
+      go(zoomAt(state.target, pointIn(root, event), wheelFactor(event.deltaY, event.deltaMode, event.ctrlKey), box(), insets()), false);
     };
 
     const dblclick = (event: MouseEvent) => {
@@ -318,6 +411,7 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
     const gestureStart = (event: Event) => {
       event.preventDefault();
       gesture = state.target;
+      readInsets();
     };
     const gestureChange = (event: Event) => {
       event.preventDefault();
@@ -325,7 +419,7 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
       if (!gesture || typeof e.scale !== "number") return;
       const rect = root.getBoundingClientRect();
       const at = typeof e.clientX === "number" && typeof e.clientY === "number" ? pointIn(root, { clientX: e.clientX, clientY: e.clientY }) : { x: rect.width / 2, y: rect.height / 2 };
-      go(zoomAt(gesture, at, e.scale, box()), true);
+      go(zoomAt(gesture, at, e.scale, box(), insets()), true);
     };
     const gestureEnd = (event: Event) => {
       event.preventDefault();
@@ -366,5 +460,5 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
     state.raf = 0;
   }, []);
 
-  return { view: rest, zoomed: isZoomed(rest), reset };
+  return { view: rest, zoomed: isZoomed(rest), reset, refit };
 }
