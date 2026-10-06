@@ -108,6 +108,8 @@ This directory holds the patch series for the N-duelist ygopro-core. The series 
 
 | `0109-disabled-zone-opponent-reset.patch` | `card::reset` clears `disfield_opp`, `disfield_selected` and `disfield_operation_opp` of an operation-based `EFFECT_DISABLE_FIELD` effect together with its value, so the next operation of the card (Ojama King, OD-OJAMA-KING) picks and blocks the zones of its new opponent. | Only at `n_duelists > 2`, only for effects with an operation (the recorded opponent of a prompt belonged to the zones that the reset cleared). FFA4 re-evaluates its opponent on each refresh already; FFA3 and Tag kept the first opponent. |
 
+| `0110-bound-event-dead-owner.patch` | The draw, summon and battle event filter of `effect::is_activateable` (patch 0072) reads the subject of the event directly when the seat that registered a bound field effect left the duel. `field::event_opponent` keeps its dead-seat guard. | Only at `n_duelists > 2`. A resolved lock of a seat that surrendered (Eradicator Epidemic Virus) now hits only its declared opponent, as rulebook v1.4 "Removing players from the game" says. Living registering seats take the old path. |
+
 ## Commands
 
 Run all commands in the repository root.

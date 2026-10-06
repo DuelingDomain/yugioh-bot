@@ -1,0 +1,44 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Duelists Kingdom Engine <engine@duelistskingdom.com>
+Date: Tue, 6 Oct 2026 00:00:00 +0000
+Subject: [PATCH] Keep the declared opponent of a lock after its activator
+ leaves
+
+At n > 2 the event filter of effect::is_activateable (patch 0072) compared the subject of a draw,
+summon or battle event with the declared opponent of a bound field effect. It used
+field::event_opponent(registered_player, e), which names nobody when registered_player left the
+duel (patch 0044 guard). The filter was skipped, so a resolved lock such as Eradicator Epidemic Virus
+hit every opponent after its activator surrendered. When the registering seat is not alive, the
+filter now reads the subject of the event (or the battle opponent) directly. Rulebook v1.4,
+Removing players from the game: the declared opponent still has to destroy cards until the end of
+their third turn. event_opponent keeps its dead-seat guard for its other callers.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019EpX1AcvnigK9dTsxAa5W9
+
+---
+diff --git a/effect.cpp b/effect.cpp
+index c118e31..93d8edc 100644
+--- a/effect.cpp
++++ b/effect.cpp
+@@ -157,7 +157,16 @@ int32_t effect::is_activateable(uint8_t playerid, const tevent& e, int32_t negle
+ 	// A draw, summon or battle response stays with its saved subject. Leaving the field can have a different reason player.
+ 	if(has_bound_opponent() && !s_range && !o_range
+ 		&& (field::event_player_is_subject(e.event_code) || field::event_is_battle(e.event_code))) {
+-		const uint8_t event_opp = pduel->game_field->event_opponent(registered_player, e);
++		auto& gf = *pduel->game_field;
++		uint8_t event_opp = gf.event_opponent(registered_player, e);
++		// event_opponent names nobody for a seat that left. A resolved lock of that seat (Eradicator) still binds
++		// its declared opponent, so compare the subject of the event with that opponent directly.
++		if(event_opp == DUELIST_NONE && gf.n_duelists > 2 && gf.is_duelist(registered_player) && !gf.is_alive(registered_player)) {
++			if(field::event_is_battle(e.event_code))
++				event_opp = gf.battle_opponent(registered_player);
++			else if(gf.is_alive(e.event_player) && !gf.same_team(registered_player, e.event_player))
++				event_opp = e.event_player;
++		}
+ 		if(event_opp != DUELIST_NONE && event_opp != registered_opp)
+ 			return FALSE;
+ 	}
+-- 
+2.43.0
+
