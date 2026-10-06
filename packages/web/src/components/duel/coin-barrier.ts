@@ -4,13 +4,16 @@
 // picture of the coin (coin-toss-fx.tsx) plays at once, so a layer that has no hold of its own would
 // start behind the dim cover and the board would jump ahead. Moves, markers, chain beats and prompts
 // already wait (effect-sequence.ts, chain-beats.ts, prompt-reveal.ts). The battle play and the LP roll
-// ask this file: "when may an event that follows toss N start?"
+// ask this file: "when may an event that follows toss N start?" An LP change has no event of its own
+// (an engine LP update, like the halving of Jirai Gumo, comes as a new value only), so the LP counter asks
+// "is a coin on?" and waits for it, whatever seat changed and whatever batch it came in.
 //
 // The plan of a toss is made here, once, and the coin picture plays that same plan, so the barrier and
 // the picture cannot drift. Planning is lazy: the first layer that asks after the render pass makes it,
 // because the chain beats (the coin starts after the badge of its link) are planned during that pass.
-// A toss whose chain beat is not planned yet is not planned either: it answers "no barrier" and is tried
-// again at the next question.
+// A toss whose chain beat is not planned yet is not planned either while only the render pass asks: it
+// answers "no barrier" and is tried again at the next question. Layout effects, timers and the picture
+// ask with `force`: by then every chain beat is planned, so a missing beat means there is none.
 //
 // Every barrier ends at its plan end, so a picture that fails or a hidden tab cannot hold the duel for
 // longer than the plan; the picture also lets go early (releaseCoinBarriers) when it ends or errors.
@@ -23,11 +26,8 @@ type Entry = { event: DuelEvent; all: readonly DuelEvent[]; reduced: boolean; pl
 
 const entries = new Map<number, Entry>();
 let queueEnd = 0;
-/** LP changes that follow a toss in the same batch: the LP counter asks for them by seat. */
-const lpEvents: Array<{ id: number; seat: number; at: number }> = [];
 const listeners = new Set<() => void>();
 const KEEP_MS = 60_000;
-const MAX_LP_EVENTS = 60;
 
 /** The resolving beat of the link that tosses: the coin starts after it. */
 function resolvingBefore(event: DuelEvent, all: readonly DuelEvent[]): DuelEvent | undefined {
@@ -55,7 +55,8 @@ function resolve(force = false): void {
   for (const entry of waiting) {
     const resolving = resolvingBefore(entry.event, entry.all);
     // The chain beats of this batch are planned in the render pass: until then the start is not known.
-    if (!force && resolving && chainBeatAt(resolving.id) === 0) continue;
+    // Stop here: a later toss is never planned before an earlier one.
+    if (!force && resolving && chainBeatAt(resolving.id) === 0) break;
     const requested = coinRequestedStart(entry.event, entry.all, now);
     const plan = planCoinToss(entry.event, queueStart(requested, queueEnd > now ? queueEnd : null), entry.reduced);
     if (!plan) {
@@ -71,17 +72,6 @@ function resolve(force = false): void {
 export function noteCoinToss(event: DuelEvent, all: readonly DuelEvent[], reduced: boolean): void {
   if (coinResults(event) == null || entries.has(event.id)) return;
   entries.set(event.id, { event, all, reduced, plan: null });
-}
-
-/** The LP changes of a batch that has a toss: the roll of their counter waits for the coin. */
-export function noteCoinLpEvents(events: readonly DuelEvent[]): void {
-  const at = duelFxClock.dateNow();
-  for (const event of events) {
-    if ((event.kind !== "damage" && event.kind !== "recover") || typeof event.seat !== "number") continue;
-    if (lpEvents.some((known) => known.id === event.id)) continue;
-    lpEvents.push({ id: event.id, seat: event.seat, at });
-  }
-  while (lpEvents.length > MAX_LP_EVENTS) lpEvents.shift();
 }
 
 /**
@@ -101,10 +91,11 @@ export function coinTossBefore(eventId: number): boolean {
 
 /**
  * The time (duelFxClock.now() stamp) before which the event with this id may not start: the end of the
- * last toss before it that is still on. 0 when nothing holds it.
+ * last toss before it that is still on. 0 when nothing holds it. `force`: see the header.
  */
-export function coinBarrierFor(eventId: number, now: number = duelFxClock.now()): number {
-  resolve();
+export function coinBarrierFor(eventId: number, force = false): number {
+  resolve(force);
+  const now = duelFxClock.now();
   let until = 0;
   for (const [id, entry] of entries) {
     if (id < eventId && entry.plan && entry.plan.end > now) until = Math.max(until, entry.plan.end);
@@ -112,20 +103,16 @@ export function coinBarrierFor(eventId: number, now: number = duelFxClock.now())
   return until;
 }
 
-/** How long the LP counter of this seat waits for a coin before it rolls; 0 for none. Takes the notes of the seat. */
-export function coinLpWaitMs(seat: number): number {
-  if (lpEvents.length === 0) return 0;
+/**
+ * How long an LP change that lands now waits for the coins: the time to the end of the last toss that is
+ * still on, 0 when none is. Asked from a layout effect, so every toss of the commit is known.
+ */
+export function coinLpWaitMs(): number {
+  resolve(true);
   const now = duelFxClock.now();
-  const wall = duelFxClock.dateNow();
-  let wait = 0;
-  for (let index = lpEvents.length - 1; index >= 0; index--) {
-    const note = lpEvents[index];
-    if (wall - note.at > KEEP_MS) { lpEvents.splice(index, 1); continue; }
-    if (note.seat !== seat) continue;
-    wait = Math.max(wait, coinBarrierFor(note.id, now) - now);
-    lpEvents.splice(index, 1);
-  }
-  return Math.max(0, wait);
+  let until = 0;
+  for (const entry of entries.values()) if (entry.plan && entry.plan.end > now) until = Math.max(until, entry.plan.end);
+  return Math.max(0, until - now);
 }
 
 /**
@@ -145,7 +132,7 @@ export function whenCoinBarrierClears(eventId: number, fn: () => void): () => vo
   const check = () => {
     if (done) return;
     if (timer != null) { duelFxClock.clearTimeout(timer); timer = undefined; }
-    const wait = coinBarrierFor(eventId) - duelFxClock.now();
+    const wait = coinBarrierFor(eventId, true) - duelFxClock.now();
     if (wait > 8) {
       timer = duelFxClock.setTimeout(check, wait);
       return;
@@ -158,18 +145,25 @@ export function whenCoinBarrierClears(eventId: number, fn: () => void): () => vo
   return release;
 }
 
-/** The picture ended (or failed): nothing waits for its plan any more. */
+/**
+ * The picture ended (or failed): nothing waits for its plan any more. One waiter that throws must not
+ * keep the others (or the caller) from going on.
+ */
 export function releaseCoinBarriers(): void {
   entries.clear();
-  lpEvents.length = 0;
   queueEnd = 0;
-  for (const listener of [...listeners]) listener();
+  for (const listener of [...listeners]) {
+    try {
+      listener();
+    } catch (error) {
+      console.error("coin barrier waiter failed", error);
+    }
+  }
 }
 
 /** Test helper: forget everything. */
 export function resetCoinBarriers(): void {
   entries.clear();
-  lpEvents.length = 0;
   queueEnd = 0;
   listeners.clear();
 }

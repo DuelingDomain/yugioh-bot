@@ -745,7 +745,9 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
   const pendingRef = useRef<PendingAttack | null>(null);
   // Battle plays that wait for a coin toss (coin-barrier.ts); cancelled when the layer goes away.
   const deferredRef = useRef<Set<() => void>>(new Set());
-  useEffect(() => {
+  // A layout effect on purpose: on removal its cleanup runs before the passive cleanup of the coin layer,
+  // which releases the barrier and would otherwise start the battle of a layer that is going away.
+  useLayoutEffect(() => {
     const deferred = deferredRef.current;
     return () => {
       for (const cancel of [...deferred]) cancel();
@@ -858,6 +860,9 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
       for (const id of Array.from(capturesRef.current.keys())) if (id !== keep) capturesRef.current.delete(id);
     };
     if (!active) {
+      // A play that waits for a coin must not start on a layer that is off.
+      for (const cancel of [...deferredRef.current]) cancel();
+      deferredRef.current.clear();
       pendingRef.current = null;
       setDeclared(null);
       setPlay(null);
@@ -929,7 +934,7 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
     // A coin toss before the result of the fight plays first: the strike, the LP roll and the break wait
     // for the last coin, so the board never jumps ahead of it. The plan end is the limit of the wait.
     const outcomeId = battleOutcomeId(events, resolved);
-    const coinWait = outcomeId == null ? 0 : coinBarrierFor(outcomeId) - duelFxClock.now();
+    const coinWait = outcomeId == null ? 0 : coinBarrierFor(outcomeId, true) - duelFxClock.now();
     if (coinWait > 8 && outcomeId != null) {
       // Keeps the prompt panel away across the hand-over from the coin to the strike.
       holdPromptReveal(coinWait + 400);

@@ -598,8 +598,10 @@ export function LifePoints({ value, reducedMotion, size = "lg", showChange = tru
     if (!reducedMotion && !unchanged && from != null && next != null && next < from) {
       hold = holdMsRef.current ?? (Number.isFinite(seat) ? takeLpHold(seat) : 0);
     }
-    // A change that follows a coin toss waits until the coin is gone (also a gain, also reduced motion).
-    if (!unchanged && from != null && next != null && Number.isFinite(seat)) hold = Math.max(hold, coinLpWaitMs(seat));
+    // A change that lands while a coin is on waits until the coin is gone: a gain too, reduced motion too,
+    // and in every layout (the Tag team counter is not inside a seat node). No event is needed: the halving
+    // of Jirai Gumo is an engine LP update.
+    if (!unchanged && from != null && next != null) hold = Math.max(hold, coinLpWaitMs());
     setTallyHold(hold > 0 ? hold : 0);
     // Tell the result screen a roll is coming (hold, then the reels), so it never covers the roll to 0.
     if (!reducedMotion && !unchanged && from != null && next != null) {

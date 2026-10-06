@@ -17,7 +17,7 @@ import { createPortal } from "react-dom";
 import type { DuelEvent } from "@yugidraft/shared/duels";
 import { chainBeatAt, holdChainAfter } from "./chain-beats";
 import { holdEffectSequenceUntil } from "./effect-sequence";
-import { coinPlanOf, coinRequestedStart, noteCoinLpEvents, noteCoinToss, releaseCoinBarriers } from "./coin-barrier";
+import { coinPlanOf, coinRequestedStart, noteCoinToss, releaseCoinBarriers } from "./coin-barrier";
 import { reportDuelClientError } from "./client-error";
 import {
   COIN_FACES,
@@ -247,10 +247,7 @@ export function CoinTossFx({ events, duelKey, reducedMotion, replayFrom = null, 
     if (after != null) {
       const { fresh } = collectFreshEvents(events, after);
       const tosses = fresh.filter((event) => coinResults(event) != null);
-      if (tosses.length > 0) {
-        for (const toss of tosses) noteCoinToss(toss, events, reducedMotion);
-        noteCoinLpEvents(fresh.filter((event) => event.id > tosses[0].id));
-      }
+      for (const toss of tosses) noteCoinToss(toss, events, reducedMotion);
     }
   }
 
@@ -294,9 +291,7 @@ export function CoinTossFx({ events, duelKey, reducedMotion, replayFrom = null, 
     viewKeyRef.current = "";
     shownRef.current = false;
     outRef.current = false;
-    // Whatever waits for the coin (a battle, an LP roll) goes on now: the plan is over or the picture failed.
-    if (!passiveRef.current) releaseCoinBarriers();
-    // The lock goes last: by now the cover is leaving and every held line shows.
+    // The lock goes first: by now the cover is leaving and every held line shows.
     lockReleaseRef.current?.();
     lockReleaseRef.current = null;
     playingReleaseRef.current?.();
@@ -304,6 +299,8 @@ export function CoinTossFx({ events, duelKey, reducedMotion, replayFrom = null, 
     setShown(false);
     setOut(false);
     setView(EMPTY_VIEW);
+    // Whatever waits for the coin (a battle) goes on last: the plan is over or the picture failed.
+    if (!passiveRef.current) releaseCoinBarriers();
   };
   const finishRef = useRef(finishAll);
   finishRef.current = finishAll;
