@@ -7,14 +7,16 @@ const ZERO_SHA = /^0+$/;
 // engine=true runs cores, engine, engine-legacy, native and rule-coverage. Pull requests and pushes to main use the
 // changed files; any other event (schedule, manual run) and a push without a usable diff run every job.
 export function changedLayers(files, event) {
-  if (!["pull_request", "push"].includes(event) || files === null) return { engine: true, tests_only: false };
+  if (!["pull_request", "push"].includes(event) || files === null) return { engine: true, golden: true, tests_only: false };
   // Retain main's reviewed exemptions. Unknown shared paths still require the engine.
   const nonEngine = /^(packages\/shared\/(tests\/|scripts\/README\.md$|src\/maintenance\/repair-ratings\.ts$|src\/services\/(bug-reports|card-images|cubes|deal|draft-access|draft-decks|draft-tournament|drafts|guild-settings|live-now|players|tournament-registrations)\.ts$)|scripts\/(seed\.ts$|generate-draft-catalog-snapshot\.ts$|data\/draft-catalog-legendary\.json$))/;
   // The ADR-0002 rules and the coverage table are inputs of rule-coverage.
   const engine = files.some((file) => !nonEngine.test(file) && /^(packages\/(duel-server|shared|e2e)\/|patches\/|scripts\/|\.github\/workflows\/test\.yml$|package(-lock)?\.json$|turbo\.json$|tsconfig[^/]*\.json$|\.nvmrc$|docs\/adr\/0002-multiplayer-duel-rules\.md$|docs\/specs\/multiplayer-rule-coverage\.md$)/.test(file));
+  // Golden rows depend only on the core, overlay, data pins and native tooling (and the step's own wiring).
+  const golden = files.some((file) => /^(\.github\/workflows\/test\.yml$|scripts\/ci\/changed-layers\.mjs$)|^packages\/duel-server\/(domain-core\/(patches\/|multi-scripts\/|pins\.json$)|scripts\/(native\/|(?:run-nduel|build-native-core|prepare-multi-core-tree|multi-core-common)\.sh$|prepare-data\.ts$))/.test(file));
   // Main pushes always run the full engine suites when engine=true; only pull requests get a narrow test selection.
   const tests_only = event === "pull_request" && files.length > 0 && files.every((file) => file.startsWith("packages/duel-server/tests/"));
-  return { engine, tests_only };
+  return { engine, golden, tests_only };
 }
 
 // The changed files, or null when there is no usable diff (then every job runs).
