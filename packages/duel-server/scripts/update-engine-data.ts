@@ -10,6 +10,7 @@ import Database from "better-sqlite3";
 import { probeEngineData } from "./probe-engine-data.js";
 import { withValidation } from "./engine-data-report.js";
 import { listIndex, reconcile, scanText } from "./scan-multiplayer-scripts.js";
+import { discoverReleasedDatabases, downloadReleasedCardData, restrictPrereleaseScripts } from "./released-card-data.js";
 
 export type Pins = { scripts: string; database: string; strings: string };
 const repositories: Record<keyof Pins, string> = { scripts: "CardScripts", database: "BabelCDB", strings: "Distribution" };
@@ -49,8 +50,10 @@ export function detectOverlayConflicts(cards: OverlayCard[], stock: Map<string, 
   });
 }
 
-export function findNewRisks(stock: Map<string, string>, paths: string[], listed = new Set(listIndex().keys())) {
-  return paths.filter(official).map((path) => scanText(codeOf(path), stock.get(path)!))
+export function findNewRisks(stock: Map<string, string>, paths: string[], listed = new Set(listIndex().keys()), releaseCodes: ReadonlySet<number> = new Set()) {
+  return [...new Set(paths)].filter(path => official(path) ||
+    (/^pre-release\/c\d+\.lua$/.test(path) && releaseCodes.has(codeOf(path)) && !stock.has(`official/c${codeOf(path)}.lua`)))
+    .map((path) => scanText(codeOf(path), stock.get(path)!))
     .filter((card) => card.flagged && !listed.has(card.code));
 }
 
@@ -167,10 +170,24 @@ export async function runUpdate(options: Options = {}) {
     execFileSync("tar", ["-xzf", archive, "--strip-components=1", "-C", extracted]);
     const stock = new Map<string, string>();
     for (const path of newTree.keys()) if (path.endsWith(".lua")) stock.set(path, await readFile(join(extracted, path), "utf8"));
-    const databasePath = join(temporary, "cards.cdb");
-    await writeFile(databasePath, Buffer.from(await (await download(`https://raw.githubusercontent.com/ProjectIgnis/BabelCDB/${next.database}/cards.cdb`)).arrayBuffer()));
+    const [database, oldDatabases] = await Promise.all([
+      downloadReleasedCardData(next.database, temporary, download),
+      discoverReleasedDatabases(old.database, download),
+    ]);
+    const releases = database.files.slice(1);
+    report.push("", "## Released databases", "", `Loaded in order: ${database.files.map(path => `\`${path}\``).join(", ")}.`,
+      `Release rows: ${database.releaseCodes.size} passcodes (including alternate artwork).`,
+      `Added release databases: ${releases.filter(path => !oldDatabases.includes(path)).map(path => `\`${path}\``).join(", ") || "None"}.`,
+      `Removed release databases: ${oldDatabases.slice(1).filter(path => !releases.includes(path)).map(path => `\`${path}\``).join(", ") || "None"}.`,
+      "The candidate is rebuilt from its base and release files; expansions merged upstream into cards.cdb are not carried forward.");
+    restrictPrereleaseScripts(extracted, database.releaseCodes);
+    const releasePaths = [...database.releaseCodes].flatMap(code => {
+      const officialPath = `official/c${code}.lua`;
+      const prereleasePath = `pre-release/c${code}.lua`;
+      return stock.has(officialPath) ? [officialPath] : stock.has(prereleasePath) ? [prereleasePath] : [];
+    });
     const names = new Map<number, string>();
-    const db = new Database(databasePath, { readonly: true });
+    const db = new Database(database.path, { readonly: true });
     try {
       for (const row of db.prepare("SELECT id, name FROM texts").all() as { id: number; name: string }[]) names.set(row.id, row.name);
     } finally { db.close(); }
@@ -185,8 +202,8 @@ export async function runUpdate(options: Options = {}) {
     const conflicts = detectOverlayConflicts(manifest.cards, stock);
     report.push("", `## Overlay conflicts (${conflicts.length})`, "", "Compared every MANIFEST stockSha256 against candidate stock scripts. A human/Codex must update affected overlay files and review their baseline hashes; this job does not regenerate them.", "",
       ...(conflicts.length ? conflicts.map((card) => `- \`${card.file}\` ${markdown(names.get(card.code) ?? card.name ?? "")} — stock \`${card.stockSha256 ?? "unrecorded"}\` → \`${card.actualSha256 ?? "removed"}\``) : ["None."]));
-    const risks = findNewRisks(stock, [...diff.added, ...diff.changed]);
-    report.push("", `## New multiplayer risks (${risks.length})`, "", "scan-multiplayer-scripts: new/changed cards flagged F or ambiguous O, absent from MULTIPLAYER_FORBIDDEN / MULTIPLAYER_CARD_RULES.", "",
+    const risks = findNewRisks(stock, [...diff.added, ...diff.changed, ...releasePaths], undefined, database.releaseCodes);
+    report.push("", `## New multiplayer risks (${risks.length})`, "", "scan-multiplayer-scripts: new/changed or released cards flagged F or ambiguous O, absent from MULTIPLAYER_FORBIDDEN / MULTIPLAYER_CARD_RULES.", "",
       ...(risks.length ? risks.map((card) => `- \`c${card.code}.lua\` ${markdown(names.get(card.code) ?? card.name)} — **${card.cls}**, ${card.rules.map((rule) => `\`${rule}\``).join(", ")}`) : ["None."]));
     const shared = [...new Set([...oldTree.keys(), ...newTree.keys()])]
       .filter((path) => path.endsWith(".lua") && !official(path) && oldTree.get(path) !== newTree.get(path)).sort();
@@ -198,7 +215,11 @@ export async function runUpdate(options: Options = {}) {
     const listed = findListedChanges(stock, [...diff.added, ...diff.changed, ...diff.removed], new Set(manifest.cards.map((card) => card.code)));
     report.push("", `## Changed listed cards (${listed.length})`, "", "Changed listed scripts without an overlay, plus formatGap cards (including unchanged scripts whose current scan finds a gap).", "",
       ...(listed.length ? listed.map((card) => `- \`c${card.code}.lua\` ${markdown(names.get(card.code) ?? card.name)} — ${card.list}${card.changed ? "; script changed" : ""}${card.formatGap ? "; **formatGap: review Tag coverage**" : ""}`) : ["None."]));
-    const changedPaths = [...stock.keys()].filter((path) => newTree.get(path) !== oldTree.get(path));
+    // Database-only updates can release cards whose script already existed at the old scripts pin.
+    // Probe those scripts too, and omit pre-release card scripts removed from the prepared bundle.
+    const allowed = (path: string) => !/^pre-release\/c\d+\.lua$/.test(path) ||
+      (database.releaseCodes.has(codeOf(path)) && !stock.has(`official/c${codeOf(path)}.lua`));
+    const changedPaths = [...new Set([...stock.keys()].filter(path => newTree.get(path) !== oldTree.get(path)).concat(releasePaths))].filter(allowed);
     report[0] = `Needs review: ${conflicts.length} conflicts, ${risks.length} risks, ${shared.length} shared-script changes, probe errors not run, overlay check exit not run`;
     report.push("", "## Core compatibility", "", "Pending installed npm ocgcore-wasm@0.1.2 probe against candidate data.");
     const files = await rewritePins(root, old, next, true);

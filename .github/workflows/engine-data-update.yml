@@ -78,6 +78,8 @@ jobs:
           if [ -n "$STRINGS_SHA" ]; then args+=(--strings "$STRINGS_SHA"); fi
           prlimit --core=1:1 -- node --import tsx packages/duel-server/scripts/update-engine-data.ts "${args[@]}"
 
+      # Preparation discovers cards.cdb + release-*.cdb at the new database pin.
+      # No generated file list or additional writable publication path is needed.
       - name: Download and validate candidate engine bundle
         if: steps.update.outputs.changed == 'true'
         run: prlimit --core=1:1 -- npm run duel:prepare
