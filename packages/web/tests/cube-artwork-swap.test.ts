@@ -83,6 +83,10 @@ it("demonstrates that bypassing the guard over-deals the same family", () => {
   const picked = db.prepare("select dc.catalog_card_id from draft_picks p join draft_cards dc on dc.id = p.draft_card_id where p.player_id = ? and dc.catalog_card_id in (10,11) order by p.id").all(players[0]);
   expect(picked).toEqual([{ catalog_card_id: 10 }, { catalog_card_id: 11 }, { catalog_card_id: 11 }]); // max_copies is only 2
 });
+it("ignores a pending draft of another guild that lists the same cube id", async () => {
+  const { draft } = themeDraft(); db.prepare("update drafts set guild_id = 'other' where id = ?").run(draft.id);
+  expect((await swap()).status).toBe(200);
+});
 it.each(["completed", "cancelled"])("allows a cube used only by a %s draft", async status => {
   const { draft } = themeDraft(); db.prepare("update drafts set status = ? where id = ?").run(status, draft.id);
   expect((await swap()).status).toBe(200);
