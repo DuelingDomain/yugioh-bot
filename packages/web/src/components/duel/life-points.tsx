@@ -6,6 +6,7 @@ import { formatLp } from "./constants";
 import { duelFontClasses } from "./fonts";
 import { LP_TIMING } from "./duel-timing";
 import { battleSeekMs, type BattleClock } from "./battle-clock";
+import { coinLpWaitMs } from "./coin-barrier";
 import { noteLpMotion } from "./lp-motion";
 import baseStyles from "./life-points.module.css";
 import { useSkinStyles } from "./skin";
@@ -50,7 +51,10 @@ export function takeLpHold(seat: number): number {
   const hold = lpHolds.get(seat);
   lpHolds.delete(seat);
   if (!hold || hold.until < duelFxClock.dateNow()) return 0;
-  return Math.max(0, hold.ms - (hold.clock ? battleSeekMs(hold.clock.startedAt) : 0));
+  if (!hold.clock) return Math.max(0, hold.ms);
+  // A battle that waits for a coin toss starts later than now: the roll waits for that start too.
+  const now = duelFxClock.now();
+  return Math.max(0, hold.ms - battleSeekMs(hold.clock.startedAt, now) + Math.max(0, hold.clock.startedAt - now));
 }
 
 export function clearLpHolds(): void {
@@ -590,10 +594,14 @@ export function LifePoints({ value, reducedMotion, size = "lg", showChange = tru
 
     // A battle animation may ask the roll to wait until its slash lands. Losses only.
     let hold = 0;
+    const seat = Number(rootRef.current?.closest("[data-lp-seat]")?.getAttribute("data-lp-seat"));
     if (!reducedMotion && !unchanged && from != null && next != null && next < from) {
-      const seat = Number(rootRef.current?.closest("[data-lp-seat]")?.getAttribute("data-lp-seat"));
       hold = holdMsRef.current ?? (Number.isFinite(seat) ? takeLpHold(seat) : 0);
     }
+    // A change that lands while a coin is on waits until the coin is gone: a gain too, reduced motion too,
+    // and in every layout (the Tag team counter is not inside a seat node). No event is needed: the halving
+    // of Jirai Gumo is an engine LP update.
+    if (!unchanged && from != null && next != null) hold = Math.max(hold, coinLpWaitMs());
     setTallyHold(hold > 0 ? hold : 0);
     // Tell the result screen a roll is coming (hold, then the reels), so it never covers the roll to 0.
     if (!reducedMotion && !unchanged && from != null && next != null) {

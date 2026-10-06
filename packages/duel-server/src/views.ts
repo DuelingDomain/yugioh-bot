@@ -1285,6 +1285,9 @@ export function observeDuelEvent(
       if (target) event.target = target;
       return event;
     }
+    // The attack was negated (Negate Attack, Magic Cylinder, ...): the declared attack is over, with no battle.
+    case OcgMessageType.ATTACK_DISABLED:
+      return { id, kind: "attack-negated", text: "Attack negated", publicText: "Attack negated", revealCardTo: "all" };
     case OcgMessageType.DAMAGE_STEP_END:
       return { id, kind: "battle-end", text: "Damage Step ended", publicText: "Damage Step ended", revealCardTo: "all" };
     case OcgMessageType.BATTLE: {

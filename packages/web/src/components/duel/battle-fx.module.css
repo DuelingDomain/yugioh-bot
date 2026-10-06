@@ -238,6 +238,25 @@
   stroke-width: 3.4;
 }
 
+/* The line every seat reads at the declaration: who attacks whom. Over the middle of the arrow. */
+.aimCaption {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  max-width: min(calc(360 * var(--fx-unit)), calc(100vw - 24px));
+  padding: calc(4 * var(--fx-unit)) calc(10 * var(--fx-unit));
+  border: 1px solid var(--fx-rule);
+  border-radius: calc(6 * var(--fx-unit));
+  background: rgb(14 23 41 / 0.88);
+  color: var(--fx-ink);
+  font: 600 calc(13 * var(--fx-unit)) / 1.25 var(--fx-f-ui);
+  letter-spacing: 0.02em;
+  text-align: center;
+  text-wrap: balance;
+  box-shadow: 0 0 calc(10 * var(--fx-unit)) rgb(217 141 82 / 0.35);
+  pointer-events: none;
+  animation: fx-fade-in 140ms ease-out both;
+}
+
 @keyframes fx-march {
   to {
     stroke-dashoffset: -32;
