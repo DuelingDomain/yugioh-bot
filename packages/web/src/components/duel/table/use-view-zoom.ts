@@ -69,6 +69,8 @@ export function occluderRects(root: HTMLElement, selector: string = VIEW_OCCLUDE
 const EASE_MS = 70;
 /** A double-click this soon after a drag is part of the drag, not a reset. */
 const AFTER_DRAG_MS = 400;
+/** Wheel events this close together are one gesture: the HUD insets are read at its first event only. */
+const WHEEL_GESTURE_MS = 250;
 
 export interface UseViewZoomOptions {
   /** The board box: it takes the wheel, the presses and the touches. */
@@ -243,8 +245,16 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
       if (layerRef.current?.contains(node)) return false;
       return node.closest(HUD) != null;
     };
-    const box = () => sizeOf(root);
-    const insets = () => insetsOf(root);
+    // The box and the HUD insets are read once at the start of a gesture (a drag, a pinch, a wheel run), not on every
+    // move: a read right after a transform write would force a style and layout pass on each frame.
+    let held: { box: ReturnType<typeof sizeOf>; insets: Insets } | null = null;
+    let wheelAt = -Infinity;
+    const readInsets = () => {
+      held = { box: sizeOf(root), insets: insetsOf(root) };
+      return held;
+    };
+    const box = () => (held ?? readInsets()).box;
+    const insets = () => (held ?? readInsets()).insets;
     const endDrag = () => {
       root.classList.remove(styles.dragging);
       dragEnd = performance.now();
@@ -276,6 +286,7 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
           press = null;
           const [[ia, a0], [ib, b0]] = [...touches.entries()];
           pinch = { start: state.target, a0, b0, ids: [ia, ib] };
+          readInsets();
           return;
         }
         if (touches.size > 2) return;
@@ -306,6 +317,7 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
         // One finger pans only a zoomed board; a mouse or a pen drag always pans (at scale 1 the clamps hold it still).
         press.pan = !press.touch || isZoomed(state.target);
         if (press.pan) {
+          readInsets();
           root.classList.add(styles.dragging);
           window.getSelection?.()?.removeAllRanges();
           try {
@@ -363,6 +375,9 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
         return;
       }
       event.preventDefault();
+      const now = performance.now();
+      if (now - wheelAt > WHEEL_GESTURE_MS) readInsets();
+      wheelAt = now;
       go(zoomAt(state.target, pointIn(root, event), wheelFactor(event.deltaY, event.deltaMode, event.ctrlKey), box(), insets()), false);
     };
 
@@ -378,6 +393,7 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
     const gestureStart = (event: Event) => {
       event.preventDefault();
       gesture = state.target;
+      readInsets();
     };
     const gestureChange = (event: Event) => {
       event.preventDefault();

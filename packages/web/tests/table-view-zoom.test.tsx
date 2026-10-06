@@ -2,7 +2,7 @@
 import React, { useRef } from "react";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useViewZoom } from "@/components/duel/table/use-view-zoom";
+import { useViewZoom, VIEW_OCCLUDERS } from "@/components/duel/table/use-view-zoom";
 import {
   clampView,
   DRAG_THRESHOLD_PX,
@@ -342,6 +342,22 @@ describe("useViewZoom on a board", () => {
     rerender(<Board onZone={() => undefined} onBoard={() => undefined} onZoom={keep} />);
     act(() => zoom!.refit());
     expect(zoom!.view.y).toBeCloseTo(BOX.height * (1 - s), 1);
+  });
+
+  it("reads the HUD once per gesture, not on every move of a drag", () => {
+    const { getByTestId } = render(<Board onZone={() => undefined} onBoard={() => undefined} hud />);
+    const root = getByTestId("root");
+    act(() => {
+      root.dispatchEvent(new WheelEvent("wheel", { deltaY: -240, clientX: 500, clientY: 300, bubbles: true, cancelable: true, ctrlKey: true }));
+    });
+    const reads = vi.spyOn(document, "querySelectorAll");
+    const floor = getByTestId("floor");
+    act(() => {
+      fireEvent.pointerDown(floor, { pointerId: 1, button: 0, clientX: 500, clientY: 300, pointerType: "mouse" });
+      for (let i = 1; i <= 20; i += 1) fireEvent.pointerMove(floor, { pointerId: 1, clientX: 500 - i * 10, clientY: 300, pointerType: "mouse" });
+      fireEvent.pointerUp(floor, { pointerId: 1, clientX: 300, clientY: 300, pointerType: "mouse" });
+    });
+    expect(reads.mock.calls.filter(([selector]) => selector === VIEW_OCCLUDERS)).toHaveLength(1);
   });
 
   it("eases without reduced motion", () => {
