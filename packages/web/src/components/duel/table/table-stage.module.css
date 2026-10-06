@@ -292,6 +292,63 @@
 }
 
 /*
+ * The floating HUD of a 3-way table (table-stage.tsx `centerPrompts`): every prompt sits in the middle of your field, as
+ * in the 4-way grid and the 1v1 room. --pr-cx/--pr-cy are the middle of your field and --pr-w/--pr-h its size, in board
+ * px; --pr-unit follows its height, so a modal keeps to your side on a small screen. The pick bar places itself from
+ * `data-bar-room` (a clear place, never over a target). The doubled attribute outranks the lane rules above.
+ */
+.board[data-prompt-center][data-prompt-center] .slot[data-slot="prompt"][data-prompt-dense] :global([data-prompt-panel]) {
+  --duel-unit: var(--pr-unit, 1px);
+  --duel-t-xs: max(12px, calc(11 * var(--duel-unit)));
+  --duel-t-sm: max(12px, calc(12 * var(--duel-unit)));
+  --duel-t-body: max(12px, calc(13 * var(--duel-unit)));
+  --duel-t-head: max(13px, calc(15 * var(--duel-unit)));
+  --pc-title: clamp(14px, calc(17 * var(--duel-unit)), 20px);
+  --pc-sub: clamp(12px, calc(13.5 * var(--duel-unit)), 15px);
+}
+.board[data-prompt-center][data-prompt-center] .slot[data-slot="prompt"] :global([data-prompt-panel][data-precheck]) {
+  inset: var(--pr-cy) auto auto var(--pr-cx);
+  translate: -50% -50%;
+  width: max-content;
+  min-width: 0;
+  max-width: min(max(360px, calc(400 * var(--duel-unit))), calc(var(--pr-w) - 24px));
+  gap: calc(10 * var(--duel-unit)) calc(12 * var(--duel-unit));
+  padding: calc(8 * var(--duel-unit)) calc(12 * var(--duel-unit));
+}
+.board[data-prompt-center][data-prompt-center] .slot[data-slot="prompt"] :global([data-prompt-panel]:not([data-precheck])) {
+  inset: var(--pr-cy) auto auto var(--pr-cx);
+  translate: -50% -50%;
+  margin: 0;
+  width: min(calc(440 * var(--duel-unit)), calc(var(--pr-w) - 24px));
+  max-height: min(calc(var(--pr-h) + 40px), calc(100% - 24px));
+}
+.board[data-prompt-center][data-prompt-center] .slot[data-slot="prompt"] :global([data-prompt-panel][data-wide="true"]:not([data-precheck])) {
+  width: min(calc(520 * var(--duel-unit)), calc(var(--pr-w) - 24px));
+}
+.board[data-prompt-center][data-prompt-center] .slot[data-slot="prompt"] :global([data-prompt-surface]:not([data-prompt-panel], [data-place])) {
+  inset: var(--pr-cy) auto auto var(--pr-cx);
+  translate: -50% -50%;
+  margin: 0;
+}
+.board[data-prompt-center][data-prompt-center] .slot[data-slot="prompt"] :global([data-prompt-panel][data-strip="true"]:not([data-precheck])) {
+  width: fit-content;
+  min-width: min(calc(300 * var(--duel-unit)), calc(var(--pr-w) - 24px));
+  max-width: calc(var(--pr-w) - 24px);
+}
+/* A seat choice is narrow: the rival plates (the targets) stay clear above it. */
+.board[data-prompt-center][data-prompt-center] .slot[data-slot="prompt"][data-seat-pick] :global([data-prompt-panel]:not([data-precheck])) {
+  width: clamp(220px, 34%, 320px);
+  max-height: calc(var(--pr-h) - 16px);
+}
+.board[data-prompt-center][data-prompt-center] .slot[data-slot="prompt"]:not([data-seat-pick]) :global([data-prompt-panel][data-tone="chain"]:not([data-precheck])) {
+  width: min(calc(360 * var(--duel-unit)), calc(var(--pr-w) - 24px));
+  min-width: 0;
+}
+.board[data-prompt-center][data-prompt-center] .slot[data-slot="prompt"]:not([data-seat-pick]) :global([data-prompt-panel][data-tone="chain"]:not([data-precheck])) > * {
+  flex-shrink: 0;
+}
+
+/*
  * A rival's hand backs hang off the owner's back edge. In a 1v1 they tuck half behind the field; on a table of 3 or
  * 4 a rival field is read closely (focus, look), so the backs sit nearly outside the box and never cover its top row
  * of zones. One `data-hand-seat` per seat stays: the effects aim at it.

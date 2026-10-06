@@ -665,6 +665,7 @@ function TableShellBody({
                   />
                 ) : undefined}
                 masterChip={masterChip}
+                centerPrompts={plazaHud}
                 renderSeatField={(props) => <SeatField {...props} />}
                 hub={hubOn && !grid ? (
                   <PhaseHub

@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { engineFormat } from "../multi-seat";
 import type { GridFinaleBoard } from "./grid-finale";
@@ -8,7 +8,8 @@ import type { UseGridFocus } from "./grid-focus";
 import { ChainRoomContext, type ChainStripSize } from "./chain-room";
 import { AttackLine } from "./attack-line";
 import { FlyCity } from "./fly-city";
-import { aliveLayout, chainBandRooms, chainStripInset, flyWorld, holoAnchor, hubPose, normalizeAngle, ringAngles, CAMERA_HINT, portraitTable, promptRooms, ringPose, type HoloAnchor, type PromptRoom, seatPoses, slotPlan, stageFit, stageSpread, STAGE, wideHoloAnchors } from "./geometry";
+import { pickBarRoom, promptUnit } from "./grid-stage";
+import { aliveLayout, boardBounds, chainBandRooms, chainStripInset, flyWorld, holoAnchor, hubPose, normalizeAngle, ringAngles, CAMERA_HINT, portraitTable, promptRooms, ringPose, type HoloAnchor, type PromptRoom, seatPoses, slotPlan, stageFit, stageSpread, STAGE, wideHoloAnchors } from "./geometry";
 import { holoStatus, HoloLp } from "./holo-lp";
 import { lastSeatDamage } from "./seat-state";
 import { Plaza } from "./plaza";
@@ -28,6 +29,17 @@ import styles from "./table-stage.module.css";
 export function tiltSupersample(k: number): number {
   return Math.min(4, Math.max(1.5, Math.round(k * 2 * 4) / 4));
 }
+
+interface Rect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+const sameRects = (a: readonly Rect[], b: readonly Rect[]) =>
+  a.length === b.length && a.every((r, i) => r.x === b[i].x && r.y === b[i].y && r.width === b[i].width && r.height === b[i].height);
+/** How long after a change the targets are measured again: the regroup glide and the crumble are over by then. */
+const SETTLE_MS = 1500;
 
 /** What a click on a seat must leave alone: the controls and the legal targets inside a field. */
 const CLICK_PASS = "button, a, [data-legal='true'], [data-holo]";
@@ -51,6 +63,11 @@ export interface TableStageViewProps extends TableStageProps {
   gridHub?: (place: "band" | "center") => ReactNode;
   /** 4-way grid: where the hub sits. */
   hubPlace?: "band" | "center";
+  /**
+   * The floating HUD on a 3-way plaza: every prompt sits in the middle of the near field (yours, or the anchor's), as in
+   * the 4-way grid and the 1v1 room, at a size that follows that field, and the pick bar in a clear place on it.
+   */
+  centerPrompts?: boolean;
 }
 
 /**
@@ -60,7 +77,7 @@ export interface TableStageViewProps extends TableStageProps {
  * overlay are slots over the whole box, so they measure the real screen position of `[data-zones]` and
  * `[data-lp-seat]` nodes. `camera` is the camera to draw (the shell passes the effective one).
  */
-export function TableStage({ controller, layout, camera, dispatchCamera, renderSeatField, fx, promptCenter, overlay, hub, masterChip, wantMode, locked = false, out = [], ring = true, placeLabels }: TableStageViewProps) {
+export function TableStage({ controller, layout, camera, dispatchCamera, renderSeatField, fx, promptCenter, overlay, hub, masterChip, wantMode, locked = false, out = [], ring = true, placeLabels, centerPrompts = false }: TableStageViewProps) {
   const { engine, room, viewerSeat, nameOf, legalKeys, selectedKeys, reducedMotion } = controller;
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -171,6 +188,56 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
     return { panel: toBox(found.panel), bar: toBox(found.bar), chain: toBox(found.chain) };
   }, [play, camera, poses, spread, hasChip, k, fly, box, canvasHeight, wideAnchors, chainSize, chainInset, stageHeight, stageTop, portrait]);
 
+  // The floating HUD: the prompts sit in the middle of the near field (the first seat of the table: you, or the anchor), in
+  // box px; --pr-* carry that box to the prompt CSS. The pick bar finds a clear place on that field (never over a target);
+  // when the field is full of targets, the free room off every board takes it.
+  const near = centerPrompts && !fly && !portrait && k > 0 ? poses.get(play.slots[0]?.seat ?? -1) : undefined;
+  const nearBox = useMemo(() => {
+    if (!near) return null;
+    const b = boardBounds(near);
+    const dx = (box.width - STAGE.width * k) / 2;
+    const dy = stageTop + (stageHeight - canvasHeight * k) / 2;
+    return { x: Math.round(dx + b.l * k), y: Math.round(dy + b.t * k), width: Math.round((b.r - b.l) * k), height: Math.round((b.b - b.t) * k) };
+  }, [near, box.width, k, stageTop, stageHeight, canvasHeight]);
+  const promptStyle = nearBox
+    ? ({
+        ["--pr-cx" as string]: `${Math.round(nearBox.x + nearBox.width / 2)}px`,
+        ["--pr-cy" as string]: `${Math.round(nearBox.y + nearBox.height / 2)}px`,
+        ["--pr-w" as string]: `${nearBox.width}px`,
+        ["--pr-h" as string]: `${nearBox.height}px`,
+        ["--pr-unit" as string]: `${promptUnit(nearBox.height, false)}px`,
+      } as CSSProperties)
+    : undefined;
+  const [targets, setTargets] = useState<readonly Rect[]>([]);
+  const legalKey = [...legalKeys].sort().join(",");
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root || !nearBox) return;
+    const measure = () => {
+      const board = root.getBoundingClientRect();
+      const next = Array.from(root.querySelectorAll<HTMLElement>('[data-legal="true"]'))
+        .map((node) => node.getBoundingClientRect())
+        .filter((r) => r.width > 1 && r.height > 1)
+        .map((r) => ({ x: Math.round(r.left - board.left), y: Math.round(r.top - board.top), width: Math.round(r.width), height: Math.round(r.height) }));
+      setTargets((current) => (sameRects(current, next) ? current : next));
+    };
+    const frame = window.requestAnimationFrame(measure);
+    // Once the seats stand still: a regroup glides them to new places.
+    const timer = window.setTimeout(measure, reducedMotion ? 0 : SETTLE_MS);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
+  }, [nearBox, legalKey, reducedMotion]);
+  const barRoom = useMemo(() => {
+    if (!nearBox) return undefined;
+    const found = pickBarRoom(nearBox, targets);
+    const room = found?.split(",").map(Number);
+    const clear = room && !targets.some((r) => r.x < room[0] + room[2] && room[0] < r.x + r.width && r.y < room[1] + room[3] && room[1] < r.y + r.height);
+    if (clear || !rooms?.bar) return found;
+    return `${rooms.bar.x},${rooms.bar.y},${rooms.bar.width},${rooms.bar.height}`;
+  }, [nearBox, targets, rooms?.bar]);
+
   const world = useMemo(() => flyWorld(play, camera.fly), [play, camera.fly]);
   const tones = useMemo(() => new Map<number, SeatTone>(layout.slots.map((slot) => [slot.seat, slot.tone])), [layout.slots]);
   const looking = camera.mode === "look";
@@ -260,10 +327,11 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
       data-ready={k > 0 ? "true" : "false"}
       data-battle={engine.phase === "battle" ? "true" : undefined}
       data-chain-room={rooms?.chain ? `${rooms.chain.x},${rooms.chain.y},${rooms.chain.width},${rooms.chain.height}` : undefined}
-      data-panel-room={rooms?.panel ? "true" : undefined}
-      data-room-snug={rooms?.panel && (rooms.panel.width < 262 || rooms.panel.height < 300) ? "true" : undefined}
-      data-bar-room={rooms?.bar ? `${rooms.bar.x},${rooms.bar.y},${rooms.bar.width},${rooms.bar.height}` : undefined}
-      style={rooms?.panel ? ({ "--room-x": `${rooms.panel.x}px`, "--room-y": `${rooms.panel.y}px`, "--room-w": `${rooms.panel.width}px`, "--room-h": `${rooms.panel.height}px` } as CSSProperties) : undefined}
+      data-prompt-center={nearBox ? "true" : undefined}
+      data-panel-room={rooms?.panel && !nearBox ? "true" : undefined}
+      data-room-snug={rooms?.panel && !nearBox && (rooms.panel.width < 262 || rooms.panel.height < 300) ? "true" : undefined}
+      data-bar-room={nearBox ? barRoom : rooms?.bar ? `${rooms.bar.x},${rooms.bar.y},${rooms.bar.width},${rooms.bar.height}` : undefined}
+      style={rooms?.panel && !nearBox ? ({ "--room-x": `${rooms.panel.x}px`, "--room-y": `${rooms.panel.y}px`, "--room-w": `${rooms.panel.width}px`, "--room-h": `${rooms.panel.height}px` } as CSSProperties) : undefined}
     >
       <div ref={canvasRef} className={styles.canvas} style={canvas} data-fly-capable={threeWay ? "true" : undefined}>
         {threeWay ? (
@@ -405,7 +473,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
         {controller.aim?.from ? <AttackLine aim={controller.aim} tone={attackerTone} /> : null}
       </div>
       {fx ? <ChainRoomContext.Provider value={reserveChain ? setChainSize : null}><div className={styles.slot} data-slot="fx">{fx}</div></ChainRoomContext.Provider> : null}
-      {promptCenter ? <div ref={promptRef} className={styles.slot} data-slot="prompt" data-seat-pick={picks ? "true" : undefined}>{promptCenter}</div> : null}
+      {promptCenter ? <div ref={promptRef} className={styles.slot} data-slot="prompt" data-seat-pick={picks ? "true" : undefined} data-prompt-dense={nearBox ? "true" : undefined} style={promptStyle}>{promptCenter}</div> : null}
       {overlay ? <div className={styles.slot} data-slot="overlay">{overlay}</div> : null}
     </div>
   );
