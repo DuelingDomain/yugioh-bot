@@ -577,8 +577,12 @@
 }
 
 /* ---------- hover preview: slides out from the left edge, beside the dock (never over its icons) ---------- */
+/*
+ * --ct is the effect text size (the Card text size setting); the rest of the panel derives from it. The panel is
+ * not interactive, so nothing in it scrolls: the art gives way first (down to a small card), then the effect text
+ * is cut with a fade and a "Click the card" hint (grid-preview.tsx), and the Card flyout holds the full text.
+ */
 .preview {
-  /* --ct is the effect text size (the Card text size setting); the rest of the panel derives from it. */
   --pv-ct: var(--ct, 15.5px);
   position: absolute;
   left: 72px;
@@ -603,23 +607,27 @@
 }
 .preview[data-open="true"] { transform: none; visibility: visible; transition: transform 0.18s ease-out, visibility 0s; }
 .preview[data-motion="none"] { transition: none; }
-/* The art gives way first: it shrinks (and stays centered) so the text keeps its room. */
-.previewArt { display: block; flex: 0 1 auto; width: 100%; min-height: 0; aspect-ratio: 59 / 86; margin: 0 0 10px; border-radius: 4px; object-fit: contain; background: #1b2740; }
+/* The art gives way first: its shrink weight dwarfs the text's, down to a small card. It stays centered and blends in. */
+.previewArt { display: block; flex: 0 1000 auto; width: 100%; min-height: calc(var(--pv-ct) * 8); aspect-ratio: 59 / 86; margin: 0 0 10px; border-radius: 4px; object-fit: contain; background: transparent; }
 .preview h3 { flex: none; margin: 0; font-size: calc(var(--pv-ct) * 1.35); font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
 .previewType { flex: none; margin: 3px 0 0; color: var(--duel-ink-2); font-size: calc(var(--pv-ct) * 0.95); }
 .previewStats { flex: none; margin: 6px 0 0; font-size: calc(var(--pv-ct) * 1.35); font-weight: 500; letter-spacing: 0.02em; }
-/* No line clamp: the whole effect shows and, when the panel is full, scrolls in this area. */
+/* No line clamp: the whole effect shows while it fits. After the art is at its minimum, the rest fades out. */
 .previewText {
   flex: 0 1 auto;
   min-height: 3em;
   margin: 8px 0 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  overflow: hidden;
   color: var(--duel-ink-2);
   font-size: var(--pv-ct);
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
+.previewText[data-overflow="true"] {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 2.6em), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 2.6em), transparent);
+}
+.previewHint { flex: none; margin: 4px 0 0; color: var(--duel-ink-3); font-size: calc(var(--pv-ct) * 0.8); font-style: italic; }
 .previewOwner { display: flex; flex: none; align-items: center; gap: 6px; margin: 10px 0 0; color: var(--duel-ink-3); font-size: calc(var(--pv-ct) * 0.95); }
 .previewOwner i { flex: none; width: 0.6em; height: 0.6em; border-radius: 50%; background: var(--seat-main, var(--duel-ink-3)); }
 .previewOwner b { color: var(--seat-ink, var(--duel-ink)); font-weight: 600; }

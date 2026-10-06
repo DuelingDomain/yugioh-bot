@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { DuelCard, DuelCardInfo } from "@yugidraft/shared/duels";
 import { cardTextStyle, useCardTextSize } from "../card-text-size";
 import { cardArtUrl, cardDetailsText, cardStatsText, isDefenseAt, isHiddenCard } from "../constants";
@@ -12,8 +12,9 @@ export const PREVIEW_HIDE_MS = 220;
 /**
  * The hover preview of the table shells (Tag, 3-way, 4-way): a ~270 px panel that slides out from the left edge while a card is hovered or
  * focused (card, name, type, ATK/DEF, owner, effect text). It takes no pointer events, so it never blocks the board.
- * The text size follows the "Card text size" setting; the panel grows with it, the art shrinks and a long effect text
- * scrolls in its own area (the Card flyout shows the whole text). Face-down cards of a rival show nothing. A click on a card still opens it fully in the Card flyout.
+ * The text size follows the "Card text size" setting. The panel grows taller with it (not wider): the art shrinks first,
+ * then a long effect text is cut with a fade and a hint, because the panel takes no pointer events and cannot scroll.
+ * Face-down cards of a rival show nothing. A click on a card still opens it fully in the Card flyout.
  */
 export function GridHoverPreview({ card, owner, reducedMotion }: {
   /** A board card, or the card of a prompt row (`DuelCardInfo`: no position, no owner). */
@@ -36,6 +37,21 @@ export function GridHoverPreview({ card, owner, reducedMotion }: {
     return () => window.clearTimeout(timer);
   }, [showable]);
   const current = showable ?? shown;
+  // Does the effect text reach past its area? Then it shows a fade and the hint. Measured again when the panel resizes.
+  const asideRef = useRef<HTMLElement>(null);
+  const textRef = useRef<HTMLParagraphElement>(null);
+  const [cut, setCut] = useState(false);
+  useLayoutEffect(() => {
+    const text = textRef.current;
+    if (!text) { setCut(false); return; }
+    const measure = () => setCut(text.scrollHeight - text.clientHeight > 1);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(text);
+    if (asideRef.current) observer.observe(asideRef.current);
+    return () => observer.disconnect();
+  }, [current, textSize]);
   if (!current) return null;
 
   const stats = cardStatsText(current);
@@ -43,6 +59,7 @@ export function GridHoverPreview({ card, owner, reducedMotion }: {
   const position = stats && "location" in current && current.position != null ? (isDefenseAt(current.location, current.position) ? "Defense Position" : "Attack Position") : null;
   return (
     <aside
+      ref={asideRef}
       className={styles.preview}
       data-testid="hover-preview"
       data-open={open ? "true" : "false"}
@@ -55,7 +72,8 @@ export function GridHoverPreview({ card, owner, reducedMotion }: {
       <h3>{current.name ?? `Card ${current.code}`}</h3>
       {details ? <p className={styles.previewType}>{details}</p> : null}
       {stats ? <p className={styles.previewStats}>{stats}</p> : null}
-      {current.description ? <p className={styles.previewText}>{current.description}</p> : null}
+      {current.description ? <p ref={textRef} className={styles.previewText} data-overflow={cut ? "true" : undefined}>{current.description}</p> : null}
+      {current.description && cut ? <p className={styles.previewHint}>Click the card for the full text.</p> : null}
       {owner ? (
         <p className={styles.previewOwner}>
           <i aria-hidden="true" />Owner <b>{owner.name}</b>{position ? ` · ${position}` : ""}
