@@ -3,10 +3,12 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Link2, Plus, Trash2 } from "lucide-react";
+import { ClipboardPaste, Link2, Plus, Trash2 } from "lucide-react";
+import type { SandboxShare } from "@yugidraft/shared/duels";
 import { FloorList, FloorRow, SectionHead, StatusLine, SvButton } from "@/components/sheet";
 import { PageFrame } from "@/components/decks/page-frame";
 import { createScenario, getScenario } from "@/components/sandbox/api";
+import { ShareDialog } from "@/components/sandbox/share-dialog";
 import { copyName, FORMAT_LABELS, MODE_LABELS, playHref, shareUrl, updatedDay } from "../_lib/labels";
 import type { ScenarioListItem } from "../_lib/load";
 import styles from "./sandbox.module.css";
@@ -21,6 +23,7 @@ export function SandboxList({ items: initial }: { items: ScenarioListItem[] }) {
   const [confirmId, setConfirmId] = React.useState<number | null>(null);
   const [busyId, setBusyId] = React.useState<number | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [importing, setImporting] = React.useState(false);
   const [copied, setCopied] = React.useState<{ id: number; url: string; ok: boolean } | null>(null);
 
   const mine = items.filter((item) => item.mine);
@@ -55,6 +58,12 @@ export function SandboxList({ items: initial }: { items: ScenarioListItem[] }) {
       setError(messageOf(e, "Could not save a copy."));
       setBusyId(null);
     }
+  }
+
+  /** A share code becomes a scenario you own, then opens in the builder. A thrown error shows in the dialog. */
+  async function importShare(share: SandboxShare) {
+    const created = await createScenario({ name: share.name ?? "Imported scenario", board: share.board, run: share.run });
+    router.push(`/sandbox/${created.id}`);
   }
 
   async function copyLink(item: ScenarioListItem) {
@@ -121,10 +130,16 @@ export function SandboxList({ items: initial }: { items: ScenarioListItem[] }) {
       title="Sandbox"
       sub={items.length > 0 ? `${items.length} ${items.length === 1 ? "scenario" : "scenarios"}` : undefined}
       actions={
-        <SvButton as="a" href="/sandbox/new" variant="primary">
-          <Plus size={16} aria-hidden="true" />
-          New scenario
-        </SvButton>
+        <>
+          <SvButton variant="ghost" onClick={() => setImporting(true)}>
+            <ClipboardPaste size={16} aria-hidden="true" />
+            Import code
+          </SvButton>
+          <SvButton as="a" href="/sandbox/new" variant="primary">
+            <Plus size={16} aria-hidden="true" />
+            New scenario
+          </SvButton>
+        </>
       }
     >
       <p className={styles.lede}>
@@ -158,6 +173,7 @@ export function SandboxList({ items: initial }: { items: ScenarioListItem[] }) {
           <FloorList aria-labelledby="sbx-others">{others.map(row)}</FloorList>
         </section>
       ) : null}
+      {importing ? <ShareDialog mode="import" onImport={importShare} onClose={() => setImporting(false)} /> : null}
     </PageFrame>
   );
 }
