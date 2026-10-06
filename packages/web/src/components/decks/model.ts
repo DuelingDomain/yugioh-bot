@@ -320,19 +320,19 @@ function sourceIndex(deck: DuelDeck, source: CardSource & { from: DeckSection })
  * Puts one copy into a section at a position (the end when `at` is missing). A copy from a section
  * moves; a Deck Master that is dragged out stops being the master.
  */
-export function placeCard(selection: DeckMasterSelection, source: CardSource, to: DeckSection, at?: number): DeckMasterSelection {
+export function placeCardAt(selection: DeckMasterSelection, source: CardSource, to: DeckSection, at?: number): { selection: DeckMasterSelection; index: number } {
   let { deck, masterOrigin } = selection;
   let target = at;
   if (source.from === "master") {
-    if (deck.deckMaster !== source.code) return selection;
+    if (deck.deckMaster !== source.code) return { selection, index: -1 };
     deck = withoutMaster(deck);
     masterOrigin = null;
   } else if (source.from !== "list") {
     const from = source.from;
     const index = sourceIndex(deck, { ...source, from });
-    if (index < 0) return selection;
+    if (index < 0) return { selection, index: -1 };
     const landing = target ?? deck[to].length;
-    if (from === to && (landing === index || landing === index + 1)) return selection;
+    if (from === to && (landing === index || landing === index + 1)) return { selection, index };
     deck = removeAt(deck, from, index);
     masterOrigin = shiftMasterOrigin(masterOrigin, from, index);
     if (from === to && target != null && target > index) target -= 1;
@@ -343,7 +343,11 @@ export function placeCard(selection: DeckMasterSelection, source: CardSource, to
   if (masterOrigin && masterOrigin.section === to && position <= masterOrigin.index) {
     masterOrigin = { ...masterOrigin, index: masterOrigin.index + 1 };
   }
-  return { deck, masterOrigin };
+  return { selection: { deck, masterOrigin }, index: position };
+}
+
+export function placeCard(selection: DeckMasterSelection, source: CardSource, to: DeckSection, at?: number): DeckMasterSelection {
+  return placeCardAt(selection, source, to, at).selection;
 }
 
 /** Takes one copy out of the deck. A Deck Master removed this way does not go back to its section. */

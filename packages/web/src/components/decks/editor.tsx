@@ -78,7 +78,7 @@ import {
   guidanceNotes,
   importForLibrary,
   isNewDeckDirty,
-  placeCard,
+  placeCard, placeCardAt,
   removeCard,
   shuffled,
   snapshotOf,
@@ -415,8 +415,29 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     setSavedFlash(false);
   }
 
+  /**
+   * Undo and redo can change the art of the copy the panel shows. The panel then follows the copy
+   * (the same card in another art), so its picker never claims an art the deck no longer has.
+   */
+  function repointPanel(step: Snapshot) {
+    if (inspectCode == null) return;
+    const sameCard = (code: number | undefined): code is number =>
+      code != null && canonicalCardCode(code, catalog) === canonicalCardCode(inspectCode, catalog);
+    if (selected?.index != null) {
+      const code = step.selection.deck[selected.section][selected.index];
+      if (sameCard(code) && code !== inspectCode) {
+        setInspectCode(code);
+        setSelected({ section: selected.section, code, index: selected.index });
+      }
+    } else if (masterPick && step.mode === "domain") {
+      const code = step.selection.deck.deckMaster;
+      if (sameCard(code) && code !== inspectCode) setInspectCode(code);
+    }
+  }
+
   function restore(step: Snapshot) {
     importGeneration.current += 1;
+    repointPanel(step);
     setSelection(step.selection);
     setMode(step.mode);
     setSavedFlash(false);
@@ -580,8 +601,10 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
       const card = catalog.get(source.code);
       if (card ? !roomFor(card) : !poolRoomFor(source.code)) return;
     }
-    commit(placeCard(selection, source, to, to === wanted ? at : undefined));
-    setSelected({ section: to, code: source.code });
+    const placed = placeCardAt(selection, source, to, to === wanted ? at : undefined);
+    commit(placed.selection);
+    // The placed copy is the selection, so the art picker swaps that copy.
+    setSelected(placed.index >= 0 ? { section: to, code: source.code, index: placed.index } : { section: to, code: source.code });
     setInspectCode(source.code);
     if (to !== wanted) {
       setNotice(`${cardName(source.code)} goes in the ${to === "extra" ? "extra" : "main"} deck.`);
@@ -679,7 +702,8 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
 
   async function save() {
     // Ctrl+S also works on the loading and error screens; there is no deck to save there.
-    if (busy || loading || loadError != null || routeId === "invalid" || (typeof routeId === "number" && savedId == null)) return;
+    // A swap that is still in flight would land on a deck that is already saved.
+    if (busy || artBusy || loading || loadError != null || routeId === "invalid" || (typeof routeId === "number" && savedId == null)) return;
     importGeneration.current += 1;
     const trimmed = name.trim();
     if (!trimmed) {
@@ -820,7 +844,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     const code = allCodes(deck).find((value) => copyKey(value, catalog) === problem.key);
     if (code == null) return;
     const section = (["main", "extra", "side"] as const).find((value) => deck[value].includes(code));
-    inspect(code, section ? { section, code } : null);
+    inspect(code, section ? { section, code, index: deck[section].indexOf(code) } : null);
   }
   const checkProps: DeckCheckProps = { problems, notes, banlistName, flag, tone, pool: !!pool, onProblem: showProblem };
   const sectionProps = {
@@ -868,7 +892,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
       artwork={
         <ArtworkPicker
           code={inspected.code}
-          knownCount={(inspected as BrowserCard).altArtCount === 0 ? 1 : undefined}
+          knownCount={(inspected as BrowserCard).altArtCount == null ? undefined : (inspected as BrowserCard).altArtCount! + 1}
           busy={artBusy}
           disabled={busy}
           error={artError}
@@ -982,7 +1006,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
                 )}
               </Popover>
             ) : null}
-            <SvButton variant="primary" className={styles["de-save"]} aria-busy={saveBusy || undefined} disabled={busy} title="Save (Ctrl+S)" onClick={() => void save()}><Save className="ic sm" aria-hidden />Save</SvButton>
+            <SvButton variant="primary" className={styles["de-save"]} aria-busy={saveBusy || undefined} disabled={busy || artBusy} title="Save (Ctrl+S)" onClick={() => void save()}><Save className="ic sm" aria-hidden />Save</SvButton>
           </div>
           {pool ? <span className={styles["de-menu"]}><ShellMenuButton /></span> : null}
         </header>

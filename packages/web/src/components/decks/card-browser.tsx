@@ -360,9 +360,10 @@ export function CardBrowser({
                 const limit = pool || !limits ? 3 : cardLimit(limits, card);
                 const full = pool ? left <= 0 : count >= limit;
                 const status = pool ? null : limitName(limit);
+                const arts = card.altArtCount ? `, ${artCountLabel(card.altArtCount)}` : "";
                 const label = pool
-                  ? `${card.name}, ${left} ${left === 1 ? "copy" : "copies"} left in your pool`
-                  : `${card.name}${count ? `, ${count} in deck` : ""}${status ? `, ${status}` : ""}`;
+                  ? `${card.name}, ${left} ${left === 1 ? "copy" : "copies"} left in your pool${arts}`
+                  : `${card.name}${count ? `, ${count} in deck` : ""}${status ? `, ${status}` : ""}${arts}`;
                 const handlers = {
                   draggable: true,
                   "aria-pressed": inspectCode === card.code,
