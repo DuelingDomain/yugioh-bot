@@ -30,6 +30,8 @@ interface HomeSlot {
   rotateDeg: number;
   scale: number;
   tiltDeg: number;
+  /** Field box width at scale 1 when it is not SEAT_BOX.width (see SEAT_BOX_FULL_DEF). */
+  width?: number;
 }
 
 /** Home poses of a 3-way table by place: you, then the seat after you (left), then the one after that (right). */
@@ -235,6 +237,7 @@ export function seatPoses(
       scale: at.scale,
       rotateDeg: at.rotateDeg,
       tiltDeg: at.tiltDeg,
+      ...(name && wide?.[name]?.width && arrangementOf(layout) === "ffa3" ? { width: wide[name]!.width } : {}),
       slot: name,
       z: SEAT_Z,
       docked: name === "dockL" || name === "dockR",
@@ -275,6 +278,14 @@ export function portraitTable(layout: TableLayout, camera: CameraView, screenWid
 
 /** Size of a seat box at scale 1 and --sf-z 112, in px (measured on the 4-way preview: 653 by 380). */
 export const SEAT_BOX = { width: 653, height: 380 } as const;
+/**
+ * Width of a 3-way field at a wide table: each of the five zone columns is a card height wide (1.571 zone units more, as
+ * GRID_ZONE_WIDEN on the 4-way grid), so a Defense card lies at full size inside its own column. See `[data-def-full]`
+ * in field.module.css.
+ */
+export const SEAT_BOX_FULL_DEF = 829;
+/** The least spread (stage px beyond each side) that has room for the wide 3-way fields; every floating-HUD screen has it. */
+const FULL_DEF_SPREAD = 200;
 /** Most spread (stage px at each side) the plaza uses. A wider box keeps the extra room as empty floor. */
 export const MAX_SPREAD = 450;
 /** How far a rival's hand fan reaches beyond the outer edge of its board, at scale 1 (measured: about 76 px). */
@@ -320,9 +331,11 @@ export function wideHomeSlots(format: TableFormat, spread: number, view?: PlazaV
       vR: { ...west, x: 1100 + spread - sideX, rotateDeg: 270 },
     };
   }
-  const home = FFA3_HOME[0];
-  const left = ffa3WideRival(spread, view ?? { k: 1, top: 0 });
-  return { home, vL: left, vN: left, vR: { ...left, x: 1100 - left.x, rotateDeg: 360 - left.rotateDeg } };
+  const width = spread >= FULL_DEF_SPREAD ? SEAT_BOX_FULL_DEF : undefined;
+  const home = width ? { ...FFA3_HOME[0], width } : FFA3_HOME[0];
+  const left = ffa3WideRival(spread, view ?? { k: 1, top: 0 }, width ?? SEAT_BOX.width);
+  const rival = width ? { ...left, width } : left;
+  return { home, vL: rival, vN: rival, vR: { ...rival, x: 1100 - left.x, rotateDeg: 360 - left.rotateDeg } };
 }
 
 /** The scale of the stage in the table box (screen px per stage px) and the stage y at the top edge of the box. */
@@ -353,13 +366,13 @@ export const PLAZA_HUD_KEEP: readonly { x: number; y: number; width: number; hei
 /**
  * How a 3-way rival stands at a wide table. The two rivals keep the classic look (tilted, turned 22 degrees to face the
  * ring) and stay clear of each other, of the turn ring, of your field and of the HUD column, all in screen px. They back
- * up to the top of the stage and grow no bigger than .76 of your field; a short box makes them smaller, down to .6.
+ * up to the top of the stage and grow no bigger than .76 of your field; a short box makes them smaller, down to .56.
  */
 const FFA3_WIDE = {
   maxScale: 0.76,
-  minScale: 0.6,
+  minScale: 0.56,
   /** The classic turn first; a tight box turns them a little less toward the ring before it makes them smaller. */
-  rotateDeg: [158, 162, 166],
+  rotateDeg: [158, 162, 166, 170],
   tiltDeg: 12,
   /** Air in screen px: between the two rivals, from your field, from the ring, from the HUD column, from the box edge. */
   air: { rival: 32, me: 24, ring: 12, keep: 12, edge: 6 },
@@ -369,13 +382,13 @@ const FFA3_RING: Bounds = { l: 550 - 64, r: 550 + 64, t: 322 - 64, b: 322 + 80 }
 
 const wideRivalCache = new Map<string, HomeSlot>();
 
-function ffa3WideRival(spread: number, view: PlazaView): HomeSlot {
-  const key = `${spread}|${view.k.toFixed(4)}|${view.top.toFixed(1)}`;
+function ffa3WideRival(spread: number, view: PlazaView, W: number): HomeSlot {
+  const key = `${spread}|${view.k.toFixed(4)}|${view.top.toFixed(1)}|${W}`;
   const hit = wideRivalCache.get(key);
   if (hit) return hit;
   const { k } = view;
   const air = FFA3_WIDE.air;
-  const me = seatQuad(FFA3_HOME[0], 0, 0, SEAT_BOX.width, SEAT_BOX.height);
+  const me = seatQuad(FFA3_HOME[0], 0, 0, W, SEAT_BOX.height);
   const ring = boundsQuad(FFA3_RING);
   // The HUD column in stage px: the box's left edge is at -spread, its top edge at view.top.
   const keep = PLAZA_HUD_KEEP.map((r) => boundsQuad({ l: -spread + r.x / k, r: -spread + (r.x + r.width) / k, t: view.top + r.y / k, b: view.top + (r.y + r.height) / k }));
@@ -385,14 +398,14 @@ function ffa3WideRival(spread: number, view: PlazaView): HomeSlot {
       const base = { rotateDeg, tiltDeg: FFA3_WIDE.tiltDeg };
       const probe = { ...base, scale, x: 0, y };
       // The board and the hand backs over its back edge stay inside the box.
-      const top = Math.min(...seatQuad(probe, 0, 0, SEAT_BOX.width, SEAT_BOX.height).concat(seatQuad(probe, 0, 225, SEAT_BOX.width, 70)).map((p) => p.y));
+      const top = Math.min(...seatQuad(probe, 0, 0, W, SEAT_BOX.height).concat(seatQuad(probe, 0, 225, W, 70)).map((p) => p.y));
       if (top - view.top < air.edge / k) continue;
       for (let half = 240; half <= 1100; half += 4) {
         const pose = { ...probe, x: 550 - half };
-        const board = seatQuad(pose, 0, 0, SEAT_BOX.width, SEAT_BOX.height);
+        const board = seatQuad(pose, 0, 0, W, SEAT_BOX.height);
         const mirror = board.map((p) => ({ x: 1100 - p.x, y: p.y }));
         if (polygonGap(board, mirror) < air.rival / k || polygonGap(board, me) < air.me / k || polygonGap(board, ring) < air.ring / k) continue;
-        const hand = seatQuad(pose, 0, 225, SEAT_BOX.width, 70);
+        const hand = seatQuad(pose, 0, 225, W, 70);
         const ok = Math.min(...board.concat(hand).map((p) => p.x)) >= -spread + air.edge / k &&
           keep.every((r) => polygonGap(r, board) >= air.keep / k && polygonGap(r, hand) >= air.keep / k);
         if (ok) found = { ...pose, x: 550 - half };
@@ -461,7 +474,8 @@ const PERSPECTIVE = 1700;
  * gets (`seatTransform`: tilt with perspective, then turn, then scale about the centre). Pure, so a holo panel can dock to a
  * corner of a board that is still gliding to its place.
  */
-export function boardBounds(pose: Pick<SeatPose, "x" | "y" | "rotateDeg" | "tiltDeg" | "scale">): Bounds {
+export function boardBounds(pose: Pick<SeatPose, "x" | "y" | "rotateDeg" | "tiltDeg" | "scale" | "width">): Bounds {
+  const boxWidth = pose.width ?? SEAT_BOX.width;
   const rot = (pose.rotateDeg * Math.PI) / 180;
   const tilt = ((pose.tiltDeg ?? 0) * Math.PI) / 180;
   const cos = Math.cos(rot);
@@ -470,7 +484,7 @@ export function boardBounds(pose: Pick<SeatPose, "x" | "y" | "rotateDeg" | "tilt
   const ys: number[] = [];
   for (const sx of [-1, 1]) {
     for (const sy of [-1, 1]) {
-      const px = (sx * SEAT_BOX.width * pose.scale) / 2;
+      const px = (sx * boxWidth * pose.scale) / 2;
       const py = (sy * SEAT_BOX.height * pose.scale) / 2;
       const x = px * cos - py * sin;
       const y = px * sin + py * cos;
@@ -490,6 +504,8 @@ const HOLO_MASTER_CHIP = { width: 270, height: 58 } as const;
 
 /** Screen px of the camera hint pill in the same corner: always kept clear. */
 export const CAMERA_HINT = { width: 250, height: 40 } as const;
+/** The floating HUD's bottom right corner (the clock, the responses and the turn button), in box px with its air. */
+export const HUD_CORNER = { width: 204, height: 236 } as const;
 
 const overlaps = (a: Bounds, b: Bounds, gap = 0) => a.l < b.r + gap && b.l < a.r + gap && a.t < b.b + gap && b.t < a.b + gap;
 
@@ -507,7 +523,7 @@ export function wideHoloAnchors(
   /** A chip hangs under your panel (your Deck Master): its room is kept clear too. */
   meFooter = false,
   /** The camera hint pill in the table's bottom left corner, in stage px: always kept clear. */
-  corner?: { hint: { width: number; height: number } },
+  corner?: { hint: { width: number; height: number }; hud?: { width: number; height: number } },
 ): Map<number, HoloAnchor> | null {
   const plan = slotPlan(layout, camera);
   if (!(spread > 0) || !plan || !plan.every((name) => HOME_PLACES.has(name))) return null;
@@ -526,6 +542,8 @@ export function wideHoloAnchors(
   taken.push({ l: ARENA_CENTER.x - 330, r: ARENA_CENTER.x + 330, t: STAGE.height - 4, b: 960 });
   // The camera hint pill lives in the bottom left corner of the table area.
   if (corner) taken.push({ l: left - 6, r: left + corner.hint.width, t: 952 - corner.hint.height, b: 952 });
+  // The floating HUD's turn controls in the bottom right corner (a 3-way plaza).
+  if (corner?.hud) taken.push({ l: right + 6 - corner.hud.width, r: right + 6, t: 952 - corner.hud.height, b: 952 });
   const anchors = new Map<number, HoloAnchor>();
   const rectAt = (x: number, y: number, size: { width: number; height: number }): Bounds => ({ l: x, r: x + size.width, t: y, b: y + size.height });
   const inside = (r: Bounds) => r.l >= left && r.r <= right && r.t >= 4 && r.b <= 952;
@@ -939,16 +957,19 @@ export function hubPose(layout: TableLayout, camera: CameraView, view?: HubView)
   if (!(spread > 0) || !(k > 0)) return classic;
   const poses = seatPoses(layout, home, view.box);
   const hint = { width: CAMERA_HINT.width / k, height: CAMERA_HINT.height / k };
-  const plates = wideHoloAnchors(layout, home, poses, spread, view.meFooter === true, { hint });
+  const hud = view.hud ? { width: view.hud.width / k, height: view.hud.height / k } : undefined;
+  const plates = wideHoloAnchors(layout, home, poses, spread, view.meFooter === true, { hint, hud });
   // Only the home and look views are wide; the others keep the classic places (their boards and plates are the classic ones).
   if (!plates) return classic;
-  return wideHubPose(layout, home, poses, plates, spread, view.meFooter === true, hint, classic);
+  return wideHubPose(layout, home, poses, plates, spread, view.meFooter === true, hint, classic, hud);
 }
 
 /** The table box (screen px, as TableStage measures it) the strip is placed for, and whether a Deck Master chip hangs under your plate. */
 export interface HubView {
   box: { width: number; height: number; screenWidth?: number };
   meFooter?: boolean;
+  /** The floating HUD's bottom right corner (HUD_CORNER, screen px): the plates and the strip stay off it, as TableStage places them. */
+  hud?: { width: number; height: number };
 }
 
 /** Air kept around a seat (field, hand, name label) and around an LP plate, in stage px. */
@@ -1034,9 +1055,14 @@ function wideHubPose(
   meFooter: boolean,
   hint: { width: number; height: number },
   fallback: HubPose,
+  hud?: { width: number; height: number },
 ): HubPose {
   const ring = ringPose(layout, camera);
   const obstacles = hubObstacles(layout, poses, plates, meFooter, hint, spread, ring);
+  if (hud) {
+    const right = STAGE.width + spread;
+    obstacles.push({ x: right - hud.width / 2, y: 952 - hud.height / 2, width: hud.width, height: hud.height, rotateDeg: 0 });
+  }
   const size: HubSize = "sm";
   const { width, height } = HUB_STRIP[size];
   const l0 = -spread + 6 + width / 2;
@@ -1112,7 +1138,8 @@ export interface StageRect {
  * (your face-up hand is 605 wide and 116 deep, with room to grow; a rival's backs about 420 by 100 with their hover lift)
  * and the name label under the field's left side. The phase hub keeps clear of all three, so it never lands on cards.
  */
-export function seatObstacles(pose: Pick<SeatPose, "x" | "y" | "scale" | "rotateDeg">, own: boolean): StageRect[] {
+export function seatObstacles(pose: Pick<SeatPose, "x" | "y" | "scale" | "rotateDeg" | "width">, own: boolean): StageRect[] {
+  const boxWidth = pose.width ?? SEAT_BOX.width;
   const r = (pose.rotateDeg * Math.PI) / 180;
   const cos = Math.cos(r);
   const sin = Math.sin(r);
@@ -1127,9 +1154,9 @@ export function seatObstacles(pose: Pick<SeatPose, "x" | "y" | "scale" | "rotate
   const handW = own ? 605 : 420;
   const handH = own ? 116 : 100;
   return [
-    rect(0, 0, 653, 380),
+    rect(0, 0, boxWidth, 380),
     rect(0, 190 + handH / 2 - 2, handW, handH),
-    rect(-653 / 2 + 0.17 * 653, 190 + 14, 150, 28),
+    rect(-boxWidth / 2 + 0.17 * boxWidth, 190 + 14, 150, 28),
   ];
 }
 

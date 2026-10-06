@@ -4,6 +4,7 @@ import {
   boardBounds,
   chainStripInset,
   PLAZA_HUD_KEEP,
+  SEAT_BOX_FULL_DEF,
   plazaView,
   polygonGap,
   seatQuad,
@@ -94,8 +95,10 @@ describe("the wide plaza", () => {
       const { k, top } = plazaView(fit);
       const spread = stageSpread(fit);
       const poses = seatPoses(three, camera(), fit);
-      const quad = (seat: number) => seatQuad(poses.get(seat)!, 0, 0, 653, 380);
-      const hand = (seat: number) => seatQuad(poses.get(seat)!, 0, 225, 653, 70);
+      // Every field is the wide one (full-size Defense cards): SEAT_BOX_FULL_DEF.
+      for (const pose of poses.values()) expect(pose.width, `${name}: field width`).toBe(SEAT_BOX_FULL_DEF);
+      const quad = (seat: number) => seatQuad(poses.get(seat)!, 0, 0, SEAT_BOX_FULL_DEF, 380);
+      const hand = (seat: number) => seatQuad(poses.get(seat)!, 0, 225, SEAT_BOX_FULL_DEF, 70);
       const ring = [{ x: 486, y: 258 }, { x: 614, y: 258 }, { x: 614, y: 402 }, { x: 486, y: 402 }];
       expect(polygonGap(quad(1), quad(2)) * k, `${name}: rivals`).toBeGreaterThanOrEqual(32);
       for (const seat of [1, 2]) {
@@ -103,7 +106,7 @@ describe("the wide plaza", () => {
         expect(polygonGap(quad(seat), ring) * k, `${name}: rival ${seat} on the ring`).toBeGreaterThanOrEqual(11.9);
         expect(Math.min(...quad(seat).concat(hand(seat)).map((p) => p.y)), `${name}: rival ${seat} above the box`).toBeGreaterThanOrEqual(top);
         expect(poses.get(seat)!.scale, `${name}: rival ${seat} size`).toBeLessThanOrEqual(0.76);
-        expect(poses.get(seat)!.scale, `${name}: rival ${seat} size`).toBeGreaterThanOrEqual(0.66);
+        expect(poses.get(seat)!.scale, `${name}: rival ${seat} size`).toBeGreaterThanOrEqual(0.56 - 1e-9);
       }
       for (const r of PLAZA_HUD_KEEP) {
         const keep = [

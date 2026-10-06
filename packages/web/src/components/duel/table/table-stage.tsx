@@ -8,8 +8,8 @@ import type { UseGridFocus } from "./grid-focus";
 import { ChainRoomContext, type ChainStripSize } from "./chain-room";
 import { AttackLine } from "./attack-line";
 import { FlyCity } from "./fly-city";
-import { pickBarRoom, promptUnit } from "./grid-stage";
-import { aliveLayout, boardBounds, chainBandRooms, chainStripInset, flyWorld, holoAnchor, hubPose, normalizeAngle, ringAngles, CAMERA_HINT, portraitTable, promptRooms, ringPose, type HoloAnchor, type PromptRoom, seatPoses, slotPlan, stageFit, stageSpread, STAGE, wideHoloAnchors } from "./geometry";
+import { PICK_BAR, pickBarRoom, promptUnit } from "./grid-stage";
+import { aliveLayout, boardBounds, chainBandRooms, chainStripInset, flyWorld, holoAnchor, hubPose, normalizeAngle, ringAngles, CAMERA_HINT, HUD_CORNER, portraitTable, promptRooms, ringPose, type HoloAnchor, type PromptRoom, seatPoses, slotPlan, stageFit, stageSpread, STAGE, wideHoloAnchors } from "./geometry";
 import { holoStatus, HoloLp } from "./holo-lp";
 import { lastSeatDamage } from "./seat-state";
 import { Plaza } from "./plaza";
@@ -40,6 +40,8 @@ const sameRects = (a: readonly Rect[], b: readonly Rect[]) =>
   a.length === b.length && a.every((r, i) => r.x === b[i].x && r.y === b[i].y && r.width === b[i].width && r.height === b[i].height);
 /** How long after a change the targets are measured again: the regroup glide and the crumble are over by then. */
 const SETTLE_MS = 1500;
+/** Box px from the left edge that the floating HUD's left column (the dock, the chain tower, the Deck Master plate) takes. */
+const HUD_LEFT_COLUMN = 196;
 
 /** What a click on a seat must leave alone: the controls and the legal targets inside a field. */
 const CLICK_PASS = "button, a, [data-legal='true'], [data-holo]";
@@ -173,7 +175,8 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
   // Docked holo panels of a wide table (home and look); other cameras keep the panels of the 1100 px stage.
   const hasChip = masterChip != null;
   const hint = useMemo(() => ({ width: CAMERA_HINT.width / (k || 1), height: CAMERA_HINT.height / (k || 1) }), [k]);
-  const wideAnchors = useMemo(() => portrait?.anchors ?? wideHoloAnchors(play, camera, poses, spread, hasChip, k > 0 ? { hint } : undefined), [play, camera, poses, spread, hasChip, k, hint, portrait]);
+  const hudCorner = useMemo(() => (centerPrompts ? { width: HUD_CORNER.width / (k || 1), height: HUD_CORNER.height / (k || 1) } : undefined), [centerPrompts, k]);
+  const wideAnchors = useMemo(() => portrait?.anchors ?? wideHoloAnchors(play, camera, poses, spread, hasChip, k > 0 ? { hint, hud: hudCorner } : undefined), [play, camera, poses, spread, hasChip, k, hint, hudCorner, portrait]);
   // Free rooms for the prompts (a seat choice, "Activate?", the card-pick bar): off every board and plate, so a prompt that is
   // about a rival's field never covers it. In screen px of the board box; the prompt CSS and the select bar read them.
   const rooms = useMemo(() => {
@@ -231,11 +234,18 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
   }, [nearBox, legalKey, reducedMotion]);
   const barRoom = useMemo(() => {
     if (!nearBox) return undefined;
-    const found = pickBarRoom(nearBox, targets);
+    // The bar may run to the edge of your field (the 4-way keeps 12 px inside a pair): a short field has one row band
+    // above and one below your monsters, and the bar fits in one of them.
+    const edge = PICK_BAR.edge;
+    const found = pickBarRoom({ x: nearBox.x - edge, y: nearBox.y - edge, width: nearBox.width + 2 * edge, height: nearBox.height + 2 * edge }, targets);
     const room = found?.split(",").map(Number);
-    const clear = room && !targets.some((r) => r.x < room[0] + room[2] && room[0] < r.x + r.width && r.y < room[1] + room[3] && room[1] < r.y + r.height);
-    if (clear || !rooms?.bar) return found;
-    return `${rooms.bar.x},${rooms.bar.y},${rooms.bar.width},${rooms.bar.height}`;
+    const covers = (x: number, y: number, width: number, height: number) =>
+      targets.some((r) => r.x - PICK_BAR.clear < x + width && x < r.x + r.width + PICK_BAR.clear && r.y - PICK_BAR.clear < y + height && y < r.y + r.height + PICK_BAR.clear);
+    if (!room || !covers(room[0], room[1], room[2], room[3])) return found;
+    // Your field is full of targets: the free room off every board, unless that is under the HUD's left column.
+    const bar = rooms?.bar;
+    if (bar && bar.x >= HUD_LEFT_COLUMN && !covers(bar.x, bar.y, bar.width, bar.height)) return `${bar.x},${bar.y},${bar.width},${bar.height}`;
+    return found;
   }, [nearBox, targets, rooms?.bar]);
 
   const world = useMemo(() => flyWorld(play, camera.fly), [play, camera.fly]);
@@ -304,9 +314,9 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
   // The phase hub strip: the classic place, or at a wide table (home and look) the clear place nearest the ring or your field.
   // The place only depends on the camera's mode and target, so a fly-in drag (which changes only `camera.fly`) does not rescan.
   const hubAt = useMemo(
-    () => (hub && threeWay && !portrait ? hubPose(play, camera, { box: fitBox, meFooter: hasChip }) : null),
+    () => (hub && threeWay && !portrait ? hubPose(play, camera, { box: fitBox, meFooter: hasChip, ...(centerPrompts ? { hud: HUD_CORNER } : {}) }) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [hub != null, threeWay, play, camera.mode, camera.focusSeat, camera.lookSeat, fitBox, hasChip, portrait],
+    [hub != null, threeWay, play, camera.mode, camera.focusSeat, camera.lookSeat, fitBox, hasChip, portrait, centerPrompts],
   );
 
   return (

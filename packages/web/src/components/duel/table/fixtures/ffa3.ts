@@ -1,6 +1,6 @@
 import type { DuelChainLink, DuelEngineView, DuelEvent, DuelPrompt, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import { ev, MZ, SZ } from "../../fx-lab/board";
-import { LOCATION_HAND, LOCATION_MZONE, zoneKey } from "../../constants";
+import { LOCATION_HAND, LOCATION_MZONE, POS_FACEDOWN_DEFENSE, POS_FACEUP_DEFENSE, zoneKey } from "../../constants";
 import {
   fixtureEngine,
   fixtureRoom,
@@ -243,3 +243,54 @@ const states = {
 } satisfies Record<TableStateId, TableFixtureState>;
 
 export const FFA3_FIXTURES: TableFixtureSet = { format: "ffa3", title: "3-way free-for-all", states };
+
+/** Monsters in Defense Position on every field (the `?def=1` preview): face-up and set, side by side, so a turned card next to an upright one shows the zone it keeps. */
+const DEFENSE_ROWS = [
+  [C.darkMagician, C.celtic, C.envoy, C.jinzo, C.sangan],
+  [C.blueEyes, C.sangan, C.gaia, C.summonedSkull, C.redEyes],
+  [C.redEyes, C.gaia, C.cyberDragon, C.sangan, C.blackChaos],
+] as const;
+
+export type Ffa3PreviewPick = "def";
+
+/**
+ * A preview variant of the 3-way fixtures: `out` sweeps those seats (as the engine does: no LP, an empty board, the
+ * elimination order); `defense` lays Defense Position monsters on every field; `pick: "def"` asks you to pick one monster
+ * on any field (yours included), so the turned cards are the targets.
+ */
+export function ffa3Variant(set: TableFixtureSet, opts: { out: readonly number[]; defense?: boolean; pick?: Ffa3PreviewPick | null }): TableFixtureSet {
+  if (opts.out.length === 0 && !opts.defense && !opts.pick) return set;
+  const states = Object.fromEntries(
+    Object.entries(set.states).map(([id, state]) => {
+      const engine = state.room.engine!;
+      const seats = engine.seats.map((view) => ({ ...view }));
+      for (const seat of opts.out) {
+        const view = seats[seat];
+        view.lp = 0;
+        view.eliminated = true;
+        view.hand = [];
+        view.monsters = view.monsters.map(() => null);
+        view.spells = view.spells.map(() => null);
+      }
+      if (opts.defense || opts.pick === "def") {
+        for (const view of seats) {
+          if (view.eliminated) continue;
+          view.monsters = [...view.monsters];
+          DEFENSE_ROWS[view.seat].forEach((card, sequence) => putMonster(view, sequence, card, sequence % 2 === 0 ? POS_FACEUP_DEFENSE : POS_FACEDOWN_DEFENSE));
+        }
+      }
+      let prompt = engine.prompt;
+      if (opts.pick === "def" && state.room.mySeat === REN) {
+        const options = seats.flatMap((view) =>
+          view.eliminated ? [] : view.monsters.flatMap((card, sequence) => (card && sequence < 5 ? [monsterOption(view.seat, sequence, card.name ?? "Monster")] : [])),
+        );
+        prompt = { id: "pick-def", seat: REN, kind: "cards", title: "Select 1 monster to destroy", min: 1, max: 1, options };
+      }
+      const order = opts.out.map((seat) => [seat]);
+      const room = { ...state.room, engine: { ...engine, seats, prompt, ...(order.length > 0 ? { eliminationOrder: order } : {}) } };
+      const ui = order.length > 0 ? { ...state.ui, initialOutOrder: order } : state.ui;
+      return [id, { ...state, room, ui }];
+    }),
+  ) as unknown as TableFixtureSet["states"];
+  return { ...set, states };
+}
