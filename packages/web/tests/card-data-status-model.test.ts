@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   commitUrl, dataAsOf, filterGap, newUpstreamCdbFiles, recentIdMismatch, relativeTime, setGapState, shortSha, sortGap, sortSets, summarize,
 } from "../src/lib/card-data-status-model";
-import { behindStatus, completeSet, freshStatus, gapCards, missingSet, unknownSet, unknownSource } from "./fixtures/card-data-status";
+import { behindStatus, coldStatus, completeSet, freshStatus, gapCards, missingSet, unknownSet, unknownSource } from "./fixtures/card-data-status";
 
 describe("summarize", () => {
   it("is up to date when every source matches and there is no gap", () => {
@@ -109,7 +109,22 @@ describe("cold GitHub read", () => {
   it("is unknown, not up to date, when GitHub has not been checked yet", () => {
     const status = freshStatus();
     status.upstream.checkedAt = null;
-    expect(summarize(status)).toMatchObject({ state: "unknown", headline: "GitHub has not been checked yet" });
+    expect(summarize(status)).toMatchObject({ state: "unknown", headline: "GitHub check is running. Refresh in a moment." });
+  });
+
+  it("puts the cold read ahead of the other unknown reasons", () => {
+    expect(summarize(coldStatus())).toEqual({
+      state: "unknown",
+      headline: "GitHub check is running. Refresh in a moment.",
+      reasons: ["GitHub check is running. Refresh in a moment."],
+    });
+  });
+
+  it("never shows less than the recent sets add up to", () => {
+    const status = freshStatus();
+    status.gap.recentSets = [missingSet("A", "A1", "2026-09-26", 60, 4), missingSet("B", "B1", "2026-08-01", 60, 3)];
+    status.gap.recentSetsMissingFromEngineCount = 5;
+    expect(summarize(status).headline).toBe("7 new TCG cards not in the engine yet in 2 recent sets");
   });
 });
 

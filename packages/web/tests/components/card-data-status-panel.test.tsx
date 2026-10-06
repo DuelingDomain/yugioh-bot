@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CardDataStatusPanel } from "@/components/card-data/card-data-status-panel";
 import type { CardDataStatus } from "@yugidraft/shared/types";
 import { resetImageQueue } from "@/lib/image-queue";
-import { behindStatus, completeSet, freshStatus, gapCards, missingSet, unknownSet, unknownSource } from "../fixtures/card-data-status";
+import { behindStatus, coldStatus, completeSet, freshStatus, gapCards, missingSet, unknownSet, unknownSource } from "../fixtures/card-data-status";
 
 vi.mock("next/link", () => ({ default: ({ href, children, ...rest }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => <a href={href} {...rest}>{children}</a> }));
 
@@ -147,6 +147,65 @@ describe("CardDataStatusPanel", () => {
     await renderWith(status);
     expect(screen.getByRole("heading", { name: "Unknown" })).toBeTruthy();
     expect(screen.getByText(/GitHub has not been checked yet\./)).toBeTruthy();
+  });
+
+  it("shows a cold read as a running check, with no cached-until note", async () => {
+    await renderWith(coldStatus());
+    expect(screen.getByRole("heading", { name: "Unknown" })).toBeTruthy();
+    expect(screen.getByText("GitHub check is running. Refresh in a moment.")).toBeTruthy();
+    expect(screen.getAllByText("Not checked yet")).toHaveLength(3);
+    expect(screen.queryByText(/cached until/)).toBeNull();
+    expect(screen.queryByText(/did not answer/)).toBeNull();
+  });
+
+  it("reloads once, about five seconds after a cold read", async () => {
+    vi.useFakeTimers();
+    try {
+      fetchMock.mockResolvedValueOnce(json(coldStatus()));
+      fetchMock.mockResolvedValueOnce(json(coldStatus()));
+      render(<CardDataStatusPanel />);
+      await act(async () => {});
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      await act(async () => { vi.advanceTimersByTime(4900); });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      await act(async () => { vi.advanceTimersByTime(200); });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      await act(async () => { vi.advanceTimersByTime(30_000); }); // still cold: no third request
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not reload when GitHub has answered", async () => {
+    vi.useFakeTimers();
+    try {
+      fetchMock.mockResolvedValue(json(freshStatus()));
+      render(<CardDataStatusPanel />);
+      await act(async () => {});
+      await act(async () => { vi.advanceTimersByTime(30_000); });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("makes only sets with missing cards into buttons, and drops aria-expanded while filtering", async () => {
+    const status = freshStatus();
+    status.gap.recentSets = [
+      missingSet("Missing Set", "MS01", "2026-09-26", 60, 3),
+      completeSet("Done Set", "DS01", "2026-08-01", 50),
+      unknownSet("Unknown Set", "US01", "2026-07-01"),
+    ];
+    status.gap.recentSetsMissingFromEngineCount = 3;
+    status.gap.recentSetsUnknownCount = 1;
+    await renderWith(status);
+    const list = screen.getByRole("list", { name: "Recent TCG sets" });
+    expect(within(list).getAllByRole("button")).toHaveLength(1);
+    expect(within(list).getByRole("button", { name: /Missing Set/ }).getAttribute("aria-expanded")).toBe("false");
+    fireEvent.change(screen.getByLabelText("Filter missing cards by name, passcode or set code"), { target: { value: "gap card" } });
+    await screen.findByText("1 of 3 sets have a match");
+    expect(within(list).getByRole("button", { name: /Missing Set/ }).hasAttribute("aria-expanded")).toBe(false);
   });
 
   it("shows Unknown when no recent sets are synced", async () => {

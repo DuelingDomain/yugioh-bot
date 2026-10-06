@@ -11,6 +11,7 @@ import {
   isSourceBehind,
   isSourceUnknown,
   dataAsOf,
+  isColdRead,
   newUpstreamCdbFiles,
   relativeTime,
   shortSha,
@@ -46,7 +47,8 @@ function Commit({ repository, sha }: { repository: string; sha: string | null })
   );
 }
 
-function sourceVerdict(source: UpstreamSourceStatus): { tone: StatusTone; text: string } {
+function sourceVerdict(source: UpstreamSourceStatus, cold: boolean): { tone: StatusTone; text: string } {
+  if (cold) return { tone: "neutral", text: "Not checked yet" };
   if (source.status !== "ok") return { tone: "neutral", text: "Not checked, GitHub did not answer" };
   if (isSourceUnknown(source)) return { tone: "neutral", text: "Comparison unavailable" };
   if (isSourceBehind(source)) {
@@ -78,7 +80,7 @@ export function EngineSection({ status, now }: { status: CardDataStatus; now: nu
           {SOURCE_ORDER.map((key: EngineDataSource) => {
             const pin = engine.sources[key];
             const up = upstream.sources[key];
-            const verdict = sourceVerdict(up);
+            const verdict = sourceVerdict(up, isColdRead(status));
             return (
               <FloorRow key={key} className={styles.sourceRow} aria-label={SOURCE_LABEL[key]}>
                 <div className={styles.sourceMain}>

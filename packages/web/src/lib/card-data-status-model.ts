@@ -158,7 +158,16 @@ export function recentIdMismatch(status: CardDataStatus): CardDataGapCard[] {
   return [...seen.values()];
 }
 
+/** True on the first read after a restart: GitHub has not been fetched yet, so every upstream answer is empty. */
+export function isColdRead(status: CardDataStatus): boolean {
+  return status.upstream.checkedAt === null;
+}
+
 export function summarize(status: CardDataStatus): CardDataSummary {
+  if (isColdRead(status)) {
+    const headline = "GitHub check is running. Refresh in a moment.";
+    return { state: "unknown", headline, reasons: [headline] };
+  }
   const sources = SOURCE_ORDER.map((key) => status.upstream.sources[key]);
   const behind = sources.filter(isSourceBehind);
   const unknown = sources.filter(isSourceUnknown);
@@ -167,7 +176,8 @@ export function summarize(status: CardDataStatus): CardDataSummary {
   const setsWithMissing = missingSets.length;
   // The unique count covers known sets only (null before the set index syncs), so unknown sets make it a lower bound.
   const exact = status.gap.recentSetsMissingFromEngineCount;
-  const missing = exact ?? missingSets.reduce((sum, set) => sum + (set.missingCount ?? 0), 0);
+  // Never show less than the sets add up to, even when the server count lags.
+  const missing = Math.max(exact ?? 0, missingSets.reduce((sum, set) => sum + (set.missingCount ?? 0), 0));
   const lowerBound = exact === null || unknownSetCount(status) > 0;
 
   const reasons: string[] = [];
@@ -182,7 +192,6 @@ export function summarize(status: CardDataStatus): CardDataSummary {
   if (unknown.length === sources.length) unknownReasons.push("Cannot reach GitHub, so engine data age is unknown");
   else if (unknown.length) unknownReasons.push(`${plural(unknown.length, "engine source")} could not be checked against GitHub`);
   if (status.upstream.babelCdbFiles.status !== "ok" && !unknown.length) unknownReasons.push("New release files could not be checked");
-  if (status.upstream.checkedAt === null && !unknown.length) unknownReasons.push("GitHub has not been checked yet");
   if (recentSetsUnknown(status)) {
     const count = unknownSetCount(status);
     unknownReasons.push(

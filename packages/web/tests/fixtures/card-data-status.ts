@@ -69,6 +69,19 @@ export function unknownSource(key: EngineDataSource): UpstreamSourceStatus {
   };
 }
 
+/** The first read after a restart: no GitHub answer yet, every source unknown, expiry is now. */
+export function coldStatus(): CardDataStatus {
+  const status = freshStatus();
+  status.upstream = {
+    checkedAt: null,
+    expiresAt: status.generatedAt,
+    sources: { database: unknownSource("database"), scripts: unknownSource("scripts"), strings: unknownSource("strings") },
+    babelCdbFiles: { status: "unknown", files: [] },
+  };
+  status.updateWorkflow = { lastRunStatus: "unknown", lastRun: null, pullRequestStatus: "unknown", openPullRequest: null };
+  return status;
+}
+
 export function behindStatus(): CardDataStatus {
   const status = freshStatus();
   status.upstream.sources.database = {

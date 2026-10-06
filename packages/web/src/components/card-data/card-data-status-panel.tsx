@@ -9,6 +9,8 @@ import { CatalogSection, EngineSection, WorkflowSection } from "./card-data-sect
 import { CachedCatalogSection, GapSection } from "./card-data-gap";
 import styles from "./card-data.module.css";
 
+const COLD_RETRY_MS = 5000;
+
 type LoadFailure = "forbidden" | "unauthorized" | "unavailable";
 
 const STATE_WORD: Record<OverallState, string> = { "up-to-date": "Up to date", behind: "Behind", unknown: "Unknown" };
@@ -42,6 +44,20 @@ export function CardDataStatusPanel() {
   React.useEffect(() => {
     void load();
   }, [load]);
+
+  // A cold read means GitHub is being fetched right now. Look once more shortly after.
+  const cold = status !== null && status.upstream.checkedAt === null;
+  const retried = React.useRef(false);
+  React.useEffect(() => {
+    if (!cold) {
+      retried.current = false;
+      return;
+    }
+    if (retried.current) return;
+    retried.current = true;
+    const timer = setTimeout(() => void load(), COLD_RETRY_MS);
+    return () => clearTimeout(timer);
+  }, [cold, load]);
 
   if (failure === "forbidden" || failure === "unauthorized") {
     return (
@@ -102,8 +118,8 @@ export function CardDataStatusPanel() {
             <RefreshCw className="ic sm" aria-hidden="true" /> {loading ? "Refreshing" : "Refresh"}
           </SvButton>
           <p className={styles.rowNote}>
-            {status.upstream.checkedAt === null ? "GitHub has not been checked yet." : `GitHub checked ${checked ?? "at an unknown time"}.`}
-            {expires ? <> It is cached until {expires}.</> : null}
+            {cold ? "GitHub has not been checked yet." : `GitHub checked ${checked ?? "at an unknown time"}.`}
+            {!cold && expires ? <> It is cached until {expires}.</> : null}
           </p>
           <p role="status" className="sv-sr">{updated ? "Card data status updated" : ""}</p>
           {failure === "unavailable" ? (

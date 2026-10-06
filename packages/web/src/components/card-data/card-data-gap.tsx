@@ -96,22 +96,31 @@ function SetRow({ set, query, now }: { set: CardDataSetGapStatus; query: string;
     state === "unknown" ? "Unknown"
     : state === "missing" ? `${set.missingCount} missing of ${set.total}`
     : `Complete, ${set.total} cards`;
+  const cells = (
+    <>
+      <span className={styles.setName}>{set.name}</span>
+      <span className={styles.mono}>{set.code ?? ""}</span>
+      <span className={styles.mute}>{absoluteDate(set.releaseDate) ?? "no date"}</span>
+      <span className={styles.setVerdict} data-state={state}>{verdict}</span>
+      <span className={styles.mute}>{checked ? `checked ${checked}` : "never checked"}</span>
+    </>
+  );
   return (
     <li className={styles.setItem} data-state={state}>
-      <button
-        type="button"
-        className={styles.setButton}
-        aria-expanded={open}
-        aria-controls={panelId}
-        disabled={state !== "missing"}
-        onClick={() => setExpanded((v) => !v)}
-      >
-        <span className={styles.setName}>{set.name}</span>
-        <span className={styles.mono}>{set.code ?? ""}</span>
-        <span className={styles.mute}>{absoluteDate(set.releaseDate) ?? "no date"}</span>
-        <span className={styles.setVerdict} data-state={state}>{verdict}</span>
-        <span className={styles.mute}>{checked ? `checked ${checked}` : "never checked"}</span>
-      </button>
+      {state === "missing" ? (
+        // While a filter is active the list is open by force, so the toggle states nothing.
+        <button
+          type="button"
+          className={`${styles.setRow} ${styles.setButton}`}
+          aria-expanded={filtering ? undefined : open}
+          aria-controls={open ? panelId : undefined}
+          onClick={() => setExpanded((v) => !v)}
+        >
+          {cells}
+        </button>
+      ) : (
+        <div className={styles.setRow}>{cells}</div>
+      )}
       {open && state === "missing" ? (
         <div id={panelId} className={styles.setPanel}>
           <GapCardTable cards={cards} label={`Cards missing from the engine in ${set.name}`} />
