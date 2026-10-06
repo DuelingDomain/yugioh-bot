@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { callDuelHost, requireDuelActor } from "@/lib/duel-host";
 import { getDb } from "@/lib/db";
-import { CARD_BACK_SVG, CardFetchError, fetchCardImageResource, fetchCardResource, isCardFetchError, trustedCardImageUrl, validateCardImage } from "@yugidraft/shared/services";
+import { CARD_BACK_SVG, CardFetchError, CardImageValidationError, PROJECT_IGNIS_IMAGE_URL, fetchCardResource, isCardFetchError, readCardImageResponse, trustedCardImageUrl, validateCardImage } from "@yugidraft/shared/services";
 
 export const runtime = "nodejs";
 
@@ -12,7 +13,16 @@ const YGOPRODECK_IMAGE_URL = "https://images.ygoprodeck.com/images/cards";
 const YGOPRODECK_SMALL_URL = "https://images.ygoprodeck.com/images/cards_small";
 const YGOPRODECK_CROPPED_URL = "https://images.ygoprodeck.com/images/cards_cropped";
 type ImageVariant = "full" | "small" | "cropped";
+type ImageSource = "ygoprodeck" | "ignis";
+type CachedImage = { image: Buffer; cacheControl: string };
+type FetchedImage = { image: Buffer | null; source: ImageSource; ignisError?: unknown };
 type ArtworkRow = { card_id: number; image_url: string; image_url_small: string; image_url_cropped: string | null };
+const FALLBACK_TTL_MS = 60 * 60 * 1000;
+const MISSING_TTL_MS = 10 * 60 * 1000;
+const inFlight = new Map<string, Promise<CachedImage>>();
+const missingImages = new Map<string, number>();
+const OWN_CACHE_CONTROL = "public, max-age=86400, immutable";
+const FALLBACK_CACHE_CONTROL = "public, max-age=3600";
 
 function artworkOf(passcode: number): ArtworkRow | undefined {
   return getDb().prepare("select card_id, image_url, image_url_small, image_url_cropped from card_artworks where artwork_id = ?")
@@ -23,35 +33,42 @@ class ImageMissingError extends Error {}
 class ImageInvalidError extends CardFetchError {}
 
 /** Try Ignis for missing full/small cards before considering the engine alias. */
-async function fetchImage(passcode: number, variant: ImageVariant): Promise<Buffer | null> {
+async function fetchImage(passcode: number, variant: ImageVariant): Promise<FetchedImage> {
   const artwork = artworkOf(passcode);
   const baseUrl = variant === "cropped" ? YGOPRODECK_CROPPED_URL : variant === "small" ? YGOPRODECK_SMALL_URL : YGOPRODECK_IMAGE_URL;
   const storedUrl = variant === "cropped" ? artwork?.image_url_cropped : variant === "small" ? artwork?.image_url_small : artwork?.image_url;
   const url = trustedCardImageUrl(storedUrl, `${baseUrl}/${passcode}.jpg`);
   const readImage = async (response: Response) => {
-    const image = Buffer.from(await response.arrayBuffer());
-    try { return await validateCardImage(image); }
-    catch { throw new ImageInvalidError(); }
+    try { return await readCardImageResponse(response); }
+    catch (error) {
+      if (error instanceof CardImageValidationError) throw new ImageInvalidError();
+      throw error;
+    }
   };
-  // Ignis has no cropped-art endpoint. Keep alias-crop/404 handling rather than
-  // storing a full card under a cropped cache key.
-  if (variant === "cropped") {
-    return fetchCardResource(url, fetch, response => response.status === 404 ? Promise.resolve(null) : readImage(response), [404]);
+  const readOrMiss = (response: Response) => response.status === 404 ? Promise.resolve(null) : readImage(response);
+  const image = await fetchCardResource(url, fetch, readOrMiss, [404]);
+  if (image || variant === "cropped") return { image, source: "ygoprodeck" };
+  // Ignis only has 177x254 full-card JPEGs, with no HQ or cropped endpoint.
+  // Its separate, one-hour disk cache lets later YGOPRODeck/HQ art replace it.
+  try {
+    return { image: await fetchCardResource(`${PROJECT_IGNIS_IMAGE_URL}/${passcode}.jpg`, fetch, readOrMiss, [404]), source: "ignis" };
+  } catch (ignisError) {
+    return { image: null, source: "ignis", ignisError };
   }
-  return fetchCardImageResource(url, passcode, fetch, readImage);
 }
 
 /**
- * The passcode the engine database gives as this card's alias, or null. A card such as the
+ * The engine alias, null for a confirmed absence, or undefined without verification.
+ * A card such as the
  * Normal Monster "Black Luster Soldier" (10000100) has no YGOPRODeck image of its own,
  * but its alias (the Ritual Monster, 5405694) does.
  */
-async function aliasOf(passcode: number): Promise<number | null> {
+async function aliasOf(passcode: number): Promise<number | null | undefined> {
   const artwork = artworkOf(passcode);
   if (artwork && artwork.card_id !== passcode) return artwork.card_id;
   const actor = await requireDuelActor();
   if (!actor.ok) {
-    if (actor.response.status === 401 || actor.response.status === 403) return null;
+    if (actor.response.status === 401 || actor.response.status === 403) return undefined;
     throw new CardFetchError(1, actor.response.status);
   }
   const result = await callDuelHost({ op: "card-details", guildId: actor.guildId, playerId: actor.playerId, codes: [passcode] });
@@ -61,37 +78,92 @@ async function aliasOf(passcode: number): Promise<number | null> {
   return alias > 0 && alias !== passcode ? alias : null;
 }
 
-async function getCachedImage(
-  passcode: number,
-  variant: ImageVariant
-): Promise<{ image: Buffer; temporary: boolean }> {
-  const filename = variant === "full" ? `${passcode}.jpg` : `${passcode}-${variant}.jpg`;
-  const cachePath = join(CACHE_DIR, filename);
+function imageFilename(passcode: number, variant: ImageVariant): string {
+  return variant === "full" ? `${passcode}.jpg` : `${passcode}-${variant}.jpg`;
+}
 
+function cachePathOf(filename: string, source: ImageSource): string {
+  // Ignore every legacy key: those files may contain alias art or low-res Ignis
+  // art, even if weekly catalog sync has since added an API artwork row.
+  // Flat versioned keys remain visible to the existing size-based cache cleanup.
+  return join(CACHE_DIR, `v2-${source}-${filename}`);
+}
+
+async function readCachedImage(filename: string): Promise<CachedImage | null> {
   try {
-    return { image: await validateCardImage(await readFile(cachePath)), temporary: false };
-  } catch {
-    let image: Buffer | null = null;
-    let upstreamError: unknown;
-    try { image = await fetchImage(passcode, variant); }
-    catch (error) { upstreamError = error; }
-    if (!image) {
-      let alias: number | null;
-      try { alias = await aliasOf(passcode); }
-      catch (error) { throw upstreamError ?? error; }
-      if (alias != null) {
-        const aliasFilename = variant === "full" ? `${alias}.jpg` : `${alias}-${variant}.jpg`;
-        try { image = await validateCardImage(await readFile(join(CACHE_DIR, aliasFilename))); }
-        catch { if (!upstreamError) image = await fetchImage(alias, variant); }
-      }
+    return { image: await validateCardImage(await readFile(cachePathOf(filename, "ygoprodeck"))), cacheControl: OWN_CACHE_CONTROL };
+  } catch { /* Fetch a missing or invalid primary image. */ }
+  try {
+    const path = cachePathOf(filename, "ignis");
+    if (Date.now() - (await stat(path)).mtimeMs < FALLBACK_TTL_MS) {
+      return { image: await validateCardImage(await readFile(path)), cacheControl: FALLBACK_CACHE_CONTROL };
     }
-    if (!image) throw upstreamError ?? new ImageMissingError(`No card image for ${passcode}`);
+  } catch { /* Fetch a missing, invalid or expired fallback image. */ }
+  return null;
+}
 
-    if (upstreamError) return { image, temporary: true };
+async function writeCachedImage(filename: string, source: ImageSource, image: Buffer): Promise<void> {
+  const cachePath = cachePathOf(filename, source);
+  const temporaryPath = `${cachePath}.${randomUUID()}.tmp`;
+  try {
+    await mkdir(CACHE_DIR, { recursive: true });
+    await writeFile(temporaryPath, image);
+    await rename(temporaryPath, cachePath);
+  } catch { /* Serve a usable image if caching fails. */ }
+  finally { await rm(temporaryPath, { force: true }).catch(() => {}); }
+}
 
-    try { await mkdir(CACHE_DIR, { recursive: true }); await writeFile(cachePath, image); } catch { /* Serve a usable image if caching fails. */ }
-    return { image, temporary: false };
+async function loadImage(passcode: number, variant: ImageVariant, filename: string): Promise<CachedImage> {
+  const cached = await readCachedImage(filename);
+  if (cached) return cached;
+  if ((missingImages.get(filename) ?? 0) > Date.now()) throw new ImageMissingError();
+  missingImages.delete(filename);
+
+  let fetched: FetchedImage | undefined;
+  let upstreamError: unknown;
+  let ignisError: unknown;
+  try {
+    fetched = await fetchImage(passcode, variant);
+    ignisError = fetched.ignisError;
+  } catch (error) { upstreamError = error; }
+  if (fetched?.image) {
+    await writeCachedImage(filename, fetched.source, fetched.image);
+    return { image: fetched.image, cacheControl: fetched.source === "ignis" ? FALLBACK_CACHE_CONTROL : OWN_CACHE_CONTROL };
   }
+
+  let alias: number | null | undefined;
+  try { alias = await aliasOf(passcode); }
+  catch (error) { throw upstreamError ?? ignisError ?? error; }
+  if (alias != null) {
+    const cachedAlias = await readCachedImage(imageFilename(alias, variant));
+    let image = cachedAlias?.image;
+    // A primary 404 always permits alias fetching, even after an Ignis error.
+    if (!image && !upstreamError) {
+      const fetchedAlias = await fetchImage(alias, variant);
+      image = fetchedAlias.image ?? undefined;
+      ignisError ??= fetchedAlias.ignisError;
+    }
+    // Alias art must never become this passcode's durable art.
+    if (image) return { image, cacheControl: upstreamError || ignisError ? "no-store" : FALLBACK_CACHE_CONTROL };
+  }
+  if (upstreamError || ignisError) throw upstreamError ?? ignisError;
+  if (alias === null) {
+    const now = Date.now();
+    for (const [key, expires] of missingImages) if (expires <= now) missingImages.delete(key);
+    if (missingImages.size >= 1024) missingImages.delete(missingImages.keys().next().value!);
+    missingImages.set(filename, now + MISSING_TTL_MS);
+  }
+  throw new ImageMissingError(`No card image for ${passcode}`);
+}
+
+async function getCachedImage(passcode: number, variant: ImageVariant): Promise<CachedImage> {
+  const filename = imageFilename(passcode, variant);
+  const existing = inFlight.get(filename);
+  if (existing) return existing;
+  const pending = loadImage(passcode, variant, filename);
+  inFlight.set(filename, pending);
+  try { return await pending; }
+  finally { inFlight.delete(filename); }
 }
 
 export async function GET(
@@ -109,12 +181,12 @@ export async function GET(
       return NextResponse.json({ error: "Invalid image variant" }, { status: 400 });
     }
 
-    const { image, temporary } = await getCachedImage(Number(raw), variant);
+    const { image, cacheControl } = await getCachedImage(Number(raw), variant);
 
     return new Response(new Uint8Array(image), {
       headers: {
         "Content-Type": "image/jpeg",
-        "Cache-Control": temporary ? "public, max-age=30" : "public, max-age=86400, immutable",
+        "Cache-Control": cacheControl,
       },
     });
   } catch (error) {
