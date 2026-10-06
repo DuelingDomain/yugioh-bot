@@ -213,6 +213,20 @@ describe("SandboxBar eliminate", () => {
     expect(api.getDuelRoom).toHaveBeenCalledWith("abc", false, { as: 0, reveal: true });
   });
 
+  it.each([0, 2])("selects the first living seat after eliminating acting seat %i with P0 out", async (acting) => {
+    const next = room({ format: "ffa4", turnSeat: 3, out: acting === 0 ? [0] : [0, 2] });
+    api.eliminateSandboxSeat.mockResolvedValue(next);
+    api.setSandboxSeatControl.mockResolvedValue(next);
+    api.getDuelRoom.mockResolvedValue(next);
+    const props = mount({ room: room({ format: "ffa4", turnSeat: 3, out: acting === 0 ? [] : [0] }), acting });
+    fireEvent.click(screen.getByLabelText(acting === 0 ? "P0 options" : "Set P2 mode"));
+    fireEvent.click(screen.getByTestId(`sandbox-eliminate-${acting}`));
+    fireEvent.click(screen.getByTestId(`sandbox-eliminate-confirm-${acting}`));
+    await waitFor(() => expect(props.onActAs).toHaveBeenCalledWith(1, next));
+    expect(api.setSandboxSeatControl).toHaveBeenCalledWith("abc", 1, "manual", { as: acting, reveal: true });
+    expect(api.getDuelRoom).toHaveBeenCalledWith("abc", false, { as: 1, reveal: true });
+  });
+
   it("shows an eliminated seat as Out and disables it", () => {
     mount({ room: room({ format: "ffa3", out: [1] }) });
     const chip = screen.getByTestId("sandbox-seat-1");

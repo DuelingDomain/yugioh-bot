@@ -369,9 +369,11 @@ export function SandboxBar({ slug, room, info, acting, reveal, follow, onActAs, 
   const eliminate = (seat: number) => {
     void guarded(async () => {
       const next = await eliminateSandboxSeat(slug, seat, view);
-      // An eliminated seat has nothing left to act for: go back to seat 0.
-      if (seat === acting && seat !== 0) await switchTo(0);
-      else await onRoom(next);
+      const remaining = next.engine?.seats.find((entry) => !entry.eliminated && !entry.pendingElimination)?.seat;
+      if (seat === acting && remaining != null) {
+        if (!canActAs(info, remaining)) await setSandboxSeatControl(slug, remaining, "manual", view);
+        await switchTo(remaining);
+      } else await onRoom(next);
     });
   };
 
