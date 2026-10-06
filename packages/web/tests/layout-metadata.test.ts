@@ -10,7 +10,7 @@ vi.mock("../app/globals.css", () => ({}));
 import { metadata } from "../app/layout";
 
 describe("root layout metadata", () => {
-  it("titles the site Duelists Kingdom", () => {
-    expect(metadata.title).toBe("Duelists Kingdom");
+  it("titles the site Dueling Domain", () => {
+    expect(metadata.title).toBe("Dueling Domain");
   });
 });

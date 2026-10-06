@@ -439,7 +439,7 @@ function TableShellBody({
 
   const identityNode = (
     <div className={roomStyles.identity}>
-      <Link href="/duels">Duelists Kingdom</Link>
+      <Link href="/duels">Dueling Domain</Link>
       {spectator ? (
         <strong className={roomStyles.viewerRole} title="You are watching. Hidden cards stay private.">
           <Eye size={15} strokeWidth={1.5} aria-hidden /> You are spectating

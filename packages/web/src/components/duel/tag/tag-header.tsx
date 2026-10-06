@@ -64,7 +64,7 @@ export function TagHeader({ session, engine, viewerSeat, nameOf, teamNames, pref
   const soundLabel = preferences.soundEnabled ? "On" : "Off";
   const identityNode = (
     <div className={styles.identity}>
-      <Link href="/duels">Duelists Kingdom</Link>
+      <Link href="/duels">Dueling Domain</Link>
       <i aria-hidden>/</i>
       <span className={styles.title} title={session.name}>{session.name}</span>
       <em className={styles.format}>{tagModeLabel(session)} &middot; Tag duel (2v2)</em>
