@@ -209,6 +209,8 @@ export interface CardQuery {
 
 /** Engine catalog card with the fields the deck editor filters and badges on. */
 export interface DeckCardInfo extends DuelCardInfo {
+  /** Selectable engine artwork family size minus one, when supplied by the host. */
+  altArtCount?: number;
   alias: number;
   setcodes: number[];
   lscale: number;

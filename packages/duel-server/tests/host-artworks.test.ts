@@ -47,6 +47,9 @@ it("serves signed artwork families and preserves chosen passcodes through deck s
     expect(await (await post({ op: "card-artworks", codes: [12] })).json()).toEqual({ passcode: 10, artworks: [
       { passcode: 10, isMain: true }, { passcode: 11, isMain: false }, { passcode: 12, isMain: false },
     ] });
+    const details = await (await post({ op: "card-details", codes: [10, 11, 12, 99] })).json();
+    expect(details.cards.map((card: { code: number; altArtCount?: number }) => [card.code, card.altArtCount])).toEqual([[10, 2], [11, 2], [12, 2]]);
+    expect(details.missing).toEqual([99]);
     expect((await post({ op: "card-artworks", codes: [99] })).status).toBe(404);
     expect((await post({ op: "card-artworks", codes: [10,11] })).status).toBe(400);
     expect(await (await post({ op: "normalize-codes", codes: [12] })).json()).toEqual({ codes: { 12: 10 } });
