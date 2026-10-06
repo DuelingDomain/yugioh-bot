@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type Database from "better-sqlite3";
 import { multiplayerSeatsBlockReason, multiplayerTablesEnabled, parseSandboxRun, SandboxBoardError,
-  seatCountFor, type DuelAnswer, type DuelEngineView, type DuelPrompt, type SandboxRun } from "@yugidraft/shared/duels";
+  seatCountFor, type DuelAnswer, type DuelEngineView, type DuelPrompt, type DuelFormat, type SandboxStartPhase, type SandboxBoard, type SandboxRun } from "@yugidraft/shared/duels";
 import type { DuelService } from "@yugidraft/shared/services";
 import { defaultAnswer } from "./scripted-bot.js";
 import { botTableOf } from "./practice-bot.js";
@@ -38,7 +38,7 @@ export function createSandboxOps(options: {
   dataDirectory: string;
   now: () => number;
   enqueue<T>(slug: string, work: () => Promise<T>): Promise<T>;
-  launch: (slug: string, guildId: string, actor: number, seed: string[], setup: DuelSetup) => Promise<void>;
+  launch: (slug: string, guildId: string, actor: number, seed: string[], setup: DuelSetup) => Promise<SandboxStartResult>;
   cancel: (slug: string, guildId: string, actor: number) => Promise<void>;
 }) {
   const { service } = options;
@@ -71,7 +71,7 @@ export function createSandboxOps(options: {
     for (const row of active.slice(3)) await options.cancel(row.web_slug, guildId, actor);
   }
 
-  async function start(body: Record<string, unknown>, guildId: string, actor: number, replacing?: string): Promise<{ slug: string }> {
+  async function start(body: Record<string, unknown>, guildId: string, actor: number, replacing?: string): Promise<{ slug: string; start: SandboxStartResult }> {
     const validated = validateRuntimeBoard(body.board, options.dataDirectory);
     if (!validated.ok) throw new SandboxError(validated.errors.map((error) => `${error.path}: ${error.message}`).join("; "), 400);
     let run: SandboxRun;
@@ -104,11 +104,12 @@ export function createSandboxOps(options: {
     const { slug } = service.create({ guildId, organizerPlayerId: actor, name: "Duelists Kingdom Sandbox",
       mode: copts.mode ?? "normal", masterRule: copts.masterRule, format, sandbox: true, ranked: false, bestOf: 1,
       settings: { ...copts.settings, turnSeconds: 0, visibility: "private" } });
+    let startResult: SandboxStartResult;
     try {
       service.setDeck(slug, guildId, actor, copts.decks[0]!);
       for (let seat = 1; seat < count; seat++) service.addPracticeBot(slug, guildId, actor, copts.decks[seat]!, seat);
-      await options.launch(slug, guildId, actor, seed, {
-        sandbox, startupScripts: [...(copts.startupScripts ?? []).map((script) => script.content), SANDBOX_PHASE_WINDOWS],
+      startResult = await options.launch(slug, guildId, actor, seed, {
+        sandbox, startupScripts: [sandboxOpeningWindow(board), ...(copts.startupScripts ?? []).map((script) => script.content), SANDBOX_PHASE_WINDOWS],
         firstTurnDraw: copts.firstTurnDraw ?? true,
         ...(format === "1v1" ? { engine: "pinned" as const } : {}),
       });
@@ -119,7 +120,7 @@ export function createSandboxOps(options: {
     // Cancel only after the replacement starts. A failed create must leave the old board usable.
     if (replacing) await options.cancel(replacing, guildId, actor);
     await trimActive(guildId, actor);
-    return { slug };
+    return { slug, start: startResult };
   }
 
   return {
@@ -144,6 +145,55 @@ export function createSandboxOps(options: {
 }
 
 export const SANDBOX_PHASE_WALK_NOTE = "sandbox: phase walk";
+
+export interface SandboxStartResult {
+  requested: SandboxStartPhase;
+  reached: boolean;
+  phase: string;
+  turn: number;
+  turnSeat: number;
+  prioritySeat: number | null;
+}
+
+export function sandboxStartResult(view: DuelEngineView, requested: SandboxStartPhase): SandboxStartResult {
+  const phase = view.phase.startsWith("battle") || view.phase.startsWith("damage") ? "battle" : view.phase;
+  return { requested, reached: phase === requested && !view.result, phase: view.phase,
+    turn: view.turn, turnSeat: view.turnSeat, prioritySeat: view.prioritySeat ?? null };
+}
+
+/** The worker pauses in EVENT_STARTUP so losses use its normal journaled command before turn 1. */
+function sandboxOpeningWindow(board: SandboxBoard): string {
+  const seat = Number((board.turn ?? "p0").slice(1));
+  // LP 0 before the gate could trigger a loss before the host can journal it.
+  const lifePoints = (board.eliminated ?? []).flatMap((id) => board[id]?.lp === undefined ? []
+    : [`Duel.SetLP(${Number(id.slice(1))},${board[id]!.lp})`]).join("; ");
+  return `do
+local e=Effect.GlobalEffect()
+e:SetType(EFFECT_TYPE_FIELD+EFFECT_TYPE_CONTINUOUS)
+e:SetCode(EVENT_STARTUP)
+e:SetOperation(function(e) Duel.AnnounceNumber(${seat},${0x53425801}); ${lifePoints}; e:Reset() end)
+Duel.RegisterEffect(e,0)
+end`;
+}
+
+export function isSandboxOpeningWindow(prompt: DuelPrompt | null): boolean {
+  return prompt?.kind === "choice" && prompt.options.length === 1 && prompt.options[0]?.id === "num:0"
+    && prompt.options[0]?.values?.[0] === 0x53425801;
+}
+
+/** Include pending losses when checking the last-two rule. Two queued losses must not end the duel. */
+export function sandboxEliminationSeat(format: DuelFormat, view: DuelEngineView, seat: unknown): number {
+  if (format !== "ffa3" && format !== "ffa4") throw new SandboxError("Only FFA sandbox duels can eliminate a seat", 409);
+  if (typeof seat !== "number" || !Number.isInteger(seat) || seat < 0 || seat >= seatCountFor(format)) {
+    throw new SandboxError("Choose a seat in this duel", 400);
+  }
+  const state = view.seats.find((entry) => entry.seat === seat);
+  if (!state || state.eliminated || state.pendingElimination) throw new SandboxError("This seat is already out", 409);
+  if (view.result || view.seats.filter((entry) => !entry.eliminated && !entry.pendingElimination).length <= 2) {
+    throw new SandboxError("Keep at least two active seats", 409);
+  }
+  return seat;
+}
 
 export interface SandboxViewOptions { as?: unknown; reveal?: unknown }
 
@@ -230,7 +280,7 @@ export async function walkSandboxPhases(options: {
   game: DuelGameWorker;
   manualSeats: ReadonlySet<number>;
   actingSeat: number;
-  to?: SandboxPhase;
+  to?: SandboxStartPhase;
   answer: (seat: number, view: DuelEngineView,
     answer: DuelAnswer) => Promise<void>;
 }): Promise<void> {
