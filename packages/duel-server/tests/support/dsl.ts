@@ -70,6 +70,7 @@ export type ZoneExpect =
       materials?: number;
       /** Current ATK, including continuous effects and negation. */
       attack?: number;
+      defense?: number;
       /** Exact counters on the card: counter type to count. {} means no counters. */
       counters?: Record<number, number>;
     };

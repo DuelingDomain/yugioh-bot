@@ -453,6 +453,12 @@ const filler = (count: number): CardEntry[] => FILLERS.slice(0, count);
  * `ahead`: p0 has more cards, so a "fewer than you" compare passes. Each opponent has a different count, so the compare differs by seat.
  */
 export function boardFor(format: DuelFormat, code: number, layout: Layout): BoardSpec {
+  if (code === 40640057) {
+    // Kuriboh's hand condition needs damage calculation on an opponent's turn.
+    return { format, deckSize: 20, attackFirstTurn: true,
+      p0: { hand: [code] }, p1: { monsters: ["Axe Raider"] }, p2: {},
+      ...(format === "tag" ? { p3: {} } : {}) };
+  }
   const { type } = cardRow(code);
   const extra = (type & TYPE.extra) !== 0;
   const monster = (type & TYPE.monster) !== 0;
@@ -611,6 +617,11 @@ export async function playTable(format: DuelFormat, code: number, layout: Layout
       result.turn = Math.max(result.turn, view.turn);
       if (view.result) break;
       const answers = candidatesFor(prompt, seat, actions < MAX_ACTIONS, result.steps < LIVELY_STEPS, rng, game, view.seats?.filter((entry) => !entry.eliminated).map((entry) => entry.seat));
+      if (code === 40640057 && seat === 0 && prompt.context?.type === "action") {
+        // Keep Kuriboh in hand until the opponent attacks instead of Normal Summoning it.
+        const end = prompt.options.find(option => option.id === "to_ep");
+        if (end) answers.unshift({ choice: end.id });
+      }
       if (code === 99050989 && seat === 0 && prompt.context?.type === "action") {
         // The generic p0 planner summons and activates, then ends its turn. Drillago needs an attack.
         const attack = prompt.options.find(option => option.id.startsWith("attack:") && option.card?.code === code);

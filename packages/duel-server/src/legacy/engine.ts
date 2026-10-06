@@ -5,6 +5,7 @@
 import type { DuelAnswer, DuelBattleStep, DuelChainMode, DuelCardInfo, DuelDeck, DuelEngineView, DuelMasterRule, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
 import { defaultChainMode } from "@yugidraft/shared/duels"; // LEGACY-1V1: chain response mode (Auto, Always, Off)
 import { firstTurnDrawFor } from "../first-turn-draw.js"; // LEGACY-1V1: owner draw rule and saved replay overrides
+import { legacyNormalScript } from "./script-compat.js"; // LEGACY-1V1: current Lua bundle on the unchanged npm core
 import createCore, {
   OcgDuelMode,
   OcgHintType,
@@ -219,7 +220,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     return cards.cardData(code);
   };
   const scriptReader = (name: string) => {
-    const content = cards.readScript(name);
+    const content = options.mode === "normal" ? legacyNormalScript(name, cards.readScript(name)) : cards.readScript(name); // LEGACY-1V1
     if (!content && !isOptionalCardScript(name, cards.cardData)) errors.push(`Missing script ${name}`);
     return content;
   };

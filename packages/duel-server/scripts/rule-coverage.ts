@@ -148,6 +148,17 @@ export function renderTable(rows: RuleRow[], sketchEntries: number): string {
   };
   const outcomeCell = (row: RuleRow) => {
     const outcome = row.tests.filter((t) => t.kind === "outcome" || t.kind === "host-outcome");
+    if (row.id === "R-TAG-TEAM-DAMAGE") {
+      // Show one partner outcome per card/effect instead of six Kuriboh cases.
+      const effects = new Map<string, RuleRef>();
+      for (const ref of outcome) {
+        const key = ref.test.replace(/-(?:normal|domain)-.*/, "");
+        const partner = /-normal-tag-p0-(?:partner|other)(?:-|$)/;
+        if (!effects.has(key) || (partner.test(ref.test) && !partner.test(effects.get(key)!.test))) effects.set(key, ref);
+      }
+      const shown = [...effects.values()].map(ref => `\`${ref.test}\``).join(", ");
+      return shown ? `${shown} (${outcome.length} outcomes total)` : "-";
+    }
     return outcome.length === 0 ? "-" : list(outcome, (t) => `\`${t.test}\``);
   };
   const otherCell = (row: RuleRow) => {
