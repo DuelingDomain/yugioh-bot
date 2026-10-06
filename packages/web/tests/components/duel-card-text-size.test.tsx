@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import React from "react";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { hydrateRoot } from "react-dom/client";
+import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DuelCard } from "@yugidraft/shared/duels";
 import { CARD_TEXT_SIZE_KEY, cardTextStyle, loadCardTextSize, normalizeCardTextSize, saveCardTextSize, setCardTextSize } from "@/components/duel/card-text-size";
@@ -67,10 +69,45 @@ describe("card text size control and panels", () => {
     const inspector = container.querySelector("[data-card-text]:not([data-testid])") as HTMLElement;
     expect(preview).toHaveAttribute("data-card-text", "medium");
     expect(inspector).toHaveAttribute("data-card-text", "medium");
-    act(() => { fireEvent.click(screen.getByRole("button", { name: "Large" })); });
+    fireEvent.click(screen.getByRole("button", { name: "Large" }));
     expect(preview).toHaveAttribute("data-card-text", "large");
     expect(inspector).toHaveAttribute("data-card-text", "large");
     expect(preview.style.getPropertyValue("--ct")).toContain("1.2");
     expect(preview.style.getPropertyValue("--seat-main")).toBe("#4cc9f0");
+  });
+  it("shows a fade and a hint only when the effect text is cut", () => {
+    const sizes = vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(720);
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(340);
+    const { unmount } = render(<GridHoverPreview card={card} owner={owner} reducedMotion />);
+    expect(screen.getByText(card.description!)).toHaveAttribute("data-overflow", "true");
+    expect(screen.getByText("Click the card for the full text.")).toBeInTheDocument();
+    unmount();
+    sizes.mockReturnValue(340);
+    render(<GridHoverPreview card={card} owner={owner} reducedMotion />);
+    expect(screen.getByText(card.description!)).not.toHaveAttribute("data-overflow");
+    expect(screen.queryByText("Click the card for the full text.")).toBeNull();
+  });
+});
+
+describe("card text size first read and hydration", () => {
+  beforeEach(() => { vi.resetModules(); });
+  it("reads a saved value on the first read", async () => {
+    window.localStorage.setItem(CARD_TEXT_SIZE_KEY, JSON.stringify("xlarge"));
+    const fresh = await import("@/components/duel/card-text-size");
+    expect(fresh.getCardTextSize()).toBe("xlarge");
+  });
+  it("renders the default on the server and switches to the saved value after hydration, with no mismatch", async () => {
+    window.localStorage.setItem(CARD_TEXT_SIZE_KEY, JSON.stringify("xlarge"));
+    const { DuelCardTextSizeControl: Control } = await import("@/components/duel/card-text-size-control");
+    const html = renderToString(<Control />);
+    expect(html).toMatch(/aria-pressed="true"[^>]*>Medium</);
+    const host = document.createElement("div");
+    host.innerHTML = html;
+    document.body.appendChild(host);
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    await act(async () => { hydrateRoot(host, <Control />); });
+    expect(errors).not.toHaveBeenCalled();
+    expect(host.querySelector('button[aria-pressed="true"]')?.textContent).toBe("Extra large");
+    host.remove();
   });
 });
