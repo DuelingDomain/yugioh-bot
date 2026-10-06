@@ -61,13 +61,13 @@ function displayName(user: DiscordUserLike): string {
   return user.displayName ?? user.username;
 }
 
-function requireEventCreator(tournament: { createdByUserId: string }, userId: string): void {
+function requireEventCreator(tournament: { createdByUserId: number }, userId: number): void {
   if (tournament.createdByUserId !== userId) {
     throw new Error("Only the event creator can do that");
   }
 }
 
-function requireDraftCreator(draft: { createdByUserId: string }, userId: string): void {
+function requireDraftCreator(draft: { createdByUserId: number }, userId: number): void {
   if (draft.createdByUserId !== userId) {
     throw new Error("Only the draft creator can do that");
   }
@@ -409,6 +409,7 @@ export async function handleButton(
 
   if (interaction.customId === "draft_open") {
     const guildId = requireGuildId(interaction);
+    const actorUserId = deps.players.ensureUser(interaction.user.id, interaction.user.displayName ?? interaction.user.username).id;
     const drafts = deps.drafts.listByStatus(guildId, ["pending"]);
 
     if (drafts.length === 0) {
@@ -429,7 +430,7 @@ export async function handleButton(
       components: [
         new ActionRowBuilder<ButtonBuilder>().addComponents(
           ...visibleDrafts.map((draft) => {
-            const isCreator = draft.createdByUserId === interaction.user.id;
+            const isCreator = draft.createdByUserId === actorUserId;
 
             return new ButtonBuilder()
               .setCustomId(isCreator ? `draft_start:${draft.id}` : `join_draft:${draft.id}`)
@@ -506,13 +507,14 @@ export async function handleButton(
 
   if (startDraft) {
     const guildId = requireGuildId(interaction);
+    const actorUserId = deps.players.ensureUser(interaction.user.id, interaction.user.displayName ?? interaction.user.username).id;
     const draft = deps.drafts.findById(Number(startDraft[1]));
 
     if (draft.guildId !== guildId) {
       throw new Error("Draft not found in this server");
     }
 
-    requireDraftCreator(draft, interaction.user.id);
+    requireDraftCreator(draft, actorUserId);
     await deps.cards.syncDraftPool({
       setNames: draft.config.setNames ?? [],
       includeNames: draft.config.includeNames ?? [],
@@ -749,7 +751,8 @@ export async function handleButton(
 
   if (interaction.customId === "dashboard_creator_tools") {
     const guildId = requireGuildId(interaction);
-    const tournaments = deps.tournaments.createdBy(guildId, interaction.user.id, ["pending", "active"]);
+    const actorUserId = deps.players.ensureUser(interaction.user.id, interaction.user.displayName ?? interaction.user.username).id;
+    const tournaments = deps.tournaments.createdBy(guildId, actorUserId, ["pending", "active"]);
 
     if (tournaments.length === 0) {
       await interaction.reply({ content: "You have no pending or active events to manage.", ephemeral: true });
@@ -766,7 +769,8 @@ export async function handleButton(
 
   if (creatorToolsPage) {
     const guildId = requireGuildId(interaction);
-    const tournaments = deps.tournaments.createdBy(guildId, interaction.user.id, ["pending", "active"]);
+    const actorUserId = deps.players.ensureUser(interaction.user.id, interaction.user.displayName ?? interaction.user.username).id;
+    const tournaments = deps.tournaments.createdBy(guildId, actorUserId, ["pending", "active"]);
 
     if (tournaments.length === 0) {
       await interaction.reply({ content: "You have no pending or active events to manage.", ephemeral: true });
@@ -781,13 +785,14 @@ export async function handleButton(
 
   if (creatorEvent) {
     const guildId = requireGuildId(interaction);
+    const actorUserId = deps.players.ensureUser(interaction.user.id, interaction.user.displayName ?? interaction.user.username).id;
     const tournament = deps.tournaments.findById(Number(creatorEvent[1]));
 
     if (tournament.guildId !== guildId) {
       throw new Error("Tournament not found in this server");
     }
 
-    requireEventCreator(tournament, interaction.user.id);
+    requireEventCreator(tournament, actorUserId);
     await interaction.reply(creatorEventActionsReply(tournament));
     return;
   }
@@ -796,13 +801,14 @@ export async function handleButton(
 
   if (startTournament) {
     const guildId = requireGuildId(interaction);
+    const actorUserId = deps.players.ensureUser(interaction.user.id, interaction.user.displayName ?? interaction.user.username).id;
     const tournament = deps.tournaments.findById(Number(startTournament[1]));
 
     if (tournament.guildId !== guildId) {
       throw new Error("Tournament not found in this server");
     }
 
-    requireEventCreator(tournament, interaction.user.id);
+    requireEventCreator(tournament, actorUserId);
     deps.tournaments.start(tournament.id);
     const started = deps.tournaments.findById(tournament.id);
     if (started.webSlug) void deps.broadcaster.tournament({ kind: "started", slug: started.webSlug });
@@ -815,13 +821,14 @@ export async function handleButton(
 
   if (cancelTournament) {
     const guildId = requireGuildId(interaction);
+    const actorUserId = deps.players.ensureUser(interaction.user.id, interaction.user.displayName ?? interaction.user.username).id;
     const tournament = deps.tournaments.findById(Number(cancelTournament[1]));
 
     if (tournament.guildId !== guildId) {
       throw new Error("Tournament not found in this server");
     }
 
-    requireEventCreator(tournament, interaction.user.id);
+    requireEventCreator(tournament, actorUserId);
     const { changedDuelSlugs } = deps.tournaments.cancelWithChanges(tournament.id);
     if (tournament.webSlug) void deps.broadcaster.tournament({ kind: "cancelled", slug: tournament.webSlug });
     for (const duelSlug of changedDuelSlugs) void deps.notifyDuelChange?.(duelSlug, guildId);
@@ -879,6 +886,8 @@ export async function handleButton(
   const createTournament = /^draft:create-tournament:([a-z0-9-]+)$/.exec(interaction.customId);
 
   if (createTournament) {
+    requireGuildId(interaction);
+    const actorUserId = deps.players.ensureUser(interaction.user.id, interaction.user.displayName ?? interaction.user.username).id;
     const webSlug = createTournament[1];
 
     // Look up the draft by webSlug via the db passed in deps
@@ -886,7 +895,7 @@ export async function handleButton(
       .prepare("select id, created_by_user_id, status, tournament_id, channel_id, name from drafts where web_slug = ?")
       .get(webSlug) as {
         id: number;
-        created_by_user_id: string;
+        created_by_user_id: number;
         status: string;
         tournament_id: number | null;
         channel_id: string;
@@ -898,7 +907,7 @@ export async function handleButton(
       return;
     }
 
-    if (draftRow.created_by_user_id !== interaction.user.id) {
+    if (draftRow.created_by_user_id !== actorUserId) {
       await interaction.reply({ content: "Only the draft creator can create a tournament.", ephemeral: true });
       return;
     }

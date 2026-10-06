@@ -38,9 +38,9 @@ describe("draft cleanup service", () => {
         ).run(id);
       }
 
-      const creator = players.upsert("guild-1", "user-1", "Yugi");
-      const joiner = players.upsert("guild-1", "user-2", "Kaiba");
-      const draft = drafts.create("guild-1", "channel-1", "cube", {}, "user-1", creator.id);
+      const creator = players.upsert("guild-1", "900000000000000112", "Yugi");
+      const joiner = players.upsert("guild-1", "900000000000000113", "Kaiba");
+      const draft = drafts.create("guild-1", "channel-1", "cube", {}, creator.userId, creator.id);
       drafts.join(draft.id, joiner.id);
       drafts.start(draft.id);
 

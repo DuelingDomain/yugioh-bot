@@ -1,3 +1,4 @@
+import { createUserService } from "@yugidraft/shared/services";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import { migrate } from "../../src/db/schema.js";
@@ -117,7 +118,7 @@ function insertCatalogCard(
 describe("draft service", () => {
   it("creates a pending draft, stores config, and auto-joins the creator", () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
 
     const draft = app.drafts.create(
       "guild-1",
@@ -128,7 +129,7 @@ describe("draft service", () => {
         includeNames: ["Dark Magician"],
         excludeNames: ["Pot of Greed"],
       },
-      "user-1",
+      createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id,
       yugi.id,
     );
 
@@ -138,7 +139,7 @@ describe("draft service", () => {
       channelId: "channel-1",
       name: "cube night",
       status: "pending",
-      createdByUserId: "user-1",
+      createdByUserId: createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id,
       config: {
         setNames: ["Battle Pack 3"],
         includeNames: ["Dark Magician"],
@@ -166,11 +167,11 @@ describe("draft service", () => {
 
   it("lists drafts by status within a guild", () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-2", "user-2", "Kaiba");
-    const pending = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-1", yugi.id);
-    const active = app.drafts.create("guild-1", "channel-2", "side draft", {}, "user-1", yugi.id);
-    app.drafts.create("guild-2", "channel-3", "remote draft", {}, "user-2", kaiba.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-2", "900000000000000113", "Kaiba");
+    const pending = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id, yugi.id);
+    const active = app.drafts.create("guild-1", "channel-2", "side draft", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id, yugi.id);
+    app.drafts.create("guild-2", "channel-3", "remote draft", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000113", displayName: "Host" }).id, kaiba.id);
 
     app.db.prepare("update drafts set status = 'active' where id = ?").run(active.id);
 
@@ -182,10 +183,10 @@ describe("draft service", () => {
 
   it("joins pending drafts without duplicating players and rejects non-pending drafts", () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
-    const joey = app.players.upsert("guild-1", "user-3", "Joey");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-1", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
+    const joey = app.players.upsert("guild-1", "900000000000000114", "Joey");
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id, yugi.id);
 
     app.drafts.join(draft.id, kaiba.id);
 
@@ -203,14 +204,14 @@ describe("draft service", () => {
 
   it("rejects creating or joining a draft with players from another guild", () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-2", "user-2", "Kaiba");
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-2", "900000000000000113", "Kaiba");
 
-    expect(() => app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-1", kaiba.id)).toThrow(
+    expect(() => app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id, kaiba.id)).toThrow(
       "Player must belong to the same guild as the draft",
     );
 
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-1", yugi.id);
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id, yugi.id);
 
     expect(() => app.drafts.join(draft.id, kaiba.id)).toThrow(
       "Player must belong to the same guild as the draft",
@@ -219,20 +220,20 @@ describe("draft service", () => {
 
   it("rejects duplicate active or pending draft names in the same guild", () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const active = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-1", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const active = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id, yugi.id);
 
     app.db.prepare("update drafts set status = 'active' where id = ?").run(active.id);
 
     expect(() =>
-      app.drafts.create("guild-1", "channel-2", "cube night", {}, "user-1", yugi.id),
+      app.drafts.create("guild-1", "channel-2", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id, yugi.id),
     ).toThrow("An active or pending draft already uses that name");
   });
 
   it("starts a draft by seating players and opening one 8-card pack per player", () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
     const draft = app.drafts.create(
       "guild-1",
       "channel-1",
@@ -245,7 +246,7 @@ describe("draft service", () => {
         packsPerPlayer: 1,
         cardsPerPlayer: 1,
       },
-      "user-1",
+      createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id,
       yugi.id,
     );
 
@@ -311,14 +312,14 @@ describe("draft service", () => {
 
   it("excludes cached extra deck cards when opening draft waves", () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
     const draft = app.drafts.create(
       "guild-1",
       "channel-1",
       "cube night",
       { setNames: ["Metal Raiders"], packSize: 1, packsPerPlayer: 1, cardsPerPlayer: 1 },
-      "user-1",
+      createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id,
       yugi.id,
     );
     app.drafts.join(draft.id, kaiba.id);
@@ -356,9 +357,9 @@ describe("draft service", () => {
 
   it("requires a pending draft to start", () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-1", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id, yugi.id);
 
     app.drafts.join(draft.id, kaiba.id);
     app.db.prepare("update drafts set status = 'active' where id = ?").run(draft.id);
@@ -368,17 +369,17 @@ describe("draft service", () => {
 
   it("requires at least two players to start", () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-1", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id, yugi.id);
 
     expect(() => app.drafts.start(draft.id)).toThrow("Draft requires at least two players to start");
   });
 
   it("returns pick options and records synchronized pick steps after all players pick", () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-1", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id, yugi.id);
 
     app.drafts.join(draft.id, kaiba.id);
 
@@ -472,10 +473,10 @@ describe("draft service", () => {
 
   it("limits each player prompt to 8 pick options", () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
-    const joey = app.players.upsert("guild-1", "user-3", "Joey");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-1", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
+    const joey = app.players.upsert("guild-1", "900000000000000114", "Joey");
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id, yugi.id);
 
     app.drafts.join(draft.id, kaiba.id);
     app.drafts.join(draft.id, joey.id);
@@ -489,10 +490,10 @@ describe("draft service", () => {
 
   it("passes packs after every active player picks", () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
-    const joey = app.players.upsert("guild-1", "user-3", "Joey");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-1", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
+    const joey = app.players.upsert("guild-1", "900000000000000114", "Joey");
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id, yugi.id);
     app.drafts.join(draft.id, kaiba.id);
     app.drafts.join(draft.id, joey.id);
     seedCatalogCards(app.db, 120);
@@ -516,14 +517,14 @@ describe("draft service", () => {
 
   it("alternates pass direction by pack round", () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
     const draft = app.drafts.create(
       "guild-1",
       "channel-1",
       "cube night",
       { packsPerPlayer: 2, cardsPerPlayer: 16 },
-      "user-1",
+      createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id,
       yugi.id,
     );
     app.drafts.join(draft.id, kaiba.id);
@@ -547,9 +548,9 @@ describe("draft service", () => {
 
   it("randomly auto-picks for pending players when the deadline expires", () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-1", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id, yugi.id);
     app.drafts.join(draft.id, kaiba.id);
     seedCatalogCards(app.db, 80);
     app.drafts.start(draft.id, new Date("2026-05-01T00:00:00.000Z"));
@@ -569,9 +570,9 @@ describe("draft service", () => {
 
   it("returns a player's drafted pool with catalog ids in pick order", () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-1", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id, yugi.id);
     app.drafts.join(draft.id, kaiba.id);
     seedCatalogCards(app.db, 80);
     app.drafts.start(draft.id, new Date("2026-05-01T00:00:00.000Z"));
@@ -586,10 +587,10 @@ describe("draft service", () => {
 
   it("validates joined players, active wave cards, and one pick per player per step", () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
-    const joey = app.players.upsert("guild-1", "user-3", "Joey");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-1", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
+    const joey = app.players.upsert("guild-1", "900000000000000114", "Joey");
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id, yugi.id);
 
     app.drafts.join(draft.id, kaiba.id);
 
@@ -647,9 +648,9 @@ describe("draft service", () => {
 
   it("opens the next wave after the current wave is fully picked when players still need cards", () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-1", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id, yugi.id);
 
     app.drafts.join(draft.id, kaiba.id);
     seedCatalogCards(app.db, 80);
@@ -687,9 +688,9 @@ describe("draft service", () => {
 
   it("completes the draft as soon as every player reaches 40 picks even if wave cards remain", () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-1", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id, yugi.id);
 
     app.drafts.join(draft.id, kaiba.id);
     seedCatalogCards(app.db, 80);
@@ -745,9 +746,9 @@ describe("draft service", () => {
 
   it("rejects pickCard calls from players who already finished at 40 cards", () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-1", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id, yugi.id);
 
     app.drafts.join(draft.id, kaiba.id);
     seedCatalogCards(app.db, 80);
@@ -764,9 +765,9 @@ describe("draft service", () => {
 
   it("exports a completed player's drafted main deck as YDK", () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-1", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id, yugi.id);
 
     app.drafts.join(draft.id, kaiba.id);
     seedCatalogCards(app.db, 40);
@@ -808,9 +809,9 @@ describe("draft service", () => {
 
   it("rejects YDK export before a player's deck reaches 40 picks", () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-1", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id, yugi.id);
 
     app.drafts.join(draft.id, kaiba.id);
     seedCatalogCards(app.db, 39);

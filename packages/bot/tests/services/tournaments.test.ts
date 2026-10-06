@@ -1,3 +1,4 @@
+import { createUserService } from "@yugidraft/shared/services";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import { migrate } from "../../src/db/schema.js";
@@ -10,6 +11,7 @@ function setup() {
   migrate(db);
 
   return {
+    db,
     matches: createMatchService(db),
     players: createPlayerRepository(db),
     tournaments: createTournamentService(db),
@@ -20,8 +22,8 @@ describe("tournament service", () => {
   it("creates multiple tournaments in one guild", () => {
     const app = setup();
 
-    const locals = app.tournaments.create("guild-1", "locals", "round_robin", "user-1");
-    const finals = app.tournaments.create("guild-1", "finals", "single_elim", "user-1");
+    const locals = app.tournaments.create("guild-1", "locals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
+    const finals = app.tournaments.create("guild-1", "finals", "single_elim", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
 
     expect(locals.name).toBe("locals");
     expect(finals.name).toBe("finals");
@@ -30,8 +32,8 @@ describe("tournament service", () => {
 
   it("allows players to join before a tournament starts", () => {
     const app = setup();
-    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", "user-1");
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
+    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
 
     app.tournaments.join(tournament.id, yugi.id);
 
@@ -40,8 +42,8 @@ describe("tournament service", () => {
 
   it("does not duplicate tournament participants", () => {
     const app = setup();
-    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", "user-1");
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
+    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
 
     app.tournaments.join(tournament.id, yugi.id);
 
@@ -52,10 +54,10 @@ describe("tournament service", () => {
 
   it("lists tournament participant records in join order", () => {
     const app = setup();
-    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", "user-1");
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
-    const joey = app.players.upsert("guild-1", "user-3", "Joey");
+    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
+    const joey = app.players.upsert("guild-1", "900000000000000114", "Joey");
 
     app.tournaments.join(tournament.id, joey.id);
     app.tournaments.join(tournament.id, yugi.id);
@@ -70,17 +72,17 @@ describe("tournament service", () => {
 
   it("returns no participant records for an empty tournament", () => {
     const app = setup();
-    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", "user-1");
+    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
 
     expect(app.tournaments.participantRecords(tournament.id)).toEqual([]);
   });
 
   it("prevents players from joining after a tournament starts", () => {
     const app = setup();
-    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", "user-1");
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
-    const joey = app.players.upsert("guild-1", "user-3", "Joey");
+    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
+    const joey = app.players.upsert("guild-1", "900000000000000114", "Joey");
 
     app.tournaments.join(tournament.id, yugi.id);
     app.tournaments.join(tournament.id, kaiba.id);
@@ -93,17 +95,17 @@ describe("tournament service", () => {
 
   it("cancels a tournament", () => {
     const app = setup();
-    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", "user-1");
+    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
 
     expect(app.tournaments.cancel(tournament.id).status).toBe("cancelled");
   });
 
   it("allows reusing a tournament name after cancellation", () => {
     const app = setup();
-    const cancelled = app.tournaments.create("guild-1", "locals", "round_robin", "user-1");
+    const cancelled = app.tournaments.create("guild-1", "locals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
 
     app.tournaments.cancel(cancelled.id);
-    const replacement = app.tournaments.create("guild-1", "locals", "single_elim", "user-1");
+    const replacement = app.tournaments.create("guild-1", "locals", "single_elim", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
 
     expect(replacement.id).not.toBe(cancelled.id);
     expect(replacement.name).toBe("locals");
@@ -114,18 +116,18 @@ describe("tournament service", () => {
   it("prevents duplicate pending tournament names", () => {
     const app = setup();
 
-    app.tournaments.create("guild-1", "locals", "round_robin", "user-1");
+    app.tournaments.create("guild-1", "locals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
 
-    expect(() => app.tournaments.create("guild-1", "locals", "single_elim", "user-1")).toThrow(
+    expect(() => app.tournaments.create("guild-1", "locals", "single_elim", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id)).toThrow(
       "An active or pending tournament already uses that name",
     );
   });
 
   it("lists tournaments by status within a guild", () => {
     const app = setup();
-    const pending = app.tournaments.create("guild-1", "locals", "round_robin", "user-1");
-    const cancelled = app.tournaments.create("guild-1", "finals", "single_elim", "user-1");
-    app.tournaments.create("guild-2", "remote", "round_robin", "user-1");
+    const pending = app.tournaments.create("guild-1", "locals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
+    const cancelled = app.tournaments.create("guild-1", "finals", "single_elim", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
+    app.tournaments.create("guild-2", "remote", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
 
     app.tournaments.cancel(cancelled.id);
 
@@ -137,13 +139,13 @@ describe("tournament service", () => {
 
   it("lists active tournaments where a player participates", () => {
     const app = setup();
-    const active = app.tournaments.create("guild-1", "locals", "round_robin", "user-1");
-    const pending = app.tournaments.create("guild-1", "finals", "round_robin", "user-1");
-    const remote = app.tournaments.create("guild-2", "remote", "round_robin", "user-1");
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
-    const remoteYugi = app.players.upsert("guild-2", "user-1", "Yugi");
-    const remoteKaiba = app.players.upsert("guild-2", "user-2", "Kaiba");
+    const active = app.tournaments.create("guild-1", "locals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
+    const pending = app.tournaments.create("guild-1", "finals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
+    const remote = app.tournaments.create("guild-2", "remote", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
+    const remoteYugi = app.players.upsert("guild-2", "900000000000000112", "Yugi");
+    const remoteKaiba = app.players.upsert("guild-2", "900000000000000113", "Kaiba");
 
     for (const tournament of [active, pending]) {
       app.tournaments.join(tournament.id, yugi.id);
@@ -163,9 +165,9 @@ describe("tournament service", () => {
     const app = setup();
 
     for (let index = 1; index <= 30; index += 1) {
-      app.tournaments.create("guild-1", `Locals ${index.toString().padStart(2, "0")}`, "round_robin", "user-1");
+      app.tournaments.create("guild-1", `Locals ${index.toString().padStart(2, "0")}`, "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
     }
-    app.tournaments.create("guild-2", "Locals remote", "round_robin", "user-1");
+    app.tournaments.create("guild-2", "Locals remote", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
 
     const results = app.tournaments.autocomplete({ guildId: "guild-1", query: "locals" });
 
@@ -177,12 +179,12 @@ describe("tournament service", () => {
 
   it("autocompletes by status, creator, and participant", () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
-    const target = app.tournaments.create("guild-1", "Spring Locals", "round_robin", "creator-1");
-    const wrongStatus = app.tournaments.create("guild-1", "Spring Finals", "round_robin", "creator-1");
-    const wrongCreator = app.tournaments.create("guild-1", "Spring Remote", "round_robin", "creator-2");
-    const wrongParticipant = app.tournaments.create("guild-1", "Spring Side", "round_robin", "creator-1");
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
+    const target = app.tournaments.create("guild-1", "Spring Locals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000104", displayName: "Host" }).id);
+    const wrongStatus = app.tournaments.create("guild-1", "Spring Finals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000104", displayName: "Host" }).id);
+    const wrongCreator = app.tournaments.create("guild-1", "Spring Remote", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000119", displayName: "Host" }).id);
+    const wrongParticipant = app.tournaments.create("guild-1", "Spring Side", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000104", displayName: "Host" }).id);
 
     app.tournaments.join(target.id, yugi.id);
     app.tournaments.join(wrongStatus.id, yugi.id);
@@ -195,7 +197,7 @@ describe("tournament service", () => {
         guildId: "guild-1",
         query: "spring",
         statuses: ["pending"],
-        createdByUserId: "creator-1",
+        createdByUserId: createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000104", displayName: "Host" }).id,
         participantPlayerId: yugi.id,
       }),
     ).toEqual([expect.objectContaining({ id: target.id, name: "Spring Locals" })]);
@@ -203,9 +205,9 @@ describe("tournament service", () => {
 
   it("refuses to cancel a tournament that is already cancelled", () => {
     const app = setup();
-    const yugi = app.players.upsert("g1", "u1", "Yugi");
-    const kaiba = app.players.upsert("g1", "u2", "Kaiba");
-    const t = app.tournaments.create("g1", "Locals", "round_robin", "u1");
+    const yugi = app.players.upsert("g1", "900000000000000110", "Yugi");
+    const kaiba = app.players.upsert("g1", "900000000000000111", "Kaiba");
+    const t = app.tournaments.create("g1", "Locals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000110", displayName: "Host" }).id);
     app.tournaments.join(t.id, yugi.id);
     app.tournaments.join(t.id, kaiba.id);
     app.tournaments.start(t.id);
@@ -216,10 +218,10 @@ describe("tournament service", () => {
 
   it("counts tournament stats from approved tournament matches only", () => {
     const app = setup();
-    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", "user-1");
-    const otherTournament = app.tournaments.create("guild-1", "finals", "round_robin", "user-1");
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
+    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
+    const otherTournament = app.tournaments.create("guild-1", "finals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
 
     const approvedWin = app.matches.report({
       guildId: "guild-1",

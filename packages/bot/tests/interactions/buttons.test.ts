@@ -1,3 +1,4 @@
+import { createUserService } from "@yugidraft/shared/services";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handleButton, type ButtonInteractionLike } from "../../src/interactions/buttons.js";
@@ -62,7 +63,7 @@ function fakeButton(input: Partial<ButtonInteractionLike> = {}) {
     customId: "join_tournament:1",
     channelId: "channel-1",
     guildId: "guild-1",
-    user: { id: "user-1", username: "Yugi" },
+    user: { id: "900000000000000112", username: "Yugi" },
     reply: (message) => {
       replies.push(typeof message === "string" ? { content: message } : message);
     },
@@ -90,20 +91,20 @@ describe("button interactions", () => {
   });
   it("joins a pending tournament and announces publicly", async () => {
     const app = setup();
-    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", "creator-1");
+    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000104", displayName: "Host" }).id);
     const { interaction, replies } = fakeButton({ customId: `join_tournament:${tournament.id}` });
 
     await handleButton(interaction, app);
 
-    const player = app.players.findByDiscordId("guild-1", "user-1")!;
+    const player = app.players.findByDiscordId("guild-1", "900000000000000112")!;
     expect(app.tournaments.participants(tournament.id)).toEqual([player.id]);
     expect(replies[0]).toEqual({ content: "Yugi joined event: locals." });
   });
 
   it("replies clearly when joining a tournament you are already in", async () => {
     const app = setup();
-    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", "creator-1");
-    const player = app.players.upsert("guild-1", "user-1", "Yugi");
+    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000104", displayName: "Host" }).id);
+    const player = app.players.upsert("guild-1", "900000000000000112", "Yugi");
     app.tournaments.join(tournament.id, player.id);
     const { interaction, replies } = fakeButton({ customId: `join_tournament:${tournament.id}` });
 
@@ -162,8 +163,8 @@ describe("button interactions", () => {
 
   it("lists open drafts from the dashboard with join buttons", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-7", "Yugi");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-7", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000116", "Yugi");
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" }).id, yugi.id);
     const { interaction, replies } = fakeButton({ customId: "draft_open" });
 
     await handleButton(interaction, app);
@@ -178,9 +179,9 @@ describe("button interactions", () => {
 
   it("lists creator-owned open drafts from the dashboard with start buttons", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-7", "Yugi");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-7", yugi.id);
-    const { interaction, replies } = fakeButton({ customId: "draft_open", user: { id: "user-7", username: "Yugi" } });
+    const yugi = app.players.upsert("guild-1", "900000000000000116", "Yugi");
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" }).id, yugi.id);
+    const { interaction, replies } = fakeButton({ customId: "draft_open", user: { id: "900000000000000116", username: "Yugi" } });
 
     await handleButton(interaction, app);
 
@@ -203,8 +204,8 @@ describe("button interactions", () => {
 
   it("lists completed drafts from the dashboard with export buttons", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-7", "Yugi");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-7", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000116", "Yugi");
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" }).id, yugi.id);
     app.db.prepare("update drafts set status = 'completed' where id = ?").run(draft.id);
     const { interaction, replies } = fakeButton({ customId: "draft_export" });
 
@@ -229,11 +230,11 @@ describe("button interactions", () => {
 
   it("joins a pending draft from the public signup button and announces publicly", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-7", "Yugi");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-7", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000116", "Yugi");
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" }).id, yugi.id);
     const { interaction, replies } = fakeButton({
       customId: `join_draft:${draft.id}`,
-      user: { id: "user-9", username: "Kaiba" },
+      user: { id: "900000000000000117", username: "Kaiba" },
     });
 
     await handleButton(interaction, app);
@@ -247,11 +248,11 @@ describe("button interactions", () => {
 
   it("replies clearly when joining a draft you are already in", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-7", "Yugi");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-7", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000116", "Yugi");
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" }).id, yugi.id);
     const { interaction, replies } = fakeButton({
       customId: `join_draft:${draft.id}`,
-      user: { id: "user-7", username: "Yugi" },
+      user: { id: "900000000000000116", username: "Yugi" },
     });
 
     await handleButton(interaction, app);
@@ -261,14 +262,14 @@ describe("button interactions", () => {
 
   it("starts a draft from the dashboard and links to the web", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-7", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-9", "Kaiba");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-7", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000116", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000117", "Kaiba");
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" }).id, yugi.id);
     app.drafts.join(draft.id, kaiba.id);
     seedDraftCatalog(app, 80);
     const { interaction, replies } = fakeButton({
       customId: `draft_start:${draft.id}`,
-      user: { id: "user-7", username: "Yugi" },
+      user: { id: "900000000000000116", username: "Yugi" },
     });
 
     await handleButton(interaction, app);
@@ -285,11 +286,11 @@ describe("button interactions", () => {
 
   it.each(["foreign-guild", "duplicate"])("surfaces an error for %s host assignments from the Start button and leaves the draft pending", async (invalidAssignment) => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-7", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-9", "Kaiba");
+    const yugi = app.players.upsert("guild-1", "900000000000000116", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000117", "Kaiba");
     seedDraftCatalog(app, 42);
     const cubeIds = ["Theme 1", "Theme 2"].map((name) => {
-      const cubeId = Number(app.db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1', ?, 'user-7')").run(name).lastInsertRowid);
+      const cubeId = Number(app.db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1', ?, ?)").run(name, createUserService(app.db).ensureDiscord({discordUserId: "900000000000000116", displayName: "Host"}).id).lastInsertRowid);
       for (let cardId = 1; cardId <= 42; cardId++) {
         app.db.prepare("insert into cube_cards (cube_id, catalog_card_id, pool, max_copies) values (?, ?, 'main', 1)").run(cubeId, cardId);
       }
@@ -298,11 +299,11 @@ describe("button interactions", () => {
     const draft = app.drafts.create("guild-1", "channel-1", "theme night", {
       mode: "theme", themeSelection: "host_assigned", allowedCubeIds: cubeIds, uniqueThemes: true, extraDeckEnabled: false,
       themeAssignments: { [yugi.id]: cubeIds[0], [kaiba.id]: invalidAssignment === "duplicate" ? cubeIds[0] : cubeIds[1] },
-    }, "user-7", yugi.id);
+    }, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" }).id, yugi.id);
     app.drafts.join(draft.id, kaiba.id);
     if (invalidAssignment === "foreign-guild") app.db.prepare("update cubes set guild_id = 'guild-2' where id = ?").run(cubeIds[1]);
     const { interaction, replies } = fakeButton({
-      customId: `draft_start:${draft.id}`, user: { id: "user-7", username: "Yugi" },
+      customId: `draft_start:${draft.id}`, user: { id: "900000000000000116", username: "Yugi" },
     });
     vi.spyOn(app.cards, "syncDraftPool").mockResolvedValue([]);
 
@@ -316,15 +317,15 @@ describe("button interactions", () => {
 
   it("rejects non-creators starting drafts from the dashboard", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-7", "Yugi");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-7", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000116", "Yugi");
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" }).id, yugi.id);
     seedDraftCatalog(app, 8);
 
     await expect(
       handleButton(
         fakeButton({
           customId: `draft_start:${draft.id}`,
-          user: { id: "user-9", username: "Kaiba" },
+          user: { id: "900000000000000117", username: "Kaiba" },
         }).interaction,
         app,
       ),
@@ -333,8 +334,8 @@ describe("button interactions", () => {
 
   it("lists open events with join buttons", async () => {
     const app = setup();
-    const locals = app.tournaments.create("guild-1", "locals", "round_robin", "creator-1");
-    app.tournaments.create("guild-1", "win-a-mat", "single_elim", "creator-1");
+    const locals = app.tournaments.create("guild-1", "locals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000104", displayName: "Host" }).id);
+    app.tournaments.create("guild-1", "win-a-mat", "single_elim", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000104", displayName: "Host" }).id);
     const { interaction, replies } = fakeButton({ customId: "dashboard_open_events" });
 
     await handleButton(interaction, app);
@@ -349,8 +350,8 @@ describe("button interactions", () => {
 
   it("lists the user's tournaments", async () => {
     const app = setup();
-    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", "creator-1");
-    const player = app.players.upsert("guild-1", "user-1", "Yugi");
+    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000104", displayName: "Host" }).id);
+    const player = app.players.upsert("guild-1", "900000000000000112", "Yugi");
     app.tournaments.join(tournament.id, player.id);
     const { interaction, replies } = fakeButton({ customId: "dashboard_my_events" });
 
@@ -362,14 +363,14 @@ describe("button interactions", () => {
 
   it("limits the user's tournament list to fit Discord replies", async () => {
     const app = setup();
-    const player = app.players.upsert("guild-1", "user-1", "Yugi");
+    const player = app.players.upsert("guild-1", "900000000000000112", "Yugi");
 
     for (let index = 1; index <= 30; index += 1) {
       const tournament = app.tournaments.create(
         "guild-1",
         `event-${index.toString().padStart(2, "0")}-${"x".repeat(80)}`,
         "round_robin",
-        "creator-1",
+        createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000104", displayName: "Host" }).id,
       );
       app.tournaments.join(tournament.id, player.id);
     }
@@ -393,9 +394,9 @@ describe("button interactions", () => {
 
   it("starts dashboard match reporting for a user's active tournament", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
-    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", "creator-1");
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
+    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000104", displayName: "Host" }).id);
     app.tournaments.join(tournament.id, yugi.id);
     app.tournaments.join(tournament.id, kaiba.id);
     app.tournaments.start(tournament.id);
@@ -411,9 +412,9 @@ describe("button interactions", () => {
 
   it("reports a dashboard match result from buttons", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
-    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", "creator-1");
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
+    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000104", displayName: "Host" }).id);
     app.tournaments.join(tournament.id, yugi.id);
     app.tournaments.join(tournament.id, kaiba.id);
     app.tournaments.start(tournament.id);
@@ -431,9 +432,9 @@ describe("button interactions", () => {
 
   it("rejects stale dashboard match result buttons", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
-    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", "creator-1");
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
+    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000104", displayName: "Host" }).id);
     app.tournaments.join(tournament.id, yugi.id);
     app.tournaments.join(tournament.id, kaiba.id);
     app.tournaments.start(tournament.id);
@@ -446,9 +447,9 @@ describe("button interactions", () => {
 
   it("refuses a dashboard match result while an online duel series is open", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
-    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", "creator-1");
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
+    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000104", displayName: "Host" }).id);
     app.tournaments.join(tournament.id, yugi.id);
     app.tournaments.join(tournament.id, kaiba.id);
     app.tournaments.start(tournament.id);
@@ -472,8 +473,8 @@ describe("button interactions", () => {
 
   it("shows pending approvals with approve and deny buttons", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
     const match = app.matches.report({
       guildId: "guild-1",
       reporterId: yugi.id,
@@ -483,7 +484,7 @@ describe("button interactions", () => {
     });
     const { interaction, replies } = fakeButton({
       customId: "dashboard_pending_approvals",
-      user: { id: "user-2", username: "Kaiba" },
+      user: { id: "900000000000000113", username: "Kaiba" },
     });
 
     await handleButton(interaction, app);
@@ -495,8 +496,8 @@ describe("button interactions", () => {
 
   it("approves a match from the dashboard", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
     const match = app.matches.report({
       guildId: "guild-1",
       reporterId: yugi.id,
@@ -506,7 +507,7 @@ describe("button interactions", () => {
     });
     const { interaction, replies } = fakeButton({
       customId: `dashboard_approve:${match.id}`,
-      user: { id: "user-2", username: "Kaiba" },
+      user: { id: "900000000000000113", username: "Kaiba" },
     });
 
     await handleButton(interaction, app);
@@ -517,7 +518,7 @@ describe("button interactions", () => {
 
   it("shows creator tools for tournaments created by the user", async () => {
     const app = setup();
-    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", "user-1");
+    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
     const { interaction, replies } = fakeButton({ customId: "dashboard_creator_tools" });
 
     await handleButton(interaction, app);
@@ -530,8 +531,8 @@ describe("button interactions", () => {
 
   it("lets creators choose which event to manage when they own multiple events", async () => {
     const app = setup();
-    const locals = app.tournaments.create("guild-1", "locals", "round_robin", "user-1");
-    const weekly = app.tournaments.create("guild-1", "weekly", "single_elim", "user-1");
+    const locals = app.tournaments.create("guild-1", "locals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
+    const weekly = app.tournaments.create("guild-1", "weekly", "single_elim", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
     const { interaction, replies } = fakeButton({ customId: "dashboard_creator_tools" });
 
     await handleButton(interaction, app);
@@ -546,7 +547,7 @@ describe("button interactions", () => {
     const tournaments = [];
 
     for (let index = 1; index <= 6; index += 1) {
-      tournaments.push(app.tournaments.create("guild-1", `event-${index}`, "round_robin", "user-1"));
+      tournaments.push(app.tournaments.create("guild-1", `event-${index}`, "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id));
     }
 
     const firstPage = fakeButton({ customId: "dashboard_creator_tools" });
@@ -568,7 +569,7 @@ describe("button interactions", () => {
     const tournaments = [];
 
     for (let index = 1; index <= 26; index += 1) {
-      tournaments.push(app.tournaments.create("guild-1", `event-${index}`, "round_robin", "user-1"));
+      tournaments.push(app.tournaments.create("guild-1", `event-${index}`, "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id));
     }
 
     const { interaction, replies } = fakeButton({ customId: "dashboard_creator_tools_page:25" });
@@ -581,7 +582,7 @@ describe("button interactions", () => {
 
   it("shows creator actions for a selected creator event", async () => {
     const app = setup();
-    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", "user-1");
+    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
     const { interaction, replies } = fakeButton({ customId: `dashboard_creator_event:${tournament.id}` });
 
     await handleButton(interaction, app);
@@ -593,7 +594,7 @@ describe("button interactions", () => {
 
   it("dashboard cancel notifies each duel game closed with the event", async () => {
     const app = setup();
-    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", "user-1");
+    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
     const real = app.tournaments.cancelWithChanges;
     vi.spyOn(app.tournaments, "cancelWithChanges").mockImplementation((id) => ({
       ...real(id),
@@ -610,7 +611,7 @@ describe("button interactions", () => {
 
   it("rejects non-creators from dashboard cancel", async () => {
     const app = setup();
-    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", "creator-1");
+    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000104", displayName: "Host" }).id);
     const { interaction } = fakeButton({ customId: `dashboard_cancel:${tournament.id}` });
 
     await expect(handleButton(interaction, app)).rejects.toThrow("Only the event creator can do that");
@@ -625,21 +626,21 @@ describe("button interactions", () => {
 
   it("rejects button clicks from a different guild", async () => {
     const app = setup();
-    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", "creator-1");
+    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000104", displayName: "Host" }).id);
     const { interaction } = fakeButton({
       customId: `join_tournament:${tournament.id}`,
       guildId: "guild-2",
     });
 
     await expect(handleButton(interaction, app)).rejects.toThrow("Tournament not found in this server");
-    expect(app.players.findByDiscordId("guild-2", "user-1")).toBeUndefined();
+    expect(app.players.findByDiscordId("guild-2", "900000000000000112")).toBeUndefined();
     expect(app.tournaments.participants(tournament.id)).toEqual([]);
   });
 
   it("blocks wrong user from approving with new customId form", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
     const match = app.matches.report({
       guildId: "guild-1",
       reporterId: yugi.id,
@@ -649,14 +650,14 @@ describe("button interactions", () => {
     });
     // "user-3" is NOT the expected approver (user-2 / Kaiba is)
     const { interaction, replies } = fakeButton({
-      customId: `dashboard_approve:${match.id}:user-2`,
-      user: { id: "user-3", username: "Pegasus" },
+      customId: `dashboard_approve:${match.id}:900000000000000113`,
+      user: { id: "900000000000000114", username: "Pegasus" },
     });
 
     await handleButton(interaction, app);
 
     expect(replies[0]).toMatchObject({
-      content: expect.stringMatching(/only <@user-2> can respond/i),
+      content: expect.stringMatching(/only <@900000000000000113> can respond/i),
       ephemeral: true,
     });
     // Match should remain pending — no DB write
@@ -667,8 +668,8 @@ describe("button interactions", () => {
     const app = setup();
     // matchId 999999 does not exist
     const { interaction, replies } = fakeButton({
-      customId: "dashboard_approve:999999:user-2",
-      user: { id: "user-2", username: "Kaiba" },
+      customId: "dashboard_approve:999999:900000000000000113",
+      user: { id: "900000000000000113", username: "Kaiba" },
     });
 
     await handleButton(interaction, app);
@@ -681,8 +682,8 @@ describe("button interactions", () => {
 
   it("replies with a friendly message when approving an already-resolved match", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
     const match = app.matches.report({
       guildId: "guild-1",
       reporterId: yugi.id,
@@ -694,8 +695,8 @@ describe("button interactions", () => {
     app.matches.approve(match.id, kaiba.id);
     // Second approval should get "already been resolved" message
     const { interaction, replies } = fakeButton({
-      customId: `dashboard_approve:${match.id}:user-2`,
-      user: { id: "user-2", username: "Kaiba" },
+      customId: `dashboard_approve:${match.id}:900000000000000113`,
+      user: { id: "900000000000000113", username: "Kaiba" },
     });
 
     await handleButton(interaction, app);
@@ -708,8 +709,8 @@ describe("button interactions", () => {
 
   it("approves a match via legacy id-only customId as the real opponent", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
     const match = app.matches.report({
       guildId: "guild-1",
       reporterId: yugi.id,
@@ -719,7 +720,7 @@ describe("button interactions", () => {
     });
     const { interaction, replies } = fakeButton({
       customId: `dashboard_approve:${match.id}`,
-      user: { id: "user-2", username: "Kaiba" },
+      user: { id: "900000000000000113", username: "Kaiba" },
     });
 
     await handleButton(interaction, app);
@@ -733,9 +734,9 @@ describe("button interactions", () => {
 
   it("exports a completed draft deck from button", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-7", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-9", "Kaiba");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-7", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000116", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000117", "Kaiba");
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" }).id, yugi.id);
     app.drafts.join(draft.id, kaiba.id);
     seedDraftCatalog(app, 80);
     app.drafts.start(draft.id);
@@ -749,7 +750,7 @@ describe("button interactions", () => {
 
     const { interaction, replies } = fakeButton({
       customId: `draft_export:${draft.id}`,
-      user: { id: "user-7", username: "Yugi" },
+      user: { id: "900000000000000116", username: "Yugi" },
     });
 
     await handleButton(interaction, app);

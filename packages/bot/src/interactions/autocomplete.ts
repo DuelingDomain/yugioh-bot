@@ -64,6 +64,7 @@ export async function handleAutocomplete(
     return;
   }
 
+  const actorUserId = deps.players.ensureUser(interaction.user.id, interaction.user.displayName ?? interaction.user.username).id;
   const focused = interaction.options.getFocused();
   const query = focused.value;
 
@@ -103,7 +104,7 @@ export async function handleAutocomplete(
                 guildId: interaction.guildId,
                 query,
                 statuses: ["pending", "active", "completed"],
-                createdByUserId: interaction.user.id,
+                createdByUserId: actorUserId,
               }),
             ),
           );
@@ -186,7 +187,7 @@ export async function handleAutocomplete(
               guildId: interaction.guildId,
               query,
               statuses: ["pending"],
-              createdByUserId: interaction.user.id,
+              createdByUserId: actorUserId,
             }),
           ),
         );
@@ -198,7 +199,7 @@ export async function handleAutocomplete(
               guildId: interaction.guildId,
               query,
               statuses: ["pending", "active"],
-              createdByUserId: interaction.user.id,
+              createdByUserId: actorUserId,
             }),
           ),
         );
@@ -250,7 +251,7 @@ export async function handleAutocomplete(
             guildId: interaction.guildId,
             query,
             statuses: ["pending"],
-            createdByUserId: interaction.user.id,
+            createdByUserId: actorUserId,
           }),
         ),
       );
@@ -290,7 +291,7 @@ export async function handleAutocomplete(
             guildId: interaction.guildId,
             query,
             statuses: ["pending", "active"],
-            createdByUserId: interaction.user.id,
+            createdByUserId: actorUserId,
           }),
         ),
       );

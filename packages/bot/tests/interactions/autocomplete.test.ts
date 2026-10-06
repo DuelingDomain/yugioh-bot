@@ -1,3 +1,4 @@
+import { createUserService } from "@yugidraft/shared/services";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import {
@@ -29,7 +30,7 @@ function fakeAutocomplete(input: Partial<AutocompleteInteractionLike> = {}) {
   const interaction: AutocompleteInteractionLike = {
     commandName: "event",
     guildId: "guild-1",
-    user: { id: "creator-1", username: "Yugi" },
+    user: { id: "900000000000000104", username: "Yugi" },
     options: {
       getSubcommand: () => "signup",
       getSubcommandGroup: () => null,
@@ -45,10 +46,10 @@ function fakeAutocomplete(input: Partial<AutocompleteInteractionLike> = {}) {
 }
 
 describe("autocomplete interactions", () => {
-  function startTournament(app: ReturnType<typeof setup>, name: string, createdByUserId = "creator-1") {
-    const tournament = app.tournaments.create("guild-1", name, "round_robin", createdByUserId);
-    const yugi = app.players.upsert("guild-1", "creator-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", `${name}-user-2`, "Kaiba");
+  function startTournament(app: ReturnType<typeof setup>, name: string, createdByUserId = "900000000000000104") {
+    const tournament = app.tournaments.create("guild-1", name, "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: createdByUserId, displayName: "Host" }).id);
+    const yugi = app.players.upsert("guild-1", "900000000000000104", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
     app.tournaments.join(tournament.id, yugi.id);
     app.tournaments.join(tournament.id, kaiba.id);
 
@@ -61,12 +62,12 @@ describe("autocomplete interactions", () => {
 
   it("suggests pending signup tournaments created by the user", async () => {
     const app = setup();
-    app.tournaments.create("guild-1", "Creator Cup", "round_robin", "creator-1");
-    app.tournaments.create("guild-1", "Other Cup", "round_robin", "other-user");
-    app.tournaments.create("guild-2", "Other Guild Cup", "round_robin", "creator-1");
-    const activeTournament = app.tournaments.create("guild-1", "Active Cup", "round_robin", "creator-1");
-    const yugi = app.players.upsert("guild-1", "creator-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
+    app.tournaments.create("guild-1", "Creator Cup", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000104", displayName: "Host" }).id);
+    app.tournaments.create("guild-1", "Other Cup", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000118", displayName: "Host" }).id);
+    app.tournaments.create("guild-2", "Other Guild Cup", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000104", displayName: "Host" }).id);
+    const activeTournament = app.tournaments.create("guild-1", "Active Cup", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000104", displayName: "Host" }).id);
+    const yugi = app.players.upsert("guild-1", "900000000000000104", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
     app.tournaments.join(activeTournament.id, yugi.id);
     app.tournaments.join(activeTournament.id, kaiba.id);
     app.tournaments.start(activeTournament.id);
@@ -79,8 +80,8 @@ describe("autocomplete interactions", () => {
 
   it("suggests pending start tournaments created by the user", async () => {
     const app = setup();
-    app.tournaments.create("guild-1", "Creator Cup", "round_robin", "creator-1");
-    app.tournaments.create("guild-1", "Other Cup", "round_robin", "other-user");
+    app.tournaments.create("guild-1", "Creator Cup", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000104", displayName: "Host" }).id);
+    app.tournaments.create("guild-1", "Other Cup", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000118", displayName: "Host" }).id);
     startTournament(app, "Active Cup");
     const { interaction, responses } = fakeAutocomplete({
       options: { getSubcommand: () => "start", getSubcommandGroup: () => null, getFocused: () => ({ name: "name", value: "cup" }) },
@@ -93,11 +94,11 @@ describe("autocomplete interactions", () => {
 
   it("suggests show tournaments in any status for the current guild", async () => {
     const app = setup();
-    app.tournaments.create("guild-1", "Pending Cup", "round_robin", "creator-1");
+    app.tournaments.create("guild-1", "Pending Cup", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000104", displayName: "Host" }).id);
     startTournament(app, "Active Cup");
-    const cancelled = app.tournaments.create("guild-1", "Cancelled Cup", "round_robin", "creator-1");
+    const cancelled = app.tournaments.create("guild-1", "Cancelled Cup", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000104", displayName: "Host" }).id);
     const completed = startTournament(app, "Completed Cup");
-    app.tournaments.create("guild-2", "Other Guild Cup", "round_robin", "creator-1");
+    app.tournaments.create("guild-2", "Other Guild Cup", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000104", displayName: "Host" }).id);
     app.tournaments.cancel(cancelled.id);
     completeTournament(app, completed.id);
     const { interaction, responses } = fakeAutocomplete({
@@ -116,11 +117,11 @@ describe("autocomplete interactions", () => {
 
   it("suggests participants tournaments in any status for the current guild", async () => {
     const app = setup();
-    app.tournaments.create("guild-1", "Pending Cup", "round_robin", "creator-1");
+    app.tournaments.create("guild-1", "Pending Cup", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000104", displayName: "Host" }).id);
     startTournament(app, "Active Cup");
-    const cancelled = app.tournaments.create("guild-1", "Cancelled Cup", "round_robin", "creator-1");
+    const cancelled = app.tournaments.create("guild-1", "Cancelled Cup", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000104", displayName: "Host" }).id);
     const completed = startTournament(app, "Completed Cup");
-    app.tournaments.create("guild-2", "Other Guild Cup", "round_robin", "creator-1");
+    app.tournaments.create("guild-2", "Other Guild Cup", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000104", displayName: "Host" }).id);
     app.tournaments.cancel(cancelled.id);
     completeTournament(app, completed.id);
     const { interaction, responses } = fakeAutocomplete({
@@ -140,9 +141,9 @@ describe("autocomplete interactions", () => {
   it("suggests active report tournaments where the user is a participant", async () => {
     const app = setup();
     startTournament(app, "Participant Cup");
-    const nonParticipant = app.tournaments.create("guild-1", "Other Cup", "round_robin", "other-user");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
-    const joey = app.players.upsert("guild-1", "user-3", "Joey");
+    const nonParticipant = app.tournaments.create("guild-1", "Other Cup", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000118", displayName: "Host" }).id);
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
+    const joey = app.players.upsert("guild-1", "900000000000000114", "Joey");
     app.tournaments.join(nonParticipant.id, kaiba.id);
     app.tournaments.join(nonParticipant.id, joey.id);
     app.tournaments.start(nonParticipant.id);
@@ -159,21 +160,21 @@ describe("autocomplete interactions", () => {
     const app = setup();
     startTournament(app, "Participant Cup");
     const { interaction, responses } = fakeAutocomplete({
-      user: { id: "missing-user", username: "Missing" },
+      user: { id: "900000000000000105", username: "Missing" },
       options: { getSubcommand: () => "report", getSubcommandGroup: () => null, getFocused: () => ({ name: "name", value: "cup" }) },
     });
 
     await handleAutocomplete(interaction, app);
 
     expect(responses[0]).toEqual([]);
-    expect(app.players.findByDiscordId("guild-1", "missing-user")).toBeUndefined();
+    expect(app.players.findByDiscordId("guild-1", "900000000000000105")).toBeUndefined();
   });
 
   it("suggests pending or active cancel tournaments created by the user", async () => {
     const app = setup();
-    app.tournaments.create("guild-1", "Pending Cup", "round_robin", "creator-1");
+    app.tournaments.create("guild-1", "Pending Cup", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000104", displayName: "Host" }).id);
     startTournament(app, "Active Cup");
-    app.tournaments.create("guild-1", "Other Cup", "round_robin", "other-user");
+    app.tournaments.create("guild-1", "Other Cup", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000118", displayName: "Host" }).id);
     const completed = startTournament(app, "Completed Cup");
     completeTournament(app, completed.id);
     const { interaction, responses } = fakeAutocomplete({
@@ -190,7 +191,7 @@ describe("autocomplete interactions", () => {
 
   it("suggests active and completed tournaments for stats", async () => {
     const app = setup();
-    app.tournaments.create("guild-1", "Pending Cup", "round_robin", "creator-1");
+    app.tournaments.create("guild-1", "Pending Cup", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000104", displayName: "Host" }).id);
     startTournament(app, "Active Cup");
     const completed = startTournament(app, "Completed Cup");
     completeTournament(app, completed.id);
@@ -210,7 +211,7 @@ describe("autocomplete interactions", () => {
   it("keeps tournament autocomplete choices within Discord's 100 character limit", async () => {
     const app = setup();
     const longName = "a".repeat(120);
-    app.tournaments.create("guild-1", longName, "round_robin", "creator-1");
+    app.tournaments.create("guild-1", longName, "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000104", displayName: "Host" }).id);
     const { interaction, responses } = fakeAutocomplete({
       options: { getSubcommand: () => "show", getSubcommandGroup: () => null, getFocused: () => ({ name: "name", value: "a" }) },
     });
@@ -222,7 +223,7 @@ describe("autocomplete interactions", () => {
 
   it("returns no choices for unsupported command autocomplete contexts", async () => {
     const app = setup();
-    app.tournaments.create("guild-1", "Creator Cup", "round_robin", "creator-1");
+    app.tournaments.create("guild-1", "Creator Cup", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000104", displayName: "Host" }).id);
     const { interaction, responses } = fakeAutocomplete({ commandName: "duel" });
 
     await handleAutocomplete(interaction, app);
@@ -232,7 +233,7 @@ describe("autocomplete interactions", () => {
 
   it("returns no choices for unsupported event subcommands", async () => {
     const app = setup();
-    app.tournaments.create("guild-1", "Creator Cup", "round_robin", "creator-1");
+    app.tournaments.create("guild-1", "Creator Cup", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000104", displayName: "Host" }).id);
     const { interaction, responses } = fakeAutocomplete({
       options: { getSubcommand: () => "unknown", getSubcommandGroup: () => null, getFocused: () => ({ name: "name", value: "cup" }) },
     });
@@ -244,7 +245,7 @@ describe("autocomplete interactions", () => {
 
   it("returns no choices outside a guild", async () => {
     const app = setup();
-    app.tournaments.create("guild-1", "Creator Cup", "round_robin", "creator-1");
+    app.tournaments.create("guild-1", "Creator Cup", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000104", displayName: "Host" }).id);
     const { interaction, responses } = fakeAutocomplete({ guildId: null });
 
     await handleAutocomplete(interaction, app);
@@ -254,7 +255,7 @@ describe("autocomplete interactions", () => {
 
   it("returns no choices for event autocomplete on unsupported focused options", async () => {
     const app = setup();
-    app.tournaments.create("guild-1", "Creator Cup", "round_robin", "creator-1");
+    app.tournaments.create("guild-1", "Creator Cup", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000104", displayName: "Host" }).id);
     const { interaction, responses } = fakeAutocomplete({
       options: { getSubcommand: () => "signup", getSubcommandGroup: () => null, getFocused: () => ({ name: "role", value: "cup" }) },
     });
@@ -279,9 +280,9 @@ describe("autocomplete interactions", () => {
 
   it("suggests pending drafts for join", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    app.drafts.create("guild-1", "channel-1", "Retro", {}, "user-1", yugi.id);
-    app.drafts.create("guild-1", "channel-1", "Modern", {}, "user-1", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    app.drafts.create("guild-1", "channel-1", "Retro", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id, yugi.id);
+    app.drafts.create("guild-1", "channel-1", "Modern", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id, yugi.id);
     const { interaction, responses } = fakeAutocomplete({
       commandName: "draft",
       options: { getSubcommand: () => "join", getSubcommandGroup: () => null, getFocused: () => ({ name: "name", value: "re" }) },
@@ -294,12 +295,12 @@ describe("autocomplete interactions", () => {
 
   it("suggests pending drafts created by the user for start", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    app.drafts.create("guild-1", "channel-1", "Retro", {}, "user-1", yugi.id);
-    app.drafts.create("guild-1", "channel-1", "Modern", {}, "user-2", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    app.drafts.create("guild-1", "channel-1", "Retro", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id, yugi.id);
+    app.drafts.create("guild-1", "channel-1", "Modern", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000113", displayName: "Host" }).id, yugi.id);
     const { interaction, responses } = fakeAutocomplete({
       commandName: "draft",
-      user: { id: "user-1", username: "Yugi" },
+      user: { id: "900000000000000112", username: "Yugi" },
       options: { getSubcommand: () => "start", getSubcommandGroup: () => null, getFocused: () => ({ name: "name", value: "re" }) },
     });
 
@@ -310,9 +311,9 @@ describe("autocomplete interactions", () => {
 
   it("suggests completed drafts for export", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
-    const draft = app.drafts.create("guild-1", "channel-1", "Retro", {}, "user-1", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
+    const draft = app.drafts.create("guild-1", "channel-1", "Retro", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id, yugi.id);
     app.drafts.join(draft.id, kaiba.id);
     app.db.prepare("update drafts set status = 'completed' where id = ?").run(draft.id);
     const { interaction, responses } = fakeAutocomplete({
@@ -327,11 +328,11 @@ describe("autocomplete interactions", () => {
 
   it("suggests pending and active drafts for cancel", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    app.drafts.create("guild-1", "channel-1", "Retro", {}, "user-1", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    app.drafts.create("guild-1", "channel-1", "Retro", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id, yugi.id);
     const { interaction, responses } = fakeAutocomplete({
       commandName: "draft",
-      user: { id: "user-1", username: "Yugi" },
+      user: { id: "900000000000000112", username: "Yugi" },
       options: { getSubcommand: () => "cancel", getSubcommandGroup: () => null, getFocused: () => ({ name: "name", value: "re" }) },
     });
 
@@ -405,12 +406,12 @@ describe("autocomplete interactions", () => {
 
   it("suggests template names for draft template delete", async () => {
     const app = setup();
-    app.templates.save("guild-1", "Classic", { setNames: ["Metal Raiders"] }, "user-1");
-    app.templates.save("guild-1", "Modern", { setNames: ["Duelist Nexus"] }, "user-1");
+    app.templates.save("guild-1", "Classic", { setNames: ["Metal Raiders"] }, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
+    app.templates.save("guild-1", "Modern", { setNames: ["Duelist Nexus"] }, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
 
     const { interaction, responses } = fakeAutocomplete({
       commandName: "draft",
-      user: { id: "user-1", username: "Yugi" },
+      user: { id: "900000000000000112", username: "Yugi" },
       options: {
         getSubcommand: () => "delete",
         getSubcommandGroup: () => "template",
@@ -425,13 +426,13 @@ describe("autocomplete interactions", () => {
 
   it("suggests user drafts for draft template save", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    app.drafts.create("guild-1", "channel-1", "Retro", {}, "user-1", yugi.id);
-    app.drafts.create("guild-1", "channel-1", "Modern", {}, "user-2", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    app.drafts.create("guild-1", "channel-1", "Retro", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id, yugi.id);
+    app.drafts.create("guild-1", "channel-1", "Modern", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000113", displayName: "Host" }).id, yugi.id);
 
     const { interaction, responses } = fakeAutocomplete({
       commandName: "draft",
-      user: { id: "user-1", username: "Yugi" },
+      user: { id: "900000000000000112", username: "Yugi" },
       options: {
         getSubcommand: () => "save",
         getSubcommandGroup: () => "template",
@@ -446,9 +447,9 @@ describe("autocomplete interactions", () => {
 
   it("suggests all drafts for draft show", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    app.drafts.create("guild-1", "channel-1", "Retro", {}, "user-1", yugi.id);
-    const modern = app.drafts.create("guild-1", "channel-1", "Modern", {}, "user-2", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    app.drafts.create("guild-1", "channel-1", "Retro", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id, yugi.id);
+    const modern = app.drafts.create("guild-1", "channel-1", "Modern", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000113", displayName: "Host" }).id, yugi.id);
     app.db.prepare("update drafts set status = 'completed' where id = ?").run(modern.id);
 
     const { interaction, responses } = fakeAutocomplete({

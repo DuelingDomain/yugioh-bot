@@ -13,7 +13,7 @@ describe("announce server new routes", () => {
     const server = createAnnounceServer({
       secret: "s",
       handlers: {
-        onDraftCreated: vi.fn(),
+        onDraftStatus: vi.fn(), onDraftCreated: vi.fn(),
         onDraftStarted: vi.fn(),
         onDraftCompleted: vi.fn(),
         onTournamentCreated: vi.fn(),
@@ -55,7 +55,7 @@ describe("announce server new routes", () => {
     const server = createAnnounceServer({
       secret: "s",
       handlers: {
-        onDraftCreated: vi.fn(),
+        onDraftStatus: vi.fn(), onDraftCreated: vi.fn(),
         onDraftStarted: vi.fn(),
         onDraftCompleted: vi.fn(),
         onTournamentCreated: vi.fn(),
@@ -84,7 +84,7 @@ describe("announce server new routes", () => {
     const server = createAnnounceServer({
       secret: "s",
       handlers: {
-        onDraftCreated: vi.fn(),
+        onDraftStatus: vi.fn(), onDraftCreated: vi.fn(),
         onDraftStarted: vi.fn(),
         onDraftCompleted: vi.fn(),
         onTournamentCreated: vi.fn(),
@@ -97,7 +97,7 @@ describe("announce server new routes", () => {
     });
     const payload = {
       guildId: "g",
-      opponentDiscordUserId: "u2",
+      opponentDiscordUserId: "900000000000000111",
       challengerName: "Yugi",
       duelName: "Yugi vs Kaiba",
       bestOf: 3,
