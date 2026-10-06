@@ -36,8 +36,8 @@ export interface HoloLpProps {
   /** The fly-in pump places this panel with `style.transform`: the anchor translate is zero. */
   floating?: boolean;
   /**
-   * The board is zoomed: the panel keeps its size and follows the board (see followCss in view-zoom.ts). Its middle goes
-   * where the zoom takes that point, so it stays clear of the cards it is clear of at rest.
+   * The panel follows a zoom of the board at its own size (see followCss in view-zoom.ts): its middle goes where the zoom
+   * takes that point, so it stays clear of the cards it is clear of at rest. At 1x it is the anchor place.
    */
   follow?: boolean;
   /**

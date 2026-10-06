@@ -520,7 +520,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
               footer={!exit && anchor.me ? masterChip : null}
               footerTight={anchor.footerTight}
               reducedMotion={reducedMotion}
-              follow={zoom.zoomed}
+              follow
             />
           );
         })}
@@ -533,8 +533,10 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
               width: hubAt.width,
               height: hubAt.height,
               transform: `translate(${hubAt.x - hubAt.width / 2}px, ${hubAt.y - hubAt.height / 2}px)`,
-              // Under a zoom the hub keeps its size and follows the ring it sits on (followCss).
-              ...(zoom.zoomed ? { left: followCss(0, hubAt.x, "x"), top: followCss(0, hubAt.y, "y") } : null),
+              // Under a zoom the hub keeps its size and follows the ring it sits on (followCss). Always on: the follow is
+              // the 1x place at 1x, so the first frame of a zoom already moves it with the board.
+              left: followCss(0, hubAt.x, "x"),
+              top: followCss(0, hubAt.y, "y"),
             }}
           >
             {hub}

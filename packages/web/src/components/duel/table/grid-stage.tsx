@@ -535,10 +535,8 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
       const right = placed.cells[2].rect;
       const gutterX = (left.x + left.width + right.x) / 2;
       const line = placed.bands[0].rect.y + placed.bands[0].rect.height / 2;
-      // Under a zoom it keeps its size and follows the gutter (followCss).
-      return zoom.zoomed
-        ? { left: followCss(gutterX, gutterX, "x"), top: followCss(line, line, "y"), ["--hub-z" as string]: `${placed.bands[0].z}px` }
-        : { left: gutterX, top: line, ["--hub-z" as string]: `${placed.bands[0].z}px` };
+      // Under a zoom it keeps its size and follows the gutter (followCss; at 1x that is its 1x place).
+      return { left: followCss(gutterX, gutterX, "x"), top: followCss(line, line, "y"), ["--hub-z" as string]: `${placed.bands[0].z}px` };
     }
     if (hubColumn == null) return null;
     const band = placed.finale?.band ?? placed.bands[hubColumn];
@@ -546,9 +544,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
     const fit = { width: band.rect.width, height: band.rect.height, ["--z" as string]: `${z}px`, ["--g" as string]: `${z * 0.075}px`, ["--hub-hc" as string]: `${hubFit?.chip ?? 0}px` };
     // The chips of a band sit in the free cells beside the Extra Monster Zones: under a zoom they grow with the board, so
     // they stay in those cells and off the zones and their markers.
-    return zoom.zoomed
-      ? { ...fit, left: followCss(band.rect.x, band.rect.x, "x"), top: followCss(band.rect.y, band.rect.y, "y"), scale: "var(--vz-s, 1)", transformOrigin: "0 0" }
-      : { ...fit, left: band.rect.x, top: band.rect.y };
+    return { ...fit, left: followCss(band.rect.x, band.rect.x, "x"), top: followCss(band.rect.y, band.rect.y, "y"), scale: "var(--vz-s, 1)", transformOrigin: "0 0" };
   })();
 
   // Every prompt sits in the middle of YOUR pair (the half of the table where your field is), as the 1v1 room puts it in
@@ -790,10 +786,9 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
             const slot = layout.slots.find((entry) => entry.seat === cell.seat);
             if (!view || !slot) return null;
             const lp = placed.cells[cellIndex(cell)].plate;
-            // Under a zoom the plate keeps its size and follows the middle of its place on the board (followCss).
-            const lpStyle: CSSProperties = zoom.zoomed
-              ? { left: followCss(lp.x, lp.x + lp.width / 2, "x"), top: followCss(lp.y, lp.y + lp.height / 2, "y"), width: lp.width, height: lp.height }
-              : { left: lp.x, top: lp.y, width: lp.width, height: lp.height };
+            // Under a zoom the plate keeps its size and follows the middle of its place on the board (followCss; at 1x
+            // that is its 1x place, so the first frame of a zoom moves it with the board).
+            const lpStyle: CSSProperties = { left: followCss(lp.x, lp.x + lp.width / 2, "x"), top: followCss(lp.y, lp.y + lp.height / 2, "y"), width: lp.width, height: lp.height };
             const pickable = picks?.options.has(cell.seat) === true;
             const index = pickOrder.indexOf(cell.seat);
             return (
