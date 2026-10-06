@@ -1,0 +1,158 @@
+name: Engine data update
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      scripts:
+        description: "Optional full CardScripts commit SHA"
+        type: string
+        required: false
+      database:
+        description: "Optional full BabelCDB commit SHA"
+        type: string
+        required: false
+      strings:
+        description: "Optional full Distribution commit SHA"
+        type: string
+        required: false
+      dry_run:
+        description: "Report and validate candidate data without pushing or opening a PR"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: engine-data-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ secrets.ENGINE_DATA_PR_TOKEN || github.token }}
+      GH_REPO: ${{ github.repository }}
+      UPDATE_BRANCH: chore/engine-data-update
+      BASE_BRANCH: ${{ github.event.repository.default_branch }}
+      DUEL_DATA_DIR: ${{ runner.temp }}/engine-data-bundle
+      REPORT: .status/engine-data-update.md
+    steps:
+      - name: Checkout the default branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          token: ${{ secrets.ENGINE_DATA_PR_TOKEN || github.token }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install
+        run: prlimit --core=1:1 -- npm ci
+
+      - name: Resolve pins and write report
+        id: update
+        env:
+          SCRIPTS_SHA: ${{ inputs.scripts }}
+          DATABASE_SHA: ${{ inputs.database }}
+          STRINGS_SHA: ${{ inputs.strings }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          args=(--report "$REPORT")
+          if [ -n "$SCRIPTS_SHA" ]; then args+=(--scripts "$SCRIPTS_SHA"); fi
+          if [ -n "$DATABASE_SHA" ]; then args+=(--database "$DATABASE_SHA"); fi
+          if [ -n "$STRINGS_SHA" ]; then args+=(--strings "$STRINGS_SHA"); fi
+          if [ "$DRY_RUN" = true ]; then args+=(--dry-run); fi
+          prlimit --core=1:1 -- node --import tsx packages/duel-server/scripts/update-engine-data.ts "${args[@]}"
+
+      # A dry run still validates the proposed bundle. Apply the already-resolved SHAs only in this disposable checkout.
+      - name: Stage dry-run candidates for validation
+        if: steps.update.outputs.changed == 'true' && inputs.dry_run
+        env:
+          SCRIPTS_SHA: ${{ steps.update.outputs.scripts }}
+          DATABASE_SHA: ${{ steps.update.outputs.database }}
+          STRINGS_SHA: ${{ steps.update.outputs.strings }}
+        run: |
+          prlimit --core=1:1 -- node --import tsx packages/duel-server/scripts/update-engine-data.ts \
+            --scripts "$SCRIPTS_SHA" --database "$DATABASE_SHA" --strings "$STRINGS_SHA" \
+            --report "$RUNNER_TEMP/candidate-report.md"
+
+      - name: Download and validate candidate engine bundle
+        if: steps.update.outputs.changed == 'true'
+        run: |
+          prlimit --core=1:1 -- npm run duel:prepare
+          printf '\n## Bundle validation\n\n`npm run duel:prepare` passed with the candidate pins in a temporary DUEL_DATA_DIR.\n' >> "$REPORT"
+
+      - name: Check multiplayer overlay and record result
+        if: steps.update.outputs.changed == 'true'
+        run: |
+          result=0
+          prlimit --core=1:1 -- node --import tsx packages/duel-server/scripts/generate-multi-scripts.ts --check > "$RUNNER_TEMP/overlay-check.log" 2>&1 || result=$?
+          cat "$RUNNER_TEMP/overlay-check.log"
+          {
+            printf '\n## Overlay generator check\n\nExit code: %s (0 = passed; otherwise human review required).\n\n```text\n' "$result"
+            cat "$RUNNER_TEMP/overlay-check.log"
+            printf '\n```\n\nThis check does not replace the stock-hash conflict review above.\n'
+          } >> "$REPORT"
+
+      - name: Push the fixed update branch
+        if: steps.update.outputs.changed == 'true' && !inputs.dry_run
+        run: |
+          git switch -C "$UPDATE_BRANCH"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -u
+          git commit -m "chore(engine): update Project Ignis card data to $(date -u +%F)" \
+            -m $'Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01Jo347fwscScmug26ujsNN2'
+          git push --force origin "HEAD:refs/heads/$UPDATE_BRANCH"
+
+      - name: Open or update the pull request
+        if: steps.update.outputs.changed == 'true' && !inputs.dry_run
+        run: |
+          title="chore(engine): update Project Ignis card data to $(date -u +%F)"
+          pr=$(gh pr list --head "$UPDATE_BRANCH" --base "$BASE_BRANCH" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$pr" ]; then
+            gh pr edit "$pr" --title "$title" --body-file "$REPORT"
+          else
+            gh pr create --base "$BASE_BRANCH" --head "$UPDATE_BRANCH" --title "$title" --body-file "$REPORT"
+            pr=$(gh pr list --head "$UPDATE_BRANCH" --base "$BASE_BRANCH" --state open --json number --jq '.[0].number')
+          fi
+          label=$(gh api --paginate "repos/$GH_REPO/labels?per_page=100" --jq '.[] | select(.name == "engine-data") | .name')
+          if [ -n "$label" ]; then gh pr edit "$pr" --add-label engine-data; fi
+
+      # GITHUB_TOKEN-created PRs need an explicit CI run. An optional personal/app token uses normal pull_request CI.
+      - name: Dispatch CI when using GITHUB_TOKEN
+        if: steps.update.outputs.changed == 'true' && !inputs.dry_run
+        env:
+          HAS_PR_TOKEN: ${{ secrets.ENGINE_DATA_PR_TOKEN != '' }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$HAS_PR_TOKEN" != true ]; then
+            gh workflow run test.yml --ref "$UPDATE_BRANCH"
+          fi
+
+      - name: Publish report to run summary
+        if: always()
+        run: |
+          if [ -f "$REPORT" ]; then cat "$REPORT" >> "$GITHUB_STEP_SUMMARY"; fi
+
+      - name: Save report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: engine-data-update-report
+          path: .status/engine-data-update.md
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Remove temporary downloads
+        if: always()
+        run: rm -rf -- "$DUEL_DATA_DIR" "$RUNNER_TEMP/candidate-report.md" "$RUNNER_TEMP/overlay-check.log"
