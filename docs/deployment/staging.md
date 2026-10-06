@@ -162,11 +162,16 @@ in scratch preparation on 2026-10-06:
 | --- | --- |
 | Base cards.cdb input | `3530f406ba92b0f8d5699aa107e95158a1f1b4816f8f5ca2dd82c490301ef632` |
 | Release BETB input | `939a33357d6d43e0c392a33df4e31034152a7bec09696041239cded0d8d8e3ae` |
-| Merged cards.cdb output | `4c4025613e2fb7588ad8e520a16af72d9d7e509f7848a9bffec461f1cbcd0548` |
+| Ordered input digest (`integrity.cards`) | `a71b47633363bede95e2858eaa6d1734f18735a0ecf27bd000d8d5e63c8dd9df` |
+| Merged cards.cdb output (`integrity.cardsMerged`, SQLite 3.53.0) | `4c4025613e2fb7588ad8e520a16af72d9d7e509f7848a9bffec461f1cbcd0548` |
+
+The input digest hashes newline-joined `<filename>:<input SHA-256>` records in load order,
+without a trailing newline. `cardsMerged` verifies the cached file but is excluded from
+`bundleVersion`, as is `multiScripts`, so SQLite version/layout changes alone preserve bundle identity.
 
 The prepared bundle version without optional built-core metadata changes from
 `23993561abcaedcdf5aacadbfb9b4f43c4484b2590a99e9906efe29fb59cdfa8` to
-`019e8c1ce3e85b5c9757d627e1fdc91be9ce53101e13fa69888edc1fd9b1437e`.
+`661ab25721cdf1dfd2ad78e9e127899837ad769519c9ae5e3dd3d15ca815472d`.
 Versions with built-core metadata change too. The owner must approve merging/deployment;
 active-duel and replay version checks still apply. Selection, merge ordering and script
 coverage are documented in [engine data updates](engine-data-updates.md#released-card-data).
