@@ -315,10 +315,14 @@ function loadFromDisk(root: string): LoadedCardDatabase {
       return overlay ? overlay.apply(resolvedName, original) : original;
     },
     artworkScriptFallbacks() {
-      return [...deckCards.keys()].flatMap(passcode => {
-        if (scripts.has(`c${passcode}.lua`)) return [];
-        const main = canonicalCardCode(passcode, deckCards);
-        return main !== passcode && scripts.has(`c${main}.lua`) ? [{ passcode, main }] : [];
+      // Mirror the core (interpreter.cpp): a card whose alias is within 10 passcodes loads the alias's script, so
+      // c{code}.lua is never requested for it. Only a script the core really requests can need the fallback.
+      return [...deckCards.entries()].flatMap(([passcode, card]) => {
+        const alias = card.alias ?? 0;
+        const requested = alias && alias < passcode + 10 && passcode < alias + 10 ? alias : passcode;
+        if (scripts.has(`c${requested}.lua`)) return [];
+        const main = canonicalCardCode(requested, deckCards);
+        return main !== requested && scripts.has(`c${main}.lua`) ? [{ passcode, main }] : [];
       }).sort((a, b) => a.passcode - b.passcode);
     },
     close() {

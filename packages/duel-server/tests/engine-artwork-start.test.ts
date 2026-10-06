@@ -9,6 +9,8 @@ const settings = { visibility: "public" as const, banlist: "none" as const, card
   turnSeconds: 240, startingLP: 8000, startingHand: 5, drawPerTurn: 1, timeout: "loss" as const,
   validateDeck: false, shuffleDeck: false };
 const artworks = [46986415, 36996508, 27847700];
+// The pinned data has no alt art with an alias 10+ passcodes away that lacks its own script while the main one has
+// it, so the readScript fallback path cannot be exercised on the real engine; host-artworks.test.ts covers it.
 
 // The core inserts every main-deck card before starting; each selected artwork's
 // script is exercised even if it is not drawn. Engine script errors throw at start.

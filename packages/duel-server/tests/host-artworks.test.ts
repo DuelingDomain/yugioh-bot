@@ -19,8 +19,8 @@ it("serves signed artwork families and preserves chosen passcodes through deck s
   const cdb = new Database(join(dir, "cards.cdb"));
   cdb.exec(`create table datas (id integer primary key, ot integer, alias integer, setcode integer, type integer, atk integer, def integer, level integer, race integer, attribute integer);
     create table texts (id integer primary key, name text, desc text);
-    insert into datas values (10,3,0,0,17,1000,1000,4,1,1),(11,3,10,0,17,1000,1000,4,1,1),(12,3,11,0,17,1000,1000,4,1,1);
-    insert into texts values (10,'Dragon',''),(11,'Dragon',''),(12,'Dragon','');`); cdb.close();
+    insert into datas values (10,3,0,0,17,1000,1000,4,1,1),(30,3,10,0,17,1000,1000,4,1,1),(50,3,30,0,17,1000,1000,4,1,1);
+    insert into texts values (10,'Dragon',''),(30,'Dragon',''),(50,'Dragon','');`); cdb.close();
   const db = new Database(":memory:"); migrate(db);
   const players = ["a", "b"].map(user => Number(db.prepare("insert into players (guild_id,discord_user_id,display_name) values ('g',?,?)").run(user, user).lastInsertRowid));
   const service = createDuelService(db);
@@ -43,29 +43,29 @@ it("serves signed artwork families and preserves chosen passcodes through deck s
   try {
     const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
-      expect(loadCardDatabase(dir).artworkScriptFallbacks()).toEqual([{ passcode: 11, main: 10 }, { passcode: 12, main: 10 }]);
-      expect(loadCardDatabase(dir).readScript("c12.lua")).toBe("-- canonical script");
-      expect(warning).toHaveBeenCalledWith(expect.stringMatching(/c12\.lua.*c10\.lua.*GetID/));
+      expect(loadCardDatabase(dir).artworkScriptFallbacks()).toEqual([{ passcode: 30, main: 10 }, { passcode: 50, main: 10 }]);
+      expect(loadCardDatabase(dir).readScript("c50.lua")).toBe("-- canonical script");
+      expect(warning).toHaveBeenCalledWith(expect.stringMatching(/c50\.lua.*c10\.lua.*GetID/));
     } finally { warning.mockRestore(); }
     expect(loadCardDatabase(dir).readScript("c99.lua")).toBeNull();
     expect((await host.handle(new Request("http://localhost/internal/duel", { method: "POST", body: "{}" }))).status).toBe(401);
-    expect(await (await post({ op: "card-artworks", codes: [12] })).json()).toEqual({ passcode: 10, artworks: [
-      { passcode: 10, isMain: true }, { passcode: 11, isMain: false }, { passcode: 12, isMain: false },
+    expect(await (await post({ op: "card-artworks", codes: [50] })).json()).toEqual({ passcode: 10, artworks: [
+      { passcode: 10, isMain: true }, { passcode: 30, isMain: false }, { passcode: 50, isMain: false },
     ] });
-    const details = await (await post({ op: "card-details", codes: [10, 11, 12, 99] })).json();
-    expect(details.cards.map((card: { code: number; altArtCount?: number }) => [card.code, card.altArtCount])).toEqual([[10, 2], [11, 2], [12, 2]]);
+    const details = await (await post({ op: "card-details", codes: [10, 30, 50, 99] })).json();
+    expect(details.cards.map((card: { code: number; altArtCount?: number }) => [card.code, card.altArtCount])).toEqual([[10, 2], [30, 2], [50, 2]]);
     expect(details.missing).toEqual([99]);
     expect((await post({ op: "card-artworks", codes: [99] })).status).toBe(404);
-    expect((await post({ op: "card-artworks", codes: [10,11] })).status).toBe(400);
-    expect(await (await post({ op: "normalize-codes", codes: [12] })).json()).toEqual({ codes: { 12: 10 } });
-    expect(await (await post({ op: "normalize-codes", codes: [12], preserveArtwork: true })).json()).toEqual({ codes: { 12: 12 } });
+    expect((await post({ op: "card-artworks", codes: [10,30] })).status).toBe(400);
+    expect(await (await post({ op: "normalize-codes", codes: [50] })).json()).toEqual({ codes: { 50: 10 } });
+    expect(await (await post({ op: "normalize-codes", codes: [50], preserveArtwork: true })).json()).toEqual({ codes: { 50: 50 } });
     for (const player of players) {
-      const response = await post({ op: "deck", deck: { main: [12], extra: [], side: [11] } }, player);
+      const response = await post({ op: "deck", deck: { main: [50], extra: [], side: [30] } }, player);
       expect(response.status, JSON.stringify(await response.json())).toBe(200);
     }
     const start = await post({ op: "start" });
     expect(start.status, JSON.stringify(await start.json())).toBe(200);
     expect(created).toHaveLength(1);
-    expect(created[0].decks).toEqual(players.map(() => ({ main: [12], extra: [], side: [11] })));
+    expect(created[0].decks).toEqual(players.map(() => ({ main: [50], extra: [], side: [30] })));
   } finally { await host.close(); db.close(); rmSync(dir, { recursive: true, force: true }); }
 });
