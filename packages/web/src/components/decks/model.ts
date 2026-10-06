@@ -180,6 +180,11 @@ export function guidanceNotes(mode: DuelMode, deck: DuelDeck): string[] {
 export type CardCatalog = ReadonlyMap<number, DuelCardInfo | DeckCardInfo>;
 export type BanlistLimits = Readonly<Record<number, 0 | 1 | 2>>;
 
+/** Other arts the card has besides its own; 0 when the card is unknown or has one art. */
+export function altArtCount(code: number, catalog: CardCatalog): number {
+  return (catalog.get(code) as DeckCardInfo | undefined)?.altArtCount ?? 0;
+}
+
 /** Same-name cards (alternate artworks) share one copy count. */
 export function copyKey(code: number, catalog: CardCatalog): string {
   const name = catalog.get(code)?.name;

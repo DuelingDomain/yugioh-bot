@@ -29,6 +29,7 @@ export function ArtworkPicker({
   busy = false,
   error = null,
   label = "Card art",
+  autoFocus = false,
   unavailable,
   onFamily,
   onPick,
@@ -43,6 +44,8 @@ export function ArtworkPicker({
   /** Why the last pick failed. */
   error?: string | null;
   label?: string;
+  /** Moves focus to the art in use once the strip shows, for a picker that opens from a key or a click. */
+  autoFocus?: boolean;
   /** Arts that cannot be chosen, and why (for example, already in the cube). */
   unavailable?: ReadonlyMap<number, string>;
   /** Called once with the family, so the parent can load the details of every member. */
@@ -108,6 +111,14 @@ export function ArtworkPicker({
     );
     return () => { cancelled = true; window.clearTimeout(timer); };
   }, [code, skip, retry]);
+
+  const focused = useRef(false);
+  const stripShown = (family?.artworks.length ?? 0) > 1;
+  useEffect(() => {
+    if (!autoFocus || focused.current || !stripShown) return;
+    focused.current = true;
+    strip.current?.querySelector<HTMLButtonElement>('button[tabindex="0"]')?.focus();
+  }, [autoFocus, stripShown]);
 
   if (skip) return null;
   // A card the engine does not know has no family; there is nothing to choose.

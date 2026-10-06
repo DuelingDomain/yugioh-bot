@@ -1,0 +1,9 @@
+.chip { display: inline-flex; align-items: center; gap: 2px; height: 16px; padding: 0 4px; border-radius: 4px; background: rgb(5 8 15 / 0.86); color: rgb(239 231 213 / 0.78); font: 600 11px/1 var(--f-num); box-shadow: 0 0 0 1px rgb(239 231 213 / 0.18); transition: color 140ms var(--ease), box-shadow 140ms var(--ease); }
+.chip svg { width: 10px; height: 10px; flex: none; }
+/* On a card tile, top right; the ban mark has the top left. */
+.corner { position: absolute; right: 3px; top: 3px; }
+/* Only a chip that opens the art menu takes the pointer; the others let the click pass to the tile. */
+.chip:not([data-action]) { pointer-events: none; }
+.chip[data-action] { cursor: pointer; }
+/* Gold only for an active state: hover, focus in the tile, or the menu being open. */
+:is(button:hover, button:focus-visible) > .chip, .chip[data-open="true"], .chip[data-action]:hover { color: var(--chain-ink); box-shadow: 0 0 0 1px rgb(228 182 79 / 0.55); }

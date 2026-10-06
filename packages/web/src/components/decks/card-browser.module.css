@@ -26,8 +26,6 @@
 .de-t { border-radius: 5px; }
 .de-have, .de-left { position: absolute; right: 4px; bottom: 4px; min-width: 24px; height: 19px; padding: 0 5px; border-radius: 4px; background: rgb(5 8 15 / 0.9); color: var(--chain-ink); font: 500 13px/19px var(--f-num); text-align: center; box-shadow: 0 0 0 1px rgb(181 153 99 / 0.55); }
 .de-left { color: var(--ink); }
-.de-arts { position: absolute; right: 4px; top: 4px; height: 17px; padding: 0 5px; border-radius: 4px; background: rgb(5 8 15 / 0.9); color: var(--pen-ink); font: 500 11.5px/17px var(--f-num); box-shadow: 0 0 0 1px rgb(155 126 255 / 0.5); pointer-events: none; }
-.rowArts { display: inline-block; padding: 0 5px; border-radius: 4px; color: var(--pen-ink); font-size: 12px; box-shadow: 0 0 0 1px rgb(155 126 255 / 0.4); }
 .de-left[data-zero] { color: var(--ink-3); box-shadow: 0 0 0 1px var(--rule-lo); }
 .de-t[data-full] img { opacity: 0.38; filter: grayscale(0.6); }
 
