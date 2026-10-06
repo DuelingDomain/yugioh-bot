@@ -11,10 +11,12 @@ import {
   type CardArchetype,
   type CardFacets,
   type CardQuery,
+  type CardArtworksResponse,
   type DeckCardInfo,
   type DuelDeck,
   type DuelMode,
   type SavedDeck,
+  type SelectableCardArtwork,
 } from "@yugidraft/shared/duels";
 import {
   AlertTriangle,
@@ -36,10 +38,11 @@ import { parseDeckText, selectDomainMaster, type DeckMasterSelection } from "@/c
 import { SheetRoot, StatusLine, SvButton, Zone } from "@/components/sheet";
 import { cn } from "@/lib/utils";
 import { useNavigationLeaveGuard } from "@/lib/hooks/use-duel-leave-guard";
-import { createSavedDeck, deleteSavedDeck, getDeckCardFacets, getDeckCards, getSavedDeck, readRegistration, saveDraftDeck, updateSavedDeck, type DeckRegistrationMark, type SavedDeckView } from "./api";
+import { createSavedDeck, deleteSavedDeck, getDeckCardFacets, getDeckCards, getSavedDeck, readRegistration, saveDraftDeck, swapDeckArtwork, updateSavedDeck, type DeckRegistrationMark, type SavedDeckView } from "./api";
+import { ArtworkPicker } from "@/components/artwork/artwork-picker";
 import { CardActions, CardCopyCount } from "./card-actions";
 import { CardArt } from "./card-art";
-import { CardBrowser } from "./card-browser";
+import { CardBrowser, type BrowserCard } from "./card-browser";
 import { CardBottomSheet } from "./card-bottom-sheet";
 import { CardPreview } from "./card-preview";
 import { DeckSegmented, DeckSelect } from "./controls";
@@ -224,6 +227,10 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   const { editorRef, isPhone } = useEditorViewport(!!pool);
   const [phoneTab, setPhoneTab] = useState<"deck" | "cards">("deck");
   const [cardSheetOpen, setCardSheetOpen] = useState(false);
+  // The Deck Master slot was the last place a card was opened from, so a new art replaces the master.
+  const [masterPick, setMasterPick] = useState(false);
+  const [artBusy, setArtBusy] = useState(false);
+  const [artError, setArtError] = useState<string | null>(null);
   const importGeneration = useRef(0);
   const searchRef = useRef<HTMLInputElement>(null);
   const inspectScrollRef = useRef<HTMLDivElement>(null);
@@ -451,12 +458,69 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     [counts, poolMap, usage, catalog],
   );
 
-  function inspect(code: number, stack: SelectedStack | null = null, openSheet = true) {
+  const selectionRef = useRef(selection);
+  selectionRef.current = selection;
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+  const catalogRef = useRef(catalog);
+  catalogRef.current = catalog;
+
+  /** Card details for every art of a family, so names, types and pool copies resolve for any of them. */
+  async function loadFamilyCards(family: CardArtworksResponse): Promise<boolean> {
+    const missing = family.artworks.map((art) => art.passcode).filter((code) => !catalogRef.current.has(code));
+    if (missing.length === 0) return true;
+    try {
+      const { cards } = await getDeckCards(missing);
+      rememberCatalog(cards);
+      return missing.every((code) => cards.some((card) => card.code === code));
+    } catch {
+      return false;
+    }
+  }
+
+  function inspect(code: number, stack: SelectedStack | null = null, openSheet = true, fromMaster = false) {
     window.clearTimeout(hoverTimer.current);
     setHover(null);
     setInspectCode(code);
     setSelected(stack);
+    setMasterPick(fromMaster);
+    setArtError(null);
     if (isPhone && openSheet) setCardSheetOpen(true);
+  }
+
+  /**
+   * A new art for the open card. A copy opened from the deck is swapped in place through the server;
+   * a card opened from the list only changes the art that Add uses.
+   */
+  async function pickArtwork(art: SelectableCardArtwork, family: CardArtworksResponse) {
+    const from = inspectCode;
+    if (from == null || art.passcode === from || artBusy || busy) return;
+    setArtError(null);
+    setArtBusy(true);
+    const started = selectionRef.current;
+    const startedMode = mode;
+    const target = swapTarget;
+    try {
+      const loaded = await loadFamilyCards(family);
+      if (!target) {
+        if (!loaded) throw new Error("Could not load that art. Try again.");
+        inspect(art.passcode, null, false);
+        return;
+      }
+      const next = await swapDeckArtwork({ deck: started.deck, section: target.section, index: target.index, from, to: art.passcode });
+      // A late answer never lands on top of newer edits.
+      if (selectionRef.current !== started || modeRef.current !== startedMode) {
+        setArtError("The deck changed while the art loaded. Pick the art again.");
+        return;
+      }
+      commit({ deck: cloneDeck(next), masterOrigin: started.masterOrigin });
+      setInspectCode(art.passcode);
+      setSelected(target.section === "deckMaster" ? null : { section: target.section, code: art.passcode, index: target.index });
+    } catch (reason) {
+      setArtError(reason instanceof Error ? reason.message : "Could not change the art.");
+    } finally {
+      setArtBusy(false);
+    }
   }
 
   function pointAt(target: HoverTarget | null) {
@@ -701,6 +765,11 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   const notes = pool ? draftDeckNotes(deck, pool.mainPoolCount) : guidanceNotes(mode, deck);
   const mainMinimum = pool ? draftMainMinimum(pool.mainPoolCount) : 40;
   const inspected = inspectCode == null ? undefined : catalog.get(inspectCode);
+  const swapTarget: { section: "main" | "extra" | "side" | "deckMaster"; index: number } | null =
+    inspectCode == null ? null
+      : selected?.index != null && deck[selected.section][selected.index] === inspectCode ? { section: selected.section, index: selected.index }
+        : masterPick && mode === "domain" && deck.deckMaster === inspectCode ? { section: "deckMaster", index: 0 }
+          : null;
   const hoverCode = hoveredCode(hover, deck, hand, mode);
   const shownCode = hoverCode ?? inspectCode;
   const shown = shownCode == null ? undefined : catalog.get(shownCode);
@@ -794,6 +863,18 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
       onRemove={(section) => removeCopy({ code: inspected.code, from: section })}
       onMaster={() => makeMaster(inspected.code, selected?.code === inspected.code ? selected.section : undefined)}
       onArchetype={showArchetype}
+      artwork={
+        <ArtworkPicker
+          code={inspected.code}
+          knownCount={(inspected as BrowserCard).altArtCount === 0 ? 1 : undefined}
+          busy={artBusy}
+          disabled={busy}
+          error={artError}
+          label={swapTarget ? "Art of this copy" : "Art to add"}
+          onFamily={(family) => { void loadFamilyCards(family); }}
+          onPick={(art, family) => { void pickArtwork(art, family); }}
+        />
+      }
     />
   ) : null;
   const missingReader = (
@@ -947,7 +1028,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
                 onDragOver={(event) => { if (hasCardDrag(event)) { event.preventDefault(); setMasterDropping(true); } }}
                 onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setMasterDropping(false); }}
                 onDrop={(event) => { setMasterDropping(false); const drag = readCardDrag(event); if (!drag || drag.from === "master") return; event.preventDefault(); makeMaster(drag.code, drag.from === "list" ? undefined : drag.from); }}>
-                <div className={styles["de-mslot"]}>{deck.deckMaster != null ? <button type="button" className={styles["de-c"]} aria-label={`Deck Master: ${cardName(deck.deckMaster)}`} aria-pressed={inspectCode === deck.deckMaster && selected == null} title={cardName(deck.deckMaster)} draggable onClick={(event) => { event.currentTarget.focus(); inspect(deck.deckMaster!); }} onPointerEnter={(event) => { if (event.pointerType !== "touch") pointAt({ code: deck.deckMaster!, from: "master" }); }} onPointerLeave={() => pointAt(null)} onDragStart={(event) => writeCardDrag(event, { code: deck.deckMaster!, from: "master" })} onContextMenu={(event) => { event.preventDefault(); commit(selectDomainMaster(selection, undefined)); }}><CardArt code={deck.deckMaster} name={cardName(deck.deckMaster)} /></button> : <Zone state="dashed" size="md" style={{ "--zw": "58px" } as CSSProperties} />}</div>
+                <div className={styles["de-mslot"]}>{deck.deckMaster != null ? <button type="button" className={styles["de-c"]} aria-label={`Deck Master: ${cardName(deck.deckMaster)}`} aria-pressed={inspectCode === deck.deckMaster && selected == null} title={cardName(deck.deckMaster)} draggable onClick={(event) => { event.currentTarget.focus(); inspect(deck.deckMaster!, null, true, true); }} onPointerEnter={(event) => { if (event.pointerType !== "touch") pointAt({ code: deck.deckMaster!, from: "master" }); }} onPointerLeave={() => pointAt(null)} onDragStart={(event) => writeCardDrag(event, { code: deck.deckMaster!, from: "master" })} onContextMenu={(event) => { event.preventDefault(); commit(selectDomainMaster(selection, undefined)); }}><CardArt code={deck.deckMaster} name={cardName(deck.deckMaster)} /></button> : <Zone state="dashed" size="md" style={{ "--zw": "58px" } as CSSProperties} />}</div>
                 <div className={styles.masterText}><h2 className={styles["de-st"]}>Deck Master</h2><p className="small">{deck.deckMaster != null ? `${cardName(deck.deckMaster)}. ` : ""}Drag a monster here, or select one and press Use as Deck Master.</p>{deck.deckMaster != null ? <SvButton variant="quiet" disabled={busy} onClick={() => commit(selectDomainMaster(selection, undefined))}>Clear</SvButton> : null}</div>
               </section>
             ) : null}
