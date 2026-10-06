@@ -117,8 +117,11 @@ async function probeInProcess(dataDirectory: string, changedPaths: string[]): Pr
     }
     const apis = new Map<string, Set<string>>();
     const globals = new Map<string, Set<string>>();
-    // Helpers first, then cards. utility.lua can load its own prerequisites via scriptReader.
-    changed.sort((a, b) => Number(/^official\/c\d+\.lua$/.test(a)) - Number(/^official\/c\d+\.lua$/.test(b)) || a.localeCompare(b));
+    // Load helpers, initialize official cards natively, then inspect other card
+    // scripts. A manually created pre-errata cN table lacks the native card
+    // metatable and must never precede initialization of official card N.
+    const loadOrder = (path: string) => /^official\/c\d+\.lua$/.test(path) ? 1 : /^c\d+\.lua$/.test(basename(path)) ? 2 : 0;
+    changed.sort((a, b) => loadOrder(a) - loadOrder(b) || a.localeCompare(b));
     for (const path of changed) {
       attempt(path, () => {
         const full = resolve(scriptRoot, path);

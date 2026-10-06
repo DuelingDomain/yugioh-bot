@@ -93,6 +93,26 @@ describe("candidate engine data probe", () => {
     expect(result.errors.join("\n")).not.toContain("other initialization");
   });
 
+  it("initializes official cards before changed duplicate scripts and still probes every namespace", async () => {
+    const root = await fixture({
+      "official/c1006.lua": `local s,id=GetID()
+        function s.initial_effect(c) error("official initialization") end
+        function s.later() Duel.OfficialMissing() Card.OfficialMissing() end`,
+      "pre-errata/c1006.lua": `local s,id=GetID()
+        function s.initial_effect(c) error("other initialization") end
+        function s.later() Effect.OtherMissing() Group.OtherMissing() end`,
+    });
+    const result = await probeEngineData(root, ["pre-errata/c1006.lua", "official/c1006.lua"]);
+    const errors = result.errors.join("\n");
+    expect(errors).toContain("official initialization");
+    expect(errors).not.toContain("unreachable");
+    expect(errors).not.toContain("other initialization");
+    for (const symbol of ["Duel.OfficialMissing", "Card.OfficialMissing", "Effect.OtherMissing", "Group.OtherMissing"]) {
+      expect(errors).toContain(symbol);
+    }
+    expect(result).toMatchObject({ cardsChecked: 1, scriptsChecked: 4, apiSymbolsChecked: 4 });
+  });
+
   it("bounds a hanging Lua script and returns an advisory finding", async () => {
     const root = await fixture({ "hanging-helper.lua": "while true do end" });
     const result = await probeEngineData(root, ["hanging-helper.lua"], { timeoutMs: 2_000 });
