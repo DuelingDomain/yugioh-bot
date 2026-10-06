@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { resolve } from "node:path";
 import { NextResponse } from "next/server";
 import type { CardArtworkFamily, CardArtworksResponse } from "@yugidraft/shared/duels";
 import { validateCardImage } from "@yugidraft/shared/services";
@@ -25,22 +25,31 @@ export async function loadCardArtworkFamily(actor: { guildId: string; playerId: 
   return { ok: true, family };
 }
 
+// Bound memory and coalesce concurrent requests; include the directory in the key.
+// Keep full validation, but avoid decoding every variant on every no-store request.
+const imageChecks = new Map<string, { expires: number; present: Promise<boolean> }>();
+function cachedImage(filename: string): Promise<boolean> {
+  const path = resolve(process.env.CARD_IMAGE_CACHE_DIR ?? "./data/card-images", filename);
+  const now = Date.now();
+  const previous = imageChecks.get(path);
+  if (previous && previous.expires > now) return previous.present;
+  imageChecks.delete(path);
+  if (imageChecks.size >= 2048) imageChecks.delete(imageChecks.keys().next().value!);
+  const present = readFile(path).then(validateCardImage).then(() => true, () => false);
+  imageChecks.set(path, { expires: now + 30_000, present });
+  return present;
+}
+
 /** Local metadata is evidence of availability, never evidence that the engine accepts a passcode. */
 export async function withArtworkImages(family: CardArtworkFamily): Promise<CardArtworksResponse> {
   const lookup = getDb().prepare("select image_url, image_url_small, image_url_cropped from card_artworks where artwork_id = ? and source = 'api'");
-  const cached = async (filename: string) => {
-    try {
-      await validateCardImage(await readFile(join(process.env.CARD_IMAGE_CACHE_DIR ?? "./data/card-images", filename)));
-      return true;
-    } catch { return false; }
-  };
   const artworks = await Promise.all(family.artworks.map(async art => {
     const row = lookup.get(art.passcode) as { image_url: string; image_url_small: string; image_url_cropped: string | null } | undefined;
     const base = `/api/cards/${art.passcode}/image`;
     const [full, small, cropped] = await Promise.all([
-      row?.image_url || cached(`${art.passcode}.jpg`),
-      row?.image_url_small || cached(`${art.passcode}-small.jpg`),
-      row?.image_url_cropped || cached(`${art.passcode}-cropped.jpg`),
+      row?.image_url || cachedImage(`${art.passcode}.jpg`),
+      row?.image_url_small || cachedImage(`${art.passcode}-small.jpg`),
+      row?.image_url_cropped || cachedImage(`${art.passcode}-cropped.jpg`),
     ]);
     return { ...art, imageUrl: full ? base : null, smallUrl: small ? `${base}?variant=small` : null, croppedUrl: cropped ? `${base}?variant=cropped` : null };
   }));

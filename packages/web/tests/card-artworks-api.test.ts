@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import Database from "better-sqlite3";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -9,6 +10,10 @@ import { migrate } from "@yugidraft/shared/db";
 const { requireDuelActor, callDuelHost, getDb } = vi.hoisted(() => ({ requireDuelActor: vi.fn(), callDuelHost: vi.fn(), getDb: vi.fn() }));
 vi.mock("@/lib/duel-host", () => ({ requireDuelActor, callDuelHost }));
 vi.mock("@/lib/db", () => ({ getDb }));
+vi.mock("node:fs/promises", async importOriginal => {
+  const original = await importOriginal<typeof import("node:fs/promises")>();
+  return { ...original, readFile: vi.fn(original.readFile) };
+});
 let db: Database.Database;
 let dir: string;
 beforeEach(() => {
@@ -57,4 +62,20 @@ it("propagates unknown engine cards and host downtime", async () => {
 it("rejects malformed families instead of offering unsafe ids", async () => {
   callDuelHost.mockResolvedValue({ ok: true, data: { passcode: 10, artworks: [{ passcode: 99, isMain: false }] } });
   expect((await get()).status).toBe(502);
+});
+
+it("reuses cached image validation briefly, then discovers newly cached images", async () => {
+  const now = vi.spyOn(Date, "now").mockReturnValue(1000);
+  try {
+    await get();
+    const reads = vi.mocked(readFile).mock.calls.length;
+    expect(reads).toBeGreaterThan(0);
+    await get();
+    expect(vi.mocked(readFile).mock.calls.length).toBe(reads);
+    writeFileSync(join(dir, "12-small.jpg"), await sharp({ create: { width: 2, height: 2, channels: 3, background: "red" } }).jpeg().toBuffer());
+    now.mockReturnValue(32000);
+    const response = await get();
+    expect((await response.json()).artworks.find((art: { passcode: number }) => art.passcode === 12).smallUrl).toBe("/api/cards/12/image?variant=small");
+    expect(vi.mocked(readFile).mock.calls.length).toBeGreaterThan(reads);
+  } finally { now.mockRestore(); }
 });
