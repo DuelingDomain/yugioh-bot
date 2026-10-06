@@ -98,3 +98,44 @@ test("ffa4: a direct attack is sent by a click on the empty mat of the rival", a
   // The click was an answer, not a focus.
   await expect(page.locator("[data-table-stage]")).toHaveAttribute("data-grid-focus", "all");
 });
+
+test("ffa4: hovering empty rival mat in a direct attack snaps the arrow to that rival", async ({ page }) => {
+  await open(page, "state=direct-attack");
+  await expect(page.locator("[data-aim-hot]")).toHaveCount(0);
+  const point = await emptyMat(page, 2);
+  await page.mouse.move(point.x, point.y);
+  await expect(page.locator("[data-aim-hot]")).not.toHaveCount(0);
+});
+
+test("ffa4: the prompt panel over a rival field is not a direct attack: no answer, no snap", async ({ page }) => {
+  const answers: unknown[] = [];
+  page.on("console", (message) => {
+    if (message.text().includes("[table-preview] answer")) answers.push(message.text());
+  });
+  await open(page, "state=direct-attack");
+  const panel = page.locator("[data-prompt-panel]").first();
+  const title = panel.locator("h2").first();
+  const hide = panel.getByRole("button", { name: "Hide to look at the board" });
+  await expect(title).toBeVisible();
+  // The panel lies over a field: its centre must be inside a field box, or this test proves nothing.
+  const box = (await title.boundingBox())!;
+  const over = await page.evaluate(({ x, y }) => {
+    return [...document.querySelectorAll<HTMLElement>("[data-seat-field]")].some((field) => {
+      const rect = field.getBoundingClientRect();
+      return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+    });
+  }, { x: box.x + box.width / 2, y: box.y + box.height / 2 });
+  expect(over).toBe(true);
+
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.waitForTimeout(300);
+  await expect(page.locator("[data-aim-hot]")).toHaveCount(0);
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  const button = (await hide.boundingBox())!;
+  await page.mouse.move(button.x + button.width / 2, button.y + button.height / 2);
+  await page.waitForTimeout(300);
+  await expect(page.locator("[data-aim-hot]")).toHaveCount(0);
+  await page.mouse.click(button.x + button.width / 2, button.y + button.height / 2);
+  await page.waitForTimeout(500);
+  expect(answers).toEqual([]);
+});

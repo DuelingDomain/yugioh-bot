@@ -6,7 +6,7 @@ import { targetName } from "../card-interactions";
 import { isAttackDuelistPrompt, isAttackTargetPrompt, optionsForKeys, optionZoneKeys, type PromptAim } from "../prompts";
 import type { AimArrowProps, AimPointerSpot } from "./aim-arrow";
 import { isOutOrLeaving } from "../multi-seat";
-import { seatAtPoint } from "./seat-at-point";
+import { seatBehindBoard } from "./seat-at-point";
 import { targetChoices } from "./targets";
 import type { BattleAim, DuelActivateHandler, SeatPick, SeatTone, TableController, TableLayout } from "./types";
 
@@ -153,10 +153,11 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
         if (key) return { optionId: targets.get(key)!.id, to: { zones: [key] } };
       }
       if (direct) {
-        // Empty mat takes no pointer (field.module.css): the target is then the board, and the seat is found from the point.
+        // Empty mat takes no pointer (field.module.css): the target is then the zoom layer, and the seat is found from the
+        // point. Only then: the prompt panel, a button or the phase hub over a field must not aim at that field.
         let seat = seatOfNode(target);
         if (seat == null && point) {
-          const found = seatAtPoint(root.current ?? document, point.x, point.y);
+          const found = seatBehindBoard(root.current ?? document, target, point.x, point.y);
           seat = Number.isInteger(found) ? found : null;
         }
         const optionId = seat != null ? direct.get(seat) : undefined;

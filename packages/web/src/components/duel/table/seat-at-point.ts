@@ -19,3 +19,12 @@ export function seatAtPoint(root: ParentNode, x: number, y: number): number {
   }
   return seat;
 }
+
+/**
+ * The seat behind a pointer event that hit empty board: the target is the zoom layer itself, so no mat, card, label, phase
+ * hub or panel took the pointer. NaN for any other target (a button, the prompt panel, the hub text keep their own meaning).
+ */
+export function seatBehindBoard(root: ParentNode, target: EventTarget | null, x: number, y: number): number {
+  if (!(target instanceof Element) || !target.hasAttribute("data-view-layer")) return NaN;
+  return seatAtPoint(root, x, y);
+}
