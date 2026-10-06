@@ -33,6 +33,7 @@ import { bandHubFit } from "../phase-hub-model";
 import { SEAT_TONE_HEX, type SeatFieldProps, type SeatPose, type SeatTone } from "./types";
 import { occluderRects, useViewZoom } from "./use-view-zoom";
 import { watchMeasure } from "./measure-watch";
+import { seatBehindBoard } from "./seat-at-point";
 import { ViewReset } from "./view-reset";
 import { FOLLOW_ATTR, followShift, followTransform, visibleRect } from "./view-zoom";
 import zoomStyles from "./view-zoom.module.css";
@@ -503,7 +504,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
     const target = event.target as HTMLElement;
     if (target.closest(OWN_CLICK)) return;
     const host = target.closest<HTMLElement>("[data-grid-cell], [data-grid-lp]");
-    const seat = host ? Number(host.dataset.gridCell ?? host.dataset.gridLp) : NaN;
+    const seat = host ? Number(host.dataset.gridCell ?? host.dataset.gridLp) : seatBehindBoard(event.currentTarget, target, event.clientX, event.clientY);
     if (Number.isInteger(seat)) focusOn(seat);
   };
   // Tab into a field that is out of view brings it into view.
