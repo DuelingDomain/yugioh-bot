@@ -7831,6 +7831,19 @@
       "stockSha256": "443717ee2ca68266e0133f3a59a78194e893aa04bd6efda2a4f01c0f962cd0cf"
     },
     {
+      "code": 90140980,
+      "file": "c90140980.lua",
+      "name": "Ojama King",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "FIELD",
+      "redefined": [
+        "disop"
+      ],
+      "stockSha256": "3566c0b4bd37f44de47b249344c347aca4f4bef4fe5f5319b898f1f4317dbf26",
+      "note": "Script fix (#218, OD-OJAMA-KING): the controller picks one opponent with a free Main Monster Zone, once (label); the 3 zones are all of that opponent. If it leaves the duel, nothing is blocked and nobody is picked again."
+    },
+    {
       "code": 90173539,
       "file": "c90173539.lua",
       "name": "World Dino Wrestling",

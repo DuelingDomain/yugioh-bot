@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Duelists Kingdom Engine <engine@duelistskingdom.com>
+Date: Tue, 6 Oct 2026 00:00:00 +0000
+Subject: [PATCH] Reset the opponent of an operation-based disabled zone effect
+ when its card leaves
+
+An operation-based EFFECT_DISABLE_FIELD effect (Ojama King) keeps the opponent of
+its zone prompt in disfield_opp. card::reset cleared the value on leave but kept
+that opponent, so at n > 2 outside FFA4 the next stay on the field blocked the
+zones of the first opponent while the prompt offered another one. The reset now
+clears disfield_opp, disfield_selected and disfield_operation_opp of an effect with
+an operation, so the next operation picks again. n_duelists > 2 only.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019EpX1AcvnigK9dTsxAa5W9
+---
+diff --git a/card.cpp b/card.cpp
+index 81836ff..3649bf9 100644
+--- a/card.cpp
++++ b/card.cpp
+@@ -2057,8 +2057,18 @@ void card::reset(uint32_t id, uint32_t reset_type) {
+ 			battled_cards.clear();
+ 			reset_effect_count();
+ 			auto pr = field_effect.equal_range(EFFECT_DISABLE_FIELD);
+-			for(; pr.first != pr.second; ++pr.first)
+-				pr.first->second->value = 0;
++			for(; pr.first != pr.second; ++pr.first) {
++				auto* peff = pr.first->second;
++				peff->value = 0;
++				// n > 2: the opponent that the zone prompt of the operation recorded belongs to the zones that this
++				// reset cleared, so the operation of the next stay on the field picks again. Effects without an
++				// operation keep the opponent that they registered.
++				if(pduel->game_field->n_duelists > 2 && peff->operation) {
++					peff->disfield_opp = DUELIST_NONE;
++					peff->disfield_selected = false;
++					peff->disfield_operation_opp = DUELIST_NONE;
++				}
++			}
+ 		}
+ 		if(id & (RESET_TODECK | RESET_TOHAND | RESET_TOGRAVE | RESET_REMOVE | RESET_TEMP_REMOVE
+ 			| RESET_OVERLAY | RESET_MSCHANGE | RESET_TOFIELD  | RESET_TURN_SET)) {
