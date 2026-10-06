@@ -1,4 +1,5 @@
 import type { DuelEvent } from "@yugidraft/shared/duels";
+import { signatureCode } from "../signature-alias";
 import { clamp01, ramp } from "./ease";
 import { MIRROR, mirrorAt, mirrorGeo, mirrorHitSec } from "./mirror-math";
 import { DEMO_CW, DEMO_H, DEMO_W, hash1, timeWarp } from "./wipe-math";
@@ -65,7 +66,7 @@ function isFieldLeave(event: SceneEventLike): boolean {
 export function pieceOf(event: SceneEventLike): FxScenePiece | null {
   if (isFieldLeave(event)) return "banish-all";
   if (event.kind !== "destroy" || event.cause !== "effect" || !event.zone) return null;
-  const known = event.sourceCode != null ? SOURCE_PIECES[event.sourceCode] : undefined;
+  const known = event.sourceCode != null ? SOURCE_PIECES[signatureCode(event.sourceCode)] : undefined;
   if (known) return known;
   if (event.sourceKind === "trap") return "trap";
   if (event.sourceKind === "spell") return "spell";

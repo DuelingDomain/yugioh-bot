@@ -6,7 +6,9 @@ import { LOCATION_DMZONE, cardArtUrl, isDefense, isFacedown, zoneKey } from "./c
 import { battleOutcome, type BattleOutcome } from "./battle-outcome";
 import { battleOutcomeId, battleTrigger } from "./battle-trigger";
 import { coinBarrierFor, coinTossBefore, whenCoinBarrierClears } from "./coin-barrier";
-import { attackStyleFor, battleKind, battleTiming, DESTROY_TAIL_MS, hasCounterStrike, type AttackCardLike, type AttackStyleId, type BattleKind, type BattleTiming } from "./attack-styles";
+import { SOURCE_PIECES } from "./fx3d/scene-plan";
+import { primeSignatureAliases, signatureCode } from "./signature-alias";
+import { SIGNATURES, attackStyleFor, battleKind, battleTiming, DESTROY_TAIL_MS, hasCounterStrike, type AttackCardLike, type AttackStyleId, type BattleKind, type BattleTiming } from "./attack-styles";
 import { artUpsideDown, runAttackFx, screenPose, zoneTurnsArt, type AttackFxPlan, type FxCut, type FxLpHit, type FxSide } from "./attack-fx";
 import { flipAttackAt, flipFightDamageAt } from "./chain-beats";
 import { FlipStrike, type FlipStrikePlan } from "./flip-strike";
@@ -438,7 +440,7 @@ type Play = {
 
 /** The signature passcode when the card plays a signature attack, else null. */
 function signatureOf(style: ReturnType<typeof attackStyleFor>, card: BattleCard | null): number | null {
-  return style.rule.startsWith("signature") && card?.code != null ? card.code : null;
+  return style.rule.startsWith("signature") && card?.code != null ? signatureCode(card.code) : null;
 }
 
 type Resolved = {
@@ -818,6 +820,8 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
   const pendingRef = useRef<PendingAttack | null>(null);
   // Battle plays that wait for a coin toss (coin-barrier.ts); cancelled when the layer goes away.
   const deferredRef = useRef<Set<() => void>>(new Set());
+  // A chosen alternate art carries its own passcode; learn which signature or set-piece card it belongs to.
+  useEffect(() => { void primeSignatureAliases([...Object.keys(SIGNATURES), ...Object.keys(SOURCE_PIECES)].map(Number)); }, []);
   // A layout effect on purpose: on removal its cleanup runs before the passive cleanup of the coin layer,
   // which releases the barrier and would otherwise start the battle of a layer that is going away.
   useLayoutEffect(() => {
