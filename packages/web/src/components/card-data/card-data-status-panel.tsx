@@ -5,7 +5,8 @@ import { RefreshCw } from "lucide-react";
 import type { CardDataStatus } from "@yugidraft/shared/types";
 import { StatusLine, SvButton } from "@/components/sheet";
 import { absoluteTime, relativeTime, summarize, type OverallState } from "@/lib/card-data-status-model";
-import { CatalogSection, EngineSection, GapSection, WorkflowSection } from "./card-data-sections";
+import { CatalogSection, EngineSection, WorkflowSection } from "./card-data-sections";
+import { CachedCatalogSection, GapSection } from "./card-data-gap";
 import styles from "./card-data.module.css";
 
 type LoadFailure = "forbidden" | "unauthorized" | "unavailable";
@@ -113,8 +114,9 @@ export function CardDataStatusPanel() {
       <div className="set-page">
         <EngineSection status={status} now={now} />
         <CatalogSection status={status} now={now} />
-        <GapSection status={status} />
+        <GapSection status={status} now={now} />
         <WorkflowSection status={status} now={now} />
+        <CachedCatalogSection status={status} />
       </div>
     </div>
   );

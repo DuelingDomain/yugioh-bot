@@ -1,34 +1,28 @@
 "use client";
 
-import * as React from "react";
 import type { CardDataStatus, EngineDataSource, UpstreamSourceStatus } from "@yugidraft/shared/types";
-import { FloorList, FloorRow, StatusLine, SvButton, type StatusTone } from "@/components/sheet";
-import { cardImageUrl } from "@/lib/card-image-url";
+import { FloorList, FloorRow, StatusLine, type StatusTone } from "@/components/sheet";
 import {
   SOURCE_LABEL,
   SOURCE_ORDER,
   absoluteDate,
   absoluteTime,
   commitUrl,
-  filterGap,
   isSourceBehind,
   isSourceUnknown,
+  dataAsOf,
   newUpstreamCdbFiles,
   relativeTime,
   shortSha,
-  sortGap,
 } from "@/lib/card-data-status-model";
 import styles from "./card-data.module.css";
-
-const GAP_PAGE = 25;
-const FILTER_DELAY_MS = 250;
 
 /** Screen reader hint for links that leave the app. */
 function NewTab() {
   return <>{" "}<span className="sv-sr">(opens in a new tab)</span></>;
 }
 
-function When({ iso, now }: { iso: string | null; now: number }) {
+export function When({ iso, now }: { iso: string | null; now: number }) {
   const rel = relativeTime(iso, now);
   const abs = absoluteTime(iso);
   if (!rel || !abs) return <span className={styles.mute}>unknown</span>;
@@ -70,9 +64,9 @@ function sourceVerdict(source: UpstreamSourceStatus): { tone: StatusTone; text: 
 export function EngineSection({ status, now }: { status: CardDataStatus; now: number }) {
   const { engine, upstream } = status;
   const newCdbs = newUpstreamCdbFiles(status);
+  const asOf = dataAsOf(status);
   const preparedNote =
-    engine.preparedAtSource === "manifest-mtime" ? "estimate, from the bundle file date"
-    : engine.preparedAtSource === "unknown" ? "unknown, old bundle" : null;
+    engine.preparedAtSource === "manifest-mtime" ? "estimate, from the bundle file date" : null;
   return (
     <section className="set-sec" aria-labelledby="cd-engine">
       <div className="set-intro">
@@ -111,11 +105,20 @@ export function EngineSection({ status, now }: { status: CardDataStatus; now: nu
         <dl className={styles.facts}>
           <div><dt>Bundle version</dt><dd className={styles.mono}>{engine.bundleVersion || "unknown"}</dd></div>
           <div><dt>Engine cards</dt><dd>{engine.cardCount.toLocaleString("en-US")}</dd></div>
+          {engine.preparedAt ? (
+            <div>
+              <dt>Prepared</dt>
+              <dd>
+                <When iso={engine.preparedAt} now={now} />
+                {preparedNote ? <span className={styles.flag}>{preparedNote}</span> : null}
+              </dd>
+            </div>
+          ) : null}
           <div>
-            <dt>Prepared</dt>
+            <dt>Data as of</dt>
             <dd>
-              <When iso={engine.preparedAt} now={now} />
-              {preparedNote ? <span className={styles.flag}>{preparedNote}</span> : null}
+              {asOf ? absoluteDate(asOf) : <span className={styles.mute}>unknown</span>}
+              <span className={styles.note}>{engine.preparedAt ? "newest pinned commit" : "newest pinned commit; the bundle records no preparation time"}</span>
             </dd>
           </div>
         </dl>
@@ -183,99 +186,6 @@ export function CatalogSection({ status, now }: { status: CardDataStatus; now: n
             <p className={styles.rowNote}>No sets cached yet.</p>
           )}
         </div>
-      </div>
-    </section>
-  );
-}
-
-export function GapSection({ status }: { status: CardDataStatus }) {
-  const { gap } = status;
-  const [input, setInput] = React.useState("");
-  // The count line is a live region, so the filter waits for a pause in typing.
-  const [query, setQuery] = React.useState("");
-  React.useEffect(() => {
-    const timer = setTimeout(() => {
-      setQuery(input);
-      setShown(GAP_PAGE);
-    }, FILTER_DELAY_MS);
-    return () => clearTimeout(timer);
-  }, [input]);
-  const [shown, setShown] = React.useState(GAP_PAGE);
-  const sorted = React.useMemo(() => sortGap(gap.catalogMissingFromEngine), [gap.catalogMissingFromEngine]);
-  const filtered = React.useMemo(() => filterGap(sorted, query), [sorted, query]);
-  const visible = filtered.slice(0, shown);
-  const truncatedByServer = gap.catalogMissingFromEngineCount > gap.catalogMissingFromEngine.length;
-  return (
-    <section className="set-sec" aria-labelledby="cd-gap">
-      <div className="set-intro">
-        <h2 id="cd-gap">Gap</h2>
-        <p>Catalog cards the duel engine does not know yet, newest set first.</p>
-      </div>
-      <div className={styles.block}>
-        <dl className={styles.facts}>
-          <div>
-            <dt>In catalog, not in engine</dt>
-            <dd data-bad={gap.catalogMissingFromEngineCount > 0 ? "true" : undefined}>
-              {gap.catalogMissingFromEngineCount.toLocaleString("en-US")}
-            </dd>
-          </div>
-          <div>
-            <dt>In engine, not in catalog</dt>
-            <dd>{gap.engineMissingFromCatalogCount.toLocaleString("en-US")}</dd>
-          </div>
-        </dl>
-        {gap.catalogMissingFromEngine.length === 0 ? (
-          <p className={styles.rowNote}>
-            {gap.catalogMissingFromEngineCount === 0 ? "No gap. The engine knows every cached catalog card." : "The server sent no card list."}
-          </p>
-        ) : (
-          <>
-            <div>
-              <label className="label" htmlFor="cd-gap-search">Filter by name, passcode or set code</label>
-              <input
-                id="cd-gap-search"
-                className="input"
-                type="search"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="e.g. Blue-Eyes or RA05"
-              />
-            </div>
-            <p className={styles.rowNote} role="status">
-              {query.trim()
-                ? `${filtered.length} of ${gap.catalogMissingFromEngine.length} listed cards match`
-                : `Showing ${Math.min(visible.length, filtered.length)} of ${gap.catalogMissingFromEngine.length}`}
-              {truncatedByServer ? `. The server listed ${gap.catalogMissingFromEngine.length} of ${gap.catalogMissingFromEngineCount}.` : ""}
-            </p>
-            <div className={styles.gapScroll} tabIndex={0} role="region" aria-label="Cards missing from the engine">
-              <table className={styles.gapTable}>
-                <thead>
-                  <tr><th scope="col" className={styles.thumbCol}><span className="sv-sr">Art</span></th><th scope="col">Name</th><th scope="col">Passcode</th><th scope="col">Set</th><th scope="col">Released</th></tr>
-                </thead>
-                <tbody>
-                  {visible.map((card) => (
-                    <tr key={card.id}>
-                      <td className={styles.thumbCol}>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img className={styles.thumb} src={cardImageUrl(card.id, "small")} alt="" loading="lazy" width={32} height={46} />
-                      </td>
-                      <td className={styles.gapName}>{card.name}</td>
-                      <td className={styles.mono}>{card.id}</td>
-                      <td className={styles.mono}>{card.setCode ?? "none"}</td>
-                      <td>{absoluteDate(card.setReleaseDate) ?? "none"}</td>
-                    </tr>
-                  ))}
-                  {visible.length === 0 ? <tr><td colSpan={5} className={styles.mute}>No card matches this filter.</td></tr> : null}
-                </tbody>
-              </table>
-            </div>
-            {filtered.length > visible.length ? (
-              <SvButton variant="ghost" onClick={() => setShown((n) => n + GAP_PAGE)}>
-                Show more ({filtered.length - visible.length} left)
-              </SvButton>
-            ) : null}
-          </>
-        )}
       </div>
     </section>
   );

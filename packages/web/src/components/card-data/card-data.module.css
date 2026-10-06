@@ -249,3 +249,78 @@
   .stateWord { font-size: 26px; }
   .summaryAside { flex-basis: 100%; }
 }
+
+.note {
+  display: block;
+  margin-top: 2px;
+  color: var(--ink-3);
+  font: 400 12.5px/1.4 var(--f-ui);
+}
+
+.linkButton {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--gold-ink);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.linkButton:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+.quiet { padding-top: 4px; }
+
+.mismatchList {
+  margin: 8px 0 0;
+  padding: 0 0 0 18px;
+  color: var(--ink-2);
+  font: 400 13.5px/1.5 var(--f-ui);
+}
+
+/* Recent sets: one button row per set; the missing cards open under it. */
+.setList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--rule-lo);
+}
+
+.setItem { border-bottom: 1px solid var(--rule-lo); min-width: 0; }
+
+.setButton {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) 110px 110px minmax(0, 1.2fr) 130px;
+  align-items: baseline;
+  gap: 4px 14px;
+  width: 100%;
+  padding: 10px 4px;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: 400 14.5px/1.4 var(--f-ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+.setButton:disabled { cursor: default; }
+.setButton:not(:disabled):hover { background: var(--pen-soft); }
+.setButton:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.setButton > * { min-width: 0; overflow-wrap: anywhere; }
+
+.setName { font-weight: 500; }
+
+.setVerdict { color: var(--ink-2); font-weight: 500; }
+.setVerdict[data-state="missing"] { color: var(--warn-ink); }
+.setVerdict[data-state="complete"] { color: var(--chain-ink); }
+.setVerdict[data-state="unknown"] { color: var(--ink-3); }
+
+.setPanel { padding: 4px 4px 14px; }
+.cardTable { display: grid; gap: 10px; justify-items: start; min-width: 0; max-width: 100%; }
+.cardTable > .gapScroll { justify-self: stretch; }
+
+@media (max-width: 620px) {
+  .setButton { grid-template-columns: minmax(0, 1fr) auto; }
+  .setButton > :nth-child(3), .setButton > :nth-child(5) { grid-column: 1 / -1; }
+}
