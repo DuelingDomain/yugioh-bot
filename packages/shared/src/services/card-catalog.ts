@@ -302,7 +302,8 @@ export function createCardCatalogService(
           images.get(image.artwork_id)!.image_url_cropped = image.image_url_cropped;
         }
       }
-      if (!images.has(cardId)) images.set(cardId, { id: cardId,
+      const synthesizedMain = !images.has(cardId);
+      if (synthesizedMain) images.set(cardId, { id: cardId,
         image_url: `https://images.ygoprodeck.com/images/cards/${cardId}.jpg`,
         image_url_small: `https://images.ygoprodeck.com/images/cards_small/${cardId}.jpg`,
         image_url_cropped: `https://images.ygoprodeck.com/images/cards_cropped/${cardId}.jpg` });
@@ -333,6 +334,7 @@ export function createCardCatalogService(
       for (const parent of previousParents) db.prepare("update card_artworks set is_main = 0 where card_id = ?").run(parent);
       for (const [artworkId, image] of images) upsertArtwork.run(cardId, artworkId, image.image_url,
         image.image_url_small, image.image_url_cropped ?? null, Number(artworkId === cardId));
+      if (synthesizedMain) db.prepare("update card_artworks set source = 'engine' where artwork_id = ?").run(cardId);
       savedIds.add(cardId);
     }
     // A later response can move an earlier fallback family to a proven main.
@@ -429,6 +431,22 @@ export function createCardCatalogService(
   };
 
   return {
+    /** One full API dump, one transaction per existing family; callback runs only after commit. */
+    async backfillExistingArtworks(options: { afterId?: number; onProgress?: (id: number) => void } = {}) {
+      const rows = db.prepare("select ygoprodeck_id, name, type from card_catalog").all() as Array<{ ygoprodeck_id: number; name: string; type: string }>;
+      const key = (card: { name: string; type: string }) => JSON.stringify([normalizeName(card.name), card.type]);
+      const wanted = new Set(rows.map(key));
+      const cards = (await fetchCardsWith({})).filter(card => wanted.has(key(card))).sort((a, b) => a.id - b.id);
+      const matched = new Set(cards.map(key));
+      let synced = 0;
+      for (const card of cards) {
+        if (card.id <= (options.afterId ?? 0)) continue;
+        synced += upsertCards([card]).length;
+        options.onProgress?.(card.id);
+      }
+      return { synced, unmatched: rows.filter(row => !matched.has(key(row))).map(row => row.ygoprodeck_id).sort((a, b) => a - b) };
+    },
+
     async syncDraftPool(input: SyncDraftPoolInput) {
       const distinctCustomIds = [...new Set(input.customCardIds ?? [])];
       for (const id of distinctCustomIds) ensureLegacyEngineArtwork(id);

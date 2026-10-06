@@ -44,6 +44,21 @@ function setup() {
   return { db, catalog, calls };
 }
 
+
+it("keeps a synthesized main out of API image evidence until its image is synced", async () => {
+  const { db } = setup();
+  const onlyAlt = { ...fixtures[1], id: 89631140, card_images: fixtures[1].card_images.filter(a => a.id === 89631140) };
+  const catalog = createCardCatalogService(db, { identityCatalog: identity,
+    fetch: async () => ({ ok: true, json: async () => ({ data: [onlyAlt] }) }) });
+  await catalog.syncCardByName(onlyAlt.name);
+  expect(db.prepare("select source from card_artworks where artwork_id = 89631139").get()).toEqual({ source: "engine" });
+  expect(catalog.listArtworks(89631139).map(a => a.artworkId)).toEqual([89631140]);
+  const full = createCardCatalogService(db, { identityCatalog: identity,
+    fetch: async () => ({ ok: true, json: async () => ({ data: [fixtures[1]] }) }) });
+  await full.syncCardByName(onlyAlt.name);
+  expect(full.listArtworks(89631139)[0]).toMatchObject({ artworkId: 89631139, isMain: true });
+});
+
 describe("card artwork mapping", () => {
   it.each(fixtures.map((c, i) => ({ name: c.name, fixture: c, main: originals[i] })))(
     "stores every $name artwork and returns the original for name sync", async ({ name, fixture, main }) => {
