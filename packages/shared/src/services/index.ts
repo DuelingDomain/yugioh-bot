@@ -9,6 +9,7 @@ export * from "./drafts.js";
 export * from "./draft-access.js";
 export { createGuildSettingsService } from "./guild-settings.js";
 export type { GuildSettingsService, GuildSettings } from "./guild-settings.js";
+export * from "./users.js";
 export { createPlayerService } from "./players.js";
 export type { PlayerService, Player } from "./players.js";
 export { createMatchService } from "./matches.js";
