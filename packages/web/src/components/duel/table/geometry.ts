@@ -397,8 +397,12 @@ const FFA3_RING: Bounds = { l: 550 - 64, r: 550 + 64, t: 322 - 64, b: 322 + 80 }
 
 const wideRivalCache = new Map<string, HomeSlot>();
 
-function ffa3WideRival(spread: number, view: PlazaView, W: number): HomeSlot {
-  const key = `${spread}|${view.k.toFixed(4)}|${view.top.toFixed(1)}|${W}`;
+function ffa3WideRival(rawSpread: number, rawView: PlazaView, W: number): HomeSlot {
+  // The search is slow, so a resize must not run it at each pixel: snap the box to steps that only ever make the room
+  // a little smaller (less spread, a smaller k gives more air, a lower top edge), and cache by the steps.
+  const spread = Math.floor(rawSpread / 8) * 8;
+  const view = { k: Math.floor(rawView.k * 50) / 50 || rawView.k, top: Math.ceil(rawView.top / 4) * 4 };
+  const key = `${spread}|${view.k}|${view.top}|${W}`;
   const hit = wideRivalCache.get(key);
   if (hit) return hit;
   const { k } = view;
@@ -430,7 +434,7 @@ function ffa3WideRival(spread: number, view: PlazaView, W: number): HomeSlot {
   }
   // A box with no room for the smallest rival: the classic place, scaled for the spread.
   const slot = found ?? { rotateDeg: 158, tiltDeg: FFA3_WIDE.tiltDeg, x: 298 - Math.min(spread, 120), y: 222, scale: FFA3_WIDE.minScale };
-  if (wideRivalCache.size > 64) wideRivalCache.clear();
+  if (wideRivalCache.size > 256) wideRivalCache.clear();
   wideRivalCache.set(key, slot);
   return slot;
 }
