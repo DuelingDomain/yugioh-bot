@@ -5,6 +5,7 @@ import type { DuelCardInfo } from "@yugidraft/shared/duels";
 import { cardArtUrl } from "../constants";
 import { LifePoints } from "../life-points";
 import { hexToRgbTriplet } from "./seat-angle";
+import { FOLLOW_ATTR, followTransform } from "./view-zoom";
 import { SEAT_TONE_HEX, type SeatStatus, type SeatTone } from "./types";
 import styles from "./holo-lp.module.css";
 
@@ -35,6 +36,11 @@ export interface HoloLpProps {
   /** The fly-in pump places this panel with `style.transform`: the anchor translate is zero. */
   floating?: boolean;
   /**
+   * The panel follows a zoom of the board at its own size (see followShift in view-zoom.ts): its middle goes where the zoom
+   * takes that point, so it stays clear of the cards it is clear of at rest. At 1x it is the anchor place.
+   */
+  follow?: boolean;
+  /**
    * Fit the panel into a box its parent sizes (the grid table's band): the panel fills the box width and has no anchor.
    * The number is the size of the contents, 1 = natural, smaller for a short or narrow box.
    */
@@ -55,6 +61,9 @@ export interface HoloLpProps {
   footerTight?: boolean;
   reducedMotion: boolean;
 }
+
+/** The follow anchor sits this far down the panel: about the middle of its LP line. */
+const FOLLOW_MID_Y = 34;
 
 /** A fitted panel scaled below this drops its counts row and its clock. */
 export const COMPACT_FIT = 0.6;
@@ -122,18 +131,22 @@ export function HoloLp({
   footer = null,
   footerTight = false,
   reducedMotion,
+  follow = false,
 }: HoloLpProps) {
   const hex = SEAT_TONE_HEX[tone];
   const stateLabel = STATE_LABEL[status];
   const turn = status === "turn";
   const out = status === "eliminated";
   const clock = formatClock(clockMs);
+  const follows = follow && !floating && fit == null;
   const style: CSSProperties & Record<string, string | number> = {
     "--t": hexToRgbTriplet(hex.main),
     "--tink": hex.ink,
     translate: floating || fit != null ? "0px 0px" : `${x}px ${y}px`,
     ...(width != null && fit == null ? { "--lpw": `${width}px` } : null),
     ...(fit != null ? { "--lpk": fit.toFixed(3) } : null),
+    // The follow is a transform (its `translate` glides the anchor place): no layout on a zoom frame.
+    ...(follows ? { transform: followTransform(x + (width ?? (me ? 212 : 196)) / 2, y + FOLLOW_MID_Y) } : null),
   };
   const body = (
     <>
@@ -171,6 +184,7 @@ export function HoloLp({
       className={styles.holo}
       style={style}
       data-holo={seat}
+      {...(follows ? { [FOLLOW_ATTR]: "" } : null)}
       data-seat={seat}
       data-tone={tone}
       data-me={me ? "true" : undefined}

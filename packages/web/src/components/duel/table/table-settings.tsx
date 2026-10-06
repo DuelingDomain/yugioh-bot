@@ -7,6 +7,7 @@ import { BugReportMenuButton } from "../../bug-report/bug-report-menu-button";
 import type { DuelWebsocketState } from "@/lib/hooks/use-duel-websocket";
 import fxStyles from "../battle-fx.module.css";
 import { DuelAnimationSpeedControl } from "../animation-speed-control";
+import { DuelCardTextSizeControl } from "../card-text-size-control";
 import { duelFontClasses } from "../fonts";
 import { DUEL_SHAKE_LABEL, DUEL_SHAKE_LEVELS, type DuelPreferences } from "../preferences";
 import { DuelSettingsSummary, DuelSoundControls, RoomInvite } from "../room-settings";
@@ -37,6 +38,7 @@ export function TableSettings({ controller, preferences, connection, tools }: {
       {connection ? <RoomInvite room={room} slug={room.session.slug} /> : null}
       <h2>Presentation</h2>
       <DuelAnimationSpeedControl />
+      <DuelCardTextSizeControl />
       <DuelSoundControls
         enabled={preferences.soundEnabled}
         volume={preferences.soundVolume}

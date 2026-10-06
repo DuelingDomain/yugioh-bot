@@ -49,6 +49,14 @@ afterEach(() => {
 });
 
 describe("DuelFeedback chain end", () => {
+  it.each([[false, false], [true, true]])("shows the attack toast only when asked (attackToast %s -> toast %s), and sounds the attack either way", (attackToast, shown) => {
+    const feedback = (events: DuelEvent[]) => <DuelFeedback events={events} duelKey="t" soundEnabled reducedMotion={false} attackToast={attackToast} />;
+    const { container, rerender } = render(feedback([]));
+    rerender(feedback([{ ...ev("attack", "Player 3 attacks Player 4"), seat: 2, zone: { controller: 2, location: 4, sequence: 0 } }]));
+    expect(container.querySelector('[data-kind="attack"]') != null).toBe(shown);
+    expect(play).toHaveBeenCalledWith("attack");
+  });
+
   it.each([false, true])("keeps target updates out of banners and sound queues (reduced motion %s)", (reducedMotion) => {
     const feedback = (events: DuelEvent[]) => <DuelFeedback events={events} duelKey="t" soundEnabled reducedMotion={reducedMotion} />;
     const { container, rerender } = render(feedback([]));

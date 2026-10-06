@@ -71,6 +71,7 @@ import { DuelFeedback } from "./feedback";
 import { duelFontClasses } from "./fonts";
 import { DUEL_SHAKE_LABEL, DUEL_SHAKE_LEVELS, useDuelPreferences } from "./preferences";
 import { DuelAnimationSpeedControl, useDuelAnimationSpeed } from "./animation-speed-control";
+import { DuelCardTextSizeControl } from "./card-text-size-control";
 import { CardInspector, type InspectTarget } from "./inspector";
 import {
   activatePromptFromField,
@@ -1039,6 +1040,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       <RoomInvite room={data} slug={slug} />
       <h2>Presentation</h2>
       <DuelAnimationSpeedControl />
+      <DuelCardTextSizeControl />
       <DuelSoundControls enabled={preferences.soundEnabled} volume={preferences.soundVolume}
         onEnabledChange={preferences.setSoundEnabled} onVolumeChange={preferences.setSoundVolume} />
       <label className="flex flex-col gap-2">Motion
@@ -1279,7 +1281,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       {fxUp ? <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={slug}
         reducedMotion={preferences.reducedMotion} mySeat={data.mySeat} /> : null}
       <BattleFx key={`battle-${slug}`} events={withDestroyCards(engine.events)} seats={engine.seats} reducedMotion={preferences.reducedMotion}
-        active={fxUp} aim={solid ? null : battleAim} result={engine.result} battleStep={battleStep} />
+        active={fxUp} aim={solid ? null : battleAim} result={engine.result} battleStep={battleStep} nameOf={playerName} />
       <DestroyFx key={`destroy-${slug}`} events={withDestroyCards(engine.events)} reducedMotion={preferences.reducedMotion}
         active={fxUp} mySeat={localSeat} />
       </FxBoundary>

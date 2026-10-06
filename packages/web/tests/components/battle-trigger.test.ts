@@ -16,6 +16,14 @@ const phase = (id: number) => ev(id, { kind: "phase" });
 const activate = (id: number) => ev(id, { kind: "activate", zone: z(0, 3) });
 
 describe("battleTrigger", () => {
+  it.each([["monster", attack], ["direct", directAttack]])("fizzles a %s attack at once when the engine says it was negated", (_name, declared) => {
+    const negated = ev(12, { kind: "attack-negated" });
+    expect(battleTrigger([declared, activate(11), negated], declared)).toEqual({ action: "fizzle", reason: "negated" });
+    expect(battleTrigger([declared, negated], declared)).toEqual({ action: "fizzle", reason: "negated" });
+    // A negate that came before this attack is not this attack's.
+    expect(battleTrigger([ev(5, { kind: "attack-negated" }), declared], declared)).toEqual({ action: "wait" });
+  });
+
   it("plays a calculated battle even when neither damage nor destruction occurs", () => {
     const calculation = ev(11, {
       kind: "battle", zone: attacker, target,

@@ -270,7 +270,7 @@ export function DuelReplayView({ slug }: { slug: string }) {
               onHoverCard={onHoverCard} onInspect={(target) => showInspector(target, true)}
               bottomName={playerName(localSeat)}
               topName={playerName(top?.seat ?? 1 - localSeat)} />
-            <DuelFeedback events={engine.events} duelKey={`${slug}:replay:${epoch}`}
+            <DuelFeedback events={engine.events} duelKey={`${slug}:replay:${epoch}`} attackToast
               soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={preferences.reducedMotion} />
             {/* The replay plays the coin too, passive: nothing is locked and the cover takes no pointer. */}
             <CoinTossFx events={engine.events} duelKey={`${slug}:replay:${epoch}`} reducedMotion={preferences.reducedMotion} passive />
