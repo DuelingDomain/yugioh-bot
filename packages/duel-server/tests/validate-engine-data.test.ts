@@ -1,7 +1,8 @@
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 const roots: string[] = [];
@@ -17,7 +18,7 @@ function fixture(changed: boolean) {
   writeFileSync(join(root, "overlay-exit.txt"), "1\n");
   writeFileSync(join(root, "overlay-check.log"), "overlay drift");
   writeFileSync(join(data, "manifest.json"), JSON.stringify({ sources: next }));
-  const run = () => spawnSync(process.execPath, ["--import", "tsx", resolve("packages/duel-server/scripts/validate-engine-data.ts")], {
+  const run = () => spawnSync(process.execPath, ["--import", "tsx", fileURLToPath(new URL("../scripts/validate-engine-data.ts", import.meta.url))], {
     encoding: "utf8", timeout: 10_000,
     env: { ...process.env, UPDATE_ARTIFACT_DIR: root, DUEL_DATA_DIR: data, DRY_RUN: "true", GITHUB_STEP_SUMMARY: join(root, "summary.md"), GITHUB_REPOSITORY: "test/repo", GITHUB_RUN_ID: "1" },
   });
