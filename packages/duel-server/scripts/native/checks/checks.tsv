@@ -4,6 +4,8 @@
 # @DATA@ and @SCRIPTS@ in args are replaced by the card data folder (cards.tsv) and the card script folder.
 setup-duelists	setup-duelists	check	ready	Debug.SetupDuelists: success, errors, cards, n=2 identity
 response-order	response-order	check	ready	chain and trigger order at n>2: priority windows, SEGOC, phase window
+cost-elimination-response	cost-elimination-response	-	ready	FFA3/4 activation cost removes final or top link: one open round or restarted living-link order; Tag loss control
+nduel-response-order	nduel-response-order	--n 4 --mode ffa --seed 18 --turns 60 --lp 3000 --data @DATA@ --scripts @SCRIPTS@ --multi-scripts @MULTI_SCRIPTS@ --check-future	ready	Checker validates END and surviving-link order; seed 18 must exercise final-link elimination and END with an open anchor
 battle	battle	all	ready	battle at n>2: attack order, direct attack, damage
 losses-team-lp	losses-team-lp	check	ready	losses, win, draw, team LP, Debug.EliminateDuelist
 elimination	elimination	check	ready	field::eliminate: cards, turns, chain, attack
