@@ -610,6 +610,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
     <div
       ref={rootRef}
       className={styles.board}
+      tabIndex={-1}
       data-bar-room={barRoom}
       data-prompt-scope
       data-table-stage={layout.format}
@@ -851,7 +852,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
           All fields
         </button>
       </div>
-      <ViewReset zoomed={zoom.zoomed} scale={zoom.view.s} onReset={zoom.reset} style={{ right: 10, top: 44 }} />
+      <ViewReset zoomed={zoom.zoomed} scale={zoom.view.s} onReset={zoom.reset} board={rootRef} style={{ right: 10, top: 44 }} />
       {fx ? <div className={styles.slot} data-slot="fx">{fx}</div> : null}
       {promptCenter ? <div className={styles.slot} data-slot="prompt" data-seat-pick={picks ? "true" : undefined} data-prompt-pair={promptPair ? promptColumn ?? undefined : undefined} data-prompt-dense={promptPair ? "true" : undefined} style={promptStyle}>{promptCenter}</div> : null}
       {overlay ? <div className={styles.slot} data-slot="overlay">{overlay}</div> : null}

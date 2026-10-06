@@ -3,6 +3,7 @@ import React, { useRef } from "react";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useViewZoom, VIEW_OCCLUDERS } from "@/components/duel/table/use-view-zoom";
+import { ViewReset } from "@/components/duel/table/view-reset";
 import {
   clampView,
   DRAG_THRESHOLD_PX,
@@ -403,5 +404,29 @@ describe("useViewZoom on a board", () => {
       }
     });
     expect(Number(root.dataset.scale)).toBeGreaterThan(1.4);
+  });
+});
+
+describe("Reset view control", () => {
+  afterEach(() => cleanup());
+
+  it("gives the focus back to the board when a click hides it", () => {
+    function Host() {
+      const board = useRef<HTMLDivElement>(null);
+      const [zoomed, setZoomed] = React.useState(true);
+      return (
+        <div ref={board} tabIndex={-1} data-testid="board">
+          <ViewReset zoomed={zoomed} scale={2} onReset={() => setZoomed(false)} board={board} />
+        </div>
+      );
+    }
+    const { getByTestId, queryByTestId } = render(<Host />);
+    const button = getByTestId("view-reset");
+    button.focus();
+    act(() => {
+      fireEvent.click(button);
+    });
+    expect(queryByTestId("view-reset")).toBeNull();
+    expect(document.activeElement).toBe(getByTestId("board"));
   });
 });

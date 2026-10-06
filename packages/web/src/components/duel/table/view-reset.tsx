@@ -1,11 +1,14 @@
 "use client";
 
-import type { CSSProperties } from "react";
+import type { CSSProperties, RefObject } from "react";
 import { Minimize2 } from "lucide-react";
 import styles from "./view-zoom.module.css";
 
-/** The small "Reset view" control of a zoomed board, with the zoom it resets. Hidden while the board is not zoomed. */
-export function ViewReset({ zoomed, scale, onReset, style }: { zoomed: boolean; scale: number; onReset: () => void; style?: CSSProperties }) {
+/**
+ * The small "Reset view" control of a zoomed board, with the zoom it resets. Hidden while the board is not zoomed: a
+ * click hides it, so the focus goes back to the board (`board`, focusable with tabIndex -1), not to the page body.
+ */
+export function ViewReset({ zoomed, scale, onReset, style, board }: { zoomed: boolean; scale: number; onReset: () => void; style?: CSSProperties; board?: RefObject<HTMLElement | null> }) {
   if (!zoomed) return null;
   return (
     <button
@@ -15,7 +18,10 @@ export function ViewReset({ zoomed, scale, onReset, style }: { zoomed: boolean; 
       data-view-reset
       data-testid="view-reset"
       title="Reset view (or double-click the board)"
-      onClick={onReset}
+      onClick={() => {
+        onReset();
+        board?.current?.focus({ preventScroll: true });
+      }}
     >
       <Minimize2 size={13} strokeWidth={2} aria-hidden />
       Reset view <b>{Math.round(scale * 100)}%</b>
