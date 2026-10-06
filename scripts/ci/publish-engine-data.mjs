@@ -45,7 +45,7 @@ export async function publishEngineData({ cwd = process.cwd(), env = process.env
   const artifactDir = resolve(cwd, env.UPDATE_ARTIFACT_DIR);
   const artifact = JSON.parse(readFileSync(join(artifactDir, "update.json"), "utf8"));
   validateArtifact(artifact);
-  const skip = (reason) => { log(`Engine data publication skipped: ${reason}`); return { status: "skipped", reason, pushed: false }; };
+  const skip = (reason) => { log(`::warning::Engine data publication skipped: ${reason}`); return { status: "skipped", reason, pushed: false }; };
   if (!artifact.changed) return skip("unchanged");
   const base = env.BASE_BRANCH || "main";
   const branch = env.UPDATE_BRANCH || "chore/engine-data-update";
@@ -62,27 +62,25 @@ export async function publishEngineData({ cwd = process.cwd(), env = process.env
   const baseSha = git("rev-parse", baseRef).trim();
   // ls-remote distinguishes a genuinely absent branch from a failed fetch (which must fail publication).
   const branchExists = Boolean(git("ls-remote", "--heads", "origin", `refs/heads/${branch}`).trim());
+  const pr = gh("pr", "list", "--repo", repo, "--head", branch, "--base", base, "--state", "open", "--json", "url", "--jq", ".[0].url // empty").trim();
   let updateSha = "";
   if (branchExists) {
     git("fetch", "--no-tags", "origin", `+refs/heads/${branch}:${updateRef}`);
     updateSha = git("rev-parse", updateRef).trim();
     const authors = git("log", "--format=%an%x00%ae", `${baseRef}..${updateRef}`);
-    if (hasHumanCommits(authors)) {
-      const pr = gh("pr", "list", "--repo", repo, "--head", branch, "--base", base, "--state", "open", "--json", "url", "--jq", ".[0].url // empty").trim();
-      if (pr) {
-        const temporary = mkdtempSync(join(tmpdir(), "engine-data-comment-"));
-        try {
-          const body = join(temporary, "comment.md");
-          const runUrl = `${env.GITHUB_SERVER_URL || "https://github.com"}/${repo}/actions/runs/${env.GITHUB_RUN_ID || ""}`;
-          writeFileSync(body, `Engine data update skipped because this branch contains commits authored by someone other than the exact GitHub Actions bot identity. Preserving those changes; no push or CI dispatch was performed.\n\nRun: ${runUrl}\n`);
-          gh("pr", "comment", pr, "--repo", repo, "--body-file", body);
-        } finally { rmSync(temporary, { recursive: true, force: true }); }
-      }
+    if (pr && hasHumanCommits(authors)) {
+      const temporary = mkdtempSync(join(tmpdir(), "engine-data-comment-"));
+      try {
+        const body = join(temporary, "comment.md");
+        const runUrl = `${env.GITHUB_SERVER_URL || "https://github.com"}/${repo}/actions/runs/${env.GITHUB_RUN_ID || ""}`;
+        writeFileSync(body, `Engine data update skipped because this branch contains commits authored by someone other than the exact GitHub Actions bot identity. Preserving those changes; no push or CI dispatch was performed.\n\nRun: ${runUrl}\n`);
+        gh("pr", "comment", pr, "--repo", repo, "--body-file", body);
+      } finally { rmSync(temporary, { recursive: true, force: true }); }
       return skip("human-commits");
     }
   }
   if (baseSha !== artifact.baseSha) return skip("base-advanced");
-  if (updateSha) {
+  if (updateSha && pr) {
     const current = readPinsFromSource(git("show", `${updateSha}:${PIN_FILE}`));
     if (pinKeys.every((key) => current[key] === artifact.next[key])) return skip("identical-pins");
   }
@@ -112,7 +110,6 @@ export async function publishEngineData({ cwd = process.cwd(), env = process.env
   if (git("status", "--porcelain", "--untracked-files=no").trim()) throw new Error("Publication requires a clean tracked checkout");
   const body = join(artifactDir, existsSync(join(artifactDir, "pr-body.md")) ? "pr-body.md" : "report.md");
   readFileSync(body, "utf8"); // Require a usable report before publishing the branch.
-  const pr = gh("pr", "list", "--repo", repo, "--head", branch, "--base", base, "--state", "open", "--json", "url", "--jq", ".[0].url // empty").trim();
   git("switch", "--detach", baseSha);
   writeFileSync(join(cwd, PIN_FILE), expected);
   git("add", "--", ...artifact.files);

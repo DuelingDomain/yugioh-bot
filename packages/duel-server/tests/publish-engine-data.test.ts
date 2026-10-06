@@ -50,6 +50,7 @@ function fixture() {
   writeFileSync(join(artifact, "pr-body.md"), "Concise report\n");
   const calls: { command: string; args: string[] }[] = [];
   const comments: string[] = [];
+  const logs: string[] = [];
   let hasPr = false;
   let beforePush: (() => void) | undefined;
   const env = { ...process.env, UPDATE_ARTIFACT_DIR: artifact, GH_REPO: "test/repo", GITHUB_RUN_ID: "789",
@@ -66,7 +67,7 @@ function fixture() {
     if (args.includes("push")) beforePush?.();
     return execFileSync(command, args, { cwd, encoding: "utf8", stdio: "pipe", env: options.env ?? env });
   };
-  const publish = () => publishEngineData({ cwd, env, run, log: () => {} });
+  const publish = () => publishEngineData({ cwd, env, run, log: (message: string) => logs.push(message) });
   function branch(pins = old, author = bot) {
     git("switch", "-c", "chore/engine-data-update");
     writeFileSync(join(cwd, prepare), source(pins));
@@ -77,7 +78,7 @@ function fixture() {
     git("switch", "main");
     return sha;
   }
-  return { cwd, artifact, git, calls, comments, env, publish, branch, patch, baseSha, update,
+  return { cwd, artifact, git, calls, comments, logs, env, publish, branch, patch, baseSha, update,
     setPr: () => { hasPr = true; }, setBeforePush: (fn: () => void) => { beforePush = fn; } };
 }
 
@@ -102,20 +103,41 @@ describe("engine data publication", () => {
     f.git("push", "origin", "chore/engine-data-update");
     f.git("switch", "main");
     expect(await f.publish()).toMatchObject({ status: "skipped", reason: "human-commits" });
+    expect(f.logs).toContain("::warning::Engine data publication skipped: human-commits");
     expect(pushed(f)).toHaveLength(0); expect(dispatched(f)).toHaveLength(0);
     expect(f.comments).toHaveLength(1);
     expect(f.comments[0]).toContain("https://github.com/test/repo/actions/runs/789");
   });
 
-  it("does not republish or dispatch identical pins", async () => {
-    const f = fixture(); f.branch(next);
+  it.each([old, next])("replaces human commits without an open PR, even with matching pins: %j", async (pins) => {
+    const f = fixture();
+    const stale = f.branch(pins, { name: "Human", email: "human@example.invalid" });
+    expect(await f.publish()).toMatchObject({ status: "published", prUrl: createdUrl });
+    expect(pushed(f)[0].args).toContain(`--force-with-lease=refs/heads/chore/engine-data-update:${stale}`);
+    expect(f.git("rev-parse", "HEAD^")).toBe(f.baseSha);
+    expect(f.comments).toHaveLength(0);
+    expect(dispatched(f)).toHaveLength(1);
+  });
+
+  it("warns when the artifact is unchanged", async () => {
+    const f = fixture();
+    writeFileSync(join(f.artifact, "update.json"), JSON.stringify({ changed: false }));
+    expect(await f.publish()).toMatchObject({ status: "skipped", reason: "unchanged" });
+    expect(f.logs).toContain("::warning::Engine data publication skipped: unchanged");
+    expect(pushed(f)).toHaveLength(0); expect(dispatched(f)).toHaveLength(0);
+  });
+
+  it("does not republish or dispatch identical pins on an open PR", async () => {
+    const f = fixture(); f.branch(next); f.setPr();
     expect(await f.publish()).toMatchObject({ status: "skipped", reason: "identical-pins" });
+    expect(f.logs).toContain("::warning::Engine data publication skipped: identical-pins");
     expect(pushed(f)).toHaveLength(0); expect(dispatched(f)).toHaveLength(0);
   });
 
   it("rejects a stale artifact when the remote base advanced", async () => {
     const f = fixture(); f.git("commit", "--allow-empty", "-qm", "new base"); f.git("push", "origin", "main");
     expect(await f.publish()).toMatchObject({ status: "skipped", reason: "base-advanced" });
+    expect(f.logs).toContain("::warning::Engine data publication skipped: base-advanced");
     expect(pushed(f)).toHaveLength(0); expect(dispatched(f)).toHaveLength(0);
   });
 
