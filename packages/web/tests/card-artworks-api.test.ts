@@ -46,6 +46,12 @@ it("merges only engine arts with metadata and valid cache, using local nullable 
     { passcode: 13, isMain: false, imageUrl: null, smallUrl: null, croppedUrl: null },
   ] });
 });
+it("does not cache a failed image check, so a freshly downloaded image shows at once", async () => {
+  const smallOf = async () => (await (await get()).json()).artworks.find((art: { passcode: number }) => art.passcode === 12).smallUrl;
+  expect(await smallOf()).toBeNull();
+  writeFileSync(join(dir, "12-small.jpg"), await sharp({ create: { width: 2, height: 2, channels: 3, background: "red" } }).jpeg().toBuffer());
+  expect(await smallOf()).toBe("/api/cards/12/image?variant=small");
+});
 it("requires the guild actor before asking the host", async () => {
   requireDuelActor.mockResolvedValue({ ok: false, response: Response.json({ error: "Forbidden" }, { status: 403 }) });
   expect((await get()).status).toBe(403); expect(callDuelHost).not.toHaveBeenCalled();
@@ -64,18 +70,20 @@ it("rejects malformed families instead of offering unsafe ids", async () => {
   expect((await get()).status).toBe(502);
 });
 
-it("reuses cached image validation briefly, then discovers newly cached images", async () => {
+it("reuses a successful image check briefly, then notices a removed image", async () => {
+  const jpeg = await sharp({ create: { width: 2, height: 2, channels: 3, background: "red" } }).jpeg().toBuffer();
+  for (const id of [12, 13]) for (const suffix of ["", "-small", "-cropped"]) writeFileSync(join(dir, `${id}${suffix}.jpg`), jpeg);
   const now = vi.spyOn(Date, "now").mockReturnValue(1000);
+  const smallOf = async () => (await (await get()).json()).artworks.find((art: { passcode: number }) => art.passcode === 12).smallUrl;
   try {
-    await get();
+    expect(await smallOf()).toBe("/api/cards/12/image?variant=small");
     const reads = vi.mocked(readFile).mock.calls.length;
     expect(reads).toBeGreaterThan(0);
-    await get();
+    rmSync(join(dir, "12-small.jpg"));
+    expect(await smallOf()).toBe("/api/cards/12/image?variant=small");
     expect(vi.mocked(readFile).mock.calls.length).toBe(reads);
-    writeFileSync(join(dir, "12-small.jpg"), await sharp({ create: { width: 2, height: 2, channels: 3, background: "red" } }).jpeg().toBuffer());
     now.mockReturnValue(32000);
-    const response = await get();
-    expect((await response.json()).artworks.find((art: { passcode: number }) => art.passcode === 12).smallUrl).toBe("/api/cards/12/image?variant=small");
+    expect(await smallOf()).toBeNull();
     expect(vi.mocked(readFile).mock.calls.length).toBeGreaterThan(reads);
   } finally { now.mockRestore(); }
 });

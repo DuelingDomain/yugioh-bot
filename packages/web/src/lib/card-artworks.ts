@@ -36,7 +36,10 @@ function cachedImage(filename: string): Promise<boolean> {
   imageChecks.delete(path);
   if (imageChecks.size >= 2048) imageChecks.delete(imageChecks.keys().next().value!);
   const present = readFile(path).then(validateCardImage).then(() => true, () => false);
-  imageChecks.set(path, { expires: now + 30_000, present });
+  const entry = { expires: now + 30_000, present };
+  imageChecks.set(path, entry);
+  // Concurrent requests share the in-flight check, but a failure must not stay cached: the image may arrive any moment.
+  void present.then(ok => { if (!ok && imageChecks.get(path) === entry) imageChecks.delete(path); });
   return present;
 }
 
