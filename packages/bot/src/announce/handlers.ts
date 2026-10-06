@@ -47,19 +47,32 @@ export function createAnnounceHandlers({
     async onDraftCompleted({ draftId }) {
       const draft = drafts.findById(draftId);
       if (draft.status !== "completed" || !draft.channelId || !draft.webSlug) return;
-      const channel = await client.channels.fetch(draft.channelId);
-      if (channel?.type !== ChannelType.GuildText) return;
-
+      // Delivery is at-most-once: claim before Discord I/O, and never retry a failed send.
       const claimed = db.prepare(`update drafts set complete_message_id='worker-claimed'
         where id=? and status='completed' and complete_message_id is null`).run(draftId).changes === 1;
       if (!claimed) return;
+      const skip = (reason: string) => {
+        db.prepare("update drafts set complete_message_id='skipped' where id=? and complete_message_id='worker-claimed'")
+          .run(draftId);
+        console.error(`[announce] draft completion skipped for ${draftId}: ${reason}`);
+      };
+      let channel;
+      try {
+        channel = await client.channels.fetch(draft.channelId);
+      } catch (error) {
+        skip(`channel fetch failed (${String(error)})`);
+        return;
+      }
+      if (channel?.type !== ChannelType.GuildText) {
+        skip("channel is missing or is not a guild text channel");
+        return;
+      }
       try {
         const msg = await channel.send(draftCompletedAnnouncement({ name: draft.name, webSlug: draft.webSlug }));
         db.prepare("update drafts set complete_message_id=? where id=? and complete_message_id='worker-claimed'")
           .run(msg.id, draftId);
       } catch (error) {
         console.error(`[announce] draft completion delivery failed for ${draftId}:`, error);
-        throw error;
       }
     },
     async onTournamentCreated({ channelId, name, format, webSlug, organizerUserId, participantCount }) {

@@ -21,7 +21,7 @@ function setup(path=":memory:"){
   expect(a.userId).not.toBe(a.id);
   const rec=recordingTransport(),broadcast=createBroadcaster(rec.transport);
   const effects:WorkerEffects={discordEnabled:true,draft:broadcast.draft,tournament:broadcast.tournament,discord:vi.fn(async()=>{}),duel:vi.fn(async()=>{})};
-  return {db,players,drafts,matches,tournaments,a,b,effects,rec};
+  return {db,players,drafts,matches,tournaments,a,b,effects,rec,startedAt:new Date()};
 }
 function activeDraft(app:ReturnType<typeof setup>){
   const insert=app.db.prepare(`insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
@@ -31,6 +31,49 @@ function activeDraft(app:ReturnType<typeof setup>){
   app.drafts.join(draft.id,app.b.id);app.drafts.start(draft.id);
   return draft.id;
 }
+it("sweeps only drafts completed at or after this worker started", async () => {
+  vi.useFakeTimers();vi.setSystemTime(new Date("2026-10-06T12:00:00Z"));
+  const app=setup();
+  const insert=app.db.prepare(`insert into drafts(id,guild_id,channel_id,name,status,created_by_user_id,web_slug,ended_at)
+    values(?,'g','channel','Completed','completed',?,'completed',?)`);
+  insert.run(11,app.a.userId,"2026-10-06 11:59:59");
+  insert.run(12,app.a.userId,"2026-10-06 12:00:00");
+  insert.run(13,app.a.userId,"2026-10-06T12:00:01.000Z");
+  vi.setSystemTime(new Date("2026-10-06T12:00:02Z"));
+  await createDraftTimer(app).tick();
+  expect(vi.mocked(app.effects.discord).mock.calls.map(([p])=>p.kind==="draft-completed" ? p.draftId : p.kind))
+    .toEqual([12,13]);
+  expect(app.db.prepare("select complete_message_id from drafts where id=11").get())
+    .toEqual({complete_message_id:null});
+});
+
+it("retries unsent completions only every 60s while picks expire on 1s ticks", async () => {
+  vi.useFakeTimers();vi.setSystemTime(new Date("2026-10-06T12:00:00Z"));
+  const app=setup(),id=activeDraft(app);
+  app.db.prepare("update drafts set pick_deadline_at=? where id=?").run("2026-10-06T12:00:01Z",id);
+  app.db.prepare(`insert into drafts(id,guild_id,channel_id,name,status,created_by_user_id,web_slug,ended_at)
+    values(13,'g','channel','Completed','completed',?,'completed','2026-10-06 12:00:00')`).run(app.a.userId);
+  const timer=createDraftTimer(app),loop=createLoop(()=>timer.tick(),1000);
+  const completionCalls=()=>vi.mocked(app.effects.discord).mock.calls.filter(([p])=>p.kind==="draft-completed");
+  try {
+    await loop.start();
+    expect(completionCalls()).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(app.drafts.findById(id).currentPickStep).toBe(2);
+    app.db.prepare("update drafts set pick_deadline_at=? where id=?").run("2026-10-06T12:00:02Z",id);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(app.drafts.findById(id).currentPickStep).toBe(3);
+    await vi.advanceTimersByTimeAsync(57_000);
+    expect(completionCalls()).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(completionCalls()).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(59_000);
+    expect(completionCalls()).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(completionCalls()).toHaveLength(3);
+  } finally { await loop.stop(); }
+});
+
 it("startup catches overdue picks; a web expiry racing a stale list commits once",async()=>{
   vi.useFakeTimers();vi.setSystemTime(new Date("2026-10-06T12:00:00Z"));
   const app=setup(),id=activeDraft(app);

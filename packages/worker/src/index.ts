@@ -17,6 +17,7 @@ import { createTournamentTimer } from "./tournament-timer.js";
 import { createSetSync } from "./set-sync.js";
 import { createImageCleanup } from "./image-cleanup.js";
 
+const startedAt = new Date();
 config({ path: process.env.DOTENV_CONFIG_PATH ?? fileURLToPath(new URL("../../../.env", import.meta.url)) });
 const databasePath = process.env.DATABASE_PATH;
 const imageCacheDir = process.env.CARD_IMAGE_CACHE_DIR;
@@ -29,7 +30,7 @@ const db = openDatabase(databasePath);
 const effects = effectsFromEnv(process.env);
 const healthPath = process.env.WORKER_HEALTH_PATH ?? "/tmp/yugidraft-worker-health.json";
 const writeHealth = () => writeFileSync(healthPath, JSON.stringify({ pid: process.pid, at: Date.now() }), { mode: 0o600 });
-const draftTimer = createDraftTimer({ db, drafts: createDraftService(db), effects });
+const draftTimer = createDraftTimer({ db, drafts: createDraftService(db), effects, startedAt });
 const tournamentTimer = createTournamentTimer({ db, matches: createMatchService(db), tournaments: createTournamentService(db), effects });
 const jobs = [
   createLoop(async () => { await draftTimer.tick(); writeHealth(); }, 1000),

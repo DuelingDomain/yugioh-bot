@@ -14,7 +14,8 @@ describe("announce handlers", () => {
       values(13,'g','channel','Draft','completed',101,'draft',current_timestamp)`);
     const send = vi.fn(async () => ({ id: "discord-message" }));
     const messenger = { postStatus: vi.fn(async () => {}), updateStatus: vi.fn(async () => {}) };
-    const fetchChannel = vi.fn(async () => ({ type: ChannelType.GuildText, isTextBased: () => true, send }));
+    const fetchChannel = vi.fn(async (): Promise<{ type: ChannelType; isTextBased: () => boolean; send: typeof send } | null> =>
+      ({ type: ChannelType.GuildText, isTextBased: () => true, send }));
     const handlers = createAnnounceHandlers({
       db, drafts: createDraftService(db), guildSettings: createGuildSettingsService(db), messenger,
       client: { channels: { fetch: fetchChannel }, users: { fetch: vi.fn() } } as any,
@@ -25,23 +26,63 @@ describe("announce handlers", () => {
   const completionPayload = { draftId: 13, channelId: "channel", name: "Draft", webSlug: "draft" };
 
   it("claims concurrent draft completions once", async () => {
-    const { db, handlers, send } = completed();
+    const { db, handlers, send, fetchChannel } = completed();
     try {
       await Promise.all([handlers.onDraftCompleted(completionPayload), handlers.onDraftCompleted(completionPayload)]);
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(fetchChannel).toHaveBeenCalledTimes(1);
+      await handlers.onDraftCompleted(completionPayload);
+      expect(fetchChannel).toHaveBeenCalledTimes(1);
       expect(send).toHaveBeenCalledTimes(1);
       expect(db.prepare("select complete_message_id from drafts where id=13").get())
         .toEqual({ complete_message_id: "discord-message" });
     } finally { db.close(); }
   });
 
-  it("retains a failed delivery claim without undoing completion", async () => {
-    const { db, handlers, send } = completed();
+  it.each(["missing", "non-text"])("skips a %s channel permanently without retrying", async kind => {
+    const { db, handlers, send, fetchChannel } = completed();
+    fetchChannel.mockResolvedValue(kind === "missing" ? null : { type: ChannelType.GuildVoice, isTextBased: () => false, send });
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await expect(handlers.onDraftCompleted(completionPayload)).resolves.toBeUndefined();
+      expect(db.prepare("select complete_message_id from drafts where id=13").get())
+        .toEqual({ complete_message_id: "skipped" });
+      await handlers.onDraftCompleted(completionPayload);
+      expect(fetchChannel).toHaveBeenCalledTimes(1);
+      expect(send).not.toHaveBeenCalled();
+      expect(error).toHaveBeenCalledExactlyOnceWith(expect.stringContaining("skipped for 13"));
+    } finally { error.mockRestore(); db.close(); }
+  });
+
+  it("claims before fetching and skips a fetch error permanently", async () => {
+    const { db, handlers, send, fetchChannel } = completed();
+    let claimAtFetch: unknown;
+    fetchChannel.mockImplementation(async () => {
+      claimAtFetch = db.prepare("select complete_message_id from drafts where id=13").get();
+      throw new Error("Unknown Channel");
+    });
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await expect(handlers.onDraftCompleted(completionPayload)).resolves.toBeUndefined();
+      expect(claimAtFetch).toEqual({ complete_message_id: "worker-claimed" });
+      expect(db.prepare("select complete_message_id from drafts where id=13").get())
+        .toEqual({ complete_message_id: "skipped" });
+      await handlers.onDraftCompleted(completionPayload);
+      expect(fetchChannel).toHaveBeenCalledTimes(1);
+      expect(send).not.toHaveBeenCalled();
+      expect(error).toHaveBeenCalledExactlyOnceWith(expect.stringContaining("skipped for 13"));
+    } finally { error.mockRestore(); db.close(); }
+  });
+
+  it("delivers at most once: a failed send stays claimed and is never retried", async () => {
+    const { db, handlers, send, fetchChannel } = completed();
     send.mockRejectedValue(new Error("Discord unavailable"));
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
-      await Promise.allSettled([handlers.onDraftCompleted(completionPayload), handlers.onDraftCompleted(completionPayload)]);
+      await expect(handlers.onDraftCompleted(completionPayload)).resolves.toBeUndefined();
       await handlers.onDraftCompleted(completionPayload);
       expect(send).toHaveBeenCalledTimes(1);
+      expect(fetchChannel).toHaveBeenCalledTimes(1);
       expect(db.prepare("select status,complete_message_id from drafts where id=13").get())
         .toEqual({ status: "completed", complete_message_id: "worker-claimed" });
       expect(error).toHaveBeenCalledWith(expect.stringContaining("delivery failed for 13"), expect.any(Error));

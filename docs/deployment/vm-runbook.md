@@ -319,6 +319,7 @@ REMINDER_TIMEZONE=America/New_York
 ```
 
 After editing `.env`, recreate containers with `docker compose -f docker-compose.yml up -d`. `restart` does not re-read `.env`.
+With `DISCORD_BOT_ENABLED` set to anything other than literal `1`, the bot exits successfully and stays stopped under `restart: on-failure`; the worker continues without Discord delivery. Deploy health checks cover duel, WS and worker, so a disabled bot does not fail deployment.
 
 ### Build & Run
 

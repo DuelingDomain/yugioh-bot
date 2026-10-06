@@ -2,11 +2,13 @@ import type Database from "better-sqlite3";
 import type { DraftService } from "@yugidraft/shared/services";
 import type { WorkerEffects } from "./effects.js";
 
-export function createDraftTimer({ db, drafts, effects }: {
+export function createDraftTimer({ db, drafts, effects, startedAt }: {
   db: Database.Database;
   drafts: DraftService;
   effects: WorkerEffects;
+  startedAt: Date;
 }) {
+  let lastCompletionSweepAt: number | undefined;
   const safely = async (run: () => Promise<void>) => {
     try {
       await run();
@@ -42,13 +44,16 @@ export function createDraftTimer({ db, drafts, effects }: {
       }
 
       if (!effects.discordEnabled) return;
-      // The bot owns the draft completion claim; retry recent unsent completions.
+      if (lastCompletionSweepAt !== undefined && now.getTime() - lastCompletionSweepAt < 60_000) return;
+      lastCompletionSweepAt = now.getTime();
+      // The bot owns the claim; retry recent unsent completions from this worker's lifetime.
       const rows = db.prepare(`
         select id from drafts where status = 'completed' and complete_message_id is null
           and channel_id is not null and web_slug is not null
           and julianday(ended_at) >= julianday(?, '-1 day')
+          and julianday(ended_at) >= julianday(?)
         order by id limit 20
-      `).all(now.toISOString()) as Array<{ id: number }>;
+      `).all(now.toISOString(), startedAt.toISOString()) as Array<{ id: number }>;
       for (const { id } of rows) {
         const draft = drafts.findById(id);
         await safely(() => effects.discord({

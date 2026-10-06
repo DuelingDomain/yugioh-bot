@@ -5,7 +5,7 @@ services:
     build:
       context: .
       target: bot
-    restart: unless-stopped
+    restart: on-failure
     user: *user
     env_file:
       - .env
