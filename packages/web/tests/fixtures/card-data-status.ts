@@ -1,5 +1,7 @@
 import type { CardDataStatus, EngineDataSource, UpstreamSourceStatus } from "@yugidraft/shared/types";
 
+type SetGap = CardDataStatus["gap"]["recentSets"][number];
+
 const REPOS: Record<EngineDataSource, string> = {
   database: "ProjectIgnis/BabelCDB",
   scripts: "ProjectIgnis/CardScripts",
@@ -37,7 +39,13 @@ export function freshStatus(): CardDataStatus {
       revision: 4,
       newestSets: [{ name: "Rage of the Abyss", code: "RA05", releaseDate: "2026-09-26" }],
     },
-    gap: { catalogMissingFromEngineCount: 0, catalogMissingFromEngine: [], engineMissingFromCatalogCount: 3 },
+    gap: {
+      recentSetsMissingFromEngineCount: 0,
+      recentSets: [completeSet("Rage of the Abyss", "RA05", "2026-09-26", 60)],
+      cachedCatalogMissingCount: 0,
+      cachedCatalogMissing: [],
+      cachedCatalogIdMismatch: [],
+    },
     upstream: {
       checkedAt: "2026-10-06T11:30:00Z",
       expiresAt: "2026-10-06T12:30:00Z",
@@ -76,4 +84,17 @@ export function gapCards(count: number) {
     setCode: `RA05-EN${String(i).padStart(3, "0")}`,
     setReleaseDate: i < count / 2 ? "2026-09-26" : "2025-03-14",
   }));
+}
+
+export function completeSet(name: string, code: string, releaseDate: string, total: number): SetGap {
+  return { name, code, releaseDate, status: "ok", checkedAt: "2026-10-06T06:00:00Z", total, missingCount: 0, missingCards: [], idMismatch: [] };
+}
+
+export function missingSet(name: string, code: string, releaseDate: string, total: number, missing: number): SetGap {
+  return { ...completeSet(name, code, releaseDate, total), missingCount: missing, missingCards: gapCards(missing) };
+}
+
+/** A set that was never fetched: no counts, so it must read as unknown. */
+export function unknownSet(name: string, code: string, releaseDate: string): SetGap {
+  return { name, code, releaseDate, status: "unknown", checkedAt: null, total: null, missingCount: null, missingCards: [], idMismatch: [] };
 }

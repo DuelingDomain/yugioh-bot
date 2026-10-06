@@ -5,6 +5,9 @@ import type {
   UpstreamSourceStatus,
 } from "@yugidraft/shared/types";
 
+/** The per-set gap entry. The shared index does not export it by name yet. */
+export type CardDataSetGapStatus = CardDataStatus["gap"]["recentSets"][number];
+
 export const SOURCE_ORDER: EngineDataSource[] = ["database", "scripts", "strings"];
 
 export const SOURCE_LABEL: Record<EngineDataSource, string> = {
@@ -104,27 +107,84 @@ function behindSentence(sources: UpstreamSourceStatus[]): string {
   return "Engine data is behind Project Ignis";
 }
 
+export type SetGapState = "unknown" | "missing" | "complete";
+
+/** A set with no successful fetch, or no count, is unknown; it is never counted as complete. */
+export function setGapState(set: CardDataSetGapStatus): SetGapState {
+  if (set.status !== "ok" || set.missingCount === null || set.total === null) return "unknown";
+  return set.missingCount > 0 ? "missing" : "complete";
+}
+
+/** Newest release first; sets without a date go last. Equal dates keep the server order. */
+export function sortSets(sets: CardDataSetGapStatus[]): CardDataSetGapStatus[] {
+  return sets
+    .map((set, index) => ({ set, index }))
+    .sort((a, b) => {
+      const da = a.set.releaseDate ?? "";
+      const db = b.set.releaseDate ?? "";
+      if (da !== db) return da < db ? 1 : -1;
+      return a.index - b.index;
+    })
+    .map((entry) => entry.set);
+}
+
+/** True when the recent-set answer is incomplete: no count yet, or any set could not be counted. */
+export function recentSetsUnknown(status: CardDataStatus): boolean {
+  const { gap } = status;
+  return gap.recentSetsMissingFromEngineCount === null || gap.recentSets.some((set) => setGapState(set) === "unknown");
+}
+
+/** The newest pinned commit date: "data as of" for bundles that record no preparation time. */
+export function dataAsOf(status: CardDataStatus): string | null {
+  const dates = Object.values(status.engine.sources)
+    .map((pin) => pin.pinnedCommitDate)
+    .filter((date): date is string => Boolean(date) && !Number.isNaN(new Date(date as string).getTime()));
+  if (!dates.length) return null;
+  return dates.reduce((newest, date) => (new Date(date).getTime() > new Date(newest).getTime() ? date : newest));
+}
+
+/** Same card under another ID, across the recent sets, once per ID. */
+export function recentIdMismatch(status: CardDataStatus): CardDataGapCard[] {
+  const seen = new Map<number, CardDataGapCard>();
+  for (const set of status.gap.recentSets) for (const card of set.idMismatch) if (!seen.has(card.id)) seen.set(card.id, card);
+  return [...seen.values()];
+}
+
 export function summarize(status: CardDataStatus): CardDataSummary {
   const sources = SOURCE_ORDER.map((key) => status.upstream.sources[key]);
   const behind = sources.filter(isSourceBehind);
   const unknown = sources.filter(isSourceUnknown);
   const newCdbs = newUpstreamCdbFiles(status);
-  const gap = status.gap.catalogMissingFromEngineCount;
+  const missingSets = status.gap.recentSets.filter((set) => setGapState(set) === "missing");
+  const setsWithMissing = missingSets.length;
+  // The unique count is null when any set is unknown; the per-set sum is then a lower bound.
+  const exact = status.gap.recentSetsMissingFromEngineCount;
+  const missing = exact ?? missingSets.reduce((sum, set) => sum + (set.missingCount ?? 0), 0);
 
   const reasons: string[] = [];
   if (behind.length) reasons.push(behindSentence(behind));
   if (newCdbs.length) reasons.push(`${plural(newCdbs.length, "new release file")} upstream not loaded`);
-  if (gap > 0) reasons.push(`${plural(gap, "TCG card")} not in the duel engine`);
+  if (missing > 0 || setsWithMissing > 0) {
+    const sets = setsWithMissing ? ` in ${plural(setsWithMissing, "recent set")}` : "";
+    reasons.push(`${exact === null ? "At least " : ""}${plural(missing, "new TCG card")} not in the engine yet${sets}`);
+  }
 
   const unknownReasons: string[] = [];
   if (unknown.length === sources.length) unknownReasons.push("Cannot reach GitHub, so engine data age is unknown");
   else if (unknown.length) unknownReasons.push(`${plural(unknown.length, "engine source")} could not be checked against GitHub`);
   if (status.upstream.babelCdbFiles.status !== "ok" && !unknown.length) unknownReasons.push("New release files could not be checked");
+  if (recentSetsUnknown(status)) {
+    const count = status.gap.recentSets.filter((set) => setGapState(set) === "unknown").length;
+    unknownReasons.push(
+      count ? `${plural(count, "recent set")} could not be checked against the engine`
+        : "Recent TCG sets are not synced yet, so new cards cannot be compared",
+    );
+  }
 
   if (reasons.length) return { state: "behind", headline: reasons[0], reasons: [...reasons, ...unknownReasons] };
   if (unknownReasons.length) return { state: "unknown", headline: unknownReasons[0], reasons: unknownReasons };
 
-  return { state: "up-to-date", headline: "Engine data matches Project Ignis and the catalog has no gaps", reasons: [] };
+  return { state: "up-to-date", headline: "Engine data matches Project Ignis and no recent TCG cards are missing", reasons: [] };
 }
 
 /** Newest release first; cards without a date go last. Equal dates keep the server order. */

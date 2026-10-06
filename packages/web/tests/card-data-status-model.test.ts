@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  commitUrl, filterGap, newUpstreamCdbFiles, relativeTime, shortSha, sortGap, summarize,
+  commitUrl, dataAsOf, filterGap, newUpstreamCdbFiles, recentIdMismatch, relativeTime, setGapState, shortSha, sortGap, sortSets, summarize,
 } from "../src/lib/card-data-status-model";
-import { behindStatus, freshStatus, gapCards, unknownSource } from "./fixtures/card-data-status";
+import { behindStatus, completeSet, freshStatus, gapCards, missingSet, unknownSet, unknownSource } from "./fixtures/card-data-status";
 
 describe("summarize", () => {
   it("is up to date when every source matches and there is no gap", () => {
@@ -11,11 +11,12 @@ describe("summarize", () => {
 
   it("names days behind Project Ignis first", () => {
     const status = behindStatus();
-    status.gap.catalogMissingFromEngineCount = 42;
+    status.gap.recentSets = [missingSet("Rage", "RA05", "2026-09-26", 60, 42)];
+    status.gap.recentSetsMissingFromEngineCount = 42;
     const summary = summarize(status);
     expect(summary.state).toBe("behind");
     expect(summary.headline).toBe("Engine data 3 days behind Project Ignis");
-    expect(summary.reasons).toContain("42 TCG cards not in the duel engine");
+    expect(summary.reasons).toContain("42 new TCG cards not in the engine yet in 1 recent set");
   });
 
   it("falls back to commits when the day count is zero", () => {
@@ -24,10 +25,42 @@ describe("summarize", () => {
     expect(summarize(status).headline).toBe("Engine data 12 commits behind Project Ignis");
   });
 
-  it("reports a gap alone as behind", () => {
+  it("reports a missing card in a recent set alone as behind", () => {
     const status = freshStatus();
-    status.gap.catalogMissingFromEngineCount = 1;
-    expect(summarize(status)).toMatchObject({ state: "behind", headline: "1 TCG card not in the duel engine" });
+    status.gap.recentSets = [missingSet("Rage", "RA05", "2026-09-26", 60, 1)];
+    status.gap.recentSetsMissingFromEngineCount = 1;
+    expect(summarize(status)).toMatchObject({ state: "behind", headline: "1 new TCG card not in the engine yet in 1 recent set" });
+  });
+
+  it("does not count cached catalog cards as behind", () => {
+    const status = freshStatus();
+    status.gap.cachedCatalogMissingCount = 500;
+    status.gap.cachedCatalogMissing = gapCards(5);
+    status.gap.cachedCatalogIdMismatch = gapCards(2);
+    expect(summarize(status).state).toBe("up-to-date");
+  });
+
+  it("is unknown, never up to date, when a recent set was never checked", () => {
+    const status = freshStatus();
+    status.gap.recentSets = [completeSet("Old", "OL01", "2026-01-01", 50), unknownSet("Rage", "RA05", "2026-09-26")];
+    status.gap.recentSetsMissingFromEngineCount = null;
+    expect(summarize(status)).toMatchObject({ state: "unknown", headline: "1 recent set could not be checked against the engine" });
+  });
+
+  it("is unknown when the recent set list is empty and not synced", () => {
+    const status = freshStatus();
+    status.gap.recentSets = [];
+    status.gap.recentSetsMissingFromEngineCount = null;
+    expect(summarize(status)).toMatchObject({ state: "unknown", headline: "Recent TCG sets are not synced yet, so new cards cannot be compared" });
+  });
+
+  it("says at least when a known gap sits beside an unknown set", () => {
+    const status = freshStatus();
+    status.gap.recentSets = [missingSet("A", "A1", "2026-09-26", 60, 4), unknownSet("B", "B1", "2026-08-01")];
+    status.gap.recentSetsMissingFromEngineCount = null;
+    const summary = summarize(status);
+    expect(summary.state).toBe("behind");
+    expect(summary.headline).toBe("At least 4 new TCG cards not in the engine yet in 1 recent set");
   });
 
   it("reports unloaded upstream release files as behind", () => {
@@ -67,6 +100,41 @@ describe("summarize", () => {
     const summary = summarize(status);
     expect(summary.state).toBe("behind");
     expect(summary.reasons).toContain("1 engine source could not be checked against GitHub");
+  });
+});
+
+describe("recent sets", () => {
+  it("reads null counts and unknown status as unknown, not complete", () => {
+    expect(setGapState(completeSet("A", "A1", "2026-01-01", 10))).toBe("complete");
+    expect(setGapState(missingSet("A", "A1", "2026-01-01", 10, 2))).toBe("missing");
+    expect(setGapState(unknownSet("A", "A1", "2026-01-01"))).toBe("unknown");
+    expect(setGapState({ ...completeSet("A", "A1", "2026-01-01", 10), status: "unknown" })).toBe("unknown");
+  });
+
+  it("sorts sets newest first and keeps undated sets last", () => {
+    const sets = [
+      completeSet("Old", "O", "2026-01-01", 1),
+      { ...completeSet("Nodate", "N", "2026-01-01", 1), releaseDate: null },
+      completeSet("New", "W", "2026-09-26", 1),
+    ];
+    expect(sortSets(sets).map((set) => set.name)).toEqual(["New", "Old", "Nodate"]);
+  });
+
+  it("lists same-card-different-ID cards once", () => {
+    const status = freshStatus();
+    const a = { ...completeSet("A", "A1", "2026-09-01", 5), idMismatch: gapCards(2) };
+    const b = { ...completeSet("B", "B1", "2026-08-01", 5), idMismatch: gapCards(3) };
+    status.gap.recentSets = [a, b];
+    expect(recentIdMismatch(status).map((card) => card.id)).toEqual([10000, 10001, 10002]);
+  });
+
+  it("uses the newest pinned commit date as data as of", () => {
+    const status = freshStatus();
+    status.engine.sources.scripts.pinnedCommitDate = "2026-09-30T10:00:00Z";
+    status.engine.sources.strings.pinnedCommitDate = null;
+    expect(dataAsOf(status)).toBe("2026-09-30T10:00:00Z");
+    for (const key of ["database", "scripts", "strings"] as const) status.engine.sources[key].pinnedCommitDate = null;
+    expect(dataAsOf(status)).toBeNull();
   });
 });
 
