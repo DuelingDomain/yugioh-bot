@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "../../shared/tests/helpers/identity.js";
 import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -16,10 +17,7 @@ const SECRET = "duel-host-test-secret";
 const MANIFEST = JSON.parse(readFileSync(join(DATA, "manifest.json"), "utf8")) as { bundleVersion: string };
 
 function insertPlayer(db: Database.Database, guildId: string, discordUserId: string, displayName: string) {
-  return Number(
-    db.prepare("insert into players (guild_id, discord_user_id, display_name) values (?, ?, ?)").run(guildId, discordUserId, displayName)
-      .lastInsertRowid,
-  );
+  return seedIdentity(db, { guildId: guildId, name: displayName, userId: seedUser(db, discordUserId).userId, discordUserId: seedUser(db, discordUserId).discordUserId ?? discordUserId }).playerId;
 }
 
 function hiddenHand(controller: number, code: number | undefined) {

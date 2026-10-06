@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "../../shared/tests/helpers/identity.js";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createHash, createHmac } from "node:crypto";
 import { execFileSync } from "node:child_process";
@@ -66,9 +67,7 @@ async function table(mode: DuelMode, format: DuelFormat, chain = false, extraScr
   databases.push(db);
   migrate(db);
   const count = seatCountFor(format);
-  const players = Array.from({ length: count }, (_, seat) => Number(db.prepare(
-    "insert into players (guild_id, discord_user_id, display_name) values (?, ?, ?)",
-  ).run("g", `u${seat}`, `P${seat}`).lastInsertRowid));
+  const players = Array.from({ length: count }, (_, seat) => seedIdentity(db, { guildId: "g", name: `P${seat}`, userId: seedUser(db, `u${seat}`).userId, discordUserId: seedUser(db, `u${seat}`).discordUserId ?? `u${seat}` }).playerId);
   const service = createDuelService(db);
   const session = service.create({ guildId: "g", organizerPlayerId: players[0]!, name: "Immediate surrender", mode, format,
     settings: { banlist: "none", turnSeconds: 60, startingHand: 0, drawPerTurn, shuffleDeck: false } });

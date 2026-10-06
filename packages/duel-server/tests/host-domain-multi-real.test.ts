@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "../../shared/tests/helpers/identity.js";
 import { createHmac, createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -28,9 +29,7 @@ afterEach(async () => {
 async function table(format: DuelFormat, humans = 1, drawPerTurn = 1) {
   const db = new Database(":memory:");
   migrate(db);
-  const players = Array.from({ length: humans }, (_, seat) => Number(db.prepare(
-    "insert into players (guild_id, discord_user_id, display_name) values (?, ?, ?)",
-  ).run("g", `u${seat}`, `P${seat}`).lastInsertRowid));
+  const players = Array.from({ length: humans }, (_, seat) => seedIdentity(db, { guildId: "g", name: `P${seat}`, userId: seedUser(db, `u${seat}`).userId, discordUserId: seedUser(db, `u${seat}`).discordUserId ?? `u${seat}` }).playerId);
   const duels = createDuelService(db);
   const session = duels.create({ guildId: "g", organizerPlayerId: players[0]!, name: "Domain", mode: "domain", format,
     settings: { turnSeconds: 60, timeout: "loss", drawPerTurn } });

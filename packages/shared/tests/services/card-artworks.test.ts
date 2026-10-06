@@ -1,3 +1,4 @@
+import { seedUser } from "../helpers/identity.js";
 import Database from "better-sqlite3";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -137,7 +138,7 @@ describe("card artwork mapping", () => {
     expect(catalog.listArtworks(89631147)).toHaveLength(8);
     expect(catalog.hasArtworks(89631147)).toBe(false);
     const cubes = createCubeService(db, catalog);
-    const cube = cubes.createBlank("g", "Engine Art", "u");
+    const cube = cubes.createBlank("g", "Engine Art", seedUser(db, "u").userId);
     expect(await cubes.importPasscodes(cube.id, [89631147])).toEqual({ added: 1, unknown: [] });
     expect(catalog.hasArtworks(89631147)).toBe(true);
     expect(createDraftService(db).resolvePoolCardIds({ customCardIds: [89631147] })).toEqual([89631147]);
@@ -325,7 +326,7 @@ describe("artwork fetch limits", () => {
     await expect(catalog.syncDraftPool({ setNames: [], customCardIds: [89631140], includeNames: [], excludeNames: [] })).resolves.toBeDefined();
     expect(catalog.hasCatalogRow(89631140)).toBe(true);
     const cubes = createCubeService(db, catalog);
-    const cube = cubes.createBlank("g", "Cached engine art", "u");
+    const cube = cubes.createBlank("g", "Cached engine art", seedUser(db, "u").userId);
     await expect(cubes.importPasscodes(cube.id, [89631140])).resolves.toEqual({ added: 1, unknown: [] });
     expect(fetch).not.toHaveBeenCalled();
     expect(db.pragma("foreign_key_check")).toEqual([]);
@@ -345,7 +346,7 @@ describe("artwork fetch limits", () => {
     } });
     await expect(catalog.syncDraftPool({ setNames: [], customCardIds: ids, includeNames: [], excludeNames: [] })).resolves.toBeDefined();
     const cubes = createCubeService(db, catalog);
-    const cube = cubes.createBlank("g", "Legacy 100", "u");
+    const cube = cubes.createBlank("g", "Legacy 100", seedUser(db, "u").userId);
     await expect(cubes.importPasscodes(cube.id, ids)).resolves.toEqual({ added: 100, unknown: [] });
     expect(catalog.findByIds(ids)).toHaveLength(100);
     expect(calls).toBe(0);
@@ -455,7 +456,7 @@ describe("artwork migration", () => {
     const { db } = setup();
     db.exec("drop table card_artworks");
     db.prepare("insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (81480461,'Barrel Dragon','Effect Monster','effect','old','old','[]','old')").run();
-    db.prepare("insert into cubes (guild_id,name,created_by_user_id) values ('g','Legacy','u')").run();
+    db.prepare("insert into cubes (guild_id,name,created_by_user_id) values ('g', 'Legacy', ?)").run(seedUser(db, "u").userId);
     db.prepare("insert into cube_cards (cube_id,catalog_card_id,pool) values (1,81480461,'main')").run();
     migrate(db); migrate(db);
     expect(db.prepare("select count(*) as n from card_catalog").get()).toEqual({ n: 1 });

@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "../../shared/tests/helpers/identity.js";
 import { createHmac } from "node:crypto";
 import Database from "better-sqlite3";
 import { afterEach, expect, it } from "vitest";
@@ -20,7 +21,7 @@ async function table(format: DuelFormat = "ffa3") {
   const db = new Database(":memory:"); databases.push(db); migrate(db);
   const count = format === "ffa4" || format === "tag" ? 4 : format === "1v1" ? 2 : 3;
   const players = Array.from({ length: count }, (_, seat) =>
-    Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g', ?, ?)").run(`u${seat}`, `P${seat}`).lastInsertRowid));
+    seedIdentity(db, { guildId: "g", name: `P${seat}`, userId: seedUser(db, `u${seat}`).userId, discordUserId: seedUser(db, `u${seat}`).discordUserId ?? `u${seat}` }).playerId);
   const duels = createDuelService(db);
   const session = duels.create({ guildId: "g", organizerPlayerId: players[0]!, name: "bug", mode: "normal", format });
   for (const player of players.slice(1)) duels.takeSeat(session.slug, "g", player);
@@ -83,7 +84,7 @@ it("answers without a log when the core does not answer, and never waits on the 
 
 it("refuses a player who may not see the duel", async () => {
   const t = await table("1v1");
-  const outsider = Number(t.db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('other', 'x', 'X')").run().lastInsertRowid);
+  const outsider = seedIdentity(t.db, { guildId: "other", name: "X", userId: seedUser(t.db, "x").userId, discordUserId: seedUser(t.db, "x").discordUserId ?? "x" }).playerId;
   expect((await t.post({ op: "bug-context", playerId: outsider })).status).toBeGreaterThanOrEqual(400);
 });
 

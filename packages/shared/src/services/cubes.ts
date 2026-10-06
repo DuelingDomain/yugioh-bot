@@ -88,7 +88,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
   const insertCubeRow = (
     guildId: string,
     name: string,
-    createdByUserId: string,
+    createdByUserId: number,
     archetype: string | null,
     banlist: string | null,
   ): number => {
@@ -185,14 +185,14 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
   };
 
   return {
-    createBlank(guildId: string, name: string, createdByUserId: string): Cube {
+    createBlank(guildId: string, name: string, createdByUserId: number): Cube {
       return findCube(insertCubeRow(guildId, name, createdByUserId, null, null));
     },
 
     async createFromArchetype(
       guildId: string,
       archetype: string,
-      createdByUserId: string,
+      createdByUserId: number,
       opts: {
         name?: string;
         banlist?: string;
@@ -228,7 +228,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
     createWithCards(
       guildId: string,
       name: string,
-      createdByUserId: string,
+      createdByUserId: number,
       entries: Array<{ id: number; copies: number }>,
       opts: { copyExtraFromCubeId?: number } = {},
     ): Cube {
@@ -471,9 +471,9 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
     },
 
     // ----- Discord draft-template-compatible ops (ported from the bot's
-    // draft-template service; identical signatures so bot call sites are unchanged) -----
+    // draft-template service; owner arguments are application user IDs) -----
 
-    save(guildId: string, name: string, config: DraftConfig, createdByUserId: string): Cube {
+    save(guildId: string, name: string, config: DraftConfig, createdByUserId: number): Cube {
       const trimmed = name.trim();
       // Saving over an existing cube replaces its draft config but keeps what the cube is for.
       const previous = db.prepare("select config_json from cubes where guild_id = ? and name = ?").get(guildId, trimmed) as

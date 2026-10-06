@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "./helpers/identity.js";
 import Database from "better-sqlite3";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -21,10 +22,10 @@ it("allows a concurrent pick during a pack read that cannot swap", () => {
   const other = new Database(join(dir, "draft.sqlite"), { timeout: 0 });
   try {
     migrate(db);
-    for (const name of ["A", "B"]) db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g', ?, ?)").run(name, name);
+    for (const name of ["A", "B"]) seedIdentity(db, { guildId: "g", name: name, userId: seedUser(db, name).userId, discordUserId: seedUser(db, name).discordUserId ?? name });
     for (let id = 1; id <= 24; id++) db.prepare("insert into card_catalog (ygoprodeck_id, name, type, frame_type, image_url, image_url_small, card_sets_json, cached_at) values (?, ?, 'Normal Monster', 'normal', 'i', 'i', '[]', 't')").run(id, `Card ${id}`);
     const drafts = createDraftService(db, { seedSource: () => 7 });
-    const draft = drafts.create("g", "c", "Locked options", { cubeCardIds: Array.from({ length: 24 }, (_, i) => i + 1), packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8 }, "A", 1);
+    const draft = drafts.create("g", "c", "Locked options", { cubeCardIds: Array.from({ length: 24 }, (_, i) => i + 1), packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8 }, seedUser(db, "A").userId, 1);
     drafts.join(draft.id, 2);
     drafts.start(draft.id);
     const pack = drafts.currentPackOptions(draft.id, 1);
@@ -55,11 +56,11 @@ it.each([false, true])("reads an ordinary pack without acquiring a write lock (c
   const writer = new Database(join(dir, "draft.sqlite"));
   try {
     migrate(db);
-    for (const name of ["A", "B"]) db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g', ?, ?)").run(name, name);
+    for (const name of ["A", "B"]) seedIdentity(db, { guildId: "g", name: name, userId: seedUser(db, name).userId, discordUserId: seedUser(db, name).discordUserId ?? name });
     for (let id = 1; id <= 24; id++) db.prepare("insert into card_catalog (ygoprodeck_id, name, type, frame_type, image_url, image_url_small, card_sets_json, cached_at) values (?, ?, 'Normal Monster', 'normal', 'i', 'i', '[]', 't')")
       .run(id, `Card ${id}`);
     const drafts = createDraftService(db, { seedSource: () => 7 });
-    const draft = drafts.create("g", "c", "Read options", { cubeCardIds: Array.from({ length: 24 }, (_, i) => i + 1), packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8, copyLimit }, "A", 1);
+    const draft = drafts.create("g", "c", "Read options", { cubeCardIds: Array.from({ length: 24 }, (_, i) => i + 1), packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8, copyLimit }, seedUser(db, "A").userId, 1);
     drafts.join(draft.id, 2);
     drafts.start(draft.id);
     writer.exec("begin immediate");
@@ -78,11 +79,11 @@ it.each(["empty", "capped artwork"])("reads a fully capped pack without a write 
   const writer = new Database(join(dir, "draft.sqlite"));
   try {
     migrate(db);
-    for (const name of ["A", "B"]) db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g', ?, ?)").run(name, name);
+    for (const name of ["A", "B"]) seedIdentity(db, { guildId: "g", name: name, userId: seedUser(db, name).userId, discordUserId: seedUser(db, name).discordUserId ?? name });
     for (let id = 1; id <= 24; id++) db.prepare("insert into card_catalog (ygoprodeck_id, name, type, frame_type, image_url, image_url_small, card_sets_json, cached_at) values (?, ?, 'Normal Monster', 'normal', 'i', 'i', '[]', 't')")
       .run(id, `Card ${id}`);
     const drafts = createDraftService(db, { seedSource: () => 7 });
-    const draft = drafts.create("g", "c", "Capped read options", { cubeCardIds: Array.from({ length: 24 }, (_, i) => i + 1), packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8 }, "A", 1);
+    const draft = drafts.create("g", "c", "Capped read options", { cubeCardIds: Array.from({ length: 24 }, (_, i) => i + 1), packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8 }, seedUser(db, "A").userId, 1);
     drafts.join(draft.id, 2); drafts.start(draft.id);
     const pack = drafts.currentPackOptions(draft.id, 1);
     const { packId } = db.prepare("select draft_pack_id as packId from draft_cards where id = ?").get(pack[0].id) as { packId: number };
@@ -126,10 +127,10 @@ it("rechecks eligibility under the swap lock and stores one swap across retries"
   const other = new Database(join(dir, "draft.sqlite"), { timeout: 0 });
   try {
     migrate(db);
-    for (const name of ["A", "B"]) db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g', ?, ?)").run(name, name);
+    for (const name of ["A", "B"]) seedIdentity(db, { guildId: "g", name: name, userId: seedUser(db, name).userId, discordUserId: seedUser(db, name).discordUserId ?? name });
     for (let id = 1; id <= 24; id++) db.prepare("insert into card_catalog (ygoprodeck_id, name, type, frame_type, image_url, image_url_small, card_sets_json, cached_at) values (?, ?, 'Normal Monster', 'normal', 'i', 'i', '[]', 't')").run(id, `Card ${id}`);
     const drafts = createDraftService(db, { seedSource: () => 7 });
-    const draft = drafts.create("g", "c", "Swap options", { cubeCardIds: Array.from({ length: 24 }, (_, i) => i + 1), packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8 }, "A", 1);
+    const draft = drafts.create("g", "c", "Swap options", { cubeCardIds: Array.from({ length: 24 }, (_, i) => i + 1), packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8 }, seedUser(db, "A").userId, 1);
     drafts.join(draft.id, 2); drafts.start(draft.id);
     const pack = drafts.currentPackOptions(draft.id, 1);
     const { packId } = db.prepare("select draft_pack_id as packId from draft_cards where id = ?").get(pack[0].id) as { packId: number };

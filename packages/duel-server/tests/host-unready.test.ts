@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "../../shared/tests/helpers/identity.js";
 import { createHmac } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -33,9 +34,7 @@ function lobby(onChange?: () => Promise<void>) {
   cards.close();
   const db = new Database(":memory:");
   migrate(db);
-  const player = (id: string) => Number(db.prepare(
-    "insert into players (guild_id, discord_user_id, display_name) values ('g1', ?, ?)",
-  ).run(id, id).lastInsertRowid);
+  const player = (id: string) => seedIdentity(db, { guildId: "g1", name: id, userId: seedUser(db, id).userId, discordUserId: seedUser(db, id).discordUserId ?? id }).playerId;
   const challenger = player("u1"), opponent = player("u2"), p3 = player("u3");
   const duels = createDuelService(db);
   const { duel } = createDuelSeriesService(db).createChallenge({

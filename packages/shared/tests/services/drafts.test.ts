@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "../helpers/identity.js";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import { migrate } from "../../src/db/index.js";
@@ -5,17 +6,10 @@ import { seededShuffle } from "../../src/services/deal.js";
 import { createDraftService } from "../../src/services/drafts.js";
 
 function insertPlayer(db: Database.Database, guildId: string, discordUserId: string, displayName: string) {
-  const result = db
-    .prepare(
-      `
-        insert into players (guild_id, discord_user_id, display_name)
-        values (?, ?, ?)
-      `,
-    )
-    .run(guildId, discordUserId, displayName);
+  const result = seedIdentity(db, { guildId: guildId, name: displayName, userId: seedUser(db, discordUserId).userId, discordUserId: seedUser(db, discordUserId).discordUserId ?? discordUserId });
 
   return {
-    id: Number(result.lastInsertRowid),
+    id: Number(result.playerId),
     guildId,
     discordUserId,
     displayName,
@@ -74,7 +68,7 @@ describe("shared draft service", () => {
       const pool = source === "set" ? { setNames: ["Metal Raiders"] } : { includeNames: baseIds.map((id) => `Card ${id}`) };
       const draft = drafts.create("guild-1", "channel-1", "mixed pool", {
         ...pool, customCardIds, packSize: 8, packsPerPlayer: 5,
-      }, "u0", players[0].id);
+      }, seedUser(db, "u0").userId, players[0].id);
       for (const player of players.slice(1)) drafts.join(draft.id, player.id);
 
       expect(drafts.start(draft.id).status).toBe("active");
@@ -92,7 +86,7 @@ describe("shared draft service", () => {
       seedCatalogCards(db, 100);
       const players = Array.from({ length: count }, (_, i) => insertPlayer(db, "guild-1", `u${i}`, `P${i}`));
       const pool = source === "set" ? { setNames: ["Metal Raiders"] } : { includeNames: Array.from({ length: 100 }, (_, i) => `Card ${i + 1}`) };
-      const draft = drafts.create("guild-1", "channel-1", "set night", { ...pool, packSize: 8, packsPerPlayer: 5 }, "u0", players[0].id);
+      const draft = drafts.create("guild-1", "channel-1", "set night", { ...pool, packSize: 8, packsPerPlayer: 5 }, seedUser(db, "u0").userId, players[0].id);
       for (const player of players.slice(1)) drafts.join(draft.id, player.id);
       expect(drafts.start(draft.id).status).toBe("active");
       const slots = count * 8 * 5;
@@ -115,7 +109,7 @@ describe("shared draft service", () => {
         seedCatalogCards(db, 80);
         const draft = drafts.create(
           "guild-1", "channel-1", "cube night",
-          { cubeCardIds: Array.from({ length: 80 }, (_, i) => i + 1) }, "user-1", yugi.id,
+          { cubeCardIds: Array.from({ length: 80 }, (_, i) => i + 1) }, seedUser(db, "user-1").userId, yugi.id,
         );
         drafts.join(draft.id, kaiba.id);
         drafts.start(draft.id);
@@ -142,7 +136,7 @@ describe("shared draft service", () => {
       const draft = drafts.create(
         "guild-1", "channel-1", "cube night",
         { cubeCardIds: [1, 2, 3, 4, 5, 6, 7, 8], packsPerPlayer: 2, packSize: 2, cardsPerPlayer: 4 },
-        "user-1", yugi.id,
+        seedUser(db, "user-1").userId, yugi.id,
       );
       drafts.join(draft.id, kaiba.id);
       drafts.start(draft.id);
@@ -175,7 +169,7 @@ describe("shared draft service", () => {
         includeNames: ["Dark Magician"],
         excludeNames: ["Pot of Greed"],
       },
-      "user-1",
+      seedUser(app.db, "user-1").userId,
       yugi.id,
     );
 
@@ -185,7 +179,7 @@ describe("shared draft service", () => {
       channelId: "channel-1",
       name: "cube night",
       status: "pending",
-      createdByUserId: "user-1",
+      createdByUserId: seedUser(app.db, "user-1").userId,
       config: {
         setNames: ["Battle Pack 3"],
         includeNames: ["Dark Magician"],
@@ -211,7 +205,7 @@ describe("shared draft service", () => {
     const app = setup();
     const yugi = insertPlayer(app.db, "guild-1", "user-1", "Yugi");
     const kaiba = insertPlayer(app.db, "guild-1", "user-2", "Kaiba");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", { setNames: ["Metal Raiders"] }, "user-1", yugi.id);
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", { setNames: ["Metal Raiders"] }, seedUser(app.db, "user-1").userId, yugi.id);
 
     app.drafts.join(draft.id, kaiba.id);
     seedCatalogCards(app.db, 80);
@@ -246,7 +240,7 @@ describe("shared draft service", () => {
         ...(pool === "cube" ? { cubeCardIds: [1, 2, 3, 4, 5, 6, 7, 8] } : { setNames: ["Metal Raiders"] }),
         packSize: 2, packsPerPlayer: 1, cardsPerPlayer: 2, randomizeSeats: true,
       },
-      "user-1", yugi.id,
+      seedUser(app.db, "user-1").userId, yugi.id,
     );
     app.drafts.join(draft.id, kaiba.id);
     app.drafts.join(draft.id, joey.id);
@@ -281,7 +275,7 @@ describe("shared draft service", () => {
     const mai = insertPlayer(app.db, "guild-1", "user-4", "Mai");
     const draft = app.drafts.create(
       "guild-1", "channel-1", "join order",
-      { packSize: 2, packsPerPlayer: 1, cardsPerPlayer: 2, randomizeSeats }, "user-1", yugi.id,
+      { packSize: 2, packsPerPlayer: 1, cardsPerPlayer: 2, randomizeSeats }, seedUser(app.db, "user-1").userId, yugi.id,
     );
     app.drafts.join(draft.id, joey.id);
     app.drafts.join(draft.id, mai.id);
@@ -310,7 +304,7 @@ describe("shared draft service", () => {
     const draft = app.drafts.create(
       "guild-1", "channel-1", "passing order",
       { packSize: 2, packsPerPlayer: 2, cardsPerPlayer: 4, alternatePassDirection: true, randomizeSeats: true },
-      "user-1", yugi.id,
+      seedUser(app.db, "user-1").userId, yugi.id,
     );
     const playerIds = [yugi.id, kaiba.id, joey.id, mai.id];
     for (const playerId of playerIds.slice(1)) app.drafts.join(draft.id, playerId);
@@ -357,7 +351,7 @@ describe("shared draft service", () => {
       "custom pool night",
       // 2 players × packSize 2 => 4 distinct needed for one wave.
       { setNames: ["Missing Set"], customCardIds: [101, 102, 103, 104], packSize: 2, packsPerPlayer: 1, cardsPerPlayer: 2 },
-      "user-1",
+      seedUser(app.db, "user-1").userId,
       yugi.id,
     );
 
@@ -454,7 +448,7 @@ describe("shared draft service", () => {
     const app = setup();
     const yugi = insertPlayer(app.db, "guild-1", "user-1", "Yugi");
     const kaiba = insertPlayer(app.db, "guild-1", "user-2", "Kaiba");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-1", yugi.id);
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, seedUser(app.db, "user-1").userId, yugi.id);
 
     app.drafts.join(draft.id, kaiba.id);
     seedCatalogCards(app.db, 80);
@@ -479,7 +473,7 @@ describe("shared draft service", () => {
     const app = setup();
     const yugi = insertPlayer(app.db, "guild-1", "user-1", "Yugi");
     const kaiba = insertPlayer(app.db, "guild-1", "user-2", "Kaiba");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", { packSize: 8, packsPerPlayer: 5 }, "user-1", yugi.id);
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", { packSize: 8, packsPerPlayer: 5 }, seedUser(app.db, "user-1").userId, yugi.id);
 
     app.drafts.join(draft.id, kaiba.id);
     seedCatalogCards(app.db, 80);
@@ -515,7 +509,7 @@ describe("shared draft service", () => {
     const app = setup();
     const yugi = insertPlayer(app.db, "guild-1", "user-1", "Yugi");
     const kaiba = insertPlayer(app.db, "guild-1", "user-2", "Kaiba");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", { packSize: 8, packsPerPlayer: 5 }, "user-1", yugi.id);
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", { packSize: 8, packsPerPlayer: 5 }, seedUser(app.db, "user-1").userId, yugi.id);
 
     app.drafts.join(draft.id, kaiba.id);
     seedCatalogCards(app.db, 80);
@@ -544,7 +538,7 @@ describe("shared draft service", () => {
     const a = insertPlayer(db, "g", "a", "A");
     const b = insertPlayer(db, "g", "b", "B");
     seedCatalogCards(db, 2 * cardsPerPlayer);
-    const draft = drafts.create("g", "c", "Export", { packSize: 15, packsPerPlayer: cardsPerPlayer / 15, cardsPerPlayer }, "a", a.id);
+    const draft = drafts.create("g", "c", "Export", { packSize: 15, packsPerPlayer: cardsPerPlayer / 15, cardsPerPlayer }, seedUser(db, "a").userId, a.id);
     drafts.join(draft.id, b.id);
     drafts.start(draft.id);
     expect(() => drafts.exportYdk(draft.id, a.id)).toThrow("Deck is not complete yet");
@@ -560,7 +554,7 @@ describe("shared draft service", () => {
   it("exports a completed old draft even with fewer picks than its target", () => {
     const { db, drafts } = setup();
     const a = insertPlayer(db, "g", "a", "A");
-    const draft = drafts.create("g", "c", "Old export", { cardsPerPlayer: 40 }, "a", a.id);
+    const draft = drafts.create("g", "c", "Old export", { cardsPerPlayer: 40 }, seedUser(db, "a").userId, a.id);
     db.prepare("update drafts set status = 'completed' where id = ?").run(draft.id);
     expect(drafts.exportYdk(draft.id, a.id)).toContain("#main\n#extra");
     db.close();
@@ -570,7 +564,7 @@ describe("shared draft service", () => {
     const app = setup();
     const yugi = insertPlayer(app.db, "guild-1", "user-1", "Yugi");
     const kaiba = insertPlayer(app.db, "guild-1", "user-2", "Kaiba");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", { packSize: 8, packsPerPlayer: 5 }, "user-1", yugi.id);
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", { packSize: 8, packsPerPlayer: 5 }, seedUser(app.db, "user-1").userId, yugi.id);
 
     app.drafts.join(draft.id, kaiba.id);
     seedCatalogCards(app.db, 80);
@@ -626,7 +620,7 @@ describe("shared draft service", () => {
       "channel-1",
       "big draft",
       { packSize: 10, packsPerPlayer: 5, cardsPerPlayer: 50 },
-      "user-1",
+      seedUser(app.db, "user-1").userId,
       yugi.id,
     );
 
@@ -655,7 +649,7 @@ describe("shared draft service", () => {
     const app = setup();
     const yugi = insertPlayer(app.db, "guild-1", "user-1", "Yugi");
     const kaiba = insertPlayer(app.db, "guild-1", "user-2", "Kaiba");
-    const draft = app.drafts.create("guild-1", "channel-1", "legacy night", {}, "user-1", yugi.id);
+    const draft = app.drafts.create("guild-1", "channel-1", "legacy night", {}, seedUser(app.db, "user-1").userId, yugi.id);
 
     app.drafts.join(draft.id, kaiba.id);
     seedCatalogCards(app.db, 80);
@@ -674,7 +668,7 @@ describe("shared draft service", () => {
     const app = setup();
     const yugi = insertPlayer(app.db, "guild-1", "user-1", "Yugi");
     const kaiba = insertPlayer(app.db, "guild-1", "user-2", "Kaiba");
-    const draft = app.drafts.create("guild-1", "channel-1", "small cube", { cubeCardIds: Array.from({ length: 15 }, (_, i) => i + 1) }, "user-1", yugi.id);
+    const draft = app.drafts.create("guild-1", "channel-1", "small cube", { cubeCardIds: Array.from({ length: 15 }, (_, i) => i + 1) }, seedUser(app.db, "user-1").userId, yugi.id);
     app.drafts.join(draft.id, kaiba.id);
     // 2 players × 5 packs × 8 cards needs 80 authored copies; provide 15.
     seedCatalogCards(app.db, 15);
@@ -693,7 +687,7 @@ describe("shared draft service", () => {
       "channel-1",
       "skewed",
       { customCardIds, packSize: 8, packsPerPlayer: 5 },
-      "user-1",
+      seedUser(app.db, "user-1").userId,
       yugi.id,
     );
     app.drafts.join(draft.id, kaiba.id);
@@ -720,7 +714,7 @@ describe("shared draft service", () => {
       "channel-1",
       "over-copied",
       { customCardIds, packSize: 8, packsPerPlayer: 5 },
-      "user-1",
+      seedUser(app.db, "user-1").userId,
       yugi.id,
     );
     app.drafts.join(draft.id, kaiba.id);
@@ -745,7 +739,7 @@ describe("shared draft service", () => {
     const app = setup();
     const yugi = insertPlayer(app.db, "guild-1", "user-1", "Yugi");
     const kaiba = insertPlayer(app.db, "guild-1", "user-2", "Kaiba");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", { setNames: ["Metal Raiders"] }, "user-1", yugi.id);
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", { setNames: ["Metal Raiders"] }, seedUser(app.db, "user-1").userId, yugi.id);
     app.drafts.join(draft.id, kaiba.id);
     seedCatalogCards(app.db, 80); // 80 distinct == slots
 
@@ -772,7 +766,7 @@ describe("shared draft service", () => {
     const app = setup();
     const yugi = insertPlayer(app.db, "guild-1", "user-1", "Yugi");
     const kaiba = insertPlayer(app.db, "guild-1", "user-2", "Kaiba");
-    const draft = app.drafts.create("guild-1", "channel-1", "midflight", { setNames: ["Metal Raiders"] }, "user-1", yugi.id);
+    const draft = app.drafts.create("guild-1", "channel-1", "midflight", { setNames: ["Metal Raiders"] }, seedUser(app.db, "user-1").userId, yugi.id);
     app.drafts.join(draft.id, kaiba.id);
     seedCatalogCards(app.db, 80);
     app.drafts.start(draft.id);
@@ -805,7 +799,7 @@ describe("shared draft service", () => {
       "channel-1",
       "multiplicity",
       { customCardIds: [101, 101, 102, 103, 104, 105, 106, 107], packSize: 2, packsPerPlayer: 2, cardsPerPlayer: 4 },
-      "user-1",
+      seedUser(app.db, "user-1").userId,
       yugi.id,
     );
     app.drafts.join(draft.id, kaiba.id);
@@ -848,7 +842,7 @@ describe("shared draft service", () => {
       "channel-1",
       "regression draft",
       { setNames: ["Metal Raiders"], packSize: 4, packsPerPlayer: 3, cardsPerPlayer: 12 },
-      "user-1",
+      seedUser(app.db, "user-1").userId,
       yugi.id,
     );
     app.drafts.join(draft.id, kaiba.id);

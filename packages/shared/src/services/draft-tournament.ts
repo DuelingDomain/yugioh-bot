@@ -8,7 +8,7 @@ import { TournamentDuelError } from "./tournament-duels.js";
 export type CreateTournamentFromDraftInput = {
   draftId: number;
   format: TournamentFormat;
-  createdByUserId: string;
+  createdByUserId: number;
   /** The caller has verified that the actor is a guild admin. */
   actorIsAdmin?: boolean;
   /** Games per pairing; default 3. */
@@ -44,10 +44,10 @@ export function createDraftTournamentService(db: Database.Database) {
         | {
             id: number;
             guild_id: string;
-            channel_id: string;
+            channel_id: string | null;
             name: string;
             status: string;
-            created_by_user_id: string;
+            created_by_user_id: number;
             tournament_id: number | null;
             config_json: string;
           }

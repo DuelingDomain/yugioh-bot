@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "../../shared/tests/helpers/identity.js";
 import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { afterEach, expect, it } from "vitest";
@@ -43,7 +44,7 @@ describeWithCores("chain mode in a duel on the multi core (real engine)", [needs
     const db = new Database(":memory:");
     migrate(db);
     const players = [0, 1, 2].map((index) =>
-      Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values (?, ?, ?)").run("g1", `u${index}`, `P${index}`).lastInsertRowid));
+      seedIdentity(db, { guildId: "g1", name: `P${index}`, userId: seedUser(db, `u${index}`).userId, discordUserId: seedUser(db, `u${index}`).discordUserId ?? `u${index}` }).playerId);
     const duels = createDuelService(db);
     const session = duels.create({ guildId: "g1", organizerPlayerId: players[0]!, name: "Duel", mode: "normal", format: "ffa3" });
     for (const player of players.slice(1)) duels.takeSeat(session.slug, "g1", player);

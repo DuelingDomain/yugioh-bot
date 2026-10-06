@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "../../shared/tests/helpers/identity.js";
 import { createHmac } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import Database from "better-sqlite3";
@@ -60,7 +61,7 @@ function rotated(deck: DuelDeck, by: number): DuelDeck {
 async function table(format: DuelFormat) {
   const db = new Database(":memory:");
   migrate(db);
-  const player = Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values (?, ?, ?)").run("g1", "u0", "P0").lastInsertRowid);
+  const player = seedIdentity(db, { guildId: "g1", name: "P0", userId: seedUser(db, "u0").userId, discordUserId: seedUser(db, "u0").discordUserId ?? "u0" }).playerId;
   const duels = createDuelService(db);
   const session = duels.create({ guildId: "g1", organizerPlayerId: player, name: "Duel", mode: "normal", format });
   const worker = new FakeWorker();

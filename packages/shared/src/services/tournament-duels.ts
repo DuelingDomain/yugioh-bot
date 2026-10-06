@@ -51,7 +51,7 @@ export interface TournamentDuelService {
    */
   setRules(
     tournamentId: number,
-    organizerUserId: string,
+    organizerUserId: number,
     input: { bestOf?: DuelBestOf; mode?: DuelMode; masterRule?: DuelMasterRule; settings?: unknown },
   ): TournamentDuelRules;
   registration(tournamentId: number, playerId: number): TournamentDeckRegistration | null;
@@ -79,7 +79,7 @@ export interface TournamentDuelService {
    */
   setResultByOrganizer(input: {
     tournamentMatchId: number;
-    organizerUserId: string;
+    organizerUserId: number;
     winnerPlayerId: number;
   }): {
     tournamentId: number;
@@ -170,7 +170,7 @@ type TournamentRow = {
   id: number;
   guild_id: string;
   status: string;
-  created_by_user_id: string;
+  created_by_user_id: number;
 };
 
 type RegistrationRow = {
@@ -203,8 +203,8 @@ export function createTournamentDuelService(db: Database.Database): TournamentDu
   const selectTournament = db.prepare<[number], TournamentRow>(
     "select id, guild_id, status, created_by_user_id from tournaments where id = ?",
   );
-  const selectParticipant = db.prepare<[number, number], { discord_user_id: string }>(`
-    select p.discord_user_id
+  const selectParticipant = db.prepare<[number, number], { user_id: number }>(`
+    select p.user_id
     from tournament_participants tp
     inner join players p on p.id = tp.player_id
     where tp.tournament_id = ? and tp.player_id = ?
@@ -223,7 +223,7 @@ export function createTournamentDuelService(db: Database.Database): TournamentDu
     where tournament_id = ?
     order by joined_at asc, rowid asc
   `);
-  const selectSavedDeck = db.prepare<[number], { guild_id: string; owner_user_id: string; draft_id: number | null }>(
+  const selectSavedDeck = db.prepare<[number], { guild_id: string; owner_user_id: number; draft_id: number | null }>(
     "select guild_id, owner_user_id, draft_id from saved_decks where id = ?",
   );
   const selectGameStarted = db.prepare<[number, number], { started: number }>(`
@@ -257,8 +257,8 @@ export function createTournamentDuelService(db: Database.Database): TournamentDu
   const selectLatestGameSlug = db.prepare<[number], { slug: string | null }>(
     "select web_slug as slug from duels where series_id = ? order by game_number desc, id desc limit 1",
   );
-  const selectPlayerByUser = db.prepare<[string, string], { id: number }>(
-    "select id from players where guild_id = ? and discord_user_id = ?",
+  const selectPlayerByUser = db.prepare<[string, number], { id: number }>(
+    "select id from players where guild_id = ? and user_id = ?",
   );
   const selectMatchStatus = db.prepare<[number], { status: string }>("select status from matches where id = ?");
   const denyPendingMatch = db.prepare<[number | null, number]>(`
@@ -300,7 +300,7 @@ export function createTournamentDuelService(db: Database.Database): TournamentDu
   const setRulesTx = db.transaction(
     (
       tournamentId: number,
-      organizerUserId: string,
+      organizerUserId: number,
       input: { bestOf?: DuelBestOf; mode?: DuelMode; masterRule?: DuelMasterRule; settings?: unknown },
     ): TournamentDuelRules => {
       const tournament = loadTournament(tournamentId);
@@ -352,7 +352,7 @@ export function createTournamentDuelService(db: Database.Database): TournamentDu
         if (!saved || saved.guild_id !== tournament.guild_id) {
           throw new TournamentDuelError("Saved deck not found", 404);
         }
-        if (saved.owner_user_id !== participant.discord_user_id) {
+        if (saved.owner_user_id !== participant.user_id) {
           throw new TournamentDuelError("That saved deck belongs to another player", 403);
         }
         if (draftId !== null && saved.draft_id !== draftId) {
@@ -374,7 +374,7 @@ export function createTournamentDuelService(db: Database.Database): TournamentDu
   );
 
   const setResultTx = db.transaction(
-    (input: { tournamentMatchId: number; organizerUserId: string; winnerPlayerId: number }) => {
+    (input: { tournamentMatchId: number; organizerUserId: number; winnerPlayerId: number }) => {
       const slot = selectMatch.get(input.tournamentMatchId);
       if (!slot) throw new TournamentDuelError("Tournament match not found", 404);
       const tournament = loadTournament(slot.tournament_id);
