@@ -369,7 +369,7 @@ export interface DuelEvent {
   id: number;
   kind:
     | "summon" | "set" | "activate" | "target" | "chain-resolving" | "chain-resolved" | "chain-negated" | "chain-end"
-    | "attack" | "battle" | "battle-end" | "phase" | "damage" | "recover" | "destroy" | "move" | "position" | "equip" | "confirm" | "toss";
+    | "attack" | "attack-negated" | "battle" | "battle-end" | "phase" | "damage" | "recover" | "destroy" | "move" | "position" | "equip" | "confirm" | "toss";
   seat?: number;
   card?: DuelCardInfo;
   chainIndex?: number;

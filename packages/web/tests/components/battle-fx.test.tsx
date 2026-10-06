@@ -933,6 +933,22 @@ describe("BattleFx resolution", () => {
     expect(markerOf()).toBeNull();
   });
 
+  it.each([["a 4-way grid", 4], ["a 1v1 duel", 2]])("clears the declared arrow and caption when the attack is negated and nothing follows (%s)", (_name, count) => {
+    const duo = Array.from({ length: count }, (_, seat) => ({ seat, monsters: [] })) as unknown as DuelSeatView[];
+    const declaration: DuelEvent = { id: 2, kind: "attack", seat: 0, text: "attack", zone: { controller: 0, location: 4, sequence: 0 }, ...(count === 4 ? { targetSeat: 1 } : {}) };
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion seats={duo} />);
+    rerender(<BattleFx events={[phase, declaration]} reducedMotion seats={duo} />);
+    expect(document.querySelector("[data-attack-caption]")).not.toBeNull();
+    // A response window, then an effect damage: the attack is not over yet.
+    const effectDamage: DuelEvent = { id: 4, kind: "damage", seat: 0, amount: 500, cause: "effect", text: "" };
+    rerender(<BattleFx events={[phase, declaration, activate, effectDamage]} reducedMotion seats={duo} />);
+    expect(document.querySelector("[data-attack-caption]")).not.toBeNull();
+    // The engine negates the attack (Magic Cylinder, ...): no phase or attack follows.
+    rerender(<BattleFx events={[phase, declaration, activate, effectDamage, { id: 5, kind: "attack-negated", text: "" }]} reducedMotion seats={duo} />);
+    expect(document.querySelector("[data-attack-caption]")).toBeNull();
+    expect(document.querySelector('[data-aim="locked"]')).toBeNull();
+  });
+
   it("does not play a fight for an attack that was already in the first snapshot", () => {
     const first = render(<BattleFx events={[phase, attack]} reducedMotion={false} seats={seats()} />);
     act(() => undefined);
