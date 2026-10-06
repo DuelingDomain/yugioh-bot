@@ -512,7 +512,7 @@ function Card.IsColumn(c,seq,tp,loc,source)
 		else origin=Duel.MPSeatOf(source:GetOwner()) end
 	elseif type(source)=="Card" then origin=Duel.MPSeatOf(source)
 	elseif tp~=nil then
-		if tp~=0 and not Duel.MPBound() and Duel.MPSeatBinding()==255 then
+		if not aux.MPGeometryShared() and tp~=0 and not Duel.MPBound() and Duel.MPSeatBinding()==255 then
 			origin=aux.MPColumnPeerSeat(Duel.MPSeat(0))
 		else origin=Duel.MPSeat(tp) end
 	end
