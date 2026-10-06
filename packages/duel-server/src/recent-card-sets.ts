@@ -39,6 +39,7 @@ export function createRecentCardSetCache(db: Database.Database, options: {
   const fetch = options.fetch ?? globalThis.fetch, now = options.now ?? Date.now;
   const pending = new Map<string, Promise<void>>(), retryAt = new Map<string, number>();
   const invalid = new Set<string>();
+  const shutdown = new AbortController();
   let stopped = false;
   const get = db.prepare("select fetched_at, cards_json from card_data_set_cache where set_name = ?");
   const getFetchedAt = db.prepare("select fetched_at from card_data_set_cache where set_name = ?");
@@ -66,7 +67,11 @@ export function createRecentCardSetCache(db: Database.Database, options: {
     const work = (async () => {
       try {
         const url = new URL("https://db.ygoprodeck.com/api/v7/cardinfo.php"); url.searchParams.set("cardset", set.name);
-        const cards = await fetchCardResource(url, fetch, async response => {
+        const cards = await fetchCardResource(url, (input, init) => {
+          // A request can still be waiting for the shared budget at shutdown.
+          shutdown.signal.throwIfAborted();
+          return fetch(input, { ...init, signal: AbortSignal.any([shutdown.signal, init!.signal!]) });
+        }, async response => {
           const payload = await response.json() as { data?: unknown; error?: unknown };
           return compactCards(payload.data == null && typeof payload.error === "string" ? [] : payload.data, set.name);
         }, [400]);
@@ -76,7 +81,7 @@ export function createRecentCardSetCache(db: Database.Database, options: {
       } catch {
         // Keep the last successful set; a cold miss stays unknown. Shared queue
         // cooldowns also apply to subsequent card/image requests in this process.
-        retryAt.set(set.name, now() + 5 * 60_000);
+        if (!stopped) retryAt.set(set.name, now() + 5 * 60_000);
       } finally { pending.delete(set.name); }
     })();
     pending.set(set.name, work);
@@ -95,6 +100,6 @@ export function createRecentCardSetCache(db: Database.Database, options: {
       return rows;
     },
     refresh,
-    async close(): Promise<void> { stopped = true; await Promise.all(pending.values()); },
+    async close(): Promise<void> { stopped = true; shutdown.abort(); },
   };
 }

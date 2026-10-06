@@ -151,3 +151,25 @@ it("uses no bug-report token and treats malformed or rejected resources as unkno
   const { result } = await warm({ fetch });
   expect(Object.values(result.upstream.sources).every(s => s.status === "unknown")).toBe(true);
 });
+
+
+it.each(["request", "body"])("closes immediately during a hanging GitHub %s and cancels dependent requests", async stage => {
+  vi.useFakeTimers(); const signals: AbortSignal[] = [];
+  const fetch = vi.fn(async (_url: string, init?: RequestInit) => {
+    signals.push(init!.signal!);
+    if (stage === "request") return new Promise<Response>(() => {});
+    return { ok: true, json: () => new Promise(() => {}) } as Response;
+  });
+  const cache = new Map<string, CachedGithubResource>();
+  const read = createGithubCardDataStatus({ fetch, cache });
+  const pending = read.refresh(engine); const start = Date.now(); let closedAt: number | undefined;
+  const closing = read.close().then(() => { closedAt = Date.now(); });
+  try {
+    await vi.advanceTimersByTimeAsync(999);
+    expect(closedAt).toBeDefined(); expect(closedAt! - start).toBeLessThan(1000);
+    expect(signals.every(signal => signal.aborted)).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  } finally { await vi.runAllTimersAsync(); await Promise.all([closing, pending]); }
+  expect(fetch).toHaveBeenCalledTimes(5); expect(cache.size).toBe(0);
+  await read.refresh(engine); expect(fetch).toHaveBeenCalledTimes(5);
+});

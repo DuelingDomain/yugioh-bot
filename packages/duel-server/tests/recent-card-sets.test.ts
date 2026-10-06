@@ -10,7 +10,7 @@ const sets = [
   { name: "Older", code: "OLD", releaseDate: "2026-01-01" },
 ];
 const databases: Database.Database[] = [];
-afterEach(() => { for (const db of databases.splice(0)) db.close(); });
+afterEach(() => { vi.useRealTimers(); for (const db of databases.splice(0)) db.close(); });
 function database() { const db = new Database(":memory:"); migrate(db); databases.push(db); return db; }
 function payload(set: string, id = 99) { return { data: [{ id, name: "Unrequested new card", type: "Normal Monster", frameType: "normal",
   card_images: [{ id }, { id: id + 1 }], card_sets: [{ set_name: set, set_code: `${set}-EN001` }], card_prices: [{ price: "huge unused payload" }] }] }; }
@@ -170,4 +170,45 @@ it("lets an interactive card request run before the next set refresh", async () 
   release!(Response.json(payload(sets[0].name)));
   await Promise.all([pending, interactive]);
   expect(order).toEqual([sets[0].name, "deck import", sets[1].name]);
+});
+
+
+it("closes within one second with 50 pending sets and aborts active fetching", async () => {
+  vi.useFakeTimers();
+  const db = database(); const signals: AbortSignal[] = [];
+  const fetch = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+    signals.push(init!.signal!);
+    return new Promise<Response>((_resolve, reject) => init!.signal!.addEventListener("abort", () => reject(init!.signal!.reason), { once: true }));
+  });
+  const cache = createRecentCardSetCache(db, { fetch, now: () => today });
+  const backlog = Array.from({ length: 50 }, (_, i) => ({ ...sets[0], name: `Set ${i}` }));
+  const pending = cache.refresh(backlog);
+  await vi.advanceTimersByTimeAsync(200); expect(signals.length).toBeGreaterThan(0);
+  const start = Date.now(); let closedAt: number | undefined;
+  const closing = cache.close().then(() => { closedAt = Date.now(); });
+  try {
+    await vi.advanceTimersByTimeAsync(999);
+    expect(closedAt).toBeDefined(); expect(closedAt! - start).toBeLessThan(1000);
+    expect(signals.every(signal => signal.aborted)).toBe(true);
+  } finally {
+    await vi.runAllTimersAsync(); await Promise.all([closing, pending]);
+  }
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(db.prepare("select count(*) as count from card_data_set_cache").get()).toEqual({ count: 0 });
+  await cache.refresh(backlog); expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+it("does not start a queued set fetch or write after close and database shutdown", async () => {
+  vi.useFakeTimers();
+  const db = database(); const fetch = vi.fn(async () => Response.json(payload(sets[0].name)));
+  // Reserve the next request start before enqueueing the background refresh.
+  const reserved = fetchCardResource("https://db.ygoprodeck.com/api/v7/cardinfo.php?id=1", async () => Response.json({ data: [] }), response => response.json());
+  await vi.runAllTimersAsync(); await reserved;
+  const cache = createRecentCardSetCache(db, { fetch, now: () => today });
+  const pending = cache.refresh(sets);
+  let closed = false; const closing = cache.close().then(() => { closed = true; });
+  await Promise.resolve(); expect(closed).toBe(true);
+  db.close(); databases.splice(databases.indexOf(db), 1);
+  await vi.runAllTimersAsync(); await Promise.all([pending, closing]);
+  expect(fetch).not.toHaveBeenCalled();
 });
