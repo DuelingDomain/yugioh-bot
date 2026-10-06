@@ -20,13 +20,24 @@ export function releasedDatabaseFiles(tree: Tree): string[] {
 }
 
 async function download(url: string, request: Download, init?: RequestInit): Promise<Response> {
-  const response = await request(url, { signal: AbortSignal.timeout(120_000), ...init });
-  if (!response.ok) throw new Error(`Resource download failed (${response.status}): ${url}`);
-  return response;
+  for (let retry = 0; ; retry++) {
+    const response = await request(url, { signal: AbortSignal.timeout(120_000), ...init });
+    if (response.ok) return response;
+    if (retry === 3 || !(response.status === 403 || response.status === 429 || response.status >= 500)) {
+      throw new Error(`Resource download failed (${response.status}): ${url}`);
+    }
+    const after = response.headers.get("Retry-After");
+    const reset = response.headers.get("x-ratelimit-reset");
+    const afterMs = after === null ? 0 : /^\d+(?:\.\d+)?$/.test(after) ? Number(after) * 1_000 : Date.parse(after) - Date.now();
+    const resetMs = reset === null ? 0 : Number(reset) * 1_000 - Date.now();
+    const delay = Math.max(1_000 * 2 ** retry, Number.isFinite(afterMs) ? afterMs : 0, Number.isFinite(resetMs) ? resetMs : 0);
+    await response.body?.cancel();
+    await new Promise(resolve => setTimeout(resolve, delay));
+  }
 }
 
 export async function discoverReleasedDatabases(commit: string, request: Download = fetch): Promise<string[]> {
-  const token = process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN;
+  const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
   const response = await download(`https://api.github.com/repos/ProjectIgnis/BabelCDB/git/trees/${commit}?recursive=1`, request, {
     headers: { "User-Agent": "yugidraft-released-card-data", Accept: "application/vnd.github+json",
       "X-GitHub-Api-Version": "2022-11-28", ...(token ? { Authorization: `Bearer ${token}` } : {}) },

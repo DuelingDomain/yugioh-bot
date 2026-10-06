@@ -209,6 +209,7 @@ jobs:
       - name: Prepare card data and scripts
         if: needs.core-cache.outputs.hit != 'true'
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           DUEL_DATA_DIR: ${{ github.workspace }}/data/duel-engine-next
         run: |
           npm ci

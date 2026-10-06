@@ -6,7 +6,7 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, expect, it, vi } from "vitest";
 import { prepareData, sources } from "../scripts/prepare-data.js";
-import { downloadReleasedCardData, releasedDatabaseFiles, restrictPrereleaseScripts } from "../scripts/released-card-data.js";
+import { discoverReleasedDatabases, downloadReleasedCardData, releasedDatabaseFiles, restrictPrereleaseScripts } from "../scripts/released-card-data.js";
 import { loadCardDatabase } from "../src/cards.js";
 import { inspectDeck } from "../src/deck-legality.js";
 import { loadArtworkIdentityCatalog, mainArtworkId } from "../../shared/dist/services/card-artworks.js";
@@ -16,7 +16,7 @@ import { createCardCatalogService } from "@yugidraft/shared/services";
 
 const roots: string[] = [];
 const root = () => { const dir = mkdtempSync(join(tmpdir(), "released-data-test-")); roots.push(dir); return dir; };
-afterEach(() => { roots.splice(0).forEach(dir => rmSync(dir, { recursive: true, force: true })); vi.unstubAllEnvs(); });
+afterEach(() => { roots.splice(0).forEach(dir => rmSync(dir, { recursive: true, force: true })); vi.unstubAllEnvs(); vi.useRealTimers(); });
 const hash = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
 const tree = (paths: string[]) => ({ truncated: false, tree: paths.map(path => ({ path, type: "blob", sha: "unused" })) });
 function cdb(dir: string, name: string, rows: Array<[number, number, string]>) {
@@ -53,6 +53,42 @@ function fixture() {
   });
   return { request, directory: join(dir, "bundle") };
 }
+
+it.each([
+  [403, { "Retry-After": "2" }, 2_000],
+  [429, { "Retry-After": "Tue, 06 Oct 2026 12:00:03 GMT" }, 3_000],
+  [403, { "x-ratelimit-reset": "1791288004" }, 4_000],
+  [503, { "Retry-After": "1", "x-ratelimit-reset": "1791288004" }, 4_000],
+  [500, {}, 1_000],
+])("retries a %i tree response with authentication after the server's delay", async (status, headers, delay) => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-10-06T12:00:00Z"));
+  vi.stubEnv("GH_TOKEN", "");
+  vi.stubEnv("GITHUB_TOKEN", "test-read-token");
+  const request = vi.fn()
+    .mockResolvedValueOnce(new Response("retry", { status, headers }))
+    .mockResolvedValueOnce(Response.json(tree(["cards.cdb"])));
+  const result = discoverReleasedDatabases(sources.database, request);
+  const assertion = expect(result).resolves.toEqual(["cards.cdb"]);
+  await vi.advanceTimersByTimeAsync(delay - 1);
+  expect(request).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(1);
+  await assertion;
+  expect(request).toHaveBeenCalledTimes(2);
+  expect(request.mock.calls[1][1].headers.Authorization).toBe("Bearer test-read-token");
+});
+
+it("stops after three retries and does not retry other client errors", async () => {
+  vi.useFakeTimers();
+  const limited = vi.fn(async () => new Response("retry", { status: 403 }));
+  const assertion = expect(discoverReleasedDatabases(sources.database, limited)).rejects.toThrow("(403)");
+  await vi.runAllTimersAsync();
+  await assertion;
+  expect(limited).toHaveBeenCalledTimes(4);
+  const missing = vi.fn(async () => new Response("missing", { status: 404 }));
+  await expect(discoverReleasedDatabases(sources.database, missing)).rejects.toThrow("(404)");
+  expect(missing).toHaveBeenCalledTimes(1);
+});
 
 it("discovers only root official base/release databases in EDOPro order and refuses incomplete trees", () => {
   expect(releasedDatabaseFiles(tree(["release-z.cdb", "release-a.cdb", "cards.cdb", "prerelease-test.cdb", "cards-rush.cdb", "nested/release-x.cdb"]))).toEqual(["cards.cdb", "release-a.cdb", "release-z.cdb"]);

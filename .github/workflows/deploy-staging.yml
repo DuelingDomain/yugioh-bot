@@ -123,6 +123,8 @@ jobs:
 
       - name: Build pinned duel-engine bundle
         if: ${{ inputs.action == 'deploy' && steps.bundle.outputs.cache-matched-key == '' }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           npm ci --ignore-scripts
           npx patch-package --error-on-fail
