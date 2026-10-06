@@ -48,6 +48,8 @@ import {
   type DecisionClockView,
 } from "./clock.js";
 import { chooseScripted, ScriptedBotError, type Rule, type RuleTraceEntry } from "./scripted-bot.js";
+import { createSandboxOps } from "./sandbox.js";
+import { policiesForRun } from "./sandbox-seats.js";
 import { compileBoard } from "./presets/board.js";
 import { setCatalogDirectory } from "./presets/catalog.js";
 import { multiDomainCoreAvailable, multiStartProblem } from "./multi-domain-guard.js";
@@ -148,6 +150,8 @@ type LiveGame = {
   surrendered: Set<number>;
   /** Scripted bot rules by seat (hand scenarios). Seats not in the map play like the random practice bot. */
   policies: Map<number, Rule[]>;
+  /** Sandbox seats controlled by the organizer. Seat 0 is always manual. */
+  manualSeats: Set<number>;
   /** The rules tried for each auto seat's latest prompt (debug-trace). Kept in memory only. */
   traces: Map<number, RuleTraceEntry[]>;
   /** A hand scenario table. Its scripts are written against every response window, so it has no chain response switch. */
@@ -418,7 +422,7 @@ export function createDuelHost(options: {
     const seats = new Set<number>();
     for (const seat of session.seats) if (seat.isBot) seats.add(seat.seat);
     for (const seat of entry?.surrendered ?? []) seats.add(seat);
-    return [...seats].sort((a, b) => a - b);
+    return [...seats].filter((seat) => !entry?.manualSeats.has(seat)).sort((a, b) => a - b);
   }
 
   type AutoPrompt = { kind: "result"; view: DuelEngineView } | { kind: "prompt"; seat: number; view: DuelEngineView };
@@ -433,8 +437,9 @@ export function createDuelHost(options: {
     return null;
   }
 
-  /** Rebuild the scripted bot rules of a preset table from its saved setup. */
-  function policiesOf(setup: { presetId?: string; botPolicies?: Record<string, string> } | undefined): Map<number, Rule[]> {
+  /** Rebuild sandbox or preset bot rules from saved setup. */
+  function policiesOf(setup: ReturnType<typeof service.privateState>["setup"], format: DuelFormat = "1v1"): Map<number, Rule[]> {
+    if (setup?.sandbox) return policiesForRun(setup.sandbox.run, format).policies;
     const policies = new Map<number, Rule[]>();
     const preset = setup?.presetId ? getPreset(setup.presetId) : undefined;
     if (!preset) return policies;
@@ -1117,7 +1122,8 @@ export function createDuelHost(options: {
       lastRequestAt: now(),
       guildId,
       surrendered: new Set(state.setup?.surrenderedSeats ?? []),
-      policies: policiesOf(state.setup),
+      policies: policiesOf(state.setup, state.session.format),
+      manualSeats: state.setup?.sandbox ? policiesForRun(state.setup.sandbox.run, state.session.format).manualSeats : new Set(),
       traces: new Map(),
       ...(state.setup?.presetId ? { presetId: state.setup.presetId } : {}),
     });
@@ -1448,6 +1454,38 @@ export function createDuelHost(options: {
     if (process.env.DUEL_SCENARIOS !== "1") throw new RequestError("Not found", 404);
   }
 
+  const sandbox = createSandboxOps({
+    db: options.db, service, dataDirectory: options.dataDirectory, now, enqueue,
+    async launch(slug, guildId, actor, seed, setup) {
+      await enqueue(slug, async () => {
+        const state = service.privateState(slug, guildId);
+        const session = state.session;
+        const game = spawn();
+        try {
+          await game.create(workerCreateOptions(session.mode, state.decks, seed, session.masterRule,
+            session.settings, session.format, setup.startupScripts, setup.engine, setup.firstTurnDraw));
+          service.activate(slug, guildId, actor, seed, pinnedVersionFor(session.format), null, setup);
+          games.set(slug, { game, guildId, lastRequestAt: now(), surrendered: new Set(), traces: new Map(),
+            ...policiesForRun(setup.sandbox!.run, session.format) });
+          await emitChange(slug, guildId);
+          await driveBot(slug, guildId, game);
+        } catch (error) {
+          await disposeGame(slug);
+          await safeClose(game);
+          throw new RequestError(error instanceof Error ? error.message : "Duel engine is temporarily unavailable", 503);
+        }
+      });
+    },
+    async cancel(slug, guildId, actor) {
+      await enqueue(slug, async () => {
+        const session = service.get(slug, guildId);
+        if (session.status === "lobby" || session.status === "active") service.cancel(slug, guildId, actor);
+        await disposeGame(slug);
+        await emitChange(slug, guildId);
+      });
+    },
+  });
+
   /** Hand scenarios: make a table from a preset, fill the bot seats and start the duel. */
   async function startPreset(body: Record<string, unknown>, guildId: string, actor: number): Promise<unknown> {
     const preset = typeof body.presetId === "string" ? getPreset(body.presetId) : undefined;
@@ -1516,6 +1554,7 @@ export function createDuelHost(options: {
         guildId,
         surrendered: new Set(),
         policies: policiesOf({ presetId: preset.id, botPolicies }),
+        manualSeats: new Set(),
         presetId: preset.id,
         traces: new Map(),
       });
@@ -1992,7 +2031,7 @@ export function createDuelHost(options: {
       service.activate(slug, guildId, organizer, seed, pinnedVersionFor(state.session.format), clock, {
         ...(state.setup ?? {}), firstTurnDraw, ...(engine ? { engine } : {}),
       });
-      games.set(slug, { game, lastRequestAt: now(), guildId, surrendered: new Set(), policies: new Map(), traces: new Map() });
+      games.set(slug, { game, lastRequestAt: now(), guildId, surrendered: new Set(), policies: new Map(), manualSeats: new Set(), traces: new Map() });
       await emitChange(slug, guildId);
       await driveBot(slug, guildId, game);
       return game;
@@ -2190,6 +2229,8 @@ export function createDuelHost(options: {
     if (op === "capabilities") {
       return { multiplayerTables: multiplayerTablesEnabled(), multiCoreReady: multiCoreAvailable(options.dataDirectory), multiDomainCoreReady: multiDomainCoreAvailable(options.dataDirectory) };
     }
+    if (op === "validate-board") return sandbox.validate(body.board);
+    if (op === "start-sandbox") return sandbox.start(body, guildId, actor);
     if (op === "list-presets") {
       requireScenarios();
       return {
@@ -2267,6 +2308,8 @@ export function createDuelHost(options: {
     }
     if (typeof body.slug !== "string" || !body.slug || body.slug.length > 128) throw new RequestError("Duel slug is required", 400);
     const slug = body.slug;
+    if (op === "sandbox-info") return sandbox.info(slug, guildId, actor);
+    if (op === "sandbox-restart") return sandbox.restart(slug, guildId, actor);
     const room = service.room(slug, guildId, actor);
     if (op === "view") {
       // A timeout that no timer caught yet (a restart, a late timer) is applied here.
@@ -2672,7 +2715,10 @@ export function createDuelHost(options: {
         let body: Record<string, unknown>;
         try { body = JSON.parse(raw); } catch { throw new RequestError("Invalid JSON", 400); }
         if (!body || typeof body !== "object" || Array.isArray(body)) throw new RequestError("Invalid request", 400);
-        const key = typeof body.slug === "string" ? body.slug : "catalog";
+        // Start and restart share the actor queue so the active and rate limits cannot race.
+        // They can then acquire old duel queues for cancellation without holding another duel queue.
+        const key = body.op === "start-sandbox" || body.op === "sandbox-restart"
+          ? `sandbox-player:${body.playerId}` : typeof body.slug === "string" ? body.slug : "catalog";
         // debug-trace and bug-context must answer while the duel queue is stuck inside the core, so they skip the queue.
         const ctl = { abandoned: false };
         const queued = (body.op === "debug-trace" || body.op === "bug-context" ? operate(body) : enqueue(key, () => operate(body, ctl)));
