@@ -139,3 +139,27 @@ test("ffa4: the prompt panel over a rival field is not a direct attack: no answe
   await page.waitForTimeout(500);
   expect(answers).toEqual([]);
 });
+
+test("ffa4: a click on the phase hub does not move the focus to the field under it", async ({ page }) => {
+  await open(page, "state=main");
+  const stage = page.locator("[data-table-stage]");
+  const mat = await emptyMat(page, 3);
+  await page.mouse.click(mat.x, mat.y);
+  await expect(stage).toHaveAttribute("data-grid-focus", "3");
+  // A phase chip that is not a button: it takes the pointer, and a field lies under it.
+  const chip = (await page.locator("[data-grid-hub] span[class*='chip']").first().boundingBox())!;
+  const x = chip.x + chip.width / 2;
+  const y = chip.y + chip.height / 2;
+  const target = await page.evaluate(({ x: px, y: py }) => {
+    const hit = document.elementFromPoint(px, py);
+    const fields = [...document.querySelectorAll<HTMLElement>("[data-seat-field]")].filter((field) => {
+      const rect = field.getBoundingClientRect();
+      return px >= rect.left && px <= rect.right && py >= rect.top && py <= rect.bottom;
+    });
+    return { inHub: !!hit?.closest("[data-grid-hub]"), button: !!hit?.closest("button"), overField: fields.length > 0 };
+  }, { x, y });
+  expect(target).toEqual({ inHub: true, button: false, overField: true });
+  await page.mouse.click(x, y);
+  await page.waitForTimeout(400);
+  await expect(stage).toHaveAttribute("data-grid-focus", "3");
+});
