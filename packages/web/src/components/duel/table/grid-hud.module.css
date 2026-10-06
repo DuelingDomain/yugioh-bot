@@ -635,8 +635,9 @@
   mask-image: linear-gradient(to bottom, #000 calc(100% - 2.6em), transparent);
 }
 .previewHint { flex: none; margin: 4px 0 0; color: var(--duel-ink-3); font-size: calc(var(--pv-ct) * 0.8); font-style: italic; }
-.previewOwner { display: flex; flex: none; align-items: center; gap: 6px; margin: 10px 0 0; color: var(--duel-ink-3); font-size: calc(var(--pv-ct) * 0.95); }
-.previewOwner i { flex: none; width: 0.6em; height: 0.6em; border-radius: 50%; background: var(--seat-main, var(--duel-ink-3)); }
+/* Inline flow, so a narrow panel wraps the line as one sentence instead of splitting it into columns. */
+.previewOwner { flex: none; margin: 10px 0 0; line-height: 1.35; color: var(--duel-ink-3); font-size: calc(var(--pv-ct) * 0.95); }
+.previewOwner i { display: inline-block; width: 0.6em; height: 0.6em; margin-right: 6px; vertical-align: 0.05em; border-radius: 50%; background: var(--seat-main, var(--duel-ink-3)); }
 .previewOwner b { color: var(--seat-ink, var(--duel-ink)); font-weight: 600; }
 
 @media (prefers-reduced-motion: reduce) {
