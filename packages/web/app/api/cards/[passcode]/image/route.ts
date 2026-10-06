@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { callDuelHost, requireDuelActor } from "@/lib/duel-host";
 import { getDb } from "@/lib/db";
 import { cardImageCachePath, type CardImageSource } from "@/lib/card-image-cache";
-import { CARD_BACK_SVG, CardFetchError, CardImageValidationError, PROJECT_IGNIS_IMAGE_URL, fetchCardResource, isCardFetchError, readCardImageResponse, trustedCardImageUrl, validateCardImage } from "@yugidraft/shared/services";
+import { CARD_BACK_SVG, CardFetchError, CardImageValidationError, fetchCardImageResource, isCardFetchError, readCardImageResponse, trustedCardImageUrl, validateCardImage, type CardImageResource } from "@yugidraft/shared/services";
 
 export const runtime = "nodejs";
 
@@ -14,7 +14,7 @@ const YGOPRODECK_SMALL_URL = "https://images.ygoprodeck.com/images/cards_small";
 const YGOPRODECK_CROPPED_URL = "https://images.ygoprodeck.com/images/cards_cropped";
 type ImageVariant = "full" | "small" | "cropped";
 type CachedImage = { image: Buffer; cacheControl: string };
-type FetchedImage = { image: Buffer | null; source: CardImageSource; ignisError?: unknown };
+type FetchedImage = CardImageResource<Buffer>;
 type ArtworkRow = { card_id: number; image_url: string; image_url_small: string; image_url_cropped: string | null; source: "api" | "engine" };
 const FALLBACK_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MISSING_TTL_MS = 10 * 60 * 1000;
@@ -46,16 +46,8 @@ async function fetchImage(passcode: number, variant: ImageVariant): Promise<Fetc
       throw error;
     }
   };
-  const readOrMiss = (response: Response) => response.status === 404 ? Promise.resolve(null) : readImage(response);
-  const image = await fetchCardResource(url, fetch, readOrMiss, [404]);
-  if (image || variant === "cropped") return { image, source: "ygoprodeck" };
-  // Ignis only has 177x254 full-card JPEGs, with no HQ or cropped endpoint.
-  // Its separate disk cache lets later YGOPRODeck/HQ art replace it.
-  try {
-    return { image: await fetchCardResource(`${PROJECT_IGNIS_IMAGE_URL}/${passcode}.jpg`, fetch, readOrMiss, [404]), source: "ignis" };
-  } catch (ignisError) {
-    return { image: null, source: "ignis", ignisError };
-  }
+  // Ignis has full-card art only; a missing crop must stay on YGOPRODeck.
+  return fetchCardImageResource(url, passcode, fetch, readImage, variant !== "cropped");
 }
 
 /**
@@ -143,10 +135,10 @@ async function loadImage(passcode: number, variant: ImageVariant, filename: stri
 
   let fetched: FetchedImage | undefined;
   let upstreamError: unknown;
-  let ignisError: unknown;
+  let fallbackError: unknown;
   try {
     fetched = await fetchImage(passcode, variant);
-    ignisError = fetched.ignisError;
+    fallbackError = fetched.fallbackError;
   } catch (error) { upstreamError = error; }
   if (fetched?.image) {
     await writeCachedImage(filename, fetched.source, fetched.image);
@@ -159,7 +151,7 @@ async function loadImage(passcode: number, variant: ImageVariant, filename: stri
 
   let alias: number | null | undefined;
   try { alias = await aliasOf(passcode); }
-  catch (error) { throw upstreamError ?? ignisError ?? error; }
+  catch (error) { throw upstreamError ?? fallbackError ?? error; }
   if (alias != null) {
     const cachedAlias = await readCachedImage(alias, imageFilename(alias, variant));
     let image = cachedAlias?.image;
@@ -167,12 +159,12 @@ async function loadImage(passcode: number, variant: ImageVariant, filename: stri
     if (!image && !upstreamError) {
       const fetchedAlias = await fetchImage(alias, variant);
       image = fetchedAlias.image ?? undefined;
-      ignisError ??= fetchedAlias.ignisError;
+      fallbackError ??= fetchedAlias.fallbackError;
     }
     // Alias art must never become this passcode's durable art.
-    if (image) return { image, cacheControl: upstreamError || ignisError ? "no-store" : FALLBACK_CACHE_CONTROL };
+    if (image) return { image, cacheControl: upstreamError || fallbackError ? "no-store" : FALLBACK_CACHE_CONTROL };
   }
-  if (upstreamError || ignisError) throw upstreamError ?? ignisError;
+  if (upstreamError || fallbackError) throw upstreamError ?? fallbackError;
   if (alias === null) {
     const now = Date.now();
     for (const [key, expires] of missingImages) if (expires <= now) missingImages.delete(key);

@@ -15,7 +15,7 @@ describe("card image fallback", () => {
     const read = vi.fn((response: Response) => response.text());
     const result = fetchCardImageResource(primary, 89631133, fetch, read);
     await vi.runAllTimersAsync();
-    expect(await result).toBe("alternate art");
+    expect(await result).toEqual({ image: "alternate art", source: "ignis" });
     expect(fetch.mock.calls.map(([url]) => url)).toEqual([primary, ignis]);
     for (const [, init] of fetch.mock.calls) expect(init).toEqual({ signal: expect.any(AbortSignal), redirect: "error" });
     expect(read).toHaveBeenCalledTimes(1);
@@ -24,14 +24,14 @@ describe("card image fallback", () => {
   it("keeps a successful primary response", async () => {
     const { fetchCardImageResource } = await import("../../src/services/card-fetch.js");
     const fetch = vi.fn(async () => new Response("primary art"));
-    expect(await fetchCardImageResource(primary, 89631133, fetch, r => r.text())).toBe("primary art");
+    expect(await fetchCardImageResource(primary, 89631133, fetch, r => r.text())).toEqual({ image: "primary art", source: "ygoprodeck" });
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it.each([0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])("skips all fetching for invalid passcode %s", async passcode => {
     const { fetchCardImageResource } = await import("../../src/services/card-fetch.js");
     const fetch = vi.fn(async () => new Response("art"));
-    expect(await fetchCardImageResource(primary, passcode, fetch, r => r.text())).toBeNull();
+    expect(await fetchCardImageResource(primary, passcode, fetch, r => r.text())).toEqual({ image: null, source: "ygoprodeck" });
     expect(fetch).not.toHaveBeenCalled();
   });
 
@@ -42,12 +42,12 @@ describe("card image fallback", () => {
       .mockResolvedValueOnce(new Response("limited", { status: 429, headers: { "Retry-After": "600" } }))
       .mockResolvedValueOnce(new Response("primary art"))
       .mockResolvedValueOnce(new Response('{"data":[]}'));
-    const failure = expect(fetchCardImageResource(primary, 89631133, fetch, r => r.text())).rejects.toMatchObject({ status: 429 });
-    await vi.runAllTimersAsync();
-    await failure;
+    const failure = fetchCardImageResource(primary, 89631133, fetch, r => r.text());
+    await Promise.allSettled([failure, vi.runAllTimersAsync()]);
+    await expect(failure).resolves.toMatchObject({ image: null, source: "ignis", fallbackError: { status: 429 } });
     const image = fetchCardImageResource(primary, 89631133, fetch, r => r.text());
     await vi.runAllTimersAsync();
-    expect(await image).toBe("primary art");
+    expect(await image).toEqual({ image: "primary art", source: "ygoprodeck" });
     const catalog = fetchCardResource("https://db.ygoprodeck.com/api/v7/cardinfo.php", fetch, r => r.json());
     await vi.runAllTimersAsync();
     expect(await catalog).toEqual({ data: [] });
@@ -67,7 +67,7 @@ describe("card image fallback", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
-  it("returns null for two misses and retries them on the next request", async () => {
+  it("reports two misses and retries them on the next request", async () => {
     const { fetchCardImageResource } = await import("../../src/services/card-fetch.js");
     const fetch = vi.fn<(input: string | URL | Request, init?: RequestInit) => Promise<Response>>().mockResolvedValueOnce(new Response("missing", { status: 404 }))
       .mockResolvedValueOnce(new Response("missing", { status: 404 }))
@@ -75,10 +75,10 @@ describe("card image fallback", () => {
       .mockResolvedValueOnce(new Response("new art"));
     const first = fetchCardImageResource(primary, 89631133, fetch, r => r.text());
     await vi.runAllTimersAsync();
-    expect(await first).toBeNull();
+    expect(await first).toEqual({ image: null, source: "ignis" });
     const retry = fetchCardImageResource(primary, 89631133, fetch, r => r.text());
     await vi.runAllTimersAsync();
-    expect(await retry).toBe("new art");
+    expect(await retry).toEqual({ image: "new art", source: "ignis" });
     expect(fetch.mock.calls.map(([url]) => url)).toEqual([primary, ignis, primary, ignis]);
   });
 
@@ -86,11 +86,39 @@ describe("card image fallback", () => {
     const { fetchCardImageResource } = await import("../../src/services/card-fetch.js");
     const fetch = vi.fn<(input: string | URL | Request, init?: RequestInit) => Promise<Response>>().mockResolvedValueOnce(new Response("missing", { status: 404 }))
       .mockResolvedValueOnce(new Response("art"));
-    const result = expect(fetchCardImageResource(primary, 89631133, fetch, () => new Promise(() => {}))).rejects.toMatchObject({ name: "CardFetchError" });
-    await vi.runAllTimersAsync();
-    await result;
+    const result = fetchCardImageResource(primary, 89631133, fetch, () => new Promise(() => {}));
+    await Promise.allSettled([result, vi.runAllTimersAsync()]);
+    await expect(result).resolves.toMatchObject({ image: null, source: "ignis", fallbackError: { name: "CardFetchError" } });
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(fetch.mock.calls[1][1]?.signal?.aborted).toBe(true);
+  });
+
+  it("leaves a missing crop on the primary source without contacting Ignis", async () => {
+    const { fetchCardImageResource } = await import("../../src/services/card-fetch.js");
+    const fetch = vi.fn(async () => new Response("missing", { status: 404 }));
+    const read = vi.fn((response: Response) => response.text());
+
+    const result = fetchCardImageResource(primary, 89631133, fetch, read, false);
+    await vi.runAllTimersAsync();
+
+    expect(await result).toEqual({ image: null, source: "ygoprodeck" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it.each(["403", "503", "network"])("reports an Ignis %s failure separately from a primary miss", async failure => {
+    const { fetchCardImageResource } = await import("../../src/services/card-fetch.js");
+    const fetch = vi.fn(async (url: string | URL | Request) => {
+      if (url === primary) return new Response("missing", { status: 404 });
+      if (failure === "network") throw new TypeError("offline");
+      return new Response("unavailable", { status: Number(failure) });
+    });
+
+    const result = fetchCardImageResource(primary, 89631133, fetch, r => r.text());
+    await Promise.allSettled([result, vi.runAllTimersAsync()]);
+
+    await expect(result).resolves.toMatchObject({ image: null, source: "ignis", fallbackError: { name: "CardFetchError" } });
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual([primary, ignis]);
   });
 });
 

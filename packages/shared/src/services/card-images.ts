@@ -105,8 +105,8 @@ export function createDraftImageService({
     try {
       const fallback = `https://images.ygoprodeck.com/images/${full ? "cards" : "cards_small"}/${card.ygoprodeckId}.jpg`;
       const url = trustedCardImageUrl(full ? card.imageUrl : card.imageUrlSmall ?? card.imageUrl, fallback);
-      const buffer = await fetchCardImageResource(url, card.ygoprodeckId, fetchImpl, readCardImageResponse);
-      if (!buffer) throw new CardFetchError(1, 404);
+      const { image: buffer, fallbackError } = await fetchCardImageResource(url, card.ygoprodeckId, fetchImpl, readCardImageResponse);
+      if (!buffer) throw fallbackError ?? new CardFetchError(1, 404);
       const normalized = await sharp(buffer).resize(width, height, { fit: "cover", position: "center" }).png().toBuffer();
       try { await mkdir(cacheDir, { recursive: true }); await writeFile(cachePath, normalized); } catch { /* A full disk must not stop a pick. */ }
       return normalized;
