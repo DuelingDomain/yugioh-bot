@@ -16,7 +16,8 @@ export const MAX_NAME_LENGTH = 100;
 export const EXTRA_TYPE_MASK = TYPE_FUSION | TYPE_SYNCHRO | TYPE_XYZ | TYPE_LINK;
 
 export type DeckSection = "main" | "extra" | "side";
-export type SelectedStack = { section: DeckSection; code: number };
+/** `index` is the copy that was chosen, when the choice came from one tile of a deck section. */
+export type SelectedStack = { section: DeckSection; code: number; index?: number };
 
 
 export function cloneDeck(deck: DuelDeck): DuelDeck {
