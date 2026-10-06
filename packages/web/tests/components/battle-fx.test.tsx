@@ -212,6 +212,23 @@ describe("BattleFx", () => {
     expect(document.querySelector('[data-aim="locked"]')).toBeNull();
   });
 
+  it("plays a seat 2 direct attack on seat 3 when a coin toss (Jirai Gumo) comes between the declaration and the battle", () => {
+    const declaration: DuelEvent = { ...direct, id: 2, seat: 2, targetSeat: 3, zone: { controller: 2, location: 4, sequence: 0 } };
+    board.insertAdjacentHTML("beforeend", '<div data-zones="2:4:0"><div data-card-art></div></div>');
+    boxes["2:4:0"] = { left: 500, top: 300, width: 60, height: 88 } as DOMRect;
+    const trigger: DuelEvent = { id: 3, kind: "activate", seat: 2, text: "", zone: declaration.zone };
+    const toss: DuelEvent = { id: 4, kind: "toss", seat: 2, text: "coin", zone: declaration.zone } as DuelEvent;
+    const hurt: DuelEvent = { id: 6, kind: "damage", seat: 3, amount: 2200, cause: "battle", text: "" };
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion />);
+    rerender(<BattleFx events={[phase, declaration, trigger]} reducedMotion />);
+    rerender(<BattleFx events={[phase, declaration, trigger, toss, { id: 5, kind: "chain-end", text: "" } as DuelEvent]} reducedMotion />);
+    expect(document.querySelector('[data-aim="locked"]')).not.toBeNull();
+    expect(playLayer()).toBeNull();
+    rerender(<BattleFx events={[phase, declaration, trigger, toss, { id: 5, kind: "chain-end", text: "" } as DuelEvent, hurt]} reducedMotion />);
+    expect(playLayer()).not.toBeNull();
+    expect(document.querySelector('[data-aim="locked"]')).toBeNull();
+  });
+
   it("keeps the 1v1 LP destination for older events without targetSeat", () => {
     for (const seat of [2, 3]) board.querySelector(`[data-lp-seat="${seat}"]`)?.remove();
     const { rerender } = render(<BattleFx events={[phase]} reducedMotion />);
@@ -866,6 +883,27 @@ describe("BattleFx resolution", () => {
     rerender(<BattleFx events={[phase, attack, activate, damage(4, 0, 500), destroyed(5, 0)]} reducedMotion={false} seats={seats()} />);
     expect(playLayer()?.getAttribute("data-kind")).toBe("lose");
     expect(playLayer()?.getAttribute("data-counter-style")).toBe("beam");
+  });
+
+  const toss: DuelEvent = { id: 4, kind: "toss", seat: 0, text: "coin", zone: { controller: 0, location: 4, sequence: 0 } } as DuelEvent;
+
+  it("still plays the fight when a coin toss came between the declaration and the battle (response window, later snapshot)", () => {
+    const { rerender } = open();
+    rerender(<BattleFx events={[phase, attack]} reducedMotion={false} seats={seats()} />);
+    const window = [phase, attack, { ...activate, seat: 0, zone: { controller: 0, location: 4, sequence: 0 } }, toss];
+    rerender(<BattleFx events={window} reducedMotion={false} seats={seats()} />);
+    expect(playLayer()).toBeNull();
+    expect(markerOf()?.getAttribute("data-aim")).toBe("locked");
+    rerender(<BattleFx events={[...window, { id: 5, kind: "chain-end", text: "" } as DuelEvent, damage(6, 1, 800), destroyed(7, 1)]} reducedMotion={false} seats={seats()} />);
+    expect(playLayer()?.getAttribute("data-kind")).toBe("win");
+    expect(markerOf()).toBeNull();
+  });
+
+  it("still plays the fight when the toss and the battle arrive in one snapshot with the declaration", () => {
+    const { rerender } = open();
+    const all = [phase, attack, { ...activate, seat: 0, zone: { controller: 0, location: 4, sequence: 0 } }, toss, damage(5, 1, 800), destroyed(6, 1)];
+    rerender(<BattleFx events={all} reducedMotion={false} seats={seats()} />);
+    expect(playLayer()?.getAttribute("data-kind")).toBe("win");
   });
 
   it("plays no attack animation when the attack is negated or the attacker leaves", () => {
