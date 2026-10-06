@@ -54,8 +54,8 @@ export function findNewRisks(stock: Map<string, string>, paths: string[], listed
     .filter((card) => card.flagged && !listed.has(card.code));
 }
 
-// Data pins have one source of truth; core-build pins deliberately exclude card data.
-export const PIN_FILES = [preparePath] as const;
+// Keep the cardScripts records used by both deterministic core builds in sync with the bundle.
+export const PIN_FILES = [preparePath, `${packagePath}/domain-core/pins.json`, `${packagePath}/legacy-1v1/domain-core/pins.json`] as const;
 /** Fail before any writes if a data SHA leaks into another tracked file. */
 export async function rewritePins(root: string, old: Pins, next: Pins, dryRun: boolean): Promise<string[]> {
   const replacements = new Map(keys.filter((key) => old[key] !== next[key]).map((key) => [old[key], next[key]]));

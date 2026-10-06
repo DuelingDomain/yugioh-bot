@@ -8,6 +8,8 @@ import { afterEach, describe, expect, it } from "vitest";
 const { publishEngineData, hasHumanCommits } = await import(fileURLToPath(new URL("../../../scripts/ci/publish-engine-data.mjs", import.meta.url)));
 const roots: string[] = [];
 const prepare = "packages/duel-server/scripts/prepare-data.ts";
+const coreFiles = ["packages/duel-server/domain-core/pins.json", "packages/duel-server/legacy-1v1/domain-core/pins.json"];
+const coreSource = (scripts: string) => JSON.stringify({ ygoproCore: { commit: "1".repeat(40) }, cardScripts: { repository: "https://github.com/ProjectIgnis/CardScripts", commit: scripts } }, null, 2) + "\n";
 const bot = { name: "github-actions[bot]", email: "41898282+github-actions[bot]@users.noreply.github.com" };
 const old = { scripts: "a".repeat(40), database: "b".repeat(40), strings: "c".repeat(40) };
 const next = { scripts: "d".repeat(40), database: "e".repeat(40), strings: "f".repeat(40) };
@@ -19,7 +21,7 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-function fixture() {
+function fixture(candidate = next) {
   const root = mkdtempSync(join(tmpdir(), "publish-data-"));
   roots.push(root);
   const cwd = join(root, "checkout");
@@ -34,10 +36,15 @@ function fixture() {
   git("remote", "add", "origin", remote);
   mkdirSync(dirname(join(cwd, prepare)), { recursive: true });
   writeFileSync(join(cwd, prepare), source());
-  git("add", prepare); git("commit", "-qm", "base"); git("push", "origin", "main");
+  for (const file of coreFiles) {
+    mkdirSync(dirname(join(cwd, file)), { recursive: true });
+    writeFileSync(join(cwd, file), coreSource(old.scripts));
+  }
+  git("add", prepare, ...coreFiles); git("commit", "-qm", "base"); git("push", "origin", "main");
   const baseSha = git("rev-parse", "HEAD");
-  const update = { changed: true, next, files: [prepare], baseSha };
-  function patch(content = source(next), extra?: string) {
+  const update = { changed: true, next: candidate, files: [prepare, ...(candidate.scripts === old.scripts ? [] : coreFiles)], baseSha };
+  function patch(content = source(candidate), extra?: string, coreContent = coreSource(candidate.scripts)) {
+    for (const file of coreFiles) writeFileSync(join(cwd, file), coreContent);
     writeFileSync(join(cwd, prepare), content);
     if (extra) { writeFileSync(join(cwd, extra), "untrusted\n"); git("add", "-N", extra); }
     writeFileSync(join(artifact, "update.patch"), execFileSync("git", ["diff", "--binary"], { cwd, encoding: "utf8" }));
@@ -71,7 +78,8 @@ function fixture() {
   function branch(pins = old, author = bot) {
     git("switch", "-c", "chore/engine-data-update");
     writeFileSync(join(cwd, prepare), source(pins));
-    git("add", prepare);
+    for (const file of coreFiles) writeFileSync(join(cwd, file), coreSource(pins.scripts));
+    git("add", prepare, ...coreFiles);
     git("-c", `user.name=${author.name}`, "-c", `user.email=${author.email}`, "commit", "--allow-empty", "-qm", "branch work");
     git("push", "origin", "chore/engine-data-update");
     const sha = git("rev-parse", "HEAD");
@@ -150,7 +158,8 @@ describe("engine data publication", () => {
     const message = f.git("log", "-1", "--format=%B");
     expect(message).not.toMatch(/Claude|Co-Authored-By|Session/i);
     expect(f.git("log", "-1", "--format=%an <%ae>|%cn <%ce>")).toBe(`${bot.name} <${bot.email}>|${bot.name} <${bot.email}>`);
-    expect(f.git("diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD")).toBe(prepare);
+    expect(f.git("diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").split("\n").sort()).toEqual([prepare, ...coreFiles].sort());
+    for (const file of coreFiles) expect(f.git("show", `HEAD:${file}`)).toBe(coreSource(next.scripts).trim());
     expect(dispatched(f)[0].args).toEqual(["workflow", "run", "test.yml", "--repo", "test/repo", "--ref", "chore/engine-data-update", "-f", "nightly=false"]);
     // Newly created URL is used directly; a second PR listing could race eventual consistency.
     expect(f.calls.filter((c) => c.command === "gh" && c.args[0] === "pr" && c.args[1] === "list")).toHaveLength(1);
@@ -164,8 +173,19 @@ describe("engine data publication", () => {
     expect(f.calls.some((c) => c.command === "gh" && c.args[0] === "pr" && c.args[1] === "edit" && c.args.includes(existingUrl) && c.args.includes("--body-file"))).toBe(true);
   });
 
-  it.each(["extra-file", "code-edit", "reported-files", "file-mode"])("rejects an artifact with %s", async (kind) => {
+  it.each(["database", "strings"])("publishes a %s-only bump without changing core pin files", async (key) => {
+    const candidate = { ...old, [key]: next[key as keyof typeof next] };
+    const f = fixture(candidate);
+    expect(await f.publish()).toMatchObject({ status: "published" });
+    expect(f.git("diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD")).toBe(prepare);
+    for (const file of coreFiles) expect(f.git("show", `HEAD:${file}`)).toBe(coreSource(old.scripts).trim());
+  });
+
+  it.each(["extra-file", "code-edit", "reported-files", "file-mode", "core-edit", "missing-core-pin", "missing-reported-core"])("rejects an artifact with %s", async (kind) => {
     const f = fixture();
+    if (kind === "core-edit") f.patch(source(next), undefined, coreSource(next.scripts).replace("1".repeat(40), "2".repeat(40)));
+    if (kind === "missing-core-pin") f.patch(source(next), undefined, coreSource(old.scripts));
+    if (kind === "missing-reported-core") writeFileSync(join(f.artifact, "update.json"), JSON.stringify({ ...f.update, files: [prepare] }));
     if (kind === "extra-file") f.patch(source(next), "unauthorized.txt");
     if (kind === "code-edit") f.patch(source(next).replace("untouched", "changed"));
     if (kind === "reported-files") writeFileSync(join(f.artifact, "update.json"), JSON.stringify({ ...f.update, files: [prepare, "unauthorized.txt"] }));

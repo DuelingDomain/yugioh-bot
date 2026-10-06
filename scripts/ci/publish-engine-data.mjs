@@ -6,6 +6,8 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 export const PIN_FILE = "packages/duel-server/scripts/prepare-data.ts";
+const CORE_PIN_FILES = ["packages/duel-server/domain-core/pins.json", "packages/duel-server/legacy-1v1/domain-core/pins.json"];
+const PIN_FILES = [PIN_FILE, ...CORE_PIN_FILES];
 export const BOT = { name: "github-actions[bot]", email: "41898282+github-actions[bot]@users.noreply.github.com" };
 const pinKeys = ["scripts", "database", "strings"];
 const pinPattern = (key) => new RegExp(`(["']?\\b${key}\\b["']?\\s*:\\s*["'])([a-f0-9]{40})(["'])`, "g");
@@ -26,8 +28,9 @@ export function validateArtifact(artifact) {
   if (!artifact || typeof artifact.changed !== "boolean") throw new Error("Artifact changed must be boolean");
   if (!artifact.changed) return;
   if (!/^[a-f0-9]{40}$/.test(artifact.baseSha ?? "")) throw new Error("Artifact baseSha must be a full commit SHA");
-  if (!Array.isArray(artifact.files) || artifact.files.length !== 1 || artifact.files[0] !== PIN_FILE) {
-    throw new Error(`Artifact files must match the exact allowlist: ${PIN_FILE}`);
+  if (!Array.isArray(artifact.files) || !artifact.files.includes(PIN_FILE) ||
+      new Set(artifact.files).size !== artifact.files.length || artifact.files.some((file) => !PIN_FILES.includes(file))) {
+    throw new Error(`Artifact files must match the exact allowlist: ${PIN_FILES.join(", ")}`);
   }
   if (!artifact.next || Object.keys(artifact.next).length !== pinKeys.length ||
       pinKeys.some((key) => !/^[a-f0-9]{40}$/.test(artifact.next[key] ?? ""))) {
@@ -89,6 +92,21 @@ export async function publishEngineData({ cwd = process.cwd(), env = process.env
   if (pinKeys.every((key) => old[key] === artifact.next[key])) return skip("identical-pins");
   let expected = original;
   for (const key of pinKeys) expected = expected.replace(pinPattern(key), (_, prefix, _old, suffix) => `${prefix}${artifact.next[key]}${suffix}`);
+  const expectedSources = new Map([[PIN_FILE, expected]]);
+  for (const file of CORE_PIN_FILES) {
+    const source = git("show", `${baseSha}:${file}`);
+    const pattern = /("cardScripts"\s*:\s*\{[^{}]*"commit"\s*:\s*")([a-f0-9]{40})(")/g;
+    const matches = [...source.matchAll(pattern)];
+    if (matches.length !== 1 || matches[0][2] !== old.scripts || JSON.parse(source).cardScripts?.commit !== old.scripts) {
+      throw new Error(`Expected a synchronized cardScripts pin in ${file}`);
+    }
+    const updated = source.replace(pattern, (_, prefix, _old, suffix) => `${prefix}${artifact.next.scripts}${suffix}`);
+    if (updated !== source) expectedSources.set(file, updated);
+  }
+  const expectedFiles = [...expectedSources.keys()].sort();
+  if (JSON.stringify([...artifact.files].sort()) !== JSON.stringify(expectedFiles)) {
+    throw new Error("Artifact files must include exactly the changed synchronized pin files");
+  }
 
   // Apply only to a disposable index, then verify exact paths, modes and pin-only content. The untrusted patch
   // never touches the working tree; only the verified expected source is written after validation succeeds.
@@ -100,18 +118,20 @@ export async function publishEngineData({ cwd = process.cwd(), env = process.env
     indexGit("apply", "--cached", "--check", join(artifactDir, "update.patch"));
     indexGit("apply", "--cached", join(artifactDir, "update.patch"));
     const changed = indexGit("diff", "--cached", "--name-status", "-z", baseSha);
-    if (changed !== `M\0${PIN_FILE}\0`) throw new Error("Patch changes files outside the exact pin allowlist");
-    const modeBefore = git("ls-tree", baseSha, "--", PIN_FILE).split(" ")[0];
-    const modeAfter = indexGit("ls-files", "--stage", "--", PIN_FILE).split(" ")[0];
-    if (modeBefore !== "100644" || modeAfter !== modeBefore) throw new Error("Patch must preserve the regular pin file mode");
-    if (indexGit("show", `:${PIN_FILE}`) !== expected) throw new Error("Patch must only replace the three data pins with next");
+    if (changed !== expectedFiles.map((file) => `M\0${file}\0`).join("")) throw new Error("Patch changes files outside the exact pin allowlist");
+    for (const [file, source] of expectedSources) {
+      const modeBefore = git("ls-tree", baseSha, "--", file).split(" ")[0];
+      const modeAfter = indexGit("ls-files", "--stage", "--", file).split(" ")[0];
+      if (modeBefore !== "100644" || modeAfter !== modeBefore) throw new Error("Patch must preserve the regular pin file mode");
+      if (indexGit("show", `:${file}`) !== source) throw new Error(`Patch must only replace the data pins in ${file}`);
+    }
   } finally { rmSync(temporary, { recursive: true, force: true }); }
 
   if (git("status", "--porcelain", "--untracked-files=no").trim()) throw new Error("Publication requires a clean tracked checkout");
   const body = join(artifactDir, existsSync(join(artifactDir, "pr-body.md")) ? "pr-body.md" : "report.md");
   readFileSync(body, "utf8"); // Require a usable report before publishing the branch.
   git("switch", "--detach", baseSha);
-  writeFileSync(join(cwd, PIN_FILE), expected);
+  for (const [file, source] of expectedSources) writeFileSync(join(cwd, file), source);
   git("add", "--", ...artifact.files);
   const title = `chore(engine): update Project Ignis card data to ${new Date().toISOString().slice(0, 10)}`;
   const authorEnv = { ...env, GIT_AUTHOR_NAME: BOT.name, GIT_AUTHOR_EMAIL: BOT.email, GIT_COMMITTER_NAME: BOT.name, GIT_COMMITTER_EMAIL: BOT.email };

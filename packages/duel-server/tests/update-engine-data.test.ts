@@ -20,17 +20,15 @@ async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "engine-data-test-"));
   temporary.push(root);
   execFileSync("git", ["init", "-q", root]);
+  const corePins = JSON.stringify({ ygoproCore: { commit: "1".repeat(40) }, cardScripts: { repository: "https://github.com/ProjectIgnis/CardScripts", commit: oldPins.scripts } });
   const files = {
     "packages/duel-server/scripts/prepare-data.ts": `const sources = ${JSON.stringify({ corePackage: "ocgcore-wasm@0.1.2", ...oldPins })};`,
-
+    "packages/duel-server/domain-core/pins.json": corePins,
+    "packages/duel-server/legacy-1v1/domain-core/pins.json": corePins,
   };
   for (const [file, content] of Object.entries(files)) {
     await mkdir(dirname(join(root, file)), { recursive: true });
     await writeFile(join(root, file), content);
-  }
-  for (const path of ["domain-core/pins.json", "legacy-1v1/domain-core/pins.json"]) {
-    await mkdir(dirname(join(root, "packages/duel-server", path)), { recursive: true });
-    await writeFile(join(root, "packages/duel-server", path), JSON.stringify({ ygoproCore: { commit: "1".repeat(40) } }));
   }
   execFileSync("git", ["-C", root, "add", "."]);
   return { root, files };
@@ -57,7 +55,7 @@ describe("engine data update", () => {
     expect(detectOverlayConflicts(cards, new Map([["pre-errata/c1.lua", "pre-errata"]]))).toEqual([{ ...cards[0], actualSha256: null }]);
   });
 
-  it("rewrites the allowlisted data source, leaving core pins untouched", async () => {
+  it("synchronizes all three pin files, leaving non-data core pins untouched", async () => {
     const { root, files } = await fixture();
     const rewritten = await rewritePins(root, oldPins, nextPins, false);
     expect(rewritten.sort()).toEqual(Object.keys(files).sort());
@@ -169,9 +167,17 @@ describe("engine data update", () => {
     expect(report).toContain("Overlay conflicts (1)");
     expect(report).toContain("New multiplayer risks (1)");
     expect(report).toContain("merge at a quiet time");
+    expect(result.files.sort()).toEqual([
+      "packages/duel-server/scripts/prepare-data.ts",
+      "packages/duel-server/domain-core/pins.json",
+      "packages/duel-server/legacy-1v1/domain-core/pins.json",
+    ].sort());
     expect(await readFile(manifestPath, "utf8")).toBe(JSON.stringify(manifest));
-    const pins = JSON.parse(await readFile(join(root, "packages/duel-server/domain-core/pins.json"), "utf8"));
-    expect(pins.ygoproCore.commit).toBe("1".repeat(40));
+    for (const file of ["domain-core/pins.json", "legacy-1v1/domain-core/pins.json"]) {
+      const pins = JSON.parse(await readFile(join(root, "packages/duel-server", file), "utf8"));
+      expect(pins.ygoproCore.commit).toBe("1".repeat(40));
+      expect(pins.cardScripts.commit).toBe(dryRun ? oldPins.scripts : overrides.scripts);
+    }
   });
 
   it("does not rewrite pins when an upstream request fails", async () => {
