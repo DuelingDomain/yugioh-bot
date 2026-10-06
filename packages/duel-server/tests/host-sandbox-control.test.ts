@@ -234,7 +234,7 @@ describeWithCores("sandbox real phase control", [needs.standard(DATA), needs.car
     expect(result.data.engine.prompt?.title).not.toBe("Continue this phase");
   }, 30_000);
   it("walks 1v1 through battle, main2, and end with journaled phase answers", async () => {
-    const t = setup(true), slug = await t.start({ board: { attackFirstTurn: true } });
+    const t = setup(true), slug = await t.start({ board: { attackFirstTurn: true, startAt: "main1" } });
     for (const to of ["main1", "battle", "main2", "end"]) {
       const result = await t.post("sandbox-phase", { slug, to });
       expect(result.status, result.data.error).toBe(200);
@@ -263,7 +263,7 @@ describeWithCores("sandbox real phase control", [needs.standard(DATA), needs.car
     expect(first.prompt.options.some((option: any) => option.card?.code === 83968380)).toBe(true);
   }, 30_000);
   it("passes empty opening hooks and replays phase commands on recovery and restart", async () => {
-    const t = setup(true), slug = await t.start({ board: { attackFirstTurn: true } });
+    const t = setup(true), slug = await t.start({ board: { attackFirstTurn: true, startAt: "main1" } });
     const first = (await t.post("view", { slug })).data.engine;
     expect(first.phase).toBe("main1");
     expect(first.seats[0].hand).toHaveLength(1);

@@ -1529,8 +1529,14 @@ export function createDuelHost(options: {
           const requested = board.startAt ?? "draw";
           await walkSandboxPhases({ game, manualSeats: games.get(slug)!.manualSeats, actingSeat, to: requested,
             answer: (seat, view, answer) => answerSandboxWalk(slug, guildId, game, seat, view, answer) });
+          const started = await game.view(actingSeat);
+          const result = sandboxStartResult(started, requested);
+          // Keep the requested phase for Manual play; automatic seats must resume their turns.
+          if (started.prioritySeat != null && autoSeatsOf(session, games.get(slug)).includes(started.prioritySeat)) {
+            await driveBot(slug, guildId, game);
+          }
           await emitChange(slug, guildId);
-          return sandboxStartResult(await game.view(actingSeat), requested);
+          return result;
         } catch (error) {
           await disposeGame(slug);
           await safeClose(game);
@@ -2410,6 +2416,7 @@ export function createDuelHost(options: {
       if (!await eliminateInCore(slug, guildId, game, seat, WIN_REASON_SURRENDER, SANDBOX_PHASE_WALK_NOTE)) {
         throw new RequestError("This engine cannot eliminate a sandbox seat", 409);
       }
+      await driveBot(slug, guildId, game);
       await emitChange(slug, guildId);
       return project(slug, guildId, actor, game, false, sandboxView);
     }

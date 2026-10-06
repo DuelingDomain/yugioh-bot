@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import Database from "better-sqlite3";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { parseSandboxBoard, type DuelEngineView, type SandboxRun } from "@yugidraft/shared/duels";
 import { createDuelService } from "@yugidraft/shared/services";
@@ -15,7 +15,7 @@ afterEach(async () => {
   for (const { host, db } of resources.splice(0)) { await host.close(); db.close(); }
 });
 const run: SandboxRun = { bots: { "1": "manual", "2": "manual", "3": "manual" }, seed: ["1", "2", "3", "4"] };
-function setup(probe = false) {
+function setup(probe = false, botStepDelayMs = 0) {
   const db = new Database(":memory:");
   migrate(db);
   const player = (name: string) => Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g', ?, ?)").run(name, name).lastInsertRowid);
@@ -23,7 +23,7 @@ function setup(probe = false) {
   const duels = createDuelService(db), workers: GameWorker[] = [];
   const beforeElimination: DuelEngineView[] = [];
   const host = createDuelHost({ db, dataDirectory: DATA, secret: "h1", searchCards: () => [],
-    pollIntervalMs: 3_600_000, idleWorkerMs: 3_600_000, stallMs: 0, queueBlockedMs: 0,
+    botStepDelayMs, pollIntervalMs: 3_600_000, idleWorkerMs: 3_600_000, stallMs: 0, queueBlockedMs: 0,
     createWorker: () => {
       const worker = new GameWorker(); workers.push(worker);
       const create = worker.create.bind(worker), eliminate = worker.eliminate.bind(worker);
@@ -69,6 +69,22 @@ it("compiles eliminated Domain seats without filler or Deck Masters", () => {
 });
 
 describeWithCores("H1 sandbox real core", [needs.cards(DATA), needs.standard(DATA), needs.installedMulti(DATA)], () => {
+  it.each([0, 20])("Practice plays after start and elimination (delay=%i)", async (delay) => {
+    const t = setup(false, delay);
+    const { slug } = await t.start({ format: "ffa4", turn: "p1", startAt: "main1",
+      p1: { hand: [15025844] } }, { ...run, bots: { ...run.bots, "1": "practice" } });
+    if (delay) {
+      const gone = await t.post("sandbox-eliminate", { slug, seat: 3 });
+      expect(gone.status, gone.data.error).toBe(200);
+    }
+    await vi.waitFor(async () => {
+      const view = await t.workers[0].view(1);
+      expect(view.turnSeat).toBe(2);
+      expect(view.seats[1].monsters.some(card => card?.code === 15025844)).toBe(true);
+    }, { timeout: 10_000, interval: 20 });
+    expect(t.duels.privateState(slug, "g").commands.some(c => c.seat === 1 && c.command.answer.choice?.startsWith("summon:"))).toBe(true);
+  }, 30_000);
+
   it("eliminates p2 before turn 1; the real column query sees three living seats", async () => {
     const t = setup(true);
     const { slug } = await t.start({ format: "ffa4", eliminated: ["p2"], startAt: "main1",
@@ -96,10 +112,10 @@ describeWithCores("H1 sandbox real core", [needs.cards(DATA), needs.standard(DAT
     expect((await t.post("view", { slug: started.slug })).data.engine).toEqual(room.engine);
   }, 30_000);
 
-  it("starts with p0 and p2 out and holds a bot turn through restart", async () => {
+  it("starts with p0 and p2 out and holds a Manual turn through restart", async () => {
     const t = setup();
     const { slug } = await t.start({ format: "ffa4", turn: "p1", eliminated: ["p0", "p2"], startAt: "main1" },
-      { ...run, bots: { "1": "pass", "2": "pass", "3": "pass" } });
+      { ...run, bots: { "1": "manual", "2": "pass", "3": "pass" } });
     expect(t.beforeElimination.map(view => view.turn)).toEqual([0, 0]);
     const first = (await t.post("view", { slug })).data.engine;
     expect(first).toMatchObject({ phase: "main1", turnSeat: 1 });
