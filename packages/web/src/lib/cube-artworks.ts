@@ -44,10 +44,20 @@ export function swapCubeArtwork(db: Database.Database, cubeId: number, from: num
     db.prepare("update cube_cards set catalog_card_id = ? where cube_id = ? and catalog_card_id = ?").run(to, cubeId, from);
     const cube = db.prepare("select config_json from cubes where id = ?").get(cubeId) as { config_json: string | null };
     const config = JSON.parse(cube.config_json ?? "{}") as DraftConfig;
-    // Legacy cubes can list the same card in config and authored rows. Let the swapped
-    // row supply its maxCopies, preserving unrelated config entries (including copies).
-    if (config.customCardIds) {
-      config.customCardIds = config.customCardIds.filter(code => code !== from && code !== to);
+    // Legacy cubes can list the family in config as well as in authored rows. Config entries are additive and
+    // hide the pool row, so fold them into one block of copies of the new art: the family keeps the copy count
+    // it had (listed copies, plus the pool row's copies when only the swapped art was not listed).
+    const listed = config.customCardIds?.filter(code => code === from || code === to).length ?? 0;
+    if (config.customCardIds && listed > 0) {
+      const poolCopies = (db.prepare("select max_copies from cube_cards where cube_id = ? and catalog_card_id = ?").get(cubeId, to) as { max_copies: number }).max_copies;
+      const copies = listed + (config.customCardIds.includes(from) ? 0 : poolCopies);
+      let placed = false;
+      config.customCardIds = config.customCardIds.flatMap(code => {
+        if (code !== from && code !== to) return [code];
+        if (placed) return [];
+        placed = true;
+        return Array<number>(copies).fill(to);
+      });
     }
     db.prepare("update cubes set config_json = ?, updated_at = ? where id = ?")
       .run(JSON.stringify(config), new Date().toISOString(), cubeId);

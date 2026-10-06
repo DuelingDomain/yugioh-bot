@@ -102,12 +102,28 @@ it("keeps engine-only artwork in the existing local API family", async () => {
 });
 
 
-it("dedupes legacy config membership against the swapped row without losing authored copies", async () => {
+it("keeps the family copy count when legacy config lists the old and new art", async () => {
   const config = { customCardIds: [20, 10, 10, 11, 20], setNames: ["Legacy set"], cardsPerPlayer: 8 };
   db.prepare("update cubes set config_json = ? where id = 1").run(JSON.stringify(config));
   expect((await swap()).status).toBe(200);
   const cubes = createCubeService(db, createCardCatalogService(db));
-  expect(cubes.findCube(1)?.config).toEqual({ ...config, customCardIds: [20, 20] });
+  expect(cubes.findCube(1)?.config).toEqual({ ...config, customCardIds: [20, 11, 11, 11, 20] });
+  expect(cubes.applyCubeToConfig(1).customCardIds).toEqual([20, 11, 11, 11, 20]); // family still 3 copies
+});
+
+it("keeps the family copy count when legacy config lists only the new art", async () => {
+  db.prepare("update cubes set config_json = ? where id = 1").run(JSON.stringify({ customCardIds: [11, 20] }));
+  expect((await swap()).status).toBe(200);
+  const cubes = createCubeService(db, createCardCatalogService(db));
+  // 10 was not listed (2 copies from the pool row) plus one listed 11: three before, three after.
+  expect(cubes.applyCubeToConfig(1).customCardIds).toEqual([11, 11, 11, 20]);
+});
+
+it("leaves legacy config alone when it does not list the family", async () => {
+  db.prepare("update cubes set config_json = ? where id = 1").run(JSON.stringify({ customCardIds: [20, 20] }));
+  expect((await swap()).status).toBe(200);
+  const cubes = createCubeService(db, createCardCatalogService(db));
+  expect(cubes.findCube(1)?.config.customCardIds).toEqual([20, 20]);
   expect(cubes.applyCubeToConfig(1).customCardIds).toEqual([20, 20, 11, 11]);
 });
 
