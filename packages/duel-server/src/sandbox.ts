@@ -1,11 +1,15 @@
 import { randomBytes } from "node:crypto";
 import type Database from "better-sqlite3";
 import { multiplayerSeatsBlockReason, multiplayerTablesEnabled, parseSandboxRun, SandboxBoardError,
-  seatCountFor, type SandboxRun } from "@yugidraft/shared/duels";
+  seatCountFor, type DuelAnswer, type DuelEngineView, type DuelPrompt, type SandboxRun } from "@yugidraft/shared/duels";
 import type { DuelService } from "@yugidraft/shared/services";
+import { defaultAnswer } from "./scripted-bot.js";
+import { botTableOf } from "./practice-bot.js";
 import { multiStartProblem } from "./multi-domain-guard.js";
 import { multiCoreAvailable } from "./presets/index.js";
 import { validateRuntimeBoard } from "./presets/runtime-board.js";
+import { mergeRevealedHands, policiesForRun, resolveActingSeat } from "./sandbox-seats.js";
+import type { DuelGameWorker } from "./worker-client.js";
 
 type DuelSetup = NonNullable<ReturnType<DuelService["privateState"]>["setup"]>;
 type SandboxInfo = NonNullable<DuelSetup["sandbox"]>;
@@ -104,7 +108,7 @@ export function createSandboxOps(options: {
       service.setDeck(slug, guildId, actor, copts.decks[0]!);
       for (let seat = 1; seat < count; seat++) service.addPracticeBot(slug, guildId, actor, copts.decks[seat]!, seat);
       await options.launch(slug, guildId, actor, seed, {
-        sandbox, startupScripts: (copts.startupScripts ?? []).map((script) => script.content),
+        sandbox, startupScripts: [...(copts.startupScripts ?? []).map((script) => script.content), SANDBOX_PHASE_WINDOWS],
         firstTurnDraw: copts.firstTurnDraw ?? true,
         ...(format === "1v1" ? { engine: "pinned" as const } : {}),
       });
@@ -137,4 +141,130 @@ export function createSandboxOps(options: {
       return start(input, guildId, actor, slug);
     },
   };
+}
+
+export interface SandboxViewOptions { as?: unknown; reveal?: unknown }
+
+/** Project the selected seat's saved deck and final snapshot without exposing other prompts. */
+export function prepareSandboxRoom(db: Database.Database, service: DuelService,
+  room: ReturnType<DuelService["room"]>, playerId: number, sandboxView: SandboxViewOptions, live: boolean): void {
+  const { slug, guildId } = room.session;
+  requireSandboxOwner(service, slug, guildId, playerId);
+  const saved = service.privateState(slug, guildId);
+  const info = saved.setup?.sandbox;
+  const manualSeats = info ? policiesForRun(info.run, room.session.format).manualSeats : new Set<number>();
+  room.mySeat = resolveActingSeat({ ...room.session, actor: playerId, mySeat: room.mySeat, manualSeats, as: sandboxView.as });
+  room.myDeck = saved.decks[room.mySeat!] ?? null;
+  // Keep builder and control metadata on the room for the sandbox toolbar.
+  Object.assign(room, { sandbox: info });
+  if (!live) {
+    const snapshots = db.prepare<[string, string], {
+      snapshot_seat0_json: string | null; snapshot_seat1_json: string | null; snapshot_seats_json: string | null;
+    }>("select snapshot_seat0_json, snapshot_seat1_json, snapshot_seats_json from duels where web_slug = ? and guild_id = ?").get(slug, guildId);
+    const views = snapshots?.snapshot_seats_json ? JSON.parse(snapshots.snapshot_seats_json) as Array<DuelEngineView | null> : [];
+    for (const [seat, json] of [[0, snapshots?.snapshot_seat0_json], [1, snapshots?.snapshot_seat1_json]] as const) {
+      if (!views[seat] && json) views[seat] = JSON.parse(json) as DuelEngineView;
+    }
+    room.engine = views[room.mySeat!] ?? null;
+    if (room.engine && sandboxView.reveal === true) room.engine = mergeRevealedHands(room.engine,
+      new Map(views.flatMap((view, seat) => view ? [[seat, view] as const] : [])));
+  }
+}
+
+/** Persist first; the host then installs fresh policies and wakes the bot loop. */
+export function setSandboxControl(service: DuelService, slug: string, guildId: string, actor: number,
+  seat: unknown, control: unknown) {
+  requireSandboxOwner(service, slug, guildId, actor);
+  const state = service.privateState(slug, guildId);
+  if (state.session.status !== "active" || !state.setup?.sandbox) throw new SandboxError("This sandbox is not active", 409);
+  if (typeof seat !== "number" || !Number.isInteger(seat) || seat < 1 || seat >= seatCountFor(state.session.format)) {
+    throw new SandboxError("Choose a bot seat in this duel", 400);
+  }
+  if (control !== "pass" && control !== "practice" && control !== "manual") throw new SandboxError("Choose pass, practice, or manual", 400);
+  const run = { ...state.setup.sandbox.run, bots: { ...state.setup.sandbox.run.bots, [seat]: control } };
+  service.setSetup(slug, guildId, { ...state.setup, sandbox: { ...state.setup.sandbox, run } });
+  return run;
+}
+
+// The worker passes empty chain windows internally. A read-only global phase hook
+// gives it a real engine prompt at each boundary, even on an empty board. The
+// answer has no game effect. Saved startup Lua makes recovery/replay deterministic.
+const PHASE_MARKER = 0x53425800;
+const SANDBOX_PHASE_WINDOWS = `
+do
+  for _,phase in ipairs({PHASE_DRAW,PHASE_STANDBY,PHASE_MAIN1,PHASE_BATTLE_START,PHASE_MAIN2,PHASE_END}) do
+    local e=Effect.GlobalEffect()
+    e:SetType(EFFECT_TYPE_FIELD+EFFECT_TYPE_CONTINUOUS)
+    e:SetCode(EVENT_PHASE+phase)
+    e:SetCountLimit(1)
+    e:SetOperation(function() Duel.AnnounceNumber(Duel.GetTurnPlayer(),${PHASE_MARKER}) end)
+    Duel.RegisterEffect(e,0)
+  end
+end`;
+
+export function isSandboxPhaseWindow(prompt: DuelPrompt | null): boolean {
+  return prompt?.kind === "choice" && prompt.options.length === 1 && prompt.options[0]?.id === "num:0"
+    && prompt.options[0]?.values?.[0] === PHASE_MARKER;
+}
+
+/** Keep the engine's prompt/answer IDs; give the no-op boundary a useful label. */
+export function projectSandboxPhaseWindow(view: DuelEngineView) {
+  if (!isSandboxPhaseWindow(view.prompt)) return view;
+  return { ...view, prompt: { ...view.prompt!, title: "Continue this phase", source: undefined,
+    options: [{ id: "num:0", label: "Continue" }] } };
+}
+
+const PHASES = ["draw", "standby", "main1", "battle", "main2", "end"] as const;
+export type SandboxPhase = Exclude<typeof PHASES[number], "draw">;
+export function sandboxPhase(value: unknown): SandboxPhase {
+  if (typeof value !== "string" || !(PHASES.slice(1) as readonly string[]).includes(value)) {
+    throw new SandboxError("Choose standby, main1, battle, main2, or end", 400);
+  }
+  return value as SandboxPhase;
+}
+
+/** One bounded walk. Each accepted answer uses the host's normal journal path. */
+export async function walkSandboxPhases(options: {
+  game: DuelGameWorker;
+  manualSeats: ReadonlySet<number>;
+  actingSeat: number;
+  to?: SandboxPhase;
+  answer: (seat: number, view: DuelEngineView,
+    answer: DuelAnswer) => Promise<void>;
+}): Promise<void> {
+  const { game, to } = options;
+  const first = await game.view(options.actingSeat);
+  for (let step = 0; step < 128; step++) {
+    const view = await game.view(options.actingSeat);
+    const phase = view.phase.startsWith("battle") || view.phase.startsWith("damage") ? "battle" : view.phase;
+    if (view.result || view.turn !== first.turn || (to !== undefined && phase === to)) return;
+    // A phase command never silently rolls into the next turn or skips a requested phase.
+    if (to !== undefined && PHASES.indexOf(phase as typeof PHASES[number]) > PHASES.indexOf(to)) return;
+    const seat = view.prioritySeat;
+    if (seat === null || seat === undefined) return;
+    const own = seat === options.actingSeat ? view : await game.view(seat);
+    const prompt = own.prompt;
+    if (!prompt) return;
+    const manual = options.manualSeats.has(seat);
+    const boundary = isSandboxPhaseWindow(prompt);
+    const phaseChoice = prompt.kind === "choice" && prompt.options.some((option) => ["to_bp", "to_m2", "to_ep"].includes(option.id));
+    if (manual && !boundary && !phaseChoice && (prompt.kind !== "choice" || prompt.options.length > 0)) return;
+    // Empty optional chain windows are plain passes, not effect decisions.
+    let answer: DuelAnswer;
+    if (boundary) {
+      answer = { choice: "num:0" };
+    } else if (prompt.kind === "choice" && prompt.options.length === 0 && prompt.cancelable && prompt.min === 0) {
+      answer = { cancel: true };
+    } else if (phaseChoice) {
+      // Visit Battle and Main 2 before End whenever the core offers them.
+      const choice = ["to_bp", "to_m2", "to_ep"].find((id) => prompt.options.some((option) => option.id === id))!;
+      if (to === "battle" && choice !== "to_bp" && own.phase === "main1") return;
+      if (to === "main2" && choice === "to_ep" && own.phase !== "main2") return;
+      answer = { choice };
+    } else {
+      if (manual) return;
+      answer = defaultAnswer(prompt, { table: botTableOf(own) }).answer;
+    }
+    await options.answer(seat, own, answer);
+  }
 }
