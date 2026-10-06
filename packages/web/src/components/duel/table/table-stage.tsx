@@ -8,6 +8,7 @@ import type { UseGridFocus } from "./grid-focus";
 import { ChainRoomContext, type ChainStripSize } from "./chain-room";
 import { AttackLine } from "./attack-line";
 import { FlyCity } from "./fly-city";
+import { watchMeasure } from "./measure-watch";
 import { BAR_HUD, dockBarRoom, freeDockRoom, PICK_BAR, pickBarRoom, promptUnit } from "./grid-stage";
 import { aliveLayout, boardBounds, chainBandRooms, chainStripInset, flyWorld, holoAnchor, hubPose, normalizeAngle, ringAngles, CAMERA_HINT, HUD_CORNER, portraitTable, promptRooms, ringPose, type HoloAnchor, type PromptRoom, seatPoses, slotPlan, stageFit, stageSpread, STAGE, wideHoloAnchors } from "./geometry";
 import { holoStatus, HoloLp } from "./holo-lp";
@@ -43,8 +44,6 @@ const sameRects = (a: readonly Rect[], b: readonly Rect[]) =>
   a.length === b.length && a.every((r, i) => r.x === b[i].x && r.y === b[i].y && r.width === b[i].width && r.height === b[i].height);
 /** How long after a change the targets are measured again: the regroup glide and the crumble are over by then. */
 const SETTLE_MS = 1500;
-/** A last measure of the pick targets, after the fields have laid out (their entry runs without DOM changes). */
-const LATE_MEASURE_MS = 400;
 /** Box px from the left edge that the floating HUD's left column (the dock, the chain tower, the Deck Master plate) takes. */
 const HUD_LEFT_COLUMN = 196;
 
@@ -255,22 +254,8 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
       setZones((current) => (sameRects(current, rest) ? current : rest));
       setHudRects((current) => (sameRects(current, hud) ? current : hud));
     };
-    let frame = window.requestAnimationFrame(measure);
-    // Once the seats stand still: a regroup (the FINAL DUEL board) glides them to new places.
-    const timer = window.setTimeout(measure, reducedMotion ? 0 : regroup ? GLIDE_MS : SETTLE_MS);
-    // The fields can mount, mark their targets or finish their entry after this effect: measure again then.
-    const observer = new MutationObserver(() => {
-      window.cancelAnimationFrame(frame);
-      frame = window.requestAnimationFrame(measure);
-    });
-    observer.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-legal"] });
-    const late = window.setTimeout(measure, LATE_MEASURE_MS);
-    return () => {
-      observer.disconnect();
-      window.clearTimeout(late);
-      window.cancelAnimationFrame(frame);
-      window.clearTimeout(timer);
-    };
+    // Once the seats stand still (a regroup, the FINAL DUEL board, glides them to new places); watched while a pick is open.
+    return watchMeasure(root, measure, { settleMs: reducedMotion ? 0 : regroup ? GLIDE_MS : SETTLE_MS, watch: legalKey !== "" });
   }, [floating, nearBox, legalKey, reducedMotion, regroup, zoom.zoomed]);
   const barRoom = useMemo(() => {
     if (!floating) return undefined;
