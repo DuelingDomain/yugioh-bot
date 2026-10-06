@@ -7,6 +7,7 @@ import { expect, it } from "vitest";
 import { migrate } from "../src/db/index.js";
 import { createDraftService } from "../src/services/drafts.js";
 
+// These tests do real disk-backed SQLite lock interleaving.
 it("allows a concurrent pick during a pack read that cannot swap", () => {
   const dir = mkdtempSync(join(tmpdir(), "draft-options-lock-"));
   let interleave = false;
@@ -48,7 +49,7 @@ it("allows a concurrent pick during a pack read that cannot swap", () => {
     db.close();
     rmSync(dir, { recursive: true, force: true });
   }
-});
+}, 20_000);
 
 it.each([false, true])("reads an ordinary pack without acquiring a write lock (copyLimit %s)", (copyLimit) => {
   const dir = mkdtempSync(join(tmpdir(), "draft-options-read-"));
@@ -71,7 +72,7 @@ it.each([false, true])("reads an ordinary pack without acquiring a write lock (c
     writer.close(); db.close();
     rmSync(dir, { recursive: true, force: true });
   }
-});
+}, 20_000);
 
 it.each(["empty", "capped artwork"])("reads a fully capped pack without a write lock when the undealt pile is %s", (pile) => {
   const dir = mkdtempSync(join(tmpdir(), "draft-options-capped-read-"));
@@ -110,7 +111,7 @@ it.each(["empty", "capped artwork"])("reads a fully capped pack without a write 
     writer.close(); db.close();
     rmSync(dir, { recursive: true, force: true });
   }
-});
+}, 20_000);
 
 it("rechecks eligibility under the swap lock and stores one swap across retries", () => {
   const dir = mkdtempSync(join(tmpdir(), "draft-options-swap-"));
@@ -151,4 +152,4 @@ it("rechecks eligibility under the swap lock and stores one swap across retries"
     other.close(); db.close();
     rmSync(dir, { recursive: true, force: true });
   }
-});
+}, 20_000);

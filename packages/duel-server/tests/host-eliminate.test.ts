@@ -1,4 +1,4 @@
-import { seedIdentity, seedUser } from "../../shared/tests/helpers/identity.js";
+import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { afterEach, expect, it } from "vitest";

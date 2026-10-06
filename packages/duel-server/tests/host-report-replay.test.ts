@@ -1,4 +1,4 @@
-import { seedIdentity, seedUser } from "../../shared/tests/helpers/identity.js";
+import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { createHmac } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";

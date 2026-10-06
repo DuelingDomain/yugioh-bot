@@ -1,4 +1,4 @@
-import { seedIdentity, seedUser } from "../../shared/tests/helpers/identity.js";
+import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { createHmac } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import Database from "better-sqlite3";
