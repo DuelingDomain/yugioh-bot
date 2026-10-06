@@ -34,7 +34,7 @@ async function get(passcode = "11") {
   const { GET } = await import("../app/api/cards/[passcode]/artworks/route");
   return GET(new Request(`http://localhost/api/cards/${passcode}/artworks`), { params: Promise.resolve({ passcode }) });
 }
-it("merges only engine arts with metadata and valid cache, using local nullable URLs", async () => {
+it("offers local full and small routes for uncached engine arts while requiring evidence for crops", async () => {
   writeFileSync(join(dir, "12-small.jpg"), await sharp({ create: { width: 2, height: 2, channels: 3, background: "red" } }).jpeg().toBuffer());
   writeFileSync(join(dir, "13.jpg"), "broken cache");
   const response = await get();
@@ -42,15 +42,37 @@ it("merges only engine arts with metadata and valid cache, using local nullable 
   expect(await response.json()).toEqual({ passcode: 10, artworks: [
     { passcode: 10, isMain: true, imageUrl: "/api/cards/10/image", smallUrl: "/api/cards/10/image?variant=small", croppedUrl: "/api/cards/10/image?variant=cropped" },
     { passcode: 11, isMain: false, imageUrl: "/api/cards/11/image", smallUrl: "/api/cards/11/image?variant=small", croppedUrl: "/api/cards/11/image?variant=cropped" },
-    { passcode: 12, isMain: false, imageUrl: null, smallUrl: "/api/cards/12/image?variant=small", croppedUrl: null },
-    { passcode: 13, isMain: false, imageUrl: null, smallUrl: null, croppedUrl: null },
+    { passcode: 12, isMain: false, imageUrl: "/api/cards/12/image", smallUrl: "/api/cards/12/image?variant=small", croppedUrl: null },
+    { passcode: 13, isMain: false, imageUrl: "/api/cards/13/image", smallUrl: "/api/cards/13/image?variant=small", croppedUrl: null },
   ] });
 });
+it("loads an uncached engine-art thumbnail through the Ignis fallback", async () => {
+  callDuelHost.mockResolvedValue({ ok: true, data: { passcode: 89631139, artworks: [
+    { passcode: 89631139, isMain: true }, { passcode: 89631133, isMain: false },
+  ] } });
+  const image = await sharp({ create: { width: 16, height: 24, channels: 3, background: "red" } }).jpeg().toBuffer();
+  const upstream = vi.fn(async (url: string) => url === "https://pics.projectignis.org:2096/pics/89631133.jpg"
+    ? new Response(new Uint8Array(image)) : new Response("missing", { status: 404 }));
+  vi.stubGlobal("fetch", upstream);
+  try {
+    const family = await (await get("89631133")).json();
+    const thumbnail = family.artworks[1].smallUrl;
+    expect(thumbnail).toBe("/api/cards/89631133/image?variant=small");
+    const { GET } = await import("../app/api/cards/[passcode]/image/route");
+    const response = await GET(new Request(`http://localhost${thumbnail}`), { params: Promise.resolve({ passcode: "89631133" }) });
+    expect(response.status).toBe(200);
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(image);
+    expect(upstream.mock.calls.map(([url]) => url)).toEqual([
+      "https://images.ygoprodeck.com/images/cards_small/89631133.jpg", "https://pics.projectignis.org:2096/pics/89631133.jpg",
+    ]);
+    expect(callDuelHost).toHaveBeenCalledTimes(1);
+  } finally { vi.unstubAllGlobals(); }
+});
 it("does not cache a failed image check, so a freshly downloaded image shows at once", async () => {
-  const smallOf = async () => (await (await get()).json()).artworks.find((art: { passcode: number }) => art.passcode === 12).smallUrl;
-  expect(await smallOf()).toBeNull();
-  writeFileSync(join(dir, "12-small.jpg"), await sharp({ create: { width: 2, height: 2, channels: 3, background: "red" } }).jpeg().toBuffer());
-  expect(await smallOf()).toBe("/api/cards/12/image?variant=small");
+  const cropOf = async () => (await (await get()).json()).artworks.find((art: { passcode: number }) => art.passcode === 12).croppedUrl;
+  expect(await cropOf()).toBeNull();
+  writeFileSync(join(dir, "12-cropped.jpg"), await sharp({ create: { width: 2, height: 2, channels: 3, background: "red" } }).jpeg().toBuffer());
+  expect(await cropOf()).toBe("/api/cards/12/image?variant=cropped");
 });
 it("requires the guild actor before asking the host", async () => {
   requireDuelActor.mockResolvedValue({ ok: false, response: Response.json({ error: "Forbidden" }, { status: 403 }) });
@@ -74,16 +96,16 @@ it("reuses a successful image check briefly, then notices a removed image", asyn
   const jpeg = await sharp({ create: { width: 2, height: 2, channels: 3, background: "red" } }).jpeg().toBuffer();
   for (const id of [12, 13]) for (const suffix of ["", "-small", "-cropped"]) writeFileSync(join(dir, `${id}${suffix}.jpg`), jpeg);
   const now = vi.spyOn(Date, "now").mockReturnValue(1000);
-  const smallOf = async () => (await (await get()).json()).artworks.find((art: { passcode: number }) => art.passcode === 12).smallUrl;
+  const cropOf = async () => (await (await get()).json()).artworks.find((art: { passcode: number }) => art.passcode === 12).croppedUrl;
   try {
-    expect(await smallOf()).toBe("/api/cards/12/image?variant=small");
+    expect(await cropOf()).toBe("/api/cards/12/image?variant=cropped");
     const reads = vi.mocked(readFile).mock.calls.length;
     expect(reads).toBeGreaterThan(0);
-    rmSync(join(dir, "12-small.jpg"));
-    expect(await smallOf()).toBe("/api/cards/12/image?variant=small");
+    rmSync(join(dir, "12-cropped.jpg"));
+    expect(await cropOf()).toBe("/api/cards/12/image?variant=cropped");
     expect(vi.mocked(readFile).mock.calls.length).toBe(reads);
     now.mockReturnValue(32000);
-    expect(await smallOf()).toBeNull();
+    expect(await cropOf()).toBeNull();
     expect(vi.mocked(readFile).mock.calls.length).toBeGreaterThan(reads);
   } finally { now.mockRestore(); }
 });

@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import sharp from "sharp";
-import { CARD_BACK_SVG, fetchCardResource, trustedCardImageUrl } from "./card-fetch.js";
+import { CARD_BACK_SVG, CardFetchError, fetchCardImageResource, trustedCardImageUrl } from "./card-fetch.js";
 
 type FetchLike = (
   input: string | URL | globalThis.Request,
@@ -66,7 +66,8 @@ export function createDraftImageService({
     try {
       const fallback = `https://images.ygoprodeck.com/images/${full ? "cards" : "cards_small"}/${card.ygoprodeckId}.jpg`;
       const url = trustedCardImageUrl(full ? card.imageUrl : card.imageUrlSmall ?? card.imageUrl, fallback);
-      const buffer = await fetchCardResource(url, fetchImpl, async (response) => Buffer.from(await response.arrayBuffer()));
+      const buffer = await fetchCardImageResource(url, card.ygoprodeckId, fetchImpl, async (response) => Buffer.from(await response.arrayBuffer()));
+      if (!buffer) throw new CardFetchError(1, 404);
       const normalized = await sharp(buffer).resize(width, height, { fit: "cover", position: "center" }).png().toBuffer();
       try { await mkdir(cacheDir, { recursive: true }); await writeFile(cachePath, normalized); } catch { /* A full disk must not stop a pick. */ }
       return normalized;

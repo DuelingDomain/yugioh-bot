@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { callDuelHost, requireDuelActor } from "@/lib/duel-host";
 import { getDb } from "@/lib/db";
-import { CARD_BACK_SVG, CardFetchError, fetchCardResource, isCardFetchError, trustedCardImageUrl, validateCardImage } from "@yugidraft/shared/services";
+import { CARD_BACK_SVG, CardFetchError, fetchCardImageResource, fetchCardResource, isCardFetchError, trustedCardImageUrl, validateCardImage } from "@yugidraft/shared/services";
 
 export const runtime = "nodejs";
 
@@ -22,17 +22,23 @@ function artworkOf(passcode: number): ArtworkRow | undefined {
 class ImageMissingError extends Error {}
 class ImageInvalidError extends CardFetchError {}
 
-/** The image for one passcode from YGOPRODeck, or null when YGOPRODeck has none. */
+/** Try Ignis for missing full/small cards before considering the engine alias. */
 async function fetchImage(passcode: number, variant: ImageVariant): Promise<Buffer | null> {
   const artwork = artworkOf(passcode);
   const baseUrl = variant === "cropped" ? YGOPRODECK_CROPPED_URL : variant === "small" ? YGOPRODECK_SMALL_URL : YGOPRODECK_IMAGE_URL;
   const storedUrl = variant === "cropped" ? artwork?.image_url_cropped : variant === "small" ? artwork?.image_url_small : artwork?.image_url;
-  return fetchCardResource(trustedCardImageUrl(storedUrl, `${baseUrl}/${passcode}.jpg`), fetch, async (response) => {
-    if (response.status === 404) return null;
+  const url = trustedCardImageUrl(storedUrl, `${baseUrl}/${passcode}.jpg`);
+  const readImage = async (response: Response) => {
     const image = Buffer.from(await response.arrayBuffer());
     try { return await validateCardImage(image); }
     catch { throw new ImageInvalidError(); }
-  }, [404]);
+  };
+  // Ignis has no cropped-art endpoint. Keep alias-crop/404 handling rather than
+  // storing a full card under a cropped cache key.
+  if (variant === "cropped") {
+    return fetchCardResource(url, fetch, response => response.status === 404 ? Promise.resolve(null) : readImage(response), [404]);
+  }
+  return fetchCardImageResource(url, passcode, fetch, readImage);
 }
 
 /**

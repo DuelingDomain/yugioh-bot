@@ -43,18 +43,14 @@ function cachedImage(filename: string): Promise<boolean> {
   return present;
 }
 
-/** Local metadata is evidence of availability, never evidence that the engine accepts a passcode. */
+/** Engine arts can fetch full/small images on demand, including arts absent from API metadata. */
 export async function withArtworkImages(family: CardArtworkFamily): Promise<CardArtworksResponse> {
-  const lookup = getDb().prepare("select image_url, image_url_small, image_url_cropped from card_artworks where artwork_id = ? and source = 'api'");
+  const lookup = getDb().prepare("select image_url_cropped from card_artworks where artwork_id = ? and source = 'api'");
   const artworks = await Promise.all(family.artworks.map(async art => {
-    const row = lookup.get(art.passcode) as { image_url: string; image_url_small: string; image_url_cropped: string | null } | undefined;
+    const row = lookup.get(art.passcode) as { image_url_cropped: string | null } | undefined;
     const base = `/api/cards/${art.passcode}/image`;
-    const [full, small, cropped] = await Promise.all([
-      row?.image_url || cachedImage(`${art.passcode}.jpg`),
-      row?.image_url_small || cachedImage(`${art.passcode}-small.jpg`),
-      row?.image_url_cropped || cachedImage(`${art.passcode}-cropped.jpg`),
-    ]);
-    return { ...art, imageUrl: full ? base : null, smallUrl: small ? `${base}?variant=small` : null, croppedUrl: cropped ? `${base}?variant=cropped` : null };
+    const cropped = row?.image_url_cropped || await cachedImage(`${art.passcode}-cropped.jpg`);
+    return { ...art, imageUrl: base, smallUrl: `${base}?variant=small`, croppedUrl: cropped ? `${base}?variant=cropped` : null };
   }));
   return { passcode: family.passcode, artworks };
 }

@@ -108,4 +108,19 @@ export function trustedCardImageUrl(stored: string | null | undefined, fallback:
   return fallback;
 }
 
+export const PROJECT_IGNIS_IMAGE_URL = "https://pics.projectignis.org:2096/pics";
+
+/** Ignis hosts engine-only arts as full cards. Try it only for a confirmed primary miss. */
+export async function fetchCardImageResource<R extends ResponseStatus, T>(
+  input: string | URL,
+  passcode: number,
+  fetchImpl: (input: string | URL | Request, init?: RequestInit) => Promise<R>,
+  read: (response: R) => Promise<T>,
+): Promise<T | null> {
+  const readImage = (response: R) => response.status === 404 ? Promise.resolve(null) : read(response);
+  const image = await fetchCardResource(input, fetchImpl, readImage, [404]);
+  if (image !== null) return image;
+  return fetchCardResource(`${PROJECT_IGNIS_IMAGE_URL}/${passcode}.jpg`, fetchImpl, readImage, [404]);
+}
+
 export const CARD_BACK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="240" height="350" viewBox="0 0 240 350"><rect width="240" height="350" rx="10" fill="#341a0a"/><rect x="9" y="9" width="222" height="332" rx="6" fill="#160b05" stroke="#c9822b" stroke-width="8"/><ellipse cx="120" cy="175" rx="68" ry="110" fill="none" stroke="#c9822b" stroke-width="3"/><path d="M120 85L135 155L178 175L135 195L120 265L105 195L62 175L105 155Z" fill="#e9a23f"/><ellipse cx="120" cy="175" rx="10" ry="16" fill="#030201"/></svg>`;
