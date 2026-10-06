@@ -305,6 +305,7 @@ export interface StoredDuelEvent {
   amount?: number;
   cause?: DuelEvent["cause"];
   sourceCode?: number;
+  sourceCanonicalCode?: number;
   sourceKind?: DuelEvent["sourceKind"];
   sourceSeat?: number;
   summonKind?: DuelEvent["summonKind"];
@@ -497,6 +498,7 @@ export function noteDestroyLog(ctx: EventContext, text: string): boolean {
 interface DestroyDetail {
   cause: NonNullable<DuelEvent["cause"]>;
   sourceCode?: number;
+  sourceCanonicalCode?: number;
   sourceKind?: NonNullable<DuelEvent["sourceKind"]>;
   sourceSeat?: number;
 }
@@ -534,6 +536,7 @@ function parseDestroyDetail(resolving: EventContext["resolving"], tail: string[]
 
 function takeDestroyNote(
   ctx: EventContext,
+  cards: CardDatabase,
   from: { controller: number; location: number; sequence: number },
   resolving: EventContext["resolving"] = ctx.resolving,
 ): DestroyDetail | true | null {
@@ -542,6 +545,9 @@ function takeDestroyNote(
   if (index < 0) return null;
   const [note] = ctx.destroyNotes.splice(index, 1);
   const detail = parseDestroyDetail(resolving, note!.split(":").slice(3));
+  if (detail?.sourceCode != null) {
+    detail.sourceCanonicalCode = cards.get(detail.sourceCode)?.canonicalPasscode ?? detail.sourceCode;
+  }
   const settled = settleMove(ctx, (move) => sameZone(move.from, from), "destroy");
   if (detail && settled) applyDestroyDetail(settled, detail);
   return detail ?? true;
@@ -550,6 +556,7 @@ function takeDestroyNote(
 function applyDestroyDetail(event: StoredDuelEvent, detail: DestroyDetail): void {
   event.cause = detail.cause;
   if (detail.sourceCode != null) event.sourceCode = detail.sourceCode;
+  if (detail.sourceCanonicalCode != null) event.sourceCanonicalCode = detail.sourceCanonicalCode;
   if (detail.sourceKind) event.sourceKind = detail.sourceKind;
   if (detail.sourceSeat != null) event.sourceSeat = detail.sourceSeat;
 }
@@ -618,7 +625,7 @@ export function drainDeferredDestroys(ctx: EventContext, cards: CardDatabase, fi
   const out: StoredDuelEvent[] = [];
   const remaining: PendingMove[] = [];
   for (const move of ctx.pendingMoves) {
-    const detail = takeDestroyNote(ctx, move.from, move.resolving);
+    const detail = takeDestroyNote(ctx, cards, move.from, move.resolving);
     if (detail) {
       out.push(destroyEvent(firstId + out.length, move.code, move.from, cards, detail));
     } else remaining.push(move);
@@ -666,6 +673,7 @@ export function projectStoredEvent(event: StoredDuelEvent, viewer: number | null
   if (event.amount != null) projected.amount = event.amount;
   if (event.cause) projected.cause = event.cause;
   if (event.sourceCode != null) projected.sourceCode = event.sourceCode;
+  if (event.sourceCanonicalCode != null) projected.sourceCanonicalCode = event.sourceCanonicalCode;
   if (event.sourceKind) projected.sourceKind = event.sourceKind;
   if (event.sourceSeat != null) projected.sourceSeat = event.sourceSeat;
   if (event.summonKind) projected.summonKind = event.summonKind;
@@ -1233,7 +1241,7 @@ export function observeDuelEvent(
         sequence: message.from.sequence,
         position: message.from.position,
       };
-      const detail = takeDestroyNote(ctx, from);
+      const detail = takeDestroyNote(ctx, cards, from);
       if (detail) return destroyEvent(id, message.card, from, cards, detail);
       ctx.pendingMoves.push({ code: message.card, from, resolving: ctx.resolving });
       return null;

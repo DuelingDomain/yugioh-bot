@@ -51,9 +51,11 @@ Errors are `{ error: string }`: 400 invalid unsigned positive 32-bit passcode; 4
 
 Visible `DuelCard` snapshots (including materials) also carry `canonicalPasscode`; hidden cards omit it along with their other identity fields. Card info in prompts, events, and Deck Master data comes from the same catalog. Clients can use `card.canonicalPasscode ?? card.code` for signature attack effects and set-piece lookups, while continuing to use `code` for artwork. The optional field permits older hosts and locally constructed card objects.
 
+Destroy events and their corresponding move events also carry optional `sourceCanonicalCode?: number`, the engine artwork-family main of the existing `sourceCode`. Legacy, pinned, and multi populate it for battle/effect sources, including resolving-chain fallback and deferred destruction notes. `sourceCode` keeps the selected source artwork; `card` describes the destroyed card, not the source. Use `event.sourceCanonicalCode ?? event.sourceCode` for destruction signature effects. No source means neither source field is present; an unknown source passcode falls back to itself. Older stored events remain valid without the new field. Source identity follows the existing public `sourceCode` visibility; a hidden victim's card identity remains redacted.
+
 This lets duel consumers resolve identity immediately from the duel payload, including on public lab pages, without fetching the authenticated artworks API or racing that request at duel start. The picker API's authentication remains unchanged.
 
-Targeted regression: `packages/duel-server/tests/card-canonical-passcode.test.ts` loads a synthetic engine catalog and checks alias identity plus legacy, pinned, and multi snapshot projection/redaction. It needs no engine bundle or live core:
+Targeted regression: `packages/duel-server/tests/card-canonical-passcode.test.ts` loads a synthetic engine catalog and checks alias identity plus legacy, pinned, and multi snapshot projection/redaction, plus immediate/deferred battle and effect destruction sources, resolving-chain fallback, hidden victims, and old event compatibility. It needs no engine bundle or live core:
 
 ```bash
 prlimit --core=1:1 npm exec --workspace=packages/duel-server -- \

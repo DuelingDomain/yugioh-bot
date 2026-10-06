@@ -432,6 +432,8 @@ export interface DuelEvent {
   cause?: "battle" | "effect" | "cost" | "rule" | "other";
   /** destroy / move / toss: passcode of the source (the effect's card, or the opposing battler). */
   sourceCode?: number;
+  /** destroy / move: engine artwork-family main of sourceCode; selected artwork stays in sourceCode. */
+  sourceCanonicalCode?: number;
   /** destroy / move: card type of the source when it activated (monster, spell or trap). */
   sourceKind?: "monster" | "spell" | "trap";
   /** destroy / move: seat that controlled the reason (the player the destruction is attributed to). */

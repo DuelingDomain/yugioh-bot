@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { seatCountFor } from "@yugidraft/shared/duels";
-import { OcgLocation, OcgPosition } from "ocgcore-wasm";
+import { OcgLocation, OcgPosition, OcgMessageType, type OcgMessage } from "ocgcore-wasm";
 import { loadCardDatabase, type CardDatabase } from "../src/cards.js";
 import * as merged from "../src/views.js";
 import * as legacy from "../src/legacy/views.js";
@@ -83,4 +83,62 @@ it.each([
       }
     }
   }
+});
+
+it.each([
+  ["legacy", "1v1", legacy], ["pinned", "1v1", merged], ["multi", "ffa3", merged],
+] as const)("%s preserves artwork and canonical destroy sources inline and deferred", (_engine, format, views) => {
+  for (const deferred of [false, true]) for (const { reason, fallback } of [
+    { reason: 33, fallback: false }, // battle
+    { reason: 65, fallback: false }, // effect
+    { reason: 65, fallback: true }, // resolving-chain fallback
+  ]) {
+    for (const source of [10, 12, 20, 30, 40, 50, 999, 0]) {
+      // The module and its context always travel together; their hand-size types differ.
+      const ctx = (views === merged ? merged.createEventContext(format) : legacy.createEventContext()) as
+        legacy.EventContext & merged.EventContext;
+      const from = { controller: 0 as const, location: OcgLocation.MZONE, sequence: 0, position: OcgPosition.FACEDOWN_DEFENSE };
+      const message: OcgMessage = {
+        type: OcgMessageType.MOVE, card: 20, from,
+        to: { ...from, location: OcgLocation.GRAVE, position: OcgPosition.FACEUP_ATTACK },
+      };
+      const chain = [{ index: 1, seat: 1, code: source, zone: { ...from, controller: 1 }, targets: [] }];
+      if (fallback) views.observeDuelEvent({ type: OcgMessageType.CHAIN_SOLVING, chain_size: 1 }, cards, chain, 1, ctx);
+      const note = `${views.DESTROY_NOTE_PREFIX}0:${OcgLocation.MZONE}:0:${reason}:${fallback ? 0 : source}:1:1`;
+      if (!deferred) views.noteDestroyLog(ctx, note);
+      const [move] = views.observeMoveEvents(message, cards, ctx, 2);
+      let destroyed = views.observeDuelEvent(message, cards, chain, 3, ctx);
+      if (deferred) {
+        expect(destroyed).toBeNull();
+        views.observeDuelEvent({ type: OcgMessageType.CHAIN_SOLVED, chain_size: 1 }, cards, chain, 4, ctx);
+        views.noteDestroyLog(ctx, note);
+        [destroyed] = views.drainDeferredDestroys(ctx, cards, 5);
+      }
+      expect(destroyed).toMatchObject({ kind: "destroy", cause: reason === 33 ? "battle" : "effect" });
+      for (const event of [move, destroyed!]) for (const viewer of [0, 1, null]) {
+        const projected = views.projectStoredEvent(event, viewer);
+        if (source) {
+          expect(projected).toMatchObject({ sourceCode: source, sourceCanonicalCode: source === 10 ? 12 : source });
+        } else {
+          expect(projected).not.toHaveProperty("sourceCode");
+          expect(projected).not.toHaveProperty("sourceCanonicalCode");
+        }
+        if (event.kind === "destroy" && viewer !== 0) expect(projected.card).toBeUndefined();
+      }
+    }
+  }
+});
+
+it.each([legacy, merged])("keeps old destruction notes and stored events compatible", views => {
+  const ctx = views.createEventContext() as legacy.EventContext & merged.EventContext;
+  views.noteDestroyLog(ctx, `${views.DESTROY_NOTE_PREFIX}0:${OcgLocation.MZONE}:0`);
+  const destroyed = views.observeDuelEvent({
+    type: OcgMessageType.MOVE, card: 20,
+    from: { controller: 0, location: OcgLocation.MZONE, sequence: 0, position: OcgPosition.FACEUP_ATTACK },
+    to: { controller: 0, location: OcgLocation.GRAVE, sequence: 0, position: OcgPosition.FACEUP_ATTACK },
+  }, cards, [], 1, ctx)!;
+  expect(views.projectStoredEvent(destroyed, null)).not.toHaveProperty("sourceCanonicalCode");
+  const oldEvent = { ...destroyed, sourceCode: 10 };
+  expect(views.projectStoredEvent(oldEvent, null)).toMatchObject({ sourceCode: 10 });
+  expect(views.projectStoredEvent(oldEvent, null)).not.toHaveProperty("sourceCanonicalCode");
 });
