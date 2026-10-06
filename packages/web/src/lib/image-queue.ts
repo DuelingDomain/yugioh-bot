@@ -1,6 +1,6 @@
 /** Card art for a list loads a few images at a time, so a long list does not flood the card image route. */
 export const MAX_IMAGES_IN_FLIGHT = 6;
-const HUNG_IMAGE_MS = 10_000;
+const HUNG_IMAGE_MS = 20_000;
 
 let active = 0;
 const waiting: Array<() => void> = [];
@@ -14,7 +14,7 @@ function pump(): void {
 
 /**
  * Asks for a slot. `onGrant` runs when one is free; the returned function gives the slot back
- * (or leaves the queue). It is safe to call more than once. A slot is also freed after ten seconds,
+ * (or leaves the queue). It is safe to call more than once. A slot is also freed after twenty seconds,
  * so one stuck image cannot block the rest.
  */
 export function requestImageSlot(onGrant: () => void): () => void {
