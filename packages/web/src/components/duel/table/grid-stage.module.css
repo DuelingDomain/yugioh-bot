@@ -95,7 +95,14 @@
   pointer-events: none;
 }
 
-/* A field you can focus by its empty background or its life box. */
+/* The box of a seat is only a place: where it lies over a facing field it must not hide that field's zones (field.module.css
+   gives the pointer back to the zones, the life box and the hand). A click on empty mat focuses the field (grid-stage.tsx). */
+.world :global([data-seat-slot]) {
+  pointer-events: none;
+}
+
+/* A field you can focus by its empty mat (found from the point, see seat-at-point.ts), its life box or its hand. The empty mat takes no
+   pointer itself, so the cursor below shows over what is on the field only. */
 .cell:not([data-focus="true"]) > :global([data-seat-slot]) :global([data-seat-field]) {
   cursor: pointer;
 }
