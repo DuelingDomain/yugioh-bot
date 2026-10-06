@@ -90,6 +90,9 @@ Without the flag they print one `NDUEL NOTE` line per check and run.
   `MSG_CHAINING` or `MSG_CHAIN_SOLVING` must be a subsequence of the expected order. FFA (R-FFA-CHAIN): start at L+1,
   then clockwise, with L last. Tag: L+1, L+3, L+2, L. Duelists that were not prompted
   are allowed. Trigger prompts inside a trigger batch can give a false report: treat a report there with care.
+  `MSG_CHAIN_END` discards the anchor and prompt history: when every unresolved FFA link was removed by
+  elimination, no `MSG_CHAIN_SOLVING` arrives. The restarted open window and later events are not responses to
+  the removed link. Checking at the next link and at resolution still enforces the order within a live chain.
 - `direct-pick`: a `MSG_SELECT_OPTION` whose options all are `0xFFFF0000|d` lists only living opponents of the
   prompted duelist. The next `MSG_ATTACK_DUELIST` (201) must name the picked duelist (the answer sent by nduel) and
   a living opponent of the turn player.
@@ -105,6 +108,10 @@ Without the flag they print one `NDUEL NOTE` line per check and run.
 - `msg-format`: lengths of messages 200 (2 bytes) and 201 (1 byte).
 
 Messages 200, 201 and 202 are parsed and skipped without a `msg-parse` failure.
+
+The targeted checker regression is `bash packages/duel-server/scripts/native/checks/run.sh nduel-response-order`.
+It runs the actual nduel driver with FFA4 seed 18, 60 turns, 3000 LP and `--check-future`. Seat 3 pays its last
+1000 LP for Cosmic Cyclone; its sole link is removed, and later windows must not retain its response anchor.
 
 ## Round 3 additions
 

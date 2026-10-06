@@ -1136,6 +1136,15 @@ int main(int argc, char** argv) {
 				chain_L = -1;
 				seg_open = false;
 				break;
+			case MSG_CHAIN_END:
+				// Removing every unresolved FFA link can end a chain without CHAIN_SOLVING.
+				// Discard the obsolete anchor and history: elimination may already have
+				// restarted an open window, whose prompts are not responses to that link.
+				chain_L = -1;
+				chain_seen.clear();
+				seg_open = false;
+				last_opt_chain = false;
+				break;
 			case MSG_MOVE: {
 				mr.skip(4 + 10);
 				const int con = mr.get<uint8_t>(), loc = mr.get<uint8_t>();
