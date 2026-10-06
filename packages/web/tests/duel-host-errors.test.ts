@@ -102,3 +102,18 @@ describe("callDuelHost error messages", () => {
     expect(JSON.parse((fetchMock.mock.calls[1]![1] as RequestInit).body as string)).not.toHaveProperty("spectate");
   });
 });
+
+it("transports draft pool context and artwork-preserving normalization", async () => {
+  process.env.DUEL_INTERNAL_URL = "http://duel.test";
+  process.env.DUEL_INTERNAL_SECRET = "secret";
+  vi.resetModules();
+  const fetchMock = vi.fn(async (_url: unknown, _init: RequestInit) => Response.json({ codes: {} }));
+  vi.stubGlobal("fetch", fetchMock);
+  try {
+    const { callDuelHost } = await loadHost();
+    await callDuelHost({ ...call, op: "check-deck", draftId: 7 });
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body as string)).toMatchObject({ draftId: 7 });
+    await callDuelHost({ ...call, op: "normalize-codes", codes: [10], preserveArtwork: true });
+    expect(JSON.parse(fetchMock.mock.calls[1]![1].body as string)).toMatchObject({ preserveArtwork: true, codes: [10] });
+  } finally { vi.unstubAllGlobals(); delete process.env.DUEL_INTERNAL_URL; delete process.env.DUEL_INTERNAL_SECRET; }
+});

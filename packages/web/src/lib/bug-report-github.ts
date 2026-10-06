@@ -14,7 +14,7 @@ function githubHeaders(token: string): Record<string, string> {
     Authorization: `Bearer ${token}`,
     Accept: "application/vnd.github+json",
     "X-GitHub-Api-Version": "2022-11-28",
-    "User-Agent": "duelists-kingdom-bug-reports",
+    "User-Agent": "dueling-domain-bug-reports",
     "Content-Type": "application/json",
   };
 }

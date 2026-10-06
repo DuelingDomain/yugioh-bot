@@ -18,7 +18,7 @@ const chakraPetch = Chakra_Petch({
 });
 
 export const metadata: Metadata = {
-  title: "Duelists Kingdom",
+  title: "Dueling Domain",
   description: "Manage your Yu-Gi-Oh! tournaments with ease",
 };
 

@@ -155,7 +155,7 @@ describe("the floating HUD of the 1v1 room", () => {
     const top = within(screen.getByTestId("hud-top"));
     expect(top.getByRole("button", { name: "Report bug" })).toBeTruthy();
     expect(top.getByRole("button", { name: /Sound effects/ })).toBeTruthy();
-    expect(top.getByRole("link", { name: "Duelists Kingdom" })).toBeTruthy();
+    expect(top.getByRole("link", { name: "Dueling Domain" })).toBeTruthy();
     fireEvent.click(screen.getByTestId("hud-dock-settings"));
     expect(within(flyout()).getByRole("button", { name: "Surrender" })).toBeTruthy();
   });

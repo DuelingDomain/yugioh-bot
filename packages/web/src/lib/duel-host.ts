@@ -14,7 +14,7 @@ import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { verifyDiscordGuildMembership } from "@/lib/discord-guild-membership";
 
-export type DuelHostOp = "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "cards" | "card-details" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "ready" | "unready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "report" | "debug-trace" | "bug-context" | "chain-mode";
+export type DuelHostOp = "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "cards" | "card-details" | "card-artworks" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "ready" | "unready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "report" | "debug-trace" | "bug-context" | "chain-mode";
 
 /** Dev scenario tools (presets page, Report button). Server side only. Exactly "1" turns them on. */
 export function scenariosEnabled(): boolean {
@@ -102,6 +102,8 @@ export async function callDuelHost(input: {
   deck?: DuelDeck;
   query?: string;
   codes?: number[];
+  /** normalize-codes only: retain known artwork passcodes for storage/display. */
+  preserveArtwork?: boolean;
   /** add-bot only: the 0-based empty seat to fill. */
   seat?: number;
   /** start-preset only. */
@@ -142,6 +144,8 @@ export async function callDuelHost(input: {
   if (input.deck) payload.deck = input.deck;
   if (input.query !== undefined) payload.query = input.query;
   if (input.codes !== undefined) payload.codes = input.codes;
+  if (input.preserveArtwork !== undefined) payload.preserveArtwork = input.preserveArtwork;
+  if (input.draftId !== undefined) payload.draftId = input.draftId;
   if (input.seat !== undefined) payload.seat = input.seat;
   if (input.presetId !== undefined) payload.presetId = input.presetId;
   if (input.seed !== undefined) payload.seed = input.seed;

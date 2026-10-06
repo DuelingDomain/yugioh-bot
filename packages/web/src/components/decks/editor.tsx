@@ -11,10 +11,12 @@ import {
   type CardArchetype,
   type CardFacets,
   type CardQuery,
+  type CardArtworksResponse,
   type DeckCardInfo,
   type DuelDeck,
   type DuelMode,
   type SavedDeck,
+  type SelectableCardArtwork,
 } from "@yugidraft/shared/duels";
 import {
   AlertTriangle,
@@ -36,10 +38,11 @@ import { parseDeckText, selectDomainMaster, type DeckMasterSelection } from "@/c
 import { SheetRoot, StatusLine, SvButton, Zone } from "@/components/sheet";
 import { cn } from "@/lib/utils";
 import { useNavigationLeaveGuard } from "@/lib/hooks/use-duel-leave-guard";
-import { createSavedDeck, deleteSavedDeck, getDeckCardFacets, getDeckCards, getSavedDeck, readRegistration, saveDraftDeck, updateSavedDeck, type DeckRegistrationMark, type SavedDeckView } from "./api";
+import { DeckRequestError, createSavedDeck, deleteSavedDeck, getDeckCardFacets, getDeckCards, getSavedDeck, readRegistration, saveDraftDeck, swapDeckArtwork, updateSavedDeck, type DeckRegistrationMark, type SavedDeckView } from "./api";
+import { ArtworkPicker } from "@/components/artwork/artwork-picker";
 import { CardActions, CardCopyCount } from "./card-actions";
 import { CardArt } from "./card-art";
-import { CardBrowser } from "./card-browser";
+import { CardBrowser, type BrowserCard } from "./card-browser";
 import { CardBottomSheet } from "./card-bottom-sheet";
 import { CardPreview } from "./card-preview";
 import { DeckSegmented, DeckSelect } from "./controls";
@@ -75,7 +78,7 @@ import {
   guidanceNotes,
   importForLibrary,
   isNewDeckDirty,
-  placeCard,
+  placeCard, placeCardAt,
   removeCard,
   shuffled,
   snapshotOf,
@@ -224,6 +227,10 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   const { editorRef, isPhone } = useEditorViewport(!!pool);
   const [phoneTab, setPhoneTab] = useState<"deck" | "cards">("deck");
   const [cardSheetOpen, setCardSheetOpen] = useState(false);
+  // The Deck Master slot was the last place a card was opened from, so a new art replaces the master.
+  const [masterPick, setMasterPick] = useState(false);
+  const [artBusy, setArtBusy] = useState(false);
+  const [artError, setArtError] = useState<string | null>(null);
   const importGeneration = useRef(0);
   const searchRef = useRef<HTMLInputElement>(null);
   const inspectScrollRef = useRef<HTMLDivElement>(null);
@@ -408,8 +415,29 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     setSavedFlash(false);
   }
 
+  /**
+   * Undo and redo can change the art of the copy the panel shows. The panel then follows the copy
+   * (the same card in another art), so its picker never claims an art the deck no longer has.
+   */
+  function repointPanel(step: Snapshot) {
+    if (inspectCode == null) return;
+    const sameCard = (code: number | undefined): code is number =>
+      code != null && canonicalCardCode(code, catalog) === canonicalCardCode(inspectCode, catalog);
+    if (selected?.index != null) {
+      const code = step.selection.deck[selected.section][selected.index];
+      if (sameCard(code) && code !== inspectCode) {
+        setInspectCode(code);
+        setSelected({ section: selected.section, code, index: selected.index });
+      }
+    } else if (masterPick && step.mode === "domain") {
+      const code = step.selection.deck.deckMaster;
+      if (sameCard(code) && code !== inspectCode) setInspectCode(code);
+    }
+  }
+
   function restore(step: Snapshot) {
     importGeneration.current += 1;
+    repointPanel(step);
     setSelection(step.selection);
     setMode(step.mode);
     setSavedFlash(false);
@@ -451,12 +479,71 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     [counts, poolMap, usage, catalog],
   );
 
-  function inspect(code: number, stack: SelectedStack | null = null, openSheet = true) {
+  const selectionRef = useRef(selection);
+  selectionRef.current = selection;
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+  const catalogRef = useRef(catalog);
+  catalogRef.current = catalog;
+
+  /** Card details for every art of a family, so names, types and pool copies resolve for any of them. */
+  async function loadFamilyCards(family: CardArtworksResponse): Promise<boolean> {
+    const missing = family.artworks.map((art) => art.passcode).filter((code) => !catalogRef.current.has(code));
+    if (missing.length === 0) return true;
+    try {
+      const { cards } = await getDeckCards(missing);
+      rememberCatalog(cards);
+      return missing.every((code) => cards.some((card) => card.code === code));
+    } catch {
+      return false;
+    }
+  }
+
+  function inspect(code: number, stack: SelectedStack | null = null, openSheet = true, fromMaster = false) {
     window.clearTimeout(hoverTimer.current);
     setHover(null);
     setInspectCode(code);
     setSelected(stack);
+    setMasterPick(fromMaster);
+    setArtError(null);
     if (isPhone && openSheet) setCardSheetOpen(true);
+  }
+
+  /**
+   * A new art for the open card. A copy opened from the deck is swapped in place through the server;
+   * a card opened from the list only changes the art that Add uses.
+   */
+  async function pickArtwork(art: SelectableCardArtwork, family: CardArtworksResponse) {
+    const from = inspectCode;
+    if (from == null || art.passcode === from || artBusy || busy) return;
+    setArtError(null);
+    setArtBusy(true);
+    const started = selectionRef.current;
+    const startedMode = mode;
+    const target = swapTarget;
+    try {
+      const loaded = await loadFamilyCards(family);
+      if (!target) {
+        if (!loaded) throw new Error("Could not load that art. Try again.");
+        inspect(art.passcode, null, false);
+        return;
+      }
+      const next = await swapDeckArtwork({ deck: started.deck, section: target.section, index: target.index, from, to: art.passcode });
+      // A late answer never lands on top of newer edits.
+      if (selectionRef.current !== started || modeRef.current !== startedMode) {
+        setArtError("The deck changed while the art loaded. Pick the art again.");
+        return;
+      }
+      commit({ deck: cloneDeck(next), masterOrigin: started.masterOrigin });
+      setInspectCode(art.passcode);
+      setSelected(target.section === "deckMaster" ? null : { section: target.section, code: art.passcode, index: target.index });
+    } catch (reason) {
+      setArtError(reason instanceof DeckRequestError && reason.status === 409
+        ? "The deck changed. Pick the art again."
+        : reason instanceof Error ? reason.message : "Could not change the art.");
+    } finally {
+      setArtBusy(false);
+    }
   }
 
   function pointAt(target: HoverTarget | null) {
@@ -514,8 +601,10 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
       const card = catalog.get(source.code);
       if (card ? !roomFor(card) : !poolRoomFor(source.code)) return;
     }
-    commit(placeCard(selection, source, to, to === wanted ? at : undefined));
-    setSelected({ section: to, code: source.code });
+    const placed = placeCardAt(selection, source, to, to === wanted ? at : undefined);
+    commit(placed.selection);
+    // The placed copy is the selection, so the art picker swaps that copy.
+    setSelected(placed.index >= 0 ? { section: to, code: source.code, index: placed.index } : { section: to, code: source.code });
     setInspectCode(source.code);
     if (to !== wanted) {
       setNotice(`${cardName(source.code)} goes in the ${to === "extra" ? "extra" : "main"} deck.`);
@@ -613,7 +702,8 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
 
   async function save() {
     // Ctrl+S also works on the loading and error screens; there is no deck to save there.
-    if (busy || loading || loadError != null || routeId === "invalid" || (typeof routeId === "number" && savedId == null)) return;
+    // A swap that is still in flight would land on a deck that is already saved.
+    if (busy || artBusy || loading || loadError != null || routeId === "invalid" || (typeof routeId === "number" && savedId == null)) return;
     importGeneration.current += 1;
     const trimmed = name.trim();
     if (!trimmed) {
@@ -701,6 +791,11 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   const notes = pool ? draftDeckNotes(deck, pool.mainPoolCount) : guidanceNotes(mode, deck);
   const mainMinimum = pool ? draftMainMinimum(pool.mainPoolCount) : 40;
   const inspected = inspectCode == null ? undefined : catalog.get(inspectCode);
+  const swapTarget: { section: "main" | "extra" | "side" | "deckMaster"; index: number } | null =
+    inspectCode == null ? null
+      : selected?.index != null && deck[selected.section][selected.index] === inspectCode ? { section: selected.section, index: selected.index }
+        : masterPick && mode === "domain" && deck.deckMaster === inspectCode ? { section: "deckMaster", index: 0 }
+          : null;
   const hoverCode = hoveredCode(hover, deck, hand, mode);
   const shownCode = hoverCode ?? inspectCode;
   const shown = shownCode == null ? undefined : catalog.get(shownCode);
@@ -749,7 +844,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     const code = allCodes(deck).find((value) => copyKey(value, catalog) === problem.key);
     if (code == null) return;
     const section = (["main", "extra", "side"] as const).find((value) => deck[value].includes(code));
-    inspect(code, section ? { section, code } : null);
+    inspect(code, section ? { section, code, index: deck[section].indexOf(code) } : null);
   }
   const checkProps: DeckCheckProps = { problems, notes, banlistName, flag, tone, pool: !!pool, onProblem: showProblem };
   const sectionProps = {
@@ -794,6 +889,18 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
       onRemove={(section) => removeCopy({ code: inspected.code, from: section })}
       onMaster={() => makeMaster(inspected.code, selected?.code === inspected.code ? selected.section : undefined)}
       onArchetype={showArchetype}
+      artwork={
+        <ArtworkPicker
+          code={inspected.code}
+          knownCount={(inspected as BrowserCard).altArtCount == null ? undefined : (inspected as BrowserCard).altArtCount! + 1}
+          busy={artBusy}
+          disabled={busy}
+          error={artError}
+          label={swapTarget ? "Art of this copy" : "Art to add"}
+          onFamily={(family) => { void loadFamilyCards(family); }}
+          onPick={(art, family) => { void pickArtwork(art, family); }}
+        />
+      }
     />
   ) : null;
   const missingReader = (
@@ -899,7 +1006,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
                 )}
               </Popover>
             ) : null}
-            <SvButton variant="primary" className={styles["de-save"]} aria-busy={saveBusy || undefined} disabled={busy} title="Save (Ctrl+S)" onClick={() => void save()}><Save className="ic sm" aria-hidden />Save</SvButton>
+            <SvButton variant="primary" className={styles["de-save"]} aria-busy={saveBusy || undefined} disabled={busy || artBusy} title="Save (Ctrl+S)" onClick={() => void save()}><Save className="ic sm" aria-hidden />Save</SvButton>
           </div>
           {pool ? <span className={styles["de-menu"]}><ShellMenuButton /></span> : null}
         </header>
@@ -947,7 +1054,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
                 onDragOver={(event) => { if (hasCardDrag(event)) { event.preventDefault(); setMasterDropping(true); } }}
                 onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setMasterDropping(false); }}
                 onDrop={(event) => { setMasterDropping(false); const drag = readCardDrag(event); if (!drag || drag.from === "master") return; event.preventDefault(); makeMaster(drag.code, drag.from === "list" ? undefined : drag.from); }}>
-                <div className={styles["de-mslot"]}>{deck.deckMaster != null ? <button type="button" className={styles["de-c"]} aria-label={`Deck Master: ${cardName(deck.deckMaster)}`} aria-pressed={inspectCode === deck.deckMaster && selected == null} title={cardName(deck.deckMaster)} draggable onClick={(event) => { event.currentTarget.focus(); inspect(deck.deckMaster!); }} onPointerEnter={(event) => { if (event.pointerType !== "touch") pointAt({ code: deck.deckMaster!, from: "master" }); }} onPointerLeave={() => pointAt(null)} onDragStart={(event) => writeCardDrag(event, { code: deck.deckMaster!, from: "master" })} onContextMenu={(event) => { event.preventDefault(); commit(selectDomainMaster(selection, undefined)); }}><CardArt code={deck.deckMaster} name={cardName(deck.deckMaster)} /></button> : <Zone state="dashed" size="md" style={{ "--zw": "58px" } as CSSProperties} />}</div>
+                <div className={styles["de-mslot"]}>{deck.deckMaster != null ? <button type="button" className={styles["de-c"]} aria-label={`Deck Master: ${cardName(deck.deckMaster)}`} aria-pressed={inspectCode === deck.deckMaster && selected == null} title={cardName(deck.deckMaster)} draggable onClick={(event) => { event.currentTarget.focus(); inspect(deck.deckMaster!, null, true, true); }} onPointerEnter={(event) => { if (event.pointerType !== "touch") pointAt({ code: deck.deckMaster!, from: "master" }); }} onPointerLeave={() => pointAt(null)} onDragStart={(event) => writeCardDrag(event, { code: deck.deckMaster!, from: "master" })} onContextMenu={(event) => { event.preventDefault(); commit(selectDomainMaster(selection, undefined)); }}><CardArt code={deck.deckMaster} name={cardName(deck.deckMaster)} /></button> : <Zone state="dashed" size="md" style={{ "--zw": "58px" } as CSSProperties} />}</div>
                 <div className={styles.masterText}><h2 className={styles["de-st"]}>Deck Master</h2><p className="small">{deck.deckMaster != null ? `${cardName(deck.deckMaster)}. ` : ""}Drag a monster here, or select one and press Use as Deck Master.</p>{deck.deckMaster != null ? <SvButton variant="quiet" disabled={busy} onClick={() => commit(selectDomainMaster(selection, undefined))}>Clear</SvButton> : null}</div>
               </section>
             ) : null}

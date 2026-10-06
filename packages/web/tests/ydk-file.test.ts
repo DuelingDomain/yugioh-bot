@@ -34,7 +34,7 @@ describe("serializeYdk", () => {
       [{ catalogCardId: 1, maxCopies: 3 }, { catalogCardId: 3, maxCopies: 1 }],
       [{ catalogCardId: 2, maxCopies: 2 }],
     );
-    expect(text).toBe("#created by Duelists Kingdom\n#main\n1\n1\n1\n3\n#extra\n2\n2\n!side\n");
+    expect(text).toBe("#created by Dueling Domain\n#main\n1\n1\n1\n3\n#extra\n2\n2\n!side\n");
   });
 
   it("round trips through parseYdk", () => {

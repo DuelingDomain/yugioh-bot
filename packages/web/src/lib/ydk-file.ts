@@ -22,7 +22,7 @@ export interface YdkEntry {
 
 /** A cube as a YDK file: every copy of the main pool, then every copy of the extra pool, an empty side. */
 export function serializeYdk(main: readonly YdkEntry[], extra: readonly YdkEntry[]): string {
-  const lines = ["#created by Duelists Kingdom", "#main"];
+  const lines = ["#created by Dueling Domain", "#main"];
   for (const entry of main) for (let i = 0; i < entry.maxCopies; i += 1) lines.push(String(entry.catalogCardId));
   lines.push("#extra");
   for (const entry of extra) for (let i = 0; i < entry.maxCopies; i += 1) lines.push(String(entry.catalogCardId));

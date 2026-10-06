@@ -9,7 +9,7 @@ afterEach(cleanup);
 
 function header(over: Partial<SolidHeaderProps> = {}) {
   const props: SolidHeaderProps = {
-    identity: <a href="/duels">Duelists Kingdom</a>, format: "Domain · Normal", turn: 3, phaseName: "Main Phase 1", step: null,
+    identity: <a href="/duels">Dueling Domain</a>, format: "Domain · Normal", turn: 3, phaseName: "Main Phase 1", step: null,
     turnText: "Your turn", tone: "you", spectator: false, live: <span role="status">Live duel</span>, tools: null,
     view: "tilt", onTilt: vi.fn(), onGear: vi.fn(), ...over,
   };
@@ -20,7 +20,7 @@ function header(over: Partial<SolidHeaderProps> = {}) {
 describe("SolidHeader", () => {
   it("shows the wordmark, the turn and the pill for the viewer", () => {
     header();
-    expect(screen.getByText("Duelists Kingdom")).toBeTruthy();
+    expect(screen.getByText("Dueling Domain")).toBeTruthy();
     expect(screen.getByText("Turn 3")).toBeTruthy();
     expect(document.querySelector("[data-owner='you']")?.textContent).toContain("Your turn");
   });

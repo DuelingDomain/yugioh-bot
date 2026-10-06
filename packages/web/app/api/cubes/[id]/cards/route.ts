@@ -4,7 +4,9 @@ import { requireWebAccess } from "@/lib/web-access";
 import { cubeWriteAccess } from "@/lib/cube-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
-import { createCardCatalogService, createCubeService } from "@yugidraft/shared/services";
+import { createCardCatalogService, createCubeService, createPlayerService } from "@yugidraft/shared/services";
+import { isPasscode, loadCardArtworkFamily } from "@/lib/card-artworks";
+import { CubeArtworkConflict, swapCubeArtwork } from "@/lib/cube-artworks";
 import { cubeDetail } from "@/lib/cube-detail";
 import { importYdkIntoCube } from "@/lib/cube-ydk";
 import { ensureCatalogCards, parsePoolEntries } from "@/lib/cube-pool";
@@ -13,6 +15,7 @@ import { IMPORT_MAX_DISTINCT, YDK_MAX_CHARS, tooManyDistinct } from "@/lib/ydk-f
 export const runtime = "nodejs";
 
 type Op =
+  | { op: "setArtwork"; catalogCardId: number; artworkPasscode: number }
   | { op: "add"; catalogCardId: number; pool: "main" | "extra"; maxCopies?: number }
   | { op: "remove"; catalogCardId: number }
   | { op: "setMaxCopies"; catalogCardId: number; maxCopies: number }
@@ -44,6 +47,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   try {
     switch (body.op) {
+      case "setArtwork": {
+        if (!isPasscode(body.catalogCardId) || !isPasscode(body.artworkPasscode)) {
+          return NextResponse.json({ error: "Invalid card passcode" }, { status: 400 });
+        }
+        const player = createPlayerService(db).findOrCreate(env.discordGuildId, actor.userId, actor.userName);
+        const result = await loadCardArtworkFamily({ guildId: env.discordGuildId, playerId: player.id }, body.catalogCardId);
+        if (!result.ok) return result.response.status === 404
+          ? NextResponse.json({ error: "Source card not found in the duel engine" }, { status: 400 })
+          : result.response;
+        swapCubeArtwork(db, cubeId, body.catalogCardId, body.artworkPasscode, result.family);
+        break;
+      }
       case "add":
         cubes.addCard(cubeId, body.catalogCardId, body.pool, body.maxCopies);
         break;
@@ -100,7 +115,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const fetchFailure = cardFetchErrorResponse(error);
     if (fetchFailure) return fetchFailure;
     const message = error instanceof Error ? error.message : "Cube update failed";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return NextResponse.json({ error: message }, { status: error instanceof CubeArtworkConflict ? 409 : 400 });
   }
 
   return NextResponse.json(cubeDetail(cubeId, cubes, catalog));

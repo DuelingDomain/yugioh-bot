@@ -13,14 +13,14 @@ export type DraftDeckMapResult =
 const MAX_ATTEMPTS = 3;
 
 /** The same host mapping used for draft picks, saved decks and duel checks. */
-export async function normalizeDraftCardCodes(input: { guildId: string; playerId: number; codes: number[] }): Promise<
+export async function normalizeDraftCardCodes(input: { guildId: string; playerId: number; codes: number[]; preserveArtwork?: boolean }): Promise<
   { ok: true; codes: Map<number, number | null> } | { ok: false; response: NextResponse }
 > {
   const ids = [...new Set(input.codes)];
   const mapped = new Map<number, number | null>();
   for (let at = 0; at < ids.length; at += 1000) {
     const chunk = ids.slice(at, at + 1000);
-    const result = await callDuelHost({ op: "normalize-codes", guildId: input.guildId, playerId: input.playerId, codes: chunk });
+    const result = await callDuelHost({ op: "normalize-codes", guildId: input.guildId, playerId: input.playerId, codes: chunk, ...(input.preserveArtwork ? { preserveArtwork: true } : {}) });
     if (!result.ok) return result;
     const codes = (result.data as { codes?: Record<string, unknown> } | null)?.codes;
     if (!codes || typeof codes !== "object" || chunk.some((id) => {
@@ -34,13 +34,13 @@ export async function normalizeDraftCardCodes(input: { guildId: string; playerId
   return { ok: true, codes: mapped };
 }
 
-/** Unresolved ids stay in the deck, so loading never loses cards and pool validation rejects them. */
+/** Known engine artwork ids are preserved. Unresolved ids stay in the deck, so loading never loses cards and pool validation rejects them. */
 export async function normalizeDraftDeck(input: { guildId: string; playerId: number; deck: DuelDeck }): Promise<
   { ok: true; deck: DuelDeck } | { ok: false; response: NextResponse }
 > {
   const { deck } = input;
   const codes = [...deck.main, ...deck.extra, ...deck.side, ...(deck.deckMaster === undefined ? [] : [deck.deckMaster])];
-  const mapped = await normalizeDraftCardCodes({ ...input, codes });
+  const mapped = await normalizeDraftCardCodes({ ...input, codes, preserveArtwork: true });
   if (!mapped.ok) return mapped;
   return { ok: true, deck: mapDeckCodes(deck, (code) => mapped.codes.get(code) ?? code) };
 }

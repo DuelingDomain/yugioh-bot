@@ -102,7 +102,8 @@ describe("Sidebar structure", () => {
     expect(container.querySelector("aside")).toHaveAttribute("data-rail", "true");
     expect(screen.getByRole("link", { name: "Dashboard" })).toHaveAttribute("aria-label", "Dashboard");
     expect(screen.queryByText("Compete")).toBeNull();
-    expect(screen.queryByText("Duelists Kingdom")).toBeNull();
+    expect(screen.queryByText("Dueling")).toBeNull();
+    expect(screen.queryByText("Domain")).toBeNull();
   });
 
   it("collapsed: each link has a tooltip; expanded has none for links", () => {
@@ -115,6 +116,7 @@ describe("Sidebar structure", () => {
   it("expanded: no rail marker", () => {
     const { container } = render(<Sidebar collapsed={false} onToggle={vi.fn()} account={ready} live={null} />);
     expect(container.querySelector("aside")).not.toHaveAttribute("data-rail");
+    expect(screen.getByText("Dueling")).toHaveTextContent(/^Dueling Domain$/);
   });
 
   it("shows the seat with the tier and Elo", () => {

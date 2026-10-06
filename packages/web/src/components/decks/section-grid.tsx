@@ -137,7 +137,7 @@ export function DeckSectionGrid({
           {codes.map((code, index) => {
             const name = cardLabel(code, catalog);
             const missing = unknown.has(code);
-            const isSelected = selected?.section === section && selected.code === code;
+            const isSelected = selected?.section === section && selected.code === code && (selected.index == null || selected.index === index);
             const isOver = over.has(copyKey(code, catalog));
             return (
               <li
@@ -156,10 +156,10 @@ export function DeckSectionGrid({
                   data-over={isOver ? "true" : undefined}
                   draggable
                   onDragStart={(event) => {
-                    onSelect({ section, code }, false);
+                    onSelect({ section, code, index }, false);
                     writeCardDrag(event, { code, from: section, index });
                   }}
-                  onClick={(event) => { event.currentTarget.focus(); onSelect({ section, code }); }}
+                  onClick={(event) => { event.currentTarget.focus(); onSelect({ section, code, index }); }}
                   onPointerEnter={(event) => { if (event.pointerType !== "touch") onHover({ section, index }); }}
                   onPointerLeave={() => onHover(null)}
                   onContextMenu={(event) => { event.preventDefault(); onRemove({ code, from: section, index }); }}

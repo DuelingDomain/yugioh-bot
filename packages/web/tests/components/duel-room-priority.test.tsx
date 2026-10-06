@@ -68,9 +68,9 @@ afterEach(() => {
 const live = () => screen.getByTestId("priority").getAttribute("data-live");
 
 describe("room header", () => {
-  it("links the duel menu as Duelists Kingdom", () => {
+  it("links the duel menu as Dueling Domain", () => {
     render(<DuelRoomView slug="game-1" windowed />);
-    expect(screen.getByRole("link", { name: "Duelists Kingdom" }).getAttribute("href")).toBe("/duels");
+    expect(screen.getByRole("link", { name: "Dueling Domain" }).getAttribute("href")).toBe("/duels");
     expect(screen.queryByText(/yugidraft/i)).toBeNull();
   });
 });

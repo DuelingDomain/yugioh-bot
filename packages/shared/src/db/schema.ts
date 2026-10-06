@@ -753,6 +753,17 @@ export function migrate(db: Database.Database) {
   `);
   db.exec("create index if not exists bug_reports_duel_idx on bug_reports (guild_id, duel_slug, created_at)");
 
+  // Public, email-only signups are independent of Discord players and guilds.
+  db.exec(`
+    create table if not exists waitlist_signups (
+      id integer primary key autoincrement,
+      email text not null unique,
+      created_at text not null,
+      source text not null,
+      user_agent text
+    );
+  `);
+
   migrateConfigPoolsToCubeCards(db);
 }
 

@@ -339,10 +339,11 @@
       "code": 5043020,
       "file": "c5043020.lua",
       "name": "Firewall Dragon (pre-errata)",
+      "stockPath": "pre-errata/c5043020.lua",
       "kind": "fix",
       "classes": [],
       "stockSha256": "f59c0f37b6aa14a5bb00996cae770418916a1fb5196434d367b19a935f5ff2d5",
-      "note": "FFA4: previous Link and column filters use only the real controller and its across seat."
+      "note": "FFA4: previous Link and column filters use only the real controller and its across seat. Stock is pre-errata/c5043020.lua (unchanged at both data pins); absent from production cards.cdb, retained for private fixtures. Runtime basename lookup appends this overlay to that pre-errata script."
     },
     {
       "code": 5087128,
@@ -6554,12 +6555,13 @@
         "R2"
       ],
       "r2Class": "TABLE",
-      "stockSha256": "de3470a725c3adec762ed1307ab9fdae83358473fb4ffd803b02ff3036c0fbe7",
-      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey).",
+      "stockSha256": "79804c0a3024b5358ef45eb9719f1aaed447e286d868231dca13c4fe23ae4432",
+      "note": "R-COMMON-SEAT-STATE (owner Q6): declarations are per FFA seat or Tag team. Keep the mapped table across the stock turn-end reset. Stock AnnounceCard takes the filter table directly.",
       "seatTables": [
         "s.declared_names"
       ],
-      "seatInit": "{}"
+      "seatInit": "{}",
+      "seatExtra": "c74733322.extra.lua"
     },
     {
       "code": 75043725,

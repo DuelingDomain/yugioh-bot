@@ -31,3 +31,8 @@ describe("engine update report publishing", () => {
     expect(result).not.toContain("Pending.");
   });
 });
+
+it("retains blocking artwork findings in bounded reports", () => {
+  const report = "BLOCKING: 1 artwork script fallback\n" + "data\n".repeat(20000) + "\n## Artwork script safety\n\nBLOCKING: c11.lua → c10.lua; GetID() differs.\n";
+  expect(boundedReport(report, run, 60000)).toContain("c11.lua → c10.lua");
+});

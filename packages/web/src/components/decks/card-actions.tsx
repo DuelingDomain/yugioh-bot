@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { Crown, Minus, Plus, Search } from "lucide-react";
 import type { CardArchetype, DeckCardInfo, DuelDeck, DuelMode } from "@yugidraft/shared/duels";
 import { TYPE_MONSTER } from "@/components/duel/constants";
@@ -36,6 +37,7 @@ export function CardActions({
   onRemove,
   onMaster,
   onArchetype,
+  artwork,
   hideSummary = false,
 }: {
   card: DeckCardInfo;
@@ -54,6 +56,8 @@ export function CardActions({
   onRemove: (section: DeckSection) => void;
   onMaster: () => void;
   onArchetype: (archetype: CardArchetype) => void;
+  /** The art picker for this card; it renders nothing for a card with one art. */
+  artwork?: ReactNode;
   hideSummary?: boolean;
 }) {
   const home = defaultAddSection(card);
@@ -115,6 +119,8 @@ export function CardActions({
           {isMaster ? "This is your Deck Master" : "Use as Deck Master"}
         </DeckButton>
       ) : null}
+
+      {artwork}
 
       {own.length > 0 ? (
         <div className={styles.archetypes}>
