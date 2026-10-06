@@ -71,6 +71,26 @@ describeWithCores("raw sandbox capture with real cores", [needs.standard(DATA), 
     expect(restored.view(0).seats[0].hand.length).toBe(before.seats[0].hand.length + 1);
   }, 30_000);
 
+  it.each([5, 6])("captures and restores both FFA4 shared Extra Monster Zone pairs at slot %i", async (slot) => {
+    const monsters = [...Array(slot).fill(null), { card: 41999284, pos: "atk" as const }];
+    const board: SandboxBoard = { format: "ffa4", startAt: "draw", deckSize: 10,
+      p0: { monsters }, p1: { monsters }, p2: { monsters }, p3: { monsters } };
+    const game = await start(board);
+    const before = game.view(0);
+    expect(before.seats.map(seat => seat.sharedExtraWith)).toEqual([1, 0, 3, 2]);
+    const result = capture(game, board);
+    for (const [seat, id] of (["p0", "p1", "p2", "p3"] as const).entries()) {
+      expect(before.seats[seat].monsters[slot]).toMatchObject({ code: 41999284, controller: seat, sequence: slot });
+      expect(result.board[id]?.monsters?.[slot]).toMatchObject({ card: 41999284, pos: "atk" });
+      expect(result.board[id]?.monsters?.filter(Boolean)).toHaveLength(1);
+    }
+    expect(game.view(0)).toEqual(before);
+    expect(parseSandboxBoard(result.board)).toEqual(result.board);
+    const restored = await start(result.board);
+    expect(field(restored)).toEqual(field(game));
+    expect(restored.view(0).seats.map(seat => seat.sharedExtraWith)).toEqual([1, 0, 3, 2]);
+  }, 30_000);
+
   it("captures an eliminated FFA4 seat with its place and LP intact", async () => {
     const board: SandboxBoard = { format: "ffa4", startAt: "draw", p0: { spells: [{ card: 83968380, pos: "set" }] },
       p2: { monsters: [null, null, { card: 15025844, pos: "def" }] } };
