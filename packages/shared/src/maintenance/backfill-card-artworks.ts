@@ -2,9 +2,10 @@ import Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { createCardCatalogService } from "../services/card-catalog.js";
+import { loadArtworkIdentityCatalog } from "../services/card-artworks.js";
 
 const API = "https://db.ygoprodeck.com/api/v7/cardinfo.php";
 type Checkpoint = { database: string; dumpHash: string; afterId: number };
@@ -20,15 +21,20 @@ export async function backfillCardArtworks(input: {
   dump: string;
   state: string;
   fetch?: typeof globalThis.fetch;
+  dryRun?: boolean;
   onProgress?: (id: number) => void;
 }) {
-  const database = resolve(input.database);
-  const dump = resolve(input.dump);
-  const state = resolve(input.state);
+  // npm --workspace changes cwd; INIT_CWD retains the invocation directory.
+  // Direct node invocations default to the repo root, in src and built dist alike.
+  const root = process.env.INIT_CWD || fileURLToPath(new URL("../../../../", import.meta.url));
+  const database = resolve(root, input.database);
+  const dump = resolve(root, input.dump);
+  const state = resolve(root, input.state);
+  const engineDirectory = resolve(root, process.env.DUEL_DATA_DIR || "data/duel-engine");
   if (new Set([database, dump, state, `${dump}.tmp`, `${state}.tmp`]).size !== 5) {
     throw new Error("Database, dump and checkpoint paths must be distinct");
   }
-  const db = new Database(database, { fileMustExist: true });
+  const db = new Database(database, { fileMustExist: true, readonly: input.dryRun === true });
   try {
     db.pragma("foreign_keys = ON"); db.pragma("busy_timeout = 5000");
     // Fail before downloading if the application's artwork migration has not been applied.
@@ -56,8 +62,8 @@ export async function backfillCardArtworks(input: {
       }
       afterId = checkpoint.afterId;
     }
-    const catalog = createCardCatalogService(db, { fetch: async () => ({ ok: true, status: 200, json: async () => payload }) });
-    return await catalog.backfillExistingArtworks({ afterId, onProgress: id => {
+    const catalog = createCardCatalogService(db, { identityCatalog: loadArtworkIdentityCatalog(engineDirectory), fetch: async () => ({ ok: true, status: 200, json: async () => payload }) });
+    return await catalog.backfillExistingArtworks({ afterId, dryRun: input.dryRun, onProgress: id => {
       atomicWrite(state, JSON.stringify({ database, dumpHash, afterId: id } satisfies Checkpoint));
       input.onProgress?.(id);
     } });
@@ -65,13 +71,13 @@ export async function backfillCardArtworks(input: {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  const { values } = parseArgs({ options: { database: { type: "string" }, dump: { type: "string" }, state: { type: "string" } } });
+  const { values } = parseArgs({ options: { database: { type: "string" }, dump: { type: "string" }, state: { type: "string" }, "dry-run": { type: "boolean", default: false } } });
   if (!values.database || !values.dump || !values.state) {
-    console.error("Usage: backfill-card-artworks --database /path/bot.sqlite --dump /path/cardinfo.json --state /path/artworks-state.json");
+    console.error("Usage: backfill-card-artworks --database /path/bot.sqlite --dump /path/cardinfo.json --state /path/artworks-state.json [--dry-run]");
     process.exitCode = 1;
   } else {
     let completed = 0;
-    backfillCardArtworks({ database: values.database, dump: values.dump, state: values.state,
+    backfillCardArtworks({ database: values.database, dump: values.dump, state: values.state, dryRun: values["dry-run"],
       onProgress: id => { if (++completed % 100 === 0) console.log(`Synced ${completed} families; checkpoint ${id}`); },
     }).then(report => console.log(JSON.stringify(report))).catch(error => { console.error(error); process.exitCode = 1; });
   }

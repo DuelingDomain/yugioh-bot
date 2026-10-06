@@ -102,11 +102,44 @@ DUEL_DATA_DIR=/absolute/path/to/duel-engine prlimit --core=1:1 \
   npm run backfill:artworks --workspace=packages/shared -- \
   --database /absolute/path/to/local-copy.sqlite \
   --dump /absolute/path/to/cardinfo.json \
-  --state /absolute/path/to/artworks-state.json
+  --state /absolute/path/to/artworks-state.json --dry-run
+# Review the report, then repeat without --dry-run to apply.
 ```
 
-`DUEL_DATA_DIR` is optional but recommended to identify canonical engine mains during sync; the CLI resolves its relative value from the current working directory. Without it, existing catalog main evidence and the normal API-ID fallback apply. Picker membership always comes from the live engine regardless.
+`--database`, `--dump`, `--state`, and `DUEL_DATA_DIR` resolve relative paths against npm’s `INIT_CWD` (invoke npm from the repo root), or the repository root derived from the script location when invoked directly. Absolute paths are recommended. The default engine directory is `<root>/data/duel-engine`, including under `npm run --workspace=packages/shared`; it is never implicitly `packages/shared/data/duel-engine`. If engine data is absent, existing catalog main evidence and the normal API-ID fallback apply with a warning. Picker membership always comes from the live engine regardless.
 
-The script downloads the full `cardinfo.php` JSON exactly once if the dump file is absent (one request, no retry loop, comfortably below 20 requests/s). It only syncs API families matching existing catalog names/types; each family uses the existing transactional artwork upsert. New artwork rows within those families are inserted; unrelated API cards are not imported. Images are not downloaded or hotlinked. Output is `{ synced: number, unmatched: number[] }` (families processed this run and catalog IDs with no matching dump entry).
+The script downloads the full `cardinfo.php` JSON exactly once if the dump file is absent (one request, no retry loop, comfortably below 20 requests/s). It only syncs API families matching existing catalog names/types; each family uses the existing transactional artwork upsert. New artwork rows within those families are inserted; unrelated API cards are not imported. Images are not downloaded or hotlinked. Apply output is `{ synced: number, unmatched: number[] }` (families processed this run and catalog IDs with no matching dump entry). `--dry-run` opens the database read-only, never writes a checkpoint, and returns `{ synced: 0, wouldSync: number, unmatched: number[] }`. It counts eligible families after any existing checkpoint; it does not simulate upsert conflicts. It may download/create the dump once if absent, so retain that exact dump for the apply run.
 
 A checkpoint is atomically written after each committed family and binds the database path, dump SHA-256 and last API ID. Run the same command to resume offline using the same dump/state. A crash between commit and checkpoint safely repeats that idempotent family. Keep the DB, dump and state together; do not replace the database at the checkpoint's path. Use a new state file to rerun against an expanded/repaired catalog, and new dump/state paths to refresh upstream metadata. Do not run two backfills concurrently. Metadata conflicts continue to use the catalog service's warning/skip behavior. `unmatched` rows remain untouched.
+
+
+## Production procedure — run only with owner go
+
+**Do not execute any production step without explicit owner go.** This procedure is documentation only; no production backfill has been run. Never attach the backfill to deployment or a migration.
+
+1. Deploy the reviewed code first and confirm the artwork migration is already present. Use the bot container’s Node 22 and compiled shared CLI against `/app/data/bot.sqlite`. Confirm `/app/data/duel-engine/cards.cdb` is the exact deployed duel-host bundle (compare its manifest/bundle version with the duel container); mount that deployed directory read-only if it is not visible to the bot. Do not prepare, update or replace engine data for this operation. Pause other catalog sync/backfill jobs and choose a quiet window; run only one backfill.
+2. Create a fresh writable operation directory, for example `/app/data/artwork-backfill-YYYYMMDD`. Take an online SQLite backup with `better-sqlite3`’s `backup()` API (or the existing WAL-aware backup tooling), and retain it outside the live database path. Do **not** copy just `bot.sqlite` while writers are active: committed rows may still be in its WAL. Example inside the bot container, after choosing the operation directory:
+
+   ```js
+   // node --input-type=module (Node 22)
+   import Database from "better-sqlite3";
+   const db = new Database("/app/data/bot.sqlite", { readonly: true, fileMustExist: true });
+   try { await db.backup("/app/data/artwork-backfill-YYYYMMDD/before.sqlite"); }
+   finally { db.close(); }
+   ```
+
+3. Run the dry run first, inside the bot container from `/app`. Set a core-file limit (`prlimit --core=1:1`, or `ulimit -c 1` in the container shell if `prlimit` is unavailable). Use explicit paths:
+
+   ```bash
+   DUEL_DATA_DIR=/app/data/duel-engine prlimit --core=1:1 \
+     node packages/shared/dist/maintenance/backfill-card-artworks.js \
+     --database /app/data/bot.sqlite \
+     --dump /app/data/artwork-backfill-YYYYMMDD/cardinfo.json \
+     --state /app/data/artwork-backfill-YYYYMMDD/state.json --dry-run
+   ```
+
+   Record the report, review `wouldSync` and `unmatched`, and stop if there is a missing-engine warning or an unexpected candidate count. Preserve the dump. With owner go still in effect, repeat the identical command without `--dry-run` to apply.
+4. Each family is upserted in a short SQLite transaction; no write transaction spans the download or the whole backfill. The existing database journal mode is retained, foreign keys are enabled, and lock waits are bounded to five seconds. Normal WAL readers can continue. Stop on lock errors or unexpected warnings and investigate; rerun with the same database/dump/state to resume after the last committed checkpoint. Do not loop retries or remove the live WAL/SHM files.
+5. Verify with a read-only connection: `PRAGMA quick_check` must report `ok`; `PRAGMA foreign_key_check` must return no violations. Record `select source, count(*) from card_artworks group by source`; spot-check family membership and one main per family with `select card_id from card_artworks group by card_id having sum(is_main) != 1`. Run the same CLI with `--dry-run` again: `wouldSync` should be zero for the completed checkpoint; review remaining `unmatched` IDs. Check known main/alternate cards through authenticated artwork and card-details endpoints and confirm deck/cube passcodes remain selected. Retain the backup, dump, state, bundle version and reports together. If rollback is necessary, coordinate an owner-approved maintenance window and restore through the normal SQLite restore procedure; do not overwrite a database with active writers.
+
+Review note L4 (for later PR text): draft tournaments now receive the host pool check at series start because `duel-host.ts` sends `draftId`; no additional L4 code change was needed.

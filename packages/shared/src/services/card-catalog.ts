@@ -435,19 +435,21 @@ export function createCardCatalogService(
 
   return {
     /** One full API dump, one transaction per existing family; callback runs only after commit. */
-    async backfillExistingArtworks(options: { afterId?: number; onProgress?: (id: number) => void } = {}) {
+    async backfillExistingArtworks(options: { afterId?: number; dryRun?: boolean; onProgress?: (id: number) => void } = {}) {
       const rows = db.prepare("select ygoprodeck_id, name, type from card_catalog").all() as Array<{ ygoprodeck_id: number; name: string; type: string }>;
       const key = (card: { name: string; type: string }) => JSON.stringify([normalizeName(card.name), card.type]);
       const wanted = new Set(rows.map(key));
       const cards = (await fetchCardsWith({})).filter(card => wanted.has(key(card))).sort((a, b) => a.id - b.id);
       const matched = new Set(cards.map(key));
+      const unmatched = rows.filter(row => !matched.has(key(row))).map(row => row.ygoprodeck_id).sort((a, b) => a - b);
+      if (options.dryRun) return { synced: 0, wouldSync: cards.filter(card => card.id > (options.afterId ?? 0)).length, unmatched };
       let synced = 0;
       for (const card of cards) {
         if (card.id <= (options.afterId ?? 0)) continue;
         synced += upsertCards([card]).length;
         options.onProgress?.(card.id);
       }
-      return { synced, unmatched: rows.filter(row => !matched.has(key(row))).map(row => row.ygoprodeck_id).sort((a, b) => a - b) };
+      return { synced, unmatched };
     },
 
     async syncDraftPool(input: SyncDraftPoolInput) {
