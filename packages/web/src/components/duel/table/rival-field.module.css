@@ -19,15 +19,13 @@
   display: none;
 }
 
-/* Compact: the board stays in the tree (zone positions, hand, FX hooks) but is not drawn; chips take its place. */
-.seat[data-compact="true"] [data-seat-field] {
-  visibility: hidden;
-  pointer-events: none;
-}
-
-/* Regrouping after an elimination: the boards wait for the crumble (0.65 s), then glide for 1 s. */
+/*
+ * Regrouping after an elimination (a 3-way table, two seats left: the FINAL DUEL board). The 4-way finale timing
+ * (grid-finale.ts): the boards wait for the crumble (EXIT_CRUMBLE_MS 1.6 s) and the beat (FINALE_BEAT_MS 0.6 s), then
+ * glide for FINALE_GLIDE_MS (1.4 s) on FINALE_GLIDE_EASING.
+ */
 .seat[data-glide="true"] {
-  transition: transform 1s cubic-bezier(0.3, 0.7, 0.2, 1) 0.65s;
+  transition: transform 1.4s cubic-bezier(0.5, 0, 0.2, 1) 2.2s;
 }
 
 @keyframes glideIn {

@@ -660,6 +660,82 @@
 .clock > span[data-active="true"] { color: var(--duel-ink); }
 .clock > span[data-active="true"] .clockTime { color: var(--duel-ink); }
 
+/* ---------- floating HUD of the 1v1 room (table/hud-layer.tsx) ---------- */
+/* Scoped to `data-hud="room"`: the 4-way grid root also wears roomStyles.shell and sets its own `data-hud="true"`. */
+/* The header, the side panes and the footer give way to glass pills in the margins. The board keeps clear margins for
+   them: a strip above and a column at the left for the dock and the Deck Master plate. There is no bar below: the
+   turn controls and the prompt sit in the bottom-right corner (grid-hud.module.css .corner), right of the board. */
+.shell[data-hud="room"] {
+  /* The rival's hand (small backs, tucked) peeks above the field and the header pills end at 45px:
+     the strip is that 45px plus the peek, so no pill sits on those cards. The 3dvh slope tracks the peek,
+     which grows with the board. */
+  --hud-top: calc(36px + 3dvh);
+  /* Your hand is the last thing at the bottom, so the board's frame ends 5px above the screen edge. */
+  --hud-bottom: 5px;
+  --hud-left: 156px;
+  /* The corner stack is a little narrower than the gutter right of the board at 1280px. */
+  --hud-corner-w: 168px;
+  /* The Deck Master plate sits at the bottom of the left margin, as no bar is under it. */
+  --hud-master-bottom: 14px;
+}
+.shell[data-hud="room"] .layout {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-areas: "board";
+  background: none;
+}
+.shell[data-hud="room"] .boardColumn {
+  /* The board is height-bound and centered: about 1.06 screen heights wide. When the screen is too narrow for that
+     (narrow or nearly square screens), its bottom-right corner would go under the corner stack and hide your Deck
+     pile. The right padding grows just enough to keep the board left of the stack (up to the stack's width plus its
+     gaps, where the board starts to get narrower). It never leaves the board less than 660px: below 641px the field
+     changes to its phone layout. On wide screens the term is negative and the minimum applies. */
+  --hud-right-need: calc(520px + 105.6dvh - 100vw);
+  --hud-right-max: min(calc(var(--hud-corner-w) + 28px), calc(100vw - var(--hud-left) - 660px));
+  padding: var(--hud-top) clamp(14px, var(--hud-right-need), var(--hud-right-max)) var(--hud-bottom) var(--hud-left);
+  border-left: 0;
+}
+/* Narrow desktops: the board is centered, so its right side would reach the Deck Master plate and the corner stack
+   there. A little more room at the right moves the board left (the board is height-bound, so it keeps its size). */
+@media (max-width: 1320px) {
+  .shell[data-hud="room"] .boardColumn { padding-right: clamp(60px, var(--hud-right-need), var(--hud-right-max)); }
+}
+/* The shell already paints the ground and the lamp glows over the whole screen; the field's own copy would end at the
+   padded box as a visible edge. */
+.shell[data-hud="room"] [data-duel-field="true"] { background: none; }
+/* The turn light fills the whole screen edge to edge for the same reason, not just the padded field box. */
+.shell[data-hud="room"] [data-turn-glow] {
+  left: calc(-1 * var(--hud-left));
+  right: -14px;
+}
+.shell[data-hud="room"] [data-turn-glow][data-side="top"] {
+  top: calc(-1 * var(--hud-top));
+  height: calc(50% + var(--hud-top));
+}
+.shell[data-hud="room"] [data-turn-glow][data-side="bottom"] {
+  bottom: calc(-1 * var(--hud-bottom));
+  height: calc(50% + var(--hud-bottom));
+}
+/* A prompt for you opens at the right, in the corner column right above the turn controls (the column is
+   `.corner` in grid-hud.module.css, found by its data attribute because that class name is hashed in another
+   module). The column takes no clicks, so the dock turns them back on. The dock is at least as wide as the column
+   and grows to the left for a long list. The selector is as strong as the narrow-screen rules below, which would
+   pin the dock to the screen's bottom. */
+.shell[data-hud="room"][data-fit="true"] [data-hud-corner] > .promptDock[data-mode="float"],
+.shell[data-hud="room"][data-fit="true"] [data-hud-corner] > .promptDock[data-mode="flow"] {
+  position: relative;
+  grid-area: auto;
+  inset: auto;
+  z-index: auto;
+  width: max-content;
+  min-width: 100%;
+  max-width: min(380px, 34vw);
+  margin: 0;
+  border-radius: 8px;
+  pointer-events: auto;
+}
+.shell[data-hud="room"] .notices { top: var(--hud-top); }
+
 /* ============================================================
    Narrow screens: one board column, tab bar at the bottom,
    inspector and Deck Masters open in a sheet.

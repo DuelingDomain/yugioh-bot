@@ -133,3 +133,26 @@
     padding: 0 6px;
   }
 }
+
+/* The compact corner stack (the 1v1 room) is about 170px wide: the label sits above the switch and the three segments
+   share the row. */
+:global([data-compact="true"]) .root {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+:global([data-compact="true"]) .label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+:global([data-compact="true"]) .seg {
+  display: flex;
+}
+:global([data-compact="true"]) .option {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0 4px;
+  font-size: 13px;
+}

@@ -8,7 +8,7 @@ vi.mock("next/font/google", () => {
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
 });
 
-import { HoloLp, formatClock, holoStatus, type HoloLpProps } from "@/components/duel/table/holo-lp";
+import { COMPACT_FIT, HoloLp, formatClock, holoStatus, type HoloLpProps } from "@/components/duel/table/holo-lp";
 import { RivalField, seatTransform } from "@/components/duel/table/rival-field";
 import type { SeatPose } from "@/components/duel/table/types";
 
@@ -87,6 +87,28 @@ describe("HoloLp", () => {
   it("is not a button when it is not legal", () => {
     const { container } = render(<HoloLp {...holo()} />);
     expect(container.querySelector("button")).toBeNull();
+  });
+});
+
+describe("HoloLp fit in a small grid box", () => {
+  it("scales the contents by the fit and drops the counts row and the clock under the compact limit", () => {
+    const { container, rerender } = render(<HoloLp {...holo({ fit: 1, lastDamage: 1200, lp: 6800 })} />);
+    const panel = container.querySelector("[data-holo]") as HTMLElement;
+    expect(panel.getAttribute("data-compact")).toBeNull();
+    expect(panel.style.getPropertyValue("--lpk")).toBe("1.000");
+    rerender(<HoloLp {...holo({ fit: COMPACT_FIT, lastDamage: 1200, lp: 6800 })} />);
+    expect(panel.getAttribute("data-compact")).toBeNull();
+    rerender(<HoloLp {...holo({ fit: 0.45, lastDamage: 1200, lp: 6800 })} />);
+    expect(panel.getAttribute("data-compact")).toBe("true");
+    expect(panel.style.getPropertyValue("--lpk")).toBe("0.450");
+    // the name, the numerals and the damage chip stay
+    expect(panel.querySelector("[data-lp-value]")).not.toBeNull();
+    expect(panel.querySelector("[data-damage-chip]")).not.toBeNull();
+  });
+
+  it("is never compact without a fit (the free-floating panel)", () => {
+    const { container } = render(<HoloLp {...holo()} />);
+    expect(container.querySelector("[data-holo]")?.getAttribute("data-compact")).toBeNull();
   });
 });
 

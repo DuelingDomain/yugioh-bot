@@ -74,7 +74,7 @@ import { buildPanelView, buildStripView, chainOutcomes, rememberTargetNames, typ
 import { ChainPanel, ChainStrip } from "./chain-panel";
 import { CHAIN_PANEL_TIMING } from "./duel-timing";
 import panelStyles from "./chain-panel.module.css";
-import { chainBeatAt, chainBeatsEndAt, planChainBeats, resetChainBeats } from "./chain-beats";
+import { chainBeatAt, chainBeatsEndAt, chainPromptHoldEndAt, planChainBeats, resetChainBeats } from "./chain-beats";
 import { findFlipSequences } from "./flip-sequence";
 import { holdPromptReveal } from "./prompt-reveal";
 import { PriorityChips, type PrioritySlot } from "./priority-chips";
@@ -203,7 +203,8 @@ export function useChainPlayback(
       planChainBeats(fresh, { now: clock(), reduced: latest.current.reducedMotion, duelKey });
       queueRef.current.push(...chainEvents);
       // The question after a chain waits until the chain has been played to its end.
-      if (chainEvents.some((event) => event.kind === "chain-resolving")) holdPromptReveal(chainBeatsEndAt() - clock());
+      // A link that stops mid-resolution for a question holds it only until its effect may start (chainPromptHoldEndAt).
+      if (chainEvents.some((event) => event.kind === "chain-resolving")) holdPromptReveal(chainPromptHoldEndAt(latest.current.reducedMotion) - clock());
     }
     pump();
   }, [events, snapshot, duelKey, commit, pump]);

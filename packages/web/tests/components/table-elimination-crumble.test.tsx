@@ -13,6 +13,7 @@ import { FFA4_FIXTURES } from "@/components/duel/table/fixtures/ffa4";
 import type { TableFixtureState } from "@/components/duel/table/fixtures/common";
 import { useFixtureController } from "@/components/duel/table/fixtures/use-fixture-controller";
 import { TableShell } from "@/components/duel/table/table-shell";
+import { GLIDE_MS } from "@/components/duel/table/use-seat-exits";
 
 beforeAll(() => {
   class RO {
@@ -90,7 +91,7 @@ describe("the elimination crumble on a 4-way table", () => {
     settle(2000);
     expect(crumbles(container)).toBe(0);
     expect(places(container, [0, 1])).toEqual({ 0: before[0], 1: before[1] });
-  }, 20_000); // three full table renders; slow on the shared CI runners
+  });
 
   it("keeps the panels of the seats that left, and notes them in the log with a place", () => {
     const { container, rerender } = render(<Shell state={main} />);
@@ -151,7 +152,7 @@ describe("the elimination crumble on a 3-way table", () => {
     expect(after[1]!.transform).not.toEqual(after[0]!.transform);
     expect(container.querySelector("[data-seat-slot='1']")?.getAttribute("data-glide")).toBe("true");
     expect(container.querySelector("[data-plaza]")?.getAttribute("data-glide")).toBe("true");
-    settle(2000);
+    settle(GLIDE_MS + 200);
     expect(crumbles(container)).toBe(0);
     expect(container.querySelector("[data-seat-slot='1']")?.hasAttribute("data-glide")).toBe(false);
     expect(places(container, [0, 1])).toEqual(after);
@@ -346,5 +347,36 @@ describe("the camera keys in a 3-way face-off", () => {
     expect(mode(container)).toBe("home");
     settle(6000);
     expect(mode(container)).toBe("home");
+  });
+});
+
+describe("the crumble in the stage and side layout", () => {
+  const main = FFA4_FIXTURES.states.main;
+  const spot = (container: HTMLElement, seat: number, attr: "data-seat-slot" | "data-seat-exit") => {
+    const node = container.querySelector<HTMLElement>(`[${attr}='${seat}']`);
+    return node ? { left: node.style.left, top: node.style.top, rotate: node.style.rotate, transform: node.style.transform, z: node.style.getPropertyValue("--sf-z") } : null;
+  };
+
+  it("draws the crumble in the cell of the field it replaces, turned like it and cut below the shared row, and no field moves", () => {
+    const { container, rerender } = render(<Shell state={main} />);
+    const others = [0, 1].map((seat) => spot(container, seat, "data-seat-slot"));
+    rerender(<Shell state={withOut(main, [2])} />);
+    expect(spot(container, 2, "data-seat-slot")).toBeNull();
+    const exit = container.querySelector<HTMLElement>("[data-seat-exit='2']")!;
+    expect(exit.closest("[data-grid-cell='2']")).not.toBeNull();
+    expect(exit.style.transform).toContain("rotate(180deg)");
+    expect(exit.style.clipPath).toMatch(/^inset\(/);
+    expect([0, 1].map((seat) => spot(container, seat, "data-seat-slot"))).toEqual(others);
+    settle(2000);
+    expect(crumbles(container)).toBe(0);
+  });
+
+  it("gives the shared Extra Monster row to the partner while the crumble plays", () => {
+    const { container, rerender } = render(<Shell state={main} />);
+    const emz = (seat: number) => container.querySelector(`[data-seat-slot='${seat}'] [data-seat-field]`)?.getAttribute("data-emz");
+    expect(emz(3)).toBe("pair");
+    rerender(<Shell state={withOut(main, [3])} />);
+    expect(crumbles(container)).toBe(1);
+    expect(emz(2)).toBe("pair");
   });
 });

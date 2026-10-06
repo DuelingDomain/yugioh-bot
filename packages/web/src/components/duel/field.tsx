@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties } from "react";
 import type { DuelCard, DuelCardInfo, DuelEngineView, DuelMasterRule, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import { Check, LayoutGrid, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -110,7 +110,7 @@ export function masterCard(view: DuelSeatView): DuelCard | null {
   return findByCode(view, master.card.code);
 }
 
-function masterStatus(view: DuelSeatView): string {
+export function masterStatus(view: DuelSeatView): string {
   const master = view.deckMaster;
   if (!master) return "No Deck Master";
   if (master.inZone) return "In Deck Master Zone";
@@ -122,7 +122,7 @@ function masterStatus(view: DuelSeatView): string {
 }
 
 /** Two short lines for a dock: "DARK · Level 7" and "Spellcaster". */
-function masterDetailLines(card: DuelCardInfo): string[] {
+export function masterDetailLines(card: DuelCardInfo): string[] {
   const [first, second] = cardDetailsText(card).split(" · ");
   const rank = second != null ? first : "";
   const identity = second ?? first ?? "";
@@ -1005,7 +1005,7 @@ export function DuelField(props: DuelFieldProps) {
  * `data-side` (`you` or `opp`), `data-seat-angle` (the effective angle). The LP tally only renders with
  * `showTally`; a holo LP panel owns `data-lp-seat` otherwise.
  */
-export function SeatField({
+export const SeatField = memo(function SeatField({
   engine,
   seat,
   viewerSeat,
@@ -1018,6 +1018,7 @@ export function SeatField({
   density,
   hand,
   emz,
+  pair,
   showTally,
   usable,
   legalKeys,
@@ -1045,7 +1046,9 @@ export function SeatField({
     "--t": hexToRgbTriplet(toneHex.main),
     "--tink": toneHex.ink,
     "--lab": `${labelTurnDeg(angle, upright)}deg`,
-    "--ts": textScale(scale ?? 1).toFixed(2),
+    // Without a scale the wrapper owns the text scale (--sf-ts): the 4-way grid sizes its fields from outside, and a
+    // size change must not draw the whole field again.
+    ...(scale != null ? { "--ts": textScale(scale).toFixed(2) } : {}),
   };
   const emzSlot = (column: "left" | "right") => {
     const sequence = (column === "left") === (emz !== "shared-top") ? 5 : 6;
@@ -1064,6 +1067,28 @@ export function SeatField({
         flip={straight}
         onActivate={onActivate}
         onHoverCard={onHoverCard}
+      />
+    );
+  };
+  // A facing pair shares ONE row of two Extra Monster Zones, like the two sides of a 1v1 table (see table/grid-layout.ts):
+  // this seat is the "bottom" of it, the facing seat the "top". Left is this seat's seq 5 or the facing seat's seq 6.
+  const pairSlot = (column: "left" | "right") => {
+    const other = engine.seats.find((entry) => entry.seat === pair?.other);
+    const card = extraMonster(view, other, column);
+    const otherOff = other ? disabledZones(other) : null;
+    const offId = column === "left"
+      ? off.monsters[5] ? `${seat}-m-5` : otherOff?.monsters[6] ? `${other?.seat}-m-6` : undefined
+      : off.monsters[6] ? `${seat}-m-6` : otherOff?.monsters[5] ? `${other?.seat}-m-5` : undefined;
+    return (
+      <ZoneSlot
+        {...emzZoneProps(column, {
+          card,
+          keys: withExact(card, extraMonsterKeys(seat, pair?.other ?? seat, column)),
+          offId,
+          flip: card != null && (card.controller === seat ? straight : !straight),
+          callbacks,
+        })}
+        label={`Shared Extra monster zone, ${column}`}
       />
     );
   };
@@ -1088,6 +1113,9 @@ export function SeatField({
         data-battle={battle ? "true" : "false"}
         data-reduced-motion={reducedMotion ? "true" : "false"}
         data-master-rule={masterRule}
+        data-emz={emz === "pair" || emz === "none" ? emz : undefined}
+        data-joined={emz === "pair" && pair?.joined ? "true" : undefined}
+        data-framed={pair?.framed ? "true" : undefined}
         style={vars}
       >
         <div className={styles.sfMat}>
@@ -1095,7 +1123,12 @@ export function SeatField({
           <div className={styles.sfGrid}>
             <PileColumn view={view} opponent={false} flip={straight} side="left" callbacks={callbacks} ownerLabel={owner} masterRule={masterRule} />
             <div className={styles.sfEmz}>
-              {masterRule >= 4 ? (
+              {masterRule >= 4 && emz === "pair" ? (
+                <div className={styles.emzPair} style={{ "--pl": pair?.left ?? 0, "--pr": pair?.right ?? 0, "--pg": pair?.gap ?? 0.06 } as CssVars}>
+                  {pairSlot("left")}
+                  {pairSlot("right")}
+                </div>
+              ) : masterRule >= 4 && emz !== "none" ? (
                 <div className={styles.emzRow}>
                   <div />
                   {emzSlot("left")}
@@ -1138,7 +1171,7 @@ export function SeatField({
       </div>
     </EquipLinksContext.Provider>
   );
-}
+});
 
 export function MasterDock({
   title,

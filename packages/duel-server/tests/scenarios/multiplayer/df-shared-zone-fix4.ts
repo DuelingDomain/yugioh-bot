@@ -27,7 +27,7 @@ function cases(mode: "standard" | "domain"): Scenario[] {
     board[caller] = { ...board[caller], monsters: [ELF], spells: [haunted], zones: { m0: ELF, s0: haunted } };
     return scenario(`crooked-crown-${caller}-summon-zone`, { p0: { spells: [null, CROWN], hand: [MUSKET] }, [caller]: { spells: [{ card: haunted, pos: "set" }], grave: [ELF] } }, [
       activate(CROWN, "p0"), pass(caller), zone("p0", "m1", "p0"), pickOpponent(caller, "p0"), activate(haunted, caller),
-      expectPickOptions([0, 1, 2, 3, 4].filter(i => caller !== "p2" || i !== 3).map(i => ({ seat: caller, label: `Monster Zone ${i + 1}` })), caller),
+      expectPickOptions([0, 1, 2, 3, 4].filter(i => caller !== "p1" || i !== 3).map(i => ({ seat: caller, label: `Monster Zone ${i + 1}` })), caller),
       zone(caller, "m0", caller), expectPrompt({ by: "p0", context: "action" }), everySeat("ffa4", board),
     ]);
   }
@@ -35,23 +35,23 @@ function cases(mode: "standard" | "domain"): Scenario[] {
     const board = state();
     if (side) {
       board.p0 = { ...board.p0, hand: [LOW, ...opening], spells: [SCUFFLE] };
-      board.p1 = { ...board.p1, hand: [LOW] };
-      board.p2 = { ...board.p2, monsters: Array(5).fill(ELF), hand: [LOW] };
-      return scenario("small-scuffle-side-zones-cannot-supply-column", { p0: { spells: [{ card: SCUFFLE, pos: "set" }], hand: [LOW] }, p1: { hand: [LOW] }, p2: { monsters: Array(5).fill(ELF), hand: [LOW] } }, [expectNotOffered("activate", SCUFFLE, "p0"), everySeat("ffa4", board)]);
+      board.p2 = { ...board.p2, hand: [LOW] };
+      board.p1 = { ...board.p1, monsters: Array(5).fill(ELF), hand: [LOW] };
+      return scenario("small-scuffle-side-zones-cannot-supply-column", { p0: { spells: [{ card: SCUFFLE, pos: "set" }], hand: [LOW] }, p2: { hand: [LOW] }, p1: { monsters: Array(5).fill(ELF), hand: [LOW] } }, [expectNotOffered("activate", SCUFFLE, "p0"), everySeat("ffa4", board)]);
     }
     board.p0 = { ...board.p0, hand: opening, monsters: [LOW], spells: [], grave: fromHand ? [SCUFFLE, "Dark Hole", "Makyura the Destructor"] : [SCUFFLE], zones: { m1: LOW } };
-    board.p1 = { ...board.p1, hand: [LOW] };
-    board.p2 = { ...board.p2, monsters: [LOW], zones: { m3: LOW } };
+    board.p2 = { ...board.p2, hand: [LOW] };
+    board.p1 = { ...board.p1, monsters: [LOW], zones: { m3: LOW } };
     board.p3 = { ...board.p3, hand: [LOW] };
-    if (removed) board.p1 = { ...board.p1, grave: ["Mystical Space Typhoon"] };
-    return scenario(`small-scuffle-across-${removed ? "removed-trap-" : fromHand ? "hand-trap-" : ""}summon-column`, { p0: fromHand ? { monsters: ["Makyura the Destructor"], hand: ["Dark Hole", SCUFFLE, LOW] } : { spells: [{ card: SCUFFLE, pos: "set" }], hand: [LOW] }, p1: { hand: [LOW], ...(removed ? { spells: [{ card: "Mystical Space Typhoon", pos: "set" as const }] } : {}) }, p2: { hand: [LOW] }, p3: { hand: [LOW] } }, [
-      ...(fromHand ? [activate("Dark Hole", "p0"), zone("p0", "s0", "p0"), yes("p0")] : []), activate(SCUFFLE, "p0"), ...(fromHand ? [zone("p0", "s0", "p0")] : []), zone("p0", "m1", "p0"), ...(removed ? [activate("Mystical Space Typhoon", "p1")] : []), position("atk", "p0"), yes("p2"), position("atk", "p2"),
+    if (removed) board.p2 = { ...board.p2, grave: ["Mystical Space Typhoon"] };
+    return scenario(`small-scuffle-across-${removed ? "removed-trap-" : fromHand ? "hand-trap-" : ""}summon-column`, { p0: fromHand ? { monsters: ["Makyura the Destructor"], hand: ["Dark Hole", SCUFFLE, LOW] } : { spells: [{ card: SCUFFLE, pos: "set" }], hand: [LOW] }, p2: { hand: [LOW], ...(removed ? { spells: [{ card: "Mystical Space Typhoon", pos: "set" as const }] } : {}) }, p1: { hand: [LOW] }, p3: { hand: [LOW] } }, [
+      ...(fromHand ? [activate("Dark Hole", "p0"), zone("p0", "s0", "p0"), yes("p0")] : []), activate(SCUFFLE, "p0"), ...(fromHand ? [zone("p0", "s0", "p0")] : []), zone("p0", "m1", "p0"), ...(removed ? [activate("Mystical Space Typhoon", "p2")] : []), position("atk", "p0"), yes("p1"), position("atk", "p1"),
       expectPrompt({ by: "p0", context: "action" }), everySeat("ffa4", board),
     ]);
   }
   function paranoia(caller: "p1" | "p2"): Scenario {
     const twisters = "Twin Twisters", raigeki = "Raigeki", board = state(caller);
-    board.p0 = { ...board.p0, monsters: caller === "p2" ? [PARANOIA] : [], grave: caller === "p1" ? [PARANOIA] : [], zones: { m1: caller === "p2" ? { card: PARANOIA, attack: 4000 } : null } };
+    board.p0 = { ...board.p0, monsters: caller === "p1" ? [PARANOIA] : [], grave: caller === "p2" ? [PARANOIA] : [], zones: { m1: caller === "p1" ? { card: PARANOIA, attack: 4000 } : null } };
     board.p1 = { ...board.p1, hand: [], grave: [twisters, ELF, ...(caller === "p1" ? [raigeki] : [])] };
     board[caller] = { ...board[caller], hand: caller === "p1" ? [] : [ELF], grave: caller === "p1" ? [twisters, ELF, raigeki] : [raigeki] };
     return scenario(`distrust-paranoia-${caller}-immune-value`, { p0: { spells: [null, { card: PARANOIA, pos: "set" }] }, p1: { hand: [twisters, ...(caller === "p1" ? [raigeki] : [])] }, ...(caller === "p2" ? { p2: { hand: [raigeki] } } : {}) }, [

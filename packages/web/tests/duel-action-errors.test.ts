@@ -8,7 +8,7 @@ describe("duelActionErrorText", () => {
   it("maps an unsupported-core surrender 409 to a short notice", () => {
     const err = new DuelRequestError("This engine cannot eliminate a surrendering duelist", 409);
     expect(duelActionErrorText(err)).toBe(SURRENDER_UNSUPPORTED_NOTICE);
-    expect(SURRENDER_UNSUPPORTED_NOTICE).toBe("This duel can't accept a surrender right now.");
+    expect(SURRENDER_UNSUPPORTED_NOTICE).toBe("This server's duel engine is out of date and can't accept a surrender. The creator can cancel the duel.");
   });
 
   it("maps a stale-choice 409 to a short notice", () => {

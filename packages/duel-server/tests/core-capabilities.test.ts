@@ -15,23 +15,28 @@ function data(source?: string) {
 }
 
 describe("loaded core capabilities", () => {
-  it("enables C6 only with an explicit flag and the loaded core hash", () => {
-    expect(readCoreCapabilities(data(`sha256=${sha}\ncapabilities=ffa4-shared-extra-zones\n`), "ocgcore.multi.wasm", sha))
+  it("enables facing shared zones only with an explicit flag and the loaded core hash", () => {
+    expect(readCoreCapabilities(data(`sha256=${sha}\ncapabilities=ffa4-facing-extra-zones\n`), "ocgcore.multi.wasm", sha))
       .toEqual({ ffa4SharedExtraZones: true });
   });
   it.each([
     undefined,
     `tag=C6\nsha256=${sha}\n`,
-    `sha256=${sha}\ncapabilities=not-ffa4-shared-extra-zones\n`,
-    "sha256=wrong\ncapabilities=ffa4-shared-extra-zones\n",
-    "capabilities=ffa4-shared-extra-zones\n",
+    `sha256=${sha}\ncapabilities=not-ffa4-facing-extra-zones\n`,
+    "sha256=wrong\ncapabilities=ffa4-facing-extra-zones\n",
+    "capabilities=ffa4-facing-extra-zones\n",
   ])("keeps separate zones with absent, stale or unmarked metadata (%s)", (source) => {
     expect(readCoreCapabilities(data(source), "ocgcore.multi.wasm", sha)).toEqual({ ffa4SharedExtraZones: false });
   });
+  it.each(["ocgcore.multi.wasm", "ocgcore.multi-domain.wasm"])("rejects the old 0/2 capability for %s even with a matching hash", (wasm) => {
+    const directory = data();
+    writeFileSync(join(directory, wasm.replace(/\.wasm$/, ".SOURCE")), `sha256=${sha}\ncapabilities=ffa4-shared-extra-zones\n`);
+    expect(readCoreCapabilities(directory, wasm, sha)).toEqual({ ffa4SharedExtraZones: false });
+  });
   it("checks Standard and Domain metadata separately", () => {
-    const directory = data(`sha256=${sha}\ncapabilities=ffa4-shared-extra-zones\n`);
+    const directory = data(`sha256=${sha}\ncapabilities=ffa4-facing-extra-zones\n`);
     expect(readCoreCapabilities(directory, "ocgcore.multi-domain.wasm", sha)).toEqual({ ffa4SharedExtraZones: false });
-    writeFileSync(join(directory, "ocgcore.multi-domain.SOURCE"), `sha256=${sha}\ncapabilities=other,ffa4-shared-extra-zones\n`);
+    writeFileSync(join(directory, "ocgcore.multi-domain.SOURCE"), `sha256=${sha}\ncapabilities=other,ffa4-facing-extra-zones\n`);
     expect(readCoreCapabilities(directory, "ocgcore.multi-domain.wasm", sha)).toEqual({ ffa4SharedExtraZones: true });
   });
 });

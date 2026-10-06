@@ -5,7 +5,6 @@ import {
   aliveLayout,
   arrangementOf,
   boardBounds,
-  compactFor,
   flyWorld,
   flyYawFor,
   holoAnchor,
@@ -17,6 +16,8 @@ import {
   ringPose,
   seatNormal,
   seatObstacles,
+  duoFinaleSlots,
+  SEAT_BOX_FULL_DEF,
   seatPoses,
   stageFit,
   stageSpread,
@@ -366,23 +367,6 @@ describe("4-way camera places", () => {
   });
 });
 
-describe("compactFor", () => {
-  const unit = (scale: number) => ({ scale, slot: "dockL" as const });
-  it("goes compact below 44 px of rival card height, or 40 px under 1440 px of window", () => {
-    // card height = 112 * scale * stage scale
-    expect(compactFor(unit(0.5), 0.75, 1600)).toBe(true); // 42
-    expect(compactFor(unit(0.5), 0.8, 1600)).toBe(false); // 44.8
-    expect(compactFor(unit(0.5), 0.75, 1280)).toBe(false); // 42 >= 40
-    expect(compactFor(unit(0.5), 0.7, 1280)).toBe(true); // 39.2
-  });
-  it("never compacts your own place; 'on' compacts every other place, 'off' none", () => {
-    expect(compactFor({ scale: 1, slot: "home" }, 0.1, 1200)).toBe(false);
-    expect(compactFor({ scale: 0.52, slot: "oHome" }, 0.1, 1200)).toBe(false);
-    expect(compactFor(unit(0.92), 1, 1600, "on")).toBe(true);
-    expect(compactFor(unit(0.5), 0.3, 1200, "off")).toBe(false);
-  });
-});
-
 describe("aliveLayout", () => {
   it("gives the same layout back when nothing is out", () => {
     const three = tableLayout("ffa3", engine("ffa3", 3), 0);
@@ -547,7 +531,8 @@ describe("hubPose", () => {
     );
   });
 
-  // The face-off (a 3-way table with two seats left) has no wide plates or wide hub: it keeps the classic poses, plates and strip place.
+  // The face-off (a 3-way table with two seats left). A box with room for the wide fields shows the FINAL DUEL board (duoFinaleSlots):
+  // wide fields face to face, docked plates, the ring at the left. A narrower box keeps the classic poses, plates and strip place.
   // Its boards, plates and the strip must stay clear of each other at every table box (the stage is sized from the same box as 3-way).
   describe.each(boxes)("face-off, %s", (_boxLabel, rawBox) => {
     const area = rawBox ? fitOf(rawBox) : undefined;
@@ -559,8 +544,10 @@ describe("hubPose", () => {
       const at = hubPose(duo, view, area ? { box: area, meFooter: true } : undefined);
       const spread = area ? stageSpread(area) : 0;
       const wide = area ? wideHoloAnchors(duo, view, poses, spread, true, { hint: { width: 250 / stageFit(area), height: 40 / stageFit(area) } }) : null;
-      // The duo is not a wide arrangement: the plates are the classic ones.
-      expect(wide).toBeNull();
+      // Only the FINAL DUEL board docks its plates; a narrow face-off keeps the classic ones.
+      const finale = duoFinaleSlots(spread) != null;
+      expect(wide != null).toBe(finale);
+      for (const pose of poses.values()) expect(pose.width).toBe(finale ? SEAT_BOX_FULL_DEF : undefined);
       const card = box(at.x, at.y, at.width, at.height);
       duo.slots.forEach((slot, place) => {
         const pose = poses.get(slot.seat)!;
@@ -568,16 +555,30 @@ describe("hubPose", () => {
         for (const rect of seatObstacles(pose, place === 0)) {
           expect(overlaps(card, box(rect.x, rect.y, rect.width + 10, rect.height + 10, rect.rotateDeg))).toBe(false);
         }
-        const plate = holoObstacle(holoAnchor(duo, slot.seat, view));
+        const plate = holoObstacle(wide?.get(slot.seat) ?? holoAnchor(duo, slot.seat, view));
         expect(overlaps(card, box(plate.x, plate.y, plate.width + 16, plate.height + 16))).toBe(false);
+        // The plates stay off both boards.
+        if (wide) {
+          for (const other of poses.values()) {
+            for (const rect of seatObstacles(other, other.slot === "home")) expect(overlaps(box(plate.x, plate.y, plate.width, plate.height), box(rect.x, rect.y, rect.width, rect.height, rect.rotateDeg))).toBe(false);
+          }
+        }
       });
-      const ring = ringPose(duo, view);
+      const ring = ringPose(duo, view, spread);
+      if (finale) {
+        // The ring stands off both fields.
+        for (const pose of poses.values()) {
+          for (const rect of seatObstacles(pose, pose.slot === "home")) expect(overlaps(box(ring.x, ring.y + 7, 124, 138), box(rect.x, rect.y, rect.width, rect.height, rect.rotateDeg))).toBe(false);
+        }
+      }
       const dx = Math.max(Math.abs(at.x - ring.x) - at.width / 2, 0);
       const dy = Math.max(Math.abs(at.y - ring.y) - at.height / 2, 0);
       expect(Math.hypot(dx, dy)).toBeGreaterThan(62 * ring.scale);
       expect(overlaps(card, box(ARENA_SIGN.x + ARENA_SIGN.width / 2, ARENA_SIGN.y + ARENA_SIGN.height / 2, ARENA_SIGN.width, ARENA_SIGN.height))).toBe(false);
-      expect(at.x - at.width / 2).toBeGreaterThanOrEqual(0);
-      expect(at.x + at.width / 2).toBeLessThanOrEqual(1100);
+      // Inside the visible stage: the 1100 px stage, plus the spread at each side on the FINAL DUEL board.
+      const side = finale ? spread : 0;
+      expect(at.x - at.width / 2).toBeGreaterThanOrEqual(-side);
+      expect(at.x + at.width / 2).toBeLessThanOrEqual(1100 + side);
       expect(at.y + at.height / 2).toBeLessThanOrEqual(860);
     });
   });

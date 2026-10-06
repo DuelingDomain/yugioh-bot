@@ -15,7 +15,6 @@ import { FFA3_FIXTURES } from "@/components/duel/table/fixtures/ffa3";
 import { FFA4_FIXTURES } from "@/components/duel/table/fixtures/ffa4";
 import type { TableFixtureState } from "@/components/duel/table/fixtures/common";
 import { useFixtureController } from "@/components/duel/table/fixtures/use-fixture-controller";
-import { CompactChips } from "@/components/duel/table/compact-chips";
 import { TableShell } from "@/components/duel/table/table-shell";
 import { TAG_FIXTURES, TAG_TEAM_NAMES } from "@/components/duel/tag/fixtures";
 import { TagShell } from "@/components/duel/tag/tag-shell";
@@ -89,26 +88,4 @@ describe("the shells freeze flight sources before a batch commits", () => {
       expect(resolveSource({ ...from(0) }, events[1].id)?.rect.left).toBe(600);
     },
   );
-});
-
-describe("compact rival chips as a flight source", () => {
-  it("lets a rival's hand cards leave from the hand count of the chips", () => {
-    const engine = FFA4_FIXTURES.states.main.room.engine!;
-    const rival = engine.seats.find((view) => view.hand.length >= 2 && view.seat !== FFA4_FIXTURES.states.main.room.mySeat)!;
-    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
-      return this.tagName === "SMALL" ? rect(40, 60, 30, 14) : rect(0, 0, 200, 150);
-    });
-    const view = render(
-      <CompactChips engine={engine} seat={rival.seat} tone="rose" name="Rival" rotateDeg={0} scale={0.4} usable={false}
-        legalKeys={new Set()} selectedKeys={new Set()} onActivate={() => {}} onInspect={() => {}} />,
-    );
-    captureZoneSnapshots(view.container);
-    for (let sequence = 0; sequence < rival.hand.length; sequence += 1) {
-      const snapshot = getZoneSnapshot({ controller: rival.seat, location: LOCATION_HAND, sequence });
-      expect(snapshot?.rect).toEqual({ left: 40, top: 60, width: 30, height: 14 });
-      expect(snapshot?.side).toBe("opp");
-    }
-    // A hand slot past the count has no source in the chips.
-    expect(getZoneSnapshot({ controller: rival.seat, location: LOCATION_HAND, sequence: rival.hand.length })).toBeNull();
-  });
 });

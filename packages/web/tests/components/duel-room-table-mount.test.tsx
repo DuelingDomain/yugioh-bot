@@ -30,6 +30,7 @@ import { TAG_FIXTURES } from "@/components/duel/tag/fixtures";
 import { makeSeries } from "../helpers/duel-series";
 import { duelWindowPath } from "@/components/duel/duel-window";
 import { EXIT_CRUMBLE_MS, EXIT_CRUMBLE_REDUCED_MS } from "@/components/duel/table/rival-field";
+import { DRAWER_STORAGE_KEY } from "@/components/duel/table/use-table-drawer";
 
 beforeAll(() => {
   class RO { constructor(private cb: () => void) {} observe() { this.cb(); } disconnect() {} }
@@ -45,7 +46,9 @@ beforeEach(() => {
   state.reportEnabled.mockResolvedValue(false);
   window.history.replaceState(null, "", "/duels/live");
 });
-afterEach(() => { cleanup(); vi.useRealTimers(); window.localStorage.removeItem("yugidraft.duelPreferences.v1"); window.name = ""; });
+afterEach(() => { cleanup(); vi.useRealTimers(); window.localStorage.removeItem("yugidraft.duelPreferences.v1"); window.localStorage.removeItem(DRAWER_STORAGE_KEY); window.name = ""; });
+/** Opens the Settings pane of the wide table from its rail button (the drawer starts closed). */
+function openSettings() { fireEvent.click(screen.getByRole("button", { name: "Settings" })); }
 function room(source: DuelRoom) {
   state.room = { ...source, session: { ...source.session, slug: "live" }, engine: { ...source.engine!, events: [],
     prompt: source.engine!.prompt ? { ...source.engine!.prompt, options: source.engine!.prompt.options.map((option) => ({ ...option })) } : null } };
@@ -280,7 +283,9 @@ describe("live room table mount", () => {
     });
   });
 
-  it("waits for the reveal gate before a material card can answer", async () => {
+  // A field pick is never held back by the reveal beat (field-gate.ts): its zones glow from the first frame, so the
+  // first click answers. A hidden panel prompt still blocks the field (next test).
+  it("takes a material card click during the reveal beat, exactly once", async () => {
     room(FFA3_FIXTURES.states.main.room);
     state.room!.engine!.prompt = { id: "materials", seat: 0, kind: "toggle", title: "Select Synchro Material",
       options: [{ id: "select:0", label: "Material", controller: 0, location: 4, sequence: 0 }] };
@@ -288,11 +293,21 @@ describe("live room table mount", () => {
     const view = mount();
     const card = view.container.querySelector("[data-zones='0:4:0']")!;
     await act(async () => { fireEvent.click(card.querySelector("button") ?? card); });
-    expect(state.send).not.toHaveBeenCalled();
-    state.revealed = true;
-    view.rerender(<DuelRoomView slug="live" windowed />);
+    expect(state.send).toHaveBeenCalledExactlyOnceWith("live", {
+      promptId: "materials", revision: state.room!.engine!.revision, answer: { choice: "select:0" },
+    });
+  });
+
+  it("waits for the reveal gate before a hidden panel prompt can answer from the field", async () => {
+    room(FFA3_FIXTURES.states.main.room);
+    state.room!.engine!.prompt = { id: "respond", seat: 0, kind: "choice", title: "Respond?", context: { type: "chain", forced: false }, cancelable: true,
+      options: [{ id: "activate", label: "Activate", controller: 0, location: 4, sequence: 0 }, { id: "pass", label: "Pass" }] } as NonNullable<DuelRoom["engine"]>["prompt"];
+    state.revealed = false;
+    const view = mount();
+    const card = view.container.querySelector("[data-zones='0:4:0']")!;
+    expect(card).toHaveAttribute("data-legal", "false");
     await act(async () => { fireEvent.click(card.querySelector("button") ?? card); });
-    expect(state.send).toHaveBeenCalledTimes(1);
+    expect(state.send).not.toHaveBeenCalled();
   });
 
   it.each(["error", "syncing", "recovering"] as const)("blocks actions during %s", async (gate) => {
@@ -551,7 +566,7 @@ describe("live room table mount", () => {
     state.room!.mySeat = null;
     const actorPlayerId = organizer ? state.room!.session.organizerPlayerId : state.room!.session.organizerPlayerId + 1;
     render(<DuelRoomView slug="live" spectate actorPlayerId={actorPlayerId} />);
-    fireEvent.click(screen.getByRole("tab", { name: "Settings" }));
+    openSettings();
     expect(screen.queryByRole("button", { name: "Archive table" }) != null).toBe(organizer);
   });
 
@@ -627,7 +642,7 @@ describe("live room table mount", () => {
     room(FFA3_FIXTURES.states.main.room);
     state.recovering = true;
     mount();
-    fireEvent.click(screen.getByRole("tab", { name: "Settings" }));
+    openSettings();
     const retry = screen.getByRole("button", { name: "Catch up now" });
     expect(retry).not.toBeDisabled();
     await act(async () => { fireEvent.click(retry); });

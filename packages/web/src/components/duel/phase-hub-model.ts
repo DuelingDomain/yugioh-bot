@@ -87,3 +87,31 @@ export function phaseStations(input: {
   }));
   return { current, stations, offered };
 }
+
+/** How the band hub fits the free cells of a narrow Extra Monster row (the 4-way grid; the 1v1 cells are wide enough). */
+export type BandHubFit = { mode: "row" | "stack"; chip: number };
+
+/** Chip height of the band in phase-hub.module.css: clamp(26px, z * 0.28, 38px). */
+const bandChip = (z: number) => Math.min(38, Math.max(26, z * 0.28));
+/** A pair side by side is 3.02 chips wide (two chips of 1.3 and a gap of 0.42); stacked it is 2.2 chips high. */
+const ROW_PAIR = 3.02;
+const STACK_PAIR = 2.2;
+/** The smallest chip a pair side by side may have; below it the pair stacks. */
+const ROW_MIN = 24;
+/** Room the owner line above the pair and the lit name under it take in the band (px). */
+const ROW_TEXT = 42;
+/** Air between a pair and the zone beside it, and above and below a stacked pair (px). */
+const AIR = 4;
+
+/**
+ * The chip size (px) and the form of the band hub for a cell of `cellWidth` px in a row `z` px high, so that a pair
+ * stays in its free cell and never lies over an Extra Monster Zone. "row" is the 1v1 form (a pair side by side, the
+ * owner above the left pair, the lit name under its pair); "stack" puts the two chips of a pair one over the other and
+ * drops the owner and the name (the top bar says them), for a cell too narrow for a pair side by side.
+ */
+export function bandHubFit(z: number, cellWidth: number): BandHubFit {
+  const row = Math.floor(Math.min(bandChip(z), (cellWidth - AIR) / ROW_PAIR, z - ROW_TEXT));
+  if (row >= ROW_MIN) return { mode: "row", chip: row };
+  const stack = Math.floor(Math.min(Math.min(30, Math.max(22, z * 0.3)), (z - AIR) / STACK_PAIR, (cellWidth - AIR) / 1.3));
+  return { mode: "stack", chip: Math.max(1, stack) };
+}

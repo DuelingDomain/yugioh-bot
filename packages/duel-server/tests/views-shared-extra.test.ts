@@ -36,7 +36,7 @@ describe.each<DuelMode>(["normal", "domain"])("%s shared EMZ seat view", (mode) 
   it.each(DUEL_FORMATS)("publishes each seat's sharedExtraWith in %s", (format) => {
     const view = project(format, mode, 0);
     expect(view.seats.map((seat) => seat.sharedExtraWith))
-      .toEqual(format === "ffa4" ? [2, 3, 0, 1] : Array(seatCountFor(format)).fill(format === "1v1" ? undefined : null));
+      .toEqual(format === "ffa4" ? [1, 0, 3, 2] : Array(seatCountFor(format)).fill(format === "1v1" ? undefined : null));
     expect(view.seats.map((seat) => seat.monsters[5]?.controller)).toEqual(Array.from({ length: seatCountFor(format) }, (_, seat) => seat));
   });
 
@@ -51,7 +51,7 @@ describe.each<DuelMode>(["normal", "domain"])("%s shared EMZ seat view", (mode) 
   it("publishes the same pairing for every player and spectators without sharing hidden cards", () => {
     for (const viewer of [0, 1, 2, 3, null]) {
       const view = project("ffa4", mode, viewer);
-      expect(view.seats.map((seat) => seat.sharedExtraWith)).toEqual([2, 3, 0, 1]);
+      expect(view.seats.map((seat) => seat.sharedExtraWith)).toEqual([1, 0, 3, 2]);
       expect(view.seats.map((seat) => seat.hand[0]?.code)).toEqual([0, 1, 2, 3].map((seat) => seat === viewer ? 200 + seat : undefined));
     }
   });
@@ -60,7 +60,7 @@ describe.each<DuelMode>(["normal", "domain"])("%s shared EMZ seat view", (mode) 
     for (const lost of [0, 1, 2, 3]) {
       const view = project("ffa4", mode, 0, new Set([lost]));
       expect(view.seats.map((seat) => seat.sharedExtraWith))
-        .toEqual([0, 1, 2, 3].map((seat) => seat === lost || seat === (lost + 2) % 4 ? null : (seat + 2) % 4));
+        .toEqual([0, 1, 2, 3].map((seat) => seat === lost || seat === (lost ^ 1) ? null : (seat ^ 1)));
       expect(view.seats[lost]).toMatchObject({ eliminated: true, sharedExtraWith: null, hand: [], deckCount: 0 });
       expect(view.seats[lost]!.monsters.every((card) => card === null)).toBe(true);
     }
@@ -68,7 +68,7 @@ describe.each<DuelMode>(["normal", "domain"])("%s shared EMZ seat view", (mode) 
 
   it("keeps the pair while an elimination waits for the core", () => {
     const view = project("ffa4", mode, 0, new Set(), new Set([2]));
-    expect(view.seats.map((seat) => seat.sharedExtraWith)).toEqual([2, 3, 0, 1]);
+    expect(view.seats.map((seat) => seat.sharedExtraWith)).toEqual([1, 0, 3, 2]);
     expect(view.seats[2]).toMatchObject({ pendingElimination: true, eliminated: false });
   });
 });

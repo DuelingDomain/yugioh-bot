@@ -215,6 +215,25 @@
   transition: box-shadow 0.7s cubic-bezier(0.65, 0, 0.35, 1);
 }
 
+/* Floating HUD room (1v1): the board is height-bound, so every pixel of chrome inside the frame is card. The
+   padding is trimmed and the opponent's hand backs are smaller (they peek less above the board). There is no
+   station track under the board here, so your hand sits in the bottom strip and only its top edge (about 0.08 zone
+   heights) reaches the front Spell/Trap row: the zones stay clickable. A lifted (legal) card, its glow and its nib
+   tag rise over that row instead of getting their own reserve, and the hover lift still raises the card to full
+   size. Phones keep the compact rules below. */
+@container (min-width: 641px) {
+  :global([data-hud="room"]) .playmat {
+    --py: 2px;
+    --gs: 1px;
+    --hpad: 2px;
+    --lk: 0.89;
+    --res-bot-px: 0px;
+    --lift-k: 0;
+    --mark-k: 0;
+    --ohk: 0.36;
+  }
+}
+
 .felt[data-battle="true"] .playmat {
   box-shadow:
     0 0 40px -12px rgb(217 141 82 / 0.3),
@@ -574,6 +593,28 @@
   .handLocal .handCard .zone[data-selected="true"]:has(:focus-visible) .frame {
     transform: translateY(calc(var(--lh) * -0.14)) scale(2);
   }
+}
+
+/* Floating HUD room (1v1): your hand reaches up over the front Spell/Trap row. Only the card's resting box takes
+   the pointer, never the picture that the hover grows over that row: when the pointer leaves the resting box the
+   card drops back, so a click always goes to the hand card or the zone you see, never both. */
+:global([data-hud="room"]) .handLocal .handCard .frame {
+  pointer-events: none;
+}
+
+/* A legal or selected card rests a little higher than its box: this strip keeps that visible edge on the card. */
+:global([data-hud="room"]) .handLocal .handCard .zone[data-legal="true"] .zoneHit::before,
+:global([data-hud="room"]) .handLocal .handCard .zone[data-selected="true"] .zoneHit::before {
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  left: 0;
+  height: calc(var(--lh) * 0.05);
+  content: "";
+}
+
+:global([data-hud="room"]) .handLocal .handCard .zone[data-selected="true"] .zoneHit::before {
+  height: calc(var(--lh) * 0.12);
 }
 
 /* ---------- arena: five rows on a 7-column grid ---------- */
@@ -1935,17 +1976,19 @@
   --pk: 0.86;
   --pile-col: var(--cw);
   --pad: calc(var(--z) * 0.125);
-  --ts: 1;
+  --ts: var(--sf-ts, 1);
   --lab: 0deg;
   --fs-name: calc(var(--z) * 0.125 * var(--ts));
   --fs-small: calc(var(--z) * 0.1 * var(--ts));
   --n3: calc(var(--z) * 0.13 * var(--ts));
   --n4: calc(var(--z) * 0.088 * var(--ts));
   /* The viewer's hand: cards 0.76 zone sizes tall, below the board. */
-  --lh: calc(var(--z) * 0.76);
+  --lh: var(--sf-lh, calc(var(--z) * 0.76));
   --lhcw: calc(var(--lh) * 0.686);
   --lhg: calc(var(--z) * 0.07);
-  --hw-bot: calc(var(--z) * 5.4);
+  --hw-bot: calc(var(--z) * var(--hand-w, 5.4));
+  /* How far the hand rises over the lower edge of the field (the 4-way grid sets it). */
+  --hand-rise: 0px;
   --hpad: 4px;
   position: relative;
   box-sizing: border-box;
@@ -2070,6 +2113,67 @@
   pointer-events: auto;
 }
 
+/* The 4-way grid: two facing fields share one row of two Extra Monster Zones. The field that draws it (data-emz="pair")
+   lays the zones out between room for the life boxes (--pl, --pr in card heights); the other (data-emz="none") hides its
+   own row and its mat ends where the drawing field's begins, so the pair reads as one board. */
+.emzPair {
+  display: flex;
+  align-items: stretch;
+  gap: calc(var(--z) * var(--pg, 0.06));
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding-left: calc(var(--z) * var(--pl, 0));
+  padding-right: calc(var(--z) * var(--pr, 0));
+}
+
+.emzPair > .zone {
+  flex: 0 0 var(--cw);
+  width: var(--cw);
+  min-width: 0;
+}
+
+.seatField[data-emz="none"] .sfEmz {
+  display: none;
+}
+
+.seatField[data-emz="none"] .sfMat {
+  /* Pad + row + row gap: the end of this field's monster row (the grid overlaps the pair by the same measure). */
+  clip-path: inset(calc(var(--z) * 1.196) -240px -240px -240px);
+}
+
+.seatField[data-emz="none"] .sfRule {
+  top: calc(var(--z) * 1.196 + 6px);
+}
+
+.seatField[data-emz="pair"][data-joined="true"] .sfMat {
+  border-top-width: 0;
+  border-radius: 0 0 6px 6px;
+}
+
+.seatField[data-emz="pair"][data-joined="true"] .sfMat::before {
+  border-top-width: 0;
+  border-radius: 0 0 3px 3px;
+}
+
+.seatField[data-emz="pair"][data-joined="true"] .sfRule {
+  top: 0;
+}
+
+/* A field inside a pair frame of the grid draws no mat, line or turn light: the frame is the mat of the whole pair.
+   (Doubled attribute: stronger than the turn and battle light rules above.) */
+.seatField[data-framed="true"][data-framed] .sfMat {
+  border-color: transparent;
+  background: none;
+  box-shadow: none;
+}
+
+.seatField[data-framed="true"] .sfMat::before,
+.seatField[data-framed="true"] .sfRule {
+  display: none;
+}
+
 .sfRows {
   display: grid;
   grid-row: 2 / span 2;
@@ -2100,6 +2204,64 @@
 
 .seatField .zone[data-defense="true"] .glow {
   inset: calc((var(--z) - var(--cw) * var(--dfit)) / 2 - 1px) -1px;
+}
+
+/* The 4-way grid: a Defense card lies on its side at FULL size, as in the 1v1 room. Each of the five zone columns is one
+   card height wide (not a card width), so the turned card stays inside its own column and never covers the next zone or
+   its outline. The field grows by 5 x (1 - 0.686) = 1.571 card heights (GRID_ZONE_WIDEN in table/grid-layout.ts, which
+   sizes the field boxes from the same width); the grid uses the free room at the left and right of the screen for it.
+   The shared Extra Monster Zones are a column wide too. The portrait guide stays the one guide of a zone. */
+:global([data-grid-stage]) .seatField {
+  --dfit: 1;
+  width: calc(var(--z) * (5.83 + 1.571));
+}
+
+:global([data-grid-stage]) .seatField .sfGrid {
+  width: calc(var(--z) * (5.58 + 1.571));
+}
+
+:global([data-grid-stage]) .seatField[data-master-rule="3"] {
+  width: calc(var(--z) * (7.35 + 1.571));
+}
+
+:global([data-grid-stage]) .seatField[data-master-rule="3"] .sfGrid {
+  width: calc(var(--z) * (7.1 + 1.571));
+}
+
+:global([data-grid-stage]) .seatField .emzPair > .zone {
+  flex-basis: var(--z);
+  width: var(--z);
+}
+
+:global([data-grid-stage]) .seatField .zone[data-defense="true"] .glow {
+  inset: calc((var(--z) - var(--cw)) / 2 - 1px) calc((var(--z) - var(--cw)) / -2 - 1px);
+}
+
+/* A wide 3-way table does the same (the seat wrapper sets `data-def-full`; geometry.ts SEAT_BOX_FULL_DEF is the width). */
+:global([data-def-full]) .seatField {
+  --dfit: 1;
+  width: calc(var(--z) * (5.83 + 1.571));
+}
+
+:global([data-def-full]) .seatField .sfGrid {
+  width: calc(var(--z) * (5.58 + 1.571));
+}
+
+:global([data-def-full]) .seatField[data-master-rule="3"] {
+  width: calc(var(--z) * (7.35 + 1.571));
+}
+
+:global([data-def-full]) .seatField[data-master-rule="3"] .sfGrid {
+  width: calc(var(--z) * (7.1 + 1.571));
+}
+
+:global([data-def-full]) .seatField .emzPair > .zone {
+  flex-basis: var(--z);
+  width: var(--z);
+}
+
+:global([data-def-full]) .seatField .zone[data-defense="true"] .glow {
+  inset: calc((var(--z) - var(--cw)) / 2 - 1px) calc((var(--z) - var(--cw)) / -2 - 1px);
 }
 
 /* Labels, stats, counters and marks turn against the field so they read level (--lab). */
@@ -2176,6 +2338,26 @@
   width: calc(var(--z) * 1.9);
 }
 
+/* A small field in the 4-way grid (a ancestor with data-small, set by the grid stage when the field is under about
+   520px wide): no zone and pile labels, and the stat plate shows ATK only (DEF for a monster in Defense). */
+[data-small="true"] .seatField .zoneName,
+[data-small="true"] .seatField .pileLabel {
+  display: none;
+}
+
+[data-small="true"] .seatField .plate .plateSep,
+[data-small="true"] .seatField .plate .plateDef {
+  display: none;
+}
+
+[data-small="true"] .seatField .zone[data-defense="true"] .plate b {
+  display: none;
+}
+
+[data-small="true"] .seatField .zone[data-defense="true"] .plate .plateDef {
+  display: inline;
+}
+
 /* A seat out of the duel: the board greys (a tone desaturate, never a card dim) and a label says why. */
 .seatField[data-elim="true"] .sfMat,
 .seatField[data-elim="true"] .sfGrid {
@@ -2208,10 +2390,10 @@
 /* The viewer's hand sits right below the board and turns with it. */
 .sfHand {
   position: absolute;
-  top: calc(100% - 2px);
-  left: 50%;
+  top: calc(100% - 2px - var(--hand-rise));
+  left: calc(50% + var(--z) * var(--hand-shift, 0));
   z-index: calc(var(--duel-z-fx) - 1);
-  width: calc(var(--z) * 5.4);
+  width: calc(var(--z) * var(--hand-w, 5.4));
   height: calc(var(--lh) * 1.2 + 6px);
   translate: -50% 0;
 }
@@ -2219,6 +2401,31 @@
 /* Enlarged hand art can overlap the back row; clicks there belong to its zone button. */
 .sfHand .frame {
   pointer-events: none;
+}
+
+/* 4-way grid: your hand rises over the lower edge of your Spell/Trap row. Only the cards take the pointer, never the
+   empty lane round them, so that edge of a zone is never a dead strip. As in the 1v1 room, a legal or selected card
+   rests a little higher than its box: a strip above the box keeps that visible edge on the card. */
+:global([data-grid-stage]) .sfHand {
+  pointer-events: none;
+}
+
+:global([data-grid-stage]) .sfHand .handCard {
+  pointer-events: auto;
+}
+
+:global([data-grid-stage]) .sfHand .handLocal .handCard .zone[data-legal="true"] .zoneHit::before,
+:global([data-grid-stage]) .sfHand .handLocal .handCard .zone[data-selected="true"] .zoneHit::before {
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  left: 0;
+  height: calc(var(--lh) * 0.05);
+  content: "";
+}
+
+:global([data-grid-stage]) .sfHand .handLocal .handCard .zone[data-selected="true"] .zoneHit::before {
+  height: calc(var(--lh) * 0.12);
 }
 
 /* A seat that cannot use cards for the viewer (a partner, a spectator's view): the legal ring only. */
