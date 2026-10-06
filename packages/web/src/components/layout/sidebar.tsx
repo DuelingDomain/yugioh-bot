@@ -36,7 +36,7 @@ export function Sidebar({ collapsed, onToggle, account, live, onReportBug }: Sid
       <aside className={styles.aside} aria-label="Sidebar" data-rail={collapsed ? "true" : undefined}>
         <div className={styles.brand}>
           <BrandMark className={styles.mark} />
-          {collapsed ? null : <span className={styles.word}>Dueling Domain</span>}
+          {collapsed ? null : <span className={styles.word}>Dueling <span className={styles.wordAccent}>Domain</span></span>}
           {collapsed ? null : toggle}
         </div>
         <LightRule />

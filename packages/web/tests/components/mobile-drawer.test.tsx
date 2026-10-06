@@ -29,6 +29,7 @@ describe("MobileDrawer", () => {
     const { container } = render(<MobileDrawer open={true} onClose={vi.fn()} account={ready} live={null} />);
     const dialog = screen.getByRole("dialog", { name: "Navigation" });
     expect(dialog).toHaveAttribute("aria-modal", "true");
+    expect(screen.getByText("Dueling")).toHaveTextContent(/^Dueling Domain$/);
     expect(container.contains(dialog)).toBe(false);
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close menu" }));
   });

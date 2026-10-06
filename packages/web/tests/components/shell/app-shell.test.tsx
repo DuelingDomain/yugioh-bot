@@ -85,10 +85,10 @@ describe("AppShell frame", () => {
 
   it("names the sidebar and the phone menu Dueling Domain", async () => {
     render(<AppShell><p>x</p></AppShell>);
-    expect(within(screen.getByRole("complementary", { name: "Sidebar" })).getByText("Dueling Domain")).toBeTruthy();
+    expect(within(screen.getByRole("complementary", { name: "Sidebar" })).getByText("Dueling")).toHaveTextContent(/^Dueling Domain$/);
     fireEvent.click(screen.getByRole("button", { name: "Open menu" }));
     const dialog = await screen.findByRole("dialog", { name: "Navigation" });
-    expect(within(dialog).getByText("Dueling Domain")).toBeTruthy();
+    expect(within(dialog).getByText("Dueling")).toHaveTextContent(/^Dueling Domain$/);
   });
 
   it("restores the collapsed state from storage after mount", async () => {
