@@ -105,8 +105,10 @@ jobs:
       - name: Publish available report if validation failed
         if: failure()
         run: |
-          if [ -f "$UPDATE_ARTIFACT_DIR/report.md" ]; then
-            prlimit --core=1:1 -- node --import tsx --input-type=module <<'JS'
+          if [ -f "$UPDATE_ARTIFACT_DIR/pr-body.md" ]; then
+            printf '\n\nExport failed. See the workflow logs and report artifact.\n' >> "$GITHUB_STEP_SUMMARY"
+          elif [ -f "$UPDATE_ARTIFACT_DIR/report.md" ]; then
+            prlimit --core=0:0 -- node --import tsx --input-type=module <<'JS'
           import { readFile, appendFile } from 'node:fs/promises';
           import { boundedReport } from './packages/duel-server/scripts/engine-data-report.ts';
           const url = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
