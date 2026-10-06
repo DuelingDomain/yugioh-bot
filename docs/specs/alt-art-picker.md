@@ -87,6 +87,8 @@ Both IDs must belong to the engine family. Existing member and cube owner/admin 
 
 The signed internal host operation is `{ op: "card-artworks", guildId, playerId, codes: [passcode] }`, returning `CardArtworkFamily` (`{ passcode, artworks: [{ passcode, isMain }] }`). The web route goes through `src/lib/duel-host.ts`; it does not require a local engine DB. It enriches this exact set with `card_artworks` rows of `source = 'api'` by artwork ID, plus validated files in `CARD_IMAGE_CACHE_DIR` (default `./data/card-images`, same as the image route). YGOPRODeck-only IDs can never enter the result.
 
+Engine-only catalog rows use the existing local family main when one is already mapped, in both shared catalog materialization and cube swaps. This keeps local `canonicalId()` consistent even if an earlier API-only sync chose a different main; a later engine-aware full sync can reconcile it. Local catalog grouping never overrides the host’s engine-family identity.
+
 Internal `normalize-codes` defaults to canonical identity for pool checks. `preserveArtwork: true` instead retains known engine artwork IDs while still resolving legacy external IDs; only storage/display callers request it. Host `check-deck` receives the draft ID so the trusted pool check runs there too.
 
 ## One-time backfill

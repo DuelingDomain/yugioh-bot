@@ -480,3 +480,17 @@ describe("artwork migration", () => {
     expect(() => db.prepare("insert into card_artworks (card_id,artwork_id,image_url,image_url_small,image_url_cropped,is_main) values (123, 124, 'full','small',null,1)").run()).toThrow(/FOREIGN KEY/);
   });
 });
+
+it("materializes engine-only arts under the existing API family main", async () => {
+  const { db } = setup();
+  db.exec(`insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values
+    (10,'Dragon','Normal Monster','normal','','','[]','now'),(12,'Dragon','Normal Monster','normal','','','[]','now');
+    insert into card_artworks (card_id,artwork_id,image_url,image_url_small,is_main) values (12,12,'','',1),(12,10,'','',0);`);
+  const catalog = createCardCatalogService(db, { identityCatalog: new Map([
+    [10, { name: "Dragon", type: 17, alias: 0 }], [11, { name: "Dragon", type: 17, alias: 10 }],
+    [12, { name: "Dragon", type: 17, alias: 10 }],
+  ]), fetch: async () => ({ ok: true, json: async () => ({ data: [] }) }) });
+  await catalog.syncCardById(11);
+  expect([10,11,12].map(catalog.canonicalId)).toEqual([12,12,12]);
+  expect(db.prepare("select card_id from card_artworks where artwork_id = 11").get()).toEqual({ card_id: 12 });
+});

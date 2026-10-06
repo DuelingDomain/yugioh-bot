@@ -24,6 +24,9 @@ export function swapCubeArtwork(db: Database.Database, cubeId: number, from: num
     }
     // An engine-only art may not exist in YGOPRODeck. Materialize the FK targets from this
     // proven family, without fetching guessed metadata or requiring cards.cdb on the web host.
+    const localMain = (db.prepare("select card_id from card_artworks where artwork_id = ?").get(family.passcode)
+      ?? db.prepare("select card_id from card_artworks where artwork_id = ?").get(from)) as { card_id: number } | undefined;
+    const cardId = localMain?.card_id ?? family.passcode;
     for (const code of new Set([family.passcode, to])) {
       db.prepare(`insert or ignore into card_catalog
         (ygoprodeck_id,name,type,frame_type,effect_text,atk,def,attribute,level,image_url,image_url_small,card_sets_json,cached_at,archetype)
@@ -32,8 +35,8 @@ export function swapCubeArtwork(db: Database.Database, cubeId: number, from: num
           `https://images.ygoprodeck.com/images/cards/${code}.jpg`, `https://images.ygoprodeck.com/images/cards_small/${code}.jpg`, from);
       db.prepare(`insert or ignore into card_artworks
         (card_id,artwork_id,image_url,image_url_small,is_main,source) values (?,?,?,?,?,'engine')`).run(
-          family.passcode, code, `https://images.ygoprodeck.com/images/cards/${code}.jpg`,
-          `https://images.ygoprodeck.com/images/cards_small/${code}.jpg`, Number(code === family.passcode));
+          cardId, code, `https://images.ygoprodeck.com/images/cards/${code}.jpg`,
+          `https://images.ygoprodeck.com/images/cards_small/${code}.jpg`, Number(code === cardId));
     }
     db.prepare("update cube_cards set catalog_card_id = ? where cube_id = ? and catalog_card_id = ?").run(to, cubeId, from);
     db.prepare("update cubes set updated_at = ? where id = ?").run(new Date().toISOString(), cubeId);

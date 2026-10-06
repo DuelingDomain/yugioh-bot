@@ -87,3 +87,10 @@ it("maps an engine-unknown cube source to 400, preserving host failures", async 
     expect((await swap()).status).toBe(expected);
   }
 });
+
+it("keeps engine-only artwork in the existing local API family", async () => {
+  db.exec("insert into card_catalog select 12,name,type,frame_type,effect_text,atk,def,attribute,level,image_url,image_url_small,card_sets_json,cached_at,archetype from card_catalog where ygoprodeck_id = 10");
+  db.exec("insert into card_artworks (card_id,artwork_id,image_url,image_url_small,is_main) values (12,12,'full','small',1),(12,10,'full','small',0)");
+  expect((await swap()).status).toBe(200);
+  expect(db.prepare("select card_id,is_main from card_artworks where artwork_id = 11").get()).toEqual({ card_id: 12, is_main: 0 });
+});

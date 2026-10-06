@@ -384,8 +384,11 @@ export function createCardCatalogService(
   // supplies their image record. The image route can still try their own URL.
   const ensureEngineArtwork = (id: number) => {
     if (artworkById.get(id)) return;
-    const originalId = canonicalCardCode(id, engineIdentity());
-    if (originalId === id) return;
+    const engineMain = canonicalCardCode(id, engineIdentity());
+    if (engineMain === id) return;
+    // The catalog may have been synced without engine data. Preserve its established
+    // family main until a full sync reconciles it, just as canonicalId does.
+    const originalId = canonicalId(engineMain);
     const row = catalogRowById.get(originalId) as any;
     if (!row) return;
     if (!artworkById.get(originalId)) {
