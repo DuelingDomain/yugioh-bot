@@ -14,6 +14,7 @@ This is the finished HTML/CSS specification. Port A faithfully; the Discord-only
 - `reference/`: `all-steps.dom.html` is the rendered A step markup. Each `section.scr[data-screen]` is a stable reference for a future auth adapter.
 - `shots/`: target renders at 1440 × 900 and 390 × 844. Today's implementation follows `a-signin-*`, `a-err-service-*` and `a-err-invite-*`, with the brief's Discord-only changes.
 - `workshop.html`: comparison page and design rationale, retained as a record.
+- `review/`: the owner's mock-vs-build review page for PRs #208 and #209 (static; open with any local server).
 
 ## Step index
 
