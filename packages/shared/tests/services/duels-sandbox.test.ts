@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "../../src/db/index.js";
 import { parseSandboxBoard, type SandboxRun } from "../../src/duels/sandbox-board.js";
 import { createDuelService, DuelServiceError, type DuelSetup } from "../../src/services/duels.js";
@@ -43,6 +43,18 @@ function status(work: () => unknown, code: number) {
 }
 
 describe("sandbox duel rows", () => {
+  it("keeps engine setup when only the saved sandbox board is invalid", () => {
+    const duel = create();
+    const engineSetup = { startupScripts: ["return"], firstTurnDraw: true, engine: "pinned", surrenderedSeats: [1] };
+    db.prepare("update duels set setup_json = ? where id = ?").run(JSON.stringify({
+      ...engineSetup, sandbox: { board: { obsolete: true }, run },
+    }), duel.id);
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(duels.privateState(duel.slug, "g").setup).toEqual(engineSetup);
+      expect(warning).toHaveBeenCalledWith("[duels] Ignoring invalid saved sandbox setup", expect.any(Error));
+    } finally { warning.mockRestore(); }
+  });
   it("adds an idempotent column with a non-sandbox default for existing rows", () => {
     const normal = create({ sandbox: false });
     const columns = db.prepare<[], { name: string }>("pragma table_info(duels)").all();

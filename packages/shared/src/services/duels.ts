@@ -452,7 +452,13 @@ function parseSetup(raw: string | null | undefined): DuelSetup | undefined {
     if (typeof input.presetId === "string" && input.presetId) setup.presetId = input.presetId;
     if (isPolicyMap(input.botPolicies)) setup.botPolicies = input.botPolicies;
     if (isDuelEngineChoice(input.engine)) setup.engine = input.engine;
-    if (input.sandbox !== undefined) setup.sandbox = validateSandboxSetup(input.sandbox);
+    if (input.sandbox !== undefined) {
+      try {
+        setup.sandbox = validateSandboxSetup(input.sandbox);
+      } catch (error) {
+        console.warn("[duels] Ignoring invalid saved sandbox setup", error);
+      }
+    }
     return setup;
   } catch {
     return undefined;
