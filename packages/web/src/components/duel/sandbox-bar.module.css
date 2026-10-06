@@ -1,0 +1,92 @@
+/* The sandbox row sits in the notices layer of every duel shell. The duel tokens live on .shell, so the bar owns its own. */
+.bar {
+  --sb-bg: rgb(14 12 24 / 0.9);
+  --sb-line: rgb(255 255 255 / 0.14);
+  --sb-text: #e9e6f5;
+  --sb-dim: #a29cbc;
+  --sb-accent: #d9b45a;
+  --sb-violet: #8f6fe0;
+  --sb-warn: #e4b64f;
+  --sb-ok: #7fd1a0;
+  pointer-events: auto;
+  align-self: center;
+  width: fit-content;
+  /* The table shells keep a tool rail about 62px wide on each side. */
+  max-width: calc(100% - 150px);
+  margin: 6px auto 0;
+  padding: 5px 8px;
+  border: 1px solid var(--sb-line);
+  border-radius: 10px;
+  background: var(--sb-bg);
+  backdrop-filter: blur(6px);
+  color: var(--sb-text);
+  font: 500 12px/1.2 var(--font-sans, system-ui, sans-serif);
+  box-shadow: 0 4px 18px rgb(0 0 0 / 0.45);
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+.tag {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--sb-violet) 28%, transparent);
+  color: #d8cbfa;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.group { display: flex; flex-wrap: wrap; gap: 4px; }
+.sep { width: 1px; align-self: stretch; min-height: 16px; background: var(--sb-line); }
+.chipWrap { position: relative; display: inline-flex; align-items: stretch; }
+.chip, .caret, .btn, .menuItem {
+  min-height: 26px;
+  border: 1px solid var(--sb-line);
+  background: rgb(255 255 255 / 0.05);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: none;
+}
+.chip { display: inline-flex; align-items: center; gap: 5px; padding: 0 9px; border-radius: 7px 0 0 7px; }
+.chipWrap:not(:has(.caret)) .chip { border-radius: 7px; }
+.caret { padding: 0 6px; border-left: 0; border-radius: 0 7px 7px 0; color: var(--sb-dim); }
+.btn { display: inline-flex; align-items: center; padding: 0 10px; border-radius: 7px; white-space: nowrap; }
+.chipWrap[data-acting="true"] .chip { border-color: var(--sb-accent); background: color-mix(in srgb, var(--sb-accent) 16%, transparent); }
+.chip:hover:not(:disabled), .caret:hover:not(:disabled), .btn:hover:not(:disabled), .menuItem:hover:not(:disabled) { background: rgb(255 255 255 / 0.12); }
+.chip:focus-visible, .caret:focus-visible, .btn:focus-visible, .menuItem:focus-visible, .toggle input:focus-visible { outline: 2px solid var(--sb-violet); outline-offset: 1px; }
+.chip:disabled, .caret:disabled, .btn:disabled, .menuItem:disabled { opacity: 0.45; cursor: default; }
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--sb-accent);
+  box-shadow: 0 0 6px var(--sb-accent);
+}
+.menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  min-width: 130px;
+  padding: 4px;
+  gap: 2px;
+  border: 1px solid var(--sb-line);
+  border-radius: 8px;
+  background: #151227;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.55);
+}
+.menuItem { padding: 0 10px; border-color: transparent; border-radius: 6px; text-align: left; }
+.menuItem[aria-checked="true"] { color: var(--sb-accent); }
+.toggle { display: inline-flex; align-items: center; gap: 5px; color: var(--sb-dim); cursor: pointer; white-space: nowrap; }
+.toggle input { accent-color: var(--sb-violet); }
+.note { margin: 6px 0 0; color: var(--sb-ok); }
+.note[data-tone="stop"] { color: var(--sb-warn); }
+@media (max-width: 640px) {
+  .bar { max-width: calc(100% - 16px); margin: 4px 8px 0; }
+}
