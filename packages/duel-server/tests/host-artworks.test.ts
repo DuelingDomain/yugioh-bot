@@ -43,7 +43,7 @@ it("serves signed artwork families and preserves chosen passcodes through deck s
   try {
     const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
-      expect(loadCardDatabase(dir).artworkScriptFallbacks()).toEqual([{ passcode: 30, main: 10 }, { passcode: 50, main: 10 }]);
+      expect(loadCardDatabase(dir).artworkScriptFallbacks()).toEqual([{ passcode: 30, main: 10, requested: 30 }, { passcode: 50, main: 10, requested: 50 }]);
       expect(loadCardDatabase(dir).readScript("c50.lua")).toBe("-- canonical script");
       expect(warning).toHaveBeenCalledWith(expect.stringMatching(/c50\.lua.*c10\.lua.*GetID/));
     } finally { warning.mockRestore(); }

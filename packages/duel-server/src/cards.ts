@@ -40,8 +40,8 @@ export interface CardDatabase {
 }
 
 export interface LoadedCardDatabase extends CardDatabase {
-  /** Alternate scripts that would load a main script under a different GetID context. */
-  artworkScriptFallbacks(): Array<{ passcode: number; main: number }>;
+  /** Alternate scripts that would load a main script under a different GetID context. `requested` is the script the core asks for. */
+  artworkScriptFallbacks(): Array<{ passcode: number; main: number; requested: number }>;
 }
 
 const cache = new Map<string, LoadedCardDatabase>();
@@ -322,7 +322,7 @@ function loadFromDisk(root: string): LoadedCardDatabase {
         const requested = alias && alias < passcode + 10 && passcode < alias + 10 ? alias : passcode;
         if (scripts.has(`c${requested}.lua`)) return [];
         const main = canonicalCardCode(requested, deckCards);
-        return main !== requested && scripts.has(`c${main}.lua`) ? [{ passcode, main }] : [];
+        return main !== requested && scripts.has(`c${main}.lua`) ? [{ passcode, main, requested }] : [];
       }).sort((a, b) => a.passcode - b.passcode);
     },
     close() {

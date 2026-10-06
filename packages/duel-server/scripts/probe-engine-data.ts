@@ -8,7 +8,7 @@ import { isOptionalCardScript, loadCardDatabase, type CardDatabase } from "../sr
 export interface EngineDataProbeResult {
   errors: string[];
   artworkScriptScanError?: string;
-  artworkScriptFallbacks?: Array<{ passcode: number; main: number }>;
+  artworkScriptFallbacks?: Array<{ passcode: number; main: number; requested?: number }>;
   scriptsChecked: number;
   apiSymbolsChecked: number;
   globalsChecked: number;
