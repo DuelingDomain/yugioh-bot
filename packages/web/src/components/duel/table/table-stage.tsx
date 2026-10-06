@@ -8,7 +8,7 @@ import type { UseGridFocus } from "./grid-focus";
 import { ChainRoomContext, type ChainStripSize } from "./chain-room";
 import { AttackLine } from "./attack-line";
 import { FlyCity } from "./fly-city";
-import { BAR_HUD, freeDockRoom, PICK_BAR, pickBarRoom, promptUnit } from "./grid-stage";
+import { BAR_HUD, dockBarRoom, freeDockRoom, PICK_BAR, pickBarRoom, promptUnit } from "./grid-stage";
 import { aliveLayout, boardBounds, chainBandRooms, chainStripInset, flyWorld, holoAnchor, hubPose, normalizeAngle, ringAngles, CAMERA_HINT, HUD_CORNER, portraitTable, promptRooms, ringPose, type HoloAnchor, type PromptRoom, seatPoses, slotPlan, stageFit, stageSpread, STAGE, wideHoloAnchors } from "./geometry";
 import { holoStatus, HoloLp } from "./holo-lp";
 import { lastSeatDamage } from "./seat-state";
@@ -213,11 +213,12 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
     return { panel: toBox(found.panel), bar: toBox(found.bar), chain: toBox(found.chain) };
   }, [play, camera, poses, spread, hasChip, k, fly, box, canvasHeight, wideAnchors, chainSize, chainInset, stageHeight, stageTop, portrait]);
 
-  // While the board is zoomed, the prompts keep their dock.
   // The floating HUD: the prompts sit in the middle of the near field (the first seat of the table: you, or the anchor), in
   // box px; --pr-* carry that box to the prompt CSS. The pick bar finds a clear place on that field (never over a target);
   // when the field is full of targets, the free room off every board takes it.
-  const near = centerPrompts && !fly && !portrait && !zoom.zoomed && k > 0 ? poses.get(play.slots[0]?.seat ?? -1) : undefined;
+  // While the board is zoomed the prompts keep their dock (the HUD stays put), and the pick bar docks off the HUD.
+  const floating = centerPrompts && !fly && !portrait && k > 0;
+  const near = floating && !zoom.zoomed ? poses.get(play.slots[0]?.seat ?? -1) : undefined;
   const nearBox = useMemo(() => {
     if (!near) return null;
     const b = boardBounds(near);
@@ -240,7 +241,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
   const legalKey = [...legalKeys].sort().join(",");
   useEffect(() => {
     const root = rootRef.current;
-    if (!root || !nearBox) return;
+    if (!root || !floating) return;
     const measure = () => {
       const board = root.getBoundingClientRect();
       const boxes = (selector: string) => Array.from(root.querySelectorAll<HTMLElement>(selector))
@@ -270,8 +271,12 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
       window.cancelAnimationFrame(frame);
       window.clearTimeout(timer);
     };
-  }, [nearBox, legalKey, reducedMotion, regroup]);
+  }, [floating, nearBox, legalKey, reducedMotion, regroup, zoom.zoomed]);
   const barRoom = useMemo(() => {
+    if (!floating) return undefined;
+    // Zoomed: the bar docks at the bottom of the box, off the HUD (the timer, the responses, the master plate). The
+    // pan can take any card out from under it (it is in VIEW_OCCLUDERS).
+    if (zoom.zoomed) return freeDockRoom(box, hudRects) ?? dockBarRoom(box);
     if (!nearBox) return undefined;
     // The bar may run to the edge of your field (the 4-way keeps 12 px inside a pair): a short field has one row band
     // above and one below your monsters, and the bar fits in one of them.
@@ -293,7 +298,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
       return `${bar.x},${bar.y},${bar.width},${bar.height}`;
     }
     return freeDockRoom(box, [...targets, ...zones, ...hudRects]) ?? found;
-  }, [nearBox, targets, zones, hudRects, rooms?.bar, box]);
+  }, [floating, zoom.zoomed, nearBox, targets, zones, hudRects, rooms?.bar, box]);
 
   const world = useMemo(() => flyWorld(play, camera.fly), [play, camera.fly]);
   const tones = useMemo(() => new Map<number, SeatTone>(layout.slots.map((slot) => [slot.seat, slot.tone])), [layout.slots]);
@@ -388,7 +393,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
       data-prompt-center={nearBox ? "true" : undefined}
       data-panel-room={rooms?.panel && !nearBox ? "true" : undefined}
       data-room-snug={rooms?.panel && !nearBox && (rooms.panel.width < 262 || rooms.panel.height < 300) ? "true" : undefined}
-      data-bar-room={nearBox ? barRoom : rooms?.bar ? `${rooms.bar.x},${rooms.bar.y},${rooms.bar.width},${rooms.bar.height}` : undefined}
+      data-bar-room={barRoom ?? (rooms?.bar ? `${rooms.bar.x},${rooms.bar.y},${rooms.bar.width},${rooms.bar.height}` : undefined)}
       style={rooms?.panel && !nearBox ? ({ "--room-x": `${rooms.panel.x}px`, "--room-y": `${rooms.panel.y}px`, "--room-w": `${rooms.panel.width}px`, "--room-h": `${rooms.panel.height}px` } as CSSProperties) : undefined}
     >
       <div ref={canvasRef} className={styles.canvas} style={canvas} data-fly-capable={threeWay ? "true" : undefined}>
