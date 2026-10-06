@@ -313,9 +313,9 @@ export async function setChainResponseMode(slug: string, mode: DuelChainMode): P
   );
 }
 
-export async function surrenderDuel(slug: string): Promise<DuelRoom> {
+export async function surrenderDuel(slug: string, sandbox?: SandboxView): Promise<DuelRoom> {
   return parseBody(
-    await fetch(`/api/duels/${encodeURIComponent(slug)}/surrender`, { method: "POST" }),
+    await fetch(withSandboxQuery(`/api/duels/${encodeURIComponent(slug)}/surrender`, sandbox), { method: "POST" }),
   );
 }
 

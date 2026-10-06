@@ -839,7 +839,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     onClose={() => setConfirmSurrender(false)} onConfirm={() => {
       if (!canSurrender || isCoinTossActive()) return;
       setConfirmSurrender(false);
-      void run(() => surrenderDuel(slug));
+      void run(() => surrenderDuel(slug, sandboxView.current));
     }} />;
   const cancelOpen = confirmCancel && canCancel;
   const cancelModal = <Modal open={cancelOpen} onClose={() => setConfirmCancel(false)} title="Cancel duel">

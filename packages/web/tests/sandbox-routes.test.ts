@@ -282,6 +282,12 @@ describe("duel sandbox operations", () => {
     expect((await GET(request(path, undefined, "GET"))).status).toBe(403);
     expect((await GET(request(`/api/duels/cards?slug=${session.slug}&q=Elf`, undefined, "GET"))).status).toBe(403);
   });
+  it("forwards the sandbox view when surrendering a Manual seat", async () => {
+    const session = duel();
+    const { POST } = await import("../app/api/duels/[slug]/surrender/route");
+    expect((await POST(request("/?as=1&reveal=1"), slugParams(session.slug))).status).toBe(200);
+    expect(payloads().at(-1)).toMatchObject({ op: "surrender", as: 1, reveal: true });
+  });
   it("forwards sandbox info", async () => {
     const session = duel();
     const { GET } = await import("../app/api/duels/[slug]/sandbox/route");
