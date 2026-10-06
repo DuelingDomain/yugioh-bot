@@ -1,6 +1,8 @@
 import type { DuelClock, DuelFormat, DuelSettings } from "./settings.js";
 import type { DuelFirstChoice, DuelOpeningView } from "./opening.js";
 
+export * from "./sandbox-board.js";
+
 export type DuelMode = "normal" | "domain";
 export type DuelStatus = "lobby" | "active" | "completed" | "interrupted" | "cancelled";
 export type DuelActorRole = "player" | "spectator";
