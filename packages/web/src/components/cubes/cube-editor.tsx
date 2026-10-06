@@ -21,6 +21,7 @@ import {
   type PoolTribute,
   type PoolView,
 } from "./cube-grid-model";
+import { ArtworkPicker } from "@/components/artwork/artwork-picker";
 import { CubeInspector } from "./cube-inspector";
 import { CubeBottomSheet, UndoToast } from "./cube-sheet";
 import { parseAddTab } from "./library-model";
@@ -175,6 +176,16 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
     const next = clampCopies(copies);
     if (next === selected.entry.maxCopies) return;
     await mutate({ op: "setMaxCopies", catalogCardId: selected.entry.catalogCardId, maxCopies: next });
+  };
+
+  // The card is the same card in the cube; only its passcode, and so its picture, changes.
+  const selectedIdRef = React.useRef(selectedId);
+  selectedIdRef.current = selectedId;
+  const setArtwork = async (artworkPasscode: number) => {
+    if (!selected || busy) return;
+    const from = selected.entry.catalogCardId;
+    const result = await mutate({ op: "setArtwork", catalogCardId: from, artworkPasscode });
+    if (result && selectedIdRef.current === from) setSelectedId(artworkPasscode);
   };
 
   const removeSelected = async () => {
@@ -339,6 +350,7 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
       copies={selected.entry.maxCopies}
       busy={busy}
       compact={railHidden}
+      artwork={<ArtworkPicker code={selected.entry.catalogCardId} busy={busy} onPick={(art) => void setArtwork(art.passcode)} />}
       onSetCopies={(n) => void setCopies(n)}
       onRemove={() => void removeSelected()}
     />

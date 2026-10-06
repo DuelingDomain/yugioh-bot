@@ -75,6 +75,7 @@ export function CubeInspector({
   copies,
   busy,
   compact = false,
+  artwork,
   onSetCopies,
   onRemove,
 }: {
@@ -84,6 +85,8 @@ export function CubeInspector({
   copies: number;
   busy: boolean;
   compact?: boolean;
+  /** The art picker for the card; it renders nothing for a card with one art. */
+  artwork?: React.ReactNode;
   onSetCopies: (copies: number) => void;
   onRemove: () => void;
 }) {
@@ -118,10 +121,12 @@ export function CubeInspector({
         <>
           <div style={{ justifySelf: "start" }}>{remove}</div>
           {stepper}
+          {artwork ? <div style={{ gridColumn: "1 / -1" }}>{artwork}</div> : null}
         </>
       ) : (
         <>
           {stepper}
+          {artwork}
           {remove}
         </>
       )}

@@ -1,7 +1,7 @@
 /* A strip of card arts. The current art takes the purple ring the deck tiles use for "selected". */
 .picker { display: grid; gap: 6px; }
 .head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.head h3 { margin: 0; color: var(--ink-3); font: 500 12px/1.2 var(--f-ui, inherit); letter-spacing: 0.04em; text-transform: uppercase; }
+.title { margin: 0; color: var(--ink-3); font: 500 12px/1.2 var(--f-ui, inherit); letter-spacing: 0.04em; text-transform: uppercase; }
 .count { color: var(--chain-ink); font-size: 12.5px; }
 .strip { display: flex; flex-wrap: wrap; gap: 8px; max-height: 164px; padding: 6px; margin: -6px; overflow-y: auto; overscroll-behavior: contain; }
 .thumb { position: relative; flex: none; width: 44px; aspect-ratio: 421 / 614; padding: 0; border: 0; border-radius: 4px; overflow: hidden; background: #0b1222; box-shadow: 0 0 0 1px rgb(239 231 213 / 0.12); color: var(--ink-3); cursor: pointer; transition: box-shadow 120ms var(--ease), opacity 120ms var(--ease); }

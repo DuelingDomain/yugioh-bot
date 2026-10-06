@@ -97,7 +97,7 @@ export function ArtworkPicker({
   if (!family) {
     return (
       <section className={styles.picker} aria-label={label} aria-busy="true">
-        <header className={styles.head}><h3>Art</h3><span className={styles.count}>Loading…</span></header>
+        <header className={styles.head}><span className={styles.title}>Art</span><span className={styles.count}>Loading…</span></header>
         <div className={styles.skeleton} aria-hidden="true"><span /><span /><span /></div>
       </section>
     );
@@ -128,7 +128,7 @@ export function ArtworkPicker({
   return (
     <section className={styles.picker} aria-label={label} aria-busy={busy || undefined}>
       <header className={styles.head}>
-        <h3>Art</h3>
+        <span className={styles.title}>Art</span>
         <span className={cn("num", styles.count)}>{artworks.length} arts</span>
       </header>
       <div ref={strip} className={styles.strip} role="group" aria-label="Choose an art" onKeyDown={onKey}>
