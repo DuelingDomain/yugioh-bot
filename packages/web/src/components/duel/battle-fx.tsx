@@ -118,14 +118,9 @@ function lpBox(seat: number): Box | null {
   return box.width > 0 && box.height > 0 ? box : null;
 }
 
-/** The seats that have an LP tally on screen. */
-function lpSeatsOnScreen(): number[] {
-  return Array.from(document.querySelectorAll<HTMLElement>("[data-lp-seat]"), (node) => Number(node.dataset.lpSeat)).filter(Number.isFinite);
-}
-
 /** The LP tally a direct attack hits; null when its defender is not known (no wrong guess in a 3 or 4 seat duel). */
-function directLpBox(event: DuelEvent): Box | null {
-  const seat = directTargetSeat(event, lpSeatsOnScreen());
+function directLpBox(event: DuelEvent, seatCount: number): Box | null {
+  const seat = directTargetSeat(event, seatCount);
   return seat == null ? null : lpBox(seat);
 }
 
@@ -321,7 +316,7 @@ function cutSourceOf(node: HTMLElement, card: BattleCard): CutSource | null {
  * event, which is BEFORE the DOM shows the battle result, so a card that dies still has its art.
  * Both the attacker's and the target's art are kept: which one is cut is decided at play time.
  */
-function captureAttack(event: DuelEvent, prev: CardIndex, now: CardIndex): AttackCapture | null {
+function captureAttack(event: DuelEvent, prev: CardIndex, now: CardIndex, seatCount: number): AttackCapture | null {
   const zone = event.zone;
   if (!zone) return null;
   const fromKey = keyOfZone(zone);
@@ -354,7 +349,7 @@ function captureAttack(event: DuelEvent, prev: CardIndex, now: CardIndex): Attac
     const targetInDefense = targetCard.position == null ? node.dataset.defense === "true" : isDefense(targetCard.position);
     return { ...base, to, direct: false, target, toEl: node.querySelector("[data-card-art]"), targetCard, targetInDefense, targetTurned: artUpsideDown(node, node.querySelector<HTMLElement>("[data-card-art]")) };
   }
-  const to = directLpBox(event);
+  const to = directLpBox(event, seatCount);
   if (!to) return null;
   return { ...base, to, direct: true, target: null, toEl: null, targetCard: null, targetInDefense: false, targetTurned: false };
 }
@@ -364,7 +359,7 @@ function captureAttack(event: DuelEvent, prev: CardIndex, now: CardIndex): Attac
  * the window resized) while the attack waits for its response window. The retained art stays as captured, since the card may
  * not be in its zone any more; a zone or tally that is gone keeps its old box. The input itself when nothing moved.
  */
-function remeasureCapture(capture: AttackCapture, event: DuelEvent): AttackCapture {
+function remeasureCapture(capture: AttackCapture, event: DuelEvent, seatCount: number): AttackCapture {
   const zone = event.zone;
   if (!zone) return capture;
   const same = (a: Box, b: Box) => a.left === b.left && a.top === b.top && a.width === b.width && a.height === b.height;
@@ -385,7 +380,7 @@ function remeasureCapture(capture: AttackCapture, event: DuelEvent): AttackCaptu
   let target = capture.target;
   let to = capture.to;
   if (capture.direct) {
-    to = directLpBox(event) ?? to;
+    to = directLpBox(event, seatCount) ?? to;
   } else if (event.target) {
     const node = zoneNode(keyOfZone(event.target));
     target = refreshCut(capture.target, node, capture.targetCard);
@@ -749,13 +744,12 @@ function startBattle3d(capture: AttackCapture, play: Play, clock: BattleClock, c
 type PendingAttack = { attack: DuelEvent; capture: AttackCapture | null; at: number };
 
 /** The marker of a declared attack: the attacker and what it attacks stay ringed until it resolves. */
-function declaredAim(attack: DuelEvent, nameOf: (seat: number) => string = defaultName): BattleAim | null {
+function declaredAim(attack: DuelEvent, seatCount: number, nameOf: (seat: number) => string = defaultName): BattleAim | null {
   if (!attack.zone) return null;
   const from = keyOfZone(attack.zone);
-  const lpSeats = lpSeatsOnScreen();
-  const caption = declaredCaption(attack, lpSeats, nameOf) ?? undefined;
+  const caption = declaredCaption(attack, seatCount, nameOf) ?? undefined;
   if (attack.target) return { mode: "locked", from, to: { zones: [keyOfZone(attack.target)] }, caption };
-  const lpSeat = directTargetSeat(attack, lpSeats);
+  const lpSeat = directTargetSeat(attack, seatCount);
   return lpSeat == null ? null : { mode: "locked", from, to: { lpSeat }, caption };
 }
 
@@ -782,6 +776,9 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
   reducedRef.current = reducedMotion;
   const nameOfRef = useRef(nameOf);
   nameOfRef.current = nameOf;
+  // How many seats play: only a 2-seat duel may guess the defender of a direct attack. 0 while the seats are not known.
+  const seatCountRef = useRef(0);
+  seatCountRef.current = seats?.length ?? 0;
   // The board's monsters as of the last commit, and as of this render: an attack's cards are read
   // from the older one, because the newer snapshot may already have taken the card that died.
   const prevIndexRef = useRef<CardIndex>(new Map());
@@ -801,7 +798,7 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
     for (const event of events) {
       if (event.id > after && event.kind === "attack" && event.zone && (!latest || event.id > latest.id)) latest = event;
     }
-    if (latest && !capturesRef.current.has(latest.id)) capturesRef.current.set(latest.id, captureAttack(latest, prevIndexRef.current, nowIndex));
+    if (latest && !capturesRef.current.has(latest.id)) capturesRef.current.set(latest.id, captureAttack(latest, prevIndexRef.current, nowIndex, seatCountRef.current));
     const stamp = duelFxClock.now();
     const incoming: PendingAttack | null = latest ? { attack: latest, capture: capturesRef.current.get(latest.id) ?? null, at: stamp } : null;
     // The battle damage of a flip-effect sequence waits for the strike or the end of its chain (chain-beats.ts).
@@ -843,7 +840,7 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
       frame = requestAnimationFrame(() => {
         const pending = pendingRef.current;
         if (!pending?.capture) return;
-        const next = remeasureCapture(pending.capture, pending.attack);
+        const next = remeasureCapture(pending.capture, pending.attack, seatCountRef.current);
         if (next === pending.capture) return;
         pendingRef.current = { ...pending, capture: next };
         capturesRef.current.set(pending.attack.id, next);
@@ -893,7 +890,7 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
     const stamp = duelFxClock.now();
     let incoming: PendingAttack | null = null;
     if (latest) {
-      const capture = capturesRef.current.get(latest.id) ?? captureAttack(latest, prevIndexRef.current, indexSeats(seats));
+      const capture = capturesRef.current.get(latest.id) ?? captureAttack(latest, prevIndexRef.current, indexSeats(seats), seatCountRef.current);
       // Load and decode both faces during the declaration/response window, before a possible counter.
       const shared = !reducedRef.current ? getSharedFx3d() : null;
       for (const code of [capture?.attackerCard?.code, capture?.targetCard?.code]) {
@@ -906,7 +903,7 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
     // The battle that resolves in this snapshot plays; one that is still open stays pending.
     const ready = [earlier, incoming].find((entry) => decide(entry) === "play") ?? null;
     pendingRef.current = incoming ? (decide(incoming) === "wait" ? incoming : null) : decide(earlier) === "wait" ? earlier : null;
-    const marker = pendingRef.current ? declaredAim(pendingRef.current.attack, nameOfRef.current) : null;
+    const marker = pendingRef.current ? declaredAim(pendingRef.current.attack, seatCountRef.current, nameOfRef.current) : null;
     setDeclared((current) => (aimSignature(current) === aimSignature(marker) ? current : marker));
     // The attack beat of a flip-effect sequence: the attack that opened it, in this batch or an earlier one.
     const struck = incoming ?? earlier;
@@ -919,7 +916,7 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
         setStrike({
           seq: ++seqRef.current, from: struck.capture.from, to: struck.capture.to, cut: struck.capture.attacker,
           ms: flipSequenceSteps(reduced).attackMs, reduced,
-          delayMs: Math.max(0, startAt - duelFxClock.now()), aim: declaredAim(struck.attack, nameOfRef.current),
+          delayMs: Math.max(0, startAt - duelFxClock.now()), aim: declaredAim(struck.attack, seatCountRef.current, nameOfRef.current),
         });
       }
     }
