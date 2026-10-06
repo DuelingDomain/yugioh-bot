@@ -29,19 +29,21 @@ const FAMILY = {
 let entries: Array<{ catalogCardId: number; pool: "main"; maxCopies: number }>;
 let posts: Array<Record<string, unknown>>;
 let swapError: string | null;
+let swapStatus = 400;
 
 beforeEach(() => {
   clearCardArtworksCache();
   entries = [{ catalogCardId: 1, pool: "main", maxCopies: 2 }];
   posts = [];
   swapError = null;
+  swapStatus = 400;
   vi.stubGlobal("fetch", vi.fn(async (input: unknown, init?: RequestInit) => {
     const target = String(input);
     const detail = () => ({ pools: { main: entries, extra: [] }, cards: entries.map((entry) => card(entry.catalogCardId, "Main A")) });
     if (target.endsWith("/api/cubes/5/cards")) {
       const body = JSON.parse(String(init?.body)) as { op: string; catalogCardId: number; artworkPasscode: number };
       posts.push(body);
-      if (swapError) return { ok: false, status: 400, json: async () => ({ error: swapError }) } as Response;
+      if (swapError) return { ok: false, status: swapStatus, json: async () => ({ error: swapError }) } as Response;
       entries = entries.map((entry) => (entry.catalogCardId === body.catalogCardId ? { ...entry, catalogCardId: body.artworkPasscode } : entry));
       return { ok: true, json: async () => detail() } as Response;
     }
@@ -81,5 +83,25 @@ describe("cube card art", () => {
     fireEvent.click(thumbs[1]!);
     expect(await screen.findByText("That art is already in the cube.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Main A, 2 copies" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("says so when the cube is in a running draft", async () => {
+    swapError = "conflict";
+    swapStatus = 409;
+    const thumbs = await openSelected();
+    fireEvent.click(thumbs[1]!);
+    expect(await screen.findByText("This cube is in a running draft. Its cards cannot change.")).toBeInTheDocument();
+  });
+
+  it("disables an art the cube already holds", async () => {
+    entries = [{ catalogCardId: 1, pool: "main", maxCopies: 2 }, { catalogCardId: 2, pool: "main", maxCopies: 1 }];
+    render(<CubeEditor cubeId={5} />);
+    await screen.findByRole("heading", { name: "Custom" });
+    fireEvent.click(screen.getAllByRole("button", { name: /Main A, 2 copies/ })[0]!);
+    const thumbs = within(await screen.findByRole("group", { name: "Choose an art" })).getAllByRole("button");
+    expect(thumbs[1]).toBeDisabled();
+    expect(thumbs[1]).toHaveAccessibleName(/already in this cube/);
+    fireEvent.click(thumbs[1]!);
+    expect(posts).toHaveLength(0);
   });
 });

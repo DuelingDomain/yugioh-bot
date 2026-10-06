@@ -38,7 +38,7 @@ import { parseDeckText, selectDomainMaster, type DeckMasterSelection } from "@/c
 import { SheetRoot, StatusLine, SvButton, Zone } from "@/components/sheet";
 import { cn } from "@/lib/utils";
 import { useNavigationLeaveGuard } from "@/lib/hooks/use-duel-leave-guard";
-import { createSavedDeck, deleteSavedDeck, getDeckCardFacets, getDeckCards, getSavedDeck, readRegistration, saveDraftDeck, swapDeckArtwork, updateSavedDeck, type DeckRegistrationMark, type SavedDeckView } from "./api";
+import { DeckRequestError, createSavedDeck, deleteSavedDeck, getDeckCardFacets, getDeckCards, getSavedDeck, readRegistration, saveDraftDeck, swapDeckArtwork, updateSavedDeck, type DeckRegistrationMark, type SavedDeckView } from "./api";
 import { ArtworkPicker } from "@/components/artwork/artwork-picker";
 import { CardActions, CardCopyCount } from "./card-actions";
 import { CardArt } from "./card-art";
@@ -517,7 +517,9 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
       setInspectCode(art.passcode);
       setSelected(target.section === "deckMaster" ? null : { section: target.section, code: art.passcode, index: target.index });
     } catch (reason) {
-      setArtError(reason instanceof Error ? reason.message : "Could not change the art.");
+      setArtError(reason instanceof DeckRequestError && reason.status === 409
+        ? "The deck changed. Pick the art again."
+        : reason instanceof Error ? reason.message : "Could not change the art.");
     } finally {
       setArtBusy(false);
     }

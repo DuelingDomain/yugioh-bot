@@ -181,7 +181,7 @@ describe("deck editor art", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Blue-Eyes White Dragon, Main Deck card/ }));
     const group = await screen.findByRole("group", { name: "Choose an art" });
     fireEvent.click(within(group).getByRole("button", { name: /Art 2 of 3/ }));
-    expect(await screen.findByText("The deck changed.")).toBeInTheDocument();
+    expect(await screen.findByText("The deck changed. Pick the art again.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
   });
 

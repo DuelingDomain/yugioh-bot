@@ -12,9 +12,9 @@ export function artCountLabel(altArtCount: number): string {
   return `${total} arts`;
 }
 
-function describe(art: SelectableCardArtwork, index: number, total: number, broken: boolean): string {
+function describe(art: SelectableCardArtwork, index: number, total: number, broken: boolean, reason?: string): string {
   const noImage = !art.smallUrl || broken;
-  return `Art ${index + 1} of ${total}, passcode ${art.passcode}${art.isMain ? ", main art" : ""}${noImage ? ", no image available" : ""}`;
+  return `Art ${index + 1} of ${total}, passcode ${art.passcode}${art.isMain ? ", main art" : ""}${noImage ? ", no image available" : ""}${reason ? `, ${reason}` : ""}`;
 }
 
 /**
@@ -29,6 +29,7 @@ export function ArtworkPicker({
   busy = false,
   error = null,
   label = "Card art",
+  unavailable,
   onFamily,
   onPick,
 }: {
@@ -42,6 +43,8 @@ export function ArtworkPicker({
   /** Why the last pick failed. */
   error?: string | null;
   label?: string;
+  /** Arts that cannot be chosen, and why (for example, already in the cube). */
+  unavailable?: ReadonlyMap<number, string>;
   /** Called once with the family, so the parent can load the details of every member. */
   onFamily?: (family: CardArtworksResponse) => void;
   onPick: (art: SelectableCardArtwork, family: CardArtworksResponse) => void;
@@ -135,18 +138,19 @@ export function ArtworkPicker({
         {artworks.map((art, index) => {
           const missing = !art.smallUrl || broken.has(art.passcode);
           const isCurrent = index === current;
+          const reason = isCurrent ? undefined : unavailable?.get(art.passcode);
           return (
             <button
               key={art.passcode}
               type="button"
               className={styles.thumb}
               aria-pressed={isCurrent}
-              aria-label={describe(art, index, artworks.length, missing)}
-              title={describe(art, index, artworks.length, missing)}
+              aria-label={describe(art, index, artworks.length, missing, reason)}
+              title={describe(art, index, artworks.length, missing, reason)}
               data-current={isCurrent ? "true" : undefined}
               data-missing={missing ? "true" : undefined}
               tabIndex={index === tabStop ? 0 : -1}
-              disabled={locked && !isCurrent}
+              disabled={(locked || reason != null) && !isCurrent}
               onClick={() => { if (!isCurrent && !locked) onPick(art, family); }}
               onPointerEnter={(event) => { if (event.pointerType !== "touch") setLook(index); }}
               onPointerLeave={() => setLook(null)}

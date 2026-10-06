@@ -144,7 +144,8 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
         error?: string;
       } & ImportOutcome;
       if (!res.ok || !data.pools || !data.cards) {
-        setError(data.error ?? "Update failed.");
+        // A cube whose draft is pending or running refuses an art swap with 409.
+        setError(res.status === 409 && op.op === "setArtwork" ? "This cube is in a running draft. Its cards cannot change." : (data.error ?? "Update failed."));
         return null;
       }
       applyDetail({ pools: data.pools, cards: data.cards });
@@ -169,6 +170,10 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
   };
 
   const selected = entryFor(selectedId);
+  // The artwork list does not say which arts the cube already has, and a swap to one is refused.
+  const inCube = new Map<number, string>(
+    [...pools.main, ...pools.extra].map((entry) => [entry.catalogCardId, "already in this cube"] as const),
+  );
   const selectedCard = selectedId != null ? (cardsById.get(selectedId) ?? null) : null;
 
   const setCopies = async (copies: number) => {
@@ -350,7 +355,7 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
       copies={selected.entry.maxCopies}
       busy={busy}
       compact={railHidden}
-      artwork={<ArtworkPicker code={selected.entry.catalogCardId} busy={busy} onPick={(art) => void setArtwork(art.passcode)} />}
+      artwork={<ArtworkPicker code={selected.entry.catalogCardId} busy={busy} unavailable={inCube} onPick={(art) => void setArtwork(art.passcode)} />}
       onSetCopies={(n) => void setCopies(n)}
       onRemove={() => void removeSelected()}
     />
