@@ -64,7 +64,7 @@ export function behindStatus(): CardDataStatus {
   const status = freshStatus();
   status.upstream.sources.database = {
     ...status.upstream.sources.database, latestSha: "dffffffffffffffff", latestCommitDate: "2026-10-02T10:00:00Z",
-    behindCommits: 12, behindDays: 3, comparison: "behind",
+    behindCommits: 12, behindDays: 3, comparison: "ahead", // GitHub: HEAD has new commits on our pin
   };
   return status;
 }

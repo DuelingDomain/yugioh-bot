@@ -57,7 +57,7 @@ export function absoluteTime(iso: string | null | undefined): string | null {
   if (!iso) return null;
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return null;
-  return date.toLocaleString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+  return date.toLocaleString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false, timeZoneName: "short" });
 }
 
 /** Accepts ISO timestamps and YYYY-MM-DD release dates. */
@@ -68,10 +68,21 @@ export function absoluteDate(value: string | null | undefined): string | null {
   return date.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" });
 }
 
+/**
+ * True when the comparison with upstream HEAD gave no answer: the fetch failed, the pin is missing,
+ * or the compare call failed even though HEAD is known.
+ */
+export function isSourceUnknown(source: UpstreamSourceStatus): boolean {
+  return source.status !== "ok" || source.comparison === "unknown" || source.behindCommits === null;
+}
+
+/**
+ * `comparison` is GitHub's status of compare/pinned...HEAD, so "ahead" means upstream HEAD has new
+ * commits on top of our pin. "behind" means our pin is newer than HEAD, which is not a gap.
+ */
 export function isSourceBehind(source: UpstreamSourceStatus): boolean {
-  if (source.status !== "ok") return false;
-  if (source.comparison === "behind" || source.comparison === "diverged") return true;
-  return (source.behindCommits ?? 0) > 0;
+  if (isSourceUnknown(source)) return false;
+  return source.comparison === "diverged" || (source.behindCommits ?? 0) > 0;
 }
 
 function baseName(file: string): string {
@@ -96,7 +107,7 @@ function behindSentence(sources: UpstreamSourceStatus[]): string {
 export function summarize(status: CardDataStatus): CardDataSummary {
   const sources = SOURCE_ORDER.map((key) => status.upstream.sources[key]);
   const behind = sources.filter(isSourceBehind);
-  const unknown = sources.filter((s) => s.status !== "ok");
+  const unknown = sources.filter(isSourceUnknown);
   const newCdbs = newUpstreamCdbFiles(status);
   const gap = status.gap.catalogMissingFromEngineCount;
 
@@ -105,12 +116,12 @@ export function summarize(status: CardDataStatus): CardDataSummary {
   if (newCdbs.length) reasons.push(`${plural(newCdbs.length, "new release file")} upstream not loaded`);
   if (gap > 0) reasons.push(`${plural(gap, "TCG card")} not in the duel engine`);
 
-  if (reasons.length) return { state: "behind", headline: reasons[0], reasons };
-
   const unknownReasons: string[] = [];
   if (unknown.length === sources.length) unknownReasons.push("Cannot reach GitHub, so engine data age is unknown");
   else if (unknown.length) unknownReasons.push(`${plural(unknown.length, "engine source")} could not be checked against GitHub`);
   if (status.upstream.babelCdbFiles.status !== "ok" && !unknown.length) unknownReasons.push("New release files could not be checked");
+
+  if (reasons.length) return { state: "behind", headline: reasons[0], reasons: [...reasons, ...unknownReasons] };
   if (unknownReasons.length) return { state: "unknown", headline: unknownReasons[0], reasons: unknownReasons };
 
   return { state: "up-to-date", headline: "Engine data matches Project Ignis and the catalog has no gaps", reasons: [] };

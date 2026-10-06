@@ -36,6 +36,24 @@ describe("summarize", () => {
     expect(summarize(status).headline).toBe("1 new release file upstream not loaded");
   });
 
+  it("is unknown, not up to date, when HEAD is known but the compare failed", () => {
+    const status = freshStatus();
+    status.upstream.sources.database = { ...status.upstream.sources.database, comparison: "unknown", behindCommits: null, behindDays: null };
+    expect(summarize(status)).toMatchObject({ state: "unknown", headline: "1 engine source could not be checked against GitHub" });
+  });
+
+  it("does not call a pin that is newer than upstream HEAD behind", () => {
+    const status = freshStatus();
+    status.upstream.sources.database = { ...status.upstream.sources.database, comparison: "behind", behindCommits: 0, behindDays: 0 };
+    expect(summarize(status).state).toBe("up-to-date");
+  });
+
+  it("treats a diverged pin as behind", () => {
+    const status = freshStatus();
+    status.upstream.sources.scripts = { ...status.upstream.sources.scripts, comparison: "diverged", behindCommits: 0, behindDays: 0 };
+    expect(summarize(status)).toMatchObject({ state: "behind", headline: "Engine data is behind Project Ignis" });
+  });
+
   it("is unknown when GitHub failed for every source", () => {
     const status = freshStatus();
     status.upstream.sources = { database: unknownSource("database"), scripts: unknownSource("scripts"), strings: unknownSource("strings") };
@@ -46,7 +64,9 @@ describe("summarize", () => {
   it("keeps a known problem ahead of an unknown source", () => {
     const status = behindStatus();
     status.upstream.sources.strings = unknownSource("strings");
-    expect(summarize(status).state).toBe("behind");
+    const summary = summarize(status);
+    expect(summary.state).toBe("behind");
+    expect(summary.reasons).toContain("1 engine source could not be checked against GitHub");
   });
 });
 
