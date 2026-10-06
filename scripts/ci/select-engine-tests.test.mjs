@@ -127,19 +127,19 @@ test("PR selection retains main's reviewed non-engine paths; web-only changes sk
 });
 
 
-test("golden runs only for native driver, core, overlay and data inputs", () => {
+test("golden runs only for native driver, core, overlay, data inputs and its CI wiring", () => {
   const pkg = "packages/duel-server/";
   const inputs = [
     "domain-core/patches/0001.patch", "domain-core/multi-scripts/nested/c1.lua",
     "domain-core/pins.json", "scripts/native/nduel.cpp", "scripts/native/golden.tsv",
     "scripts/run-nduel.sh", "scripts/build-native-core.sh", "scripts/prepare-multi-core-tree.sh",
     "scripts/multi-core-common.sh", "scripts/prepare-data.ts",
-  ].map((path) => pkg + path);
+  ].map((path) => pkg + path).concat("scripts/ci/changed-layers.mjs", ".github/workflows/test.yml");
   const unrelated = [
     "packages/shared/src/services/duels.ts", "packages/e2e/src/run.ts",
     pkg + "src/host.ts", pkg + "tests/engine.test.ts", pkg + "scripts/update-engine-data.ts",
     pkg + "scripts/prepare-data.ts.bak", pkg + "domain-core/pins.json.bak",
-    "scripts/ci/changed-layers.mjs", ".github/workflows/test.yml", "package-lock.json",
+    "scripts/ci/test.yml", ".github/workflows/deploy.yml", "package-lock.json",
   ];
   for (const event of ["pull_request", "push"]) {
     for (const path of inputs) assert.equal(changedLayers([path], event).golden, true, path);

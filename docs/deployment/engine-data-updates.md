@@ -58,7 +58,7 @@ Then, in PR #210's `chore/engine-data-update` checkout:
    ```
 3. Use a fresh native work directory so cached card dumps and binaries cannot come from the old pins. Re-record all four cases, then check the resulting file with the same build:
    ```sh
-   unset NDUEL_PATCHES NDUEL_PATCH_LIMIT
+   unset NDUEL_PATCHES NDUEL_PATCH_LIMIT DUEL_MULTI_SCRIPTS_DIR
    export DUEL_DATA_DIR="$PWD/data/duel-engine-next"
    export NDUEL_DIR="$(mktemp -d)"
    NDUEL_CASES="n2 n3 n4 tag" NDUEL_SEEDS=20 NDUEL_TURNS=60 NDUEL_LP=3000 NDUEL_FUTURE=0 NDUEL_SKIP_BUILD=0 prlimit --core=1:1 -- bash packages/duel-server/scripts/run-nduel.sh --record
