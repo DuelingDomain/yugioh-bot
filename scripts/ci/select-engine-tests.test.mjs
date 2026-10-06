@@ -96,16 +96,16 @@ test("scenario discovery selects catalog checks for edited, new and deleted modu
 });
 
 test("only PRs confined to tests get a narrow selection; source/patch/script changes stay full", () => {
-  assert.deepEqual(changedLayers([prefix + "one.test.ts"], "pull_request"), { engine: true, tests_only: true });
+  assert.deepEqual(changedLayers([prefix + "one.test.ts"], "pull_request"), { engine: true, golden: false, tests_only: true });
   for (const file of ["packages/duel-server/src/engine.ts", "packages/duel-server/domain-core/patches/0001.patch", "scripts/ci/run-engine-tests.mjs", "package-lock.json", ".github/workflows/test.yml"]) {
     assert.equal(changedLayers([prefix + "one.test.ts", file], "pull_request").tests_only, false);
   }
-  for (const event of ["schedule", "workflow_dispatch"]) assert.deepEqual(changedLayers([], event), { engine: true, tests_only: false });
-  for (const event of ["pull_request", "push"]) assert.deepEqual(changedLayers(null, event), { engine: true, tests_only: false });
-  assert.deepEqual(changedLayers([prefix + "one.test.ts"], "push"), { engine: true, tests_only: false });
+  for (const event of ["schedule", "workflow_dispatch"]) assert.deepEqual(changedLayers([], event), { engine: true, golden: true, tests_only: false });
+  for (const event of ["pull_request", "push"]) assert.deepEqual(changedLayers(null, event), { engine: true, golden: true, tests_only: false });
+  assert.deepEqual(changedLayers([prefix + "one.test.ts"], "push"), { engine: true, golden: false, tests_only: false });
   for (const event of ["pull_request", "push"]) {
-    assert.deepEqual(changedLayers(["docs/readme.md"], event), { engine: false, tests_only: false });
-    assert.deepEqual(changedLayers(["packages/web/tests/duel.test.ts"], event), { engine: false, tests_only: false });
+    assert.deepEqual(changedLayers(["docs/readme.md"], event), { engine: false, golden: false, tests_only: false });
+    assert.deepEqual(changedLayers(["packages/web/tests/duel.test.ts"], event), { engine: false, golden: false, tests_only: false });
     for (const file of ["packages/e2e/src/run.ts", "patches/ocgcore-wasm+0.1.2.patch", "package-lock.json", "docs/adr/0002-multiplayer-duel-rules.md"]) {
       assert.equal(changedLayers(["packages/web/src/app/page.tsx", file], event).engine, true, file);
     }
@@ -115,13 +115,37 @@ test("only PRs confined to tests get a narrow selection; source/patch/script cha
 
 test("PR selection retains main's reviewed non-engine paths; web-only changes skip the engine", () => {
   for (const file of ["packages/shared/tests/draft.test.ts", "packages/shared/src/services/cubes.ts", "scripts/seed.ts"]) {
-    assert.deepEqual(changedLayers([file], "pull_request"), { engine: false, tests_only: false });
+    assert.deepEqual(changedLayers([file], "pull_request"), { engine: false, golden: false, tests_only: false });
   }
   for (const file of ["packages/web/src/components/ui/button.tsx", "packages/web/src/lib/utils.ts", "packages/web/e2e/duel.ts", "packages/web/src/components/duel/table.tsx"]) {
-    assert.deepEqual(changedLayers([file], "pull_request"), { engine: false, tests_only: false });
+    assert.deepEqual(changedLayers([file], "pull_request"), { engine: false, golden: false, tests_only: false });
   }
   assert.equal(changedLayers(["packages/shared/src/services/duels.ts"], "pull_request").engine, true);
   assert.equal(changedLayers(["packages/shared/src/services/unknown.ts"], "pull_request").engine, true);
   assert.equal(changedLayers(["packages/shared/src/services/cubes.ts"], "push").engine, false);
   assert.equal(changedLayers(["packages/shared/src/services/duels.ts"], "push").engine, true);
+});
+
+
+test("golden runs only for native driver, core, overlay and data inputs", () => {
+  const pkg = "packages/duel-server/";
+  const inputs = [
+    "domain-core/patches/0001.patch", "domain-core/multi-scripts/nested/c1.lua",
+    "domain-core/pins.json", "scripts/native/nduel.cpp", "scripts/native/golden.tsv",
+    "scripts/run-nduel.sh", "scripts/build-native-core.sh", "scripts/prepare-multi-core-tree.sh",
+    "scripts/multi-core-common.sh", "scripts/prepare-data.ts",
+  ].map((path) => pkg + path);
+  const unrelated = [
+    "packages/shared/src/services/duels.ts", "packages/e2e/src/run.ts",
+    pkg + "src/host.ts", pkg + "tests/engine.test.ts", pkg + "scripts/update-engine-data.ts",
+    pkg + "scripts/prepare-data.ts.bak", pkg + "domain-core/pins.json.bak",
+    "scripts/ci/changed-layers.mjs", ".github/workflows/test.yml", "package-lock.json",
+  ];
+  for (const event of ["pull_request", "push"]) {
+    for (const path of inputs) assert.equal(changedLayers([path], event).golden, true, path);
+    for (const path of unrelated) assert.equal(changedLayers([path], event).golden, false, path);
+    assert.equal(changedLayers([], event).golden, false);
+    assert.equal(changedLayers([...unrelated, inputs[0]], event).golden, true);
+  }
+  assert.equal(changedLayers(unrelated, "workflow_dispatch").golden, true);
 });

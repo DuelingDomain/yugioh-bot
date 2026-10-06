@@ -50,9 +50,10 @@ env:
 jobs:
   # Which layers a change can affect (scripts/ci/changed-layers.mjs). Pull requests diff from the merge base; pushes
   # to main diff from the previous tip (github.event.before). Manual runs, the schedule and a push without a usable
-  # diff set engine=true.
+  # diff set engine=true and golden=true.
   #   engine      the duel engine, its shared dependencies, e2e, the engine bundle inputs, the lockfile, the ADR-0002
   #               rules or this workflow changed: cores, engine, engine-legacy, native and rule-coverage run.
+  #   golden      core patches/pins, overlays, native tooling or data pins changed: check golden in the native job.
   # Changes outside these paths (for example web-only UI changes) run only the unit jobs.
   changes:
     name: Changed layers
@@ -60,6 +61,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       engine: ${{ steps.diff.outputs.engine }}
+      golden: ${{ steps.diff.outputs.golden }}
       tests_only: ${{ steps.diff.outputs.tests_only }}
       base: ${{ steps.diff.outputs.base }}
       head: ${{ steps.diff.outputs.head }}
@@ -596,10 +598,21 @@ jobs:
       - name: Native tests
         run: npm run test:native
 
-      # This job runs for domain-core/patches/**, domain-core/multi-scripts/** and scripts/native/** (including
-      # nduel.cpp), via changed-layers.mjs. Check every committed golden row (currently 20 n2 seeds) in the PR.
+      # The job runs for all engine changes; only core/overlay/data/native inputs (or a manual run) check golden.
+      # Reuse test:native's repo-series library, pinned Lua and trap/ASan/UBSan flags; only compile the driver.
       - name: nduel golden hashes (--check)
-        run: prlimit --core=1:1 -- bash packages/duel-server/scripts/run-nduel.sh --check
+        if: needs.changes.outputs.golden == 'true'
+        env:
+          NDUEL_DIR: ${{ github.workspace }}/packages/duel-server/domain-core/.build/nduel
+          NDUEL_SKIP_BUILD: "1"
+        run: |
+          native="$GITHUB_WORKSPACE/packages/duel-server/domain-core/.build/native-checks"
+          mkdir -p "$NDUEL_DIR"
+          prlimit --core=1:1 -- g++ -std=c++17 -Wall -Wextra -Wno-unused-parameter -O1 -g1 \
+            -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined -fno-rtti \
+            -DYGO_N_TRAP -D_GLIBCXX_ASSERTIONS -I"$native/lua-src" -I"$native/multi-core-tree" \
+            packages/duel-server/scripts/native/nduel.cpp "$native/libocgcore-multi.a" -o "$NDUEL_DIR/nduel"
+          prlimit --core=1:1 -- bash packages/duel-server/scripts/run-nduel.sh --check
 
       - name: Upload native status
         if: always()
