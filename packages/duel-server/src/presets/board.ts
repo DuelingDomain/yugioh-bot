@@ -69,9 +69,11 @@ export interface BoardSpec {
   /** "normal" (default) or "domain". */
   mode?: DuelMode;
   masterRule?: DuelMasterRule;
-  /** Whose Main Phase 1 the scenario starts in. Default "p0". */
+  /** Whose turn the scenario starts in. Default "p0". Skipped turns count toward the turn number. */
   turn?: DuelistId;
-  /** Skip the opening Draw Phase when rebuilding a captured board. Later turns draw as usual. Default false. */
+  /** Sandbox Draw Phase start, including one draw on turn 1. Omit to keep the format's normal draw rule. */
+  startAt?: "draw";
+  /** Skip the opening Draw Phase; later turns draw as usual. Default false, except legacy 1v1 p1 presets without startAt. */
   skipOpeningDraw?: boolean;
   /** Let the turn player attack on the very first turn of the duel. Default false. */
   attackFirstTurn?: boolean;
@@ -111,7 +113,7 @@ function luaPos(stance: Stance | undefined, monster: boolean): string {
 }
 
 export interface CompiledBoard {
-  options: Pick<EngineGameOptions, "mode" | "decks" | "settings" | "masterRule" | "startupScripts" | "format">;
+  options: Pick<EngineGameOptions, "mode" | "decks" | "settings" | "masterRule" | "startupScripts" | "format" | "firstTurnDraw">;
   /** Every distinct passcode the board uses. */
   codes: number[];
 }
@@ -133,7 +135,8 @@ export function compileBoard(board: BoardSpec, dir?: string): CompiledBoard {
   }
   const turn = board.turn ?? "p0";
   if (!seatIds.includes(turn)) throw new Error(`Turn player ${turn} is not a seat of format "${format}"`);
-  if (seatCount > 2 && turn !== "p0") throw new Error("A multi-player board starts on the turn of p0. Skipping turns to another seat is not supported yet.");
+  // Old 1v1 p1 fixtures represent captured boards. Parsed sandbox boards always set startAt: "draw".
+  const skipOpeningDraw = board.skipOpeningDraw ?? (board.startAt === undefined && format === "1v1" && turn === "p1");
   const used = new Set<number>();
   const code = (ref: CardRef): number => {
     const value = resolveCard(ref, dir);
@@ -193,21 +196,24 @@ export function compileBoard(board: BoardSpec, dir?: string): CompiledBoard {
     decks.push(deck);
   }
 
-  if (turn === "p1" || board.skipOpeningDraw) {
-    // A captured board has already passed its Draw Phase. Keep the skip until the first Main Phase 1;
-    // a phase reset would be spent by the skipped p0 turn when p1 starts the scenario.
-    lua.push("do");
-    if (turn === "p1") {
+  if (turn !== "p0" || skipOpeningDraw) {
+    // Keep all skips until the first real Main Phase 1. A phase reset can be spent by a skipped turn.
+    lua.push("do", "local skips={}");
+    for (let seat = 0; seat < seatOf(turn); seat++) {
       lua.push(
         "local skipTurn=Effect.GlobalEffect(); skipTurn:SetType(EFFECT_TYPE_FIELD); skipTurn:SetCode(EFFECT_SKIP_TURN)",
-        "skipTurn:SetProperty(EFFECT_FLAG_PLAYER_TARGET); skipTurn:SetTargetRange(1,0); skipTurn:SetReset(RESET_PHASE+PHASE_END); Duel.RegisterEffect(skipTurn,0)",
+        `skipTurn:SetProperty(EFFECT_FLAG_PLAYER_TARGET); skipTurn:SetTargetRange(1,0); Duel.RegisterEffect(skipTurn,${seat}); table.insert(skips,skipTurn)`,
+      );
+    }
+    if (skipOpeningDraw) {
+      lua.push(
+        "local skipDraw=Effect.GlobalEffect(); skipDraw:SetType(EFFECT_TYPE_FIELD); skipDraw:SetCode(EFFECT_SKIP_DP)",
+        "skipDraw:SetProperty(EFFECT_FLAG_PLAYER_TARGET); skipDraw:SetTargetRange(1,1); Duel.RegisterEffect(skipDraw,0); table.insert(skips,skipDraw)",
       );
     }
     lua.push(
-      "local skipDraw=Effect.GlobalEffect(); skipDraw:SetType(EFFECT_TYPE_FIELD); skipDraw:SetCode(EFFECT_SKIP_DP)",
-      "skipDraw:SetProperty(EFFECT_FLAG_PLAYER_TARGET); skipDraw:SetTargetRange(1,1); Duel.RegisterEffect(skipDraw,0)",
       "local undo=Effect.GlobalEffect(); undo:SetType(EFFECT_TYPE_FIELD+EFFECT_TYPE_CONTINUOUS); undo:SetCode(EVENT_PHASE_START+PHASE_MAIN1)",
-      "undo:SetOperation(function(e) skipDraw:Reset() e:Reset() end); Duel.RegisterEffect(undo,0)",
+      "undo:SetOperation(function(e) for _,skip in ipairs(skips) do skip:Reset() end e:Reset() end); Duel.RegisterEffect(undo,0)",
       "end",
     );
   }
@@ -231,6 +237,7 @@ export function compileBoard(board: BoardSpec, dir?: string): CompiledBoard {
       mode,
       format,
       masterRule: board.masterRule,
+      ...(board.startAt === "draw" ? { firstTurnDraw: !skipOpeningDraw } : {}),
       decks,
       settings,
       startupScripts: [{ name: "scenario-board.lua", content: lua.join("\n") }],
