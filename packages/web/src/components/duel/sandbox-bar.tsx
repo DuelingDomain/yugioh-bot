@@ -458,8 +458,8 @@ export function SandboxBar({ slug, room, info, acting, reveal, follow, onActAs, 
                       </div>
                     ) : (
                       <button type="button" role="menuitem" className={styles.menuItem} data-testid={`sandbox-eliminate-${seat}`}
-                        disabled={!live || aliveCount <= 2}
-                        title={aliveCount <= 2 ? "Two seats must stay in the duel" : `Send P${seat} out of the duel`}
+                        disabled={!live || aliveCount <= 2 || seat === engine?.turnSeat}
+                        title={seat === engine?.turnSeat ? "The turn player stays in." : aliveCount <= 2 ? "Two seats must stay in the duel" : `Send P${seat} out of the duel`}
                         onClick={() => setConfirm({ kind: "eliminate", seat })}>
                         Eliminate…
                       </button>

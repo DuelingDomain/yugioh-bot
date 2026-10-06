@@ -30,14 +30,14 @@ const info = (over: Partial<SandboxRoomInfo> = {}): SandboxRoomInfo => ({
 });
 
 function room(over: {
-  phase?: string; turn?: number; revision?: number; prioritySeat?: number | null; prompt?: unknown; format?: string;
+  phase?: string; turn?: number; turnSeat?: number; revision?: number; prioritySeat?: number | null; prompt?: unknown; format?: string;
   out?: number[]; name?: string; status?: string;
 } = {}): DuelRoom {
   const count = over.format === "ffa4" ? 4 : over.format === "ffa3" ? 3 : 2;
   return {
     session: { format: over.format ?? "1v1", status: over.status ?? "active", name: over.name ?? "Column test" },
     engine: {
-      phase: over.phase ?? "Main 1", turn: over.turn ?? 1, revision: over.revision ?? 5,
+      turnSeat: over.turnSeat ?? 0, phase: over.phase ?? "Main 1", turn: over.turn ?? 1, revision: over.revision ?? 5,
       prioritySeat: over.prioritySeat ?? 0, prompt: over.prompt ?? null, result: null,
       seats: Array.from({ length: count }, (_, seat) => ({ seat, eliminated: over.out?.includes(seat) ? true : undefined })),
     },
@@ -174,6 +174,14 @@ describe("SandboxBar eliminate", () => {
     expect(api.eliminateSandboxSeat).toHaveBeenCalledWith("abc", 2, { as: 0, reveal: true });
   });
 
+  it("keeps the turn player in with the builder message", () => {
+    mount({ room: room({ format: "ffa4", turnSeat: 2 }) });
+    fireEvent.click(screen.getByLabelText("Set P2 mode"));
+    expect(screen.getByTestId("sandbox-eliminate-2")).toBeDisabled();
+    expect(screen.getByTestId("sandbox-eliminate-2")).toHaveAttribute("title", "The turn player stays in.");
+    expect(api.eliminateSandboxSeat).not.toHaveBeenCalled();
+  });
+
   it("cancel keeps the seat in", () => {
     mount({ room: room({ format: "ffa4" }) });
     fireEvent.click(screen.getByLabelText("Set P3 mode"));
@@ -184,7 +192,7 @@ describe("SandboxBar eliminate", () => {
   });
 
   it("offers seat 0 an options menu with Eliminate only in FFA", () => {
-    mount({ room: room({ format: "ffa4" }) });
+    mount({ room: room({ format: "ffa4", turnSeat: 1 }) });
     fireEvent.click(screen.getByLabelText("P0 options"));
     expect(screen.getByTestId("sandbox-eliminate-0")).toBeEnabled();
     expect(screen.queryByRole("menuitemradio")).toBeNull();

@@ -141,6 +141,8 @@ describeWithCores("H1 sandbox real core", [needs.cards(DATA), needs.standard(DAT
 
   it("eliminates mid-duel, journals it, and refuses already-out or last-two seats", async () => {
     const t = setup(), { slug } = await t.start({ format: "ffa4", startAt: "main1", p2: { monsters: [15025844] } });
+    const turnPlayer = await t.post("sandbox-eliminate", { slug, seat: 0 });
+    expect(turnPlayer).toEqual({ status: 409, data: { error: "The turn player stays in." } });
     const gone = await t.post("sandbox-eliminate", { slug, seat: 2 });
     expect(gone.status, gone.data.error).toBe(200);
     expect(gone.data.engine.seats[2]).toMatchObject({ eliminated: true, deckCount: 0 });

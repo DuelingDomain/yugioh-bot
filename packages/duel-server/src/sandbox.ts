@@ -187,6 +187,7 @@ export function sandboxEliminationSeat(format: DuelFormat, view: DuelEngineView,
   if (typeof seat !== "number" || !Number.isInteger(seat) || seat < 0 || seat >= seatCountFor(format)) {
     throw new SandboxError("Choose a seat in this duel", 400);
   }
+  if (seat === view.turnSeat) throw new SandboxError("The turn player stays in.", 409);
   const state = view.seats.find((entry) => entry.seat === seat);
   if (!state || state.eliminated || state.pendingElimination) throw new SandboxError("This seat is already out", 409);
   if (view.result || view.seats.filter((entry) => !entry.eliminated && !entry.pendingElimination).length <= 2) {
