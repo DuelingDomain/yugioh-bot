@@ -32,6 +32,7 @@ import { hexToRgbTriplet } from "./seat-angle";
 import { bandHubFit } from "../phase-hub-model";
 import { SEAT_TONE_HEX, type SeatFieldProps, type SeatPose, type SeatTone } from "./types";
 import { occluderRects, useViewZoom } from "./use-view-zoom";
+import { watchMeasure } from "./measure-watch";
 import { ViewReset } from "./view-reset";
 import { FOLLOW_ATTR, followShift, followTransform, visibleRect } from "./view-zoom";
 import zoomStyles from "./view-zoom.module.css";
@@ -589,12 +590,9 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
       const hud = occluderRects(root, BAR_HUD).map((r) => ({ x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) }));
       setHudRects((current) => (sameRects(current, hud) ? current : hud));
     };
-    const frame = window.requestAnimationFrame(measure);
-    const timer = window.setTimeout(measure, reducedMotion ? 0 : Math.max(FLIP_MS, FINALE_GLIDE_MS) + 80);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      window.clearTimeout(timer);
-    };
+    // Once the fields stand still, once late (under reduced motion they can lay out after the first frame), and while a
+    // pick is open, again when the fields mount or mark targets.
+    return watchMeasure(root, measure, { settleMs: reducedMotion ? 0 : Math.max(FLIP_MS, FINALE_GLIDE_MS) + 80, watch: legalKey !== "" });
   }, [placed, legalKey, reducedMotion, zoom.view]);
   const barRoom = useMemo(() => (!promptPair ? undefined : zoom.zoomed ? dockBarRoom(box) : restBarRoom(promptPair, box, targets, zones, hudRects)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
