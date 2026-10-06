@@ -1,0 +1,63 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Duelists Kingdom Engine <engine@duelistskingdom.com>
+Date: Mon, 5 Oct 2026 00:00:00 +0000
+Subject: [PATCH] Keep the FFA3 column peer through seat loss
+
+R-FFA-THREE-COLUMNS, owner decision 2026-10-05.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019EpX1AcvnigK9dTsxAa5W9
+---
+diff --git a/field.cpp b/field.cpp
+index ed3e85b..103f5d9 100644
+--- a/field.cpp
++++ b/field.cpp
+@@ -21,20 +21,22 @@ uint8_t field::column_peer_of(uint8_t p) const {
+ 		return across_of(p);
+ 	if(!is_alive(p))
+ 		return DUELIST_NONE;
+-	uint8_t opponents[MAX_DUELISTS];
+-	if(living_opponents(p, opponents) == 1)
+-		return opponents[0];
+ 	const auto* s = pduel->lua->current_scope();
+-	if(!s || !s->eff || !s->eff->column_peer || !(s->eff->type & EFFECT_TYPE_ACTIONS) || (s->eff->type & EFFECT_TYPE_CONTINUOUS))
+-		return DUELIST_NONE;
+-	// A flagged condition can read columns before its target callback runs.
+-	pduel->lua->scope_mark_touched();
+-	const auto peer = pduel->lua->scope_bound_opp();
+-	if(!is_alive(s->P) || !is_alive(peer) || same_team(s->P, peer))
+-		return DUELIST_NONE;
+-	if(p == s->P)
+-		return peer;
+-	return p == peer ? s->P : DUELIST_NONE;
++	if(s && s->eff && s->eff->column_peer && (s->eff->type & EFFECT_TYPE_ACTIONS) && !(s->eff->type & EFFECT_TYPE_CONTINUOUS)) {
++		// A flagged condition can read columns before its target callback runs.
++		pduel->lua->scope_mark_touched();
++		const auto peer = pduel->lua->scope_bound_opp();
++		// A chain's bound seat wins over survivor geometry, even after it leaves.
++		// Other reads in this operation keep that seat and see its empty field.
++		if(is_duelist(peer) && is_duelist(s->P) && !same_team(s->P, peer)) {
++			if(p == s->P)
++				return peer;
++			return p == peer ? s->P : DUELIST_NONE;
++		}
++	}
++	uint8_t opponents[MAX_DUELISTS];
++	// Use the pick's pending-loss policy before a peer has been bound.
++	return pick_opponents(p, opponents) == 1 ? opponents[0] : DUELIST_NONE;
+ }
+ 
+ bool chain::chain_operation_sort(const chain& c1, const chain& c2) {
+diff --git a/field.h b/field.h
+index e99cc5d..29970b0 100644
+--- a/field.h
++++ b/field.h
+@@ -559,6 +559,8 @@ public:
+ 		return DUELIST_NONE;
+ 	}
+ 	// Column-only FFA3 house rule; EMZ and Link geometry still use across_of.
++	// Const for field state only: a flagged read marks the Lua activation probe
++	// as opponent-dependent via scope_mark_touched(). It does not bind a seat.
+ 	uint8_t column_peer_of(uint8_t p) const;
+ 	// The high half of a zone effect: explicit selection, geometry, bound seat,
+ 	// then the physical across field (FFA4) or the existing separate-field fallback.

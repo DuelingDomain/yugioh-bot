@@ -1,5 +1,5 @@
 -- The incoming effect is the exact, non-binding origin for the immunity column.
-if not aux.MPGeometryShared then return end
+if not aux.MPColumnGeometry then return end
 local mp_initial=s.initial_effect
 function s.initial_effect(c)
 	local register=Card.RegisterEffect
@@ -7,7 +7,7 @@ function s.initial_effect(c)
 		if card==c and e:GetCode()==EFFECT_IMMUNE_EFFECT then
 			local value=e:GetValue()
 			e:SetValue(function(ie,te)
-				if not aux.MPGeometryShared() then return value(ie,te) end
+				if not aux.MPColumnGeometry() then return value(ie,te) end
 				return te:GetOwnerPlayer()~=ie:GetHandlerPlayer() and te:IsActivated()
 					and ie:GetHandler():IsColumn(te:GetCardSequence(),te:GetCardControler(),te:GetCardLocation(),te)
 			end)
@@ -16,4 +16,9 @@ function s.initial_effect(c)
 	end
 	mp_initial(c)
 	Card.RegisterEffect=register
+end
+
+-- R-FFA-THREE-COLUMNS: choose the column opponent before cards or zones.
+if aux.MPColumnEffects then
+	s.initial_effect=aux.MPColumnEffects(s.initial_effect,{s.activate})
 end

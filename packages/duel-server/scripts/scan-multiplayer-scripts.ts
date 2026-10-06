@@ -879,7 +879,7 @@ export const RULES: readonly PatternRule[] = [
     cls: "O",
     ambiguous: false,
     tables: "all",
-    why: "Column groups and column zones are read from one controller's zones: the card controller decides, columns across several fields need MSG_SELECT_PLACE_N (task F8).",
+    why: "Column queries need a format-specific peer: FFA4 uses its fixed living facing seat; FFA3 uses R-FFA-THREE-COLUMNS (a declared opponent for approved activated effects, or the sole remaining opponent for all column logic). Review activated operations for an early opponent declaration; keep Link/EMZ sharing separate.",
     detect: (s) => callRule(s, "column", (c) => c.owner === "method" && (c.fn === "GetColumnGroup" || c.fn === "GetColumnZone")),
   },
   // ----- C: the class behaviour of the fold is enough

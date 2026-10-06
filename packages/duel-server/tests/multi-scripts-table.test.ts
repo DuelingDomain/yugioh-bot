@@ -453,6 +453,18 @@ const filler = (count: number): CardEntry[] => FILLERS.slice(0, count);
  * `ahead`: p0 has more cards, so a "fewer than you" compare passes. Each opponent has a different count, so the compare differs by seat.
  */
 export function boardFor(format: DuelFormat, code: number, layout: Layout): BoardSpec {
+  if (code === 78360952) {
+    // Sunlit Sentinel registers its Standby Phase trigger only after destruction while face-down.
+    return { format, deckSize: 20,
+      p0: { monsters: [{ card: code, pos: "set" }], hand: ["Dark Hole"] }, p1: {}, p2: {},
+      ...(format === "tag" ? { p3: {} } : {}) };
+  }
+  if (code === 97729135) {
+    // Keep Staring Contest face-up when Monster Reborn raises EVENT_SPSUMMON_SUCCESS.
+    return { format, deckSize: 20,
+      p0: { spells: [code], hand: ["Monster Reborn"], grave: ["Giant Rat"] }, p1: {}, p2: {},
+      ...(format === "tag" ? { p3: {} } : {}) };
+  }
   if (code === 40640057) {
     // Kuriboh's hand condition needs damage calculation on an opponent's turn.
     return { format, deckSize: 20, attackFirstTurn: true,

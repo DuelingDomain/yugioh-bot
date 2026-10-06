@@ -104,6 +104,7 @@ This directory holds the patch series for the N-duelist ygopro-core. The series 
 | `0100-resolution-opponent-decisions.patch` | Summarize the reviewed `aux.MPChooseOpponent` closure as a resolution-time binding in the activation analyzer. | Decision-only opponent card choices stay at resolution; arbitrary wrappers and resource/action declarations keep normal analysis. The helper name, source and exact line span must stay aligned (catalog guard). |
 | `0101-ffa-finish-rotation-before-leave.patch` | `Duel.MPBeginControlRotation` marks the resolving link before Lua card choices. Defer pending FFA losses for that link or a queued or running `RotateControl` processor. | Card choices, placements and the atomic rotation finish before removal for surrender or timeout, including aliases and copied operations (owner, 2026-10-05). |
 | `0105-ffa4-adjacent-shared-zones.patch` | Owner decision 2026-10-04: FFA4 shares mirrored EMZ, Link arrows and columns between facing seats 0/1 and 2/3 (`seat ^ 1`). | Eliminated partners contribute no shared zones or columns. Clockwise turn order, FFA3, Tag and 1v1 remain unchanged. Numbers 0091–0099 and 0102–0104 remain reserved for parallel work. |
+| `0106-ffa3-column-peer.patch` | R-FFA-THREE-COLUMNS: flagged activated effects use a declared FFA3 column peer with three living seats; all column queries use the sole opponent with two. | `column_peer_of` is separate from `across_of`; FFA3 EMZ and Links, FFA4, Tag and 1v1 retain their geometry. Lua opt-ins select opponents before card/zone choices. |
 
 ## Commands
 

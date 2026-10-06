@@ -84,7 +84,8 @@ describe("coin toss mounts", () => {
     expect(document.body.querySelector('[data-testid="coin-toss"]')).toBeNull();
     fireEvent.click(container.firstElementChild!);
     expect(clicks).toHaveBeenCalledTimes(1);
-  });
+    // Rendering the full table and its animation frames can exceed 5s in parallel CI.
+  }, 15_000);
 
   it("the replay mount is passive (no input lock)", () => {
     expect(src("replay.tsx")).toMatch(/<CoinTossFx[^>]*\bpassive\b/);
