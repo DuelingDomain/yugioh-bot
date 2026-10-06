@@ -29,7 +29,7 @@ async function renderWith(status: CardDataStatus) {
 describe("CardDataStatusPanel", () => {
   it("shows an up to date summary and every section when all is fresh", async () => {
     await renderWith(freshStatus());
-    expect(screen.getByText("Up to date")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Up to date" })).toBeTruthy();
     expect(fetchMock).toHaveBeenCalledWith("/api/admin/card-data-status", { cache: "no-store" });
     for (const name of ["Engine data", "Card catalog", "Gap", "Weekly engine data update"]) {
       expect(screen.getByRole("heading", { name })).toBeTruthy();
@@ -40,9 +40,9 @@ describe("CardDataStatusPanel", () => {
     expect(screen.getByText("RA05")).toBeTruthy();
     expect(screen.getByText("No gap. The engine knows every cached catalog card.")).toBeTruthy();
     expect(screen.getByText("No open update pull request.")).toBeTruthy();
-    const link = screen.getAllByRole("link", { name: "Commit d123456 on GitHub" })[0];
+    const link = screen.getAllByRole("link", { name: "d123456 (opens in a new tab)" })[0];
     expect(link.getAttribute("href")).toBe("https://github.com/ProjectIgnis/BabelCDB/commit/d1234567890abcdef");
-    expect(screen.getByRole("link", { name: "View run" }).getAttribute("href")).toContain("/actions/runs/1");
+    expect(screen.getByRole("link", { name: "View run (opens in a new tab)" }).getAttribute("href")).toContain("/actions/runs/1");
   });
 
   it("shows Behind with the key reason, the gap and an open update PR", async () => {
@@ -56,7 +56,23 @@ describe("CardDataStatusPanel", () => {
     expect(screen.getByText("42 TCG cards not in the duel engine")).toBeTruthy();
     expect(screen.getByText("Behind by 12 commits, 3 days")).toBeTruthy();
     expect(screen.getByText(/1 new file upstream, not loaded:/)).toBeTruthy();
-    expect(screen.getByRole("link", { name: /#77 chore: bump Ignis data/ }).getAttribute("href")).toContain("/pull/77");
+    expect(screen.getByRole("link", { name: /#77 chore: bump Ignis data \(opens in a new tab\)/ }).getAttribute("href")).toContain("/pull/77");
+  });
+
+  it("labels an upstream HEAD that is older than the pin without calling it behind", async () => {
+    const status = freshStatus();
+    status.upstream.sources.database = { ...status.upstream.sources.database, comparison: "behind", behindCommits: 0, behindDays: 0 };
+    await renderWith(status);
+    expect(screen.getByText("Pin is newer than upstream HEAD")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Up to date" })).toBeTruthy();
+  });
+
+  it("shows Unknown when the compare failed although HEAD is known", async () => {
+    const status = freshStatus();
+    status.upstream.sources.scripts = { ...status.upstream.sources.scripts, comparison: "unknown", behindCommits: null, behindDays: null };
+    await renderWith(status);
+    expect(screen.getByRole("heading", { name: "Unknown" })).toBeTruthy();
+    expect(screen.getByText("Comparison unavailable")).toBeTruthy();
   });
 
   it("flags an estimated prepared-at value", async () => {
@@ -91,18 +107,21 @@ describe("CardDataStatusPanel", () => {
     expect(region.querySelector("img")?.getAttribute("src")).toBe("/api/cards/10000/image?variant=small");
 
     fireEvent.click(screen.getByRole("button", { name: /Show more \(55 left\)/ }));
-    expect(within(region).getAllByRole("row")).toHaveLength(76); // header + 75
+    expect(within(region).getAllByRole("row")).toHaveLength(51); // header + 50
+    fireEvent.click(screen.getByRole("button", { name: /Show more \(30 left\)/ }));
     fireEvent.click(screen.getByRole("button", { name: /Show more \(5 left\)/ }));
     expect(screen.queryByRole("button", { name: /Show more/ })).toBeNull();
     expect(within(region).getAllByRole("row")).toHaveLength(81);
 
     fireEvent.change(screen.getByLabelText("Filter by name, passcode or set code"), { target: { value: "gap card 7" } });
+    // The filter waits for a pause in typing.
+    expect(within(region).getAllByRole("row")).toHaveLength(81);
     // "Gap Card 7" and "Gap Card 70" to "Gap Card 79"
-    expect(screen.getByText("11 of 80 listed cards match")).toBeTruthy();
+    expect(await screen.findByText("11 of 80 listed cards match")).toBeTruthy();
     expect(within(region).getAllByRole("row")).toHaveLength(12);
 
     fireEvent.change(screen.getByLabelText("Filter by name, passcode or set code"), { target: { value: "zzzz" } });
-    expect(screen.getByText("No card matches this filter.")).toBeTruthy();
+    expect(await screen.findByText("No card matches this filter.")).toBeTruthy();
   });
 
   it("says when the server listed fewer cards than the count", async () => {
@@ -125,18 +144,19 @@ describe("CardDataStatusPanel", () => {
     expect(await screen.findByText(/Couldn.t load card data status/)).toBeTruthy();
     fetchMock.mockResolvedValueOnce(json(freshStatus()));
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-    expect(await screen.findByText("Up to date")).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Up to date" })).toBeTruthy();
   });
 
   it("refreshes with a new request and keeps the last result if it fails", async () => {
     await renderWith(freshStatus());
     fetchMock.mockResolvedValueOnce(json(behindStatus()));
-    fireEvent.click(screen.getByRole("button", { name: "Refresh card data status" }));
-    await waitFor(() => expect(screen.getByText("Behind")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Behind" })).toBeTruthy());
+    expect(screen.getByText("Card data status updated")).toBeTruthy();
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
     fetchMock.mockResolvedValueOnce(json({ error: "down" }, 503));
-    fireEvent.click(screen.getByRole("button", { name: "Refresh card data status" }));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
     expect(await screen.findByText("Refresh failed. This is the last result.")).toBeTruthy();
     expect(screen.getByText("Behind")).toBeTruthy();
   });

@@ -16,10 +16,12 @@ export function CardDataStatusPanel() {
   const [status, setStatus] = React.useState<CardDataStatus | null>(null);
   const [failure, setFailure] = React.useState<LoadFailure | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const [updated, setUpdated] = React.useState(false);
   const [now, setNow] = React.useState(() => Date.now());
 
   const load = React.useCallback(async () => {
     setLoading(true);
+    setUpdated(false);
     try {
       const res = await fetch("/api/admin/card-data-status", { cache: "no-store" });
       if (res.status === 403) { setFailure("forbidden"); return; }
@@ -28,6 +30,7 @@ export function CardDataStatusPanel() {
       setStatus((await res.json()) as CardDataStatus);
       setFailure(null);
       setNow(Date.now());
+      setUpdated(true);
     } catch {
       setFailure("unavailable");
     } finally {
@@ -65,7 +68,8 @@ export function CardDataStatusPanel() {
       );
     }
     return (
-      <div className={styles.block} aria-busy="true" aria-label="Loading card data status">
+      <div className={styles.block} role="status" aria-busy="true">
+        <span className="sv-sr">Loading card data status</span>
         <span className="sk" style={{ width: "30%", height: 26 }} />
         <span className="sk" style={{ width: "60%" }} />
         <span className="sk" style={{ width: "48%" }} />
@@ -81,10 +85,10 @@ export function CardDataStatusPanel() {
     <div className={styles.page} aria-busy={loading || undefined}>
       <section className={styles.summary} data-state={summary.state} aria-labelledby="cd-summary">
         <div className={styles.summaryMain}>
-          <p className={styles.stateWord} id="cd-summary" data-state={summary.state}>
+          <h2 className={styles.stateWord} id="cd-summary" data-state={summary.state}>
             <i className={styles.stateDot} aria-hidden="true" />
             {STATE_WORD[summary.state]}
-          </p>
+          </h2>
           <p className={styles.headline}>{summary.headline}</p>
           {summary.reasons.length > 1 ? (
             <ul className={styles.reasons}>
@@ -93,13 +97,14 @@ export function CardDataStatusPanel() {
           ) : null}
         </div>
         <div className={styles.summaryAside}>
-          <SvButton variant="ghost" onClick={() => void load()} disabled={loading} aria-label="Refresh card data status">
+          <SvButton variant="ghost" onClick={() => void load()} disabled={loading}>
             <RefreshCw className="ic sm" aria-hidden="true" /> {loading ? "Refreshing" : "Refresh"}
           </SvButton>
           <p className={styles.rowNote}>
             GitHub checked {checked ?? "at an unknown time"}.
             {expires ? <> It is cached until {expires}.</> : null}
           </p>
+          <p role="status" className="sv-sr">{updated ? "Card data status updated" : ""}</p>
           {failure === "unavailable" ? (
             <div role="alert"><StatusLine tone="warn">Refresh failed. This is the last result.</StatusLine></div>
           ) : null}

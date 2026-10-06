@@ -12,6 +12,7 @@ import {
   commitUrl,
   filterGap,
   isSourceBehind,
+  isSourceUnknown,
   newUpstreamCdbFiles,
   relativeTime,
   shortSha,
@@ -20,6 +21,12 @@ import {
 import styles from "./card-data.module.css";
 
 const GAP_PAGE = 25;
+const FILTER_DELAY_MS = 250;
+
+/** Screen reader hint for links that leave the app. */
+function NewTab() {
+  return <>{" "}<span className="sv-sr">(opens in a new tab)</span></>;
+}
 
 function When({ iso, now }: { iso: string | null; now: number }) {
   const rel = relativeTime(iso, now);
@@ -36,8 +43,9 @@ function Commit({ repository, sha }: { repository: string; sha: string | null })
   const url = commitUrl(repository, sha);
   if (!sha) return <span className={styles.mute}>not available</span>;
   return url ? (
-    <a className={styles.sha} href={url} target="_blank" rel="noreferrer" aria-label={`Commit ${shortSha(sha)} on GitHub`}>
+    <a className={styles.sha} href={url} target="_blank" rel="noreferrer" >
       {shortSha(sha)}
+      <NewTab />
     </a>
   ) : (
     <span className={styles.sha}>{shortSha(sha)}</span>
@@ -46,6 +54,7 @@ function Commit({ repository, sha }: { repository: string; sha: string | null })
 
 function sourceVerdict(source: UpstreamSourceStatus): { tone: StatusTone; text: string } {
   if (source.status !== "ok") return { tone: "neutral", text: "Not checked, GitHub did not answer" };
+  if (isSourceUnknown(source)) return { tone: "neutral", text: "Comparison unavailable" };
   if (isSourceBehind(source)) {
     const parts: string[] = [];
     if (source.behindCommits != null) parts.push(`${source.behindCommits} ${source.behindCommits === 1 ? "commit" : "commits"}`);
@@ -53,7 +62,7 @@ function sourceVerdict(source: UpstreamSourceStatus): { tone: StatusTone; text: 
     const base = source.comparison === "diverged" ? "Diverged from upstream" : "Behind";
     return { tone: "warn", text: parts.length ? `${base} by ${parts.join(", ")}` : base };
   }
-  if (source.comparison === "ahead") return { tone: "ready", text: "Ahead of upstream HEAD" };
+  if (source.comparison === "behind") return { tone: "neutral", text: "Pin is newer than upstream HEAD" };
   if (source.comparison === "identical") return { tone: "ready", text: "Same as upstream HEAD" };
   return { tone: "neutral", text: "Comparison unavailable" };
 }
@@ -181,7 +190,16 @@ export function CatalogSection({ status, now }: { status: CardDataStatus; now: n
 
 export function GapSection({ status }: { status: CardDataStatus }) {
   const { gap } = status;
+  const [input, setInput] = React.useState("");
+  // The count line is a live region, so the filter waits for a pause in typing.
   const [query, setQuery] = React.useState("");
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      setQuery(input);
+      setShown(GAP_PAGE);
+    }, FILTER_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [input]);
   const [shown, setShown] = React.useState(GAP_PAGE);
   const sorted = React.useMemo(() => sortGap(gap.catalogMissingFromEngine), [gap.catalogMissingFromEngine]);
   const filtered = React.useMemo(() => filterGap(sorted, query), [sorted, query]);
@@ -218,8 +236,8 @@ export function GapSection({ status }: { status: CardDataStatus }) {
                 id="cd-gap-search"
                 className="input"
                 type="search"
-                value={query}
-                onChange={(e) => { setQuery(e.target.value); setShown(GAP_PAGE); }}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
                 placeholder="e.g. Blue-Eyes or RA05"
               />
             </div>
@@ -252,7 +270,7 @@ export function GapSection({ status }: { status: CardDataStatus }) {
               </table>
             </div>
             {filtered.length > visible.length ? (
-              <SvButton variant="ghost" onClick={() => setShown((n) => n + GAP_PAGE * 2)}>
+              <SvButton variant="ghost" onClick={() => setShown((n) => n + GAP_PAGE)}>
                 Show more ({filtered.length - visible.length} left)
               </SvButton>
             ) : null}
@@ -282,7 +300,7 @@ export function WorkflowSection({ status, now }: { status: CardDataStatus; now: 
           ) : run ? (
             <StatusLine tone={runTone}>
               <b>{runWord}</b>, <When iso={run.date} now={now} />{" "}
-              <a href={run.url} target="_blank" rel="noreferrer">View run</a>
+              <a href={run.url} target="_blank" rel="noreferrer">View run<NewTab /></a>
             </StatusLine>
           ) : (
             <p className={styles.rowNote}>No run found.</p>
@@ -294,7 +312,7 @@ export function WorkflowSection({ status, now }: { status: CardDataStatus; now: 
             <StatusLine tone="neutral">Could not look up pull requests on GitHub.</StatusLine>
           ) : wf.openPullRequest ? (
             <StatusLine tone="ready">
-              <a href={wf.openPullRequest.url} target="_blank" rel="noreferrer">#{wf.openPullRequest.number} {wf.openPullRequest.title}</a>,
+              <a href={wf.openPullRequest.url} target="_blank" rel="noreferrer">#{wf.openPullRequest.number} {wf.openPullRequest.title}<NewTab /></a>,
               updated <When iso={wf.openPullRequest.updatedAt} now={now} />
             </StatusLine>
           ) : (
