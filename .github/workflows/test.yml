@@ -12,8 +12,8 @@ name: Test
 #   nduel-nightly  scheduled: the nduel fuzz (n2, n3, n4, tag) with --check-future, and the golden hash check.
 #
 # Pull requests and pushes to main always run unit. They run cores, engine, engine-legacy, native and rule-coverage
-# only when changes sets engine=true. A manual run runs every job, including nduel-nightly. The schedule runs cores and
-# nduel-nightly only.
+# only when changes sets engine=true. A manual run runs every job, including nduel-nightly unless nightly=false.
+# The schedule runs cores and nduel-nightly only.
 
 on:
   pull_request:
@@ -24,6 +24,11 @@ on:
     - cron: "17 3 * * *"
   workflow_dispatch:
     inputs:
+      nightly:
+        description: "Run the nightly nduel fuzz and golden check"
+        type: boolean
+        required: false
+        default: true
       nduel_seeds:
         description: "Seeds per nduel case in the nightly fuzz"
         required: false
@@ -629,7 +634,7 @@ jobs:
 
   nduel-nightly:
     name: nduel fuzz (${{ matrix.case }})
-    if: ${{ !cancelled() && needs.cores.result == 'success' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+    if: ${{ !cancelled() && needs.cores.result == 'success' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.nightly)) }}
     needs: cores
     runs-on: ubuntu-latest
     timeout-minutes: 240
