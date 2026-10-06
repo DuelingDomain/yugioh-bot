@@ -25,7 +25,7 @@ const markdown = (value: string) => value.replace(/[\\`*_{}\[\]<>|]/g, "\\$&").r
 export async function readPins(root: string): Promise<Pins> {
   const text = await readFile(join(root, preparePath), "utf8");
   return Object.fromEntries(keys.map((key) => {
-    const value = new RegExp(`["']?${key}["']?\\s*:\\s*["']([a-f0-9]{40})["']`).exec(text)?.[1];
+    const value = new RegExp(`["']?\\b${key}\\b["']?\\s*:\\s*["']([a-f0-9]{40})["']`).exec(text)?.[1];
     if (!value) throw new Error(`Missing ${key} pin in ${preparePath}`);
     return [key, value];
   })) as Pins;
@@ -53,7 +53,9 @@ export function findNewRisks(stock: Map<string, string>, paths: string[], listed
     .filter((card) => card.flagged && !listed.has(card.code));
 }
 
-/** Search tracked text, including hidden workflows, CI and checksum comments, rather than maintaining a second file list. */
+// Data pins have one source of truth; core-build pins deliberately exclude card data.
+export const PIN_FILES = [preparePath] as const;
+/** Fail before any writes if a data SHA leaks into another tracked file. */
 export async function rewritePins(root: string, old: Pins, next: Pins, dryRun: boolean): Promise<string[]> {
   const replacements = new Map(keys.filter((key) => old[key] !== next[key]).map((key) => [old[key], next[key]]));
   if (!replacements.size) return [];
@@ -66,14 +68,8 @@ export async function rewritePins(root: string, old: Pins, next: Pins, dryRun: b
     const original = bytes.toString("utf8");
     const content = original.replace(pattern, (sha) => replacements.get(sha)!);
     if (original === content) continue;
-    if (/^(?:\.agents\/|\.worktrees\/|\.env$|skills-lock\.json$|packages\/web\/next-env\.d\.ts$)/.test(path)) {
-      throw new Error(`Refusing to rewrite protected file ${path}`);
-    }
-    // Guard the rules-core records even if a future pin accidentally shares a data SHA.
-    if (path.endsWith("/pins.json")) {
-      const { cardScripts: _before, ...before } = JSON.parse(original);
-      const { cardScripts: _after, ...after } = JSON.parse(content);
-      if (JSON.stringify(before) !== JSON.stringify(after)) throw new Error(`Refusing to change rules-core pins in ${path}`);
+    if (!(PIN_FILES as readonly string[]).includes(path)) {
+      throw new Error(`Refusing to rewrite pin outside allowlist: ${path}`);
     }
     changes.push({ path, content });
   }
@@ -141,10 +137,6 @@ export async function runUpdate(options: Options = {}) {
     if (!/^[a-fA-F0-9]{40}$/.test(sha)) throw new Error(`--${key} must be a full 40-character hexadecimal commit SHA`);
   }
   const old = await readPins(root);
-  for (const pinFile of ["domain-core/pins.json", "legacy-1v1/domain-core/pins.json"]) {
-    const pins = JSON.parse(await readFile(join(root, packagePath, pinFile), "utf8"));
-    if (pins.cardScripts.commit !== old.scripts) throw new Error(`CardScripts pin out of sync: ${pinFile}`);
-  }
   const request = options.request ?? fetch;
   const token = options.token ?? process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN;
   async function download(url: string) {
@@ -180,6 +172,9 @@ export async function runUpdate(options: Options = {}) {
   for (const key of keys) {
     const repo = repositories[key];
     const comparison = old[key] === next[key] ? null : await api<{ ahead_by: number; behind_by: number; status: string }>(`${repo}/compare/${old[key]}...${next[key]}?per_page=1`);
+    if (comparison && (comparison.status !== "ahead" || comparison.behind_by !== 0)) {
+      throw new Error(`Refusing ${key} SHA: candidate is ${comparison.status} (${comparison.behind_by} behind current pin)`);
+    }
     report.push(`| ${repo} | [\`${old[key]}\` → \`${next[key]}\`](https://github.com/ProjectIgnis/${repo}/compare/${old[key]}...${next[key]}) | ${comparison ? `${comparison.ahead_by} (${comparison.status}${comparison.behind_by ? `; ${comparison.behind_by} behind` : ""})` : "unchanged"} |`);
   }
   const temporary = await mkdtemp(join(tmpdir(), "engine-data-update-"));

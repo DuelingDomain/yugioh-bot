@@ -22,15 +22,15 @@ async function fixture() {
   execFileSync("git", ["init", "-q", root]);
   const files = {
     "packages/duel-server/scripts/prepare-data.ts": `const sources = ${JSON.stringify({ corePackage: "ocgcore-wasm@0.1.2", ...oldPins })};`,
-    "packages/duel-server/domain-core/pins.json": JSON.stringify({ ygoproCore: { commit: "1".repeat(40) }, cardScripts: { commit: oldPins.scripts } }),
-    "packages/duel-server/legacy-1v1/domain-core/pins.json": JSON.stringify({ cardScripts: { commit: oldPins.scripts } }),
-    ".github/workflows/fixture.yml": `scripts: ${oldPins.scripts}\ndb: ${oldPins.database}\nstrings: ${oldPins.strings}\n`,
-    "scripts/ci/fixture.sh": `scripts=${oldPins.scripts}\nagain=${oldPins.scripts}\n`,
-    "packages/duel-server/domain-core/expected-sha256.txt": `# scripts ${oldPins.scripts}\n${"1".repeat(64)} core.wasm\n`,
+
   };
   for (const [file, content] of Object.entries(files)) {
     await mkdir(dirname(join(root, file)), { recursive: true });
     await writeFile(join(root, file), content);
+  }
+  for (const path of ["domain-core/pins.json", "legacy-1v1/domain-core/pins.json"]) {
+    await mkdir(dirname(join(root, "packages/duel-server", path)), { recursive: true });
+    await writeFile(join(root, "packages/duel-server", path), JSON.stringify({ ygoproCore: { commit: "1".repeat(40) } }));
   }
   execFileSync("git", ["-C", root, "add", "."]);
   return { root, files };
@@ -57,7 +57,7 @@ describe("engine data update", () => {
     expect(detectOverlayConflicts(cards, new Map([["pre-errata/c1.lua", "pre-errata"]]))).toEqual([]);
   });
 
-  it("rewrites every repeated pin including workflows, CI, legacy and expected hashes, leaving core pins untouched", async () => {
+  it("rewrites the allowlisted data source, leaving core pins untouched", async () => {
     const { root, files } = await fixture();
     const rewritten = await rewritePins(root, oldPins, nextPins, false);
     expect(rewritten.sort()).toEqual(Object.keys(files).sort());
@@ -165,10 +165,26 @@ describe("engine data update", () => {
     expect(await readPins(root)).toEqual(oldPins);
   });
 
-  it("refuses an inconsistent CardScripts pin even on the no-change path", async () => {
+  it("rejects pin occurrences outside the exact allowlist before writing anything", async () => {
     const { root } = await fixture();
-    await writeFile(join(root, "packages/duel-server/legacy-1v1/domain-core/pins.json"), JSON.stringify({ cardScripts: { commit: nextPins.scripts } }));
-    await expect(runUpdate({ root, overrides: oldPins })).rejects.toThrow("pin out of sync");
+    await writeFile(join(root, "unexpected.txt"), oldPins.scripts);
+    execFileSync("git", ["-C", root, "add", "unexpected.txt"]);
+    await expect(rewritePins(root, oldPins, nextPins, false)).rejects.toThrow(/unexpected.txt/);
+    expect(await readPins(root)).toEqual(oldPins);
+  });
+
+  it("does not match a suffix of another property when reading pins", async () => {
+    const { root } = await fixture();
+    const path = join(root, "packages/duel-server/scripts/prepare-data.ts");
+    await writeFile(path, `const distractor = { myscripts: "${nextPins.scripts}" };\n${await readFile(path, "utf8")}`);
+    expect(await readPins(root)).toEqual(oldPins);
+  });
+
+  it.each(["behind", "diverged"])("refuses a %s manual SHA without rewriting pins", async (status) => {
+    const { root } = await fixture();
+    const request = vi.fn(async () => Response.json({ status, ahead_by: 1, behind_by: 1 }));
+    await expect(runUpdate({ root, overrides: nextPins, request })).rejects.toThrow(/behind|diverged/);
+    expect(await readPins(root)).toEqual(oldPins);
   });
 
   it("checks cached pinned macro registrations and aliases, excludes Lua helpers, and flags unknown names", async () => {
