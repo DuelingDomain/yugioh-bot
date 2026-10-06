@@ -47,7 +47,7 @@ type GithubStatus = Pick<CardDataStatus, "engine" | "upstream" | "updateWorkflow
 
 function unknownStatus(engine: EngineDataStatus, now: number): GithubStatus {
   return { engine, upstream: {
-    checkedAt: new Date(now).toISOString(), expiresAt: new Date(now).toISOString(),
+    checkedAt: null, expiresAt: new Date(now).toISOString(),
     sources: Object.fromEntries(Object.entries(ENGINE_SOURCE_REPOSITORIES).map(([source, repository]) => [source, {
       status: "unknown", repository, defaultBranch: null, latestSha: null, latestCommitDate: null,
       behindCommits: null, behindDays: null, comparison: "unknown",
@@ -68,22 +68,27 @@ export function createGithubCardDataStatus(options: {
   const token = options.token ?? process.env.GITHUB_TOKEN;
   const cache = options.cache ?? new Map<string, CachedGithubResource>();
   const pending = new Map<string, Promise<CachedGithubResource>>();
+  const controllers = new Set<AbortController>();
   let rateLimitedUntil = 0, stopped = false;
   function insert(path: string, result: CachedGithubResource) {
     for (const [key, entry] of cache) if (entry.expiresAt <= now()) cache.delete(key);
     cache.set(path, result);
   }
   function request<T>(path: string, project: (value: unknown) => T | null): Promise<CachedGithubResource> {
+    if (stopped) return Promise.resolve({ value: null, checkedAt: now(), expiresAt: now() });
     const cached = cache.get(path);
     if (cached && cached.expiresAt > now()) return Promise.resolve(cached);
     const flight = pending.get(path);
     if (flight) return flight;
     const work = (async () => {
       const checkedAt = now(), controller = new AbortController();
+      controllers.add(controller);
       let timer: ReturnType<typeof setTimeout> | undefined, value: T | null = null;
       try {
         if (checkedAt >= rateLimitedUntil) {
           const deadline = new Promise<never>((_, reject) => {
+            // Settle even a fetch/body implementation that ignores cancellation.
+            controller.signal.addEventListener("abort", () => reject(new Error("GitHub request aborted")), { once: true });
             timer = setTimeout(() => { controller.abort(); reject(new Error("GitHub timeout")); }, timeoutMs);
           });
           const response = (async () => {
@@ -92,23 +97,37 @@ export function createGithubCardDataStatus(options: {
               headers: { Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
                 "User-Agent": "DuelingDomain-card-data-status", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
             });
+            controller.signal.throwIfAborted();
             if (!res.ok) {
               if (res.status === 403 || res.status === 429) {
-                const reset = Number(res.headers.get("x-ratelimit-reset"));
-                if (Number.isFinite(reset) && reset > 0) rateLimitedUntil = Math.max(rateLimitedUntil, reset * 1000);
+                const clock = now(), exhausted = res.headers.get("x-ratelimit-remaining") === "0";
+                const reset = exhausted ? Number(res.headers.get("x-ratelimit-reset")) * 1000 : NaN;
+                const retryAfter = res.headers.get("retry-after");
+                const retry = retryAfter && /^\d+(\.\d+)?$/.test(retryAfter)
+                  ? clock + Number(retryAfter) * 1000 : Date.parse(retryAfter ?? "");
+                const until = Number.isFinite(reset) && reset > clock ? reset
+                  : Number.isFinite(retry) && retry > clock ? retry : null;
+                // A permission 403 only backs off its own resource. Exhausted
+                // budgets and secondary limits pause all GitHub requests.
+                if (until !== null || exhausted || res.status === 429) {
+                  rateLimitedUntil = Math.max(rateLimitedUntil, until ?? clock + 5 * 60_000);
+                }
               }
               throw new Error("GitHub unavailable");
             }
             // Never retain compare files/patches, commit arrays, tree blobs, or
             // full workflow/PR payloads. Only the fields used below enter cache.
-            return project(await res.json());
+            const payload = await res.json();
+            controller.signal.throwIfAborted();
+            return project(payload);
           })();
           value = await Promise.race([response, deadline]);
         }
       } catch { /* Unknown upstream values preserve the local response. */ }
-      finally { clearTimeout(timer); controller.abort(); }
-      const result = { value, checkedAt, expiresAt: value !== null ? now() + ttl : Math.max(now() + 5 * 60_000, rateLimitedUntil) };
-      insert(path, result);
+      finally { clearTimeout(timer); controller.abort(); controllers.delete(controller); }
+      const result = { value, checkedAt, expiresAt: value !== null ? now() + ttl
+        : rateLimitedUntil > now() ? rateLimitedUntil : now() + 5 * 60_000 };
+      if (!stopped) insert(path, result);
       return result;
     })();
     pending.set(path, work);
@@ -174,5 +193,8 @@ export function createGithubCardDataStatus(options: {
     if (!current || Date.parse(current.upstream.expiresAt) <= now()) void refresh(engine);
     return current ? { ...current, engine: { ...engine, sources: current.engine.sources } } : unknownStatus(engine, now());
   };
-  return Object.assign(read, { refresh, async close(): Promise<void> { stopped = true; await Promise.all(refreshing.values()); } });
+  return Object.assign(read, { refresh, async close(): Promise<void> {
+    stopped = true;
+    for (const controller of controllers) controller.abort();
+  } });
 }

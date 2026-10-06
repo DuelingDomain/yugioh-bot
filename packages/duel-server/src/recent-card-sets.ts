@@ -14,7 +14,7 @@ export function recentTcgSets(sets: readonly CatalogSetStatus[], now: number): C
     .sort((a, b) => b.releaseDate!.localeCompare(a.releaseDate!) || a.name.localeCompare(b.name));
 }
 
-function compactCards(value: unknown): GapCatalogCard[] {
+function compactCards(value: unknown, setName: string): GapCatalogCard[] {
   if (!Array.isArray(value)) throw new Error("Invalid set card list");
   return value.map(raw => {
     if (!raw || typeof raw !== "object") throw new Error("Invalid set card");
@@ -27,7 +27,7 @@ function compactCards(value: unknown): GapCatalogCard[] {
     if (!Array.isArray(printings) || printings.some(p => !p || typeof p.set_name !== "string" || (p.set_code != null && typeof p.set_code !== "string"))
       || !Array.isArray(images) || images.some(id => !Number.isSafeInteger(id) || id <= 0)) throw new Error("Invalid set card families");
     return { id: card.id as number, name: card.name, type: card.type, frameType,
-      cardSets: printings.map(p => ({ set_name: p.set_name, ...(p.set_code == null ? {} : { set_code: p.set_code }) })),
+      cardSets: printings.filter(p => p.set_name === setName).map(p => ({ set_name: p.set_name, ...(p.set_code == null ? {} : { set_code: p.set_code }) })),
       artworkIds: [...new Set(images as number[])] };
   });
 }
@@ -38,15 +38,21 @@ export function createRecentCardSetCache(db: Database.Database, options: {
 } = {}) {
   const fetch = options.fetch ?? globalThis.fetch, now = options.now ?? Date.now;
   const pending = new Map<string, Promise<void>>(), retryAt = new Map<string, number>();
+  const invalid = new Set<string>();
+  const shutdown = new AbortController();
   let stopped = false;
   const get = db.prepare("select fetched_at, cards_json from card_data_set_cache where set_name = ?");
+  const getFetchedAt = db.prepare("select fetched_at from card_data_set_cache where set_name = ?");
   const save = db.prepare(`insert into card_data_set_cache (set_name,fetched_at,cards_json) values (?,?,?)
     on conflict(set_name) do update set fetched_at=excluded.fetched_at, cards_json=excluded.cards_json`);
   function cached(set: CatalogSetStatus): CachedCardSet {
     const row = get.get(set.name) as { fetched_at: string; cards_json: string } | undefined;
     if (row && Number.isFinite(Date.parse(row.fetched_at))) {
-      try { return { ...set, cards: compactCards(JSON.parse(row.cards_json)), checkedAt: row.fetched_at }; }
-      catch { /* Repair invalid cache data on the next refresh. */ }
+      try {
+        const cards = compactCards(JSON.parse(row.cards_json), set.name);
+        invalid.delete(set.name);
+        return { ...set, cards, checkedAt: row.fetched_at };
+      } catch { invalid.add(set.name); /* Repair invalid cache data on the next refresh. */ }
     }
     return { ...set, cards: null, checkedAt: null };
   }
@@ -54,30 +60,38 @@ export function createRecentCardSetCache(db: Database.Database, options: {
     if (stopped) return Promise.resolve();
     const existing = pending.get(set.name);
     if (existing) return existing;
-    const row = cached(set), clock = now();
-    const immutable = Date.parse(`${set.releaseDate}T00:00:00Z`) < clock - 60 * DAY;
-    if (row.cards !== null && (immutable || Date.parse(row.checkedAt!) > clock - DAY)) return Promise.resolve();
+    const row = getFetchedAt.get(set.name) as { fetched_at: string } | undefined, clock = now();
+    const interval = Date.parse(`${set.releaseDate}T00:00:00Z`) < clock - 60 * DAY ? 7 * DAY : DAY;
+    if (row && !invalid.has(set.name) && Date.parse(row.fetched_at) > clock - interval) return Promise.resolve();
     if ((retryAt.get(set.name) ?? 0) > clock) return Promise.resolve();
     const work = (async () => {
       try {
         const url = new URL("https://db.ygoprodeck.com/api/v7/cardinfo.php"); url.searchParams.set("cardset", set.name);
-        const cards = await fetchCardResource(url, fetch, async response => {
-          const payload = await response.json() as { data?: unknown };
-          return compactCards(payload.data);
-        });
+        const cards = await fetchCardResource(url, (input, init) => {
+          // A request can still be waiting for the shared budget at shutdown.
+          shutdown.signal.throwIfAborted();
+          return fetch(input, { ...init, signal: AbortSignal.any([shutdown.signal, init!.signal!]) });
+        }, async response => {
+          const payload = await response.json() as { data?: unknown; error?: unknown };
+          return compactCards(payload.data == null && typeof payload.error === "string" ? [] : payload.data, set.name);
+        }, [400]);
         if (!stopped) save.run(set.name, new Date(now()).toISOString(), JSON.stringify(cards));
+        invalid.delete(set.name);
         retryAt.delete(set.name);
       } catch {
         // Keep the last successful set; a cold miss stays unknown. Shared queue
         // cooldowns also apply to subsequent card/image requests in this process.
-        retryAt.set(set.name, now() + 5 * 60_000);
+        if (!stopped) retryAt.set(set.name, now() + 5 * 60_000);
       } finally { pending.delete(set.name); }
     })();
     pending.set(set.name, work);
     return work;
   }
   async function refresh(sets: readonly CatalogSetStatus[]): Promise<void> {
-    await Promise.all(recentTcgSets(sets, now()).map(refreshSet));
+    for (const set of recentTcgSets(sets, now())) {
+      if (stopped) break;
+      await refreshSet(set);
+    }
   }
   return {
     read(sets: readonly CatalogSetStatus[]): CachedCardSet[] {
@@ -86,6 +100,6 @@ export function createRecentCardSetCache(db: Database.Database, options: {
       return rows;
     },
     refresh,
-    async close(): Promise<void> { stopped = true; await Promise.all(pending.values()); },
+    async close(): Promise<void> { stopped = true; shutdown.abort(); },
   };
 }
