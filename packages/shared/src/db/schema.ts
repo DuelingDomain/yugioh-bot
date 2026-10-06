@@ -653,6 +653,8 @@ export function migrate(db: Database.Database) {
       on sandbox_scenarios (guild_id, updated_at);
   `);
 
+  addColumnIfMissing(db, "duels", "sandbox", "integer not null default 0");
+
   // Duel series: a match of 1 or 3 games between two players. Every game is a
   // duels row with series_id. When the series has a winner it writes one
   // approved matches row (tournament or ranked casual) in the same transaction
