@@ -49,7 +49,7 @@ import {
   type DecisionClockView,
 } from "./clock.js";
 import { chooseScripted, ScriptedBotError, type Rule, type RuleTraceEntry } from "./scripted-bot.js";
-import { SANDBOX_PHASE_WALK_NOTE, isSandboxPhaseWindow, createSandboxOps, requireSandboxOwner, setSandboxControl, sandboxPhase, walkSandboxPhases, projectSandboxPhaseWindow, prepareSandboxRoom, type SandboxViewOptions } from "./sandbox.js";
+import { sandboxEliminationSeat, isSandboxOpeningWindow, sandboxStartResult, SANDBOX_PHASE_WALK_NOTE, isSandboxPhaseWindow, createSandboxOps, requireSandboxOwner, setSandboxControl, sandboxPhase, walkSandboxPhases, projectSandboxPhaseWindow, prepareSandboxRoom, type SandboxViewOptions } from "./sandbox.js";
 import { policiesForRun, resolveActingSeat, mergeRevealedHands } from "./sandbox-seats.js";
 import { compileBoard } from "./presets/board.js";
 import { setCatalogDirectory } from "./presets/catalog.js";
@@ -1159,7 +1159,7 @@ export function createDuelHost(options: {
    * Returns false when the core cannot do it. Keep the old fallback for time losses;
    * refuse a new surrender when the core has no loss function.
    */
-  async function eliminateInCore(slug: string, guildId: string, game: DuelGameWorker, seat: number, code: number): Promise<boolean> {
+  async function eliminateInCore(slug: string, guildId: string, game: DuelGameWorker, seat: number, code: number, note?: string): Promise<boolean> {
     if (typeof game.eliminate !== "function") return false;
     const before = await game.view(seat);
     try {
@@ -1173,7 +1173,7 @@ export function createDuelHost(options: {
     }
     const command: DuelCommand = { promptId: `${ELIMINATE_PROMPT_PREFIX}${code}`, revision: before.revision, answer: {} };
     try {
-      await persistAcceptedCommand(slug, guildId, seat, command, game, now(), newestEventId(before));
+      await persistAcceptedCommand(slug, guildId, seat, command, game, now(), newestEventId(before), note);
     } catch (error) {
       // Applied but not journaled: drop the worker so the next request rebuilds the duel from the journal.
       await disposeGame(slug);
@@ -1488,10 +1488,18 @@ export function createDuelHost(options: {
     if (process.env.DUEL_SCENARIOS !== "1") throw new RequestError("Not found", 404);
   }
 
+  async function answerSandboxWalk(slug: string, guildId: string, game: DuelGameWorker,
+    seat: number, view: DuelEngineView, answer: DuelAnswer): Promise<void> {
+    const command: DuelCommand = { promptId: view.prompt!.id, revision: view.revision, answer };
+    const decidedAt = now();
+    await game.answer(seat, command.promptId, answer);
+    await persistAcceptedCommand(slug, guildId, seat, command, game, decidedAt, newestEventId(view), SANDBOX_PHASE_WALK_NOTE);
+  }
+
   const sandbox = createSandboxOps({
     db: options.db, service, dataDirectory: options.dataDirectory, now, enqueue,
     async launch(slug, guildId, actor, seed, setup) {
-      await enqueue(slug, async () => {
+      return enqueue(slug, async () => {
         const state = service.privateState(slug, guildId);
         const session = state.session;
         const game = spawn();
@@ -1501,8 +1509,27 @@ export function createDuelHost(options: {
           service.activate(slug, guildId, actor, seed, pinnedVersionFor(session.format), null, setup);
           games.set(slug, { game, guildId, lastRequestAt: now(), surrendered: new Set(), traces: new Map(),
             ...policiesForRun(setup.sandbox!.run, session.format) });
+          const board = setup.sandbox!.board;
+          const actingSeat = Number((board.turn ?? "p0").slice(1));
+          const opening = await game.view(actingSeat);
+          const eliminated = board.eliminated ?? [];
+          if (eliminated.length && (opening.turn !== 0 || !isSandboxOpeningWindow(opening.prompt))) {
+            throw new Error("The sandbox engine did not stop before turn 1");
+          }
+          for (const id of eliminated) {
+            if (!await eliminateInCore(slug, guildId, game, Number(id.slice(1)), WIN_REASON_SURRENDER, SANDBOX_PHASE_WALK_NOTE)) {
+              throw new Error("This engine cannot eliminate a sandbox seat");
+            }
+          }
+          if (isSandboxOpeningWindow(opening.prompt)) {
+            const current = await game.view(actingSeat);
+            await answerSandboxWalk(slug, guildId, game, actingSeat, current, { choice: "num:0" });
+          }
+          const requested = board.startAt ?? "draw";
+          await walkSandboxPhases({ game, manualSeats: games.get(slug)!.manualSeats, actingSeat, to: requested,
+            answer: (seat, view, answer) => answerSandboxWalk(slug, guildId, game, seat, view, answer) });
           await emitChange(slug, guildId);
-          await driveBot(slug, guildId, game);
+          return sandboxStartResult(await game.view(actingSeat), requested);
         } catch (error) {
           await disposeGame(slug);
           await safeClose(game);
@@ -2347,9 +2374,17 @@ export function createDuelHost(options: {
     const slug = body.slug;
     if (op === SANDBOX_OPS.info) return sandbox.info(slug, guildId, actor);
     if (op === SANDBOX_OPS.restart) return sandbox.restart(slug, guildId, actor);
+    if (op === SANDBOX_OPS.close) {
+      requireSandboxOwner(service, slug, guildId, actor);
+      const session = service.get(slug, guildId);
+      if (session.status === "active" || session.status === "lobby") service.cancel(slug, guildId, actor);
+      await disposeGame(slug);
+      await emitChange(slug, guildId);
+      return { ok: true };
+    }
     const room = service.room(slug, guildId, actor);
     const sandboxView: SandboxViewOptions = { as: body.as, reveal: body.reveal };
-    if (body.as !== undefined || body.reveal !== undefined || op === SANDBOX_OPS.control || op === SANDBOX_OPS.phase || op === SANDBOX_OPS.nextTurn) {
+    if (body.as !== undefined || body.reveal !== undefined || op === SANDBOX_OPS.eliminate || op === SANDBOX_OPS.control || op === SANDBOX_OPS.phase || op === SANDBOX_OPS.nextTurn) {
       requireSandboxOwner(service, slug, guildId, actor);
       if (body.reveal !== undefined && typeof body.reveal !== "boolean") throw new RequestError("reveal must be a boolean", 400);
     }
@@ -2357,6 +2392,17 @@ export function createDuelHost(options: {
       const info = service.privateState(slug, guildId).setup?.sandbox;
       room.mySeat = resolveActingSeat({ ...room.session, actor, mySeat: room.mySeat,
         manualSeats: info ? policiesForRun(info.run, room.session.format).manualSeats : new Set(), as: body.as });
+    }
+    if (op === SANDBOX_OPS.eliminate) {
+      if (room.session.status !== "active") throw new RequestError("This duel is not active", 409);
+      const game = await recover(slug, guildId, false);
+      const seat = sandboxEliminationSeat(room.session.format, await game.view(null), body.seat);
+      cancelBotLoop(slug);
+      if (!await eliminateInCore(slug, guildId, game, seat, WIN_REASON_SURRENDER, SANDBOX_PHASE_WALK_NOTE)) {
+        throw new RequestError("This engine cannot eliminate a sandbox seat", 409);
+      }
+      await emitChange(slug, guildId);
+      return project(slug, guildId, actor, game, false, sandboxView);
     }
     if (op === SANDBOX_OPS.control) {
       // Recover without answering the seat that is about to become Manual.
@@ -2374,12 +2420,7 @@ export function createDuelHost(options: {
       const game = await recover(slug, guildId, false);
       try {
         await walkSandboxPhases({ game, manualSeats: games.get(slug)!.manualSeats, actingSeat: room.mySeat!, to,
-          answer: async (seat, view, answer) => {
-            const command: DuelCommand = { promptId: view.prompt!.id, revision: view.revision, answer };
-            const decidedAt = now();
-            await game.answer(seat, command.promptId, answer);
-            await persistAcceptedCommand(slug, guildId, seat, command, game, decidedAt, newestEventId(view), SANDBOX_PHASE_WALK_NOTE);
-          },
+          answer: (seat, view, answer) => answerSandboxWalk(slug, guildId, game, seat, view, answer),
         });
         if (to === undefined) {
           const view = await game.view(null);

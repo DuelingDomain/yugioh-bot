@@ -81,6 +81,8 @@ export interface BoardSpec {
   deckSize?: number;
   /** Seat and team layout. Default "1v1". The format decides the seats: ffa3 = p0-p2, ffa4 and tag = p0-p3. */
   format?: DuelFormat;
+  /** Sandbox seats removed before turn 1. Parsed sandbox boards validate these seats and their empty zones. */
+  eliminated?: DuelistId[];
   /** Reserved. The format fixes the teams. */
   teams?: DuelistId[][];
   /**
@@ -152,6 +154,10 @@ export function compileBoard(board: BoardSpec, dir?: string): CompiledBoard {
   for (const id of seatIds) {
     const seat = seatOf(id);
     const setup = board[id] ?? {};
+    if (board.eliminated?.includes(id)) {
+      decks.push({ main: [], extra: [], side: [] });
+      continue;
+    }
     const add = (ref: CardRef, location: string, sequence: number, position: string, proc: boolean) => {
       lua.push(`Debug.AddCard(${code(ref)},${seat},${seat},${location},${sequence},${position},${proc})`);
     };
