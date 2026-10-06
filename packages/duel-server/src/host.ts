@@ -51,6 +51,7 @@ import {
 import { chooseScripted, ScriptedBotError, type Rule, type RuleTraceEntry } from "./scripted-bot.js";
 import { SANDBOX_PHASE_WALK_NOTE, isSandboxPhaseWindow, createSandboxOps, requireSandboxOwner, setSandboxControl, sandboxPhase, walkSandboxPhases, projectSandboxPhaseWindow, prepareSandboxRoom, type SandboxViewOptions } from "./sandbox.js";
 import { policiesForRun, resolveActingSeat, mergeRevealedHands } from "./sandbox-seats.js";
+import { buildSandboxSnapshot, type SandboxSnapshotWorker } from "./sandbox-snapshot.js";
 import { compileBoard } from "./presets/board.js";
 import { setCatalogDirectory } from "./presets/catalog.js";
 import { multiDomainCoreAvailable, multiStartProblem } from "./multi-domain-guard.js";
@@ -2347,6 +2348,22 @@ export function createDuelHost(options: {
     const slug = body.slug;
     if (op === SANDBOX_OPS.info) return sandbox.info(slug, guildId, actor);
     if (op === SANDBOX_OPS.restart) return sandbox.restart(slug, guildId, actor);
+    if (op === SANDBOX_OPS.snapshot) {
+      requireSandboxOwner(service, slug, guildId, actor);
+      if (service.get(slug, guildId).status !== "active") throw new RequestError("This sandbox is not active", 409);
+      const saved = sandbox.info(slug, guildId, actor);
+      const game: SandboxSnapshotWorker = await recover(slug, guildId, false);
+      if (!game.sandboxSnapshot) throw new RequestError("This engine cannot capture a sandbox snapshot", 409);
+      return buildSandboxSnapshot(await game.sandboxSnapshot(), saved.board, saved.run);
+    }
+    if (op === SANDBOX_OPS.close) {
+      requireSandboxOwner(service, slug, guildId, actor);
+      const status = service.get(slug, guildId).status;
+      if (status === "lobby" || status === "active") service.cancel(slug, guildId, actor);
+      await disposeGame(slug);
+      await emitChange(slug, guildId);
+      return { ok: true };
+    }
     const room = service.room(slug, guildId, actor);
     const sandboxView: SandboxViewOptions = { as: body.as, reveal: body.reveal };
     if (body.as !== undefined || body.reveal !== undefined || op === SANDBOX_OPS.control || op === SANDBOX_OPS.phase || op === SANDBOX_OPS.nextTurn) {
