@@ -2378,6 +2378,14 @@ export function createDuelHost(options: {
             await persistAcceptedCommand(slug, guildId, seat, command, game, decidedAt, newestEventId(view), SANDBOX_PHASE_WALK_NOTE);
           },
         });
+        if (to === undefined) {
+          const view = await game.view(null);
+          const seat = view.prioritySeat;
+          const run = service.privateState(slug, guildId).setup?.sandbox?.run;
+          if (!view.result && seat != null && run?.bots[String(seat) as keyof typeof run.bots] === "practice") {
+            await driveBot(slug, guildId, game);
+          }
+        }
         await emitChange(slug, guildId);
         return await project(slug, guildId, actor, game, false, sandboxView);
       } catch (error) {

@@ -230,6 +230,18 @@ describeWithCores("sandbox real phase control", [needs.standard(DATA), needs.car
     const choices = t.duels.privateState(slug, "g").commands.map((c) => (c.command.answer as { choice?: string }).choice).filter(Boolean);
     expect(choices).toEqual(expect.arrayContaining(["to_bp", "to_m2", "to_ep"]));
   }, 30_000);
+  it("resumes a Practice seat after Next turn so it plays its cards", async () => {
+    const t = setup(true);
+    const slug = await t.start({ board: { p1: { hand: [15025844] } },
+      run: { ...run, bots: { ...run.bots, "1": "practice" } } });
+    const result = await t.post("sandbox-next-turn", { slug });
+    expect(result.status, result.data.error).toBe(200);
+    expect(result.data.engine.seats[1].monsters.some((card: unknown) => card !== null)).toBe(true);
+    expect(result.data.engine.turnSeat).toBe(0);
+    expect(t.duels.privateState(slug, "g").commands.at(-1)?.command).not.toMatchObject({ note: "sandbox: phase walk" });
+    await t.workers[0].close();
+    expect((await t.post("view", { slug })).data.engine).toEqual(result.data.engine);
+  }, 30_000);
   it("preserves the opening Draw effect window", async () => {
     const t = setup(true), slug = await t.start();
     const first = (await t.post("view", { slug })).data.engine;
