@@ -1,6 +1,8 @@
 import type Database from "better-sqlite3";
 import type { CardArtworkFamily } from "@yugidraft/shared/duels";
 
+export class CubeArtworkConflict extends Error {}
+
 /** Family must come from the authenticated duel host. Keep cube membership and authored copies. */
 export function swapCubeArtwork(db: Database.Database, cubeId: number, from: number, to: number, family: CardArtworkFamily): void {
   if (![from, to].every(code => family.artworks.some(art => art.passcode === code))) {
@@ -9,6 +11,12 @@ export function swapCubeArtwork(db: Database.Database, cubeId: number, from: num
   db.transaction(() => {
     if (!db.prepare("select 1 from cube_cards where cube_id = ? and catalog_card_id = ?").get(cubeId, from)) {
       throw new Error("Cube card not found");
+    }
+    if (db.prepare(`select 1 from drafts d where d.status in ('pending', 'active') and (
+      exists (select 1 from draft_player_cube pc where pc.draft_id = d.id and pc.cube_id = ?)
+      or exists (select 1 from json_each(d.config_json, '$.allowedCubeIds') allowed where allowed.value = ?)
+    ) limit 1`).get(cubeId, cubeId)) {
+      throw new CubeArtworkConflict("Artwork cannot change while this cube is used by a pending or active draft");
     }
     if (from === to) return;
     if (db.prepare("select 1 from cube_cards where cube_id = ? and catalog_card_id = ?").get(cubeId, to)) {

@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { createDraftService } from "@yugidraft/shared/services";
 import { migrate } from "@yugidraft/shared/db";
 const { getDb, requireWebAccess, cubeWriteAccess, callDuelHost } = vi.hoisted(() => ({ getDb: vi.fn(), requireWebAccess: vi.fn(), cubeWriteAccess: vi.fn(), callDuelHost: vi.fn() }));
 vi.mock("@/lib/db", () => ({ getDb }));
@@ -40,4 +41,49 @@ it("does not overwrite a target art already present in the cube", async () => {
 it("enforces cube write access before contacting the engine", async () => {
   cubeWriteAccess.mockResolvedValue(Response.json({ error: "Forbidden" }, { status: 403 }));
   expect((await swap()).status).toBe(403); expect(callDuelHost).not.toHaveBeenCalled();
+});
+
+function themeDraft() {
+  db.exec("insert into card_catalog select 20,'Other',type,frame_type,effect_text,atk,def,attribute,level,image_url,image_url_small,card_sets_json,cached_at,archetype from card_catalog where ygoprodeck_id = 10");
+  db.exec("insert into cube_cards (cube_id,catalog_card_id,pool,max_copies) values (1,20,'main',3)");
+  const players = ["p1", "p2"].map(user => Number(db.prepare("insert into players (guild_id,discord_user_id,display_name) values ('g',?,?)").run(user, user).lastInsertRowid));
+  const drafts = createDraftService(db);
+  const draft = drafts.create("g", "c", "Theme", { mode: "theme", allowedCubeIds: [1], themeSelection: "random",
+    uniqueThemes: false, cardsPerPlayer: 4, themePackSize: 2, extraDeckEnabled: false, copyLimit: false }, "u", players[0]);
+  drafts.join(draft.id, players[1]);
+  return { drafts, draft, players };
+}
+it("blocks pending drafts whose allowed cubes include this cube", async () => {
+  themeDraft();
+  expect((await swap()).status).toBe(409);
+  expect(db.prepare("select catalog_card_id from cube_cards where catalog_card_id != 20").all()).toEqual([{ catalog_card_id: 10 }]);
+});
+it("blocks an assigned active cube after a pick, even without allowedCubeIds", async () => {
+  const { drafts, draft, players } = themeDraft(); drafts.start(draft.id);
+  drafts.pickCard(draft.id, players[0], drafts.currentPackOptions(draft.id, players[0]).find(c => c.catalogCardId === 10)!.id, "manual");
+  db.prepare("update drafts set config_json = json_remove(config_json, '$.allowedCubeIds') where id = ?").run(draft.id);
+  expect((await swap()).status).toBe(409);
+  expect(db.prepare("select catalog_card_id from cube_cards where catalog_card_id != 20").all()).toEqual([{ catalog_card_id: 10 }]);
+});
+it("demonstrates that bypassing the guard over-deals the same family", () => {
+  const { drafts, draft, players } = themeDraft(); drafts.start(draft.id);
+  drafts.pickCard(draft.id, players[0], drafts.currentPackOptions(draft.id, players[0]).find(c => c.catalogCardId === 10)!.id, "manual");
+  db.exec("insert into card_catalog select 11,name,type,frame_type,effect_text,atk,def,attribute,level,image_url,image_url_small,card_sets_json,cached_at,archetype from card_catalog where ygoprodeck_id = 10");
+  db.exec("update cube_cards set catalog_card_id = 11 where cube_id = 1 and catalog_card_id = 10");
+  for (let round = 0; round < 4; round++) for (const player of players) {
+    const options = drafts.currentPackOptions(draft.id, player);
+    if (options.length) drafts.pickCard(draft.id, player, (options.find(c => c.catalogCardId === 11) ?? options[0]).id, "manual");
+  }
+  const picked = db.prepare("select dc.catalog_card_id from draft_picks p join draft_cards dc on dc.id = p.draft_card_id where p.player_id = ? and dc.catalog_card_id in (10,11) order by p.id").all(players[0]);
+  expect(picked).toEqual([{ catalog_card_id: 10 }, { catalog_card_id: 11 }, { catalog_card_id: 11 }]); // max_copies is only 2
+});
+it.each(["completed", "cancelled"])("allows a cube used only by a %s draft", async status => {
+  const { draft } = themeDraft(); db.prepare("update drafts set status = ? where id = ?").run(status, draft.id);
+  expect((await swap()).status).toBe(200);
+});
+it("maps an engine-unknown cube source to 400, preserving host failures", async () => {
+  for (const [hostStatus, expected] of [[404, 400], [503, 503]]) {
+    callDuelHost.mockResolvedValue({ ok: false, response: Response.json({ error: "Unknown source" }, { status: hostStatus }) });
+    expect((await swap()).status).toBe(expected);
+  }
 });
