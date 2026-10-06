@@ -28,6 +28,32 @@ describe("card image fallback", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
+  it.each([0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])("skips all fetching for invalid passcode %s", async passcode => {
+    const { fetchCardImageResource } = await import("../../src/services/card-fetch.js");
+    const fetch = vi.fn(async () => new Response("art"));
+    expect(await fetchCardImageResource(primary, passcode, fetch, r => r.text())).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("does not let an Ignis 429 block YGOPRODeck images or catalog requests", async () => {
+    const { fetchCardImageResource, fetchCardResource } = await import("../../src/services/card-fetch.js");
+    const fetch = vi.fn<(input: string | URL | Request, init?: RequestInit) => Promise<Response>>()
+      .mockResolvedValueOnce(new Response("missing", { status: 404 }))
+      .mockResolvedValueOnce(new Response("limited", { status: 429, headers: { "Retry-After": "600" } }))
+      .mockResolvedValueOnce(new Response("primary art"))
+      .mockResolvedValueOnce(new Response('{"data":[]}'));
+    const failure = expect(fetchCardImageResource(primary, 89631133, fetch, r => r.text())).rejects.toMatchObject({ status: 429 });
+    await vi.runAllTimersAsync();
+    await failure;
+    const image = fetchCardImageResource(primary, 89631133, fetch, r => r.text());
+    await vi.runAllTimersAsync();
+    expect(await image).toBe("primary art");
+    const catalog = fetchCardResource("https://db.ygoprodeck.com/api/v7/cardinfo.php", fetch, r => r.json());
+    await vi.runAllTimersAsync();
+    expect(await catalog).toEqual({ data: [] });
+    expect(fetch).toHaveBeenCalledTimes(4);
+  });
+
   it.each(["400", "403", "429", "503", "network", "timeout"])("does not fall back for a primary %s failure", async failure => {
     const { fetchCardImageResource } = await import("../../src/services/card-fetch.js");
     const fetch = vi.fn(async () => {

@@ -117,6 +117,7 @@ export async function fetchCardImageResource<R extends ResponseStatus, T>(
   fetchImpl: (input: string | URL | Request, init?: RequestInit) => Promise<R>,
   read: (response: R) => Promise<T>,
 ): Promise<T | null> {
+  if (!Number.isSafeInteger(passcode) || passcode <= 0) return null;
   const readImage = (response: R) => response.status === 404 ? Promise.resolve(null) : read(response);
   const image = await fetchCardResource(input, fetchImpl, readImage, [404]);
   if (image !== null) return image;

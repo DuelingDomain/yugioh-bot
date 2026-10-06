@@ -3,7 +3,50 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import sharp from "sharp";
 import { describe, expect, it, vi } from "vitest";
-import { createDraftImageService } from "../../src/services/card-images.js";
+import { createDraftImageService, validateCardImage } from "../../src/services/card-images.js";
+
+describe("card image validation", () => {
+  it.each(["jpeg", "png", "webp"] as const)("accepts decoded %s images", async format => {
+    const buffer = await sharp({ create: { width: 16, height: 24, channels: 3, background: "white" } }).toFormat(format).toBuffer();
+    expect(await validateCardImage(buffer)).toEqual(buffer);
+  });
+
+  it.each(["gif", "tiff", "svg"] as const)("rejects decodable %s images", async format => {
+    const buffer = format === "svg" ? Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="16" height="24"><rect width="16" height="24" fill="white"/></svg>')
+      : await sharp({ create: { width: 16, height: 24, channels: 3, background: "white" } }).toFormat(format).toBuffer();
+    expect(await validateCardImage(buffer).then(() => false, () => true)).toBe(true);
+  });
+
+  it("rejects a valid image padded beyond 5 MiB", async () => {
+    const jpeg = await sharp({ create: { width: 16, height: 24, channels: 3, background: "white" } }).jpeg().toBuffer();
+    expect(await validateCardImage(Buffer.concat([jpeg, Buffer.alloc(5 * 1024 * 1024)])).then(() => false, () => true)).toBe(true);
+  });
+
+  it.each(["header", "stream"])("bounds the draft image response by its %s", async mode => {
+    vi.resetModules();
+    const { createDraftImageService: create } = await import("../../src/services/card-images.js");
+    const { CARD_BACK_SVG } = await import("../../src/services/card-fetch.js");
+    const jpeg = await sharp({ create: { width: 16, height: 24, channels: 3, background: "white" } }).jpeg().toBuffer();
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(jpeg));
+        if (mode === "stream") controller.enqueue(new Uint8Array(5 * 1024 * 1024));
+        controller.enqueue(new Uint8Array([0]));
+        controller.close();
+      },
+      cancel,
+    });
+    const dir = await mkdtemp(path.join(tmpdir(), "bounded-images-"));
+    try {
+      const service = create({ cacheDir: dir, fetch: async () => new Response(body, { headers: mode === "header" ? { "Content-Length": String(5 * 1024 * 1024 + 1) } : {} }) });
+      expect((await service.renderPoolCards([{ ygoprodeckId: 1, imageUrl: "" }]))[0].buffer
+        .equals(await sharp(Buffer.from(CARD_BACK_SVG)).resize(240, 350).png().toBuffer())).toBe(true);
+      expect(cancel).toHaveBeenCalledTimes(1);
+      expect(await readdir(dir)).toEqual([]);
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  });
+});
 
 describe("shared card image service", () => {
   it.each(["full", "small"])("caches Ignis art in the existing %s format after a primary 404", async variant => {

@@ -6,7 +6,7 @@ import { CARD_BACK_SVG, CardFetchError, fetchCardImageResource, trustedCardImage
 type FetchLike = (
   input: string | URL | globalThis.Request,
   init?: globalThis.RequestInit,
-) => Promise<Pick<Response, "ok" | "arrayBuffer"> & Partial<Pick<Response, "status" | "headers">>>;
+) => Promise<Pick<Response, "ok" | "arrayBuffer"> & Partial<Pick<Response, "status" | "headers" | "body">>>;
 
 export type DraftImageCard = {
   ygoprodeckId: number;
@@ -25,11 +25,50 @@ const CARD_HEIGHT = 145;
 
 const CARD_FULL_WIDTH = 240;
 const CARD_FULL_HEIGHT = 350;
+const MAX_CARD_IMAGE_BYTES = 5 * 1024 * 1024;
+
+export class CardImageValidationError extends Error {}
 
 /** Decode the complete image before keeping upstream bytes in a durable cache. */
 export async function validateCardImage(buffer: Buffer): Promise<Buffer> {
-  await sharp(buffer).stats();
+  if (buffer.length > MAX_CARD_IMAGE_BYTES) throw new CardImageValidationError("Card image exceeds 5 MiB");
+  try {
+    const image = sharp(buffer);
+    const { format } = await image.metadata();
+    if (format !== "jpeg" && format !== "png" && format !== "webp") throw new Error("Unsupported card image format");
+    await image.stats();
+  } catch (cause) {
+    throw new CardImageValidationError("Invalid card image", { cause });
+  }
   return buffer;
+}
+
+/** Bound the download even when Content-Length is absent or understates the body. */
+export async function readCardImageResponse(
+  response: Pick<Response, "arrayBuffer"> & Partial<Pick<Response, "headers" | "body">>,
+): Promise<Buffer> {
+  if (Number(response.headers?.get("Content-Length")) > MAX_CARD_IMAGE_BYTES) {
+    await response.body?.cancel().catch(() => {});
+    throw new CardImageValidationError("Card image exceeds 5 MiB");
+  }
+  // Custom fetch adapters may only expose arrayBuffer; real HTTP responses stream.
+  if (!response.body) return validateCardImage(Buffer.from(await response.arrayBuffer()));
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      length += value.byteLength;
+      if (length > MAX_CARD_IMAGE_BYTES) throw new CardImageValidationError("Card image exceeds 5 MiB");
+      chunks.push(value);
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+  return validateCardImage(Buffer.concat(chunks, length));
 }
 
 function createNumberOverlay(number: number, width: number, height: number) {
@@ -66,7 +105,7 @@ export function createDraftImageService({
     try {
       const fallback = `https://images.ygoprodeck.com/images/${full ? "cards" : "cards_small"}/${card.ygoprodeckId}.jpg`;
       const url = trustedCardImageUrl(full ? card.imageUrl : card.imageUrlSmall ?? card.imageUrl, fallback);
-      const buffer = await fetchCardImageResource(url, card.ygoprodeckId, fetchImpl, async (response) => Buffer.from(await response.arrayBuffer()));
+      const buffer = await fetchCardImageResource(url, card.ygoprodeckId, fetchImpl, readCardImageResponse);
       if (!buffer) throw new CardFetchError(1, 404);
       const normalized = await sharp(buffer).resize(width, height, { fit: "cover", position: "center" }).png().toBuffer();
       try { await mkdir(cacheDir, { recursive: true }); await writeFile(cachePath, normalized); } catch { /* A full disk must not stop a pick. */ }
