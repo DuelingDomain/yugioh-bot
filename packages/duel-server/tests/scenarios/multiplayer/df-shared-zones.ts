@@ -356,14 +356,16 @@ function ownCostTarget(code: number): Scenario {
 
 function kidbrave(format: Format, caster: Seat): Scenario {
   const kid="Magical Musketeer Kidbrave", musket="Magical Musketeer Caspar", pot="Pot of Greed";
-  const match=format!=="ffa4" || caster==="p0" || caster==="p1";
+  const match=format==="tag" || caster==="p0" || (format==="ffa4" && caster==="p1");
+  // R-FFA-THREE-COLUMNS: this trigger only draws own cards. With three live
+  // seats it does not opt into an opponent column or ask for an opponent.
   const board=state(format,caster);
   const ownHand=board.p0.hand as string[];
   board.p0={...board.p0,monsters:[kid],zones:{m1:kid},hand:[...ownHand,...(match ? [ELF,ELF] : [musket])],grave:match ? [musket] : [],deckCount:(board.p0.deckCount ?? 20)-(match ? 2 : 0)};
   if(caster==="p0") board.p0={...board.p0,grave:[musket,pot],hand:[...ownHand,ELF,ELF,ELF,ELF],deckCount:(board.p0.deckCount ?? 20)-2};
   else board[caster]={...board[caster],hand:[ELF,ELF,ELF],grave:[pot],deckCount:17};
   const setup: Scenario["setup"]={p0:{monsters:slots(1,kid),hand:[musket]},[caster]:{...(caster==="p0" ? {monsters:slots(1,kid)} : {}),hand:caster==="p0" ? [musket,pot] : [pot]}};
-  return scenario(`${format}-review3-kidbrave-${caster}-spell-column`,format,setup,[...turnsBefore(format,caster),activate(pot,caster),zone(caster,caster==="p0" ? "s1" : "s3",caster),...(match ? [yes("p0")] : []),expectPrompt({by:caster,context:"action"}),everySeat(format,board)]);
+  return scenario(`${format}-review3-kidbrave-${caster}-spell-column`,format,setup,[...turnsBefore(format,caster),activate(pot,caster),zone(caster,caster==="p0" ? "s1" : "s3",caster),...(match ? [yes("p0")] : []),expectPrompt({by:caster,context:"action"}),everySeat(format,board)],format === "ffa3" ? ["R-FFA-THREE-COLUMNS"] : undefined);
 }
 function impermanence(caster: "p1" | "p2", permanent=false): Scenario {
   const tenki="Fire Formation - Tenki",warwolf="Gene-Warped Warwolf",trap="Infinite Impermanence",rat="Giant Rat",pot="Pot of Greed",remedy="Goblin's Secret Remedy",board=state("ffa4",caster);
