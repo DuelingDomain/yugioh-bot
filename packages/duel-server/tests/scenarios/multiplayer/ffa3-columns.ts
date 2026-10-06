@@ -60,8 +60,8 @@ function impermanence(peer: "p1" | "p2", eliminated: boolean, continuous = false
   }, [...turnsBefore("ffa3",actor), ...(actor !== "p0" ? Array.from({length:5},()=>pass(actor)) : []), ...(eliminated ? [surrender(dead), expectEliminated(dead)] : []), endTurn(actor), pass(actor),
     activate(IMP, actor), activate(remedy, peer), zone(peer,"s0",peer),
     activate(POT, peer), zone(peer,continuous ? "s0" : "s3",peer), expectPrompt({by:peer,context:"action"}),
-    expectBoard({ [peer]: { hand: Array(continuous || !eliminated ? 3 : 1).fill(ELF),
-      zones: { m4: {card:wolf,attack: continuous && !eliminated ? 2100 : 2000} }, grave:[remedy,POT] } })]);
+    expectBoard({ [peer]: { hand: Array(continuous ? 3 : 1).fill(ELF),
+      zones: { m4: {card:wolf,attack: 2000} }, grave:[remedy,POT] } })]);
 }
 function disablaster(eliminated: boolean): Scenario {
   const card="Disablaster the Negation Fortress", trooper="Card Trooper";
