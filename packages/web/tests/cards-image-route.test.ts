@@ -102,6 +102,43 @@ describe("GET /api/cards/[passcode]/image", () => {
     expect(readFileSync(cachePath("10000100", variant, variant === "cropped" ? "ygoprodeck" : "ignis"))).toEqual(ownArt);
   });
 
+  it.each(["full", "small", "cropped"])("migrates legacy API %s art without fetching", async variant => {
+    db.exec(`insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
+      values (5405694,'Ritual','Ritual Monster','ritual','full','small','[]','now');
+      insert into card_artworks (card_id,artwork_id,image_url,image_url_small,is_main,source)
+      values (5405694,5405694,'full','small',1,'api');`);
+    const legacy = join(cacheDir, `5405694${variant === "full" ? "" : `-${variant}`}.jpg`);
+    writeFileSync(legacy, RITUAL_ART);
+
+    const response = await getImage("5405694", `?variant=${variant}`);
+
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(RITUAL_ART);
+    expect(response.headers.get("Cache-Control")).toBe("public, max-age=86400, immutable");
+    expect(fetched).toEqual([]);
+    expect(readFileSync(cachePath("5405694", variant))).toEqual(RITUAL_ART);
+    expect(() => readFileSync(legacy)).toThrow();
+    expect(callDuelHost).not.toHaveBeenCalled();
+  });
+
+  it.each(["engine", "absent"])("fetches instead of migrating legacy art with an %s artwork row", async source => {
+    if (source === "engine") {
+      db.exec(`insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
+        values (5405694,'Ritual','Ritual Monster','ritual','full','small','[]','now');
+        insert into card_artworks (card_id,artwork_id,image_url,image_url_small,is_main,source)
+        values (5405694,5405694,'full','small',1,'engine');`);
+    }
+    const legacy = join(cacheDir, "5405694.jpg");
+    const poisoned = await jpeg("poisoned legacy art");
+    writeFileSync(legacy, poisoned);
+
+    const response = await getImage("5405694");
+
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(RITUAL_ART);
+    expect(fetched).toEqual([`${IMAGES}/5405694.jpg`]);
+    expect(readFileSync(cachePath("5405694"))).toEqual(RITUAL_ART);
+    expect(readFileSync(legacy)).toEqual(poisoned);
+  });
+
   it("upgrades an expired full-size Ignis cache entry to YGOPRODeck art", async () => {
     const ownArt = await jpeg("full resolution art");
     vi.stubGlobal("fetch", vi.fn(async (url: string) => url.startsWith(IGNIS)

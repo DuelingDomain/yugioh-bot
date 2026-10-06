@@ -1,10 +1,10 @@
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
 import { NextResponse } from "next/server";
 import type { CardArtworkFamily, CardArtworksResponse } from "@yugidraft/shared/duels";
 import { validateCardImage } from "@yugidraft/shared/services";
 import { callDuelHost } from "@/lib/duel-host";
 import { getDb } from "@/lib/db";
+import { cardImageCachePath } from "@/lib/card-image-cache";
 
 export function isPasscode(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0 && value <= 0xffffffff;
@@ -29,7 +29,7 @@ export async function loadCardArtworkFamily(actor: { guildId: string; playerId: 
 // Keep full validation, but avoid decoding every variant on every no-store request.
 const imageChecks = new Map<string, { expires: number; present: Promise<boolean> }>();
 function cachedImage(filename: string): Promise<boolean> {
-  const path = resolve(process.env.CARD_IMAGE_CACHE_DIR ?? "./data/card-images", filename);
+  const path = cardImageCachePath(filename, "ygoprodeck");
   const now = Date.now();
   const previous = imageChecks.get(path);
   if (previous && previous.expires > now) return previous.present;

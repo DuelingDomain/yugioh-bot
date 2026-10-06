@@ -1,22 +1,21 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { callDuelHost, requireDuelActor } from "@/lib/duel-host";
 import { getDb } from "@/lib/db";
+import { cardImageCachePath, type CardImageSource } from "@/lib/card-image-cache";
 import { CARD_BACK_SVG, CardFetchError, CardImageValidationError, PROJECT_IGNIS_IMAGE_URL, fetchCardResource, isCardFetchError, readCardImageResponse, trustedCardImageUrl, validateCardImage } from "@yugidraft/shared/services";
 
 export const runtime = "nodejs";
 
-const CACHE_DIR = process.env.CARD_IMAGE_CACHE_DIR ?? "./data/card-images";
 const YGOPRODECK_IMAGE_URL = "https://images.ygoprodeck.com/images/cards";
 const YGOPRODECK_SMALL_URL = "https://images.ygoprodeck.com/images/cards_small";
 const YGOPRODECK_CROPPED_URL = "https://images.ygoprodeck.com/images/cards_cropped";
 type ImageVariant = "full" | "small" | "cropped";
-type ImageSource = "ygoprodeck" | "ignis";
 type CachedImage = { image: Buffer; cacheControl: string };
-type FetchedImage = { image: Buffer | null; source: ImageSource; ignisError?: unknown };
-type ArtworkRow = { card_id: number; image_url: string; image_url_small: string; image_url_cropped: string | null };
+type FetchedImage = { image: Buffer | null; source: CardImageSource; ignisError?: unknown };
+type ArtworkRow = { card_id: number; image_url: string; image_url_small: string; image_url_cropped: string | null; source: "api" | "engine" };
 const FALLBACK_TTL_MS = 60 * 60 * 1000;
 const MISSING_TTL_MS = 10 * 60 * 1000;
 const inFlight = new Map<string, Promise<CachedImage>>();
@@ -25,7 +24,7 @@ const OWN_CACHE_CONTROL = "public, max-age=86400, immutable";
 const FALLBACK_CACHE_CONTROL = "public, max-age=3600";
 
 function artworkOf(passcode: number): ArtworkRow | undefined {
-  return getDb().prepare("select card_id, image_url, image_url_small, image_url_cropped from card_artworks where artwork_id = ?")
+  return getDb().prepare("select card_id, image_url, image_url_small, image_url_cropped, source from card_artworks where artwork_id = ?")
     .get(passcode) as ArtworkRow | undefined;
 }
 
@@ -82,19 +81,27 @@ function imageFilename(passcode: number, variant: ImageVariant): string {
   return variant === "full" ? `${passcode}.jpg` : `${passcode}-${variant}.jpg`;
 }
 
-function cachePathOf(filename: string, source: ImageSource): string {
-  // Ignore every legacy key: those files may contain alias art or low-res Ignis
-  // art, even if weekly catalog sync has since added an API artwork row.
-  // Flat versioned keys remain visible to the existing size-based cache cleanup.
-  return join(CACHE_DIR, `v2-${source}-${filename}`);
-}
-
-async function readCachedImage(filename: string): Promise<CachedImage | null> {
+async function readCachedImage(passcode: number, filename: string): Promise<CachedImage | null> {
+  const primaryPath = cardImageCachePath(filename, "ygoprodeck");
   try {
-    return { image: await validateCardImage(await readFile(cachePathOf(filename, "ygoprodeck"))), cacheControl: OWN_CACHE_CONTROL };
-  } catch { /* Fetch a missing or invalid primary image. */ }
+    return { image: await validateCardImage(await readFile(primaryPath)), cacheControl: OWN_CACHE_CONTROL };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      try {
+        const legacyPath = join(dirname(primaryPath), filename);
+        const legacy = await readFile(legacyPath);
+        // API artwork rows identify legacy files that can be reused safely.
+        // Engine-only codes still skip potentially poisoned alias art.
+        if (artworkOf(passcode)?.source === "api") {
+          const image = await validateCardImage(legacy);
+          await rename(legacyPath, primaryPath);
+          return { image, cacheControl: OWN_CACHE_CONTROL };
+        }
+      } catch { /* Fetch if the legacy image cannot be migrated. */ }
+    }
+  }
   try {
-    const path = cachePathOf(filename, "ignis");
+    const path = cardImageCachePath(filename, "ignis");
     if (Date.now() - (await stat(path)).mtimeMs < FALLBACK_TTL_MS) {
       return { image: await validateCardImage(await readFile(path)), cacheControl: FALLBACK_CACHE_CONTROL };
     }
@@ -102,11 +109,11 @@ async function readCachedImage(filename: string): Promise<CachedImage | null> {
   return null;
 }
 
-async function writeCachedImage(filename: string, source: ImageSource, image: Buffer): Promise<void> {
-  const cachePath = cachePathOf(filename, source);
+async function writeCachedImage(filename: string, source: CardImageSource, image: Buffer): Promise<void> {
+  const cachePath = cardImageCachePath(filename, source);
   const temporaryPath = `${cachePath}.${randomUUID()}.tmp`;
   try {
-    await mkdir(CACHE_DIR, { recursive: true });
+    await mkdir(dirname(cachePath), { recursive: true });
     await writeFile(temporaryPath, image);
     await rename(temporaryPath, cachePath);
   } catch { /* Serve a usable image if caching fails. */ }
@@ -114,7 +121,7 @@ async function writeCachedImage(filename: string, source: ImageSource, image: Bu
 }
 
 async function loadImage(passcode: number, variant: ImageVariant, filename: string): Promise<CachedImage> {
-  const cached = await readCachedImage(filename);
+  const cached = await readCachedImage(passcode, filename);
   if (cached) return cached;
   if ((missingImages.get(filename) ?? 0) > Date.now()) throw new ImageMissingError();
   missingImages.delete(filename);
@@ -135,7 +142,7 @@ async function loadImage(passcode: number, variant: ImageVariant, filename: stri
   try { alias = await aliasOf(passcode); }
   catch (error) { throw upstreamError ?? ignisError ?? error; }
   if (alias != null) {
-    const cachedAlias = await readCachedImage(imageFilename(alias, variant));
+    const cachedAlias = await readCachedImage(alias, imageFilename(alias, variant));
     let image = cachedAlias?.image;
     // A primary 404 always permits alias fetching, even after an Ignis error.
     if (!image && !upstreamError) {

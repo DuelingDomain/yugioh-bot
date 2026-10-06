@@ -35,8 +35,8 @@ async function get(passcode = "11") {
   return GET(new Request(`http://localhost/api/cards/${passcode}/artworks`), { params: Promise.resolve({ passcode }) });
 }
 it("offers local full and small routes for uncached engine arts while requiring evidence for crops", async () => {
-  writeFileSync(join(dir, "12-small.jpg"), await sharp({ create: { width: 2, height: 2, channels: 3, background: "red" } }).jpeg().toBuffer());
-  writeFileSync(join(dir, "13.jpg"), "broken cache");
+  writeFileSync(join(dir, "v2-ygoprodeck-12-small.jpg"), await sharp({ create: { width: 2, height: 2, channels: 3, background: "red" } }).jpeg().toBuffer());
+  writeFileSync(join(dir, "v2-ygoprodeck-13.jpg"), "broken cache");
   const response = await get();
   expect(response.status).toBe(200);
   expect(await response.json()).toEqual({ passcode: 10, artworks: [
@@ -71,7 +71,7 @@ it("loads an uncached engine-art thumbnail through the Ignis fallback", async ()
 it("does not cache a failed image check, so a freshly downloaded image shows at once", async () => {
   const cropOf = async () => (await (await get()).json()).artworks.find((art: { passcode: number }) => art.passcode === 12).croppedUrl;
   expect(await cropOf()).toBeNull();
-  writeFileSync(join(dir, "12-cropped.jpg"), await sharp({ create: { width: 2, height: 2, channels: 3, background: "red" } }).jpeg().toBuffer());
+  writeFileSync(join(dir, "v2-ygoprodeck-12-cropped.jpg"), await sharp({ create: { width: 2, height: 2, channels: 3, background: "red" } }).jpeg().toBuffer());
   expect(await cropOf()).toBe("/api/cards/12/image?variant=cropped");
 });
 it("requires the guild actor before asking the host", async () => {
@@ -94,14 +94,14 @@ it("rejects malformed families instead of offering unsafe ids", async () => {
 
 it("reuses a successful image check briefly, then notices a removed image", async () => {
   const jpeg = await sharp({ create: { width: 2, height: 2, channels: 3, background: "red" } }).jpeg().toBuffer();
-  for (const id of [12, 13]) for (const suffix of ["", "-small", "-cropped"]) writeFileSync(join(dir, `${id}${suffix}.jpg`), jpeg);
+  for (const id of [12, 13]) for (const suffix of ["", "-small", "-cropped"]) writeFileSync(join(dir, `v2-ygoprodeck-${id}${suffix}.jpg`), jpeg);
   const now = vi.spyOn(Date, "now").mockReturnValue(1000);
   const cropOf = async () => (await (await get()).json()).artworks.find((art: { passcode: number }) => art.passcode === 12).croppedUrl;
   try {
     expect(await cropOf()).toBe("/api/cards/12/image?variant=cropped");
     const reads = vi.mocked(readFile).mock.calls.length;
     expect(reads).toBeGreaterThan(0);
-    rmSync(join(dir, "12-cropped.jpg"));
+    rmSync(join(dir, "v2-ygoprodeck-12-cropped.jpg"));
     expect(await cropOf()).toBe("/api/cards/12/image?variant=cropped");
     expect(vi.mocked(readFile).mock.calls.length).toBe(reads);
     now.mockReturnValue(32000);
