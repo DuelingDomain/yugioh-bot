@@ -1,3 +1,5 @@
+import type { DuelDeck } from "./index.js";
+
 /** Engine-verified family; artwork identity requires the same name and type along every alias edge. */
 export interface CardArtworkFamily {
   passcode: number;
@@ -16,4 +18,13 @@ export interface SelectableCardArtwork {
 export interface CardArtworksResponse {
   passcode: number;
   artworks: SelectableCardArtwork[];
+}
+
+/** One occurrence in an unsaved working deck. Deck Master uses index 0. */
+export interface DeckArtworkSwapRequest {
+  deck: DuelDeck;
+  section: "main" | "extra" | "side" | "deckMaster";
+  index: number;
+  from: number;
+  to: number;
 }

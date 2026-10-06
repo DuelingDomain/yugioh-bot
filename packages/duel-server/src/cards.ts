@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
-import type { DeckCardInfo, DuelCardInfo } from "@yugidraft/shared/duels";
+import { canonicalCardCode, type DeckCardInfo, type DuelCardInfo } from "@yugidraft/shared/duels";
 import type { ScriptOverlay } from "./multi-scripts.js";
 import {
   OcgType,
@@ -280,9 +280,20 @@ function loadFromDisk(root: string): CardDatabase {
     },
     readScript(name, overlay) {
       const normalized = name.replaceAll("\\", "/");
-      const file = scripts.get(normalized) ?? scripts.get(normalized.split("/").pop() ?? "");
+      let resolvedName = name;
+      let scriptName = normalized.split("/").pop() ?? "";
+      let file = scripts.get(normalized) ?? scripts.get(scriptName);
+      if (!file) {
+        const match = /^c(\d+)\.lua$/.exec(scriptName);
+        if (match) {
+          const main = canonicalCardCode(Number(match[1]), deckCards);
+          scriptName = `c${main}.lua`;
+          file = scripts.get(scriptName);
+          if (file) resolvedName = scriptName;
+        }
+      }
       const original = file ? readFileSync(file, "utf8") : null;
-      return overlay ? overlay.apply(name, original) : original;
+      return overlay ? overlay.apply(resolvedName, original) : original;
     },
     close() {
       cache.delete(root);

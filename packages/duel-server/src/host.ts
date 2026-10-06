@@ -2232,7 +2232,7 @@ export function createDuelHost(options: {
         || body.codes.some((code) => !Number.isSafeInteger(code) || code <= 0 || code > 0xffffffff)) {
         throw new RequestError("Provide at most 1000 positive card ids", 400);
       }
-      const codes = await normalizeCardCodes(body.codes as number[], options.dataDirectory, options.db);
+      const codes = await normalizeCardCodes(body.codes as number[], options.dataDirectory, options.db, { preserveArtwork: body.preserveArtwork === true });
       return { codes: Object.fromEntries(codes) };
     }
     if (op === "check-deck") {
