@@ -7,8 +7,10 @@ A short map of the system. The code is the source of truth; this page tells you 
 ```mermaid
 flowchart LR
   user([Browser]) -->|HTTPS| caddy[Caddy :443]
-  caddy -->|pages + /api| web[web<br/>Next.js :3000]
-  caddy -->|/socket.io| ws[ws<br/>Socket.IO :3001]
+  caddy -->|app pages + /api| web[web<br/>Next.js :3000]
+  caddy -->|app /socket.io| ws[ws<br/>Socket.IO :3001]
+  caddy -->|marketing host| site[site/public<br/>static files]
+  caddy -->|marketing POST /api/waitlist only| web
   discord([Discord]) <-->|slash commands, DMs| bot[bot<br/>discord.js]
   web -->|OAuth + guild check| discord
   web -->|signed /internal/duel| duel[duel<br/>engine host :4003]
@@ -28,6 +30,8 @@ flowchart LR
 | shared | DB schema and all business services | `packages/shared` |
 
 All internal calls are HMAC-signed POSTs (`shared/src/notify/signed-post.ts`). Ports 4001, 4002 and 4003 are never public.
+
+`SITE_DOMAIN` remains the app host with its existing auth and routing. Optional `MARKETING_DOMAIN` serves static files, redirects `/login` to the app, and permits only the exact waitlist POST upstream; its `www` redirects to the marketing apex. `LEGACY_DOMAIN` and its `www` preserve paths/queries in a 308 to the app. Unset extra domains use reserved `.localhost` defaults, leaving existing public routing unchanged. The waitlist is the sole new public API path; `createWaitlistService(db)` stores unique normalized emails in `waitlist_signups`, independent of guilds. See [domain cutover](deployment/domain-cutover.md).
 
 ## 2. The duel engine
 
