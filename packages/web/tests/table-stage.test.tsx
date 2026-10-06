@@ -56,6 +56,21 @@ describe("TableShell on the 3-way fixtures", () => {
     expect(container.querySelectorAll("[data-hub-slot]")).toHaveLength(1);
   });
 
+  it("puts every prompt in the middle of your field, at a size that follows it", () => {
+    const { container } = render(<Shell id="chain-2" />);
+    const board = container.querySelector<HTMLElement>("[data-prompt-center]")!;
+    expect(board).not.toBeNull();
+    expect(board.hasAttribute("data-panel-room")).toBe(false);
+    const slot = board.querySelector<HTMLElement>('[data-slot="prompt"]')!;
+    expect(slot.hasAttribute("data-prompt-dense")).toBe(true);
+    const cx = parseFloat(slot.style.getPropertyValue("--pr-cx"));
+    const width = parseFloat(slot.style.getPropertyValue("--pr-w"));
+    // Your field is the near board in the middle of the 1100 px box.
+    expect(Math.abs(cx - 550)).toBeLessThan(4);
+    expect(width).toBeGreaterThan(300);
+    expect(parseFloat(slot.style.getPropertyValue("--pr-unit"))).toBeGreaterThan(0);
+  });
+
   it("draws one LP panel per seat and one seat field per seat", () => {
     const { container } = render(<Shell id="main" />);
     const lp = [...container.querySelectorAll("[data-lp-seat]")].map((node) => node.getAttribute("data-lp-seat"));

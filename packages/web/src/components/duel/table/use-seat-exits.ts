@@ -28,8 +28,11 @@ export interface UseSeatExitsArgs {
   resetKey?: string;
 }
 
-/** How long the seats take to regroup after an elimination: the crumble wait (0.65 s) plus the glide (1 s), with some slack. */
-export const GLIDE_MS = 1800;
+/**
+ * How long the seats take to regroup after an elimination (the 3-way FINAL DUEL board): the crumble (EXIT_CRUMBLE_MS), the
+ * beat (FINALE_BEAT_MS) and the glide (FINALE_GLIDE_MS) of the 4-way finale, with some slack.
+ */
+export const GLIDE_MS = 3800;
 
 /**
  * Tells which seats left the duel since the last render and keeps what is needed to crumble them. The seats that were
