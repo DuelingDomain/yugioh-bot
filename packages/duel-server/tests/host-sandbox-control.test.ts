@@ -128,6 +128,16 @@ describe("sandbox seat control", () => {
     expect(t.duels.privateState(slug, "g").commands).toHaveLength(128);
     expect(result.data.engine).toMatchObject({ phase: "main1", turn: 1, revision: 128 });
   });
+  it("still drives a recovered bot when no phase walk stopped it", async () => {
+    const t = setup(); t.control.promptSeat = 1;
+    const slug = await t.start({ run: manualRun });
+    const saved = t.duels.privateState(slug, "g").setup!;
+    t.duels.setSetup(slug, "g", { ...saved, sandbox: { ...saved.sandbox!, run } });
+    await t.workers[0].close();
+    expect((await t.post("view", { slug })).status).toBe(200);
+    expect(t.duels.privateState(slug, "g").commands).toHaveLength(1);
+    expect(t.duels.privateState(slug, "g").commands[0].seat).toBe(1);
+  });
   it("uses practice control at once and restores it on recovery", async () => {
     const t = setup(); t.control.promptSeat = 1;
     const slug = await t.start({ run: manualRun });
@@ -178,6 +188,13 @@ describeWithCores("sandbox real phase control", [needs.standard(DATA), needs.car
     }
     const choices = t.duels.privateState(slug, "g").commands.map((c) => (c.command.answer as { choice?: string }).choice).filter(Boolean);
     expect(choices).toEqual(expect.arrayContaining(["to_bp", "to_m2", "to_ep"]));
+  }, 30_000);
+  it("preserves the opening Draw effect window", async () => {
+    const t = setup(true), slug = await t.start();
+    const first = (await t.post("view", { slug })).data.engine;
+    expect(first.phase).toBe("draw");
+    expect(first.seats[0].hand).toHaveLength(2);
+    expect(first.prompt.options.some((option: any) => option.card?.code === 83968380)).toBe(true);
   }, 30_000);
   it("starts at Draw and replays phase commands on recovery and restart", async () => {
     const t = setup(true), slug = await t.start({ board: { attackFirstTurn: true } });

@@ -48,7 +48,7 @@ import {
   type DecisionClockView,
 } from "./clock.js";
 import { chooseScripted, ScriptedBotError, type Rule, type RuleTraceEntry } from "./scripted-bot.js";
-import { createSandboxOps, requireSandboxOwner, setSandboxControl, sandboxPhase, walkSandboxPhases, projectSandboxPhaseWindow, prepareSandboxRoom, type SandboxViewOptions } from "./sandbox.js";
+import { SANDBOX_PHASE_WALK_NOTE, createSandboxOps, requireSandboxOwner, setSandboxControl, sandboxPhase, walkSandboxPhases, projectSandboxPhaseWindow, prepareSandboxRoom, type SandboxViewOptions } from "./sandbox.js";
 import { policiesForRun, resolveActingSeat, mergeRevealedHands } from "./sandbox-seats.js";
 import { compileBoard } from "./presets/board.js";
 import { setCatalogDirectory } from "./presets/catalog.js";
@@ -2352,7 +2352,7 @@ export function createDuelHost(options: {
             const command: DuelCommand = { promptId: view.prompt!.id, revision: view.revision, answer };
             const decidedAt = now();
             await game.answer(seat, command.promptId, answer);
-            await persistAcceptedCommand(slug, guildId, seat, command, game, decidedAt, newestEventId(view), "sandbox: phase walk");
+            await persistAcceptedCommand(slug, guildId, seat, command, game, decidedAt, newestEventId(view), SANDBOX_PHASE_WALK_NOTE);
           },
         });
         await emitChange(slug, guildId);
@@ -2370,8 +2370,12 @@ export function createDuelHost(options: {
         if (deadline <= now() || (botAt !== null && botAt <= now())) await driveOpening(slug, guildId);
       }
       if (service.get(slug, guildId).status === "active") {
-        // Reads preserve a sandbox phase stop, including a stopped bot turn after recovery.
-        const game = await recover(slug, guildId, !room.session.sandbox);
+        // The saved phase-walk note preserves a stop on a bot turn across reads and recovery.
+        // Other reads retain normal bot recovery (including a changed saved control mode).
+        const lastCommand = room.session.sandbox
+          ? service.privateState(slug, guildId).commands.at(-1)?.command as (DuelCommand & { note?: string }) | undefined : undefined;
+        const phaseStopped = lastCommand?.note === SANDBOX_PHASE_WALK_NOTE;
+        const game = await recover(slug, guildId, !phaseStopped);
         await settleClock(slug, guildId, game);
         return project(slug, guildId, actor, games.get(slug)?.game, body.spectate === true, sandboxView);
       }

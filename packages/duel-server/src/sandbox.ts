@@ -143,6 +143,8 @@ export function createSandboxOps(options: {
   };
 }
 
+export const SANDBOX_PHASE_WALK_NOTE = "sandbox: phase walk";
+
 export interface SandboxViewOptions { as?: unknown; reveal?: unknown }
 
 /** Project the selected seat's saved deck and final snapshot without exposing other prompts. */
