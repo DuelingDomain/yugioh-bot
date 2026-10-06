@@ -58,8 +58,11 @@ function fixture() {
 it.each([
   [403, { "Retry-After": "2" }, 2_000],
   [429, { "Retry-After": "Tue, 06 Oct 2026 12:00:03 GMT" }, 3_000],
-  [403, { "x-ratelimit-reset": "1791288004" }, 4_000],
-  [503, { "Retry-After": "1", "x-ratelimit-reset": "1791288004" }, 4_000],
+  [403, { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1791288004" }, 4_000],
+  [503, { "Retry-After": "1", "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1791288004" }, 4_000],
+  [403, { "x-ratelimit-reset": "1791288004" }, 1_000],
+  [403, { "x-ratelimit-remaining": "1", "x-ratelimit-reset": "1791288004" }, 1_000],
+  [429, { "Retry-After": "2", "x-ratelimit-remaining": "1", "x-ratelimit-reset": "1791288004" }, 2_000],
   [500, {}, 1_000],
 ])("retries a %i tree response with authentication after the server's delay", async (status, headers, delay) => {
   vi.useFakeTimers();
@@ -74,9 +77,27 @@ it.each([
   await vi.advanceTimersByTimeAsync(delay - 1);
   expect(request).toHaveBeenCalledTimes(1);
   await vi.advanceTimersByTimeAsync(1);
-  await assertion;
   expect(request).toHaveBeenCalledTimes(2);
+  await assertion;
   expect(request.mock.calls[1][1].headers.Authorization).toBe("Bearer test-read-token");
+});
+
+it.each([
+  { "Retry-After": "3600" },
+  { "Retry-After": "Tue, 06 Oct 2026 13:00:00 GMT" },
+  { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1791291600" },
+])("caps each server delay at one minute and fails after three retries: %j", async headers => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-10-06T12:00:00Z"));
+  const request = vi.fn(async () => new Response("retry", { status: 429, headers }));
+  const assertion = expect(discoverReleasedDatabases(sources.database, request)).rejects.toThrow("(429)");
+  for (let retry = 1; retry <= 3; retry++) {
+    await vi.advanceTimersByTimeAsync(59_999);
+    expect(request).toHaveBeenCalledTimes(retry);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(request).toHaveBeenCalledTimes(retry + 1);
+  }
+  await assertion;
 });
 
 it("stops after three retries and does not retry other client errors", async () => {

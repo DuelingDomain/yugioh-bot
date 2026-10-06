@@ -28,10 +28,10 @@ async function download(url: string, request: Download, init?: RequestInit): Pro
       throw new Error(`Resource download failed (${response.status}): ${url}`);
     }
     const after = response.headers.get("Retry-After");
-    const reset = response.headers.get("x-ratelimit-reset");
+    const reset = response.headers.get("x-ratelimit-remaining") === "0" ? response.headers.get("x-ratelimit-reset") : null;
     const afterMs = after === null ? 0 : /^\d+(?:\.\d+)?$/.test(after) ? Number(after) * 1_000 : Date.parse(after) - Date.now();
     const resetMs = reset === null ? 0 : Number(reset) * 1_000 - Date.now();
-    const delay = Math.max(1_000 * 2 ** retry, Number.isFinite(afterMs) ? afterMs : 0, Number.isFinite(resetMs) ? resetMs : 0);
+    const delay = Math.min(60_000, Math.max(1_000 * 2 ** retry, Number.isFinite(afterMs) ? afterMs : 0, Number.isFinite(resetMs) ? resetMs : 0));
     await response.body?.cancel();
     await new Promise(resolve => setTimeout(resolve, delay));
   }
