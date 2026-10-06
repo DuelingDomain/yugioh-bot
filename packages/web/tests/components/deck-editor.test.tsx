@@ -973,9 +973,62 @@ describe("Domain one copy of each card", () => {
     expect(fireEvent.contextMenu(tile, { button: 2, ctrlKey: true })).toBe(false);
     expect(mainCards()).toHaveLength(1);
     expect(screen.getAllByRole("status").map((node) => node.textContent).join(" | ")).toContain("Domain decks hold one copy of each card.");
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("keeps a draft deck in Domain at one copy of a card, even when the pool holds more", async () => {
+    stored = { ...domainDeck([BLUE_EYES.code]), draftId: 3 };
+    const pool = { slug: "retro", draftId: 3, draftName: "Retro draft", cards: [{ code: BLUE_EYES.code, count: 2 }], mainPoolCount: 2, unresolved: [], savedDeckId: 7, registration: null };
+    render(<SavedDeckEditor deckId="7" pool={pool} />);
+    await screen.findByRole("button", { name: /^Blue-Eyes White Dragon, Main Deck card 1/ });
+    fireEvent.doubleClick(await screen.findByRole("button", { name: /^Blue-Eyes White Dragon, 1 copy left in your pool/ }));
+    expect(mainCards()).toHaveLength(1);
+    expect(screen.getAllByRole("status").map((node) => node.textContent).join(" | ")).toContain("Domain decks hold one copy of each card.");
+  });
+
+  it("flags two copies in a Domain draft deck", async () => {
+    stored = { ...domainDeck([BLUE_EYES.code, BLUE_EYES.code]), draftId: 3 };
+    const pool = { slug: "retro", draftId: 3, draftName: "Retro draft", cards: [{ code: BLUE_EYES.code, count: 2 }], mainPoolCount: 2, unresolved: [], savedDeckId: 7, registration: null };
+    render(<SavedDeckEditor deckId="7" pool={pool} />);
+    await screen.findByRole("button", { name: /^Blue-Eyes White Dragon, Main Deck card 1/ });
+    expect(screen.getAllByText(/1 card has too many copies/).length).toBeGreaterThan(0);
+  });
+
+  it("lets another art replace the current Deck Master, which adds no copy", async () => {
+    const base = card(81480460, "Barrel Dragon", 0x21, 7);
+    const art = { ...base, code: 81480461, alias: base.code };
+    const fetch = vi.mocked(globalThis.fetch);
+    const original = fetch.getMockImplementation()!;
+    fetch.mockImplementation(async (url, init) => {
+      if (url === "/api/duels/cards") {
+        const { codes } = JSON.parse(String(init?.body)) as { codes: number[] };
+        return Response.json({ cards: [base, art].filter((entry) => codes.includes(entry.code)), missing: [] });
+      }
+      if (url === "/api/decks/cards") return Response.json({ cards: [art], total: 1, offset: 0 });
+      return original(url, init);
+    });
+    stored = { ...savedDeck([]), mode: "domain", deck: { main: [], extra: [], side: [], deckMaster: base.code } };
+    render(<SavedDeckEditor deckId="7" />);
+    await screen.findByRole("button", { name: /^Deck Master: Barrel Dragon/ });
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "barrel" } });
+    fireEvent.click(await screen.findByRole("button", { name: /^Barrel Dragon/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Use as Deck Master" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Deck Master: Barrel Dragon/ }).querySelector("img")?.getAttribute("src")).toContain(String(art.code)));
+    expect(mainCards()).toHaveLength(0);
+  });
+
+  it("lists the + key on a deck card in Standard but not in Domain", async () => {
+    stored = savedDeck([BLUE_EYES.code]);
+    const standard = render(<SavedDeckEditor deckId="7" />);
+    expect(await screen.findByRole("button", { name: /^Blue-Eyes White Dragon, Main Deck card 1/ })).toHaveAttribute("aria-keyshortcuts", expect.stringContaining("Plus"));
+    standard.unmount();
+    stored = domainDeck([BLUE_EYES.code]);
+    render(<SavedDeckEditor deckId="7" />);
+    const tile = await screen.findByRole("button", { name: /^Blue-Eyes White Dragon, Main Deck card 1/ });
+    expect(tile).toHaveAttribute("aria-keyshortcuts", "Delete ContextMenu Shift+F10");
     fireEvent.keyDown(tile, { key: "+" });
     expect(mainCards()).toHaveLength(1);
-    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryAllByRole("status").map((node) => node.textContent).join(" | ")).not.toContain("Domain decks hold one copy");
   });
 
   it("flags a Domain deck that holds two copies of a card", async () => {
@@ -1001,7 +1054,7 @@ describe("deck controls legend", () => {
     expect(legend).toHaveTextContent("Ctrl+click move to/from Side Deck");
     expect(legend).toHaveTextContent("Right-click change art");
     expect(legend).toHaveTextContent("Ctrl+right-click add a copy");
-    expect(legend).toHaveTextContent("not the Deck Master");
+    expect(legend).toHaveTextContent("Ctrl+right-click add a copy (Cmd on Mac), Standard only");
     expect(legend).toHaveTextContent("Click preview");
     expect(legend).toHaveTextContent("Double-click or Right-click add");
     expect(within(screen.getByRole("complementary", { name: "Card details" })).getByRole("region", { name: "Controls" })).toBe(legend);

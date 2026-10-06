@@ -473,7 +473,10 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   const limitsPending = !banlistOff && facets == null && !facetsError;
   const banlistName = banlistOff ? null : banlistLabel(query.banlist);
   const counts = useMemo(() => copyCounts(deck, catalog), [deck, catalog]);
-  const problems = useMemo(() => (pool ? [] : copyProblems(deck, catalog, limits, mode === "domain")), [pool, deck, catalog, limits, mode]);
+  const problems = useMemo(
+    () => (pool ? (mode === "domain" ? copyProblems(deck, catalog, null, true) : []) : copyProblems(deck, catalog, limits, mode === "domain")),
+    [pool, deck, catalog, limits, mode],
+  );
   const poolMap = useMemo(() => (pool ? poolCounts(pool.cards, catalog) : null), [pool, catalog]);
   const forcedMap = useMemo(() => forcedCounts(pool?.forcedCopies, catalog), [pool, catalog]);
   const usage = useMemo(() => deckUsage(deck, catalog), [deck, catalog]);
@@ -624,6 +627,11 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   }
 
   function roomFor(card: DeckCardInfo): boolean {
+    // Domain is singleton in a draft deck too: the pool may hold more copies, the deck takes one.
+    if (mode === "domain" && deckCount(card) >= 1) {
+      setNotice(DOMAIN_ONE_COPY);
+      return false;
+    }
     if (poolMap) return poolRoomFor(card.code);
     if (limitsPending) {
       setNotice("Loading the banlist. Try again in a moment.");
@@ -739,7 +747,9 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     }
     // A Deck Master that is not in the deck yet is a new copy, so it must fit the copy limit.
     const inDeck = deck.main.includes(code) || deck.extra.includes(code) || deck.side.includes(code);
-    if (card && !inDeck && !roomFor(card)) return;
+    // Another art of the current Master (no copy of it waits in a section) replaces it and adds no copy.
+    const swapsArt = deck.deckMaster != null && masterOrigin == null && copyKey(code, catalog) === copyKey(deck.deckMaster, catalog);
+    if (card && !inDeck && !swapsArt && !roomFor(card)) return;
     commit(chooseMaster(selection, code, section));
     setInspectCode(code);
     setSelected(null);
@@ -982,6 +992,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     onRemove: removeCopy,
     onMoveSide: toggleSide,
     onCopy: copyCard,
+    copyable: mode !== "domain",
     onDrop: dropCard,
     onArtMenu: openArtMenu,
     artMenu,
