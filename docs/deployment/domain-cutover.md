@@ -18,7 +18,8 @@ authentication. This is intended because the app is private. All legacy-host req
    production `.env` and back up SQLite using the VM runbook's online backup procedure. Keep ownership and
    renewal of the old domain; it will keep serving legacy links.
 2. Complete the privacy confirmations in `site/public/privacy.html`: operator legal identity, monitored public
-   privacy mailbox/business contact address, and Hetzner contracting name, VM region and security-log retention.
+   privacy mailbox/business contact address.
+   Hosting confirmed: Hetzner; Nuremberg, Germany (EU); server logs rotate automatically by size and age, with no fixed day count.
    Confirm the 30-day deletion and end-of-alpha cleanup processes, including exports/backups and invite lists.
    Run `python3 site/src/self-host-fonts.py` from a machine with HTTPS access, then the checks below. Until then,
    Google Fonts is deliberately retained and disclosed under the sandbox fallback; do not claim fonts are local.

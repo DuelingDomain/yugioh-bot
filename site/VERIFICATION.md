@@ -150,7 +150,7 @@ the harness deliberately does not create signups. A no-JS 303 return still displ
 All three HTML `OWNER:` comments are in `public/privacy.html`:
 
 1. Confirm the operator's legal name and add it as the person/entity responsible for this information.
-2. Confirm Hetzner's contracting legal name, VM region and security-log retention; add location/retention.
+2. Confirmed: Hetzner; Nuremberg, Germany (EU); server logs rotate automatically by size and age, with no fixed day count.
 3. `support@duelingdomain.com` is live on Private Email and forwards to the owner; it is the only public contact address.
    No home address or personal email is published.
 
