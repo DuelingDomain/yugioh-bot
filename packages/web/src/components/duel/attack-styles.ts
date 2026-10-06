@@ -8,12 +8,14 @@
  *   4. the default, "impact".
  * The tint comes from the attacker's attribute unless the signature sets its own.
  *
- * To add a signature: add one entry to SIGNATURES keyed by passcode. Alternate art and reprints
- * have their own passcode, so add each id you want covered.
+ * To add a signature: add one entry to SIGNATURES keyed by the passcode of the original card. A
+ * chosen alternate art is sent back to that passcode first (signature-alias.ts, from the server's canonical passcode); a reprint with its
+ * own card id still needs its own entry.
  */
 
 import { BREAK_SETTLE_MS } from "./battle-hold";
 import { ATTACK_TIMING, paceAttack } from "./duel-timing";
+import { signatureCode } from "./signature-alias";
 
 export const ATTRIBUTE = { EARTH: 0x01, WATER: 0x02, FIRE: 0x04, WIND: 0x08, LIGHT: 0x10, DARK: 0x20, DIVINE: 0x40 } as const;
 
@@ -119,7 +121,14 @@ export const RACE_STYLES: Record<string, AttackStyleId> = {
 };
 
 /** What the resolver needs from a card. Every field may be missing (a face-down or unseen card). */
-export type AttackCardLike = { code?: number; name?: string; race?: string; attribute?: number };
+export type AttackCardLike = {
+  code?: number;
+  /** The passcode of the original card when the server names it (an alternate art carries its own `code`). */
+  canonicalPasscode?: number;
+  name?: string;
+  race?: string;
+  attribute?: number;
+};
 
 export type AttackStyle = {
   style: AttackStyleId;
@@ -158,7 +167,7 @@ export function attackStyleFor(card: AttackCardLike | null | undefined): AttackS
   const attrName = attributeName(card?.attribute);
   const attrTint: Tint = attrName ? TINTS[attrName] : TINTS.LIGHT;
   const fallbackName = attrName ?? "LIGHT";
-  const sig = card?.code != null ? SIGNATURES[card.code] : undefined;
+  const sig = card?.code != null ? SIGNATURES[signatureCode(card.code, card.canonicalPasscode)] : undefined;
   if (sig) {
     return {
       style: sig.style,

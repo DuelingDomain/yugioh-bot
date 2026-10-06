@@ -731,6 +731,39 @@ describe("BattleFx", () => {
     expect(document.body.textContent).toContain("White Lightning");
   });
 
+  describe("alternate art signatures", () => {
+    const BLUE_EYES = 89631139;
+    const ALT = 89631140;
+    const altAttacker = { code: ALT, name: "Blue-Eyes White Dragon", race: "Dragon", attribute: 16, attack: 3000, defense: 2500 };
+    const play = (seats: DuelSeatView[]) => {
+      const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} seats={seats} />);
+      rerender(<BattleFx events={[phase, attack, hurt]} reducedMotion={false} seats={seats} />);
+    };
+
+    it("plays the signature of an alternate art from the canonical passcode on the card", () => {
+      play(seatsOf({ ...altAttacker, canonicalPasscode: BLUE_EYES } as typeof altAttacker, machine));
+      expect(playLayer()?.getAttribute("data-style")).toBe("lightning");
+      expect(document.body.textContent).toContain("White Lightning");
+    });
+
+    it("keeps the card's own passcode when an old view has no canonical passcode", () => {
+      play(seatsOf(altAttacker, machine));
+      expect(playLayer()?.getAttribute("data-style")).not.toBe("lightning");
+    });
+
+    it("asks the artworks API for nothing", async () => {
+      const fetch = vi.fn(async () => Response.json({}));
+      vi.stubGlobal("fetch", fetch);
+      try {
+        render(<BattleFx events={[]} reducedMotion />);
+        await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+        expect(fetch).not.toHaveBeenCalled();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+  });
+
   it("picks the style from the card that attacked, using the board as it was before the snapshot", () => {
     const before = seatsOf(machine, warrior);
     const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} seats={before} />);

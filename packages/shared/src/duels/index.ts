@@ -170,6 +170,8 @@ export interface DuelDeckValidation {
 
 export interface DuelCardInfo {
   code: number;
+  /** Engine artwork-family main; equals code for cards without an artwork alias. */
+  canonicalPasscode?: number;
   name: string;
   description: string;
   type: number;
@@ -189,6 +191,8 @@ export interface DuelCard {
   /** Opaque animation identity; hand order and sequence always come from the engine query. */
   handId?: string;
   code?: number;
+  /** Engine artwork-family main, omitted with the rest of a hidden card's identity. */
+  canonicalPasscode?: number;
   name?: string;
   description?: string;
   attack?: number;
@@ -428,6 +432,8 @@ export interface DuelEvent {
   cause?: "battle" | "effect" | "cost" | "rule" | "other";
   /** destroy / move / toss: passcode of the source (the effect's card, or the opposing battler). */
   sourceCode?: number;
+  /** destroy / move: engine artwork-family main of sourceCode; selected artwork stays in sourceCode. */
+  sourceCanonicalCode?: number;
   /** destroy / move: card type of the source when it activated (monster, spell or trap). */
   sourceKind?: "monster" | "spell" | "trap";
   /** destroy / move: seat that controlled the reason (the player the destruction is attributed to). */
@@ -672,3 +678,5 @@ export {
   parseCardQuery,
   parseCardSearchTerms,
 } from "./card-query.js";
+
+export type { CardArtworkFamily, SelectableCardArtwork, CardArtworksResponse, DeckArtworkSwapRequest } from "./artworks.js";
