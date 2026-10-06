@@ -93,12 +93,15 @@ services:
     restart: unless-stopped
     environment:
       - SITE_DOMAIN=${SITE_DOMAIN:?Set SITE_DOMAIN in .env (localhost for local dev)}
+      - MARKETING_DOMAIN=${MARKETING_DOMAIN:-marketing-disabled.localhost}
+      - LEGACY_DOMAIN=${LEGACY_DOMAIN:-legacy-disabled.localhost}
     ports:
       - "80:80"
       - "443:443"
       - "443:443/udp"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./site/public:/srv/site:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:

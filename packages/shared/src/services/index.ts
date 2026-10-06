@@ -49,3 +49,5 @@ export type { LiveNow, LiveNowService, LiveDuelState, LiveOpponent } from "./liv
 export type { TournamentDuelService, TournamentDuelRules, TournamentDeckRegistration } from "./tournament-duels.js";
 export { createBugReportService, BugReportServiceError, BUG_REPORT_LIMIT } from "./bug-reports.js";
 export type { BugReportService, BugReport, BugReportInput, BugReportLimit } from "./bug-reports.js";
+export { createWaitlistService } from "./waitlist.js";
+export type { WaitlistService, WaitlistMeta } from "./waitlist.js";

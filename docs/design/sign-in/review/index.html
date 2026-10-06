@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Dueling Domain: review, 6 Oct</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body data-width="1440">
+  <a class="skip-link" href="#sign-in">Skip to screenshot review</a>
+  <header class="page-shell page-header">
+    <h1>Dueling Domain: review, 6 Oct</h1>
+    <p>The marketing site is in <code>site/public/</code>. The <a href="../workshop.html">A/B/C sign-in concepts</a> and <a href="../../draft-room/cube-night.html">draft room mock</a> are saved alongside this review.</p>
+  </header>
+
+  <div class="review-tools">
+    <div class="page-shell tools-content">
+      <div class="control-group">
+        <span id="width-label" class="control-label">Screenshot width</span>
+        <div class="toggle" role="group" aria-labelledby="width-label">
+          <button type="button" data-width-option="1440" aria-pressed="true">Desktop 1440</button>
+          <button type="button" data-width-option="390" aria-pressed="false">Phone 390</button>
+        </div>
+      </div>
+      <p class="toolbar-note">Applies to every section. Click a screenshot to open full size.</p>
+    </div>
+  </div>
+
+  <main class="page-shell">
+    <noscript><p class="notice">Enable JavaScript to switch screenshot widths and marketing links. Screenshot links still open the original images.</p></noscript>
+    <p id="view-status" class="visually-hidden" role="status" aria-live="polite"></p>
+
+    <section id="sign-in" class="review-section" aria-labelledby="sign-in-heading">
+      <h2 id="sign-in-heading">Sign-in (PR #209): mock vs build</h2>
+      <article class="comparison" aria-labelledby="default-heading">
+        <h3 id="default-heading">Default sign-in</h3>
+        <p class="section-note">Shorter form: Discord only for now, so no email field or 'or' divider.</p>
+        <div class="pair-grid screenshot-grid">
+          <figure class="shot-card">
+            <figcaption>Mock</figcaption>
+            <a class="screenshot" href="img/mock/a-signin-1440.webp">
+              <img src="img/mock/a-signin-1440.webp" data-src-pattern="img/mock/a-signin-{w}.webp" alt="Mock A: default sign-in with Discord, an email field and an or divider" width="1440" height="900" loading="lazy" decoding="async">
+            </a>
+          </figure>
+          <figure class="shot-card">
+            <figcaption>Build</figcaption>
+            <a class="screenshot" href="img/final/signin-mk-1440.webp">
+              <img src="img/final/signin-mk-1440.webp" data-src-pattern="img/final/signin-mk-{w}.webp" alt="Final build: shorter default sign-in with Discord only and marketing links" width="1440" height="900" loading="lazy" decoding="async">
+            </a>
+          </figure>
+        </div>
+      </article>
+
+      <article class="comparison" aria-labelledby="service-heading">
+        <h3 id="service-heading">Service error</h3>
+        <p class="section-note">Service-error mock alongside the server configuration error in the build.</p>
+        <div class="pair-grid screenshot-grid">
+          <figure class="shot-card">
+            <figcaption>Mock</figcaption>
+            <a class="screenshot" href="img/mock/a-err-service-1440.webp">
+              <img src="img/mock/a-err-service-1440.webp" data-src-pattern="img/mock/a-err-service-{w}.webp" data-phone-height="864" alt="Mock A: sign-in service error state" width="1440" height="900" loading="lazy" decoding="async">
+            </a>
+          </figure>
+          <figure class="shot-card">
+            <figcaption>Build</figcaption>
+            <a class="screenshot" href="img/final/config-mk-1440.webp">
+              <img src="img/final/config-mk-1440.webp" data-src-pattern="img/final/config-mk-{w}.webp" alt="Final build: sign-in server configuration error with marketing links" width="1440" height="900" loading="lazy" decoding="async">
+            </a>
+          </figure>
+        </div>
+      </article>
+
+      <article class="comparison" aria-labelledby="alpha-heading">
+        <h3 id="alpha-heading">Not in the alpha</h3>
+        <p class="section-note">Account wording, since sign-in is Discord, not email.</p>
+        <div class="pair-grid screenshot-grid">
+          <figure class="shot-card">
+            <figcaption>Mock</figcaption>
+            <a class="screenshot" href="img/mock/a-err-invite-1440.webp">
+              <img src="img/mock/a-err-invite-1440.webp" data-src-pattern="img/mock/a-err-invite-{w}.webp" alt="Mock A: sign-in invitation required for alpha access" width="1440" height="900" loading="lazy" decoding="async">
+            </a>
+          </figure>
+          <figure class="shot-card">
+            <figcaption>Build</figcaption>
+            <a class="screenshot" href="img/final/invite-mk-1440.webp">
+              <img src="img/final/invite-mk-1440.webp" data-src-pattern="img/final/invite-mk-{w}.webp" alt="Final build: Discord account is not in the alpha, with marketing links" width="1440" height="900" loading="lazy" decoding="async">
+            </a>
+          </figure>
+        </div>
+      </article>
+    </section>
+
+    <section id="states" class="review-section" aria-labelledby="states-heading">
+      <h2 id="states-heading">Every sign-in state</h2>
+      <div class="state-controls">
+        <div class="toggle" role="group" aria-label="Marketing links in the state grid" aria-describedby="cutover-note">
+          <button type="button" data-links-option="mk" aria-pressed="true">With marketing links</button>
+          <button type="button" data-links-option="nomk" aria-pressed="false">Before cutover</button>
+        </div>
+        <p id="cutover-note" class="section-note">Before cutover, MARKETING_URL is unset, so links to duelingdomain.com are hidden.</p>
+      </div>
+      <div class="state-grid screenshot-grid">
+        <figure class="shot-card">
+          <figcaption>Default</figcaption>
+          <a class="screenshot" href="img/final/signin-mk-1440.webp">
+            <img src="img/final/signin-mk-1440.webp" data-src-pattern="img/final/signin-{links}-{w}.webp" data-alt-base="Final build: default Discord sign-in" alt="Final build: default Discord sign-in, with marketing links" width="1440" height="900" loading="lazy" decoding="async">
+          </a>
+        </figure>
+        <figure class="shot-card">
+          <figcaption>Cancelled on Discord <span>(info banner)</span></figcaption>
+          <a class="screenshot" href="img/final/oauth-mk-1440.webp">
+            <img src="img/final/oauth-mk-1440.webp" data-src-pattern="img/final/oauth-{links}-{w}.webp" data-alt-base="Final build: Discord sign-in cancelled, with an informational banner" alt="Final build: Discord sign-in cancelled, with an informational banner, with marketing links" width="1440" height="900" loading="lazy" decoding="async">
+          </a>
+        </figure>
+        <figure class="shot-card">
+          <figcaption>Server config error</figcaption>
+          <a class="screenshot" href="img/final/config-mk-1440.webp">
+            <img src="img/final/config-mk-1440.webp" data-src-pattern="img/final/config-{links}-{w}.webp" data-alt-base="Final build: server configuration error during sign-in" alt="Final build: server configuration error during sign-in, with marketing links" width="1440" height="900" loading="lazy" decoding="async">
+          </a>
+        </figure>
+        <figure class="shot-card">
+          <figcaption>Access check unavailable</figcaption>
+          <a class="screenshot" href="img/final/unavail-mk-1440.webp">
+            <img src="img/final/unavail-mk-1440.webp" data-src-pattern="img/final/unavail-{links}-{w}.webp" data-alt-base="Final build: alpha access check is unavailable" alt="Final build: alpha access check is unavailable, with marketing links" width="1440" height="900" loading="lazy" decoding="async">
+          </a>
+        </figure>
+        <figure class="shot-card">
+          <figcaption>Not in the alpha</figcaption>
+          <a class="screenshot" href="img/final/invite-mk-1440.webp">
+            <img src="img/final/invite-mk-1440.webp" data-src-pattern="img/final/invite-{links}-{w}.webp" data-alt-base="Final build: Discord account is not in the alpha" alt="Final build: Discord account is not in the alpha, with marketing links" width="1440" height="900" loading="lazy" decoding="async">
+          </a>
+        </figure>
+        <figure class="shot-card">
+          <figcaption>Unknown error code</figcaption>
+          <a class="screenshot" href="img/final/unknown-mk-1440.webp">
+            <img src="img/final/unknown-mk-1440.webp" data-src-pattern="img/final/unknown-{links}-{w}.webp" data-alt-base="Final build: sign-in fallback for an unknown error code" alt="Final build: sign-in fallback for an unknown error code, with marketing links" width="1440" height="900" loading="lazy" decoding="async">
+          </a>
+        </figure>
+      </div>
+    </section>
+
+    <section id="fixes" class="review-section" aria-labelledby="fixes-heading">
+      <h2 id="fixes-heading">Astra's fix round</h2>
+      <article class="comparison" aria-labelledby="title-fix-heading">
+        <h3 id="title-fix-heading">Alpha access message</h3>
+        <p class="section-note">Title now two lines like the mock; curly apostrophes.</p>
+        <div class="pair-grid screenshot-grid">
+          <figure class="shot-card">
+            <figcaption>Before</figcaption>
+            <a class="screenshot" href="img/first-pass/invite-motion-1440.webp">
+              <img src="img/first-pass/invite-motion-1440.webp" data-src-pattern="img/first-pass/invite-motion-{w}.webp" alt="First pass: alpha access message with a three-line title and straight apostrophes" width="1440" height="900" loading="lazy" decoding="async">
+            </a>
+          </figure>
+          <figure class="shot-card">
+            <figcaption>After</figcaption>
+            <a class="screenshot" href="img/final/invite-mk-1440.webp">
+              <img src="img/final/invite-mk-1440.webp" data-src-pattern="img/final/invite-mk-{w}.webp" alt="Final build: alpha access message with a two-line title and curly apostrophes" width="1440" height="900" loading="lazy" decoding="async">
+            </a>
+          </figure>
+        </div>
+      </article>
+      <article class="comparison" aria-labelledby="icon-fix-heading">
+        <h3 id="icon-fix-heading">Discord cancellation message</h3>
+        <p class="section-note">Info circle instead of a warning triangle.</p>
+        <div class="pair-grid screenshot-grid">
+          <figure class="shot-card">
+            <figcaption>Before</figcaption>
+            <a class="screenshot" href="img/first-pass/oauth-motion-1440.webp">
+              <img src="img/first-pass/oauth-motion-1440.webp" data-src-pattern="img/first-pass/oauth-motion-{w}.webp" alt="First pass: harmless Discord cancellation message with a warning triangle" width="1440" height="900" loading="lazy" decoding="async">
+            </a>
+          </figure>
+          <figure class="shot-card">
+            <figcaption>After</figcaption>
+            <a class="screenshot" href="img/final/oauth-mk-1440.webp">
+              <img src="img/final/oauth-mk-1440.webp" data-src-pattern="img/final/oauth-mk-{w}.webp" alt="Final build: Discord cancellation message with an info circle" width="1440" height="900" loading="lazy" decoding="async">
+            </a>
+          </figure>
+        </div>
+      </article>
+      <div class="findings">
+        <p class="small-heading">Four review findings</p>
+        <ul>
+          <li>straight apostrophes</li>
+          <li>a three-line title</li>
+          <li>a waitlist sentence with no button before cutover</li>
+          <li>a warning icon on a harmless message</li>
+        </ul>
+        <p class="resolution">All four fixed in one round.</p>
+      </div>
+    </section>
+
+    <section id="rename" class="review-section" aria-labelledby="rename-heading">
+      <h2 id="rename-heading">App rename and new mark (PR #208)</h2>
+      <div class="rename-grid screenshot-grid">
+        <figure class="shot-card">
+          <figcaption>Sidebar: new D mark, Dueling in ink, Domain in gold</figcaption>
+          <a class="screenshot" href="img/rename/dashboard-1440.webp">
+            <img src="img/rename/dashboard-1440.webp" data-src-pattern="img/rename/dashboard-{w}.webp" data-phone-height="971" alt="App dashboard showing the new D mark and Dueling Domain wordmark" width="1440" height="900" loading="lazy" decoding="async">
+          </a>
+        </figure>
+        <figure class="shot-card" data-desktop-only>
+          <figcaption>Collapsed rail</figcaption>
+          <a class="screenshot" href="img/rename/collapsed-1440.webp">
+            <img src="img/rename/collapsed-1440.webp" data-src-pattern="img/rename/collapsed-1440.webp" alt="Desktop app with the navigation rail collapsed to the new D mark and icons" width="1440" height="900" loading="lazy" decoding="async">
+          </a>
+        </figure>
+        <figure class="shot-card">
+          <figcaption>Phone menu</figcaption>
+          <a class="screenshot" href="img/rename/menu-1440.webp">
+            <img src="img/rename/menu-1440.webp" data-src-pattern="img/rename/menu-{w}.webp" data-phone-height="971" alt="App navigation menu showing the Dueling Domain name and new mark" width="1440" height="900" loading="lazy" decoding="async">
+          </a>
+        </figure>
+      </div>
+    </section>
+  </main>
+
+  <footer class="page-shell page-footer">
+    <p>PRs: #193 marketing site, #208 rename and logo, #209 sign-in. Merged 6 Oct 2026.</p>
+  </footer>
+
+  <dialog id="lightbox" aria-labelledby="lightbox-title" aria-describedby="lightbox-help">
+    <div class="lightbox-header">
+      <div>
+        <h2 id="lightbox-title">Screenshot</h2>
+        <p id="lightbox-help">Original size. Scroll to inspect. Press Esc or click outside to close.</p>
+      </div>
+      <button id="lightbox-close" type="button" autofocus>Close</button>
+    </div>
+    <div class="lightbox-viewport" tabindex="0" role="region" aria-label="Full-size screenshot, scroll to inspect">
+      <div class="lightbox-canvas">
+        <img id="lightbox-image" alt="Selected review screenshot at its original resolution" loading="lazy">
+      </div>
+    </div>
+  </dialog>
+</body>
+</html>
