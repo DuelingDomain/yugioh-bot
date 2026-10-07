@@ -490,4 +490,37 @@ describe("result layout styles", () => {
     expect(actions![1]).toMatch(/grid-auto-columns:\s*minmax\(0,\s*200px\)/);
     expect(css).not.toMatch(/1\.7fr/);
   });
+
+  it("keeps the title out of the global reduced-motion transition, so the fit reads the size it just set", () => {
+    // globals.css gives every element a 0.01ms transition under prefers-reduced-motion. A transition makes the
+    // computed font size lag one read behind, so the fit measured the old size and the title overflowed.
+    const rule = css.match(/\n\.title,\s*\.title \*\s*\{([^}]*)\}/);
+    expect(rule, "the .title, .title * rule").not.toBeNull();
+    expect(rule![1]).toMatch(/transition-property:\s*none/);
+  });
+});
+
+describe("title fit with reduced motion", () => {
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it("sets the title size from the measured width when motion is reduced, as it does with motion", () => {
+    // jsdom has no layout: the column is 300px wide and the text is 600px wide at 100px, so it fits at about 50px.
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(300);
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(600);
+    const sizes: Record<string, string> = {};
+    for (const reducedMotion of [true, false]) {
+      const room = makeRoom({ status: "cancelled", mySeat: 0, winner: null, reason: null, engine: false });
+      const { unmount } = render(
+        <DuelResultScreen room={room} slug="abc" reducedMotion={reducedMotion} soundEnabled={false} onClose={vi.fn()} />,
+      );
+      const title = screen.getByRole("heading", { level: 1 });
+      sizes[String(reducedMotion)] = title.style.getPropertyValue("--fs");
+      unmount();
+    }
+    expect(Number.parseFloat(sizes.true)).toBeCloseTo(49.75, 1);
+    expect(sizes.true).toBe(sizes.false);
+  });
 });

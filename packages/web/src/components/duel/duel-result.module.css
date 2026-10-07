@@ -154,6 +154,13 @@
   font-size: inherit;
   font-weight: inherit;
 }
+/* The title is sized by measuring it: the fit sets --fs to 100px, reads the width, then sets the real size. Under
+   prefers-reduced-motion the global reset gives every element a 0.01ms transition, and a transition makes that
+   read return the OLD font size, so the fit worked from wrong widths and never settled. Nothing here transitions. */
+.title,
+.title * {
+  transition-property: none;
+}
 .reason {
   max-width: 30em;
   font-family: var(--font-ink);
