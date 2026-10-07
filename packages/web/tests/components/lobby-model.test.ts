@@ -13,6 +13,7 @@ import {
   normalizePlayers,
   notReadyPlayers,
   nudgeWaitSeconds,
+  AUTO_START_SECONDS,
   seatSlots,
   startFractionLeft,
   startRemainingMs,
@@ -349,6 +350,10 @@ describe("lobby start text", () => {
     expect(nudgeWaitSeconds("2026-10-07T00:00:30Z", now)).toBe(30);
     expect(nudgeWaitSeconds("2026-10-06T00:00:30Z", now)).toBe(0);
     expect(nudgeWaitSeconds(null, now)).toBe(0);
+  });
+
+  it("gives the auto-start delay in seconds", () => {
+    expect(AUTO_START_SECONDS).toBe(10);
   });
 });
 

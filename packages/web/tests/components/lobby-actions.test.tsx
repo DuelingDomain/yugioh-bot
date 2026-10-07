@@ -64,7 +64,7 @@ function makeApi(over: Partial<LobbyApi> = {}): LobbyApi {
     start: vi.fn(ok),
     stop: vi.fn(ok),
     autoStart: vi.fn(ok),
-    nudge: vi.fn(async () => ({ ok: true, channelId: "c", nextAllowedAt: new Date(Date.now() + 60_000).toISOString() })),
+    nudge: vi.fn(async () => ({ ok: true as const, channelId: "c", nextAllowedAt: new Date(Date.now() + 60_000).toISOString() })),
     ...over,
   };
 }

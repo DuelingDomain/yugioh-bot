@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from "react";
 import { beforeEach, describe, expect, it, vi, afterEach } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DraftManageView } from "../../src/components/draft/draft-manage-view";
 import type { CardSummary } from "../../src/lib/card-types";
@@ -615,5 +615,212 @@ describe("DraftManageView — editing the setup", () => {
     await screen.findByRole("heading", { name: "Pool" });
     await waitFor(() => expect(screen.getByRole("region", { name: "Chosen cube" })).toHaveTextContent("From Goat cube"));
     expect(screen.queryByRole("region", { name: "Pool status" })).toBeNull();
+  });
+});
+
+describe("DraftManageView — Seats First lobby", () => {
+  beforeEach(() => installVirtualizerJsdomEnv());
+
+  const NOW = Date.now();
+  const lobby = (over: Record<string, unknown> = {}) => ({
+    revision: 5,
+    serverNow: new Date(NOW).toISOString(),
+    targetSeats: 4,
+    joined: 3,
+    ready: 1,
+    allReady: false,
+    autoStart: { enabled: false, held: false, eligible: false },
+    start: null,
+    errors: [] as string[],
+    warnings: [] as string[],
+    lastStartError: null,
+    ...over,
+  });
+  const row = (playerId: number, displayName: string, over: Record<string, unknown> = {}) => ({
+    playerId, displayName, pickCount: 0, joinedAt: "2026-10-07T11:00:00.000Z",
+    isHost: false, isYou: false, isBot: false, ready: false, readyAt: null, cubeId: null, ...over,
+  });
+  const hostRow = row(1, "Imran", { isHost: true, isYou: true, ready: true });
+  const ana = row(2, "Ana");
+  const bob = row(3, "Bob", { ready: true });
+  const lobbyDraft = (over: Record<string, unknown> = {}, lobbyOver: Record<string, unknown> = {}, players = [hostRow, ana, bob]) => ({
+    ...baseDraft,
+    config: { ...baseDraft.config, lobbySeats: 4 },
+    players,
+    playerCount: players.length,
+    lobby: lobby({ joined: players.length, ...lobbyOver }),
+    seats: players.filter((p) => p.isYou).map((p) => ({ playerId: p.playerId, isCurrentPlayer: true })),
+    ...over,
+  });
+  const view = (props: Record<string, unknown> = {}) => (
+    <DraftManageView
+      draft={lobbyDraft() as never}
+      slug="s"
+      isCreator
+      isParticipant
+      onStart={noop}
+      onCancel={noop}
+      onUpdate={noop}
+      onJoin={noop}
+      {...props}
+    />
+  );
+  const postsTo = (stub: ReturnType<typeof stubFetch>, suffix: string, method = "POST") =>
+    stub.calls.filter((c) => c.url === `/api/drafts/s${suffix}` && c.method === method);
+  const answerWith = (over: Record<string, unknown>, players = [hostRow, ana, bob]) =>
+    () => Response.json({ lobby: lobby({ joined: players.length, ...over }), players });
+
+  it("shows the host the seats, the numbers, Start and the cards row, and does not ask for a preflight", async () => {
+    const stub = stubFetch({ draftPool: [CATALOG[0]] });
+    render(view());
+    expect(screen.getByRole("heading", { name: "Seats" })).toBeInTheDocument();
+    expect(screen.getByText("Open seat")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^start draft/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Invite players" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /view pool/i })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("1 card")).toBeInTheDocument());
+    expect(stub.calls.some((c) => c.url.endsWith("/preflight"))).toBe(false);
+    expect(screen.getByRole("heading", { name: "Rules" }).nextElementSibling?.textContent).toBe("4P · 9R · 5 · 1-pick · 60s");
+  });
+
+  it("shows server errors and warnings from the lobby", () => {
+    stubFetch();
+    render(view({ draft: lobbyDraft({}, { errors: ["The pool is too small."], warnings: ["Two copies of one card."] }) }));
+    expect(screen.getByRole("alert")).toHaveTextContent("The pool is too small.");
+    expect(screen.getByText("Two copies of one card.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^start draft/i })).toBeDisabled();
+  });
+
+  it("gives a player Ready and no Start, and posts the mark", async () => {
+    const me = row(2, "Ana", { isYou: true });
+    const stub = stubFetch({ extra: { "POST /api/drafts/s/ready": answerWith({ revision: 6, ready: 2 }, [hostRow, { ...me, ready: true }, bob]) } });
+    render(view({ isCreator: false, draft: lobbyDraft({}, {}, [{ ...hostRow, isYou: false }, me, bob]) }));
+    expect(screen.queryByRole("button", { name: /^start draft/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /i'm ready/i }));
+    await waitFor(() => expect(postsTo(stub, "/ready")[0]?.body).toEqual({ ready: true }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /i'm ready/i })).toHaveAttribute("aria-pressed", "true"));
+  });
+
+  it("gives a guest Join, which calls the page's join", async () => {
+    stubFetch();
+    const onJoin = vi.fn().mockResolvedValue(undefined);
+    render(view({ isCreator: false, isParticipant: false, onJoin, draft: lobbyDraft({}, {}, [{ ...hostRow, isYou: false }, ana, bob]) }));
+    expect(screen.getByRole("heading", { name: /join legendary draft/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /join draft/i }));
+    await waitFor(() => expect(onJoin).toHaveBeenCalledTimes(1));
+  });
+
+  it("shows Add bot only to the host and only when the server allows bots", async () => {
+    stubFetch();
+    const onAddBot = vi.fn().mockResolvedValue(undefined);
+    const { rerender } = render(view({ botsEnabled: true, onAddBot }));
+    fireEvent.click(screen.getByRole("button", { name: /add bot/i }));
+    await waitFor(() => expect(onAddBot).toHaveBeenCalledTimes(1));
+    rerender(view({ botsEnabled: false, onAddBot }));
+    expect(screen.queryByRole("button", { name: /add bot/i })).not.toBeInTheDocument();
+    rerender(view({ botsEnabled: true, onAddBot, isCreator: false, draft: lobbyDraft({}, {}, [{ ...hostRow, isYou: false }, { ...ana, isYou: true }, bob]) }));
+    expect(screen.queryByRole("button", { name: /add bot/i })).not.toBeInTheDocument();
+  });
+
+  it("asks before it starts with players who are not ready, then sends force only after Start anyway", async () => {
+    const stub = stubFetch({ extra: { "POST /api/drafts/s/start": answerWith({ revision: 6 }) } });
+    render(view());
+    fireEvent.click(screen.getByRole("button", { name: /^start draft/i }));
+    expect(await screen.findByRole("dialog", { name: /not everyone is ready/i })).toBeInTheDocument();
+    expect(postsTo(stub, "/start")).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: /start anyway/i }));
+    await waitFor(() => expect(postsTo(stub, "/start")).toHaveLength(1));
+    expect(postsTo(stub, "/start")[0].body).toEqual({ revision: 5, force: true });
+  });
+
+  it("shows the start box from the lobby, stops with the token on Esc, and never starts by timer", async () => {
+    const running = { token: "tok", kind: "manual", startsAt: new Date(NOW - 2000).toISOString() };
+    const stub = stubFetch({ extra: { "DELETE /api/drafts/s/start": answerWith({ revision: 6 }) } });
+    const onChanged = vi.fn();
+    render(view({ onChanged, draft: lobbyDraft({}, { start: running, serverNow: new Date(NOW).toISOString() }) }));
+    expect(await screen.findByRole("dialog", { name: /draft starting/i })).toBeInTheDocument();
+    // The deadline has passed: the view refetches the draft, and no start request leaves the browser.
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+    expect(postsTo(stub, "/start")).toHaveLength(0);
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(postsTo(stub, "/start", "DELETE")).toHaveLength(1));
+    expect(postsTo(stub, "/start", "DELETE")[0].body).toEqual({ token: "tok" });
+  });
+
+  it("asks the page to refetch after a stale lobby answer and shows the notice", async () => {
+    const stub = stubFetch({
+      extra: { "POST /api/drafts/s/start": () => Response.json({ code: "STALE_LOBBY", error: "stale" }, { status: 409 }) },
+    });
+    const onChanged = vi.fn();
+    render(view({ onChanged, draft: lobbyDraft({}, { allReady: true, ready: 3 }, [hostRow, { ...ana, ready: true }, bob]) }));
+    fireEvent.click(screen.getByRole("button", { name: /^start draft/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/lobby changed/i);
+    expect(onChanged).toHaveBeenCalledTimes(1);
+    expect(postsTo(stub, "/start")).toHaveLength(1);
+  });
+
+  it("opens the pool drawer read-only for a player, with Edit pool only for the host", async () => {
+    stubFetch({ draftPool: [{ ...CATALOG[0], qty: 2 }] });
+    const me = row(2, "Ana", { isYou: true });
+    const { unmount } = render(view({ isCreator: false, draft: lobbyDraft({}, {}, [{ ...hostRow, isYou: false }, me, bob]) }));
+    const open = screen.getByRole("button", { name: /view pool/i });
+    open.focus();
+    fireEvent.click(open);
+    const dialog = await screen.findByRole("dialog", { name: /card pool/i });
+    await waitFor(() => expect(within(dialog).getAllByText(CATALOG[0].name).length).toBeGreaterThan(0));
+    expect(within(dialog).queryByRole("button", { name: /remove .* from the pool/i })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: /edit pool/i })).not.toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: /view pool/i })).toHaveFocus();
+    unmount();
+  });
+
+  it("lets the host go from the pool drawer to the existing setup editor", async () => {
+    stubFetch({ draftPool: [CATALOG[0]] });
+    render(view());
+    fireEvent.click(screen.getByRole("button", { name: /view pool/i }));
+    const dialog = await screen.findByRole("dialog", { name: /card pool/i });
+    fireEvent.click(within(dialog).getByRole("button", { name: /edit pool/i }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: /card pool/i })).not.toBeInTheDocument());
+    expect(await screen.findByRole("button", { name: "Save setup" })).toBeInTheDocument();
+  });
+
+  it("opens the invite modal and lets only the host post to Discord", async () => {
+    const nextAllowedAt = new Date(Date.now() + 60_000).toISOString();
+    const stub = stubFetch({ extra: { "POST /api/drafts/s/nudge": () => Response.json({ ok: true, channelId: "c", nextAllowedAt }) } });
+    const { unmount } = render(view());
+    fireEvent.click(screen.getByRole("button", { name: "Invite players" }));
+    const dialog = await screen.findByRole("dialog", { name: /invite players/i });
+    fireEvent.click(within(dialog).getByRole("button", { name: /post to discord/i }));
+    await waitFor(() => expect(postsTo(stub, "/nudge")).toHaveLength(1));
+    unmount();
+    cleanup();
+    render(view({ isCreator: false, draft: lobbyDraft({}, {}, [{ ...hostRow, isYou: false }, { ...ana, isYou: true }, bob]) }));
+    fireEvent.click(screen.getByRole("button", { name: "Invite players" }));
+    const modal = await screen.findByRole("dialog", { name: /invite players/i });
+    expect(within(modal).queryByRole("button", { name: /post to discord/i })).not.toBeInTheDocument();
+  });
+
+  it("keeps rename and cancel draft for the host", async () => {
+    stubFetch();
+    const onCancel = vi.fn().mockResolvedValue(undefined);
+    render(view({ onCancel }));
+    expect(screen.getByRole("button", { name: /rename draft/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel draft" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Yes, cancel" }));
+    await waitFor(() => expect(onCancel).toHaveBeenCalledTimes(1));
+  });
+
+  it("keeps a draft without a lobby on the legacy list and manual start", async () => {
+    stubFetch();
+    const onStart = vi.fn().mockResolvedValue(undefined);
+    render(<DraftManageView {...baseProps} slug="s" onStart={onStart} draft={{ ...baseDraft, players: [
+      { playerId: 1, displayName: "Imran", pickCount: 0, joinedAt: "2026-05-06T19:02:00.000Z" },
+      { playerId: 2, displayName: "Kestrel", pickCount: 0, joinedAt: "2026-05-06T19:05:00.000Z" },
+    ] }} />);
+    expect(screen.queryByRole("heading", { name: "Seats" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^start draft/i }));
+    await waitFor(() => expect(onStart).toHaveBeenCalledTimes(1));
   });
 });
