@@ -26,6 +26,8 @@ The weekly workflow uses this same merge for names and candidate validation, rep
 
 The C6 geometry audit scans every Lua directory in the prepared `card-scripts/` corpus and requires an exact match with `packages/duel-server/tests/fixtures/c6-geometry-audit.json`, including a reviewed reason for every expression. At the pins above, release filtering removes `pre-release/c100458010.lua`, `c101402090.lua` and `c101403030.lua`, reducing the stock audit from 173 to 169 expressions. Their four rows therefore leave the fixture. Retained scripts excluded only because their passcode lacks a database row keep their `requiresAbsentCode` guard. Any future retained pre-release geometry expression must receive its own audit row; the scan does not skip that directory.
 
+The merged database also makes Bingo Card, Red-Eyes Black Dragon Exceed, Swiftwind Panther Warrior and Seventh Barian's loadable in the multiplayer table. Their database-absence exceptions are removed. The existing R1/R2 overlays for the first three stay in place; Exceed's summon triggers cannot run on the generic board, so the table records that limit explicitly. Seventh Barian's moves from `R1_NO_CHANGE` to a real R1 suffix: its End Phase damage counts Xyz Monsters on all fields and affects every living duelist (ADR-0002 Q3), while its Extra Deck summon flags use one key per FFA seat or Tag team (Q6). The R1 total remains 93.
+
 ## Run by hand
 
 Use **Actions → Engine data update → Run workflow**, or:
