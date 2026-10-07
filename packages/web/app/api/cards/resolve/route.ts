@@ -2,7 +2,7 @@ import { withCardFetchErrors } from "@/lib/card-fetch-errors";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { createDraftService, createCardCatalogService, isExtraDeckFrame } from "@yugidraft/shared/services";
+import { createDraftService, createCardCatalogService, isExtraDeckFrame, normalizeImportedCardName, rankCardsByTypo } from "@yugidraft/shared/services";
 import { toCardCounts } from "@/lib/custom-card-pool";
 import type { CardSummary } from "@/lib/card-types";
 import { CardListError } from "@/lib/card-list-parser";
@@ -107,7 +107,17 @@ async function handlePOST(request: Request) {
 
   if (fuzzyName) {
     // Best match first. Extra Deck monsters only when the caller can hold them (a cube has an Extra pool).
-    const cards = await catalog.syncCardsByFuzzyName(fuzzyName, { includeExtra: body.includeExtra === true });
+    const includeExtra = body.includeExtra === true;
+    let cards = await catalog.syncCardsByFuzzyName(fuzzyName, { includeExtra });
+    if (cards.length === 0) {
+      // A typo ("drak hole") matches no name as written. Look up each long word on its own, then rank by near matches.
+      const words = [...new Set(normalizeImportedCardName(fuzzyName).split(" ").filter((word) => word.length >= 4))].slice(0, 3);
+      const found = new Map<number, Awaited<ReturnType<typeof catalog.syncCardsByFuzzyName>>[number]>();
+      for (const word of words) {
+        for (const card of await catalog.syncCardsByFuzzyName(word, { includeExtra, limit: 80 })) found.set(card.ygoprodeckId, card);
+      }
+      cards = rankCardsByTypo([...found.values()], fuzzyName).slice(0, 24);
+    }
     return NextResponse.json({ cards: cards.map(toCardSummary), unknownIds: [] });
   }
 

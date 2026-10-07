@@ -1,6 +1,6 @@
 export * from "./constants.js";
 export * from "./card-catalog.js";
-export { normalizeImportedCardName } from "./card-name-match.js";
+export { normalizeImportedCardName, rankCardsByTypo } from "./card-name-match.js";
 export * from "./card-artworks.js";
 export * from "./card-fetch.js";
 export * from "./cubes.js";
