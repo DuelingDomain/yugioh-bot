@@ -5,6 +5,8 @@ export type CameraState = TableCameraState & { auto: boolean; pinned: boolean; a
 export type CameraAction =
   | TableCameraAction
   | { type: "toggleAuto" }
+  /** A prompt needs these field seats on screen: a focus on any other field goes back to the overview. */
+  | { type: "needSeats"; seats: readonly number[] }
   | { type: "pin"; on: boolean }
   | { type: "aiming"; on: boolean }
   | { type: "autoFollow"; seat: number | null };
@@ -26,19 +28,27 @@ export interface RoofPose {
   oy: number; // screen offset (world units, scaled by fit)
 }
 
-export const ROOF_LIMITS = { zoomMin: 0.3, zoomMax: 2.4, tiltMin: 6, tiltMax: 66 } as const;
+export const ROOF_LIMITS = { zoomMin: 0.3, zoomMax: 3.4, tiltMin: 6, tiltMax: 66 } as const;
 
+/**
+ * Zoom 1 is the overview: the stage fits all four fields (ROOF_WORLD) into the free box, so every other zoom is relative
+ * to that. The overview is the default view and the one every "back" returns to.
+ */
 export const ROOF_PRESETS: Readonly<Record<"home" | "overview" | "rival" | "intro", RoofPose>> = {
-  home: { yaw: 0, tilt: 36, zoom: 0.9, fx: 0, fy: 80, oy: 64 },
-  overview: { yaw: 0, tilt: 14, zoom: 0.6, fx: 0, fy: 0, oy: 0 },
-  rival: { yaw: 180, tilt: 36, zoom: 0.9, fx: 0, fy: -80, oy: 64 },
-  intro: { yaw: -150, tilt: 74, zoom: 0.17, fx: 0, fy: -500, oy: -150 },
+  home: { yaw: 0, tilt: 36, zoom: 1.3, fx: 0, fy: -30, oy: 64 },
+  overview: { yaw: 0, tilt: 8, zoom: 1, fx: 0, fy: 0, oy: 0 },
+  rival: { yaw: 180, tilt: 36, zoom: 1.3, fx: 0, fy: 30, oy: 64 },
+  intro: { yaw: -150, tilt: 74, zoom: 0.25, fx: 0, fy: -500, oy: -150 },
 };
 
 /** How long the camera takes to ease to the play view when an FX lock starts. The FX speed does not scale it. */
 export const ROOF_LOCK_IN_MS = 700;
-/** Field plane size (the SeatField box at z = 112 px) and strip offset in world units. Fields sit 61 units apart. */
-export const ROOF_FIELD = { width: 653, height: 380, offsetY: 190, centerX: 357 } as const;
+/**
+ * Field plane size (the SeatField box at z = 112 px) and strip offset in world units. Fields sit 61 units apart.
+ * The two strips are 160 units apart (offsetY 80 each side of the helipad): 1A stands straight across from 2A and 1B
+ * across from 2B, in the same columns, with room between each facing pair for one shared Extra Monster row.
+ */
+export const ROOF_FIELD = { width: 653, height: 380, offsetY: 80, centerX: 357 } as const;
 
 export interface RoofSlot {
   seat: number;
@@ -62,11 +72,18 @@ export function roofSlots(anchorSeat: number): Record<number, RoofSlot> {
   };
 }
 
-/** Close pose on one field: the near strip is seen upright, the far strip from the rival end. */
+/** Close-up of one field: it fills the free box (width first), whatever the screen shape. */
+const SEAT_ZOOM = 2.05;
+const SEAT_TILT = 22;
+
+/**
+ * Close pose on one field. The camera stays on the viewer's side for every field: a far field is drawn to read upright
+ * from there, so a zoom is easier to read than the rival's end (which turns its text upside down).
+ */
 export function seatPose(anchorSeat: number, seat: number): RoofPose {
   const slot = roofSlots(anchorSeat)[seat];
   if (!slot) return { ...ROOF_PRESETS.home };
-  return { yaw: slot.near ? 0 : 180, tilt: 30, zoom: 1.76, fx: slot.x, fy: slot.y + (slot.near ? 30 : -30), oy: -10 };
+  return { yaw: 0, tilt: SEAT_TILT, zoom: SEAT_ZOOM, fx: slot.x, fy: slot.y, oy: 0 };
 }
 
 export type RoofCamName = "home" | "overview" | "rival" | "seat" | "free";
@@ -89,7 +106,7 @@ export interface RoofCameraState extends CameraState {
   resume: RoofResume | null; // pose to return to after an FX lock
 }
 
-const DEFAULT_FLY = { yawDeg: 35, tiltDeg: 44, zoom: 0.8, targetSeat: null } as const;
+const DEFAULT_FLY = { yawDeg: 35, tiltDeg: 44, zoom: 1.2, targetSeat: null } as const;
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
@@ -108,7 +125,7 @@ function poseForMode(mode: CameraState["mode"], anchor: number, focusSeat: numbe
     case "look":
       return lookSeat != null && !nearTeam(anchor, lookSeat) ? { ...ROOF_PRESETS.rival } : { ...ROOF_PRESETS.home };
     case "fly":
-      return { yaw: fly.yawDeg, tilt: fly.tiltDeg, zoom: fly.zoom, fx: 0, fy: 80, oy: 64 };
+      return { yaw: fly.yawDeg, tilt: fly.tiltDeg, zoom: fly.zoom, fx: 0, fy: -30, oy: 64 };
     default:
       return { ...ROOF_PRESETS.home };
   }
@@ -118,7 +135,7 @@ export function initialRoofCamera(opts: { anchorSeat: number; camera?: Partial<C
   const anchor = opts.anchorSeat;
   const c = opts.camera ?? {};
   const fly = { ...DEFAULT_FLY, ...(c.fly ?? {}) };
-  const mode = c.mode ?? "home";
+  const mode = c.mode ?? "overview";
   const focusSeat = mode === "focus" ? (c.focusSeat ?? anchor) : null;
   const lookSeat = mode === "look" ? (c.lookSeat ?? (anchor + 1) % 4) : null;
   const pose = poseForMode(mode, anchor, focusSeat, lookSeat, fly);
@@ -142,13 +159,13 @@ export function initialRoofCamera(opts: { anchorSeat: number; camera?: Partial<C
     resume: null,
   };
   if (c.lock) {
-    // A preview lock: start already eased home, with the asked pose as the restore point.
+    // A preview lock: start already eased to the overview (as an FX lock does), with the asked pose as the restore point.
     return {
       ...state,
-      mode: "home",
+      mode: "overview",
       focusSeat: null,
       lookSeat: null,
-      pose: { ...ROOF_PRESETS.home },
+      pose: { ...ROOF_PRESETS.overview },
       lock: c.lock,
       resume: { mode, focusSeat, lookSeat, pose, fly: state.fly },
     };
@@ -167,6 +184,7 @@ const INPUT_ACTIONS: ReadonlySet<CameraAction["type"]> = new Set([
   "orbit",
   "zoom",
   "autoFollow",
+  "needSeats",
 ]);
 
 function moved(state: RoofCameraState, patch: Partial<RoofCameraState>, dur: number): RoofCameraState {
@@ -181,7 +199,12 @@ function goHome(state: RoofCameraState, dur = 950): RoofCameraState {
   return moved(state, { mode: "home", focusSeat: null, lookSeat: null, pose: { ...ROOF_PRESETS.home } }, dur);
 }
 
+function goOverview(state: RoofCameraState, dur = 950): RoofCameraState {
+  return moved(state, { mode: "overview", focusSeat: null, lookSeat: null, pose: { ...ROOF_PRESETS.overview } }, dur);
+}
+
 function focusOn(state: RoofCameraState, seat: number): RoofCameraState {
+  if (state.mode === "focus" && state.focusSeat === seat) return state;
   return moved(state, { mode: "focus", focusSeat: seat, lookSeat: null, pose: seatPose(state.anchor, seat) }, 950);
 }
 
@@ -192,7 +215,7 @@ export function roofReducer(state: RoofCameraState, action: CameraAction): RoofC
     case "home":
       return goHome(state);
     case "overview":
-      return moved(state, { mode: "overview", focusSeat: null, lookSeat: null, pose: { ...ROOF_PRESETS.overview } }, 950);
+      return goOverview(state);
     case "focus":
     case "flyTo":
       return focusOn(state, action.seat);
@@ -234,8 +257,15 @@ export function roofReducer(state: RoofCameraState, action: CameraAction): RoofC
       return { ...state, auto: !state.auto };
     case "pin":
       return { ...state, pinned: action.on };
-    case "aiming":
+    case "aiming": {
+      // An aim needs the rival field in view: a close-up on one field goes back to the overview first.
+      if (action.on && (state.mode === "focus" || state.mode === "look") && !state.lock) return { ...goOverview(state), aiming: true };
       return { ...state, aiming: action.on };
+    }
+    case "needSeats": {
+      if (state.mode !== "focus" || state.lock) return state;
+      return action.seats.some((seat) => seat !== state.focusSeat) ? goOverview(state) : state;
+    }
     case "autoFollow": {
       if (action.seat == null || !state.auto || state.pinned || state.aiming) return state;
       if (state.mode !== "home" && state.mode !== "focus") return state;
@@ -254,7 +284,7 @@ export function roofReducer(state: RoofCameraState, action: CameraAction): RoofC
         pose: state.pose,
         fly: state.fly,
       };
-      const eased = goHome(state, ROOF_LOCK_IN_MS);
+      const eased = goOverview(state, ROOF_LOCK_IN_MS);
       return { ...eased, lock: { reason: action.reason, untilMs }, resume };
     }
     case "tick": {
@@ -301,6 +331,8 @@ export function roofTransform(pose: RoofPose, fit: number): string {
 export interface RoofKeyContext {
   anchorSeat: number;
   pinned?: boolean;
+  /** The camera mode now: Esc goes back to the overview from any other. */
+  mode?: CameraState["mode"];
 }
 export interface RoofKeyMods {
   shift?: boolean;
@@ -316,6 +348,7 @@ export interface RoofKeyMods {
 export function roofKeyAction(key: string, ctx: RoofKeyContext, mods: RoofKeyMods = {}): CameraAction | null {
   if (mods.ctrl || mods.meta || mods.alt) return null;
   const k = key.length === 1 ? key.toLowerCase() : key;
+  if (k === "Escape") return ctx.mode != null && ctx.mode !== "overview" ? { type: "overview" } : null;
   if (k === "Tab") return { type: "focusStep", dir: mods.shift ? -1 : 1 };
   if (k >= "1" && k <= "4") return { type: "focus", seat: Number(k) - 1 };
   switch (k) {
@@ -395,10 +428,13 @@ export interface RoofView {
   bottom: number;
 }
 
-/** Width and depth of the roof world that must stay in view at zoom 1: both team strips and the gap between them. */
-export const ROOF_WORLD = { width: 1560, depth: 700 } as const;
+/**
+ * Width and depth of the roof world that must stay in view at zoom 1 (the overview): the four fields with their
+ * name labels and the gap between the strips, plus a little air. The depth leaves room for the 8 degree tilt.
+ */
+export const ROOF_WORLD = { width: 1440, depth: 970 } as const;
 
-/** Fit factor of the roof world: the world at zoom 1 fills the free box. 0 for an empty box. */
+/** Fit factor of the roof world: the four fields at zoom 1 fill the free box. 0 for an empty box. */
 export function roofFit(view: RoofView): number {
   const w = view.right - view.left;
   const h = view.bottom - view.top;

@@ -1,6 +1,7 @@
 import { Fragment, type CSSProperties } from "react";
 import { tagSeatCode } from "../table-format";
 import type { BatonStop } from "./tag-logic";
+import { ROOF_FIELD } from "./roof-camera";
 import styles from "./tag-stage.module.css";
 
 /**
@@ -11,6 +12,9 @@ import styles from "./tag-stage.module.css";
 
 export const ROOF_SLAB = { width: 2100, height: 1800 } as const;
 const PARAPET = 34;
+/** Strip margin round a field and the helipad scale: the pad is a small mark in the gap between the strips. */
+const STRIP_EDGE = ROOF_FIELD.offsetY - 16;
+const PAD_SCALE = 0.3;
 
 interface Tower {
   x: number;
@@ -68,9 +72,9 @@ export function RoofDecor() {
       <div className={styles.wall} style={{ left: 0, top: 0, width: rw, height: PARAPET, transform: `translate3d(${rw / 2}px, ${rh / 2}px, ${PARAPET}px) rotateZ(180deg) rotateX(-90deg)` }} />
       <div className={styles.wall} style={{ left: 0, top: 0, width: rh, height: PARAPET, transform: `translate3d(${-rw / 2}px, ${rh / 2}px, ${PARAPET}px) rotateZ(-90deg) rotateX(-90deg)` }} />
       <div className={styles.wall} style={{ left: 0, top: 0, width: rh, height: PARAPET, transform: `translate3d(${rw / 2}px, ${-rh / 2}px, ${PARAPET}px) rotateZ(90deg) rotateX(-90deg)` }} />
-      <div className={styles.under} style={{ left: -760, top: 150, width: 1520, height: 460, transform: "translateZ(0.5px)", background: "linear-gradient(90deg, rgb(155 126 255 / 0.7), rgb(92 184 245 / 0.7))" }} />
-      <div className={styles.under} style={{ left: -760, top: -610, width: 1520, height: 460, transform: "translateZ(0.5px)", background: "linear-gradient(90deg, rgb(240 140 196 / 0.7), rgb(143 211 107 / 0.7))" }} />
-      <svg className={styles.pad} data-roof="pad" width={560} height={560} viewBox="-280 -280 560 560" style={{ left: -280, top: -280, transform: "translateZ(1px)" }} aria-hidden="true">
+      <div className={styles.under} style={{ left: -760, top: STRIP_EDGE - 24, width: 1520, height: 460, transform: "translateZ(0.5px)", background: "linear-gradient(90deg, rgb(155 126 255 / 0.7), rgb(92 184 245 / 0.7))" }} />
+      <div className={styles.under} style={{ left: -760, top: -STRIP_EDGE + 24 - 460, width: 1520, height: 460, transform: "translateZ(0.5px)", background: "linear-gradient(90deg, rgb(240 140 196 / 0.7), rgb(143 211 107 / 0.7))" }} />
+      <svg className={styles.pad} data-roof="pad" width={560} height={560} viewBox="-280 -280 560 560" style={{ left: -280, top: -280, transform: `translateZ(1px) scale(${PAD_SCALE})`, transformOrigin: "50% 50%" }} aria-hidden="true">
         <circle r={232} fill="rgb(10 14 26 / 0.8)" stroke="rgb(228 182 79 / 0.55)" strokeWidth={5} />
         <circle r={212} fill="none" stroke="rgb(239 231 213 / 0.28)" strokeWidth={3} strokeDasharray="22 14" />
         <text x={0} y={52} textAnchor="middle" fontSize={150} fontWeight={700} fill="rgb(228 182 79 / 0.32)" style={{ fontFamily: "var(--disp)" }}>H</text>
@@ -130,7 +134,8 @@ const WINDOWS = [
 
 /* ---------- baton ---------- */
 
-const NOTCH: ReadonlyArray<readonly [number, number]> = [[-610, 118], [-610, -118], [610, 118], [610, -118]];
+const NOTCH_Y = Math.round(ROOF_FIELD.offsetY * 0.5);
+const NOTCH: ReadonlyArray<readonly [number, number]> = [[-610, NOTCH_Y], [-610, -NOTCH_Y], [610, NOTCH_Y], [610, -NOTCH_Y]];
 
 export interface BatonProps {
   stops: readonly BatonStop[];
@@ -193,8 +198,8 @@ export interface TeamStripProps {
 
 /** The strip under one team's two fields: rim lines, the seam between the members, the bond line and the medal. */
 export function TeamStrip({ near, glyph, teamName, out }: TeamStripProps) {
-  const transform = near ? "translateZ(1px)" : "translateZ(1px) rotate(180deg) translate(-708px, 174px)";
-  const place = near ? { left: -708, top: 174 } : { left: 0, top: 0 };
+  const transform = near ? "translateZ(1px)" : `translateZ(1px) rotate(180deg) translate(-708px, ${STRIP_EDGE}px)`;
+  const place = near ? { left: -708, top: STRIP_EDGE } : { left: 0, top: 0 };
   return (
     <div
       className={styles.strip}

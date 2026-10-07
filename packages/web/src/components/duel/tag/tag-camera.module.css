@@ -1,0 +1,163 @@
+/* Camera focus controls of the Tag stage: the per-field focus button and the rail shown while one field is in close-up. */
+
+/* A small corner mark on each field (a world-space child of the hold, in world units). It sits just outside the mat,
+   toward the middle of the roof, so it never covers a zone. */
+.focusBtn {
+  position: absolute;
+  right: 6px;
+  top: -52px;
+  width: 44px;
+  height: 44px;
+  padding: 9px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  border: 2px solid rgb(239 231 213 / 0.28);
+  background: rgb(8 12 22 / 0.78);
+  color: rgb(239 231 213 / 0.8);
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 0.15s, border-color 0.15s, color 0.15s;
+}
+
+/* The far fields are turned half a circle: their gap side is the bottom edge. */
+.focusBtn[data-near="false"] {
+  top: auto;
+  bottom: -52px;
+}
+
+.focusBtn svg {
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+:global([data-field-hold]:hover) .focusBtn,
+.focusBtn:hover,
+.focusBtn:focus-visible {
+  opacity: 1;
+  color: #fff;
+  border-color: rgb(217 141 82 / 0.9);
+}
+
+.focusBtn:focus-visible {
+  outline: 3px solid rgb(217 141 82 / 0.9);
+  outline-offset: 2px;
+}
+
+/* ---------- rail ---------- */
+/* A wide screen has free room left of the fields: the rail is a small column there, vertically centered. A narrow
+   screen gets a row under the far team plate (the stage keeps that row free in every mode). */
+.rail {
+  position: absolute;
+  z-index: 8;
+  left: 12px;
+  top: 50%;
+  translate: 0 -50%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 14px;
+  border: 1px solid rgb(239 231 213 / 0.16);
+  background: rgb(8 12 22 / 0.9);
+  box-shadow: 0 6px 22px rgb(0 0 0 / 0.5);
+  pointer-events: auto;
+}
+
+@media (max-width: 899px) {
+  .rail {
+    left: 50%;
+    top: var(--rail-top, 70px);
+    translate: -50% 0;
+    flex-direction: row;
+    align-items: center;
+    max-width: calc(100% - 16px);
+    padding: 4px;
+  }
+}
+
+.back {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 12px 0 8px;
+  border-radius: 9px;
+  border: 1px solid rgb(217 141 82 / 0.7);
+  background: rgb(217 141 82 / 0.14);
+  color: #f6d9bd;
+  font: 600 13px / 1 var(--font-duel-ui, system-ui, sans-serif);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.back:hover { background: rgb(217 141 82 / 0.26); }
+
+.back svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.back kbd {
+  padding: 2px 5px;
+  border-radius: 5px;
+  border: 1px solid rgb(246 217 189 / 0.4);
+  font: 600 10px / 1 inherit;
+  opacity: 0.8;
+}
+
+.switch {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.seat {
+  min-width: 40px;
+  min-height: 36px;
+  padding: 0 8px;
+  border-radius: 9px;
+  border: 1px solid rgb(var(--seat) / 0.5);
+  background: rgb(var(--seat) / 0.08);
+  color: rgb(var(--seat));
+  font: 700 13px / 1 var(--font-duel-display, system-ui, sans-serif);
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+
+.seat:hover:not(:disabled) { background: rgb(var(--seat) / 0.2); }
+
+.seat[aria-pressed="true"] {
+  background: rgb(var(--seat) / 0.28);
+  border-color: rgb(var(--seat));
+  color: #fff;
+}
+
+.seat:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.back:focus-visible,
+.seat:focus-visible {
+  outline: 3px solid rgb(217 141 82 / 0.9);
+  outline-offset: 2px;
+}
+
+@media (max-width: 520px) {
+  .back span { display: none; }
+  .back kbd { display: none; }
+  .back { padding: 0 8px; }
+}

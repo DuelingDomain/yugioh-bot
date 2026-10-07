@@ -15,7 +15,7 @@ import { usePickContinuation } from "../pick-continuation";
 import { useDuelPreferences, type DuelPreferences } from "../preferences";
 import { centerKind, PromptCenter } from "../prompt-center";
 import { fieldWaitsForReveal } from "../field-gate";
-import { PromptTray, promptTrayVisible } from "../prompts";
+import { optionZoneKeys, PromptTray, promptTrayVisible } from "../prompts";
 import { useResultGate } from "../result-reveal";
 import roomStyles from "../room.module.css";
 import { SeriesBanner } from "../series-banner";
@@ -45,6 +45,7 @@ import { TagStage } from "./tag-stage";
 import { TagBaton, TagTrack } from "./tag-track";
 import { chainDecidingSeat, useChainPasses } from "./use-chain-passes";
 import { useRoofKeys } from "./use-roof-keys";
+import { gridKeyGates } from "../table/grid-focus";
 import styles from "./tag-shell.module.css";
 
 /**
@@ -194,7 +195,24 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
   const promptMine = prompt != null && !spectator && !viewerOut && prompt.seat === viewerSeat && !terminal;
   const centered = promptMine && centerKind(prompt) != null;
   const centeredUnrevealed = centered && !controller.revealed;
+  // A prompt that picks zones on other fields than the focused one takes the camera back to the overview, so every
+  // target stays in view and clickable. The prompt id keys it: a new prompt checks again, a click on a field does not.
+  // The plain action menu (play a card, change phase) is not a pick: the hand is always in reach, and the rail can step
+  // to the field that holds the card.
+  const pickPrompt = promptMine && !(prompt?.kind === "choice" && prompt.context?.type === "action");
+  const promptId = pickPrompt ? prompt?.id ?? null : null;
+  const promptSeats = useMemo(() => {
+    if (!pickPrompt || !prompt) return [];
+    return [...new Set(prompt.options.filter((option) => option.controller != null && optionZoneKeys(option).length > 0).map((option) => option.controller as number))];
+  }, [pickPrompt, prompt]);
+  useEffect(() => {
+    if (promptId != null && promptSeats.length > 0) dispatchCamera({ type: "needSeats", seats: promptSeats });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [promptId]);
+  const gates = gridKeyGates({ prompt, viewerSeat, aiming: flow.aiming, seatKeys: flow.seatKeys, flyoutOpen: hudOpen });
   useRoofKeys({
+    mode: camera.mode,
+    escapeFree: gates.escapeFree,
     dispatch: dispatchCamera,
     anchorSeat: layout.anchorSeat,
     pinned: camera.pinned,

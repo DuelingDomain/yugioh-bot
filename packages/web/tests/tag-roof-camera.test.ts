@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   ROOF_LIMITS,
+  ROOF_FIELD,
   ROOF_PRESETS,
+  ROOF_WORLD,
   cameraLabel,
   clampCenter,
   easeCam,
@@ -46,10 +48,11 @@ describe("roofSlots", () => {
 });
 
 describe("initial state", () => {
-  it("starts at home with the home pose and no lock", () => {
+  it("starts at the overview, with all four fields in view, and no lock", () => {
     const s = initialRoofCamera({ anchorSeat: 0 });
-    expect(s.mode).toBe("home");
-    expect(s.pose).toEqual(ROOF_PRESETS.home);
+    expect(s.mode).toBe("overview");
+    expect(s.pose).toEqual(ROOF_PRESETS.overview);
+    expect(s.pose.zoom).toBe(1);
     expect(s.lock).toBeNull();
     expect(s.auto).toBe(true);
     expect(s.pinned).toBe(false);
@@ -67,19 +70,28 @@ describe("initial state", () => {
 });
 
 describe("presets and seat poses", () => {
-  it("turns the view 180 degrees for a far seat and zooms in", () => {
-    expect(seatPose(0, 0).yaw).toBe(0);
-    expect(seatPose(0, 2).yaw).toBe(0);
-    expect(seatPose(0, 1).yaw).toBe(180);
-    expect(seatPose(0, 3).yaw).toBe(180);
-    expect(seatPose(0, 0).zoom).toBeCloseTo(1.76);
+  it("zooms in on a seat from the viewer's side, so a far field keeps its readable text", () => {
+    for (const seat of [0, 1, 2, 3]) {
+      expect(seatPose(0, seat).yaw).toBe(0);
+      expect(seatPose(0, seat).zoom).toBeGreaterThan(ROOF_PRESETS.overview.zoom);
+    }
     expect(seatPose(0, 0).fx).toBe(-357);
     expect(seatPose(0, 2).fx).toBe(357);
+    expect(seatPose(0, 0).fy).toBeGreaterThan(0);
+    expect(seatPose(0, 1).fy).toBeLessThan(0);
+  });
+
+  it("keeps facing fields in the same columns, with a gap between the strips", () => {
+    const slots = roofSlots(0);
+    expect(slots[0].x).toBe(slots[1].x);
+    expect(slots[2].x).toBe(slots[3].x);
+    // Room for one shared Extra Monster row between the two facing fields (a later engine change).
+    expect(slots[0].y - slots[1].y - ROOF_FIELD.height).toBeGreaterThanOrEqual(100);
   });
 });
 
 describe("actions", () => {
-  const base = initialRoofCamera({ anchorSeat: 0 });
+  const base = initialRoofCamera({ anchorSeat: 0, camera: { mode: "home" } });
 
   it("overview and home switch the mode and the pose", () => {
     const o = run(base, { type: "overview" });
@@ -142,7 +154,7 @@ describe("actions", () => {
     expect(run(base, { type: "orbit", dYawDeg: 2, dTiltDeg: 1 }).dur).toBe(0);
   });
 
-  it("zoom multiplies and clamps between 0.3 and 2.4", () => {
+  it("zoom multiplies and clamps between its limits", () => {
     expect(run(base, { type: "zoom", factor: 1.18 }).pose.zoom).toBeCloseTo(base.pose.zoom * 1.18);
     expect(run(base, { type: "zoom", factor: 100 }).pose.zoom).toBe(ROOF_LIMITS.zoomMax);
     expect(run(base, { type: "zoom", factor: 0.001 }).pose.zoom).toBe(ROOF_LIMITS.zoomMin);
@@ -158,7 +170,7 @@ describe("actions", () => {
 });
 
 describe("auto follow, pin and aim", () => {
-  const base = initialRoofCamera({ anchorSeat: 0 });
+  const base = initialRoofCamera({ anchorSeat: 0, camera: { mode: "home" } });
 
   it("auto follow moves the focus to the turn seat", () => {
     const s = run(base, { type: "autoFollow", seat: 2 });
@@ -187,11 +199,11 @@ describe("auto follow, pin and aim", () => {
 describe("FX lock", () => {
   const focus = initialRoofCamera({ anchorSeat: 0, camera: { mode: "focus", focusSeat: 3 } });
 
-  it("eases to home and sets the lock until the end time", () => {
+  it("eases to the overview and sets the lock until the end time", () => {
     const l = run(focus, { type: "lock", reason: "chain", nowMs: 1000, ms: 2500 });
     expect(l.lock).toEqual({ reason: "chain", untilMs: 3500 });
-    expect(l.mode).toBe("home");
-    expect(l.pose).toEqual(ROOF_PRESETS.home);
+    expect(l.mode).toBe("overview");
+    expect(l.pose).toEqual(ROOF_PRESETS.overview);
     expect(l.rev).toBeGreaterThan(focus.rev);
   });
 
@@ -248,17 +260,18 @@ describe("FX lock", () => {
   });
 
   it("works on top of a pin and an aim", () => {
-    const s = run(focus, { type: "pin", on: true }, { type: "aiming", on: true }, { type: "lock", reason: "destroy", nowMs: 0, ms: 1000 });
+    const s = run(focus, { type: "pin", on: true }, { type: "lock", reason: "destroy", nowMs: 0, ms: 1000 }, { type: "aiming", on: true });
     expect(s.lock?.reason).toBe("destroy");
     const r = roofReducer(s, { type: "tick", nowMs: 1000 });
     expect(r.pinned).toBe(true);
+    expect(r.aiming).toBe(true);
     expect(r.mode).toBe("focus");
   });
 
   it("starts a locked state from a preview lock", () => {
     const s = initialRoofCamera({ anchorSeat: 0, camera: { mode: "overview", lock: { reason: "chain", untilMs: Number.MAX_SAFE_INTEGER } } });
     expect(s.lock?.reason).toBe("chain");
-    expect(s.mode).toBe("home");
+    expect(s.mode).toBe("overview");
     expect(s.resume?.mode).toBe("overview");
   });
 });
@@ -291,7 +304,7 @@ describe("tween helpers", () => {
     const t = roofTransform(ROOF_PRESETS.home, 1);
     expect(t).toContain("rotateX(36.000deg)");
     expect(t).toContain("rotateZ(0.000deg)");
-    expect(t).toContain("scale3d(0.9000");
+    expect(t).toContain("scale3d(1.3000");
     expect(t).toContain("translate3d(0px, 64.00px, 0px)");
   });
 });
@@ -347,7 +360,8 @@ describe("camera label", () => {
   const names = ["Aster", "Mirelle", "Corvin", "Juniper"];
   const nameOf = (s: number) => names[s];
   it("names the mode", () => {
-    expect(cameraLabel(initialRoofCamera({ anchorSeat: 0 }), nameOf)).toBe("Home");
+    expect(cameraLabel(initialRoofCamera({ anchorSeat: 0 }), nameOf)).toBe("Overview");
+    expect(cameraLabel(run(initialRoofCamera({ anchorSeat: 0 }), { type: "home" }), nameOf)).toBe("Home");
     expect(cameraLabel(run(initialRoofCamera({ anchorSeat: 0 }), { type: "overview" }), nameOf)).toBe("Overview");
     expect(cameraLabel(run(initialRoofCamera({ anchorSeat: 0 }), { type: "look", seat: 1 }), nameOf)).toBe("Rival end");
     expect(cameraLabel(run(initialRoofCamera({ anchorSeat: 0 }), { type: "focus", seat: 2 }), nameOf)).toBe("Corvin · partner");
@@ -358,10 +372,11 @@ describe("camera label", () => {
 });
 
 describe("stage fit and hud placement", () => {
-  it("fits the 1560 by 700 roof world into the free box", () => {
-    expect(roofFit({ left: 0, right: 1560, top: 0, bottom: 700 })).toBeCloseTo(1, 5);
-    expect(roofFit({ left: 100, right: 1100, top: 6, bottom: 706 })).toBeCloseTo(1000 / 1560, 5);
-    expect(roofFit({ left: 0, right: 3120, top: 0, bottom: 350 })).toBeCloseTo(0.5, 5);
+  it("fits the roof world (the four fields) into the free box", () => {
+    const { width, depth } = ROOF_WORLD;
+    expect(roofFit({ left: 0, right: width, top: 0, bottom: depth })).toBeCloseTo(1, 5);
+    expect(roofFit({ left: 100, right: 100 + width / 2, top: 6, bottom: 6 + depth })).toBeCloseTo(0.5, 5);
+    expect(roofFit({ left: 0, right: width * 2, top: 0, bottom: depth / 2 })).toBeCloseTo(0.5, 5);
   });
 
   it("gives 0 for an empty box", () => {
@@ -386,5 +401,59 @@ describe("stage fit and hud placement", () => {
     expect(tweenProgress(1250, 1000, 500)).toBeCloseTo(0.5, 5);
     expect(tweenProgress(9000, 1000, 500)).toBe(1);
     expect(tweenProgress(1000, 1000, 0)).toBe(1);
+  });
+});
+
+describe("overview camera (default, focus, back)", () => {
+  const overview = initialRoofCamera({ anchorSeat: 0 });
+
+  it("Esc goes back to the overview from any other mode, and does nothing in the overview", () => {
+    expect(roofKeyAction("Escape", { anchorSeat: 0, mode: "focus" })).toEqual({ type: "overview" });
+    expect(roofKeyAction("Escape", { anchorSeat: 0, mode: "home" })).toEqual({ type: "overview" });
+    expect(roofKeyAction("Escape", { anchorSeat: 0, mode: "fly" })).toEqual({ type: "overview" });
+    expect(roofKeyAction("Escape", { anchorSeat: 0, mode: "overview" })).toBeNull();
+    expect(roofKeyAction("Escape", { anchorSeat: 0 })).toBeNull();
+  });
+
+  it("a focus and the way back leave the overview pose unchanged", () => {
+    const focused = run(overview, { type: "focus", seat: 3 });
+    expect(focused).toMatchObject({ mode: "focus", focusSeat: 3 });
+    const back = run(focused, { type: "overview" });
+    expect(back).toMatchObject({ mode: "overview", focusSeat: null });
+    expect(back.pose).toEqual(ROOF_PRESETS.overview);
+  });
+
+  it("a focus on the seat that is already focused starts no new tween", () => {
+    const focused = run(overview, { type: "focus", seat: 1 });
+    expect(run(focused, { type: "focus", seat: 1 })).toBe(focused);
+  });
+
+  it("an aim leaves a close-up for the overview, so every rival is in view", () => {
+    const focused = run(overview, { type: "focus", seat: 0 });
+    const aimed = run(focused, { type: "aiming", on: true });
+    expect(aimed).toMatchObject({ mode: "overview", aiming: true });
+    expect(aimed.pose).toEqual(ROOF_PRESETS.overview);
+    // The overview stays when the aim ends: the camera never jumps back to the field on its own.
+    expect(run(aimed, { type: "aiming", on: false }).mode).toBe("overview");
+    // Already in the overview: the aim only sets the flag.
+    expect(run(overview, { type: "aiming", on: true })).toMatchObject({ mode: "overview", aiming: true, rev: overview.rev });
+  });
+
+  it("a prompt that needs another field takes a close-up back to the overview", () => {
+    const focused = run(overview, { type: "focus", seat: 1 });
+    expect(run(focused, { type: "needSeats", seats: [3] })).toMatchObject({ mode: "overview", focusSeat: null });
+    expect(run(focused, { type: "needSeats", seats: [1, 3] }).mode).toBe("overview");
+  });
+
+  it("a prompt that needs only the focused field, or none, keeps the close-up", () => {
+    const focused = run(overview, { type: "focus", seat: 1 });
+    expect(run(focused, { type: "needSeats", seats: [1] })).toBe(focused);
+    expect(run(focused, { type: "needSeats", seats: [] })).toBe(focused);
+    expect(run(overview, { type: "needSeats", seats: [2] })).toBe(overview);
+  });
+
+  it("an FX lock still wins over a prompt need", () => {
+    const locked = run(run(overview, { type: "focus", seat: 1 }), { type: "lock", reason: "chain", nowMs: 0, ms: 1000 });
+    expect(roofReducer(locked, { type: "needSeats", seats: [2] })).toBe(locked);
   });
 });
