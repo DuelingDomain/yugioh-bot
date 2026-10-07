@@ -138,30 +138,45 @@ describe("engine data update", () => {
     await writeFile(join(stock, "c1.lua"), "s.state[tp]=true\n");
     await writeFile(join(stock, "c2.lua"), "-- new script\n");
     await writeFile(join(stock, "c3.lua"), "-- old script\n");
+    await mkdir(join(stock, "../pre-release"));
+    await writeFile(join(stock, "../pre-release/c100000002.lua"), "-- preview script already exists upstream\n");
     await writeFile(join(stock, "../utility.lua"), "-- shared change\n");
     const archive = execFileSync("tar", ["-czf", "-", "-C", root, "stock"]);
     const dbPath = join(root, "cards.cdb");
     const db = new Database(dbPath);
-    db.exec("CREATE TABLE datas (id INTEGER PRIMARY KEY); INSERT INTO datas VALUES (1); CREATE TABLE texts (id INTEGER PRIMARY KEY, name TEXT); INSERT INTO texts VALUES (1, '@reviewer Changed #123 card');");
+    db.exec("CREATE TABLE datas (id INTEGER PRIMARY KEY,ot INTEGER,alias INTEGER,type INTEGER); INSERT INTO datas VALUES (1,3,0,33); CREATE TABLE texts (id INTEGER PRIMARY KEY, name TEXT); INSERT INTO texts VALUES (1, '@reviewer Changed #123 card');");
     db.close();
     const database = await readFile(dbPath);
     const releasePath = join(root, "release-new.cdb");
     const releaseDb = new Database(releasePath);
-    releaseDb.exec("CREATE TABLE datas (id INTEGER PRIMARY KEY); INSERT INTO datas VALUES (2); CREATE TABLE texts (id INTEGER PRIMARY KEY, name TEXT); INSERT INTO texts VALUES (2, 'New card');");
+    releaseDb.exec("CREATE TABLE datas (id INTEGER PRIMARY KEY,ot INTEGER,alias INTEGER,type INTEGER); INSERT INTO datas VALUES (2,3,0,33); CREATE TABLE texts (id INTEGER PRIMARY KEY, name TEXT); INSERT INTO texts VALUES (2, 'New card');");
     releaseDb.close();
     const release = await readFile(releasePath);
+    const makePreview = async (file: string, rows: Array<[number,string]>) => {
+      const path = join(root,file), db = new Database(path);
+      db.exec("CREATE TABLE datas (id INTEGER PRIMARY KEY,ot INTEGER,alias INTEGER,type INTEGER); CREATE TABLE texts (id INTEGER PRIMARY KEY,name TEXT)");
+      for (const [code,name] of rows) {
+        db.prepare("INSERT INTO datas VALUES(?,3,0,33)").run(code);
+        db.prepare("INSERT INTO texts VALUES(?,?)").run(code,name);
+      }
+      db.close(); return readFile(path);
+    };
+    const oldRelease = await makePreview("old-release.cdb",[]);
+    const oldPreview = await makePreview("old-preview.cdb",[[100000001,"New card"],[100000003,"Withdrawn preview"]]);
+    const nextPreview = await makePreview("next-preview.cdb",[[100000002,"New preview"]]);
     const request = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
       if (url.includes("/compare/")) return Response.json({ ahead_by: 2, behind_by: 0, status: "ahead" });
       if (url.includes("/git/trees/")) {
         if (url.includes("/BabelCDB/")) return Response.json({ truncated: false, tree: [
           { path: "cards.cdb", type: "blob", sha: "base" },
+          { path: "prerelease-test.cdb", type: "blob", sha: "preview" },
           { path: url.includes(oldPins.database) ? "release-old.cdb" : "release-new.cdb", type: "blob", sha: "release" },
-          { path: "prerelease-hidden.cdb", type: "blob", sha: "excluded" },
         ] });
         const old = url.includes(oldPins.scripts);
         return Response.json({ truncated: false, tree: [
           { path: "utility.lua", type: "blob", sha: old ? "old-helper" : "new-helper" },
+          { path: "pre-release/c100000002.lua", type: "blob", sha: "unchanged-preview-script" },
           { path: "official/c1.lua", type: "blob", sha: old ? "old" : "changed" },
           { path: overrides.scripts === oldPins.scripts ? "official/c2.lua" : old ? "official/c3.lua" : "official/c2.lua", type: "blob", sha: "other" },
         ] });
@@ -169,6 +184,8 @@ describe("engine data update", () => {
       if (url.includes("codeload.github.com")) return new Response(new Uint8Array(archive));
       if (url.endsWith("/cards.cdb")) return new Response(new Uint8Array(database));
       if (url.endsWith("/release-new.cdb")) return new Response(new Uint8Array(release));
+      if (url.endsWith("/release-old.cdb")) return new Response(new Uint8Array(oldRelease));
+      if (url.endsWith("/prerelease-test.cdb")) return new Response(new Uint8Array(url.includes(oldPins.database) ? oldPreview : nextPreview));
       throw new Error(`Unexpected request: ${url}`);
     });
     const result = await runUpdate({ root, overrides, dryRun, request, validate: false });
@@ -179,6 +196,11 @@ describe("engine data update", () => {
     expect(report).toContain("release-old.cdb");
     expect(report).toContain("Removed release databases");
     expect(result.changedPaths).toContain("official/c2.lua");
+    expect(result.changedPaths).toContain("pre-release/c100000002.lua");
+    expect(report).toContain("Added prerelease cards (1)");
+    expect(report).toContain("Removed prerelease cards (1)");
+    expect(report).toContain("Graduated prerelease cards (1)");
+    expect(report).toContain("100000001 → 2 New card");
     if (overrides.scripts === oldPins.scripts) {
       expect(report).toContain("New official card scripts (0)");
       expect(report).toContain("Changed official scripts (0)");

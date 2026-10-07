@@ -36,3 +36,17 @@ it("retains blocking artwork findings in bounded reports", () => {
   const report = "BLOCKING: 1 artwork script fallback\n" + "data\n".repeat(20000) + "\n## Artwork script safety\n\nBLOCKING: c11.lua → c10.lua; GetID() differs.\n";
   expect(boundedReport(report, run, 60000)).toContain("c11.lua → c10.lua");
 });
+
+it("reports additions, withdrawals, graduations and every dropped preview row", async () => {
+  const { prereleaseUpdateReport } = await import("../scripts/engine-data-report.js");
+  const previous = [{code:100000001,name:"Graduating",type:33},{code:100000002,name:"Withdrawn",type:33}];
+  const next = {prerelease:[{code:100000003,name:"Added",type:33}],released:[{code:12,name:"Graduating",type:33}],
+    remaps:{100000001:12},drops:[{code:100000004,name:"Duplicate",type:33,file:"prerelease-en.cdb",reason:"duplicate" as const,keptCode:100000003}]};
+  const report=prereleaseUpdateReport(previous,next);
+  expect(report).toContain("Added prerelease cards (1)");
+  expect(report).toContain("Removed prerelease cards (1)");
+  expect(report).toContain("Graduated prerelease cards (1)");
+  expect(report).toContain("100000001 → 12");
+  expect(report).toContain("100000004 → 100000003");
+  expect(report).toContain("Withdrawn");
+});
