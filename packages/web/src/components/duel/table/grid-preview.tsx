@@ -31,16 +31,22 @@ const MAX_WIDTH_SHARE = 0.6;
 const CONTROLS_GAP_PX = 10;
 /** How often a pinned panel looks at the clicked card and the controls: a camera move or a prompt can change them with no event. */
 const WATCH_MS = 250;
-/** The top of the bottom right controls (the turn buttons, with the prompt panel that opens above them), or `null`. */
+/** Whether a control can be seen and clicked: not collapsed, not invisible. */
+function isShown(node: HTMLElement, rect: DOMRect): boolean {
+  if (rect.width <= 0 || rect.height <= 0) return false;
+  const style = getComputedStyle(node);
+  return style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity) > 0;
+}
+/** The top of the bottom right controls (the turn buttons, with the prompt panel that opens above them), or `null`.
+ * Only the direct children count, and only those that show: a hidden item still takes room in the column but is no control. */
 function controlsTop(): number | null {
   const corner = document.querySelector<HTMLElement>('[data-testid="hud-corner"]');
   if (!corner) return null;
-  const own = corner.getBoundingClientRect();
-  if (own.width <= 0 || own.height <= 0) return null;
-  let top = own.top;
-  for (const child of corner.querySelectorAll<HTMLElement>("*")) {
+  let top: number | null = null;
+  for (const child of Array.from(corner.children) as HTMLElement[]) {
     const rect = child.getBoundingClientRect();
-    if (rect.width > 0 && rect.height > 0 && rect.top < top) top = rect.top;
+    if (!isShown(child, rect)) continue;
+    if (top == null || rect.top < top) top = rect.top;
   }
   return top;
 }

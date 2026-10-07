@@ -669,16 +669,29 @@ describe("the pinned card peek of the 1v1 room", () => {
       } finally { vi.useRealTimers(); }
     });
 
-    it("lifts the bottom of a right panel above the controls at the bottom right", () => {
+    it("lifts the bottom of a right panel above the visible controls at the bottom right, not above hidden items", () => {
       layout({ left: 300, right: 380, top: 120, bottom: 240 });
       mount();
       const corner = screen.getByTestId("hud-corner");
-      corner.getBoundingClientRect = () => ({ left: 1100, right: 1270, top: 520, bottom: 712, width: 170, height: 192, x: 1100, y: 520, toJSON: () => ({}) }) as DOMRect;
+      const box = (top: number, bottom: number) => () => ({ left: 1100, right: 1270, top, bottom, width: 170, height: bottom - top, x: 1100, y: top, toJSON: () => ({}) }) as DOMRect;
+      const added: HTMLElement[] = [];
+      const child = (top: number, bottom: number, style: string) => {
+        const node = document.createElement("div");
+        node.setAttribute("style", style);
+        node.getBoundingClientRect = box(top, bottom);
+        corner.appendChild(node);
+        added.push(node);
+      };
+      // Hidden items higher up in the column (opacity 0, hidden), and the shown controls below them.
+      child(300, 400, "opacity: 0");
+      child(350, 450, "visibility: hidden");
+      child(520, 712, "");
+      // The existing children of the stub corner have no size in jsdom, so they do not count.
       try {
         pin();
         // The layer ends at 720: 720 - 520 + the 10 px gap.
         expect(peek().style.getPropertyValue("--pv-reserve-right")).toBe("210px");
-      } finally { delete (corner as Partial<HTMLElement>).getBoundingClientRect; }
+      } finally { added.forEach((node) => node.remove()); }
     });
 
     it("takes the pointer in CSS, so a click on a pinned panel never reaches a card under it", () => {
