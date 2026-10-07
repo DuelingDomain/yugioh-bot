@@ -316,12 +316,13 @@ export function createDraftService(
   const boosterPhaseTarget = (draft: Draft): number => boosterDraftPhase(draft.config, draft.currentPackRound) === "extra"
     ? totalBoosterCards(draft.config) : draft.config.cardsPerPlayer ?? defaultDraftConfig.cardsPerPlayer;
 
-  // Swaps share the existing persisted remainder, but may only draw from the current phase.
+  // Extra-enabled swaps may only draw from the current phase. Legacy mixed pools keep their swaps.
   const boosterRemainder = (draft: Draft) => {
     const extra = boosterDraftPhase(draft.config, draft.currentPackRound) === "extra";
-    return (db.prepare(`select u.position, u.catalog_card_id, c.type, c.frame_type from draft_undealt u
+    const rows = db.prepare(`select u.position, u.catalog_card_id, c.type, c.frame_type from draft_undealt u
       left join card_catalog c on c.ygoprodeck_id = u.catalog_card_id where u.draft_id = ? order by u.position`)
-      .all(draft.id) as Array<{ position: number; catalog_card_id: number; type: string | null; frame_type: string | null }>)
+      .all(draft.id) as Array<{ position: number; catalog_card_id: number; type: string | null; frame_type: string | null }>;
+    return boosterExtraSize(draft.config) === 0 ? rows : rows
       .filter((row) => isExtraDeckFrame({ type: row.type ?? "", frameType: row.frame_type ?? "" }) === extra);
   };
 
@@ -1661,11 +1662,7 @@ export function createDraftService(
 
     /** @deprecated use resolveCubeCardIds; retained for callers not yet migrated */
     resolvePoolCardIds(config: DraftConfig): number[] {
-      return config.cubeCardIds && config.cubeCardIds.length > 0
-        ? config.cubeCardIds
-        : config.poolCardIds && config.poolCardIds.length > 0
-          ? config.poolCardIds
-          : catalogCardIdsForDraft(config);
+      return resolveMainCardIds(config);
     },
 
     autocomplete(input: {

@@ -150,12 +150,24 @@ describe("normal cube Extra Deck packs", () => {
   });
 
   it("never deals main cards from the extra pool or swaps extra cards into a capped main pack", () => {
-    const ctx = setup({ customCardIds: Array(8).fill(1), customExtraCardIds: [2, 2, 1001, 1002],
+    const ctx = setup({ customCardIds: Array(8).fill(1), customExtraCardIds: [2, 2, 1001, 1002, 1003],
       packSize: 4, packsPerPlayer: 1, cardsPerPlayer: 4, extraDeckEnabled: true, extraDeckSize: 1 });
     ctx.drafts.start(ctx.draft.id);
     expireToRound(ctx, 2);
     for (const player of ctx.players) expect(ctx.drafts.pool(ctx.draft.id, player).every((c) => c.catalogCardId === 1)).toBe(true);
     expect(ctx.drafts.currentWaveCards(ctx.draft.id).every((c) => c.catalogCardId > 1000)).toBe(true);
+  });
+
+  it("preserves legacy mixed-pool swaps while Extra Deck rounds are OFF", () => {
+    const ctx = setup({ cubeCardIds: [...Array(8).fill(1), 1001], packSize: 4, packsPerPlayer: 1, cardsPerPlayer: 4 });
+    ctx.drafts.start(ctx.draft.id);
+    ctx.db.prepare("update draft_cards set catalog_card_id = 1 where draft_id = ?").run(ctx.draft.id);
+    ctx.db.prepare("delete from draft_undealt where draft_id = ?").run(ctx.draft.id);
+    ctx.db.prepare("insert into draft_undealt (draft_id, position, catalog_card_id) values (?, 1000, 1001)").run(ctx.draft.id);
+    for (let step = 0; step < 3; step++) {
+      for (const player of ctx.players) ctx.drafts.pickCard(ctx.draft.id, player, ctx.drafts.pickOptions(ctx.draft.id, player)[0].id);
+    }
+    expect(ctx.drafts.pickOptions(ctx.draft.id, ctx.players[0]).some((c) => c.catalogCardId === 1001)).toBe(true);
   });
 
   it("keeps copy-cap replacements in the extra pool", () => {
