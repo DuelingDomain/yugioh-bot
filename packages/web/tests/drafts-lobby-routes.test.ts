@@ -43,12 +43,15 @@ if (expect.getState().testPath?.endsWith("/drafts-lobby-routes.test.ts")) descri
 vi.doMock("@/lib/auth", () => ({ auth }));
 vi.doMock("@/lib/db", () => ({ getDb }));
 vi.doMock("@/lib/notify", () => notify);
+vi.doMock("@/lib/draft-engine-types", () => ({ lookupDraftCardTypes: async () => new Map() }));
 vi.doMock("@/lib/draft-lobby-api", async () => ({
   ...await vi.importActual<typeof import("@/lib/draft-lobby-api")>("@/lib/draft-lobby-api"), createDraftLobbyApi: () => service,
 }));
 
 
     vi.stubEnv("DISCORD_GUILD_ID", "guild");
+    vi.stubEnv("DISCORD_BOT_ENABLED", "1");
+    vi.stubEnv("DUEL_DATA_DIR", "/tmp/ds-t04-unused-engine");
     db = new Database(":memory:"); migrate(db); getDb.mockReturnValue(db);
     db.exec(`insert into players (guild_id, discord_user_id, display_name) values ('guild','host','Host');
       insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug)
@@ -61,7 +64,7 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
     }
     service.tick.mockReturnValue({ started: [], changedSlugs: [] });
   });
-  afterEach(() => { db.close(); vi.unstubAllEnvs(); });
+  afterEach(() => { db.close(); vi.useRealTimers(); vi.unstubAllEnvs(); });
 
   async function route(action: string, method: "POST" | "PUT" | "DELETE", body?: unknown, params = context) {
     const routes = {
@@ -295,6 +298,92 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
     const { createDraftLobbyApi } = await import("@/lib/draft-lobby-api");
     return createDraftLobbyApi(db);
   }
+  it.each([undefined, "0", "true", "01", "1"])("returns the explicit Discord flag for DISCORD_BOT_ENABLED=%s", async (enabled) => {
+    vi.stubEnv("DISCORD_BOT_ENABLED", enabled);
+    const { GET } = await import("../app/api/drafts/[slug]/route");
+    for (const status of ["pending", "active", "completed"]) {
+      db.prepare("update drafts set status = ? where id = 1").run(status);
+      const response = await GET(request("GET"), context);
+      expect(response.status).toBe(200);
+      expect((await response.json()).discordEnabled).toBe(enabled === "1");
+    }
+  });
+  it.each([
+    ["manual", "host"], ["manual", "guest"], ["manual", "member"],
+    ["auto", "host"], ["auto", "guest"], ["auto", "member"],
+  ])("no bot timer: an expired %s countdown starts once on the next GET by %s", async (kind, viewer) => {
+    vi.stubEnv("DISCORD_BOT_ENABLED", undefined);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-07T12:00:00Z"));
+    const api = await useRealLobbyService();
+    api.setReady(1, "host", true);
+    api.setReady(1, "guest", true);
+    const revision = api.read(1, "host").lobby.revision;
+    const scheduled = kind === "manual"
+      ? await route("start", "POST", { revision })
+      : await route("auto", "PUT", { enabled: true, revision });
+    expect(scheduled.status).toBe(kind === "manual" ? 202 : 200);
+    const deadline = (await scheduled.json()).lobby.start.startsAt;
+    notify.broadcaster.draft.mockClear();
+    notify.announcer.announce.mockClear();
+    notify.broadcaster.draft.mockImplementationOnce(() => {
+      expect(db.inTransaction).toBe(false);
+      expect(createDraftService(db).findById(1).status).toBe("active");
+      expect(db.prepare("select count(*) as n from draft_cards where draft_id = 1").get()).toEqual({ n: 6 });
+      return Promise.resolve();
+    });
+    auth.mockResolvedValue({ user: { id: viewer } });
+    const { GET } = await import("../app/api/drafts/[slug]/route");
+    vi.setSystemTime(new Date(Date.parse(deadline) - 1));
+    const pendingResponse = await GET(request("GET"), context);
+    expect(pendingResponse.status).toBe(200);
+    expect((await pendingResponse.json()).status).toBe("pending");
+    expect(db.prepare("select count(*) as n from draft_cards where draft_id = 1").get()).toEqual({ n: 0 });
+    // No timer or direct tick runs while the persisted deadline expires.
+    vi.setSystemTime(new Date(Date.parse(deadline) + 1));
+    const responses = await Promise.all([GET(request("GET"), context), GET(request("GET"), context)]);
+    for (const response of responses) {
+      expect(response.status).toBe(viewer === "member" ? 403 : 200);
+      if (response.status === 200) {
+        expect(await response.json()).toMatchObject({ status: "active", discordEnabled: false });
+      }
+    }
+    expect(createDraftService(db).findById(1).status).toBe("active");
+    expect(db.prepare("select count(*) as n from draft_cards where draft_id = 1").get()).toEqual({ n: 6 });
+    expect(notify.broadcaster.draft).toHaveBeenCalledExactlyOnceWith({ kind: "status", slug: "lobby", status: "active" });
+    expect(notify.announcer.announce).not.toHaveBeenCalled();
+    await GET(request("GET"), context);
+    expect(notify.broadcaster.draft).toHaveBeenCalledTimes(1);
+    expect(db.prepare("select count(*) as n from draft_cards where draft_id = 1").get()).toEqual({ n: 6 });
+  });
+  it("waits for post-commit WS invalidation before returning the GET start result", async () => {
+    vi.stubEnv("DISCORD_BOT_ENABLED", undefined);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-07T12:00:00Z"));
+    const api = await useRealLobbyService();
+    const scheduled = api.scheduleStart(1, "host", { revision: api.read(1, "host").lobby.revision, force: true });
+    vi.setSystemTime(new Date(scheduled.lobby.start!.startsAt));
+    auth.mockResolvedValue({ user: { id: "member" } });
+    let entered!: () => void;
+    let delivered!: () => void;
+    const called = new Promise<void>((resolve) => { entered = resolve; });
+    const delivery = new Promise<void>((resolve) => { delivered = resolve; });
+    notify.broadcaster.draft.mockImplementationOnce(() => {
+      expect(db.inTransaction).toBe(false);
+      expect(createDraftService(db).findById(1).status).toBe("active");
+      entered();
+      return delivery;
+    });
+    const { GET } = await import("../app/api/drafts/[slug]/route");
+    let returned = false;
+    const response = GET(request("GET"), context).then((result) => { returned = true; return result; });
+    try {
+      await called;
+      await new Promise<void>((resolve) => { setImmediate(resolve); });
+      expect(returned).toBe(false);
+    } finally { delivered(); }
+    expect((await response).status).toBe(403);
+  });
   it("preserves the shared service clock, optional viewer and invalidation contract", async () => {
     const api = await useRealLobbyService();
     const now = new Date("2026-10-07T12:00:00Z");

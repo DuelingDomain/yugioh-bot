@@ -3,7 +3,7 @@ import { cubeReferenceAccess } from "@/lib/cube-access";
 import { ensureCatalogCards } from "@/lib/cube-pool";
 import { auth } from "@/lib/auth";
 import { cardFetchErrorResponse } from "@/lib/card-fetch-errors";
-import { createDraftLobbyApi } from "@/lib/draft-lobby-api";
+import { createDraftLobbyApi, draftDiscordEnabled } from "@/lib/draft-lobby-api";
 import { DRAFT_LOBBY_ERROR_STATUS, type DraftAllowedCube, type DraftConfig, type DraftLobbyErrorCode, type DraftLobbyResponse, type DraftLobbyTickResult } from "@yugidraft/shared/types";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
@@ -107,8 +107,10 @@ export async function buildDraftResponse(slug: string, userId: string) {
   }
 
   if (draftIdRow.status === "pending") {
+    // GET is a start entry point even without a background timer. The shared
+    // tick commits the winning transition before its notifications are sent.
     const transitions = createDraftLobbyApi(db).tick(Date.now(), draftIdRow.id);
-    void notifyDraftLobbyTick(transitions);
+    await notifyDraftLobbyTick(transitions);
   }
 
   if (drafts.findById(draftIdRow.id).status === "active") {
@@ -421,6 +423,7 @@ export async function buildDraftResponse(slug: string, userId: string) {
     themeProgress,
     allowedCubes,
     botsEnabled: draftTestBotsEnabled(),
+    discordEnabled: draftDiscordEnabled(),
   };
 }
 
@@ -537,7 +540,7 @@ export async function notifyDraftLobbyTick(result: DraftLobbyTickResult) {
     .map((slug) => broadcaster.draft({ kind: "seats", slug }));
   for (const draft of result.started) {
     if (draft.webSlug) deliveries.push(broadcaster.draft({ kind: "status", slug: draft.webSlug, status: "active" }));
-    deliveries.push(announcer.announce({
+    if (draftDiscordEnabled()) deliveries.push(announcer.announce({
       kind: "draft-started", draftId: draft.id, channelId: draft.channelId,
       name: draft.name, webSlug: draft.webSlug ?? "",
     }));
