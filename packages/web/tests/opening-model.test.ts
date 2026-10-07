@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DUEL_OPENING_PICK_MS, type DuelOpeningView } from "@yugidraft/shared/duels";
+import { DUEL_OPENING_PICK_MS, type DuelRpsOpeningView } from "@yugidraft/shared/duels";
 import {
   myPickText, openingStage, opponentPickText, revealEndsAt, revealOutcome, startText, waitChooseText,
 } from "../src/components/duel/opening-model";
@@ -7,7 +7,7 @@ import {
 const NOW = 1_000_000;
 const NAMES: [string, string] = ["Yugi", "Kaiba"];
 
-function view(overrides: Partial<DuelOpeningView> = {}): DuelOpeningView {
+function view(overrides: Partial<DuelRpsOpeningView> = {}): DuelRpsOpeningView {
   return {
     serverNow: NOW,
     phase: "rps", round: 1, deadlineAt: new Date(NOW + DUEL_OPENING_PICK_MS).toISOString(), picked: [false, false],

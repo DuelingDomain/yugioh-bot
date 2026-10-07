@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { defaultDuelSettings, type DuelDeck, type DuelOpeningView, type DuelRoom, type DuelSeriesSummary } from "@yugidraft/shared/duels";
+import { defaultDuelSettings, type DuelDeck, type DuelRpsOpeningView, type DuelRoom, type DuelSeriesSummary } from "@yugidraft/shared/duels";
 import { SeriesGameLabel } from "../series-banner";
 import { DuelResultScreen } from "../duel-result";
 import { BetweenGamesScreen, type CardMeta } from "../between-games";
@@ -170,8 +170,8 @@ export function SeriesLabScreen({ room, spec, reduced, sound }: { room: DuelRoom
 }
 
 /** The opening view a lab scenario stands for. You are seat 0; the deadline is set when the scenario plays. */
-export function labOpeningView(spec: LabOpening, now = Date.now()): DuelOpeningView {
-  const base: DuelOpeningView = {
+export function labOpeningView(spec: LabOpening, now = Date.now()): DuelRpsOpeningView {
+  const base: DuelRpsOpeningView = {
     serverNow: now,
     phase: "rps", round: 1, deadlineAt: new Date(now + 30_000).toISOString(), picked: [false, spec.opponentChose === true],
     myPick: null, reveal: null, winnerSeat: null, choice: null, choiceByTimeout: false,

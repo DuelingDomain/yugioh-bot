@@ -266,3 +266,33 @@ describe("OpeningScreen", () => {
     expect(screen.getByTestId("opening-status").textContent).toBe("You choose to go first");
   });
 });
+
+describe("FFA dice placeholder", () => {
+  it("shows all rolls and final seats to players and spectators without RPS controls", () => {
+    const opening = {
+      phase: "dice" as const, round: 2, serverNow: 1000, deadlineAt: new Date(4000).toISOString(),
+      rounds: [{ round: 1, rolls: [6, 6, 2, 2] }, { round: 2, rolls: [1, 2, 6, 5] }],
+      order: [1, 0, 2, 3], finalSeats: [1, 0, 2, 3],
+    };
+    const pick = vi.fn(), choose = vi.fn();
+    const props = { opening, names: ["Yugi", "Kaiba", "Joey", "Mai"], onPick: pick, onChoose: choose };
+    const { rerender } = render(<OpeningScreen {...props} mySeat={2} />);
+    expect(screen.getByText(/Round 2/)).toBeTruthy();
+    expect(screen.getByText(/Joey: 6/)).toBeTruthy();
+    expect(screen.getByText(/Kaiba.*Yugi.*Joey.*Mai/)).toBeTruthy();
+    expect(screen.getByText(/Yugi.*seat 2/)).toBeTruthy();
+    expect(screen.queryByTestId("opening-move-rock")).toBeNull();
+    expect(screen.queryByTestId("opening-first")).toBeNull();
+    rerender(<OpeningScreen {...props} mySeat={null} />);
+    expect(screen.getByText(/Joey: 6/)).toBeTruthy();
+    expect(pick).not.toHaveBeenCalled(); expect(choose).not.toHaveBeenCalled();
+  });
+
+  it("shows a non-rolling seat in a tie round and waits for the server order", () => {
+    render(<OpeningScreen mySeat={null} names={["Yugi", "Kaiba", "Joey"]} onPick={() => {}} onChoose={() => {}}
+      opening={{ phase: "dice", round: 2, serverNow: 1000, deadlineAt: new Date(4000).toISOString(),
+        rounds: [{ round: 1, rolls: [6, 2, 2] }, { round: 2, rolls: [null, 3, 3] }], order: null, finalSeats: null }} />);
+    expect(screen.getByText(/Yugi: No re-roll/)).toBeTruthy();
+    expect(screen.getByText(/Tied players roll again/)).toBeTruthy();
+  });
+});
