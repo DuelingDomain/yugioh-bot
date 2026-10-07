@@ -23,6 +23,7 @@ export function createDraftTimerService({
   onDraftCompleted?: (draftId: number) => Promise<void>;
 }) {
   let intervalId: ReturnType<typeof setInterval> | null = null;
+  let tickInFlight = false;
 
   async function bestEffort(label: string, run: () => Promise<unknown>) {
     let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -41,11 +42,20 @@ export function createDraftTimerService({
   }
 
   async function tick(now = clock()) {
+    if (tickInFlight) return;
+    tickInFlight = true;
+    try {
+      await runTick(now);
+    } finally {
+      tickInFlight = false;
+    }
+  }
+
+  async function runTick(now: Date) {
     const notifications: Array<() => Promise<void>> = [];
     const queue = (label: string, run: () => Promise<unknown>) => notifications.push(() => bestEffort(label, run));
 
-    // All SQLite sweeps run synchronously before yielding to delivery. Another interval
-    // can sweep even if a previous notification stalls; only the DB winner announces.
+    // All SQLite sweeps run synchronously before yielding to notification delivery.
     try {
       const result = lobby.tick(now);
       const startedSlugs = new Set(result.started.map(draft => draft.webSlug));

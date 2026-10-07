@@ -347,7 +347,7 @@ describe("pending lobby timer sweep", () => {
     app.db.close();
   });
 
-  it("continues interval sweeps while an earlier notification is pending", async () => {
+  it("skips overlapping ticks and resumes after an earlier notification completes", async () => {
     const app = setup();
     const host = app.players.upsert("guild-1", "user-7", "Yugi");
     const draft = app.drafts.create("guild-1", "channel-1", "Scheduled", {}, "user-7", host.id);
@@ -361,11 +361,44 @@ describe("pending lobby timer sweep", () => {
     });
     const first = timer.tick();
     await statusEntered;
-    await timer.tick();
-    expect(lobby.tick).toHaveBeenCalledTimes(2);
-    finish();
-    await first;
-    app.db.close();
+    try {
+      await timer.tick();
+      expect(lobby.tick).toHaveBeenCalledTimes(1);
+      finish();
+      await first;
+      await timer.tick();
+      expect(lobby.tick).toHaveBeenCalledTimes(2);
+    } finally { finish(); await first; app.db.close(); }
+  });
+
+  it("skips interval sweeps while notifications are pending and resumes on the next interval", async () => {
+    vi.useFakeTimers();
+    const app = setup();
+    let finish!: () => void;
+    const lobby = { tick: vi.fn().mockReturnValueOnce({ started: [], changedSlugs: ["pending-lobby"] }).mockReturnValue({ started: [], changedSlugs: [] }) };
+    const timer = createDraftTimerService({ ...app, lobby,
+      broadcaster: { draft: () => new Promise<void>(resolve => { finish = resolve; }) } as any,
+    });
+    timer.start();
+    try {
+      await vi.advanceTimersByTimeAsync(4_000);
+      expect(lobby.tick).toHaveBeenCalledTimes(1);
+      finish();
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(lobby.tick).toHaveBeenCalledTimes(2);
+    } finally { timer.stop(); finish(); vi.useRealTimers(); app.db.close(); }
+  });
+
+  it("resumes ticks after an active sweep throws", async () => {
+    const app = setup();
+    const lobby = { tick: vi.fn(() => ({ started: [], changedSlugs: [] })) };
+    vi.spyOn(app.drafts, "listActive").mockImplementationOnce(() => { throw new Error("Active sweep unavailable"); }).mockReturnValue([]);
+    const timer = createDraftTimerService({ ...app, lobby, broadcaster: createBroadcaster(recordingTransport().transport) });
+    try {
+      await expect(timer.tick()).rejects.toThrow("Active sweep unavailable");
+      await timer.tick();
+      expect(lobby.tick).toHaveBeenCalledTimes(2);
+    } finally { app.db.close(); }
   });
   it("continues overdue active picks after a pending sweep failure", async () => {
     const app = setup();
@@ -397,8 +430,8 @@ describe("pending lobby timer sweep", () => {
     seedDraftCatalog(app, 80);
     app.drafts.start(draft.id);
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const timer = createDraftTimerService({ ...app,
-      lobby: { tick: () => ({ started: [], changedSlugs: ["pending-lobby"] }) },
+    const lobby = { tick: vi.fn().mockReturnValueOnce({ started: [], changedSlugs: ["pending-lobby"] }).mockReturnValue({ started: [], changedSlugs: [] }) };
+    const timer = createDraftTimerService({ ...app, lobby,
       broadcaster: { draft: () => new Promise(() => {}) } as any,
     });
     try {
@@ -407,6 +440,8 @@ describe("pending lobby timer sweep", () => {
       await vi.advanceTimersByTimeAsync(15_000);
       await tick;
       expect(warn).toHaveBeenCalled();
+      await timer.tick();
+      expect(lobby.tick).toHaveBeenCalledTimes(2);
     } finally { warn.mockRestore(); vi.useRealTimers(); app.db.close(); }
   });
 
