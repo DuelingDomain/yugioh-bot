@@ -1979,9 +1979,12 @@
   --ts: var(--sf-ts, 1);
   --lab: 0deg;
   /* On-screen text floors, in this field's own px: 12px for labels and 14px for names and counts, times the Text size
-     setting (--tt). --sk is the whole scale from the field's px to the screen (stage fit times pose scale; 1 in the grid). */
-  --fl: calc(12.6px * var(--tt, 1) / var(--sk, 1));
-  --fb: calc(14.4px * var(--tt, 1) / var(--sk, 1));
+     setting (--tt). --sk is the whole scale from the field's px to the screen (stage fit times pose scale; 1 in the grid).
+     The floor fades out below 0.5 (--fk) and is capped by the zone size: a docked or overview field is a thumbnail, and floored
+     text there would collide in its slots. */
+  --fk: clamp(0, calc((var(--sk, 1) - 0.35) / 0.15), 1);
+  --fl: min(calc(12.6px * var(--tt, 1) / var(--sk, 1) * var(--fk)), calc(var(--z) * 0.2));
+  --fb: min(calc(14.4px * var(--tt, 1) / var(--sk, 1) * var(--fk)), calc(var(--z) * 0.23));
   --fs-name: max(calc(var(--z) * 0.125 * var(--ts)), var(--fb));
   --fs-small: max(calc(var(--z) * 0.1 * var(--ts)), var(--fl));
   --n3: max(calc(var(--z) * 0.13 * var(--ts)), var(--fl));
