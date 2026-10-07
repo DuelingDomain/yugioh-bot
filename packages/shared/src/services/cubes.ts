@@ -13,6 +13,13 @@ export interface AnalyzeCubePoolsConfig {
   copyLimit?: boolean;
 }
 
+/** Fully resolved catalog entries; network resolution happens before the cube transaction. */
+export interface CubeImportEntry {
+  id: number;
+  copies: number;
+  pool?: CubePool;
+}
+
 function requiredPoolSize(rounds: number, themePackSize: number, burnUnpicked: boolean): number {
   return burnUnpicked ? rounds * themePackSize : rounds + (themePackSize - 1);
 }
@@ -185,6 +192,52 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
   };
 
   return {
+    /** Add copies atomically, reading existing totals inside the write transaction. */
+    importResolvedCards(cubeId: number, entries: readonly CubeImportEntry[]): { added: number; copies: number } {
+      return db.transaction(() => {
+        const cube = findCube(cubeId);
+        if (entries.length === 0) return { added: 0, copies: 0 };
+        const cards = new Map(catalog.findByIds(entries.map((e) => e.id)).map((card) => [card.ygoprodeckId, card]));
+        const totals = new Map<number, { copies: number; pool: CubePool }>();
+        for (const { id, copies, pool } of entries) {
+          assertCubeCopies(copies);
+          const card = cards.get(id);
+          if (!card || !catalog.hasCatalogRow(id)) throw new Error(`Card ${id} is missing from the catalog`);
+          const previous = totals.get(id);
+          totals.set(id, {
+            copies: Math.min(MAX_CUBE_COPIES, (previous?.copies ?? 0) + copies),
+            pool: pool === "extra" || previous?.pool === "extra" || isExtraDeckFrame(card) ? "extra" : "main",
+          });
+        }
+        const pools = getCubePools(cubeId);
+        const existing = new Map([...pools.main, ...pools.extra]
+          .map((entry) => [entry.catalogCardId, entry.maxCopies]));
+        // Config-listed IDs override pool rows when the cube drives a booster draft.
+        // Move affected IDs to cube_cards so the new totals are visible to both readers.
+        const configured = new Map<number, number>();
+        for (const id of cube.config.customCardIds ?? []) configured.set(id, (configured.get(id) ?? 0) + 1);
+        for (const [id, count] of configured) {
+          if (!totals.has(id)) continue;
+          // Legacy configs may exceed the row cap. Preserve them on error instead of discarding copies.
+          assertCubeCopies(count);
+          existing.set(id, count);
+        }
+        let gained = 0;
+        for (const [id, entry] of totals) {
+          const before = existing.get(id) ?? 0;
+          const total = Math.min(MAX_CUBE_COPIES, before + entry.copies);
+          upsertCard.run(cubeId, id, entry.pool, total, null);
+          gained += total - before;
+        }
+        if ([...configured.keys()].some((id) => totals.has(id))) {
+          const config = { ...cube.config, customCardIds: cube.config.customCardIds!.filter((id) => !totals.has(id)) };
+          db.prepare("update cubes set config_json = ? where id = ?").run(JSON.stringify(config), cubeId);
+        }
+        bump(cubeId);
+        return { added: totals.size, copies: gained };
+      })();
+    },
+
     createBlank(guildId: string, name: string, createdByUserId: string): Cube {
       return findCube(insertCubeRow(guildId, name, createdByUserId, null, null));
     },
@@ -229,7 +282,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
       guildId: string,
       name: string,
       createdByUserId: string,
-      entries: Array<{ id: number; copies: number }>,
+      entries: CubeImportEntry[],
       opts: { copyExtraFromCubeId?: number } = {},
     ): Cube {
       return db.transaction(() => {
@@ -238,10 +291,10 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
         if (clash) throw new CubeNameTakenError(name);
         const cubeId = insertCubeRow(guildId, name, createdByUserId, null, null);
         const cards = new Map(catalog.findByIds(entries.map((e) => e.id)).map((c) => [c.ygoprodeckId, c]));
-        for (const { id, copies } of entries) {
+        for (const { id, copies, pool } of entries) {
           const card = cards.get(id);
           if (!card) continue;
-          upsertCard.run(cubeId, id, isExtraDeckFrame(card) ? "extra" : "main", assertCubeCopies(copies), null);
+          upsertCard.run(cubeId, id, pool === "extra" || isExtraDeckFrame(card) ? "extra" : "main", assertCubeCopies(copies), null);
         }
         if (opts.copyExtraFromCubeId !== undefined) {
           const rows = db

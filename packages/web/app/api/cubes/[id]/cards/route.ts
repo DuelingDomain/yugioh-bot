@@ -9,6 +9,7 @@ import { isPasscode, loadCardArtworkFamily } from "@/lib/card-artworks";
 import { CubeArtworkConflict, swapCubeArtwork } from "@/lib/cube-artworks";
 import { cubeDetail } from "@/lib/cube-detail";
 import { importYdkIntoCube } from "@/lib/cube-ydk";
+import { prepareCubeListImport } from "@/lib/cube-list-import";
 import { ensureCatalogCards, parsePoolEntries } from "@/lib/cube-pool";
 import { IMPORT_MAX_DISTINCT, YDK_MAX_CHARS, tooManyDistinct } from "@/lib/ydk-file";
 
@@ -22,6 +23,7 @@ type Op =
   | { op: "import"; codes: number[]; pool?: "main" | "extra" }
   | { op: "replaceMain"; cards: Array<{ id: number; copies: number }> }
   | { op: "importYdk"; text: string }
+  | { op: "importList"; text: string }
   | { op: "seedArchetype"; archetype: string; banlist?: string };
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -85,6 +87,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         await ensureCatalogCards(catalog, parsed.entries.map((e) => e.id));
         const result = cubes.replaceMain(cubeId, parsed.entries);
         return NextResponse.json({ ...cubeDetail(cubeId, cubes, catalog), ...result });
+      }
+      case "importList": {
+        const { entries, unknown, corrected } = await prepareCubeListImport(catalog, body.text);
+        const result = cubes.importResolvedCards(cubeId, entries);
+        return NextResponse.json({ ...cubeDetail(cubeId, cubes, catalog), ...result, unknown, corrected });
       }
       case "importYdk": {
         if (typeof body.text !== "string" || body.text.trim() === "") {

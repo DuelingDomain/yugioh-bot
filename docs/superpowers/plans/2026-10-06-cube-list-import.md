@@ -8,9 +8,9 @@ Contracts: editor `{op:"importList",text}` returns existing `{pools,cards}` plus
 
 Execution is inline in the supplied worktree, with focused TDD and small commits.
 
-- [ ] Write failing parser and catalog tests, including a trimmed real fixture.
-- [ ] Implement parser and catalog resolution; build shared, run those files, commit.
-- [ ] Write failing transactional cube merge and API tests (authorization, limits, failures, zero results, duplicate names).
-- [ ] Implement cube merge and both routes; run only affected test files.
-- [ ] Typecheck shared/web, review diff, document UI contracts and integration, commit.
-- [ ] Remove generated build output, verify clean branch, report exact verification results.
+- [x] Write failing parser and catalog tests, including a trimmed real fixture.
+- [x] Implement parser and catalog resolution; build shared, run those files, commit.
+- [x] Write failing transactional cube merge and API tests (authorization, limits, failures, zero results, duplicate names).
+- [x] Implement cube merge and both routes; run only affected test files.
+- [x] Typecheck shared/web, review diff, document UI contracts and integration, commit.
+- [x] Remove generated build output, verify clean branch, report exact verification results.

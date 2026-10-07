@@ -3,11 +3,12 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
-import { createCardCatalogService, createCubeService } from "@yugidraft/shared/services";
+import { createCardCatalogService, createCubeService, CubeNameTakenError } from "@yugidraft/shared/services";
 import type { DraftConfig } from "@yugidraft/shared/types";
 import { cubeDraftTypeOf, parseCubeDraftType, setCubeDraftType } from "@/lib/cube-type";
 import { checkDiscordWebAccess } from "@/lib/discord-web-access";
 import { ensureCatalogCards, parsePoolEntries } from "@/lib/cube-pool";
+import { prepareCubeListImport } from "@/lib/cube-list-import";
 
 export const runtime = "nodejs";
 
@@ -114,7 +115,8 @@ export async function POST(request: Request) {
   }
 
   const body = (await request.json().catch(() => ({}))) as {
-    kind?: "blank" | "archetype" | "pool";
+    kind?: "blank" | "archetype" | "pool" | "list";
+    importText?: unknown;
     cards?: unknown;
     copyExtraFromCubeId?: unknown;
     name?: string;
@@ -132,8 +134,31 @@ export async function POST(request: Request) {
   const catalog = createCardCatalogService(db);
   const cubes = createCubeService(db, catalog);
   const guildId = env.discordGuildId;
+  const isListImport = body.importText !== undefined || body.kind === "list";
 
   try {
+    if (isListImport) {
+      if ((body.kind !== undefined && body.kind !== "list" && body.kind !== "blank")
+        || body.config !== undefined || body.cards !== undefined || body.copyExtraFromCubeId !== undefined
+        || body.archetype !== undefined || body.banlist !== undefined) {
+        return NextResponse.json({ error: "importText cannot be combined with another cube source." }, { status: 400 });
+      }
+      const name = typeof body.name === "string" ? body.name.trim() : "";
+      if (!name) return NextResponse.json({ error: "name is required" }, { status: 400 });
+      if (db.prepare("select 1 from cubes where guild_id = ? and lower(name) = lower(?)").get(guildId, name)) {
+        throw new CubeNameTakenError(name);
+      }
+      const { entries, unknown, corrected } = await prepareCubeListImport(catalog, body.importText);
+      if (entries.length === 0) {
+        return NextResponse.json({ error: "No cards found in that list.", added: 0, copies: 0, unknown, corrected }, { status: 400 });
+      }
+      const cube = db.transaction(() => {
+        const created = cubes.createWithCards(guildId, name, session.user!.id!, entries);
+        if (draftType) setCubeDraftType(db, created.id, draftType);
+        return withDraftType(db, created.id, cubes.findCube(created.id));
+      })();
+      return NextResponse.json({ cube, added: entries.length, copies: entries.reduce((sum, entry) => sum + entry.copies, 0), unknown, corrected }, { status: 201 });
+    }
     if (body.kind === "archetype") {
       const archetype = body.archetype?.trim();
       if (!archetype) {
@@ -207,6 +232,6 @@ export async function POST(request: Request) {
     if (fetchFailure) return fetchFailure;
     // CubeNameTakenError: another save took the name after the early check above.
     const message = error instanceof Error ? error.message : "Failed to create cube";
-    return NextResponse.json({ error: message }, { status: 409 });
+    return NextResponse.json({ error: message }, { status: isListImport && !(error instanceof CubeNameTakenError) ? 400 : 409 });
   }
 }
