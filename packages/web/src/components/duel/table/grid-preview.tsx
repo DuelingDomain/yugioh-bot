@@ -11,6 +11,30 @@ import styles from "./grid-hud.module.css";
 export const PREVIEW_HIDE_MS = 220;
 /** The art is dropped when a long text squeezes it under this height. */
 const MIN_ART_PX = 90;
+/**
+ * The places of the pinned panel, in the order tried: the left edge before the right one, the normal art before a small one, and
+ * the normal width before a wider one (a long text gets the room by a smaller art or a wider panel, so it does not scroll), then
+ * the narrower ones (they only serve to keep clear of the clicked card). Last of all comes a panel with no art: the art gives way
+ * before the text scrolls, as in the hover panel.
+ */
+type Place = { side: "left" | "right"; width: number; art: "normal" | "small" | "none" };
+const SIDES = ["left", "right"] as const;
+const WIDE_PLACES: ReadonlyArray<Place> = [700, 820, 940].flatMap((width) => (["normal", "small"] as const).flatMap((art) => SIDES.map((side) => ({ side, width, art }))));
+const NARROW_PLACES: ReadonlyArray<Place> = [600, 520, 430].flatMap((width) => SIDES.map((side) => ({ side, width, art: "small" as const })));
+const NO_ART_PLACES: ReadonlyArray<Place> = [940, 700, 520].flatMap((width) => SIDES.map((side) => ({ side, width, art: "none" as const })));
+const FIRST_PLACE = WIDE_PLACES[0];
+/** The gap kept between the panel and the clicked card, and the offsets of the panel from the layer edges (grid-hud.module.css). */
+const CLEAR_GAP_PX = 12;
+const EDGE_LEFT_PX = 72;
+const EDGE_RIGHT_PX = 16;
+/** Under this width the panel counts as narrow (the compact layout of the earlier fixes). */
+const COMPACT_PX = 560;
+const place = (aside: HTMLElement, spot: Place) => {
+  aside.setAttribute("data-side", spot.side);
+  aside.style.setProperty("--pin-w", `${spot.width}px`);
+  if (spot.width < COMPACT_PX) aside.setAttribute("data-narrow", "true"); else aside.removeAttribute("data-narrow");
+  if (spot.art !== "normal") aside.setAttribute("data-art", spot.art); else aside.removeAttribute("data-art");
+};
 
 /**
  * The hover preview of the table shells (Tag, 3-way, 4-way): a ~270 px panel that slides out from the left edge while a card is hovered or
@@ -21,16 +45,23 @@ const MIN_ART_PX = 90;
  * Face-down cards of a rival show nothing.
  * A click on a board card pins the panel (`pinned`): it stays when the pointer leaves, until `onClose` (the X button, Esc,
  * a press outside, or a click on another card, which pins that one). The pinned panel is wide: the art stands beside the
- * text, so the whole effect text shows without a scroll. It takes the pointer, which the hover panel never does.
+ * text, so the whole effect text shows without a scroll. Its body lets the pointer through to the board (only the X button and a
+ * scrolling text take it). It stays on the left unless that would touch the clicked card: then it moves to the right, or gets
+ * narrower (the widest place that clears the card), so the card stays in view and clickable.
  */
-export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, onClose }: {
+export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, extras = [], avoid = null, onClose }: {
   /** A board card, or the card of a prompt row (`DuelCardInfo`: no position, no owner). */
   card: DuelCard | DuelCardInfo | null;
   owner: { name: string; main: string; ink: string } | null;
   reducedMotion: boolean;
   /** `card` is the pinned card: the wide layout with a close button. */
   pinned?: boolean;
-  onClose?: () => void;
+  /** The extra lines of a pinned board card (equip link, counters, materials): the same ones as the Card flyout. */
+  extras?: readonly string[];
+  /** The element that was clicked to pin the card: the pinned panel moves aside when it would cover it. */
+  avoid?: HTMLElement | null;
+  /** The X button was pressed. `byKeyboard`: Enter or Space, so focus should go back to the card (a mouse click would show the card's hover peek again). */
+  onClose?: (byKeyboard: boolean) => void;
 }) {
   const textSize = useCardTextSize();
   const showable = card != null && !isHiddenCard(card) && card.code != null ? card : null;
@@ -75,8 +106,58 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, o
     if (asideRef.current) observer.observe(asideRef.current);
     return () => observer.disconnect();
   }, [current, textSize, artKey]);
-  if (!current) return null;
   const wide = showable ? pinned : shownPinned;
+  // Where the pinned panel stands: the first of left, right, then both again narrower, that keeps clear of the clicked card.
+  const [spot, setSpot] = useState<Place>(FIRST_PLACE);
+  const [resizeTick, setResizeTick] = useState(0);
+  useEffect(() => {
+    if (!wide) return;
+    const onResize = () => setResizeTick((tick) => tick + 1);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [wide]);
+  useLayoutEffect(() => {
+    const aside = asideRef.current;
+    if (!aside || !wide) return;
+    const target = avoid?.isConnected ? avoid.getBoundingClientRect() : null;
+    const hasTarget = target != null && target.width > 0 && target.height > 0;
+    const parent = (aside.offsetParent ?? document.body).getBoundingClientRect();
+    const text = textRef.current;
+    // The widest panel that still stands clear of the card on each side, tried right after the standard widths.
+    const clear = hasTarget
+      ? (["left", "right"] as const).flatMap((side) => {
+          const width = Math.floor(side === "left" ? target.left - CLEAR_GAP_PX - (parent.left + EDGE_LEFT_PX) : parent.right - EDGE_RIGHT_PX - (target.right + CLEAR_GAP_PX));
+          return width >= 430 && width < 940 ? (["normal", "small", "none"] as const).map((art) => ({ side, width, art })) : [];
+        })
+      : [];
+    const candidates = [
+      ...WIDE_PLACES,
+      ...clear.filter((candidate) => candidate.art !== "none"),
+      ...NARROW_PLACES,
+      ...NO_ART_PLACES,
+      ...clear.filter((candidate) => candidate.art === "none"),
+    ];
+    let chosen = candidates[0];
+    let best = Infinity;
+    for (const candidate of candidates) {
+      place(aside, candidate);
+      let overlap = 0;
+      if (hasTarget) {
+        const left = parent.left + aside.offsetLeft;
+        const top = parent.top + aside.offsetTop;
+        overlap = Math.max(0, Math.min(left + aside.offsetWidth, target.right) - Math.max(left, target.left))
+          * Math.max(0, Math.min(top + aside.offsetHeight, target.bottom) - Math.max(top, target.top));
+      }
+      const hidden = text ? Math.max(0, text.scrollHeight - text.clientHeight - 1) : 0;
+      // A place that covers the card always ranks after one that does not; then the one that cuts the least text wins.
+      const rank = overlap > 0 ? 1e9 + overlap : hidden;
+      if (rank < best) { best = rank; chosen = candidate; }
+      if (rank === 0) break;
+    }
+    place(aside, chosen);
+    setSpot((previous) => (previous.side === chosen.side && previous.width === chosen.width && previous.art === chosen.art ? previous : chosen));
+  }, [wide, avoid, current, textSize, resizeTick]);
+  if (!current) return null;
 
   const stats = cardStatsText(current);
   const details = cardDetailsText(current);
@@ -90,11 +171,14 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, o
       data-motion={reducedMotion ? "none" : "slide"}
       aria-hidden={open ? undefined : "true"}
       data-pinned={wide ? "true" : undefined}
+      data-side={wide ? spot.side : undefined}
+      data-narrow={wide && spot.width < COMPACT_PX ? "true" : undefined}
+      data-art={wide && spot.art !== "normal" ? spot.art : undefined}
       data-hud-keep={wide ? "" : undefined}
       aria-label={wide ? "Pinned card" : undefined}
       data-card-text={textSize}
       data-squeezed={squeezed === artKey ? "true" : undefined}
-      style={{ ...cardTextStyle(textSize), ...(owner ? { "--seat-main": owner.main, "--seat-ink": owner.ink } : null) } as CSSProperties}
+      style={{ ...cardTextStyle(textSize), ...(wide ? { "--pin-w": `${spot.width}px` } : null), ...(owner ? { "--seat-main": owner.main, "--seat-ink": owner.ink } : null) } as CSSProperties}
     >
       {current.code != null ? <img className={styles.previewArt} src={cardArtUrl(current.code, "full")} alt="" draggable={false} /> : null}
       <div className={styles.previewBody}>
@@ -118,9 +202,14 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, o
             <i aria-hidden="true" />Owner <b>{owner.name}</b>{position ? ` · ${position}` : ""}
           </p>
         ) : position ? <p className={styles.previewOwner}>{position}</p> : null}
+        {wide && extras.length > 0 ? (
+          <ul className={styles.previewExtras} data-testid="hover-preview-extras">
+            {extras.map((line) => <li key={line}>{line}</li>)}
+          </ul>
+        ) : null}
       </div>
       {wide ? (
-        <button type="button" className={styles.previewClose} aria-label="Close card preview" data-testid="hover-preview-close" onClick={onClose}>
+        <button type="button" className={styles.previewClose} aria-label={`Close ${current.name ?? `Card ${current.code}`} preview`} data-testid="hover-preview-close" onClick={(event) => onClose?.(event.detail === 0)}>
           <X size={16} strokeWidth={1.75} aria-hidden />
         </button>
       ) : null}

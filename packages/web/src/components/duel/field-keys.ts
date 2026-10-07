@@ -10,6 +10,8 @@ export type DuelActivateHandler = (
   keys: string[],
   card: DuelCard | null,
   anchor: HTMLElement,
+  /** The click comes from the Card flyout or the pile viewer, not from the board: the HUD leaves its flyout and pin as they are. */
+  preserveInspector?: boolean,
 ) => void;
 
 export type DuelHoverHandler = (card: DuelCard | null, anchor: HTMLElement | null) => void;

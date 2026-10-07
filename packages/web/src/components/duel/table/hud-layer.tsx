@@ -1,10 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type FocusEvent, type MouseEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FocusEvent, type MouseEvent, type ReactNode } from "react";
 import type { DuelCard, DuelCardInfo, DuelChainLink, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import type { DuelHoverHandler } from "../field-keys";
 import { ChainTower, DOCK_PANES, DOCK_PANES_CAMERA, GridDock, GridFlyout, useHudDismiss, type DockPane, type HudPane } from "./grid-hud";
 import { GridMasterToken } from "./grid-master";
+import type { EquipLinks } from "../equip-links";
+import { cardExtraLines } from "../inspector";
 import { GridHoverPreview } from "./grid-preview";
 import type { DuelActivateHandler, InspectTarget } from "./types";
 
@@ -27,13 +29,21 @@ export interface HudPaneState {
   openCard: () => void;
   /** The board card pinned in the left peek, or `null`. It never shows together with a flyout. */
   pinned: DuelCard | null;
+  /** The element that was clicked to pin it (the peek keeps clear of it, and focus returns to it). */
+  pinAnchor: HTMLElement | null;
   /** A click on a board card pins it in the peek (another card moves the pin); `null` lets the pin go (a flyout stays). A face-down card has no peek: it opens the Card flyout. */
-  pinCard: (card: DuelCard | null) => void;
+  pinCard: (card: DuelCard | null, anchor?: HTMLElement | null) => void;
+  /** Takes the fresh copy of the pinned card from the board, or lets the pin go when the card is gone (see `usePinSync`). */
+  syncPin: (seats: readonly DuelSeatView[]) => void;
+  /** Counts every change of the pane or the pin: a press on a zone that changes nothing by its click lets the pin go (see `useHudEscape`). */
+  epoch: () => number;
   /** The Card tab only shows while it is the open pane: it is not a dock icon. */
   tabs: readonly HudPane[];
   /** The dock icons, in order. */
   dock: readonly DockPane[];
 }
+
+const PIN_ZONES = (seat: DuelSeatView): Array<DuelCard | null> => [...seat.hand, ...seat.extra, ...seat.monsters, ...seat.spells, ...seat.graveyard, ...seat.banished];
 
 /**
  * The open flyout of a HUD. Nothing opens it by itself: a dock icon, a Deck Master token or `openCard()` (a click or
@@ -47,24 +57,30 @@ export function useHudPane({ camera = false, log = true }: {
   log?: boolean;
 } = {}): HudPaneState {
   const [pane, setPaneState] = useState<HudPane | null>(null);
-  const [pinned, setPinned] = useState<DuelCard | null>(null);
+  const [pin, setPin] = useState<{ card: DuelCard; anchor: HTMLElement | null } | null>(null);
+  const epochRef = useRef(0);
+  const epoch = useCallback(() => epochRef.current, []);
   // A flyout and the pinned peek never show together: opening one lets the other go.
   const setPane = useCallback((next: HudPane | null) => {
+    epochRef.current += 1;
     setPaneState(next);
-    if (next != null) setPinned(null);
+    if (next != null) setPin(null);
   }, []);
   const toggle = useCallback((next: HudPane) => {
+    epochRef.current += 1;
     setPaneState((current) => (current === next ? null : next));
-    setPinned(null);
+    setPin(null);
   }, []);
   const close = useCallback(() => {
+    epochRef.current += 1;
     setPaneState(null);
-    setPinned(null);
+    setPin(null);
   }, []);
   const openCard = useCallback(() => setPane("card"), [setPane]);
-  const pinCard = useCallback((card: DuelCard | null) => {
+  const pinCard = useCallback((card: DuelCard | null, anchor: HTMLElement | null = null) => {
+    epochRef.current += 1;
     if (card == null) {
-      setPinned(null);
+      setPin(null);
       return;
     }
     if (card.code == null) {
@@ -72,11 +88,24 @@ export function useHudPane({ camera = false, log = true }: {
       return;
     }
     setPaneState(null);
-    setPinned(card);
+    setPin({ card, anchor });
   }, [setPane]);
+  // A functional update, so a pin that another effect of the same commit just removed (a new prompt) stays removed.
+  const syncPin = useCallback((seats: readonly DuelSeatView[]) => {
+    setPin((current) => {
+      if (!current) return current;
+      const was = current.card;
+      const live = seats.flatMap(PIN_ZONES).find((card) => card != null
+        && card.code === was.code && card.controller === was.controller && card.location === was.location && card.sequence === was.sequence) ?? null;
+      if (live == null) return null;
+      return live === was ? current : { card: live, anchor: current.anchor };
+    });
+  }, []);
+  const pinned = pin?.card ?? null;
+  const pinAnchor = pin?.anchor ?? null;
   const dock = useMemo<readonly DockPane[]>(() => (camera ? DOCK_PANES_CAMERA : DOCK_PANES).filter((id) => log || id !== "log"), [camera, log]);
   const tabs: readonly HudPane[] = pane === "card" ? ["card", ...dock] : dock;
-  return { pane, setPane, toggle, close, openCard, pinned, pinCard, tabs, dock };
+  return { pane, setPane, toggle, close, openCard, pinned, pinAnchor, pinCard, syncPin, epoch, tabs, dock };
 }
 
 /**
@@ -85,10 +114,48 @@ export function useHudPane({ camera = false, log = true }: {
  * prompt. The other prompt keys keep answering while a flyout is open.
  */
 export function useHudEscape(hud: HudPaneState, enabled: boolean, suspended: boolean): void {
-  // A press on a board card never lets the pin go: the click that follows pins that card, or a prompt takes it and unpins.
+  // A press on a board card never lets the pin go at once: the click that follows pins that card, or a prompt takes it and unpins.
+  // A press on a zone whose click changes nothing (no handler, a camera drag that starts on a zone) lets it go after that click.
   const pinned = hud.pinned != null;
   const onBoard = useCallback((target: Element | null) => pinned && target?.closest?.("[data-zones]") != null, [pinned]);
   useHudDismiss(enabled && (hud.pane != null || pinned), suspended, hud.close, onBoard);
+  const { close, epoch } = hud;
+  useEffect(() => {
+    if (!enabled || !pinned) return;
+    let down: number | null = null;
+    let timer: number | undefined;
+    const onDown = (event: Event) => {
+      const target = event.target as Element | null;
+      down = target?.closest?.("[data-hud-keep]") == null && target?.closest?.("[data-zones]") != null ? epoch() : null;
+    };
+    // Capture phase, then a timer: it runs after the click handlers, even one that stops the event.
+    const onClick = () => {
+      if (down == null) return;
+      const at = down;
+      down = null;
+      timer = window.setTimeout(() => { if (epoch() === at) close(); }, 0);
+    };
+    document.addEventListener("pointerdown", onDown, true);
+    document.addEventListener("click", onClick, true);
+    return () => {
+      document.removeEventListener("pointerdown", onDown, true);
+      document.removeEventListener("click", onClick, true);
+      window.clearTimeout(timer);
+    };
+  }, [enabled, pinned, close, epoch]);
+  // The HUD is gone (a narrow window): no flyout or pin waits for the HUD to come back.
+  useEffect(() => { if (!enabled) close(); }, [enabled, close]);
+}
+
+/**
+ * Keeps the pinned card true to the board: at each new revision it finds the card again by its zone and code, and takes
+ * the fresh copy (stats, position, counters). A card that left the zone, or turned face-down, lets the pin go.
+ */
+export function usePinSync(hud: HudPaneState, seats: readonly DuelSeatView[] | undefined): void {
+  const { syncPin } = hud;
+  useEffect(() => {
+    if (seats) syncPin(seats);
+  }, [seats, syncPin]);
 }
 
 /**
@@ -146,12 +213,24 @@ export interface HudLayerProps {
   onInspect: (target: InspectTarget) => void;
   /** The card for the left peek and its owner, or `null` when there is none. A prompt row card has no owner. `pinned`: it stays until closed. */
   preview: { card: DuelCard | DuelCardInfo; owner: { name: string; main: string; ink: string } | null; pinned?: boolean } | null;
+  /** The equip links of the live board: the pinned peek adds the same lines as the Card flyout (equip, counters, materials). */
+  equipLinks?: EquipLinks;
   /** The pile viewer is open, or a pick hint is shown: the preview hides. An open card menu does not hide it. */
   previewHidden: boolean;
   reducedMotion: boolean;
 }
 
-export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, master, otherMaster = null, onInspect, preview, previewHidden, reducedMotion }: HudLayerProps) {
+export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, master, otherMaster = null, onInspect, preview, equipLinks, previewHidden, reducedMotion }: HudLayerProps) {
+  const pinnedBoard = preview?.pinned === true && "location" in preview.card ? preview.card : null;
+  const extras = useMemo(() => (pinnedBoard ? cardExtraLines(pinnedBoard, equipLinks) : []), [pinnedBoard, equipLinks]);
+  // The X button: the pin goes. With the keyboard, focus returns to the card that was clicked (a mouse click would only bring the hover peek back).
+  const { close, pinAnchor } = hud;
+  const closePin = useCallback((byKeyboard: boolean) => {
+    close();
+    if (!byKeyboard) return;
+    const target = pinAnchor?.isConnected ? (pinAnchor.matches("button, [tabindex]") ? pinAnchor : pinAnchor.querySelector<HTMLElement>("button, [tabindex]")) : null;
+    target?.focus({ preventScroll: true });
+  }, [close, pinAnchor]);
   return (
     <>
       <GridDock pane={hud.pane} onToggle={hud.toggle} unread={logUnread} panes={hud.dock} />
@@ -181,7 +260,9 @@ export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, log
         owner={preview?.owner ?? null}
         reducedMotion={reducedMotion}
         pinned={preview?.pinned === true}
-        onClose={hud.close}
+        extras={extras}
+        avoid={preview?.pinned === true ? hud.pinAnchor : null}
+        onClose={closePin}
       />
     </>
   );

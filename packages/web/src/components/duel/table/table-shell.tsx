@@ -53,7 +53,7 @@ import { GridStage } from "./grid-stage";
 import { CAPTION_TEXT, useGridFinale } from "./grid-finale";
 import { gridKeyGates, useGridFocus } from "./grid-focus";
 import { hudPreview } from "./hud-preview";
-import { HudLayer, RowPreviewBoundary, useHudEscape, useHudPane, useRowPreview } from "./hud-layer";
+import { HudLayer, RowPreviewBoundary, useHudEscape, useHudPane, usePinSync, useRowPreview } from "./hud-layer";
 import { clockStrip, hudClockBank, hudMasterProps, stationTrackProps } from "./hud-shared";
 import { gridCells, usesGridLayout } from "./grid-layout";
 import { HistoryStrip } from "./history-strip";
@@ -206,6 +206,7 @@ function TableShellBody({
   const hudState = useHudPane({ camera: plazaHud, log: !plazaHud });
   const ui = useTableUi(tracked, { initialPane: grid && hud ? "log" : undefined, hud, onOpenCard: hudState.openCard, onPinCard: hudState.pinCard });
   useHudEscape(hudState, hud, ui.suspended);
+  usePinSync(hudState, tracked.engine.seats);
   const hudOpen = hud && (hudState.pane != null || hudState.pinned != null);
   // A modal (Surrender) opened from the Settings flyout: the flyout closes so the modal owns Esc.
   const closeHud = hudState.close;
@@ -347,7 +348,7 @@ function TableShellBody({
   const lockedOption = flow.pointed && prompt ? prompt.options.find((option) => option.id === flow.pointed?.optionId) : undefined;
 
   const onInspectorActivate = (card: DuelCard, anchor: HTMLElement) =>
-    controller.onActivate([zoneKey(card.controller, card.location, card.sequence)], card, anchor);
+    controller.onActivate([zoneKey(card.controller, card.location, card.sequence)], card, anchor, true);
 
   const masterRail = domain ? (
     <DeckMasterRail
@@ -833,6 +834,7 @@ function TableShellBody({
           ) : null}
           onInspect={ui.setInspect}
           preview={hudPreview(ui.hover?.card ?? null, ui.menu?.card, rowPreview.card, (card) => ({ name: nameOf(card.controller), ...toneOf(card.controller) }), hudState.pinned)}
+          equipLinks={resolveEquipLinks(engine.seats)}
           previewHidden={ui.pile?.open === true}
           reducedMotion={controller.reducedMotion}
         />
