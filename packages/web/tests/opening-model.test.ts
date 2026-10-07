@@ -19,14 +19,18 @@ describe("openingStage", () => {
     expect(openingStage(view(), 0, NOW)).toBe("pick");
   });
 
-  it("shows a decided round for 3 seconds, then the choice for the winner and the wait for the loser", () => {
+  it("shows the choice for the winner and the wait for the loser as soon as the server decides the round", () => {
     const won = view({
       phase: "choose", winnerSeat: 0, picked: [true, true],
       deadlineAt: new Date(NOW + 3_000 + DUEL_OPENING_PICK_MS).toISOString(),
       reveal: { round: 1, picks: ["paper", "rock"], winnerSeat: 0 },
     });
     expect(revealEndsAt(won)).toBe(NOW + 3_000);
-    expect(openingStage(won, 0, NOW)).toBe("reveal");
+    expect(openingStage(won, 0, NOW)).toBe("choose");
+    expect(openingStage(won, 1, NOW)).toBe("wait-choose");
+    // A clock one minute slow used to hide the buttons for the entire server choice window.
+    expect(openingStage(won, 0, NOW - 60_000)).toBe("choose");
+    expect(openingStage(won, 0, NOW + 33_000 - 60_000)).toBe("choose");
     expect(openingStage(won, 0, NOW + 3_001)).toBe("choose");
     expect(openingStage(won, 1, NOW + 3_001)).toBe("wait-choose");
     // A spectator never chooses.

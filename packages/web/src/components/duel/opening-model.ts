@@ -13,7 +13,7 @@ import {
 export const MOVE_LABEL: Record<DuelRpsMove, string> = { rock: "Rock", paper: "Paper", scissors: "Scissors" };
 
 export type OpeningStage =
-  /** A decided round is on screen (win, lose or tie). */
+  /** A tied round is on screen before the next pick. */
   | "reveal"
   /** Both players pick a move. */
   | "pick"
@@ -37,9 +37,10 @@ function revealIsCurrent(opening: DuelOpeningView): boolean {
 
 export function openingStage(opening: DuelOpeningView, mySeat: number | null, now: number): OpeningStage {
   if (opening.phase === "start") return "start";
+  // The server already accepts the winner's choice. A browser clock must not hide it until the timeout.
+  if (opening.phase === "choose") return mySeat != null && opening.winnerSeat === mySeat ? "choose" : "wait-choose";
   if (revealIsCurrent(opening) && now < revealEndsAt(opening)) return "reveal";
-  if (opening.phase === "rps") return "pick";
-  return mySeat != null && opening.winnerSeat === mySeat ? "choose" : "wait-choose";
+  return "pick";
 }
 
 export type RevealOutcome = "win" | "lose" | "tie" | "decided";

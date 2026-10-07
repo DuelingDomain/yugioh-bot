@@ -114,7 +114,7 @@ export function OpeningScreen({ opening, mySeat, names, busy = false, error = nu
 
         <p className={styles.status} role="status" aria-live="polite" data-testid="opening-status">{status}</p>
 
-        {stage === "reveal" && reveal ? (
+        {(stage === "reveal" || stage === "choose" || stage === "wait-choose") && reveal ? (
           <div className={styles.reveal} data-outcome={outcome} data-testid="opening-reveal">
             {([me, them] as const).map((seat, index) => (
               <div key={seat} className={styles.revealCard} data-win={reveal.winnerSeat === seat ? "true" : undefined} data-side={index === 0 ? "me" : "them"}>
