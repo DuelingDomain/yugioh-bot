@@ -39,3 +39,26 @@ export function withValidation(report: string, probe: Probe, overlayExit: number
   } else result += "No artwork script fallbacks found.\n";
   return result;
 }
+
+type PreviewIdentity = { code: number; name: string; type: number };
+/** Card-level review survives filename deletion and temporary-to-official ID changes. */
+export function prereleaseUpdateReport(previous: PreviewIdentity[], next: {
+  prerelease: PreviewIdentity[]; released: PreviewIdentity[]; remaps: Record<string, number>;
+  drops: Array<PreviewIdentity & { file: string; reason: string; keptCode?: number }>;
+}): string {
+  const key = (card: PreviewIdentity) => `${card.name.trim().toLowerCase()}\0${card.type}`;
+  const official = new Map(next.released.map(card => [key(card), card]));
+  const oldIds = new Set(previous.map(card => card.code)), newIds = new Set(next.prerelease.map(card => card.code));
+  const added = next.prerelease.filter(card => !oldIds.has(card.code));
+  const gone = previous.filter(card => !newIds.has(card.code));
+  const graduated = gone.filter(card => official.has(key(card)));
+  const removed = gone.filter(card => !official.has(key(card)));
+  const lines = (cards: PreviewIdentity[], target = false) => cards.length ? cards.map(card =>
+    `- ${card.code}${target ? ` → ${next.remaps[card.code] ?? official.get(key(card))!.code}` : ""} ${safe(card.name)}`) : ["None."];
+  return ["## Prerelease cards", "", `Added prerelease cards (${added.length})`, "", ...lines(added), "",
+    `Removed prerelease cards (${removed.length})`, "", ...lines(removed), "",
+    `Graduated prerelease cards (${graduated.length})`, "", ...lines(graduated,true), "",
+    `Dropped prerelease rows (${next.drops.length})`, "",
+    ...(next.drops.length ? next.drops.map(card => `- ${card.code}${card.keptCode ? ` → ${card.keptCode}` : ""} ${safe(card.name)} (${safe(card.file)}): ${safe(card.reason)}`) : ["None."]), "",
+    "The bundle retains historical remaps. Withdrawn cards with no released match remain saved and are reported as unknown/illegal.", ""].join("\n");
+}
