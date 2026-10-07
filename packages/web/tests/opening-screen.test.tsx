@@ -100,28 +100,55 @@ describe("OpeningScreen", () => {
     expect(onPick).toHaveBeenCalledWith("scissors");
   });
 
-  it.each([0, 1] as const)("shows the next pick after a tie with the browser 60 seconds slow (seat %s)", (seat) => {
+  it.each(([0, 1] as const).flatMap((seat) => [-60_000, 60_000].map((clockOffset) => ({ seat, clockOffset }))))(
+    "enables the next throw two seconds after a tie (seat $seat, clock offset $clockOffset)", ({ seat, clockOffset }) => {
+      const serverNow = 1_000_000;
+      vi.useFakeTimers();
+      vi.setSystemTime(serverNow + clockOffset);
+      let state = newOpening(1, serverNow);
+      state = submitOpeningPick(state, 0, "rock", serverNow);
+      state = submitOpeningPick(state, 1, "rock", serverNow);
+      const onPick = vi.fn();
+      const opening = openingView(state, seat, serverNow);
+      render(<OpeningScreen opening={opening} mySeat={seat} names={NAMES} onPick={onPick} onChoose={() => undefined} />);
+
+      expect(screen.getByTestId("opening-screen")).toHaveAttribute("data-stage", "reveal");
+      act(() => vi.advanceTimersByTime(1_999));
+      expect(screen.queryByTestId("opening-move-paper")).toBeNull();
+      act(() => vi.advanceTimersByTime(1));
+      expect(screen.getByTestId("opening-screen")).toHaveAttribute("data-stage", "pick");
+      expect(screen.getByTestId("opening-move-paper")).toBeEnabled();
+      expect(screen.getByTestId("opening-countdown").querySelector("b")?.textContent).toBe("30");
+      fireEvent.click(screen.getByTestId("opening-move-paper"));
+      expect(onPick).toHaveBeenCalledWith("paper");
+    },
+  );
+
+  it("accepts the next throw two seconds after tying against the practice bot", () => {
     const serverNow = 1_000_000;
     vi.useFakeTimers();
-    vi.setSystemTime(serverNow - 60_000);
-    let state = newOpening(1, serverNow);
+    vi.setSystemTime(serverNow);
+    let state = submitOpeningPick(newOpening(1, serverNow), 1, "rock", serverNow);
     state = submitOpeningPick(state, 0, "rock", serverNow);
+    // The host's practice bot picks for the next round immediately after a tie.
     state = submitOpeningPick(state, 1, "rock", serverNow);
-    const onPick = vi.fn();
-    const opening = openingView(state, seat, serverNow);
-    render(<OpeningScreen opening={opening} mySeat={seat} names={NAMES} onPick={onPick} onChoose={() => undefined} />);
-
-    expect(screen.getByTestId("opening-screen")).toHaveAttribute("data-stage", "reveal");
-    act(() => vi.advanceTimersByTime(2_999));
-    expect(screen.queryByTestId("opening-move-paper")).toBeNull();
-    act(() => vi.advanceTimersByTime(101));
-    expect(screen.getByTestId("opening-screen")).toHaveAttribute("data-stage", "pick");
+    const draw = () => <OpeningScreen opening={openingView(state, 0, Date.now())} mySeat={0} names={["Yugi", "Practice Bot"]}
+      onPick={(move) => { state = submitOpeningPick(state, 0, move, Date.now()); }} onChoose={() => undefined} />;
+    const { rerender } = render(draw());
+    expect(screen.getByTestId("opening-status")).toHaveTextContent("Tie — again");
+    expect(screen.getByTestId("opening-reveal").querySelectorAll("span")).toHaveLength(2);
+    expect(screen.getAllByText("Rock")).toHaveLength(2);
+    act(() => vi.advanceTimersByTime(2_000));
     expect(screen.getByTestId("opening-move-paper")).toBeEnabled();
+    expect(screen.getByTestId("opening-opponent")).toHaveTextContent("Opponent chose");
     fireEvent.click(screen.getByTestId("opening-move-paper"));
-    expect(onPick).toHaveBeenCalledWith("paper");
+    rerender(draw());
+    expect(state.phase).toBe("choose");
+    expect(state.winnerSeat).toBe(0);
+    expect(screen.getByTestId("opening-first")).toBeEnabled();
   });
 
-  it.each([1_000, 4_000])("does not extend a tie reveal when the cached room is %s ms old", async (age) => {
+  it.each([1_000, 2_000, 4_000])("does not extend a tie reveal when the cached room is %s ms old", async (age) => {
     const serverNow = 1_000_000;
     vi.useFakeTimers();
     vi.setSystemTime(serverNow - 60_000);
@@ -135,9 +162,9 @@ describe("OpeningScreen", () => {
       mySeat={0} names={NAMES} onPick={() => undefined} onChoose={() => undefined} />;
     const { unmount } = render(draw());
 
-    if (age < 3_000) {
+    if (age < 2_000) {
       expect(screen.getByTestId("opening-screen")).toHaveAttribute("data-stage", "reveal");
-      act(() => vi.advanceTimersByTime(3_100 - age));
+      act(() => vi.advanceTimersByTime(2_000 - age));
     }
     expect(screen.getByTestId("opening-screen")).toHaveAttribute("data-stage", "pick");
     expect(screen.getByTestId("opening-move-paper")).toBeEnabled();
@@ -180,7 +207,7 @@ describe("OpeningScreen", () => {
 
     expect(screen.getByTestId("opening-screen")).toHaveAttribute("data-stage", "pick");
     expect(screen.getByTestId("opening-move-paper")).toBeEnabled();
-    expect(screen.getByTestId("opening-countdown").querySelector("b")?.textContent).toBe("29");
+    expect(screen.getByTestId("opening-countdown").querySelector("b")?.textContent).toBe("28");
   });
 
   const countdownCases = ["pick", "choose", "wait-choose"] as const;
@@ -200,7 +227,7 @@ describe("OpeningScreen", () => {
       expect(seconds()).toBe("30");
     }
     act(() => vi.advanceTimersByTime(5_000));
-    const remaining = stage === "reveal-tie" ? "28" : "25";
+    const remaining = stage === "reveal-tie" ? "27" : "25";
     expect(seconds()).toBe(remaining);
     vi.setSystemTime(Date.now() + 120_000);
     rerender(draw());

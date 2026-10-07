@@ -72,6 +72,7 @@ export type {
 export {
   DUEL_OPENING_PICK_MS,
   DUEL_OPENING_REVEAL_MS,
+  DUEL_OPENING_TIE_REVEAL_MS,
   DUEL_RPS_MOVES,
   isDiceOpening,
   isFirstChoice,
