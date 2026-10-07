@@ -79,6 +79,30 @@ it("shares one in-flight refresh across reads and later refresh callers", async 
   }
 });
 
+it("returns cached rows without an unhandled rejection when the refresh database read throws", async () => {
+  const db = database();
+  const prepare = db.prepare.bind(db);
+  const prepareSpy = vi.spyOn(db, "prepare").mockImplementation(sql => {
+    const statement = prepare(sql);
+    if (sql === "select fetched_at from card_data_set_cache where set_name = ?") {
+      vi.spyOn(statement, "get").mockImplementation(() => { throw new Error("Database read failed"); });
+    }
+    return statement;
+  });
+  const cache = createRecentCardSetCache(db, { now: () => today });
+  prepareSpy.mockRestore();
+  const unhandled = vi.fn();
+  process.on("unhandledRejection", unhandled);
+  try {
+    expect(cache.read(sets)).toEqual(sets.map(set => ({ ...set, cards: null, checkedAt: null })));
+    await new Promise<void>(resolve => setImmediate(resolve));
+    expect(unhandled).not.toHaveBeenCalled();
+  } finally {
+    process.off("unhandledRejection", unhandled);
+    await cache.close();
+  }
+});
+
 it("serves stale immediately and refreshes <=60-day sets daily and older sets weekly", async () => {
   const db = database(); let now = today;
   let release: ((response: Response) => void) | undefined;

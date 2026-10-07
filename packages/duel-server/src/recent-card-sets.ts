@@ -105,7 +105,7 @@ export function createRecentCardSetCache(db: Database.Database, options: {
   return {
     read(sets: readonly CatalogSetStatus[]): CachedCardSet[] {
       const rows = recentTcgSets(sets, now()).map(cached);
-      void refresh(sets);
+      void refresh(sets).catch(() => {});
       return rows;
     },
     refresh,
