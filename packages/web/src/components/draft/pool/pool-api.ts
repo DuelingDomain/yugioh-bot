@@ -6,6 +6,7 @@
 import type { CardSummary } from "@/lib/card-types";
 import { isExtraDeckMonster } from "@/lib/card-types";
 import { putCards } from "@/lib/cards-cache";
+import type { ListDiagnostics } from "@/lib/card-list-import";
 import { clampCopies, poolFromEntries, poolToIds, type Pool, type PoolSource } from "./pool-model";
 
 export interface CubeOption {
@@ -116,6 +117,28 @@ export async function resolvePasscodes(ids: number[]): Promise<Resolved> {
     for (const id of r.unknownIds) unknown.add(id);
   }
   return { cards: [...byId.values()], unknownIds: [...unknown] };
+}
+
+export interface ResolvedList extends ListDiagnostics {
+  cards: CardSummary[];
+  entries: Array<{ id: number; copies: number; pool: "main" | "extra" }>;
+}
+
+/**
+ * Reads a card list (names, passcodes, YDK or a ydke link) through the card list and remembers the cards.
+ * Lines that are not cards are not an error: they come back in `unknown`. Writes nothing.
+ */
+export async function resolveCardList(listText: string): Promise<ResolvedList> {
+  const res = await fetch("/api/cards/resolve", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ listText }),
+  });
+  if (!res.ok) throw new Error(await readError(res, "The card database may be unreachable."));
+  const data = (await res.json()) as Partial<ResolvedList>;
+  const cards = data.cards ?? [];
+  putCards(cards);
+  return { cards, entries: data.entries ?? [], unknown: data.unknown ?? [], corrected: data.corrected ?? [] };
 }
 
 export interface CubeDetail {

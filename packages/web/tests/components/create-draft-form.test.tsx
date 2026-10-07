@@ -342,11 +342,11 @@ describe("CreateDraftForm pool: customizing a cube", () => {
   });
 
   it("adds pasted passcodes, one copy per occurrence, and reports what it could not add", async () => {
-    stubFetch();
+    const stub = stubFetch();
     render(<CreateDraftForm />);
     await openEditor();
-    fireEvent.click(screen.getByRole("button", { name: "Paste passcodes" }));
-    fireEvent.change(screen.getByLabelText("Passcodes"), { target: { value: "105\n105, 900\n424242" } });
+    fireEvent.click(screen.getByRole("button", { name: "Card list" }));
+    fireEvent.change(screen.getByLabelText("Card list"), { target: { value: "105\n105, 900\n424242" } });
     fireEvent.click(screen.getByRole("button", { name: "Add 4 passcodes" }));
 
     expect(
@@ -354,6 +354,77 @@ describe("CreateDraftForm pool: customizing a cube", () => {
     ).toBeInTheDocument();
     const row = within(screen.getByRole("list", { name: "Pool cards" })).getByText("Cipher Soldier").closest("[role=listitem]") as HTMLElement;
     expect(within(row).getByLabelText("2 copies")).toBeInTheDocument();
+    // A plain passcode list keeps the passcode-only request.
+    expect(stub.find("/api/cards/resolve", "POST").some((c) => (c.body as { listText?: string }).listText !== undefined)).toBe(false);
+  });
+
+  const poolRow = (name: string) => within(screen.getByRole("list", { name: "Pool cards" })).getByText(name).closest("[role=listitem]") as HTMLElement;
+
+  it("adds a list of names with counts through list mode and shows corrections and skipped lines", async () => {
+    const stub = stubFetch();
+    render(<CreateDraftForm />);
+    await openEditor();
+    fireEvent.click(screen.getByRole("button", { name: "Card list" }));
+    const text = "Engines\n3 Dragon Egg\n2 Cipher Soldeir\n1 Fusion Wyrm\nGlue";
+    fireEvent.change(screen.getByLabelText("Card list"), { target: { value: text } });
+    fireEvent.click(screen.getByRole("button", { name: "Add list" }));
+
+    expect(await screen.findByText("Added 5 copies of 2 cards. 1 Extra Deck card stays out.")).toBeInTheDocument();
+    expect(stub.find("/api/cards/resolve", "POST").some((c) => (c.body as { listText?: string }).listText === text)).toBe(true);
+    // Cards new to the pool take the list's copies; Dragon Egg was not in the Goat cube.
+    expect(within(poolRow("Dragon Egg")).getByLabelText("3 copies")).toBeInTheDocument();
+    // Cipher Soldier is one copy in the base cube plus 2 from the list.
+    expect(within(poolRow("Cipher Soldier")).getByLabelText("2 copies")).toBeInTheDocument();
+    expect(within(screen.getByRole("list", { name: "Pool cards" })).queryByText("Fusion Wyrm")).toBeNull();
+
+    const report = screen.getByTestId("list-import-report");
+    expect(within(report).getByRole("list", { name: "Corrected names" })).toHaveTextContent("Cipher Soldeir");
+    expect(within(report).getByRole("list", { name: "Corrected names" })).toHaveTextContent("Cipher Soldier");
+    expect(within(report).getByText("Skipped 2 lines that are not card names")).toBeInTheDocument();
+    expect(within(report).getByRole("list", { name: "Skipped lines", hidden: true })).toHaveTextContent("Engines");
+    expect(within(report).getByRole("list", { name: "Skipped lines", hidden: true })).toHaveTextContent("Glue");
+    expect(screen.getByLabelText("Card list")).toHaveValue("");
+  });
+
+  it("loads a file into the box, then adds it with one more click", async () => {
+    const stub = stubFetch();
+    render(<CreateDraftForm />);
+    await openEditor();
+    fireEvent.click(screen.getByRole("button", { name: "Card list" }));
+    const file = new File(["3 Dragon Egg\nGlue\n"], "Flip.txt", { type: "text/plain" });
+    fireEvent.change(screen.getByLabelText("Upload card list file"), { target: { files: [file] } });
+
+    await waitFor(() => expect(screen.getByLabelText("Card list")).toHaveValue("3 Dragon Egg\nGlue\n"));
+    expect(screen.getByText("Loaded Flip.txt, 2 lines. Check it, then add it.")).toBeInTheDocument();
+    expect(stub.find("/api/cards/resolve", "POST").some((c) => (c.body as { listText?: string }).listText !== undefined)).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Add list" }));
+    expect(await screen.findByText("Added 3 copies of 1 card.")).toBeInTheDocument();
+    expect(within(poolRow("Dragon Egg")).getByLabelText("3 copies")).toBeInTheDocument();
+    expect(screen.queryByText(/Loaded Flip.txt/)).toBeNull();
+  });
+
+  it("says so when nothing in the list is a card, and keeps the text", async () => {
+    stubFetch();
+    render(<CreateDraftForm />);
+    await openEditor();
+    fireEvent.click(screen.getByRole("button", { name: "Card list" }));
+    fireEvent.change(screen.getByLabelText("Card list"), { target: { value: "Engines\nGlue" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add list" }));
+    expect(await screen.findByText("No cards found in that list.")).toBeInTheDocument();
+    expect(screen.getByText("Skipped 2 lines that are not card names")).toBeInTheDocument();
+    expect(screen.getByLabelText("Card list")).toHaveValue("Engines\nGlue");
+  });
+
+  it("shows the server's message when the list is refused", async () => {
+    stubFetch({ extra: { "POST /api/cards/resolve": () => Response.json({ error: "Card database is unavailable. Try again shortly." }, { status: 503 }) } });
+    render(<CreateDraftForm />);
+    await openEditor();
+    fireEvent.click(screen.getByRole("button", { name: "Card list" }));
+    fireEvent.change(screen.getByLabelText("Card list"), { target: { value: "3 Dark Hole" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add list" }));
+    expect(await screen.findByText("Card database is unavailable. Try again shortly.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Card list")).toHaveValue("3 Dark Hole");
   });
 });
 

@@ -1,0 +1,7 @@
+.report { display: grid; gap: 6px; margin-top: 8px; font-size: 13.5px; }
+.block { color: var(--ink-3); }
+.block summary { cursor: pointer; width: fit-content; color: var(--ink-2); }
+.block summary:hover { color: var(--ink); }
+.block summary:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 2px; border-radius: 3px; }
+.block ul { margin: 6px 0 0; padding: 0 0 0 16px; max-height: 168px; overflow-y: auto; line-height: 1.5; overflow-wrap: anywhere; }
+.block b { color: var(--ink); font-weight: 500; }
