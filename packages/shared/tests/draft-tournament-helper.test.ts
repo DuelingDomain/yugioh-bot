@@ -130,47 +130,34 @@ describe("createTournamentFromDraft", () => {
     expect(r1.tournamentId).toBe(r2.tournamentId);
   });
 
-  it.each([undefined, false])("rejects non-creator with actorIsAdmin=%s", (actorIsAdmin) => {
+  it("rejects a participant who is not the creator", () => {
     const db = new Database(":memory:");
     migrate(db);
     const { draft } = completeDraft(db);
-    const service = createDraftTournamentService(db);
-
-    expect(() =>
-      service.createTournamentFromDraft({ draftId: draft.id, format: "round_robin", createdByUserId: seedUser(db, "u2").userId, actorIsAdmin }),
-    ).toThrow("Only the draft creator");
+    expect(() => createDraftTournamentService(db).createTournamentFromDraft({
+      draftId: draft.id, format: "round_robin", createdByUserId: seedUser(db, "u2").userId,
+    })).toThrow("Only the draft creator can create a tournament");
     db.close();
   });
 
-  it("allows an admin who did not create or join the draft", () => {
+  it("rejects a former admin who did not create or join the draft", () => {
     const db = new Database(":memory:");
     migrate(db);
-    const { draft, aliceId, bobId } = completeDraft(db);
-    const service = createDraftTournamentService(db);
-
-    const result = service.createTournamentFromDraft({
-      draftId: draft.id, format: "round_robin", createdByUserId: seedUser(db, "admin-user").userId, actorIsAdmin: true,
-    });
-
-    expect(result.tournamentName).toBe("Test Draft");
-    expect(db.prepare("select created_by_user_id from tournaments where id = ?").get(result.tournamentId))
-      .toEqual({ created_by_user_id: seedUser(db, "admin-user").userId });
-    expect(createTournamentService(db).participants(result.tournamentId)).toEqual([aliceId, bobId]);
-    expect(service.createTournamentFromDraft({
-      draftId: draft.id, format: "single_elim", createdByUserId: seedUser(db, "admin-user").userId, actorIsAdmin: true,
-    })).toEqual(result);
-    expect(db.prepare("select count(*) as count from tournaments").get()).toEqual({ count: 1 });
+    const { draft } = completeDraft(db);
+    expect(() => createDraftTournamentService(db).createTournamentFromDraft({
+      draftId: draft.id, format: "round_robin", createdByUserId: seedUser(db, "admin-user").userId,
+    })).toThrow("Only the draft creator can create a tournament");
+    expect(db.prepare("select count(*) as count from tournaments").get()).toEqual({ count: 0 });
     db.close();
   });
 
-  it.each(["pending", "active", "cancelled"])("rejects an admin for a %s draft", (status) => {
+  it.each(["pending", "active", "cancelled"])("rejects the creator for a %s draft", (status) => {
     const db = new Database(":memory:");
     migrate(db);
     const { draft } = completeDraft(db);
     db.prepare("update drafts set status = ? where id = ?").run(status, draft.id);
-
     expect(() => createDraftTournamentService(db).createTournamentFromDraft({
-      draftId: draft.id, format: "round_robin", createdByUserId: seedUser(db, "admin-user").userId, actorIsAdmin: true,
+      draftId: draft.id, format: "round_robin", createdByUserId: seedUser(db, "u1").userId,
     })).toThrow("must be completed");
     expect(db.prepare("select count(*) as count from tournaments").get()).toEqual({ count: 0 });
     db.close();
