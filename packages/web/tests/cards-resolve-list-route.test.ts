@@ -62,13 +62,40 @@ describe("POST /api/cards/resolve listText", () => {
     });
   });
 
-  it("marks Extra Deck frames and explicit extra placement, with extra winning across sections", async () => {
+  it("routes by card type and reports distinct main cards listed under extra across sections", async () => {
     const response = await resolve({ listText: "Shooting Star Dragon\nDark Hole\n#extra\n2 Dark Hole\n#main\nArtifact Moralltach" });
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
-      entries: [{ id: 2, copies: 1, pool: "extra" }, { id: 1, copies: 3, pool: "extra" }, { id: 3, copies: 1, pool: "main" }],
-      unknown: [], corrected: [],
+      entries: [{ id: 2, copies: 1, pool: "extra" }, { id: 1, copies: 3, pool: "main" }, { id: 3, copies: 1, pool: "main" }],
+      unknown: [], corrected: [], movedToMain: 1,
     });
+  });
+
+  it.each([
+    ["#extra\n2 Dark Hole\nDark Hole\n3 Artifact Moralltach\nShooting Star Dragon\n999", [1, 3, 2], [3, 3, 1], ["999"]],
+    ["#main\n2\n#extra\n1\n1\n3\n3\n3", [2, 1, 3], [1, 2, 3], []],
+    ["ydke://AgAAAA==!AQAAAAEAAAADAAAAAwAAAAMAAAA=!!", [2, 1, 3], [1, 2, 3], []],
+  ])("routes misplaced spells and monsters to main for text, YDK and ydke: %#", async (listText, ids, copies, unknown) => {
+    const response = await resolve({ listText });
+    expect(response.status).toBe(200);
+    const result = await response.json();
+    expect(result.entries).toEqual(ids.map((id, index) => ({ id, copies: copies[index], pool: id === 2 ? "extra" : "main" })));
+    expect(result).toMatchObject({ movedToMain: 2, unknown, corrected: [] });
+    expect(result.cards.map((card: { id: number }) => card.id)).toEqual(ids);
+  });
+
+  it.each([
+    ["Fusion Pendulum Monster", "fusion_pendulum"],
+    ["Synchro Pendulum Effect Monster", "synchro_pendulum"],
+    ["XYZ Pendulum Effect Monster", "xyz_pendulum"],
+    ["Link Monster", "effect"],
+  ])("keeps Extra Deck variants under main in extra and omits movedToMain: %s", async (type, frame) => {
+    seed(4, "Extra Variant", type, frame);
+    const response = await resolve({ listText: "#main\nExtra Variant\n#extra\nShooting Star Dragon" });
+    expect(response.status).toBe(200);
+    const result = await response.json();
+    expect(result.entries).toEqual([{ id: 4, copies: 1, pool: "extra" }, { id: 2, copies: 1, pool: "extra" }]);
+    expect(result).not.toHaveProperty("movedToMain");
   });
 
   it("keeps YDK file order across main/extra/side/deckmaster and sums repeated passcodes", async () => {

@@ -78,12 +78,14 @@ async function handlePOST(request: Request) {
       const resolved = await prepareCubeListImport(catalog, body.listText);
       const cards = catalog.findByIds(resolved.entries.map((entry) => entry.id));
       const byId = new Map(cards.map((card) => [card.ygoprodeckId, card]));
-      const entries = resolved.entries.map((entry) => ({
-        id: entry.id,
-        copies: entry.copies,
-        pool: entry.pool === "extra" || isExtraDeckFrame(byId.get(entry.id)!) ? "extra" : "main",
-      }));
-      return NextResponse.json({ cards: cards.map(toCardSummary), entries, unknown: resolved.unknown, corrected: resolved.corrected, ...(resolved.lookupLimited ? { lookupLimited: true } : {}) });
+      let movedToMain = 0;
+      const entries = resolved.entries.map((entry) => {
+        const extra = isExtraDeckFrame(byId.get(entry.id)!);
+        if (entry.pool === "extra" && !extra) movedToMain += 1;
+        return { id: entry.id, copies: entry.copies, pool: extra ? "extra" : "main" };
+      });
+      return NextResponse.json({ cards: cards.map(toCardSummary), entries, unknown: resolved.unknown, corrected: resolved.corrected,
+        ...(resolved.lookupLimited ? { lookupLimited: true } : {}), ...(movedToMain ? { movedToMain } : {}) });
     } catch (error) {
       if (!(error instanceof CardListError)) throw error;
       return NextResponse.json({ error: error.message }, { status: 400 });
