@@ -3,7 +3,7 @@ import { createServer } from "node:http";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { openDatabase } from "@yugidraft/shared/db";
+import { openDatabase, applyEngineCardRemaps } from "@yugidraft/shared/db";
 import { createBroadcaster, httpTransport } from "@yugidraft/shared/notify";
 import { loadCardDatabase } from "./cards.js";
 import { verifyEngineBundle } from "./engine-bundle.js";
@@ -15,6 +15,8 @@ config({ path: resolve(root, ".env") });
 const dataDirectory = resolve(root, process.env.DUEL_DATA_DIR ?? "data/duel-engine");
 verifyEngineBundle(dataDirectory);
 const db = openDatabase(resolve(root, process.env.DATABASE_PATH ?? "data/bot.sqlite"));
+const migration = applyEngineCardRemaps(db, dataDirectory);
+if (!migration.skipped) console.log(`[duel] Passcode migration applied for ${migration.remappedPasscodes} remaps`);
 const cards = loadCardDatabase(dataDirectory);
 const wsTransport = httpTransport({
   url: process.env.WS_INTERNAL_URL ?? "",

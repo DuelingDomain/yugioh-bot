@@ -1,3 +1,4 @@
+import { loadCardPasscodeRemaps } from "@yugidraft/shared/db";
 import { existsSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import Database from "better-sqlite3";
@@ -186,7 +187,7 @@ async function resolveMissingIds(
 
 /** Canonical identity for card-count checks, including artwork ids stored before normalization. */
 export function canonicalEngineCardCode(code: number, dataDirectory: string): number {
-  return canonicalCardCode(code, loadEngineIndex(dataDirectory).byId);
+  return canonicalCardCode(loadCardPasscodeRemaps(dataDirectory).get(code) ?? code, loadEngineIndex(dataDirectory).byId);
 }
 
 export async function normalizeImportedDeck(
@@ -196,10 +197,12 @@ export async function normalizeImportedDeck(
   options: NormalizeImportedDeckOptions = {},
 ): Promise<DuelDeck> {
   if (deck == null || typeof deck !== "object") fail("Deck must include main, extra, and side arrays");
-  const main = requireCardIds(deck.main);
-  const extra = requireCardIds(deck.extra);
-  const side = requireCardIds(deck.side);
-  const deckMaster = deck.deckMaster === undefined ? undefined : requireCardId(deck.deckMaster);
+  const graduated = loadCardPasscodeRemaps(dataDirectory);
+  const remapGraduated = (id: number) => graduated.get(id) ?? id;
+  const main = requireCardIds(deck.main).map(remapGraduated);
+  const extra = requireCardIds(deck.extra).map(remapGraduated);
+  const side = requireCardIds(deck.side).map(remapGraduated);
+  const deckMaster = deck.deckMaster === undefined ? undefined : remapGraduated(requireCardId(deck.deckMaster));
 
   const index = loadEngineIndex(dataDirectory);
   const allIds = deckMaster === undefined ? [...main, ...extra, ...side] : [...main, ...extra, ...side, deckMaster];
@@ -216,13 +219,16 @@ export async function normalizeCardCodes(
   db: Database.Database,
   options: Pick<NormalizeImportedDeckOptions, "fetch"> & { preserveArtwork?: boolean } = {},
 ): Promise<Map<number, number | null>> {
-  const ids = requireCardIds(codes);
+  const inputIds = requireCardIds(codes);
+  const graduated = loadCardPasscodeRemaps(dataDirectory);
+  const ids = inputIds.map(id => graduated.get(id) ?? id);
   const index = loadEngineIndex(dataDirectory);
   const resolved = await resolveMissingIds(index, ids, db, { ...options, keepUnresolved: true });
   const result = new Map<number, number | null>();
-  for (const id of ids) {
+  for (const inputId of inputIds) {
+    const id = graduated.get(inputId) ?? inputId;
     const known = index.byId.has(id) ? id : resolved.get(id);
-    result.set(id, known === undefined ? null : options.preserveArtwork ? known : canonicalCardCode(known, index.byId));
+    result.set(inputId, known === undefined ? null : options.preserveArtwork ? known : canonicalCardCode(known, index.byId));
   }
   return result;
 }
