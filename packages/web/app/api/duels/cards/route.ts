@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
     playerId: actor.playerId,
     query,
   });
-  if (!result.ok) return NextResponse.json({ cards: [] });
+  if (!result.ok) return result.response;
   const data = result.data as { cards: DuelCardInfo[] };
   return NextResponse.json({ ...data, cards: withCatalogCardText(data.cards) });
 }
@@ -77,7 +77,7 @@ export async function POST(request: Request) {
     playerId: actor.playerId,
     codes: ids,
   });
-  if (!result.ok) return NextResponse.json({ cards: [], missing: ids });
+  if (!result.ok) return result.response;
   const data = result.data as { cards: DeckCardInfo[]; missing: number[] };
   return NextResponse.json({ ...data, cards: withCatalogCardText(data.cards) });
 }

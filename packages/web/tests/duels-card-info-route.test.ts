@@ -132,16 +132,17 @@ it("creates the catalog lazily and reuses it across requests", async () => {
   expect(getDb).toHaveBeenCalledTimes(1);
 });
 
-it.each([400, 403, 404, 429, 500, 502, 503])("returns missing codes on a host %i without inventing engine cards from the catalog", async status => {
+it.each([400, 403, 404, 409, 429, 500, 502, 503])("passes the host's %i and error body through to card clients", async status => {
   cacheCard();
-  callDuelHost.mockResolvedValue({ ok: false, response: NextResponse.json({ error: "Host failed" }, { status }) });
+  const error = { error: "Host failed", code: "HOST_ERROR" };
+  callDuelHost.mockImplementation(async () => ({ ok: false, response: NextResponse.json(error, { status }) }));
   const { POST, GET } = await import("../app/api/duels/cards/route");
   const response = await POST(post([17242022, 100, 17242022]));
-  expect(response.status).toBe(200);
-  expect(await response.json()).toEqual({ cards: [], missing: [17242022, 100] });
-  const found = await GET(search("17242022"));
-  expect(found.status).toBe(200);
-  expect(await found.json()).toEqual({ cards: [] });
+  expect(response.status).toBe(status);
+  expect(await response.json()).toEqual(error);
+  const found = await GET(search("17242022", "room"));
+  expect(found.status).toBe(status);
+  expect(await found.json()).toEqual(error);
   expect(getDb).not.toHaveBeenCalled();
 });
 
@@ -167,13 +168,6 @@ it("keeps slug-bound numeric searches on the host's announcement permission path
   const { GET } = await import("../app/api/duels/cards/route");
   await GET(search("17242022", "room"));
   expect(callDuelHost).toHaveBeenCalledWith({ op: "cards", slug: "room", guildId: "guild-1", playerId: 7, query: "17242022" });
-});
-
-it("returns no choices when the host denies announcement search", async () => {
-  callDuelHost.mockResolvedValue({ ok: false, response: NextResponse.json({ error: "Not your choice" }, { status: 403 }) });
-  const { GET } = await import("../app/api/duels/cards/route");
-  expect(await (await GET(search("17242022", "room"))).json()).toEqual({ cards: [] });
-  expect(getDb).not.toHaveBeenCalled();
 });
 
 it("rejects invalid JSON before host or catalog access", async () => {
