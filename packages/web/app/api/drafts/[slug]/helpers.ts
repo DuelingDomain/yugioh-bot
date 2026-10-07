@@ -6,6 +6,8 @@ import {
   createDraftService,
   createSavedDeckService,
   MAX_COPIES_PER_PLAYER,
+  boosterDraftPhase,
+  boosterExtraSize,
 } from "@yugidraft/shared/services";
 import { toUtcIso } from "@/lib/utils";
 import { broadcaster } from "@/lib/notify";
@@ -262,7 +264,20 @@ export async function buildDraftResponse(slug: string, actor: { userId: number; 
     ? draftModel.currentPackRound <= mainSize
       ? "main"
       : "extra"
-    : undefined;
+    : boosterExtraSize(config) > 0 ? boosterDraftPhase(config, draftModel.currentPackRound) : undefined;
+  const mainRounds = config.packsPerPlayer ?? 5;
+  const extraSize = boosterExtraSize(config);
+  const totalPackRounds = isTheme ? undefined : mainRounds + (extraSize > 0 ? 1 : 0);
+  const currentPackSize = isTheme ? undefined : phase === "extra" ? extraSize : config.packSize ?? 8;
+  let boosterProgress: { main: number; mainTotal: number; extra: number; extraTotal: number } | undefined;
+  if (!isTheme) {
+    const counts = currentPlayer && isParticipant ? db.prepare(`select
+      sum(case when wave_number <= ? then 1 else 0 end) as main,
+      sum(case when wave_number > ? then 1 else 0 end) as extra
+      from draft_picks where draft_id = ? and player_id = ?`)
+      .get(mainRounds, mainRounds, draft.id, currentPlayer.id) as { main: number | null; extra: number | null } : undefined;
+    boosterProgress = { main: counts?.main ?? 0, mainTotal: mainSize, extra: counts?.extra ?? 0, extraTotal: extraSize };
+  }
 
   let allowedCubes:
     | Array<{ id: number; name: string; archetype: string | null; mainCount: number; extraCount: number; sampleImages: string[] }>
@@ -368,6 +383,9 @@ export async function buildDraftResponse(slug: string, actor: { userId: number; 
     completed: draft.status === "completed",
     pickSeconds,
     phase,
+    totalPackRounds,
+    currentPackSize,
+    boosterProgress,
     themeProgress,
     allowedCubes,
     botsEnabled: draftTestBotsEnabled(),

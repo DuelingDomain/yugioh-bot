@@ -52,15 +52,16 @@ describe("CreateDraftForm pool: card name search", () => {
     return { stub, input };
   };
 
-  it("lists the closest matches for a partial name, the best match first, and leaves Extra Deck cards out", async () => {
+  it("lists the closest matches for a partial name, best match first, with Extra Deck cards included", async () => {
     const { input } = await openSearch();
     fireEvent.change(input, { target: { value: "blue-eyes" } });
 
     const list = await screen.findByRole("listbox", { name: "Results for blue-eyes" });
     const options = within(list).getAllByRole("option");
-    expect(options).toHaveLength(2);
+    expect(options).toHaveLength(3);
     expect(options[0]).toHaveAccessibleName(/^Blue-Eyes White Dragon/);
     expect(options[1]).toHaveAccessibleName(/^Blue-Eyes Alternative/);
+    expect(options[2]).toHaveAccessibleName(/^Blue-Eyes Ultimate/);
     // The row is the only control: no button sits inside an option.
     expect(within(list).queryAllByRole("button")).toHaveLength(0);
     expect(input).toHaveAttribute("role", "combobox");
@@ -208,7 +209,8 @@ describe("CreateDraftForm pool: starting from a cube", () => {
     expect(summary).toHaveTextContent("5Monsters");
     expect(summary).toHaveTextContent("1Spells");
     expect(summary).toHaveTextContent("3Traps");
-    expect(summary).toHaveTextContent("6 Extra Deck cards stay out. Cube drafts deal main-deck cards.");
+    expect(summary).toHaveTextContent("18in the Extra pool");
+    expect(summary).toHaveTextContent("18 Extra Deck cards stay out of the main packs. Turn on the Extra Deck round to draft them.");
     expect(screen.queryByRole("region", { name: "Pool status" })).toBeNull();
     expect(screen.queryByLabelText("Search cards by name")).toBeNull();
     expect(screen.getByRole("link", { name: /Open in editor/ })).toHaveAttribute("href", "/cubes/1");
@@ -312,7 +314,7 @@ describe("CreateDraftForm pool: customizing a cube", () => {
     expect(within(alpha()).getByLabelText("3 copies")).toBeInTheDocument();
   });
 
-  it("adds an archetype at three copies each and says the Extra Deck cards stayed out", async () => {
+  it("adds an archetype at three copies each and sends its Extra Deck cards to the Extra pool", async () => {
     stubFetch();
     render(<CreateDraftForm />);
     await openEditor();
@@ -321,10 +323,12 @@ describe("CreateDraftForm pool: customizing a cube", () => {
     fireEvent.change(screen.getByLabelText("Archetype"), { target: { value: "blue" } });
     fireEvent.click(await screen.findByRole("button", { name: "Blue-Eyes" }));
 
-    expect(await screen.findByText("Added 2 cards from Blue-Eyes. 1 Extra Deck card stays out.")).toBeInTheDocument();
+    expect(await screen.findByText("Added 2 cards from Blue-Eyes. 1 was already in the pool.")).toBeInTheDocument();
     const list = screen.getByRole("list", { name: "Pool cards" });
     expect(within(list).getByText("Blue-Eyes White Dragon")).toBeInTheDocument();
     expect(within(list).queryByText("Blue-Eyes Ultimate")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /^Extra/ }));
+    expect(within(screen.getByRole("list", { name: "Extra pool cards" })).getByText("Blue-Eyes Ultimate")).toBeInTheDocument();
     const row = within(list).getByText("Blue-Eyes White Dragon").closest("[role=listitem]") as HTMLElement;
     expect(within(row).getByLabelText("3 copies")).toBeInTheDocument();
   });
@@ -341,24 +345,313 @@ describe("CreateDraftForm pool: customizing a cube", () => {
     expect(screen.getByRole("button", { name: "Metal Raiders added" })).toBeDisabled();
   });
 
-  it("adds pasted passcodes, one copy per occurrence, and reports what it could not add", async () => {
-    stubFetch();
+  const poolRow = (name: string, lane: "Pool cards" | "Extra pool cards" = "Pool cards") =>
+    within(screen.getByRole("list", { name: lane })).getByText(name).closest("[role=listitem]") as HTMLElement;
+  const resolveBodies = (stub: ReturnType<typeof stubFetch>) =>
+    stub.find("/api/cards/resolve", "POST").map((c) => c.body as { listText?: string });
+  const paste = (text: string) =>
+    fireEvent.paste(screen.getByLabelText("Card list"), { clipboardData: { getData: () => text } });
+  const openList = async () => {
+    const stub = stubFetch();
     render(<CreateDraftForm />);
     await openEditor();
-    fireEvent.click(screen.getByRole("button", { name: "Paste passcodes" }));
-    fireEvent.change(screen.getByLabelText("Passcodes"), { target: { value: "105\n105, 900\n424242" } });
-    fireEvent.click(screen.getByRole("button", { name: "Add 4 passcodes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Card list" }));
+    return stub;
+  };
 
-    expect(
-      await screen.findByText("Added 2 copies of 1 card. 1 passcode isn't in the card list yet. 1 Extra Deck card stays out."),
-    ).toBeInTheDocument();
-    const row = within(screen.getByRole("list", { name: "Pool cards" })).getByText("Cipher Soldier").closest("[role=listitem]") as HTMLElement;
-    expect(within(row).getByLabelText("2 copies")).toBeInTheDocument();
+  it("adds pasted passcodes and names at once and routes Extra Deck cards to the Extra pool", async () => {
+    const stub = await openList();
+    expect(screen.queryByRole("button", { name: /^Add list/ })).toBeNull();
+    paste("105\n105\n900\n424242");
+
+    expect(await screen.findByText(/^Pasted list - 3 cards \(2 Main, 1 Extra\) - 1 line skipped$/)).toBeInTheDocument();
+    expect(resolveBodies(stub).filter((b) => b.listText !== undefined)).toHaveLength(1);
+    expect(within(poolRow("Cipher Soldier")).getByLabelText("2 copies")).toBeInTheDocument();
+    expect(screen.getByLabelText("Card list")).toHaveValue("");
+    fireEvent.click(screen.getByRole("button", { name: /^Extra/ }));
+    expect(within(poolRow("Fusion Wyrm", "Extra pool cards")).getByLabelText("4 copies")).toBeInTheDocument();
+  });
+
+  it("adds a list of names with counts and keeps corrected and skipped details closed", async () => {
+    const stub = await openList();
+    const text = "Engines\n3 Dragon Egg\n2 Cipher Soldeir\n1 Fusion Wyrm\nGlue";
+    paste(text);
+
+    expect(await screen.findByText("Pasted list - 6 cards (5 Main, 1 Extra) - 1 name corrected - 2 lines skipped")).toBeInTheDocument();
+    expect(resolveBodies(stub).some((b) => b.listText === text)).toBe(true);
+    expect(within(poolRow("Dragon Egg")).getByLabelText("3 copies")).toBeInTheDocument();
+    expect(within(poolRow("Cipher Soldier")).getByLabelText("2 copies")).toBeInTheDocument();
+
+    const report = screen.getByTestId("list-import-report");
+    expect(report.querySelector("details")).not.toHaveAttribute("open");
+    expect(within(report).getByRole("list", { name: "Corrected names", hidden: true })).toHaveTextContent("Cipher Soldeir");
+    expect(within(report).getByRole("list", { name: "Skipped lines", hidden: true })).toHaveTextContent("Glue");
+    expect(screen.getByLabelText("Card list")).toHaveValue("");
+  });
+
+  it("never imports typed text by itself: a pause after a partial name sends no request", async () => {
+    const stub = await openList();
+    const box = screen.getByLabelText("Card list");
+    const imports = () => resolveBodies(stub).filter((b) => b.listText !== undefined);
+    // "Dark Magician" is a real card; the owner is still typing "Dark Magician of Chaos".
+    fireEvent.change(box, { target: { value: "Dragon Egg" } });
+    await new Promise((r) => setTimeout(r, 1200));
+    expect(imports()).toHaveLength(0);
+    expect(box).toHaveValue("Dragon Egg");
+    expect(screen.queryByText(/^Pasted list/)).toBeNull();
+  });
+
+  it("imports typed text with the Add button, which is off while the box is empty", async () => {
+    const stub = await openList();
+    const box = screen.getByLabelText("Card list");
+    const add = screen.getByRole("button", { name: "Add" });
+    expect(add).toBeDisabled();
+    fireEvent.change(box, { target: { value: "3 Dragon Egg" } });
+    expect(add).toBeEnabled();
+    fireEvent.click(add);
+    expect(await screen.findByText("Pasted list - 3 cards (3 Main, 0 Extra)")).toBeInTheDocument();
+    expect(resolveBodies(stub).filter((b) => b.listText !== undefined)).toHaveLength(1);
+    expect(box).toHaveValue("");
+  });
+
+  it("adds a second paste that comes while the first import runs, after the first", async () => {
+    const stub = await openList();
+    const inner = globalThis.fetch;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let held = 0;
+    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
+      const isList = String(input) === "/api/cards/resolve" && String(init?.body ?? "").includes("listText");
+      if (isList && held++ === 0) return gate.then(() => inner(input, init));
+      return inner(input, init);
+    });
+    paste("3 Dragon Egg");
+    expect(await screen.findByText("Adding the list.")).toBeInTheDocument();
+    paste("2 Cipher Soldier");
+    expect(await screen.findByText("1 more list is waiting.")).toBeInTheDocument();
+    release();
+    expect(await screen.findByText("Pasted list 2 - 2 cards (2 Main, 0 Extra)")).toBeInTheDocument();
+    expect(screen.getByText("Pasted list - 3 cards (3 Main, 0 Extra)")).toBeInTheDocument();
+    expect(resolveBodies(stub).filter((b) => b.listText !== undefined).map((b) => b.listText)).toEqual(["3 Dragon Egg", "2 Cipher Soldier"]);
+    expect(within(poolRow("Dragon Egg")).getByLabelText("3 copies")).toBeInTheDocument();
+    expect(within(poolRow("Cipher Soldier")).getByLabelText("2 copies")).toBeInTheDocument();
+  });
+
+  it("says some cards were not looked up, and that cards listed under Extra went to Main", async () => {
+    await openList();
+    const inner = globalThis.fetch;
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const res = await inner(input, init);
+      if (String(input) !== "/api/cards/resolve" || !String(init?.body ?? "").includes("listText")) return res;
+      return Response.json({ ...(await res.json()), lookupLimited: true, movedToMain: 2 });
+    });
+    paste("3 Dragon Egg\nGlue");
+
+    expect(await screen.findByText("Pasted list - 3 cards (3 Main, 0 Extra) - 1 line skipped")).toBeInTheDocument();
+    const report = screen.getByTestId("list-import-report");
+    expect(within(report).getByText("Some cards were not looked up this time. Add the list again to look up the rest.")).toBeInTheDocument();
+    expect(within(report).getByText("2 cards listed under Extra are not Extra Deck monsters - added to Main")).toBeInTheDocument();
+  });
+
+  it("says the lookup was limited, not that the cards are unknown, when nothing was found", async () => {
+    await openList();
+    const inner = globalThis.fetch;
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) !== "/api/cards/resolve" || !String(init?.body ?? "").includes("listText")) return inner(input, init);
+      return Response.json({ cards: [], entries: [], unknown: [], corrected: [], lookupLimited: true });
+    });
+    paste("Some Card\nOther Card");
+
+    expect(await screen.findByText("No cards found in that list.")).toBeInTheDocument();
+    expect(screen.getByText("Some cards were not looked up this time. Add the list again to look up the rest.")).toBeInTheDocument();
+    expect(screen.queryByText(/lines? that (is|are) not a card name/)).toBeNull();
+    expect(screen.getByLabelText("Card list")).toHaveValue("Some Card\nOther Card");
+  });
+
+  it("keeps typed text when a dropped list goes in, and when it fails", async () => {
+    await openList();
+    const box = screen.getByLabelText("Card list");
+    const drop = (text: string) => fireEvent.drop(box, { dataTransfer: { getData: () => text } });
+    fireEvent.change(box, { target: { value: "Dragon Egg" } });
+    drop("2 Cipher Soldier");
+    expect(await screen.findByText("Pasted list - 2 cards (2 Main, 0 Extra)")).toBeInTheDocument();
+    expect(box).toHaveValue("Dragon Egg");
+
+    const inner = globalThis.fetch;
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) =>
+      String(input) === "/api/cards/resolve" && String(init?.body ?? "").includes("listText")
+        ? Response.json({ error: "List is too long." }, { status: 400 })
+        : inner(input, init),
+    );
+    drop("5 Dark Hole");
+    expect(await screen.findByText("List is too long.")).toBeInTheDocument();
+    expect(box).toHaveValue("Dragon Egg");
+  });
+
+  it("puts a queued list back into the box when it fails", async () => {
+    await openList();
+    const box = screen.getByLabelText("Card list");
+    const inner = globalThis.fetch;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let held = 0;
+    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
+      const isList = String(input) === "/api/cards/resolve" && String(init?.body ?? "").includes("listText");
+      if (!isList) return inner(input, init);
+      return held++ === 0 ? gate.then(() => inner(input, init)) : Promise.resolve(Response.json({ error: "List is too long." }, { status: 400 }));
+    });
+    paste("3 Dragon Egg");
+    expect(await screen.findByText("Adding the list.")).toBeInTheDocument();
+    paste("2 Cipher Soldier");
+    expect(await screen.findByText("1 more list is waiting.")).toBeInTheDocument();
+    release();
+    expect(await screen.findByText("List is too long.")).toBeInTheDocument();
+    expect(screen.getByText("Pasted list - 3 cards (3 Main, 0 Extra)")).toBeInTheDocument();
+    expect(box).toHaveValue("2 Cipher Soldier");
+  });
+
+  it("does not import twice when a paste follows typed text", async () => {
+    const stub = await openList();
+    const box = screen.getByLabelText("Card list");
+    fireEvent.change(box, { target: { value: "3 Dragon Egg" } });
+    (box as HTMLTextAreaElement).setSelectionRange(0, 12);
+    paste("3 Dragon Egg");
+    await screen.findByText("Pasted list - 3 cards (3 Main, 0 Extra)");
+    await new Promise((r) => setTimeout(r, 900));
+    expect(resolveBodies(stub).filter((b) => b.listText !== undefined)).toHaveLength(1);
+  });
+
+  it("imports typed text on Enter at once, and Shift+Enter does not import", async () => {
+    const stub = await openList();
+    const box = screen.getByLabelText("Card list");
+    fireEvent.change(box, { target: { value: "2 Dragon Egg" } });
+    expect(fireEvent.keyDown(box, { key: "Enter", shiftKey: true })).toBe(true);
+    expect(resolveBodies(stub).filter((b) => b.listText !== undefined)).toHaveLength(0);
+    fireEvent.keyDown(box, { key: "Enter", ctrlKey: true });
+    expect(await screen.findByText("Pasted list - 2 cards (2 Main, 0 Extra)")).toBeInTheDocument();
+    expect(box).toHaveValue("");
+  });
+
+  it("imports a loaded file at once and names the entry after the file", async () => {
+    const stub = await openList();
+    const file = new File(["3 Dragon Egg\nGlue\n"], "Flip.txt", { type: "text/plain" });
+    fireEvent.change(screen.getByLabelText("Upload card list file"), { target: { files: [file] } });
+
+    expect(await screen.findByText("Flip.txt - 3 cards (3 Main, 0 Extra) - 1 line skipped")).toBeInTheDocument();
+    expect(resolveBodies(stub).filter((b) => b.listText !== undefined)).toHaveLength(1);
+    expect(within(poolRow("Dragon Egg")).getByLabelText("3 copies")).toBeInTheDocument();
+  });
+
+  it("stacks entries, and Remove takes out only the copies that import added", async () => {
+    await openList();
+    paste("2 Alpha Beast\n1 Fusion Wyrm");
+    await screen.findByText("Pasted list - 3 cards (2 Main, 1 Extra)");
+    paste("3 Dragon Egg");
+    await screen.findByText("Pasted list 2 - 3 cards (3 Main, 0 Extra)");
+    expect(within(poolRow("Alpha Beast")).getByLabelText("5 copies")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove Pasted list" }));
+    await waitFor(() => expect(screen.queryByText(/^Pasted list - 3 cards/)).toBeNull());
+    // The cube's own 3 copies of Alpha Beast stay; the Extra pool is empty again.
+    expect(within(poolRow("Alpha Beast")).getByLabelText("3 copies")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^Extra/ }));
+    // The cube's own 3 copies of Fusion Wyrm stay in the Extra pool.
+    expect(within(poolRow("Fusion Wyrm", "Extra pool cards")).getByLabelText("3 copies")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^Main/ }));
+    expect(within(poolRow("Dragon Egg")).getByLabelText("3 copies")).toBeInTheDocument();
+    expect(screen.getByText("Pasted list 2 - 3 cards (3 Main, 0 Extra)")).toBeInTheDocument();
+  });
+
+  const step = (name: string, times: number) => {
+    for (let i = 0; i < times; i += 1) fireEvent.click(within(poolRow(name)).getByRole("button", { name: `One fewer ${name}` }));
+  };
+
+  it("does not take back copies the owner lowered: import to 5, lowered to 3, Remove leaves 3", async () => {
+    await openList();
+    paste("3 Dragon Egg");
+    await screen.findByText("Pasted list - 3 cards (3 Main, 0 Extra)");
+    paste("2 Dragon Egg");
+    await screen.findByText("Pasted list 2 - 2 cards (2 Main, 0 Extra)");
+    expect(within(poolRow("Dragon Egg")).getByLabelText("5 copies")).toBeInTheDocument();
+
+    step("Dragon Egg", 2);
+    expect(within(poolRow("Dragon Egg")).getByLabelText("3 copies")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Remove Pasted list 2" }));
+    await waitFor(() => expect(screen.queryByText(/^Pasted list 2 - /)).toBeNull());
+    expect(within(poolRow("Dragon Egg")).getByLabelText("3 copies")).toBeInTheDocument();
+  });
+
+  it("removes two stacked imports in any order, and never goes below zero", async () => {
+    await openList();
+    paste("3 Dragon Egg");
+    await screen.findByText("Pasted list - 3 cards (3 Main, 0 Extra)");
+    paste("2 Dragon Egg");
+    await screen.findByText("Pasted list 2 - 2 cards (2 Main, 0 Extra)");
+
+    // The oldest first: only its 3 copies leave, the newest import's 2 stay.
+    fireEvent.click(screen.getByRole("button", { name: "Remove Pasted list" }));
+    await waitFor(() => expect(screen.queryByText(/^Pasted list - /)).toBeNull());
+    expect(within(poolRow("Dragon Egg")).getByLabelText("2 copies")).toBeInTheDocument();
+    // The owner lowers the rest by one: the newest import has one copy left to take.
+    step("Dragon Egg", 1);
+    expect(within(poolRow("Dragon Egg")).getByLabelText("1 copy")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Remove Pasted list 2" }));
+    await waitFor(() => expect(screen.queryByRole("list", { name: "Added lists" })).toBeNull());
+    expect(within(screen.getByRole("list", { name: "Pool cards" })).queryByText("Dragon Egg")).toBeNull();
+  });
+
+  it("says so when nothing in the list is a card, and keeps the text", async () => {
+    await openList();
+    paste("Engines\nGlue");
+    expect(await screen.findByText("No cards found in that list.")).toBeInTheDocument();
+    expect(screen.getByText("Skipped 2 lines that are not card names")).toBeInTheDocument();
+    expect(screen.getByLabelText("Card list")).toHaveValue("Engines\nGlue");
+  });
+
+  it("shows the server's message and a Try again button when the list is refused with 503", async () => {
+    stubFetch({
+      extra: {
+        "POST /api/cards/resolve": () =>
+          new Response(JSON.stringify({ error: "Card database is unavailable. Try again shortly." }), { status: 503, headers: { "Retry-After": "1" } }),
+      },
+    });
+    render(<CreateDraftForm />);
+    await openEditor();
+    fireEvent.click(screen.getByRole("button", { name: "Card list" }));
+    paste("3 Dark Hole");
+    expect(await screen.findByText(/Card database is unavailable. Try again shortly. Wait 1 second, then try again./)).toBeInTheDocument();
+    expect(screen.getByLabelText("Card list")).toHaveValue("3 Dark Hole");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+  });
+
+  it("shows the 400 message", async () => {
+    stubFetch({ extra: { "POST /api/cards/resolve": () => Response.json({ error: "List is too long." }, { status: 400 }) } });
+    render(<CreateDraftForm />);
+    await openEditor();
+    fireEvent.click(screen.getByRole("button", { name: "Card list" }));
+    paste("3 Dark Hole");
+    expect(await screen.findByText("List is too long.")).toBeInTheDocument();
+  });
+
+  it("creates a draft from a pasted list on an empty pool without the old pool-first error", async () => {
+    const stub = stubFetch();
+    render(<CreateDraftForm />);
+    fireEvent.change(await screen.findByLabelText(/draft name/i), { target: { value: "Scratch" } });
+    fireEvent.click(await screen.findByRole("button", { name: /Start from scratch|Build your own/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Card list" }));
+    paste("40 Dragon Egg\n3 Fusion Wyrm");
+    await screen.findByText(/^Pasted list - 43 cards/);
+    fireEvent.click(screen.getByRole("button", { name: /create draft/i }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/draft/made"));
+    const { config } = postedDraft(stub);
+    expect(config.customCardIds).toHaveLength(40);
+    expect(config.customExtraCardIds).toEqual([900, 900, 900]);
+    expect(screen.queryByText("Add cards to the pool first")).toBeNull();
   });
 });
 
 describe("CreateDraftForm pool: saving", () => {
-  it("saves an edited cube as a new cube, sends the cube to copy the Extra Deck from, and makes it the base", async () => {
+  it("saves an edited cube as a new cube with its Extra pool as extra cards, and makes it the base", async () => {
     const stub = stubFetch();
     render(<CreateDraftForm />);
     await openEditor();
@@ -381,7 +674,7 @@ describe("CreateDraftForm pool: saving", () => {
         { id: 104, copies: 3 },
         { id: 105, copies: 1 },
       ],
-      copyExtraFromCubeId: 1,
+      extraCards: Array.from({ length: 6 }, (_, i) => ({ id: 900 + i, copies: 3 })),
     });
     expect(screen.getByRole("complementary", { name: /draft summary/i })).toHaveTextContent("Goat cube 2");
     expect(screen.queryByText(/edited/)).toBeNull();
@@ -422,7 +715,7 @@ describe("CreateDraftForm pool: saving", () => {
     await addCardByName("cipher", "Cipher Soldier");
 
     fireEvent.click(screen.getByRole("button", { name: "Save changes to Goat cube" }));
-    expect(screen.getByText("Replace Goat cube's main pool with this one? Its Extra Deck cards and other settings stay.")).toBeInTheDocument();
+    expect(screen.getByText("Replace Goat cube's main pool with this one? Its Extra pool and other settings stay.")).toBeInTheDocument();
     expect(stub.find("/api/cubes/1/cards", "POST")).toHaveLength(0);
     fireEvent.click(screen.getByRole("button", { name: "Replace" }));
 
@@ -800,5 +1093,62 @@ describe("CreateDraftForm Discord off", () => {
     expect(screen.queryByLabelText(/channel/i)).toBeNull();
     expect(screen.queryByText(/discord/i)).toBeNull();
     expect(stub.find("/api/discord/channels", "GET")).toHaveLength(0);
+  });
+});
+
+describe("CreateDraftForm: Extra Deck round and 2-Pick", () => {
+  const createFrom = async (stub: ReturnType<typeof stubFetch>) => {
+    fireEvent.change(screen.getByLabelText(/draft name/i), { target: { value: "Friday" } });
+    fireEvent.click(screen.getByRole("button", { name: /create draft/i }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/draft/made"));
+    return postedDraft(stub).config;
+  };
+
+  it("keeps the Extra Deck round off and 1 pick by default, and sends the cube's Extra pool", async () => {
+    const stub = stubFetch();
+    render(<CreateDraftForm />);
+    await pickGoat();
+    expect(screen.getByLabelText("Draft an Extra Deck round")).not.toBeChecked();
+    expect(screen.queryByLabelText("Extra pack size")).toBeNull();
+    const config = await createFrom(stub);
+    expect(config).toMatchObject({ extraDeckEnabled: false, extraDeckSize: 15, picksPerStep: 1 });
+    expect(config.customExtraCardIds).toHaveLength(18);
+  });
+
+  it("shows the helper text, the pack size (default 15) and a clear message when the Extra pool is too small", async () => {
+    const stub = stubFetch();
+    render(<CreateDraftForm />);
+    await pickGoat();
+    expect(screen.getByText("After the main rounds, each player gets one pack of Extra Deck monsters only.")).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Draft an Extra Deck round"));
+    expect(screen.getByLabelText("Extra pack size")).toHaveValue(15);
+    // 18 Extra Deck copies seat 1 player at 15 cards each; the form plans for 8.
+    expect(screen.getAllByText(/Extra pool is too small\. 8 players x 15 needs 120 Extra Deck cards, and the pool has 18 \(enough for 1 player\)\. Add 102 more\./).length).toBeGreaterThan(0);
+    fireEvent.change(screen.getByLabelText("Extra pack size"), { target: { value: "2" } });
+    expect(screen.getAllByText("Extra pool: enough for 9 players at 2 cards each.").length).toBeGreaterThan(0);
+    const config = await createFrom(stub);
+    expect(config).toMatchObject({ extraDeckEnabled: true, extraDeckSize: 2 });
+  });
+
+  it("sends 2-Pick as picksPerStep 2 and allows 120 cards per player", async () => {
+    const stub = stubFetch();
+    render(<CreateDraftForm />);
+    await pickGoat();
+    fireEvent.click(screen.getByRole("button", { name: "2-Pick" }));
+    fireEvent.change(screen.getByLabelText("Cards drafted per player"), { target: { value: "120" } });
+    fireEvent.change(screen.getByLabelText("Size of each pack"), { target: { value: "24" } });
+    const config = await createFrom(stub);
+    expect(config).toMatchObject({ picksPerStep: 2, cardsPerPlayer: 120, packSize: 24, packsPerPlayer: 5 });
+  });
+});
+
+describe("CreateDraftForm: card search tolerates typos", () => {
+  it("lists near names, Extra Deck monsters too, and adds the pick to the Extra pool", async () => {
+    stubFetch();
+    render(<CreateDraftForm />);
+    await openEditor();
+    fireEvent.change(await screen.findByLabelText("Search cards by name"), { target: { value: "blu eyez" } });
+    fireEvent.click(await screen.findByRole("option", { name: /^Blue-Eyes Ultimate/ }));
+    expect(screen.getByText("Added 1 copy of Blue-Eyes Ultimate to the Extra pool.")).toBeInTheDocument();
   });
 });

@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { readFileSync } from "node:fs";
 import { expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
-import { createCardCatalogService } from "@yugidraft/shared/services";
+import { createCardLookupBudget, createCardCatalogService } from "@yugidraft/shared/services";
 import { ensureCatalogCards } from "../src/lib/cube-pool";
 
 it("materializes engine-only artwork IDs before a cube can reference them", async () => {
@@ -48,4 +48,32 @@ it("fills Extra Deck artworks once across repeated cube checks", async () => {
     expect(catalog.hasArtworks(card.id)).toBe(true);
     expect(fetch).toHaveBeenCalledTimes(2);
   } finally { db.close(); }
+});
+
+
+it("reserves the 50-lookup budget for cards and retains successfully fetched cards", async () => {
+  const db = new Database(":memory:"); migrate(db);
+  const fetch = vi.fn(async (input: string | URL | Request) => {
+    const params = new URL(String(input)).searchParams;
+    const id = Number(params.get("id") ?? params.get("name")!.split(" ")[1]);
+    return Response.json({ data: [{ id, name: `Card ${id}`, type: "Effect Monster", frameType: "effect",
+      card_images: [{ id, image_url: "i", image_url_small: "i" }] }] });
+  });
+  const catalog = createCardCatalogService(db, { identityCatalog: new Map(), fetch });
+  const ids = Array.from({ length: 60 }, (_, i) => i + 1);
+  const budget = createCardLookupBudget();
+  // Advance the real fetch helper's rate-limit timers without waiting for 100 requests.
+  vi.useFakeTimers();
+  try {
+    const result = expect(ensureCatalogCards(catalog, ids, budget)).resolves.toEqual(ids.slice(50));
+    await Promise.all([result, vi.runAllTimersAsync()]);
+    const requests = fetch.mock.calls.map(([input]) => new URL(String(input)).searchParams);
+    expect(requests.filter((params) => params.has("id")).map((params) => Number(params.get("id"))))
+      .toEqual(ids.slice(0, 50));
+    expect(requests.filter((params) => params.has("name")).map((params) => params.get("name")))
+      .toEqual(ids.slice(0, 50).map((id) => `Card ${id}`));
+    expect(fetch).toHaveBeenCalledTimes(100);
+    expect(budget).toEqual({ remaining: 0, lookupLimited: true });
+    expect(catalog.findByIds(ids).map((card) => card.ygoprodeckId)).toEqual(ids.slice(0, 50));
+  } finally { vi.useRealTimers(); db.close(); }
 });

@@ -13,7 +13,7 @@ import {
   fieldsFromConfig,
 } from "./draft-config-fields";
 import { PoolEditor } from "./pool/pool-editor";
-import { PoolRailText, PoolRailValue, SeatNote } from "./pool/pool-rail";
+import { ExtraNote, PoolRailText, PoolRailValue, SeatNote } from "./pool/pool-rail";
 import { usePoolEditor } from "./pool/use-pool-editor";
 import { CardPoolPanel } from "@/components/cards/card-pool-panel";
 import type { CardSummary } from "@/lib/card-types";
@@ -254,7 +254,7 @@ export function DraftManageView({
     setEditError(null);
     if (poolEditor.loading) return;
     if (!poolEditor.ready || poolEditor.loadError) { setEditError("The pool hasn't loaded yet."); return; }
-    if (poolEditor.pool.size === 0) { setEditError("Add cards to the pool first"); return; }
+    if (poolEditor.pool.size === 0 && poolEditor.extra.size === 0) { setEditError("Add cards to the pool first"); return; }
     const err = validateFields(editFields);
     if (err) { setEditError(err); return; }
 
@@ -486,8 +486,12 @@ export function DraftManageView({
                   <StatusLine tone="block">{editError}</StatusLine>
                 </div>
               )}
-              <PoolEditor ctl={poolEditor} />
-              <PackFields value={editFields} onChange={setEditFields} />
+              <PoolEditor ctl={poolEditor} extraRound={editConfig.extraDeckEnabled} />
+              <PackFields value={editFields} onChange={setEditFields}>
+                {editConfig.extraDeckEnabled && livePool && (
+                  <ExtraNote className="wide" size={editConfig.extraDeckSize} total={poolEditor.extraTotal} players={Math.max(2, playerCount)} />
+                )}
+              </PackFields>
               <div className={styles.editActs}>
                 <SvButton variant="ghost" disabled={configSaving || poolEditor.loading} aria-busy={configSaving || poolEditor.loading || undefined} onClick={handleSaveConfig}>
                   Save setup

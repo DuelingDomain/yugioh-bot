@@ -189,7 +189,8 @@ describe("PUT /api/drafts/[slug]", () => {
     expect(data.config.customCardIds).toEqual(Array.from({ length: 30 }, (_, i) => i + 1));
 
     expect(data.config.packSize).toBe(8); // Retain the configured pack size.
-    expect(data.config.packsPerPlayer).toBe(5);
+    expect(data.config.packsPerPlayer).toBe(3); // Explicit round counts are independent of the pick quota.
+    expect(data.errors).toEqual(expect.arrayContaining([expect.stringMatching(/Each player opens 3 packs/)]));
   });
 
   it("keeps fifteen-card packs in a sixty-card draft", async () => {

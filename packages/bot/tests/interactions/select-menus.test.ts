@@ -124,6 +124,39 @@ function cappedMenuDraft() {
 }
 
 describe("select menu interactions", () => {
+  it("keeps Discord picks active through the Extra Deck pack and reports a repeated extra pick as waiting", async () => {
+    const app = setup();
+    try {
+      seedDraftCatalog(app, 8);
+      app.db.prepare("update card_catalog set type = 'Fusion Monster', frame_type = 'fusion' where ygoprodeck_id >= 5").run();
+      const host = app.players.upsert("guild-1", "900000000000000118", "Yugi");
+      const other = app.players.upsert("guild-1", "900000000000000119", "Kaiba");
+      const draft = app.drafts.create("guild-1", "channel-1", "Extra Discord", {
+        customCardIds: [1, 2, 3, 4], customExtraCardIds: [5, 6, 7, 8],
+        packsPerPlayer: 1, packSize: 2, cardsPerPlayer: 2, extraDeckEnabled: true, extraDeckSize: 2,
+      }, host.userId, host.id);
+      app.drafts.join(draft.id, other.id);
+      app.drafts.start(draft.id);
+      const choose = async (playerId: number, userId: string) => {
+        const option = app.drafts.pickOptions(draft.id, playerId)[0];
+        const menu = fakeSelectMenu({ customId: `draft_pick_card:${draft.id}`,
+          user: { id: userId, username: userId }, values: [String(option.id)] });
+        await handleSelectMenu(menu.interaction, app);
+        return menu;
+      };
+      for (let step = 0; step < 2; step++) { await choose(host.id, "900000000000000118"); await choose(other.id, "900000000000000119"); }
+      expect(app.drafts.findById(draft.id)).toMatchObject({ status: "active", currentPackRound: 2 });
+      const menu = await choose(host.id, "900000000000000118");
+      await handleSelectMenu(menu.interaction, app);
+      expect(menu.replies[1].content).toContain("already picked");
+      expect(menu.replies[1].content).not.toContain("finished drafting");
+      await choose(other.id, "900000000000000119");
+      await choose(host.id, "900000000000000118"); await choose(other.id, "900000000000000119");
+      expect(app.drafts.findById(draft.id).status).toBe("completed");
+      expect(app.broadcaster.draft).toHaveBeenCalledWith({ kind: "complete", slug: draft.webSlug });
+    } finally { app.db.close(); }
+  });
+
   beforeEach(() => {
     let counter = 0;
     vi.spyOn(Math, "random").mockImplementation(() => {

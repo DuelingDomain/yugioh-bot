@@ -44,6 +44,11 @@ it.each([
   const created = await POST(new Request("http://x/api/drafts", {
     method: "POST", body: JSON.stringify({ name: "Narrow", config }),
   }) as NextRequest);
+  if (packSize < 5 || cardsPerPlayer < 40) {
+    expect(created.status).toBe(400);
+    expect(db.prepare("select count(*) n from drafts").get()).toEqual({ n: 0 });
+    return;
+  }
   expect(created.status).toBe(201);
   const draft = await created.json();
   const context = { params: Promise.resolve({ slug: draft.webSlug }) };
@@ -53,8 +58,8 @@ it.each([
   const { PUT } = await import("../app/api/drafts/[slug]/route");
   const edited = await PUT(new Request("http://x", { method: "PUT", body: JSON.stringify({ config }) }) as NextRequest, context);
   expect(edited.status).toBe(packSize < 5 || cardsPerPlayer < 40 ? 400 : 200);
-  if (edited.status === 200) expect((await edited.json()).errors).toEqual([]);
-  const impossibleAtStart = impossible && edited.status !== 200;
+  if (edited.status === 200) expect((await edited.json()).errors).toEqual(expectedErrors);
+  const impossibleAtStart = impossible;
 
   const { GET } = await import("../app/api/drafts/[slug]/preflight/route");
   const preflight = await GET(new Request("http://x"), context);

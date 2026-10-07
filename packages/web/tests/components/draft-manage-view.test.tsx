@@ -487,6 +487,8 @@ describe("DraftManageView — editing the setup", () => {
 
   const withQty = (id: number, qty: number) => ({ ...CATALOG.find((c) => c.id === id)!, qty });
   const goatPool = GOAT.mainCards.map((c) => withQty(c.id, c.copies));
+  /** The Goat cube's Extra pool as the draft pool route returns it: 6 cards, 3 copies each. */
+  const goatExtra = Array.from({ length: GOAT.extraCount }, (_, i) => ({ ...CATALOG[0], id: 900 + i, name: `Extra ${i}`, type: "Fusion Monster", qty: 3 }));
   const fromGoat = {
     ...baseDraft,
     config: { ...baseDraft.config, setNames: [], customCardIds: [101, 101, 101, 102, 102, 103, 104, 104, 104], poolSource: { cubeId: 1, cubeName: "Goat cube" } },
@@ -501,7 +503,7 @@ describe("DraftManageView — editing the setup", () => {
   }
 
   it("names the cube the draft came from in the setup rail, with its card count", async () => {
-    stubFetch({ draftPool: goatPool });
+    stubFetch({ draftPool: goatPool, draftExtra: goatExtra });
     render(<DraftManageView draft={fromGoat} slug="my-slug" isCreator isParticipant={false} onStart={noop} onCancel={noop} onUpdate={noop} onJoin={noop} />);
     const setup = screen.getByRole("heading", { name: "Setup" }).closest("section")!;
     await waitFor(() => expect(within(setup).getByText("Pool").nextElementSibling).toHaveTextContent("Goat cube9 cards"));
@@ -516,7 +518,7 @@ describe("DraftManageView — editing the setup", () => {
   });
 
   it("opens the editor on the draft's own pool, with no way to change cube, and shows what differs from the cube", async () => {
-    stubFetch({ draftPool: [...goatPool.slice(0, 3), withQty(105, 1)] });
+    stubFetch({ draftPool: [...goatPool.slice(0, 3), withQty(105, 1)], draftExtra: goatExtra });
     await openEdit(fromGoat);
 
     const summary = await screen.findByRole("region", { name: "Chosen cube" });
@@ -532,7 +534,7 @@ describe("DraftManageView — editing the setup", () => {
   });
 
   it("Reset returns the pool to the cube it came from", async () => {
-    stubFetch({ draftPool: [...goatPool.slice(0, 3), withQty(105, 1)] });
+    stubFetch({ draftPool: [...goatPool.slice(0, 3), withQty(105, 1)], draftExtra: goatExtra });
     await openEdit(fromGoat);
     fireEvent.click(await screen.findByRole("button", { name: "Reset" }));
     expect(screen.queryByRole("region", { name: "Pool status" })).toBeNull();
@@ -541,7 +543,7 @@ describe("DraftManageView — editing the setup", () => {
   });
 
   it("saves the pool as cards with poolSource, never as sets, and keeps the pack fields", async () => {
-    stubFetch({ draftPool: goatPool });
+    stubFetch({ draftPool: goatPool, draftExtra: goatExtra });
     const onUpdate = await openEdit(fromGoat);
     fireEvent.change(await screen.findByLabelText("Search cards by name"), { target: { value: "cipher" } });
     fireEvent.click(await screen.findByRole("option", { name: /^Cipher Soldier/ }));
@@ -604,7 +606,7 @@ describe("DraftManageView — editing the setup", () => {
   });
 
   it("Cancel drops the edits, and opening again starts from the saved pool", async () => {
-    stubFetch({ draftPool: goatPool });
+    stubFetch({ draftPool: goatPool, draftExtra: goatExtra });
     await openEdit(fromGoat);
     fireEvent.change(await screen.findByLabelText("Search cards by name"), { target: { value: "cipher" } });
     fireEvent.click(await screen.findByRole("option", { name: /^Cipher Soldier/ }));

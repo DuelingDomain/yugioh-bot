@@ -11,6 +11,8 @@ export interface LobbyConfig {
   packSize?: number;
   packsPerPlayer?: number;
   pickSeconds?: number;
+  /** Cube drafts: cards a player takes from a pack before it moves on (1 or 2). */
+  picksPerStep?: number;
   alternatePassDirection?: boolean;
   randomizeSeats?: boolean;
   copyLimit?: boolean;
@@ -47,6 +49,11 @@ export function themeExtraOn(config: LobbyConfig): boolean {
   return config.extraDeckEnabled ?? true;
 }
 
+/** A cube draft's Extra Deck round is on only when the config says so (theme drafts default to on). */
+export function boosterExtraOn(config: LobbyConfig): boolean {
+  return config.extraDeckEnabled === true && (config.extraDeckSize ?? 15) > 0;
+}
+
 export function packsOf(config: LobbyConfig): number {
   const cards = config.cardsPerPlayer ?? 40;
   const size = config.packSize ?? 15;
@@ -75,7 +82,7 @@ export function startSummary(config: LobbyConfig, playerCount: number): { before
   return {
     before: "Deals ",
     strong: `${plural(packsOf(config), "pack")} of ${config.packSize ?? 15}`,
-    after: ` to each of the ${playerCount} players.${shuffled} Nobody can join after this.`,
+    after: ` to each of the ${playerCount} players.${boosterExtraOn(config) ? ` Then one Extra Deck pack of ${config.extraDeckSize ?? 15} each.` : ""}${shuffled} Nobody can join after this.`,
   };
 }
 
@@ -108,8 +115,10 @@ export function setupRows(config: LobbyConfig): SetupRow[] {
   const rows: SetupRow[] = [
     { label: "Each player", value: `${config.cardsPerPlayer ?? 40} cards` },
     { label: "Packs", value: `${plural(packsOf(config), "pack")} of ${config.packSize ?? "—"}` },
-    { label: "Pick duration", value: seconds },
   ];
+  if (config.picksPerStep === 2) rows.push({ label: "Picks per turn", value: "2 (2-Pick)" });
+  if (boosterExtraOn(config)) rows.push({ label: "Extra Deck round", value: `${plural(config.extraDeckSize ?? 15, "card")} each` });
+  rows.push({ label: "Pick duration", value: seconds });
   if (config.alternatePassDirection) rows.push({ label: "Passing", value: "Left, then right" });
   rows.push({ label: "Copy limit", value: config.copyLimit === false ? "Off" : "3 per card" });
   rows.push({ label: "Seats", value: config.randomizeSeats === true ? "Shuffled at the start" : "In join order" });

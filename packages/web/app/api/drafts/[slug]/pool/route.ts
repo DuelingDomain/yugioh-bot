@@ -35,25 +35,27 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
         ? config.poolCardIds
         : drafts.resolveCubeCardIds(config);
 
-    const qtyCounts = new Map<number, number>();
-    for (const id of ids) qtyCounts.set(id, (qtyCounts.get(id) ?? 0) + 1);
+    const summaries = (poolIds: number[]): CardSummary[] => {
+      const qtyCounts = new Map<number, number>();
+      for (const id of poolIds) qtyCounts.set(id, (qtyCounts.get(id) ?? 0) + 1);
 
-    const cards: CardSummary[] = catalog.findByIds([...qtyCounts.keys()]).map((c) => ({
-      id: c.ygoprodeckId,
-      name: c.name,
-      type: c.type,
-      frameType: c.frameType,
-      attribute: c.attribute,
-      level: c.level,
-      effectText: c.effectText,
-      atk: c.atk,
-      def: c.def,
-      imageUrl: c.imageUrl,
-      imageUrlSmall: c.imageUrlSmall,
-      qty: qtyCounts.get(c.ygoprodeckId) ?? 1,
-    }));
+      return catalog.findByIds([...qtyCounts.keys()]).map((c) => ({
+        id: c.ygoprodeckId,
+        name: c.name,
+        type: c.type,
+        frameType: c.frameType,
+        attribute: c.attribute,
+        level: c.level,
+        effectText: c.effectText,
+        atk: c.atk,
+        def: c.def,
+        imageUrl: c.imageUrl,
+        imageUrlSmall: c.imageUrlSmall,
+        qty: qtyCounts.get(c.ygoprodeckId) ?? 1,
+      }));
+    };
 
-    return NextResponse.json({ cards });
+    return NextResponse.json({ cards: summaries(ids), extraCards: summaries(drafts.resolveExtraCardIds(config, env.discordGuildId)) });
   } catch (error) {
     console.error("[GET /api/drafts/[slug]/pool]", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

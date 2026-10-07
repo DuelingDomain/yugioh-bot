@@ -88,6 +88,20 @@ describe("cube pool routes", () => {
     verify.close();
   });
 
+  it("bounds catalog warming to 50 fetches and reports skipped ids", async () => {
+    await setupDb();
+    const discordFetch = globalThis.fetch;
+    const upstream = vi.fn(async () => Response.json({ error: "No card matching your query was found" }, { status: 400 }));
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
+      String(input).includes("ygoprodeck") ? upstream() : discordFetch(input, init)));
+    const ids = Array.from({ length: 1000 }, (_, i) => 900000 + i);
+    const result = await (await createPool({ name: "Limited", cards: [
+      { id: 1, copies: 2 }, ...ids.map((id) => ({ id, copies: 1 })),
+    ].slice(0, 1000) })).json();
+    expect(result).toMatchObject({ lookupLimited: true, unknownIds: ids.slice(0, 999) });
+    expect(upstream).toHaveBeenCalledTimes(50);
+  }, 40000);
+
   it("saves a pool as a real cube, splitting extra frames, summing duplicates and reporting unknown ids", async () => {
     await setupDb();
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ data: [] })));
