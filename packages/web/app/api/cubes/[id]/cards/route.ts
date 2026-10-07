@@ -4,7 +4,7 @@ import { requireWebAccess } from "@/lib/web-access";
 import { cubeWriteAccess } from "@/lib/cube-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
-import { createCardCatalogService, createCubeService, createPlayerService } from "@yugidraft/shared/services";
+import { createCardLookupBudget, createCardCatalogService, createCubeService, createPlayerService } from "@yugidraft/shared/services";
 import { isPasscode, loadCardArtworkFamily } from "@/lib/card-artworks";
 import { CubeArtworkConflict, swapCubeArtwork } from "@/lib/cube-artworks";
 import { cubeDetail } from "@/lib/cube-detail";
@@ -88,14 +88,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       case "replaceMain": {
         const parsed = parsePoolEntries(body.cards);
         if ("error" in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 });
-        await ensureCatalogCards(catalog, parsed.entries.map((e) => e.id));
+        const lookupBudget = createCardLookupBudget();
+        await ensureCatalogCards(catalog, parsed.entries.map((e) => e.id), lookupBudget);
         const result = cubes.replaceMain(cubeId, parsed.entries);
-        return NextResponse.json({ ...cubeDetail(cubeId, cubes, catalog), ...result });
+        return NextResponse.json({ ...cubeDetail(cubeId, cubes, catalog), ...result, ...(lookupBudget.lookupLimited ? { lookupLimited: true } : {}) });
       }
       case "importList": {
-        const { entries, unknown, corrected } = await prepareCubeListImport(catalog, body.text);
+        const { entries, unknown, corrected, lookupLimited } = await prepareCubeListImport(catalog, body.text);
         const result = cubes.importResolvedCards(cubeId, entries);
-        return NextResponse.json({ ...cubeDetail(cubeId, cubes, catalog), ...result, unknown, corrected });
+        return NextResponse.json({ ...cubeDetail(cubeId, cubes, catalog), ...result, unknown, corrected, ...(lookupLimited ? { lookupLimited } : {}) });
       }
       case "importYdk": {
         if (typeof body.text !== "string" || body.text.trim() === "") {

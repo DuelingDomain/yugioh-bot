@@ -83,7 +83,7 @@ async function handlePOST(request: Request) {
         copies: entry.copies,
         pool: entry.pool === "extra" || isExtraDeckFrame(byId.get(entry.id)!) ? "extra" : "main",
       }));
-      return NextResponse.json({ cards: cards.map(toCardSummary), entries, unknown: resolved.unknown, corrected: resolved.corrected });
+      return NextResponse.json({ cards: cards.map(toCardSummary), entries, unknown: resolved.unknown, corrected: resolved.corrected, ...(resolved.lookupLimited ? { lookupLimited: true } : {}) });
     } catch (error) {
       if (!(error instanceof CardListError)) throw error;
       return NextResponse.json({ error: error.message }, { status: 400 });

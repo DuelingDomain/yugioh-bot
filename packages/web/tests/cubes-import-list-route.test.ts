@@ -235,3 +235,15 @@ describe("cube subtract op", () => {
     expect(upstream).not.toHaveBeenCalled();
   });
 });
+
+
+it("bounds passcode list fetches and includes lookupLimited on editor/create responses", async () => {
+  const codes = Array.from({ length: 999 }, (_, i) => String(900000 + i));
+  const result = await (await mutate({ op: "importList", text: [...codes, "Dark Hole"].join("\n") })).json();
+  expect(result).toMatchObject({ lookupLimited: true, added: 1, copies: 1, unknown: codes });
+  expect(upstream).toHaveBeenCalledTimes(50);
+  upstream.mockClear();
+  const created = await (await create({ name: "Limited", importText: [...codes, "Dark Hole"].join("\n") })).json();
+  expect(created).toMatchObject({ lookupLimited: true, unknown: codes });
+  expect(upstream).toHaveBeenCalledTimes(50);
+}, 40000);

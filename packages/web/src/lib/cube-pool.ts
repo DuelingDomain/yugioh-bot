@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import type { CardCatalogService } from "@yugidraft/shared/services";
+import { createCardLookupBudget, type CardLookupBudget, type CardCatalogService } from "@yugidraft/shared/services";
 import { IMPORT_MAX_DISTINCT, tooManyDistinct } from "./ydk-file";
 
 const MAX_COPIES = 99;
@@ -27,32 +27,22 @@ export function parsePoolEntries(value: unknown): { entries: PoolEntry[] } | { e
   return { entries: [...merged].map(([id, copies]) => ({ id, copies })) };
 }
 
-/**
- * Make sure every id is in card_catalog. Missing ids go through syncDraftPool like /api/cards/resolve;
- * that skips Extra Deck cards, so anything still missing is fetched by id, which keeps them.
- * Returns the ids the card database does not have.
- */
-export async function ensureCatalogCards(catalog: CardCatalogService, ids: number[]): Promise<number[]> {
-  const present = (list: number[]) => new Set(list.filter((id) => catalog.hasCatalogRow(id)));
-  let missing = [...new Set(ids)].filter((id) => !catalog.hasCatalogRow(id));
-  if (missing.length === 0) return [];
-  try {
-    await catalog.syncDraftPool({ setNames: [], customCardIds: missing, includeNames: [], excludeNames: [] });
-  } catch (error) {
-    if (error instanceof Error && error.message.startsWith("Could not reach the card database")) throw error;
-  }
-  const have = present(missing);
-  missing = missing.filter((id) => !have.has(id));
+/** Warm missing IDs within a request's shared remote budget; unresolved/skipped IDs remain unknown. */
+export async function ensureCatalogCards(
+  catalog: CardCatalogService,
+  ids: number[],
+  lookupBudget: CardLookupBudget = createCardLookupBudget(),
+): Promise<number[]> {
+  const missing = [...new Set(ids)].filter((id) => !catalog.hasCatalogRow(id));
   for (const id of missing) {
     try {
-      await catalog.syncCardById(id);
+      await catalog.syncCardById(id, { lookupBudget });
     } catch (error) {
-      // The card database answers HTTP 400 for a passcode it lacks; a lost connection is a real failure.
+      // A lost connection is a real failure; ordinary unrecognized passcodes remain unknown.
       if (error instanceof Error && error.message.startsWith("Could not reach the card database")) throw error;
     }
   }
-  const after = present(missing);
-  return missing.filter((id) => !after.has(id));
+  return missing.filter((id) => !catalog.hasCatalogRow(id));
 }
 
 /**

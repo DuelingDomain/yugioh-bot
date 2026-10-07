@@ -29,7 +29,7 @@ The draft creation screen's **Start from scratch** pool is client state, not a s
 }
 ```
 
-The exact list-mode response shape is `{cards: CardSummary[], entries: Array<{id:number,copies:number,pool:"main"|"extra"}>, unknown:string[], corrected:Array<{from:string,to:string}>}`. All four arrays are always present. `cards` contains one summary per resolved ID in the same order as `entries`; required fields are `id`, `name`, `type`, `frameType`, `effectText`, `imageUrl`, and `imageUrlSmall`. `attribute`, `level`, `atk`, and `def` are optional. List-mode summaries omit `qty`; `entries[].copies` is the copy count.
+The exact list-mode response shape is `{cards: CardSummary[], entries: Array<{id:number,copies:number,pool:"main"|"extra"}>, unknown:string[], corrected:Array<{from:string,to:string}>}`. All four arrays are always present; optional `lookupLimited:true` reports that the remote lookup budget was reached. `cards` contains one summary per resolved ID in the same order as `entries`; required fields are `id`, `name`, `type`, `frameType`, `effectText`, `imageUrl`, and `imageUrlSmall`. `attribute`, `level`, `atk`, and `def` are optional. List-mode summaries omit `qty`; `entries[].copies` is the copy count.
 
 - `entries` preserves each resolved ID's first appearance in the input, sums all occurrences of that ID (including names and passcodes resolving to it), and caps the total at 99. YDK retains file order across sections; ydke uses main/extra/side order.
 - Extra Deck frames always have `pool:"extra"`; explicit extra placement also wins when an ID appears in multiple sections. Side/Deck Master entries otherwise join main. Resolved Extra Deck cards remain in `cards`.
@@ -58,7 +58,7 @@ Send these fields inside `config` to `POST /api/drafts` or the pending host's `P
 | --- | --- |
 | `extraDeckEnabled` | `false`; must be a boolean if supplied. Retaining an extra pool does not enable the phase. |
 | `extraDeckSize` | `15`; integer 0–15. Each player drafts this many Extra Deck cards. OFF or size 0 means no extra pack. |
-| `customExtraCardIds` | Optional array of positive, safe integer catalog IDs, **one per copy**, like `customCardIds`. An explicit array, including `[]`, overrides the source cube's extra pool. |
+| `customExtraCardIds` | Optional array of positive, safe integer catalog IDs, **one per copy**, like `customCardIds`, limited to 1000 distinct IDs (repeated copies do not count toward that limit). An explicit array, including `[]`, overrides the source cube's extra pool. |
 | `poolSource` | `{cubeId,cubeName}`. If `customExtraCardIds` is absent, use that cube's `cube_cards` rows with `pool='extra'` and their `max_copies`. The server sanitizes the reference to this guild and uses the database name. A missing/foreign reference is removed. |
 | `picksPerStep` | `1`; accepts 1 or 2. Sequential selections per pack **before passing**. Each individual selection retains its own existing `pickStep` and deadline; no multi-select request is needed. |
 
@@ -82,6 +82,7 @@ Invalid new fields return `400 {"error":"..."}` before draft/config writes:
 - `Extra deck size must be a whole number from 0 to 15`
 - `Picks per step must be 1 or 2`
 - `customExtraCardIds must be a list of positive card IDs (one per copy)`
+- `customExtraCardIds may contain at most 1000 distinct card IDs`
 
 Null is invalid for supplied new fields. Existing omitted fields normalize to OFF / 15 / 1. Theme size validation/defaults remain unchanged.
 
@@ -219,6 +220,10 @@ Both successful imports return `added: number`, `copies: number`, `unknown: stri
 All other failures return `{"error":"message"}`. Existing guards are unchanged: editor writes require guild membership and owner/admin permission; creation uses the existing auth guard. Error statuses are 401 unauthenticated, 403 denied, 404 missing/foreign cube, 500 missing server configuration, and 503 unavailable guild verification/card database. Card-database 503 responses include `Retry-After`. Invalid input (non-string/empty text, more than 65,536 UTF-16 code units, more than 1,000 distinct input names/passcodes, invalid count/YDK/ydke) returns 400. Creation also returns 400 for a missing name, invalid draft type, conflicting sources, or a failed cube write, and 409 for a duplicate cube name (case insensitive, checked again inside the transaction).
 
 Network resolution finishes before cube writes. Any hard resolution/write error leaves cube rows and config unchanged; normal catalog cache warming is independent, as in the existing YDK import. Imports read current copy counts inside the transaction. Affected legacy `config.customCardIds` copies are moved into pool rows so booster drafts use the new total; unrelated config and set selections are preserved. An affected legacy config already above 99 copies returns 400 and is preserved rather than losing copies.
+
+### Remote lookup budget
+
+Each list resolve/import, passcode/YDK import, pool save/replacement, and normal draft create/edit request allows at most **50 remote card searches/fetches**, shared across name batches, word probes, fallback names, missing passcodes and optional artwork enrichment. Cached cards remain usable after the budget is spent. Unresolved or skipped cards are returned in the existing `unknown` / `unknownIds` diagnostics. Responses include optional `lookupLimited:true` when the budget prevents a lookup; otherwise the field is omitted. Draft create/edit expose this flag alongside their advisory errors/warnings. This is a partial-resolution diagnostic, not an upstream failure; actual transient upstream errors still use 503. `customExtraCardIds` on draft POST/PUT rejects more than 1000 distinct positive safe IDs before resolution or draft writes; copies may repeat an ID.
 
 ## Text formats
 

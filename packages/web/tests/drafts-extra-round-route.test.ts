@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { NextRequest } from "next/server";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
+const { realPoolSync } = vi.hoisted(() => ({ realPoolSync: { enabled: false } }));
 const auth = vi.fn();
 const broadcaster = { draft: vi.fn() };
 vi.mock("@/lib/auth", () => ({ auth }));
@@ -10,13 +11,16 @@ vi.mock("@/lib/notify", () => ({ announcer: { announce: vi.fn() }, broadcaster }
 vi.mock("@/lib/draft-engine-types", () => ({ lookupDraftCardTypes: vi.fn().mockResolvedValue(new Map()) }));
 vi.mock("@yugidraft/shared/services", async (importOriginal) => {
   const original = await importOriginal<typeof import("@yugidraft/shared/services")>();
-  return { ...original, createCardCatalogService: (db: Parameters<typeof original.createCardCatalogService>[0]) => ({
-    ...original.createCardCatalogService(db), syncDraftPool: vi.fn().mockResolvedValue([]),
-  }) };
+  return { ...original, createCardCatalogService: (db: Parameters<typeof original.createCardCatalogService>[0]) => {
+    const catalog = original.createCardCatalogService(db);
+    return { ...catalog, syncDraftPool: vi.fn((...args: Parameters<typeof catalog.syncDraftPool>) =>
+      realPoolSync.enabled ? catalog.syncDraftPool(...args) : Promise.resolve([])) };
+  } };
 });
 let directory: string;
 beforeEach(async () => {
   vi.resetModules();
+  realPoolSync.enabled = false;
   auth.mockReset().mockResolvedValue({ user: { id: "host", name: "Host" } });
   broadcaster.draft.mockReset();
   directory = mkdtempSync(join(process.cwd(), ".extra-round-test-"));
@@ -60,6 +64,30 @@ async function joinBot(id: number) {
   drafts.join(id, bot.id);
   return { db, drafts, bot };
 }
+
+it.each(["POST", "PUT"])("preserves lookup diagnostics on an empty main pool from %s", async (method) => {
+  const created = method === "PUT" ? await create() : undefined;
+  const { getDb } = await import("../src/lib/db");
+  const db = getDb();
+  const before = db.prepare("select * from drafts").all();
+  const ids = Array.from({ length: 51 }, (_, i) => 900000 + i);
+  const fetch = vi.fn(async (input: RequestInfo | URL) => {
+    const id = Number(new URL(String(input)).searchParams.get("id"));
+    return id === ids[50] ? Response.json({ data: [{ id, name: "Valid last card", type: "Effect Monster", frameType: "effect",
+      card_images: [{ id, image_url: "i", image_url_small: "i" }] }] })
+      : Response.json({ error: "No card matching your query was found" }, { status: 400 });
+  });
+  vi.stubGlobal("fetch", fetch);
+  realPoolSync.enabled = true;
+  const config = { customCardIds: ids, customExtraCardIds: [], setNames: [], packSize: 8, packsPerPlayer: 5, cardsPerPlayer: 40 };
+  const response = method === "POST"
+    ? await (await import("../app/api/drafts/route")).POST(json({ name: "Limited empty", config }))
+    : await (await import("../app/api/drafts/[slug]/route")).PUT(json({ config }), context(created.webSlug));
+  expect(response.status).toBe(400);
+  expect(await response.json()).toMatchObject({ lookupLimited: true, unknownIds: ids });
+  expect(fetch).toHaveBeenCalledTimes(50);
+  expect(db.prepare("select * from drafts").all()).toEqual(before);
+}, 40000);
 
 it("stores imported extra copies and returns the normalized normal config", async () => {
   const result = await create();
@@ -188,4 +216,39 @@ it("saves config-backed scratch extras into actual cube rows", async () => {
   const { getDb } = await import("../src/lib/db");
   expect(getDb().prepare("select catalog_card_id id, max_copies copies from cube_cards where cube_id = ? and pool = 'extra' order by 1").all(cube.id))
     .toEqual([{ id: 1001, copies: 2 }, { id: 1002, copies: 1 }]);
+});
+
+
+it.each([
+  ["POST", "booster"], ["PUT", "booster"], ["POST", "theme"], ["PUT", "theme"],
+])("rejects more than 1000 distinct extra ids on %s (%s) without draft writes", async (method, mode) => {
+  const { getDb } = await import("../src/lib/db");
+  const db = getDb();
+  const created = method === "PUT" ? await create() : undefined;
+  const before = db.prepare("select * from drafts").all();
+  const config = { ...baseConfig, mode, customExtraCardIds: Array.from({ length: 1001 }, (_, i) => 10000 + i) };
+  const response = method === "POST"
+    ? await (await import("../app/api/drafts/route")).POST(json({ name: "Too many", config }))
+    : await (await import("../app/api/drafts/[slug]/route")).PUT(json({ config }), context(created.webSlug));
+  expect(response.status).toBe(400);
+  expect((await response.json()).error).toMatch(/1000/);
+  expect(db.prepare("select * from drafts").all()).toEqual(before);
+});
+
+
+it.each(["POST", "PUT"])("accepts 1000 distinct extra ids and repeated copies on %s", async (method) => {
+  const { getDb } = await import("../src/lib/db");
+  const db = getDb();
+  const insert = db.prepare(`insert into card_catalog
+    (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
+    values (?,?,'Fusion Monster','fusion','i','i','[]','t')`);
+  const ids = Array.from({ length: 1000 }, (_, i) => i + 10000);
+  db.transaction(() => ids.forEach((id) => insert.run(id, `Extra ${id}`)))();
+  const created = method === "PUT" ? await create() : undefined;
+  const config = { ...baseConfig, cardsPerPlayer: 40, packSize: 8, customExtraCardIds: [...ids, ...Array<number>(1001).fill(ids[0])] };
+  const response = method === "POST"
+    ? await (await import("../app/api/drafts/route")).POST(json({ name: "Boundary", config }))
+    : await (await import("../app/api/drafts/[slug]/route")).PUT(json({ config }), context(created.webSlug));
+  expect(response.status).toBe(method === "POST" ? 201 : 200);
+  expect((await response.json()).config.customExtraCardIds).toEqual(config.customExtraCardIds);
 });

@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { readFileSync } from "node:fs";
 import { expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
-import { createCardCatalogService } from "@yugidraft/shared/services";
+import { createCardLookupBudget, createCardCatalogService } from "@yugidraft/shared/services";
 import { ensureCatalogCards } from "../src/lib/cube-pool";
 
 it("materializes engine-only artwork IDs before a cube can reference them", async () => {
@@ -49,3 +49,23 @@ it("fills Extra Deck artworks once across repeated cube checks", async () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   } finally { db.close(); }
 });
+
+
+it("counts artwork enrichment in the 50-fetch budget and retains successfully fetched cards", async () => {
+  const db = new Database(":memory:"); migrate(db);
+  const fetch = vi.fn(async (input: string | URL | Request) => {
+    const params = new URL(String(input)).searchParams;
+    const id = Number(params.get("id") ?? params.get("name")!.split(" ")[1]);
+    return Response.json({ data: [{ id, name: `Card ${id}`, type: "Effect Monster", frameType: "effect",
+      card_images: [{ id, image_url: "i", image_url_small: "i" }] }] });
+  });
+  const catalog = createCardCatalogService(db, { identityCatalog: new Map(), fetch });
+  const ids = Array.from({ length: 60 }, (_, i) => i + 1);
+  const budget = createCardLookupBudget();
+  try {
+    expect(await ensureCatalogCards(catalog, ids, budget)).toEqual(ids.slice(25));
+    expect(fetch).toHaveBeenCalledTimes(50);
+    expect(budget.lookupLimited).toBe(true);
+    expect(catalog.findByIds(ids)).toHaveLength(25);
+  } finally { db.close(); }
+}, 40000);

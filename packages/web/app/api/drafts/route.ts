@@ -4,7 +4,7 @@ import { getDb } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { cubeReferenceAccess } from "@/lib/cube-access";
 import { env } from "@/lib/env";
-import { boosterDraftConfigError, themeDraftNumberError, createCardCatalogService, createDraftService, createPlayerService } from "@yugidraft/shared/services";
+import { boosterDraftConfigError, themeDraftNumberError, createCardLookupBudget, createCardCatalogService, createDraftService, createPlayerService } from "@yugidraft/shared/services";
 import type { DraftConfig } from "@yugidraft/shared/types";
 import { announcer } from "@/lib/notify";
 import { toUtcIso } from "@/lib/utils";
@@ -136,6 +136,8 @@ async function handlePOST(request: NextRequest) {
   // Theme mode: no card-pool sync — the pool lives in the theme cubes, which the
   // host adds inside the draft after creation. So a theme draft starts blank.
   if (config?.mode === "theme") {
+    const extraIdsError = boosterDraftConfigError({ customExtraCardIds: config.customExtraCardIds });
+    if (extraIdsError) return NextResponse.json({ error: extraIdsError }, { status: 400 });
     const numberError = themeDraftNumberError(config);
     if (numberError) return NextResponse.json({ error: numberError }, { status: 400 });
     if (!name) {
@@ -185,17 +187,23 @@ async function handlePOST(request: NextRequest) {
   const drafts = createDraftService(db);
 
   const cards = createCardCatalogService(db);
+  const lookupBudget = createCardLookupBudget();
   await cards.syncDraftPool({
     setNames: config.setNames ?? [],
     customCardIds: config.customCardIds ?? [],
     includeNames: config.includeNames ?? [],
     excludeNames: config.excludeNames ?? [],
-  });
-  await ensureCatalogCards(cards, config.customExtraCardIds ?? []);
+  }, { lookupBudget });
+  const unknownExtraIds = await ensureCatalogCards(cards, config.customExtraCardIds ?? [], lookupBudget);
+  const unknownIds = [...new Set([...(config.customCardIds ?? []).filter((id) => !cards.hasCatalogRow(id)), ...unknownExtraIds])];
   const cubeCardIds = drafts.resolveCubeCardIds(config);
   if (cubeCardIds.length === 0) {
     return NextResponse.json(
-      { error: "No cards matched the selected sets / passcodes" },
+      {
+        error: "No cards matched the selected sets / passcodes",
+        ...(lookupBudget.lookupLimited ? { lookupLimited: true } : {}),
+        ...(unknownIds.length ? { unknownIds } : {}),
+      },
       { status: 400 }
     );
   }
@@ -236,6 +244,8 @@ async function handlePOST(request: NextRequest) {
       config: draft.config,
       warnings: analysis.warnings,
       errors: analysis.errors,
+      ...(lookupBudget.lookupLimited ? { lookupLimited: true } : {}),
+      ...(unknownIds.length ? { unknownIds } : {}),
     },
     { status: 201 }
   );

@@ -189,3 +189,14 @@ describe("POST /api/cards/resolve listText", () => {
     expect(await response.json()).toEqual({ error: "Card database is unavailable. Try again shortly." });
   });
 });
+
+
+it("shares 50 remote lookups across names, fallbacks and passcodes and reports the limit", async () => {
+  const names = Array.from({ length: 60 }, (_, i) => `Unknownword${i} Missingword${i}`);
+  const codes = Array.from({ length: 60 }, (_, i) => String(900000 + i));
+  const response = await resolve({ listText: [...names, ...codes, "Dark Hole"].join("\n") });
+  expect(response.status).toBe(200);
+  const result = await response.json();
+  expect(result).toMatchObject({ lookupLimited: true, unknown: [...names, ...codes], entries: [{ id: 1, copies: 1, pool: "main" }] });
+  expect(upstream).toHaveBeenCalledTimes(50);
+}, 40000);

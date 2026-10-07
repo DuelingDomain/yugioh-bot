@@ -5,7 +5,7 @@ import { auth } from "@/lib/auth";
 import { cubeReferenceAccess } from "@/lib/cube-access";
 import { ensureCatalogCards, sanitizePoolSource } from "@/lib/cube-pool";
 import { env } from "@/lib/env";
-import { boosterDraftConfigError, themeDraftNumberError, createCardCatalogService, createDraftService } from "@yugidraft/shared/services";
+import { boosterDraftConfigError, themeDraftNumberError, createCardLookupBudget, createCardCatalogService, createDraftService } from "@yugidraft/shared/services";
 import { buildDraftResponse } from "./helpers";
 import { announcer, broadcaster } from "@/lib/notify";
 import { hostThemeAssignmentError } from "@/lib/theme-draft-validation";
@@ -161,6 +161,8 @@ export async function PUT(
       delete mergedConfig.poolSource;
     }
     if (mergedConfig.mode === "theme") {
+      const extraIdsError = boosterDraftConfigError({ customExtraCardIds: mergedConfig.customExtraCardIds });
+      if (extraIdsError) return NextResponse.json({ error: extraIdsError }, { status: 400 });
       const numberError = themeDraftNumberError(mergedConfig);
       if (numberError) return NextResponse.json({ error: numberError }, { status: 400 });
     } else {
@@ -191,6 +193,8 @@ export async function PUT(
       }
     }
 
+    let lookupLimited = false;
+    let unknownIds: number[] = [];
     let analysisWarnings: ReturnType<typeof drafts.analyzeBoosterDraft> | undefined;
 
     if (config !== undefined && mergedConfig.mode !== "theme") {
@@ -232,17 +236,24 @@ export async function PUT(
       }
 
       const cards = createCardCatalogService(db);
+      const lookupBudget = createCardLookupBudget();
       await cards.syncDraftPool({
         setNames: (mergedConfig as any).setNames ?? [],
         customCardIds: (mergedConfig as any).customCardIds ?? [],
         includeNames: (mergedConfig as any).includeNames ?? [],
         excludeNames: (mergedConfig as any).excludeNames ?? [],
-      });
-      await ensureCatalogCards(cards, mergedConfig.customExtraCardIds ?? []);
+      }, { lookupBudget });
+      const unknownExtraIds = await ensureCatalogCards(cards, mergedConfig.customExtraCardIds ?? [], lookupBudget);
+      unknownIds = [...new Set([...(mergedConfig.customCardIds ?? []).filter((id) => !cards.hasCatalogRow(id)), ...unknownExtraIds])];
+      lookupLimited = lookupBudget.lookupLimited;
       const cubeCardIds = drafts.resolveCubeCardIds(mergedConfig as any);
       if (cubeCardIds.length === 0) {
         return NextResponse.json(
-          { error: "No cards matched the selected sets / passcodes" },
+          {
+            error: "No cards matched the selected sets / passcodes",
+            ...(lookupLimited ? { lookupLimited: true } : {}),
+            ...(unknownIds.length ? { unknownIds } : {}),
+          },
           { status: 400 }
         );
       }
@@ -283,6 +294,8 @@ export async function PUT(
       webSlug: updated.web_slug,
       config: JSON.parse(updated.config_json),
       warnings: analysisWarnings?.warnings ?? [],
+      ...(lookupLimited ? { lookupLimited: true } : {}),
+      ...(unknownIds.length ? { unknownIds } : {}),
       errors: analysisWarnings?.errors ?? [],
     });
   } catch (error) {
@@ -338,6 +351,7 @@ export async function POST(
       }
     }
     const cards = createCardCatalogService(db);
+    const lookupBudget = createCardLookupBudget();
 
     if (!draftModel.config.cubeCardIds?.length && !draftModel.config.poolCardIds?.length) {
       await cards.syncDraftPool({
@@ -345,9 +359,9 @@ export async function POST(
         customCardIds: draftModel.config.customCardIds ?? [],
         includeNames: draftModel.config.includeNames ?? [],
         excludeNames: draftModel.config.excludeNames ?? [],
-      });
+      }, { lookupBudget });
     }
-    if (draftModel.config.mode !== "theme") await ensureCatalogCards(cards, draftModel.config.customExtraCardIds ?? []);
+    if (draftModel.config.mode !== "theme") await ensureCatalogCards(cards, draftModel.config.customExtraCardIds ?? [], lookupBudget);
 
     const started = drafts.start(draft.id);
 

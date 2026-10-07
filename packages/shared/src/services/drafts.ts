@@ -166,6 +166,7 @@ export function boosterDraftConfigError(config: DraftConfig): string | null {
   if (picks !== 1 && picks !== 2) return "Picks per step must be 1 or 2";
   if (config.customExtraCardIds !== undefined && (!Array.isArray(config.customExtraCardIds)
     || config.customExtraCardIds.some((id) => !Number.isSafeInteger(id) || id <= 0))) return "customExtraCardIds must be a list of positive card IDs (one per copy)";
+  if (config.customExtraCardIds && new Set(config.customExtraCardIds).size > 1000) return "customExtraCardIds may contain at most 1000 distinct card IDs";
   return null;
 }
 

@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 import type { Card, Cube, CubeCard, CubePool, CubePools, DraftConfig } from "../types/index.js";
 import { isExtraDeckFrame, type CardCatalogService } from "./card-catalog.js";
+import { createCardLookupBudget } from "./card-lookup-budget.js";
 import type { CubeAnalysis } from "./deal.js";
 import { DEFAULT_CUBE_COPIES, MAX_COPIES_PER_PLAYER, MAX_CUBE_COPIES, MIN_CUBE_COPIES } from "./constants.js";
 
@@ -149,7 +150,8 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
   const importPasscodeGroups = async (
     cubeId: number,
     groups: Array<{ codes: number[]; pool?: CubePool }>,
-  ): Promise<{ added: number; unknown: number[] }> => {
+  ): Promise<{ added: number; unknown: number[]; lookupLimited?: true }> => {
+    const lookupBudget = createCardLookupBudget();
     const cards = new Map<number, Card>();
     const unknown: number[] = [];
     const ids = [...new Set(groups.flatMap((g) => g.codes))];
@@ -158,7 +160,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
       if (cards.has(id) && catalog.hasCatalogRow(id)) continue;
       let card: Card | undefined;
       try {
-        card = await catalog.syncCardById(id);
+        card = await catalog.syncCardById(id, { lookupBudget });
       } catch (error) {
         // YGOPRODeck answers HTTP 400 for a passcode it does not have. A lost connection is
         // different: stop, and nothing has been written yet.
@@ -188,7 +190,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
       }
       bump(cubeId);
     })();
-    return { added: written.size, unknown };
+    return { added: written.size, unknown, ...(lookupBudget.lookupLimited ? { lookupLimited: true as const } : {}) };
   };
 
   return {
@@ -419,7 +421,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
       cubeId: number,
       codes: number[],
       opts: { pool?: CubePool } = {},
-    ): Promise<{ added: number; unknown: number[] }> {
+    ): Promise<{ added: number; unknown: number[]; lookupLimited?: true }> {
       return importPasscodeGroups(cubeId, [{ codes, pool: opts.pool }]);
     },
 

@@ -1,5 +1,6 @@
 export * from "./constants.js";
 export * from "./card-catalog.js";
+export * from "./card-lookup-budget.js";
 export { normalizeImportedCardName, rankCardsByTypo } from "./card-name-match.js";
 export * from "./card-artworks.js";
 export * from "./card-fetch.js";

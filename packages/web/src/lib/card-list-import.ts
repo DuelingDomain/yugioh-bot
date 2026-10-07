@@ -19,6 +19,7 @@ export interface ListDiagnostics {
   unknown: string[];
   /** Names that were close to a card and were matched to it. */
   corrected: ListCorrection[];
+  lookupLimited?: true;
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;

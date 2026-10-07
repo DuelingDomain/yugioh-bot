@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "../../src/db/schema.js";
+import { createCardLookupBudget } from "../../src/services/card-lookup-budget.js";
 import { createCardCatalogService } from "../../src/services/card-catalog.js";
 
 const databases: Database.Database[] = [];
@@ -90,3 +91,14 @@ describe("catalog list name resolution", () => {
     await expect(catalog.resolveCardNames(["Dark Hole", "Missing"])).rejects.toMatchObject({ name: "CardFetchError", status: 503 });
   });
 });
+
+it("bounds exact batches and word probes together, without limiting cached matches", async () => {
+  const { catalog, fetch } = setup([card(1, "Dark Hole")]);
+  const lookupBudget = createCardLookupBudget();
+  const names = Array.from({ length: 1000 }, (_, i) => `Unknownword${i} Missingword${i}`);
+  const result = await catalog.resolveCardNames([...names, "Dark Hole"], { lookupBudget });
+  expect(fetch).toHaveBeenCalledTimes(50);
+  expect(lookupBudget.lookupLimited).toBe(true);
+  expect(result.slice(0, 1000).every((r) => !r.card)).toBe(true);
+  expect(result[1000].card?.ygoprodeckId).toBe(1);
+}, 40000);
