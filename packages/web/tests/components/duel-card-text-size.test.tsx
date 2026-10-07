@@ -5,7 +5,7 @@ import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DuelCard } from "@yugidraft/shared/duels";
-import { CARD_TEXT_SIZE_KEY, cardTextStyle, loadCardTextSize, normalizeCardTextSize, saveCardTextSize, setCardTextSize, tableTextScale, useTableTextScale } from "@/components/duel/card-text-size";
+import { CARD_TEXT_SIZE_KEY, cardTextStyle, loadCardTextSize, normalizeCardTextSize, saveCardTextSize, setCardTextSize, tableTextScale, tableTextStyle, useTableTextScale } from "@/components/duel/card-text-size";
 import { DuelCardTextSizeControl } from "@/components/duel/card-text-size-control";
 import { LOCATION_MZONE, POS_FACEUP_ATTACK } from "@/components/duel/constants";
 import { CardInspector } from "@/components/duel/inspector";
@@ -63,6 +63,13 @@ describe("card text size preference", () => {
     expect(Number(document.documentElement.style.getPropertyValue("--tt"))).toBe(tableTextScale("xlarge"));
     unmount();
     expect(document.documentElement.style.getPropertyValue("--tt")).toBe("");
+  });
+});
+
+describe("the table text multiplier on a table root", () => {
+  it("is an inline style, so the first paint has the saved size", () => {
+    expect(tableTextStyle("xlarge")).toEqual({ "--tt": "1.3" });
+    expect(tableTextStyle("medium")).toEqual({ "--tt": "1" });
   });
 });
 

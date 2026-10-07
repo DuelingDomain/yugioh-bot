@@ -1,6 +1,6 @@
 "use client";
 
-import { useTableTextScale } from "../card-text-size";
+import { tableTextStyle, useCardTextSize } from "../card-text-size";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { teamOfSeat } from "@yugidraft/shared/duels";
 import { AttackConfirm, CardActionMenu, CardHoverInfo, confirmSide, targetName } from "../card-interactions";
@@ -69,7 +69,6 @@ const NO_KEYS = new Set<string>();
  * (table UI, aim flow, reveal gate, pick continuation), and keeps the engine in the room: it only gets a controller.
  */
 export function TagShell(props: TagShellProps) {
-  useTableTextScale();
   return props.preferences ? <TagShellBody {...props} preferences={props.preferences} /> : <TagShellOwnPreferences {...props} />;
 }
 
@@ -134,6 +133,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
     [engine.seats.length, viewerSeat],
   );
   const rootRef = useRef<HTMLDivElement>(null);
+  const textSize = useCardTextSize();
   const ownBoardRef = useRef<HTMLDivElement>(null);
   const boardRef = roomBoardRef ?? ownBoardRef;
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -297,6 +297,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
       data-turn={spectator ? "watch" : myTurn ? "you" : "opp"}
       data-reduced={controller.reducedMotion ? "true" : "false"}
       data-hud={hud ? "true" : undefined}
+      style={tableTextStyle(textSize)}
     >
       <TagHeader
         session={session}

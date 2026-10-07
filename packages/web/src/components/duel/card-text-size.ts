@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { useEffect, useSyncExternalStore } from "react";
+import { useLayoutEffect, useSyncExternalStore } from "react";
 
 /**
  * Browser-local presentation preference: how big the text of the card info panel and of the table UI is
@@ -26,6 +26,11 @@ const TABLE_SCALE: Readonly<Record<CardTextSize, number>> = { small: 1, medium: 
 
 export function tableTextScale(size: CardTextSize): number {
   return TABLE_SCALE[size];
+}
+
+/** `--tt` as an inline style on a table root: the first paint has the saved size, with no jump after the effect. */
+export function tableTextStyle(size: CardTextSize): CSSProperties {
+  return { "--tt": String(TABLE_SCALE[size]) } as CSSProperties;
 }
 
 export function isCardTextSize(value: unknown): value is CardTextSize {
@@ -90,12 +95,13 @@ export function useCardTextSize(): CardTextSize {
 }
 
 /**
- * Keeps `--tt` (the table text multiplier) on the page root while a duel table is shown. Every table CSS module reads
- * `var(--tt, 1)`; the card panel reads `--ct`. Call it once from each table shell.
+ * Keeps `--tt` (the table text multiplier) on the page root while a duel table is shown, for the portals outside the table
+ * roots. Every table CSS module reads `var(--tt, 1)`; the card panel reads `--ct`. Call it once, from `DuelRoomView` (or a
+ * preview page): a shell that unmounts must not take the property away from the room. The table roots also set it inline.
  */
 export function useTableTextScale(): void {
   const size = useCardTextSize();
-  useEffect(() => {
+  useLayoutEffect(() => {
     const root = document.documentElement;
     root.style.setProperty("--tt", String(tableTextScale(size)));
     return () => { root.style.removeProperty("--tt"); };

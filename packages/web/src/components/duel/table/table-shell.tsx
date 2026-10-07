@@ -1,6 +1,6 @@
 "use client";
 
-import { useTableTextScale } from "../card-text-size";
+import { tableTextStyle, useCardTextSize } from "../card-text-size";
 import { eliminationOrder } from "@/lib/duel/elimination-order";
 import { connectionLabel as labelForConnection } from "../connection-label";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
@@ -144,7 +144,6 @@ function useLatch(on: boolean): boolean {
  * look (room.module.css). The room itself stays the owner of the live engine: it passes a controller.
  */
 export function TableShell(props: TableShellProps) {
-  useTableTextScale();
   return props.preferences ? <TableShellBody {...props} preferences={props.preferences} /> : <TableShellOwnPreferences {...props} />;
 }
 
@@ -226,6 +225,7 @@ function TableShellBody({
   );
   const Stage = grid ? GridStage : TableStage;
   const rootRef = useRef<HTMLDivElement>(null);
+  const textSize = useCardTextSize();
   const ownBoardRef = useRef<HTMLDivElement>(null);
   const boardRef = roomBoardRef ?? ownBoardRef;
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -546,6 +546,7 @@ function TableShellBody({
       data-phase={battle ? "battle" : undefined}
       data-turn={spectator ? "watch" : myTurn ? "you" : "opp"}
       data-reduced={controller.reducedMotion ? "true" : "false"}
+      style={tableTextStyle(textSize)}
     >
       {/* One live region that stays mounted: a region that appears with its text is not always read out. */}
       <p className={styles.liveNote} role="status" aria-live="polite" data-testid="table-live">
