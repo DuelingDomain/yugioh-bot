@@ -253,3 +253,22 @@
   padding: var(--hud-top) 14px var(--hud-bottom) var(--hud-left);
 }
 .hudNotices { top: var(--hud-top); z-index: 29; }
+
+/* ---------- bottom bar (floating HUD) ----------
+   The phases live on the helipad now, so the bar keeps the hint of the phase and the turn controls, together at the
+   bottom right. The empty seat block and the left of the bar stay clear of glass. */
+.tagBottom > nav[data-phases="hub"] {
+  justify-content: flex-end;
+  padding: 0;
+}
+.tagBottom > nav[data-phases="hub"] > div:empty { display: none; }
+.tagBottom > nav[data-phases="hub"] > div:not(:last-child) {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+/* The hint is the only thing left in the rail: centre it in the pill instead of hanging it from the top. */
+.tagBottom > nav[data-phases="hub"] > div:nth-child(2) {
+  align-self: stretch;
+  justify-content: center;
+  padding: 0 12px;
+}

@@ -77,7 +77,7 @@ export function RoofDecor() {
       <svg className={styles.pad} data-roof="pad" width={560} height={560} viewBox="-280 -280 560 560" style={{ left: -280, top: -280, transform: `translateZ(1px) scale(${PAD_SCALE})`, transformOrigin: "50% 50%" }} aria-hidden="true">
         <circle r={232} fill="rgb(10 14 26 / 0.8)" stroke="rgb(228 182 79 / 0.55)" strokeWidth={5} />
         <circle r={212} fill="none" stroke="rgb(239 231 213 / 0.28)" strokeWidth={3} strokeDasharray="22 14" />
-        <text x={0} y={52} textAnchor="middle" fontSize={150} fontWeight={700} fill="rgb(228 182 79 / 0.32)" style={{ fontFamily: "var(--disp)" }}>H</text>
+        <text data-pad-h x={0} y={52} textAnchor="middle" fontSize={150} fontWeight={700} fill="rgb(228 182 79 / 0.32)" style={{ fontFamily: "var(--disp)" }}>H</text>
         <defs>
           <path id="tag-pad-arc" d="M -190 0 A 190 190 0 1 1 190 0 A 190 190 0 1 1 -190 0" />
         </defs>
@@ -176,7 +176,7 @@ export function Baton({ stops, anchorSeat, nameOf, rgbOf, out, holderRef }: Bato
           return (
             <div key={seat} className={styles.bpill} data-seat={seat} data-state={state || undefined} data-out={isOut ? "true" : undefined} style={style}>
               <b>{stop?.code ?? tagSeatCode("tag", seat) ?? ""}</b>
-              <span>{nameOf(seat).split(" ")[0].toUpperCase()}</span>
+              <span title={nameOf(seat)}>{nameOf(seat).split(" ")[0].toUpperCase()}</span>
             </div>
           );
         })}

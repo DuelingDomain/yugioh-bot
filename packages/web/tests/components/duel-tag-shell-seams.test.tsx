@@ -165,7 +165,9 @@ describe("TagShell seams for the room", () => {
     expect(container.textContent).toContain("Turn 5");
     expect(container.querySelector("[data-tag-header] [data-baton-strip]")).not.toBeNull();
     const track = container.querySelector("[data-tag-track]") as HTMLElement;
-    expect(track.querySelector("[aria-label*='phase' i], [data-station-track], ol[aria-label*='Phase' i]")).not.toBeNull();
+    // The phases live on the helipad; the bottom pill keeps the track bar (hint, responses, turn button).
+    expect(track.querySelector("nav[data-phases='hub']")).not.toBeNull();
+    expect(container.querySelector("[data-phase-hub-slot]")).not.toBeNull();
     expect(container.querySelectorAll("[data-baton-strip]")).toHaveLength(1);
   });
 

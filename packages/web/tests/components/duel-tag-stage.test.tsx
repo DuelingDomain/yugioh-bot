@@ -19,7 +19,7 @@ import type { TableStateId } from "@/components/duel/table/fixtures/common";
 
 afterEach(cleanup);
 
-function Stage({ id, withPrompt = false }: { id: TableStateId; withPrompt?: boolean }) {
+function Stage({ id, withPrompt = false, hub }: { id: TableStateId; withPrompt?: boolean; hub?: React.ReactNode }) {
   const state = TAG_FIXTURES.states[id];
   const controller = useFixtureController(state, { reducedMotion: true });
   const layout = tableLayout("tag", controller.engine, controller.viewerSeat);
@@ -33,6 +33,7 @@ function Stage({ id, withPrompt = false }: { id: TableStateId; withPrompt?: bool
         dispatchCamera={dispatch}
         renderSeatField={(props) => <SeatField {...props} />}
         teamNames={TAG_TEAM_NAMES}
+        hub={hub}
         promptCenter={
           withPrompt ? (
             <PromptCenter
@@ -196,5 +197,40 @@ describe("TagStage team loss", () => {
   it("cracks the lost team plate", () => {
     const root = mount("elimination");
     expect(root.textContent).toContain("TEAM DOWN");
+  });
+});
+
+describe("TagStage chrome", () => {
+  it("mounts the phase hub in its own slot on the board, only when it gets one", () => {
+    expect(mount("main").querySelector("[data-phase-hub-slot]")).toBeNull();
+    const { container } = render(<Stage id="main" hub={<nav data-testid="phases">phases</nav>} />);
+    const slot = container.querySelector("[data-phase-hub-slot]") as HTMLElement;
+    expect(slot).not.toBeNull();
+    expect(slot.querySelector("[data-testid='phases']")).not.toBeNull();
+  });
+
+  it("gives every seat name plate the full name as its tooltip", () => {
+    const root = mount("main");
+    const pills = [...root.querySelectorAll<HTMLElement>("[class*='bpill']")].filter((node) => !/bpills/.test(node.className) && node.querySelector("span"));
+    expect(pills.length).toBe(4);
+    for (const pill of pills) {
+      // The name span takes the pointer; the rest of the pill must not, or it blocks the fields under it.
+      const name = pill.querySelector("span") as HTMLElement;
+      expect(name.getAttribute("title")).toBeTruthy();
+      expect(name.getAttribute("title")?.toUpperCase()).toContain(name.textContent ?? "?");
+      expect(pill.hasAttribute("title")).toBe(false);
+    }
+  });
+
+  it("keeps each team plate to one row: one team name, one chip per member, the full member name for screen readers", () => {
+    const root = mount("main");
+    const plates = root.querySelectorAll("[data-team-plate]");
+    expect(plates.length).toBe(2);
+    for (const plate of plates) {
+      expect(plate.querySelectorAll("[data-team-name]").length).toBe(1);
+      const chips = plate.querySelectorAll("[data-member-seat]");
+      expect(chips.length).toBe(2);
+      for (const chip of chips) expect(chip.querySelector("[class*='srOnly']")?.textContent?.length).toBeGreaterThan(0);
+    }
   });
 });
