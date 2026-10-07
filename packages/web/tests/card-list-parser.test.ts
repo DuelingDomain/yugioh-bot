@@ -4,7 +4,7 @@ import { parseCardList, LIST_MAX_CHARS } from "@/lib/card-list-parser";
 
 describe("parseCardList", () => {
   it.each(["3 Dark Hole", "3x Dark Hole", "x3 Dark Hole", "Dark Hole x3", "Dark Hole (x3)"])("parses %s", (text) => {
-    expect(parseCardList(text)).toEqual([{ query: "Dark Hole", copies: 3, pool: "main", original: text }]);
+    expect(parseCardList(text)).toMatchObject([{ query: "Dark Hole", copies: 3, pool: "main", original: text }]);
   });
 
   it("parses names and counted or bare passcodes without expanding copies", () => {
@@ -28,6 +28,17 @@ describe("parseCardList", () => {
     ]);
     expect(() => parseCardList("#deckmaster\n1\n#deckmaster\n2")).toThrow(/multiple/);
     expect(() => parseCardList("#deckmaster\nnope")).toThrow(/Invalid Deck Master/);
+  });
+
+  it("treats #side as main consistently in passcode and name lists", () => {
+    expect(parseCardList("#main\n1\n#extra\n2\n#side\n3").map(({ query, pool }) => [query, pool])).toEqual([
+      [1, "main"], [3, "main"], [2, "extra"],
+    ]);
+  });
+
+  it("does not treat a card before a section header as a duplicate document label", () => {
+    const entries = parseCardList("Last updated: Oct 4th\nCurrent Size: 3\n\n\nDark Hole\n#extra\n2 Dark Hole");
+    expect(entries.filter((entry) => entry.heading)).toEqual([]);
   });
 
   it("reuses ydke links, including extra and side", () => {

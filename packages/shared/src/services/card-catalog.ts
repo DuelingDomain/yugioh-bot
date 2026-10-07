@@ -571,7 +571,8 @@ export function createCardCatalogService(
     },
 
     /** Exact normalized names first; only unique, high-similarity names may be corrected. Includes Extra Deck cards. */
-    async resolveCardNames(names: readonly string[]): Promise<CardNameResolution[]> {
+    async resolveCardNames(names: readonly string[], options: { cacheOnly?: boolean } = {}): Promise<CardNameResolution[]> {
+      if (names.length === 0) return [];
       // Read lightweight names once; load full metadata only for the chosen cards.
       const rows = db.prepare(`select c.ygoprodeck_id as id, c.name, coalesce(a.card_id, c.ygoprodeck_id) as main_id
         from card_catalog c left join card_artworks a on a.artwork_id = c.ygoprodeck_id
@@ -580,6 +581,12 @@ export function createCardCatalogService(
       for (const row of rows) {
         const key = normalizeImportedCardName(row.name);
         if (!cached.has(key)) cached.set(key, { id: row.main_id, name: row.name });
+      }
+      if (options.cacheOnly) {
+        return names.map((name) => {
+          const match = cached.get(normalizeImportedCardName(name));
+          return { name, card: match && findByIds([match.id])[0] };
+        });
       }
       const missing = [...new Map(names.filter((name) => !cached.has(normalizeImportedCardName(name)))
         .map((name) => [normalizeImportedCardName(name), name])).values()];

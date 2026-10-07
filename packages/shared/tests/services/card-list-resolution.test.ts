@@ -25,6 +25,13 @@ function setup(cached: ReturnType<typeof card>[] = [], remote: ReturnType<typeof
 }
 
 describe("catalog list name resolution", () => {
+  it("can check only normalized exact cached names without probing missing alternatives", async () => {
+    const { catalog, fetch } = setup([card(1, "7 Colored Fish")]);
+    const result = await catalog.resolveCardNames(["Colored Fish", "7 Colored Fish"], { cacheOnly: true });
+    expect(result.map((r) => r.card?.ygoprodeckId)).toEqual([undefined, 1]);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("uses normalized catalog names without fetching, including Extra Deck and straight/curly quotes", async () => {
     const { catalog, fetch } = setup([card(1, "Blue-Eyes White Dragon"), card(2, 'Maxx "C"'), card(3, "Gravekeeper's Spy"), card(4, "Shooting Star Dragon", "synchro")]);
     const result = await catalog.resolveCardNames([" blue eyes  WHITE dragon ", 'Maxx “C”', "Gravekeeper’s Spy", "Shooting Star Dragon"]);
