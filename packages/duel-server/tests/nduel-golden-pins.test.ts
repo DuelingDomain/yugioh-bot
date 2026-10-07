@@ -28,12 +28,15 @@ function fixture(current = pins, metadata = fingerprint(pins)) {
   writeFileSync(join(scripts, "prepare-data.ts"), `const sources = {\n  corePackage: "test-core",\n${Object.entries(current).map(([key, value]) => `  ${key}: "${value}",`).join("\n")}\n};\n`);
   const overlay = join(scripts, "../domain-core/multi-scripts");
   const patches = join(scripts, "../domain-core/patches");
+  const cardPatches = join(scripts, "../card-script-patches");
   mkdirSync(join(overlay, "nested"), { recursive: true });
   mkdirSync(patches, { recursive: true });
+  mkdirSync(cardPatches, { recursive: true });
+  writeFileSync(join(cardPatches, "c3743515.lua"), "-- shared card patch\n");
   writeFileSync(join(overlay, "nested/c1.lua"), "-- overlay\n");
   writeFileSync(join(overlay, "MANIFEST.json"), "{}\n");
   writeFileSync(join(patches, "0001-test.patch"), "patch\n");
-  const folderMetadata = `# multi-scripts-sha256=${multiScriptsFolderHash(overlay)}\n# patches-sha256=${multiScriptsFolderHash(patches)}\n`;
+  const folderMetadata = `# multi-scripts-sha256=${multiScriptsFolderHash(overlay)}\n# patches-sha256=${multiScriptsFolderHash(patches)}\n# card-script-patches-sha256=${multiScriptsFolderHash(cardPatches)}\n`;
   const golden = join(scripts, "native/golden.tsv");
   writeFileSync(golden, `n\tmode\tseed\tsteps\thash\n# turns=60 lp=3000\n${metadata ? `# data-pins-sha256=${metadata}\n` : ""}${folderMetadata}2\tffa\t1\t1\tfixture-hash\n`);
   // Reaching this stub demonstrates that the metadata guard passed, without building a core.
@@ -46,7 +49,7 @@ function fixture(current = pins, metadata = fingerprint(pins)) {
     env: { ...process.env, NDUEL_DIR: work, NDUEL_STATUS_DIR: join(root, "status"), NDUEL_NO_LOCK: "1",
       DUEL_MULTI_SCRIPTS_DIR: overlay, NDUEL_SKIP_BUILD: "0", NDUEL_DOMAIN: "0", NDUEL_CASES: "n2", NDUEL_SEEDS: "1", NDUEL_JOBS: "1", ...overrides },
   });
-  return { golden, built, work, run, overlay, patches };
+  return { golden, built, work, run, overlay, patches, cardPatches };
 }
 
 describe("nduel golden data pins", () => {
@@ -94,6 +97,7 @@ describe("nduel golden data pins", () => {
     expect(golden).not.toContain(current.scripts);
     expect(golden).toContain(`# multi-scripts-sha256=${multiScriptsFolderHash(f.overlay)}\n`);
     expect(golden).toContain(`# patches-sha256=${patchHash}\n`);
+    expect(golden).toContain(`# card-script-patches-sha256=${multiScriptsFolderHash(f.cardPatches)}\n`);
     const check = f.run("--check", { NDUEL_SKIP_BUILD: "1" });
     expect(check.status, check.stdout + check.stderr).toBe(0);
     expect(check.stdout).toContain("1 rows checked, 0 skipped, 0 mismatches");
@@ -102,9 +106,9 @@ describe("nduel golden data pins", () => {
 
 const folderDiagnostic = "overlay/patches changed: re-record with run-nduel.sh --record";
 describe("nduel golden overlay and patches", () => {
-  it.each(["overlay", "patches"] as const)("rejects edited %s before creating work or building", (folder) => {
+  it.each(["overlay", "patches", "cardPatches"] as const)("rejects edited %s before creating work or building", (folder) => {
     const f = fixture();
-    writeFileSync(join(f[folder], folder === "overlay" ? "nested/c1.lua" : "0001-test.patch"), "changed\n");
+    writeFileSync(join(f[folder], folder === "overlay" ? "nested/c1.lua" : folder === "cardPatches" ? "c3743515.lua" : "0001-test.patch"), "changed\n");
     const result = f.run();
     expect(result.status).toBe(1);
     expect(result.stderr).toContain(folderDiagnostic);
@@ -112,7 +116,7 @@ describe("nduel golden overlay and patches", () => {
     expect(existsSync(f.work)).toBe(false);
   });
 
-  it.each(["multi-scripts", "patches"])("rejects missing %s metadata", (field) => {
+  it.each(["multi-scripts", "patches", "card-script-patches"])("rejects missing %s metadata", (field) => {
     const f = fixture();
     writeFileSync(f.golden, readFileSync(f.golden, "utf8").replace(new RegExp(`^# ${field}-sha256=.*\\n`, "m"), ""));
     expect(f.run().stderr).toContain(folderDiagnostic);
