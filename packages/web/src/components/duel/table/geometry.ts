@@ -711,6 +711,8 @@ export function promptRoom(input: {
   const left = -spread + 6;
   const right = STAGE.width + spread - 6;
   const blocked: Bounds[] = (input.reserved ?? []).map((room) => ({ l: room.x, r: room.x + room.width, t: room.y, b: room.y + room.height }));
+  // The name plate (REN ARATA) is a soft block: covering it is better than covering a card.
+  const plate: Bounds[] = [];
   let mine: Bounds | null = null;
   for (const slot of layout.slots) {
     const pose = poses.get(slot.seat);
@@ -728,7 +730,7 @@ export function promptRoom(input: {
       // The hand starts at the board edge, not at the bottom of the nominal stage.
       blocked.push({ l: pose.x - 330 * pose.scale, r: pose.x + 330 * pose.scale, t: board.b, b: board.b + 120 * pose.scale });
       // The name plate (REN ARATA) hangs under the board's left corner; a big text size makes it wider.
-      blocked.push({ l: board.l, r: board.l + 230 * pose.scale, t: board.b - 6, b: board.b + 44 * pose.scale });
+      plate.push({ l: board.l, r: board.l + 230 * pose.scale, t: board.b - 6, b: board.b + 44 * pose.scale });
     }
   }
   for (const [seat, anchor] of anchors) {
@@ -740,21 +742,24 @@ export function promptRoom(input: {
   blocked.push({ l: ARENA_CENTER.x - 330, r: ARENA_CENTER.x + 330, t: STAGE.height - 4, b: 960 });
   blocked.push({ l: left - 6, r: left + hint.width, t: 952 - hint.height, b: 952 });
   const prefer = input.prefer ?? (mine ? { x: mine.l, y: mine.b } : { x: ARENA_CENTER.x, y: 760 });
-  for (const { width, height } of sizes) {
-    let best: PromptRoom | null = null;
-    let bestD = Infinity;
-    for (let x = left; x + width <= right; x += 8) {
-      for (let y = 4; y + height <= 952; y += 8) {
-        const rect: Bounds = { l: x, r: x + width, t: y, b: y + height };
-        const d = (x + width / 2 - prefer.x) ** 2 + (y + height / 2 - prefer.y) ** 2;
-        if (d >= bestD || blocked.some((b) => overlaps(b, rect, 4))) continue;
-        best = { x, y, width, height };
-        bestD = d;
+  const search = (extra: readonly Bounds[]): PromptRoom | null => {
+    for (const { width, height } of sizes) {
+      let best: PromptRoom | null = null;
+      let bestD = Infinity;
+      for (let x = left; x + width <= right; x += 8) {
+        for (let y = 4; y + height <= 952; y += 8) {
+          const rect: Bounds = { l: x, r: x + width, t: y, b: y + height };
+          const d = (x + width / 2 - prefer.x) ** 2 + (y + height / 2 - prefer.y) ** 2;
+          if (d >= bestD || blocked.some((b) => overlaps(b, rect, 4)) || extra.some((b) => overlaps(b, rect, 4))) continue;
+          best = { x, y, width, height };
+          bestD = d;
+        }
       }
+      if (best) return best;
     }
-    if (best) return best;
-  }
-  return null;
+    return null;
+  };
+  return search(plate) ?? (plate.length ? search([]) : null);
 }
 
 /** Prompt sizes in screen px, best first. Height comes first: the three seat choices should be whole before the panel narrows. */
