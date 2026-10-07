@@ -64,8 +64,9 @@ const FFA3_SLOTS: Readonly<Record<PoseSlot, HomeSlot>> = {
   vN: FFA3_HOME[1],
   vR: FFA3_HOME[2],
   focus: { x: 550, y: 206, rotateDeg: 180, scale: 0.9, tiltDeg: 9 },
-  dockL: { x: 110, y: 272, rotateDeg: 90, scale: 0.46, tiltDeg: 0 },
-  dockR: { x: 990, y: 272, rotateDeg: -90, scale: 0.46, tiltDeg: 0 },
+  // Smaller and lower than the 4-way docks: a rival's plate sits above the thumbnail, and a big text size makes it about 130 stage px tall.
+  dockL: { x: 110, y: 292, rotateDeg: 90, scale: 0.42, tiltDeg: 0 },
+  dockR: { x: 990, y: 292, rotateDeg: -90, scale: 0.42, tiltDeg: 0 },
   oHome: { x: 550, y: 652, rotateDeg: 0, scale: 0.58, tiltDeg: 0 },
   oL: { x: 327, y: 301, rotateDeg: 120, scale: 0.58, tiltDeg: 0 },
   oN: { x: 327, y: 301, rotateDeg: 120, scale: 0.58, tiltDeg: 0 },
@@ -726,6 +727,8 @@ export function promptRoom(input: {
       mine = board;
       // The hand starts at the board edge, not at the bottom of the nominal stage.
       blocked.push({ l: pose.x - 330 * pose.scale, r: pose.x + 330 * pose.scale, t: board.b, b: board.b + 120 * pose.scale });
+      // The name plate (REN ARATA) hangs under the board's left corner; a big text size makes it wider.
+      blocked.push({ l: board.l, r: board.l + 230 * pose.scale, t: board.b - 6, b: board.b + 44 * pose.scale });
     }
   }
   for (const [seat, anchor] of anchors) {

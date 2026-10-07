@@ -2337,6 +2337,11 @@
   display: inline;
 }
 
+/* A docked rival is a thumbnail at about a third of its size: its pile counts would be 4px text lying over the next pile. */
+:global([data-docked="true"]) .seatField .pileLabel {
+  display: none;
+}
+
 .sfName {
   position: absolute;
   bottom: -2px;
