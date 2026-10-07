@@ -181,8 +181,10 @@ describe("start, confirm and force", () => {
     expect(await screen.findByRole("dialog", { name: /draft starting/i })).toBeInTheDocument();
   });
 
-  it("asks before it starts with players who are not ready, and Wait for them sends nothing", async () => {
-    const api = makeApi();
+  it("asks before it starts with players who are not ready, and Wait for them sends no force", async () => {
+    const api = makeApi({ start: vi.fn(async () => {
+      throw new LobbyRequestError(409, { code: "NOT_READY", error: "Not ready", notReadyPlayerIds: [2] }, "x");
+    }) });
     render(<Harness players={[HOST, ANA, BOB]} isHost api={api} />);
     fireEvent.click(screen.getByRole("button", { name: /^start draft/i }));
     const dialog = await screen.findByRole("dialog", { name: /not everyone is ready/i });
@@ -190,26 +192,29 @@ describe("start, confirm and force", () => {
     expect(within(dialog).getByRole("button", { name: /wait for them/i })).toHaveFocus();
     fireEvent.click(within(dialog).getByRole("button", { name: /wait for them/i }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    expect(api.start).not.toHaveBeenCalled();
+    expect(api.start).toHaveBeenCalledExactlyOnceWith({ revision: 5 });
   });
 
   it("sends force only after Start anyway", async () => {
-    const api = makeApi();
+    const api = makeApi({ start: vi.fn()
+      .mockRejectedValueOnce(new LobbyRequestError(409, { code: "NOT_READY", error: "Not ready", notReadyPlayerIds: [2] }, "x"))
+      .mockResolvedValueOnce(answer({ revision: 6 }, [HOST, ANA, BOB])) });
     render(<Harness players={[HOST, ANA, BOB]} isHost api={api} />);
     fireEvent.click(screen.getByRole("button", { name: /^start draft/i }));
-    fireEvent.click(await screen.findByRole("button", { name: /start anyway/i }));
-    await waitFor(() => expect(api.start).toHaveBeenCalledTimes(1));
-    expect(api.start).toHaveBeenCalledWith({ revision: 5, force: true });
+    const force = await screen.findByRole("button", { name: /start anyway/i });
+    expect(api.start).toHaveBeenCalledExactlyOnceWith({ revision: 5 });
+    fireEvent.click(force);
+    await waitFor(() => expect(api.start).toHaveBeenCalledTimes(2));
+    expect(api.start).toHaveBeenLastCalledWith({ revision: 5, force: true });
   });
 
-  it("opens the confirm when the server answers NOT_READY, and names the unclaimed seats", async () => {
-    const everyone = [HOST, { ...ANA, ready: true }, { ...BOB, ready: true }];
+  it("uses server NOT_READY details even when a guest is locally unready, and names the unclaimed seats", async () => {
     const api = makeApi({
       start: vi.fn(async () => {
         throw new LobbyRequestError(409, { code: "NOT_READY", error: "Not ready", notReadyPlayerIds: [2], unclaimedPlayerIds: [3] }, "x");
       }),
     });
-    render(<Harness players={everyone} isHost api={api} />);
+    render(<Harness players={[HOST, ANA, BOB]} isHost api={api} />);
     fireEvent.click(screen.getByRole("button", { name: /^start draft/i }));
     const dialog = await screen.findByRole("dialog", { name: /not everyone is ready/i });
     expect(within(dialog).getByText(/Ana is not ready/)).toBeInTheDocument();
@@ -217,6 +222,18 @@ describe("start, confirm and force", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(api.start).toHaveBeenCalledTimes(1);
     expect(api.start).toHaveBeenCalledWith({ revision: 5 });
+  });
+
+  it("schedules without force when only the host is not Ready", async () => {
+    const players = [{ ...HOST, ready: false, readyAt: null }, { ...ANA, ready: true }, BOB];
+    const api = makeApi({ start: vi.fn(async () => answer({ revision: 6,
+      start: { token: "host-start", kind: "manual", startsAt: new Date(NOW + 5000).toISOString() } }, players)) });
+    render(<Harness players={players} isHost api={api} />);
+    fireEvent.click(screen.getByRole("button", { name: /^start draft/i }));
+    expect(await screen.findByRole("dialog", { name: /draft starting/i })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: /not everyone is ready/i })).not.toBeInTheDocument();
+    expect(api.start).toHaveBeenCalledExactlyOnceWith({ revision: 5 });
+    expect(api.ready).not.toHaveBeenCalled();
   });
 
   it("refetches and says so on a stale lobby", async () => {

@@ -90,6 +90,9 @@ export function createDraftLobbyService(db: Database.Database) {
   const isReady = (draft: Draft, player: PlayerRow, setup: string) => isTestBotDiscordId(player.discord_user_id)
     || !!(player.ready_at && player.ready_setup_hash === acknowledgementHash(draft, player, setup)
       && (draft.config.mode !== "theme" || draft.config.themeSelection !== "player_pick" || validClaim(draft, player)));
+  // Pressing manual Start acknowledges the host's seat for this countdown only.
+  const isReadyToStart = (player: LobbyPlayer, kind: "manual" | "auto" | null) => player.ready
+    || (kind === "manual" && player.isHost);
   const scheduleHash = (draft: Draft, players: PlayerRow[], setup: string) => hash({ setup,
     assignments: draft.config.themeSelection === "host_assigned" ? draft.config.themeAssignments : undefined,
     claims: draft.config.themeSelection === "player_pick" ? players.map((p) => [p.player_id, p.cube_id]) : undefined,
@@ -275,7 +278,7 @@ export function createDraftLobbyService(db: Database.Database) {
         checkRevision(row, request.revision);
         checkPreflight(draft, players);
         const state = project(draftId, actorUserId, now);
-        const notReadyPlayerIds = state.players.filter((p) => !p.ready).map((p) => p.playerId);
+        const notReadyPlayerIds = state.players.filter((p) => !isReadyToStart(p, "manual")).map((p) => p.playerId);
         const unclaimedPlayerIds = draft.config.mode === "theme" && draft.config.themeSelection === "player_pick"
           ? players.filter((p) => !validClaim(draft, p)).map((p) => p.player_id) : undefined;
         if (!request.force && (notReadyPlayerIds.length || unclaimedPlayerIds?.length)) {
@@ -375,7 +378,8 @@ export function createDraftLobbyService(db: Database.Database) {
           }
           const state = project(id, draft.createdByUserId, now);
           if (state.lobby.errors.length) return fail(state.lobby.errors.join(" "));
-          if (!row.lobby_start_force && (!state.lobby.allReady || (draft.config.mode === "theme" && draft.config.themeSelection === "player_pick" && players.some((p) => !validClaim(draft, p))))) {
+          if (!row.lobby_start_force && (!state.players.every((p) => isReadyToStart(p, row.lobby_start_kind))
+            || (draft.config.mode === "theme" && draft.config.themeSelection === "player_pick" && players.some((p) => !validClaim(draft, p))))) {
             return fail("Players are no longer Ready for this setup");
           }
           if (row.lobby_start_kind === "auto" && (!row.lobby_auto_start || row.lobby_auto_held || !state.lobby.autoStart.eligible)) {

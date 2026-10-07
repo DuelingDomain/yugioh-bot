@@ -336,6 +336,45 @@ describe("manual and automatic deadlines", () => {
     expect(() => app.lobby.read(app.draft.id, "host", now)).toThrowError(expect.objectContaining({ code: "DRAFT_NOT_PENDING" }));
   });
 
+  it.each(["booster", "theme"] as const)("treats manual Start as the host's acknowledgement in %s", (mode) => {
+    const theme = mode === "theme" ? themeSetup() : null;
+    const app = theme ?? setup();
+    if (theme) theme.ids.forEach(theme.claim);
+    app.lobby.setReady(app.draft.id, "guest", true, now);
+    const revision = app.read().lobby.revision;
+    const scheduled = app.lobby.scheduleStart(app.draft.id, "host", { revision }, now);
+    expect(scheduled.players[0]).toMatchObject({ isHost: true, ready: false, readyAt: null });
+    expect(scheduled.lobby).toMatchObject({ allReady: false, start: { kind: "manual", startsAt: later(5000).toISOString() } });
+    expect(app.lobby.scheduleStart(app.draft.id, "host", { revision }, later(1000)).lobby.start).toEqual(scheduled.lobby.start);
+    expect(app.lobby.tick(later(4999)).started).toEqual([]);
+    expect(app.lobby.tick(later(5000)).started).toMatchObject([{ id: app.draft.id, status: "active" }]);
+    expect(app.lobby.tick(later(6000)).started).toEqual([]);
+  });
+
+  it("rechecks guest acknowledgements at the manual deadline", () => {
+    const app = setup();
+    app.lobby.setReady(app.draft.id, "guest", true, now);
+    app.lobby.scheduleStart(app.draft.id, "host", { revision: app.read().lobby.revision }, now);
+    // Simulate a lost acknowledgement without the normal mutation's schedule cancellation.
+    app.db.prepare("update draft_players set ready_at = null where player_id = ?").run(app.ids[1]);
+    expect(app.lobby.tick(later(5000)).started).toEqual([]);
+    expect(app.read().lobby).toMatchObject({ start: null, lastStartError: "Players are no longer Ready for this setup" });
+  });
+
+  it("requires the host's Ready mark to arm and finish an auto countdown", () => {
+    const app = setup({ lobbySeats: 2 });
+    app.lobby.setReady(app.draft.id, "guest", true, now);
+    const enabled = app.lobby.setAutoStart(app.draft.id, "host", { enabled: true, revision: app.read().lobby.revision }, now);
+    expect(enabled.lobby).toMatchObject({ start: null, allReady: false, autoStart: { eligible: false } });
+    expect(app.lobby.tick(now).changedSlugs).toEqual([]);
+    app.lobby.setReady(app.draft.id, "host", true, now);
+    app.lobby.tick(now);
+    expect(app.read().lobby.start).toMatchObject({ kind: "auto", startsAt: later(10000).toISOString() });
+    app.db.prepare("update draft_players set ready_at = null where player_id = ?").run(app.ids[0]);
+    expect(app.lobby.tick(later(10000)).started).toEqual([]);
+    expect(app.read().lobby).toMatchObject({ start: null, autoStart: { held: true }, lastStartError: "Players are no longer Ready for this setup" });
+  });
+
   it("rejects stale revisions and unready players with typed details; force bypasses only Ready", () => {
     const app = setup();
     expect(() => app.lobby.scheduleStart(app.draft.id, "guest", { revision: 0 }, now)).toThrowError(expect.objectContaining({ code: "HOST_REQUIRED" }));
@@ -343,7 +382,7 @@ describe("manual and automatic deadlines", () => {
     expect(() => app.lobby.scheduleStart(app.draft.id, "host", { revision: 0 }, now)).toThrowError(expect.objectContaining({ code: "STALE_LOBBY" }));
     const revision = app.read().lobby.revision;
     expect(() => app.lobby.scheduleStart(app.draft.id, "host", { revision }, now)).toThrowError(
-      expect.objectContaining({ code: "NOT_READY", notReadyPlayerIds: app.ids }),
+      expect.objectContaining({ code: "NOT_READY", notReadyPlayerIds: [app.ids[1]] }),
     );
     expect(app.lobby.scheduleStart(app.draft.id, "host", { revision, force: true }, now).lobby.start).not.toBeNull();
     app.lobby.leave(app.draft.id, "guest", now);

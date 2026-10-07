@@ -532,12 +532,7 @@ export function LobbyActions({ lobby, players, controller, isHost, isMember, has
       if (onLegacyStart) await controller.run("start", onLegacyStart, "Failed to start draft");
       return;
     }
-    // The host's own mark does not hold the start back: pressing Start is the host's go.
-    const missing = notReadyPlayers(players).filter((p) => !(p.isHost && p.isYou));
-    if (missing.length > 0) {
-      setConfirm({ notReadyPlayerIds: missing.map((p) => p.playerId), unclaimedPlayerIds: [] });
-      return;
-    }
+    // The server supplies both readiness and unclaimed theme seats for confirmation.
     const outcome = await controller.start();
     if (outcome.status === "not-ready") setConfirm({ notReadyPlayerIds: outcome.notReadyPlayerIds, unclaimedPlayerIds: outcome.unclaimedPlayerIds });
   };

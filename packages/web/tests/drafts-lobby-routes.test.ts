@@ -317,6 +317,34 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
     const { createDraftLobbyApi } = await import("@/lib/draft-lobby-api");
     return createDraftLobbyApi(db);
   }
+  it.each(["random", "player_pick"])("schedules and starts a %s theme draft when only the host is not Ready", async (themeSelection) => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-07T12:00:00Z"));
+    const api = await useRealLobbyService();
+    if (themeSelection === "player_pick") {
+      const draft = createDraftService(db).findById(1);
+      db.prepare("update drafts set config_json = ? where id = 1").run(JSON.stringify({ ...draft.config, themeSelection }));
+      db.exec("insert into draft_player_cube (draft_id,player_id,cube_id) values (1,1,1),(1,2,1)");
+    }
+    api.setReady(1, "guest", true);
+    const response = await route("start", "POST", { revision: api.read(1, "host").lobby.revision });
+    expect(response.status).toBe(202);
+    const state = await response.clone().json() as DraftLobbyResponse;
+    expect(state.players.find((p) => p.isHost)).toMatchObject({ ready: false, readyAt: null });
+    expect(state.lobby).toMatchObject({ allReady: false, start: { kind: "manual", startsAt: "2026-10-07T12:00:05.000Z" } });
+    expect(await finishTestLobbyStart(response, db)).toMatchObject({ id: 1, status: "active" });
+  });
+
+  it("returns guest readiness and all unclaimed theme seats when the host presses Start", async () => {
+    const api = await useRealLobbyService();
+    const draft = createDraftService(db).findById(1);
+    db.prepare("update drafts set config_json = ? where id = 1").run(JSON.stringify({ ...draft.config, themeSelection: "player_pick" }));
+    const response = await route("start", "POST", { revision: api.read(1, "host").lobby.revision });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: "NOT_READY", notReadyPlayerIds: [2], unclaimedPlayerIds: [1, 2] });
+    expect(api.read(1, "host").lobby.start).toBeNull();
+  });
+
   it.each([undefined, "0", "true", "01", "1"])("returns the explicit Discord flag for DISCORD_BOT_ENABLED=%s", async (enabled) => {
     vi.stubEnv("DISCORD_BOT_ENABLED", enabled);
     const { GET } = await import("../app/api/drafts/[slug]/route");
