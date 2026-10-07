@@ -14,7 +14,7 @@ export const sources = {
   scripts: "37f270dc813a12d123707ae255f2bda7922999c4",
   database: "fdf92aea31033cd6c44afa89987c5e00665205e2",
   strings: "54a6e2395c532648ff762540e9615319fac4f51b",
-  databaseFormat: "official-releases-prerelease-v2",
+  databaseFormat: "official-releases-prerelease-v3",
   // Immutable support boundary; abbreviated so the weekly pin rewrite never advances it.
   prereleaseHistoryStart: "fdf92aea3103",
 };
@@ -60,7 +60,9 @@ async function catalogIsCurrent(directory: string, manifest: Manifest | null): P
     const cards = await readFile(join(directory, "cards.cdb"));
     const stringsFile = await readFile(join(directory, "strings.conf"));
     if (hash(cards) !== manifest.integrity.cardsMerged) return false;
-    if (hash(await readFile(join(directory, "card-remaps.json"))) !== manifest.integrity.cardRemaps) return false;
+    const remapBytes = await readFile(join(directory, "card-remaps.json"));
+    if (hash(remapBytes) !== manifest.integrity.cardRemaps) return false;
+    if (JSON.parse(remapBytes.toString("utf8")).overrideSource !== await readFile(new URL("../card-remap-overrides.json", import.meta.url), "utf8")) return false;
     if (hash(stringsFile) !== manifest.integrity.strings) return false;
   } catch {
     return false;
@@ -122,6 +124,7 @@ export async function prepareData(
     execFileSync("tar", ["-xzf", archive, "--strip-components=1", "-C", scriptStaging]);
     restrictPrereleaseScripts(scriptStaging, database.scriptCodes);
     for (const drop of database.drops) console.log(`[prerelease] Drop ${drop.code} ${drop.name} (${drop.file}): ${drop.reason}${drop.keptCode ? ` → ${drop.keptCode}` : ""}`);
+    for (const card of database.unmatched) console.log(`[prerelease] ${card.code} ${card.name}: unmatched graduation, needs review`);
     const cardScriptPatches = installCardScriptPatches(scriptStaging);
     if (savedLua) await writeFile(join(scriptStaging, "domain.lua"), savedLua);
     if (savedLegacyLua) await writeFile(join(scriptStaging, "domain.legacy.lua"), savedLegacyLua);

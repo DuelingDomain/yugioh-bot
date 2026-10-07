@@ -396,7 +396,7 @@ it("records graduated historical identities even when Ignis deleted their prerel
 it("includes the remap artifact in bundle identity and repairs a corrupt cached artifact", async () => {
   const {request,directory} = fixture();
   const first=await prepareData(directory,request);
-  expect(first.sources.databaseFormat).toBe("official-releases-prerelease-v2");
+  expect(first.sources.databaseFormat).toBe("official-releases-prerelease-v3");
   expect(first.integrity.cardRemaps).toBe(hash(readFileSync(join(directory,"card-remaps.json"))));
   writeFileSync(join(directory,"card-remaps.json"),"corrupt");
   request.mockClear();
@@ -521,4 +521,36 @@ it("updates a surviving artwork alias after its main preview graduates through h
  expect([...result.prereleaseCodes]).toEqual([100000002]);
  const db=new Database(result.path,{readonly:true});
  try{expect(db.prepare("SELECT alias FROM datas WHERE id=100000002").get()).toEqual({alias:12});}finally{db.close();}
+});
+
+it("puts real renamed graduation evidence into the common remap artifact, retaining only official rows", async () => {
+ const fixture = JSON.parse(readFileSync(new URL("./fixtures/prerelease-graduations.json",import.meta.url),"utf8"));
+ const dir=root(), examples=fixture.examples;
+ const bytes=cdb(dir,"official.cdb",examples.map(({after}:any)=>[after.code,0,after.name,after.type]));
+ const request=async(url:string)=>url.includes("/git/trees/")?Response.json(tree(["cards.cdb"])):new Response(new Uint8Array(bytes));
+ const transition={commit:fixture.databaseCommit,removed:examples.map((x:any)=>x.before),added:examples.map((x:any)=>x.after)};
+ const result=await downloadReleasedCardData(sources.database,join(dir,"bundle"),request,{historicalCards:transition.removed,historicalGraduations:[transition]});
+ expect(result.remaps).toEqual({101402001:77482666,101402002:4881365,101402021:25158975});
+ expect(result.unmatched).toEqual([]);
+ expect(JSON.parse(result.remapBytes).remaps).toEqual(result.remaps);
+});
+
+it("includes exact override source bytes in bundle integrity and validates sources/targets before remapping", async () => {
+ const {request,directory}=fixture();
+ const historicalCards=[{code:101402001,name:"Old preview name",type:33}];
+ const overrideBytes='{"101402001":17242022}\n';
+ const result=await downloadReleasedCardData(sources.database,directory,request,{historicalCards,overrideBytes});
+ expect(result.remaps).toEqual({101402001:17242022});
+ expect(JSON.parse(result.remapBytes).overrideSource).toBe(overrideBytes);
+ for(const overrideBytes of ['{"999999999":17242022}', '{"101402001":999}', '{"17242022":1}', '{"101402001":17242023}']){
+  await expect(downloadReleasedCardData(sources.database,join(root(),"bundle"),request,{historicalCards,overrideBytes})).rejects.toThrow(/override/i);
+ }
+});
+
+it("carries detected historical edges through reviewed overrides to the retained target",async()=>{
+ const {request,directory}=fixture();
+ const example=JSON.parse(readFileSync(new URL("./fixtures/prerelease-graduations.json",import.meta.url),"utf8")).examples[0];
+ const result=await downloadReleasedCardData(sources.database,directory,request,{historicalCards:[example.before,{...example.after,code:100000010}],historicalGraduations:[{commit:"earlier",removed:[example.before],added:[{...example.after,code:100000010}]}],overrideBytes:'{"100000010":17242022}\n'});
+ expect(result.remaps).toEqual({101402001:17242022,100000010:17242022});
+ expect(result.unmatched).toEqual([]);
 });

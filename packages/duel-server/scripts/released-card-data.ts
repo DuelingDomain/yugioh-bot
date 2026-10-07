@@ -5,6 +5,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { isPrereleaseDatabaseFile, releasedDatabaseFiles, type ReleasedDatabaseTree } from "../src/released-database-files.js";
 import { hasDedupeIdentity, prereleaseHistory, type CardIdentity } from "./prerelease-history.js";
+import { matchGraduations, parseRemapOverrides, type GraduationTransition, type UnmatchedGraduation } from "./prerelease-graduations.js";
 export { releasedDatabaseFiles } from "../src/released-database-files.js";
 
 type Download = (url: string, init?: RequestInit) => Promise<Response>;
@@ -51,7 +52,7 @@ const preferred = (a: Row, b: Row) =>
  * INSERT ... SELECT preserves SQLite's 64-bit setcodes/races without JS rounding.
  */
 export async function downloadReleasedCardData(commit: string, directory: string, request: Download = fetch,
-  options: { historyStart?: string; historicalCards?: CardIdentity[] } = {}) {
+  options: { historyStart?: string; historicalCards?: CardIdentity[]; historicalGraduations?: GraduationTransition[]; overrideBytes?: string } = {}) {
   const files = await discoverReleasedDatabases(commit, request);
   await mkdir(directory, { recursive: true });
   const inputs = join(directory, "cdb-inputs");
@@ -67,7 +68,9 @@ export async function downloadReleasedCardData(commit: string, directory: string
     const db = new Database(path, { readonly: true });
     try {
       const columns = new Set((db.prepare("PRAGMA table_info(datas)").all() as { name: string }[]).map(row => row.name));
-      const stats = ["atk", "def", "level", "attribute"].filter(column => columns.has(column)).map(column => `, d.${column}`).join("");
+      const textColumns = new Set((db.prepare("PRAGMA table_info(texts)").all() as { name: string }[]).map(row => row.name));
+      const stats = ["atk", "def", "level", "attribute"].filter(column => columns.has(column)).map(column => `, d.${column}`).join("")
+        + (columns.has("race") ? ",CAST(d.race AS TEXT) AS race" : "") + (textColumns.has("desc") ? ",t.desc AS description" : "");
       rows.push(...(db.prepare(`SELECT d.id AS code, d.ot, d.alias, d.type, t.name${stats} FROM datas d JOIN texts t USING(id) ORDER BY d.id`).all() as Omit<Row, "file">[]).map(row => ({ ...row, file })));
     } finally { db.close(); }
   }
@@ -136,8 +139,10 @@ export async function downloadReleasedCardData(commit: string, directory: string
     // A source still present under another identity must never redirect a saved card.
     for (const old of Object.keys(remaps)) if (scriptCodes.has(Number(old))) throw new Error(`Ambiguous retained prerelease passcode ${old}`);
   } finally { db.close(); }
-  const historical = options.historicalCards ?? (options.historyStart && !commit.startsWith(options.historyStart)
-    ? await prereleaseHistory(options.historyStart, commit, directory) : []);
+  const history = options.historicalCards ? { cards: options.historicalCards, transitions: options.historicalGraduations ?? [] }
+    : options.historyStart && !commit.startsWith(options.historyStart) ? await prereleaseHistory(options.historyStart, commit, directory) : { cards: [], transitions: [] };
+  const historical = history.cards;
+  const matched = matchGraduations(history.transitions);
   for (const row of historical) {
     if (!hasDedupeIdentity(row)) continue;
     const winner = releasedNames.get(identity(row))?.[0] ?? kept.get(identity(row));
@@ -154,6 +159,37 @@ export async function downloadReleasedCardData(commit: string, directory: string
       addRemap(row.code, winner.code);
     }
   }
+  // Resolve detected edges through intermediate graduations to current retained
+  // codes; never emit a target that disappeared in a later skipped weekly bump.
+  const resolveTarget = (code: number, seen = new Set<number>()): number | undefined => {
+    if (seen.has(code)) throw new Error(`Cyclic historical prerelease passcode ${code}`);
+    if (scriptCodes.has(code)) return code;
+    seen.add(code);
+    const target = remaps[code] ?? matched.remaps[code];
+    return target === undefined ? undefined : resolveTarget(target, seen);
+  };
+  const overrideSource = options.overrideBytes ?? await readFile(new URL("../card-remap-overrides.json", import.meta.url), "utf8");
+  const overrides = parseRemapOverrides(overrideSource);
+  for (const [old, target] of Object.entries(overrides)) {
+    const sources = historical.concat(previews).filter(row => row.code === Number(old));
+    const current = released.get(target) ?? keptIds.get(target);
+    if (!sources.length || sources.some(row => !hasDedupeIdentity(row)) || scriptCodes.has(Number(old)) || !current || !hasDedupeIdentity(current)) {
+      throw new Error(`Invalid card remap override ${old} -> ${target}: source must be a supported removed main card; target must be a retained main card`);
+    }
+    if (remaps[old] !== undefined && remaps[old] !== target) throw new Error(`Conflicting card remap override ${old}`);
+    addRemap(Number(old), target);
+  }
+  for (const [old, target] of Object.entries(matched.remaps)) {
+    if (scriptCodes.has(Number(old))) continue;
+    const current = resolveTarget(target);
+    if (current !== undefined) addRemap(Number(old), current);
+  }
+  const unmatched: UnmatchedGraduation[] = [];
+  for (const row of historical) {
+    if (!hasDedupeIdentity(row) || scriptCodes.has(row.code) || remaps[row.code] !== undefined || unmatched.some(card => card.code === row.code)) continue;
+    unmatched.push(matched.unmatched.find(card => card.code === row.code) ?? { ...row, commits: [], candidates: [] });
+  }
+  unmatched.sort((a,b) => a.code-b.code);
   // Missing historical artworks inherit their main card's remap after all main
   // identities are resolved. Retained artwork codes remain selectable.
   for (const row of historical) {
@@ -169,11 +205,11 @@ export async function downloadReleasedCardData(commit: string, directory: string
   } finally { merged.close(); }
   const prerelease = [...keptIds.values()].sort((a,b) => a.code-b.code).map(({ot: _ot, ...card}) => card);
   drops.sort((a,b) => a.file.localeCompare(b.file) || a.code-b.code);
-  const remapBytes = JSON.stringify({ version: 1, remaps, prerelease, drops }, null, 2) + "\n";
+  const remapBytes = JSON.stringify({ version: 1, remaps, prerelease, drops, overrides, overrideSource, unmatched }, null, 2) + "\n";
   await writeFile(join(directory, "card-remaps.json"), remapBytes);
   await rm(inputs, { recursive: true });
   return { path, files, inputHashes, releaseCodes, prereleaseCodes: new Set([...prereleaseCodes].sort((a,b)=>a-b)), scriptCodes,
-    remaps, remapBytes, prerelease, released: [...released.values()], drops, bytes: await readFile(path) };
+    remaps, remapBytes, prerelease, unmatched, overrides, overrideSource, released: [...released.values()], drops, bytes: await readFile(path) };
 }
 
 /** Both released and preview cards can have scripts in pre-release/. Keep loaded codes;
@@ -189,3 +225,5 @@ export function restrictPrereleaseScripts(scriptRoot: string, loadedCodes: Reado
     }
   }
 }
+
+export type PreparedCardData = Awaited<ReturnType<typeof downloadReleasedCardData>>;

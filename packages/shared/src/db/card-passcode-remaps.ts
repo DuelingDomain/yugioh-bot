@@ -1,3 +1,5 @@
+import { isExtraDeckFrame } from "../services/card-catalog.js";
+import { remapTargetMetadata } from "./engine-card-metadata.js";
 import Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
@@ -82,7 +84,9 @@ export function applyEngineCardRemaps(db: Database.Database, directory: string):
   const manifest = JSON.parse(readFileSync(join(directory, "manifest.json"), "utf8"));
   if (typeof manifest.bundleVersion !== "string" || !manifest.bundleVersion) throw new Error("Missing bundleVersion for passcode migration");
   const engine = new Database(join(directory, "cards.cdb"), { readonly: true, fileMustExist: true });
+  let metadata: ReturnType<typeof remapTargetMetadata>;
   try {
+    metadata = remapTargetMetadata(engine, remaps.values());
     const find = engine.prepare("SELECT 1 FROM datas WHERE id=?");
     for (const target of new Set(remaps.values())) if (!find.get(target)) throw new Error(`Remap target ${target} is absent from engine database`);
   } finally { engine.close(); }
@@ -105,11 +109,18 @@ export function applyEngineCardRemaps(db: Database.Database, directory: string):
           `https://images.ygoprodeck.com/images/cards/${target}.jpg`,
           `https://images.ygoprodeck.com/images/cards_small/${target}.jpg`, target);
       }
+      const official = metadata.get(target);
+      if (official) {
+        const fields = Object.keys(official);
+        db.prepare(`UPDATE card_catalog SET ${fields.map(field => `${field}=?`).join(",")} WHERE ygoprodeck_id=?`).run(...Object.values(official), target);
+      }
       // Graduated main passcodes are one card now; retain copies up to the cube cap.
       db.prepare(`INSERT INTO cube_cards (cube_id,catalog_card_id,pool,max_copies,source)
         SELECT cube_id,?,pool,max_copies,source FROM cube_cards WHERE catalog_card_id=?
         ON CONFLICT(cube_id,catalog_card_id) DO UPDATE SET max_copies=MIN(?,cube_cards.max_copies+excluded.max_copies)`).run(target, old, MAX_CUBE_COPIES);
       db.prepare("DELETE FROM cube_cards WHERE catalog_card_id=?").run(old);
+      if (official) db.prepare("UPDATE cube_cards SET pool=? WHERE catalog_card_id=?").run(
+        isExtraDeckFrame({ type: String(official.type), frameType: String(official.frame_type) }) ? "extra" : "main", target);
       for (const table of ["draft_cards", "draft_deal", "draft_undealt"]) db.prepare(`UPDATE ${table} SET catalog_card_id=? WHERE catalog_card_id=?`).run(target,old);
       db.prepare("DELETE FROM card_artworks WHERE artwork_id=?").run(old);
       db.prepare("UPDATE card_artworks SET card_id=?,is_main=0 WHERE card_id=?").run(target,old);
