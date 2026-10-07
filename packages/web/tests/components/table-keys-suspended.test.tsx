@@ -21,7 +21,7 @@ function setup(stateId: "main" | "direct-attack", suspended: boolean) {
     const base = useFixtureController(state, { reducedMotion: true });
     const layout = tableLayout("ffa3", base.engine, base.viewerSeat);
     const flow = useAimFlow(base, layout, { current: null }, { suspended });
-    const camera = useCamera({ controller: flow.controller, layout, aiming: flow.aiming, seatKeys: flow.seatKeys, suspended });
+    const camera = useCamera({ controller: flow.controller, layout, seatKeys: flow.seatKeys, suspended });
     return { flow, camera };
   });
 }

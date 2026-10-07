@@ -90,7 +90,7 @@ export type LabScript = {
 
 /** What the opening part of a lab scenario shows. The buttons call the real API, which fails in the lab. */
 export type LabOpening = {
-  stage: "pick" | "pick-chosen" | "reveal-win" | "reveal-lose" | "reveal-tie" | "choose" | "wait-choose" | "start";
+  stage: "pick" | "pick-chosen" | "reveal-tie" | "choose" | "wait-choose" | "start";
   /** Opponent already played this round. */
   opponentChose?: boolean;
 };

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DUEL_OPENING_PICK_MS, type DuelOpeningView } from "@yugidraft/shared/duels";
 import {
-  myPickText, openingStage, opponentPickText, revealEndsAt, revealHeadline, revealOutcome, startText, waitChooseText,
+  myPickText, openingStage, opponentPickText, revealEndsAt, revealOutcome, startText, waitChooseText,
 } from "../src/components/duel/opening-model";
 
 const NOW = 1_000_000;
@@ -9,6 +9,7 @@ const NAMES: [string, string] = ["Yugi", "Kaiba"];
 
 function view(overrides: Partial<DuelOpeningView> = {}): DuelOpeningView {
   return {
+    serverNow: NOW,
     phase: "rps", round: 1, deadlineAt: new Date(NOW + DUEL_OPENING_PICK_MS).toISOString(), picked: [false, false],
     myPick: null, reveal: null, winnerSeat: null, choice: null, choiceByTimeout: false, ...overrides,
   };
@@ -19,14 +20,18 @@ describe("openingStage", () => {
     expect(openingStage(view(), 0, NOW)).toBe("pick");
   });
 
-  it("shows a decided round for 3 seconds, then the choice for the winner and the wait for the loser", () => {
+  it("shows the choice for the winner and the wait for the loser as soon as the server decides the round", () => {
     const won = view({
       phase: "choose", winnerSeat: 0, picked: [true, true],
       deadlineAt: new Date(NOW + 3_000 + DUEL_OPENING_PICK_MS).toISOString(),
       reveal: { round: 1, picks: ["paper", "rock"], winnerSeat: 0 },
     });
     expect(revealEndsAt(won)).toBe(NOW + 3_000);
-    expect(openingStage(won, 0, NOW)).toBe("reveal");
+    expect(openingStage(won, 0, NOW)).toBe("choose");
+    expect(openingStage(won, 1, NOW)).toBe("wait-choose");
+    // A clock one minute slow used to hide the buttons for the entire server choice window.
+    expect(openingStage(won, 0, NOW - 60_000)).toBe("choose");
+    expect(openingStage(won, 0, NOW + 33_000 - 60_000)).toBe("choose");
     expect(openingStage(won, 0, NOW + 3_001)).toBe("choose");
     expect(openingStage(won, 1, NOW + 3_001)).toBe("wait-choose");
     // A spectator never chooses.
@@ -52,13 +57,13 @@ describe("openingStage", () => {
   });
 });
 
-describe("reveal text", () => {
+describe("reveal outcomes", () => {
   const win = view({ reveal: { round: 1, picks: ["paper", "rock"], winnerSeat: 0 } });
-  it("says win, lose, tie or decided", () => {
-    expect(revealHeadline(revealOutcome(win, 0)!, "Yugi")).toBe("You win");
-    expect(revealHeadline(revealOutcome(win, 1)!, "Yugi")).toBe("You lose");
-    expect(revealHeadline(revealOutcome(view({ reveal: { round: 1, picks: ["rock", "rock"], winnerSeat: null } }), 0)!, null)).toBe("Tie — again");
-    expect(revealHeadline(revealOutcome(win, null)!, "Yugi")).toBe("Yugi wins");
+  it("identifies a win, a loss, a tie or a spectator's result", () => {
+    expect(revealOutcome(win, 0)).toBe("win");
+    expect(revealOutcome(win, 1)).toBe("lose");
+    expect(revealOutcome(view({ reveal: { round: 1, picks: ["rock", "rock"], winnerSeat: null } }), 0)).toBe("tie");
+    expect(revealOutcome(win, null)).toBe("decided");
     expect(revealOutcome(view(), 0)).toBeNull();
   });
 });

@@ -12,7 +12,6 @@ vi.mock("next/font/google", () => {
 import { setAnimationSpeed } from "@/components/duel/animation-speed";
 import { CAMERA_HOLD_MS, scaleLockMs } from "@/components/duel/camera-lock-time";
 import { duelFxClock } from "@/components/duel/fx-clock";
-import { CAMERA_HOME_MS } from "@/components/duel/table/camera-model";
 import { FFA3_FIXTURES } from "@/components/duel/table/fixtures/ffa3";
 import type { TableFixtureState } from "@/components/duel/table/fixtures/common";
 import { useFixtureController } from "@/components/duel/table/fixtures/use-fixture-controller";
@@ -81,7 +80,7 @@ describe("scaleLockMs", () => {
   });
 });
 
-describe("the camera lock clears at the scaled time but not before the camera reached home", () => {
+describe("the Rooftop camera lock clears at the scaled time but not before the camera reached home", () => {
   it("TagShell at 2x", () => {
     setAnimationSpeed(2);
     const floor = ROOF_LOCK_IN_MS + CAMERA_HOLD_MS;
@@ -105,30 +104,18 @@ describe("the camera lock clears at the scaled time but not before the camera re
     expect(tagLocked(container)).toBe(false);
   });
 
-  it("the table camera at 2x", () => {
-    setAnimationSpeed(2);
-    const floor = CAMERA_HOME_MS + CAMERA_HOLD_MS;
-    const { container, rerender } = render(<Table events={[]} />);
-    expect(tableLocked(container)).toBe(false);
-    rerender(<Table events={[ev(1, "destroy")]} />);
-    expect(tableLocked(container)).toBe(true);
-    // 1300 / 2 = 650 ms would end before the 950 ms fly tween.
-    advance(floor - 100);
-    expect(tableLocked(container)).toBe(true);
-    advance(100 + 50);
-    expect(tableLocked(container)).toBe(false);
-  });
-
-  it("neither shell locks under reduced motion", () => {
+  it("the Rooftop does not lock under reduced motion", () => {
     const tag = render(<Tag events={[]} reducedMotion />);
     tag.rerender(<Tag events={[ev(1, "destroy")]} reducedMotion />);
     expect(tagLocked(tag.container)).toBe(false);
-    tag.unmount();
-    const table = render(<Table events={[]} reducedMotion />);
-    table.rerender(<Table events={[ev(1, "destroy"), ev(2, "attack")]} reducedMotion />);
+  });
+
+  it("the 3-way and 4-way table never locks the camera for an effect, at any speed", () => {
+    setAnimationSpeed(0.5);
+    const table = render(<Table events={[]} />);
+    table.rerender(<Table events={[ev(1, "destroy"), ev(2, "attack"), ev(3, "chain-resolving")]} />);
     expect(tableLocked(table.container)).toBe(false);
-    // The cursor moved: the same events do not lock later when motion comes back.
-    table.rerender(<Table events={[ev(1, "destroy"), ev(2, "attack")]} />);
+    advance(5000);
     expect(tableLocked(table.container)).toBe(false);
   });
 });

@@ -172,7 +172,7 @@ try {
         if (check === "elimination") {
           await expect(page.locator("[data-table-stage]")).toHaveAttribute("data-camera-mode", "home");
           assert.match(await page.locator("[data-turn-ring]").getAttribute("style"), /488px.*260px.*scale\(1\)/);
-          await expect(page.locator("[data-camera-cue]")).toHaveCount(0);
+          await expect(page.locator("[data-camera-hint]")).toHaveCount(0);
           const note = page.getByTestId("seat-out");
           const titles = page.locator('[data-seat-field] [class*="sfName"]');
           await expect(titles).toHaveCount(3);

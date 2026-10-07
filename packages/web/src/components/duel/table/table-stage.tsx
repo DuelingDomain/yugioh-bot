@@ -9,7 +9,7 @@ import { ChainRoomContext, type ChainStripSize } from "./chain-room";
 import { AttackLine } from "./attack-line";
 import { FlyCity } from "./fly-city";
 import { watchMeasure } from "./measure-watch";
-import { BAR_HUD, dockBarRoom, freeDockRoom, PICK_BAR, pickBarRoom, promptUnit } from "./grid-stage";
+import { BAR_HUD, clearBarRoom, dockBarRoom, freeDockRoom, PICK_BAR, pickBarRoom, promptUnit } from "./grid-stage";
 import { aliveLayout, boardBounds, chainBandRooms, chainStripInset, flyWorld, holoAnchor, hubPose, normalizeAngle, ringAngles, CAMERA_HINT, HUD_CORNER, portraitTable, promptRooms, ringPose, type HoloAnchor, type PromptRoom, seatPoses, slotPlan, stageFit, stageSpread, STAGE, wideHoloAnchors } from "./geometry";
 import { holoStatus, HoloLp } from "./holo-lp";
 import { lastSeatDamage } from "./seat-state";
@@ -57,6 +57,8 @@ export interface TableStageViewProps extends TableStageProps {
   locked?: boolean;
   /** Seats that are out of the duel: a click on them does nothing. */
   out?: readonly number[];
+  /** The seat that holds the targets the viewer must pick: its field is ringed. The camera stays where it is. */
+  targetSeat?: number | null;
   /** Draw the turn ring (default true on a 3-way table). */
   ring?: boolean;
   /** The focus of the 4-way grid, owned by the shell so the turn strip can drive it. The plaza stage ignores it. */
@@ -83,7 +85,7 @@ export interface TableStageViewProps extends TableStageProps {
  * overlay are slots over the whole box, so they measure the real screen position of `[data-zones]` and
  * `[data-lp-seat]` nodes. `camera` is the camera to draw (the shell passes the effective one).
  */
-export function TableStage({ controller, layout, camera, dispatchCamera, renderSeatField, fx, promptCenter, overlay, hub, masterChip, wantMode, locked = false, out = [], ring = true, placeLabels, centerPrompts = false }: TableStageViewProps) {
+export function TableStage({ controller, layout, camera, dispatchCamera, renderSeatField, fx, promptCenter, overlay, hub, masterChip, wantMode, locked = false, out = [], targetSeat = null, ring = true, placeLabels, centerPrompts = false }: TableStageViewProps) {
   const { engine, room, viewerSeat, nameOf, legalKeys, selectedKeys, reducedMotion } = controller;
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -236,6 +238,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
     : undefined;
   const [targets, setTargets] = useState<readonly Rect[]>([]);
   const [zones, setZones] = useState<readonly Rect[]>([]);
+  const [cards, setCards] = useState<readonly Rect[]>([]);
   const [hudRects, setHudRects] = useState<readonly Rect[]>([]);
   const legalKey = [...legalKeys].sort().join(",");
   useEffect(() => {
@@ -248,10 +251,15 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
         .filter((r) => r.width > 1 && r.height > 1)
         .map((r) => ({ x: Math.round(r.left - board.left), y: Math.round(r.top - board.top), width: Math.round(r.width), height: Math.round(r.height) }));
       const next = boxes('[data-legal="true"]');
-      const rest = boxes('[data-zones]:not([data-legal="true"])');
-      const hud = occluderRects(root, BAR_HUD).map((r) => ({ x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) }));
+      // The seat name under a field counts as a zone: the docked bar keeps off it.
+      const rest = boxes('[data-zones]:not([data-legal="true"]), [data-seat-name]');
+      // The life-point plates are HUD too: the docked bar keeps off them.
+      const hud = occluderRects(root, `${BAR_HUD}, [data-holo]`).map((r) => ({ x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) }));
       setTargets((current) => (sameRects(current, next) ? current : next));
       setZones((current) => (sameRects(current, rest) ? current : rest));
+      // Zones that hold a card or a pile: the last place for the bar keeps off them.
+      const held = boxes('[data-zones][data-occupied="true"]:not([data-legal="true"])');
+      setCards((current) => (sameRects(current, held) ? current : held));
       setHudRects((current) => (sameRects(current, hud) ? current : hud));
     };
     // Once the seats stand still (a regroup, the FINAL DUEL board, glides them to new places); watched while a pick is open.
@@ -282,8 +290,13 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
     if (bar && bar.x >= HUD_LEFT_COLUMN && free(bar.x, bar.y, bar.width, bar.height)) {
       return `${bar.x},${bar.y},${bar.width},${bar.height}`;
     }
-    return freeDockRoom(box, [...targets, ...zones, ...hudRects]) ?? found;
-  }, [floating, zoom.zoomed, nearBox, targets, zones, hudRects, rooms?.bar, box]);
+    const dock = freeDockRoom(box, [...targets, ...zones, ...hudRects]);
+    if (dock) return dock;
+    // Nothing is clear anywhere (a small window at a big text size): a narrower bar on your own field, over empty zones
+    // only, never over one of your cards or the targets.
+    const pair = { x: nearBox.x - edge, y: nearBox.y - edge, width: nearBox.width + 2 * edge, height: nearBox.height + 2 * edge };
+    return clearBarRoom(pair, [...targets, ...cards], zones) ?? found;
+  }, [floating, zoom.zoomed, nearBox, targets, zones, cards, hudRects, rooms?.bar, box]);
 
   // A prompt that opens, closes or moves changes the HUD insets: the view eases into the new clamps (no gap stays).
   const hudKey = `${controller.prompt?.id ?? ""}|${promptCenter ? 1 : 0}|${overlay ? 1 : 0}|${controller.seatPick ? 1 : 0}|${barRoom ?? ""}|${rooms?.panel ? `${rooms.panel.x},${rooms.panel.y}` : ""}`;
@@ -333,16 +346,30 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
   const promptSeat = controller.prompt?.seat ?? null;
   const flyYaw = fly ? world.yawDeg : 0;
 
+  const plaza3 = layout.format === "ffa3" && layout.slots.length === 3;
+
   const onSeatClick = (event: MouseEvent<HTMLDivElement>) => {
     const target = event.target as Element | null;
     const slot = target?.closest?.("[data-seat-slot]");
-    if (!slot || target?.closest?.(CLICK_PASS)) return;
+    if (!slot) return;
+    // 3-way: a plain card or empty zone (nothing to pick there; piles open their own list) is part of the field, so a click on it enlarges the field too. Its own handler still runs.
+    const zone = target?.closest?.("[data-zones]");
+    const plainZone = plaza3 && zone != null && zone.getAttribute("data-legal") !== "true" && zone.getAttribute("data-selected") !== "true" && !target?.closest?.("[data-duel-menu], [data-holo], a") && zone.getAttribute("data-pile") !== "true";
+    if (target?.closest?.(CLICK_PASS) && !plainZone) return;
     const seat = Number(slot.getAttribute("data-seat-slot"));
     if (!Number.isInteger(seat) || out.includes(seat)) return;
+    // A zone click (a card inspect) only enlarges: it never sends an enlarged field home, and it never enlarges a field that
+    // holds a legal choice of the open prompt. Legal keys on another field do not count: on the viewer's own turn the idle
+    // and battle commands are legal keys of the own field only, and a click on a rival field still enlarges it.
+    const legalHere = plainZone && [...legalKeys].some((key) => key.startsWith(`${seat}:`));
+    if (plainZone && (legalHere || (camera.mode === "focus" && camera.focusSeat === seat))) return;
     if (fly) {
       dispatchCamera({ type: "flyTo", seat });
-    } else if (seat !== layout.anchorSeat && !(camera.mode === "focus" && camera.focusSeat === seat) && !(looking && camera.lookSeat === seat)) {
-      dispatchCamera({ type: "focus", seat });
+    } else if (!plaza3) {
+      if (seat !== layout.anchorSeat && !(camera.mode === "focus" && camera.focusSeat === seat) && !(looking && camera.lookSeat === seat)) dispatchCamera({ type: "focus", seat });
+    } else if (!(looking && camera.lookSeat === seat)) {
+      // A click on a field enlarges it; a click on the enlarged field goes back. This and the keys are the only moves.
+      dispatchCamera({ type: "enlarge", seat });
     }
   };
 
@@ -351,6 +378,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
     height: canvasHeight,
     transform: `translate(${(box.width - STAGE.width * k) / 2}px, ${stageTop + (stageHeight - canvasHeight * k) / 2}px) scale(${k})`,
     "--ss": tiltSupersample(k),
+    "--stage-k": k,
     "--spread": `${spread}px`,
   };
   const attackerSeat = controller.aim?.from ? Number(controller.aim.from.split(":")[0]) : null;
@@ -461,7 +489,11 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
                   onInspect: controller.onInspect,
                   onHoverCard: controller.onHoverCard,
                 };
-                return <RivalField key={slot.seat} pose={pose} field={field} render={renderSeatField} angleOffsetDeg={flyYaw} glide={gliding && regroup} />;
+                const enlarged = camera.mode === "focus" && camera.focusSeat === slot.seat;
+                const reach = plaza3 && !fly && !locked && !out.includes(slot.seat)
+                  ? { label: `${nameOf(slot.seat)}${slot.seat === layout.anchorSeat ? " (you)" : ""}'s field`, onToggle: () => dispatchCamera({ type: "enlarge", seat: slot.seat }) }
+                  : undefined;
+                return <RivalField key={slot.seat} pose={pose} field={field} render={renderSeatField} angleOffsetDeg={flyYaw} glide={gliding && regroup} enlarged={enlarged} reach={reach} targeted={targetSeat === slot.seat} />;
               })}
             </div>
           </div>

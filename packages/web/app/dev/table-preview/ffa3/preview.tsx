@@ -5,6 +5,7 @@ import { FFA3_FIXTURES, ffa3Variant } from "@/components/duel/table/fixtures/ffa
 import { reviewFixtures } from "@/components/duel/table/fixtures/review";
 import { PreviewHarness } from "@/components/duel/table/fixtures/preview-harness";
 import { TableShell } from "@/components/duel/table/table-shell";
+import { useTableTextScale } from "@/components/duel/card-text-size";
 
 /**
  * The 3-way preview: the real table stage on the hand-made fixtures.
@@ -14,6 +15,7 @@ import { TableShell } from "@/components/duel/table/table-shell";
  * table is drawn (the preview at the left).
  */
 export function Ffa3Preview({ stateId, cam, lock, review = false, out = null, after = null, def = null, pick = null, hover = null }: { stateId: string | null; cam: string | null; lock: string | null; review?: boolean; out?: string | null; after?: string | null; def?: string | null; pick?: string | null; hover?: string | null }) {
+  useTableTextScale();
   const [damage, setDamage] = useState(0);
   const outSeats = useMemo(() => (out ?? "").split(",").filter((part) => /^[0-2]$/.test(part)).map(Number), [out]);
   const delay = after != null && /^\d+$/.test(after) ? Number(after) : null;

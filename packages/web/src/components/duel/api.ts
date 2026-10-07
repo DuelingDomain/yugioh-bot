@@ -123,8 +123,10 @@ export async function searchPlayers(q: string, signal?: AbortSignal): Promise<{ 
   return parseBody(await fetch(`/api/players?${new URLSearchParams({ q }).toString()}`, { cache: "no-store", signal }));
 }
 
-export async function getDuelRoom(slug: string, spectate = false): Promise<DuelRoom> {
-  return parseBody(await fetch(duelRoomKey(slug, spectate), { cache: "no-store" }));
+/** Keep the client receive time with the room when SWR caches it. */
+export async function getDuelRoom(slug: string, spectate = false): Promise<DuelRoom & { receivedAt?: number }> {
+  const room = await parseBody<DuelRoom>(await fetch(duelRoomKey(slug, spectate), { cache: "no-store" }));
+  return { ...room, receivedAt: performance.now() };
 }
 
 export async function acceptDuelInvite(slug: string, inviteCode: string): Promise<DuelRoom> {

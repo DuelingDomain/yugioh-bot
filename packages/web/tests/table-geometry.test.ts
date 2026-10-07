@@ -45,7 +45,7 @@ function engine(format: DuelFormat, count: number): DuelEngineView {
 }
 function camera(over: Partial<CameraState> = {}): CameraState {
   return {
-    mode: "home", focusSeat: null, lookSeat: null, upright: false, compact: "auto", auto: true, pinned: false, aiming: false,
+    mode: "home", focusSeat: null, lookSeat: null, upright: false, compact: "auto",
     fly: { yawDeg: 0, tiltDeg: 40, zoom: 1, targetSeat: null }, lock: null, ...over,
   };
 }
@@ -197,13 +197,29 @@ describe("3-way camera places", () => {
     expect(slots({ mode: "focus", focusSeat: 2 })).toEqual(["home", "dockL", "focus"]);
     const poses = seatPoses(layout, camera({ mode: "focus", focusSeat: 2 }));
     expect(poses.get(2)).toMatchObject({ x: 550, y: 206, scale: 0.9, rotateDeg: 180, docked: false });
-    expect(poses.get(1)).toMatchObject({ x: 110, y: 272, scale: 0.46, rotateDeg: 90, docked: true });
+    expect(poses.get(1)).toMatchObject({ x: 110, y: 292, scale: 0.42, rotateDeg: 90, docked: true });
     expect(poses.get(0)?.slot).toBe("home");
   });
 
-  it("focus with no seat, or on you, stays at home", () => {
+  it("a docked rival's thumbnail starts below a rival plate grown by a big text size", () => {
+    // The plate sits at y 8 and is about 134 stage px tall at Extra large on a 1366 px window; the thumbnail keeps clear of it.
+    const poses = seatPoses(layout, camera({ mode: "focus", focusSeat: 1 }));
+    expect(boardBounds(poses.get(2)!).t).toBeGreaterThanOrEqual(8 + 134);
+    const left = seatPoses(layout, camera({ mode: "focus", focusSeat: 2 }));
+    expect(boardBounds(left.get(1)!).t).toBeGreaterThanOrEqual(8 + 134);
+  });
+
+  it("focus with no seat stays at home", () => {
     expect(slots({ mode: "focus", focusSeat: null })).toEqual(["home", "vL", "vR"]);
-    expect(slots({ mode: "focus", focusSeat: 0 })).toEqual(["home", "vL", "vR"]);
+  });
+
+  it("focus on you enlarges your field and docks both rivals above it", () => {
+    expect(slots({ mode: "focus", focusSeat: 0 })).toEqual(["home", "dockL", "dockR"]);
+    const poses = seatPoses(layout, camera({ mode: "focus", focusSeat: 0 }));
+    const home = seatPoses(layout, camera());
+    expect(poses.get(0)!.scale).toBeGreaterThan(home.get(0)!.scale);
+    expect(poses.get(1)).toMatchObject({ docked: true });
+    expect(poses.get(2)).toMatchObject({ docked: true });
   });
 
   it("look turns the table so the rival you look from takes the home place", () => {

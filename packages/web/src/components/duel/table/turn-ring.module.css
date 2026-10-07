@@ -23,6 +23,11 @@
   rotate: var(--ry, 0deg);
 }
 
+/* On-screen floors: the ring is drawn in stage px, so a floor divides by the stage scale (--stage-k). */
+.phase { font-size: max(6.5px, calc(12px * var(--tt, 1) / var(--stage-k, 1))); letter-spacing: 0.04em; }
+.tag { font-size: max(8px, calc(12px * var(--tt, 1) / var(--stage-k, 1))); letter-spacing: 0.06em; }
+.initial { font-size: max(10.5px, calc(12px * var(--tt, 1) / var(--stage-k, 1))); }
+
 .num,
 .initial {
   font-family: var(--font-duel-num, "Arial Narrow"), "Arial Narrow", sans-serif;
@@ -51,7 +56,7 @@
   border-radius: 999px;
   background: rgb(7 11 21 / 0.85);
   color: #c3bba8;
-  font: 600 11px/1 var(--font-duel-ui, "Arial Narrow"), "Arial Narrow", sans-serif;
+  font: 600 calc(12px * var(--tt, 1))/1 var(--font-duel-ui, "Arial Narrow"), "Arial Narrow", sans-serif;
   letter-spacing: 0.06em;
   white-space: nowrap;
 }

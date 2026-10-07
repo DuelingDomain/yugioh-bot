@@ -2,8 +2,8 @@
 
 import type { CSSProperties } from "react";
 import { hexToRgbTriplet } from "../table/seat-angle";
-import { SEAT_TONE_HEX, type CameraAction, type CameraLockReason, type TableLayout } from "../table/types";
-import { cameraLabel, lockLabel, ROOF_FIELD, ROOF_WORLD, roofSlots, type RoofCameraState } from "./roof-camera";
+import { SEAT_TONE_HEX, type CameraLockReason, type TableLayout } from "../table/types";
+import { cameraLabel, lockLabel, ROOF_FIELD, ROOF_WORLD, roofSlots, type CameraAction, type RoofCameraState } from "./roof-camera";
 import styles from "./tag-shell.module.css";
 
 export interface CameraDockProps {
