@@ -587,9 +587,11 @@ export function assertDraftConfigShape(config: Partial<DraftConfig>) {
     }
   }
   const assignments = config.themeAssignments;
+  // A null cube ID is an unassigned seat; hostThemeAssignmentError checks roster completeness.
   if (assignments !== undefined && (!assignments || typeof assignments !== "object" || Array.isArray(assignments)
     || Object.entries(assignments).some(([playerId, cubeId]) => !/^\d+$/.test(playerId)
-      || !Number.isSafeInteger(Number(playerId)) || Number(playerId) <= 0 || !Number.isSafeInteger(cubeId) || cubeId <= 0))) {
+      || !Number.isSafeInteger(Number(playerId)) || Number(playerId) <= 0
+      || (cubeId !== null && (!Number.isSafeInteger(cubeId) || cubeId <= 0))))) {
     throw new DraftLobbyApiError("themeAssignments must map player IDs to positive cube IDs", "INVALID_CONFIG");
   }
   if (config.mode !== undefined && config.mode !== "booster" && config.mode !== "theme") {
