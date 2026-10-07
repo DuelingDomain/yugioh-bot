@@ -98,6 +98,68 @@ describe("draft lobby projection and acknowledgement", () => {
     expect(app.read().lobby.ready).toBe(0);
   });
 
+  it.each(["add", "remove"] as const)("keeps Ready and auto countdowns when catalog syncs %s set cards", (change) => {
+    const app = setup({ cubeCardIds: undefined, setNames: ["Lobby Set"], lobbySeats: 2 });
+    const sets = JSON.stringify([{ set_name: "Lobby Set", set_code: "LS" }]);
+    app.db.prepare("update card_catalog set card_sets_json = ? where ygoprodeck_id <= 18").run(sets);
+    app.ready();
+    const scheduled = app.lobby.setAutoStart(app.draft.id, "host", { enabled: true, revision: app.read().lobby.revision }, now);
+    const previousPool = app.drafts.resolveCubeCardIds(app.drafts.findById(app.draft.id).config);
+    app.db.prepare("update card_catalog set card_sets_json = ? where ygoprodeck_id = ?")
+      .run(change === "add" ? sets : "[]", change === "add" ? 19 : 18);
+    expect(app.drafts.resolveCubeCardIds(app.drafts.findById(app.draft.id).config)).not.toEqual(previousPool);
+    const current = app.read();
+    expect(current.lobby).toMatchObject({ allReady: true, revision: scheduled.lobby.revision, start: scheduled.lobby.start });
+    expect(current.players.map((player) => player.readyAt)).toEqual([now.toISOString(), now.toISOString()]);
+    expect(app.lobby.tick(later(10000)).started).toHaveLength(1);
+  });
+
+  it("keeps Ready when catalog refresh changes Extra card eligibility", () => {
+    const app = setup({ extraDeckEnabled: true, extraDeckSize: 1, customExtraCardIds: [23, 24] });
+    app.db.prepare("update card_catalog set type = 'Fusion Monster', frame_type = 'fusion' where ygoprodeck_id >= 23").run();
+    app.ready();
+    app.db.prepare("update card_catalog set type = 'Normal Monster', frame_type = 'normal' where ygoprodeck_id = 24").run();
+    expect(app.drafts.resolveExtraCardIds(app.drafts.findById(app.draft.id).config, "g")).toEqual([23]);
+    expect(app.read().lobby.allReady).toBe(true);
+  });
+
+  it("holds a catalog-thinned start with a visible preflight error while preserving Ready", () => {
+    const app = setup({ cubeCardIds: undefined, setNames: ["Lobby Set"], lobbySeats: 2 });
+    app.db.prepare("update card_catalog set card_sets_json = ?").run(JSON.stringify([{ set_name: "Lobby Set" }]));
+    app.ready();
+    app.lobby.setAutoStart(app.draft.id, "host", { enabled: true, revision: app.read().lobby.revision }, now);
+    app.db.prepare("update card_catalog set card_sets_json = '[]'").run();
+    const state = app.read();
+    expect(state.lobby.allReady).toBe(true);
+    expect(state.lobby.errors.length).toBeGreaterThan(0);
+    expect(app.lobby.tick(later(10000))).toEqual({ started: [], changedSlugs: [app.draft.webSlug] });
+    expect(app.read().lobby).toMatchObject({ allReady: true, start: null, autoStart: { held: true },
+      lastStartError: state.lobby.errors.join(" ") });
+    expect(app.db.prepare("select count(*) as n from draft_cards").get()).toEqual({ n: 0 });
+  });
+
+  it("invalidates Ready when configured set selections change", () => {
+    const app = setup({ cubeCardIds: undefined, setNames: ["Original"] });
+    app.db.prepare("update card_catalog set card_sets_json = ?")
+      .run(JSON.stringify([{ set_name: "Original" }, { set_name: "Replacement" }]));
+    app.ready();
+    const config = { ...app.drafts.findById(app.draft.id).config, setNames: ["Replacement"] };
+    app.db.prepare("update drafts set config_json = ? where id = ?").run(JSON.stringify(config), app.draft.id);
+    expect(app.read().lobby.ready).toBe(0);
+  });
+
+  it("invalidates booster Ready when a referenced source cube changes", () => {
+    const app = setup();
+    const cubeId = Number(app.db.prepare("insert into cubes (guild_id,name,created_by_user_id) values ('g','Source','host')")
+      .run().lastInsertRowid);
+    app.db.prepare("insert into cube_cards (cube_id,catalog_card_id,pool,max_copies) values (?,1,'main',1)").run(cubeId);
+    const config = { ...app.drafts.findById(app.draft.id).config, poolSource: { cubeId } };
+    app.db.prepare("update drafts set config_json = ? where id = ?").run(JSON.stringify(config), app.draft.id);
+    app.ready();
+    app.db.prepare("update cube_cards set max_copies = 2 where cube_id = ?").run(cubeId);
+    expect(app.read().lobby.ready).toBe(0);
+  });
+
   it("shares pending player claims, hides other assignment modes, and requires a claim for Ready", () => {
     const app = themeSetup();
     expect(() => app.lobby.setReady(app.draft.id, "guest", true, now)).toThrowError(

@@ -78,11 +78,9 @@ export function createDraftLobbyService(db: Database.Database) {
       guildId: (db.prepare("select guild_id from cubes where id = ?").get(id) as { guild_id: string } | undefined)?.guild_id ?? null,
       pools: db.prepare("select catalog_card_id, pool, max_copies from cube_cards where cube_id = ? order by catalog_card_id, pool, max_copies").all(id),
     }));
-    const pools = draft.config.mode === "theme" ? undefined : {
-      main: drafts.resolveCubeCardIds(draft.config).slice().sort((a, b) => a - b),
-      extra: draft.config.extraDeckEnabled ? drafts.resolveExtraCardIds(draft.config, draft.guildId).slice().sort((a, b) => a - b) : [],
-    };
-    return hash({ config, referenced, pools });
+    // Acknowledge authored config/set selections and cube pools. Catalog sync
+    // may change resolved cards; preflight still validates those at start time.
+    return hash({ config, referenced });
   };
   const acknowledgementHash = (draft: Draft, player: PlayerRow, setup: string) => hash({ setup,
     cube: draft.config.mode !== "theme" ? null : draft.config.themeSelection === "host_assigned"
