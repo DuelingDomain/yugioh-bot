@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DuelDiceSkinControl } from "../../src/components/duel/dice-skin-control";
-import { DEFAULT_DICE_SKIN, DICE_SKINS, DICE_SKIN_KEY, getDiceSkin, isSkinUnlocked, loadDiceSkin, normalizeDiceSkin, setDiceSkin } from "../../src/components/duel/dice-skins";
+import { DEFAULT_DICE_SKIN, DICE_SKINS, DICE_SKIN_KEY, getDiceSkin, isSkinUnlocked, loadDiceSkin, normalizeDiceSkin, saveDiceSkin, setDiceSkin } from "../../src/components/duel/dice-skins";
 
 describe("dice skins", () => {
   beforeEach(() => { window.localStorage.clear(); act(() => setDiceSkin(DEFAULT_DICE_SKIN)); window.localStorage.clear(); });
@@ -38,5 +38,23 @@ describe("dice skins", () => {
     fireEvent.click(screen.getByRole("button", { name: "Card back" }));
     expect(screen.getByRole("button", { name: "Card back" }).getAttribute("aria-pressed")).toBe("true");
     expect(getDiceSkin()).toBe("cardback");
+  });
+  it("falls back to Millennium gold when browser storage throws", () => {
+    const get = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("blocked"); });
+    const set = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("blocked"); });
+    try {
+      expect(loadDiceSkin()).toBe("gold");
+      expect(() => saveDiceSkin("crest")).not.toThrow();
+      // The choice still works for this tab, and the control renders on the default.
+      act(() => setDiceSkin("crest"));
+      expect(getDiceSkin()).toBe("crest");
+      cleanup();
+      act(() => setDiceSkin(DEFAULT_DICE_SKIN));
+      render(<DuelDiceSkinControl />);
+      expect(screen.getByRole("group", { name: "Dice" }).querySelector("[aria-pressed=true]")?.textContent).toBe("Millennium gold");
+    } finally {
+      get.mockRestore();
+      set.mockRestore();
+    }
   });
 });
