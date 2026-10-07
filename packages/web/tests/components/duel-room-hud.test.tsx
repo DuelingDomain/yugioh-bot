@@ -46,6 +46,10 @@ vi.mock("@/components/duel/field", async (importOriginal) => {
             onMouseLeave={() => props.onHoverCard?.(null, null)}>card</button>
           {/* A second card, for the hover that switches the preview. */}
           <button type="button" data-testid="field-other"
+            onClick={(event) => {
+              const other = props.engine.seats[1].monsters[3];
+              if (other) props.onActivate([`${other.controller}:${other.location}:${other.sequence}`], other, event.currentTarget);
+            }}
             onMouseEnter={(event) => props.onHoverCard?.(props.engine.seats[1].monsters[3], event.currentTarget)}
             onMouseLeave={() => props.onHoverCard?.(null, null)}>other</button>
           {/* The monster is the legal pick of a select prompt. */}
@@ -295,6 +299,153 @@ describe("the hover preview of the 1v1 room", () => {
     fireEvent.click(screen.getByTestId("hud-dock-log"));
     fireEvent.mouseEnter(screen.getByTestId("field-card"));
     expect(screen.queryByTestId("hover-preview")).toBeNull();
+  });
+});
+
+describe("the pinned card peek of the 1v1 room", () => {
+  const peeks = () => screen.queryAllByTestId("hover-preview");
+  const peek = () => screen.getByTestId("hover-preview");
+  const pin = () => {
+    fireEvent.mouseEnter(screen.getByTestId("field-card"));
+    fireEvent.click(screen.getByTestId("field-pick"));
+  };
+
+  it("a click pins the peek: the wide panel opens, and the Card flyout and a second preview do not", () => {
+    mount({ second: true });
+    pin();
+    expect(peeks()).toHaveLength(1);
+    expect(peek().getAttribute("data-pinned")).toBe("true");
+    expect(peek().getAttribute("data-open")).toBe("true");
+    expect(peek()).toHaveTextContent("Battle Ox");
+    expect(isOpen()).toBe(false);
+    expect(screen.queryByRole("tab", { name: "Card", selected: true })).toBeNull();
+    expect(within(peek()).getByRole("button", { name: "Close card preview" })).toBeTruthy();
+  });
+
+  it("stays when the pointer leaves, and a hover on another card does not swap it or add a panel", () => {
+    vi.useFakeTimers();
+    mount({ second: true });
+    pin();
+    fireEvent.mouseLeave(screen.getByTestId("field-card"));
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS * 4); });
+    expect(peek().getAttribute("data-open")).toBe("true");
+    fireEvent.mouseEnter(screen.getByTestId("field-other"));
+    expect(peeks()).toHaveLength(1);
+    expect(peek()).toHaveTextContent("Battle Ox");
+    expect(peek()).not.toHaveTextContent("Beaver Warrior");
+    expect(peek().getAttribute("data-pinned")).toBe("true");
+    expect(isOpen()).toBe(false);
+  });
+
+  it("closes with the X button", () => {
+    vi.useFakeTimers();
+    mount();
+    pin();
+    fireEvent.click(screen.getByTestId("hover-preview-close"));
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS + 20); });
+    expect(peek().getAttribute("data-open")).toBe("false");
+  });
+
+  it("closes with Esc, and that Esc does not answer the prompt; the next Esc does", () => {
+    vi.useFakeTimers();
+    mount({ prompt: chainPrompt });
+    pin();
+    expect(peek().getAttribute("data-pinned")).toBe("true");
+    fireEvent.keyDown(window, { key: "Escape" });
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS + 20); });
+    expect(peek().getAttribute("data-open")).toBe("false");
+    expect(sent()).toEqual([]);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(sent()).toHaveLength(1);
+  });
+
+  it("closes with a press outside, but not with a press inside the panel", () => {
+    vi.useFakeTimers();
+    mount();
+    pin();
+    fireEvent.pointerDown(within(peek()).getByRole("heading"));
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS * 2); });
+    expect(peek().getAttribute("data-open")).toBe("true");
+    fireEvent.pointerDown(document.body);
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS + 20); });
+    expect(peek().getAttribute("data-open")).toBe("false");
+  });
+
+  it("a click on another card pins that card, and the press on it does not close the panel first", () => {
+    vi.useFakeTimers();
+    mount({ second: true });
+    pin();
+    const other = screen.getByTestId("field-other");
+    // The press lands on a board zone; the stub has no zone wrapper, so the press goes through the zone marker only in the real field.
+    const zone = document.createElement("div");
+    zone.setAttribute("data-zones", "1:4:3");
+    zone.appendChild(other.cloneNode());
+    fireEvent.pointerDown(document.body.appendChild(zone).firstChild!);
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS * 2); });
+    expect(peek().getAttribute("data-open")).toBe("true");
+    zone.remove();
+    fireEvent.click(other);
+    expect(peeks()).toHaveLength(1);
+    expect(peek()).toHaveTextContent("Beaver Warrior");
+    expect(peek().getAttribute("data-pinned")).toBe("true");
+    expect(isOpen()).toBe(false);
+  });
+
+  it("a dock icon swaps the pin for the flyout: only one of them shows, and the pin does not come back", () => {
+    vi.useFakeTimers();
+    mount();
+    pin();
+    fireEvent.click(screen.getByTestId("hud-dock-log"));
+    expect(isOpen()).toBe(true);
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS + 20); });
+    expect(peek().getAttribute("data-open")).toBe("false");
+    fireEvent.click(screen.getByTestId("hud-dock-log"));
+    expect(isOpen()).toBe(false);
+    expect(peek().getAttribute("data-open")).toBe("false");
+  });
+
+  it("a click that picks a target still picks it, and pins nothing", () => {
+    mount({ prompt: pickPrompt });
+    fireEvent.click(screen.getByTestId("field-pick"));
+    expect(sent()).toHaveLength(1);
+    expect(sent()[0]).toMatchObject({ promptId: "p2", answer: { selected: ["target"] } });
+    expect(peeks().filter((node) => node.getAttribute("data-pinned") === "true")).toHaveLength(0);
+    expect(isOpen()).toBe(false);
+  });
+
+  it("a click that opens the action menu still opens it, and the peek of the menu card is not pinned", () => {
+    mount({ prompt: menuPrompt });
+    fireEvent.click(screen.getByTestId("field-pick"));
+    expect(screen.getByRole("menu")).toBeTruthy();
+    expect(peeks()).toHaveLength(1);
+    expect(peek().getAttribute("data-pinned")).toBeNull();
+    expect(isOpen()).toBe(false);
+  });
+
+  it("a pinned card goes when the click on the card opens its action menu", () => {
+    mount({ prompt: menuPrompt, second: true });
+    fireEvent.click(screen.getByTestId("field-other"));
+    expect(peek().getAttribute("data-pinned")).toBe("true");
+    fireEvent.click(screen.getByTestId("field-pick"));
+    expect(screen.getByRole("menu")).toBeTruthy();
+    expect(peeks()).toHaveLength(1);
+    expect(peek().getAttribute("data-pinned")).toBeNull();
+    expect(peek()).toHaveTextContent("Battle Ox");
+  });
+
+  it("pins for a spectator too", () => {
+    mount({ spectator: true }, { spectate: true });
+    pin();
+    expect(peek().getAttribute("data-pinned")).toBe("true");
+    expect(isOpen()).toBe(false);
+  });
+
+  it("is not used on a narrow screen: no peek, the old phone panes stay", () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("max-width"), media: query, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+    mount();
+    fireEvent.click(screen.getByTestId("field-pick"));
+    expect(peeks()).toHaveLength(0);
+    expect(screen.queryByTestId("hud-flyout")).toBeNull();
   });
 });
 

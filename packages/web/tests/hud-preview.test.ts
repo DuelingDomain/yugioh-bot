@@ -31,4 +31,15 @@ describe("hudPreview", () => {
   it("gives a board card its owner", () => {
     expect(hudPreview(null, card(1), null, ownerOf)?.owner?.name).toBe("Seat 0");
   });
+  it("shows a pinned card over a hover, a menu card and a row card, and marks it pinned", () => {
+    expect(hudPreview(card(2), card(1), row, ownerOf, card(3))).toEqual({ card: card(3), owner: { name: "Seat 0", main: "#fff", ink: "#000" }, pinned: true });
+  });
+  it("ignores a pinned card with no code", () => {
+    const hidden = { name: "Set card", controller: 0, code: null } as unknown as DuelCard;
+    expect(hudPreview(card(2), null, null, ownerOf, hidden)?.card).toMatchObject({ code: 2 });
+    expect(hudPreview(null, null, null, ownerOf, hidden)).toBeNull();
+  });
+  it("marks nothing as pinned without a pin", () => {
+    expect(hudPreview(card(2), null, null, ownerOf, null)).not.toHaveProperty("pinned");
+  });
 });

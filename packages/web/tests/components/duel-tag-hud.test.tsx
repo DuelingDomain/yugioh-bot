@@ -247,6 +247,27 @@ describe("the hover preview of the Tag Rooftop", () => {
   });
 });
 
+describe("the pinned card peek of the Tag Rooftop", () => {
+  it("a click on a face-up monster pins the peek, with no Card flyout and no second panel", () => {
+    vi.useFakeTimers();
+    media(false);
+    const { container } = render(<Shell />);
+    const zone = container.querySelector("[data-kind='mz'][data-occupied='true']") as HTMLElement;
+    const card = zone.querySelector("button") as HTMLElement;
+    fireEvent.mouseEnter(card);
+    fireEvent.click(card);
+    fireEvent.mouseLeave(card);
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS * 4); });
+    expect(screen.getAllByTestId("hover-preview")).toHaveLength(1);
+    expect(screen.getByTestId("hover-preview").getAttribute("data-pinned")).toBe("true");
+    expect(screen.getByTestId("hover-preview").getAttribute("data-open")).toBe("true");
+    expect(isOpen()).toBe(false);
+    fireEvent.keyDown(window, { key: "Escape" });
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS + 20); });
+    expect(screen.getByTestId("hover-preview").getAttribute("data-open")).toBe("false");
+  });
+});
+
 describe("the hover preview of the Tag Rooftop while a card menu is open", () => {
   it("keeps the card of the menu in the panel once the pointer has left it", () => {
     media(false);
