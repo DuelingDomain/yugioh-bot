@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { statSync } from "node:fs";
 import { resolve } from "node:path";
 import { CARD_RACES, CARD_TYPE_BITS } from "../duels/card-query.js";
-import type { DeckCardInfo } from "../duels/index.js";
+import type { DeckCardInfo, DuelCardInfo } from "../duels/index.js";
 import { canonicalCardCode } from "../duels/pool.js";
 import type { CardCatalogService } from "./card-catalog.js";
 
@@ -76,17 +76,30 @@ export function readEngineCardInfo(
   const engine = loadCards(dataDirectory);
   if (!engine) return null;
   const ids = [...new Set(codes)];
-  const catalogCards = new Map(catalog?.findByIds(ids).map(card => [card.ygoprodeckId, card]));
   const cards: DeckCardInfo[] = [], missing: number[] = [];
   for (const code of ids) {
     const card = engine.get(code);
     if (!card) { missing.push(code); continue; }
-    const cached = catalogCards.get(code);
-    cards.push({
-      ...card,
-      name: cached?.name?.trim() && cached.name !== `Card ${code}` ? cached.name : card.name,
-      description: cached?.effectText?.trim() ? cached.effectText : card.description,
-    });
+    cards.push(card);
   }
-  return { cards, missing };
+  return { cards: withCatalogCardText(cards, catalog), missing };
+}
+
+/** Prefer cached name/text without changing engine or live metadata. Canonical
+ * passcodes from the prepared bundle also resolve catalog-only artwork mains.
+ */
+export function withCatalogCardText<T extends DuelCardInfo>(
+  cards: T[],
+  catalog?: Pick<CardCatalogService, "findByIds">,
+): T[] {
+  const ids = [...new Set(cards.flatMap(card => [card.code, card.canonicalPasscode ?? card.code]))];
+  const catalogCards = new Map(catalog?.findByIds(ids).map(card => [card.ygoprodeckId, card]));
+  return cards.map(card => {
+    const cached = catalogCards.get(card.code) ?? catalogCards.get(card.canonicalPasscode ?? card.code);
+    return {
+      ...card,
+      name: cached?.name?.trim() && cached.name.trim() !== `Card ${card.code}` ? cached.name : card.name,
+      description: cached?.effectText?.trim() ? cached.effectText : card.description,
+    };
+  });
 }

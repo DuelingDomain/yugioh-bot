@@ -103,4 +103,21 @@ describe("prepared engine card metadata", () => {
       level: 3, lscale: 5, rscale: 6, defense: 0, arrows: 0x101, race: "Cyberse",
     });
   });
+
+  it("finds catalog text under an artwork's engine main even when catalog identity is unavailable", () => {
+    const root = bundle();
+    const cdb = new Database(join(root, "cards.cdb"));
+    cdb.exec(`insert into datas values (17242023,1,17242022,59,97,3400,3000,9,8192,32,0);
+      insert into texts select 17242023,name,desc from texts where id=17242022;`);
+    cdb.close();
+    vi.stubEnv("DUEL_DATA_DIR", root);
+    const db = new Database(":memory:"); databases.push(db); migrate(db);
+    db.prepare(`insert into card_catalog
+      (ygoprodeck_id,name,type,frame_type,effect_text,image_url,image_url_small,card_sets_json,cached_at)
+      values (17242022,'Catalog main','Fusion Monster','fusion','Catalog full text','','','[]','now')`).run();
+    const catalog = createCardCatalogService(db, { identityCatalog: new Map() });
+    expect(readEngineCardInfo([17242023], root, catalog)?.cards[0]).toMatchObject({
+      code: 17242023, canonicalPasscode: 17242022, name: "Catalog main", description: "Catalog full text",
+    });
+  });
 });
