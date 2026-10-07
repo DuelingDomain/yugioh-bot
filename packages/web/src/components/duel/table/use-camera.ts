@@ -111,7 +111,10 @@ export function useCamera({ controller, layout, initial, initialLock = null, sea
   keyRef.current = { state, seatKeys, suspended, uprightOnly };
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.ctrlKey || event.metaKey || event.altKey || typing(event.target) || keyRef.current.suspended) return;
+      // AltGr (reported as Ctrl+Alt) types [ and ] on AZERTY, German and other layouts, so those two keys pass with it.
+      const bracket = event.key === "[" || event.key === "]" || event.code === "BracketLeft" || event.code === "BracketRight";
+      const altGr = event.ctrlKey && event.altKey;
+      if (event.metaKey || ((event.ctrlKey || event.altKey) && !(bracket && altGr)) || typing(event.target) || keyRef.current.suspended) return;
       if (keyRef.current.uprightOnly && event.key !== "s" && event.key !== "S") return;
       const target = event.target as HTMLElement | null;
       if (target?.closest?.('[role="dialog"][aria-modal="true"]') || document.querySelector('[aria-modal="true"]')) return;

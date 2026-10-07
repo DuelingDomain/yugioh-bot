@@ -143,6 +143,17 @@ describe("the focused field only changes when the viewer asks", () => {
     expect(container.querySelector("[data-camera-hint]")).toBeNull();
   });
 
+  it("AltGr (Ctrl+Alt) types [ and ] on some layouts, so they still step the focus; other Ctrl or Alt keys do not", () => {
+    const { container } = render(<Table state={variant(() => {})} camera={{ mode: "focus", focusSeat: RYO }} />);
+    fireEvent.keyDown(window, { key: "]", ctrlKey: true, altKey: true });
+    expect(chip(container)).toBe("Focus · Mika Hana");
+    fireEvent.keyDown(window, { key: "[", code: "Digit5", ctrlKey: true, altKey: true });
+    expect(chip(container)).toBe("Focus · Ryo Sato");
+    fireEvent.keyDown(window, { key: "]", ctrlKey: true });
+    fireEvent.keyDown(window, { key: "h", altKey: true });
+    expect(chip(container)).toBe("Focus · Ryo Sato");
+  });
+
   it("the viewer can still change the focus with a key", () => {
     const { container } = render(<Table state={variant(() => {})} camera={{ mode: "focus", focusSeat: RYO }} />);
     fireEvent.keyDown(window, { key: "3" });

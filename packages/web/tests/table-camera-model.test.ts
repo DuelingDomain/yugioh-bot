@@ -292,6 +292,11 @@ describe("cameraActionForKey", () => {
     expect(key("Tab", true)).toBeNull();
   });
 
+  it("the bracket keys also work by their physical key, for layouts that type [ and ] another way", () => {
+    expect(cameraActionForKey({ key: "ü", code: "BracketLeft" }, L3, HOME)).toEqual({ type: "focusStep", dir: -1 });
+    expect(cameraActionForKey({ key: "¨", code: "BracketRight" }, L3, HOME)).toEqual({ type: "focusStep", dir: 1 });
+  });
+
   it("maps H, O, 0, F, S in both cases", () => {
     expect(key("h")).toEqual({ type: "home" });
     expect(key("H")).toEqual({ type: "home" });

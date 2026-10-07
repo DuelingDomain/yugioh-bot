@@ -193,6 +193,8 @@ export function effectiveCamera(state: CameraState, nowMs: number): CameraState 
 
 export interface CameraKeyEvent {
   key: string;
+  /** The physical key: the bracket keys step the focus on layouts where `[` and `]` are typed with AltGr or another key. */
+  code?: string;
   shiftKey?: boolean;
 }
 
@@ -203,7 +205,7 @@ export function cameraActionForKey(
   camera: Pick<CameraState, "mode" | "lookSeat" | "fly">,
   ctx?: CameraContext,
 ): CameraAction | null {
-  const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+  const key = event.code === "BracketLeft" ? "[" : event.code === "BracketRight" ? "]" : event.key.length === 1 ? event.key.toLowerCase() : event.key;
   const faceOff = isFaceOff(layout, ctx?.out ?? []);
   if (faceOff && (key === "]" || key === "[" || key === "o" || key === "0" || key === "f" || key === "p" || key === "Escape")) return null;
   switch (key) {
