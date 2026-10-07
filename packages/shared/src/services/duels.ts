@@ -38,6 +38,7 @@ import { createSeriesStore } from "./duel-series.js";
 import { isDuelEngineChoice, type DuelEngineChoice } from "../duels/engine-switch.js";
 import {
   newOpening,
+  isDiceOpening,
   openingNeedsSwap,
   openingView,
   parseOpening,
@@ -748,7 +749,7 @@ export function createDuelService(db: Database.Database): DuelService {
 
   /** The opening just settled the order: put the seats in their final order and flip the seat-indexed fields. */
   const settleOrder = (duelId: number, before: DuelOpeningState, after: DuelOpeningState): DuelOpeningState => {
-    if (before.phase === "start" || after.phase !== "start" || !openingNeedsSwap(after)) return after;
+    if (isDiceOpening(after) || before.phase === "start" || after.phase !== "start" || !openingNeedsSwap(after)) return after;
     // Two statements: the primary key (duel_id, seat) must stay unique after every row update.
     db.prepare<[number]>("update duel_seats set seat = seat + 2 where duel_id = ?").run(duelId);
     db.prepare<[number]>("update duel_seats set seat = 3 - seat where duel_id = ?").run(duelId);
