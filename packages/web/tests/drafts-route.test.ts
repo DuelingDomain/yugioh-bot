@@ -1,3 +1,4 @@
+import { finishTestLobbyStart } from "./drafts-lobby-routes.test";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -157,11 +158,12 @@ describe("GET /api/drafts/[slug]", () => {
     db.prepare("update drafts set config_json = json_set(config_json, '$.cardsPerPlayer', 15) where web_slug = 'legendary-draft'").run();
     const { POST: startDraft, GET } = await import("../app/api/drafts/[slug]/route");
 
-    const startResponse = await startDraft(new Request("http://localhost/api/drafts/legendary-draft", { method: "POST" }), {
+    const startResponse = await startDraft(new Request("http://localhost/api/drafts/legendary-draft", { method: "POST", body: JSON.stringify({ force: true }) }), {
       params: Promise.resolve({ slug: "legendary-draft" }),
     });
 
-    expect(startResponse.status).toBe(200);
+    expect(startResponse.status).toBe(202);
+    await finishTestLobbyStart(startResponse);
 
     const response = await GET(new Request("http://localhost/api/drafts/legendary-draft"), {
       params: Promise.resolve({ slug: "legendary-draft" }),
@@ -251,11 +253,12 @@ describe("GET /api/drafts/[slug]", () => {
     );
 
     const { POST: startDraft } = await import("../app/api/drafts/[slug]/route");
-    const response = await startDraft(new Request(`http://localhost/api/drafts/${draft.webSlug}`, { method: "POST" }), {
+    const response = await startDraft(new Request(`http://localhost/api/drafts/${draft.webSlug}`, { method: "POST", body: JSON.stringify({ force: true }) }), {
       params: Promise.resolve({ slug: draft.webSlug ?? "" }),
     });
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(202);
+    await finishTestLobbyStart(response);
 
     const verifyDb = new Database(dbPath);
     expect(verifyDb.prepare("select count(*) as count from card_catalog").get()).toEqual({ count: 2 });
@@ -402,11 +405,12 @@ describe("GET /api/drafts/[slug]", () => {
     );
 
     const { POST: startDraft } = await import("../app/api/drafts/[slug]/route");
-    const response = await startDraft(new Request(`http://localhost/api/drafts/${draft.webSlug}`, { method: "POST" }), {
+    const response = await startDraft(new Request(`http://localhost/api/drafts/${draft.webSlug}`, { method: "POST", body: JSON.stringify({ force: true }) }), {
       params: Promise.resolve({ slug: draft.webSlug ?? "" }),
     });
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(202);
+    await finishTestLobbyStart(response);
 
     const verifyDb = new Database(dbPath);
     expect(verifyDb.prepare("select count(*) as count from card_catalog").get()).toEqual({ count: 2 });

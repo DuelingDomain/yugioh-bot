@@ -56,6 +56,17 @@ describe("shared database schema", () => {
       "started_at",
       "ended_at",
       "web_slug",
+      "lobby_revision",
+      "lobby_auto_start",
+      "lobby_auto_held",
+      "lobby_start_at",
+      "lobby_start_kind",
+      "lobby_start_token",
+      "lobby_start_revision",
+      "lobby_start_setup_hash",
+      "lobby_start_force",
+      "lobby_start_error",
+      "lobby_nudged_at",
       "tournament_id",
       "complete_message_id",
     ]);
@@ -67,6 +78,8 @@ describe("shared database schema", () => {
       "seat_index",
       "joined_at",
       "deck_saved_at",
+      "ready_at",
+      "ready_setup_hash",
     ]);
     expect(getTableInfo(db, "draft_cards").map((column) => column.name)).toEqual([
       "id",

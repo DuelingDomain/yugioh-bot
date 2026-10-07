@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   draftCreatedAnnouncement,
+  draftStartedAnnouncement,
+  draftNudgeAnnouncement,
   tournamentCreatedAnnouncement,
   tournamentStartedAnnouncement,
   tournamentCompletedAnnouncement,
@@ -8,6 +10,27 @@ import {
 } from "../../src/announce/messages.js";
 
 describe("announce messages", () => {
+  it("formats a branded started message and an Open draft link with mentions disabled", () => {
+    const message = draftStartedAnnouncement({ name: "@everyone Night", webSlug: "abc", webUrl: "https://app.test/" });
+    expect(message.content).toContain("Dueling Domain");
+    expect(message.content).toContain("has started");
+    expect(message.allowedMentions).toEqual({ parse: [], users: [] });
+    expect(message.components[0].toJSON().components[0]).toMatchObject({ label: "Open draft", url: "https://app.test/draft/abc" });
+  });
+
+  it("formats signup and Ready links with only explicit validated user mentions", () => {
+    const message = draftNudgeAnnouncement({ name: "Night <@&123> @everyone", webSlug: "abc", mentionUserIds: ["123456789012345678"], webUrl: "https://app.test" });
+    expect(message.content).toContain("<@123456789012345678>");
+    expect(message.content).toContain("/draft join");
+    expect(message.content).toContain("Ready");
+    expect(message.content).toContain("Dueling Domain");
+    expect(message.allowedMentions).toEqual({ parse: [], users: ["123456789012345678"] });
+    expect(message.components[0].toJSON().components[0]).toMatchObject({ url: "https://app.test/draft/abc" });
+    const invite = draftNudgeAnnouncement({ name: "Night", webSlug: "abc", mentionUserIds: [] });
+    expect(invite.content).toContain("Signups");
+    expect(invite.allowedMentions).toEqual({ parse: [], users: [] });
+  });
+
   it("uses the default web URL when WEB_URL is not configured", () => {
     expect(draftCreatedAnnouncement({ name: "test1", webSlug: "1d4wjhls" })).toBe(
       "Signups are open for **test1**. Pick cards: http://localhost:3000/draft/1d4wjhls",

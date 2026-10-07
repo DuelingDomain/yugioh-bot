@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { packsSentence, secondsText, tallyPool, themeSelectionText } from "../src/components/draft/create/format";
 import type { CardSummary } from "../src/lib/card-types";
+import { configFromFields, fieldsFromConfig, validateFields } from "../src/components/draft/draft-config-fields";
 
 const card = (type: string, qty?: number) => ({ id: 1, name: "x", type, frameType: "normal", qty }) as CardSummary;
 
@@ -28,5 +29,28 @@ describe("new draft summary helpers", () => {
   it("names the theme selection", () => {
     expect(themeSelectionText("player_pick", true)).toBe("Players pick, all different");
     expect(themeSelectionText("random", false)).toBe("Random, can repeat");
+  });
+});
+
+describe("pack fields and config", () => {
+  it("derives rounds from the cards and the pile when the fields carry none, as the older forms do", () => {
+    const fields = { cardsPerPlayerText: "40", packSizeText: "15", pickSecondsText: "45" };
+    const config = configFromFields(fields);
+    expect(config).toMatchObject({ cardsPerPlayer: 40, packSize: 15, packsPerPlayer: 3 });
+    expect("lobbySeats" in config).toBe(false);
+  });
+
+  it("reads rounds and the seat target back from a saved config, and writes the same values", () => {
+    const saved = { cardsPerPlayer: 40, packSize: 15, packsPerPlayer: 3, lobbySeats: 6 };
+    const fields = fieldsFromConfig(saved);
+    expect(fields).toMatchObject({ roundsText: "3", lobbySeatsText: "6" });
+    expect(configFromFields(fields)).toMatchObject(saved);
+  });
+
+  it("falls back to derived rounds when a saved config's rounds cannot deal its picks", () => {
+    const fields = fieldsFromConfig({ cardsPerPlayer: 45, packSize: 5, packsPerPlayer: 3 });
+    expect(fields.roundsText).toBeUndefined();
+    expect(configFromFields(fields).packsPerPlayer).toBe(9);
+    expect(validateFields(fields)).toBeNull();
   });
 });

@@ -1,3 +1,4 @@
+import { finishTestLobbyStart } from "./drafts-lobby-routes.test";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -147,12 +148,13 @@ describe("POST /api/drafts/[slug]/pick", () => {
     const { POST: startDraft } = await import("../app/api/drafts/[slug]/route");
     const startResponse = await startDraft(
       new NextRequest("http://localhost/api/drafts/legendary-draft", {
-        method: "POST",
+        method: "POST", body: JSON.stringify({ force: true }),
       }),
       { params: Promise.resolve({ slug: "legendary-draft" }) }
     );
 
-    expect(startResponse.status).toBe(200);
+    expect(startResponse.status).toBe(202);
+    await finishTestLobbyStart(startResponse);
 
     // Get initial draft state to find a valid card
     const { GET } = await import("../app/api/drafts/[slug]/route");
@@ -217,12 +219,13 @@ describe("POST /api/drafts/[slug]/pick", () => {
     fixtureDb.close();
     // Start the draft first
     const { POST: startDraft } = await import("../app/api/drafts/[slug]/route");
-    await startDraft(
+    const scheduled = await startDraft(
       new NextRequest("http://localhost/api/drafts/legendary-draft", {
-        method: "POST",
+        method: "POST", body: JSON.stringify({ force: true }),
       }),
       { params: Promise.resolve({ slug: "legendary-draft" }) }
     );
+    await finishTestLobbyStart(scheduled);
 
     const { POST: pickCard } = await import("../app/api/drafts/[slug]/pick/route");
 
@@ -285,12 +288,13 @@ describe("POST /api/drafts/[slug]/pick", () => {
     fixtureDb.close();
     // Start the draft first
     const { POST: startDraft } = await import("../app/api/drafts/[slug]/route");
-    await startDraft(
+    const scheduled = await startDraft(
       new NextRequest("http://localhost/api/drafts/legendary-draft", {
-        method: "POST",
+        method: "POST", body: JSON.stringify({ force: true }),
       }),
       { params: Promise.resolve({ slug: "legendary-draft" }) }
     );
+    await finishTestLobbyStart(scheduled);
 
     // Authenticate as a different user who is not a participant
     auth.mockResolvedValue({

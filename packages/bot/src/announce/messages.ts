@@ -10,6 +10,36 @@ export function draftCreatedAnnouncement(input: { name: string; webSlug: string;
   return `Signups are open for **${input.name}**. Pick cards: ${webBaseUrl(input.webUrl)}/draft/${input.webSlug}`;
 }
 
+export function draftStartedAnnouncement(input: { name: string; webSlug: string; webUrl?: string }) {
+  return {
+    content: `Dueling Domain — **${input.name}** has started. Open the draft to pick your cards.`,
+    allowedMentions: { parse: [], users: [] as string[] },
+    components: [new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setLabel("Open draft").setStyle(ButtonStyle.Link)
+        .setURL(`${webBaseUrl(input.webUrl)}/draft/${input.webSlug}`),
+    )],
+  };
+}
+
+/** IDs come from the handler's current guild/roster/readiness validation. */
+export function draftNudgeAnnouncement(input: {
+  name: string; webSlug: string; mentionUserIds: string[]; webUrl?: string;
+}) {
+  const mentions = input.mentionUserIds.map(id => `<@${id}>`).join(" ");
+  return {
+    content: [
+      `Dueling Domain — Signups are open for **${input.name}**.`,
+      ...(mentions ? [`${mentions} — review the lobby and mark Ready when you are set.`] : []),
+      "Join in the lobby or use `/draft join` in Discord.",
+    ].join("\n"),
+    allowedMentions: { parse: [], users: input.mentionUserIds },
+    components: [new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setLabel("Open lobby").setStyle(ButtonStyle.Link)
+        .setURL(`${webBaseUrl(input.webUrl)}/draft/${input.webSlug}`),
+    )],
+  };
+}
+
 export function tournamentCreatedAnnouncement(input: {
   name: string;
   format: string;

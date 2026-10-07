@@ -124,6 +124,25 @@ describe("useDraftWebsocket", () => {
     expect(onResync).toHaveBeenCalledTimes(1);
   });
 
+  it("resyncs and rejoins when the tab becomes visible again, and stops after unmount", async () => {
+    const onResync = vi.fn();
+    const { unmount } = render(<HookHarness slug="my-draft" options={{ onResync }} />);
+    act(() => simulateEvent("connect"));
+    await waitFor(() => expect(mockEmit).toHaveBeenCalledTimes(1));
+    const visibility = vi.spyOn(document, "visibilityState", "get");
+    visibility.mockReturnValue("hidden");
+    act(() => { document.dispatchEvent(new Event("visibilitychange")); });
+    expect(onResync).not.toHaveBeenCalled();
+    visibility.mockReturnValue("visible");
+    act(() => { document.dispatchEvent(new Event("visibilitychange")); });
+    expect(onResync).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(mockEmit).toHaveBeenCalledTimes(2));
+    unmount();
+    act(() => { document.dispatchEvent(new Event("visibilitychange")); });
+    expect(onResync).toHaveBeenCalledTimes(1);
+    visibility.mockRestore();
+  });
+
   it("does not resync when the room join is refused", async () => {
     const onResync = vi.fn();
     render(<HookHarness slug="my-draft" options={{ onResync }} />);

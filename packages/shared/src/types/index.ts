@@ -1,4 +1,6 @@
 export interface DraftConfig {
+  /** Integer seat target, 2–8. New web drafts default 4; absence stays legacy/unbounded/manual-only. */
+  lobbySeats?: number;
   setNames?: string[];
   customCardIds?: number[];
   /** Normal draft Extra pool: one ID per copy. An explicit [] overrides the source cube. */
@@ -35,7 +37,7 @@ export interface DraftConfig {
   allowedCubeIds?: number[];
   /** How each player's theme is chosen. Default "player_pick". */
   themeSelection?: "host_assigned" | "random" | "player_pick";
-  /** Optional explicit player -> theme map for host_assigned. */
+  /** Complete player-ID -> cube-ID map for host_assigned; filtered from non-host views. */
   themeAssignments?: Record<string, number>;
   /** If true (default), every player gets a distinct cube, capping players at allowedCubeIds.length. */
   uniqueThemes?: boolean;
@@ -181,3 +183,4 @@ export type {
   CardCatalogStatus, CardDataGapCard, CardDataSetGapStatus, CardDataGapStatus, UpstreamSourceStatus,
   EngineUpdateWorkflowStatus, CardDataStatus, LocalCardDataStatus,
 } from "./card-data-status.js";
+export * from "./draft-lobby.js";

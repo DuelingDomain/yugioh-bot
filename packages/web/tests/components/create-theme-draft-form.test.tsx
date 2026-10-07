@@ -34,6 +34,65 @@ describe("CreateThemeDraftForm", () => {
     expect(screen.queryByRole("radio", { name: /host assigned/i })).toBeNull();
   });
 
+  it("shows no channel picker, no Discord text and no channel request when the bot is off", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ channels: [{ id: "channel-1", name: "drafts" }] }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<CreateThemeDraftForm discordEnabled={false} />);
+    expect(screen.getByLabelText(/draft name/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/channel/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/discord/i)).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("has a seat target of 4 that steps from 2 to 8 and is sent as lobbySeats", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === "/api/discord/channels") return Response.json({ channels: [] });
+      if (String(input) === "/api/drafts" && init?.method === "POST") return Response.json({ webSlug: "theme-night" }, { status: 201 });
+      return Response.json({}, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<CreateThemeDraftForm />);
+    const seats = screen.getByLabelText(/seats at the table/i) as HTMLInputElement;
+    expect(seats).toHaveValue(4);
+    const fewer = screen.getByRole("button", { name: "Fewer seats" });
+    const more = screen.getByRole("button", { name: "More seats" });
+    for (let i = 0; i < 5; i++) fireEvent.click(fewer);
+    expect(seats).toHaveValue(2);
+    expect(fewer).toBeDisabled();
+    for (let i = 0; i < 9; i++) fireEvent.click(more);
+    expect(seats).toHaveValue(8);
+    expect(more).toBeDisabled();
+    fireEvent.click(fewer);
+    fireEvent.change(screen.getByLabelText(/draft name/i), { target: { value: "Theme Night" } });
+    expect(push).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: /create theme draft/i }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/draft/theme-night"));
+    const post = fetchMock.mock.calls.find(([, init]) => init?.method === "POST");
+    expect(JSON.parse(String(post?.[1]?.body)).config).toMatchObject({ mode: "theme", lobbySeats: 7 });
+  });
+
+  it("refuses a seat count outside 2 to 8 and sends nothing", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => Response.json({ channels: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<CreateThemeDraftForm />);
+    fireEvent.change(screen.getByLabelText(/draft name/i), { target: { value: "Theme Night" } });
+    fireEvent.change(screen.getByLabelText(/seats at the table/i), { target: { value: "12" } });
+    fireEvent.submit(screen.getByLabelText(/draft name/i).closest("form")!);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/seats must be a number from 2 to 8/i);
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+  });
+
+  it("keeps the advanced rules in a collapsible and shows Extra as an up-to number", () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ channels: [] })));
+    render(<CreateThemeDraftForm />);
+    const advanced = screen.getByText("Advanced settings").closest("details");
+    expect(advanced).not.toBeNull();
+    expect(advanced).not.toHaveAttribute("open");
+    expect(advanced).toContainElement(screen.getByLabelText(/main deck size/i));
+    expect(screen.getByRole("complementary", { name: /draft summary/i })).toHaveTextContent(/Up to\s*15\s*picks/);
+  });
+
   it("disables the Extra deck size when the Extra deck is off", () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ channels: [] })));
     render(<CreateThemeDraftForm />);

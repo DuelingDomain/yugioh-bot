@@ -16,6 +16,18 @@ export const PICK_SECONDS_MAX = 300;
 export const PICK_SECONDS_DEFAULT = 45;
 export const EXTRA_DECK_SIZE_MAX = 15;
 export const EXTRA_DECK_SIZE_DEFAULT = 15;
+/** Explicit rounds (packs per player). Without them rounds are derived from the cards and the pack size. */
+export const ROUNDS_MIN = 1;
+export const ROUNDS_MAX = 12;
+/** Largest pile when rounds are explicit. */
+export const PACK_SIZE_MAX = 80;
+/** Seat target for a new web draft: 2-8, four unless the host changes it. */
+export const LOBBY_SEATS_MIN = 2;
+export const LOBBY_SEATS_MAX = 8;
+export const LOBBY_SEATS_DEFAULT = 4;
+
+/** Kept as an alias: `DraftConfig.lobbySeats` now comes from the shared types. */
+export type SeatedDraftConfig = DraftConfig;
 
 /** The pack fields as typed. The pool lives in the pool editor, not here. */
 export type DraftConfigFieldsValue = {
@@ -28,6 +40,10 @@ export type DraftConfigFieldsValue = {
   extraDeckSizeText?: string;
   /** Cards each player takes from a pack before it moves on. */
   picksPerStep?: 1 | 2;
+  /** Explicit rounds. Leave it out to derive rounds from cardsPerPlayer and the pack size, as the older forms do. */
+  roundsText?: string;
+  /** Seat target (2-8). Leave it out and the config carries no lobbySeats, as for a draft made before seat targets. */
+  lobbySeatsText?: string;
 };
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
@@ -36,8 +52,24 @@ function parseCardsPerPlayer(text: string): number {
   return clamp(parseInt(text) || CARDS_PER_PLAYER_DEFAULT, CARDS_PER_PLAYER_MIN, CARDS_PER_PLAYER_MAX);
 }
 
-function parsePackSize(text: string, cardsPerPlayer: number): number {
-  return clamp(parseInt(text) || PACK_SIZE_DEFAULT, PACK_SIZE_MIN, cardsPerPlayer);
+function parsePackSize(text: string, cardsPerPlayer: number, explicitRounds = false): number {
+  return clamp(parseInt(text) || PACK_SIZE_DEFAULT, PACK_SIZE_MIN, explicitRounds ? PACK_SIZE_MAX : cardsPerPlayer);
+}
+
+function parseRounds(text: string): number {
+  return clamp(parseInt(text) || 1, ROUNDS_MIN, ROUNDS_MAX);
+}
+
+function parseLobbySeats(text: string): number {
+  return clamp(parseInt(text) || LOBBY_SEATS_DEFAULT, LOBBY_SEATS_MIN, LOBBY_SEATS_MAX);
+}
+
+/** Rounds as the fields mean them: explicit when typed, else derived from the cards and the pile. */
+function resolvePacks(fields: DraftConfigFieldsValue, cardsPerPlayer: number) {
+  const explicit = fields.roundsText !== undefined;
+  const packSize = parsePackSize(fields.packSizeText, cardsPerPlayer, explicit);
+  const packsPerPlayer = explicit ? parseRounds(fields.roundsText as string) : derivePacksPerPlayer(cardsPerPlayer, packSize);
+  return { packSize, packsPerPlayer };
 }
 
 function parsePickSeconds(text: string): number {
@@ -65,14 +97,16 @@ export function configFromFields(fields: DraftConfigFieldsValue): {
   picksPerStep: 1 | 2;
   extraDeckEnabled: boolean;
   extraDeckSize: number;
+  /** Only when the fields carry a seat target. */
+  lobbySeats?: number;
 } {
   const cardsPerPlayer = parseCardsPerPlayer(fields.cardsPerPlayerText);
-  const packSize = parsePackSize(fields.packSizeText, cardsPerPlayer);
+  const { packSize, packsPerPlayer } = resolvePacks(fields, cardsPerPlayer);
   const pickSeconds = parsePickSeconds(fields.pickSecondsText);
   return {
     cardsPerPlayer,
     packSize,
-    packsPerPlayer: derivePacksPerPlayer(cardsPerPlayer, packSize),
+    packsPerPlayer,
     pickSeconds,
     alternatePassDirection: true,
     randomizeSeats: true,
@@ -80,10 +114,17 @@ export function configFromFields(fields: DraftConfigFieldsValue): {
     picksPerStep: fields.picksPerStep ?? 1,
     extraDeckEnabled: fields.extraDeckEnabled ?? false,
     extraDeckSize: parseExtraSize(fields.extraDeckSizeText),
+    ...(fields.lobbySeatsText !== undefined ? { lobbySeats: parseLobbySeats(fields.lobbySeatsText) } : {}),
   };
 }
 
-export function fieldsFromConfig(config: DraftConfig): DraftConfigFieldsValue {
+/** Every field the form edits, read back from a config without losing any of it. */
+export function fieldsFromConfig(config: SeatedDraftConfig): DraftConfigFieldsValue {
+  const cards = config.cardsPerPlayer ?? CARDS_PER_PLAYER_DEFAULT;
+  const pile = config.packSize ?? PACK_SIZE_DEFAULT;
+  // Rounds carry over only when they deal what the picks need, as a saved config always does. A config whose rounds
+  // cannot cover its picks gets the old derived rounds instead, so editing it never opens on an error.
+  const rounds = typeof config.packsPerPlayer === "number" && config.packsPerPlayer * pile >= cards ? config.packsPerPlayer : null;
   return {
     copyLimit: config.copyLimit ?? true,
     cardsPerPlayerText: String(config.cardsPerPlayer ?? CARDS_PER_PLAYER_DEFAULT),
@@ -92,6 +133,8 @@ export function fieldsFromConfig(config: DraftConfig): DraftConfigFieldsValue {
     picksPerStep: config.picksPerStep === 2 ? 2 : 1,
     extraDeckEnabled: config.extraDeckEnabled === true,
     extraDeckSizeText: String(config.extraDeckSize ?? EXTRA_DECK_SIZE_DEFAULT),
+    ...(rounds !== null ? { roundsText: String(rounds) } : {}),
+    ...(typeof config.lobbySeats === "number" ? { lobbySeatsText: String(config.lobbySeats) } : {}),
   };
 }
 
@@ -104,8 +147,25 @@ export function validateFields(fields: DraftConfigFieldsValue): string | null {
   if (!packSize || packSize < PACK_SIZE_MIN) {
     return `Pack size must be at least ${PACK_SIZE_MIN}`;
   }
-  if (packSize > cards) {
+  const explicitRounds = fields.roundsText !== undefined;
+  if (!explicitRounds && packSize > cards) {
     return "Pack size cannot exceed the number of cards per player";
+  }
+  if (explicitRounds) {
+    if (packSize > PACK_SIZE_MAX) return `Pack size cannot be more than ${PACK_SIZE_MAX}`;
+    const rounds = parseInt(fields.roundsText as string);
+    if (!rounds || rounds < ROUNDS_MIN || rounds > ROUNDS_MAX) {
+      return `Rounds must be between ${ROUNDS_MIN} and ${ROUNDS_MAX}`;
+    }
+    if (rounds * packSize < cards) {
+      return `${rounds} rounds of ${packSize} deal ${rounds * packSize} cards each, but ${cards} picks are needed`;
+    }
+  }
+  if (fields.lobbySeatsText !== undefined) {
+    const seats = parseInt(fields.lobbySeatsText);
+    if (!seats || seats < LOBBY_SEATS_MIN || seats > LOBBY_SEATS_MAX) {
+      return `Seats must be between ${LOBBY_SEATS_MIN} and ${LOBBY_SEATS_MAX}`;
+    }
   }
   const secs = parseInt(fields.pickSecondsText);
   if (!secs || secs < PICK_SECONDS_MIN || secs > PICK_SECONDS_MAX) {
@@ -170,8 +230,7 @@ interface PackFieldsProps {
 /** Cards per player, pack size, picks per turn, pick duration and the Extra Deck round, with the sentence that says what they add up to. */
 export function PackFields({ value, onChange, children }: PackFieldsProps) {
   const cardsPerPlayer = parseCardsPerPlayer(value.cardsPerPlayerText);
-  const packSize = parsePackSize(value.packSizeText, cardsPerPlayer);
-  const packsPerPlayer = derivePacksPerPlayer(cardsPerPlayer, packSize);
+  const { packSize, packsPerPlayer } = resolvePacks(value, cardsPerPlayer);
 
   return (
     <div className={`fields ${styles.three}`}>
@@ -179,7 +238,7 @@ export function PackFields({ value, onChange, children }: PackFieldsProps) {
         id="cards-per-player"
         label="Cards drafted per player"
         value={value.cardsPerPlayerText}
-        onChange={(v) => onChange({ ...value, cardsPerPlayerText: v })}
+        onChange={(v) => onChange({ ...value, cardsPerPlayerText: v, roundsText: undefined })}
         min={CARDS_PER_PLAYER_MIN}
         max={CARDS_PER_PLAYER_MAX}
       />
@@ -187,7 +246,7 @@ export function PackFields({ value, onChange, children }: PackFieldsProps) {
         id="pack-size"
         label="Size of each pack"
         value={value.packSizeText}
-        onChange={(v) => onChange({ ...value, packSizeText: v })}
+        onChange={(v) => onChange({ ...value, packSizeText: v, roundsText: undefined })}
         min={PACK_SIZE_MIN}
       />
       <NumberField

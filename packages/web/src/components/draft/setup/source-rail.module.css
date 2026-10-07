@@ -1,0 +1,57 @@
+/* The Workbench's left column: the Sources / Card switch, the five sources and the inline card inspector.
+   Tokens come from the Match Sheet; form pieces (search fields, result rows, cube picker, import rows) keep the pool
+   editor's own styles. Purple marks only the selected tab and the pinned dot. Motion is transform only, and off under
+   reduced motion. Nothing here floats over the pool. */
+
+.rail { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; background: var(--panel); color: var(--ink); }
+.rail button { font: inherit; }
+.rail :is(button, a, input, textarea):focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 2px; }
+
+/* ---- header: switch and collapse ---- */
+.head { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 8px; min-height: 46px; padding: 0 8px 0 10px; border-bottom: 1px solid var(--rule-lo); }
+.title { margin: 0; padding-left: 4px; font: 600 12px/1 var(--f-display); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3); }
+.switch { display: inline-flex; padding: 2px; border: 1px solid var(--rule-lo); border-radius: 8px; background: var(--floor); }
+.switch button { position: relative; display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 14px; border: 0; border-radius: 6px; background: none; color: var(--ink-3); font-size: 14px; font-weight: 500; cursor: pointer; }
+.switch button:hover { color: var(--ink); }
+.switch button[aria-selected="true"] { background: var(--panel-3, var(--panel-2)); color: var(--ink); box-shadow: inset 0 0 0 1px rgb(155 126 255 / 0.45); }
+.pdot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--pen); box-shadow: 0 0 8px var(--pen); }
+.iconBtn { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--ink-3); cursor: pointer; }
+.iconBtn:hover { background: rgb(239 231 213 / 0.07); color: var(--ink); }
+.sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* ---- sources ---- */
+.sources { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+.sources[hidden] { display: none; }
+.tabs { display: flex; flex: none; padding: 0 6px; border-bottom: 1px solid var(--rule-lo); }
+.tabs button { position: relative; flex: 1 1 0; min-width: 0; height: 40px; padding: 0 4px; border: 0; background: none; color: var(--ink-3); font-size: 14px; font-weight: 500; white-space: nowrap; cursor: pointer; }
+.tabs button:hover { color: var(--ink); }
+.tabs button[aria-selected="true"] { color: var(--ink); }
+.tabs button[aria-selected="true"]::after { content: ""; position: absolute; left: 8px; right: 8px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--pen); box-shadow: 0 0 8px var(--pen); }
+.tabs button:focus-visible { outline-offset: -3px; }
+.body { flex: 1 1 auto; min-height: 0; padding: 12px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--rule) transparent; }
+.pane { display: grid; gap: 12px; align-content: start; min-width: 0; }
+.pane[hidden] { display: none; }
+
+/* ---- the cube the pool started from ---- */
+.active { display: grid; gap: 8px; padding: 12px 12px 12px 14px; border: 1px solid rgb(155 126 255 / 0.5); border-radius: 10px; background: var(--floor); }
+.activeTop { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; }
+.activeName { min-width: 0; font: 600 18px/1.2 var(--f-display); overflow-wrap: anywhere; color: var(--ink); }
+.activeSub { margin: 0; color: var(--ink-3); font-size: 14px; line-height: 1.45; }
+
+/* ---- card view ---- */
+.cardPane { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+.insp { flex: 1 1 auto; }
+
+/* ---- drawer (mid width) ---- */
+.drawer { position: fixed; z-index: 55; left: 0; top: var(--topH, 0); bottom: 0; width: 340px; max-width: 92vw; height: auto; border-right: 1px solid var(--rule-hi, var(--rule)); box-shadow: 30px 0 60px -20px #000; transform: translateX(-102%); transition: transform 220ms var(--ease, ease-out); }
+.drawer[data-open] { transform: none; }
+.scrim { position: fixed; inset: var(--topH, 0) 0 0 0; z-index: 54; border: 0; background: rgb(3 5 12 / 0.5); cursor: default; }
+
+@media (max-width: 720px) {
+  .tabs button { height: 44px; }
+  .iconBtn { min-height: 44px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drawer { transition: none; }
+}

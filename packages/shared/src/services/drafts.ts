@@ -9,8 +9,10 @@ import { isExtraDeckFrame } from "./card-catalog.js";
 import { canonicalCardCode } from "../duels/pool.js";
 import { loadArtworkIdentityCatalog } from "./card-artworks.js";
 import { analyzeCube, buildDealWithRemainder, prepareBoosterPool, seededShuffle, type ShuffleSeed } from "./deal.js";
+import { assertLobbySeatTarget, clearDraftLobbyStart, invalidateDraftLobby, DraftLobbyServiceError } from "./draft-lobby-mutations.js";
 
 export type DraftStatus = "pending" | "active" | "cancelled" | "completed";
+export interface DraftStartOptions { scheduleToken?: string }
 export type { Draft, DraftCard, DraftConfig, DraftPick, DraftPlayer } from "../types/index.js";
 
 export type DraftPoolCard = {
@@ -192,6 +194,7 @@ export function createDraftService(
   // player a saved deck of their picks. A failure must not undo the last pick; the decks are
   // saved later, when the player opens My decks or the tournament page.
   const completeDraft = (draftId: number, now: Date, waveNumber?: number) => {
+    clearDraftLobbyStart(db, draftId, true);
     if (waveNumber === undefined) {
       db.prepare("update drafts set status = 'completed', ended_at = ? where id = ?").run(now.toISOString(), draftId);
     } else {
@@ -237,6 +240,7 @@ export function createDraftService(
       createdByUserId: string,
       creatorPlayerId: number,
     ) => {
+      assertLobbySeatTarget(config);
       const result = db
         .prepare(
           `
@@ -780,12 +784,17 @@ export function createDraftService(
     ).run(round, deadlineIso(now, config.pickSeconds ?? defaultDraftConfig.pickSeconds), draftId);
   };
 
-  const assignThemes = (draftId: number, playerIds: number[], config: DraftConfig) => {
+  const assignThemes = (draftId: number, playerIds: number[], config: DraftConfig, guildId: string) => {
     const requested = config.allowedCubeIds ?? [];
-    // Drop any cubes that were deleted from the library after being attached.
+    // References are scoped to the draft's guild at the final write boundary.
+    // Legacy deleted, unused cubes are still dropped from the allowed list.
     const existing = new Set(
-      (db.prepare("select id from cubes").all() as Array<{ id: number }>).map((r) => r.id),
+      (db.prepare("select id from cubes where guild_id = ?").all(guildId) as Array<{ id: number }>).map((r) => r.id),
     );
+    const foreign = new Set((db.prepare("select id from cubes where guild_id != ?").all(guildId) as Array<{ id: number }>).map((r) => r.id));
+    if (requested.some((id) => foreign.has(id))) {
+      throw new Error("Allowed themes must belong to the draft's guild");
+    }
     const allowed = requested.filter((id) => existing.has(id));
     if (allowed.length === 0) {
       throw new Error("Theme draft requires at least one allowed theme");
@@ -810,7 +819,13 @@ export function createDraftService(
       for (const row of db
         .prepare("select player_id, cube_id from draft_player_cube where draft_id = ?")
         .all(draftId) as Array<{ player_id: number; cube_id: number }>) {
+        if (!playerIds.includes(row.player_id) || !allowed.includes(row.cube_id)) {
+          throw new Error("Player claims must reference allowed themes in the draft's guild");
+        }
         claims.set(row.player_id, row.cube_id);
+      }
+      if (uniqueThemes && new Set(claims.values()).size !== claims.size) {
+        throw new Error("Player claims must be distinct when uniqueThemes is enabled");
       }
     }
 
@@ -912,7 +927,7 @@ export function createDraftService(
       assignSeat.run(seatIndex, draftId, playerId);
     }
 
-    assignThemes(draftId, playerIds, draft.config);
+    assignThemes(draftId, playerIds, draft.config, draft.guildId);
     preflightThemes(draftId, draft.config);
 
     db.prepare(
@@ -925,15 +940,29 @@ export function createDraftService(
     return findById(draftId);
   };
 
-  const startDraft = db.transaction((draftId: number, now = new Date()) => {
+  const startDraft = db.transaction((draftId: number, now = new Date(), options: DraftStartOptions = {}) => {
     const draft = findById(draftId);
 
     if (draft.status !== "pending") {
       throw new Error("Draft must be pending to start");
     }
 
+    const schedule = db.prepare("select lobby_start_token, lobby_start_revision, lobby_revision from drafts where id = ?")
+      .get(draftId) as { lobby_start_token: string | null; lobby_start_revision: number | null; lobby_revision: number };
+    if ((schedule.lobby_start_token || options.scheduleToken) && (schedule.lobby_start_token !== options.scheduleToken
+      || schedule.lobby_start_revision !== schedule.lobby_revision)) {
+      throw new DraftLobbyServiceError("Start token does not match the current countdown", "START_TOKEN_MISMATCH");
+    }
+    const joined = db.prepare(`select p.id, p.guild_id from draft_players dp join players p on p.id = dp.player_id
+      where dp.draft_id = ?`).all(draftId) as Array<{ id: number; guild_id: string }>;
+    assertLobbySeatTarget(draft.config, joined.length);
+    for (const player of joined) assertPlayerGuild(player.id, draft.guildId);
+
     if (draft.config.mode === "theme") {
-      return startThemeDraft(draftId, draft, now);
+      const started = startThemeDraft(draftId, draft, now);
+      clearDraftLobbyStart(db, draftId, true);
+      db.prepare("update drafts set lobby_revision = lobby_revision + 1 where id = ?").run(draftId);
+      return started;
     }
     const numberError = boosterDraftConfigError(draft.config);
     if (numberError) throw new Error(numberError);
@@ -1010,6 +1039,8 @@ export function createDraftService(
       `,
     ).run(now.toISOString(), deadlineIso(now, draft.config.pickSeconds ?? defaultDraftConfig.pickSeconds), draftId);
 
+    clearDraftLobbyStart(db, draftId, true);
+    db.prepare("update drafts set lobby_revision = lobby_revision + 1 where id = ?").run(draftId);
     return findById(draftId);
   });
 
@@ -1511,26 +1542,30 @@ export function createDraftService(
     },
 
     join(draftId: number, playerId: number): void {
-      const draft = findById(draftId);
+      db.transaction(() => {
+        const draft = findById(draftId);
 
-      if (draft.status !== "pending") {
-        throw new Error("Draft is no longer accepting players");
-      }
+        if (draft.status !== "pending") {
+          throw new DraftLobbyServiceError("Draft is no longer accepting players", "DRAFT_NOT_PENDING");
+        }
 
-      assertPlayerGuild(playerId, draft.guildId);
+        assertPlayerGuild(playerId, draft.guildId);
 
-      const existing = db.prepare("select 1 from draft_players where draft_id = ? and player_id = ?").get(draftId, playerId);
+        const existing = db.prepare("select 1 from draft_players where draft_id = ? and player_id = ?").get(draftId, playerId);
 
-      if (existing) {
-        throw new Error("You have already joined this draft");
-      }
+        if (existing) {
+          throw new Error("You have already joined this draft");
+        }
 
-      db.prepare(
-        `
-        insert into draft_players (draft_id, player_id)
-        values (?, ?)
-      `,
-      ).run(draftId, playerId);
+        const count = (db.prepare("select count(*) as n from draft_players where draft_id = ?").get(draftId) as { n: number }).n;
+        assertLobbySeatTarget(draft.config, count);
+        if (draft.config.lobbySeats !== undefined && count >= draft.config.lobbySeats) {
+          throw new DraftLobbyServiceError("All lobby seats are occupied", "LOBBY_FULL");
+        }
+
+        db.prepare("insert into draft_players (draft_id, player_id) values (?, ?)").run(draftId, playerId);
+        invalidateDraftLobby(db, draftId);
+      }).immediate();
     },
 
     players(draftId: number): DraftPlayer[] {
@@ -1552,8 +1587,8 @@ export function createDraftService(
         }));
     },
 
-    start(draftId: number, now = new Date()): Draft {
-      return startDraft.immediate(draftId, now);
+    start(draftId: number, now = new Date(), options: DraftStartOptions = {}): Draft {
+      return startDraft.immediate(draftId, now, options);
     },
 
     currentPackOptions(draftId: number, playerId: number): DraftCard[] {
@@ -1644,15 +1679,19 @@ export function createDraftService(
     },
 
     cancel(draftId: number): Draft {
-      const draft = findById(draftId);
+      return db.transaction(() => {
+        const draft = findById(draftId);
 
-      if (draft.status === "completed" || draft.status === "cancelled") {
-        throw new Error("Draft is already finished");
-      }
+        if (draft.status === "completed" || draft.status === "cancelled") {
+          throw new Error("Draft is already finished");
+        }
 
-      db.prepare("update drafts set status = 'cancelled', ended_at = current_timestamp where id = ?").run(draftId);
+        db.prepare("update drafts set status = 'cancelled', ended_at = current_timestamp where id = ?").run(draftId);
+        clearDraftLobbyStart(db, draftId, true);
+        db.prepare("update drafts set lobby_revision = lobby_revision + 1 where id = ?").run(draftId);
 
-      return findById(draftId);
+        return findById(draftId);
+      }).immediate();
     },
 
     resolveCubeCardIds(config: DraftConfig): number[] {

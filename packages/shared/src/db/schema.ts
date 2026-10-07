@@ -328,6 +328,21 @@ export function migrate(db: Database.Database) {
   addColumnIfMissing(db, "draft_players", "seat_index", "integer");
   // Set when the player's draft deck was saved. A player who deletes that deck does not get it back.
   addColumnIfMissing(db, "draft_players", "deck_saved_at", "text");
+  // Pending lobby acknowledgements and server-owned start deadlines. Keep old
+  // records unready/unscheduled; a seat target remains optional in config_json.
+  addColumnIfMissing(db, "draft_players", "ready_at", "text");
+  addColumnIfMissing(db, "draft_players", "ready_setup_hash", "text");
+  addColumnIfMissing(db, "drafts", "lobby_revision", "integer not null default 0");
+  addColumnIfMissing(db, "drafts", "lobby_auto_start", "integer not null default 0");
+  addColumnIfMissing(db, "drafts", "lobby_auto_held", "integer not null default 0");
+  addColumnIfMissing(db, "drafts", "lobby_start_at", "text");
+  addColumnIfMissing(db, "drafts", "lobby_start_kind", "text");
+  addColumnIfMissing(db, "drafts", "lobby_start_token", "text");
+  addColumnIfMissing(db, "drafts", "lobby_start_revision", "integer");
+  addColumnIfMissing(db, "drafts", "lobby_start_setup_hash", "text");
+  addColumnIfMissing(db, "drafts", "lobby_start_force", "integer not null default 0");
+  addColumnIfMissing(db, "drafts", "lobby_start_error", "text");
+  addColumnIfMissing(db, "drafts", "lobby_nudged_at", "text");
   addColumnIfMissing(db, "draft_cards", "draft_pack_id", "integer references draft_packs(id)");
   addColumnIfMissing(db, "draft_cards", "position", "integer");
   addColumnIfMissing(db, "draft_picks", "pick_method", "text not null default 'manual'");

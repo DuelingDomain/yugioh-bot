@@ -3,6 +3,18 @@
  * and the setup rows. Kept free of React so the rules can be tested on their own.
  */
 
+import {
+  AUTO_START_DELAY_MS,
+  MANUAL_START_DELAY_MS,
+  NUDGE_COOLDOWN_MS,
+  type DraftAutoStartRequest,
+  type DraftLobbyResponse,
+  type DraftNudgeResponse,
+  type DraftStartRequest,
+  type LobbyPlayer,
+  type LobbySnapshot,
+  type LobbyStart,
+} from "@yugidraft/shared/types";
 import { formatPickSeconds } from "../pick-time";
 
 export interface LobbyConfig {
@@ -22,6 +34,8 @@ export interface LobbyConfig {
   extraDeckEnabled?: boolean;
   extraDeckSize?: number;
   burnUnpicked?: boolean;
+  /** Target number of seats. Absent in a legacy lobby, which has joined seats plus one invite slot. */
+  lobbySeats?: number;
 }
 
 export function plural(n: number, one: string, many = `${one}s`): string {
@@ -173,4 +187,240 @@ export function mainShortfallFix(count: number): string {
 export function extraShortfallSummary(count: number): string | null {
   if (count === 0) return null;
   return `${plural(count, "theme")} may run short on Extra deck cards, so ${count === 1 ? "that player" : "those players"} could end with fewer. You can start anyway.`;
+}
+
+// --- Seats First lobby -------------------------------------------------------------------------------------------
+
+/** A roster row as the page hands it over. Rows from a legacy server have only the first fields. */
+export interface RosterInput {
+  playerId: number;
+  displayName: string;
+  seatIndex?: number;
+  pickCount?: number;
+  finishedAt?: string;
+  joinedAt?: string;
+  isHost?: boolean;
+  isYou?: boolean;
+  isBot?: boolean;
+  ready?: boolean;
+  readyAt?: string | null;
+  cubeId?: number | null;
+}
+
+/**
+ * Fills the lobby fields a legacy roster row lacks. `isYou` falls back to the seats response, and the host mark falls
+ * back to "you are the host and this is your seat", the same thing the old list showed.
+ */
+export function normalizePlayers(
+  players: RosterInput[],
+  opts: { youIds: ReadonlySet<number>; isCreator: boolean },
+): LobbyPlayer[] {
+  return players.map((p) => {
+    const isYou = p.isYou ?? opts.youIds.has(p.playerId);
+    return {
+      playerId: p.playerId,
+      displayName: p.displayName,
+      seatIndex: p.seatIndex,
+      pickCount: p.pickCount ?? 0,
+      finishedAt: p.finishedAt,
+      joinedAt: p.joinedAt ?? "",
+      isHost: p.isHost ?? (opts.isCreator && isYou),
+      isYou,
+      isBot: p.isBot ?? false,
+      ready: p.ready ?? false,
+      readyAt: p.readyAt ?? null,
+      cubeId: p.cubeId ?? null,
+    };
+  });
+}
+
+/** The snapshot of a server that sends no `lobby`: no target, no Ready, manual start only. */
+export function fallbackLobby(players: LobbyPlayer[], now: number): LobbySnapshot {
+  return {
+    revision: 0,
+    serverNow: new Date(now).toISOString(),
+    targetSeats: null,
+    joined: players.length,
+    ready: players.filter((p) => p.ready).length,
+    allReady: false,
+    autoStart: { enabled: false, held: false, eligible: false },
+    start: null,
+    errors: [],
+    warnings: [],
+    lastStartError: null,
+  };
+}
+
+/** The newer of two lobby responses. Equal revisions take the incoming one, as it was read last. */
+export function newerLobby(current: DraftLobbyResponse | null, incoming: DraftLobbyResponse): DraftLobbyResponse {
+  if (!current) return incoming;
+  return incoming.lobby.revision >= current.lobby.revision ? incoming : current;
+}
+
+/** Server clock minus client clock. Add it to a client time to get server time. */
+export function clockOffset(serverNow: string, clientNow: number): number {
+  const server = Date.parse(serverNow);
+  return Number.isNaN(server) ? 0 : server - clientNow;
+}
+
+/** Milliseconds left on the server deadline, never below zero. The client clock only draws this, it never acts on it. */
+export function startRemainingMs(start: LobbyStart, offset: number, clientNow: number): number {
+  const at = Date.parse(start.startsAt);
+  if (Number.isNaN(at)) return 0;
+  return Math.max(0, at - (clientNow + offset));
+}
+
+export function countdownSeconds(remainingMs: number): number {
+  return Math.max(0, Math.ceil(remainingMs / 1000));
+}
+
+export function startTotalMs(kind: LobbyStart["kind"]): number {
+  return kind === "auto" ? AUTO_START_DELAY_MS : MANUAL_START_DELAY_MS;
+}
+
+/** Share of the countdown that is left, from 0 to 1. The ring drains from full to empty. */
+export function startFractionLeft(remainingMs: number, kind: LobbyStart["kind"]): number {
+  return Math.min(1, Math.max(0, remainingMs / startTotalMs(kind)));
+}
+
+export type LobbySlot =
+  | { type: "player"; player: LobbyPlayer }
+  | { type: "open"; index: number };
+
+/**
+ * The seat slots: every joined player, then open slots up to the target. A target below the joined count never hides a
+ * player. A legacy lobby (no target) shows joined seats and one open slot.
+ */
+export function seatSlots(players: LobbyPlayer[], targetSeats: number | null): LobbySlot[] {
+  const slots: LobbySlot[] = players.map((player) => ({ type: "player", player }));
+  const open = targetSeats === null ? 1 : Math.max(0, targetSeats - players.length);
+  for (let i = 0; i < open; i++) slots.push({ type: "open", index: players.length + i });
+  return slots;
+}
+
+export function notReadyPlayers(players: LobbyPlayer[]): LobbyPlayer[] {
+  return players.filter((p) => !p.ready);
+}
+
+/** The reason Start can't be pressed, or null. Lobby errors come from the server's own pool and setup check. */
+export function lobbyStartBlocker(args: { joined: number; errors: string[] }): string | null {
+  if (args.joined < 2) return `Need ${plural(2 - args.joined, "more player")} to start.`;
+  if (args.errors.length > 0) return "Fix the problems above to start.";
+  return null;
+}
+
+/** The line under Start. A host may start with fewer seats filled than the target, and the line says so. */
+export function lobbyStartLine(args: { joined: number; targetSeats: number | null }): string {
+  const { joined, targetSeats } = args;
+  if (targetSeats !== null && joined < targetSeats) {
+    return `Starts with ${joined} of ${targetSeats} seats filled. Nobody can join after this.`;
+  }
+  return `Starts with ${plural(joined, "player")}. Nobody can join after this.`;
+}
+
+/** Plain names for a list of players, "Ann", "Ann and Bo", "Ann, Bo and Cy". */
+export function nameList(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? "";
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
+/** Seconds left on the Nudge cooldown, from the last reply. Zero when it is free. */
+export function nudgeWaitSeconds(nextAllowedAt: string | null, now: number): number {
+  if (!nextAllowedAt) return 0;
+  const at = Date.parse(nextAllowedAt);
+  if (Number.isNaN(at)) return 0;
+  return Math.max(0, Math.ceil((at - now) / 1000));
+}
+
+export const NUDGE_COOLDOWN_SECONDS = Math.round(NUDGE_COOLDOWN_MS / 1000);
+
+/** The auto-start delay in seconds, for the words on the page. */
+export const AUTO_START_SECONDS = Math.round(AUTO_START_DELAY_MS / 1000);
+
+// --- Lobby requests ----------------------------------------------------------------------------------------------
+
+/** A failed lobby request. `body` is the parsed JSON error body, or null when there was none. */
+export class LobbyRequestError extends Error {
+  readonly status: number;
+  readonly code: string | null;
+  readonly body: Record<string, unknown> | null;
+
+  constructor(status: number, body: Record<string, unknown> | null, fallback: string) {
+    super(typeof body?.error === "string" && body.error ? body.error : fallback);
+    this.name = "LobbyRequestError";
+    this.status = status;
+    this.code = typeof body?.code === "string" ? body.code : null;
+    this.body = body;
+  }
+
+  get stale(): boolean {
+    return this.status === 409 && this.code === "STALE_LOBBY";
+  }
+
+  /** The ids a NOT_READY reply names, or null for any other error. */
+  get notReady(): { notReadyPlayerIds: number[]; unclaimedPlayerIds: number[] } | null {
+    if (this.code !== "NOT_READY" || !this.body) return null;
+    const ids = (value: unknown) => (Array.isArray(value) ? value.filter((v): v is number => typeof v === "number") : []);
+    return { notReadyPlayerIds: ids(this.body.notReadyPlayerIds), unclaimedPlayerIds: ids(this.body.unclaimedPlayerIds) };
+  }
+
+  get retryAfterSeconds(): number | null {
+    const value = this.body?.retryAfterSeconds;
+    return typeof value === "number" ? value : null;
+  }
+}
+
+/** Short message for a failed request. A server `error` text is kept, a few codes get a clearer line. */
+export function lobbyErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof LobbyRequestError) {
+    if (err.stale) return "The lobby changed while you were deciding. It has been refreshed. Try again.";
+    if (err.code === "NUDGE_COOLDOWN") {
+      const wait = err.retryAfterSeconds;
+      return wait ? `Posted just now. Wait ${wait} s before posting again.` : "Posted just now. Wait a moment before posting again.";
+    }
+    if (err.code === "LOBBY_FULL") return "Every seat is taken.";
+    if (err.code === "TOO_FEW_PLAYERS") return "At least 2 players must join before the draft starts.";
+    return err.message || fallback;
+  }
+  return err instanceof Error && err.message ? err.message : fallback;
+}
+
+export interface LobbyApi {
+  ready(ready: boolean): Promise<DraftLobbyResponse>;
+  leave(): Promise<DraftLobbyResponse>;
+  removePlayer(playerId: number): Promise<DraftLobbyResponse>;
+  start(body: DraftStartRequest): Promise<DraftLobbyResponse>;
+  stop(token: string): Promise<DraftLobbyResponse>;
+  autoStart(body: DraftAutoStartRequest): Promise<DraftLobbyResponse>;
+  nudge(playerId?: number): Promise<DraftNudgeResponse>;
+}
+
+/** The lobby mutation routes of one draft. Every lobby mutation answers `{lobby, players}`; Nudge answers its own body. */
+export function createLobbyApi(slug: string, fetchImpl?: typeof fetch): LobbyApi {
+  const base = `/api/drafts/${encodeURIComponent(slug)}`;
+  async function call<T>(path: string, method: string, body?: unknown): Promise<T> {
+    const run = fetchImpl ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
+    const res = await run(`${base}${path}`, {
+      method,
+      headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    let parsed: Record<string, unknown> | null = null;
+    try {
+      parsed = (await res.json()) as Record<string, unknown>;
+    } catch {
+      parsed = null;
+    }
+    if (!res.ok) throw new LobbyRequestError(res.status, parsed, `Request failed (${res.status})`);
+    return parsed as T;
+  }
+  return {
+    ready: (ready) => call("/ready", "POST", { ready }),
+    leave: () => call("/join", "DELETE"),
+    removePlayer: (playerId) => call(`/players/${playerId}`, "DELETE"),
+    start: (body) => call("/start", "POST", body),
+    stop: (token) => call("/start", "DELETE", { token }),
+    autoStart: (body) => call("/auto-start", "PUT", body),
+    nudge: (playerId) => call("/nudge", "POST", playerId === undefined ? {} : { playerId }),
+  };
 }

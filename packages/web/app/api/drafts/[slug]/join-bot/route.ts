@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { env } from "@/lib/env";
 import { createDraftService, createPlayerService } from "@yugidraft/shared/services";
+import { draftLobbyErrorResponse } from "../helpers";
 import { broadcaster } from "@/lib/notify";
 import { draftTestBotsEnabled } from "@/lib/draft-test-bots";
 
@@ -66,7 +67,7 @@ export async function POST(
     }
 
     if (draft.status !== "pending") {
-      return NextResponse.json({ error: "Draft is no longer accepting players" }, { status: 400 });
+      return NextResponse.json({ error: "Draft is no longer accepting players" }, { status: 409 });
     }
 
     const slot = nextBotSlot(db, draft.id);
@@ -82,6 +83,7 @@ export async function POST(
 
     return NextResponse.json({ success: true, playerId: bot.id, displayName: bot.displayName });
   } catch (error) {
+    if (error && typeof error === "object" && "code" in error) return draftLobbyErrorResponse(error);
     if (error instanceof Error && error.message === "You have already joined this draft") {
       return NextResponse.json({ error: "Bot has already joined this draft" }, { status: 400 });
     }

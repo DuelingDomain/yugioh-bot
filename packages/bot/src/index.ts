@@ -24,6 +24,7 @@ import {
   createCardCatalogService,
   createCubeService,
   createDraftImageService,
+  createDraftLobbyService,
   createDraftService,
   createGuildSettingsService,
 } from "@yugidraft/shared/services";
@@ -135,7 +136,7 @@ function buildDraftStatus(draft: Draft) {
 const guildSettings = createGuildSettingsService(db);
 
 const broadcaster = createBroadcaster(
-  httpTransport({ url: process.env.WS_INTERNAL_URL ?? "", secret: process.env.WS_INTERNAL_SECRET ?? "" }),
+  httpTransport({ url: process.env.WS_INTERNAL_URL ?? "", secret: process.env.WS_INTERNAL_SECRET ?? "", timeoutMs: 5_000 }),
 );
 
 const notifyDuelChange = createHttpNotifyDuelChange({
@@ -149,6 +150,7 @@ const deps = {
   players: createPlayerRepository(db),
   tournaments: createTournamentService(db),
   drafts: createDraftService(db),
+  lobby: createDraftLobbyService(db),
   cards: createCardCatalogService(db),
   deleteNotifyMessage: (matchId: number) => deleteNotifyMessage(client, db, matchId),
   announceTournamentCompleted: (tournamentId: number) => announceTournamentCompleted(client, db, guildSettings, tournamentId),
@@ -202,8 +204,18 @@ const deps = {
 
 const draftTimer = createDraftTimerService({
   drafts: deps.drafts,
+  lobby: deps.lobby,
   messenger: deps.messenger,
   broadcaster,
+  onDraftStarted: async (draftId) => {
+    const draft = deps.drafts.findById(draftId);
+    // A draft made while Discord was off has no channel to post in.
+    if (!draft.webSlug || !draft.channelId) return;
+    await createAnnounceHandlers({ client, db, drafts: deps.drafts, messenger: deps.messenger,
+      guildSettings: deps.guildSettings, lobby: deps.lobby }).onDraftStarted({
+        draftId: draft.id, channelId: draft.channelId, name: draft.name, webSlug: draft.webSlug,
+      });
+  },
   onDraftCompleted: async (draftId) => {
     const draft = deps.drafts.findById(draftId);
     if (!draft.webSlug || !draft.channelId) return;
@@ -213,6 +225,7 @@ const draftTimer = createDraftTimerService({
       drafts: deps.drafts,
       messenger: deps.messenger,
       guildSettings: deps.guildSettings,
+      lobby: deps.lobby,
     });
     await announceHandlers.onDraftCompleted({
       draftId: draft.id,
@@ -444,15 +457,10 @@ client.once("ready", () => {
     { timezone: imageCleanupTimezone },
   );
 
-  draftTimer
-    .tick()
-    .then(() => {
-      draftTimer.start();
-    })
-    .catch((error) => {
-      console.error("Failed to run initial draft timer tick:", error);
-      draftTimer.start();
-    });
+  draftTimer.start();
+  void draftTimer.tick().catch((error) => {
+    console.error("Failed to run initial draft timer tick:", error);
+  });
 
   tournamentTimer
     .tick()
@@ -485,7 +493,7 @@ client.once("ready", () => {
   if (announceSecret) {
     const announceServer = createAnnounceServer({
       secret: announceSecret,
-      handlers: createAnnounceHandlers({ client, db, drafts: deps.drafts, messenger: deps.messenger, guildSettings: deps.guildSettings }),
+      handlers: createAnnounceHandlers({ client, db, drafts: deps.drafts, messenger: deps.messenger, guildSettings: deps.guildSettings, lobby: deps.lobby }),
     });
     announceServer.listen(announcePort);
   } else {

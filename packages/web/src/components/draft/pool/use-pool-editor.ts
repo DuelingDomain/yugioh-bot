@@ -144,6 +144,8 @@ export interface PoolEditor {
   diff: PoolDiff;
   extraDiff: PoolDiff;
   edited: boolean;
+  /** Cards (copies, Main and Extra) a cube pick would hide: your own pool while no cube is open, else 0. */
+  replacedByPick: number;
   total: number;
   distinct: number;
   extraTotal: number;
@@ -601,6 +603,7 @@ export function usePoolEditor(options: PoolEditorOptions): PoolEditor {
     diff,
     extraDiff,
     edited: hasBase && (diff.any || extraDiff.any),
+    replacedByPick: !editingCube ? totalCopies(scratchSlot.pool) + totalCopies(scratchSlot.extra) : 0,
     total: totalCopies(slot.pool),
     distinct: distinctCount(slot.pool),
     extraTotal: totalCopies(slot.extra),
