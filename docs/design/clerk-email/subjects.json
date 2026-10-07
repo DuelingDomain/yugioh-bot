@@ -1,0 +1,11 @@
+{
+  "waitlist_confirmation": "You're on the Dueling Domain waitlist",
+  "waitlist_invitation": "Your Dueling Domain invite",
+  "invitation": "Your Dueling Domain invite",
+  "verification_code": "{{otp_code}} is your Dueling Domain verification code",
+  "reset_password_code": "{{otp_code}} is your Dueling Domain password reset code",
+  "password_changed": "Your Dueling Domain password was changed",
+  "primary_email_address_changed": "Your Dueling Domain email address was changed",
+  "new_device_sign_in": "New sign in to your Dueling Domain account",
+  "account_locked": "Your Dueling Domain account is locked"
+}
