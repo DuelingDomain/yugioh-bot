@@ -175,7 +175,7 @@ export async function runUpdate(options: Options = {}) {
     let oldDataError: string | undefined;
     const [database, oldDatabase] = await Promise.all([
       downloadReleasedCardData(next.database, temporary, download, { historyStart }),
-      downloadReleasedCardData(old.database, join(temporary,"old-data"), download).catch((error: unknown) => {
+      downloadReleasedCardData(old.database, join(temporary,"old-data"), download, { overrideBytes: "{}\n" }).catch((error: unknown) => {
         if (!(error instanceof Error) || !/^Ambiguous\b/.test(error.message)) throw error;
         oldDataError = error.message;
         return null;

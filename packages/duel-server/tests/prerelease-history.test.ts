@@ -80,3 +80,21 @@ it("includes previews on a merged branch even when the merge restores the origin
   {code:100000001,name:"First",type:33,alias:0},{code:100000001,name:"Side preview",type:33,alias:0},
  ]);
 });
+
+it("captures a real renamed graduation at its exact bump even when weekly updates skip it",async()=>{
+ const {readPrereleaseSnapshots}=await import("../scripts/prerelease-history.js");
+ const fixture=JSON.parse(readFileSync(new URL("./fixtures/prerelease-graduations.json",import.meta.url),"utf8"));
+ const root=mkdtempSync(join(tmpdir(),"graduation-history-"));dirs.push(root);
+ const git=(args:string[])=>execFileSync("git",["-C",root,...args],{encoding:"utf8"}).trim();
+ git(["init","-q"]);git(["config","user.name","test"]);git(["config","user.email","test@example.test"]);
+ const write=(file:string,cards:any[])=>{
+  const db=new Database(join(root,file));db.exec("CREATE TABLE IF NOT EXISTS datas(id INTEGER PRIMARY KEY,type INTEGER,ot INTEGER,alias INTEGER,atk INTEGER,def INTEGER,level INTEGER,race INTEGER,attribute INTEGER); CREATE TABLE IF NOT EXISTS texts(id INTEGER PRIMARY KEY,name TEXT,desc TEXT); DELETE FROM datas; DELETE FROM texts");
+  for(const card of cards){db.prepare("INSERT INTO datas VALUES(?,?,3,0,?,?,?,?,?)").run(card.code,card.type,card.atk,card.def,card.level,BigInt(card.race),card.attribute);db.prepare("INSERT INTO texts VALUES(?,?,?)").run(card.code,card.name,card.description);}db.close();
+ };
+ const commit=()=>{git(["add","."]);git(["commit","-qm","snapshot"]);return git(["rev-parse","HEAD"]);};
+ write("cards.cdb",[]);write("prerelease-betb.cdb",fixture.examples.map((x:any)=>x.before));const start=commit();
+ rmSync(join(root,"prerelease-betb.cdb"));write("release-betb.cdb",fixture.examples.map((x:any)=>x.after));const release=commit();
+ write("prerelease-new.cdb",[{...fixture.examples[0].before,code:100000099,name:"Unrelated preview"}]);const current=commit();
+ const history=await readPrereleaseSnapshots(root,start,current,join(root,"output"));
+ expect(history.transitions).toEqual([{commit:release,removed:expect.arrayContaining(fixture.examples.map((x:any)=>x.before)),added:expect.arrayContaining(fixture.examples.map((x:any)=>x.after))}]);
+});

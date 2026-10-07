@@ -46,18 +46,21 @@ type PreviewIdentity = import("./prerelease-history.js").CardIdentity;
 export function prereleaseUpdateReport(previous: PreviewIdentity[] | null, next: {
   prerelease: PreviewIdentity[]; released: PreviewIdentity[]; remaps: Record<string, number>;
   drops: Array<PreviewIdentity & { file: string; reason: string; keptCode?: number }>;
+  unmatched?: import("./prerelease-graduations.js").UnmatchedGraduation[];
 }, previousReleased: PreviewIdentity[] = []): string {
   const dropLines = [`Dropped prerelease rows (${next.drops.length})`, "",
     ...(next.drops.length ? next.drops.map(card => `- ${card.code}${card.keptCode ? ` → ${card.keptCode}` : ""} ${safe(card.name)} (${safe(card.file)}): ${safe(card.reason)}`) : ["None."]), ""];
+  const reviewLines = ["Unmatched graduations, needs review", "",
+    ...((next.unmatched?.length ?? 0) ? next.unmatched!.map(card => `- ${card.code} ${safe(card.name)} — unmatched graduation, needs review${card.candidates.length ? `; candidates: ${card.candidates.join(", ")}` : ""}`) : ["None."]), ""];
   if (previous === null) return ["## Prerelease cards", "",
-    "The previous snapshot is ambiguous. Additions, removals and graduations could not be determined; candidate preparation and validation continue.", "", ...dropLines].join("\n");
+    "The previous snapshot is ambiguous. Additions, removals and graduations could not be determined; candidate preparation and validation continue.", "", ...dropLines, ...reviewLines].join("\n");
   const key = (card: PreviewIdentity) => `${card.name.trim().toLowerCase()}\0${card.type}`;
   const official = new Map(next.released.filter(card => !card.alias && (card.type & 0x4000) === 0).map(card => [key(card), card]));
   const releasedIds = new Set(next.released.map(card => card.code));
   const oldIds = new Set(previous.map(card => card.code)), newIds = new Set(next.prerelease.map(card => card.code));
   const added = next.prerelease.filter(card => !oldIds.has(card.code));
   const gone = previous.filter(card => !newIds.has(card.code));
-  const isGraduated = (card: PreviewIdentity) => releasedIds.has(card.code) ||
+  const isGraduated = (card: PreviewIdentity) => releasedIds.has(card.code) || releasedIds.has(next.remaps[card.code]!) ||
     (!card.alias && (card.type & 0x4000) === 0 && official.has(key(card)));
   const graduated = gone.filter(isGraduated);
   const removed = gone.filter(card => !isGraduated(card));
@@ -68,13 +71,13 @@ export function prereleaseUpdateReport(previous: PreviewIdentity[] | null, next:
   const missingLines = unmapped.length ? unmapped.map(card => {
     const matches = card.alias || (card.type & 0x4000) !== 0 ? [] : newReleased.filter(candidate =>
       stats.every(field => typeof card[field] === "number" && candidate[field] === card[field]));
-    return `- ${card.code} ${safe(card.name)}${matches.length ? ` — possible new released matches (same type/ATK/DEF/level/attribute): ${matches.map(candidate => `${candidate.code} ${safe(candidate.name)}`).join(", ")}` : ""}`;
+    return `- ${card.code} ${safe(card.name)}${matches.length ? ` — unmatched graduation, needs review; possible new released matches (same type/ATK/DEF/level/attribute): ${matches.map(candidate => `${candidate.code} ${safe(candidate.name)}`).join(", ")}` : ""}`;
   }) : ["None."];
   const lines = (cards: PreviewIdentity[], target = false) => cards.length ? cards.map(card =>
     `- ${card.code}${target ? ` → ${next.remaps[card.code] ?? (releasedIds.has(card.code) ? card.code : official.get(key(card))!.code)}` : ""} ${safe(card.name)}`) : ["None."];
   return ["## Prerelease cards", "", `Added prerelease cards (${added.length})`, "", ...lines(added), "",
     `Removed prerelease cards (${removed.length})`, "", ...lines(removed), "",
     `Graduated prerelease cards (${graduated.length})`, "", ...lines(graduated,true), "",
-    `Removed preview codes with no remap (${unmapped.length})`, "", ...missingLines, "", ...dropLines,
-    "The bundle retains historical remaps. Disappeared codes without a remap remain saved and are reported as unknown/illegal. Matching-stat suggestions require human review, especially when names change on release.", ""].join("\n");
+    `Removed preview codes with no remap (${unmapped.length})`, "", ...missingLines, "", ...dropLines, ...reviewLines,
+    "The bundle retains historical remaps. Disappeared codes without a remap remain saved and are reported as unknown/illegal. Only unique same-bump stats and exact self-name-normalized text matches are inferred for renamed/type-changed cards. Uncertain suggestions require human review and a validated override.", ""].join("\n");
 }
