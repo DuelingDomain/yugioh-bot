@@ -5,7 +5,10 @@ import { tmpdir } from "node:os";
 import type { NextRequest } from "next/server";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/auth", () => ({ auth: vi.fn().mockResolvedValue({ user: { id: String(fixtureUserId("host")), discordUserId: fixtureDiscordId("host"), name: "Host" } }) }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture((() => ({ auth: vi.fn().mockResolvedValue({ user: { id: String(fixtureUserId("host")), discordUserId: fixtureDiscordId("host"), name: "Host" } }) }))().auth);
+});
 vi.mock("@/lib/notify", () => ({ announcer: { announce: vi.fn() }, broadcaster: { draft: vi.fn() } }));
 let directory: string;
 
@@ -98,5 +101,4 @@ it.each([3, 4, 8])("starts a web set draft with %i players and 100 cards", async
 
 const FIXTURE_KEYS = ["host", "other", "Host", "Other"] as const;
 
-// Membership is a dependency of these routes; authorization still runs through the real web boundary.
-vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));
+// Session resolution is mocked; authorization still runs through the real web boundary.

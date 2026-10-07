@@ -1,24 +1,6 @@
 x-user: &user "${UID:-0}:${GID:-0}"  # Host UID/GID in dev; root by default.
 
 services:
-  bot:
-    build:
-      context: .
-      target: bot
-    # Disabled bots idle; enabled bots also restart after a Docker daemon reboot.
-    restart: unless-stopped
-    user: *user
-    env_file:
-      - .env
-    environment:
-      - DATABASE_PATH=/app/data/bot.sqlite
-      - CARD_IMAGE_CACHE_DIR=/app/data/card-images
-      - DISCORD_BOT_ENABLED=${DISCORD_BOT_ENABLED:-1}
-      - DUEL_DATA_DIR=/app/data/duel-engine
-    command: sh -c "node packages/bot/dist/deploy-commands.js && node packages/bot/dist/index.js"
-    volumes:
-      - ./data:/app/data
-
   ws:
     build:
       context: .
@@ -27,7 +9,7 @@ services:
     user: *user
     environment:
       - DATABASE_PATH=/app/data/bot.sqlite
-      - WEB_URL=${NEXTAUTH_URL:-http://localhost}
+      - WEB_URL=${WEB_URL:?WEB_URL is required}
       - WS_PORT=3001
       - WS_INTERNAL_PORT=4002
       - WS_INTERNAL_SECRET=${WS_INTERNAL_SECRET}
@@ -75,15 +57,25 @@ services:
     build:
       context: .
       target: web
+      args:
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:?NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY is required}
     restart: unless-stopped
     user: *user
-    env_file:
-      - .env
     environment:
       - DATABASE_PATH=/app/data/bot.sqlite
       - CARD_IMAGE_CACHE_DIR=/app/data/card-images
-      - DISCORD_BOT_ENABLED=${DISCORD_BOT_ENABLED:-1}
-      - DUEL_DATA_DIR=/app/data/duel-engine
+      - DISCORD_BOT_ENABLED=0
+      - WEB_URL=${WEB_URL:?WEB_URL is required}
+      - MARKETING_URL=${MARKETING_URL:-}
+      - OWNER_USER_IDS=${OWNER_USER_IDS:-}
+      - DISCORD_GUILD_ID=${DISCORD_GUILD_ID}
+      - DISCORD_DEFAULT_CHANNEL_ID=${DISCORD_DEFAULT_CHANNEL_ID:-}
+      - DISCORD_REMINDER_CHANNEL_ID=${DISCORD_REMINDER_CHANNEL_ID:-}
+      - CLERK_SECRET_KEY=${CLERK_SECRET_KEY:?CLERK_SECRET_KEY is required at runtime}
+      - NEXT_PUBLIC_WS_URL=${NEXT_PUBLIC_WS_URL:-}
+      - DUEL_SCENARIOS=${DUEL_SCENARIOS:-0}
+      - DUEL_FX_LAB=${DUEL_FX_LAB:-0}
+      - DRAFT_TEST_BOTS=${DRAFT_TEST_BOTS:-0}
       - WS_INTERNAL_URL=http://ws:4002
       - WS_INTERNAL_SECRET=${WS_INTERNAL_SECRET}
       - DUEL_INTERNAL_URL=http://duel:4003
@@ -111,11 +103,10 @@ services:
       - CARD_IMAGE_CACHE_DIR=/app/data/card-images
       - CARD_IMAGE_CACHE_MAX_BYTES=${CARD_IMAGE_CACHE_MAX_BYTES:-16106127360}
       - WORKER_HEALTH_PATH=/tmp/yugidraft-worker-health.json
-      - DISCORD_BOT_ENABLED=${DISCORD_BOT_ENABLED:-1}
+      - DISCORD_GUILD_ID=${DISCORD_GUILD_ID}
+      - DISCORD_BOT_ENABLED=0
       - WS_INTERNAL_URL=http://ws:4002
       - WS_INTERNAL_SECRET=${WS_INTERNAL_SECRET}
-      - BOT_ANNOUNCE_URL=http://bot:4001
-      - BOT_ANNOUNCE_SECRET=${BOT_ANNOUNCE_SECRET}
       - SETS_SYNC_CRON=${SETS_SYNC_CRON:-0 6 * * *}
       - SETS_SYNC_TIMEZONE=${SETS_SYNC_TIMEZONE:-UTC}
       - IMAGE_CLEANUP_CRON=${IMAGE_CLEANUP_CRON:-0 4 * * *}

@@ -156,8 +156,7 @@ export default async function DashboardPage() {
             />
             {tournaments.length === 0 ? (
               <p className={styles.none}>
-                You&apos;re not in a tournament right now. <Link className="link" href="/tournaments">See what&apos;s open</Link> or use{" "}
-                <code className="cmd">/event join</code>.
+                You&apos;re not in a tournament right now. <Link className="link" href="/tournaments">See what&apos;s open</Link>.
               </p>
             ) : (
               <FloorList aria-labelledby="db-tournaments">
@@ -180,8 +179,7 @@ export default async function DashboardPage() {
             />
             {drafts.length === 0 ? (
               <p className={styles.none}>
-                You&apos;re not in a draft right now. <Link className="link" href="/drafts">See what&apos;s open</Link> or use{" "}
-                <code className="cmd">/draft join</code>.
+                You&apos;re not in a draft right now. <Link className="link" href="/drafts">See what&apos;s open</Link>.
               </p>
             ) : (
               <FloorList aria-labelledby="db-drafts">

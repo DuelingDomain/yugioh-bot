@@ -3,13 +3,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mockDiscordAccess } from "./fixtures/discord-access";
 
 const auth = vi.fn();
 const tempDirs: string[] = [];
-let discord: ReturnType<typeof mockDiscordAccess>;
 
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 
 async function setupDb() {
   const tempDir = mkdtempSync(join(tmpdir(), "yugioh-cubes-pool-"));
@@ -47,8 +48,6 @@ describe("cube pool routes", () => {
     vi.resetModules();
     auth.mockReset();
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("creator")), discordUserId: fixtureDiscordId("creator"), name: "Yugi" } });
-    discord = mockDiscordAccess();
-    discord.permissions = "0";
   });
 
   afterEach(() => {
@@ -71,14 +70,13 @@ describe("cube pool routes", () => {
   it.each(["network", "timeout", "429", "503", "json"])("saves a legacy cube during %s failures and returns 503 for missing data", async (failure) => {
     await setupDb();
     const db = await rawDb(); db.exec("delete from card_artworks"); db.close();
-    const discordFetch = globalThis.fetch;
     const upstream = vi.fn(async () => {
       if (failure === "network") throw new Error("offline");
       if (failure === "timeout") throw new DOMException("timeout", "TimeoutError");
       return new Response("bad JSON", { status: failure === "json" ? 200 : Number(failure), headers: { "Retry-After": "2" } });
     });
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
-      String(input).includes("ygoprodeck") ? upstream() : discordFetch(input, init)));
+      String(input).includes("ygoprodeck") ? upstream() : Promise.reject(new Error(`Unexpected fetch: ${input}`))));
     const cached = await createPool({ name: "Cached", cards: [{ id: 1, copies: 3 }, { id: 2, copies: 1 }] });
     expect(cached.status).toBe(201);
     expect(upstream).not.toHaveBeenCalled();
@@ -208,12 +206,12 @@ describe("cube pool routes", () => {
       db.close();
     });
 
-    it("is 403 for a non-owner non-admin and 400 for bad cards", async () => {
+    it("is 403 for a non-creator and 400 for bad cards", async () => {
       const post = await seededCube();
       expect((await post({ op: "replaceMain", cards: [{ id: 3, copies: 0 }] })).status).toBe(400);
       auth.mockResolvedValue({ user: { id: String(fixtureUserId("stranger")), discordUserId: fixtureDiscordId("stranger"), name: "Joey" } });
       expect((await post({ op: "replaceMain", cards: [{ id: 3, copies: 1 }] })).status).toBe(403);
-      discord.permissions = "32";
+      auth.mockResolvedValue({ user: { id: String(fixtureUserId("creator")), discordUserId: null, name: "Yugi" } });
       vi.resetModules();
       const { POST } = await import("../app/api/cubes/[id]/cards/route");
       const res = await POST(json({ op: "replaceMain", cards: [{ id: 3, copies: 1 }] }), { params: Promise.resolve({ id: "1" }) });
@@ -236,12 +234,11 @@ describe("cube pool routes", () => {
       ["Mine", fixtureUserId("creator"), "Yugi", true],
       ["Theirs", fixtureUserId("someone"), "Seto", false],
     ]);
-    discord.permissions = "32";
     vi.resetModules();
     const again = (await (await (await import("../app/api/cubes/route")).GET()).json()).cubes;
-    expect(again.map((c: any) => c.canEdit)).toEqual([true, true]);
-    // Membership succeeds; only the non-owner admin lookup is unavailable.
-    discord.guildStatus = 500;
+    expect(again.map((c: any) => c.canEdit)).toEqual([true, false]);
+    // Cube reads remain available without any Discord service.
+    vi.stubGlobal("fetch", vi.fn(() => { throw new Error("Unexpected Discord I/O"); }));
     vi.resetModules();
     const failed = await (await import("../app/api/cubes/route")).GET();
     expect(failed.status).toBe(200);

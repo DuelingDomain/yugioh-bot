@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createPlayerService } from "@yugidraft/shared/services";
 import type { CardDataStatus } from "@yugidraft/shared/types";
+import { isOwnerUser } from "@/lib/owner-access";
 import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
@@ -45,8 +46,9 @@ export const runtime = "nodejs";
  * discord-web-access via requireWebAccess: no session=401, denied=403, verification down=503.
  */
 export async function GET() {
-  const actor = await requireWebAccess("admin");
+  const actor = await requireWebAccess();
   if (!actor.ok) return actor.response;
+  if (!isOwnerUser(actor.userId)) return NextResponse.json({ error: "Not found" }, { status: 404 });
   try {
     const player = createPlayerService(getDb()).findOrCreate(env.discordGuildId, actor.userId, actor.userName);
     const result = await callEngineDataStatus({ guildId: env.discordGuildId, playerId: player.id });

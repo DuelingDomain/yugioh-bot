@@ -1,36 +1,34 @@
 import Database from "better-sqlite3";
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
-const state = vi.hoisted(() => ({ db: null as Database.Database | null, userId: "101", discordId: "900000000000000101", admin: false }));
+const state = vi.hoisted(() => ({ db: null as Database.Database | null, userId: "101", discordId: "900000000000000101" }));
 vi.mock("@/lib/db", () => ({ getDb: () => state.db! }));
-vi.mock("@/lib/auth", () => ({ auth: async () => ({ user: { id: state.userId, discordUserId: state.discordId, name: "Host" } }) }));
-vi.mock("@/lib/env", () => ({ env: { discordGuildId: "g", wsInternalSecret: "secret", discordDefaultChannelId: "channel" } }));
-const access = vi.hoisted(() => vi.fn());
-vi.mock("@/lib/discord-web-access", () => ({ checkDiscordWebAccess: access, webAccessError: () => "Forbidden" }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture((() => ({ auth: async () => ({ user: { id: state.userId, discordUserId: state.discordId, name: "Host" } }) }))().auth);
+});
+vi.mock("@/lib/env", () => ({ env: { discordBotEnabled: true, webUrl: "https://web.example", discordGuildId: "g", wsInternalSecret: "secret", discordDefaultChannelId: "channel" } }));
 beforeEach(() => {
   state.db = new Database(":memory:"); migrate(state.db); state.db.pragma("foreign_keys=on");
   state.db.exec(`insert into users(id,username,display_name,discord_user_id) values
     (101,'host','Host','900000000000000101'),(102,'other','Other','900000000000000102');
     insert into players(id,guild_id,user_id,discord_user_id,display_name) values(1,'g',101,'900000000000000101','Host');
     insert into cubes(id,guild_id,name,created_by_user_id) values(8,'g','Cube',101),(9,'other','Foreign',101);`);
-  state.userId = "101"; state.discordId = "900000000000000101"; state.admin = false;
-  access.mockReset().mockImplementation(async (_id: string, level = "member") => level === "admin" && !state.admin ? { ok: false, status: 403 } : { ok: true });
+  state.userId = "101"; state.discordId = "900000000000000101";
 });
 afterEach(() => state.db?.close());
-it("lets the numeric owner edit, preserves Discord admin overrides, and scopes guilds", async () => {
+it("rejects non-creators, permits the numeric owner, and scopes guilds", async () => {
   const { DELETE } = await import("../app/api/cubes/[id]/route");
   state.userId = "102"; state.discordId = "900000000000000102";
   const request = new Request("http://localhost/api/cubes/8", { method: "DELETE" });
   expect((await DELETE(request, { params: Promise.resolve({ id: "8" }) })).status).toBe(403);
-  expect(access).toHaveBeenCalledWith("900000000000000102", "admin");
-  state.admin = true;
+  state.userId = "101";
   expect((await DELETE(request, { params: Promise.resolve({ id: "8" }) })).status).toBe(200);
   expect((await DELETE(request, { params: Promise.resolve({ id: "9" }) })).status).toBe(404);
 });
 it("lets a creator whose application ID is a string session value delete their cube", async () => {
   const { DELETE } = await import("../app/api/cubes/[id]/route");
   expect((await DELETE(new Request("http://localhost/api/cubes/8", { method: "DELETE" }), { params: Promise.resolve({ id: "8" }) })).status).toBe(200);
-  expect(access.mock.calls.some(call => call[0] === "101")).toBe(false);
 });
 it("rejects noncanonical session IDs at a mutation boundary", async () => {
   state.userId = "0101";
@@ -135,7 +133,8 @@ it("creates and broadcasts a challenge without sending a stale Discord recipient
   }) as never);
   expect(response.status).toBe(201);
   const body = await response.json();
-  expect(body.notified).toBe(false);
+  expect(body).not.toHaveProperty("notified");
+  expect(body.shareUrl).toBe(`https://web.example/duels/${body.session.slug}`);
   expect(state.db!.prepare("select count(*) as n from duel_series").get()).toEqual({ n: 1 });
   expect(notifyDuelChange).toHaveBeenCalledWith(body.session.slug, "g");
   expect(effects.announce).not.toHaveBeenCalled();

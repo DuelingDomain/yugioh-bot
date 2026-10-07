@@ -11,39 +11,38 @@ flowchart LR
   caddy -->|app /socket.io| ws[ws<br/>Socket.IO :3001]
   caddy -->|marketing host| site[site/public<br/>static files]
   caddy -->|marketing POST /api/waitlist only| web
-  discord([Discord]) <-->|slash commands, DMs| bot[bot<br/>discord.js]
-  web -->|OAuth + guild check| discord
+  web -->|session + Backend API| clerk[Clerk<br/>auth + waitlist]
   web -->|signed /internal/duel| duel[duel<br/>engine host :4003]
-  web -->|signed /internal/announce| bot
-  web & bot & duel -->|signed /internal/* :4002| ws
-  web & bot & duel --> db[(SQLite<br/>data/bot.sqlite)]
+  web & duel -->|signed /internal/* :4002| ws
+  web & duel --> db[(SQLite<br/>data/bot.sqlite)]
   worker[worker<br/>timers + cron] --> db
   worker -->|signed updates| ws
-  worker -->|signed Discord effects| bot
   worker -->|set metadata| ygo
   duel --> bundle[[Engine bundle<br/>data/duel-engine]]
-  web & bot -->|card data + images| ygo([ygoprodeck.com])
+  web -->|card data + images| ygo([ygoprodeck.com])
 ```
 
 | Box | Job | Code |
 |---|---|---|
-| web | Pages, API routes, Discord sign-in | `packages/web` |
+| web | Pages, API routes, custom Clerk sign-in | `packages/web` |
 | ws | Live pushes only. Never carries hidden game data | `packages/ws` |
-| bot | Commands, Discord announcements, notification cleanup, reminders | `packages/bot` |
+| bot | Shelved commands/Discord effects; no Compose service | `packages/bot` |
 | duel | Runs the rules engine. Private, internal port only | `packages/duel-server` |
 | worker | Draft expiry, report approval, tournament deadlines, set sync, image eviction | `packages/worker` |
-| e2e | Isolated web/WS/duel/worker with offline NextAuth login | `packages/e2e` |
+| e2e | Isolated web/WS/duel/worker with offline signed-cookie login | `packages/e2e` |
 | shared | DB schema and all business services | `packages/shared` |
 
-There are seven packages. Run `npm run dev:worker` alongside web/WS/duel/bot and `npm test --workspace=packages/worker` after building shared. Exactly one worker uses each SQLite file. Startup sweeps catch durable deadlines; SIGTERM drains in-flight work. The bot is retained in PR 1, then shelved after cutover, behind literal `DISCORD_BOT_ENABLED=1` on both entrypoints; it owns none of the four migrated schedulers. The duel host retains its engine clocks and archive/series sweeps.
+There are seven packages. Run `npm run dev:worker` alongside web/WS/duel and `npm test --workspace=packages/worker` after building shared. Exactly one worker uses each SQLite file. Startup sweeps catch durable deadlines; SIGTERM drains in-flight work. The bot is shelved outside Compose/deploy, behind literal `DISCORD_BOT_ENABLED=1` on both entrypoints; it owns none of the four migrated schedulers. The duel host retains its engine clocks and archive/series sweeps.
 
-`users.id` is application identity, `players.user_id` links to it, and gameplay player IDs stay unchanged. Owners/creators are integer user IDs; `session.user.id` is their decimal string and `session.user.discordUserId` supplies Discord checks/mentions/DMs. NextAuth remains; verified provider email is captured at sign-in, and old JWTs resolve via Discord identity. Draft tokens use v2 application IDs; duel tokens still use player IDs.
+`users.id` is application identity, `players.user_id` links to it, and gameplay player IDs stay unchanged. Owners/creators are integer user IDs; `session.user.id` is their decimal string and `session.user.discordUserId` is nullable. Clerk sessions resolve through one server resolver, syncing missing/stale/forced profiles and linking verified Discord identities transactionally. Email-only users work without Discord checks. Draft tokens use application IDs; duel tokens still use player IDs. Creators manage their resources; no admin role remains. Seasons/imports/merges use `node packages/worker/dist/ops/cli.js` on the VM.
 
-All DB consumers use the same absolute `DATABASE_PATH`. `openDatabase` enables WAL, a 5000-ms busy timeout and foreign keys. Worker/web/bot share an absolute image-cache path; worker publishes committed WS state before separate signed Discord effects. The worker has no public port and uses a local heartbeat healthcheck. E2E supervises four processes per isolated DB/cache/heartbeat, authenticating offline with NextAuth credentials.
+All DB consumers use the same absolute `DATABASE_PATH`. `openDatabase` enables WAL, a 5000-ms busy timeout and foreign keys. Worker/web share an absolute image-cache path; worker publishes committed WS state with Discord effects disabled. The worker has no public port and uses a local heartbeat healthcheck. E2E supervises four processes per isolated DB/cache/heartbeat, authenticating offline with an expiring HMAC-signed `dd_e2e_session` cookie (literal `E2E_AUTH=1` and ≥32-character secret only).
 
-All internal calls are HMAC-signed POSTs (`shared/src/notify/signed-post.ts`). Ports 4001, 4002 and 4003 are never public.
+All internal calls are HMAC-signed POSTs (`shared/src/notify/signed-post.ts`). Ports 4002 and 4003 are never public; the shelved bot target retains private port 4001.
 
-`SITE_DOMAIN=app.duelingdomain.com` serves the app. `MARKETING_DOMAIN=duelingdomain.com` serves static files, redirects `/login` to the app, and permits only the exact waitlist POST upstream; its `www` redirects to the marketing apex. `LEGACY_DOMAIN=duelistskingdom.com` and its `www` preserve paths/queries in a 308 to the app. Unset extra domains use reserved `.localhost` defaults for local use. `createWaitlistService(db)` stores unique normalized emails in `waitlist_signups`, independent of guilds. See [domains](deployment/domains.md).
+`SITE_DOMAIN` is the app host (production `app.duelingdomain.com`, marketing `duelingdomain.com`, legacy `duelistskingdom.com`); `WEB_URL` is its required canonical origin and WS CORS origin. Optional `MARKETING_DOMAIN` serves static files, redirects `/login` to the app, and permits only the exact waitlist POST upstream; its `www` redirects to the marketing apex. `LEGACY_DOMAIN` and its `www` preserve paths/queries in a 308 to the app. Unset extra domains use reserved `.localhost` defaults, leaving existing public routing unchanged. Exact `POST /api/waitlist` stores normalized emails locally then creates Clerk waitlist entries with notification; retryable Clerk failure returns 503 `retry_later` (native form redirects to the retry outcome) and retains the local row. Owner reconciliation handles existing signups. Exact `GET /api/auth/session` returns 200 `null` anonymously. Custom `/sign-in`, `/sign-up`, `/sso-callback`, `/access`, legacy `/login`, assets/icons and enabled FX-lab paths are public; test-auth routes require the isolated E2E gate. Legal links point to marketing `/privacy` and `/terms`. See [domains](deployment/domains.md).
+
+Compose runs web/WS/duel/worker/Caddy, fixes `DISCORD_BOT_ENABLED=0`, and injects only explicit web env variables. Disabled channel/announce routes return 404 `discord_disabled`; gameplay commits and WS updates continue. `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` goes only to the web build/dev process, `CLERK_SECRET_KEY` only to web runtime or explicitly authorized one-off owner CLI runs. Production/staging never use dev keys.
 
 ## 2. The duel engine
 
@@ -88,7 +87,7 @@ sequenceDiagram
   participant D as duel host
   participant S as ws
   B->>W: POST /actions {promptId, revision, answer}
-  W->>W: session + guild + room access
+  W->>W: session + community + room access
   W->>D: signed op "respond"
   D->>D: core runs, journal saved
   D->>S: /internal/duel/changed {slug}
@@ -128,13 +127,13 @@ Not on main yet: the 4-way 2x2 grid UI, and PR #178, which changes the FFA4 shar
 
 ```mermaid
 flowchart LR
-  login[Sign in<br/>Discord] --> dash[Dashboard]
+  login[Sign in<br/>Clerk] --> dash[Dashboard]
   dash --> cubes[Cubes<br/>build a pool]
-  dash --> draft[New draft<br/>web or /draft create]
+  dash --> draft[New draft<br/>web]
   cubes --> draft
   draft --> room[Draft room<br/>live picks]
   room --> deck[Deck builder]
-  deck --> tour[Tournament<br/>web or /event]
+  deck --> tour[Tournament<br/>web]
   deck --> duel[Duel lobby<br/>1v1, Tag, 3-way, 4-way]
   tour --> duel
   duel --> table[Table<br/>live duel]

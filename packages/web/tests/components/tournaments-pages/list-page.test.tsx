@@ -10,7 +10,10 @@ vi.mock("next/font/google", () => {
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
 });
 const { auth, getDb } = vi.hoisted(() => ({ auth: vi.fn(), getDb: vi.fn() }));
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("../../fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/db", () => ({ getDb }));
 vi.mock("@/lib/env", () => ({ env: { discordGuildId: "g1" } }));
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
@@ -37,10 +40,11 @@ describe("TournamentsPage", () => {
       .prepare(`insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug, created_at) values (?, ?, ?, ?, ${fixtureUserId("u1")}, ?, ?)`)
       .run(guild, name, format, status, slug, createdAt);
 
-  it("shows the empty state naming /event create", async () => {
+  it("shows the empty state without a Discord command", async () => {
     render(await TournamentsPage());
     expect(screen.getByRole("heading", { name: "No tournaments yet" })).toBeTruthy();
-    expect(screen.getByText("/event create")).toBeTruthy();
+    expect(screen.queryByText("/event create")).toBeNull();
+    expect(screen.getByText(/ready to share by link/)).toBeTruthy();
     expect(screen.getAllByRole("link", { name: /new tournament/i }).length).toBe(2);
     expect(document.querySelector(".sv-bar-sub")).toBeNull();
   });
@@ -104,5 +108,4 @@ describe("TournamentsPage", () => {
 
 const FIXTURE_KEYS = ["u1"] as const;
 
-// Membership is a dependency of these routes; authorization still runs through the real web boundary.
-vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));
+// Session resolution is mocked; authorization still runs through the real web boundary.

@@ -9,7 +9,10 @@ import { createTournamentService } from "@yugidraft/shared/services";
 
 const auth = vi.fn();
 const announcer = { announce: vi.fn(async () => ({ ok: true as const })) };
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/notify", () => ({ announcer, broadcaster: { draft: vi.fn(), tournament: vi.fn() } }));
 const tempDirs: string[] = [];
 
@@ -35,11 +38,13 @@ function scenario() {
 describe("approve/deny emit match-resolved", () => {
   beforeEach(() => {
     vi.resetModules();
+    vi.stubEnv("DISCORD_BOT_ENABLED", "1");
     auth.mockReset();
     announcer.announce.mockClear();
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-b")), discordUserId: fixtureDiscordId("u-b"), name: "B" } }); // opponent resolves
   });
   afterEach(() => {
+    vi.unstubAllEnvs();
     delete process.env.DATABASE_PATH;
     delete process.env.DISCORD_GUILD_ID;
     while (tempDirs.length) { const d = tempDirs.pop(); if (d) rmSync(d, { recursive: true, force: true }); }
@@ -68,5 +73,4 @@ describe("approve/deny emit match-resolved", () => {
 
 const FIXTURE_KEYS = ["u-a", "u-b", "u-creator"] as const;
 
-// Membership is a dependency of these routes; authorization still runs through the real web boundary.
-vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));
+// Session resolution is mocked; authorization still runs through the real web boundary.

@@ -65,8 +65,7 @@ export default async function TournamentsPage() {
         <section aria-labelledby="tl-none">
           <SectionHead title="No tournaments yet" id="tl-none" />
           <p className={styles.lede}>
-            Create one here, or run <code className="cmd">/event create</code> in Discord. Either way it shows up on this
-            page.
+            Create one and it shows up on this page, ready to share by link.
           </p>
           <SvButton as="a" href="/tournaments/new" variant="primary">
             New tournament

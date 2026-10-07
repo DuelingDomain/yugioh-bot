@@ -5,6 +5,7 @@ import { env } from "@/lib/env";
 export const runtime = "nodejs";
 
 export async function GET() {
+  if (!env.discordBotEnabled) return NextResponse.json({ error: "discord_disabled" }, { status: 404 });
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

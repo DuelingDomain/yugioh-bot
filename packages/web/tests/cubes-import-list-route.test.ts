@@ -2,13 +2,14 @@ import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/id
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import { mockDiscordAccess } from "./fixtures/discord-access";
 
 const { auth, getDb } = vi.hoisted(() => ({ auth: vi.fn(), getDb: vi.fn() }));
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/db", () => ({ getDb }));
 let db: Database.Database;
-let discord: ReturnType<typeof mockDiscordAccess>;
 let upstream: Mock<typeof globalThis.fetch>;
 const json = (body: unknown) => new Request("http://x", { method: "POST", body: JSON.stringify(body) });
 const create = async (body: object) => (await import("../app/api/cubes/route")).POST(json(body));
@@ -19,11 +20,8 @@ beforeEach(() => {
   vi.resetModules();
   vi.stubEnv("DISCORD_GUILD_ID", "guild-1");
   auth.mockResolvedValue({ user: { id: String(fixtureUserId("owner")), discordUserId: fixtureDiscordId("owner"), name: "Owner" } });
-  discord = mockDiscordAccess(); discord.permissions = "0";
-  const discordFetch = globalThis.fetch;
   upstream = vi.fn(async () => Response.json({ error: "No card matching your query was found" }, { status: 400 }));
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
-    String(input).includes("ygoprodeck") ? upstream(input, init) : discordFetch(input, init)));
+  vi.stubGlobal("fetch", upstream);
   db = new Database(":memory:"); migrate(db); seedFixtureUsers(db, ["owner", "stranger", "other"]); getDb.mockReturnValue(db);
   const insert = db.prepare(`insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
     values (?,?,?,?, 'i','i','[]','t')`);
@@ -114,7 +112,7 @@ describe("cube editor list import", () => {
     expect(rows()).toEqual([{ id: 1, pool: "main", copies: 6 }]);
   });
 
-  it("retains membership, guild and owner/admin checks before any lookup", async () => {
+  it("retains authentication, guild and creator checks before any lookup", async () => {
     auth.mockResolvedValue(null);
     expect((await mutate({ op: "importList", text: "Dark Hole" })).status).toBe(401);
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("stranger")), discordUserId: fixtureDiscordId("stranger"), name: "Stranger" } });
@@ -122,7 +120,8 @@ describe("cube editor list import", () => {
     db.exec("update cubes set guild_id = 'other' where id = 1");
     expect((await mutate({ op: "importList", text: "Dark Hole" })).status).toBe(404);
     db.exec("update cubes set guild_id = 'guild-1' where id = 1");
-    discord.permissions = "32"; vi.resetModules();
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("owner")), discordUserId: fixtureDiscordId("owner"), name: "Owner" } });
+    vi.resetModules();
     expect((await mutate({ op: "importList", text: "Dark Hole" })).status).toBe(200);
     expect(upstream).not.toHaveBeenCalled();
   });
@@ -190,7 +189,7 @@ describe("create cube from list", () => {
     expect((await create({ name: "Unauthed", importText: "Dark Hole" })).status).toBe(401);
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("owner")), discordUserId: fixtureDiscordId("owner") } });
     vi.stubEnv("DISCORD_GUILD_ID", ""); vi.resetModules();
-    expect((await create({ name: "NoServer", importText: "Dark Hole" })).status).toBe(503);
+    expect((await create({ name: "NoServer", importText: "Dark Hole" })).status).toBe(500);
     expect(db.prepare("select count(*) n from cubes").get()).toEqual({ n: 1 });
   });
 });
@@ -232,7 +231,8 @@ describe("cube subtract op", () => {
     db.exec("update cubes set guild_id = 'other' where id = 1");
     expect((await mutate(body)).status).toBe(404);
     db.exec("update cubes set guild_id = 'guild-1' where id = 1");
-    discord.permissions = "32"; vi.resetModules();
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("owner")), discordUserId: fixtureDiscordId("owner"), name: "Owner" } });
+    vi.resetModules();
     expect((await mutate(body)).status).toBe(200);
     expect(upstream).not.toHaveBeenCalled();
   });

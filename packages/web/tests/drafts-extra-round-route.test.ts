@@ -7,7 +7,10 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const { realPoolSync } = vi.hoisted(() => ({ realPoolSync: { enabled: false } }));
 const auth = vi.fn();
 const broadcaster = { draft: vi.fn() };
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/notify", () => ({ announcer: { announce: vi.fn() }, broadcaster }));
 vi.mock("@/lib/draft-engine-types", () => ({ lookupDraftCardTypes: vi.fn().mockResolvedValue(new Map()) }));
 vi.mock("@yugidraft/shared/services", async (importOriginal) => {
@@ -285,5 +288,3 @@ it("derives rounds on POST when only the main quota is supplied", async () => {
   const result = await create({ customCardIds: baseConfig.customCardIds, cardsPerPlayer: 50 });
   expect(result.config).toMatchObject({ cardsPerPlayer: 50, packSize: 8, packsPerPlayer: 7 });
 });
-
-vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));

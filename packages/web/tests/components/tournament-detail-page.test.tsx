@@ -227,6 +227,17 @@ describe("TournamentDetailPage one sheet", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(`${SLUG}/join-bot`, { method: "POST" }));
   });
 
+  it("shows Announce in Discord only when the tournament response says the bot is enabled", async () => {
+    setup({ ...sheetTournament, status: "pending" });
+    const off = render(<TournamentDetailPage />);
+    await screen.findByRole("heading", { name: /Invite players/ });
+    expect(screen.queryByRole("button", { name: /announce in discord/i })).toBeNull();
+    off.unmount();
+    setup({ ...sheetTournament, status: "pending", discordEnabled: true });
+    render(<TournamentDetailPage />);
+    expect(await screen.findByRole("button", { name: "Announce in Discord" })).toBeInTheDocument();
+  });
+
   it("keeps the sheet and an edited deadline on screen while a websocket refetch is pending", async () => {
     const fetchMock = setup();
     render(<TournamentDetailPage />);
@@ -305,7 +316,7 @@ describe("TournamentDetailPage one sheet", () => {
     const title = await screen.findByRole("heading", { name: "This tournament didn't load" });
     expect(title.closest(".ms")).not.toBeNull();
     expect(screen.getByText("Error", { exact: true })).toBeInTheDocument();
-    expect(screen.getByText("Nothing was changed. Try again, and if it keeps happening, tell whoever runs the bot.")).toBeInTheDocument();
+    expect(screen.getByText("Nothing was changed. Try again, and if it keeps happening, email support@duelingdomain.com.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Dashboard" })).toHaveAttribute("href", "/dashboard");
     const button = screen.getByRole("button", { name: "Try again" });
     expect(button).toBeEnabled();

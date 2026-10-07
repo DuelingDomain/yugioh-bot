@@ -186,6 +186,7 @@ export async function GET(
 
     return NextResponse.json({
       id: tournament.id,
+      discordEnabled: env.discordBotEnabled,
       guildId: tournament.guild_id,
       name: tournament.name,
       format: tournament.format,
@@ -423,7 +424,7 @@ export async function POST(
     const tournaments = createTournamentService(db);
     const started = tournaments.start(tournament.id);
 
-    void announcer.announce(
+    if (env.discordBotEnabled) void announcer.announce(
       {
         kind: "tournament-started",
         tournamentId: started.id,

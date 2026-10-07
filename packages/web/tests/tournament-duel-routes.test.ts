@@ -10,7 +10,10 @@ import { createTournamentService } from "@yugidraft/shared/services";
 const auth = vi.fn();
 const announcer = { announce: vi.fn(async (..._args: unknown[]) => ({ ok: true as const })) };
 const broadcaster = { draft: vi.fn(), tournament: vi.fn() };
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/notify", () => ({ announcer, broadcaster }));
 const notifyDuelChange = vi.fn(async (_slug: string, _guildId: string) => {});
 vi.mock("@/lib/notify-duel", () => ({ notifyDuelChange }));
@@ -22,7 +25,7 @@ function seed() {
   process.env.DATABASE_PATH = join(dir, "bot.sqlite");
   process.env.DISCORD_GUILD_ID = "g1";
   process.env.DISCORD_TOKEN = "bot-token";
-  process.env.NEXTAUTH_URL = "https://duel.example.com/";
+  process.env.WEB_URL = "https://duel.example.com/";
   const db = new Database(process.env.DATABASE_PATH);
   migrate(db);
   seedFixtureUsers(db, FIXTURE_KEYS);
@@ -50,6 +53,7 @@ const post = (body: unknown) =>
 describe("tournament match duel and result routes", () => {
   beforeEach(() => {
     vi.resetModules();
+    vi.stubEnv("DISCORD_BOT_ENABLED", "1");
     auth.mockReset();
     announcer.announce.mockClear();
     broadcaster.tournament.mockClear();
@@ -57,7 +61,8 @@ describe("tournament match duel and result routes", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
   });
   afterEach(() => {
-    for (const key of ["DATABASE_PATH", "DISCORD_GUILD_ID", "DISCORD_TOKEN", "NEXTAUTH_URL"]) delete process.env[key];
+    vi.unstubAllEnvs();
+    for (const key of ["DATABASE_PATH", "DISCORD_GUILD_ID", "DISCORD_TOKEN", "WEB_URL"]) delete process.env[key];
     vi.unstubAllGlobals();
     while (tempDirs.length) {
       const d = tempDirs.pop();
@@ -221,5 +226,4 @@ describe("tournament match duel and result routes", () => {
 
 const FIXTURE_KEYS = ["u-org", "u-a", "u-b", "u-x"] as const;
 
-// Membership is a dependency of these routes; authorization still runs through the real web boundary.
-vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));
+// Session resolution is mocked; authorization still runs through the real web boundary.

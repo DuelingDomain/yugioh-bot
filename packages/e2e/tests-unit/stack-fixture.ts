@@ -39,6 +39,7 @@ export function stackFixture() {
     const root = process.cwd();
     appendFileSync(resolve(root, 'commands.jsonl'), JSON.stringify(process.argv.slice(2)) + '\\n');
     if (process.argv.includes('--workspace=packages/web') && !process.argv.includes('package:standalone')) {
+      writeFileSync(resolve(root, 'web-build-env.json'), JSON.stringify({ e2eAuth: process.env.E2E_AUTH, clerkPublishableKey: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }));
       writeFileSync(resolve(root, 'packages/web/next-env.d.ts'), 'Next changed types');
       writeFileSync(resolve(root, 'packages/web/tsconfig.json'), 'Next changed config');
       writeFileSync(resolve(root, 'build-started'), String(process.pid));

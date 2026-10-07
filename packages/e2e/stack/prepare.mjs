@@ -7,7 +7,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { buildStampFile, e2eRoot, e2eSlot, livePorts, nextDistDir, ports, repoRoot, standaloneBuildDir, supervisorPidFile, wsUrl } from "./env.mjs";
+import { buildStampFile, clerkPublishableKey, e2eRoot, e2eSlot, ensureSecrets, livePorts, nextDistDir, ports, repoRoot, standaloneBuildDir, supervisorPidFile, wsUrl } from "./env.mjs";
 import { isBuildFresh, newest, withBuildLock, withPreservedFiles } from "./build.mjs";
 import { assertStackStopped } from "./runtime.mjs";
 
@@ -80,17 +80,18 @@ async function prepare() {
     } else console.log(`[e2e:prepare] ${name} build is up to date`);
   }
 
-  const webInputs = ["app", "src", "public", "next.config.ts", "package.json", "scripts", "tsconfig.json"].map((path) => at(`packages/web/${path}`)).concat(at("packages/shared/dist"));
+  const webInputs = ["app", "src", "public", "proxy.ts", "next.config.ts", "package.json", "scripts", "tsconfig.json"].map((path) => at(`packages/web/${path}`)).concat(at("packages/shared/dist"));
   const prepareWeb = async () => {
     // A supervisor may have started while this prepare was waiting for the build lock.
     await assertStackStopped(supervisorPidFile, ports, livePorts);
     cancellation.signal.throwIfAborted();
     let stamped = { wsUrl: "", builtAt: 0 };
     try { stamped = JSON.parse(readFileSync(buildStampFile, "utf8")); } catch { /* No stamp: build. */ }
-    if (force || !existsSync(resolve(standaloneBuildDir, "server.js")) || stamped.wsUrl !== wsUrl || stamped.builtAt < newest(webInputs)) {
+    if (force || !existsSync(resolve(standaloneBuildDir, "server.js")) || stamped.wsUrl !== wsUrl || stamped.e2eAuth !== true || stamped.clerkPublishableKey !== clerkPublishableKey || stamped.builtAt < newest(webInputs)) {
       // Webpack supports borrowed dependencies without widening Turbopack's filesystem root.
       const build = async () => {
-        const options = { env: { ...process.env, E2E_NEXT_DIST_DIR: nextDistDir, NEXT_PUBLIC_WS_URL: wsUrl, NEXT_TELEMETRY_DISABLED: "1" } };
+        const options = { env: { ...process.env, E2E_NEXT_DIST_DIR: nextDistDir, NEXT_PUBLIC_WS_URL: wsUrl, NEXT_TELEMETRY_DISABLED: "1",
+          E2E_AUTH: "1", E2E_AUTH_SECRET: ensureSecrets().auth, NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: clerkPublishableKey } };
         if (e2eSlot !== undefined) {
           await sh(`build web (${nextDistDir}, webpack)`, ["exec", "--workspace=packages/web", "--", "next", "build", "--webpack"], options);
           await sh("package web standalone", ["run", "package:standalone", "--workspace=packages/web"], options);
@@ -98,7 +99,7 @@ async function prepare() {
       };
       if (e2eSlot === undefined) await build();
       else await withPreservedFiles([at("packages/web/next-env.d.ts"), at("packages/web/tsconfig.json")], build);
-      writeFileSync(buildStampFile, JSON.stringify({ wsUrl, builtAt: Date.now() }));
+      writeFileSync(buildStampFile, JSON.stringify({ wsUrl, e2eAuth: true, clerkPublishableKey, builtAt: Date.now() }));
     } else console.log(`[e2e:prepare] web build ${nextDistDir} is up to date`);
   };
   await withBuildLock(resolve(e2eRoot, ".stack-build-lock"), prepareWeb, { signal: cancellation.signal });

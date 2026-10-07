@@ -7,7 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const auth = vi.fn();
 const tempDirs: string[] = [];
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 // Avoid real inter-service HTTP calls during settings edits.
 vi.mock("@/lib/notify", () => ({
   broadcaster: { draft: vi.fn(), tournament: vi.fn() },
@@ -227,5 +230,4 @@ describe("PUT /api/tournaments/[slug] is atomic", () => {
 
 const FIXTURE_KEYS = ["host", "intruder"] as const;
 
-// Membership is a dependency of these routes; authorization still runs through the real web boundary.
-vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));
+// Session resolution is mocked; authorization still runs through the real web boundary.

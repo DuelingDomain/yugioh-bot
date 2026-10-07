@@ -11,7 +11,7 @@ export const runtime = "nodejs";
 
 async function authCubeId(
   params: Promise<{ id: string }>,
-): Promise<{ cubeId: number; guildId: string; userId: number; discordUserId: string } | NextResponse> {
+): Promise<{ cubeId: number; guildId: string; userId: number; discordUserId: string | null } | NextResponse> {
   const actor = await requireWebAccess();
   if (!actor.ok) return actor.response;
   if (!env.discordGuildId) {

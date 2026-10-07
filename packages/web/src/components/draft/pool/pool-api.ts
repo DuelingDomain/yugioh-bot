@@ -227,7 +227,7 @@ export async function replaceCubeMain(cubeId: number, cards: Array<{ id: number;
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ op: "replaceMain", cards }),
   });
-  if (res.status === 403) throw new Error("Only the cube's owner or an admin can change it.");
+  if (res.status === 403) throw new Error("Only the cube's owner can change it.");
   if (!res.ok) throw new Error(await readError(res, "Couldn't save the changes."));
 }
 

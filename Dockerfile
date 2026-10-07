@@ -27,7 +27,11 @@ FROM node:22-bookworm-slim AS build
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN npx turbo run build
+# Build consumers of shared before web. Turbo's strict env filter would drop an
+# undeclared Clerk key, so pass the public key directly to the web build only.
+RUN npx turbo run build --filter='!@yugioh-discord-bot/web'
+ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_Y2xlcmsuZXhhbXBsZS5jb20k
+RUN NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY="$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" npm run build --workspace=packages/web
 RUN npm prune --omit=dev --ignore-scripts && npx patch-package --error-on-fail
 
 # ── bot ──────────────────────────────────────────────────────────────────────

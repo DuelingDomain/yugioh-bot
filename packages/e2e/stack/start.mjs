@@ -1,12 +1,12 @@
 // Supervisor for the isolated E2E stack: ws + duel host + worker + web (production standalone build).
-// Playwright starts it as one webServer and waits for the web /login page.
+// Playwright starts it as one webServer and waits for GET /api/auth/session.
 // Ctrl-C or SIGTERM stops all four children. Nothing here touches the live stack.
 import { spawn } from "node:child_process";
 import { createWriteStream, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  cardImageDir, dbPath, duelDataDir, e2eRoot, e2eSlot, ensureSecrets, guildId, livePorts, manualInfoFile, manualMode, players, ports, repoRoot, stackDir, stackLogFile, standaloneBuildDir, supervisorPidFile, workerHealthPath, webUrl, wsUrl,
+  cardImageDir, clerkPublishableKey, dbPath, duelDataDir, e2eRoot, e2eSlot, ensureSecrets, guildId, livePorts, manualInfoFile, manualMode, ports, repoRoot, stackDir, stackLogFile, standaloneBuildDir, supervisorPidFile, workerHealthPath, webUrl, wsUrl,
 } from "./env.mjs";
 import { seedDatabase } from "./seed.mjs";
 import { prepareManualData } from "./manual-data.mjs";
@@ -193,20 +193,11 @@ run("web", process.execPath, ["server.js"], {
     PORT: String(ports.web),
     HOSTNAME: "localhost",
     NODE_OPTIONS: `--import=${stub}`,
-    // Discord and auth. Dummy Discord app values: the Discord button is never used here.
-    DISCORD_CLIENT_ID: "e2e-unused",
-    DISCORD_CLIENT_SECRET: "e2e-unused",
-    DISCORD_TOKEN: "e2e-unused-bot-token",
     DISCORD_GUILD_ID: guildId,
-    NEXTAUTH_SECRET: secrets.nextauth,
-    NEXTAUTH_URL: webUrl,
-    AUTH_URL: webUrl,
-    AUTH_TRUST_HOST: "true",
+    WEB_URL: webUrl,
     E2E_AUTH: "1",
     E2E_AUTH_SECRET: secrets.auth,
-    // Stub inputs: these fake ids count as guild members.
-    E2E_STUB_GUILD_ID: guildId,
-    E2E_STUB_MEMBER_IDS: players.map((player) => player.discordId).join(","),
+    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: clerkPublishableKey,
     E2E_MANUAL: manualMode ? "1" : "0",
     E2E_CARD_IMAGE_SOURCE_DIR: manualMode ? manualImageSource : "",
     WS_INTERNAL_URL: wsInternal,

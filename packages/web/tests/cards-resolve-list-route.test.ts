@@ -4,7 +4,10 @@ import { migrate } from "@yugidraft/shared/db";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 
 const { auth, getDb } = vi.hoisted(() => ({ auth: vi.fn(), getDb: vi.fn() }));
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/db", () => ({ getDb }));
 let db: Database.Database;
 let upstream: Mock<typeof globalThis.fetch>;
@@ -155,7 +158,7 @@ describe("POST /api/cards/resolve listText", () => {
     auth.mockResolvedValue(session);
     const response = await resolve({ listText: "Dark Hole" });
     expect(response.status).toBe(401);
-    expect(await response.json()).toEqual({ error: "Unauthorized" });
+    expect(await response.json()).toEqual({ error: "unauthorized" });
     expect(getDb).not.toHaveBeenCalled(); expect(upstream).not.toHaveBeenCalled();
   });
 
@@ -251,5 +254,3 @@ it.each([50, 51])("resolves 50 uncached passcodes and lists budget-skipped cards
   else expect(result).not.toHaveProperty("lookupLimited");
   expect(upstream.mock.calls.filter(([input]) => new URL(String(input)).searchParams.has("id"))).toHaveLength(50);
 }, 40000);
-
-vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));

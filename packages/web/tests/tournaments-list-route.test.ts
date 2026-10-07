@@ -5,7 +5,10 @@ import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const tempDirs: string[] = [];
-vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture((() => ({ auth: vi.fn() }))().auth);
+});
 
 async function setupDb() {
   const tempDir = mkdtempSync(join(tmpdir(), "yugioh-tournaments-list-"));
@@ -55,5 +58,4 @@ describe("GET /api/tournaments includes completed", () => {
 
 const FIXTURE_KEYS = ["host"] as const;
 
-// Membership is a dependency of these routes; authorization still runs through the real web boundary.
-vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));
+// Session resolution is mocked; authorization still runs through the real web boundary.

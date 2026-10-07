@@ -6,7 +6,10 @@ import { seedDraftDeck } from "./helpers/draft-deck-fixture";
 
 const callDuelHost = vi.fn();
 const dirs: string[] = [];
-vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture((() => ({ auth: vi.fn() }))().auth);
+});
 vi.mock("@/lib/duel-host", () => ({ callDuelHost }));
 
 const QUICK_PLAY_SPELL = 0x2 | 0x10000;

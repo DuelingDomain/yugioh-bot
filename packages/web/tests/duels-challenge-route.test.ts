@@ -8,7 +8,10 @@ import { migrate } from "@yugidraft/shared/db";
 
 const auth = vi.fn();
 const announcer = { announce: vi.fn(async (..._args: unknown[]) => ({ ok: true as const })) };
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/notify", () => ({ announcer, broadcaster: { draft: vi.fn(), tournament: vi.fn() } }));
 vi.mock("@/lib/notify-duel", () => ({ notifyDuelChange: vi.fn(async () => {}) }));
 const tempDirs: string[] = [];
@@ -19,7 +22,7 @@ function seed() {
   process.env.DATABASE_PATH = join(dir, "bot.sqlite");
   process.env.DISCORD_GUILD_ID = "g1";
   process.env.DISCORD_TOKEN = "bot-token";
-  process.env.NEXTAUTH_URL = "https://duel.example.com";
+  process.env.WEB_URL = "https://duel.example.com";
   const db = new Database(process.env.DATABASE_PATH);
   migrate(db);
   seedFixtureUsers(db, FIXTURE_KEYS);
@@ -35,13 +38,15 @@ const post = (body: unknown) =>
 describe("POST /api/duels challenges", () => {
   beforeEach(() => {
     vi.resetModules();
+    vi.stubEnv("DISCORD_BOT_ENABLED", "1");
     auth.mockReset();
     announcer.announce.mockClear();
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-me")), discordUserId: fixtureDiscordId("u-me"), name: "Yugi" } });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
   });
   afterEach(() => {
-    for (const key of ["DATABASE_PATH", "DISCORD_GUILD_ID", "DISCORD_TOKEN", "NEXTAUTH_URL"]) delete process.env[key];
+    vi.unstubAllEnvs();
+    for (const key of ["DATABASE_PATH", "DISCORD_GUILD_ID", "DISCORD_TOKEN", "WEB_URL"]) delete process.env[key];
     vi.unstubAllGlobals();
     while (tempDirs.length) {
       const d = tempDirs.pop();
@@ -49,7 +54,8 @@ describe("POST /api/duels challenges", () => {
     }
   });
 
-  it("creates a challenge series and DMs the opponent", async () => {
+  it.each([false, true])("creates a challenge series and DMs the opponent (email-only=%s)", async emailOnly => {
+    if (emailOnly) auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-me")), discordUserId: null, name: "Yugi" } });
     const s = seed();
     const { POST } = await import("../app/api/duels/route");
     const res = await POST(post({ mode: "normal", bestOf: 3, ranked: true, opponentPlayerId: s.opponent }) as never);
@@ -70,26 +76,32 @@ describe("POST /api/duels challenges", () => {
     });
   });
 
-  it("reports notified true when the bot accepted the invite", async () => {
+  it("returns a share link when the bot accepted the invite", async () => {
     const s = seed();
     const { POST } = await import("../app/api/duels/route");
     const res = await POST(post({ mode: "normal", opponentPlayerId: s.opponent }) as never);
     expect(res.status).toBe(201);
-    expect(((await res.json()) as { notified: boolean }).notified).toBe(true);
+    const body = await res.json();
+    expect(body.shareUrl).toBe(`https://duel.example.com/duels/${body.session.slug}`);
+    expect(body).not.toHaveProperty("notified");
   });
 
-  it("reports notified false when the bot refuses or cannot be reached", async () => {
+  it("returns a share link when the bot refuses or cannot be reached", async () => {
     const s = seed();
     const { POST } = await import("../app/api/duels/route");
     announcer.announce.mockResolvedValueOnce({ ok: false, error: "bot down" } as never);
     const refused = await POST(post({ mode: "normal", opponentPlayerId: s.opponent }) as never);
     expect(refused.status).toBe(201);
-    expect(((await refused.json()) as { notified: boolean }).notified).toBe(false);
+    const refusedBody = await refused.json();
+    expect(refusedBody.shareUrl).toBe(`https://duel.example.com/duels/${refusedBody.session.slug}`);
+    expect(refusedBody).not.toHaveProperty("notified");
 
     announcer.announce.mockRejectedValueOnce(new Error("network"));
     const down = await POST(post({ mode: "normal", opponentPlayerId: s.opponent }) as never);
     expect(down.status).toBe(201);
-    expect(((await down.json()) as { notified: boolean }).notified).toBe(false);
+    const downBody = await down.json();
+    expect(downBody.shareUrl).toBe(`https://duel.example.com/duels/${downBody.session.slug}`);
+    expect(downBody).not.toHaveProperty("notified");
   });
 
   it("keeps the match options on an open table and makes no series for it", async () => {
@@ -134,5 +146,4 @@ describe("POST /api/duels challenges", () => {
 
 const FIXTURE_KEYS = ["u-me", "u-opp"] as const;
 
-// Membership is a dependency of these routes; authorization still runs through the real web boundary.
-vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));
+// Session resolution is mocked; authorization still runs through the real web boundary.

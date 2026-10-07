@@ -408,10 +408,10 @@ describe("DraftSummaryView", () => {
     expect(screen.queryByText(/will start the tournament/i)).toBeNull();
   });
 
-  it("offers Create tournament to a guild admin who is not the host", () => {
-    renderView({ ...baseDraft, participantPickCount: 15, myDeckId: 7, canCreateTournament: true }, { isCreator: false });
-    expect(screen.getByRole("button", { name: "Create tournament" })).toHaveClass("sv-btn", "primary");
-    expect(screen.queryByText(/will start the tournament/i)).toBeNull();
+  it("hides Create tournament from a former admin who is not the host", () => {
+    renderView({ ...baseDraft, participantPickCount: 15, myDeckId: 7, canCreateTournament: false }, { isCreator: false });
+    expect(screen.queryByRole("button", { name: "Create tournament" })).toBeNull();
+    expect(screen.getByText(/will start the tournament/i)).toBeTruthy();
   });
 
   it("offers no create button to the host when the server refuses", () => {
@@ -421,7 +421,7 @@ describe("DraftSummaryView", () => {
 
   it("tells other players the host starts the tournament, with no create button", () => {
     renderView({ ...baseDraft, participantPickCount: 15, myDeckId: 7 });
-    expect(screen.getByText("The host or a server admin will start the tournament.")).toBeTruthy();
+    expect(screen.getByText("The host will start the tournament.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Create tournament" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Go to tournament" })).toBeNull();
   });

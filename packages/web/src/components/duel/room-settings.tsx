@@ -13,7 +13,7 @@ export function DuelSettingsSummary({ session }: { session: DuelSession }) {
   const { settings } = session;
   const values = [
     ["Format", `${session.mode === "domain" ? (isCustomDomain(session.masterRule, settings) ? "Custom Domain" : "Domain") : "Standard"} · ${formatLabel(session.format)}`],
-    ["Visibility", settings.visibility === "private" ? "Invite only" : "Discord server members"],
+    ["Visibility", settings.visibility === "private" ? "Invite only" : "Everyone on Dueling Domain"],
     ["Engine", `Automatic · Master Rule ${session.masterRule}`],
     ["Banlist", DUEL_BANLIST_OPTIONS.find((option) => option.id === settings.banlist)?.label ?? settings.banlist],
     ["Card pool", settings.cardPool === "both" ? "TCG + OCG" : settings.cardPool.toUpperCase()],

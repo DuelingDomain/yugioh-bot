@@ -1,21 +1,9 @@
 import { NextResponse } from "next/server";
-import { auth } from "./auth";
-import { parseUserId } from "./user-id";
-import { checkDiscordWebAccess, webAccessError, type WebAccessLevel } from "./discord-web-access";
-
-export async function requireWebAccess(level: WebAccessLevel = "member") {
-  const session = await auth();
-  const userId = parseUserId(session?.user?.id);
-  const discordUserId = session?.user?.discordUserId;
-  if (userId === null || typeof discordUserId !== "string" || !discordUserId) {
-    return { ok: false as const, response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
-  }
-  const decision = await checkDiscordWebAccess(discordUserId, level);
-  if (!decision.ok) {
-    return {
-      ok: false as const,
-      response: NextResponse.json({ error: webAccessError(decision.status) }, { status: decision.status }),
-    };
-  }
-  return { ok: true as const, userId, discordUserId, userName: session?.user?.name ?? "Unknown" };
+import { resolveSessionIdentity } from "./session-identity";
+export async function requireWebAccess(): Promise<
+  | { ok: true; userId: number; discordUserId: string | null; userName: string }
+  | { ok: false; response: NextResponse }> {
+  const result = await resolveSessionIdentity();
+  if (!result.ok) return { ok: false, response: NextResponse.json({ error: result.status === 401 ? "unauthorized" : "session_unavailable" }, { status: result.status }) };
+  return { ok: true, userId: result.identity.userId, discordUserId: result.identity.discordUserId, userName: result.identity.name };
 }

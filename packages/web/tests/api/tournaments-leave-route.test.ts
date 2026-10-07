@@ -7,7 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const auth = vi.fn();
 const tempDirs: string[] = [];
 
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("../fixtures/session");
+  return sessionFixture(auth);
+});
 
 describe("POST /api/tournaments/[slug]/leave", () => {
   beforeEach(() => {
@@ -72,5 +75,4 @@ describe("POST /api/tournaments/[slug]/leave", () => {
 
 const FIXTURE_KEYS = ["user-leaver", "user-org"] as const;
 
-// Membership is a dependency of these routes; authorization still runs through the real web boundary.
-vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));
+// Session resolution is mocked; authorization still runs through the real web boundary.

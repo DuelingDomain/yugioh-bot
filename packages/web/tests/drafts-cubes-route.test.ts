@@ -7,7 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const auth = vi.fn();
 const tempDirs: string[] = [];
 
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 
 async function seedBlankThemeDraft() {
   const tempDir = mkdtempSync(join(tmpdir(), "yugioh-draft-cubes-"));
@@ -149,5 +152,4 @@ describe("POST/DELETE /api/drafts/[slug]/cubes (draft cubes)", () => {
 
 const FIXTURE_KEYS = ["u1", "someone-else"] as const;
 
-// Membership is a dependency of these routes; authorization still runs through the real web boundary.
-vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));
+// Session resolution is mocked; authorization still runs through the real web boundary.

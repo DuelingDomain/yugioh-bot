@@ -342,7 +342,7 @@ export async function POST(
 
     const started = drafts.start(draft.id);
 
-    if (started.channelId && started.webSlug) {
+    if (env.discordBotEnabled && started.channelId && started.webSlug) {
       void announcer.announce(
         {
           kind: "draft-started",

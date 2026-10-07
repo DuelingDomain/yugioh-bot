@@ -6,22 +6,18 @@ import type { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const auth = vi.fn();
-const { checkDiscordWebAccess } = vi.hoisted(() => ({ checkDiscordWebAccess: vi.fn() }));
 const tempDirs: string[] = [];
 
-vi.mock("@/lib/auth", () => ({ auth }));
-vi.mock("@/lib/discord-web-access", async (importOriginal) => ({
-  ...await importOriginal<typeof import("../src/lib/discord-web-access")>(),
-  checkDiscordWebAccess: (id: string, level: string) => level === "member" ? Promise.resolve({ ok: true }) : checkDiscordWebAccess(id, level),
-}));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 
 describe("POST /api/drafts/[slug]/tournament", () => {
   beforeEach(() => {
     vi.resetModules();
     auth.mockReset();
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("creator-user")), discordUserId: fixtureDiscordId("creator-user"), name: "Yugi" } });
-    checkDiscordWebAccess.mockReset();
-    checkDiscordWebAccess.mockResolvedValue({ ok: false, status: 403 });
   });
 
   afterEach(() => {
@@ -73,7 +69,6 @@ describe("POST /api/drafts/[slug]/tournament", () => {
     const data = await response.json();
     expect(data.format).toBe("round_robin");
     expect(data.name).toBe("My Draft");
-    expect(checkDiscordWebAccess).not.toHaveBeenCalled();
   });
 
   it("returns 409 when tournament already linked", async () => {
@@ -92,7 +87,7 @@ describe("POST /api/drafts/[slug]/tournament", () => {
     expect(await response2.json()).toEqual(await created.json());
   });
 
-  it("returns 403 when a non-creator is not an admin", async () => {
+  it("returns 403 for a non-creator", async () => {
     await setupCompletedDraft();
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("other-user")), discordUserId: fixtureDiscordId("other-user"), name: "Kaiba" } });
     const { POST } = await import("../app/api/drafts/[slug]/tournament/route");
@@ -105,45 +100,33 @@ describe("POST /api/drafts/[slug]/tournament", () => {
     const response = await POST(request, { params: Promise.resolve({ slug: "test-slug" }) });
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({
-      error: "You must be a member of the Discord server and have permission for this action",
+      error: "Only the draft creator can create a tournament",
     });
-    expect(checkDiscordWebAccess).toHaveBeenCalledExactlyOnceWith(fixtureDiscordId("other-user"), "admin");
   });
 
-  it("allows the creator when Discord verification is unavailable", async () => {
+  it("allows an email-only creator", async () => {
     await setupCompletedDraft();
-    checkDiscordWebAccess.mockResolvedValue({ ok: false, status: 503 });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("creator-user")), discordUserId: null, name: "Host" } });
     expect((await postWithBody({ format: "round_robin" })).status).toBe(201);
-    expect(checkDiscordWebAccess).not.toHaveBeenCalled();
   });
 
-  it("returns 201 for an admin who did not create or join the draft", async () => {
+  it("rejects a former admin who did not create or join the draft", async () => {
     await setupCompletedDraft();
-    auth.mockResolvedValue({ user: { id: String(fixtureUserId("admin-user")), discordUserId: fixtureDiscordId("admin-user") } });
-    checkDiscordWebAccess.mockResolvedValue({ ok: true });
-
-    const created = await postWithBody({ format: "round_robin" });
-    expect(created.status).toBe(201);
-    const tournament = await created.json();
-    expect(tournament).toMatchObject({ name: "My Draft", format: "round_robin" });
-    expect(checkDiscordWebAccess).toHaveBeenCalledExactlyOnceWith(fixtureDiscordId("admin-user"), "admin");
-
-    const duplicate = await postWithBody({ format: "single_elim" });
-    expect(duplicate.status).toBe(409);
-    expect(await duplicate.json()).toEqual(tournament);
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("admin-user")), discordUserId: null } });
+    expect((await postWithBody({ format: "round_robin" })).status).toBe(403);
+    const { getDb } = await import("../src/lib/db");
+    expect(getDb().prepare("select count(*) as n from tournaments").get()).toEqual({ n: 0 });
   });
 
-  it("returns 503 when a non-creator's admin verification is unavailable", async () => {
+  it("rejects a non-creator independently of Discord availability", async () => {
     await setupCompletedDraft();
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("other-user")), discordUserId: fixtureDiscordId("other-user") } });
-    checkDiscordWebAccess.mockResolvedValue({ ok: false, status: 503 });
 
     const response = await postWithBody({ format: "round_robin" });
-    expect(response.status).toBe(503);
+    expect(response.status).toBe(403);
     expect(await response.json()).toEqual({
-      error: "Cannot verify Discord server membership or permissions. Please try again later.",
+      error: "Only the draft creator can create a tournament",
     });
-    expect(checkDiscordWebAccess).toHaveBeenCalledExactlyOnceWith(fixtureDiscordId("other-user"), "admin");
   });
 
   it("returns 400 for invalid format", async () => {

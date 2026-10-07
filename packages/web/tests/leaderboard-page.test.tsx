@@ -9,7 +9,10 @@ vi.mock("next/font/google", () => {
 });
 
 const { getActive } = vi.hoisted(() => ({ getActive: vi.fn() }));
-vi.mock("@/lib/auth", () => ({ auth: async () => ({ user: { id: String(fixtureUserId("imran")), discordUserId: fixtureDiscordId("imran") } }) }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture((() => ({ auth: async () => ({ user: { id: String(fixtureUserId("imran")), discordUserId: fixtureDiscordId("imran") } }) }))().auth);
+});
 vi.mock("@/lib/env", () => ({ env: { discordGuildId: "guild-1" } }));
 vi.mock("@/lib/db", () => ({ getDb: () => ({ prepare: () => ({ get: () => ({ id: 5 }) }) }) }));
 vi.mock("@yugidraft/shared/services", () => ({
@@ -48,5 +51,4 @@ describe("leaderboard server composition", () => {
 
 const FIXTURE_KEYS = ["imran"] as const;
 
-// Membership is a dependency of these routes; authorization still runs through the real web boundary.
-vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));
+// Session resolution is mocked; authorization still runs through the real web boundary.

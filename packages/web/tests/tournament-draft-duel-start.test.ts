@@ -10,7 +10,10 @@ import { createTournamentService } from "@yugidraft/shared/services";
 const auth = vi.fn();
 const callDuelHost = vi.fn();
 const linkDraftDeck = vi.fn();
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/duel-host", async (importActual) => ({
   ...(await importActual<typeof import("@/lib/duel-host")>()),
   callDuelHost,
@@ -32,7 +35,7 @@ function seed(opts: { status?: "active" | "pending" } = {}) {
   process.env.DATABASE_PATH = join(dir, "bot.sqlite");
   process.env.DISCORD_GUILD_ID = "g1";
   process.env.DISCORD_TOKEN = "bot-token";
-  process.env.NEXTAUTH_URL = "https://duel.example.com/";
+  process.env.WEB_URL = "https://duel.example.com/";
   const db = new Database(process.env.DATABASE_PATH);
   migrate(db);
   seedFixtureUsers(db, FIXTURE_KEYS);
@@ -70,7 +73,7 @@ describe("starting a draft tournament series", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
   });
   afterEach(() => {
-    for (const key of ["DATABASE_PATH", "DISCORD_GUILD_ID", "DISCORD_TOKEN", "NEXTAUTH_URL"]) delete process.env[key];
+    for (const key of ["DATABASE_PATH", "DISCORD_GUILD_ID", "DISCORD_TOKEN", "WEB_URL"]) delete process.env[key];
     vi.unstubAllGlobals();
     while (tempDirs.length) {
       const d = tempDirs.pop();
@@ -143,5 +146,4 @@ describe("starting a draft tournament series", () => {
 
 const FIXTURE_KEYS = ["u-a", "u-b", "u-x", "u-org"] as const;
 
-// Membership is a dependency of these routes; authorization still runs through the real web boundary.
-vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));
+// Session resolution is mocked; authorization still runs through the real web boundary.

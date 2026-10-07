@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import type { getDb } from "./db";
 import { env } from "./env";
-import { checkDiscordWebAccess, webAccessError } from "./discord-web-access";
 
 export function cubeReferenceAccess(
   db: ReturnType<typeof getDb>,
@@ -25,13 +24,12 @@ export function cubeReferenceAccess(
 export async function cubeWriteAccess(
   db: ReturnType<typeof getDb>,
   cubeId: number,
-  actor: { userId: number; discordUserId: string },
+  actor: { userId: number; discordUserId: string | null },
 ) {
   const cube = db
     .prepare("select created_by_user_id from cubes where id = ? and guild_id = ?")
     .get(cubeId, env.discordGuildId) as { created_by_user_id: number } | undefined;
   if (!cube) return NextResponse.json({ error: "Cube not found" }, { status: 404 });
   if (cube.created_by_user_id === actor.userId) return null;
-  const decision = await checkDiscordWebAccess(actor.discordUserId, "admin");
-  return decision.ok ? null : NextResponse.json({ error: webAccessError(decision.status) }, { status: decision.status });
+  return NextResponse.json({ error: "Only the cube creator can edit this cube" }, { status: 403 });
 }

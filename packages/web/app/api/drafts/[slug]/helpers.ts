@@ -13,7 +13,6 @@ import { toUtcIso } from "@/lib/utils";
 import { broadcaster } from "@/lib/notify";
 import { lookupDraftCardTypes, type EngineCardTypes } from "@/lib/draft-engine-types";
 import { draftTestBotsEnabled } from "@/lib/draft-test-bots";
-import { checkDiscordWebAccess } from "@/lib/discord-web-access";
 import { cardImageUrl } from "@/lib/card-image-url";
 
 function getTimerSeconds(pickDeadlineAt: string | null | undefined): number {
@@ -85,7 +84,7 @@ function mapDraftCardDetails(
   });
 }
 
-export async function buildDraftResponse(slug: string, actor: { userId: number; discordUserId: string }) {
+export async function buildDraftResponse(slug: string, actor: { userId: number; discordUserId: string | null }) {
   const userId = actor.userId;
   const db = getDb();
   const drafts = createDraftService(db);
@@ -346,19 +345,7 @@ export async function buildDraftResponse(slug: string, actor: { userId: number; 
       })
     : null;
 
-  let canCreateTournament = false;
-  if (draft.status === "completed" && draft.tournament_id == null) {
-    if (draft.created_by_user_id === userId) {
-      canCreateTournament = true;
-    } else {
-      try {
-        canCreateTournament = (await checkDiscordWebAccess(actor.discordUserId, "admin")).ok;
-      } catch {
-        // The draft remains readable when Discord verification is unavailable.
-        canCreateTournament = false;
-      }
-    }
-  }
+  const canCreateTournament = draft.status === "completed" && draft.tournament_id == null && draft.created_by_user_id === userId;
 
   return {
     id: draft.id,

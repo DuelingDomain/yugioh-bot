@@ -9,7 +9,10 @@ import { createDuelService } from "@yugidraft/shared/services";
 
 const auth = vi.fn();
 const notifyDuelChange = vi.fn(async (..._args: unknown[]) => {});
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/notify-duel", () => ({ notifyDuelChange }));
 const tempDirs: string[] = [];
 
@@ -84,5 +87,4 @@ describe("DELETE /api/duels/[slug]/bot", () => {
 
 const FIXTURE_KEYS = ["u-host", "u-other"] as const;
 
-// Membership is a dependency of these routes; authorization still runs through the real web boundary.
-vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));
+// Session resolution is mocked; authorization still runs through the real web boundary.

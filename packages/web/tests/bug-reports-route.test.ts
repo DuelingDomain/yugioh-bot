@@ -3,13 +3,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import { mockDiscordAccess } from "./fixtures/discord-access";
 
 const auth = vi.fn();
 const tempDirs: string[] = [];
-let discord: ReturnType<typeof mockDiscordAccess>;
 let github: Mock<(url: string, init?: RequestInit) => Promise<Response>>;
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/notify", () => ({ announcer: { announce: vi.fn() }, broadcaster: {} }));
 // The duel host's public view of the duel: only audience "all" lines, as the host reads them from the spectator view.
 const callDuelHost = vi.fn();
@@ -30,7 +31,7 @@ async function seed() {
   tempDirs.push(dir);
   process.env.DATABASE_PATH = join(dir, "test.sqlite");
   process.env.DISCORD_GUILD_ID = GUILD;
-  process.env.NEXTAUTH_URL = "https://duel.example.com/";
+  process.env.WEB_URL = "https://duel.example.com/";
   const Database = (await import("better-sqlite3")).default;
   const { migrate } = await import("@yugidraft/shared/db");
   const db = new Database(process.env.DATABASE_PATH);
@@ -88,10 +89,8 @@ describe("POST /api/bug-reports", () => {
     auth.mockResolvedValue({ user: { id: String(fixtureUserId(DISCORD_ID)), discordUserId: fixtureDiscordId(DISCORD_ID), name: "Seraphina Quill" } });
     callDuelHost.mockReset();
     callDuelHost.mockResolvedValue(hostAnswer());
-    discord = mockDiscordAccess();
-    const discordFetch = globalThis.fetch;
     github = vi.fn(async (_url: string, _init?: RequestInit) => Response.json(created(77), { status: 201 }));
-    vi.stubGlobal("fetch", (url: string, init?: RequestInit) => (String(url).startsWith("https://api.github.com/") ? github(url, init) : discordFetch(url as never)));
+    vi.stubGlobal("fetch", (url: string, init?: RequestInit) => (String(url).startsWith("https://api.github.com/") ? github(url, init) : Promise.reject(new Error(`Unexpected fetch: ${url}`))));
     vi.stubEnv("BUG_REPORT_GITHUB_TOKEN", TOKEN);
     vi.stubEnv("BUG_REPORT_GITHUB_REPO", "");
     await seed();
@@ -99,23 +98,20 @@ describe("POST /api/bug-reports", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
-    for (const key of ["DATABASE_PATH", "DISCORD_GUILD_ID", "NEXTAUTH_URL"]) delete process.env[key];
+    for (const key of ["DATABASE_PATH", "DISCORD_GUILD_ID", "WEB_URL"]) delete process.env[key];
     while (tempDirs.length) { const d = tempDirs.pop(); if (d) rmSync(d, { recursive: true, force: true }); }
   });
 
-  it("401 without a session, 403 for a non-member, 503 when Discord is down", async () => {
+  it("401 without a session, with no storage or outbound writes", async () => {
     const POST = await route();
     auth.mockResolvedValue(null);
     expect((await POST(post(body()))).status).toBe(401);
-    auth.mockResolvedValue({ user: { id: String(fixtureUserId(DISCORD_ID)), discordUserId: fixtureDiscordId(DISCORD_ID), name: "Seraphina Quill" } });
-    discord.memberStatus = 404;
-    expect((await POST(post(body()))).status).toBe(403);
     expect(github).not.toHaveBeenCalled();
     expect(await rows()).toHaveLength(0);
   });
 
-  it("503 when Discord cannot be asked", async () => {
-    discord.memberStatus = 500;
+  it("503 when the account cannot be resolved", async () => {
+    auth.mockRejectedValue(new Error("Session unavailable"));
     const POST = await route();
     expect((await POST(post(body()))).status).toBe(503);
   });
@@ -172,20 +168,16 @@ describe("POST /api/bug-reports", () => {
     expect(call!.payload.body).toContain("`Report #1`");
   });
 
-  it("builds the replay link only from NEXTAUTH_URL or AUTH_URL, never from the request", async () => {
+  it("builds the replay link only from WEB_URL, never from the request", async () => {
     const POST = await route();
-    vi.stubEnv("NEXTAUTH_URL", "");
-    vi.stubEnv("AUTH_URL", "https://auth.example.com/");
-    vi.stubEnv("WEB_URL", "https://web-url.example.com");
+    vi.stubEnv("WEB_URL", "https://web-url.example.com/");
     await POST(new Request("https://evil.example/api/bug-reports", { method: "POST", body: JSON.stringify(body()) }));
-    expect(githubCalls()[0]!.payload.body).toContain("https://auth.example.com/duels/duel-a/replay");
+    expect(githubCalls()[0]!.payload.body).toContain("https://web-url.example.com/duels/duel-a/replay");
   });
 
   it("leaves the replay link out when no public URL is configured, even if the request has an origin", async () => {
     const POST = await route();
-    vi.stubEnv("NEXTAUTH_URL", "");
-    vi.stubEnv("AUTH_URL", "");
-    vi.stubEnv("WEB_URL", "https://web-url.example.com");
+    vi.stubEnv("WEB_URL", "");
     const res = await POST(new Request("https://evil.example/api/bug-reports", { method: "POST", body: JSON.stringify(body()) }));
     expect(res.status).toBe(200);
     const text = githubCalls()[0]!.payload.body as string;
@@ -198,7 +190,7 @@ describe("POST /api/bug-reports", () => {
 
   it("ignores a configured URL that is not http or https", async () => {
     const POST = await route();
-    vi.stubEnv("NEXTAUTH_URL", "javascript:alert(1)");
+    vi.stubEnv("WEB_URL", "javascript:alert(1)");
     await POST(post(body()));
     expect(githubCalls()[0]!.payload.body).not.toContain("## Replay");
   });
@@ -404,10 +396,8 @@ describe("POST /api/bug-reports with duplicateOf", () => {
     auth.mockResolvedValue({ user: { id: String(fixtureUserId(DISCORD_ID)), discordUserId: fixtureDiscordId(DISCORD_ID), name: "Seraphina Quill" } });
     callDuelHost.mockReset();
     callDuelHost.mockResolvedValue(hostAnswer());
-    discord = mockDiscordAccess();
-    const discordFetch = globalThis.fetch;
     github = vi.fn(async (_url: string, _init?: RequestInit) => Response.json({}));
-    vi.stubGlobal("fetch", (url: string, init?: RequestInit) => (String(url).startsWith("https://api.github.com/") ? github(url, init) : discordFetch(url as never)));
+    vi.stubGlobal("fetch", (url: string, init?: RequestInit) => (String(url).startsWith("https://api.github.com/") ? github(url, init) : Promise.reject(new Error(`Unexpected fetch: ${url}`))));
     vi.stubEnv("BUG_REPORT_GITHUB_TOKEN", TOKEN);
     vi.stubEnv("BUG_REPORT_GITHUB_REPO", "");
     await seed();
@@ -415,7 +405,7 @@ describe("POST /api/bug-reports with duplicateOf", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
-    for (const key of ["DATABASE_PATH", "DISCORD_GUILD_ID", "NEXTAUTH_URL"]) delete process.env[key];
+    for (const key of ["DATABASE_PATH", "DISCORD_GUILD_ID", "WEB_URL"]) delete process.env[key];
     while (tempDirs.length) { const d = tempDirs.pop(); if (d) rmSync(d, { recursive: true, force: true }); }
   });
 
@@ -436,8 +426,7 @@ describe("POST /api/bug-reports with duplicateOf", () => {
 
   it("leaves the replay link out of the +1 comment when no public URL is configured", async () => {
     serve();
-    vi.stubEnv("NEXTAUTH_URL", "");
-    vi.stubEnv("AUTH_URL", "");
+    vi.stubEnv("WEB_URL", "");
     const POST = await route();
     expect((await POST(new Request("https://evil.example/api/bug-reports", { method: "POST", body: JSON.stringify(body({ duplicateOf: ISSUE })) }))).status).toBe(200);
     const text = String(comments()[0]!.body.body);

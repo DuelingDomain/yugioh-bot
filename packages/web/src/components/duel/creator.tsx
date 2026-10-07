@@ -68,6 +68,8 @@ const BANLISTS = DUEL_BANLIST_OPTIONS.map(({ id, label }) => ({ value: id, label
  * Server capabilities control the available table formats and Domain mode.
  */
 export function DuelCreator({ focusOpponent = false, multiplayerTables = false, multiCoreReady = false, multiDomainCoreReady = false }: {
+  /** The bot can post to Discord. The creator shows the same share-link flow either way, so it does not read this. */
+  discordEnabled?: boolean;
   focusOpponent?: boolean;
   multiplayerTables?: boolean;
   multiCoreReady?: boolean;
@@ -82,7 +84,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
   const [opponent, setOpponent] = useState<DuelPlayerOption | null>(null);
   const [bestOf, setBestOf] = useState<DuelBestOf>(1);
   const [ranked, setRanked] = useState(false);
-  const [sent, setSent] = useState<{ slug: string; opponent: string; notified: boolean } | null>(null);
+  const [sent, setSent] = useState<{ slug: string; opponent: string; shareUrl: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -108,14 +110,14 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
     setCreating(true);
     setError(null);
     try {
-      const { session, notified } = await createDuel(name.trim(), mode, masterRule, { ...settings, visibility }, {
+      const { session, shareUrl } = await createDuel(name.trim(), mode, masterRule, { ...settings, visibility }, {
         // A 1v1 request carries no format: the body stays the one the server has always read.
         ...(format !== "1v1" ? { format } : {}),
         opponentPlayerId: opponent?.id ?? null, bestOf, ranked,
       });
       if (opponent) {
         // Stay on this page so the challenge note and the link can be used; the room is one click away.
-        setSent({ slug: session.slug, opponent: opponent.displayName, notified: notified === true });
+        setSent({ slug: session.slug, opponent: opponent.displayName, shareUrl });
         setCreating(false);
         return;
       }
@@ -130,7 +132,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
   async function copyLink() {
     if (!sent) return;
     try {
-      await navigator.clipboard.writeText(`${window.location.origin}/duels/${sent.slug}`);
+      await navigator.clipboard.writeText(sent.shareUrl);
       setCopied(true);
     } catch {
       setError("Could not copy the link. Open the table and copy it from the address bar.");
@@ -179,7 +181,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
                 </label>
                 <SheetSegmented label="Visibility" value={visibility} choices={VISIBILITY} onChange={(value) => update("visibility", value)} disabled={challenge} full />
                 <p className={cx(ui.hint, styles.wide)}>
-                  {challenge ? "Challenge tables are always private. Only you and the player you challenge can enter." : visibility === "private" ? "Only invited server members can enter or watch. Your invite is available inside the room." : "Visible to members of this Discord server. Players and spectators must sign in."}
+                  {challenge ? "Challenge tables are always private. Only you and the player you challenge can enter." : visibility === "private" ? "Only people you invite can enter or watch. Your invite is available inside the room." : "Visible to everyone signed in to Dueling Domain. Players and spectators must sign in."}
                 </p>
               </div>
             </section>
@@ -192,7 +194,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
               <div className={styles.fields}>
                 <div className={styles.wide}>
                   <OpponentPicker value={opponent} onChange={setOpponent} disabled={creating || sent != null || matchLocked} autoFocus={focusOpponent} />
-                  {opponent ? <p className={cx(ui.hint, styles.below)}>The bot tries to send {opponent.displayName} a direct message with a link to the table. If it cannot, you get the link to share.</p> : null}
+                  {opponent ? <p className={cx(ui.hint, styles.below)}>After you create the table you get a link to send to {opponent.displayName}.</p> : null}
                 </div>
                 <div className={styles.wide}>
                   <SheetSegmented label="Series length" value={bestOf} choices={SERIES_LENGTHS} onChange={setBestOf} disabled={matchLocked} />
@@ -372,14 +374,13 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
               {sent ? (
                 <div className={styles.sent}>
                   <p className={styles.sentTitle} role="status">
-                    {sent.notified
-                      ? `Challenge sent — the bot sent ${sent.opponent} a DM`
-                      : `Challenge created — the bot could not DM ${sent.opponent}. Copy the link and send it to them.`}
+                    {`Challenge created. Send ${sent.opponent} this link to join the table.`}
                   </p>
+                  <input className={cx(ui.input, styles.sentLink)} readOnly value={sent.shareUrl} aria-label="Challenge link" onFocus={(event) => event.currentTarget.select()} />
                   <div className={styles.sentRow}>
                     <SheetButton onClick={() => void copyLink()}>
                       {copied ? <Check size={15} strokeWidth={1.6} aria-hidden /> : <Copy size={15} strokeWidth={1.6} aria-hidden />}
-                      {copied ? "Link copied" : "Copy link"}
+                      {copied ? "Link copied" : "Copy the link"}
                     </SheetButton>
                   </div>
                   <Link href={`/duels/${sent.slug}`} className={sheetButtonClass("primary", "lg", true)}>
