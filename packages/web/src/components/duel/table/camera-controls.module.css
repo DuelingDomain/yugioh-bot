@@ -222,7 +222,8 @@
   left: 10px;
   bottom: 46px;
   display: flex;
-  width: 206px;
+  width: calc(206px * var(--tt, 1));
+  max-width: calc(100% - 20px);
   flex-wrap: wrap;
   align-items: center;
   gap: 6px 8px;
@@ -235,7 +236,7 @@
 }
 
 .cue > span {
-  flex: 1 1 150px;
+  flex: 1 1 calc(150px * var(--tt, 1));
 }
 
 .cue b {
@@ -245,8 +246,9 @@
 
 .cue button,
 .look button {
-  height: 22px;
-  padding: 0 9px;
+  min-height: 22px;
+  padding: 2px 9px;
+  line-height: 1.2;
   border: 1px solid rgb(181 153 99 / 0.34);
   border-radius: 999px;
   background: rgb(14 20 38 / 0.9);
@@ -276,8 +278,9 @@
 }
 
 .look button {
-  height: 22px;
-  padding: 0 9px;
+  min-height: 22px;
+  padding: 2px 9px;
+  line-height: 1.2;
   border: 1px solid rgb(181 153 99 / 0.34);
   border-radius: 999px;
   background: rgb(14 20 38 / 0.9);

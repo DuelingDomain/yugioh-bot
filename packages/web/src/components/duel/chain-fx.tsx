@@ -784,8 +784,14 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
 
   const focus = chainFocusLink(state);
   const panelFocus = chainFocusLink(panelState);
-  const view = panelFocus ? buildPanelView({ state: panelState, focus: panelFocus, outcomes, resultsReady, targets: targetMemory.current, who }) : null;
-  const stripView = view ? buildStripView(view) : null;
+  // Built once per change of the chain, not once per render: it holds the detail of every link. The target memory is
+  // a stable map that the lines above fill, so the links it was filled from (live, panelState) are the dependencies.
+  const view = useMemo(
+    () => (panelFocus ? buildPanelView({ state: panelState, focus: panelFocus, outcomes, resultsReady, targets: targetMemory.current, who }) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [panelState, panelFocus, outcomes, resultsReady, who, live.links, seats],
+  );
+  const stripView = useMemo(() => (view ? buildStripView(view) : null), [view]);
   const topIndex = links.length;
   const nextIndex = nextToResolve(state);
   const attrs = (link: ChainLinkState) => ({
