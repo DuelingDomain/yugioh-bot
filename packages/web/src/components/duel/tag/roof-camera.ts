@@ -1,7 +1,16 @@
-import type { CameraAction, CameraLockReason, CameraState } from "../table/types";
+import type { CameraAction as TableCameraAction, CameraLockReason, CameraState as TableCameraState } from "../table/types";
+
+/** The Rooftop keeps its auto camera (the 3-way and 4-way table has none): these fields and actions are its own. */
+export type CameraState = TableCameraState & { auto: boolean; pinned: boolean; aiming: boolean; autoMoved?: boolean };
+export type CameraAction =
+  | TableCameraAction
+  | { type: "toggleAuto" }
+  | { type: "pin"; on: boolean }
+  | { type: "aiming"; on: boolean }
+  | { type: "autoFollow"; seat: number | null };
 
 /**
- * Pure camera of the 2v2 Rooftop. It uses the shared CameraState and CameraAction types (same reducer contract as the
+ * Pure camera of the 2v2 Rooftop. It uses the shared table types (same reducer contract as the
  * table camera) and adds a few extra fields on top of CameraState: the target pose, a tween revision, and the pose to
  * restore after an FX lock. The "rival end" view rides on `look`; the fly-in intro rides on `toggleFly`.
  *

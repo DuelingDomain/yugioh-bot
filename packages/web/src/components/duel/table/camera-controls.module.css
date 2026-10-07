@@ -7,7 +7,7 @@
   z-index: 70;
   pointer-events: auto; /* the overlay slot lets pointers through; these controls take them */
   font-family: var(--font-duel-ui, "Arial Narrow"), "Arial Narrow", sans-serif;
-  font-size: 12px;
+  font-size: calc(12px * var(--tt, 1));
   line-height: 1.3;
   color: #c3bba8;
 }
@@ -52,6 +52,8 @@
   overflow: auto;
 }
 
+.grid[hidden] { display: none; }
+
 .panel[data-open="true"] {
   display: flex;
   flex-direction: column-reverse;
@@ -75,7 +77,7 @@
   gap: 6px;
   padding: 6px 2px 2px;
   color: #958f81;
-  font-size: 10.5px;
+  font-size: calc(12px * var(--tt, 1));
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -141,7 +143,7 @@
   border-radius: 3px;
   color: #efe7d5;
   font: inherit;
-  font-size: 10px;
+  font-size: calc(12px * var(--tt, 1));
   font-weight: 700;
 }
 
@@ -160,17 +162,36 @@
   border-radius: 5px;
   background: rgb(7 11 21 / 0.8);
   color: #958f81;
-  font-size: 11.5px;
+  font-size: calc(12px * var(--tt, 1));
   pointer-events: none;
 }
 
 .chip b {
   color: #efe7d5;
-  font-size: 11px;
+  font-size: calc(12px * var(--tt, 1));
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
+
+/* The chip takes no pointer input, except the way back from an enlarged field. */
+.back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 9px;
+  border: 1px solid rgb(155 126 255 / 0.55);
+  border-radius: 999px;
+  background: rgb(155 126 255 / 0.16);
+  color: #d9ccff;
+  font: inherit;
+  font-size: calc(12px * var(--tt, 1));
+  font-weight: 600;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.back:hover { background: rgb(155 126 255 / 0.3); }
+.back:focus-visible { outline: 2px solid #c6b6ff; outline-offset: 2px; }
 
 .lock {
   display: none;
@@ -181,7 +202,7 @@
   border-radius: 999px;
   background: rgb(217 141 82 / 0.14);
   color: #f3c49c;
-  font-size: 11px;
+  font-size: calc(12px * var(--tt, 1));
   font-weight: 600;
 }
 
@@ -201,7 +222,8 @@
   left: 10px;
   bottom: 46px;
   display: flex;
-  width: 206px;
+  width: calc(206px * var(--tt, 1));
+  max-width: calc(100% - 20px);
   flex-wrap: wrap;
   align-items: center;
   gap: 6px 8px;
@@ -214,7 +236,7 @@
 }
 
 .cue > span {
-  flex: 1 1 150px;
+  flex: 1 1 calc(150px * var(--tt, 1));
 }
 
 .cue b {
@@ -224,14 +246,15 @@
 
 .cue button,
 .look button {
-  height: 22px;
-  padding: 0 9px;
+  min-height: 22px;
+  padding: 2px 9px;
+  line-height: 1.2;
   border: 1px solid rgb(181 153 99 / 0.34);
   border-radius: 999px;
   background: rgb(14 20 38 / 0.9);
   color: #c3bba8;
   font: inherit;
-  font-size: 11.5px;
+  font-size: calc(12px * var(--tt, 1));
   cursor: pointer;
 }
 
@@ -255,14 +278,15 @@
 }
 
 .look button {
-  height: 22px;
-  padding: 0 9px;
+  min-height: 22px;
+  padding: 2px 9px;
+  line-height: 1.2;
   border: 1px solid rgb(181 153 99 / 0.34);
   border-radius: 999px;
   background: rgb(14 20 38 / 0.9);
   color: #c3bba8;
   font: inherit;
-  font-size: 11.5px;
+  font-size: calc(12px * var(--tt, 1));
   cursor: pointer;
 }
 
@@ -345,7 +369,7 @@
     border-radius: 999px;
     background: rgb(7 11 21 / 0.86);
     color: #efe7d5;
-    font-size: 12px;
+    font-size: calc(12px * var(--tt, 1));
     font-weight: 600;
     letter-spacing: 0.03em;
   }
@@ -357,6 +381,13 @@
   }
 
   .phoneSeats button:disabled { opacity: 0.55; }
+
+  /* The field with the targets to pick: a ring on its button, no camera move. On a wide table the field itself is ringed
+     (rival-field.module.css). */
+  .phoneSeats button[data-target-hint="true"] {
+    border-color: rgb(var(--t, 181 153 99));
+    box-shadow: 0 0 0 2px rgb(var(--t, 181 153 99) / 0.45), 0 0 14px rgb(var(--t, 181 153 99) / 0.6);
+  }
 
   .hint { display: none; }
 }
@@ -370,6 +401,7 @@
 .chip {
   pointer-events: none;
 }
+.chip .back { pointer-events: auto; }
 
 /* The wide table's rail owns the toggle: with it the panel is only the grid, and it opens beside the rail. */
 .panel[data-side="left"] {

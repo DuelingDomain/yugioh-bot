@@ -85,7 +85,7 @@
   -webkit-line-clamp: 2;
   overflow: hidden;
   color: #c3bba8;
-  font-size: var(--duel-t-xs, 11px);
+  font-size: var(--duel-t-body, 14px);
   overflow-wrap: break-word;
 }
 

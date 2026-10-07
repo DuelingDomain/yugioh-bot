@@ -68,6 +68,8 @@ export interface DuelOpeningState {
 export interface DuelOpeningView {
   phase: "rps" | "choose" | "start";
   round: number;
+  /** Server epoch ms when this view was built. */
+  serverNow: number;
   /** ISO time the phase times out. */
   deadlineAt: string;
   /** By seat: the player has picked this round. */
@@ -188,12 +190,13 @@ export function settleOpening(state: DuelOpeningState, at: number, random: () =>
   return decideRound({ ...state, picks }, at);
 }
 
-export function openingView(state: DuelOpeningState, mySeat: number | null): DuelOpeningView {
+export function openingView(state: DuelOpeningState, mySeat: number | null, serverNow = Date.now()): DuelOpeningView {
   // Once the round is decided both picks are public through `reveal`; the live picks stay hidden.
   const live = state.phase === "rps";
   return {
     phase: state.phase,
     round: state.round,
+    serverNow,
     deadlineAt: new Date(state.deadline).toISOString(),
     picked: [state.picks[0] !== null, state.picks[1] !== null],
     myPick: live && (mySeat === 0 || mySeat === 1) ? state.picks[mySeat] : null,

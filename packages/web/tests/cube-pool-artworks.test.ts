@@ -51,7 +51,7 @@ it("fills Extra Deck artworks once across repeated cube checks", async () => {
 });
 
 
-it("counts artwork enrichment in the 50-fetch budget and retains successfully fetched cards", async () => {
+it("reserves the 50-lookup budget for cards and retains successfully fetched cards", async () => {
   const db = new Database(":memory:"); migrate(db);
   const fetch = vi.fn(async (input: string | URL | Request) => {
     const params = new URL(String(input)).searchParams;
@@ -62,10 +62,18 @@ it("counts artwork enrichment in the 50-fetch budget and retains successfully fe
   const catalog = createCardCatalogService(db, { identityCatalog: new Map(), fetch });
   const ids = Array.from({ length: 60 }, (_, i) => i + 1);
   const budget = createCardLookupBudget();
+  // Advance the real fetch helper's rate-limit timers without waiting for 100 requests.
+  vi.useFakeTimers();
   try {
-    expect(await ensureCatalogCards(catalog, ids, budget)).toEqual(ids.slice(25));
-    expect(fetch).toHaveBeenCalledTimes(50);
-    expect(budget.lookupLimited).toBe(true);
-    expect(catalog.findByIds(ids)).toHaveLength(25);
-  } finally { db.close(); }
-}, 40000);
+    const result = expect(ensureCatalogCards(catalog, ids, budget)).resolves.toEqual(ids.slice(50));
+    await Promise.all([result, vi.runAllTimersAsync()]);
+    const requests = fetch.mock.calls.map(([input]) => new URL(String(input)).searchParams);
+    expect(requests.filter((params) => params.has("id")).map((params) => Number(params.get("id"))))
+      .toEqual(ids.slice(0, 50));
+    expect(requests.filter((params) => params.has("name")).map((params) => params.get("name")))
+      .toEqual(ids.slice(0, 50).map((id) => `Card ${id}`));
+    expect(fetch).toHaveBeenCalledTimes(100);
+    expect(budget).toEqual({ remaining: 0, lookupLimited: true });
+    expect(catalog.findByIds(ids).map((card) => card.ygoprodeckId)).toEqual(ids.slice(0, 50));
+  } finally { vi.useRealTimers(); db.close(); }
+});

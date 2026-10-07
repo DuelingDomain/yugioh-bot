@@ -77,18 +77,16 @@ export interface CameraState {
   lookSeat: number | null;
   upright: boolean;
   compact: "auto" | "on" | "off";
-  auto: boolean;
-  pinned: boolean;
-  aiming: boolean;
   fly: FlyPose;
-  lock: { reason: CameraLockReason; untilMs: number } | null;
-  autoMoved?: boolean; // the last move came from the auto camera (the cue shows, Keep can pin it)
+  lock: { reason: CameraLockReason; untilMs: number } | null; // a preview switch only: the duel never sets it
   flyIn?: boolean; // Overview is the fly-in plaza (default true); false is the flat triangle
 }
 export type CameraAction =
   | { type: "home" }
   | { type: "overview" }
   | { type: "focus"; seat: number }
+  /** A click on a field of a 3-way table: that field is shown larger; a second click on it goes home. */
+  | { type: "enlarge"; seat: number }
   | { type: "focusStep"; dir: 1 | -1 }
   | { type: "look"; seat: number | null }
   | { type: "toggleFly" }
@@ -97,10 +95,6 @@ export type CameraAction =
   | { type: "zoom"; factor: number }
   | { type: "toggleUpright" }
   | { type: "toggleCompact" }
-  | { type: "toggleAuto" }
-  | { type: "pin"; on: boolean }
-  | { type: "aiming"; on: boolean }
-  | { type: "autoFollow"; seat: number | null }
   | { type: "lock"; reason: CameraLockReason; nowMs: number; ms: number }
   | { type: "tick"; nowMs: number };
 

@@ -338,6 +338,8 @@ export interface PanelView {
   hero: HeroView;
   /** Top of the chain first: the order links resolve in. */
   rows: RowView[];
+  /** The full detail of every link, in the same order as rows: what each one does, who played it and what it targets. */
+  details: HeroView[];
   /** One per link, Chain Link 1 first. */
   pips: PanelTone[];
   total: number;
@@ -371,27 +373,30 @@ export function buildPanelView(input: PanelInput): PanelView {
   const known = (link: ChainLinkState): boolean => link.name != null && link.name.trim() !== "";
   const showResult = (link: ChainLinkState): boolean =>
     link.status === "resolved" || link.negated || (link.status === "resolving" && resultsReady && link.index === state.resolving);
-  const tone = linkTone(focus);
-  const found = showResult(focus) ? outcomes.get(focus.index) ?? null : null;
-  // "Resolved" says nothing the eyebrow will not say a beat later, so while the link is still resolving it keeps "Resolving...".
-  const outcome = found != null && found.tone === "quiet" && focus.status === "resolving" ? null : found;
-  const hero: HeroView = {
-    index: focus.index,
-    total,
-    tone,
-    eyebrow: (total === 1 ? SINGLE_EYEBROW : EYEBROW)[tone],
-    name: chainCardName(focus),
-    owner: chainSeatLabel(focus.seat, who.mySeat, who.playerName, who.named),
-    seat: focus.seat,
-    kind: known(focus) ? chainKindLabel(focus.cardType) : null,
-    code: known(focus) ? focus.code : null,
-    effect: chainEffectText(focus),
-    targets: chainHeroTargets(focus, targets, who),
-    outcome,
-    waiting: focus.status === "resolving" && outcome == null,
-    status: focus.status,
-    negated: focus.negated,
+  const heroFor = (link: ChainLinkState): HeroView => {
+    const tone = linkTone(link);
+    const found = showResult(link) ? outcomes.get(link.index) ?? null : null;
+    // "Resolved" says nothing the eyebrow will not say a beat later, so while the link is still resolving it keeps "Resolving...".
+    const outcome = found != null && found.tone === "quiet" && link.status === "resolving" ? null : found;
+    return {
+      index: link.index,
+      total,
+      tone,
+      eyebrow: (total === 1 ? SINGLE_EYEBROW : EYEBROW)[tone],
+      name: chainCardName(link),
+      owner: chainSeatLabel(link.seat, who.mySeat, who.playerName, who.named),
+      seat: link.seat,
+      kind: known(link) ? chainKindLabel(link.cardType) : null,
+      code: known(link) ? link.code : null,
+      effect: chainEffectText(link),
+      targets: chainHeroTargets(link, targets, who),
+      outcome,
+      waiting: link.status === "resolving" && outcome == null,
+      status: link.status,
+      negated: link.negated,
+    };
   };
+  const hero = heroFor(focus);
   const rows = state.links
     .slice()
     .sort((a, b) => b.index - a.index)
@@ -409,7 +414,8 @@ export function buildPanelView(input: PanelInput): PanelView {
       mine: who.mySeat != null && link.seat === who.mySeat,
       isHero: link.index === focus.index,
     }));
-  return { hero, rows, pips: state.links.map(linkTone), total };
+  const details = state.links.slice().sort((a, b) => b.index - a.index).map((link) => (link.index === focus.index ? hero : heroFor(link)));
+  return { hero, rows, details, pips: state.links.map(linkTone), total };
 }
 
 export interface StripView {

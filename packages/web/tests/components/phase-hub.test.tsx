@@ -200,6 +200,16 @@ describe("PhaseHub turn owner", () => {
     expect(theirs.container.querySelector("nav")!.getAttribute("data-tone")).toBe("theirs");
   });
 
+  it("marks your own turn on the caption, so a big text size can drop You from the small caption", () => {
+    const mine = render(<PhaseHub {...hubProps({ variant: "table" })} />);
+    expect(mine.container.querySelector("[data-part='owner'] [data-me='true']")).not.toBeNull();
+    cleanup();
+    const theirs = render(<PhaseHub {...hubProps({ variant: "table", turnSeat: 1, canAct: false })} />);
+    expect(theirs.container.querySelector("[data-me='true']")).toBeNull();
+    const css = readFileSync(join(__dirname, "../../src/components/duel/phase-hub.module.css"), "utf8");
+    expect(css).toMatch(/data-text-big="true"\]\) :global\(\[data-hub-size="sm"\]\) \.root\[data-variant="table"\] \.who\[data-me="true"\] \.whoName \{\s*display: none;/);
+  });
+
   it("carries the seat colour of the turn seat on a table", () => {
     const { container } = render(
       <PhaseHub {...hubProps({ variant: "table", turnSeat: 1, canAct: false, tone: { main: "#5cb8f5", ink: "#a9dcfb" } })} />,

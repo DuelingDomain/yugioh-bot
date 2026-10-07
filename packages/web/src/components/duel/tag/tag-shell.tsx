@@ -1,5 +1,6 @@
 "use client";
 
+import { multiTableTextStyle, tableTextBig, useCardTextSize, useMultiTableTextFloor } from "../card-text-size";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { teamOfSeat } from "@yugidraft/shared/duels";
 import { AttackConfirm, CardActionMenu, CardHoverInfo, confirmSide, targetName } from "../card-interactions";
@@ -132,6 +133,8 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
     [engine.seats.length, viewerSeat],
   );
   const rootRef = useRef<HTMLDivElement>(null);
+  const textSize = useCardTextSize();
+  useMultiTableTextFloor();
   const ownBoardRef = useRef<HTMLDivElement>(null);
   const boardRef = roomBoardRef ?? ownBoardRef;
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -295,6 +298,8 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
       data-turn={spectator ? "watch" : myTurn ? "you" : "opp"}
       data-reduced={controller.reducedMotion ? "true" : "false"}
       data-hud={hud ? "true" : undefined}
+      data-text-big={tableTextBig(textSize)}
+      style={multiTableTextStyle(textSize)}
     >
       <TagHeader
         session={session}
