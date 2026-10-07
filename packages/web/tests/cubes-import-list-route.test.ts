@@ -248,3 +248,19 @@ it("bounds passcode list fetches and includes lookupLimited on editor/create res
   expect(created).toMatchObject({ lookupLimited: true, unknown: codes });
   expect(upstream).toHaveBeenCalledTimes(50);
 }, 40000);
+
+
+it.each(["importList", "import", "importYdk"])("does not report per-card gains or copy growth for a capped card only moving pools via %s", async (op) => {
+  db.exec("insert into cube_cards (cube_id,catalog_card_id,pool,max_copies) values (1,1,'extra',99)");
+  const body = op === "import" ? { op, codes: Array<number>(99).fill(1), pool: "main" }
+    : { op, text: op === "importList" ? "#extra\nDark Hole" : "#main\n1" };
+  const response = await mutate(body);
+  expect(response.status).toBe(200);
+  const result = await response.json();
+  expect(result).not.toHaveProperty("gains");
+  if (op !== "import") expect(result.copies).toBe(0);
+  else expect(result).not.toHaveProperty("copies");
+  if (op === "importList") expect(result.movedToMain).toBe(1);
+  expect(rows()).toEqual([{ id: 1, pool: "main", copies: 99 }]);
+  expect(upstream).not.toHaveBeenCalled();
+});

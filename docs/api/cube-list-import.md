@@ -212,7 +212,8 @@ The cube, its cards, and draft type are committed together. If no card resolves,
 Both successful imports return `added: number`, `copies: number`, `unknown: string[]`, and `corrected: Array<{from:string,to:string}>` at the top level.
 
 - `added` counts distinct resolved IDs touched, including IDs already in the cube.
-- `copies` counts copies gained after the 99 cap, so reimporting adds copies, and an already capped card contributes zero.
+- `copies` counts copies gained after the 99 cap, so reimporting adds copies, and an already capped card contributes zero. Moving an ID between pools without increasing its total copies contributes zero.
+- The server does **not** return a per-card `gains` array for `importList`, `import`, or `importYdk`. `importList` and `importYdk` return aggregate `copies`; legacy `import` returns `added`/`unknown` without `copies`. `added` counts touched IDs and must not be used as an undo quantity. A client deriving Remove entries should compare each ID's total copies across **both pools** before/after and retain only positive increases; a pool-only move has no gain.
 - `unknown` preserves unique trimmed original lines, including counts/notes. It also includes skipped document labels. Render these as lines that were not imported; they need not prevent saving the resolved cards.
 - Optional `movedToMain:number` counts distinct non-Extra-Deck IDs listed under Extra but stored in Main by `importList` / `importText` (including YDK/ydke text submitted to those list endpoints). Omitted when zero. Saved-cube list imports always place cards by frame: Fusion/Synchro/Xyz/Link go to Extra, and all other cards go to Main.
 - `corrected` reports unique parsed-name corrections, e.g. `{"from":"Artifact Moraltech","to":"Artifact Moralltach"}`. Case, quotes, punctuation, and whitespace normalization do not produce correction notices.
