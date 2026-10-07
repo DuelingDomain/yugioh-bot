@@ -181,8 +181,6 @@ export function labOpeningView(spec: LabOpening, now = Date.now()): DuelOpeningV
   switch (spec.stage) {
     case "pick": return base;
     case "pick-chosen": return { ...base, picked: [true, spec.opponentChose === true], myPick: "paper" };
-    case "reveal-win": return { ...base, phase: "choose", deadlineAt: afterReveal, winnerSeat: 0, picked: [true, true], reveal: { round: 1, picks: ["paper", "rock"], winnerSeat: 0 } };
-    case "reveal-lose": return { ...base, phase: "choose", deadlineAt: afterReveal, winnerSeat: 1, picked: [true, true], reveal: { round: 1, picks: ["rock", "paper"], winnerSeat: 1 } };
     case "reveal-tie": return { ...base, round: 2, deadlineAt: afterReveal, reveal: { round: 1, picks: ["scissors", "scissors"], winnerSeat: null } };
     case "choose": return { ...base, phase: "choose", winnerSeat: 0, picked: [true, true], reveal: { round: 1, picks: ["paper", "rock"], winnerSeat: 0 } };
     case "wait-choose": return { ...base, phase: "choose", winnerSeat: 1, picked: [true, true], reveal: { round: 1, picks: ["rock", "paper"], winnerSeat: 1 } };
@@ -192,7 +190,7 @@ export function labOpeningView(spec: LabOpening, now = Date.now()): DuelOpeningV
 
 /** The real opening screen over the lab board. The reveal and the choice are on a fresh deadline each run. */
 export function OpeningLabScreen({ spec }: { spec: LabOpening }) {
-  // A reveal stage opens with its 3 s reveal still to play; the other stages open after it.
+  // A tie opens with its 3 s reveal still to play; other stages open with their controls ready.
   const opening = useMemo(() => labOpeningView(spec), [spec]);
   const [error, setError] = useState<string | null>(null);
   const fail = () => setError("The lab has no server: this button calls the real API.");

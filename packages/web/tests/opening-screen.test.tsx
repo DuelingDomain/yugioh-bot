@@ -31,7 +31,7 @@ describe("fx lab: rock-paper-scissors scenarios", () => {
   it("lists every opening scenario with an opening spec", () => {
     const ids = scenariosIn("Match").map((scenario) => scenario.id).filter((id) => id.startsWith("rps-"));
     expect(ids).toEqual([
-      "rps-choosing", "rps-waiting", "rps-opponent-chose", "rps-reveal-win", "rps-reveal-lose",
+      "rps-choosing", "rps-waiting", "rps-opponent-chose",
       "rps-reveal-tie", "rps-choose-order", "rps-opponent-choosing", "rps-start",
     ]);
     for (const id of ids) expect(findScenario(id)!.build().opening).toBeDefined();
@@ -171,12 +171,12 @@ describe("OpeningScreen", () => {
   });
 
   it("reveals a win, a loss and a tie", () => {
-    const { unmount } = open("rps-reveal-win");
+    const { unmount } = open("rps-choose-order");
     expect(screen.getByTestId("opening-status").textContent).toBe("You win. Go first or second?");
     expect(screen.getByTestId("opening-reveal")).toHaveAttribute("data-outcome", "win");
     expect(screen.getByTestId("opening-first")).toBeEnabled();
     unmount();
-    const lost = open("rps-reveal-lose");
+    const lost = open("rps-opponent-choosing");
     expect(screen.getByTestId("opening-status").textContent).toBe("You lose. Opponent is choosing…");
     expect(screen.getByTestId("opening-reveal")).toHaveAttribute("data-outcome", "lose");
     lost.unmount();
