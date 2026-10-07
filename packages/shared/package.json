@@ -49,6 +49,11 @@
       "source": "./src/scoring/index.ts",
       "default": "./dist/scoring/index.js"
     },
+    "./clerk": {
+      "types": "./dist/clerk/index.d.ts",
+      "source": "./src/clerk/index.ts",
+      "default": "./dist/clerk/index.js"
+    },
     "./notify": {
       "types": "./dist/notify/index.d.ts",
       "source": "./src/notify/index.ts",
@@ -59,7 +64,8 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "repair:ratings": "node dist/maintenance/repair-ratings.js"
+    "repair:ratings": "node dist/maintenance/repair-ratings.js",
+    "backfill:artworks": "node dist/maintenance/backfill-card-artworks.js"
   },
   "dependencies": {
     "better-sqlite3": "latest",

@@ -33,10 +33,10 @@
   --duel-f-ui: var(--font-duel-ui), "Sofia Sans Semi Condensed", "Arial Narrow", sans-serif;
   --duel-f-num: var(--font-duel-num), "Sofia Sans Extra Condensed", "Arial Narrow", sans-serif;
   --duel-f-ink: var(--font-duel-ink), "Newsreader", Georgia, serif;
-  --duel-t-xs: max(11px, calc(11 * var(--duel-unit)));
-  --duel-t-sm: max(12px, calc(12 * var(--duel-unit)));
-  --duel-t-body: max(13px, calc(13 * var(--duel-unit)));
-  --duel-t-head: max(14px, calc(15 * var(--duel-unit)));
+  --duel-t-xs: calc(max(12px, calc(11 * var(--duel-unit))) * var(--tt, 1));
+  --duel-t-sm: calc(max(12px, calc(12 * var(--duel-unit))) * var(--tt, 1));
+  --duel-t-body: calc(max(14px, calc(13 * var(--duel-unit))) * var(--tt, 1));
+  --duel-t-head: calc(max(15px, calc(15 * var(--duel-unit))) * var(--tt, 1));
   --duel-t-name: max(18px, calc(20 * var(--duel-unit)));
   --duel-t-num: max(20px, calc(22 * var(--duel-unit)));
   --left-w: clamp(236px, 17.4vw, 330px);
@@ -128,7 +128,7 @@
 }
 .dockHead b { color: var(--duel-ink-2); font-weight: 400; letter-spacing: 0.04em; text-transform: none; }
 .dock[data-locked="true"] .dockHead b { color: rgb(var(--duel-ember-rgb)); }
-.dockLabel { margin: 2px 0 0; display: flex; justify-content: space-between; color: var(--duel-ink-4); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; }
+.dockLabel { margin: 2px 0 0; display: flex; justify-content: space-between; color: var(--duel-ink-4); font-size: calc(12px * var(--tt, 1)); letter-spacing: 0.14em; text-transform: uppercase; }
 .dockLabel span { letter-spacing: 0.04em; }
 
 .map { display: block; width: 100%; height: auto; border-radius: 4px; background: radial-gradient(70% 90% at 50% 50%, rgb(26 38 70 / 0.5), rgb(8 12 24 / 0.9)); }
@@ -137,7 +137,7 @@
 .mapPadDot { fill: rgb(var(--duel-rule-rgb) / 0.7); }
 .mapField { cursor: pointer; outline: none; }
 .mapField rect { fill: rgb(var(--seat) / 0.16); stroke: rgb(var(--seat) / 0.7); stroke-width: 0.6; transition: fill 0.2s, stroke-width 0.2s; }
-.mapField text { fill: var(--ink); font-size: 5.4px; font-weight: 700; letter-spacing: 0.06em; pointer-events: none; }
+.mapField text { fill: var(--ink); font-size: calc(12px * var(--tt, 1)); font-weight: 700; letter-spacing: 0.06em; pointer-events: none; }
 .mapField:hover rect, .mapField:focus-visible rect { fill: rgb(var(--seat) / 0.3); }
 .mapField[data-now="true"] rect { stroke-width: 1.4; fill: rgb(var(--seat) / 0.28); filter: drop-shadow(0 0 2.5px rgb(var(--seat) / 0.9)); }
 .mapField[data-focus="true"] rect { stroke: #efe7d5; stroke-width: 1.2; }
@@ -179,7 +179,7 @@
   border-radius: 3px;
   color: var(--duel-ink-3);
   font: inherit;
-  font-size: 10px;
+  font-size: calc(12px * var(--tt, 1));
   line-height: 1.5;
 }
 .seatBtns { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
@@ -233,3 +233,23 @@
   .board { grid-column: 1; grid-row: 1; }
   .right { display: none; }
 }
+
+/*
+ * The floating HUD (table/hud-layer.tsx): same margins as the grid shell. The header, the side columns, the camera
+ * column and the turn track give way to glass pills; the camera dock is the fourth dock icon. The board takes the rest.
+ */
+.shell[data-hud="true"] {
+  --hud-top: 52px;
+  --hud-bottom: calc(clamp(58px, 5.6dvh, 68px) + 20px);
+  --hud-left: 156px;
+}
+.shell[data-hud="true"] .main {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+.shell[data-hud="true"] .main > .board {
+  grid-column: 1;
+  grid-row: 1;
+  padding: var(--hud-top) 14px var(--hud-bottom) var(--hud-left);
+}
+.hudNotices { top: var(--hud-top); z-index: 29; }

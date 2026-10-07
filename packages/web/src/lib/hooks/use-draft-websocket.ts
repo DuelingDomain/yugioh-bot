@@ -61,7 +61,7 @@ export function useDraftWebsocket(slug: string, options: UseDraftWebsocketOption
           if (response.status !== 403 && response.status !== 404) scheduleJoinRetry(currentRequest);
           return;
         }
-        const data = await response.json();
+        const data = await response.json() as { token: string; userId: number };
         if (disposed || !socket.connected || currentRequest !== requestId) return;
         socket.emit("draft:join", { slug, token: data.token, userId: data.userId }, (result?: { error?: string }) => {
           if (disposed || !socket.connected || currentRequest !== requestId) return;
@@ -136,6 +136,14 @@ export function useDraftWebsocket(slug: string, options: UseDraftWebsocketOption
       optionsRef.current.onSeatsChange?.();
     });
 
+    // A hidden tab can miss events and its timers slow down. Read the draft again when the tab comes back.
+    const onVisible = () => {
+      if (disposed || document.visibilityState === "hidden") return;
+      optionsRef.current.onResync?.();
+      if (socket.connected) void joinDraftRoom();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
     socket.on("connect_error", (err) => {
       // eslint-disable-next-line no-console
       console.warn("Draft WS connect error:", err.message);
@@ -143,6 +151,7 @@ export function useDraftWebsocket(slug: string, options: UseDraftWebsocketOption
 
     return () => {
       disposed = true;
+      document.removeEventListener("visibilitychange", onVisible);
       ++requestId;
       clearJoinRetry();
       tokenRequest?.abort();

@@ -11,8 +11,9 @@ name: Test
 #   rule-coverage  every rule of ADR-0002 has a covering test (--strict).
 #   nduel-nightly  scheduled: the nduel fuzz (n2, n3, n4, tag) with --check-future, and the golden hash check.
 #
-# Pushes to main run every job except nduel-nightly. Pull requests skip engine jobs they cannot affect.
-# A manual run runs every job, including nduel-nightly. The schedule runs cores and nduel-nightly only.
+# Pull requests and pushes to main always run unit. They run cores, engine, engine-legacy, native and rule-coverage
+# only when changes sets engine=true. A manual run runs every job, including nduel-nightly unless nightly=false.
+# The schedule runs cores and nduel-nightly only.
 
 on:
   pull_request:
@@ -23,6 +24,11 @@ on:
     - cron: "17 3 * * *"
   workflow_dispatch:
     inputs:
+      nightly:
+        description: "Run the nightly nduel fuzz and golden check"
+        type: boolean
+        required: false
+        default: true
       nduel_seeds:
         description: "Seeds per nduel case in the nightly fuzz"
         required: false
@@ -42,19 +48,20 @@ env:
   BUNDLE_DIR: data/duel-engine-next
 
 jobs:
-  # Which layers a pull request can affect. Main pushes, manual runs and the schedule run full suites.
-  #   engine      the duel engine, its shared dependencies, the engine bundle inputs, the lockfile or this workflow changed:
-  #               the engine, legacy engine and native jobs run.
-  #   web_engine  engine, or the duel UI or web tests changed: the engine job runs, for the web tests that drive a real
-  #               duel (prompts.tsx, prompt-center.tsx). Its engine-only steps still need engine.
-  # Changes outside these paths run the unit and rule coverage jobs; cores still builds or restores the bundle.
+  # Which layers a change can affect (scripts/ci/changed-layers.mjs). Pull requests diff from the merge base; pushes
+  # to main diff from the previous tip (github.event.before). Manual runs, the schedule and a push without a usable
+  # diff set engine=true and golden=true.
+  #   engine      the duel engine, its shared dependencies, e2e, the engine bundle inputs, the lockfile, the ADR-0002
+  #               rules or this workflow changed: cores, engine, engine-legacy, native and rule-coverage run.
+  #   golden      core patches/pins, overlays, native tooling or data pins changed: check golden in the native job.
+  # Changes outside these paths (for example web-only UI changes) run only the unit jobs.
   changes:
     name: Changed layers
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       engine: ${{ steps.diff.outputs.engine }}
-      web_engine: ${{ steps.diff.outputs.web_engine }}
+      golden: ${{ steps.diff.outputs.golden }}
       tests_only: ${{ steps.diff.outputs.tests_only }}
       base: ${{ steps.diff.outputs.base }}
       head: ${{ steps.diff.outputs.head }}
@@ -70,10 +77,14 @@ jobs:
           EVENT: ${{ github.event_name }}
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.sha }}
         run: node scripts/ci/changed-layers.mjs
 
   core-cache:
     name: Engine core cache
+    needs: changes
+    if: needs.changes.outputs.engine == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -87,7 +98,7 @@ jobs:
       # The emsdk image comes from pins.json; the independent builders read the same pin.
       - name: Compute bundle cache key
         id: key
-        run: echo "key=duel-engine-ci-v5-${{ hashFiles('scripts/ci/build-core.sh', 'scripts/ci/parallel-emxx.py', 'scripts/ci/bin/em++', 'scripts/ci/core-cache-key.mjs', 'scripts/ci/assemble-core-bundle.mjs', 'packages/duel-server/scripts/prepare-data.ts', 'packages/duel-server/scripts/build-domain-core.ts', 'packages/duel-server/scripts/build-domain-core.sh', 'packages/duel-server/scripts/build-standard-core.sh', 'packages/duel-server/scripts/build-multi-core.sh', 'packages/duel-server/scripts/prepare-multi-core-tree.sh', 'packages/duel-server/scripts/multi-core-common.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/expected-sha256.txt', 'packages/duel-server/domain-core/patches/*.patch', 'packages/duel-server/domain-core/src/**', 'packages/duel-server/domain-core/lua/**', 'packages/duel-server/legacy-1v1/**', 'packages/duel-server/domain-core/multi-scripts/**', 'packages/duel-server/src/multi-scripts.ts', 'patches/ocgcore-wasm+0.1.2.patch', 'package-lock.json') }}" >> "$GITHUB_OUTPUT"
+        run: echo "key=duel-engine-ci-v5-${{ hashFiles('scripts/ci/build-core.sh', 'scripts/ci/parallel-emxx.py', 'scripts/ci/bin/em++', 'scripts/ci/core-cache-key.mjs', 'scripts/ci/assemble-core-bundle.mjs', 'packages/duel-server/scripts/prepare-data.ts', 'packages/duel-server/scripts/released-card-data.ts', 'packages/duel-server/scripts/build-domain-core.ts', 'packages/duel-server/scripts/build-domain-core.sh', 'packages/duel-server/scripts/build-standard-core.sh', 'packages/duel-server/scripts/build-multi-core.sh', 'packages/duel-server/scripts/prepare-multi-core-tree.sh', 'packages/duel-server/scripts/multi-core-common.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/expected-sha256.txt', 'packages/duel-server/domain-core/patches/*.patch', 'packages/duel-server/domain-core/src/**', 'packages/duel-server/domain-core/lua/**', 'packages/duel-server/legacy-1v1/**', 'packages/duel-server/domain-core/multi-scripts/**', 'packages/duel-server/src/multi-scripts.ts', 'packages/duel-server/src/released-database-files.ts', 'patches/ocgcore-wasm+0.1.2.patch', 'package-lock.json') }}" >> "$GITHUB_OUTPUT"
       - name: Read the emsdk image from pins.json
         run: node -p "const e = require('./packages/duel-server/domain-core/pins.json').emscripten; 'EMSDK_IMAGE=' + e.image + '@' + e.digest" >> "$GITHUB_ENV"
       - name: Look up engine bundle
@@ -195,13 +206,15 @@ jobs:
         with:
           node-version: "22"
           cache: npm
+      - name: Install
+        if: needs.core-cache.outputs.hit != 'true'
+        run: npm ci
       - name: Prepare card data and scripts
         if: needs.core-cache.outputs.hit != 'true'
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           DUEL_DATA_DIR: ${{ github.workspace }}/data/duel-engine-next
-        run: |
-          npm ci
-          npm run duel:prepare
+        run: npm run duel:prepare
       - name: Download all cores
         if: needs.core-cache.outputs.hit != 'true'
         uses: actions/download-artifact@v4
@@ -224,7 +237,7 @@ jobs:
           cp "$dist/ocgcore.multi.sync.wasm" "$BUNDLE_DIR/ocgcore.multi.wasm"
           cp "$dist/ocgcore.multi-domain.sync.wasm" "$BUNDLE_DIR/ocgcore.multi-domain.wasm"
           for stem in ocgcore.multi ocgcore.multi-domain; do
-            printf 'tag=ci-%s\nsource=%s\nsha256=%s\ncapabilities=ffa4-shared-extra-zones\ninstalled=%s\nnote=built by .github/workflows/test.yml\n' \
+            printf 'tag=ci-%s\nsource=%s\nsha256=%s\ncapabilities=ffa4-facing-extra-zones\ninstalled=%s\nnote=built by .github/workflows/test.yml\n' \
               "${GITHUB_SHA::12}" "$dist/$stem.sync.wasm" \
               "$(sha256sum "$dist/$stem.sync.wasm" | cut -d' ' -f1)" \
               "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$BUNDLE_DIR/$stem.SOURCE"
@@ -284,6 +297,20 @@ jobs:
 
       - name: Build shared
         run: npm run build --workspace=@yugidraft/shared
+
+      - name: Build worker
+        run: npm run build --workspace=packages/worker
+
+      - name: Test worker
+        run: npm test --workspace=packages/worker
+
+      - name: Build web with a dummy Clerk public key
+        env:
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_Y2xlcmsuZXhhbXBsZS5jb20k
+        run: npm run build --workspace=packages/web
+
+      - name: Deployment script tests
+        run: npx vitest run scripts/staging/deploy.test.ts
 
       - name: Typecheck
         run: npm run typecheck
@@ -366,7 +393,7 @@ jobs:
 
   engine-shards:
     name: Engine tests shard (${{ matrix.suite }} ${{ matrix.shard }}/${{ matrix.count }})
-    if: ${{ !cancelled() && needs.cores.result == 'success' && github.event_name != 'schedule' && needs.changes.outputs.web_engine == 'true' }}
+    if: ${{ !cancelled() && needs.cores.result == 'success' && github.event_name != 'schedule' && needs.changes.outputs.engine == 'true' }}
     needs: [cores, changes]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -534,7 +561,7 @@ jobs:
       - name: Check all engine shards
         env:
           CHANGES: ${{ needs.changes.result }}
-          REQUIRED: ${{ needs.changes.outputs.web_engine }}
+          REQUIRED: ${{ needs.changes.outputs.engine }}
           RESULT: ${{ needs.engine-shards.result }}
         run: test "$CHANGES" = success && { test "$REQUIRED" != true || test "$RESULT" = success; }
 
@@ -583,10 +610,25 @@ jobs:
         run: npm ci
 
       # scripts/native/checks/run.sh: builds the core from the repo patch series with ASan and UBSan and runs the
-      # committed checks that are marked ready in checks.tsv. The nduel matrix and golden.tsv --check run in the
-      # nduel-nightly job, not here.
+      # committed checks that are marked ready in checks.tsv. The fuzz matrix stays in nduel-nightly.
       - name: Native tests
         run: npm run test:native
+
+      # The job runs for all engine changes; only core/overlay/data/native inputs (or a manual run) check golden.
+      # Reuse test:native's repo-series library, pinned Lua and trap/ASan/UBSan flags; only compile the driver.
+      - name: nduel golden hashes (--check)
+        if: needs.changes.outputs.golden == 'true'
+        env:
+          NDUEL_DIR: ${{ github.workspace }}/packages/duel-server/domain-core/.build/nduel
+          NDUEL_SKIP_BUILD: "1"
+        run: |
+          native="$GITHUB_WORKSPACE/packages/duel-server/domain-core/.build/native-checks"
+          mkdir -p "$NDUEL_DIR"
+          prlimit --core=1:1 -- g++ -std=c++17 -Wall -Wextra -Wno-unused-parameter -O1 -g1 \
+            -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined -fno-rtti \
+            -DYGO_N_TRAP -D_GLIBCXX_ASSERTIONS -I"$native/lua-src" -I"$native/multi-core-tree" \
+            packages/duel-server/scripts/native/nduel.cpp "$native/libocgcore-multi.a" -o "$NDUEL_DIR/nduel"
+          prlimit --core=1:1 -- bash packages/duel-server/scripts/run-nduel.sh --check
 
       - name: Upload native status
         if: always()
@@ -598,7 +640,8 @@ jobs:
 
   rule-coverage:
     name: Rule coverage (strict)
-    if: github.event_name != 'schedule'
+    needs: changes
+    if: github.event_name != 'schedule' && needs.changes.outputs.engine == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -624,7 +667,7 @@ jobs:
 
   nduel-nightly:
     name: nduel fuzz (${{ matrix.case }})
-    if: ${{ !cancelled() && needs.cores.result == 'success' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+    if: ${{ !cancelled() && needs.cores.result == 'success' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.nightly)) }}
     needs: cores
     runs-on: ubuntu-latest
     timeout-minutes: 240

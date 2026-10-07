@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import type { DuelFirstChoice, DuelOpeningView, DuelRpsMove } from "@yugidraft/shared/duels";
+import type { DuelFirstChoice, DuelOpeningView, DuelRpsOpeningView, DuelRpsMove } from "@yugidraft/shared/duels";
 import { DUEL_RPS_MOVES } from "@yugidraft/shared/duels";
 import { duelFontClasses } from "./fonts";
 import { cx } from "./sheet-ui";
@@ -13,13 +12,12 @@ import {
   openingSeats,
   openingStage,
   opponentPickText,
-  revealEndsAt,
-  revealHeadline,
   revealOutcome,
   startText,
-  waitChooseText,
 } from "./opening-model";
-import { useSecondsUntil } from "./series-next";
+import { DiceOpeningScreen } from "./dice-opening";
+import { useNow } from "./opening-clock";
+import { secondsUntil } from "./series-model";
 
 /** Simple original line icons, drawn with the current text color. */
 export function MoveIcon({ move, size = 56 }: { move: DuelRpsMove; size?: number }) {
@@ -50,8 +48,8 @@ export function MoveIcon({ move, size = 56 }: { move: DuelRpsMove; size?: number
   );
 }
 
-function Countdown({ iso, label }: { iso: string; label: string }) {
-  const seconds = useSecondsUntil(iso);
+function Countdown({ iso, label, now }: { iso: string; label: string; now: number }) {
+  const seconds = secondsUntil(iso, now);
   if (seconds == null) return null;
   return (
     <p className={styles.countdown} data-testid="opening-countdown">
@@ -60,26 +58,14 @@ function Countdown({ iso, label }: { iso: string; label: string }) {
   );
 }
 
-/** Re-renders when the reveal ends, so the screen moves on without waiting for a poll. */
-function useNow(opening: DuelOpeningView): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    setNow(Date.now());
-    const end = revealEndsAt(opening);
-    const wait = end - Date.now();
-    if (wait <= 0) return undefined;
-    const timer = window.setTimeout(() => setNow(Date.now()), wait + 20);
-    return () => window.clearTimeout(timer);
-  }, [opening]);
-  return now;
-}
-
 /**
  * The opening of a match: rock-paper-scissors, then the winner chooses to go first or second.
  * Picks stay hidden until both are in; the server decides the result and the timeouts.
  */
-export function OpeningScreen({ opening, mySeat, names, busy = false, error = null, onPick, onChoose }: {
-  opening: DuelOpeningView;
+function RpsOpeningScreen({ opening, receivedAt, mySeat, names, busy = false, error = null, onPick, onChoose }: {
+  opening: DuelRpsOpeningView;
+  /** Monotonic client time when the room response arrived; retained with cached rooms. */
+  receivedAt?: number;
   mySeat: number | null;
   names: [string, string];
   busy?: boolean;
@@ -87,7 +73,8 @@ export function OpeningScreen({ opening, mySeat, names, busy = false, error = nu
   onPick: (move: DuelRpsMove) => void;
   onChoose: (choice: DuelFirstChoice) => void;
 }) {
-  const now = useNow(opening);
+  const now = useNow(opening, receivedAt);
+  if (now == null) return null;
   const stage = openingStage(opening, mySeat, now);
   const player = isOpeningPlayer(mySeat);
   const { me, them } = openingSeats(mySeat);
@@ -98,10 +85,13 @@ export function OpeningScreen({ opening, mySeat, names, busy = false, error = nu
   const picked = mySeat != null ? opening.myPick : null;
 
   let status = "";
-  if (stage === "reveal" && outcome) status = revealHeadline(outcome, reveal?.winnerSeat != null ? names[reveal.winnerSeat] : null);
+  if (stage === "reveal") status = "Tie — again";
   else if (stage === "pick") status = player ? (picked ? `You chose ${MOVE_LABEL[picked]}. ${theirs.text}` : "Choose your move") : "Rock-paper-scissors";
   else if (stage === "choose") status = "You win. Go first or second?";
-  else if (stage === "wait-choose") status = waitChooseText(opening, mySeat, names);
+  else if (stage === "wait-choose") {
+    const winner = opening.winnerSeat == null ? "The winner" : names[opening.winnerSeat];
+    status = player ? "You lose. Opponent is choosing…" : `${winner} wins. ${winner} is choosing…`;
+  }
   else status = startText(opening, mySeat, names);
 
   return (
@@ -114,7 +104,7 @@ export function OpeningScreen({ opening, mySeat, names, busy = false, error = nu
 
         <p className={styles.status} role="status" aria-live="polite" data-testid="opening-status">{status}</p>
 
-        {stage === "reveal" && reveal ? (
+        {(stage === "reveal" || stage === "choose" || stage === "wait-choose") && reveal ? (
           <div className={styles.reveal} data-outcome={outcome} data-testid="opening-reveal">
             {([me, them] as const).map((seat, index) => (
               <div key={seat} className={styles.revealCard} data-win={reveal.winnerSeat === seat ? "true" : undefined} data-side={index === 0 ? "me" : "them"}>
@@ -143,7 +133,7 @@ export function OpeningScreen({ opening, mySeat, names, busy = false, error = nu
               {mine ? <span className={styles.chip} data-done={mine.done ? "true" : "false"}>{mine.text}</span> : null}
               <span className={styles.chip} data-done={theirs.done ? "true" : "false"} data-testid="opening-opponent">{theirs.text}</span>
             </div>
-            <Countdown iso={opening.deadlineAt} label="A random move is made in" />
+            <Countdown iso={opening.deadlineAt} label="A random move is made in" now={now} />
           </>
         ) : null}
 
@@ -157,19 +147,36 @@ export function OpeningScreen({ opening, mySeat, names, busy = false, error = nu
                 <b>Go second</b><span>The opponent takes the first turn</span>
               </button>
             </div>
-            <Countdown iso={opening.deadlineAt} label="You go first in" />
+            <Countdown iso={opening.deadlineAt} label="You go first in" now={now} />
           </>
         ) : null}
 
         {stage === "wait-choose" ? (
-          <>
-            <p className={styles.chips}><span className={styles.chip} data-done="false">{waitChooseText(opening, mySeat, names)}</span></p>
-            <Countdown iso={opening.deadlineAt} label="Time left" />
-          </>
+          <Countdown iso={opening.deadlineAt} label="Time left" now={now} />
         ) : null}
 
         {error ? <p className={styles.error} role="alert">{error}</p> : null}
       </div>
     </div>
   );
+}
+
+
+/** The opening of a match: rock-paper-scissors for 1v1, a dice roll for the 3-way and 4-way. */
+export function OpeningScreen(props: {
+  opening: DuelOpeningView;
+  receivedAt?: number;
+  mySeat: number | null;
+  names: string[];
+  busy?: boolean;
+  error?: string | null;
+  /** The viewer's Motion setting; the dice opening plays short fades instead of tumbling. */
+  reducedMotion?: boolean;
+  onPick: (move: DuelRpsMove) => void;
+  onChoose: (choice: DuelFirstChoice) => void;
+}) {
+  if (!("rounds" in props.opening)) {
+    return <RpsOpeningScreen {...props} opening={props.opening} names={[props.names[0]!, props.names[1]!]} />;
+  }
+  return <DiceOpeningScreen opening={props.opening} receivedAt={props.receivedAt} mySeat={props.mySeat} names={props.names} error={props.error} reducedMotion={props.reducedMotion} />;
 }

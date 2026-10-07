@@ -9,12 +9,12 @@ import {
   type DuelService,
 } from "@yugidraft/shared/services";
 import type { CardQuery, DuelChainMode, DuelCommand, DuelDeck, DuelFirstChoice, DuelMasterRule, DuelMode, DuelRpsMove } from "@yugidraft/shared/duels";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
-import { verifyDiscordGuildMembership } from "@/lib/discord-guild-membership";
+import type { CardDataStatus } from "@yugidraft/shared/types";
 
-export type DuelHostOp = "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "cards" | "card-details" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "ready" | "unready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "report" | "debug-trace" | "bug-context" | "chain-mode";
+export type DuelHostOp = "engine-data-status" | "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "cards" | "card-details" | "card-artworks" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "ready" | "unready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "report" | "debug-trace" | "bug-context" | "chain-mode";
 
 /** Dev scenario tools (presets page, Report button). Server side only. Exactly "1" turns them on. */
 export function scenariosEnabled(): boolean {
@@ -30,30 +30,14 @@ type DuelActor =
   | { ok: false; response: NextResponse };
 
 export async function requireDuelActor(): Promise<DuelActor> {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return { ok: false, response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
-  }
+  const actor = await requireWebAccess();
+  if (!actor.ok) return actor;
   const guildId = env.discordGuildId;
   if (!guildId) {
     return { ok: false, response: NextResponse.json({ error: "Guild is not configured" }, { status: 500 }) };
   }
-  const membership = await verifyDiscordGuildMembership({
-    guildId,
-    userId: session.user.id,
-    botToken: process.env.DISCORD_TOKEN ?? "",
-  });
-  if (!membership.ok) {
-    return {
-      ok: false,
-      response: NextResponse.json(
-        { error: membership.status === 403 ? "Forbidden" : "Guild membership is unavailable" },
-        { status: membership.status },
-      ),
-    };
-  }
   const db = getDb();
-  const player = createPlayerService(db).findOrCreate(guildId, session.user.id, session.user.name ?? "Unknown");
+  const player = createPlayerService(db).findOrCreate(guildId, actor.userId, actor.userName);
   return { ok: true, guildId, playerId: player.id, duels: createDuelService(db) };
 }
 
@@ -102,6 +86,8 @@ export async function callDuelHost(input: {
   deck?: DuelDeck;
   query?: string;
   codes?: number[];
+  /** normalize-codes only: retain known artwork passcodes for storage/display. */
+  preserveArtwork?: boolean;
   /** add-bot only: the 0-based empty seat to fill. */
   seat?: number;
   /** start-preset only. */
@@ -130,7 +116,7 @@ export async function callDuelHost(input: {
     console.error(`[duel-host] ${configProblem}`);
     return { ok: false, response: NextResponse.json({ error: configProblem }, { status: 503 }) };
   }
-  const transport = httpTransport(cfg);
+  const transport = httpTransport({ ...cfg, ...(input.op === "engine-data-status" ? { timeoutMs: 5000 } : {}) });
   const payload: Record<string, unknown> = {
     op: input.op,
     guildId: input.guildId,
@@ -142,6 +128,8 @@ export async function callDuelHost(input: {
   if (input.deck) payload.deck = input.deck;
   if (input.query !== undefined) payload.query = input.query;
   if (input.codes !== undefined) payload.codes = input.codes;
+  if (input.preserveArtwork !== undefined) payload.preserveArtwork = input.preserveArtwork;
+  if (input.draftId !== undefined) payload.draftId = input.draftId;
   if (input.seat !== undefined) payload.seat = input.seat;
   if (input.presetId !== undefined) payload.presetId = input.presetId;
   if (input.seed !== undefined) payload.seed = input.seed;
@@ -186,4 +174,13 @@ export function sessionFromHost(data: unknown) {
     return { session: data.session };
   }
   return { session: data };
+}
+
+/** Typed operator snapshot over the same HMAC-authenticated internal channel. */
+export async function callEngineDataStatus(input: { guildId: string; playerId: number }): Promise<
+  { ok: true; data: CardDataStatus } | { ok: false; response: NextResponse }
+> {
+  const result = await callDuelHost({ ...input, op: "engine-data-status" });
+  if (!result.ok) return result;
+  return { ok: true, data: result.data as CardDataStatus };
 }

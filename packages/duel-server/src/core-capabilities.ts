@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 export interface CoreCapabilities {
-  /** C6: living across seats in FFA4 share the two Extra Monster Zones. */
+  /** C6: living facing seats (0/1, 2/3) in FFA4 share the two Extra Monster Zones. */
   ffa4SharedExtraZones: boolean;
 }
 
@@ -20,6 +20,6 @@ export function readCoreCapabilities(dataDirectory: string, wasmFile: string, lo
   }));
   const capabilities = fields.get("capabilities")?.split(",").map((flag) => flag.trim()) ?? [];
   return {
-    ffa4SharedExtraZones: fields.get("sha256") === loadedSha && capabilities.includes("ffa4-shared-extra-zones"),
+    ffa4SharedExtraZones: fields.get("sha256") === loadedSha && capabilities.includes("ffa4-facing-extra-zones"),
   };
 }

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { createDraftService, createCardCatalogService } from "@yugidraft/shared/services";
@@ -10,14 +10,12 @@ import { draftReadAccess } from "@/lib/draft-access";
 export const runtime = "nodejs";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ slug: string }> }) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const actor = await requireWebAccess();
+  if (!actor.ok) return actor.response;
 
   const { slug } = await params;
   const db = getDb();
-  const denied = draftReadAccess(db, slug, env.discordGuildId, session.user.id);
+  const denied = draftReadAccess(db, slug, env.discordGuildId, actor.userId);
   if (denied) return denied;
   const row = db
     .prepare("select config_json from drafts where web_slug = ? and guild_id = ?")
@@ -37,25 +35,27 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
         ? config.poolCardIds
         : drafts.resolveCubeCardIds(config);
 
-    const qtyCounts = new Map<number, number>();
-    for (const id of ids) qtyCounts.set(id, (qtyCounts.get(id) ?? 0) + 1);
+    const summaries = (poolIds: number[]): CardSummary[] => {
+      const qtyCounts = new Map<number, number>();
+      for (const id of poolIds) qtyCounts.set(id, (qtyCounts.get(id) ?? 0) + 1);
 
-    const cards: CardSummary[] = catalog.findByIds([...qtyCounts.keys()]).map((c) => ({
-      id: c.ygoprodeckId,
-      name: c.name,
-      type: c.type,
-      frameType: c.frameType,
-      attribute: c.attribute,
-      level: c.level,
-      effectText: c.effectText,
-      atk: c.atk,
-      def: c.def,
-      imageUrl: c.imageUrl,
-      imageUrlSmall: c.imageUrlSmall,
-      qty: qtyCounts.get(c.ygoprodeckId) ?? 1,
-    }));
+      return catalog.findByIds([...qtyCounts.keys()]).map((c) => ({
+        id: c.ygoprodeckId,
+        name: c.name,
+        type: c.type,
+        frameType: c.frameType,
+        attribute: c.attribute,
+        level: c.level,
+        effectText: c.effectText,
+        atk: c.atk,
+        def: c.def,
+        imageUrl: c.imageUrl,
+        imageUrlSmall: c.imageUrlSmall,
+        qty: qtyCounts.get(c.ygoprodeckId) ?? 1,
+      }));
+    };
 
-    return NextResponse.json({ cards });
+    return NextResponse.json({ cards: summaries(ids), extraCards: summaries(drafts.resolveExtraCardIds(config, env.discordGuildId)) });
   } catch (error) {
     console.error("[GET /api/drafts/[slug]/pool]", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

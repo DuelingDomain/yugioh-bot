@@ -53,7 +53,8 @@ static int read_script(void*, OCG_Duel duel, const char* name) {
 	std::string n(name), text;
 	const auto slash = n.find_last_of('/');
 	const std::string base = slash == std::string::npos ? n : n.substr(slash + 1);
-	if(!read_file(std::string(kScripts) + "/" + base, text) && !read_file(std::string(kScripts) + "/official/" + base, text))
+	if(!read_file(std::string(kScripts) + "/" + base, text) && !read_file(std::string(kScripts) + "/official/" + base, text) &&
+	   !read_file(std::string(kScripts) + "/pre-release/" + base, text))
 		return 0;
 	return OCG_LoadScript(duel, text.data(), static_cast<uint32_t>(text.size()), name);
 }

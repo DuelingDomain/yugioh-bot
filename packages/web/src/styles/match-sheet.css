@@ -1096,7 +1096,7 @@
 .ms .ns-brand { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 0 0 6px; margin-bottom: 6px; }
 .ms .ns-mark { width: 28px; height: 28px; flex: none; }
 .ms .ns-word { font-family: var(--f-disp); font-size: 18px; font-weight: 500; letter-spacing: 0.005em; color: var(--ink); white-space: nowrap; }
-/* "Duelists Kingdom" is wider than the 236px rail's brand row at 18px: smaller word, tighter gap, no wrap. */
+/* Keep "Dueling Domain" within the 236px rail's brand row: smaller word, tighter gap, no wrap. */
 .ms .ns-side .ns-brand { gap: 8px; }
 .ms .ns-side .ns-word { font-size: 15px; letter-spacing: 0; }
 .ms .ns-ib { width: 36px; height: 36px; flex: none; display: grid; place-items: center; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--ink-4); cursor: pointer; }
@@ -1505,7 +1505,8 @@
 .ms .ce-rail { position: sticky; top: 20px; display: grid; gap: 14px; padding: 18px; }
 .ms .ce-rail h2 { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 15px; font-weight: 450; }
 .ms .ce-rail .seg { width: 100%; }
-.ms .ce-rail .seg button { padding: 0 8px; }
+.ms .ce-rail .seg { grid-auto-columns: auto; }
+.ms .ce-rail .seg button { padding: 0 4px; font-size: 13px; }
 .ms .ce-res { display: grid; }
 .ms .ce-res li { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 11px; padding: 7px 0; border-top: 1px solid var(--rule-lo); }
 .ms .ce-res li:first-child { border-top: 0; }

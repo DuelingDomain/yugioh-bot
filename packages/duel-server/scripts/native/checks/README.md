@@ -22,6 +22,10 @@ bash packages/duel-server/scripts/native/checks/run.sh --clean                  
 The runner prints PASS, FAIL or SKIP per check and a summary. The exit code is 0 only when every selected `ready`
 check passes. Logs are in `$NATIVE_CHECKS_OUT/logs`.
 
+The fixed-path script readers, including `scripted-duel.h`, search the script root, `official/`, then `pre-release/`.
+Use a bundle from `prepare-data.ts`: it retains pre-release card scripts only for codes in the loaded release databases,
+and prefers official copies. The checks with recursive readers also find those retained scripts.
+
 | Variable | Meaning |
 | --- | --- |
 | `MULTI_TREE` | Core source tree with the patch series applied. Default: the repo series on the pinned ygopro-core, made by `prepare-multi-core-tree.sh` into `$NATIVE_CHECKS_OUT/multi-core-tree`. |

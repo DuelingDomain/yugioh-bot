@@ -25,7 +25,33 @@ const clone = (): Manifest => JSON.parse(JSON.stringify(manifest)) as Manifest;
 const stockDirectory = process.env.DUEL_SCRIPTS_DIR ?? join(currentEngineDataDirectory(), "card-scripts/official");
 const stock = needs.file("official script corpus", stockDirectory, "Set DUEL_SCRIPTS_DIR, or set DUEL_DATA_DIR to an engine data directory with card-scripts/official.");
 const triageNeed = needs.localFile("multiplayer triage", TRIAGE_FILE, "Run scripts/scan-multiplayer-scripts.ts to write .status/multiplayer-triage.json.");
-const stockText = (code: number) => readFileSync(existsSync(join(stockDirectory, `c${code}.lua`)) ? join(stockDirectory, `c${code}.lua`) : join(stockDirectory, "../pre-errata", `c${code}.lua`), "utf8");
+// Manifest stockPath values are relative to the card-scripts root, with official/ as the only default.
+const stockText = (card: Pick<ManifestCard, "file" | "stockPath">, root = join(stockDirectory, "..")) =>
+  readFileSync(join(root, card.stockPath ?? "official/" + card.file), "utf8");
+
+describe("manifest stock paths", () => {
+  it("defaults to official and only reads pre-errata when explicitly recorded", () => {
+    const root = mkdtempSync(join(tmpdir(), "manifest-stock-"));
+    try {
+      mkdirSync(join(root, "official"));
+      mkdirSync(join(root, "pre-errata"));
+      writeFileSync(join(root, "pre-errata/c1.lua"), "old script");
+      const card = { file: "c1.lua" };
+      expect(() => stockText(card, root)).toThrow(/ENOENT/);
+      expect(stockText({ ...card, stockPath: "pre-errata/c1.lua" }, root)).toBe("old script");
+      writeFileSync(join(root, "official/c1.lua"), "current script");
+      expect(stockText(card, root)).toBe("current script");
+      expect(stockText({ ...card, stockPath: "pre-errata/c1.lua" }, root)).toBe("old script");
+      expect(() => stockText({ ...card, stockPath: "pre-errata/missing.lua" }, root)).toThrow(/ENOENT/);
+      const custom = join(root, "candidate-scripts");
+      mkdirSync(join(custom, "official"), { recursive: true });
+      writeFileSync(join(custom, "official/c1.lua"), "candidate script");
+      expect(stockText(card, custom)).toBe("candidate script");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
 
 function isActivationCheck(body: string, name: string): boolean {
   const source = makeSource(body);
@@ -132,10 +158,10 @@ describe("the R1 entries (each duelist, hand suffixes with aux.MPForEachDuelist)
     expect(r1Cards.filter((card) => R1_NO_CHANGE.includes(card.code))).toEqual([]);
   });
 
-  it("are complete: 92 suffixes and 1 card without change make the 93 R1 cards", () => {
+  it("are complete: all 93 R1 cards have suffixes", () => {
     expect(R1_COMPLETE).toBe(true);
-    expect(r1Cards).toHaveLength(92);
-    expect(R1_NO_CHANGE).toEqual([39513225]);
+    expect(r1Cards).toHaveLength(93);
+    expect(R1_NO_CHANGE).toEqual([]);
     expect(r1Cards.length + R1_NO_CHANGE.length).toBe(EXPECTED_COUNTS.r1);
   });
 
@@ -342,6 +368,7 @@ describe("the overlay files", () => {
     coreApi.add("MPTurnControls");
     coreApi.add("MPIsAlive");
     coreApi.add("MPRotateControl");
+    coreApi.add("MPBeginControlRotation");
     coreApi.add("MPChainCount");
     coreApi.add("MPPreviousChain");
     for (const card of cards) {
@@ -399,14 +426,14 @@ describe("the overlay files", () => {
 describeWithCores("the overlay against the stock scripts", stock, () => {
   it("each stockSha256 equals the hash of the stock script (a changed stock script needs a new look at the card)", () => {
     for (const card of cards) {
-      const hash = createHash("sha256").update(stockText(card.code)).digest("hex");
+      const hash = createHash("sha256").update(stockText(card)).digest("hex");
       expect(card.stockSha256, `${card.code} ${card.name}`).toBe(hash);
     }
   });
 
   it("each wrapped or redefined function exists in the stock script (replace files only need the code)", () => {
     for (const card of cards) {
-      const body = stockText(card.code);
+      const body = stockText(card);
       if (card.replace) continue;
       // A name that starts with "mp" is a new helper of the overlay (49027020 mpspfilter), not a stock function.
       const names = [...Object.values(card.wrap ?? {}).flat(), ...(card.redefined ?? []).filter((name) => !name.startsWith("mp"))];
@@ -429,7 +456,7 @@ describeWithCores("the overlay against the stock scripts", stock, () => {
     const listed = new Set(cards.map((card) => card.code));
     const scanned = scanCorpus(stockDirectory).filter((card) => card.rules.includes("field-count-compare") && !COMPARE_FALSE_POSITIVES.includes(card.code));
     for (const card of scanned) {
-      if (/GetOverlayGroup|GetOverlayCount|:GetCounter\(|Duel\.GetCounter\(/.test(stockText(card.code))) {
+      if (/GetOverlayGroup|GetOverlayCount|:GetCounter\(|Duel\.GetCounter\(/.test(stockText({ file: `c${card.code}.lua` }))) {
         expect(listed.has(card.code), `${card.code} ${card.name} reads overlay or counters and has no MANIFEST entry`).toBe(true);
       }
     }

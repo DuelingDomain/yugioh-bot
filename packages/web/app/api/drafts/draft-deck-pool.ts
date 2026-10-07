@@ -31,7 +31,7 @@ export type DraftDeckPool = {
 export function findDraftDeckContext(
   db: Database.Database,
   guildId: string,
-  userId: string,
+  userId: number,
   ref: { slug: string } | { id: number },
 ): { ok: true; draft: DraftDeckContext } | { ok: false; response: NextResponse } {
   const row = ("slug" in ref
@@ -48,7 +48,7 @@ export function findDraftDeckContext(
   }
   const player = db
     .prepare(
-      "select p.id as player_id from draft_players dp inner join players p on p.id = dp.player_id where dp.draft_id = ? and p.discord_user_id = ?",
+      "select p.id as player_id from draft_players dp inner join players p on p.id = dp.player_id where dp.draft_id = ? and p.user_id = ?",
     )
     .get(row.id, userId) as { player_id: number } | undefined;
   if (!player) {

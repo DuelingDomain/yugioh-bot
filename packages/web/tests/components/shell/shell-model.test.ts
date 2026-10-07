@@ -21,10 +21,11 @@ describe("shell model", () => {
     expect(pageTitle("/tournaments/new")).toBe("New tournament");
     expect(pageTitle("/tournament/x")).toBe("Tournament");
     expect(pageTitle("/draft/x")).toBe("Draft");
-    expect(pageTitle("/settings")).toBe("Settings");
+    expect(pageTitle("/settings")).toBe("Account");
+    expect(pageTitle("/settings/account")).toBe("Account");
     expect(pageTitle("/player/7", 7)).toBe("Your profile");
     expect(pageTitle("/player/8", 7)).toBe("Player");
-    expect(pageTitle("/")).toBe("Duelists Kingdom");
+    expect(pageTitle("/")).toBe("Dueling Domain");
   });
 
   it("groups every nav link once, Settings excluded", () => {

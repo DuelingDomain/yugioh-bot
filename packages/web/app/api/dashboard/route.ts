@@ -1,24 +1,22 @@
 import { env } from "@/lib/env";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
 
 export const runtime = "nodejs";
 
 export async function GET() {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const actor = await requireWebAccess();
+    if (!actor.ok) return actor.response;
 
-    const discordUserId = session.user.id;
+    const userId = actor.userId;
     const db = getDb();
 
-    // Find the player records for this Discord user in the configured guild
+    // Find the player records for this application user in the configured guild
     const playerRows = db
-      .prepare("select id, guild_id from players where discord_user_id = ? and guild_id = ?")
-      .all(discordUserId, env.discordGuildId) as Array<{ id: number; guild_id: string }>;
+      .prepare("select id, guild_id from players where user_id = ? and guild_id = ?")
+      .all(userId, env.discordGuildId) as Array<{ id: number; guild_id: string }>;
 
     const playerIds = playerRows.map((r) => r.id);
 

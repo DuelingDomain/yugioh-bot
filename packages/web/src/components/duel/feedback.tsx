@@ -40,6 +40,11 @@ export type DuelFeedbackProps = {
   replayFrom?: number | null;
   /** Opening history to skip even in a layer that mounted before it arrived. */
   skipThrough?: number | null;
+  /**
+   * Shows the one-line "Attack / A attacks B" toast for an attack declaration. Off in a live duel,
+   * where BattleFx draws the arrow and caption on the board; the replay (no BattleFx caption) turns it on.
+   */
+  attackToast?: boolean;
 };
 
 const KIND_LABEL: Record<string, string> = {
@@ -185,6 +190,7 @@ export function DuelFeedback({
   reducedMotion,
   replayFrom = null,
   skipThrough = null,
+  attackToast = false,
 }: DuelFeedbackProps) {
   const styles = useSkinStyles(baseStyles, "feedback");
   const [current, setCurrent] = useState<{ event: DuelEvent; durationMs: number } | null>(null);
@@ -201,12 +207,14 @@ export function DuelFeedback({
   const volumeRef = useRef(soundVolume);
   const reducedRef = useRef(reducedMotion);
   const replayRef = useRef(replayFrom);
+  const attackToastRef = useRef(attackToast);
   const startNextRef = useRef<() => void>(() => undefined);
 
   soundRef.current = soundEnabled;
   volumeRef.current = soundVolume;
   reducedRef.current = reducedMotion;
   replayRef.current = replayFrom;
+  attackToastRef.current = attackToast;
   startNextRef.current = () => {
     if (currentRef.current) return;
     const next = queueRef.current.shift();
@@ -247,6 +255,8 @@ export function DuelFeedback({
     audioRef.current = audio;
     audio.setMuted(!soundRef.current);
     audio.setVolume(volumeRef.current);
+    // A player who already used the page does not need another click: after a remount the audio unlocks at once.
+    if (typeof navigator !== "undefined" && navigator.userActivation?.hasBeenActive) void audio.unlock();
 
     const onGesture = (event: Event) => {
       if (!event.isTrusted) return;
@@ -264,6 +274,11 @@ export function DuelFeedback({
       if (detail.cue === "battle") {
         if (detail.battle) audioRef.current?.playBattle(detail.battle);
         return;
+      }
+      if (detail.cue === "clock-low") {
+        // Taken only when the audio can play: otherwise the sender keeps the cue pending and tries again.
+        if (!audioRef.current?.ready()) return;
+        event.preventDefault();
       }
       audioRef.current?.play(detail.cue, detail.strength);
     };
@@ -357,11 +372,16 @@ export function DuelFeedback({
       }
       // The battle layer draws damage on the life points; MoveFx draws card movement and
       // PositionFx the turn or flip of a monster: none of them get a toast.
-      if (event.kind === "target" || event.kind === "battle" || event.kind === "battle-end" || event.kind === "damage" || event.kind === "recover" || event.kind === "move" || event.kind === "equip" || isPositionEvent(event)) continue;
+      if (event.kind === "target" || event.kind === "battle" || event.kind === "battle-end" || event.kind === "attack-negated" || event.kind === "damage" || event.kind === "recover" || event.kind === "move" || event.kind === "equip" || isPositionEvent(event)) continue;
       // When the board plays it: the chain beat of a chain event (ChainFx), or the moment a link's
       // own effect may start (chain-beats.ts). 0 when nothing holds it, as in the replay.
       const chainAt = Math.max(chainBeatAt(event.id), chainEffectAt(event.id));
       const chainMs = chainAt > 0 ? chainAt - now : 0;
+      // A live duel shows an attack on the board (arrow and caption): the toast would say it twice.
+      if (event.kind === "attack" && !attackToastRef.current) {
+        playAfter(event.kind, chainMs);
+        continue;
+      }
       // A link resolving or resolved and the end of the chain are drawn on the board only (the badge
       // on its card), so they get no banner: just their quiet cue, at the moment of that beat.
       if (!hasCentreBanner(event.kind)) {

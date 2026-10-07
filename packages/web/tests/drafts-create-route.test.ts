@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -7,15 +8,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const auth = vi.fn();
 const tempDirs: string[] = [];
 
-vi.mock("@/lib/auth", () => ({
-  auth,
-}));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 
 describe("POST /api/drafts", () => {
   beforeEach(() => {
     vi.resetModules();
     auth.mockReset();
-    auth.mockResolvedValue({ user: { id: "creator-user", name: "Yugi" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("creator-user")), discordUserId: fixtureDiscordId("creator-user"), name: "Yugi" } });
   });
 
   afterEach(() => {
@@ -31,7 +33,8 @@ describe("POST /api/drafts", () => {
     }
   });
 
-  it("creates a draft from custom card ids without selected sets", async () => {
+  it.each([false, true])("creates a draft from custom card ids without selected sets (email-only=%s)", async emailOnly => {
+    if (emailOnly) auth.mockResolvedValue({ user: { id: String(fixtureUserId("creator-user")), discordUserId: null, name: "Yugi" } });
     const tempDir = mkdtempSync(join(tmpdir(), "yugioh-drafts-create-route-"));
     const dbPath = join(tempDir, "drafts-create-route.sqlite");
     tempDirs.push(tempDir);
@@ -44,6 +47,11 @@ describe("POST /api/drafts", () => {
     const { migrate } = await import("@yugidraft/shared/db");
     const db = new Database(dbPath);
     migrate(db);
+    seedFixtureUsers(db, FIXTURE_KEYS);
+    // This test exercises draft creation with a known custom pool, entirely offline.
+    const card = db.prepare("insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values(?,?,'Normal Monster','normal','i','i','[]',?)");
+    for (const id of [46986414, 83764718]) card.run(id, `Card ${id}`, new Date().toISOString());
+    if (emailOnly) db.prepare("update users set discord_user_id=null where id=?").run(fixtureUserId("creator-user"));
     db.close();
 
     const { POST } = await import("../app/api/drafts/route");
@@ -79,15 +87,16 @@ describe("POST /api/drafts", () => {
     const { migrate } = await import("@yugidraft/shared/db");
     const db = new Database(dbPath);
     migrate(db);
+    seedFixtureUsers(db, FIXTURE_KEYS);
     const insCard = db.prepare(
       `insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
        values (?,?,?,?,?,?,?,?)`,
     );
-    const mainIds = Array.from({ length: 20 }, (_, i) => 1000 + i);
+    const mainIds = Array.from({ length: 40 }, (_, i) => 1000 + i);
     for (const id of mainIds) insCard.run(id, `Main ${id}`, "Effect Monster", "effect", "i", "i", "[]", "t");
     insCard.run(2000, "Extra 2000", "Fusion Monster", "fusion", "i", "i", "[]", "t");
     const cube = Number(
-      db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1', 'Dark Magician', 'u')").run()
+      db.prepare(`insert into cubes (guild_id, name, created_by_user_id) values ('guild-1', 'Dark Magician', ${fixtureUserId("u")})`).run()
         .lastInsertRowid,
     );
     const insCube = db.prepare("insert into cube_cards (cube_id, catalog_card_id, pool, max_copies) values (?, ?, ?, ?)");
@@ -115,7 +124,7 @@ describe("POST /api/drafts", () => {
         method: "POST",
         body: JSON.stringify({
           name: "From Saved Pool",
-          config: { setNames: [], customCardIds: loaded, packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8 },
+          config: { setNames: [], customCardIds: loaded, packSize: 8, packsPerPlayer: 5, cardsPerPlayer: 40 },
         }),
       }) as NextRequest,
     );
@@ -128,9 +137,10 @@ describe("POST /api/drafts", () => {
     const draft = drafts.findById(id);
     expect([...(draft.config.cubeCardIds ?? [])].sort()).toEqual([...expected].sort());
 
-    const insPlayer = verifyDb.prepare("insert into players (guild_id, discord_user_id, display_name) values ('guild-1', ?, ?)");
+    seedFixtureUsers(verifyDb, ["a", "b"]);
+    const insPlayer = verifyDb.prepare("insert into players (guild_id, user_id, discord_user_id, display_name) values ('guild-1', ?, ?, ?)");
     for (const n of ["a", "b"]) {
-      const pid = Number(insPlayer.run(n, n).lastInsertRowid);
+      const pid = Number(insPlayer.run(fixtureUserId(n), fixtureDiscordId(n), n).lastInsertRowid);
       drafts.join(id, pid);
     }
     drafts.start(id);
@@ -139,8 +149,12 @@ describe("POST /api/drafts", () => {
     }>;
     // The creator is seated automatically, so two joiners make three players.
     expect(drafts.players(id)).toHaveLength(3);
-    expect(dealt).toHaveLength(3 * 4 * 2);
+    expect(dealt).toHaveLength(3 * 8 * 5);
     expect(dealt.every((r) => mainIds.includes(r.catalog_card_id))).toBe(true);
     verifyDb.close();
   });
 });
+
+const FIXTURE_KEYS = ["creator-user", "u"] as const;
+
+// Session resolution is mocked; authorization still runs through the real web boundary.

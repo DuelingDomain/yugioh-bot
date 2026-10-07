@@ -8,7 +8,6 @@ import { render, screen } from "@testing-library/react";
 import { InvitePanel } from "../../src/components/draft/lobby/invite-panel";
 import { PoolBreakdown } from "../../src/components/draft/pool-breakdown";
 import chipStyles from "../../src/components/draft/summary/chips.module.css";
-import lobbyStyles from "../../src/components/draft/lobby/lobby.module.css";
 
 const source = (file: string) => readFileSync(path.resolve(__dirname, `../../src/${file}`), "utf8");
 const summary = postcss.parse(source("components/draft/summary/summary.module.css"));
@@ -86,9 +85,9 @@ describe("draft layout rules", () => {
     expect(declarations(lobby, [".th[data-warn]", ".th[data-bad]"])["border-color"]).toBe("rgb(228 90 77 / 0.6)");
   });
 
-  it("keeps the Discord join code on one line", () => {
+  it("names no Discord command in the invite panel", () => {
     render(<InvitePanel slug="s" />);
-    expect(screen.getByText("/draft join")).toHaveClass("cmd", lobbyStyles.joinCommand);
-    expect(declarations(lobby, ".joinCommand")["white-space"]).toBe("nowrap");
+    expect(screen.queryByText(/draft join/)).toBeNull();
+    expect(screen.queryByText(/discord/i)).toBeNull();
   });
 });

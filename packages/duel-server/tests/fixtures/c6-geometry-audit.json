@@ -680,34 +680,6 @@
       "result": "Fixed: PreviousFilter and trigger geometry suffix (loadable pre-errata)."
     },
     {
-      "script": "pre-release/c100458010.lua",
-      "line": 42,
-      "expression": "local selected_zones=Duel.SelectFieldZone(tp,ct,0,LOCATION_MZONE,ZONES_EMZ<<16)",
-      "result": "Excluded from current data: the pre-release passcode has no database row. Its numeric opponent-zone selection is C3/C4 scope in custom data.",
-      "requiresAbsentCode": 100458010
-    },
-    {
-      "script": "pre-release/c100458010.lua",
-      "line": 57,
-      "expression": "local zone=1<<(Chain.GetTriggeringSequence(ev)+16)",
-      "result": "Excluded: this pre-release passcode has no row in the current cards.cdb. A supplied custom database can load it; custom scripts remain outside the official C6 corpus.",
-      "requiresAbsentCode": 100458010
-    },
-    {
-      "script": "pre-release/c101402090.lua",
-      "line": 73,
-      "expression": "local seq=4-s.normalizeseq(e:GetHandler():GetSequence())",
-      "result": "Excluded from current data: the pre-release passcode has no database row. Custom data must review its direct mirrored-column target filter.",
-      "requiresAbsentCode": 101402090
-    },
-    {
-      "script": "pre-release/c101403030.lua",
-      "line": 74,
-      "expression": "filter=filter|(1<<(mc:GetSequence()+16))",
-      "result": "Excluded: this pre-release passcode has no row in the current cards.cdb. A supplied custom database can load it; custom scripts remain outside the official C6 corpus.",
-      "requiresAbsentCode": 101403030
-    },
-    {
       "script": "proc_ritual.lua",
       "line": 44,
       "expression": "return (lv<<16)|clv",
@@ -1080,6 +1052,12 @@
     }
   ],
   "overlay": [
+    {
+      "script": "c10045474.lua",
+      "line": 26,
+      "expression": "if seat~=own then seq=4-seq end",
+      "result": "Fixed: FFA3 lasting Impermanence negation mirrors only the bound activation peer; other seats are excluded."
+    },
     {
       "script": "c30010480.lua",
       "line": 12,

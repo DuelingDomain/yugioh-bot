@@ -30,10 +30,10 @@
   --team-us: linear-gradient(90deg, #9b7eff, #5cb8f5);
   --team-them: linear-gradient(90deg, #f08cc4, #8fd36b);
   --u: clamp(0.84px, min(0.0764vw, 0.1222dvh), 1.5px);
-  --fs-xs: calc(11 * var(--u));
-  --fs-sm: calc(12 * var(--u));
-  --fs-b: calc(13 * var(--u));
-  --fs-h: calc(15 * var(--u));
+  --fs-xs: calc(max(12px, calc(11 * var(--u))) * var(--tt, 1));
+  --fs-sm: calc(max(12.5px, calc(12 * var(--u))) * var(--tt, 1));
+  --fs-b: calc(max(14px, calc(13 * var(--u))) * var(--tt, 1));
+  --fs-h: calc(max(15px, calc(15 * var(--u))) * var(--tt, 1));
   --fs-num: calc(22 * var(--u));
   --ui: var(--font-duel-ui, "Sofia Sans Semi Condensed"), system-ui, sans-serif;
   --num: var(--font-duel-num, "Sofia Sans Extra Condensed"), system-ui, sans-serif;
@@ -458,7 +458,7 @@
   translate: -50% -50%;
   rotate: -90deg;
   white-space: nowrap;
-  font: 700 13px / 1 var(--disp);
+  font: 700 calc(14px * var(--tt, 1)) / 1 var(--disp);
   letter-spacing: 0.42em;
   color: rgb(239 231 213 / 0.3);
 }
@@ -547,7 +547,7 @@
 
 .fieldHold[data-relation="partner"] [data-state="usable"] + span::after {
   content: "Partner";
-  font: 600 9.5px / 13px var(--ui);
+  font: 600 calc(12px * var(--tt, 1)) / 13px var(--ui);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   white-space: nowrap;
@@ -821,7 +821,7 @@
   border-radius: 4px;
   background: var(--pen-fill);
   color: #fff;
-  font: 700 11px / 18px var(--num);
+  font: 700 calc(12px * var(--tt, 1)) / 18px var(--num);
   text-align: center;
   box-shadow: 0 0 0 2px #070b15;
 }
@@ -935,7 +935,7 @@
   color: var(--chain-ink);
   display: grid;
   place-items: center;
-  font: 700 11px / 1 var(--disp);
+  font: 700 calc(12px * var(--tt, 1)) / 1 var(--disp);
   flex: none;
 }
 
@@ -973,7 +973,7 @@
 
 .carr {
   color: rgb(228 182 79 / 0.7);
-  font: 700 14px / 1 var(--ui);
+  font: 700 calc(14px * var(--tt, 1)) / 1 var(--ui);
 }
 
 .resp {

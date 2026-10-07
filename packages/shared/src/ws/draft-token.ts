@@ -5,7 +5,7 @@ export const DRAFT_ROOM_TOKEN_TTL_MS = 60_000;
 export type DraftRoomTokenClaims = {
   slug: string;
   guildId: string;
-  userId: string;
+  userId: number;
   expiresAt: number;
 };
 
@@ -15,13 +15,13 @@ function validClaims(value: unknown): value is DraftRoomTokenClaims {
   return Object.keys(claims).length === 4
     && typeof claims.slug === "string" && claims.slug.length > 0
     && typeof claims.guildId === "string" && claims.guildId.length > 0
-    && typeof claims.userId === "string" && claims.userId.length > 0
+    && typeof claims.userId === "number" && Number.isSafeInteger(claims.userId) && claims.userId > 0
     && Number.isSafeInteger(claims.expiresAt);
 }
 
 function signature(payload: Buffer, secret: string): Buffer {
   // Domain separation prevents room tokens from being used as internal HTTP signatures.
-  const key = createHmac("sha256", secret).update("yugidraft:draft-room:v1").digest();
+  const key = createHmac("sha256", secret).update("yugidraft:draft-room:v2").digest();
   return createHmac("sha256", key).update(payload).digest();
 }
 
@@ -35,7 +35,7 @@ export function createDraftRoomToken(claims: DraftRoomTokenClaims, secret: strin
 export function verifyDraftRoomToken(
   token: unknown,
   secret: string,
-  expected: { slug: string; userId: string },
+  expected: { slug: string; userId: number },
   now = Date.now(),
 ): DraftRoomTokenClaims | null {
   if (!secret || typeof token !== "string" || token.length > 4096) return null;
@@ -47,7 +47,14 @@ export function verifyDraftRoomToken(
   if (received.length !== digest.length || !timingSafeEqual(received, digest)) return null;
   let claims: unknown;
   try {
-    claims = JSON.parse(payload.toString("utf8"));
+    claims = JSON.parse(payload.toString("utf8"), (key, value, context?: { source: string }) => {
+      // Node 22 exposes the raw primitive source: reject exponent/decimal spellings
+      // before JSON parsing normalizes them into an otherwise valid user ID.
+      if (key === "userId" && (typeof value !== "number" || context?.source !== String(value))) {
+        throw new Error("Invalid draft room user ID");
+      }
+      return value;
+    });
   } catch {
     return null;
   }

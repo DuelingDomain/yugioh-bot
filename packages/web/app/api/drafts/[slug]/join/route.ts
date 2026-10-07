@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
 import { env } from "@/lib/env";
 import { createDraftService, createPlayerService } from "@yugidraft/shared/services";
+import { commitDraftLobbyMutation, draftLobbyErrorResponse, runDraftLobbyRoute } from "../helpers";
 import { broadcaster } from "@/lib/notify";
 
 export const runtime = "nodejs";
@@ -12,10 +13,8 @@ export async function POST(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const actor = await requireWebAccess();
+    if (!actor.ok) return actor.response;
 
     const { slug } = await params;
     const db = getDb();
@@ -30,7 +29,7 @@ export async function POST(
     }
 
     if (draft.status !== "pending") {
-      return NextResponse.json({ error: "Draft is no longer accepting players" }, { status: 400 });
+      return NextResponse.json({ error: "Draft is no longer accepting players" }, { status: 409 });
     }
 
     const draftGuildId = draft.guild_id || env.discordGuildId;
@@ -39,7 +38,7 @@ export async function POST(
     }
 
     const players = createPlayerService(db);
-    const player = players.findOrCreate(draftGuildId, session.user.id, session.user.name ?? "Unknown");
+    const player = players.findOrCreate(draftGuildId, actor.userId, actor.userName);
 
     const drafts = createDraftService(db);
     drafts.join(draft.id, player.id);
@@ -50,6 +49,7 @@ export async function POST(
 
     return NextResponse.json({ success: true, playerId: player.id, displayName: player.displayName });
   } catch (error) {
+    if (error && typeof error === "object" && "code" in error) return draftLobbyErrorResponse(error);
     if (error instanceof Error) {
       if (error.message === "You have already joined this draft") {
         return NextResponse.json({ error: "You have already joined this draft" }, { status: 400 });
@@ -64,4 +64,11 @@ export async function POST(
       { status: 500 }
     );
   }
+}
+
+
+export async function DELETE(_request: Request, { params }: { params: Promise<{ slug: string }> }) {
+  return runDraftLobbyRoute(params, false, (context) =>
+    commitDraftLobbyMutation(context, (service) => service.leave(context.draftId, context.userId)),
+  );
 }

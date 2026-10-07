@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import type Database from "better-sqlite3";
-import { checkDeckAgainstPool, mapDeckCodes, type DuelDeck, type SavedDeck } from "@yugidraft/shared/duels";
+import { checkDeckAgainstPool, type DuelDeck, type SavedDeck } from "@yugidraft/shared/duels";
 import { createTournamentDuelService, TournamentDuelError } from "@yugidraft/shared/services";
+import { normalizeDraftDeck } from "@/lib/draft-deck-codes";
 import { getDb } from "@/lib/db";
 import { broadcaster } from "@/lib/notify";
 import { DRAFT_EXTRA_MAX, DRAFT_MAIN_MAX } from "@/components/decks/pool-model";
@@ -60,7 +61,7 @@ async function checkAgainstPool(
   const loaded = await loadDraftDeckPool(db, guildId, draft, codes);
   if (!loaded.ok) return loaded;
   const { pool } = loaded;
-  const deck = mapDeckCodes(parsed, (code) => pool.codeMap.get(code) ?? code);
+  const deck = parsed;
   const failure = (body: unknown) => ({ ok: false as const, response: NextResponse.json(body, { status: 400 }) });
 
   const minimum = draftMainMinimum(pool.mainPoolCount);
@@ -73,7 +74,7 @@ async function checkAgainstPool(
   if (deck.extra.length > DRAFT_EXTRA_MAX) {
     return failure({ error: `An Extra Deck holds at most ${DRAFT_EXTRA_MAX} cards` });
   }
-  const issues = checkDeckAgainstPool(deck, pool.byCode, undefined, pool.forcedCopies);
+  const issues = checkDeckAgainstPool(deck, pool.byCode, (code) => pool.codeMap.get(code) ?? code, pool.forcedCopies);
   if (issues.length > 0) {
     const first = issues[0];
     return failure(
@@ -83,13 +84,13 @@ async function checkAgainstPool(
       },
     );
   }
-  return { ok: true, deck };
+  return normalizeDraftDeck({ guildId, playerId: draft.playerId, deck });
 }
 
 /** Loads the draft for a draft deck write and checks the deck against the pool. */
 export async function checkDraftDeckWrite(
   guildId: string,
-  ownerUserId: string,
+  ownerUserId: number,
   draftId: number,
   deck: unknown,
 ): Promise<{ ok: true; draft: DraftDeckContext; deck: unknown } | { ok: false; response: NextResponse }> {

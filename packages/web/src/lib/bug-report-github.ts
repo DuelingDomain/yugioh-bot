@@ -14,7 +14,7 @@ function githubHeaders(token: string): Record<string, string> {
     Authorization: `Bearer ${token}`,
     Accept: "application/vnd.github+json",
     "X-GitHub-Api-Version": "2022-11-28",
-    "User-Agent": "duelists-kingdom-bug-reports",
+    "User-Agent": "dueling-domain-bug-reports",
     "Content-Type": "application/json",
   };
 }
@@ -30,11 +30,11 @@ function hasFromAppLabel(labels: unknown): boolean {
 }
 
 /**
- * The public web address for the replay link, from NEXTAUTH_URL or AUTH_URL only (no trailing slash), or undefined. The
+ * The public web address for the replay link, from WEB_URL only (no trailing slash), or undefined. The
  * request's own origin is never used: the issue is public, and a Host header the client chose must not reach it.
  */
 export function bugReportBaseUrl(): string | undefined {
-  const configured = process.env.NEXTAUTH_URL?.trim() || process.env.AUTH_URL?.trim();
+  const configured = process.env.WEB_URL?.trim();
   if (!configured) return undefined;
   try {
     const url = new URL(configured);

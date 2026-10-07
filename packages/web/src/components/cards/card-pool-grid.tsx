@@ -1,5 +1,6 @@
 "use client";
 
+import { cardArtworkId } from "@/lib/card-image-url";
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowUpDown, Search } from "lucide-react";
@@ -103,7 +104,6 @@ function CardPoolGridBase({
   const [activeFilter, setActiveFilter] = useState<PoolFilter>("all");
   const [activeSort, setActiveSort] = useState<PoolSort>("newest");
   const [activeTribute, setActiveTribute] = useState<PoolTribute>("any");
-  const [hoveredCard, setHoveredCard] = useState<CardSummary | null>(null);
   const [tapped, setTapped] = useState<CardSummary | null>(null);
   const [popupPosition, setPopupPosition] = useState<{ left: number; top: number } | null>(null);
   const [imageErrors, setImageErrors] = useState<Set<number>>(new Set());
@@ -119,11 +119,6 @@ function CardPoolGridBase({
   }, []);
 
   const handleImageError = useCallback((id: number) => setImageErrors((p) => new Set(p).add(id)), []);
-  const handleEnter = useCallback((card: CardSummary, rect: DOMRect) => {
-    setHoveredCard(card);
-    setPopupPosition(getPopupPosition(rect));
-  }, []);
-  const handleLeave = useCallback(() => { setHoveredCard(null); setPopupPosition(null); }, []);
 
   const { monsterCount, spellCount, trapCount } = useMemo(() => ({
     monsterCount: cards.filter((c) => isMonster(c.type)).length,
@@ -227,16 +222,6 @@ function CardPoolGridBase({
     const totalCards = cards.length;
     const popups = (
       <>
-        {hoveredCard && popupPosition && !tapped && (
-          <SheetPortal>
-            <CardHoverPopup
-              card={hoveredCard}
-              position={popupPosition}
-              imageError={imageErrors.has(hoveredCard.id)}
-              onImageError={() => handleImageError(hoveredCard.id)}
-            />
-          </SheetPortal>
-        )}
         {previewEnabled && tapped && popupPosition && (
           <SheetPortal>
             <CardHoverPopup
@@ -351,16 +336,13 @@ function CardPoolGridBase({
                               setTapped(entry.card);
                               setPopupPosition(getPopupPosition(e.currentTarget.getBoundingClientRect()));
                             }}
-                            onMouseEnter={(e) => handleEnter(entry.card, e.currentTarget.getBoundingClientRect())}
-                            onMouseLeave={handleLeave}
-                            onFocus={(e) => handleEnter(entry.card, e.currentTarget.getBoundingClientRect())}
-                            onBlur={handleLeave}
                           >
                             <span className="ct-art">
                               {imageErrors.has(entry.card.id) ? (
                                 <span className={sheetStyles.broken}>?</span>
                               ) : (
                                 <CardArt
+                              cardId={cardArtworkId(entry.card)}
                                   smallSrc={entry.card.imageUrlSmall || entry.card.imageUrl}
                                   fullSrc={entry.card.imageUrl}
                                   alt={entry.card.name}
@@ -533,16 +515,13 @@ function CardPoolGridBase({
                           setTapped(entry.card);
                           setPopupPosition(getPopupPosition(e.currentTarget.getBoundingClientRect()));
                         }}
-                        onMouseEnter={(e) => handleEnter(entry.card, e.currentTarget.getBoundingClientRect())}
-                        onMouseLeave={handleLeave}
-                        onFocus={(e) => handleEnter(entry.card, e.currentTarget.getBoundingClientRect())}
-                        onBlur={handleLeave}
                       >
                         <div className="relative aspect-[421/614] w-full overflow-hidden rounded-md bg-bg-elevated">
                           {imageErrors.has(entry.card.id) ? (
                             <div className="flex h-full w-full items-center justify-center text-xs text-text-muted">?</div>
                           ) : (
                             <CardArt
+                              cardId={cardArtworkId(entry.card)}
                               smallSrc={
                                 cubeEditMode
                                   ? entry.card.imageUrl || entry.card.imageUrlSmall
@@ -601,14 +580,6 @@ function CardPoolGridBase({
         )}
       </div>
 
-      {hoveredCard && popupPosition && !tapped && (
-        <CardHoverPopup
-          card={hoveredCard}
-          position={popupPosition}
-          imageError={imageErrors.has(hoveredCard.id)}
-          onImageError={() => handleImageError(hoveredCard.id)}
-        />
-      )}
       {previewEnabled && tapped && popupPosition && (
         <CardHoverPopup
           card={tapped}

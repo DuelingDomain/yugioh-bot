@@ -1,12 +1,12 @@
 import { DuelRequestError } from "@/components/duel/api";
 
-/** Server texts (duel-server host.ts) that have a friendlier notice. Matched exactly, so a new server text is shown as sent. */
+/** Server texts (duel-server host.ts) that have a friendlier notice. NO_ELIMINATE_CORE means the installed core has no Debug.SurrenderDuelist (patch 0083); the fix is a current engine bundle. Matched exactly, so a new server text is shown as sent. */
 const NO_ELIMINATE_CORE = "This engine cannot eliminate a surrendering duelist";
 const STALE_CHOICE = "That choice is stale. Refresh the current duel state.";
 const SEAT_LEFT_ERROR_CODE = "seat_left";
 const SEAT_LEFT_NOTICE = "That player has left. Pick again.";
 
-export const SURRENDER_UNSUPPORTED_NOTICE = "This duel can't accept a surrender right now.";
+export const SURRENDER_UNSUPPORTED_NOTICE = "This server's duel engine is out of date and can't accept a surrender. The creator can cancel the duel.";
 export const CHOICE_CLOSED_NOTICE = "That choice is no longer open.";
 export const ANSWER_REJECTED_NOTICE = "That choice is no longer open. Pick again.";
 

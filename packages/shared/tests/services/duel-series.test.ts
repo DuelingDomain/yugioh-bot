@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "../helpers/identity.js";
 import Database from "better-sqlite3";
 import { describe, expect, it, vi } from "vitest";
 import { migrate } from "../../src/db/index.js";
@@ -9,10 +10,7 @@ import { createTournamentDuelService, TournamentDuelError } from "../../src/serv
 import { createTournamentService } from "../../src/services/tournaments.js";
 
 function insertPlayer(db: Database.Database, guildId: string, discordUserId: string, displayName: string) {
-  return Number(
-    db.prepare("insert into players (guild_id, discord_user_id, display_name) values (?, ?, ?)").run(guildId, discordUserId, displayName)
-      .lastInsertRowid,
-  );
+  return seedIdentity(db, { guildId: guildId, name: displayName, userId: seedUser(db, discordUserId).userId, discordUserId: seedUser(db, discordUserId).discordUserId ?? discordUserId }).playerId;
 }
 
 function validDeck(start = 1, side = 2): DuelDeck {
@@ -1155,7 +1153,7 @@ describe("side decking", () => {
 describe("tournament series", () => {
   function tournamentSetup(bestOf: 1 | 3 = 3) {
     const app = setup();
-    const t = app.tournaments.create("g1", "Cup", "single_elim", "u3", { bestOf });
+    const t = app.tournaments.create("g1", "Cup", "single_elim", seedUser(app.db, "u3").userId, { bestOf });
     app.tournaments.join(t.id, app.p1);
     app.tournaments.join(t.id, app.p2);
     app.tournaments.start(t.id);
@@ -1247,7 +1245,7 @@ describe("tournament series", () => {
     expect(again.duel.slug).toBe(first.duel.slug);
 
     const organizer = insertPlayer(app.db, "g1", "u3-org", "Organizer");
-    app.db.prepare("update tournaments set created_by_user_id = 'u3-org' where id = ?").run(t.id);
+    app.db.prepare("update tournaments set created_by_user_id = ? where id = ?").run(seedUser(app.db, "u3-org").userId, t.id);
     expect(app.series.startTournamentMatch({ guildId: "g1", tournamentMatchId: slot.id, actorPlayerId: organizer }).created).toBe(false);
   });
 
@@ -1326,7 +1324,7 @@ describe("tournament series", () => {
 describe("tournament series guards", () => {
   function guardSetup(bestOf: 1 | 3 = 3, format: "single_elim" | "round_robin" = "single_elim") {
     const app = setup();
-    const t = app.tournaments.create("g1", "Cup", format, "u3", { bestOf });
+    const t = app.tournaments.create("g1", "Cup", format, seedUser(app.db, "u3").userId, { bestOf });
     app.tournaments.join(t.id, app.p1);
     app.tournaments.join(t.id, app.p2);
     app.tournaments.start(t.id);
@@ -1570,7 +1568,7 @@ describe("tournament series guards", () => {
         .run(started.series.id);
     }
     if (resultKind === "organizer") {
-      createTournamentDuelService(app.db).setResultByOrganizer({ tournamentMatchId: slot.id, organizerUserId: "u3", winnerPlayerId: app.p2 });
+      createTournamentDuelService(app.db).setResultByOrganizer({ tournamentMatchId: slot.id, organizerUserId: seedUser(app.db, "u3").userId, winnerPlayerId: app.p2 });
     } else {
       app.tournaments.reportTournamentMatch(slot.id, app.p2, app.p2);
     }
@@ -1670,8 +1668,8 @@ describe("tournament series guards", () => {
     app.db.exec("drop trigger fail_match_save");
     app.db.prepare("update duel_series set settings_json = json_remove(settings_json, '$.resultMatchIdWatermark') where id = ?")
       .run(started.series.id);
-    createTournamentDuelService(app.db).setResultByOrganizer({ tournamentMatchId: slot.id, organizerUserId: "u3", winnerPlayerId: app.p2 });
-    app.tournaments.reopenTournamentMatch(slot.id, "u3");
+    createTournamentDuelService(app.db).setResultByOrganizer({ tournamentMatchId: slot.id, organizerUserId: seedUser(app.db, "u3").userId, winnerPlayerId: app.p2 });
+    app.tournaments.reopenTournamentMatch(slot.id, seedUser(app.db, "u3").userId);
     const terminalSeries = seriesRow(app, started.series.id);
     app.db.prepare("update matches set created_at = datetime(?, ?), resolved_at = datetime(?, ?)")
       .run(terminalSeries.ended_at, offset, terminalSeries.ended_at, offset);
@@ -1713,8 +1711,8 @@ describe("tournament series guards", () => {
     const terminalSeries = seriesRow(app, started.series.id);
     const terminalDuel = app.duels.get(started.duel.slug, "g1");
     const store = createSeriesStore(app.db);
-    createTournamentDuelService(app.db).setResultByOrganizer({ tournamentMatchId: slot.id, organizerUserId: "u3", winnerPlayerId: app.p2 });
-    app.tournaments.reopenTournamentMatch(slot.id, "u3");
+    createTournamentDuelService(app.db).setResultByOrganizer({ tournamentMatchId: slot.id, organizerUserId: seedUser(app.db, "u3").userId, winnerPlayerId: app.p2 });
+    app.tournaments.reopenTournamentMatch(slot.id, seedUser(app.db, "u3").userId);
     if (legacy) {
       app.db.prepare("update matches set created_at = ?, resolved_at = ?")
         .run(terminalSeries.ended_at, terminalSeries.ended_at);

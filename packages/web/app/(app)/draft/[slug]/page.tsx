@@ -1,17 +1,26 @@
 "use client";
 
+import { parseUserId } from "@/lib/user-id";
+
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
+import type { DraftDetailResponse } from "@yugidraft/shared/types";
+import { DangerConfirm } from "@/components/draft/danger-confirm";
+import { DraftFrame } from "@/components/draft/draft-frame";
 import { DraftManageView } from "@/components/draft/draft-manage-view";
 import { DraftState } from "@/components/draft/draft-state";
 import { DraftSummaryView } from "@/components/draft/draft-summary-view";
 import { DraftRoom } from "@/components/draft/room/draft-room";
 import { DraftFinale } from "@/components/draft/room/finale";
+import { ThemeTableLobby } from "@/components/draft/theme/theme-table-lobby";
+import { useInlineConfirm } from "@/components/draft/use-inline-confirm";
 import { useDraftTournament } from "@/components/draft/use-draft-tournament";
+import { svButtonClass } from "@/components/sheet";
 import { useDraftStore } from "@/lib/stores/draft-store";
 import { useDraftWebsocket } from "@/lib/hooks/use-draft-websocket";
 import { useDraftCountdown } from "@/lib/hooks/use-draft-countdown";
 import { useDraftExpiryResync } from "@/lib/hooks/use-draft-expiry-resync";
+import { useLobbyClock } from "@/lib/hooks/use-lobby-clock";
 import { usePoolImagePrefetch } from "@/lib/hooks/use-pool-image-prefetch";
 
 const DRAFT_STATUS = {
@@ -19,113 +28,28 @@ const DRAFT_STATUS = {
   completed: "completed",
 } as const;
 
-interface DraftPlayer {
-  playerId: number;
-  displayName: string;
-  seatIndex?: number;
-  pickCount: number;
-  finishedAt?: string;
-  joinedAt: string;
-}
-
-interface DraftData {
-  id: number;
-  name: string;
-  status: string;
-  createdByUserId: string;
-  createdAt: string;
-  startedAt?: string;
-  endedAt?: string;
-  currentPackRound?: number;
-  currentPickStep?: number;
-  config: {
-    packSize?: number;
-    packsPerPlayer?: number;
-    cardsPerPlayer?: number;
-    pickSeconds?: number;
-    setNames?: string[];
-    customCardIds?: number[];
-    mode?: "booster" | "theme";
-    themeSelection?: "host_assigned" | "random" | "player_pick";
-    uniqueThemes?: boolean;
-    extraDeckEnabled?: boolean;
-    extraDeckSize?: number;
-    alternatePassDirection?: boolean;
-    themePackSize?: number;
-  };
-  phase?: "main" | "extra";
-  themeProgress?: { main: number; mainTotal: number; extra: number; extraTotal: number };
-  allowedCubes?: Array<{
-    id: number;
-    name: string;
-    archetype: string | null;
-    mainCount: number;
-    extraCount: number;
-    sampleImages: string[];
-  }>;
-  players: DraftPlayer[];
-  playerCount: number;
-  participantPickCount?: number;
-  tournamentId?: number | null;
-  tournamentName?: string | null;
-  tournamentSlug?: string | null;
-  myDeckId?: number | null;
-  /** Server-checked: completed, no tournament yet, and the viewer is the host or a guild admin. */
-  canCreateTournament?: boolean;
-  isParticipant: boolean;
-  /** Server says test bots are allowed (DRAFT_TEST_BOTS=1 or a non-production build). */
-  botsEnabled?: boolean;
-  currentPack?: Array<{
-    id: number;
-    passcode: number;
-    name: string;
-    type: string;
-    frameType: string;
-    attribute?: string;
-    level?: number;
-    effectText: string;
-    atk?: number;
-    def?: number;
-    imageUrl: string;
-    imageUrlSmall: string;
-  }>;
-  myPool?: Array<{
-    id: number;
-    passcode: number;
-    name: string;
-    type: string;
-    frameType: string;
-    attribute?: string;
-    level?: number;
-    effectText: string;
-    atk?: number;
-    def?: number;
-    imageUrl: string;
-    imageUrlSmall: string;
-  }>;
-  seats?: Array<{
-    seatIndex: number;
-    playerId: number;
-    displayName: string;
-    hasPicked: boolean;
-    isCurrentPlayer: boolean;
-  }>;
-  packRound?: number;
-  pickStep?: number;
-  timerSeconds?: number;
-  isMyTurn?: boolean;
-  completed?: boolean;
-  pickSeconds?: number;
-}
+/**
+ * The draft GET body: the shared response (pending drafts carry the lobby snapshot and the roster with ready/claim
+ * fields) plus the flags the server adds. The page never reads the environment; it passes these down.
+ */
+type DraftData = DraftDetailResponse & {
+  /** The Discord bot is on. When false the lobby has no Nudge, no Post to Discord and no Discord text. */
+  discordEnabled?: boolean;
+};
 
 export default function DraftDetailPage() {
   const params = useParams();
-  const router = useRouter();
   const slug = typeof params.slug === "string" ? params.slug : "";
+  // A new address mounts a new body, so the last draft never shows for a frame under the new slug.
+  return <DraftDetailBody key={slug} slug={slug} />;
+}
+
+function DraftDetailBody({ slug }: { slug: string }) {
+  const router = useRouter();
 
   const [draft, setDraft] = useState<DraftData | null>(null);
   const [error, setError] = useState<{ status: number | null } | null>(null);
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
 
   // The room is shown while the draft is active; finishing it from the room ends on the finale.
   const [wasInRoom, setWasInRoom] = useState(false);
@@ -147,14 +71,40 @@ export default function DraftDetailPage() {
   const storePool = useDraftStore((s) => s.myPool);
 
   const loadedRef = useRef(false);
-  // A new draft address starts unloaded, so a failed first load of it shows the error sheet.
-  useEffect(() => {
-    loadedRef.current = false;
-  }, [slug]);
+  // The newest draft the page holds, for the revision check and for edits that carry the revision they were made on.
+  const draftRef = useRef<DraftData | null>(null);
+  // Bumped when the address changes: an answer from an older generation is dropped.
+  const generationRef = useRef(0);
+  const inflightRef = useRef<Promise<void> | null>(null);
+  const queuedRef = useRef(false);
+  // False once this body unmounts (the address changed): an answer that lands later must not touch the shared store.
+  const aliveRef = useRef(true);
 
-  const fetchDraft = useCallback(async () => {
+  // The shared draft store is global, so a new address clears what the last draft left in it. Nothing of the last
+  // draft (its room, its pool) may show under the new one.
+  useEffect(() => {
+    aliveRef.current = true;
+    setFromServer({
+      slug,
+      packRound: 1,
+      pickStep: 1,
+      currentPack: [],
+      myPool: [],
+      seats: [],
+      timerSeconds: 0,
+      isMyTurn: false,
+      completed: false,
+      pickSeconds: 60,
+    });
+    return () => {
+      aliveRef.current = false;
+    };
+  }, [slug, setFromServer]);
+
+  const loadDraft = useCallback(async (generation: number) => {
     try {
       const res = await fetch(`/api/drafts/${slug}`);
+      if (generation !== generationRef.current || !aliveRef.current) return;
       if (!res.ok) {
         if (res.status === 401) {
           router.push("/login");
@@ -165,7 +115,13 @@ export default function DraftDetailPage() {
         setError({ status: res.status });
         return;
       }
-      const data = await res.json();
+      const data = (await res.json()) as DraftData;
+      if (generation !== generationRef.current || !aliveRef.current) return;
+      // A lobby read that is older than the one on screen (a slow answer that crossed a newer one) must not undo it.
+      const held = draftRef.current;
+      if (data.status === "pending" && data.lobby && held?.status === "pending" && held.lobby && data.lobby.revision < held.lobby.revision) {
+        return;
+      }
       if (data.status === DRAFT_STATUS.active) {
         setFromServer({
           slug,
@@ -180,13 +136,47 @@ export default function DraftDetailPage() {
           pickSeconds: data.pickSeconds ?? data.config?.pickSeconds ?? 60,
         });
       }
+      draftRef.current = data;
       setDraft(data);
       loadedRef.current = true;
       setError(null);
     } catch {
-      if (!loadedRef.current) setError({ status: null });
+      if (generation === generationRef.current && aliveRef.current && !loadedRef.current) setError({ status: null });
     }
   }, [setFromServer, slug, router]);
+
+  /**
+   * Read the draft. Reads never overlap: a call made while one is running waits for it and then runs one more read,
+   * so a burst of socket events, polls and button replies makes at most two requests, and the last one is the newest.
+   */
+  const fetchDraft = useCallback((): Promise<void> => {
+    if (inflightRef.current) {
+      queuedRef.current = true;
+      return inflightRef.current;
+    }
+    const generation = generationRef.current;
+    const run = async () => {
+      try {
+        do {
+          queuedRef.current = false;
+          await loadDraft(generation);
+        } while (queuedRef.current && generation === generationRef.current);
+      } finally {
+        if (generation === generationRef.current) inflightRef.current = null;
+      }
+    };
+    const promise = run();
+    inflightRef.current = promise;
+    return promise;
+  }, [loadDraft]);
+
+  // The recovery clock of a pending lobby: it reads again every 10 s, every second during a countdown, and once past
+  // the server deadline. The server starts the draft; this page never does.
+  useLobbyClock({
+    pending: draft?.status === "pending",
+    lobby: draft?.status === "pending" ? draft.lobby : null,
+    onRefresh: () => void fetchDraft(),
+  });
 
   useDraftWebsocket(slug, {
     onStatusChange: (status) => {
@@ -208,7 +198,7 @@ export default function DraftDetailPage() {
     fetch("/api/auth/session")
       .then((r) => r.json())
       .then((s) => {
-        if (s?.user?.id) setCurrentUserId(s.user.id);
+        setCurrentUserId(parseUserId(s?.user?.id));
       })
       .catch(() => {});
   }, []);
@@ -246,14 +236,24 @@ export default function DraftDetailPage() {
     await fetchDraft();
   };
 
-  const handleUpdate = async (data: { name?: string; config?: unknown }) => {
+  const handleUpdate = async ({ revision: seen, ...data }: { name?: string; config?: unknown; revision?: number }) => {
+    // The newest revision known: the page's own read, or the lobby answer the caller saw after its own change (Ready,
+    // a seat edit). Without the second, the host's own change makes a false "the lobby changed" answer.
+    const held = draftRef.current;
+    const pageRevision = held?.status === "pending" ? held.lobby?.revision : undefined;
+    const revision = pageRevision === undefined ? seen : seen === undefined ? pageRevision : Math.max(pageRevision, seen);
     const res = await fetch(`/api/drafts/${slug}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
+      body: JSON.stringify(revision === undefined ? data : { ...data, revision }),
     });
     if (!res.ok) {
-      const body = await res.json();
+      const body = await res.json().catch(() => ({}));
+      if (res.status === 409 && body.code === "STALE_LOBBY") {
+        // Someone changed the lobby first. Show the new one and let the host decide again.
+        await fetchDraft();
+        throw new Error("The lobby changed while you edited. It is up to date now. Check it and save again.");
+      }
       throw new Error(body.error ?? "Failed to update draft");
     }
     await fetchDraft();
@@ -304,8 +304,25 @@ export default function DraftDetailPage() {
   };
 
   const isThemeDraft = draft.config.mode === "theme";
+  const discordEnabled = draft.discordEnabled === true;
 
   if (draft.status === "pending") {
+    if (isThemeDraft) {
+      return (
+        <ThemeTablePage
+          draft={draft}
+          slug={slug}
+          isCreator={isCreator}
+          isParticipant={isParticipant}
+          viewerUserId={currentUserId}
+          discordEnabled={discordEnabled}
+          onJoin={handleJoin}
+          onAddBot={handleAddBot}
+          onCancel={handleCancel}
+          onChanged={() => void fetchDraft()}
+        />
+      );
+    }
     return (
       <DraftManageView
         draft={draft}
@@ -319,6 +336,7 @@ export default function DraftDetailPage() {
         onAddBot={handleAddBot}
         onChanged={() => void fetchDraft()}
         botsEnabled={draft.botsEnabled === true}
+        discordEnabled={discordEnabled}
       />
     );
   }
@@ -382,5 +400,93 @@ export default function DraftDetailPage() {
         />
       )}
     </div>
+  );
+}
+
+type PendingDraft = Extract<DraftData, { status: "pending" }>;
+
+/**
+ * The pending theme draft: the Theme Table in the drafts frame. The Table is the body only and has no way to end the
+ * draft, so the host gets Cancel draft in the page bar, with the same inline confirm the booster lobby uses.
+ */
+function ThemeTablePage({
+  draft,
+  slug,
+  isCreator,
+  isParticipant,
+  viewerUserId,
+  discordEnabled,
+  onJoin,
+  onAddBot,
+  onCancel,
+  onChanged,
+}: {
+  draft: PendingDraft;
+  slug: string;
+  isCreator: boolean;
+  isParticipant: boolean;
+  viewerUserId: number | null;
+  discordEnabled: boolean;
+  onJoin: () => Promise<void>;
+  onAddBot: () => Promise<void>;
+  onCancel: () => Promise<void>;
+  onChanged: () => void;
+}) {
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+  const confirm = useInlineConfirm(cancelling);
+
+  const cancel = async () => {
+    setCancelling(true);
+    setCancelError(null);
+    try {
+      await onCancel();
+      confirm.setOpen(false);
+    } catch (err) {
+      setCancelError(err instanceof Error ? err.message : "Failed to cancel draft");
+    } finally {
+      setCancelling(false);
+    }
+  };
+
+  return (
+    <DraftFrame
+      title="Theme Table"
+      sub={draft.name}
+      back={{ href: "/drafts", label: "Drafts" }}
+      actions={
+        isCreator && !confirm.open ? (
+          <button ref={confirm.triggerRef} type="button" className={svButtonClass("danger")} onClick={() => confirm.setOpen(true)}>
+            Cancel draft
+          </button>
+        ) : undefined
+      }
+    >
+      {isCreator && confirm.open && (
+        <div onKeyDown={confirm.onKeyDown}>
+          <DangerConfirm
+            title="Cancel this draft?"
+            confirmLabel="Yes, cancel"
+            busy={cancelling}
+            consequence={`It ends for the ${draft.players.length === 1 ? "1 player" : `${draft.players.length} players`} who joined. Nothing has been dealt yet.`}
+            onBack={() => confirm.setOpen(false)}
+            onConfirm={() => void cancel()}
+          />
+          {cancelError && <p role="alert">{cancelError}</p>}
+        </div>
+      )}
+      <ThemeTableLobby
+        slug={slug}
+        draft={draft}
+        isCreator={isCreator}
+        isParticipant={isParticipant}
+        viewerUserId={viewerUserId}
+        onJoin={onJoin}
+        onAddBot={onAddBot}
+        botsEnabled={draft.botsEnabled === true}
+        discordEnabled={discordEnabled}
+        onChanged={onChanged}
+      />
+    </DraftFrame>
   );
 }

@@ -10,6 +10,9 @@ concurrency:
   group: deploy-production
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   deploy:
     name: Deploy to Production VM
@@ -21,6 +24,8 @@ jobs:
       VM_USER: ${{ secrets.VM_USER }}
       VM_SSH_PRIVATE_KEY: ${{ secrets.VM_SSH_PRIVATE_KEY }}
       VM_PORT: ${{ secrets.VM_PORT || '22' }}
+      # Public production key only. The secret remains in the protected VM runtime env.
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
 
     steps:
       - name: Skip deploy when VM secrets are not configured
@@ -37,7 +42,7 @@ jobs:
 
       - name: Compute bundle cache key
         if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
-        run: echo "BUNDLE_CACHE_KEY=duel-engine-${{ hashFiles('packages/duel-server/scripts/prepare-data.ts', 'packages/duel-server/scripts/build-domain-core.ts', 'packages/duel-server/scripts/build-domain-core.sh', 'packages/duel-server/scripts/build-standard-core.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/src/**', 'packages/duel-server/domain-core/lua/**', 'packages/duel-server/legacy-1v1/**', 'packages/duel-server/domain-core/multi-scripts/**', 'packages/duel-server/src/multi-scripts.ts', 'patches/ocgcore-wasm+0.1.2.patch', 'package-lock.json') }}" >> "$GITHUB_ENV"
+        run: echo "BUNDLE_CACHE_KEY=duel-engine-${{ hashFiles('packages/duel-server/scripts/prepare-data.ts', 'packages/duel-server/scripts/released-card-data.ts', 'packages/duel-server/scripts/build-domain-core.ts', 'packages/duel-server/scripts/build-domain-core.sh', 'packages/duel-server/scripts/build-standard-core.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/src/**', 'packages/duel-server/domain-core/lua/**', 'packages/duel-server/legacy-1v1/**', 'packages/duel-server/domain-core/multi-scripts/**', 'packages/duel-server/src/multi-scripts.ts', 'packages/duel-server/src/released-database-files.ts', 'patches/ocgcore-wasm+0.1.2.patch', 'package-lock.json') }}" >> "$GITHUB_ENV"
 
       - name: Restore pinned duel-engine bundle
         if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
@@ -54,12 +59,23 @@ jobs:
           node-version: "22"
           cache: npm
 
-      - name: Build pinned duel-engine bundle
+      - name: Install duel-engine build dependencies
         if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' && steps.bundle.outputs.cache-hit != 'true' }}
         run: |
           npm ci --ignore-scripts
           npx patch-package --error-on-fail
-          npm run duel:prepare
+          # duel:prepare merges release card databases with better-sqlite3.
+          npm rebuild better-sqlite3
+
+      - name: Prepare card data and scripts
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' && steps.bundle.outputs.cache-hit != 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: npm run duel:prepare
+
+      - name: Build pinned duel-engine cores
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' && steps.bundle.outputs.cache-hit != 'true' }}
+        run: |
           docker pull docker.io/emscripten/emsdk:4.0.9@sha256:3c853ef9c3b4c2708da1adac2fdfdba49c775fdc4144ceef4989423963e96811
           npx tsx packages/duel-server/scripts/build-domain-core.ts
           npx tsx packages/duel-server/scripts/build-domain-core.ts standard
@@ -163,6 +179,11 @@ jobs:
         if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
         run: |
           set -eu
+          case "$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" in
+            pk_live_*) ;;
+            *) echo "Set the production NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY repository variable." >&2; exit 1 ;;
+          esac
+          printf '%s' "$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" | grep -Eq '^pk_live_[A-Za-z0-9_-]+$' || exit 1
           bundle_tar=$(mktemp "$RUNNER_TEMP/duel-engine.XXXXXX.tar.gz")
           remote_bundle=
           cleanup_transfer() {
@@ -183,7 +204,7 @@ jobs:
           ssh -i ~/.ssh/vm_deploy_key \
             -p "$VM_PORT" \
             "$VM_USER@$VM_HOST" \
-            "env DEPLOY_COMMIT='$DEPLOY_COMMIT' DEPLOY_BUNDLE='$remote_bundle' sh -s" <<'REMOTE'
+            "env DEPLOY_COMMIT='$DEPLOY_COMMIT' DEPLOY_BUNDLE='$remote_bundle' NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY='$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY' sh -s" <<'REMOTE'
              set -eu
              bundle_src=
              installer=
@@ -224,6 +245,27 @@ jobs:
              if [ -n "$staging_ids" ]; then
                docker stop $staging_ids || true
              fi
+             # Preserve matching rollback code/env and the actual container image IDs before reset/build.
+             # Record the previous service set, including its bot image for PR 1 rollback.
+             umask 077
+             release_dir="/var/backups/yugioh-bot/pr2-$(date -u +%Y%m%d-%H%M%SZ)"
+             mkdir -m 0700 "$release_dir"
+             git rev-parse HEAD > "$release_dir/checkout-commit"
+             printf '%s\n' "$DEPLOY_COMMIT" > "$release_dir/deploy-commit"
+             cp -p .env "$release_dir/runtime.env"
+             chmod 0600 "$release_dir/runtime.env"
+             : > "$release_dir/images.jsonl"
+             for container in $(docker compose -f docker-compose.yml ps -aq); do
+               service=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.service"}}' "$container")
+               case "$service" in duel|web|bot|ws|worker)
+                 image_id=$(docker inspect -f '{{.Image}}' "$container")
+                 image_ref=$(docker inspect -f '{{.Config.Image}}' "$container")
+                 docker inspect -f '{"service":"{{index .Config.Labels "com.docker.compose.service"}}","imageId":"{{.Image}}","imageRef":"{{.Config.Image}}"}' "$container" >> "$release_dir/images.jsonl"
+                 docker tag "$image_id" "${image_ref%:*}:prev"
+                 ;;
+               esac
+             done
+             DUELING_BACKUP_DIR="$release_dir/online" python3 scripts/backup/dueling-backup
              git reset --hard "$DEPLOY_COMMIT"
              sh scripts/ensure-env-secrets.sh .env DUEL_INTERNAL_SECRET
              # The image carries the same verified bundle as the data volume.
@@ -231,24 +273,30 @@ jobs:
              mkdir .deploy-duel-engine
              context_ready=1
              cp -a "$bundle_src/." .deploy-duel-engine/
-             # Preserve the images of the current containers, even after a previous failed build retagged :latest.
-             for service in duel web bot; do
-               container=$(docker compose -f docker-compose.yml ps -aq "$service")
-               if [ -n "$container" ]; then
-                 image_id=$(docker inspect -f '{{.Image}}' "$container")
-                 image_ref=$(docker inspect -f '{{.Config.Image}}' "$container")
-                 docker tag "$image_id" "${image_ref%:*}:prev"
-               fi
-             done
-             docker compose -f docker-compose.yml build
-             docker compose -f docker-compose.yml stop web || true
-             trap 'docker compose -f docker-compose.yml start web || true; cleanup' EXIT
+             docker compose -f docker-compose.yml build --build-arg NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY="$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"
+             # Retire the bot container from the previous release before migration.
+             project=$(docker compose -f docker-compose.yml config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["name"])')
+             retired_ids=$(docker ps -q --filter "label=com.docker.compose.project=$project" --filter label=com.docker.compose.service=bot)
+             if [ -n "$retired_ids" ]; then docker stop $retired_ids; fi
+             docker compose -f docker-compose.yml stop web duel worker ws
+             # Once schema work can begin, failure must leave traffic stopped. Never restart old binaries.
+             trap cleanup EXIT
+             DUELING_BACKUP_DIR="$release_dir/drained" python3 scripts/backup/dueling-backup
              if ! DUEL_BUNDLE_SRC="$bundle_src" DUEL_DATA_DIR=/opt/yugioh-bot/data/duel-engine \
                sh packages/duel-server/scripts/install-engine-bundle.sh; then
                exit 1
              fi
+             docker compose -f docker-compose.yml run --rm --no-deps worker node --input-type=module -e '
+               import {openDatabase} from "@yugidraft/shared/db";
+               const db=openDatabase(process.env.DATABASE_PATH);
+               try {
+                 if(db.pragma("foreign_key_check").length)throw new Error("Foreign key check failed");
+                 if(db.pragma("integrity_check",{simple:true})!=="ok")throw new Error("Integrity check failed");
+                 console.log("identity migration verified");
+               } finally {db.close();}
+             '
              docker compose -f docker-compose.yml down --remove-orphans
-             docker compose -f docker-compose.yml up -d
+             docker compose -f docker-compose.yml up -d ws duel web worker caddy
              trap - EXIT
              cleanup
              docker compose -f docker-compose.yml ps
@@ -261,5 +309,23 @@ jobs:
                echo "The duel container is not running cleanly." >&2
                exit 1
              fi
+             for service in ws worker; do
+               healthy=0
+               for attempt in $(seq 1 36); do
+                 container=$(docker compose -f docker-compose.yml ps -q "$service")
+                 state=$(docker inspect -f '{{.State.Status}} {{.RestartCount}} {{.State.Health.Status}}' "$container")
+                 if [ "$state" = "running 0 healthy" ]; then healthy=1; break; fi
+                 sleep 5
+               done
+               [ "$healthy" = 1 ] || { docker compose -f docker-compose.yml logs --tail=60 "$service"; exit 1; }
+             done
+             # Anonymous auth checks: no redirects, no cookies and exact null body.
+             # Next listens on the container's HOSTNAME, not on 127.0.0.1.
+             docker compose -f docker-compose.yml exec -T web node -e '
+               const base = `http://${process.env.HOSTNAME}:3000`;
+               Promise.all([fetch(`${base}/sign-in`, {redirect:"manual"}), fetch(`${base}/api/auth/session`, {redirect:"manual"})])
+                 .then(async ([page, session]) => { if(page.status !== 200 || session.status !== 200 || (await session.text()).trim() !== "null") process.exit(1); })
+                 .catch(() => process.exit(1));
+             '
              docker image prune -f
           REMOTE

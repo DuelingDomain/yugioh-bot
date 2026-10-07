@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "../helpers/identity.js";
 import Database from "better-sqlite3";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -24,11 +25,10 @@ function setup(path = ":memory:") {
   const db = new Database(path);
   databases.push(db);
   migrate(db);
-  const insert = db.prepare("insert into players (guild_id, discord_user_id, display_name) values (?, ?, ?)");
-  const host = Number(insert.run("g", "host", "Host").lastInsertRowid);
-  const guest = Number(insert.run("g", "guest", "Guest").lastInsertRowid);
-  const viewer = Number(insert.run("g", "viewer", "Viewer").lastInsertRowid);
-  const outsider = Number(insert.run("elsewhere", "outsider", "Outsider").lastInsertRowid);
+  const host = seedIdentity(db, { guildId: "g", name: "Host", userId: seedUser(db, "host").userId, discordUserId: seedUser(db, "host").discordUserId ?? "host" }).playerId;
+  const guest = seedIdentity(db, { guildId: "g", name: "Guest", userId: seedUser(db, "guest").userId, discordUserId: seedUser(db, "guest").discordUserId ?? "guest" }).playerId;
+  const viewer = seedIdentity(db, { guildId: "g", name: "Viewer", userId: seedUser(db, "viewer").userId, discordUserId: seedUser(db, "viewer").discordUserId ?? "viewer" }).playerId;
+  const outsider = seedIdentity(db, { guildId: "elsewhere", name: "Outsider", userId: seedUser(db, "outsider").userId, discordUserId: seedUser(db, "outsider").discordUserId ?? "outsider" }).playerId;
   const duels = createDuelService(db);
   const series = createDuelSeriesService(db);
   return { db, duels, series, host, guest, viewer, outsider };

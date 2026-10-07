@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { afterEach, expect, it } from "vitest";
@@ -5,7 +6,8 @@ import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
 import type { DuelAnswer, DuelCardInfo, DuelChainMode, DuelEngineView } from "@yugidraft/shared/duels";
 import { createDuelService } from "@yugidraft/shared/services";
-import { createDuelHost, type DuelHost } from "../src/host.js";
+import type { DuelHost } from "../src/host.js";
+import { createTestDuelHost as createDuelHost, finishTestDiceOpening } from "./support/test-opening.js";
 import { createEngineGame, type EngineGame } from "../src/engine.js";
 import { buildPracticeBotDeck } from "../src/practice-bot.js";
 import type { DuelGameWorker, GameOptions } from "../src/worker-client.js";
@@ -43,7 +45,7 @@ describeWithCores("chain mode in a duel on the multi core (real engine)", [needs
     const db = new Database(":memory:");
     migrate(db);
     const players = [0, 1, 2].map((index) =>
-      Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values (?, ?, ?)").run("g1", `u${index}`, `P${index}`).lastInsertRowid));
+      seedIdentity(db, { guildId: "g1", name: `P${index}`, userId: seedUser(db, `u${index}`).userId, discordUserId: seedUser(db, `u${index}`).discordUserId ?? `u${index}` }).playerId);
     const duels = createDuelService(db);
     const session = duels.create({ guildId: "g1", organizerPlayerId: players[0]!, name: "Duel", mode: "normal", format: "ffa3" });
     for (const player of players.slice(1)) duels.takeSeat(session.slug, "g1", player);
@@ -54,14 +56,15 @@ describeWithCores("chain mode in a duel on the multi core (real engine)", [needs
       hosts.push(host);
       return host;
     };
-    const post = async (host: DuelHost, body: Record<string, unknown>, seat: number) => {
+    const post = async (host: DuelHost, body: Record<string, unknown>, seat: number): Promise<{ status: number; data: Record<string, any> }> => {
       const raw = JSON.stringify({ slug: session.slug, guildId: "g1", playerId: players[seat], ...body });
       const response = await host.handle(new Request("http://localhost/internal/duel", {
         method: "POST",
         headers: { "content-type": "application/json", "x-announce-signature": "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex") },
         body: raw,
       }));
-      return { status: response.status, data: (await response.json()) as Record<string, any> };
+      return finishTestDiceOpening(host, { slug: session.slug, ...body },
+        { status: response.status, data: (await response.json()) as Record<string, any> }, (next) => post(host, next, seat));
     };
     const views = async (host: DuelHost) => Promise.all([0, 1, 2].map(async (seat) => (await post(host, { op: "view" }, seat)).data.engine as DuelEngineView));
 

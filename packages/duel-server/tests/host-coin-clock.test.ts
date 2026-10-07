@@ -1,10 +1,12 @@
+import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { createHmac } from "node:crypto";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { createDuelService } from "@yugidraft/shared/services";
 import { defaultDuelSettings, seatCountFor, type DuelAnswer, type DuelChainMode, type DuelEngineView, type DuelEvent, type DuelFormat, type DuelMode, type DuelRoom } from "@yugidraft/shared/duels";
-import { createDuelHost, type DuelHost } from "../src/host.js";
+import type { DuelHost } from "../src/host.js";
+import { createTestDuelHost as createDuelHost, finishTestDiceOpening } from "./support/test-opening.js";
 import { createEngineGame, type EngineGame } from "../src/engine.js";
 import { isClockDue, liveRemainingMs } from "../src/clock.js";
 import { choosePracticeBotAnswer } from "../src/practice-bot.js";
@@ -92,9 +94,7 @@ async function table(options: {
   const format = options.format ?? "1v1";
   const mode = options.mode ?? "normal";
   const db = new Database(":memory:"); databases.push(db); migrate(db);
-  const players = Array.from({ length: seatCountFor(format) }, (_, seat) => Number(db.prepare(
-    "insert into players (guild_id, discord_user_id, display_name) values ('g', ?, ?)",
-  ).run(`u${seat}`, `P${seat}`).lastInsertRowid));
+  const players = Array.from({ length: seatCountFor(format) }, (_, seat) => seedIdentity(db, { guildId: "g", name: `P${seat}`, userId: seedUser(db, `u${seat}`).userId, discordUserId: seedUser(db, `u${seat}`).discordUserId ?? `u${seat}` }).playerId);
   const duels = createDuelService(db);
   const settings = { ...defaultDuelSettings(mode), turnSeconds: 30, timeout: options.timeout ?? "loss", validateDeck: false };
   const session = duels.create({ guildId: "g", organizerPlayerId: players[0]!, name: "Coin clock", mode, format, settings });
@@ -115,14 +115,15 @@ async function table(options: {
     return host;
   };
   let host = makeHost();
-  const post = async (body: Record<string, unknown>, seat = 0) => {
+  const post = async (body: Record<string, unknown>, seat = 0): Promise<DuelRoom> => {
     const raw = JSON.stringify({ slug: session.slug, guildId: "g", playerId: players[seat], ...body });
     const response = await host.handle(new Request("http://localhost/internal/duel", {
       method: "POST", body: raw, headers: { "content-type": "application/json", "x-announce-signature": "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex") },
     }));
     const data = await response.json() as DuelRoom;
     expect(response.status, JSON.stringify(data)).toBe(200);
-    return data;
+    return (await finishTestDiceOpening(host, { slug: session.slug, ...body },
+      { status: response.status, data }, async (next) => ({ status: 200, data: await post(next, seat) }))).data;
   };
   await post({ op: "start" });
   const clock = () => duels.privateState(session.slug, "g").clock!;

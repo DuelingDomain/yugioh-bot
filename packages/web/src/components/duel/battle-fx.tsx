@@ -4,14 +4,16 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from
 import type { DuelEngineView, DuelEvent, DuelSeatView } from "@yugidraft/shared/duels";
 import { LOCATION_DMZONE, cardArtUrl, isDefense, isFacedown, zoneKey } from "./constants";
 import { battleOutcome, type BattleOutcome } from "./battle-outcome";
-import { battleTrigger } from "./battle-trigger";
+import { battleOutcomeId, battleTrigger } from "./battle-trigger";
+import { coinBarrierFor, coinTossBefore, whenCoinBarrierClears } from "./coin-barrier";
+import { signatureCode } from "./signature-alias";
 import { attackStyleFor, battleKind, battleTiming, DESTROY_TAIL_MS, hasCounterStrike, type AttackCardLike, type AttackStyleId, type BattleKind, type BattleTiming } from "./attack-styles";
-import { runAttackFx, screenPose, type AttackFxPlan, type FxCut, type FxLpHit, type FxSide } from "./attack-fx";
+import { artUpsideDown, runAttackFx, screenPose, zoneTurnsArt, type AttackFxPlan, type FxCut, type FxLpHit, type FxSide } from "./attack-fx";
 import { flipAttackAt, flipFightDamageAt } from "./chain-beats";
 import { FlipStrike, type FlipStrikePlan } from "./flip-strike";
 import { flipSequenceSteps } from "./flip-sequence";
 import { armBattleDestroy, attackImpactAt, clearBattleHolds, noteAttackImpact } from "./battle-hold";
-import { battleSeekMs, joinBattleClock, type BattleClock } from "./battle-clock";
+import { battleSeekMs, coinHeldClock, joinBattleClock, type BattleClock } from "./battle-clock";
 import { planBattle } from "./fx3d/battle-plan";
 import { pickBattleRoute } from "./fx3d/routing";
 import { getSharedFx3d, viewportToHost } from "./fx3d/shared";
@@ -22,8 +24,10 @@ import { collectFreshEvents, emitDuelFxCue, maxEventId } from "./event-queue";
 import { duelFontClasses } from "./fonts";
 import { armLpHold } from "./life-points";
 import { battleCalculation } from "./battle-calculation";
+import { captionSize, declaredCaption, directTargetSeat, placeCaption } from "./declared-attack";
 import { ATTACK_TIMING, paceAttack } from "./duel-timing";
 import { duelFxClock } from "./fx-clock";
+import { centerOfQuad, elementQuad, growQuad, isTurned, quadBox, quadEdgePoint, roundedQuadPath, type Quad } from "./quad";
 import baseStyles from "./battle-fx.module.css";
 import { useSkinStyles } from "./skin";
 import fieldStyles from "./field.module.css";
@@ -65,6 +69,8 @@ export type BattleAim = {
   from: string | null;
   /** Where the arrow points: zone keys of card targets and/or a seat whose LP tally is the target. */
   to: { zones?: readonly string[]; lpSeat?: number | null };
+  /** "<attacker> attacks <player>": the line every seat reads while the attack is declared. */
+  caption?: string;
 };
 
 export type BattleFxProps = {
@@ -79,6 +85,8 @@ export type BattleFxProps = {
   result?: DuelEngineView["result"];
   /** Current engine window; playback visibility follows the captured battle instead. */
   battleStep?: DuelEngineView["battleStep"];
+  /** Names a seat in the caption of a declared attack. Optional: "Player N". */
+  nameOf?: (seat: number) => string;
 };
 
 /* ---------- geometry ---------- */
@@ -106,6 +114,23 @@ function zoneBox(key: string): Box | null {
   return box.width > 0 && box.height > 0 ? box : null;
 }
 
+/** The true outline of a zone's card (it follows a turned field), or null when it is not on screen. */
+function zoneQuad(key: string): Quad | null {
+  const node = zoneNode(key);
+  if (!node) return null;
+  const quad = elementQuad(node.querySelector("[data-card-art]") ?? node);
+  const box = quadBox(quad);
+  return box.width > 0 && box.height > 0 ? quad : null;
+}
+
+function lpQuad(seat: number): Quad | null {
+  const node = document.querySelector<HTMLElement>(`[data-lp-seat="${seat}"]`);
+  if (!node) return null;
+  const quad = elementQuad(node.querySelector("strong") ?? node);
+  const box = quadBox(quad);
+  return box.width > 0 && box.height > 0 ? quad : null;
+}
+
 function lpBox(seat: number): Box | null {
   const node = document.querySelector<HTMLElement>(`[data-lp-seat="${seat}"]`);
   if (!node) return null;
@@ -113,26 +138,17 @@ function lpBox(seat: number): Box | null {
   return box.width > 0 && box.height > 0 ? box : null;
 }
 
-/** The point where a ray from the box centre toward `toward` leaves the box, pushed out by `gap`. */
-function edgePoint(box: Box, toward: Pt, gap: number): Pt {
-  const c = centerOf(box);
-  const dx = toward.x - c.x;
-  const dy = toward.y - c.y;
-  const len = Math.hypot(dx, dy);
-  if (len < 0.5) return c;
-  const ux = dx / len;
-  const uy = dy / len;
-  const tx = ux === 0 ? Infinity : box.width / 2 / Math.abs(ux);
-  const ty = uy === 0 ? Infinity : box.height / 2 / Math.abs(uy);
-  const t = Math.min(tx, ty);
-  return { x: c.x + ux * (t + gap), y: c.y + uy * (t + gap) };
+/** The LP tally a direct attack hits; null when its defender is not known (no wrong guess in a 3 or 4 seat duel). */
+function directLpBox(event: DuelEvent, seatCount: number): Box | null {
+  const seat = directTargetSeat(event, seatCount);
+  return seat == null ? null : lpBox(seat);
 }
 
 type Arrow = { d: string; head: string; start: Pt; tip: Pt };
 
-function arrowBetween(from: Box, to: Box): Arrow | null {
-  const s = edgePoint(from, centerOf(to), 4);
-  const e = edgePoint(to, centerOf(from), 8);
+function arrowBetween(from: Quad, to: Quad): Arrow | null {
+  const s = quadEdgePoint(from, centerOfQuad(to), 4);
+  const e = quadEdgePoint(to, centerOfQuad(from), 8);
   const dx = e.x - s.x;
   const dy = e.y - s.y;
   const len = Math.hypot(dx, dy);
@@ -166,14 +182,14 @@ function indexSeats(seats: readonly DuelSeatView[] | undefined): CardIndex {
     for (const card of seat.monsters) {
       if (!card) continue;
       index.set(zoneKey(card.controller, card.location, card.sequence), {
-        code: card.code, name: card.name, race: card.race, attribute: card.attribute, position: card.position,
+        code: card.code, canonicalPasscode: card.canonicalPasscode, name: card.name, race: card.race, attribute: card.attribute, position: card.position,
         attack: card.attack, defense: card.defense,
       });
     }
     const master = seat.deckMaster;
     if (master?.inZone) {
       index.set(zoneKey(seat.seat, LOCATION_DMZONE, 0), {
-        code: master.card.code, name: master.card.name, race: master.card.race, attribute: master.card.attribute,
+        code: master.card.code, canonicalPasscode: master.card.canonicalPasscode, name: master.card.name, race: master.card.race, attribute: master.card.attribute,
       });
     }
   }
@@ -291,7 +307,8 @@ function cutSourceOf(node: HTMLElement, card: BattleCard): CutSource | null {
   const pose = readPose(art);
   // The copy is drawn outside its zone, so it carries the opponent's half turn (field.module.css) as an attribute.
   const clone = art.cloneNode(true) as HTMLElement;
-  if (art.closest('[data-side="opp"]')) clone.setAttribute("data-turned", "true");
+  // Only the zone turns the art (the clone's field turn comes from screenPose), so ask the zone, not the field.
+  if (zoneTurnsArt(node)) clone.setAttribute("data-turned", "true");
   if (defense) clone.style.transform = defenseTransform(true, pose.fit);
   // Without a layout (no readable size) the box on screen is all there is: a Defense card lies on its side in it.
   const w = pose.w || art.offsetWidth || (defense ? box.height : box.width);
@@ -304,7 +321,7 @@ function cutSourceOf(node: HTMLElement, card: BattleCard): CutSource | null {
  * event, which is BEFORE the DOM shows the battle result, so a card that dies still has its art.
  * Both the attacker's and the target's art are kept: which one is cut is decided at play time.
  */
-function captureAttack(event: DuelEvent, prev: CardIndex, now: CardIndex): AttackCapture | null {
+function captureAttack(event: DuelEvent, prev: CardIndex, now: CardIndex, seatCount: number): AttackCapture | null {
   const zone = event.zone;
   if (!zone) return null;
   const fromKey = keyOfZone(zone);
@@ -323,7 +340,7 @@ function captureAttack(event: DuelEvent, prev: CardIndex, now: CardIndex): Attac
     attacker,
     fromEl: fromNode.querySelector("[data-card-art]"),
     attackerCard,
-    attackerTurned: fromNode.closest('[data-side="opp"]') != null,
+    attackerTurned: artUpsideDown(fromNode, fromNode.querySelector<HTMLElement>("[data-card-art]")),
     lp,
   };
   if (event.target) {
@@ -335,9 +352,9 @@ function captureAttack(event: DuelEvent, prev: CardIndex, now: CardIndex): Attac
     const to = target?.box ?? boxOf(node);
     if (to.width <= 0 || to.height <= 0) return null;
     const targetInDefense = targetCard.position == null ? node.dataset.defense === "true" : isDefense(targetCard.position);
-    return { ...base, to, direct: false, target, toEl: node.querySelector("[data-card-art]"), targetCard, targetInDefense, targetTurned: node.closest('[data-side="opp"]') != null };
+    return { ...base, to, direct: false, target, toEl: node.querySelector("[data-card-art]"), targetCard, targetInDefense, targetTurned: artUpsideDown(node, node.querySelector<HTMLElement>("[data-card-art]")) };
   }
-  const to = lpBox(event.targetSeat ?? 1 - zone.controller);
+  const to = directLpBox(event, seatCount);
   if (!to) return null;
   return { ...base, to, direct: true, target: null, toEl: null, targetCard: null, targetInDefense: false, targetTurned: false };
 }
@@ -347,7 +364,7 @@ function captureAttack(event: DuelEvent, prev: CardIndex, now: CardIndex): Attac
  * the window resized) while the attack waits for its response window. The retained art stays as captured, since the card may
  * not be in its zone any more; a zone or tally that is gone keeps its old box. The input itself when nothing moved.
  */
-function remeasureCapture(capture: AttackCapture, event: DuelEvent): AttackCapture {
+function remeasureCapture(capture: AttackCapture, event: DuelEvent, seatCount: number): AttackCapture {
   const zone = event.zone;
   if (!zone) return capture;
   const same = (a: Box, b: Box) => a.left === b.left && a.top === b.top && a.width === b.width && a.height === b.height;
@@ -368,7 +385,7 @@ function remeasureCapture(capture: AttackCapture, event: DuelEvent): AttackCaptu
   let target = capture.target;
   let to = capture.to;
   if (capture.direct) {
-    to = lpBox(event.targetSeat ?? 1 - zone.controller) ?? to;
+    to = directLpBox(event, seatCount) ?? to;
   } else if (event.target) {
     const node = zoneNode(keyOfZone(event.target));
     target = refreshCut(capture.target, node, capture.targetCard);
@@ -422,7 +439,7 @@ type Play = {
 
 /** The signature passcode when the card plays a signature attack, else null. */
 function signatureOf(style: ReturnType<typeof attackStyleFor>, card: BattleCard | null): number | null {
-  return style.rule.startsWith("signature") && card?.code != null ? card.code : null;
+  return style.rule.startsWith("signature") && card?.code != null ? signatureCode(card.code, card.canonicalPasscode) : null;
 }
 
 type Resolved = {
@@ -575,29 +592,59 @@ function AttackPlay({ play, showStats }: { play: Play; showStats: boolean }) {
 
 /* ---------- aim layer ---------- */
 
-type AimGeom = { mode: BattleAim["mode"]; from: Box; arrows: Arrow[]; rings: Box[] };
+type AimGeom = { mode: BattleAim["mode"]; from: Quad; arrows: Arrow[]; rings: Quad[]; caption: Pt | null };
 
 function measureAim(aim: BattleAim | null | undefined): AimGeom | null {
   if (!aim?.from) return null;
-  const from = zoneBox(aim.from);
+  const from = zoneQuad(aim.from);
   if (!from) return null;
-  const targets: Box[] = [];
+  const targets: Quad[] = [];
   if (aim.to.lpSeat != null) {
-    const box = lpBox(aim.to.lpSeat);
-    if (box) targets.push(box);
+    const quad = lpQuad(aim.to.lpSeat);
+    if (quad) targets.push(quad);
   }
   for (const key of aim.to.zones ?? []) {
-    const box = zoneBox(key);
-    if (box) targets.push(box);
+    const quad = zoneQuad(key);
+    if (quad) targets.push(quad);
   }
   const arrows = targets.map((target) => arrowBetween(from, target)).filter((arrow): arrow is Arrow => arrow != null);
   if (arrows.length === 0) return null;
-  return { mode: aim.mode, from, arrows, rings: aim.mode === "preview" ? [] : targets };
+  return { mode: aim.mode, from, arrows, rings: aim.mode === "preview" ? [] : targets, caption: aim.caption ? captionSpot(aim.caption, arrows[0]) : null };
+}
+
+const midOf = (arrow: Arrow): Pt => ({ x: (arrow.start.x + arrow.tip.x) / 2, y: (arrow.start.y + arrow.tip.y) / 2 });
+
+/** Every zone on the board, every LP plate and the phase chips: what a caption should keep off. */
+function captionObstacles(): Box[] {
+  const nodes = document.querySelectorAll("[data-zones], [data-lp-seat], [data-testid=\"phase-hub\"] [data-cell] > div");
+  const out: Box[] = [];
+  for (const node of nodes) {
+    const box = boxOf(node);
+    if (box.width > 0 && box.height > 0) out.push(box);
+  }
+  return out;
+}
+
+function captionSpot(text: string, lead: Arrow): Pt {
+  return placeCaption(lead.start, lead.tip, captionSize(text), captionObstacles(), { width: window.innerWidth, height: window.innerHeight });
+}
+
+/** The rects of what the aim points at, as one string: it changes when the board moves under a pan or a zoom. */
+function aimFingerprint(aim: BattleAim | null | undefined): string {
+  if (!aim?.from) return "";
+  const nodes: Array<Element | null> = [zoneNode(aim.from)];
+  if (aim.to.lpSeat != null) nodes.push(document.querySelector(`[data-lp-seat="${aim.to.lpSeat}"]`));
+  for (const key of aim.to.zones ?? []) nodes.push(zoneNode(key));
+  return nodes.map((node) => {
+    if (!node) return "-";
+    const r = node.getBoundingClientRect();
+    return `${r.left.toFixed(1)},${r.top.toFixed(1)},${r.width.toFixed(1)},${r.height.toFixed(1)}`;
+  }).join("|");
 }
 
 function aimSignature(aim: BattleAim | null | undefined): string {
   if (!aim?.from) return "";
-  return `${aim.mode}|${aim.from}|${(aim.to.zones ?? []).join(",")}|${aim.to.lpSeat ?? ""}`;
+  return `${aim.mode}|${aim.from}|${(aim.to.zones ?? []).join(",")}|${aim.to.lpSeat ?? ""}|${aim.caption ?? ""}`;
 }
 
 function AimLayer({ aim, reduced }: { aim: BattleAim; reduced: boolean }) {
@@ -620,6 +667,16 @@ function AimLayer({ aim, reduced }: { aim: BattleAim; reduced: boolean }) {
     setGeom(measureAim(aimRef.current));
     // The prompt dock or a scrollbar can shift the board a frame later.
     schedule();
+    // A pan or a zoom of the board is a transform: no resize event, no observer. Watch the rects of what the aim touches.
+    let seen = aimFingerprint(aimRef.current);
+    let watch = requestAnimationFrame(function tick() {
+      const now = aimFingerprint(aimRef.current);
+      if (now !== seen) {
+        seen = now;
+        setGeom(measureAim(aimRef.current));
+      }
+      watch = requestAnimationFrame(tick);
+    });
     window.addEventListener("resize", schedule);
     window.addEventListener("scroll", schedule, true);
     const field = document.querySelector("[data-duel-field]");
@@ -627,6 +684,7 @@ function AimLayer({ aim, reduced }: { aim: BattleAim; reduced: boolean }) {
     if (field) observer?.observe(field);
     return () => {
       if (frame != null) cancelAnimationFrame(frame);
+      cancelAnimationFrame(watch);
       window.removeEventListener("resize", schedule);
       window.removeEventListener("scroll", schedule, true);
       observer?.disconnect();
@@ -634,18 +692,25 @@ function AimLayer({ aim, reduced }: { aim: BattleAim; reduced: boolean }) {
   }, [signature]);
 
   if (!geom) return null;
-  const ring = (box: Box, index: number, pad: number) => (
-    <rect
-      key={`ring-${index}`}
-      className={styles.aimRing}
-      x={box.left - pad}
-      y={box.top - pad}
-      width={box.width + pad * 2}
-      height={box.height + pad * 2}
-      rx={9}
-    />
-  );
+  // A straight box stays a rect; a turned or tilted card gets an outline on its real corners.
+  const ring = (quad: Quad, index: number, pad: number) => {
+    if (isTurned(quad)) return <path key={`ring-${index}`} className={styles.aimRing} data-turned="true" d={roundedQuadPath(growQuad(quad, pad), 9)} />;
+    const box = quadBox(quad);
+    return (
+      <rect
+        key={`ring-${index}`}
+        className={styles.aimRing}
+        x={box.left - pad}
+        y={box.top - pad}
+        width={box.width + pad * 2}
+        height={box.height + pad * 2}
+        rx={9}
+      />
+    );
+  };
+  const lead = geom.arrows[0];
   return (
+    <>
     <svg className={styles.svg} aria-hidden data-aim={geom.mode} data-reduced={reduced ? "true" : "false"}>
       <g key={signature} className={styles.aim} data-mode={geom.mode}>
         {geom.mode !== "preview" ? ring(geom.from, -1, 4) : null}
@@ -660,6 +725,13 @@ function AimLayer({ aim, reduced }: { aim: BattleAim; reduced: boolean }) {
         <circle className={styles.aimOrigin} cx={geom.arrows[0].start.x} cy={geom.arrows[0].start.y} r={3.4} />
       </g>
     </svg>
+    {aim.caption ? (
+      <span key={`caption-${signature}`} className={styles.aimCaption} data-attack-caption="true"
+        style={{ left: (geom.caption ?? midOf(lead)).x, top: (geom.caption ?? midOf(lead)).y }}>
+        {aim.caption}
+      </span>
+    ) : null}
+    </>
   );
 }
 
@@ -723,14 +795,18 @@ function startBattle3d(capture: AttackCapture, play: Play, clock: BattleClock, c
 type PendingAttack = { attack: DuelEvent; capture: AttackCapture | null; at: number };
 
 /** The marker of a declared attack: the attacker and what it attacks stay ringed until it resolves. */
-function declaredAim(attack: DuelEvent): BattleAim | null {
+function declaredAim(attack: DuelEvent, seatCount: number, nameOf: (seat: number) => string = defaultName): BattleAim | null {
   if (!attack.zone) return null;
   const from = keyOfZone(attack.zone);
-  if (attack.target) return { mode: "locked", from, to: { zones: [keyOfZone(attack.target)] } };
-  return { mode: "locked", from, to: { lpSeat: attack.targetSeat ?? 1 - attack.zone.controller } };
+  const caption = declaredCaption(attack, seatCount, nameOf) ?? undefined;
+  if (attack.target) return { mode: "locked", from, to: { zones: [keyOfZone(attack.target)] }, caption };
+  const lpSeat = directTargetSeat(attack, seatCount);
+  return lpSeat == null ? null : { mode: "locked", from, to: { lpSeat }, caption };
 }
 
-export function BattleFx({ events, reducedMotion, active = true, aim = null, seats, result = null }: BattleFxProps) {
+const defaultName = (seat: number): string => `Player ${seat + 1}`;
+
+export function BattleFx({ events, reducedMotion, active = true, aim = null, seats, result = null, nameOf = defaultName }: BattleFxProps) {
   const [mounted, setMounted] = useState(false);
   const [play, setPlay] = useState<Play | null>(null);
   const [declared, setDeclared] = useState<BattleAim | null>(null);
@@ -741,6 +817,24 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
   const capturesRef = useRef(new Map<number, AttackCapture | null>());
   // The declared attack that waits for its battle to resolve (see battle-trigger.ts).
   const pendingRef = useRef<PendingAttack | null>(null);
+  // Battle plays that wait for a coin toss (coin-barrier.ts); cancelled when the layer goes away.
+  const deferredRef = useRef<Set<() => void>>(new Set());
+  // A layout effect on purpose: on removal its cleanup runs before the passive cleanup of the coin layer,
+  // which releases the barrier and would otherwise start the battle of a layer that is going away.
+  useLayoutEffect(() => {
+    const deferred = deferredRef.current;
+    return () => {
+      for (const cancel of [...deferred]) cancel();
+      deferred.clear();
+    };
+  }, []);
+  // The layer goes off (the table drops the coin layer in the same commit): cancel the waiting plays here,
+  // in a layout effect, before the passive cleanup of the coin layer releases the barrier and starts them.
+  useLayoutEffect(() => {
+    if (active) return;
+    for (const cancel of [...deferredRef.current]) cancel();
+    deferredRef.current.clear();
+  }, [active]);
   const seqRef = useRef(0);
   // Attacks whose strike (a flip-effect sequence) was started.
   const struckRef = useRef(new Set<number>());
@@ -749,10 +843,23 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
   const controllersRef = useRef(new Set<AbortController>());
   const reducedRef = useRef(reducedMotion);
   reducedRef.current = reducedMotion;
+  const nameOfRef = useRef(nameOf);
+  nameOfRef.current = nameOf;
+  // How many seats play: only a 2-seat duel may guess the defender of a direct attack. 0 while the seats are not known.
+  const seatCountRef = useRef(0);
+  seatCountRef.current = seats?.length ?? 0;
   // The board's monsters as of the last commit, and as of this render: an attack's cards are read
   // from the older one, because the newer snapshot may already have taken the card that died.
   const prevIndexRef = useRef<CardIndex>(new Map());
   const nowIndex = indexSeats(seats);
+
+  // The caption names players that may load after the declaration: re-read them (every commit; it only sets state on a change).
+  useEffect(() => {
+    const pending = pendingRef.current;
+    if (!pending) return;
+    const marker = declaredAim(pending.attack, seatCountRef.current, nameOfRef.current);
+    setDeclared((current) => (current && aimSignature(current) !== aimSignature(marker) ? marker : current));
+  });
 
   // Events already in the first snapshot never play: a reload must not replay the last fight.
   if (initialRef.current == null) initialRef.current = maxEventId(events) ?? 0;
@@ -768,7 +875,7 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
     for (const event of events) {
       if (event.id > after && event.kind === "attack" && event.zone && (!latest || event.id > latest.id)) latest = event;
     }
-    if (latest && !capturesRef.current.has(latest.id)) capturesRef.current.set(latest.id, captureAttack(latest, prevIndexRef.current, nowIndex));
+    if (latest && !capturesRef.current.has(latest.id)) capturesRef.current.set(latest.id, captureAttack(latest, prevIndexRef.current, nowIndex, seatCountRef.current));
     const stamp = duelFxClock.now();
     const incoming: PendingAttack | null = latest ? { attack: latest, capture: capturesRef.current.get(latest.id) ?? null, at: stamp } : null;
     // The battle damage of a flip-effect sequence waits for the strike or the end of its chain (chain-beats.ts).
@@ -786,11 +893,14 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
       let route = routeRef.current.get(ready.attack.id);
       if (!route) {
         const three = pickBattleRoute({ reduced: reducedMotion, ready: getSharedFx3d() != null }) === "three" && cap != null;
-        route = { three, clock: { startedAt: stamp } };
+        // A coin toss between the attack and its result is shown first: the battle starts after it (coin-barrier.ts).
+        route = { three, clock: coinHeldClock(stamp, battleOutcomeId(events, ready.attack)) };
         routeRef.current.set(ready.attack.id, route);
         if (routeRef.current.size > 20) routeRef.current.delete(routeRef.current.keys().next().value as number);
       }
-      if (!reducedMotion && cap && attackImpactAt(ready.attack.id) === 0) {
+      const outcomeId = battleOutcomeId(events, ready.attack);
+      // The impact time is noted again when the battle really plays, which is after a coin toss.
+      if (!reducedMotion && cap && attackImpactAt(ready.attack.id) === 0 && (outcomeId == null || !coinTossBefore(outcomeId))) {
         noteAttackImpact(ready.attack.id, route.clock.startedAt + resolveBattle(cap, events, ready.attack, false).timing.impactMs);
       }
       if (!reducedMotion) armBattleDamage(events, ready.attack, cap, route.clock);
@@ -810,7 +920,7 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
       frame = requestAnimationFrame(() => {
         const pending = pendingRef.current;
         if (!pending?.capture) return;
-        const next = remeasureCapture(pending.capture, pending.attack);
+        const next = remeasureCapture(pending.capture, pending.attack, seatCountRef.current);
         if (next === pending.capture) return;
         pendingRef.current = { ...pending, capture: next };
         capturesRef.current.set(pending.attack.id, next);
@@ -844,6 +954,9 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
       for (const id of Array.from(capturesRef.current.keys())) if (id !== keep) capturesRef.current.delete(id);
     };
     if (!active) {
+      // A play that waits for a coin must not start on a layer that is off.
+      for (const cancel of [...deferredRef.current]) cancel();
+      deferredRef.current.clear();
       pendingRef.current = null;
       setDeclared(null);
       setPlay(null);
@@ -860,7 +973,7 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
     const stamp = duelFxClock.now();
     let incoming: PendingAttack | null = null;
     if (latest) {
-      const capture = capturesRef.current.get(latest.id) ?? captureAttack(latest, prevIndexRef.current, indexSeats(seats));
+      const capture = capturesRef.current.get(latest.id) ?? captureAttack(latest, prevIndexRef.current, indexSeats(seats), seatCountRef.current);
       // Load and decode both faces during the declaration/response window, before a possible counter.
       const shared = !reducedRef.current ? getSharedFx3d() : null;
       for (const code of [capture?.attackerCard?.code, capture?.targetCard?.code]) {
@@ -873,7 +986,7 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
     // The battle that resolves in this snapshot plays; one that is still open stays pending.
     const ready = [earlier, incoming].find((entry) => decide(entry) === "play") ?? null;
     pendingRef.current = incoming ? (decide(incoming) === "wait" ? incoming : null) : decide(earlier) === "wait" ? earlier : null;
-    const marker = pendingRef.current ? declaredAim(pendingRef.current.attack) : null;
+    const marker = pendingRef.current ? declaredAim(pendingRef.current.attack, seatCountRef.current, nameOfRef.current) : null;
     setDeclared((current) => (aimSignature(current) === aimSignature(marker) ? current : marker));
     // The attack beat of a flip-effect sequence: the attack that opened it, in this batch or an earlier one.
     const struck = incoming ?? earlier;
@@ -886,29 +999,46 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
         setStrike({
           seq: ++seqRef.current, from: struck.capture.from, to: struck.capture.to, cut: struck.capture.attacker,
           ms: flipSequenceSteps(reduced).attackMs, reduced,
-          delayMs: Math.max(0, startAt - duelFxClock.now()), aim: declaredAim(struck.attack),
+          delayMs: Math.max(0, startAt - duelFxClock.now()), aim: declaredAim(struck.attack, seatCountRef.current, nameOfRef.current),
         });
       }
     }
     forget();
     if (!ready) return;
     const resolved = ready.attack;
-    const capture = ready.capture ? battleCapture(ready.capture, events, resolved) : null;
-    // The destroy events after the attack (in this snapshot) say which card(s) the battle took.
-    const route = routeRef.current.get(resolved.id);
-    const three = route?.three === true && !reducedRef.current && getSharedFx3d() != null;
-    const next = capture ? buildPlay(++seqRef.current, capture, reducedRef.current, events, resolved, three, indexSeats(seats)) : null;
-    if (next && capture) {
-      const clock = route?.clock ?? { startedAt: duelFxClock.now() };
-      joinBattleClock(clock);
-      // The 3D fight can outlast the DOM one: its shards keep falling after the last break.
-      const long3d = three ? startBattle3d(capture, next, clock, controllersRef.current) : 0;
-      next.fx.startedAt = clock.startedAt;
-      next.sound.startedAt = clock.startedAt;
-      if (!reducedRef.current) noteAttackImpact(resolved.id, clock.startedAt + next.fx.timing.impactMs);
-      holdPromptReveal(Math.max(0, next.totalMs - battleSeekMs(clock.startedAt), long3d));
-      emitDuelFxCue({ cue: "battle", strength: 1, battle: next.sound });
-      setPlay(next);
+    const startPlay = () => {
+      const capture = ready.capture ? battleCapture(ready.capture, events, resolved) : null;
+      // The destroy events after the attack (in this snapshot) say which card(s) the battle took.
+      const route = routeRef.current.get(resolved.id);
+      const three = route?.three === true && !reducedRef.current && getSharedFx3d() != null;
+      const next = capture ? buildPlay(++seqRef.current, capture, reducedRef.current, events, resolved, three, indexSeats(seats)) : null;
+      if (next && capture) {
+        const clock = route?.clock ?? { startedAt: duelFxClock.now() };
+        joinBattleClock(clock);
+        // The 3D fight can outlast the DOM one: its shards keep falling after the last break.
+        const long3d = three ? startBattle3d(capture, next, clock, controllersRef.current) : 0;
+        next.fx.startedAt = clock.startedAt;
+        next.sound.startedAt = clock.startedAt;
+        if (!reducedRef.current) noteAttackImpact(resolved.id, clock.startedAt + next.fx.timing.impactMs);
+        holdPromptReveal(Math.max(0, next.totalMs - battleSeekMs(clock.startedAt), long3d));
+        emitDuelFxCue({ cue: "battle", strength: 1, battle: next.sound });
+        setPlay(next);
+      }
+    };
+    // A coin toss before the result of the fight plays first: the strike, the LP roll and the break wait
+    // for the last coin, so the board never jumps ahead of it. The plan end is the limit of the wait.
+    const outcomeId = battleOutcomeId(events, resolved);
+    const coinWait = outcomeId == null ? 0 : coinBarrierFor(outcomeId, true) - duelFxClock.now();
+    if (coinWait > 8 && outcomeId != null) {
+      // Keeps the prompt panel away across the hand-over from the coin to the strike.
+      holdPromptReveal(coinWait + 400);
+      const cancel = whenCoinBarrierClears(outcomeId, () => {
+        deferredRef.current.delete(cancel);
+        startPlay();
+      });
+      deferredRef.current.add(cancel);
+    } else {
+      startPlay();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `seats` only names cards for a late capture
   }, [events, active]);

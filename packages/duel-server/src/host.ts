@@ -2,7 +2,9 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type Database from "better-sqlite3";
-import { createDuelSeriesService, createDuelService, createTournamentDuelService, type DuelFinalSnapshots } from "@yugidraft/shared/services";
+import { createLocalCardDataStatus, type EngineDataManifest } from "./card-data-status.js";
+import { createGithubCardDataStatus } from "./github-card-data-status.js";
+import { createDuelSeriesService, createDuelService, createTournamentDuelService, isCardFetchError, type DuelFinalSnapshots } from "@yugidraft/shared/services";
 import type {
   DuelAnswer,
   DuelCommand,
@@ -30,6 +32,7 @@ import { ELIMINATE_PROMPT_PREFIX as ELIMINATE_PREFIX, eliminationCodeOf, elimina
 import { EngineAnswerError } from "./prompts.js";
 import { GameWorker, type DuelGameWorker, type GameOptions, type WorkerDebugState } from "./worker-client.js";
 import { DeckLegalityError, inspectDeck, validateDeck, type InspectDeckOptions } from "./deck-legality.js";
+import { cardArtworkFamily } from "./card-artworks.js";
 import { canonicalEngineCardCode, loadDraftDeckPool, normalizeCardCodes, normalizeImportedDeck } from "./deck-import.js";
 import { loadCardDatabase } from "./cards.js";
 import { cardFacets, queryCards } from "./card-search.js";
@@ -299,12 +302,16 @@ export function createDuelHost(options: {
   openingRps?: boolean;
   /** Random source for the practice bot's moves and for timed-out picks. */
   random?: () => number;
+  /** Optional deterministic die source for tests. Production uses crypto.randomInt(1, 7). */
+  rollDie?: () => number;
 }): DuelHost {
   if (!options.secret) throw new Error("DUEL_INTERNAL_SECRET is required");
-  const service = createDuelService(options.db);
+  const service = createDuelService(options.db, { rollDie: options.rollDie });
   const series = createDuelSeriesService(options.db);
-  const manifest = JSON.parse(readFileSync(join(options.dataDirectory, "manifest.json"), "utf8")) as { bundleVersion: string };
+  const manifest = JSON.parse(readFileSync(join(options.dataDirectory, "manifest.json"), "utf8")) as EngineDataManifest;
   if (!manifest.bundleVersion) throw new Error("Engine resource manifest has no bundle version");
+  const localCardDataStatus = createLocalCardDataStatus(options.db, options.dataDirectory, { manifest, now: options.now });
+  const githubCardDataStatus = createGithubCardDataStatus({ now: options.now });
   setCatalogDirectory(options.dataDirectory);
   const pinnedVersionFor = (format: DuelFormat): string =>
     pinnedEngineVersion(manifest.bundleVersion, seatCountFor(format), seatCountFor(format) > 2 ? activeMultiScriptsHash(options.dataDirectory) : null);
@@ -318,7 +325,7 @@ export function createDuelHost(options: {
   const now = options.now ?? Date.now;
   const botLoops = new Map<string, BotLoop>();
   const advanceTimers = new Map<number, ReturnType<typeof setTimeout>>();
-  /** One timer per duel with a running rock-paper-scissors opening: it fires at the phase deadline. */
+  /** One timer per duel with a running opening: it fires at the phase deadline. */
   const openingTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const random = options.random ?? Math.random;
   /** Series games whose last start failed: the tick sweep skips a slug until `retryAt`. */
@@ -1296,7 +1303,7 @@ export function createDuelHost(options: {
     // Per-seat snapshots of a finished duel still hold that seat's final hand. Returning the room is safe only because
     // service.room picks the actor's OWN snapshot, so a loser who spectated during the duel still sees "lose" and their
     // own row. Never return another seat's or a stored snapshot from this branch.
-    const ownResult = room.mySeat !== null && (room.session.status === "completed" || room.session.status === "interrupted");
+    const ownResult = room.mySeat !== null && (room.session.status === "completed" || room.session.status === "interrupted" || room.session.status === "cancelled");
     const playerSeat = room.mySeat;
     if (spectate && !ownResult) {
       if ((room.session.format !== "ffa3" && room.session.format !== "ffa4") ||
@@ -2105,7 +2112,7 @@ export function createDuelHost(options: {
 
   /**
    * Starts a lobby duel with every seat ready. Game 1 of a 1v1 duel or match goes through the rock-paper-scissors
-   * opening first (when enabled); other games start at once. Returns the live game, or null while the opening runs.
+   * opening first (when enabled). Every FFA3/FFA4 game rolls dice; Tag starts at once. Returns the live game, or null while the opening runs.
    */
   async function beginGame(slug: string, guildId: string, actor: number | null): Promise<DuelGameWorker | null> {
     const existing = service.openingState(slug, guildId);
@@ -2115,7 +2122,9 @@ export function createDuelHost(options: {
       return games.get(slug)?.game ?? null;
     }
     const { session } = await assertStartable(slug, guildId);
-    if (!options.openingRps || session.format !== "1v1" || (session.gameNumber ?? 1) > 1) return startGame(slug, guildId, actor);
+    const dice = session.format === "ffa3" || session.format === "ffa4";
+    const rps = options.openingRps && session.format === "1v1" && (session.gameNumber ?? 1) === 1;
+    if (!dice && !rps) return startGame(slug, guildId, actor);
     service.startOpening(slug, guildId, actor ?? session.organizerPlayerId, now());
     await driveOpening(slug, guildId);
     return games.get(slug)?.game ?? null;
@@ -2187,6 +2196,16 @@ export function createDuelHost(options: {
       throw new RequestError("Authenticated guild and player are required", 400);
     }
     const actor = playerId as number;
+    if (op === "engine-data-status") {
+      try {
+        const local = localCardDataStatus();
+        const github = await githubCardDataStatus(local.engine);
+        return { ...local, ...github, generatedAt: new Date().toISOString() };
+      } catch (error) {
+        console.error("[duel] engine-data-status", error);
+        throw new RequestError("Card data status is unavailable", 503);
+      }
+    }
     if (op === "capabilities") {
       return { multiplayerTables: multiplayerTablesEnabled(), multiCoreReady: multiCoreAvailable(options.dataDirectory), multiDomainCoreReady: multiDomainCoreAvailable(options.dataDirectory) };
     }
@@ -2202,6 +2221,15 @@ export function createDuelHost(options: {
       return startPreset(body, guildId, actor);
     }
     if (op === "report" || op === "debug-trace") requireScenarios();
+    if (op === "card-artworks") {
+      if (!Array.isArray(body.codes) || body.codes.length !== 1
+        || !Number.isSafeInteger(body.codes[0]) || body.codes[0] <= 0 || body.codes[0] > 0xffffffff) {
+        throw new RequestError("Provide one positive card passcode", 400);
+      }
+      const family = cardArtworkFamily(loadCardDatabase(options.dataDirectory), body.codes[0]);
+      if (!family) throw new RequestError("Card not found in the duel engine", 404);
+      return family;
+    }
     if (op === "card-details") {
       if (!Array.isArray(body.codes) || body.codes.length > 1000
         || body.codes.some((code) => !Number.isSafeInteger(code) || code <= 0 || code > 0xffffffff)) {
@@ -2212,7 +2240,7 @@ export function createDuelHost(options: {
       const missing: number[] = [];
       for (const code of new Set<number>(body.codes)) {
         const card = catalog.deckCard(code);
-        if (card) cards.push(card);
+        if (card) cards.push({ ...card, altArtCount: (cardArtworkFamily(catalog, code)?.artworks.length ?? 1) - 1 });
         else missing.push(code);
       }
       return { cards, missing };
@@ -2222,7 +2250,7 @@ export function createDuelHost(options: {
         || body.codes.some((code) => !Number.isSafeInteger(code) || code <= 0 || code > 0xffffffff)) {
         throw new RequestError("Provide at most 1000 positive card ids", 400);
       }
-      const codes = await normalizeCardCodes(body.codes as number[], options.dataDirectory, options.db);
+      const codes = await normalizeCardCodes(body.codes as number[], options.dataDirectory, options.db, { preserveArtwork: body.preserveArtwork === true });
       return { codes: Object.fromEntries(codes) };
     }
     if (op === "check-deck") {
@@ -2309,6 +2337,7 @@ export function createDuelHost(options: {
     if (op === "cancel") {
       service.cancel(slug, guildId, actor);
       clearOpeningTimer(slug);
+      await disposeGame(slug);
       await emitChange(slug, guildId);
       return project(slug, guildId, actor);
     }
@@ -2672,12 +2701,17 @@ export function createDuelHost(options: {
         try { body = JSON.parse(raw); } catch { throw new RequestError("Invalid JSON", 400); }
         if (!body || typeof body !== "object" || Array.isArray(body)) throw new RequestError("Invalid request", 400);
         const key = typeof body.slug === "string" ? body.slug : "catalog";
-        // debug-trace and bug-context must answer while the duel queue is stuck inside the core, so they skip the queue.
+        // Diagnostics skip the queue; GitHub status reads must not block card editor requests.
         const ctl = { abandoned: false };
-        const queued = (body.op === "debug-trace" || body.op === "bug-context" ? operate(body) : enqueue(key, () => operate(body, ctl)));
+        const queued = (body.op === "debug-trace" || body.op === "bug-context" || body.op === "engine-data-status" ? operate(body) : enqueue(key, () => operate(body, ctl)));
         const answer = (body.op === "report" || body.op === "view") && queueBlockedMs > 0 ? await answerOrFallback(body, queued, ctl) : await queued;
         return Response.json(answer, { headers: { "cache-control": "no-store" } });
       } catch (error) {
+        if (isCardFetchError(error)) {
+          return Response.json({ error: "Card database is unavailable. Try again shortly." }, {
+            status: 503, headers: { "Retry-After": String(error.retryAfter ?? 1) },
+          });
+        }
         const status = error instanceof Error && "status" in error && typeof error.status === "number" ? error.status : 400;
         return Response.json({ error: error instanceof Error ? error.message : "Duel request failed",
           ...(error instanceof RequestError && error.code ? { code: error.code } : {}) }, { status });
@@ -2691,6 +2725,7 @@ export function createDuelHost(options: {
       for (const slug of [...openingTimers.keys()]) clearOpeningTimer(slug);
       const loops = [...botLoops.values()];
       for (const slug of [...botLoops.keys()]) cancelBotLoop(slug);
+      await Promise.all([localCardDataStatus.close(), githubCardDataStatus.close()]);
       await Promise.allSettled([...queues.values(), ...loops.map((loop) => loop.done)]);
       await Promise.all([...games.values()].map((entry) => safeClose(entry.game)));
       games.clear();

@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -5,7 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const auth = vi.fn();
 const tempDirs: string[] = [];
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 
 async function seed() {
   const tempDir = mkdtempSync(join(tmpdir(), "yugioh-player-"));
@@ -18,9 +22,10 @@ async function seed() {
   const { createScoringService } = await import("@yugidraft/shared/services");
   const db = new Database(dbPath);
   migrate(db);
-  const insP = db.prepare("insert into players (guild_id, discord_user_id, display_name) values (?, ?, ?)");
-  const p1 = Number(insP.run("guild-1", "u1", "Yugi").lastInsertRowid);
-  const p2 = Number(insP.run("guild-1", "u2", "Kaiba").lastInsertRowid);
+  seedFixtureUsers(db, FIXTURE_KEYS);
+  const insP = db.prepare("insert into players (guild_id, user_id, discord_user_id, display_name) values (?, ?, ?, ?)");
+  const p1 = Number(insP.run("guild-1", fixtureUserId("u1"), fixtureDiscordId("u1"), "Yugi").lastInsertRowid);
+  const p2 = Number(insP.run("guild-1", fixtureUserId("u2"), fixtureDiscordId("u2"), "Kaiba").lastInsertRowid);
   const scoring = createScoringService(db);
   scoring.recordMatchResult(
     Number(
@@ -35,7 +40,7 @@ async function seed() {
 }
 
 describe("GET /api/player/[id]", () => {
-  beforeEach(() => { vi.resetModules(); auth.mockReset(); auth.mockResolvedValue({ user: { id: "u1", name: "Yugi" } }); });
+  beforeEach(() => { vi.resetModules(); auth.mockReset(); auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1"), name: "Yugi" } }); });
   afterEach(() => {
     delete process.env.DATABASE_PATH; delete process.env.DISCORD_GUILD_ID;
     while (tempDirs.length) { const d = tempDirs.pop(); if (d) rmSync(d, { recursive: true, force: true }); }
@@ -64,3 +69,7 @@ describe("GET /api/player/[id]", () => {
     expect(Array.isArray(body.recent)).toBe(true);
   });
 });
+
+const FIXTURE_KEYS = ["u1", "u2"] as const;
+
+// Session resolution is mocked; authorization still runs through the real web boundary.

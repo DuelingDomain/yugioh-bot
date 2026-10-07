@@ -16,7 +16,8 @@ export const MAX_NAME_LENGTH = 100;
 export const EXTRA_TYPE_MASK = TYPE_FUSION | TYPE_SYNCHRO | TYPE_XYZ | TYPE_LINK;
 
 export type DeckSection = "main" | "extra" | "side";
-export type SelectedStack = { section: DeckSection; code: number };
+/** `index` is the copy that was chosen, when the choice came from one tile of a deck section. */
+export type SelectedStack = { section: DeckSection; code: number; index?: number };
 
 
 export function cloneDeck(deck: DuelDeck): DuelDeck {
@@ -179,6 +180,11 @@ export function guidanceNotes(mode: DuelMode, deck: DuelDeck): string[] {
 export type CardCatalog = ReadonlyMap<number, DuelCardInfo | DeckCardInfo>;
 export type BanlistLimits = Readonly<Record<number, 0 | 1 | 2>>;
 
+/** Other arts the card has besides its own; 0 when the card is unknown or has one art. */
+export function altArtCount(code: number, catalog: CardCatalog): number {
+  return (catalog.get(code) as DeckCardInfo | undefined)?.altArtCount ?? 0;
+}
+
 /** Same-name cards (alternate artworks) share one copy count. */
 export function copyKey(code: number, catalog: CardCatalog): string {
   const name = catalog.get(code)?.name;
@@ -209,13 +215,16 @@ export interface CopyProblem {
   max: number;
 }
 
-/** Cards with more copies than the banlist (or the 3-copy rule) allows. */
-export function copyProblems(deck: DuelDeck, catalog: CardCatalog, limits: BanlistLimits | null): CopyProblem[] {
+/**
+ * Cards with more copies than the banlist (or the 3-copy rule) allows. `singleton` is the Domain rule: one
+ * copy of each card across the deck, alternate arts included, and the Deck Master counts as that copy.
+ */
+export function copyProblems(deck: DuelDeck, catalog: CardCatalog, limits: BanlistLimits | null, singleton = false): CopyProblem[] {
   const counts = copyCounts(deck, catalog);
   const groups = new Map<string, { code: number; max: number }>();
   for (const code of uniqueCodes(allCodes(deck))) {
     const key = copyKey(code, catalog);
-    const max = Math.min(groups.get(key)?.max ?? 3, copyLimit(code, catalog, limits));
+    const max = Math.min(groups.get(key)?.max ?? 3, copyLimit(code, catalog, limits), singleton ? 1 : 3);
     groups.set(key, { code: groups.get(key)?.code ?? code, max });
   }
   const problems: CopyProblem[] = [];
@@ -319,19 +328,19 @@ function sourceIndex(deck: DuelDeck, source: CardSource & { from: DeckSection })
  * Puts one copy into a section at a position (the end when `at` is missing). A copy from a section
  * moves; a Deck Master that is dragged out stops being the master.
  */
-export function placeCard(selection: DeckMasterSelection, source: CardSource, to: DeckSection, at?: number): DeckMasterSelection {
+export function placeCardAt(selection: DeckMasterSelection, source: CardSource, to: DeckSection, at?: number): { selection: DeckMasterSelection; index: number } {
   let { deck, masterOrigin } = selection;
   let target = at;
   if (source.from === "master") {
-    if (deck.deckMaster !== source.code) return selection;
+    if (deck.deckMaster !== source.code) return { selection, index: -1 };
     deck = withoutMaster(deck);
     masterOrigin = null;
   } else if (source.from !== "list") {
     const from = source.from;
     const index = sourceIndex(deck, { ...source, from });
-    if (index < 0) return selection;
+    if (index < 0) return { selection, index: -1 };
     const landing = target ?? deck[to].length;
-    if (from === to && (landing === index || landing === index + 1)) return selection;
+    if (from === to && (landing === index || landing === index + 1)) return { selection, index };
     deck = removeAt(deck, from, index);
     masterOrigin = shiftMasterOrigin(masterOrigin, from, index);
     if (from === to && target != null && target > index) target -= 1;
@@ -342,7 +351,11 @@ export function placeCard(selection: DeckMasterSelection, source: CardSource, to
   if (masterOrigin && masterOrigin.section === to && position <= masterOrigin.index) {
     masterOrigin = { ...masterOrigin, index: masterOrigin.index + 1 };
   }
-  return { deck, masterOrigin };
+  return { selection: { deck, masterOrigin }, index: position };
+}
+
+export function placeCard(selection: DeckMasterSelection, source: CardSource, to: DeckSection, at?: number): DeckMasterSelection {
+  return placeCardAt(selection, source, to, at).selection;
 }
 
 /** Takes one copy out of the deck. A Deck Master removed this way does not go back to its section. */

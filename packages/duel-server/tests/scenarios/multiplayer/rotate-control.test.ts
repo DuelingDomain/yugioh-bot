@@ -44,6 +44,11 @@ for (const mode of ["normal", "domain"] as const) {
           expected.lp ??= scenario.setup.format === "tag" ? 16000 : 8000;
           // Only multiplayer Domain draws on turn 1. Standard MR5 and 1v1 Domain skip that draw.
           const drawn = scenario.drawn[id] + (mode === "domain" && scenario.setup.format !== "1v1" && id === "p0" ? 1 : 0);
+          if (mode === "domain" && id === "p0" && scenario.id.includes("-serial-spell-") && expected.deckCount !== 0) {
+            // Serial Spell discards the Domain first-turn draw with the rest of the hand.
+            if (!Array.isArray(expected.grave)) throw new Error(`${scenario.id}: copied rotation needs a complete graveyard`);
+            expected.grave.push(FILLER_CARD);
+          }
           // The board compiler uses known top cards, then Mystical Elf as Deck filler.
           const hand = (scenario.setup[id]?.hand ?? []).map((entry) =>
             resolveCard(typeof entry === "object" ? entry.card : entry),
@@ -83,16 +88,28 @@ for (const mode of ["normal", "domain"] as const) {
         session.reachMainPhase();
         session.startRecording();
         scenario.steps.forEach((step, index) => {
-          const leavingDuringPlacement = scenario.id === "rotate-control-ffa4-loss-during-placement" && step.op === "surrender";
-          const before = leavingDuringPlacement ? game.view(0).prompt : null;
+          const leavingDuringRotation = scenario.id.includes("-during-") && step.op === "surrender";
+          const chooser = game.view(null).prioritySeat;
+          const before = leavingDuringRotation && chooser != null ? game.view(chooser).prompt : null;
           session.run(step, index + 1);
-          if (leavingDuringPlacement) {
-            // R-COMMON-SURRENDER-EOT: loss is immediate and the living choice
-            // keeps its id and options. A DSL board assertion would settle it.
-            expect(game.view(null).seats[1]).toMatchObject({ eliminated: true, pendingElimination: false });
-            expect(game.view(0).prompt).toEqual(before);
+          if (leavingDuringRotation) {
+            // Removal waits for card choices, placements and the complete rotation.
+            // The host answers only prompts belonging to the departing seat.
+            const leaver = Number(step.seat.slice(1));
+            expect(game.view(null).seats[leaver]).toMatchObject({ eliminated: false, pendingElimination: true });
+            if (before && before.seat !== leaver) expect(game.view(before.seat).prompt).toEqual(before);
           }
         });
+        const leavingAnswers = game.diagnostics().filter((entry) => entry.kind === "leaving-answer");
+        const leave = scenario.steps.find((step) => step.op === "surrender");
+        if (scenario.id.includes("-during-") && leave?.op === "surrender") {
+          const cardAnswers = scenario.id.endsWith("during-own-card-choice") ? 1 : 0;
+          expect(leavingAnswers).toHaveLength(cardAnswers + 1);
+          expect(leavingAnswers.every((entry) => entry.seat === Number(leave.seat.slice(1)))).toBe(true);
+          expect(leavingAnswers.filter((entry) => entry.detail.startsWith("cards "))).toHaveLength(cardAnswers);
+          expect(leavingAnswers.filter((entry) => entry.detail.startsWith("places "))).toHaveLength(1);
+        }
+        expect(game.diagnostics().filter((entry) => entry.kind === "stderr")).toEqual([]);
       } finally {
         game.close();
       }

@@ -1,3 +1,4 @@
+import { fixtureUserId, seedFixtureUsers } from "./fixtures/identity";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
@@ -9,6 +10,7 @@ import { mergeCopies, serializeYdk, ydkFileName } from "@/lib/ydk-file";
 function setup(fetchImpl?: (input: RequestInfo | URL) => Promise<Response>) {
   const db = new Database(":memory:");
   migrate(db);
+  seedFixtureUsers(db, FIXTURE_KEYS);
   const seed = db.prepare(
     `insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
      values (?,?,?,?,?,?,?,?)`,
@@ -21,7 +23,7 @@ function setup(fetchImpl?: (input: RequestInfo | URL) => Promise<Response>) {
     fetch: fetchImpl ?? (async () => ({ ok: true, async json() { return { data: [] }; } }) as Response),
   });
   const cubes = createCubeService(db, catalog);
-  const cube = cubes.createBlank("g", "Pool", "u");
+  const cube = cubes.createBlank("g", "Pool", fixtureUserId("u"));
   return { cubes, cube };
 }
 
@@ -34,7 +36,7 @@ describe("serializeYdk", () => {
       [{ catalogCardId: 1, maxCopies: 3 }, { catalogCardId: 3, maxCopies: 1 }],
       [{ catalogCardId: 2, maxCopies: 2 }],
     );
-    expect(text).toBe("#created by Duelists Kingdom\n#main\n1\n1\n1\n3\n#extra\n2\n2\n!side\n");
+    expect(text).toBe("#created by Dueling Domain\n#main\n1\n1\n1\n3\n#extra\n2\n2\n!side\n");
   });
 
   it("round trips through parseYdk", () => {
@@ -130,7 +132,9 @@ describe("importYdkIntoCube", () => {
   });
 
   it("treats a passcode the card database rejects with HTTP 400 as unknown, and writes nothing twice", async () => {
-    const { cubes, cube } = setup(async () => ({ ok: false, status: 400, async json() { return {}; } }) as Response);
+    const { cubes, cube } = setup(async () => Response.json({
+      error: "No card matching your query was found in the database. Please see https://db.ygoprodeck.com/api-guide/ for syntax usage.",
+    }, { status: 400 }));
     const text = "#main\n1\n1\n777\n#extra\n2\n888\n";
     const res = await importYdkIntoCube(cubes, cube.id, text);
     expect(res.unknown).toEqual([777, 888]);
@@ -150,3 +154,5 @@ describe("importYdkIntoCube", () => {
     expect(cubes.getCubePools(cube.id)).toEqual({ main: [], extra: [] });
   });
 });
+
+const FIXTURE_KEYS = ["u"] as const;

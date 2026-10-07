@@ -78,7 +78,7 @@ describe("useDraftWebsocket", () => {
     mockSocket.connected = true;
     mockSocket.id = "socket-1";
     mockFetch.mockReset();
-    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ token: "fresh-token", userId: "user-1" }) });
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ token: "fresh-token", userId: 101 }) });
     vi.stubGlobal("fetch", mockFetch);
     Object.keys(mockHandlers).forEach((k) => delete mockHandlers[k]);
     useDraftStore.setState(baseState);
@@ -98,7 +98,7 @@ describe("useDraftWebsocket", () => {
     });
 
     await waitFor(() => expect(mockEmit).toHaveBeenCalledWith("draft:join", {
-      slug: "my-draft", token: "fresh-token", userId: "user-1",
+      slug: "my-draft", token: "fresh-token", userId: 101,
     }, expect.any(Function)));
     expect(mockFetch).toHaveBeenCalledWith("/api/drafts/my-draft/connection", expect.objectContaining({ cache: "no-store" }));
   });
@@ -108,10 +108,10 @@ describe("useDraftWebsocket", () => {
     act(() => simulateEvent("connect"));
     await waitFor(() => expect(mockEmit).toHaveBeenCalledTimes(1));
     mockSocket.id = "socket-2";
-    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ token: "reconnected-token", userId: "user-1" }) });
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ token: "reconnected-token", userId: 101 }) });
     act(() => simulateEvent("connect"));
     await waitFor(() => expect(mockEmit).toHaveBeenLastCalledWith("draft:join", {
-      slug: "my-draft", token: "reconnected-token", userId: "user-1",
+      slug: "my-draft", token: "reconnected-token", userId: 101,
     }, expect.any(Function)));
   });
 
@@ -122,6 +122,25 @@ describe("useDraftWebsocket", () => {
     await waitFor(() => expect(mockEmit).toHaveBeenCalledTimes(1));
     act(() => mockEmit.mock.calls[0][2]());
     expect(onResync).toHaveBeenCalledTimes(1);
+  });
+
+  it("resyncs and rejoins when the tab becomes visible again, and stops after unmount", async () => {
+    const onResync = vi.fn();
+    const { unmount } = render(<HookHarness slug="my-draft" options={{ onResync }} />);
+    act(() => simulateEvent("connect"));
+    await waitFor(() => expect(mockEmit).toHaveBeenCalledTimes(1));
+    const visibility = vi.spyOn(document, "visibilityState", "get");
+    visibility.mockReturnValue("hidden");
+    act(() => { document.dispatchEvent(new Event("visibilitychange")); });
+    expect(onResync).not.toHaveBeenCalled();
+    visibility.mockReturnValue("visible");
+    act(() => { document.dispatchEvent(new Event("visibilitychange")); });
+    expect(onResync).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(mockEmit).toHaveBeenCalledTimes(2));
+    unmount();
+    act(() => { document.dispatchEvent(new Event("visibilitychange")); });
+    expect(onResync).toHaveBeenCalledTimes(1);
+    visibility.mockRestore();
   });
 
   it("does not resync when the room join is refused", async () => {
@@ -147,10 +166,10 @@ describe("useDraftWebsocket", () => {
     render(<HookHarness slug="my-draft" />);
     act(() => simulateEvent("connect"));
     await waitFor(() => expect(mockEmit).toHaveBeenCalledTimes(1));
-    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ token: "renewed-token", userId: "user-1" }) });
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ token: "renewed-token", userId: 101 }) });
     act(() => simulateEvent("draft:subscription-expired", { slug: "my-draft" }));
     await waitFor(() => expect(mockEmit).toHaveBeenLastCalledWith("draft:join", {
-      slug: "my-draft", token: "renewed-token", userId: "user-1",
+      slug: "my-draft", token: "renewed-token", userId: 101,
     }, expect.any(Function)));
   });
 
@@ -174,7 +193,7 @@ describe("useDraftWebsocket", () => {
     render(<HookHarness slug="my-draft" />);
     act(() => simulateEvent("connect"));
     act(() => { mockSocket.connected = false; simulateEvent("disconnect"); });
-    await act(async () => resolve({ ok: true, json: async () => ({ token: "old-token", userId: "user-1" }) }));
+    await act(async () => resolve({ ok: true, json: async () => ({ token: "old-token", userId: 101 }) }));
     expect(mockEmit).not.toHaveBeenCalled();
   });
 
@@ -184,7 +203,7 @@ describe("useDraftWebsocket", () => {
     const { unmount } = render(<HookHarness slug="my-draft" />);
     act(() => simulateEvent("connect"));
     unmount();
-    await act(async () => resolve({ ok: true, json: async () => ({ token: "old-token", userId: "user-1" }) }));
+    await act(async () => resolve({ ok: true, json: async () => ({ token: "old-token", userId: 101 }) }));
     expect(mockEmit).not.toHaveBeenCalled();
   });
 

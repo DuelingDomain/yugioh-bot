@@ -1,8 +1,8 @@
 import { DEFAULT_DUEL_FORMAT, DUEL_FORMATS, seatCountFor, type DuelFormat } from "./settings.js";
 
 /**
- * Feature flag MULTIPLAYER_TABLES. Off by default: only 1v1 tables exist. Tag and 3 or 4 player tables stay off in production
- * until their UI project is done. The flag is read from the process environment each time it is asked, so a restart (not a build)
+ * Feature flag MULTIPLAYER_TABLES. Off by default in code: only 1v1 tables exist. The Compose files set it on (default `1`), so Tag and 3 or 4 player tables
+ * are open in production and staging; `MULTIPLAYER_TABLES=0` closes them. The flag is read from the process environment each time it is asked, so a restart (not a build)
  * switches it. Only "1", "true" and "on" turn it on.
  */
 export const MULTIPLAYER_TABLES_ENV = "MULTIPLAYER_TABLES";

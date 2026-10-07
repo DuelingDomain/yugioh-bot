@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import Database from "better-sqlite3";
 import { NextRequest, NextResponse } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -5,7 +6,10 @@ import { migrate } from "@yugidraft/shared/db";
 import { createDuelService } from "@yugidraft/shared/services";
 
 const { requireDuelActor, callDuelHost, notifyDuelChange } = vi.hoisted(() => ({ requireDuelActor: vi.fn(), callDuelHost: vi.fn(), notifyDuelChange: vi.fn() }));
-vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture((() => ({ auth: vi.fn() }))().auth);
+});
 vi.mock("@/lib/duel-host", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/duel-host")>(), requireDuelActor, callDuelHost,
 }));
@@ -37,10 +41,11 @@ beforeEach(() => {
   vi.stubEnv("MULTIPLAYER_TABLES", "1");
   db = new Database(":memory:");
   migrate(db);
-  const insert = db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g', ?, ?)");
-  host = Number(insert.run("host", "Host").lastInsertRowid);
-  guest = Number(insert.run("guest", "Guest").lastInsertRowid);
-  viewer = Number(insert.run("viewer", "Viewer").lastInsertRowid);
+  seedFixtureUsers(db, FIXTURE_KEYS);
+  const insert = db.prepare("insert into players (guild_id, user_id, discord_user_id, display_name) values ('g', ?, ?, ?)");
+  host = Number(insert.run(fixtureUserId("host"), fixtureDiscordId("host"), "Host").lastInsertRowid);
+  guest = Number(insert.run(fixtureUserId("guest"), fixtureDiscordId("guest"), "Guest").lastInsertRowid);
+  viewer = Number(insert.run(fixtureUserId("viewer"), fixtureDiscordId("viewer"), "Viewer").lastInsertRowid);
   duels = createDuelService(db);
   slug = duels.create({ guildId: "g", organizerPlayerId: host, name: "Table", mode: "normal" }).slug;
   requireDuelActor.mockReset();
@@ -175,3 +180,7 @@ describe("POST /api/duels/[slug]/leave", () => {
     expect(notifyDuelChange).not.toHaveBeenCalled();
   });
 });
+
+const FIXTURE_KEYS = ["host", "guest", "viewer"] as const;
+
+// Session resolution is mocked; authorization still runs through the real web boundary.

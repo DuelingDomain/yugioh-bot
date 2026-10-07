@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId } from "./fixtures/identity";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -31,7 +32,7 @@ describe("draft card details", () => {
     await setup([53183600, 46986414, 53183600]);
     const { buildDraftResponse } = await import("../app/api/drafts/[slug]/helpers");
 
-    const response = await buildDraftResponse("slug-1", "drafter");
+    const response = await buildDraftResponse("slug-1", { userId: fixtureUserId("drafter"), discordUserId: fixtureDiscordId("drafter") });
 
     expect(response?.myPool).toMatchObject([
       { id: 1, passcode: 53183600, name: "Card 53183600" },
@@ -49,7 +50,7 @@ describe("draft card details", () => {
     db.close();
     const { buildDraftResponse } = await import("../app/api/drafts/[slug]/helpers");
 
-    const response = await buildDraftResponse("slug-1", "drafter");
+    const response = await buildDraftResponse("slug-1", { userId: fixtureUserId("drafter"), discordUserId: fixtureDiscordId("drafter") });
 
     expect(response?.myPool).toMatchObject([
       { id: 1, passcode: 46986414, name: "Card 46986414", type: "Unknown", imageUrl: "" },
@@ -65,7 +66,7 @@ describe("draft card details", () => {
     db.close();
     const { buildDraftResponse } = await import("../app/api/drafts/[slug]/helpers");
 
-    const response = await buildDraftResponse("slug-1", "drafter");
+    const response = await buildDraftResponse("slug-1", { userId: fixtureUserId("drafter"), discordUserId: fixtureDiscordId("drafter") });
 
     expect(response?.myPool).toMatchObject([
       { passcode: 46986414, archetype: "Dark Magician" },

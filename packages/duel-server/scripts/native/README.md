@@ -87,9 +87,16 @@ They run for n > 2 only (except the message format checks) and fail only with `-
 Without the flag they print one `NDUEL NOTE` line per check and run.
 
 - `response-order`: after `MSG_CHAINING` by L, the players of the `MSG_SELECT_CHAIN` prompts until the next
-  `MSG_CHAINING` or `MSG_CHAIN_SOLVING` must be a subsequence of the expected order. FFA (R-FFA-CHAIN): start at L+1,
+  `MSG_CHAINING`, `MSG_CHAIN_SOLVING`, or `MSG_CHAIN_END` must be a subsequence of the expected order. FFA (R-FFA-CHAIN): start at L+1,
   then clockwise, with L last. Tag: L+1, L+3, L+2, L. Duelists that were not prompted
   are allowed. Trigger prompts inside a trigger batch can give a false report: treat a report there with care.
+  When elimination removes unresolved links, it validates pending prompts and re-anchors to the newest living
+  link. Elimination without a removed link preserves response history. With no links left, any normal response
+  prompt before cleanup `MSG_CHAIN_END` fails, including a correctly ordered redundant round.
+  `MSG_CHAIN_END` validates collected responses before resetting, including when no `MSG_CHAIN_SOLVING` arrived.
+  The engine emits cleanup `MSG_CHAIN_END` before one normal open response round when the last link is removed.
+  The `nduel-response-order` regression tests the shared checker with synthetic windows and a fixed real-duel
+  fixture that requires final-link elimination followed by `MSG_CHAIN_END` with an open tracked anchor.
 - `direct-pick`: a `MSG_SELECT_OPTION` whose options all are `0xFFFF0000|d` lists only living opponents of the
   prompted duelist. The next `MSG_ATTACK_DUELIST` (201) must name the picked duelist (the answer sent by nduel) and
   a living opponent of the turn player.
@@ -105,6 +112,12 @@ Without the flag they print one `NDUEL NOTE` line per check and run.
 - `msg-format`: lengths of messages 200 (2 bytes) and 201 (1 byte).
 
 Messages 200, 201 and 202 are parsed and skipped without a `msg-parse` failure.
+
+The targeted checker regression is `bash packages/duel-server/scripts/native/checks/run.sh nduel-response-order`.
+It runs the actual nduel driver with FFA4 seed 18, 60 turns, 3000 LP and `--check-future`, then a fixed real-duel
+fixture where seat 3 pays all remaining LP for a hand quick effect. Its sole link must be removed without resolving,
+cleanup must emit exactly one open-anchor `MSG_CHAIN_END`, and the following open round must prompt seats 0, 1, 2.
+The fixture guarantees this coverage even when released cards change the seeded driver's random decks.
 
 ## Round 3 additions
 

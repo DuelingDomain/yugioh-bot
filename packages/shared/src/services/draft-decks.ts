@@ -21,8 +21,8 @@ export const DRAFT_DECK_BACKFILL_DAYS = 14;
 /** Test bots join drafts and tournaments with this Discord id prefix. They never get a saved deck. */
 export const TEST_BOT_DISCORD_PREFIX = "bot_player_dev_";
 
-export function isTestBotDiscordId(discordUserId: string): boolean {
-  return discordUserId.startsWith(TEST_BOT_DISCORD_PREFIX);
+export function isTestBotDiscordId(discordUserId: string | null | undefined): boolean {
+  return typeof discordUserId === "string" && discordUserId.startsWith(TEST_BOT_DISCORD_PREFIX);
 }
 
 type DraftDeckCard = { catalogId: number; extra: boolean; name?: string | null; type?: string | null; forced?: boolean };
@@ -113,14 +113,14 @@ export interface DraftDeckService {
   /**
    * Saves a deck from every human player's picks for a finished draft. A player who already has
    * a deck for the draft, a bot, and a player with no picks are skipped. When the draft has a
-   * tournament the new decks are also registered. Returns the owners that got a new deck.
+   * tournament the new decks are also registered. Returns the user IDs that got a new deck.
    */
-  saveForDraft(draftId: number): string[];
+  saveForDraft(draftId: number): number[];
   /**
    * Saves the missing draft decks for every finished draft the user played in (this guild only).
    * Cheap when nothing is missing. Returns the draft ids that got a new deck.
    */
-  ensureForUser(guildId: string, discordUserId: string): number[];
+  ensureForUser(guildId: string, userId: number): number[];
   /**
    * Registers each tournament player's draft deck on an entry that has no deck yet.
    * A registered deck is kept; a locked entry is left alone. Returns the player ids registered.
@@ -156,8 +156,8 @@ export function createDraftDeckService(db: Database.Database): DraftDeckService 
   const selectDraft = db.prepare<[number], DraftRow>(
     "select id, guild_id, name, tournament_id, ended_at, created_at from drafts where id = ? and status = 'completed'",
   );
-  const selectHumans = db.prepare<[number], { player_id: number; discord_user_id: string; deck_saved_at: string | null }>(
-    `select dp.player_id, p.discord_user_id, dp.deck_saved_at
+  const selectHumans = db.prepare<[number], { player_id: number; user_id: number; discord_user_id: string | null; deck_saved_at: string | null }>(
+    `select dp.player_id, p.user_id, p.discord_user_id, dp.deck_saved_at
      from draft_players dp
      inner join players p on p.id = dp.player_id
      where dp.draft_id = ?
@@ -177,12 +177,12 @@ export function createDraftDeckService(db: Database.Database): DraftDeckService 
   // Finished drafts the user played in whose deck was never saved (this guild only), limited to
   // drafts with a tournament or finished recently. A deck the user deleted stays deleted:
   // deck_saved_at is set when it is made.
-  const selectMissing = db.prepare<[string, string, string], { id: number }>(
+  const selectMissing = db.prepare<[string, number, number], { id: number }>(
     `select d.id
      from drafts d
      inner join draft_players dp on dp.draft_id = d.id
      inner join players p on p.id = dp.player_id
-     where d.guild_id = ? and d.status = 'completed' and p.guild_id = d.guild_id and p.discord_user_id = ?
+     where d.guild_id = ? and d.status = 'completed' and p.guild_id = d.guild_id and p.user_id = ?
        and dp.deck_saved_at is null
        and (d.tournament_id is not null
          or julianday(coalesce(d.ended_at, d.created_at)) >= julianday('now') - ${DRAFT_DECK_BACKFILL_DAYS})
@@ -196,8 +196,8 @@ export function createDraftDeckService(db: Database.Database): DraftDeckService 
   const selectDraftTournament = db.prepare<[number], { tournament_id: number | null }>(
     "select tournament_id from drafts where id = ?",
   );
-  const selectUnregistered = db.prepare<[number], { player_id: number; discord_user_id: string }>(
-    `select tp.player_id, p.discord_user_id
+  const selectUnregistered = db.prepare<[number], { player_id: number; user_id: number; discord_user_id: string | null }>(
+    `select tp.player_id, p.user_id, p.discord_user_id
      from tournament_participants tp
      inner join players p on p.id = tp.player_id
      where tp.tournament_id = ? and tp.deck_json is null and tp.deck_locked_at is null
@@ -239,7 +239,7 @@ export function createDraftDeckService(db: Database.Database): DraftDeckService 
       for (const row of selectUnregistered.all(tournamentId)) {
         if (onlyPlayerId !== undefined && row.player_id !== onlyPlayerId) continue;
         if (isTestBotDiscordId(row.discord_user_id)) continue;
-        const deck = saved.findByDraft(info.guild_id, row.discord_user_id, info.draft_id);
+        const deck = saved.findByDraft(info.guild_id, row.user_id, info.draft_id);
         if (!deck) continue;
         try {
           duels.registerDeck({ tournamentId, playerId: row.player_id, savedDeckId: deck.id, deck: deck.deck });
@@ -256,15 +256,15 @@ export function createDraftDeckService(db: Database.Database): DraftDeckService 
       const draft = selectDraft.get(draftId);
       if (!draft) return [];
       const saved = createSavedDeckService(db);
-      const created: string[] = [];
+      const created: number[] = [];
       for (const human of selectHumans.all(draftId)) {
         if (isTestBotDiscordId(human.discord_user_id) || human.deck_saved_at !== null) continue;
         // One savepoint per player: a failure for one player keeps the others' decks.
         const savePlayer = db.transaction(() => {
-          if (!saved.findByDraft(draft.guild_id, human.discord_user_id, draftId)) {
+          if (!saved.findByDraft(draft.guild_id, human.user_id, draftId)) {
             const cards = picksOf(draftId, human.player_id);
             if (cards.length === 0) return false;
-            saved.create(draft.guild_id, human.discord_user_id, {
+            saved.create(draft.guild_id, human.user_id, {
               name: draftDeckName(draft),
               mode: "normal",
               deck: buildDraftDeck(cards),
@@ -277,7 +277,7 @@ export function createDraftDeckService(db: Database.Database): DraftDeckService 
           return false;
         });
         try {
-          if (savePlayer()) created.push(human.discord_user_id);
+          if (savePlayer()) created.push(human.user_id);
         } catch (error) {
           console.error(`[draft-decks] could not save the deck of player ${human.player_id} for draft ${draftId}:`, error);
         }
@@ -287,8 +287,8 @@ export function createDraftDeckService(db: Database.Database): DraftDeckService 
       return created;
     },
 
-    ensureForUser(guildId, discordUserId) {
-      const missing = selectMissing.all(guildId, discordUserId, discordUserId);
+    ensureForUser(guildId, userId) {
+      const missing = selectMissing.all(guildId, userId, userId);
       for (const { id } of missing) service.saveForDraft(id);
       return missing.map((row) => row.id);
     },

@@ -1,10 +1,12 @@
+import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { createHmac } from "node:crypto";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { createDuelService } from "@yugidraft/shared/services";
 import { CHAIN_MODE_JOURNAL_LIMIT, defaultChainMode, type DuelChainMode, type DuelEngineView } from "@yugidraft/shared/duels";
-import { createDuelHost, type DuelHost } from "../src/host.js";
+import type { DuelHost } from "../src/host.js";
+import { createTestDuelHost as createDuelHost, finishTestDiceOpening } from "./support/test-opening.js";
 import { buildPracticeBotDeck } from "../src/practice-bot.js";
 import type { DuelGameWorker } from "../src/worker-client.js";
 import { engineDataDirectory as DATA } from "./engine-data-dir.js";
@@ -64,8 +66,8 @@ class ScriptedWorker implements DuelGameWorker {
 async function table(worker = new ScriptedWorker(), now?: () => number) {
   const db = new Database(":memory:"); databases.push(db); migrate(db);
   const players = [0, 1, 2].map((seat) =>
-    Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g', ?, ?)").run(`u${seat}`, `P${seat}`).lastInsertRowid));
-  const outsider = Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g', 'out', 'Out')").run().lastInsertRowid);
+    seedIdentity(db, { guildId: "g", name: `P${seat}`, userId: seedUser(db, `u${seat}`).userId, discordUserId: seedUser(db, `u${seat}`).discordUserId ?? `u${seat}` }).playerId);
+  const outsider = seedIdentity(db, { guildId: "g", name: "Out", userId: seedUser(db, "out").userId, discordUserId: seedUser(db, "out").discordUserId ?? "out" }).playerId;
   const duels = createDuelService(db);
   const session = duels.create({ guildId: "g", organizerPlayerId: players[0]!, name: "chain", mode: "normal", format: "ffa3" });
   for (const player of players.slice(1)) duels.takeSeat(session.slug, "g", player);
@@ -81,10 +83,11 @@ async function table(worker = new ScriptedWorker(), now?: () => number) {
     return host;
   };
   let host = makeHost(worker);
-  async function post(body: Record<string, unknown>, as = players[0]!) {
+  async function post(body: Record<string, unknown>, as = players[0]!): Promise<{ status: number; data: Record<string, any> }> {
     const raw = JSON.stringify({ slug: session.slug, guildId: "g", playerId: as, ...body });
     const response = await host.handle(new Request("http://localhost/internal/duel", { method: "POST", headers: { "x-announce-signature": "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex"), "content-type": "application/json" }, body: raw }));
-    return { status: response.status, data: await response.json() as Record<string, any> };
+    return finishTestDiceOpening(host, { slug: session.slug, ...body },
+      { status: response.status, data: await response.json() as Record<string, any> }, (next) => post(next, as));
   }
   expect((await post({ op: "start" })).status).toBe(200);
   changes.length = 0;

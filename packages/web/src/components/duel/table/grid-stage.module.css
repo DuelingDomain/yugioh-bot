@@ -1,0 +1,444 @@
+/*
+ * The 4-way grid table: two columns of facing fields (see grid-layout.ts). The board box fills its parent. Every field
+ * and life panel is placed with real px (left, top, --sf-z) from one layout; at rest none has a transform, so text
+ * stays sharp. A change of focus FLIPs them (grid-flip.ts). Slots (fx, prompt, overlay) lie over the whole box, so FX
+ * measure the real screen position of the zones and LP plates, as on the other tables.
+ */
+.board {
+  --sheet: rgb(181 153 99 / 0.34);
+  --sheet-hi: rgb(181 153 99 / 0.66);
+  --sheet-lo: rgb(181 153 99 / 0.17);
+  --ink: #efe7d5;
+  --ink-2: #c3bba8;
+  --ink-3: #958f81;
+  --pen: #9b7eff;
+  --pen-ink: #c6b6ff;
+  --chain: #e4b64f;
+  --loss: #e45a4d;
+  --ember: #d98d52;
+  --partner: #e4b64f;
+  position: relative;
+  isolation: isolate;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  overflow: clip;
+  color: var(--ink);
+  background:
+    radial-gradient(70% 60% at 52% 46%, rgb(22 34 62 / 0.55), transparent 72%),
+    radial-gradient(40% 50% at 12% 88%, rgb(46 34 84 / 0.22), transparent 70%),
+    linear-gradient(118deg, transparent 38%, rgb(140 160 210 / 0.035) 50%, transparent 62%),
+    #070b15;
+  font-family: var(--font-duel-ui, "Arial Narrow"), "Arial Narrow", sans-serif;
+}
+
+/* The board takes the focus back from Reset view (tabIndex -1: never in the Tab order); it draws no ring of its own. Its
+   controls keep their :focus-visible rings. */
+.board:focus,
+.board:focus-visible {
+  outline: none;
+}
+
+/* A faint ember wash over the whole board in the Battle Phase. */
+.board::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: radial-gradient(60% 55% at 50% 50%, rgb(217 141 82 / 0.15), transparent 75%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.6s;
+}
+
+.board[data-battle="true"]::after {
+  opacity: 1;
+}
+
+.world {
+  position: absolute;
+  inset: 0;
+}
+
+/* A cell is only a hook for state; the field inside is placed on the world by its own left and top. */
+.cell {
+  display: contents;
+}
+
+/* Fields sit still at rest: the stage animates a transform only during a move (FLIP). No pose glide, no raster hint that would blur. */
+.world :global([data-seat-slot]) {
+  will-change: auto;
+  transition: none;
+}
+
+/* Your hand is drawn nearly as large as the 1v1 hand, from the EQUAL card size (--sf-lh, set by the stage). It rises over
+   the lower edge of your field only by the padding of the mat and a sliver of a Spell/Trap zone (0.185 of a card of the
+   field): at rest the zones stay clickable, and a hovered hand card lifts clearly. */
+.world :global([data-seat-field][data-side="you"]) {
+  --lh: var(--sf-lh, calc(var(--z) * 0.95));
+  --hand-rise: calc(var(--z) * 0.185);
+}
+
+/* A pick of a field (a zone or a card on the board): the hand is click-through, so a click only ever meets the field.
+   A pick of a hand card, or an open main phase, keeps the hand live: it wins where it overlaps. */
+/* (Doubled class: stronger than the rule of field.module.css that gives the hand cards the pointer back.) */
+.board.board[data-pick-kind="field"] :global([data-hand-seat]),
+.board.board[data-pick-kind="field"] :global([data-hand-seat]) *,
+.board.board[data-pick-kind="field"] :global([data-hand-seat]) *::before {
+  pointer-events: none;
+}
+
+/* An out seat shows its existing out treatment (the field's own grayscale and label) while it stays mounted. */
+.cell[data-cell-state="out"] > :global([data-seat-slot]) {
+  pointer-events: none;
+}
+
+/* The box of a seat is only a place: where it lies over a facing field it must not hide that field's zones (field.module.css
+   gives the pointer back to the zones, the life box and the hand). A click on empty mat focuses the field (grid-stage.tsx). */
+.world :global([data-seat-slot]) {
+  pointer-events: none;
+}
+
+/* A field you can focus by its empty mat (found from the point, see seat-at-point.ts), its life box or its hand. The empty mat takes no
+   pointer itself, so the cursor below shows over what is on the field only. */
+.cell:not([data-focus="true"]) > :global([data-seat-slot]) :global([data-seat-field]) {
+  cursor: pointer;
+}
+
+.cell:not([data-focus="true"]) > :global([data-seat-slot]) :global([data-zones]),
+.cell:not([data-focus="true"]) > :global([data-seat-slot]) button {
+  cursor: pointer;
+}
+
+/* The box of a life panel; the panel fits into it (see HoloLp `fit`). */
+.lp {
+  position: absolute;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+}
+
+/* In the finale your plate sits left of the board: it hugs the board's edge. */
+.lp[data-lp-side="left"] {
+  justify-content: flex-end;
+}
+
+/* View control: all fields. */
+.controls {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  z-index: 60;
+  display: flex;
+  gap: 4px;
+}
+
+.control {
+  min-width: 30px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid rgb(181 153 99 / 0.4);
+  border-radius: 6px;
+  background: rgb(7 11 21 / 0.82);
+  color: var(--ink-2);
+  cursor: pointer;
+  font: inherit;
+  font-size: calc(12px * var(--tt, 1));
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.control:hover:not(:disabled),
+.control:focus-visible {
+  border-color: var(--sheet-hi);
+  color: var(--ink);
+  outline: none;
+}
+
+.control[aria-pressed="true"] {
+  border-color: var(--pen);
+  color: var(--pen-ink);
+}
+
+.control:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+/* Slots over the whole box. A child turns pointer events back on for its own panels. */
+.slot {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  pointer-events: none;
+}
+
+/*
+ * Every prompt sits in the middle of YOUR pair, as the 1v1 room puts it in the middle of the board (grid-stage.tsx sets
+ * --pr-cx/--pr-cy, the middle of the pair, and --pr-w/--pr-h, its size, in board px; on the finale board they are the
+ * middle of that board). Without them (a spectator who looks at all fields) the middle of the table. The "Activate its
+ * effect?" bar, the effect and option lists, the card grid, positions, numbers, seat choices and the collapsed pill
+ * may cover the middle of that pair; the pick bar places itself from `data-bar-room` (off every target) and the
+ * tribute dock by your hand.
+ */
+/*
+ * The modal prompts take the pair unit (grid-stage.tsx sets --pr-unit from the pair height), so they keep to about one
+ * row band of the board on a small screen. The type steps are set again here because the room set them from its own
+ * unit; text stays 12px or more. The pick bar ([data-place]) keeps the room unit.
+ */
+.slot[data-slot="prompt"][data-prompt-dense] :global([data-prompt-panel]) {
+  --duel-unit: var(--pr-unit, 1px);
+  --duel-t-xs: calc(max(12px, calc(11 * var(--duel-unit))) * var(--tt, 1));
+  --duel-t-sm: calc(max(12px, calc(12 * var(--duel-unit))) * var(--tt, 1));
+  --duel-t-body: calc(max(14px, calc(13 * var(--duel-unit))) * var(--tt, 1));
+  --duel-t-head: calc(max(15px, calc(15 * var(--duel-unit))) * var(--tt, 1));
+  --pc-title: calc(clamp(16px, calc(17 * var(--duel-unit)), 20px) * var(--tt, 1));
+  --pc-sub: calc(clamp(14px, calc(13.5 * var(--duel-unit)), 15px) * var(--tt, 1));
+}
+
+.slot[data-slot="prompt"] :global([data-prompt-panel][data-precheck]) {
+  inset: var(--pr-cy, 50%) auto auto var(--pr-cx, 50%);
+  translate: -50% -50%;
+  width: max-content;
+  min-width: 0;
+  max-width: min(max(360px, calc(400 * var(--duel-unit))), calc(var(--pr-w, 100%) - 24px));
+  gap: calc(10 * var(--duel-unit)) calc(12 * var(--duel-unit));
+  padding: calc(8 * var(--duel-unit)) calc(12 * var(--duel-unit));
+}
+
+.slot[data-slot="prompt"] :global([data-prompt-panel]:not([data-precheck])) {
+  inset: var(--pr-cy, 50%) auto auto var(--pr-cx, 50%);
+  translate: -50% -50%;
+  margin: 0;
+  width: min(calc(440 * var(--duel-unit)), calc(var(--pr-w, 100%) - 24px));
+  max-height: min(calc(var(--pr-h, 100%) - 16px), calc(100% - 24px));
+}
+
+.slot[data-slot="prompt"] :global([data-prompt-panel][data-wide="true"]:not([data-precheck])) {
+  width: min(calc(520 * var(--duel-unit)), calc(var(--pr-w, 100%) - 24px));
+}
+
+.slot[data-slot="prompt"] :global([data-prompt-surface]:not([data-prompt-panel], [data-place])) {
+  inset: var(--pr-cy, 50%) auto auto var(--pr-cx, 50%);
+  translate: -50% -50%;
+  margin: 0;
+}
+
+/* A card strip is as wide as its cards need, never wider than the pair. */
+.slot[data-slot="prompt"] :global([data-prompt-panel][data-strip="true"]:not([data-precheck])) {
+  width: fit-content;
+  min-width: min(calc(300 * var(--duel-unit)), calc(var(--pr-w, 100%) - 24px));
+  max-width: calc(var(--pr-w, 100%) - 24px);
+}
+
+/* Seat choices are narrow: the life plates (the targets) sit above and below the pairs, so the middle leaves them free. */
+.slot[data-slot="prompt"][data-seat-pick] :global([data-prompt-panel]:not([data-precheck])) {
+  width: clamp(220px, 34%, 320px);
+}
+
+/* Expanded responses (the chain list) are narrower than a card grid. */
+.slot[data-slot="prompt"]:not([data-seat-pick]) :global([data-prompt-panel][data-tone="chain"]:not([data-precheck])) {
+  width: min(calc(360 * var(--duel-unit)), calc(var(--pr-w, 100%) - 24px));
+  min-width: 0;
+}
+
+.slot[data-slot="prompt"]:not([data-seat-pick]) :global([data-prompt-panel][data-tone="chain"]:not([data-precheck])) > * {
+  flex-shrink: 0;
+}
+
+.slot[data-slot="prompt"] :global([data-prompt-panel] [data-testid="priority-chips"]) {
+  flex-wrap: wrap;
+}
+
+/* The name is on the life plate: the field's own name label is not drawn. */
+.world :global([data-seat-field] > [data-seat-name]) {
+  display: none;
+}
+
+/* A rival's hand backs hang off the owner's back edge. In the grid they sit in the lane of the life plate, beside it,
+   and no longer tuck over the first row of the board. */
+.world :global([data-hand-seat][data-side="opp"]) {
+  translate: -50% -4%;
+}
+
+/* The polite "Focus: name" line for screen readers. */
+.live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* The outline a seat that is out leaves: a faint dashed box with its name. It waits for the crumble when the seat
+   leaves while you watch (data-late). Always upright, whatever the turn of the field. */
+.outline {
+  position: absolute;
+  z-index: 3;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  border: 1px dashed rgb(120 135 190 / 0.2);
+  border-radius: calc(var(--z) * 0.12);
+  color: rgb(136 146 176 / 0.4);
+  font-size: clamp(12px, calc(var(--z) * 0.105), 14px);
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  line-height: 1;
+  pointer-events: none;
+  text-transform: uppercase;
+}
+
+.outline[data-late="true"] {
+  animation: outlineIn 0.8s 1s both;
+}
+
+@keyframes outlineIn {
+  from {
+    opacity: 0;
+  }
+}
+
+/* The phase hub: a flat layer over the fields. In the band it is the box of the shared Extra Monster row and its chips
+   stay in the free cells beside the two zones (data-hub-fit, see bandHubFit); in the middle of the table it is a point
+   (left, top) that the hub centres on. It never takes a click itself. */
+.hub {
+  position: absolute;
+  z-index: 45;
+  pointer-events: none;
+}
+
+.hub[data-grid-hub="center"] {
+  translate: -50% -50%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .outline[data-late="true"] {
+    animation: none;
+  }
+}
+
+/* The frame of a pair (see `pairFrameRect`): one mat round both fields of a column and their shared Extra Monster row.
+   The fields inside draw no mat of their own (data-framed). The lifted pair gets a clear light line; the turn light, in
+   the tone of the seat whose turn it is, lies round the whole pair. */
+.frame {
+  position: absolute;
+  z-index: 1;
+  box-sizing: border-box;
+  border: 1px solid rgb(181 153 99 / 0.32);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgb(10 17 34 / 0.62), rgb(5 8 15 / 0.58));
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.4),
+    0 30px 60px -30px rgb(0 0 0 / 0.8);
+  pointer-events: none;
+  transition:
+    border-color 0.5s,
+    box-shadow 0.5s,
+    opacity 0.6s;
+}
+
+.frame::before {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  border: 1px solid var(--sheet-lo);
+  border-radius: 4px;
+}
+
+.frame[data-focus="true"] {
+  border-color: rgb(198 182 255 / 0.62);
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.4),
+    0 0 0 3px rgb(155 126 255 / 0.12),
+    0 0 34px -6px rgb(155 126 255 / 0.32),
+    0 30px 60px -30px rgb(0 0 0 / 0.8);
+}
+
+.frame[data-turn="true"] {
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.4),
+    0 0 56px -8px rgb(var(--t) / 0.42),
+    0 0 130px -26px rgb(var(--t) / 0.34),
+    0 30px 60px -30px rgb(0 0 0 / 0.8);
+}
+
+.frame[data-focus="true"][data-turn="true"] {
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.4),
+    0 0 0 3px rgb(155 126 255 / 0.12),
+    0 0 56px -8px rgb(var(--t) / 0.42),
+    0 0 130px -26px rgb(var(--t) / 0.34),
+    0 30px 60px -30px rgb(0 0 0 / 0.8);
+}
+
+.board[data-battle="true"] .frame[data-turn="true"] {
+  box-shadow:
+    0 0 56px -8px rgb(217 141 82 / 0.36),
+    0 0 130px -26px rgb(217 141 82 / 0.28),
+    inset 0 0 60px -30px rgb(217 141 82 / 0.2);
+}
+
+/* The finale: the frame of the pair that is not on the board fades with its fields. */
+.frame[data-gone="true"],
+.lp[data-gone="true"] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.lp {
+  transition: opacity 0.6s;
+}
+
+/* The break of a pair: a crack of light on the edge where the field that went out was joined, then nothing. */
+.seam {
+  position: absolute;
+  z-index: 16;
+  height: 0;
+  pointer-events: none;
+}
+
+.seam::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -1px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgb(var(--t, 228 90 77) / 0.95) 12%, rgb(255 240 220 / 0.95) 50%, rgb(var(--t, 228 90 77) / 0.95) 88%, transparent);
+  box-shadow: 0 0 18px 2px rgb(var(--t, 228 90 77) / 0.55);
+  animation: seamFlash 1.4s ease-out both;
+}
+
+@keyframes seamFlash {
+  0% {
+    opacity: 0;
+    transform: scaleX(0.2);
+  }
+  14% {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scaleX(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .frame,
+  .lp {
+    transition: none;
+  }
+
+  .seam {
+    display: none;
+  }
+}

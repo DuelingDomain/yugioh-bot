@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 // packages/web/tests/cards-resolve-route.test.ts
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -6,7 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const auth = vi.fn();
 const tempDirs: string[] = [];
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 
 const syncDraftPool = vi.fn();
 const syncCardByName = vi.fn();
@@ -35,6 +39,7 @@ async function setupDb() {
   const { migrate } = await import("@yugidraft/shared/db");
   const db = new Database(dbPath);
   migrate(db);
+  seedFixtureUsers(db, FIXTURE_KEYS);
   // two catalog cards: one in "Metal Raiders", one not in any set
   db.prepare(
     `insert into card_catalog (ygoprodeck_id, name, type, frame_type, effect_text, atk, def, attribute, level, image_url, image_url_small, card_sets_json, cached_at)
@@ -58,7 +63,7 @@ describe("POST /api/cards/resolve", () => {
   beforeEach(() => {
     vi.resetModules();
     auth.mockReset();
-    auth.mockResolvedValue({ user: { id: "u", name: "Yugi" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u")), discordUserId: fixtureDiscordId("u"), name: "Yugi" } });
     syncDraftPool.mockReset();
     syncDraftPool.mockResolvedValue([]);
     syncCardByName.mockReset();
@@ -101,7 +106,7 @@ describe("POST /api/cards/resolve", () => {
     // Monster Reborn is not in the selected set → baseline 0, custom 1 → qty 1.
     const mr = json.cards.find((c: { id: number }) => c.id === 83764718);
     expect(mr.qty).toBe(1);
-    // The requested set is synced first; only custom passcodes missing from the catalog are fetched.
+    // The requested set is synced first; existing custom rows need no artwork lookup.
     expect(syncDraftPool).toHaveBeenNthCalledWith(1, {
       setNames: ["Metal Raiders"],
       customCardIds: [],
@@ -125,6 +130,7 @@ describe("POST /api/cards/resolve", () => {
     const { migrate } = await import("@yugidraft/shared/db");
     const db = new Database(process.env.DATABASE_PATH);
     migrate(db);
+    seedFixtureUsers(db, FIXTURE_KEYS);
     db.close();
     syncDraftPool.mockImplementation(async () => {
       const d = new Database(process.env.DATABASE_PATH!);
@@ -164,17 +170,15 @@ describe("POST /api/cards/resolve", () => {
     expect(json.unknownIds).toEqual([99999999]);
   });
 
-  it("still fails when the card database cannot be reached", async () => {
+  it("returns 503 when the card database cannot be reached", async () => {
     await setupDb();
     syncDraftPool.mockRejectedValue(new Error("Could not reach the card database (offline). Check connectivity and try again."));
     const { POST } = await import("../app/api/cards/resolve/route");
-    await expect(
-      POST(new Request("http://t/api/cards/resolve", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ customCardIds: [99999999] }),
-      })),
-    ).rejects.toThrow(/Could not reach/);
+    const response = await POST(new Request("http://t/api/cards/resolve", {
+      method: "POST", body: JSON.stringify({ customCardIds: [99999999] }),
+    }));
+    expect(response.status).toBe(503);
+    expect((await response.json()).error).toContain("Try again");
   });
 
   it("returns one card entry per distinct id even when ids repeat", async () => {
@@ -187,6 +191,7 @@ describe("POST /api/cards/resolve", () => {
     const { migrate } = await import("@yugidraft/shared/db");
     const db = new Database(dbPath);
     migrate(db);
+    seedFixtureUsers(db, FIXTURE_KEYS);
     // Two catalog cards; request repeats 101 three times.
     seedCard(db, 101, "Alpha");
     seedCard(db, 102, "Beta");
@@ -292,6 +297,28 @@ describe("POST /api/cards/resolve", () => {
     expect(syncCardByName).not.toHaveBeenCalled();
   });
 
+  it("finds a card from a typo by looking up each long word and ranking near matches", async () => {
+    await setupDb();
+    const found = (ygoprodeckId: number, name: string) => ({
+      ygoprodeckId, name, type: "Spell Card", frameType: "spell", effectText: "", imageUrl: "u", imageUrlSmall: "s",
+    });
+    syncCardsByFuzzyName.mockReset();
+    syncCardsByFuzzyName.mockImplementation(async (text: string) =>
+      text === "drak hole" ? [] : text === "hole" ? [found(1, "Black Hole"), found(2, "Dark Hole")] : [],
+    );
+    const { POST } = await import("../app/api/cards/resolve/route");
+
+    const res = await POST(new Request("http://localhost/api/cards/resolve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fuzzyName: "drak hole", includeExtra: true }),
+    }));
+
+    const body = (await res.json()) as { cards: Array<{ name: string }> };
+    expect(body.cards.map((card) => card.name)).toEqual(["Dark Hole"]);
+    expect(syncCardsByFuzzyName).toHaveBeenCalledWith("hole", { includeExtra: true, limit: 80 });
+  });
+
   it("asks for Extra Deck monsters in a fuzzy search only when includeExtra is true, and keeps the best-match order", async () => {
     await setupDb();
     const found = (ygoprodeckId: number, name: string) => ({
@@ -311,3 +338,7 @@ describe("POST /api/cards/resolve", () => {
     expect(syncCardsByFuzzyName).toHaveBeenCalledWith("blue eyes", { includeExtra: true });
   });
 });
+
+const FIXTURE_KEYS = ["u"] as const;
+
+// Session resolution is mocked; authorization still runs through the real web boundary.

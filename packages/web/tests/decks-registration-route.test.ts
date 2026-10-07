@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId } from "./fixtures/identity";
 import { rmSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mainIds, passcodeOf, seedDraftDeck } from "./helpers/draft-deck-fixture";
@@ -5,7 +6,10 @@ import { mainIds, passcodeOf, seedDraftDeck } from "./helpers/draft-deck-fixture
 const auth = vi.fn();
 const callDuelHost = vi.fn();
 const dirs: string[] = [];
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/duel-host", () => ({ callDuelHost }));
 
 const main = (count: number) => mainIds(count).map(passcodeOf);
@@ -15,7 +19,7 @@ describe("deck registration marks", () => {
     vi.resetModules();
     auth.mockReset();
     callDuelHost.mockReset();
-    auth.mockResolvedValue({ user: { id: "drafter", name: "Yugi" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("drafter")), discordUserId: fixtureDiscordId("drafter"), name: "Yugi" } });
     callDuelHost.mockImplementation(async (input: { codes: number[] }) => ({
       ok: true,
       data: { codes: Object.fromEntries(input.codes.map((id) => [String(id), id === 81480461 ? 81480460 : id >= 100000 ? id : passcodeOf(id)])) },
@@ -149,3 +153,7 @@ describe("deck registration marks", () => {
     expect((await listDecks()).decks.find((deck) => deck.id === id)?.registration).toMatchObject({ locked: false });
   });
 });
+
+const FIXTURE_KEYS = ["drafter"] as const;
+
+// Session resolution is mocked; authorization still runs through the real web boundary.

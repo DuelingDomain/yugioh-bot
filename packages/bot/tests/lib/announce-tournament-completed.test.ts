@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import { describe, expect, it, vi } from "vitest";
 import { migrate } from "../../src/db/schema.js";
-import { createGuildSettingsService } from "@yugidraft/shared/services";
+import { createUserService, createGuildSettingsService } from "@yugidraft/shared/services";
 import { announceTournamentCompleted } from "../../src/lib/announce-tournament-completed.js";
 
 function makeDb() {
@@ -17,7 +17,7 @@ function insertTournament(db: Database.Database, overrides: { webSlug?: string |
       .prepare(
         "insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug) values (?, ?, ?, ?, ?, ?)",
       )
-      .run("guild-1", "My Tournament", "round_robin", "completed", "user-1", webSlug).lastInsertRowid,
+      .run("guild-1", "My Tournament", "round_robin", "completed", createUserService(db).ensureDiscord({discordUserId: "900000000000000112", displayName: "Host"}).id, webSlug).lastInsertRowid,
   );
 }
 

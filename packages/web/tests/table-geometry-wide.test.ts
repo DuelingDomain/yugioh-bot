@@ -3,8 +3,14 @@ import type { DuelEngineView, DuelFormat, DuelSeatView } from "@yugidraft/shared
 import {
   boardBounds,
   chainStripInset,
+  PLAZA_HUD_KEEP,
+  SEAT_BOX_FULL_DEF,
+  plazaView,
+  polygonGap,
+  seatQuad,
   chainBandRooms,
   holoAnchor,
+  promptRoom,
   promptRooms,
   seatPoses,
   stageFit,
@@ -31,7 +37,7 @@ function engine(format: DuelFormat, count: number): DuelEngineView {
 }
 function camera(over: Partial<CameraState> = {}): CameraState {
   return {
-    mode: "home", focusSeat: null, lookSeat: null, upright: false, compact: "auto", auto: true, pinned: false, aiming: false,
+    mode: "home", focusSeat: null, lookSeat: null, upright: false, compact: "auto",
     fly: { yawDeg: 0, tiltDeg: 40, zoom: 1, targetSeat: null }, lock: null, ...over,
   };
 }
@@ -76,6 +82,44 @@ describe("the wide plaza", () => {
     expect(wide.get(2)!.x).toBe(550);
     expect(wide.get(1)!.rotateDeg).toBe(90);
     expect(wide.get(3)!.rotateDeg).toBe(270);
+  });
+
+  // The 3-way plaza in the floating HUD at the five checked screens: the table box is the screen less the 52px header,
+  // 5px below and 14px at each side; the stage fits in it above the 96px hand row.
+  const HUD_SCREENS = [[2000, 967], [1920, 1080], [1680, 1050], [1440, 900], [1280, 800]].map(([w, h]) => {
+    const box = { width: w - 28, height: h - 57 };
+    return { name: `${w}x${h}`, box, fit: { ...box, height: (box.height * 860) / 956 } };
+  });
+
+  it("keeps the 3-way rivals clear of each other, the ring, your field and the HUD column, in screen px", () => {
+    for (const { name, fit } of HUD_SCREENS) {
+      const { k, top } = plazaView(fit);
+      const spread = stageSpread(fit);
+      const poses = seatPoses(three, camera(), fit);
+      // Every field is the wide one (full-size Defense cards): SEAT_BOX_FULL_DEF.
+      for (const pose of poses.values()) expect(pose.width, `${name}: field width`).toBe(SEAT_BOX_FULL_DEF);
+      const quad = (seat: number) => seatQuad(poses.get(seat)!, 0, 0, SEAT_BOX_FULL_DEF, 380);
+      const hand = (seat: number) => seatQuad(poses.get(seat)!, 0, 225, SEAT_BOX_FULL_DEF, 70);
+      const ring = [{ x: 486, y: 258 }, { x: 614, y: 258 }, { x: 614, y: 402 }, { x: 486, y: 402 }];
+      expect(polygonGap(quad(1), quad(2)) * k, `${name}: rivals`).toBeGreaterThanOrEqual(32);
+      for (const seat of [1, 2]) {
+        expect(polygonGap(quad(seat), quad(0)) * k, `${name}: rival ${seat} on your field`).toBeGreaterThanOrEqual(23.9);
+        expect(polygonGap(quad(seat), ring) * k, `${name}: rival ${seat} on the ring`).toBeGreaterThanOrEqual(11.9);
+        expect(Math.min(...quad(seat).concat(hand(seat)).map((p) => p.y)), `${name}: rival ${seat} above the box`).toBeGreaterThanOrEqual(top);
+        expect(poses.get(seat)!.scale, `${name}: rival ${seat} size`).toBeLessThanOrEqual(0.76);
+        expect(poses.get(seat)!.scale, `${name}: rival ${seat} size`).toBeGreaterThanOrEqual(0.56 - 1e-9);
+      }
+      for (const r of PLAZA_HUD_KEEP) {
+        const keep = [
+          { x: -spread + r.x / k, y: top + r.y / k }, { x: -spread + (r.x + r.width) / k, y: top + r.y / k },
+          { x: -spread + (r.x + r.width) / k, y: top + (r.y + r.height) / k }, { x: -spread + r.x / k, y: top + (r.y + r.height) / k },
+        ];
+        expect(polygonGap(keep, quad(1)) * k, `${name}: left rival on the HUD`).toBeGreaterThanOrEqual(11.9);
+        expect(polygonGap(keep, hand(1)) * k, `${name}: left rival hand on the HUD`).toBeGreaterThanOrEqual(11.9);
+      }
+      // Mirror images: the right rival keeps the same air at the right.
+      expect(poses.get(2)!.x).toBeCloseTo(1100 - poses.get(1)!.x, 6);
+    }
   });
 
   it("keeps every board inside the visible stage", () => {
@@ -195,12 +239,47 @@ describe("the wide plaza", () => {
           }
           expect(overlap(r, { l: 488, r: 612, t: 348, b: 486 }), `${layout.format} ${name}: ${kind} room vs the ring`).toBe(false);
           expect(overlap(r, { l: 220, r: 880, t: 856, b: 960 }), `${layout.format} ${name}: ${kind} room vs your hand`).toBe(false);
+          // The name plate under the board's left corner (REN ARATA), which a big text size widens.
+          for (const [seat, pose] of poses) {
+            if (pose.slot !== "home") continue;
+            const board = boardBounds(pose);
+            expect(overlap(r, { l: board.l, r: board.l + 230 * pose.scale, t: board.b - 6, b: board.b + 44 * pose.scale }), `${layout.format} ${name}: ${kind} room vs the name of seat ${seat}`).toBe(false);
+          }
           expect(overlap(r, hint), `${layout.format} ${name}: ${kind} room vs the camera hint`).toBe(false);
         }
         // Tight rooms scroll the expanded choices while keeping the panel clear of the hand.
         expect(rooms.panel!.height * k, `${layout.format} ${name}: panel room height`).toBeGreaterThanOrEqual(159);
       }
     }
+  });
+
+  it("falls back to a room that covers your name plate when no other room is free (never a card)", () => {
+    const fit = { width: TIGHT.width, height: (TIGHT.height * 860) / 956 };
+    const k = stageFit(fit);
+    const spread = stageSpread(fit);
+    const poses = seatPoses(three, camera(), fit);
+    const wide = wideHoloAnchors(three, camera(), poses, spread, true, { hint: { width: 250 / k, height: 40 / k } });
+    const anchors = new Map(three.slots.map((slot) => [slot.seat, wide?.get(slot.seat) ?? holoAnchor(three, slot.seat, camera())] as const));
+    const home = [...poses.values()].find((pose) => pose.slot === "home")!;
+    const board = boardBounds(home);
+    const plate = { l: board.l, r: board.l + 230 * home.scale, t: board.b - 6, b: board.b + 44 * home.scale };
+    // The only free place: a small hole under the board's left corner, left of your hand. Strips fence it off, 5 px clear.
+    const hole = { l: board.l + 5, r: board.l + 65, t: board.b + 9, b: board.b + 21 };
+    const strip = (l: number, r: number, t: number, b: number) => ({ x: l, y: t, width: r - l, height: b - t });
+    const reserved = [
+      strip(-2000, hole.l - 5, -2000, 2000),
+      strip(hole.r + 5, 2000, -2000, 2000),
+      strip(hole.l - 5, hole.r + 5, -2000, hole.t - 5),
+      strip(hole.l - 5, hole.r + 5, hole.b + 5, 2000),
+    ];
+    const room = promptRoom({
+      layout: three, camera: camera(), poses, anchors, spread, meFooter: true, hint: { width: 250 / k, height: 40 / k },
+      sizes: [{ width: 50, height: 10 }], reserved,
+    });
+    expect(room, "a room under the name plate").not.toBeNull();
+    const r = { l: room!.x, r: room!.x + room!.width, t: room!.y, b: room!.y + room!.height };
+    expect(overlap(r, plate), "the room covers the name plate").toBe(true);
+    for (const [seat, pose] of poses) expect(overlap(r, boardBounds(pose)), `room vs board ${seat}`).toBe(false);
   });
 
   it("reserves the measured chain strip before allocating prompt rooms", () => {

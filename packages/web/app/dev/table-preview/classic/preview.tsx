@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { isDuelChainMode, type DuelChainMode } from "@yugidraft/shared/duels";
+import { BattleFx } from "@/components/duel/battle-fx";
+import { withDestroyCards } from "@/components/duel/destroy-cards";
 import { DeckSurrenderContext } from "@/components/duel/deck-surrender";
 import { isBattlePhase } from "@/components/duel/constants";
 import { ChainFx } from "@/components/duel/chain-fx";
-import { withDestroyCards } from "@/components/duel/destroy-cards";
 import { DuelField } from "@/components/duel/field";
 import { duelFontClasses } from "@/components/duel/fonts";
 import { seatNamer } from "@/components/duel/multi-seat";
@@ -15,6 +16,7 @@ import { PromptCenter } from "@/components/duel/prompt-center";
 import { promptLegalKeys, type PromptDraft } from "@/components/duel/prompts";
 import roomStyles from "@/components/duel/room.module.css";
 import { hasNoLegalMoves, resolveBattleStep, StationTrack } from "@/components/duel/station-track";
+import { parseAttackParam } from "@/components/duel/table/fixtures/preview-harness";
 import { SOLID_STATE_IDS, SOLID_STATE_LABEL, solidFixture, type SolidStateId } from "@/components/duel/solid/fixtures/states";
 import { useDuelAnimationSpeed } from "@/components/duel/animation-speed-control";
 
@@ -39,9 +41,23 @@ export function classicStateId(raw: string | null | undefined): SolidStateId {
  * The classic 1v1 room on fixture data: the room's own layout (header, board column, station track) with the real
  * DuelField, PhaseHub and StationTrack, and none of the room's network. Phase moves are logged, not sent.
  */
-export function ClassicPreview({ stateId, chain: chainParam, reduced }: { stateId: string | null; chain: string | null; reduced: boolean }) {
+export function ClassicPreview({ stateId, chain: chainParam, reduced, attack }: { stateId: string | null; chain: string | null; reduced: boolean; attack?: string | null }) {
   const id = classicStateId(stateId);
-  const { room } = useMemo(() => solidFixture(id), [id]);
+  const { room: base } = useMemo(() => solidFixture(id), [id]);
+  // `?attack=<seat>:<seq>><target>[:<seq>]` declares a late attack, as the multiplayer previews do.
+  const [late, setLate] = useState(false);
+  useEffect(() => {
+    if (!attack) return;
+    const timer = setTimeout(() => setLate(true), 1200);
+    return () => clearTimeout(timer);
+  }, [attack]);
+  const room = useMemo(() => {
+    const event = parseAttackParam(attack ?? null);
+    if (!event || !late || !base.engine) return base;
+    const events = base.engine.events;
+    const eventId = Math.max(0, ...events.map((entry) => entry.id)) + 1;
+    return { ...base, engine: { ...base.engine, battleStep: "battle" as const, events: [...events, { ...event, id: eventId }] } };
+  }, [base, attack, late]);
   const engine = room.engine!;
   useDuelAnimationSpeed(reduced);
   const [chain, setChain] = useState<DuelChainMode>(isDuelChainMode(chainParam) ? chainParam : "auto");
@@ -98,6 +114,10 @@ export function ClassicPreview({ stateId, chain: chainParam, reduced }: { stateI
                 events={withDestroyCards(engine.events)} chain={engine.chain} duelKey={`classic-preview-${id}`}
                 reducedMotion={reduced} mySeat={mySeat} playerName={playerName} seats={engine.seats}
               />
+              {attack ? (
+                <BattleFx events={withDestroyCards(engine.events)} seats={engine.seats} reducedMotion={reduced} active aim={null}
+                  battleStep={battleStep} nameOf={playerName} />
+              ) : null}
               <PromptCenter
                 prompt={prompt} mySeat={mySeat} active slug={`classic-preview-${id}`} busy={false} draft={DRAFT} onSubmit={noop}
                 menuOpen={false} chain={engine.chain} aimLocked={false} reducedMotion={reduced} revision={engine.revision}

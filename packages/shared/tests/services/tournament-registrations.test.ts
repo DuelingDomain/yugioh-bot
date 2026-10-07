@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "../helpers/identity.js";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import { migrate } from "../../src/db/index.js";
@@ -8,11 +9,10 @@ function setup() {
   migrate(db);
   db.pragma("foreign_keys = off");
   const player = (guild: string, user: string) =>
-    Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values (?, ?, ?)").run(guild, user, user).lastInsertRowid);
+    seedIdentity(db, { guildId: guild, name: user, userId: seedUser(db, user).userId, discordUserId: seedUser(db, user).discordUserId ?? user }).playerId;
   const tournament = (name: string, status: string, guild = "g") =>
     Number(
-      db.prepare("insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug) values (?, ?, 'single_elim', ?, 'org', ?)")
-        .run(guild, name, status, name.toLowerCase().replace(/ /g, "-")).lastInsertRowid,
+      db.prepare("insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug) values (?, ?, 'single_elim', ?, ?, ?)").run(guild, name, status, seedUser(db, "org").userId, name.toLowerCase().replace(/ /g, "-")).lastInsertRowid,
     );
   const join = (tournamentId: number, playerId: number, reg?: { savedDeckId: number | null; locked?: boolean; at?: string }) => {
     db.prepare("insert into tournament_participants (tournament_id, player_id) values (?, ?)").run(tournamentId, playerId);
@@ -51,8 +51,7 @@ describe("deck registrations", () => {
     const t = tournament("Draft cup", "active");
     join(t, me, { savedDeckId: 3, locked: true });
     const draftId = Number(
-      db.prepare("insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, tournament_id) values ('g', 'c', 'D', 'completed', 'org', '{}', ?)")
-        .run(t).lastInsertRowid,
+      db.prepare("insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, tournament_id) values ('g', 'c', 'D', 'completed', ?, '{}', ?)").run(seedUser(db, "org").userId, t).lastInsertRowid,
     );
     const [entry] = service.deckRegistrations(me, "g");
     expect(entry).toMatchObject({ savedDeckId: 3, draftId, lockedAt: "2026-10-02 10:00:00" });

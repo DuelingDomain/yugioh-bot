@@ -19,6 +19,8 @@ import { Rng } from "./fuzz/rng.js";
 import { CURRENT_MULTI_TAG, describeWithCores, needs } from "./support/cores.js";
 import { liveNseat } from "./support/live-nseat.js";
 import { rowsForShard } from "./support/shard.js";
+import { activate, changePhase, expectBoard, expectNotOffered, expectOffered, expectPrompt, pass, select, specialSummon } from "./support/dsl.js";
+import { runScenario } from "./support/session.js";
 
 // F7 design section 5, row "Table": every card of the overlay lists on the real engine, at three seats and in Tag, on the DEBUG build
 // of the core (-DYGO_N_TRAP). Each card must load without a Lua error, have its condition run, cause no trap `U` (a number read with no
@@ -111,6 +113,7 @@ const EXPECTED_TRAPS: Record<number, { kind: string; reason: string }[]> = {};
  * both formats unless NO_CONDITION_RUN_ONLY names the formats (the card runs its condition in the other one).
  */
 const NO_CONDITION_RUN: Record<number, string> = {
+  17242022: "Red-Eyes Black Dragon Exceed: the generic board neither Fusion Summons it nor destroys a monster with Dark Time Wizard to enable its Extra Deck procedure; its preloaded field copy raises no Special Summon trigger",
   95376428: "Extra Net: the trigger needs a Special Summon from the Extra Deck; the generic game has no Extra Deck monster (paired-zone-triggers.ts proves the real trigger, prompts and every seat in 1v1, FFA3, FFA4 and Tag)",
   14220547: "Branded in Central Dogmatika: its Extra Deck trigger needs a Ritual Summon by a Spell; the generic table does not make one (p3-extra-deck.ts proves the real trigger, prompts and every seat in Standard and Domain)",
   1804528: "Dark Coffin: the trigger needs this card to be face-down on the field and destroyed; no generic seat destroys a set Trap",
@@ -162,11 +165,7 @@ const NO_CONDITION_RUN_ONLY: Record<number, DuelFormat[]> = { 89731911: ["tag"],
  * The engine cannot put such a card in a deck, so the table cannot play it. The test PASSES only while the card is absent.
  */
 const NOT_IN_CARD_DATABASE: Record<number, string> = {
-  39513225: "R1_NO_CHANGE card: the script is in card-scripts/official, the card is not in cards.cdb of data/duel-engine-next",
   95200102: "R1 entry: the script is in card-scripts/official, the card is not in cards.cdb of data/duel-engine-next",
-  99505609: "R1 entry (Bingo Card): the script is in card-scripts/official, the card is not in cards.cdb of data/duel-engine-next",
-  17242022: "R2 entry (Red-Eyes Black Dragon Exceed): the script is in card-scripts/official, the card is not in cards.cdb of data/duel-engine-next",
-  77482666: "R2 entry (Swiftwind Panther Warrior): the script is in card-scripts/official, the card is not in cards.cdb of data/duel-engine-next",
 };
 
 /**
@@ -442,6 +441,17 @@ function cardRowsOf(): Map<number, CardRow> {
   return cardRows;
 }
 
+describeWithCores("the table: merged card database coverage", [needs.cards(), stock], () => {
+  it("audits every table entry against the database and official scripts, independently of TABLE_SHARD", () => {
+    const absent = TABLE.filter((row) => !inCardDatabase(row.code)).map((row) => row.code).sort((a, b) => a - b);
+    const expectedAbsent = Object.keys(NOT_IN_CARD_DATABASE).map(Number).sort((a, b) => a - b);
+    expect(absent, "review database exclusions when a table card is released or removed").toEqual(expectedAbsent);
+
+    const withoutScript = TABLE.filter((row) => inCardDatabase(row.code) && !existsSync(join(stockDirectory, `c${row.code}.lua`)));
+    expect(withoutScript, "every available table card needs its official script").toEqual([]);
+  });
+});
+
 type Layout = "behind" | "ahead";
 
 const FILLERS = ["Giant Rat", "Battle Ox", "Celtic Guardian", "Axe Raider", "Silver Fang"];
@@ -453,6 +463,38 @@ const filler = (count: number): CardEntry[] => FILLERS.slice(0, count);
  * `ahead`: p0 has more cards, so a "fewer than you" compare passes. Each opponent has a different count, so the compare differs by seat.
  */
 export function boardFor(format: DuelFormat, code: number, layout: Layout): BoardSpec {
+  if (code === 90140980) {
+    // Extra Deck copies load before the probe. De-Fusion returns the wrapped field copy,
+    // then Polymerization checks its fusion condition with the three Ojama materials.
+    return { format, deckSize: 20,
+      p0: { monsters: [code], hand: ["De-Fusion", "Polymerization", "Ojama Green", "Ojama Yellow", "Ojama Black"] }, p1: {}, p2: {},
+      ...(format === "tag" ? { p3: {} } : {}) };
+  }
+  if (code === 85967160) {
+    // Bergamot's piercing condition is read when a Plant attacks a Defense Position monster.
+    return { format, deckSize: 20, attackFirstTurn: true,
+      p0: { monsters: [code], lp: 9000 }, p1: { monsters: [{ card: "Mystical Elf", pos: "def" }], lp: 8000 },
+      p2: format === "tag" ? {} : { monsters: [{ card: "Mystical Elf", pos: "def" }], lp: 8000 },
+      ...(format === "tag" ? { p3: { monsters: [{ card: "Mystical Elf", pos: "def" }], lp: 8000 } } : {}) };
+  }
+  if (code === 78360952) {
+    // Sunlit Sentinel registers its Standby Phase trigger only after destruction while face-down.
+    return { format, deckSize: 20,
+      p0: { monsters: [{ card: code, pos: "set" }], hand: ["Dark Hole"] }, p1: {}, p2: {},
+      ...(format === "tag" ? { p3: {} } : {}) };
+  }
+  if (code === 97729135) {
+    // Keep Staring Contest face-up when Monster Reborn raises EVENT_SPSUMMON_SUCCESS.
+    return { format, deckSize: 20,
+      p0: { spells: [code], hand: ["Monster Reborn"], grave: ["Giant Rat"] }, p1: {}, p2: {},
+      ...(format === "tag" ? { p3: {} } : {}) };
+  }
+  if (code === 40640057) {
+    // Kuriboh's hand condition needs damage calculation on an opponent's turn.
+    return { format, deckSize: 20, attackFirstTurn: true,
+      p0: { hand: [code] }, p1: { monsters: ["Axe Raider"] }, p2: {},
+      ...(format === "tag" ? { p3: {} } : {}) };
+  }
   const { type } = cardRow(code);
   const extra = (type & TYPE.extra) !== 0;
   const monster = (type & TYPE.monster) !== 0;
@@ -611,8 +653,13 @@ export async function playTable(format: DuelFormat, code: number, layout: Layout
       result.turn = Math.max(result.turn, view.turn);
       if (view.result) break;
       const answers = candidatesFor(prompt, seat, actions < MAX_ACTIONS, result.steps < LIVELY_STEPS, rng, game, view.seats?.filter((entry) => !entry.eliminated).map((entry) => entry.seat));
-      if (code === 99050989 && seat === 0 && prompt.context?.type === "action") {
-        // The generic p0 planner summons and activates, then ends its turn. Drillago needs an attack.
+      if (code === 40640057 && seat === 0 && prompt.context?.type === "action") {
+        // Keep Kuriboh in hand until the opponent attacks instead of Normal Summoning it.
+        const end = prompt.options.find(option => option.id === "to_ep");
+        if (end) answers.unshift({ choice: end.id });
+      }
+      if ([99050989, 85967160].includes(code) && seat === 0 && prompt.context?.type === "action") {
+        // The generic p0 planner summons and activates, then ends its turn. Drillago and Bergamot need an attack.
         const attack = prompt.options.find(option => option.id.startsWith("attack:") && option.card?.code === code);
         const action = attack ?? prompt.options.find(option => option.id === "to_bp");
         if (action) answers.unshift({ choice: action.id });
@@ -719,6 +766,67 @@ describeWithCores("the table: every listed card on the debug core", [liveNseat, 
         else expect(ran, "the condition, target or cost never ran").toBe(true);
       }, 120_000);
     }
+  }
+});
+
+describeWithCores("released Seventh Barian's multiplayer effects", [liveNseat, trapWasm, stock], () => {
+  it.each([true, false])("tag: partner shares the summon cap (field present: %s)", async (withField) => {
+    await runScenario({
+      id: `seventh-barians-tag-partner-cap-${withField}`, title: "A Tag partner shares the two-summon cap while its other Trap remains legal",
+      source: "docs/adr/0002-multiplayer-duel-rules.md [R-COMMON-SEAT-STATE]", tags: ["multiplayer", "card:39513225"],
+      setup: { format: "tag", attackFirstTurn: true, deckSize: 20,
+        p0: { monsters: ["Kagemusha of the Six Samurai", "Flame Viper", "Hop Ear Squadron", "Cherry Inmato"],
+          extra: ["Armory Arm", "Mighty Warrior"] },
+        p1: withField ? { field: 39513225 } : {},
+        p2: { monsters: ["Kagemusha of the Six Samurai", "Flame Viper"], extra: ["Armory Arm"],
+          spells: [{ card: "Urgent Tuning", pos: "set" }, { card: "Waboku", pos: "set" }] }, p3: {} },
+      steps: [specialSummon("Armory Arm", "p0"),
+        select({ card: "Kagemusha of the Six Samurai", owner: "p0" }, { card: "Flame Viper", owner: "p0" }), pass("p2"),
+        specialSummon("Mighty Warrior", "p0"), select({ card: "Hop Ear Squadron", owner: "p0" }, { card: "Armory Arm", owner: "p0" }),
+        pass("p2"), changePhase("battle", "p0"), pass("p2"), expectPrompt({ by: "p2", kind: "choice", context: "chain" }),
+        expectOffered("activate", "Waboku", "p2"),
+        withField ? expectNotOffered("activate", "Urgent Tuning", "p2") : expectOffered("activate", "Urgent Tuning", "p2")],
+    });
+  }, 60_000);
+
+  for (const format of ["ffa3", "ffa4", "tag"] as const) {
+    it(`${format}: counts Xyz monsters on every field and damages every living duelist`, async () => {
+      const n = seatCountFor(format);
+      const setup: BoardSpec = { format, deckSize: 20, p0: { field: 39513225, monsters: ["Number 39: Utopia"] } };
+      const expected: Parameters<typeof expectBoard>[0] = {};
+      for (let seat = 0; seat < n; seat++) {
+        const id = `p${seat}` as "p0" | "p1" | "p2" | "p3";
+        if (seat > 0) setup[id] = { monsters: seat === n - 1 ? ["Number 39: Utopia"] : [] };
+        expected[id] = { lp: format === "tag" ? 14400 : 7200 };
+      }
+      await runScenario({
+        id: `seventh-barians-${format}-each-player-damage`, title: "Each player takes 400 damage for every Xyz Monster on the field",
+        source: "docs/adr/0002-multiplayer-duel-rules.md [R-COMMON-EACH-PLAYER]", tags: ["multiplayer", "card:39513225"],
+        setup, steps: [{ op: "phase", to: "end", by: "p0" }, expectBoard(expected)],
+      });
+    }, 60_000);
+
+    it(`${format}: counts non-Number Extra Deck summons per seat in FFA and per team in Tag`, async () => {
+      const responder = format === "tag" ? "p1" : "p2";
+      const setup: BoardSpec = {
+        format, attackFirstTurn: true, deckSize: 20,
+        p0: { monsters: ["Kagemusha of the Six Samurai", "Flame Viper", "Hop Ear Squadron", "Cherry Inmato"],
+          extra: ["Armory Arm", "Mighty Warrior", "Stardust Dragon"] },
+        p1: { field: 39513225 }, p2: {},
+        ...(format === "ffa3" ? {} : { p3: {} }),
+      };
+      setup[responder] = { ...setup[responder], monsters: ["Kagemusha of the Six Samurai", "Flame Viper"],
+        extra: ["Armory Arm"], spells: [{ card: "Urgent Tuning", pos: "set" }] };
+      await runScenario({
+        id: `seventh-barians-${format}-summon-state`, title: "Two non-Number summons lock that seat or team while another side can still summon",
+        source: "docs/adr/0002-multiplayer-duel-rules.md [R-COMMON-SEAT-STATE]", tags: ["multiplayer", "card:39513225"], setup,
+        steps: [specialSummon("Armory Arm", "p0"), select("Kagemusha of the Six Samurai", "Flame Viper"),
+          specialSummon("Mighty Warrior", "p0"), select("Hop Ear Squadron", "Armory Arm"),
+          expectNotOffered("specialSummon", "Stardust Dragon", "p0"), changePhase("battle", "p0"),
+          activate("Urgent Tuning", responder), select("Flame Viper"),
+          expectBoard({ p0: { monsters: ["Mighty Warrior", "Cherry Inmato"] }, [responder]: { monsters: ["Armory Arm"] } })],
+      });
+    }, 60_000);
   }
 });
 

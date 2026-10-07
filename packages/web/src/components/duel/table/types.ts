@@ -9,7 +9,7 @@ export type { BattleAim, PromptDraft, InspectTarget, DuelActivateHandler, DuelHo
 
 /**
  * The contract of the multiplayer table UI (3-way, 4-way, 2v2 tag). The scaffold wrote it; after that only the
- * 3w-* steps may change it, and only by adding. Plan: docs/specs/2026-10-01-multiplayer-table-ui-plan.md.
+ * 3w-* steps may change it, and only by adding. See docs/architecture.md.
  */
 
 export type TableFormat = Exclude<DuelFormat, "1v1">; // "tag" | "ffa3" | "ffa4"
@@ -50,6 +50,8 @@ export interface SeatPose {
   scale: number;
   rotateDeg: number; // effective rotation (text counter-rotates when upright)
   tiltDeg?: number; // perspective tilt of a far field (rotateX), default 0
+  /** Width of the field box at scale 1 (default SEAT_BOX.width): a wide 3-way table gives every zone column a card height, for full-size Defense cards. */
+  width?: number;
   slot?: PoseSlot; // named place of the pose (3-way and 4-way): the ring, the holo panels and the docks read it
   z: number;
   docked: boolean;
@@ -75,18 +77,16 @@ export interface CameraState {
   lookSeat: number | null;
   upright: boolean;
   compact: "auto" | "on" | "off";
-  auto: boolean;
-  pinned: boolean;
-  aiming: boolean;
   fly: FlyPose;
-  lock: { reason: CameraLockReason; untilMs: number } | null;
-  autoMoved?: boolean; // the last move came from the auto camera (the cue shows, Keep can pin it)
+  lock: { reason: CameraLockReason; untilMs: number } | null; // a preview switch only: the duel never sets it
   flyIn?: boolean; // Overview is the fly-in plaza (default true); false is the flat triangle
 }
 export type CameraAction =
   | { type: "home" }
   | { type: "overview" }
   | { type: "focus"; seat: number }
+  /** A click on a field of a 3-way table: that field is shown larger; a second click on it goes home. */
+  | { type: "enlarge"; seat: number }
   | { type: "focusStep"; dir: 1 | -1 }
   | { type: "look"; seat: number | null }
   | { type: "toggleFly" }
@@ -95,10 +95,6 @@ export type CameraAction =
   | { type: "zoom"; factor: number }
   | { type: "toggleUpright" }
   | { type: "toggleCompact" }
-  | { type: "toggleAuto" }
-  | { type: "pin"; on: boolean }
-  | { type: "aiming"; on: boolean }
-  | { type: "autoFollow"; seat: number | null }
   | { type: "lock"; reason: CameraLockReason; nowMs: number; ms: number }
   | { type: "tick"; nowMs: number };
 
@@ -124,7 +120,14 @@ export interface SeatFieldProps {
   tone: SeatTone;
   density: "full" | "rival" | "compact";
   hand: "face" | "backs" | "none";
-  emz: "own" | "shared-bottom" | "shared-top";
+  /**
+   * Extra Monster Zones of the seat: `own` (two of its own), `pair` (the grid: this seat draws the row it shares with the
+   * facing seat `pair.other`), `none` (the grid: the facing seat draws it). `pair.left` and `pair.right` are the room left
+   * for the life boxes, in card heights; `pair.gap` is the space between the two EMZ (columns 2 and 4), in card heights; `pair.joined` = the facing field is drawn, so the two mats meet at this row.
+   */
+  emz: "own" | "shared-bottom" | "shared-top" | "pair" | "none";
+  /** `framed`: the stage draws one frame round the pair (see grid-stage.tsx `pairFrameRect`), so this field draws no mat. */
+  pair?: { other: number | null; left: number; right: number; gap: number; joined: boolean; framed?: boolean };
   showTally: boolean; // false when a holo LP panel owns data-lp-seat
   usable: boolean; // false: legal ring only, no USE glow (partner, spectator)
   name?: string; // display name of the seat (labels and aria text); default "Player <n>"

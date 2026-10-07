@@ -2,7 +2,7 @@
 
 How the draft engine works: the vocabulary, the lifecycle, the deal algorithm, and the
 data model. The authoritative logic lives in `@yugidraft/shared`
-(`packages/shared/src/services/drafts.ts` and `cube.ts`); this guide is the map, not the
+(`packages/shared/src/services/drafts.ts` and `deal.ts`); this guide is the map, not the
 territory — when in doubt, read those two files.
 
 ## Mental model
@@ -15,9 +15,8 @@ crash: the engine never re-rolls cards mid-draft.
 
 ## Vocabulary
 
-These terms are load-bearing — code, columns, and tests use them precisely. (This section
-fills a gap in the root `CONTEXT.md`, which currently only defines tournament/notification
-language.)
+These terms are load-bearing — code, columns, and tests use them precisely. The root
+`CONTEXT.md` defines the product-level terms (Cube, Theme draft, Tournament).
 
 - **Pool** — the eligible card set *before* multiplicity is applied: the result of
   resolving a draft's config (set names, custom passcodes, include/exclude name lists)
@@ -78,7 +77,7 @@ A single transaction:
 2. Assign `seat_index` 0..P-1 by join order.
 3. Resolve the Cube (`cubeCardIds` → `poolCardIds` → recompute from catalog).
 4. `analyzeCube(cube, P, W, k)` — **authoritative feasibility gate**. Throws if not `ok`.
-5. `buildDeal(...)` → persist every card slot into `draft_deal` (flat, by `position`).
+5. `buildDealWithRemainder(...)` (`buildDeal` wraps it) → persist every card slot into `draft_deal` (flat, by `position`).
 6. `openWave(draftId, 1, P, config)` — materialize wave 1's packs and cards.
 7. Flip `status='active'`, set `current_wave_number=1`, `current_pick_step=1`, and the
    first `pick_deadline_at`.
@@ -190,6 +189,9 @@ Resolved through `normalizeDraftConfig`; defaults in `defaultDraftConfig`:
 | `draft_packs` | one row per pack per wave: `wave_number`, `origin_seat_index`, `current_holder_seat_index`, `pass_direction` |
 | `draft_cards` | the cards inside each pack: `wave_number`, `draft_pack_id`, `catalog_card_id`, `position`, `picked_by_player_id` |
 | `draft_picks` | the pick log: `(draft_id, player_id, wave_number, pick_step)` unique; `pick_method` manual/auto |
+| `draft_undealt` | booster copies left over after the deal, in deal order (old drafts have none) |
+| `draft_passes` | a booster pick a player could not make (capped or empty pack): counts toward step completion, adds no card |
+| `draft_player_cube` | theme mode: the **Cube** assigned to each player |
 
 ### Migration notes
 
@@ -202,11 +204,23 @@ Resolved through `normalizeDraftConfig`; defaults in `defaultDraftConfig`:
 Older `draft_cards` / `draft_picks` already shipped with `wave_number`, so only those two
 objects needed renaming.
 
+## Theme mode
+
+`DraftConfig.mode === "theme"` skips the shared Deal. Each player is dealt privately from an
+assigned **Cube** (`draft_player_cube`). In `services/drafts.ts`:
+
+- `startThemeDraft` assigns seats and cubes (`themeSelection`: `host_assigned`, `random` or
+  `player_pick`; `uniqueThemes` forces distinct cubes) and checks each cube's main pool is large enough.
+- `openThemeRound` deals up to `themePackSize` choices to each player; `burnUnpicked` decides
+  whether unpicked choices return to the pool.
+- `pickThemeCard` advances `current_wave_number` once everyone who was dealt a pack has picked.
+  Main-deck rounds come first, then optional extra-deck rounds.
+
 ## Where to look
 
-- `packages/shared/src/services/cube.ts` — `analyzeCube`, `buildDeal`, the seeded PRNG.
+- `packages/shared/src/services/deal.ts` — `analyzeCube`, `buildDeal`, `buildDealWithRemainder`, the seeded PRNG (`mulberry32`). `services/cubes.ts` is the cube CRUD service.
 - `packages/shared/src/services/drafts.ts` — `startDraft`, `openWave`, `pickCard`,
   `expireCurrentPickStep`, Pool/Cube resolution.
 - `packages/shared/src/db/schema.ts` — table definitions and the rename migrations.
-- `packages/shared/tests/services/cube.test.ts` — deal feasibility and no-dup-per-wave
+- `packages/shared/tests/services/deal.test.ts` — deal feasibility and no-dup-per-wave
   invariants.

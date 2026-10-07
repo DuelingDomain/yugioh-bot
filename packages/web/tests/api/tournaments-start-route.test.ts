@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "../fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -6,14 +7,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const auth = vi.fn();
 const tempDirs: string[] = [];
 
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("../fixtures/session");
+  return sessionFixture(auth);
+});
 
 describe("POST /api/tournaments/[slug] (start)", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.stubEnv("DISCORD_GUILD_ID", "g1");
     auth.mockReset();
-    auth.mockResolvedValue({ user: { id: "u-org", name: "Org" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-org")), discordUserId: fixtureDiscordId("u-org"), name: "Org" } });
   });
 
   afterEach(() => {
@@ -35,8 +39,9 @@ describe("POST /api/tournaments/[slug] (start)", () => {
     const { migrate } = await import("../../../shared/src/db/schema");
     const seedDb = new Database(dbPath);
     migrate(seedDb);
+    seedFixtureUsers(seedDb, FIXTURE_KEYS);
     seedDb
-      .prepare("insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug) values ('g1','T','round_robin','pending','u-org','slug-1')")
+      .prepare(`insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug) values ('g1', 'T', 'round_robin', 'pending', ${fixtureUserId("u-org")}, 'slug-1')`)
       .run();
     seedDb.close();
 
@@ -49,3 +54,7 @@ describe("POST /api/tournaments/[slug] (start)", () => {
     expect(body.error).toMatch(/at least two/i);
   });
 });
+
+const FIXTURE_KEYS = ["u-org"] as const;
+
+// Session resolution is mocked; authorization still runs through the real web boundary.

@@ -1,10 +1,12 @@
+import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { createHmac } from "node:crypto";
 import Database from "better-sqlite3";
 import { afterEach, expect, it } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { createDuelService } from "@yugidraft/shared/services";
 import type { DuelEngineView, DuelFormat } from "@yugidraft/shared/duels";
-import { createDuelHost, type DuelHost } from "../src/host.js";
+import type { DuelHost } from "../src/host.js";
+import { createTestDuelHost as createDuelHost, finishTestDiceOpening } from "./support/test-opening.js";
 import { buildPracticeBotDeck } from "../src/practice-bot.js";
 import type { DuelGameWorker } from "../src/worker-client.js";
 import { engineDataDirectory as DATA } from "./engine-data-dir.js";
@@ -20,7 +22,7 @@ async function table(format: DuelFormat = "ffa3") {
   const db = new Database(":memory:"); databases.push(db); migrate(db);
   const count = format === "ffa4" || format === "tag" ? 4 : format === "1v1" ? 2 : 3;
   const players = Array.from({ length: count }, (_, seat) =>
-    Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g', ?, ?)").run(`u${seat}`, `P${seat}`).lastInsertRowid));
+    seedIdentity(db, { guildId: "g", name: `P${seat}`, userId: seedUser(db, `u${seat}`).userId, discordUserId: seedUser(db, `u${seat}`).discordUserId ?? `u${seat}` }).playerId);
   const duels = createDuelService(db);
   const session = duels.create({ guildId: "g", organizerPlayerId: players[0]!, name: "bug", mode: "normal", format });
   for (const player of players.slice(1)) duels.takeSeat(session.slug, "g", player);
@@ -50,10 +52,11 @@ async function table(format: DuelFormat = "ffa3") {
   const host = createDuelHost({ db, secret: SECRET, dataDirectory: DATA, searchCards: () => [], pollIntervalMs: 60_000, debugReadTimeoutMs: 50, createWorker: () => worker });
   hosts.push(host);
   const actor = { slug: session.slug, guildId: "g", playerId: players[0] };
-  async function post(body: Record<string, unknown>) {
+  async function post(body: Record<string, unknown>): Promise<{ status: number; data: Record<string, any> }> {
     const raw = JSON.stringify({ ...actor, ...body });
     const response = await host.handle(new Request("http://localhost/internal/duel", { method: "POST", headers: { "x-announce-signature": "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex"), "content-type": "application/json" }, body: raw }));
-    return { status: response.status, data: await response.json() };
+    return finishTestDiceOpening(host, { slug: session.slug, ...body },
+      { status: response.status, data: await response.json() as Record<string, any> }, (next) => post(next));
   }
   expect((await post({ op: "start" })).status).toBe(200);
   reads.length = 0;
@@ -83,7 +86,7 @@ it("answers without a log when the core does not answer, and never waits on the 
 
 it("refuses a player who may not see the duel", async () => {
   const t = await table("1v1");
-  const outsider = Number(t.db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('other', 'x', 'X')").run().lastInsertRowid);
+  const outsider = seedIdentity(t.db, { guildId: "other", name: "X", userId: seedUser(t.db, "x").userId, discordUserId: seedUser(t.db, "x").discordUserId ?? "x" }).playerId;
   expect((await t.post({ op: "bug-context", playerId: outsider })).status).toBeGreaterThanOrEqual(400);
 });
 

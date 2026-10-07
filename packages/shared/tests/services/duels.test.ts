@@ -1,14 +1,12 @@
+import { seedIdentity, seedUser } from "../helpers/identity.js";
 import Database from "better-sqlite3";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { migrate } from "../../src/db/index.js";
 import type { DuelCommand, DuelDeck, DuelEngineView } from "../../src/duels/index.js";
 import { createDuelService, DuelServiceError, DUEL_LIVE_IDLE_AFTER_MS } from "../../src/services/duels.js";
 
 function insertPlayer(db: Database.Database, guildId: string, discordUserId: string, displayName: string) {
-  return Number(
-    db.prepare("insert into players (guild_id, discord_user_id, display_name) values (?, ?, ?)").run(guildId, discordUserId, displayName)
-      .lastInsertRowid,
-  );
+  return seedIdentity(db, { guildId: guildId, name: displayName, userId: seedUser(db, discordUserId).userId, discordUserId: seedUser(db, discordUserId).discordUserId ?? discordUserId }).playerId;
 }
 
 function validDeck(start = 1, deckMaster?: number): DuelDeck {
@@ -713,7 +711,7 @@ describe("duel snapshots archive and cancel", () => {
     start(app, active.slug);
     try {
       app.duels.cancel(active.slug, "g1", app.p1);
-      throw new Error("expected active cancel to fail");
+      throw new Error("expected active series cancel to fail");
     } catch (error) {
       expect((error as DuelServiceError).status).toBe(409);
     }
@@ -725,6 +723,40 @@ describe("duel snapshots archive and cancel", () => {
     expect(app.duels.get(lobby.slug, "g1").archivedAt).toBeTruthy();
     expect(app.duels.list("g1", app.p1).map((row) => row.slug)).toEqual([active.slug]);
     expect(app.duels.archiveDue(8, 10 * 60 * 1000)).toEqual([]);
+  });
+
+  it.each(["1v1", "ffa3", "ffa4", "tag"] as const)("allows only the creator to cancel an active casual %s duel without a winner", (format) => {
+    const app = setup();
+    const session = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Casual", mode: "normal", format });
+    const count = format === "1v1" ? 2 : format === "ffa3" ? 3 : 4;
+    app.duels.setDeck(session.slug, "g1", app.p1, validDeck());
+    for (let seat = 1; seat < count; seat++) app.duels.addPracticeBot(session.slug, "g1", app.p1, validDeck(1000 * seat), seat);
+    app.duels.activate(session.slug, "g1", app.p1, ["1", "2", "3", "4"], "v", {
+      turn: 5, remainingMs: Array(count).fill(60_000), activeSeat: 0, startedAt: 1000,
+    });
+    expect(() => app.duels.cancel(session.slug, "g1", app.p2)).toThrow("Only the organizer can cancel");
+    expect(app.duels.get(session.slug, "g1").status).toBe("active");
+    const cancelled = app.duels.cancel(session.slug, "g1", app.p1);
+    expect(cancelled).toMatchObject({ status: "cancelled", winnerSeat: null, winnerPlayerId: null, resultReason: "Cancelled" });
+    expect(cancelled.endedAt).toBeTruthy();
+    expect(cancelled.archivedAt).toBeTruthy();
+    expect(app.duels.room(session.slug, "g1", app.p1).clock).toBeNull();
+    expect(app.duels.cancel(session.slug, "g1", app.p1)).toEqual(cancelled);
+    app.db.close();
+  });
+
+  it("still refuses cancellation of an active ranked duel or an already completed duel", () => {
+    const app = setup();
+    const ranked = readyDuel(app);
+    app.db.prepare("update duels set ranked = 1 where id = ?").run(ranked.id);
+    start(app, ranked.slug);
+    expect(() => app.duels.cancel(ranked.slug, "g1", app.p1)).toThrow();
+    const finished = readyDuel(app);
+    start(app, finished.slug);
+    app.duels.complete(finished.slug, "g1", 0, "Surrender");
+    expect(() => app.duels.cancel(finished.slug, "g1", app.p1)).toThrow();
+    expect(app.duels.get(finished.slug, "g1")).toMatchObject({ status: "completed", winnerSeat: 0 });
+    app.db.close();
   });
 });
 
@@ -1107,6 +1139,22 @@ describe("rock-paper-scissors opening", () => {
     return { db, duels, p1, p2, slug: room.slug };
   }
 
+  it("includes a fresh server timestamp in each opening room view", () => {
+    const { db, duels, p1, p2, slug } = lobby();
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    try {
+      duels.startOpening(slug, "g1", p1, Date.now());
+      duels.submitOpeningPick(slug, "g1", 0, "rock", Date.now());
+      duels.submitOpeningPick(slug, "g1", 1, "rock", Date.now());
+      expect(duels.room(slug, "g1", p1).opening).toMatchObject({ round: 2, serverNow: 1_000_000 });
+      now.mockReturnValue(1_001_000);
+      expect(duels.room(slug, "g1", p2).opening).toMatchObject({ round: 2, serverNow: 1_001_000 });
+    } finally {
+      now.mockRestore();
+      db.close();
+    }
+  });
+
   it("starts only for the organizer with two ready seats", () => {
     const { duels, p1, p2, slug } = lobby();
     expect(() => duels.startOpening(slug, "g1", p2, 1000)).toThrow(/Only the organizer/);
@@ -1135,8 +1183,11 @@ describe("rock-paper-scissors opening", () => {
     const { duels, p1, p2, slug } = lobby();
     duels.startOpening(slug, "g1", p1, 1000);
     duels.submitOpeningPick(slug, "g1", 0, "rock", 1100);
-    expect(duels.room(slug, "g1", p1).opening?.myPick).toBe("rock");
+    const own = duels.room(slug, "g1", p1).opening;
+    if (!own || !("myPick" in own)) throw new Error("Expected RPS opening");
+    expect(own.myPick).toBe("rock");
     const other = duels.room(slug, "g1", p2).opening;
+    if (!other || !("myPick" in other)) throw new Error("Expected RPS opening");
     expect(other?.myPick).toBeNull();
     expect(other?.picked).toEqual([true, false]);
     expect(JSON.stringify(other)).not.toContain("rock");
@@ -1156,6 +1207,7 @@ describe("rock-paper-scissors opening", () => {
     expect(duels.privateState(slug, "g1").decks[0]?.main[0]).toBe(500);
     // The room shows the result in the new seat numbers.
     const view = duels.room(slug, "g1", p1).opening;
+    if (!view || !("winnerSeat" in view)) throw new Error("Expected RPS opening");
     expect(view?.winnerSeat).toBe(1);
     expect(view?.reveal?.picks).toEqual(["scissors", "rock"]);
   });
@@ -1180,7 +1232,8 @@ describe("rock-paper-scissors opening", () => {
     expect(settled?.phase).toBe("choose");
     const chosen = duels.settleOpening(slug, "g1", settled!.deadline);
     expect(chosen?.phase).toBe("start");
-    expect(chosen?.choice).toBe("first");
+    if (!chosen || !("choice" in chosen)) throw new Error("Expected RPS opening");
+    expect(chosen.choice).toBe("first");
   });
 
   it("drops a settled opening so the lobby can change again", () => {

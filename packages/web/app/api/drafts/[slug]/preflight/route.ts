@@ -1,22 +1,20 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { hostThemeAssignmentError } from "@/lib/theme-draft-validation";
 import { draftReadAccess } from "@/lib/draft-access";
-import { analyzeCube, prepareBoosterPool, createCardCatalogService, createDraftService, createCubeService } from "@yugidraft/shared/services";
+import { createCardCatalogService, createDraftService, createCubeService } from "@yugidraft/shared/services";
 
 export const runtime = "nodejs";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ slug: string }> }) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const actor = await requireWebAccess();
+  if (!actor.ok) return actor.response;
   const { slug } = await params;
   const db = getDb();
   const guildId = env.discordGuildId;
-  const denied = draftReadAccess(db, slug, guildId, session.user.id);
+  const denied = draftReadAccess(db, slug, guildId, actor.userId);
   if (denied) return denied;
 
   const draftRow = db
@@ -29,16 +27,10 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
   const drafts = createDraftService(db);
   const draft = drafts.findById(draftRow.id);
   if (draft.config.mode !== "theme") {
-    const analysis = analyzeCube(
-      prepareBoosterPool(drafts.resolveCubeCardIds(draft.config), draft.config, Math.max(2, drafts.players(draft.id).length) * (draft.config.packsPerPlayer ?? 5) * (draft.config.packSize ?? 8)),
-      Math.max(2, drafts.players(draft.id).length),
-      draft.config.packsPerPlayer ?? 5,
-      draft.config.packSize ?? 8,
-      draft.config.cardsPerPlayer ?? 40,
-    );
+    const analysis = drafts.analyzeBoosterDraft(draft.config, Math.max(2, drafts.players(draft.id).length), draft.guildId);
     return NextResponse.json({ errors: analysis.errors, warnings: analysis.warnings });
   }
-  if (draft.config.themeSelection === "host_assigned" && draft.createdByUserId !== session.user.id) {
+  if (draft.config.themeSelection === "host_assigned" && draft.createdByUserId !== actor.userId) {
     return NextResponse.json({ errors: [], warnings: [] });
   }
 

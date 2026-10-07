@@ -41,6 +41,7 @@
 #include <vector>
 #include "ocgapi.h"
 #include "ocgapi_constants.h"
+#include "response-order.h"
 
 namespace fs = std::filesystem;
 
@@ -996,8 +997,7 @@ int main(int argc, char** argv) {
 	bool finished = false;
 
 	// State of the multi-duelist order checks (all "future" checks, see the header comment).
-	int chain_L = -1;               // duelist that added the newest chain link, -1 when no chain is open
-	std::vector<int> chain_seen;    // SELECT_CHAIN recipients since that link
+	ResponseOrder response_order(n, opt.tag);
 	bool seg_open = false;          // consecutive forced trigger links in progress
 	bool last_opt_chain = false;    // the newest prompt was an optional SELECT_CHAIN: the link that follows is a chosen response, not a forced trigger
 	int seg_prev_pos = -1;
@@ -1009,29 +1009,8 @@ int main(int argc, char** argv) {
 		for(int i = 0; i < 4; ++i) if(order4[i] == d) return i;
 		return d;
 	};
-	auto flush_response = [&]() {
-		if(!multi || chain_L < 0) return;
-		std::vector<int> expected;
-		if(opt.tag) {
-			for(int k : {1, 3, 2, 0}) expected.push_back((chain_L + k) % 4);
-		} else {
-			const int st = (chain_L + 1) % n;
-			for(int k = 0; k < n; ++k) expected.push_back((st + k) % n);
-		}
-		size_t at = 0;
-		for(int got : chain_seen) {
-			while(at < expected.size() && (expected[at] != got || false)) ++at;
-			if(at >= expected.size()) {
-				std::string d = "link by " + std::to_string(chain_L) + " turn player " + std::to_string(turn_player) + " prompts:";
-				for(int g : chain_seen) d += " " + std::to_string(g);
-				d += " expected order:";
-				for(int e : expected) if(!eliminated[e]) d += " " + std::to_string(e);
-				future_check("response-order", d);
-				break;
-			}
-			++at;
-		}
-		chain_seen.clear();
+	auto check_response = [&](const std::string& error) {
+		if(!error.empty()) future_check("response-order", error);
 	};
 	auto alive_after = [&](int p) {
 		for(int k = 1; k <= n; ++k) {
@@ -1076,7 +1055,7 @@ int main(int argc, char** argv) {
 				g_as.turn_actions = 0;
 				g_as.toggle_steps = 0;
 				phase = 0;
-				chain_L = -1; chain_seen.clear(); seg_open = false; pick_expect = -1;
+				response_order.reset(); seg_open = false; pick_expect = -1;
 				if(tp >= n) fail("turn-order", "turn player " + std::to_string(tp) + " out of range");
 				if(turn_player >= 0) {
 					const int expected = alive_after(turn_player);
@@ -1115,7 +1094,7 @@ int main(int argc, char** argv) {
 			case MSG_CHAINING: {
 				mr.skip(4 + 10);
 				const int L = mr.get<uint8_t>();
-				flush_response();
+				check_response(response_order.chaining(L, turn_player));
 				if(multi && L < n) {
 					if(last_opt_chain) {
 						seg_open = false;
@@ -1128,13 +1107,19 @@ int main(int argc, char** argv) {
 					}
 				}
 				last_opt_chain = false;
-				chain_L = L;
 				break;
 			}
 			case MSG_CHAIN_SOLVING:
-				flush_response();
-				chain_L = -1;
+				check_response(response_order.solving(turn_player));
 				seg_open = false;
+				break;
+			case MSG_CHAIN_END:
+#ifdef NDUEL_CHAIN_END_HOOK
+				NDUEL_CHAIN_END_HOOK(response_order);
+#endif
+				check_response(response_order.end(turn_player));
+				seg_open = false;
+				last_opt_chain = false;
 				break;
 			case MSG_MOVE: {
 				mr.skip(4 + 10);
@@ -1179,7 +1164,10 @@ int main(int argc, char** argv) {
 			case MSG_DUELIST_ELIMINATED: {
 				if(m.len != 2) future_check("msg-format", "MSG_DUELIST_ELIMINATED length " + std::to_string(m.len));
 				const int p = mr.get<uint8_t>();
-				if(p < n) eliminated[p] = true;
+				if(p < n) {
+					check_response(response_order.eliminate(p, turn_player));
+					eliminated[p] = true;
+				}
 				break;
 			}
 			case MSG_WIN: {
@@ -1195,7 +1183,7 @@ int main(int argc, char** argv) {
 				last_opt_chain = (m.id == MSG_SELECT_CHAIN && m.len >= 3 && !m.p[2] && m.p[1] != 0x7f);
 				if(m.id == MSG_SELECT_CHAIN && m.len >= 3) {
 					// spe_count 0x7f is the trigger window for the duelist's own new link, not a response prompt.
-					if(chain_L >= 0 && m.p[1] != 0x7f) chain_seen.push_back(m.p[0]);
+					response_order.prompt(m.p[0], m.p[1]);
 					if(!m.p[2]) seg_open = false;
 				} else {
 					seg_open = false;

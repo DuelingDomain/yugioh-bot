@@ -74,7 +74,7 @@ import { buildPanelView, buildStripView, chainOutcomes, rememberTargetNames, typ
 import { ChainPanel, ChainStrip } from "./chain-panel";
 import { CHAIN_PANEL_TIMING } from "./duel-timing";
 import panelStyles from "./chain-panel.module.css";
-import { chainBeatAt, chainBeatsEndAt, planChainBeats, resetChainBeats } from "./chain-beats";
+import { chainBeatAt, chainBeatsEndAt, chainPromptHoldEndAt, planChainBeats, resetChainBeats } from "./chain-beats";
 import { findFlipSequences } from "./flip-sequence";
 import { holdPromptReveal } from "./prompt-reveal";
 import { PriorityChips, type PrioritySlot } from "./priority-chips";
@@ -203,7 +203,8 @@ export function useChainPlayback(
       planChainBeats(fresh, { now: clock(), reduced: latest.current.reducedMotion, duelKey });
       queueRef.current.push(...chainEvents);
       // The question after a chain waits until the chain has been played to its end.
-      if (chainEvents.some((event) => event.kind === "chain-resolving")) holdPromptReveal(chainBeatsEndAt() - clock());
+      // A link that stops mid-resolution for a question holds it only until its effect may start (chainPromptHoldEndAt).
+      if (chainEvents.some((event) => event.kind === "chain-resolving")) holdPromptReveal(chainPromptHoldEndAt(latest.current.reducedMotion) - clock());
     }
     pump();
   }, [events, snapshot, duelKey, commit, pump]);
@@ -296,6 +297,11 @@ const GUTTER_EVERY_MS = 400;
 /** The sheet opens this far under the strip and keeps this far above a prompt; it is never shorter than SHEET_MIN. */
 const SHEET_GAP = 6;
 const SHEET_MIN = 140;
+/** From this board width the sheet is a dropdown of SHEET_WIDTH under the strip; below it, the whole width. */
+const SHEET_WIDE_FROM = 900;
+const SHEET_WIDTH = 480;
+/** Below this much room under the strip, the sheet opens upward when there is more room above it. */
+const SHEET_ROOMY = 460;
 
 /** Two interlocked links. */
 function ChainGlyph() {
@@ -496,7 +502,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
       let stripSize: { width: number; height: number } | null = null;
       let roomReady = !reportChainSize;
       let chips: { left: number; top: number } | null = null;
-      let sheet: { top: number; max: number } | null = null;
+      let sheet: { top: number; max: number; left: number; width: number; up: boolean } | null = null;
       const stripEl = stripWrapRef.current;
       if (front && next === "strip" && previous === "strip" && stripEl) {
         const obstacles = panels.slice();
@@ -521,7 +527,33 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
         for (const box of prompts) {
           if (box.left < origin.width - SHEET_GAP && box.left + box.width > SHEET_GAP && box.top + box.height > top && box.top > top - 4) limit = Math.min(limit, box.top - SHEET_GAP);
         }
-        sheet = { top: Math.round(top), max: Math.round(Math.max(SHEET_MIN, limit - top)) };
+        // A wide board: a dropdown as wide as a panel, under the strip. A phone: the whole width.
+        const wide = origin.width >= SHEET_WIDE_FROM;
+        const width = wide ? Math.min(SHEET_WIDTH, origin.width - SHEET_GAP * 2) : origin.width - SHEET_GAP * 2;
+        let left = wide ? Math.max(SHEET_GAP, Math.min(chips.left, origin.width - width - SHEET_GAP)) : SHEET_GAP;
+        let sheetWidth = width;
+        if (wide) {
+          // The chain column in the left gutter stays readable: the dropdown starts to the right of it.
+          for (const column of document.querySelectorAll<HTMLElement>("[data-chain-panel]")) {
+            if (column.closest("[data-chain-sheet]")) continue;
+            const rect = column.getBoundingClientRect();
+            const edge = rect.right - origin.left + SHEET_GAP;
+            if (rect.width > 4 && rect.height > 4 && edge > left && edge < origin.width / 2) left = edge;
+          }
+          sheetWidth = Math.min(width, origin.width - SHEET_GAP - left);
+        }
+        // Under the strip when there is room for a full detail; otherwise above it, when that side has more room. Above, the
+        // sheet ends on the strip, or on the top of an open prompt that stands over the same columns.
+        let bottom = chips.top - SHEET_GAP;
+        for (const box of prompts) {
+          if (box.left < left + sheetWidth && box.left + box.width > left && box.top < bottom && box.top + box.height > SHEET_GAP) bottom = Math.min(bottom, box.top - SHEET_GAP);
+        }
+        const below = Math.max(SHEET_MIN, limit - top);
+        const above = Math.max(SHEET_MIN, bottom - SHEET_GAP);
+        const up = wide && below < SHEET_ROOMY && above > below;
+        sheet = up
+          ? { top: Math.round(bottom), max: Math.round(above), left: Math.round(left), width: Math.round(sheetWidth), up }
+          : { top: Math.round(top), max: Math.round(below), left: Math.round(left), width: Math.round(sheetWidth), up };
       }
       const stacked = new Map<HTMLElement, number>();
       const piles = new Map<string, HTMLElement | null>();
@@ -584,15 +616,22 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
             front.style.removeProperty("--chain-dock-top");
           }
         }
-        const sheetKey = sheet ? `${sheet.top},${sheet.max}` : "";
+        const sheetKey = sheet ? `${sheet.top},${sheet.max},${sheet.left},${sheet.width},${sheet.up ? "up" : "down"}` : "";
         if (front.dataset.sheet !== sheetKey) {
           front.dataset.sheet = sheetKey;
           if (sheet) {
-            front.style.setProperty("--chain-sheet-top", `${sheet.top}px`);
+            // Up: the sheet's bottom edge sits on this line; down: its top edge does.
+            front.style.setProperty("--chain-sheet-top", sheet.up ? "auto" : `${sheet.top}px`);
+            front.style.setProperty("--chain-sheet-bottom", sheet.up ? `${Math.max(SHEET_GAP, origin.height - sheet.top)}px` : "auto");
             front.style.setProperty("--chain-sheet-max", `${sheet.max}px`);
+            front.style.setProperty("--chain-sheet-left", `${sheet.left}px`);
+            front.style.setProperty("--chain-sheet-right", `${Math.max(SHEET_GAP, origin.width - sheet.left - sheet.width)}px`);
           } else {
             front.style.removeProperty("--chain-sheet-top");
+            front.style.removeProperty("--chain-sheet-bottom");
             front.style.removeProperty("--chain-sheet-max");
+            front.style.removeProperty("--chain-sheet-left");
+            front.style.removeProperty("--chain-sheet-right");
           }
         }
         const px = String(Math.round(gutter));
@@ -745,8 +784,14 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
 
   const focus = chainFocusLink(state);
   const panelFocus = chainFocusLink(panelState);
-  const view = panelFocus ? buildPanelView({ state: panelState, focus: panelFocus, outcomes, resultsReady, targets: targetMemory.current, who }) : null;
-  const stripView = view ? buildStripView(view) : null;
+  // Built once per change of the chain, not once per render: it holds the detail of every link. The target memory is
+  // a stable map that the lines above fill, so the links it was filled from (live, panelState) are the dependencies.
+  const view = useMemo(
+    () => (panelFocus ? buildPanelView({ state: panelState, focus: panelFocus, outcomes, resultsReady, targets: targetMemory.current, who }) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [panelState, panelFocus, outcomes, resultsReady, who, live.links, seats],
+  );
+  const stripView = useMemo(() => (view ? buildStripView(view) : null), [view]);
   const topIndex = links.length;
   const nextIndex = nextToResolve(state);
   const attrs = (link: ChainLinkState) => ({
@@ -841,7 +886,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
         </div>;
       }))}
       {showPanel && view && stripView ? (
-        <div className={styles.dock} aria-hidden={form === "strip" ? undefined : "true"}>
+        <div className={styles.dock}>
           {form === "strip" ? (
             <div ref={stripWrapRef} className={panelStyles.stripWrap} data-chain-panel="true" data-chain-strip-wrap="true" data-priority={priority?.length ? "true" : undefined}>
               <ChainStrip view={stripView} open={sheetOpen} controls={sheetId} onToggle={() => setSheetWanted((open) => !open)} buttonRef={stripButtonRef} />
@@ -873,7 +918,8 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
   return (
     <>
       <div className={styles.sr} data-chain-sr="true">
-        {links.length > 0 ? (
+        {/* The wide and narrow columns are readable themselves (every row is a button), so the list would read each link twice. */}
+        {links.length > 0 && !(form !== "strip" && view != null && stripView != null) ? (
           <ol aria-label="Current chain" data-chain-sr-list="true">
             {links.map((link) => (
               <li key={link.index} data-chain-sr-link={link.index}>{chainLinkLabel(link, mySeat, playerName, true, named, partner)}</li>

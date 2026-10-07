@@ -40,8 +40,8 @@
   --pc-radius: 14px;
   --pc-pad-y: 12px;
   --pc-pad-x: 14px;
-  --pc-title: clamp(17px, calc(17 * var(--duel-unit, 1px)), 20px);
-  --pc-sub: clamp(13px, calc(13.5 * var(--duel-unit, 1px)), 15px);
+  --pc-title: calc(clamp(17px, calc(17 * var(--duel-unit, 1px)), 20px) * var(--tt, 1));
+  --pc-sub: calc(clamp(calc(13px + 1px * var(--ft, 0)), calc(13.5 * var(--duel-unit, 1px)), 15px) * var(--tt, 1));
   --pc-btn-h: 32px;
   --pc-btn-radius: 8px;
 }
@@ -894,3 +894,26 @@
   .hint { display: none; }
   .bar .btn { min-height: 40px; }
 }
+
+/* ---------- dense host (the 4-way grid) ----------
+   A host that marks its prompt slot `data-prompt-dense` gives the panel a small unit (grid-stage.module.css). These
+   rules keep that panel short: one-line titles (the full text is in the title tooltip), compact rows and a smaller
+   card thumb. Rows and buttons stay 32px or more high for touch. */
+:global([data-prompt-dense]) .panel { gap: calc(8 * var(--duel-unit, 1px)); padding: calc(10 * var(--duel-unit, 1px)) calc(12 * var(--duel-unit, 1px)); }
+:global([data-prompt-dense]) .titles h2 {
+  font-size: clamp(14px, calc(16 * var(--duel-unit, 1px)), 19px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+:global([data-prompt-dense]) .titles p { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+:global([data-prompt-dense]) .rows { gap: calc(4 * var(--duel-unit, 1px)); }
+:global([data-prompt-dense]) .rowMain {
+  min-height: max(34px, calc(40 * var(--duel-unit, 1px)));
+  padding-block: calc(3 * var(--duel-unit, 1px));
+}
+:global([data-prompt-dense]) .row[data-plain="true"] .rowMain { min-height: max(32px, calc(34 * var(--duel-unit, 1px))); }
+:global([data-prompt-dense]) .rowArt { width: calc(30 * var(--duel-unit, 1px)); }
+:global([data-prompt-dense]) .sourceArt { width: calc(30 * var(--duel-unit, 1px)); }
+:global([data-prompt-dense]) .effect { padding-block: calc(4 * var(--duel-unit, 1px)); }
+:global([data-prompt-dense]) .btn { min-height: max(32px, calc(34 * var(--duel-unit, 1px))); }

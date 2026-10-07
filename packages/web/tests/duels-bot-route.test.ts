@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -8,7 +9,10 @@ import { createDuelService } from "@yugidraft/shared/services";
 
 const auth = vi.fn();
 const notifyDuelChange = vi.fn(async (..._args: unknown[]) => {});
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/notify-duel", () => ({ notifyDuelChange }));
 const tempDirs: string[] = [];
 
@@ -20,9 +24,10 @@ function seed(botSeated = true) {
   process.env.DISCORD_TOKEN = "bot-token";
   const db = new Database(process.env.DATABASE_PATH);
   migrate(db);
-  const insert = db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', ?, ?)");
-  const host = Number(insert.run("u-host", "Yugi").lastInsertRowid);
-  insert.run("u-other", "Kaiba");
+  seedFixtureUsers(db, FIXTURE_KEYS);
+  const insert = db.prepare("insert into players (guild_id, user_id, discord_user_id, display_name) values ('g1', ?, ?, ?)");
+  const host = Number(insert.run(fixtureUserId("u-host"), fixtureDiscordId("u-host"), "Yugi").lastInsertRowid);
+  insert.run(fixtureUserId("u-other"), fixtureDiscordId("u-other"), "Kaiba");
   const duels = createDuelService(db);
   const session = duels.create({ guildId: "g1", organizerPlayerId: host, name: "Solo", mode: "normal" });
   if (botSeated) duels.addPracticeBot(session.slug, "g1", host, { main: Array.from({ length: 40 }, (_, i) => 9000 + i), extra: [], side: [] });
@@ -39,7 +44,7 @@ describe("DELETE /api/duels/[slug]/bot", () => {
     vi.resetModules();
     auth.mockReset();
     notifyDuelChange.mockClear();
-    auth.mockResolvedValue({ user: { id: "u-host", name: "Yugi" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-host")), discordUserId: fixtureDiscordId("u-host"), name: "Yugi" } });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
   });
   afterEach(() => {
@@ -64,7 +69,7 @@ describe("DELETE /api/duels/[slug]/bot", () => {
 
   it("refuses a player who is not the organizer and leaves the bot seated", async () => {
     const s = seed();
-    auth.mockResolvedValue({ user: { id: "u-other", name: "Kaiba" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-other")), discordUserId: fixtureDiscordId("u-other"), name: "Kaiba" } });
     const { DELETE } = await import("../app/api/duels/[slug]/bot/route");
     const res = await DELETE(...call(s.slug));
     expect(res.status).toBe(403);
@@ -79,3 +84,7 @@ describe("DELETE /api/duels/[slug]/bot", () => {
     expect(res.status).toBe(409);
   });
 });
+
+const FIXTURE_KEYS = ["u-host", "u-other"] as const;
+
+// Session resolution is mocked; authorization still runs through the real web boundary.

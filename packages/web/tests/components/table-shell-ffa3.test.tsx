@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/font/google", () => {
@@ -64,20 +64,21 @@ describe("TableShell on the 3-way fixtures: the whole table", () => {
     expect(container.querySelector("[data-dim], [data-dimmed]")).toBeNull();
   });
 
-  it("shows the side tabs, the station track with a seat strip and the Deck Master dock per seat", () => {
+  it("shows the floating HUD of the 4-way grid: the dock with Settings and Camera, no Log, no Chain, no rail and no bottom bar", () => {
     const { container } = render(<Shell id="main" />);
-    expect(container.querySelector("[role='tablist']")).not.toBeNull();
+    expect(container.querySelector("[data-hud='true'][data-plaza-hud='true']")).not.toBeNull();
     expect(container.querySelector("nav[aria-label='Duel phases']")).not.toBeNull();
     expect(container.querySelectorAll("[aria-label='Turn order'] li")).toHaveLength(3);
-    // The seat strip lives in the station track's left block, not in a row of its own above it.
-    const track = container.querySelector("[data-seat-chips]") as HTMLElement;
-    expect(track).not.toBeNull();
-    expect(track.querySelector("[data-testid='seat-strip']")).not.toBeNull();
-    // Card, Log, Master, Settings and View are rail buttons that open the drawer.
-    const rail = container.querySelector("[data-testid='table-rail']") as HTMLElement;
-    for (const key of ["card", "log", "masters", "settings", "view"]) expect(rail.querySelector(`[data-rail='${key}']`), key).not.toBeNull();
-    // The Deck Master column is gone; the drawer carries the Master tab.
-    expect(container.querySelector("[aria-label='Deck Masters']")).toBeNull();
+    expect(container.querySelector("[data-testid='seat-strip']")).not.toBeNull();
+    for (const id of ["settings", "camera"]) expect(container.querySelector(`[data-testid='hud-dock-${id}']`), id).not.toBeNull();
+    expect(container.querySelector("[data-testid='hud-dock-chain']")).toBeNull();
+    // The 3-way has no Log: the history strip and the Log pane are gone. The 4-way keeps its Log icon.
+    expect(container.querySelector("[data-testid='hud-dock-log']")).toBeNull();
+    expect(container.querySelector("[data-testid='table-rail']")).toBeNull();
+    expect(container.querySelector("[data-testid='table-drawer']")).toBeNull();
+    // The turn controls sit in the bottom-right corner cluster, not in a full-width bottom bar.
+    expect(container.querySelector("[data-testid='hud-corner']")).not.toBeNull();
+    expect(container.querySelector("[data-testid='hud-bottom']")).toBeNull();
   });
 
   it("writes turn and prompt status words on the seat strip", () => {
@@ -101,18 +102,10 @@ describe("TableShell on the 3-way fixtures: the whole table", () => {
     expect(container.querySelector("[data-testid='card-tab-empty']")).toBeNull();
   });
 
-  it("shows a history strip at the top of the left column with seat-edged tiles, newest first", () => {
+  it("has no history strip and no Log pane", () => {
     const { container } = render(<Shell id="main" />);
-    const strip = container.querySelector("[data-testid='history-strip']") as HTMLElement;
-    expect(strip).not.toBeNull();
-    // It tops the 72px rail: the tiles stack in a column under a History caption.
-    const rail = strip.closest("[data-testid='table-rail']") as HTMLElement;
-    expect(rail.firstElementChild).toBe(strip);
-    expect(strip.getAttribute("data-variant")).toBe("rail");
-    const tiles = strip.querySelectorAll("li[data-seat]");
-    expect(tiles.length).toBeGreaterThan(0);
-    expect(tiles.length).toBeLessThanOrEqual(8);
-    expect((tiles[0] as HTMLElement).style.getPropertyValue("--seat-main")).not.toBe("");
+    expect(container.querySelector("[data-testid='history-strip']")).toBeNull();
+    expect(container.querySelector("[data-testid='hud-tab-log']")).toBeNull();
   });
 
   it("lists who may answer an open chain, in order, on the chain panel; no chain, no list", () => {
@@ -125,16 +118,23 @@ describe("TableShell on the 3-way fixtures: the whole table", () => {
     expect(plain.container.querySelector("[data-testid='priority-chips']")).toBeNull();
   });
 
-  it("puts rival Deck Masters on the holo panels, your own as a chip under your plate, and the camera panel behind the View button", () => {
+  it("opens every link's details from the chain strip, as the tower has no Chain button", () => {
+    render(<Shell id="chain-2" />);
+    expect(within(screen.getByTestId("chain-tower")).queryByRole("button", { name: /Chain/ })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Chain details" })).toBeNull();
+    fireEvent.click(document.querySelector("[data-chain-strip]") as HTMLElement);
+    const sheet = screen.getByRole("dialog", { name: "Chain details" });
+    expect(sheet.querySelectorAll("[data-chain-row]")).toHaveLength(2);
+  });
+
+  it("puts rival Deck Masters on the holo panels, your own on the HUD plate, and the camera panel behind the Camera dock icon", () => {
     const { container } = render(<Shell id="main" />);
-    expect(container.querySelector("[data-testid='master-chip']")).not.toBeNull();
-    expect(container.querySelectorAll("[data-testid='master-chip']")).toHaveLength(1);
+    expect(container.querySelector("[data-testid='hud-master']")).not.toBeNull();
     expect(container.querySelector("[data-docks]")).toBeNull();
-    // The camera panel is part of the page, opened by the rail's View button.
-    expect(container.querySelectorAll("[data-camera-panel]")).toHaveLength(1);
-    expect(container.querySelector("[data-camera-chip]")).not.toBeNull();
     const thumbs = [...container.querySelectorAll("[data-master-thumb]")].map((node) => node.getAttribute("data-master-thumb")).sort();
     expect(thumbs).toEqual(["1", "2"]);
+    act(() => void fireEvent.click(container.querySelector("[data-testid='hud-dock-camera']")!));
+    expect(container.querySelector("[data-testid='hud-flyout'] [data-camera-panel]")).not.toBeNull();
   });
 
   it("marks the duelist who left and keeps playing on", () => {

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "../../fixtures/identity";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
@@ -9,7 +10,10 @@ vi.mock("next/font/google", () => {
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
 });
 const { auth, getDb } = vi.hoisted(() => ({ auth: vi.fn(), getDb: vi.fn() }));
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("../../fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/db", () => ({ getDb }));
 vi.mock("@/lib/env", () => ({ env: { discordGuildId: "g1" } }));
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
@@ -21,8 +25,9 @@ describe("TournamentsPage", () => {
   beforeEach(() => {
     db = new Database(":memory:");
     migrate(db);
+    seedFixtureUsers(db, FIXTURE_KEYS);
     getDb.mockReturnValue(db);
-    auth.mockResolvedValue({ user: { id: "u1" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1") } });
   });
   afterEach(() => {
     cleanup();
@@ -32,13 +37,14 @@ describe("TournamentsPage", () => {
 
   const add = (name: string, status: string, createdAt: string, slug: string | null = null, format = "round_robin", guild = "g1") =>
     db
-      .prepare("insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug, created_at) values (?, ?, ?, ?, 'u1', ?, ?)")
+      .prepare(`insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug, created_at) values (?, ?, ?, ?, ${fixtureUserId("u1")}, ?, ?)`)
       .run(guild, name, format, status, slug, createdAt);
 
-  it("shows the empty state naming /event create", async () => {
+  it("shows the empty state without a Discord command", async () => {
     render(await TournamentsPage());
     expect(screen.getByRole("heading", { name: "No tournaments yet" })).toBeTruthy();
-    expect(screen.getByText("/event create")).toBeTruthy();
+    expect(screen.queryByText("/event create")).toBeNull();
+    expect(screen.getByText(/ready to share by link/)).toBeTruthy();
     expect(screen.getAllByRole("link", { name: /new tournament/i }).length).toBe(2);
     expect(document.querySelector(".sv-bar-sub")).toBeNull();
   });
@@ -99,3 +105,7 @@ describe("TournamentsPage", () => {
     expect(screen.queryByRole("button", { name: /show all/i })).toBeNull();
   });
 });
+
+const FIXTURE_KEYS = ["u1"] as const;
+
+// Session resolution is mocked; authorization still runs through the real web boundary.

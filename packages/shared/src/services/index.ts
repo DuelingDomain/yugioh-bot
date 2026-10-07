@@ -1,12 +1,20 @@
 export * from "./constants.js";
 export * from "./card-catalog.js";
+export * from "./card-lookup-budget.js";
+export { normalizeImportedCardName, rankCardsByTypo } from "./card-name-match.js";
+export * from "./card-artworks.js";
+export * from "./card-fetch.js";
 export * from "./cubes.js";
 export * from "./deal.js";
 export * from "./card-images.js";
 export * from "./drafts.js";
+export * from "./draft-lobby.js";
 export * from "./draft-access.js";
 export { createGuildSettingsService } from "./guild-settings.js";
 export type { GuildSettingsService, GuildSettings } from "./guild-settings.js";
+export * from "./users.js";
+export * from "./user-history.js";
+export * from "./account-deletion.js";
 export { createPlayerService } from "./players.js";
 export type { PlayerService, Player } from "./players.js";
 export { createMatchService } from "./matches.js";
@@ -47,3 +55,6 @@ export type { LiveNow, LiveNowService, LiveDuelState, LiveOpponent } from "./liv
 export type { TournamentDuelService, TournamentDuelRules, TournamentDeckRegistration } from "./tournament-duels.js";
 export { createBugReportService, BugReportServiceError, BUG_REPORT_LIMIT } from "./bug-reports.js";
 export type { BugReportService, BugReport, BugReportInput, BugReportLimit } from "./bug-reports.js";
+export { createWaitlistService } from "./waitlist.js";
+export type { WaitlistService, WaitlistMeta } from "./waitlist.js";
+export * from "./image-cache-cleanup.js";

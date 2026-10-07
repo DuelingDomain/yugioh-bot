@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -8,7 +9,10 @@ const auth = vi.fn();
 const syncDraftPool = vi.fn().mockResolvedValue([]);
 const tempDirs: string[] = [];
 
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 
 // Prevent syncDraftPool from making real network calls — the route calls it to
 // refresh the catalog but our test data is already in the DB.
@@ -28,7 +32,7 @@ describe("PUT /api/drafts/[slug]", () => {
     vi.resetModules();
     auth.mockReset();
     syncDraftPool.mockReset().mockResolvedValue([]);
-    auth.mockResolvedValue({ user: { id: "creator-user", name: "Yugi" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("creator-user")), discordUserId: fixtureDiscordId("creator-user"), name: "Yugi" } });
   });
 
   afterEach(() => {
@@ -53,6 +57,7 @@ describe("PUT /api/drafts/[slug]", () => {
     const { migrate } = await import("@yugidraft/shared/db");
     const db = new Database(dbPath);
     migrate(db);
+    seedFixtureUsers(db, FIXTURE_KEYS);
 
     // Seed catalog cards (enough distinct to pass the create/edit feasibility check)
     for (let i = 1; i <= 30; i++) {
@@ -62,13 +67,12 @@ describe("PUT /api/drafts/[slug]", () => {
       ).run(i, `Card ${i}`);
     }
 
-    db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('guild-1', 'creator-user', 'Yugi')").run();
-    const playerRow = db.prepare("select id from players where discord_user_id = 'creator-user'").get() as { id: number };
+    db.prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('guild-1', ${fixtureUserId("creator-user")}, '${fixtureDiscordId("creator-user")}', 'Yugi')`).run();
+    const playerRow = db.prepare(`select id from players where user_id = ${fixtureUserId("creator-user")}`).get() as { id: number };
 
     const customCardIds = Array.from({ length: 30 }, (_, i) => i + 1);
     db.prepare(
-      `insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug)
-       values ('guild-1', 'channel-1', 'My Draft', 'pending', 'creator-user', ?, 'test-slug')`,
+      `insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug) values ('guild-1', 'channel-1', 'My Draft', 'pending', ${fixtureUserId("creator-user")}, ?, 'test-slug')`,
     ).run(JSON.stringify({
       customCardIds,
       setNames: [],
@@ -88,10 +92,11 @@ describe("PUT /api/drafts/[slug]", () => {
     const { getDb } = await import("@/lib/db");
     const { createDraftService, createPlayerService } = await import("@yugidraft/shared/services");
     const db = getDb();
+    seedFixtureUsers(db, FIXTURE_KEYS);
     const copies = Array.from({ length: 30 }, (_, i) => Array(3).fill(i + 1)).flat();
     db.prepare("update drafts set config_json = ? where id = 1").run(JSON.stringify({ customCardIds: copies, packSize: 8, packsPerPlayer: 5, cardsPerPlayer: 40 }));
     const drafts = createDraftService(db, { seedSource: () => 7 });
-    const other = createPlayerService(db).findOrCreate("guild-1", "other", "Kaiba");
+    const other = createPlayerService(db).findOrCreate("guild-1", fixtureUserId("other"), "Kaiba");
     drafts.join(1, other.id);
     let storedConfig: unknown;
     let storedDeal: unknown;
@@ -105,11 +110,49 @@ describe("PUT /api/drafts/[slug]", () => {
     const response = await PUT(new Request("http://localhost/api/drafts/test-slug", {
       method: "PUT", body: JSON.stringify({ name: "Changed", config: { cardsPerPlayer: 60, packSize: 15, copyLimit: false } }),
     }) as NextRequest, { params: Promise.resolve({ slug: "test-slug" }) });
-    expect(response.status).toBe(400);
-    expect((await response.json()).error).toBe("Can only modify pending drafts");
+    expect(response.status).toBe(409);
+    expect((await response.json()).code).toBe("DRAFT_NOT_PENDING");
     expect(db.prepare("select config_json from drafts where id = 1").get()).toEqual(storedConfig);
     expect(db.prepare("select * from draft_deal where draft_id = 1 order by position").all()).toEqual(storedDeal);
     expect(db.prepare("select status, name from drafts where id = 1").get()).toEqual({ status: "active", name: "My Draft" });
+  });
+
+  it.each(["attach", "detach"])("rejects a %s racing catalog hydration without losing the cube update", async (operation) => {
+    await setupDraftWithCustomPool();
+    const { getDb } = await import("@/lib/db");
+    const db = getDb();
+    db.exec(`insert into cubes (guild_id,name,created_by_user_id) values ('guild-1','One',${fixtureUserId("creator-user")}), ('guild-1','Two',${fixtureUserId("creator-user")})`);
+    const config = JSON.parse((db.prepare("select config_json from drafts where id = 1").get() as { config_json: string }).config_json);
+    config.allowedCubeIds = [1];
+    db.prepare("update drafts set config_json = ? where id = 1").run(JSON.stringify(config));
+    let committed: unknown;
+    syncDraftPool.mockImplementationOnce(async () => {
+      config.allowedCubeIds = operation === "attach" ? [1, 2] : [];
+      db.prepare("update drafts set config_json = ?, lobby_revision = lobby_revision + 1 where id = 1").run(JSON.stringify(config));
+      committed = db.prepare("select config_json, name, lobby_revision from drafts where id = 1").get();
+      return [];
+    });
+    const { PUT } = await import("../app/api/drafts/[slug]/route");
+    const response = await PUT(new Request("http://localhost", { method: "PUT", body: JSON.stringify({
+      name: "Lost edit", config: { allowedCubeIds: [1], pickSeconds: 60 },
+    }) }) as NextRequest, { params: Promise.resolve({ slug: "test-slug" }) });
+    expect(response.status).toBe(409); expect((await response.json()).code).toBe("STALE_LOBBY");
+    expect(db.prepare("select config_json, name, lobby_revision from drafts where id = 1").get()).toEqual(committed);
+  });
+
+  it("rechecks the current cube guild inside the write transaction after hydration", async () => {
+    await setupDraftWithCustomPool();
+    const { getDb } = await import("@/lib/db");
+    const db = getDb();
+    db.exec(`insert into cubes (guild_id,name,created_by_user_id) values ('guild-1','One',${fixtureUserId("creator-user")})`);
+    syncDraftPool.mockImplementationOnce(async () => { db.prepare("update cubes set guild_id = 'foreign' where id = 1").run(); return []; });
+    const before = db.prepare("select config_json,name,lobby_revision from drafts where id = 1").get();
+    const { PUT } = await import("../app/api/drafts/[slug]/route");
+    const response = await PUT(new Request("http://localhost", { method: "PUT", body: JSON.stringify({
+      name: "Unsafe rename", config: { allowedCubeIds: [1] },
+    }) }) as NextRequest, { params: Promise.resolve({ slug: "test-slug" }) });
+    expect(response.status).toBe(404);
+    expect(db.prepare("select config_json,name,lobby_revision from drafts where id = 1").get()).toEqual(before);
   });
 
   it("renames a pending draft and can keep its current name", async () => {
@@ -129,7 +172,7 @@ describe("PUT /api/drafts/[slug]", () => {
   it.each(["pending", "active"])("rejects a rename colliding with a %s draft in the same guild", async (status) => {
     await setupDraftWithCustomPool();
     const { getDb } = await import("@/lib/db");
-    getDb().prepare("insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug) values ('guild-1', 'channel-1', 'Existing Draft', ?, 'other-user', '{}', 'other-slug')").run(status);
+    getDb().prepare(`insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug) values ('guild-1', 'channel-1', 'Existing Draft', ?, ${fixtureUserId("other-user")}, '{}', 'other-slug')`).run(status);
     const { PUT } = await import("../app/api/drafts/[slug]/route");
     const response = await PUT(new Request("http://localhost/api/drafts/test-slug", {
       method: "PUT", body: JSON.stringify({ name: "Existing Draft" }),
@@ -143,7 +186,7 @@ describe("PUT /api/drafts/[slug]", () => {
   it.each(["completed", "cancelled"])("allows a rename matching a %s draft in the same guild", async (status) => {
     await setupDraftWithCustomPool();
     const { getDb } = await import("@/lib/db");
-    getDb().prepare("insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug) values ('guild-1', 'channel-1', 'Existing Draft', ?, 'other-user', '{}', 'other-slug')").run(status);
+    getDb().prepare(`insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug) values ('guild-1', 'channel-1', 'Existing Draft', ?, ${fixtureUserId("other-user")}, '{}', 'other-slug')`).run(status);
     const { PUT } = await import("../app/api/drafts/[slug]/route");
     const response = await PUT(new Request("http://localhost/api/drafts/test-slug", {
       method: "PUT", body: JSON.stringify({ name: "Existing Draft" }),
@@ -158,7 +201,7 @@ describe("PUT /api/drafts/[slug]", () => {
   it("allows a rename matching a draft in another guild", async () => {
     await setupDraftWithCustomPool();
     const { getDb } = await import("@/lib/db");
-    getDb().prepare("insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug) values ('guild-2', 'channel-2', 'Existing Draft', 'pending', 'other-user', '{}', 'other-slug')").run();
+    getDb().prepare(`insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug) values ('guild-2', 'channel-2', 'Existing Draft', 'pending', ${fixtureUserId("other-user")}, '{}', 'other-slug')`).run();
     const { PUT } = await import("../app/api/drafts/[slug]/route");
     const response = await PUT(new Request("http://localhost/api/drafts/test-slug", {
       method: "PUT", body: JSON.stringify({ name: "Existing Draft" }),
@@ -184,7 +227,8 @@ describe("PUT /api/drafts/[slug]", () => {
     expect(data.config.customCardIds).toEqual(Array.from({ length: 30 }, (_, i) => i + 1));
 
     expect(data.config.packSize).toBe(8); // Retain the configured pack size.
-    expect(data.config.packsPerPlayer).toBe(5);
+    expect(data.config.packsPerPlayer).toBe(3); // Explicit round counts are independent of the pick quota.
+    expect(data.errors).toEqual(expect.arrayContaining([expect.stringMatching(/Each player opens 3 packs/)]));
   });
 
   it("keeps fifteen-card packs in a sixty-card draft", async () => {
@@ -235,7 +279,7 @@ describe("PUT /api/drafts/[slug]", () => {
   it("stores a poolSource that names a cube in this guild, with the cube's name from the database", async () => {
     await setupDraftWithCustomPool();
     const { getDb } = await import("@/lib/db");
-    const cubeId = Number(getDb().prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1','Goat','creator-user')").run().lastInsertRowid);
+    const cubeId = Number(getDb().prepare(`insert into cubes (guild_id, name, created_by_user_id) values ('guild-1', 'Goat', ${fixtureUserId("creator-user")})`).run().lastInsertRowid);
     const { data } = await putConfig({ poolSource: { cubeId, cubeName: "Spoofed" } });
     expect(data.config.poolSource).toEqual({ cubeId, cubeName: "Goat" });
   });
@@ -243,8 +287,8 @@ describe("PUT /api/drafts/[slug]", () => {
   it("drops a foreign or unknown poolSource and clears the stored one", async () => {
     await setupDraftWithCustomPool();
     const { getDb } = await import("@/lib/db");
-    const own = Number(getDb().prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1','Goat','creator-user')").run().lastInsertRowid);
-    const foreign = Number(getDb().prepare("insert into cubes (guild_id, name, created_by_user_id) values ('other-guild','Foreign','x')").run().lastInsertRowid);
+    const own = Number(getDb().prepare(`insert into cubes (guild_id, name, created_by_user_id) values ('guild-1', 'Goat', ${fixtureUserId("creator-user")})`).run().lastInsertRowid);
+    const foreign = Number(getDb().prepare(`insert into cubes (guild_id, name, created_by_user_id) values ('other-guild', 'Foreign', ${fixtureUserId("x")})`).run().lastInsertRowid);
     expect((await putConfig({ poolSource: { cubeId: own, cubeName: "Goat" } })).data.config.poolSource).toBeDefined();
     const dropped = await putConfig({ poolSource: { cubeId: foreign, cubeName: "Foreign" } });
     expect(dropped.data.config.poolSource).toBeUndefined();
@@ -303,3 +347,7 @@ describe("PUT /api/drafts/[slug]", () => {
     expect(data.error).toMatch(/at least one set/i);
   });
 });
+
+const FIXTURE_KEYS = ["creator-user", "other", "other-user", "x"] as const;
+
+// Session resolution is mocked; authorization still runs through the real web boundary.

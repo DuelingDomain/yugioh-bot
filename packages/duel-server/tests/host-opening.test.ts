@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { createHmac } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
@@ -43,6 +44,7 @@ class FakeWorker implements DuelGameWorker {
 const hosts: DuelHost[] = [];
 afterEach(async () => {
   vi.useRealTimers();
+  vi.unstubAllEnvs();
   while (hosts.length > 0) await hosts.pop()?.close();
 });
 
@@ -50,18 +52,18 @@ function setup() {
   const db = new Database(":memory:");
   migrate(db);
   const player = (id: string, name: string) =>
-    Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values (?, ?, ?)").run(GUILD, id, name).lastInsertRowid);
+    seedIdentity(db, { guildId: GUILD, name: name, userId: seedUser(db, id).userId, discordUserId: seedUser(db, id).discordUserId ?? id }).playerId;
   return { db, duels: createDuelService(db), series: createDuelSeriesService(db), p1: player("u1", "Yugi"), p2: player("u2", "Kaiba") };
 }
 type App = ReturnType<typeof setup>;
 
-function openHost(app: App, random: () => number = Math.random) {
+function openHost(app: App, random: () => number = Math.random, onChange?: (slug: string, guildId: string) => void) {
   const workers: FakeWorker[] = [];
   const control = { failCreate: false };
   const host = createDuelHost({
     db: app.db, dataDirectory: DATA, secret: SECRET, searchCards: () => [],
     archiveAfterMs: 60 * 60 * 1000, idleWorkerMs: 60 * 60 * 1000, pollIntervalMs: 60 * 60 * 1000,
-    openingRps: true, random,
+    openingRps: true, random, onChange,
     createWorker: () => { const worker = new FakeWorker(control.failCreate); workers.push(worker); return worker; },
   });
   hosts.push(host);
@@ -102,6 +104,52 @@ function seatPlayer(app: App, slug: string, seat: number) {
 }
 
 describe("rock-paper-scissors opening", () => {
+  it.each([
+    { winnerSeat: 0, choice: "first" }, { winnerSeat: 0, choice: "second" },
+    { winnerSeat: 1, choice: "first" }, { winnerSeat: 1, choice: "second" },
+  ] as const)("resolves picks and starts at once for both seats (winner $winnerSeat, $choice)", async ({ winnerSeat, choice }) => {
+    vi.useFakeTimers();
+    vi.stubEnv("DUEL_1V1_ENGINE", "legacy");
+    const startedAt = Date.now();
+    const app = setup();
+    const changed = vi.fn((slug: string, guildId: string) => app.duels.room(slug, guildId, app.p1));
+    const { host, workers } = openHost(app, Math.random, changed);
+    const slug = openTable(app);
+    const players = [app.p1, app.p2];
+    await post(host, { op: "start", slug, playerId: app.p1 });
+    changed.mockClear();
+    const moves = winnerSeat === 0 ? ["rock", "scissors"] : ["paper", "scissors"];
+    await post(host, { op: "opening-pick", slug, playerId: app.p1, move: moves[0] });
+    changed.mockClear();
+    await post(host, { op: "opening-pick", slug, playerId: app.p2, move: moves[1] });
+    expect(changed).toHaveBeenCalledWith(slug, GUILD);
+    expect(changed.mock.results.at(-1)?.value.opening?.phase).toBe("choose");
+    for (const [seat, playerId] of players.entries()) {
+      const view = await post(host, { op: "view", slug, playerId });
+      expect(view.status).toBe(200);
+      expect(view.data.mySeat).toBe(seat);
+      expect(view.data.opening).toMatchObject({ phase: "choose", winnerSeat, reveal: { picks: moves, winnerSeat } });
+      expect(Date.parse(view.data.opening.deadlineAt)).toBeGreaterThan(startedAt);
+    }
+    changed.mockClear();
+    const chosen = await post(host, { op: "opening-choose", slug, playerId: players[winnerSeat], choice });
+    expect(chosen.status).toBe(200);
+    expect(chosen.data.session.status).toBe("active");
+    expect(changed).toHaveBeenCalledWith(slug, GUILD);
+    expect(changed.mock.results.at(-1)?.value.session.status).toBe("active");
+    expect(workers).toHaveLength(1);
+    expect(workers[0]!.createdOptions?.engine).toBe("legacy");
+    for (const [seat, playerId] of players.entries()) {
+      const view = await post(host, { op: "view", slug, playerId });
+      const firstSeat = choice === "first" ? winnerSeat : 1 - winnerSeat;
+      expect(view.data.mySeat).toBe(seat === firstSeat ? 0 : 1);
+      expect(view.data.session.status).toBe("active");
+      expect(view.data.opening).toBeNull();
+      expect(view.data.engine.turn).toBe(1);
+    }
+    expect(Date.now()).toBe(startedAt);
+  });
+
   it("holds the duel in the lobby until the players have played", async () => {
     const app = setup();
     const { host, workers } = openHost(app);
@@ -188,7 +236,8 @@ describe("rock-paper-scissors opening", () => {
     // The random pick was paper, which beats rock: seat 1 won and now chooses.
     const afterPicks = app.duels.openingState(slug, GUILD);
     expect(afterPicks?.phase).toBe("choose");
-    expect(afterPicks?.winnerSeat).toBe(1);
+    if (!afterPicks || !("winnerSeat" in afterPicks)) throw new Error("Expected RPS opening");
+    expect(afterPicks.winnerSeat).toBe(1);
 
     await vi.advanceTimersByTimeAsync(34_000);
     await settle();

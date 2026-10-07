@@ -1,10 +1,12 @@
+import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { createHmac } from "node:crypto";
 import Database from "better-sqlite3";
 import { afterEach, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { createDuelService } from "@yugidraft/shared/services";
 import type { DuelEngineView, DuelFormat } from "@yugidraft/shared/duels";
-import { createDuelHost, type DuelHost } from "../src/host.js";
+import type { DuelHost } from "../src/host.js";
+import { createTestDuelHost as createDuelHost, finishTestDiceOpening } from "./support/test-opening.js";
 import { buildPracticeBotDeck } from "../src/practice-bot.js";
 import type { DuelGameWorker } from "../src/worker-client.js";
 import { engineDataDirectory as DATA } from "./engine-data-dir.js";
@@ -16,7 +18,7 @@ afterEach(async () => { for (const host of hosts.splice(0)) await host.close(); 
 async function table(format: DuelFormat = "ffa3", eliminated = true) {
   const db = new Database(":memory:"); databases.push(db); migrate(db);
   const players = Array.from({ length: format === "ffa4" || format === "tag" ? 4 : format === "1v1" ? 2 : 3 }, (_, seat) =>
-    Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g', ?, ?)").run(`u${seat}`, `P${seat}`).lastInsertRowid));
+    seedIdentity(db, { guildId: "g", name: `P${seat}`, userId: seedUser(db, `u${seat}`).userId, discordUserId: seedUser(db, `u${seat}`).discordUserId ?? `u${seat}` }).playerId);
   const duels = createDuelService(db);
   const session = duels.create({ guildId: "g", organizerPlayerId: players[0]!, name: "watch", mode: "normal", format });
   for (const player of players.slice(1)) duels.takeSeat(session.slug, "g", player);
@@ -36,10 +38,11 @@ async function table(format: DuelFormat = "ffa3", eliminated = true) {
   let nextWorker = worker;
   const host = createDuelHost({ db, secret: SECRET, dataDirectory: DATA, searchCards: () => [], pollIntervalMs: 60_000, createWorker: () => nextWorker }); hosts.push(host);
   const actor = { slug: session.slug, guildId: "g", playerId: players[0] };
-  async function post(body: Record<string, unknown>) {
+  async function post(body: Record<string, unknown>): Promise<{ status: number; data: Record<string, any> }> {
     const raw = JSON.stringify({ ...actor, ...body });
     const response = await host.handle(new Request("http://localhost/internal/duel", { method: "POST", headers: { "x-announce-signature": "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex"), "content-type": "application/json" }, body: raw }));
-    return { status: response.status, data: await response.json() };
+    return finishTestDiceOpening(host, { slug: session.slug, ...body },
+      { status: response.status, data: await response.json() as Record<string, any> }, (next) => post(next));
   }
   expect((await post({ op: "start" })).status).toBe(200);
   function holdView() {
@@ -87,7 +90,7 @@ function finish(t: Awaited<ReturnType<typeof table>>, status: "completed" | "int
 it("restores the saved public final view for an unseated watcher instead of a private seat snapshot", async () => {
   const t = await table();
   const { publicView } = finish(t);
-  const watcher = Number(t.db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g', 'watcher', 'Watcher')").run().lastInsertRowid);
+  const watcher = seedIdentity(t.db, { guildId: "g", name: "Watcher", userId: seedUser(t.db, "watcher").userId, discordUserId: seedUser(t.db, "watcher").discordUserId ?? "watcher" }).playerId;
   const result = await t.post({ op: "view", spectate: true, playerId: watcher });
   expect(result.status, JSON.stringify(result.data)).toBe(200);
   expect(result.data.engine).toEqual(publicView);

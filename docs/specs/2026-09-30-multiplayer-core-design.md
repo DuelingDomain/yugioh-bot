@@ -1,7 +1,7 @@
 # Multiplayer core design: one ygopro-core for 1v1, 2v2 Tag, 3FFA and 4FFA
 
-Status: design proposal for review. No production code is part of this document.
-Date: 2026-09-30. Branch: feat/domain-multiplayer.
+Status: implemented. This is the design rationale. The core is built as 91 patches in `packages/duel-server/domain-core/patches` (numbered 0001 to 0100, with gaps). The Standard and Domain multi cores (`ocgcore.multi.wasm`, `ocgcore.multi-domain.wasm`; `src/engine.ts`) are deployed and run behind `MULTIPLAYER_TABLES` (Compose default on). Architecture overview: `docs/architecture.md`.
+Date: 2026-09-30.
 Rules source: `docs/adr/0002-multiplayer-duel-rules.md` (this document follows it exactly).
 Test source: `docs/adr/0003-duel-test-layers.md`.
 
@@ -211,7 +211,7 @@ Buckets (official):
 
 Other script directories (rush 3,119, skill 174, unofficial 5,530, goat 191, pre-release 129, pre-errata 68) follow the same
 shape. Skill scripts (174) are all O until proved: they register effects for player numbers directly. Domain Format does not
-use them. Out of scope for phase 1; blocked by a format check.
+use them. Blocked by a format check.
 
 ### 1.5 Where the approach fails (known classes)
 
@@ -597,7 +597,7 @@ Requirement: with `n_duelists == 2`, the new core behaves exactly like stock (pl
 Plan:
 
 1. **Build two wasm cores:** `stock` (current pinned build) and `multi` (N-duelist build). Keep `stock` in the repo as the oracle
-   until phase 6. "Stock" here means the pinned core plus `domain-core/src/apply-core-fixes.mjs` (engine bug fixes that every
+   in nightly runs. "Stock" here means the pinned core plus `domain-core/src/apply-core-fixes.mjs` (engine bug fixes that every
    build applies, for example the stale `reason_effect` use-after-free). The `multi` core applies the same fixes first.
 2. **Differential harness (Layer 1 extension):** for each scenario or fuzz seed, run both engines with the same seed, decks, options and
    the same response journal. Compare, message by message, the raw byte stream (new ids are not emitted for 2 duelists, so streams
@@ -636,23 +636,7 @@ run here.
 
 ## 11. Phased plan with test gates
 
-Sizes are rough engineer-weeks for one person who knows the core.
-
-| Phase | Work | Gate (ADR-0003) | Size |
-|---|---|---|---|
-| 0 | Native build of the core with ASan and a script that lists every `[2]`, `1 -`, `< 2` site. Fork branch and patch pipeline. | patch series applies and builds; stock differential harness runs 1v1 on stock vs stock | 1 |
-| 1 | Data model (section 2): N duelists, teams, helpers, `MAX_DUELISTS`, elimination. Still 2 duelists in tests. | Differential: zero diff over all Layer 1 scenarios and 2,000 fuzz seeds | 2-3 |
-| 2 | Perspective scope and Lua translation (section 3) for 2 duelists (identity) then for 3FFA and Tag 2v2 field queries. Partner rules. | Layer 1: new scenarios for Raigeki, Dark Hole, Monster Reborn, Ash Blossom, Change of Heart in 3FFA and Tag. Tag partner negation: Solemn Judgment and Ash Blossom cannot respond to the partner's summon or search, and can respond to the opponents' and to the own. Differential still green. | 3 |
-| 3 | Chains and priority (section 6), trigger order, turn order, first-turn rule (section 5). | Layer 1: chain scenarios for Tag response order, FFA clockwise. Layer 2: self-play FFA and Tag with invariants (LP conserved, every duelist gets a window, no stuck prompts). | 2-3 |
-| 4 | Binding (section 4) and ABI (section 7): new messages, 64-bit zones, wrapper fork, TS parser, `engine.ts`, `views.ts`, `prompts.ts`. | Layer 1: binding scenarios (Mind Crush, Yubel, Ring of Destruction). Layer 3 protocol tests for the new messages. | 3-4 |
-| 5 | Domain generalization (section 8) and the override library: `PLAYER_ALL` (226), `Win` (20), `GlobalCheck` (207), choosers (125), summon-to-opponent (123), turn counters. | Layer 1: one scenario per override class first (for example Card Destruction, Exodia, Nibiru, Creature Swap, Swords). Layer 2 fuzz flags unknown cards; triage into override or fix. | 4-6 (ongoing) |
-| 6 | Remove `stock` oracle from CI default (keep nightly). UI (Layer 4 Playwright, multi-browser). | Layer 4: 4-browser FFA smoke and a Tag smoke. | 2 |
-
-**Proposed first slice (phase 0 plus the start of phase 1):** build the native core and the differential harness, then change only
-`player[2]` to `player[MAX_DUELISTS]` with `n_duelists = 2` and the helper functions (`opponent_of`, `for_each_duelist`) in three
-files (`field.h`, `duel.h`, `processor_unit.h`). The behavior must stay identical. This proves the pipeline, the gate and the diff tool before the risky changes.
-
-**Result of the first slice:** the pinned core has no loop over the whole `player` array, so patch `0003` (the `player` array) changes `field.h` only. `duel.h` and `processor_unit.h` need no change. The differential test found a second problem: stock core walks several pointer-keyed containers in a way that sends messages and calls Lua, so the order depends on memory addresses. Patch `0002` fixes this (effects ordered by `initial_id`, cards by `cardid`). The differential reference is a replay on a build with patches 1 and 2 (same source meaning, different binary layout), not the self-play run. Both test cores are built with a fixed Lua seed (`LUA_FIXED_SEED=1`), because Lua seeds its hash and `math.random` from addresses and time (see `domain-core/patches/README.md`).
+Done. The patch series, its order and its build steps are in `packages/duel-server/domain-core/patches/README.md`.
 
 ---
 
@@ -674,7 +658,7 @@ files (`field.h`, `duel.h`, `processor_unit.h`). The behavior must stay identica
 ### 12.2 Other risks
 
 - Differential byte equality can break from a changed RNG call order. The gate will catch it.
-- Wasm size and performance with four full fields (more queries per `adjust_all`). Needs a benchmark in phase 2.
+- Wasm size and performance with four full fields (more queries per `adjust_all`).
 - Lua global state in scripts loaded once per duel across perspectives (section 1.5 class 2).
 - Elimination in FFA must remove cards without triggering effects, and must keep the chain and turn order valid.
 
@@ -703,10 +687,11 @@ files (`field.h`, `duel.h`, `processor_unit.h`). The behavior must stay identica
 
 ---
 
-## 13. Review notes (2026-09-30)
+## 13. Implementation notes (2026-09-30)
 
-A second reviewer read this document against ADR-0002. Sections 4.2 (step 5), 1.4 (Maxx "C") and 7.4 (Tag visibility) were
-corrected in place. The notes below are changes or decisions that the implementation must take into account.
+A second reviewer read this document against ADR-0002. The notes below are design constraints that ADR-0002 does not state.
+Owner decisions now live in ADR-0002 (R-FFA-CHAIN for chain response order, R-FFA-ACROSS-EMZ and the Extra Monster Zone rules,
+and the 2026-10-04 removal rule for eliminated duelists).
 
 - **R1. Binding must happen at activation where the ADR says so.** ADR-0002 says the pick is part of the activation. Lazy
   binding at cost or target time is still part of the activation. Binding at resolution is not. Add a build-time script scan
@@ -717,22 +702,5 @@ corrected in place. The notes below are changes or decisions that the implementa
   activation check (`target` with `chk==0`, and `condition`) passes when bound to that opponent. If only one opponent passes,
   bind without a prompt. If none passes, the effect cannot be activated. Without this rule, a player could pick an opponent
   with an empty hand to make a card fizzle on purpose.
-- **R3. Chain response order: a conflict with the ADR text.** ADR-0002 (FFA) says "Chain responses ... go clockwise from the
-  turn player". Section 6.2 starts from the duelist after the one who added the last Chain Link. Section 6.2 matches 1v1 and
-  the Tag rule ("the opposing team responds first"). Recommendation: use section 6.2 and change the ADR text. This needs the
-  product owner's approval. Simultaneous triggers (SEGOC) still start from the turn player, as the ADR says.
-  **Decided 2026-09-30:** the product owner chose "turn player first, then clockwise" for FFA. Section 6.2 and ADR-0002 now
-  say this. Tag keeps the official rule.
-- **R4. EMZ needs a core decision before phase 2.** The stock core models the two EMZs as sequences 5 and 6 of each player's
-  Monster Zone, with a mirror check against the other player. With N fields there is no single "other player". Recommendation:
-  each duelist has their own two EMZ slots, may use one of them (the second only through a Link), and no cross-field mirror
-  check exists. This changes Link play, so the product owner must approve it (ADR-0002 open point).
-  **Decided 2026-09-30:** approved as written.
-- **R5. Elimination during a chain (FFA).** ADR-0002 says an eliminated duelist's ongoing effects stop. It does not say what
-  happens to their Chain Links that are already on the chain. Recommendation: those links resolve with no effect. This needs
-  approval. **Decided 2026-09-30:** approved. The resolver checks `duelist.eliminated` for the link's `triggering_player` and
-  skips the operation (the link stays on the chain so that chain counts and "Chain Link N" conditions do not change).
-- **R6. Schedule.** Section 11 totals about 17 to 23 engineer-weeks. The roadmap said "1 to 2 weeks" for the engine test. The
-  first slice (phase 0 and the start of phase 1) fits in that time. The full core does not.
 - **R7. Tag LP costs.** "Pay half your LP" costs (for example Solemn Judgment) take half of the team LP. The Domain Deck Master
   tax also comes from the team LP (section 8). Both follow from shared team LP; the Layer 1 scenarios must cover them.

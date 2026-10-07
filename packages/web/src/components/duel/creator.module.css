@@ -65,3 +65,4 @@
 .sent { display: grid; gap: 12px; padding: 4px 0; }
 .sentTitle { color: var(--duel-ink); font-size: 15px; font-weight: 450; line-height: 1.4; }
 .sentRow { display: flex; flex-wrap: wrap; gap: 8px; }
+.sentLink { width: 100%; min-width: 0; font-size: 13.5px; text-overflow: ellipsis; }

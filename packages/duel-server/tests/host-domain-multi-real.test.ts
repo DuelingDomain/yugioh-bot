@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { createHmac, createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -6,7 +7,8 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { DUEL_OPENING_GRACE_MS, seatCountFor, teamOfSeat, type DuelDeck, type DuelEngineView, type DuelFormat, type DuelRoom } from "@yugidraft/shared/duels";
 import { createDuelService } from "@yugidraft/shared/services";
-import { createDuelHost, type DuelHost } from "../src/host.js";
+import type { DuelHost } from "../src/host.js";
+import { createTestDuelHost as createDuelHost, finishTestDiceOpening } from "./support/test-opening.js";
 import { AXE_RAIDER, botTableOf, buildPracticeBotDeck, choosePracticeBotAnswer } from "../src/practice-bot.js";
 import { GameWorker } from "../src/worker-client.js";
 import { engineDataDirectory as DATA } from "./engine-data-dir.js";
@@ -28,9 +30,7 @@ afterEach(async () => {
 async function table(format: DuelFormat, humans = 1, drawPerTurn = 1) {
   const db = new Database(":memory:");
   migrate(db);
-  const players = Array.from({ length: humans }, (_, seat) => Number(db.prepare(
-    "insert into players (guild_id, discord_user_id, display_name) values (?, ?, ?)",
-  ).run("g", `u${seat}`, `P${seat}`).lastInsertRowid));
+  const players = Array.from({ length: humans }, (_, seat) => seedIdentity(db, { guildId: "g", name: `P${seat}`, userId: seedUser(db, `u${seat}`).userId, discordUserId: seedUser(db, `u${seat}`).discordUserId ?? `u${seat}` }).playerId);
   const duels = createDuelService(db);
   const session = duels.create({ guildId: "g", organizerPlayerId: players[0]!, name: "Domain", mode: "domain", format,
     settings: { turnSeconds: 60, timeout: "loss", drawPerTurn } });
@@ -39,11 +39,12 @@ async function table(format: DuelFormat, humans = 1, drawPerTurn = 1) {
   const host = createDuelHost({ db, dataDirectory: DATA, secret: SECRET, searchCards: () => [], pollIntervalMs: 60_000,
     now: () => time.now, createWorker: () => { const worker = new GameWorker(); workers.push(worker); return worker; } });
   resources.push({ host, db });
-  const post = async (op: string, extra: Record<string, unknown> = {}, seat = 0) => {
+  const post = async (op: string, extra: Record<string, unknown> = {}, seat = 0): Promise<{ status: number; data: DuelRoom & { error?: string } }> => {
     const raw = JSON.stringify({ op, slug: session.slug, guildId: "g", playerId: players[seat], ...extra });
     const response = await host.handle(new Request("http://localhost/internal/duel", { method: "POST", body: raw,
       headers: { "x-announce-signature": "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex") } }));
-    return { status: response.status, data: await response.json() as DuelRoom & { error?: string } };
+    return finishTestDiceOpening(host, { op, slug: session.slug },
+      { status: response.status, data: await response.json() as DuelRoom & { error?: string } }, () => post("view", extra, seat));
   };
   for (const player of players.slice(1)) duels.takeSeat(session.slug, "g", player);
   const deck = buildPracticeBotDeck("domain", DATA);
@@ -91,6 +92,54 @@ async function table(format: DuelFormat, humans = 1, drawPerTurn = 1) {
 
 describeWithCores("Domain tables through the real host and worker", [needs.cards(DATA),
   needs.domainMulti(DATA, join(DATA, "ocgcore.multi-domain.wasm"))], () => {
+  it("lets the creator cancel an active Domain FFA4 duel and closes its engine", async () => {
+    const t = await table("ffa4", 2);
+    await t.start();
+    expect((await t.post("cancel", {}, 1)).status).toBe(403);
+    expect(t.workers[0]!.running).toBe(true);
+    const cancelled = await t.post("cancel");
+    expect(cancelled.status, cancelled.data.error).toBe(200);
+    expect(cancelled.data.session).toMatchObject({ status: "cancelled", winnerSeat: null, winnerPlayerId: null });
+    expect(cancelled.data.clock).toBeNull();
+    expect(t.workers[0]!.running).toBe(false);
+    expect((await t.post("cancel")).status).toBe(200);
+    expect((await t.room()).session.status).toBe("cancelled");
+    expect(t.workers).toHaveLength(1);
+  });
+
+  it("keeps an eliminated creator's spectator URL readable after cancellation", async () => {
+    const t = await table("ffa4", 2);
+    await t.start();
+    const surrendered = await t.post("surrender");
+    expect(surrendered.status, surrendered.data.error).toBe(200);
+    expect(surrendered.data.engine!.seats[0]!.eliminated).toBe(true);
+    expect((await t.post("view", { spectate: true })).data.role).toBe("spectator");
+    expect((await t.post("cancel")).status).toBe(200);
+    const result = await t.post("view", { spectate: true });
+    expect(result.status, result.data.error).toBe(200);
+    expect(result.data).toMatchObject({ role: "player", mySeat: 0, session: { status: "cancelled", winnerSeat: null } });
+    expect(result.data.engine).toBeNull();
+  });
+
+  it("accepts the owner's FFA4 surrender on turn 5 against three practice bots", async () => {
+    const t = await table("ffa4");
+    await t.start();
+    for (let step = 0; step < 60; step++) {
+      const view = (await t.room()).engine!;
+      if (view.turn === 5 && view.turnSeat === 0 && view.phase === "main1") break;
+      expect(view.result).toBeNull();
+      await t.answer(view, 0, view.prompt!.options.some((option) => option.id === "to_ep") ? "to_ep" : undefined);
+    }
+    expect((await t.room()).engine).toMatchObject({ turn: 5, turnSeat: 0, phase: "main1" });
+    const response = await t.post("surrender");
+    expect(response.status, response.data.error).toBe(200);
+    // With no human left the host drives all three bots to completion.
+    expect(t.duels.get(t.session.slug, "g").status).toBe("completed");
+    expect(t.duels.get(t.session.slug, "g").winnerSeat).not.toBe(0);
+    expect(response.data.engine!.seats[0]!.eliminated).toBe(true);
+    expect(response.data.engine!.prompt).toBeNull();
+  }, 60_000);
+
   it.each(FORMATS)("%s: validates Domain decks, fills all bot seats, and plays to a result", async (format) => {
     const t = await table(format, 1, 5);
     const decks = t.duels.privateState(t.session.slug, "g").decks;

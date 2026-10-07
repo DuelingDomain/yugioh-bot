@@ -12,14 +12,14 @@ const evaluate = (expression, needs) => Function("needs", "always", `return (${e
 test("the required core job runs and fails for failed or cancelled builds on every PR layer", () => {
   const job = workflow.jobs.cores;
   assert.equal(job.name, "Engine cores (build or restore)");
-  for (const webEngine of ["true", "false"]) {
+  for (const engine of ["true", "false"]) {
     for (const result of ["failure", "cancelled", "success", "skipped"]) {
       const needs = {
         "core-cache": { result: "success" },
         "core-build": { result },
-        changes: { outputs: { web_engine: webEngine } },
+        changes: { outputs: { engine: engine } },
       };
-      assert.equal(evaluate(job.if, needs), true, `core-build=${result}, web_engine=${webEngine}`);
+      assert.equal(evaluate(job.if, needs), true, `core-build=${result}, engine=${engine}`);
       const guard = job.steps[0];
       assert.ok(guard.run, "check build results before checkout or restore");
       const env = Object.fromEntries(Object.entries(guard.env).map(([name, value]) => [name, evaluate(value, needs)]));
@@ -76,4 +76,26 @@ test("required engine checks include all balanced groups and legacy runs only tw
       assert.equal(checked.status, result === "success" ? 0 : 1);
     }
   }
+});
+
+test("pull requests and main pushes run the engine jobs only when engine=true; unit always runs", () => {
+  const run = (id, event, engine) => {
+    const expression = workflow.jobs[id].if;
+    if (expression === undefined) return true;
+    const needs = new Proxy({ changes: { outputs: { engine } } }, { get: (all, name) => all[name] ?? { result: "success" } });
+    return Function("needs", "github", "always", "cancelled", `return (${expression
+      .replace(/^\$\{\{\s*|\s*\}\}$/g, "")
+      .replace(/needs\.([\w-]+)/g, 'needs["$1"]')
+      .replace(/==/g, "===").replace(/!=(?!=)/g, "!==")});`)(needs, { event_name: event }, () => true, () => false);
+  };
+  for (const event of ["pull_request", "push"]) {
+    for (const id of ["core-cache", "engine-shards", "engine-legacy-shards", "native", "rule-coverage"]) {
+      assert.equal(run(id, event, "true"), true, `${id} ${event} engine=true`);
+      assert.equal(run(id, event, "false"), false, `${id} ${event} engine=false`);
+    }
+    assert.ok(workflow.jobs["core-cache"].needs.includes("changes"));
+    for (const id of ["changes", "unit-packages", "unit-web", "unit"]) assert.equal(run(id, event, "false"), true, `${id} ${event}`);
+  }
+  for (const id of ["core-cache", "native", "rule-coverage"]) assert.equal(run(id, "workflow_dispatch", "true"), true, id);
+  assert.equal(run("core-cache", "schedule", "true"), true);
 });

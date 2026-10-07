@@ -1,6 +1,6 @@
 # Staging for 3-player and 4-player duel tests
 
-Staging is a second copy of the web app, the websocket server and the duel server. It runs on the same VM as
+Staging is a second copy of the web app, the websocket server, duel server and scheduling worker. It runs on the same VM as
 production, but it shares nothing with production. People can test 3-player and 4-player duels there. Production
 does not change.
 
@@ -10,12 +10,12 @@ does not change.
 | --- | --- | --- |
 | Folder on the VM | `/opt/yugioh-bot` | `/opt/yugioh-bot-staging` |
 | Compose project | default | `yugidraft-staging` |
-| Services | bot, ws, duel, web, caddy | ws, duel, web, caddy (no bot) |
+| Services | ws, duel, web, worker, caddy | ws, duel, web, worker, caddy (no bot) |
 | Database | `data/bot.sqlite` | a copy: `data-staging/bot.sqlite` |
 | Engine files | `data/duel-engine` | `data-staging/duel-engine` (with both multiplayer cores) |
 | Docker network | the default network of the project | `yugidraft-staging-net` |
 | Address | port 80 | port 8080, plain HTTP (never 80 or 443) |
-| Secrets | `.env` | `.env.staging` (new `NEXTAUTH_SECRET` and new internal secrets) |
+| Secrets | `.env` | `.env.staging` (separate staging Clerk instance and new internal secrets) |
 
 Files: `docker-compose.staging.yml`, `Caddyfile.staging`, `scripts/staging/`, `.github/workflows/deploy-staging.yml`.
 
@@ -27,24 +27,22 @@ Rules that keep production safe:
   `yugidraft-staging`, the file `docker-compose.staging.yml` and the file `.env.staging`. It refuses to run in `/opt/yugioh-bot`.
 - Staging reads three things from `/opt/yugioh-bot`: the file `.env` (only to build `.env.staging` the first time),
   `data/bot.sqlite` (read-only, to make the copy) and the git remote address (only for the first clone). It writes nothing there.
-- There is no bot in staging. A second bot with the same Discord token would answer every command twice.
-  So there are no Discord announcements from staging, and no draft timers (the draft timer runs in the bot).
-  Duels do not need the bot.
-- The web in staging keeps `DISCORD_TOKEN`. It uses it only to check that a user is in the guild (a REST call).
-  It does not open a Discord gateway connection.
+- There is no bot in either PR 2 Compose stack. Web and worker fix `DISCORD_BOT_ENABLED=0`; no Discord token/client credentials or bot announce variables reach web. Gameplay mutations and worker timers continue with WS broadcasts.
+- Staging Clerk keys come only from `STAGING_CLERK_ENV` (default `/etc/yugidraft/staging-clerk.env`), a separate staging instance. Production and dev keys must never be used. Newly copied databases have production Clerk IDs and sync timestamps cleared before consumers start; staging users link through their staging Clerk accounts. A kept staging DB retains its staging IDs.
 - Every service has a memory limit and no swap. If the VM runs out of memory, the kernel stops a staging process first.
 - Every service has a lower CPU weight than production (`cpu_shares: 256`). Staging containers never restart by themselves
   (`restart: "no"`): after a crash or a VM reboot staging stays off until you run the workflow again.
 
 ## Memory (read this first)
 
-The VM has 4 GB of RAM. Production uses most of it at busy times. The limits of staging add up to 1536 MB:
+The VM has 4 GB of RAM. Production uses most of it at busy times. The limits of staging add up to 1728 MB:
 
 | Service | Limit |
 | --- | --- |
 | duel | 768 MB |
 | web | 512 MB |
 | ws | 192 MB |
+| worker | 192 MB |
 | caddy | 64 MB |
 
 The weak point is the build: `next build` needs about 1 GB or more for a short time. The workflow protects production like this:
@@ -55,8 +53,8 @@ The weak point is the build: `next build` needs about 1 GB or more for a short t
    stops the staging containers before it builds, and staging stays off until you run the staging workflow again.
    It also stops if it sees another build process that does not use the lock.
 3. It stops if the VM has less than 1100 MB of available memory before the build, or less than 6000 MB of free disk.
-   It checks the disk again after the build (2500 MB). It also deletes the staging card image cache before each build.
-4. It stops if the VM has less than 1700 MB of available memory before it starts the containers.
+   It checks the disk again after the build (2500 MB). Worker startup/cron owns image-cache eviction; deploy keeps the cache.
+4. It stops if the VM has less than 1900 MB of available memory before it starts the containers.
 5. After a healthy start it removes the old staging images from the earlier deploy. It removes only those image ids,
    and Docker refuses an image that a container or the production project still uses.
 
@@ -77,7 +75,7 @@ sh scripts/staging/check-resources.sh now 1000 3000 /opt
 
 ## One-time steps for the owner
 
-1. **Push the branch** `n-player-ui-implementation` to GitHub. (Nobody and nothing has pushed it for you.)
+1. **Push the branch** `<reviewed-branch>` to GitHub. (Nobody and nothing has pushed it for you.)
 2. **Put the workflow on `main`.** GitHub lists a manual workflow in the Actions tab only when its file is on the default
    branch. Make a small pull request that adds only `.github/workflows/deploy-staging.yml`. The workflow uses the input
    `ref` to check out the feature branch, so the scripts and the code come from that branch. Note: a push to `main`
@@ -89,23 +87,37 @@ sh scripts/staging/check-resources.sh now 1000 3000 /opt
    The scripts refuse a staging port below 1024. Optional: add a second DNS name for the VM, for example
    `staging.example.org`, and set the repository variable `STAGING_DOMAIN` to it. The address is then
    `http://staging.example.org:8080`, and the cookies of staging and production no longer clash.
-   HTTPS for staging is a later step: add the staging host name as a second site to the production Caddy.
-4. **Add the Discord redirect address.** In the Discord developer portal (the same application that production uses),
-   OAuth2, Redirects, add one of:
-   - `http://YOUR_VM_IP:8080/api/auth/callback/discord`
-   - or, with a staging host name: `http://staging.example.org:8080/api/auth/callback/discord`
+   Clerk staging uses a separate production instance, which needs a public HTTPS origin.
+   Before enabling auth, arrange an owner-approved HTTPS proxy for the separate staging hostname to the
+   staging HTTP service, including `/socket.io`. The current staging Compose/Caddy continues to bind only
+   its high HTTP port; this task does not change production Caddy routing.
+4. **Configure a separate staging Clerk instance.** Use its production-instance keys (`pk_live_...` / `sk_live_...`), never dev keys or keys from the app's production instance. Configure its staging origin, Clerk-provided Discord callback and `/sso-callback` continuation, waitlist/invitations, email/password verification, username and legal consent like production. Legal links remain the marketing privacy/terms URLs. Store only these two keys in `/etc/yugidraft/staging-clerk.env`, mode 0600, readable by the deploy user. Do not put the secret in repository variables or build args. Set `STAGING_CLERK_ENV` to a different protected absolute path if needed.
+
+   ```sh
+   STAGING_CLERK_ENV=/etc/yugidraft/staging-clerk.env STAGING_HOST=staging.example.org \
+     sh scripts/staging/make-staging-env.sh /opt/yugioh-bot/.env .env.staging
+   # Upgrade an existing NextAuth staging env deliberately (internal secrets rotate):
+   STAGING_CLERK_ENV=/etc/yugidraft/staging-clerk.env STAGING_HOST=staging.example.org \
+     sh scripts/staging/make-staging-env.sh --force /opt/yugioh-bot/.env .env.staging
+   ```
+
+   After generation, set `WEB_URL=https://<staging-host>` and `NEXT_PUBLIC_WS_URL=https://<staging-host>`
+   in `.env.staging` to the configured HTTPS origin before dispatching a Clerk deployment. Keep
+   `STAGING_HTTP_PORT` for the internal proxy/health endpoint. Reapply those origin settings after `--force`.
+
+   The generator copies community config only from the first source, Clerk keys only from the separate source, sets `WEB_URL`/`NEXT_PUBLIC_WS_URL` to staging, and generates fresh WS/duel secrets. It removes NextAuth/obsolete auth/Discord credentials and announce variables. Existing output stays unchanged unless `--force` is given. If this is an old staging DB copied after production Clerk import, refresh it through the deploy workflow so production Clerk IDs are cleared on the copy.
+
 5. **Optional repository variables.** They are read only the first time, when `.env.staging` does not exist yet.
-   `STAGING_DOMAIN`, `STAGING_HOST` (default: the secret `VM_HOST`) and `STAGING_HTTP_PORT` (default `8080`).
+   `STAGING_DOMAIN`, `STAGING_HOST` (default: the secret `VM_HOST`), `STAGING_HTTP_PORT` (default `8080`) and `STAGING_CLERK_ENV` (protected VM path).
    The secrets `VM_HOST`, `VM_USER`, `VM_SSH_PRIVATE_KEY` and `VM_PORT` are the ones that production already uses.
 6. **Run the workflow.** GitHub, Actions, "Deploy Staging", Run workflow. Choose the same branch for
-   "Use workflow from" and `ref` (default `n-player-ui-implementation`),
-   `refresh_db` = off, `action` = `deploy`. The first run is slow (it builds three images and both multi cores).
+   "Use workflow from" and `ref` (default `main`),
+   `refresh_db` = off, `action` = `deploy`. The first run is slow (it builds four images and both multi cores).
    From the CLI, specify the branch twice: `gh workflow run deploy-staging.yml --ref <branch> -f ref=<branch>`.
-   For this branch: `gh workflow run deploy-staging.yml --ref n-player-ui-implementation -f ref=n-player-ui-implementation`.
    If the VM user is not `root`, make the folder first: `sudo mkdir /opt/yugioh-bot-staging && sudo chown $USER: /opt/yugioh-bot-staging`.
 
 When the run is green, the job log ends with the container list, the memory use and `staging is running`.
-Open the address and sign in with Discord.
+Open `/sign-in` and exercise custom Clerk sign-in. The automated health check requires `/sign-in` 200 and anonymous `/api/auth/session` 200 with body `null`, plus Socket.IO and worker health. Manually verify invitation ticket + Discord, required username/consent, email verification/reset, history recovery and worker timers.
 
 ## Engine files and image build
 
@@ -139,19 +151,42 @@ The build uses the same inputs as the engine session:
 - `domain-core/pins.json`: ygopro-core `efc21aa433b88cd35b7c37db4072a35c58d9d435`, wrapper source
   `9f36452f2a2464f057f7fd6e2273aa5ab589401e`, Lua `75ea9ccbea7c4886f30da147fb67b693b2624c26`,
   and emsdk `4.0.9` at digest `sha256:3c853ef9c3b4c2708da1adac2fdfdba49c775fdc4144ceef4989423963e96811`.
-- All numbered patches in `domain-core/patches` (currently 0001–0090 and 0100; 91 patches). No experimental patches or
-  `PATCH_LIMIT`. The current series hash (concatenated patch bytes in filename order) is `88550bace076f6c1f38ec70b0e8cf5c762bf93279203bbfe73020308034cffac`.
+- All numbered patches in `domain-core/patches` (currently 0001–0090, 0100, 0101 and 0105–0110; 98 patches). No experimental patches or
+  `PATCH_LIMIT`. The current series hash (concatenated patch bytes in filename order) is `7e916f1ac1e6c86ddc34801ef940abff4c53aa9dfaa1dd871978a6d4ac9e07a1`.
 - Domain additionally uses `APPLY_DOMAIN=1 DOMAIN_MULTI=1`, the existing Domain patch, `domain_master.cpp`
   and `apply-domain-multi.mjs`. The current multi layer hash is
   `06d5cfbfba8719eb5fe0b3b0eb211a6264d96bb295a8669fe0680969c1822bb8`.
 
-The 91-patch CI builds use `LUA_FIXED_SEED=1` with the pinned image above. Patch 0089 was corrected on 2026-10-05 so delayed EVENT_CHAINING triggers from normally completed links remain legal. Both multiplayer cores were rebuilt from clean trees using the CI compiler wrapper, the shared build lock and `EMCC_CORES=2`. The full series reapplied cleanly and the Domain pre/patch/post steps succeeded. Their verified hashes are:
+The 98-patch pinned builds use `LUA_FIXED_SEED=1` with the pinned image above. Patch 0089 was corrected on 2026-10-05 so delayed EVENT_CHAINING triggers from normally completed links remain legal. Patch 0101 follows the owner decision on 2026-10-05: control rotations complete the whole resolving chain link, including card choices and every placement, before pending surrender or timeout removal. Creature Swap (`c31036355.lua`) is the only multi-script that calls `MPRotateControl`; it marks the resolving link before the first card choice, including when an alias or a copying card such as Serial Spell calls the operation. Deferring that link is smaller than moving the Lua choices into the processor, and the existing host answers the leaving seat's required prompts. Patch 0105 sets the FFA4 facing pairs to 0/1 and 2/3. Patches 0106 and 0107 add the FFA3 column opponent and retain that choice through resolution. Patch 0108 restarts the FFA3/FFA4 response round after a cost elimination, so priority follows the newest living link (or the turn player when none is left). Patch 0109 clears the recorded opponent of an operation-based disabled-zone effect when its card leaves, so a revived Ojama King picks again. Patch 0110 keeps a resolved lock bound to its declared opponent after the registering seat leaves. Both changes are guarded by `n_duelists > 2`. Both multiplayer cores were rebuilt locally on 2026-10-06 from `origin/main` plus the reviewed fixes, using the cached pinned image, the full 98-patch series and `LUA_FIXED_SEED=1`. The following multiplayer hashes come from those builds; the Domain 1v1 pin is unchanged:
 
-| CI core | SHA-256 |
+| Pinned core | SHA-256 |
 | --- | --- |
-| Standard multiplayer | `34e8c87cc2e854ad608c7ed216d010c20b677655a914215640054c480d8ef748` |
-| Domain multiplayer | `4b02e5fe7806b5d078010e23338c677456ae93910aeabce157f774f8598f6133` |
+| Standard multiplayer | `5070da424a30ee8bf8ec18ed799af263eb44a01ff99ec1cdc6f35c9faef17f4f` |
+| Domain multiplayer | `51e41ea7e8620b46fbdb5685341d2b20eae224bfb0870aec6fea52c09d15cac4` |
 | Domain 1v1 | `01611db77c00ddef07a3d4cfc88800f5c523e3a388c3732616a79fa19b3c4a63` |
+
+The released-card preparation change uses `cards.cdb` plus `release-betb.cdb` at the
+current BabelCDB pin, yielding 14,845 passcodes (86 added). The core/Lua hashes above
+and in both `expected-sha256.txt` files are unchanged. These data hashes were verified
+in scratch preparation on 2026-10-06:
+
+| Card data | SHA-256 |
+| --- | --- |
+| Base cards.cdb input | `3530f406ba92b0f8d5699aa107e95158a1f1b4816f8f5ca2dd82c490301ef632` |
+| Release BETB input | `939a33357d6d43e0c392a33df4e31034152a7bec09696041239cded0d8d8e3ae` |
+| Ordered input digest (`integrity.cards`) | `a71b47633363bede95e2858eaa6d1734f18735a0ecf27bd000d8d5e63c8dd9df` |
+| Merged cards.cdb output (`integrity.cardsMerged`, SQLite 3.53.0) | `4c4025613e2fb7588ad8e520a16af72d9d7e509f7848a9bffec461f1cbcd0548` |
+
+The input digest hashes newline-joined `<filename>:<input SHA-256>` records in load order,
+without a trailing newline. `cardsMerged` verifies the cached file but is excluded from
+`bundleVersion`, as is `multiScripts`, so SQLite version/layout changes alone preserve bundle identity.
+
+The prepared bundle version without optional built-core metadata changes from
+`23993561abcaedcdf5aacadbfb9b4f43c4484b2590a99e9906efe29fb59cdfa8` to
+`661ab25721cdf1dfd2ad78e9e127899837ad769519c9ae5e3dd3d15ca815472d`.
+Versions with built-core metadata change too. The owner must approve merging/deployment;
+active-duel and replay version checks still apply. Selection, merge ordering and script
+coverage are documented in [engine data updates](engine-data-updates.md#released-card-data).
 
 Deploys omit `LUA_FIXED_SEED`; the differential test workflow uses it. The multi cache keys include all
 build/packaging scripts, pins, patches and Domain sources. Each cache stores both WASMs and their
@@ -175,7 +210,7 @@ target, clears the named context, and keeps its existing volume.
 The shared installer validates both checksums before writing, updates either multi core even under an
 identical base manifest, and refuses a changed multi core while a Tag/FFA duel is active. Staging's
 wrapper requires both WASMs and all four checksum/provenance sidecars. Production carries the same
-cores but still defaults `MULTIPLAYER_TABLES` to off; shipping them does not open multiplayer tables.
+cores, and production defaults `MULTIPLAYER_TABLES` to on (`docker-compose.yml`). Put `MULTIPLAYER_TABLES=0` in the VM `.env` to close the tables.
 
 ### Local verification without starting services
 
@@ -284,36 +319,27 @@ WHERE web_slug = '<verified-local-duel-slug>'
   else that was only in staging are lost. Active duels in the copy are set to `interrupted`.
   The old staging database stays as `data-staging/bot.sqlite.before-copy` (one older copy).
 - **Stop staging.** Run the workflow with `action` = `stop`. This removes the staging containers and the staging network.
-  The data folder stays. The three images that staging built are removed. It does not touch production.
+  The data folder stays. The four images that staging built are removed. It does not touch production.
 - **Start it again.** Run `deploy` again.
 - **Look at the logs.** On the VM: `cd /opt/yugioh-bot-staging && sh scripts/staging/compose.sh logs -f --tail=100 duel`
-  (or `web`, `ws`, `caddy`).
+  (or `web`, `ws`, `worker`, `caddy`).
 - **Change the address or the ports.** On the VM, delete `/opt/yugioh-bot-staging/.env.staging`, change the repository
   variables, and run `deploy`. A new file gets new internal secrets.
 - **Remove staging completely.** Stop it. Then on the VM:
   `rm -rf /opt/yugioh-bot-staging`. The stop already removed the staging images.
-  Take the port out of the Hetzner firewall and the redirect out of Discord.
+  Take the port out of the Hetzner firewall and retire the staging Clerk callback/origin configuration.
 
 ## Limits for testers
 
 - **Standard and Domain support FFA3, FFA4 and Tag once this bundle is deployed.** A missing core still
   closes the corresponding start guard. Domain uses `ocgcore.multi-domain.wasm`; deploying an older
   workflow that ships only the plain core leaves Domain blocked.
-- **Rules that are not proven by a test yet.** `docs/specs/multiplayer-rule-coverage.md` lists 19 rules that have no outcome
-  test yet (8 are covered). In plain words, five groups. Cards that rely on them can behave wrongly:
-  1. Cards that say "opponent", "each player" or "all" (separate fields, Extra Monster Zones, picking an opponent for hand
-     and Deck effects, ongoing effects on opponents, the Forbidden and Limited list per Deck).
-  2. Chains and triggers at 3 and 4 seats (who may respond first, trigger order) and the response order in Tag.
-  3. Negation and lock cards (for example Solemn Judgment, Jinzo).
-  4. Tag partners (sharing cards and costs, the partner is not an opponent, seeing the partner's hand).
-  5. Tag loss and turn-count cards (a team loss from an empty Deck, Final Countdown).
+- **Rule coverage.** `docs/specs/multiplayer-rule-coverage.md` lists all 45 rules of ADR-0002 as covered by an outcome test. A
+  rule id is one unit, so read the scenario before you trust a rule with several clauses. Cards outside the tested scenarios can still behave wrongly: report them.
 - The legacy Standard 1v1 engine uses the older npm core. Staging defaults to the legacy 1v1 engine, as production does (`STAGING_DUEL_1V1_ENGINE=pinned` tests the merged one);
   multiplayer games load the separately built multi cores.
-- Staging has a copy of the production database. Testers sign in with their real Discord accounts, and the guild check applies.
-- Staging has its own `NEXTAUTH_SECRET`. A sign-in made in staging is not valid in production, and the other way round.
-  Sign-in cookies are tied to the host name, not to the port. At the same IP address, a sign-in on staging replaces the
-  production cookie in that browser, and the production page then asks to sign in again. This is only a nuisance.
-  A separate host name for staging (a second DNS name for the VM) stops it.
+- Staging has a database copy with production Clerk IDs cleared on refresh. Testers use invitations/accounts in the separate staging Clerk instance. Email-only access works without guild membership REST checks.
+- Use a separate staging hostname and its configured Clerk origin to keep staging sessions scoped correctly. Dev keys never authenticate a deployed staging stack. The current staging Caddy serves plain HTTP on the configured port; arrange the separate HTTPS proxy and set the public HTTPS origin before enabling Clerk auth.
 
 ## Test tools in staging (warning for testers)
 
@@ -392,10 +418,10 @@ Do the steps in this order. Write down the result of each step. Report every ste
 
 - **RAM.** See the memory section. A very busy production plus a staging duel can still use all 4 GB. The limits and
   `oom_score_adj` make the kernel stop staging first, but nothing can promise it.
-- **Disk.** Three staging images and the Docker build cache use several GB. The build cache is shared with production, so
+- **Disk.** Four staging images and the Docker build cache use several GB. The build cache is shared with production, so
   the workflow does not prune it (`docker builder prune` or `docker system prune` would also hit production). The workflow
   stops below 6000 MB free before the build and below 2500 MB after it, removes the old staging images after each healthy
-  start, and deletes the staging card image cache. The disk also holds the production SQLite file: a full disk breaks production.
+  start, and keeps image-cache eviction with the worker. The disk also holds the production SQLite file: a full disk breaks production.
 - **Database copy on a read-only mount.** If the VM has no `python3`, the copy runs `node` inside the staging duel image with
   the production data folder mounted read-only. This path is not tested with a live WAL database.
 - **First-run clone.** It uses the git remote address of `/opt/yugioh-bot`. If that address needs a key that only works from there, the clone fails and you

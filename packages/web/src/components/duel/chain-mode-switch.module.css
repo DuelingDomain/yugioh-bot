@@ -21,7 +21,7 @@
   justify-items: start;
   gap: 3px;
   color: var(--cm-ink-3);
-  font-size: 10.5px;
+  font-size: calc((10.5px + 1.5px * var(--ft, 0)) * var(--tt, 1));
   letter-spacing: 0.09em;
   line-height: 1;
   text-transform: uppercase;
@@ -34,7 +34,7 @@
   border-radius: 5px;
   background: transparent;
   color: var(--cm-ink-3);
-  font: 500 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: 500 calc((10px + 2px * var(--ft, 0)) * var(--tt, 1))/1 ui-monospace, SFMono-Regular, Menlo, monospace;
   letter-spacing: 0;
   text-transform: none;
 }
@@ -61,7 +61,7 @@
   background: transparent;
   color: var(--cm-ink-3);
   font: inherit;
-  font-size: 14px;
+  font-size: calc(14px * var(--tt, 1));
   font-weight: 500;
   line-height: 1;
   cursor: pointer;
@@ -114,7 +114,7 @@
 :global([data-seats="true"]) .option {
   min-width: 46px;
   padding: 0 8px;
-  font-size: 13px;
+  font-size: calc((13px + 1px * var(--ft, 0)) * var(--tt, 1));
 }
 
 /* Phone: the third row of the track. The group fills the row and each segment is a full-height touch target. */
@@ -132,4 +132,27 @@
     min-width: 0;
     padding: 0 6px;
   }
+}
+
+/* The compact corner stack (the 1v1 room) is about 170px wide: the label sits above the switch and the three segments
+   share the row. */
+:global([data-compact="true"]) .root {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+:global([data-compact="true"]) .label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+:global([data-compact="true"]) .seg {
+  display: flex;
+}
+:global([data-compact="true"]) .option {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0 4px;
+  font-size: calc((13px + 1px * var(--ft, 0)) * var(--tt, 1));
 }

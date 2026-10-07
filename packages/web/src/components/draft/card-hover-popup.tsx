@@ -1,3 +1,4 @@
+import { cardArtworkId } from "@/lib/card-image-url";
 import { useEffect } from "react";
 import { CardArt } from "@/components/cards/card-art";
 import { X } from "lucide-react";
@@ -55,6 +56,7 @@ export function CardHoverPopup({ card, position, imageError, onImageError, dismi
                 <div className={styles.noImage}>No image</div>
               ) : (
                 <CardArt
+                  cardId={cardArtworkId(card)}
                   smallSrc={card.imageUrlSmall || card.imageUrl}
                   fullSrc={card.imageUrl}
                   alt={card.name}

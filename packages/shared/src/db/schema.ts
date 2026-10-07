@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { backfillMainArtworkRows } from "../services/card-artworks.js";
 import { generateWebSlug } from "../util/web-slug.js";
 import { isExtraDeckFrame } from "../services/card-catalog.js";
 
@@ -7,12 +8,313 @@ function hasColumn(db: Database.Database, table: string, column: string) {
 }
 
 function addColumnIfMissing(db: Database.Database, table: string, column: string, definition: string) {
-  if (!hasColumn(db, table, column)) {
-    db.exec(`alter table ${table} add column ${column} ${definition}`);
+  db.transaction(() => {
+    if (!hasColumn(db, table, column)) {
+      db.exec(`alter table ${table} add column ${column} ${definition}`);
+    }
+  }).immediate();
+}
+
+const rebuildLegacyTournamentSql = `
+
+        create table tournaments_without_name_unique (
+          id integer primary key autoincrement,
+          guild_id text not null,
+          name text not null,
+          format text not null,
+          status text not null,
+          created_by_user_id text not null,
+          created_at text not null default current_timestamp,
+          started_at text,
+          ended_at text
+        );
+
+        insert into tournaments_without_name_unique (
+          id,
+          guild_id,
+          name,
+          format,
+          status,
+          created_by_user_id,
+          created_at,
+          started_at,
+          ended_at
+        )
+        select
+          id,
+          guild_id,
+          name,
+          format,
+          status,
+          created_by_user_id,
+          created_at,
+          started_at,
+          ended_at
+        from tournaments;
+
+        drop table tournaments;
+        alter table tournaments_without_name_unique rename to tournaments;
+
+      `;
+
+const IDENTITY_TABLE_SQL = `
+create table if not exists users (
+  id integer primary key autoincrement,
+  clerk_user_id text unique,
+  email text check (email is null or email = lower(trim(email))),
+  email_verified integer not null default 0 check (email_verified in (0, 1)),
+  username text not null,
+  display_name text not null,
+  discord_user_id text unique,
+  created_at text not null default current_timestamp,
+  updated_at text not null default current_timestamp,
+  synced_at text,
+  check (email_verified = 0 or email is not null)
+);
+create index if not exists users_email_idx on users(email) where email is not null;
+
+create table players_identity_new (
+  id integer primary key autoincrement,
+  guild_id text not null,
+  user_id integer not null references users(id),
+  discord_user_id text,
+  display_name text not null,
+  created_at text not null default current_timestamp,
+  unique (guild_id, user_id),
+  unique (guild_id, discord_user_id)
+);
+create table tournaments_identity_new (
+  id integer primary key autoincrement,
+  guild_id text not null, name text not null, format text not null, status text not null,
+  created_by_user_id integer not null references users(id),
+  created_at text not null default current_timestamp, started_at text, ended_at text,
+  web_slug text, completed_announced_at text, deadline_at text,
+  report_confirm_window_hours integer, best_of integer not null default 3, duel_rules_json text
+);
+create table cubes_identity_new (
+  id integer primary key autoincrement,
+  guild_id text not null, name text not null, archetype text, banlist text,
+  config_json text not null default '{}',
+  created_by_user_id integer not null references users(id),
+  created_at text not null default current_timestamp,
+  updated_at text not null default current_timestamp,
+  unique (guild_id, name)
+);
+create table drafts_identity_new (
+  id integer primary key autoincrement,
+  guild_id text not null, channel_id text, name text not null, status text not null,
+  created_by_user_id integer not null references users(id),
+  config_json text not null default '{}',
+  current_wave_number integer not null default 0, current_pick_step integer not null default 0,
+  pick_deadline_at text, status_message_id text,
+  created_at text not null default current_timestamp, started_at text, ended_at text,
+  web_slug text, tournament_id integer references tournaments(id), complete_message_id text,
+  lobby_revision integer not null default 0, lobby_auto_start integer not null default 0,
+  lobby_auto_held integer not null default 0, lobby_start_at text, lobby_start_kind text,
+  lobby_start_token text, lobby_start_revision integer, lobby_start_setup_hash text,
+  lobby_start_force integer not null default 0, lobby_start_error text, lobby_nudged_at text
+);
+create table seasons_identity_new (
+  id integer primary key autoincrement,
+  guild_id text not null, number integer not null, name text, status text not null,
+  started_at text not null default current_timestamp, ended_at text,
+  created_by_user_id integer references users(id)
+);
+create table saved_decks_identity_new (
+  id integer primary key autoincrement,
+  guild_id text not null,
+  owner_user_id integer not null references users(id),
+  name text not null, mode text not null, deck_json text not null,
+  created_at text not null default current_timestamp,
+  updated_at text not null default current_timestamp,
+  draft_id integer references drafts(id) on delete set null
+);
+`;
+
+const IDENTITY_COPY_SQL = `
+insert into players_identity_new
+  select id, guild_id, (select user_id from identity_key_map where legacy_key = p.discord_user_id),
+    discord_user_id, display_name, created_at from players p;
+insert into tournaments_identity_new
+  select id, guild_id, name, format, status,
+    (select user_id from identity_key_map where legacy_key = t.created_by_user_id),
+    created_at, started_at, ended_at, web_slug, completed_announced_at, deadline_at,
+    report_confirm_window_hours, best_of, duel_rules_json from tournaments t;
+insert into cubes_identity_new
+  select id, guild_id, name, archetype, banlist, config_json,
+    (select user_id from identity_key_map where legacy_key = c.created_by_user_id),
+    created_at, updated_at from cubes c;
+insert into drafts_identity_new
+  select id, guild_id, channel_id, name, status,
+    (select user_id from identity_key_map where legacy_key = d.created_by_user_id),
+    config_json, current_wave_number, current_pick_step, pick_deadline_at, status_message_id,
+    created_at, started_at, ended_at, web_slug, tournament_id, complete_message_id,
+    lobby_revision, lobby_auto_start, lobby_auto_held, lobby_start_at, lobby_start_kind,
+    lobby_start_token, lobby_start_revision, lobby_start_setup_hash, lobby_start_force,
+    lobby_start_error, lobby_nudged_at from drafts d;
+insert into seasons_identity_new
+  select id, guild_id, number, name, status, started_at, ended_at,
+    (select user_id from identity_key_map where legacy_key = s.created_by_user_id) from seasons s;
+insert into saved_decks_identity_new
+  select id, guild_id, (select user_id from identity_key_map where legacy_key = s.owner_user_id),
+    name, mode, deck_json, created_at, updated_at, draft_id from saved_decks s;
+`;
+
+const IDENTITY_INDEX_SQL = `
+create index if not exists players_user_idx on players(user_id);
+create unique index if not exists tournaments_current_name_unique
+  on tournaments(guild_id, name) where status in ('pending', 'active');
+create unique index if not exists tournaments_web_slug_unique
+  on tournaments(web_slug) where web_slug is not null;
+create index if not exists tournaments_creator_idx on tournaments(created_by_user_id);
+create index if not exists cubes_creator_idx on cubes(created_by_user_id);
+create unique index if not exists drafts_current_name_unique
+  on drafts(guild_id, name) where status in ('pending', 'active');
+create index if not exists drafts_creator_idx on drafts(created_by_user_id);
+create unique index if not exists seasons_one_active on seasons(guild_id) where status = 'active';
+create index if not exists seasons_creator_idx on seasons(created_by_user_id);
+create index if not exists saved_decks_owner_list_idx on saved_decks(guild_id, owner_user_id, updated_at);
+create unique index if not exists saved_decks_owner_draft_idx
+  on saved_decks(guild_id, owner_user_id, draft_id) where draft_id is not null;
+`;
+
+const identityTables = ["players", "tournaments", "cubes", "drafts", "seasons", "saved_decks"] as const;
+const ownerColumns = { tournaments: "created_by_user_id", cubes: "created_by_user_id", drafts: "created_by_user_id", seasons: "created_by_user_id", saved_decks: "owner_user_id" } as const;
+type Column = { name: string; type: string; notnull: number };
+function tableExists(db: Database.Database, name: string): boolean {
+  return Boolean(db.prepare("select 1 from sqlite_master where type='table' and name=?").get(name));
+}
+function assertS1Empty(db: Database.Database): void {
+  for (const name of ["alpha_invites", "access_events", "app_users"]) {
+    if (tableExists(db, name) && (db.prepare(`select count(*) as n from ${name}`).get() as { n: number }).n !== 0) {
+      throw new Error(`S1 table ${name} is not empty; reconcile a backup before migration`);
+    }
+  }
+}
+function identityShape(db: Database.Database): "old" | "new" {
+  const playerCols = db.pragma("table_info(players)") as Column[];
+  const userCol = playerCols.find(c => c.name === "user_id");
+  const owners = Object.entries(ownerColumns).map(([table, name]) =>
+    (db.pragma(`table_info(${table})`) as Column[]).find(c => c.name === name));
+  const replacements = identityTables.filter(table => tableExists(db, `${table}_identity_new`));
+  if (replacements.length) throw new Error(`Partial identity schema: stranded replacement tables ${replacements.join(", ")}`);
+  const marked = Boolean(userCol) || tableExists(db, "users")
+    || owners.some(c => c?.type.toUpperCase() === "INTEGER");
+  if (!marked) return "old";
+  const complete = userCol?.type.toUpperCase() === "INTEGER" && userCol.notnull === 1
+    && owners.every(c => c?.type.toUpperCase() === "INTEGER") && tableExists(db, "users");
+  if (!complete) throw new Error("Partial identity schema; reconcile before startup");
+  for (const table of identityTables) {
+    const column = table === "players" ? "user_id" : ownerColumns[table];
+    const fks = db.pragma(`foreign_key_list(${table})`) as Array<{ table: string; from: string; to: string }>;
+    if (!fks.some(fk => fk.table === "users" && fk.from === column && fk.to === "id")) {
+      throw new Error(`Partial identity schema: ${table}.${column} has no users FK`);
+    }
+  }
+  return "new";
+}
+function legacyKind(key: string): "discord" | "local" {
+  if (/^[0-9]{1,25}$/.test(key)) return "discord";
+  if (/^bot_player_dev_[1-9][0-9]*$/.test(key) || /^tournament_bot_dev_[1-3]$/.test(key)
+    || new Set(["fake_yugi", "fake_kaiba", "fake_joey", "fake_pegasus", "seed", "system"]).has(key)) return "local";
+  throw new Error(`Unknown synthetic identity format: ${key}; reconcile before migration`);
+}
+function importedUsername(name: string, id: number): string {
+  const stem = name.trim().toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+  return stem ? `${stem}_${id}` : `duelist_${id}`;
+}
+function assertIdentitySourceShape(db: Database.Database): void {
+  const expected: Record<string, string[]> = {
+    players: ["id","guild_id","discord_user_id","display_name","created_at"],
+    tournaments: ["id","guild_id","name","format","status","created_by_user_id","created_at","started_at","ended_at","web_slug","completed_announced_at","deadline_at","report_confirm_window_hours","best_of","duel_rules_json"],
+    cubes: ["id","guild_id","name","archetype","banlist","config_json","created_by_user_id","created_at","updated_at"],
+    drafts: ["id","guild_id","channel_id","name","status","created_by_user_id","config_json","current_wave_number","current_pick_step","pick_deadline_at","status_message_id","created_at","started_at","ended_at","web_slug","tournament_id","complete_message_id","lobby_revision","lobby_auto_start","lobby_auto_held","lobby_start_at","lobby_start_kind","lobby_start_token","lobby_start_revision","lobby_start_setup_hash","lobby_start_force","lobby_start_error","lobby_nudged_at"],
+    seasons: ["id","guild_id","number","name","status","started_at","ended_at","created_by_user_id"],
+    saved_decks: ["id","guild_id","owner_user_id","name","mode","deck_json","created_at","updated_at","draft_id"],
+  };
+  const indexes = new Set(["tournaments_current_name_unique", "tournaments_web_slug_unique", "drafts_current_name_unique", "seasons_one_active", "saved_decks_owner_list_idx", "saved_decks_owner_draft_idx"]);
+  for (const table of identityTables) {
+    const columns = (db.pragma(`table_info(${table})`) as Column[]).map(c => c.name).sort();
+    if (JSON.stringify(columns) !== JSON.stringify([...expected[table]].sort())) {
+      const unexpected = columns.filter(column => !expected[table].includes(column));
+      const missing = expected[table].filter(column => !columns.includes(column));
+      throw new Error(`Unexpected columns on ${table} (${unexpected.join(", ")}); missing (${missing.join(", ")}); preserve explicitly before rebuild`);
+    }
+    const objects = db.prepare("select name,type,sql from sqlite_master where tbl_name=? and type in ('index','trigger') and sql is not null").all(table) as Array<{ name: string; type: string; sql: string }>;
+    for (const object of objects) if (object.type === "trigger" || !indexes.has(object.name)) {
+      throw new Error(`Unexpected ${object.type} ${object.name}; preserve explicitly before rebuild`);
+    }
+  }
+}
+function migrateIdentity(db: Database.Database): void {
+  if (db.inTransaction) throw new Error("Identity migration requires an outer connection");
+  assertS1Empty(db);
+  identityShape(db);
+  const foreignKeys = Number(db.pragma("foreign_keys", { simple: true }));
+  try {
+    db.pragma("foreign_keys = off");
+    db.exec("begin immediate");
+    assertS1Empty(db);
+    if (identityShape(db) === "new") {
+      db.exec("drop table if exists alpha_invites; drop table if exists access_events; drop table if exists app_users;");
+      db.exec("commit");
+      return;
+    }
+    assertIdentitySourceShape(db);
+    if ((db.pragma("foreign_key_check") as unknown[]).length) throw new Error("Invalid source foreign keys");
+    const counts = new Map(identityTables.map(table => [table, (db.prepare(`select count(*) as n from ${table}`).get() as { n: number }).n]));
+    const highWater = new Map(identityTables.map(table => [table, (db.prepare("select seq from sqlite_sequence where name=?").get(table) as { seq: number } | undefined)?.seq ?? 0]));
+    // Read guild counts before rebuilding; compare again before COMMIT.
+    const guilds = new Map(identityTables.map(table => [table, JSON.stringify(db.prepare(`select guild_id,count(*) n from ${table} group by guild_id order by guild_id`).all())]));
+    const keys = db.prepare(`select discord_user_id as legacy_key from players
+      union select created_by_user_id from tournaments
+      union select created_by_user_id from cubes
+      union select created_by_user_id from drafts
+      union select created_by_user_id from seasons where created_by_user_id is not null
+      union select owner_user_id from saved_decks order by legacy_key`).all() as Array<{ legacy_key: string }>;
+    for (const { legacy_key } of keys) legacyKind(legacy_key);
+    db.exec(IDENTITY_TABLE_SQL);
+    db.exec("create temp table identity_key_map (legacy_key text primary key, user_id integer not null)");
+    for (const { legacy_key } of keys) {
+      const kind = legacyKind(legacy_key);
+      const first = db.prepare("select display_name,created_at from players where discord_user_id=? order by created_at asc,id asc,guild_id asc limit 1").get(legacy_key) as { display_name: string; created_at: string } | undefined;
+      const name = first?.display_name ?? (kind === "discord" ? `Duelist ${legacy_key}` : legacy_key);
+      const existing = kind === "discord" ? db.prepare("select id from users where discord_user_id=?").get(legacy_key) as { id: number } | undefined : undefined;
+      const id = existing?.id ?? Number(db.prepare(`insert into users(username,display_name,discord_user_id,created_at,updated_at)
+        values('',?,?,coalesce(?,current_timestamp),coalesce(?,current_timestamp))`).run(name, kind === "discord" ? legacy_key : null, first?.created_at ?? null, first?.created_at ?? null).lastInsertRowid);
+      if (!existing) db.prepare("update users set username=? where id=?").run(importedUsername(name, id), id);
+      db.prepare("insert into identity_key_map(legacy_key,user_id) values(?,?)").run(legacy_key, id);
+    }
+    db.exec(IDENTITY_COPY_SQL);
+    for (const table of identityTables) {
+      const copied = (db.prepare(`select count(*) as n from ${table}_identity_new`).get() as { n: number }).n;
+      if (copied !== counts.get(table)) throw new Error(`Identity count mismatch: ${table}`);
+    }
+    for (const table of identityTables) db.exec(`drop table ${table}; alter table ${table}_identity_new rename to ${table};`);
+    db.exec(IDENTITY_INDEX_SQL);
+    for (const table of identityTables) {
+      const maximum = (db.prepare(`select coalesce(max(id),0) as n from ${table}`).get() as { n: number }).n;
+      const sequence = Math.max(highWater.get(table)!, maximum);
+      db.prepare("delete from sqlite_sequence where name=?").run(table);
+      db.prepare("insert into sqlite_sequence(name,seq) values(?,?)").run(table, sequence);
+      if (JSON.stringify(db.prepare(`select guild_id,count(*) n from ${table} group by guild_id order by guild_id`).all()) !== guilds.get(table)) throw new Error(`Identity guild mismatch: ${table}`);
+    }
+    db.exec("drop table identity_key_map; drop table if exists alpha_invites; drop table if exists access_events; drop table if exists app_users;");
+    if ((db.pragma("foreign_key_check") as unknown[]).length) throw new Error("Invalid migrated foreign keys");
+    if (db.pragma("integrity_check", { simple: true }) !== "ok") throw new Error("Identity integrity check failed");
+    db.exec("commit");
+  } catch (error) {
+    if (db.inTransaction) db.exec("rollback");
+    throw error;
+  } finally {
+    db.pragma(`foreign_keys = ${foreignKeys ? "on" : "off"}`);
+    if (Number(db.pragma("foreign_keys", { simple: true })) !== foreignKeys) throw new Error("Failed to restore foreign_keys");
   }
 }
 
 export function migrate(db: Database.Database) {
+  assertS1Empty(db);
+  identityShape(db);
   db.exec("drop table if exists tournaments_without_name_unique");
 
   // Cube/theme unification: the legacy theme tables and the draft_templates
@@ -73,6 +375,21 @@ export function migrate(db: Database.Database) {
 
     create index if not exists card_catalog_normalized_name_type_idx
       on card_catalog (lower(trim(name)), type);
+
+    -- Old catalog rows remain untouched and refresh on their next sync. Their
+    -- single image is not evidence of a complete artwork family.
+    create table if not exists card_artworks (
+      card_id integer not null references card_catalog(ygoprodeck_id),
+      artwork_id integer primary key references card_catalog(ygoprodeck_id),
+      image_url text not null,
+      image_url_small text not null,
+      image_url_cropped text,
+      is_main integer not null check (is_main in (0, 1)),
+      source text not null default 'api' check (source in ('api', 'engine'))
+    );
+    create index if not exists card_artworks_card_idx on card_artworks (card_id);
+    create unique index if not exists card_artworks_main_idx
+      on card_artworks (card_id) where is_main = 1;
 
     create table if not exists cubes (
       id integer primary key autoincrement,
@@ -245,51 +562,12 @@ export function migrate(db: Database.Database) {
 
     try {
       db.pragma("foreign_keys = off");
-      db.exec(`
-        begin;
-
-        create table tournaments_without_name_unique (
-          id integer primary key autoincrement,
-          guild_id text not null,
-          name text not null,
-          format text not null,
-          status text not null,
-          created_by_user_id text not null,
-          created_at text not null default current_timestamp,
-          started_at text,
-          ended_at text
-        );
-
-        insert into tournaments_without_name_unique (
-          id,
-          guild_id,
-          name,
-          format,
-          status,
-          created_by_user_id,
-          created_at,
-          started_at,
-          ended_at
-        )
-        select
-          id,
-          guild_id,
-          name,
-          format,
-          status,
-          created_by_user_id,
-          created_at,
-          started_at,
-          ended_at
-        from tournaments;
-
-        drop table tournaments;
-        alter table tournaments_without_name_unique rename to tournaments;
-
-        commit;
-      `);
+      db.exec("begin immediate");
+      const current = db.prepare("select sql from sqlite_master where type='table' and name='tournaments'").get() as { sql: string };
+      if (current.sql.includes("unique (guild_id, name)")) db.exec(rebuildLegacyTournamentSql);
+      db.exec("commit");
     } catch (error) {
-      db.exec("rollback;");
+      if (db.inTransaction) db.exec("rollback;");
       throw error;
     } finally {
       db.pragma(`foreign_keys = ${foreignKeys ? "on" : "off"}`);
@@ -312,6 +590,21 @@ export function migrate(db: Database.Database) {
   addColumnIfMissing(db, "draft_players", "seat_index", "integer");
   // Set when the player's draft deck was saved. A player who deletes that deck does not get it back.
   addColumnIfMissing(db, "draft_players", "deck_saved_at", "text");
+  // Pending lobby acknowledgements and server-owned start deadlines. Keep old
+  // records unready/unscheduled; a seat target remains optional in config_json.
+  addColumnIfMissing(db, "draft_players", "ready_at", "text");
+  addColumnIfMissing(db, "draft_players", "ready_setup_hash", "text");
+  addColumnIfMissing(db, "drafts", "lobby_revision", "integer not null default 0");
+  addColumnIfMissing(db, "drafts", "lobby_auto_start", "integer not null default 0");
+  addColumnIfMissing(db, "drafts", "lobby_auto_held", "integer not null default 0");
+  addColumnIfMissing(db, "drafts", "lobby_start_at", "text");
+  addColumnIfMissing(db, "drafts", "lobby_start_kind", "text");
+  addColumnIfMissing(db, "drafts", "lobby_start_token", "text");
+  addColumnIfMissing(db, "drafts", "lobby_start_revision", "integer");
+  addColumnIfMissing(db, "drafts", "lobby_start_setup_hash", "text");
+  addColumnIfMissing(db, "drafts", "lobby_start_force", "integer not null default 0");
+  addColumnIfMissing(db, "drafts", "lobby_start_error", "text");
+  addColumnIfMissing(db, "drafts", "lobby_nudged_at", "text");
   addColumnIfMissing(db, "draft_cards", "draft_pack_id", "integer references draft_packs(id)");
   addColumnIfMissing(db, "draft_cards", "position", "integer");
   addColumnIfMissing(db, "draft_picks", "pick_method", "text not null default 'manual'");
@@ -345,8 +638,32 @@ export function migrate(db: Database.Database) {
   addColumnIfMissing(db, "card_catalog", "attribute", "text");
   addColumnIfMissing(db, "card_catalog", "level", "integer");
   addColumnIfMissing(db, "card_catalog", "archetype", "text");
+  backfillMainArtworkRows(db);
   addColumnIfMissing(db, "card_sets", "card_count", "integer");
   addColumnIfMissing(db, "card_sets", "set_code", "text");
+  addColumnIfMissing(db, "card_sets", "release_date", "text");
+
+  // Independent of the on-demand catalog: compact released-set identities for
+  // the operator gap report. Old released sets survive process restarts.
+  db.exec(`create table if not exists card_data_set_cache (
+    set_name text primary key not null,
+    fetched_at text not null,
+    cards_json text not null
+  );`);
+
+  // One persisted revision lets readers cache card status across processes without
+  // rescanning the catalog on every request or invalidating it on duel writes.
+  db.exec(`create table if not exists card_catalog_revision (
+    id integer primary key check (id = 1), revision integer not null default 0
+  ); insert or ignore into card_catalog_revision (id) values (1);`);
+  for (const table of ["card_catalog", "card_artworks", "card_sets"]) {
+    for (const event of ["insert", "update", "delete"]) {
+      db.exec(`create trigger if not exists ${table}_status_${event}
+        after ${event} on ${table} begin
+          update card_catalog_revision set revision = revision + 1 where id = 1;
+        end;`);
+    }
+  }
   addColumnIfMissing(db, "drafts", "tournament_id", "integer references tournaments(id)");
   addColumnIfMissing(db, "drafts", "complete_message_id", "text");
   addColumnIfMissing(db, "matches", "notify_channel_id", "text");
@@ -688,12 +1005,13 @@ export function migrate(db: Database.Database) {
   // A deck built from a player's draft pool. One per owner per draft.
   addColumnIfMissing(db, "saved_decks", "draft_id", "integer references drafts(id) on delete set null");
   // Decks saved before deck_saved_at existed count as saved.
+  const deckOwnerColumn = hasColumn(db, "players", "user_id") ? "user_id" : "discord_user_id";
   db.exec(`
     update draft_players set deck_saved_at = current_timestamp
     where deck_saved_at is null and exists (
       select 1 from saved_decks s
       inner join players p on p.id = draft_players.player_id
-      where s.draft_id = draft_players.draft_id and s.owner_user_id = p.discord_user_id and s.guild_id = p.guild_id
+      where s.draft_id = draft_players.draft_id and s.owner_user_id = p.${deckOwnerColumn} and s.guild_id = p.guild_id
     )
   `);
   // The backfill covers only drafts with a tournament made from them or finished in the last 14 days
@@ -736,7 +1054,19 @@ export function migrate(db: Database.Database) {
   `);
   db.exec("create index if not exists bug_reports_duel_idx on bug_reports (guild_id, duel_slug, created_at)");
 
+  // Public, email-only signups are independent of Discord players and guilds.
+  db.exec(`
+    create table if not exists waitlist_signups (
+      id integer primary key autoincrement,
+      email text not null unique,
+      created_at text not null,
+      source text not null,
+      user_agent text
+    );
+  `);
+
   migrateConfigPoolsToCubeCards(db);
+  migrateIdentity(db);
 }
 
 /**

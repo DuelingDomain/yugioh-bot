@@ -3,20 +3,22 @@ import type { LiveOpponent } from "@yugidraft/shared/services";
 import type { DuelPresencePayload } from "@yugidraft/shared/ws";
 
 /** Sidebar grouping from the b14 board. nav-items.ts keeps its links and icons. */
-export const NAV_GROUPS: { label: string | null; hrefs: string[] }[] = [
+export const NAV_GROUPS: { label: string | null; hrefs: string[]; adminOnly?: boolean }[] = [
   { label: null, hrefs: ["/dashboard"] },
   { label: "Compete", hrefs: ["/tournaments", "/drafts", "/duels", "/leaderboard"] },
   { label: "Build", hrefs: ["/decks", "/cubes"] },
+  { label: "Admin", hrefs: ["/settings/card-data"], adminOnly: true },
 ];
 
-export const FOOT_HREF = "/settings";
+export const FOOT_HREF = "/settings/account";
 
 export function navItemByHref(href: string): NavItem | undefined {
   return navItems.find((item) => item.href === href);
 }
 
-export function groupedNav(): { label: string | null; items: NavItem[] }[] {
-  return NAV_GROUPS.map((g) => ({
+/** The sidebar groups. The Admin group is left out unless the person is a guild admin. */
+export function groupedNav(isAdmin = false): { label: string | null; items: NavItem[] }[] {
+  return NAV_GROUPS.filter((g) => isAdmin || !g.adminOnly).map((g) => ({
     label: g.label,
     items: g.hrefs.map(navItemByHref).filter((i): i is NavItem => Boolean(i)),
   }));
@@ -49,6 +51,7 @@ export function activeNavHref(pathname: string, playerId: number | null = null, 
   if (pathname === "/tournament" || pathname.startsWith("/tournament/")) return "/tournaments";
   if (pathname === "/draft" || pathname.startsWith("/draft/")) return "/drafts";
   if (pathname === "/themes" || pathname.startsWith("/themes/")) return "/cubes";
+  if (pathname === "/settings") return "/settings/account";
   for (const item of navItems) {
     const on = item.match === "exact" ? pathname === item.href : pathname === item.href || pathname.startsWith(`${item.href}/`);
     if (on) return item.href;
@@ -56,7 +59,7 @@ export function activeNavHref(pathname: string, playerId: number | null = null, 
   return null;
 }
 
-export const FALLBACK_TITLE = "Duelists Kingdom";
+export const FALLBACK_TITLE = "Dueling Domain";
 
 /** The phone top bar title: the nav label for the current path, with the board's detail titles. */
 export function pageTitle(pathname: string, playerId: number | null = null): string {

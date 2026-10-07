@@ -113,7 +113,7 @@
   display: block;
   margin-bottom: 1px;
   color: var(--duel-ink-3, #958f81);
-  font: 600 10px/1.2 var(--duel-f-ui, "Arial Narrow"), "Arial Narrow", sans-serif;
+  font: 600 calc(12px * var(--tt, 1))/1.2 var(--duel-f-ui, "Arial Narrow"), "Arial Narrow", sans-serif;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -167,7 +167,7 @@
   border: 1.5px solid var(--duel-chain, #e4b64f);
   border-radius: 50%;
   color: var(--duel-chain-ink, #f4d690);
-  font: 700 14px/1 var(--duel-f-num, "Arial Narrow"), "Arial Narrow", sans-serif;
+  font: 700 calc(14px * var(--tt, 1))/1 var(--duel-f-num, "Arial Narrow"), "Arial Narrow", sans-serif;
   font-variant-numeric: tabular-nums lining-nums;
 }
 .thumb {
@@ -202,6 +202,38 @@
 .row[data-tone="done"] .rowName { color: var(--duel-ink-2, #c3bba8); }
 .row[data-tone="done"] .thumb { opacity: 0.65; }
 .row[data-focus="true"] .rowName { color: var(--duel-ink, #efe7d5); }
+/* The sheet: every link is a button that opens its detail under it. */
+.item { margin: 0; padding: 0; border-bottom: 1px solid rgb(228 182 79 / 0.12); }
+.item:last-child { border-bottom: 0; }
+.rowBtn {
+  display: flex;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.rowBtn:hover { background: rgb(255 255 255 / 0.05); }
+.rowBtn[data-picked="true"] { background: rgb(255 255 255 / 0.07); }
+.rowBtn:focus-visible { outline: 2px solid var(--duel-pen-ink, #c6b6ff); outline-offset: -2px; }
+.item .row { border-bottom: 0; }
+.cr[data-shape="sheet"] .rowName { font-size: calc(15px * var(--tt, 1)); }
+.cr[data-shape="sheet"] .rowLine { font-size: calc(13px * var(--tt, 1)); }
+.cr[data-shape="sheet"] .thumb { width: 34px; height: 34px; }
+.detail { padding: 0 0 2px; }
+.detail[hidden] { display: none; }
+.detail .hero { border-bottom: 0; padding-top: 4px; }
+.cr[data-shape="sheet"] .effect { display: block; overflow: visible; font-size: calc(15px * var(--tt, 1)); -webkit-line-clamp: unset; }
+.cr[data-shape="sheet"] .art { width: 96px; }
+.cr[data-shape="sheet"] .name { font-size: calc(20px * var(--tt, 1)); }
+.cr[data-shape="sheet"] .sub, .cr[data-shape="sheet"] .targets, .cr[data-shape="sheet"] .wait { font-size: calc(14px * var(--tt, 1)); }
+.cr[data-shape="sheet"] .out { font-size: calc(14px * var(--tt, 1)); }
+.cr[data-shape="sheet"] .head, .cr[data-shape="sheet"] .eyebrow { font-size: calc(12px * var(--tt, 1)); }
+
 /* A table of 3 or 4 (in the sheet): the owner's seat tone marks the row. */
 .row[data-toned="true"] { box-shadow: inset 2px 0 0 var(--seat-main); }
 
@@ -210,8 +242,8 @@
 .cr[data-shape="narrow"] .main { flex-direction: column; gap: 7px; }
 .cr[data-shape="narrow"] .art { width: 78px; }
 .cr[data-shape="narrow"] .name { font-size: 17px; }
-.cr[data-shape="narrow"] .effect { font-size: 13px; -webkit-line-clamp: 6; }
-.cr[data-shape="narrow"] .sub { font-size: 12px; }
+.cr[data-shape="narrow"] .effect { font-size: calc(14px * var(--tt, 1)); -webkit-line-clamp: 6; }
+.cr[data-shape="narrow"] .sub { font-size: calc(12px * var(--tt, 1)); }
 .cr[data-shape="narrow"] .row { gap: 5px; padding: 5px 8px; }
 .cr[data-shape="narrow"] .thumb,
 .cr[data-shape="narrow"] .rowState,
@@ -266,10 +298,10 @@
   white-space: nowrap;
 }
 .strip[data-tone="now"] .stripNum { border-color: var(--duel-pen-ink, #c6b6ff); background: var(--duel-pen-fill, #5733d1); color: #fff; }
-.stripNum small { margin-left: 1px; font-size: 11px; font-weight: 500; opacity: 0.75; }
+.stripNum small { margin-left: 1px; font-size: calc(12px * var(--tt, 1)); font-weight: 500; opacity: 0.75; }
 .stripText { flex: 1; min-width: 0; line-height: 1.2; }
-.stripText b { display: block; overflow: hidden; font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.stripText span { display: block; overflow: hidden; color: var(--duel-ink-3, #958f81); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+.stripText b { display: block; overflow: hidden; font-size: calc(14px * var(--tt, 1)); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.stripText span { display: block; overflow: hidden; color: var(--duel-ink-3, #958f81); font-size: calc(13px * var(--tt, 1)); text-overflow: ellipsis; white-space: nowrap; }
 .stripText em { color: var(--tone-ink); font-style: normal; font-weight: 600; }
 .strip svg { flex: none; color: var(--duel-ink-3, #958f81); }
 
@@ -278,7 +310,11 @@
 .sheet {
   position: absolute;
   z-index: 5;
-  inset: var(--chain-sheet-top, 56px) 6px auto 6px;
+  top: var(--chain-sheet-top, 56px);
+  bottom: var(--chain-sheet-bottom, auto);
+  /* On a wide board it drops down under the strip, not across the whole width. */
+  left: var(--chain-sheet-left, 6px);
+  right: var(--chain-sheet-right, 6px);
   max-height: var(--chain-sheet-max, 60%);
   display: flex;
   pointer-events: auto;

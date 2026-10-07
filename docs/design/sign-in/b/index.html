@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in | Dueling Domain (B, Card in the slot)</title>
+<meta name="theme-color" content="#0A0E1A">
+<link rel="stylesheet" href="../shared/base.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#form-zone">Skip to the sign-in form</a>
+<div class="b-page">
+  <div class="b-bg" aria-hidden="true"></div>
+  <div class="ghost l" aria-hidden="true"></div><div class="ghost r" aria-hidden="true"></div>
+  <header class="nav">
+    <div class="wrap nav-in">
+      <a class="brand" href="https://duelingdomain.com/" aria-label="Dueling Domain, home"><svg class="lockup" aria-hidden="true" focusable="false"><use href="#dd-lockup"/></svg></a>
+      <div class="nav-r"><span class="chip"><i></i>Closed alpha</span><a class="tosite" href="https://duelingdomain.com/">Back to site</a></div>
+    </div>
+  </header>
+  <main class="b-stage" id="form-zone">
+    <div class="dframe" aria-hidden="true"><span class="dgem t"></span><span class="dgem"></span></div>
+    <div class="flip" id="flip">
+      <div class="face front" id="face-front"></div>
+      <div class="face back" id="face-back" inert></div>
+    </div>
+  </main>
+</div>
+
+<template id="tpl-screen">
+  <article class="bcard">
+    <div class="c-name"><h1 data-slot="name"></h1><span class="c-gem" aria-hidden="true"></span></div>
+    <div class="c-art">
+      <h2 class="a-title" data-slot="title" data-hide-if-notitle></h2>
+      <p class="lede" data-slot="lede"></p>
+      <div data-slot="form"></div>
+    </div>
+    <div class="c-type" data-slot="type"></div>
+    <div class="c-text"><div class="foot-links" data-slot="foot"></div></div>
+    <div class="c-foot" aria-hidden="true"><span data-slot="code"></span><span>Dueling Domain</span></div>
+  </article>
+</template>
+
+<script src="../shared/forms.js"></script>
+<script>
+(function () {
+  var front = document.getElementById('face-front'), back = document.getElementById('face-back');
+  DD.mount(function (id, s) { return s.face === 'front' ? front : back; });
+  var leaveTimer = null;
+  DD.hooks.push(function (id, prev) {
+    /* keep the card that is turning away visible until the flip has finished */
+    clearTimeout(leaveTimer);
+    var cur = DD.screens[id], old = prev && DD.screens[prev];
+    if (old && old.face !== cur.face && !document.documentElement.classList.contains('shot')) {
+      var oc = document.querySelector('[data-screen="' + prev + '"]');
+      oc.hidden = false; oc.setAttribute('inert', '');
+      leaveTimer = setTimeout(function () { if (DD.cur !== prev) oc.hidden = true; }, 800);
+    }
+    front.toggleAttribute('inert', cur.face !== 'front');
+    back.toggleAttribute('inert', cur.face !== 'back');
+  });
+  DD.start();
+})();
+</script>
+</body>
+</html>

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import React from "react";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DuelCard, DuelCardInfo, DuelChainLink, DuelEvent, DuelSeatView, DuelZoneRef } from "@yugidraft/shared/duels";
 
@@ -156,8 +157,44 @@ describe("the strip", () => {
     expect(sheet(container)).toBeNull();
 
     act(() => { fireEvent.click(strip(container)!); });
-    act(() => { fireEvent.click(sheet(container)!.querySelector("button") as HTMLElement); });
+    act(() => { fireEvent.click(sheet(container)!.querySelector('button[aria-label="Close chain details"]') as HTMLElement); });
     expect(sheet(container)).toBeNull();
+  });
+
+  it("makes every link of the sheet a button that opens its own detail", () => {
+    const events = [
+      activate(1, 0, info(11, "Card 11", "Destroy 1 monster your opponent controls.", 4), z(0, SZONE, 0)),
+      activate(2, 1, info(22, "Card 22", "Negate the activation.", 4), z(1, SZONE, 0)),
+    ];
+    const { container } = render(stripped(events));
+    flush(60);
+    act(() => { fireEvent.click(strip(container)!); });
+    const open = sheet(container)!;
+    const rowButton = (n: number) => open.querySelector(`button[data-chain-row="${n}"]`) as HTMLButtonElement;
+    const details = () => [...open.querySelectorAll("[data-chain-hero]")].map((el) => el.getAttribute("data-chain-hero"));
+    // The focus link starts open; the other link is closed, and both are buttons.
+    expect(rowButton(1).tagName).toBe("BUTTON");
+    expect(rowButton(2).getAttribute("aria-expanded")).toBe("true");
+    expect(rowButton(1).getAttribute("aria-expanded")).toBe("false");
+    expect(details()).toEqual(["2"]);
+    expect(open.querySelector('[data-chain-hero="2"]')?.textContent).toContain("Negate the activation.");
+    expect(open.querySelector('[data-chain-hero="1"]')).toBeNull();
+
+    // A tap opens link 1 with its full effect and who played it; the other stays open. A second tap closes it.
+    act(() => { fireEvent.click(rowButton(1)); });
+    expect(rowButton(1).getAttribute("aria-expanded")).toBe("true");
+    expect(details().sort()).toEqual(["1", "2"]);
+    const first = open.querySelector('[data-chain-hero="1"]') as HTMLElement;
+    expect(first.textContent).toContain("Destroy 1 monster your opponent controls.");
+    expect(first.textContent).toContain("You");
+    expect(rowButton(1).getAttribute("aria-controls")).toBe(first.parentElement?.id);
+    act(() => { fireEvent.click(rowButton(1)); });
+    expect(details()).toEqual(["2"]);
+    // The region that a row names exists while it is closed too (hidden), so the reference never dangles.
+    expect(document.getElementById(rowButton(1).getAttribute("aria-controls") ?? "")?.hasAttribute("hidden")).toBe(true);
+    // The focus link closes too: nothing opens or closes by itself.
+    act(() => { fireEvent.click(rowButton(2)); });
+    expect(details()).toEqual([]);
   });
 
   it("closes the sheet with the chain, after its recap", () => {
@@ -203,6 +240,48 @@ describe("one effect", () => {
     expect(container.querySelector("[data-chain-panel] header")?.textContent).toContain("2 links");
     expect(container.querySelectorAll("[data-chain-row]")).toHaveLength(2);
     expect(hero(container)?.textContent).toContain("Link 2 of 2");
+  });
+
+  it("makes every row of the column a button that shows its link in the hero", () => {
+    const { container } = render(<ChainFx {...base} events={pair()} reducedMotion />);
+    flush(60);
+    const row = (n: number) => container.querySelector(`[data-chain-panel] button[data-chain-row="${n}"]`) as HTMLButtonElement;
+    expect(row(1).tagName).toBe("BUTTON");
+    // The column is read and tabbed like any panel: no aria-hidden dock, and no second screen reader list of the same links.
+    expect(row(1).tabIndex).toBe(0);
+    expect(container.querySelector("[data-chain-panel]")?.closest('[aria-hidden="true"]')).toBeNull();
+    expect(container.querySelector("[data-chain-sr-list]")).toBeNull();
+    expect(container.querySelector("[data-chain-live]")).not.toBeNull();
+    expect(row(1).getAttribute("aria-pressed")).toBe("false");
+    act(() => { fireEvent.click(row(1)); });
+    expect(row(1).getAttribute("aria-pressed")).toBe("true");
+    expect(hero(container)?.textContent).toContain("Link 1 of 2");
+    // The same row again goes back to the live link.
+    act(() => { fireEvent.click(row(1)); });
+    expect(row(1).getAttribute("aria-pressed")).toBe("false");
+    expect(hero(container)?.textContent).toContain("Link 2 of 2");
+  });
+});
+
+describe("the column by keyboard", () => {
+  it("reaches a row with Tab and shows its link in the hero with Enter", async () => {
+    const user = userEvent.setup({ delay: null });
+    const { container } = render(<ChainFx {...base} events={pair()} reducedMotion />);
+    flush(60);
+    // user-event waits on real timers; the panel is up and nothing else here needs the fake clock.
+    vi.useRealTimers();
+    const row = (n: number) => container.querySelector(`[data-chain-panel] button[data-chain-row="${n}"]`) as HTMLButtonElement;
+    // The list reads newest first: row 2 is the live link, row 1 comes after it.
+    await user.tab();
+    await user.tab();
+    expect(document.activeElement).toBe(row(1));
+    await user.keyboard("{Enter}");
+    expect(hero(container)?.textContent).toContain("Link 1 of 2");
+    expect(hero(container)?.textContent).not.toContain("Negate the activation.");
+    await user.tab({ shift: true });
+    expect(document.activeElement).toBe(row(2));
+    await user.keyboard("{Enter}");
+    expect(hero(container)?.textContent).toContain("Negate the activation.");
   });
 });
 

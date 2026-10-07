@@ -67,10 +67,10 @@
   --duel-f-ink: var(--font-duel-ink), "Newsreader", Georgia, serif;
 
   /* Type scale: the prototype's sizes, about 10% larger at 1440x900. */
-  --duel-t-xs: max(11px, calc(11 * var(--duel-unit)));
-  --duel-t-sm: max(12px, calc(12 * var(--duel-unit)));
-  --duel-t-body: max(13px, calc(13 * var(--duel-unit)));
-  --duel-t-head: max(14px, calc(15 * var(--duel-unit)));
+  --duel-t-xs: calc(max(calc(11px + 1px * var(--ft, 0)), calc(11 * var(--duel-unit))) * var(--tt, 1));
+  --duel-t-sm: calc(max(12px, calc(12 * var(--duel-unit))) * var(--tt, 1));
+  --duel-t-body: calc(max(calc(13px + 1px * var(--ft, 0)), calc(13 * var(--duel-unit))) * var(--tt, 1));
+  --duel-t-head: calc(max(calc(14px + 1px * var(--ft, 0)), calc(15 * var(--duel-unit))) * var(--tt, 1));
   --duel-t-name: max(18px, calc(20 * var(--duel-unit)));
   --duel-t-num: max(20px, calc(22 * var(--duel-unit)));
 }
@@ -201,7 +201,7 @@
   border-radius: 999px;
   background: rgb(255 84 72 / 0.06);
   color: #ff8a80;
-  font-size: 12px;
+  font-size: calc(12px * var(--tt, 1));
   font-weight: 500;
   line-height: 1;
   letter-spacing: 0.01em;
@@ -660,6 +660,82 @@
 .clock > span[data-active="true"] { color: var(--duel-ink); }
 .clock > span[data-active="true"] .clockTime { color: var(--duel-ink); }
 
+/* ---------- floating HUD of the 1v1 room (table/hud-layer.tsx) ---------- */
+/* Scoped to `data-hud="room"`: the 4-way grid root also wears roomStyles.shell and sets its own `data-hud="true"`. */
+/* The header, the side panes and the footer give way to glass pills in the margins. The board keeps clear margins for
+   them: a strip above and a column at the left for the dock and the Deck Master plate. There is no bar below: the
+   turn controls and the prompt sit in the bottom-right corner (grid-hud.module.css .corner), right of the board. */
+.shell[data-hud="room"] {
+  /* The rival's hand (small backs, tucked) peeks above the field and the header pills end at 45px:
+     the strip is that 45px plus the peek, so no pill sits on those cards. The 3dvh slope tracks the peek,
+     which grows with the board. */
+  --hud-top: calc(36px + 3dvh);
+  /* Your hand is the last thing at the bottom, so the board's frame ends 5px above the screen edge. */
+  --hud-bottom: 5px;
+  --hud-left: 156px;
+  /* The corner stack is a little narrower than the gutter right of the board at 1280px. */
+  --hud-corner-w: 168px;
+  /* The Deck Master plate sits at the bottom of the left margin, as no bar is under it. */
+  --hud-master-bottom: 14px;
+}
+.shell[data-hud="room"] .layout {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-areas: "board";
+  background: none;
+}
+.shell[data-hud="room"] .boardColumn {
+  /* The board is height-bound and centered: about 1.06 screen heights wide. When the screen is too narrow for that
+     (narrow or nearly square screens), its bottom-right corner would go under the corner stack and hide your Deck
+     pile. The right padding grows just enough to keep the board left of the stack (up to the stack's width plus its
+     gaps, where the board starts to get narrower). It never leaves the board less than 660px: below 641px the field
+     changes to its phone layout. On wide screens the term is negative and the minimum applies. */
+  --hud-right-need: calc(520px + 105.6dvh - 100vw);
+  --hud-right-max: min(calc(var(--hud-corner-w) + 28px), calc(100vw - var(--hud-left) - 660px));
+  padding: var(--hud-top) clamp(14px, var(--hud-right-need), var(--hud-right-max)) var(--hud-bottom) var(--hud-left);
+  border-left: 0;
+}
+/* Narrow desktops: the board is centered, so its right side would reach the Deck Master plate and the corner stack
+   there. A little more room at the right moves the board left (the board is height-bound, so it keeps its size). */
+@media (max-width: 1320px) {
+  .shell[data-hud="room"] .boardColumn { padding-right: clamp(60px, var(--hud-right-need), var(--hud-right-max)); }
+}
+/* The shell already paints the ground and the lamp glows over the whole screen; the field's own copy would end at the
+   padded box as a visible edge. */
+.shell[data-hud="room"] [data-duel-field="true"] { background: none; }
+/* The turn light fills the whole screen edge to edge for the same reason, not just the padded field box. */
+.shell[data-hud="room"] [data-turn-glow] {
+  left: calc(-1 * var(--hud-left));
+  right: -14px;
+}
+.shell[data-hud="room"] [data-turn-glow][data-side="top"] {
+  top: calc(-1 * var(--hud-top));
+  height: calc(50% + var(--hud-top));
+}
+.shell[data-hud="room"] [data-turn-glow][data-side="bottom"] {
+  bottom: calc(-1 * var(--hud-bottom));
+  height: calc(50% + var(--hud-bottom));
+}
+/* A prompt for you opens at the right, in the corner column right above the turn controls (the column is
+   `.corner` in grid-hud.module.css, found by its data attribute because that class name is hashed in another
+   module). The column takes no clicks, so the dock turns them back on. The dock is at least as wide as the column
+   and grows to the left for a long list. The selector is as strong as the narrow-screen rules below, which would
+   pin the dock to the screen's bottom. */
+.shell[data-hud="room"][data-fit="true"] [data-hud-corner] > .promptDock[data-mode="float"],
+.shell[data-hud="room"][data-fit="true"] [data-hud-corner] > .promptDock[data-mode="flow"] {
+  position: relative;
+  grid-area: auto;
+  inset: auto;
+  z-index: auto;
+  width: max-content;
+  min-width: 100%;
+  max-width: min(380px, 34vw);
+  margin: 0;
+  border-radius: 8px;
+  pointer-events: auto;
+}
+.shell[data-hud="room"] .notices { top: var(--hud-top); }
+
 /* ============================================================
    Narrow screens: one board column, tab bar at the bottom,
    inspector and Deck Masters open in a sheet.
@@ -718,13 +794,13 @@
 
   .identity .format, .connectionStatus svg, .pref, .whoPill { display: none; }
   .identity:has(.viewerRole) { flex-direction: column; align-items: flex-start; gap: 2px; }
-  .identity a { max-width: 100%; font-size: 15px; } /* "Duelists Kingdom" is long: keep the turn and phase readable beside it */
-  .viewerRole { padding: 0; border: 0; background: transparent; font-size: 10px; line-height: 12px; }
+  .identity a { max-width: 100%; font-size: calc(15px * var(--tt, 1)); } /* Keep "Dueling Domain" compact so the turn and phase remain readable beside it. */
+  .viewerRole { padding: 0; border: 0; background: transparent; font-size: calc((10px + 2px * var(--ft, 0)) * var(--tt, 1)); line-height: 12px; }
   .viewerRole svg { width: 12px; height: 12px; }
   .turn { justify-content: flex-start; overflow: hidden; }
-  .turn strong, .turn > span { font-size: 13px; }
+  .turn strong, .turn > span { font-size: calc((13px + 1px * var(--ft, 0)) * var(--tt, 1)); }
   .turn > .phaseName { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  .connectionStatus { padding: 0 4px; font-size: 11px; }
+  .connectionStatus { padding: 0 4px; font-size: calc((11px + 1px * var(--ft, 0)) * var(--tt, 1)); }
   .track { padding-bottom: 0; }
   .mobileBar {
     display: block;
@@ -736,7 +812,7 @@
   .mobileBar .tabs { max-width: 32rem; margin-inline: auto; padding: 0 6px; border-bottom: 0; }
   .mobileBar .tabs button { height: 40px; margin: 0; border: 0; border-top: 2px solid transparent; color: var(--duel-ink-2); }
   .cardTooltip { display: none; }
-  .log li { font-size: 13px; }
+  .log li { font-size: calc((13px + 1px * var(--ft, 0)) * var(--tt, 1)); }
 }
 
 /* Log tab: the history list takes the whole column; the text log folds into a drawer under it. */
@@ -781,5 +857,5 @@
   border-bottom: 1px solid rgb(var(--duel-rule-rgb) / 0.6);
   background: var(--duel-sheet, #15151d);
   color: var(--duel-text, #eee);
-  font-size: 14px;
+  font-size: calc(14px * var(--tt, 1));
 }

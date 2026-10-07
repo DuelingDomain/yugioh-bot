@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -30,13 +31,14 @@ describe("theme draft GET response (buildDraftResponse)", () => {
     const { createDraftService, createCubeService, createCardCatalogService } = await import("@yugidraft/shared/services");
     const db = new Database(dbPath);
     migrate(db);
+    seedFixtureUsers(db, FIXTURE_KEYS);
 
     const cubes = createCubeService(db, createCardCatalogService(db, { fetch: async () => ({ ok: true, async json() { return { data: [] }; } }) as Response }));
     const ins = db.prepare("insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (?,?,?,?,?,?,?,?)");
     let cardId = 1;
     const cubeIds: number[] = [];
     for (let t = 0; t < 2; t++) {
-      const cube = cubes.createBlank("guild-1", `Theme${t}`, "u1");
+      const cube = cubes.createBlank("guild-1", `Theme${t}`, fixtureUserId("u1"));
       for (let i = 0; i < 42; i++) {
         ins.run(cardId, `M${cardId}`, "Normal Monster", "normal", "http://img/" + cardId, "http://img/" + cardId, "[]", "t");
         cubes.addCard(cube.id, cardId, "main", 1);
@@ -45,8 +47,8 @@ describe("theme draft GET response (buildDraftResponse)", () => {
       cubeIds.push(cube.id);
     }
 
-    const p1 = Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('guild-1','u1','P1')").run().lastInsertRowid);
-    const p2 = Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('guild-1','u2','P2')").run().lastInsertRowid);
+    const p1 = Number(db.prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('guild-1', ${fixtureUserId("u1")}, '${fixtureDiscordId("u1")}', 'P1')`).run().lastInsertRowid);
+    const p2 = Number(db.prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('guild-1', ${fixtureUserId("u2")}, '${fixtureDiscordId("u2")}', 'P2')`).run().lastInsertRowid);
 
     const drafts = createDraftService(db, { random: () => 0 });
     const draft = drafts.create(
@@ -54,7 +56,7 @@ describe("theme draft GET response (buildDraftResponse)", () => {
       "c",
       "Theme Night",
       { mode: "theme", allowedCubeIds: cubeIds, themeSelection: "random", extraDeckEnabled: false, cardsPerPlayer: 40, themePackSize: 3, randomizeSeats: true },
-      "u1",
+      fixtureUserId("u1"),
       p1,
     );
     drafts.join(draft.id, p2);
@@ -62,13 +64,17 @@ describe("theme draft GET response (buildDraftResponse)", () => {
     db.close();
 
     const { buildDraftResponse } = await import("../app/api/drafts/[slug]/helpers");
-    const res = (await buildDraftResponse(draft.webSlug!, "u1")) as any;
+    const res = (await buildDraftResponse(draft.webSlug!, { userId: fixtureUserId("u1"), discordUserId: fixtureDiscordId("u1") })) as any;
 
     expect(res.status).toBe("active");
     expect(res.phase).toBe("main");
     expect(res.themeProgress).toMatchObject({ main: 0, mainTotal: 40, extra: 0, extraTotal: 0 });
     expect(res.allowedCubes).toHaveLength(2);
     expect(res.allowedCubes[0].mainCount).toBe(42);
+    expect(res.allowedCubes[0].sampleImages).toEqual([
+      "/api/cards/1/image?variant=small", "/api/cards/2/image?variant=small",
+      "/api/cards/3/image?variant=small", "/api/cards/4/image?variant=small",
+    ]);
     expect(res.currentPack).toHaveLength(3);
     expect(res.seats).toEqual([
       { playerId: p2, displayName: "P2", seatIndex: 0, hasPicked: false, isCurrentPlayer: false },
@@ -76,3 +82,5 @@ describe("theme draft GET response (buildDraftResponse)", () => {
     ]);
   }, 30000);
 });
+
+const FIXTURE_KEYS = ["u1", "u2"] as const;

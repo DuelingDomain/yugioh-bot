@@ -41,3 +41,10 @@ Or `npx tsx packages/duel-server/scripts/build-domain-core.ts legacy-domain`.
 
 The legacy engine code is in `packages/duel-server/src/legacy/` (main's `engine.ts`, `views.ts` and `prompts.ts`
 with small changes marked `LEGACY-1V1`, and `index.ts`, which adapts them to the `EngineGame` interface).
+
+The normal legacy engine also adapts `chain.lua` in `src/legacy/script-compat.ts`.
+The current Lua bundle captures activation properties when an effect is registered.
+The npm core cannot return the triggering Link or Scale properties. The adapter
+omits those two properties from the bulk snapshot. It keeps supported properties,
+direct getters, and the core binary unchanged. Domain does not use this adapter.
+Kuriboh battle scenarios test the original failure and damage prevention on both seats.

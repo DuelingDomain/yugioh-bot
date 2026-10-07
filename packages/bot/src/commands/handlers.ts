@@ -4,9 +4,41 @@ import type { PlayerRepository } from "../repositories/players.js";
 import type { CardCatalogService } from "../services/card-catalog.js";
 import type { DraftImageService } from "../services/draft-images.js";
 import type { Draft, DraftService } from "../services/drafts.js";
-import type { CubeService, MatchService } from "@yugidraft/shared/services";
+import type { CubeService, DraftLobbyService, MatchService } from "@yugidraft/shared/services";
 import type { TournamentFormat, TournamentService } from "@yugidraft/shared/services";
 import type { Broadcaster } from "@yugidraft/shared/notify";
+import type { DraftLobbyResponse } from "@yugidraft/shared/types";
+
+/** Shared by slash/button entry points. Only the web presents the force confirmation. */
+export async function scheduleDiscordDraftStart(draft: Draft, userId: number, deps: {
+  lobby?: Pick<DraftLobbyService, "read" | "scheduleStart">;
+  cards: CardCatalogService;
+  broadcaster: Broadcaster;
+}): Promise<string> {
+  if (!deps.lobby) throw new Error("Draft lobby service is unavailable");
+  const revision = deps.lobby.read(draft.id, userId).lobby.revision;
+  if (draft.config.mode !== "theme") {
+    await deps.cards.syncDraftPool({ setNames: draft.config.setNames ?? [],
+      includeNames: draft.config.includeNames ?? [], excludeNames: draft.config.excludeNames ?? [] });
+  }
+  const webLink = draft.webSlug ? `${WEB_URL.replace(/\/+$/, "")}/draft/${draft.webSlug}` : "the web draft lobby";
+  let scheduled: DraftLobbyResponse;
+  try {
+    scheduled = deps.lobby.scheduleStart(draft.id, userId, { revision, force: false });
+  } catch (error) {
+    if ((error as { code?: string } | null)?.code === "NOT_READY") {
+      return `Some players are not Ready. Open the lobby to review seats and confirm Start anyway: ${webLink}`;
+    }
+    throw error;
+  }
+  if (!scheduled.lobby.start) throw new Error("Draft start was not scheduled");
+  if (draft.webSlug) {
+    await deps.broadcaster.draft({ kind: "seats", slug: draft.webSlug }).catch(error =>
+      console.warn(`[draft-start] seats broadcast failed for ${draft.id}:`, error));
+  }
+  const deadline = Math.floor(new Date(scheduled.lobby.start.startsAt).getTime() / 1000);
+  return `Start scheduled for ${draft.name}. Starts <t:${deadline}:R>. Open the lobby to follow the countdown or Stop: ${webLink}`;
+}
 
 export type DiscordUserLike = {
   id: string;
@@ -53,6 +85,7 @@ type CommandDependencies = {
   matches: MatchService;
   tournaments: TournamentService;
   drafts: DraftService;
+  lobby?: Pick<DraftLobbyService, "read" | "scheduleStart">;
   cards: CardCatalogService;
   templates: CubeService;
   draftImages: DraftImageService;
@@ -217,13 +250,13 @@ function requireDraft(deps: CommandDependencies, guildId: string, name: string) 
   return draft;
 }
 
-function requireEventCreator(tournament: { createdByUserId: string }, userId: string): void {
+function requireEventCreator(tournament: { createdByUserId: number }, userId: number): void {
   if (tournament.createdByUserId !== userId) {
     throw new Error("Only the event creator can do that");
   }
 }
 
-function requireDraftCreator(draft: { createdByUserId: string }, userId: string): void {
+function requireDraftCreator(draft: { createdByUserId: number }, userId: number): void {
   if (draft.createdByUserId !== userId) {
     throw new Error("Only the draft creator can do that");
   }
@@ -459,6 +492,7 @@ async function handleEvent(
   deps: CommandDependencies,
 ): Promise<void> {
   const guildId = requireGuildId(interaction);
+  const actorUserId = deps.players.ensureUser(interaction.user.id, interaction.user.displayName ?? interaction.user.username).id;
   const subcommand = interaction.options.getSubcommand();
 
   switch (subcommand) {
@@ -471,7 +505,7 @@ async function handleEvent(
         deadlineDays && deadlineDays > 0
           ? new Date(Date.now() + deadlineDays * 24 * 60 * 60 * 1000).toISOString()
           : null;
-      const tournament = deps.tournaments.create(guildId, name, format, interaction.user.id, {
+      const tournament = deps.tournaments.create(guildId, name, format, actorUserId, {
         deadlineAt,
         reportConfirmWindowHours: confirmHours ?? null,
       });
@@ -531,7 +565,7 @@ async function handleEvent(
       const role = interaction.options.getRole("role");
       const roleMention = role ? `<@&${role.id}> ` : "";
 
-      requireEventCreator(tournament, interaction.user.id);
+      requireEventCreator(tournament, actorUserId);
       assertPendingTournament(tournament);
       await interaction.reply(tournamentSignupPostReply({ ...tournament, prefix: roleMention }));
       return;
@@ -539,7 +573,7 @@ async function handleEvent(
     case "start": {
       const name = requireStringOption(interaction, "name");
       const tournament = requireTournament(deps, guildId, name);
-      requireEventCreator(tournament, interaction.user.id);
+      requireEventCreator(tournament, actorUserId);
       deps.tournaments.start(tournament.id);
       const started = deps.tournaments.findById(tournament.id);
       if (started.webSlug) void deps.broadcaster.tournament({ kind: "started", slug: started.webSlug });
@@ -579,7 +613,7 @@ async function handleEvent(
     case "cancel": {
       const name = requireStringOption(interaction, "name");
       const tournament = requireTournament(deps, guildId, name);
-      requireEventCreator(tournament, interaction.user.id);
+      requireEventCreator(tournament, actorUserId);
       const { changedDuelSlugs } = deps.tournaments.cancelWithChanges(tournament.id);
       if (tournament.webSlug) void deps.broadcaster.tournament({ kind: "cancelled", slug: tournament.webSlug });
       for (const duelSlug of changedDuelSlugs) void deps.notifyDuelChange?.(duelSlug, guildId);
@@ -596,6 +630,7 @@ async function handleDraft(
   deps: CommandDependencies,
 ): Promise<void> {
   const guildId = requireGuildId(interaction);
+  const actorUserId = deps.players.ensureUser(interaction.user.id, interaction.user.displayName ?? interaction.user.username).id;
   const subcommandGroup = interaction.options.getSubcommandGroup();
   const subcommand = interaction.options.getSubcommand();
 
@@ -605,8 +640,8 @@ async function handleDraft(
         const templateName = requireStringOption(interaction, "name");
         const draftName = requireStringOption(interaction, "draft");
         const draft = requireDraft(deps, guildId, draftName);
-        requireDraftCreator(draft, interaction.user.id);
-        deps.templates.save(guildId, templateName, draft.config, interaction.user.id);
+        requireDraftCreator(draft, actorUserId);
+        deps.templates.save(guildId, templateName, draft.config, actorUserId);
         await interaction.reply(`Saved template: ${templateName}.`);
         return;
       }
@@ -637,7 +672,7 @@ async function handleDraft(
           throw new Error(`Template not found: ${templateName}`);
         }
 
-        if (template.createdByUserId !== interaction.user.id) {
+        if (template.createdByUserId !== actorUserId) {
           throw new Error("Only the template creator can delete it");
         }
 
@@ -687,7 +722,7 @@ async function handleDraft(
       };
 
       const creator = deps.players.upsert(guildId, interaction.user.id, displayName(interaction.user));
-      const draft = deps.drafts.create(guildId, channelId, draftName, { ...config, randomizeSeats: true }, interaction.user.id, creator.id);
+      const draft = deps.drafts.create(guildId, channelId, draftName, { ...config, randomizeSeats: true }, creator.userId, creator.id);
       await interaction.reply(draftSignupPostReply(draft));
       return;
     }
@@ -712,19 +747,8 @@ async function handleDraft(
     case "start": {
       const name = requireStringOption(interaction, "name");
       const draft = requireDraft(deps, guildId, name);
-      requireDraftCreator(draft, interaction.user.id);
-      await deps.cards.syncDraftPool({
-        setNames: draft.config.setNames ?? [],
-        includeNames: draft.config.includeNames ?? [],
-        excludeNames: draft.config.excludeNames ?? [],
-      });
-      const startedDraft = deps.drafts.start(draft.id);
-      if (startedDraft.webSlug) void deps.broadcaster.draft({ kind: "status", slug: startedDraft.webSlug, status: "active" });
-
-      await deps.messenger.postStatus(startedDraft);
-
-      const draftWebLink = startedDraft.webSlug ? `\nPick cards here: ${WEB_URL}/draft/${startedDraft.webSlug}` : "";
-      await interaction.reply(`Started draft: ${startedDraft.name}.${draftWebLink}`);
+      requireDraftCreator(draft, actorUserId);
+      await interaction.reply(await scheduleDiscordDraftStart(draft, actorUserId, deps));
       return;
     }
     case "export": {
@@ -744,7 +768,7 @@ async function handleDraft(
     case "cancel": {
       const name = requireStringOption(interaction, "name");
       const draft = requireDraft(deps, guildId, name);
-      requireDraftCreator(draft, interaction.user.id);
+      requireDraftCreator(draft, actorUserId);
       deps.drafts.cancel(draft.id);
       if (draft.webSlug) void deps.broadcaster.draft({ kind: "status", slug: draft.webSlug, status: "cancelled" });
       const cancelledDraft = deps.drafts.findById(draft.id);

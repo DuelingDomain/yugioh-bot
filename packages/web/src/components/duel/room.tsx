@@ -1,13 +1,17 @@
 "use client";
 
+import { ownClockSeat } from "./clock-beep";
+import { useLowClockBeep } from "./use-low-clock-beep";
+import { tableTextStyle, useCardTextSize, useTableTextScale } from "./card-text-size";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { Circle, Diamond, ExternalLink, Eye, Radio, Volume2, VolumeX } from "lucide-react";
-import { isCustomDomain, type DuelAnswer, type DuelCard, type DuelCardInfo, type DuelDeck, type DuelPromptOption, type DuelRoom } from "@yugidraft/shared/duels";
+import { isCustomDomain, seatCountFor, type DuelAnswer, type DuelCard, type DuelCardInfo, type DuelDeck, type DuelPromptOption, type DuelRoom } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
+import { Modal } from "@/components/ui/modal";
 import { SurrenderModal } from "./surrender-modal";
 import { DeckSurrenderContext, type DeckSurrenderValue } from "./deck-surrender";
 import { BugReportHeaderButton } from "../bug-report/bug-report-header-button";
@@ -48,6 +52,7 @@ import { DeckMasterRail, DuelField } from "./field";
 import { EXIT_CRUMBLE_MS, EXIT_CRUMBLE_REDUCED_MS } from "./table/rival-field";
 import { TableShell, type TableShellProps } from "./table/table-shell";
 import { TagShell } from "./tag/tag-shell";
+import { fieldWaitsForReveal } from "./field-gate";
 import { defaultTeamNames } from "./tag/live-tag";
 import { useLiveTableController } from "./table/use-live-table-controller";
 import { eliminationOrder } from "@/lib/duel/elimination-order";
@@ -56,6 +61,11 @@ import { MultiSeatStage } from "./multi-seat-stage";
 import { engineFormat, focusOpponentSeat, foeSeats, formatLabel, isMultiSeat, isOpponentPick, leavingOnlySeats, outOrLeavingSeats, outSeatOptionIds, seatPickFor, seatNamer } from "./multi-seat";
 import { resolveEquipLinks } from "./equip-links";
 import styles from "./room.module.css";
+import hudStyles from "./table/grid-hud.module.css";
+import { hudPreview } from "./table/hud-preview";
+import { HudLayer, RowPreviewBoundary, useHudEscape, useHudPane, useRowPreview } from "./table/hud-layer";
+import { clockStrip, hudClockBank, hudMasterProps, stationTrackProps } from "./table/hud-shared";
+import { SEAT_TONE_HEX } from "./table/types";
 import { AttackConfirm, CardActionMenu, CardHoverInfo, PickRefusalHint, shakeRefusedCard, confirmSide, targetName, zoneAnchor, type CardMenuState } from "./card-interactions";
 import { DestroyFx } from "./destroy-fx";
 import { FxBoundary, MoveSourceBoundary } from "./fx-boundary";
@@ -65,6 +75,8 @@ import { DuelFeedback } from "./feedback";
 import { duelFontClasses } from "./fonts";
 import { DUEL_SHAKE_LABEL, DUEL_SHAKE_LEVELS, useDuelPreferences } from "./preferences";
 import { DuelAnimationSpeedControl, useDuelAnimationSpeed } from "./animation-speed-control";
+import { DuelCardTextSizeControl } from "./card-text-size-control";
+import { DuelDiceSkinControl } from "./dice-skin-control";
 import { CardInspector, type InspectTarget } from "./inspector";
 import {
   activatePromptFromField,
@@ -88,7 +100,7 @@ import { BetweenGamesScreen, isStartingNextGame, NextGameStarting } from "./betw
 import { isBetweenGames, isSeriesOpen, nextGameTarget, seriesPlayerIndex } from "./series-model";
 import { SheetButton } from "./sheet-ui";
 import { DuelClockDisplay, DuelSettingsSummary, DuelSoundControls, RoomInvite } from "./room-settings";
-import { battleStepLabel, hasNoLegalMoves, resolveBattleStep, StationTrack, type BattleStep } from "./station-track";
+import { battleStepLabel, resolveBattleStep, StationTrack, type BattleStep } from "./station-track";
 import { PhaseHub } from "./phase-hub";
 import { MasterReturnFx } from "./master-return-fx";
 import { MoveFx } from "./move-fx";
@@ -139,6 +151,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
 }) {
   // Every live surface (1v1, FFA tables, Tag, spectating) renders under this component.
   useBlockBrowserContextMenu();
+  useTableTextScale();
+  const textSize = useCardTextSize();
   const router = useRouter();
   const admitted = useRef<{ slug: string; inviteCode: string } | null>(null);
   const { data, error, isLoading, mutate } = useSWR(
@@ -207,6 +221,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const narrow = useIsNarrow();
   const [mobileInspect, setMobileInspect] = useState(false);
   const [confirmSurrender, setConfirmSurrender] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false);
   // The Surrender menu on your own deck is open: prompt keys and the right-click decline wait for it.
   const [deckMenuOpen, setDeckMenuOpen] = useState(false);
   const [hideResult, setHideResult] = useState(false);
@@ -298,6 +313,16 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   // The card layers go while the connection recovers (their events are history when they return), except while
   // the opening deal plays: a focus or a socket retry in those seconds must not drop the cards still in flight.
   const fxUp = fxLayersUp(!error, realtime.recovering, startBeats.dealing);
+  // One minute left on the viewer's own clock beeps once (never for a spectator or a finished duel).
+  useLowClockBeep({
+    clock: data?.clock,
+    seat: ownClockSeat({
+      mySeat: data?.mySeat,
+      spectator: spectate || data?.role === "spectator",
+      replay: data?.session.status !== "active" || Boolean(data?.engine?.result) || viewerOut,
+    }),
+    soundEnabled: preferences.soundEnabled,
+  });
   const catchingUp = syncing || startBeats.active;
   // The engine drops its prompt when the duel ends; guard here too, so no answer path can open between the end and the result screen.
   const prompt = data?.engine?.result ? null : (data?.engine?.prompt ?? null);
@@ -361,8 +386,19 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const revealBeat = usePromptReveal({ promptId: centered ? prompt.id : null, board: boardRef, reducedMotion: preferences.reducedMotion, skip: pick.continuing });
   const answerable = usePromptAnswerable(centered ? prompt.id : null, !busy && !error && !catchingUp, skipsAnswerableWait(pick.continuing, catchingUp));
   const revealed = revealBeat && answerable;
-  const activeMenu = !viewerOut && !busy && !error && !catchingUp && menu?.promptId === prompt?.id &&
+  const fieldHeld = fieldWaitsForReveal(prompt, revealed);
+  const fieldLegalKeys = useMemo(() => fieldHeld ? new Set<string>() : legalKeys, [fieldHeld, legalKeys]);
+  const activeMenu = !fieldHeld && !viewerOut && !busy && !error && !catchingUp && menu?.promptId === prompt?.id &&
     menu?.revision === data?.engine?.revision ? menu : null;
+  // A wide 1v1 table swaps the bars and side panes for the floating HUD (table/hud-layer.tsx). The 3D mode keeps its own
+  // look, and the 3 and 4 seat tables and the Tag table have their own shells.
+  const hud = !narrow && data?.engine != null && !isMultiSeat(data.engine) && !liveTable && view.mode !== "3d";
+  const hudState = useHudPane();
+  useHudEscape(hudState, hud, Boolean(activeMenu) || Boolean(pile?.open) || deckMenuOpen);
+    const promptMenuOpen = Boolean(activeMenu) || deckMenuOpen;
+  // An open flyout holds only Esc (it closes the flyout); the other prompt keys keep answering.
+  const hudFlyoutOpen = hud && hudState.pane != null;
+  const rowPreview = useRowPreview(prompt?.id ?? null);
 
   // Human attack flow: pick the attacker in the menu (preview arrow), aim at a target, confirm.
   const [pendingAttack, setPendingAttack] = useState<{ key: string; direct: boolean } | null>(null);
@@ -540,7 +576,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const onSubmitAnswer = useCallback(
     (answer: DuelAnswer) => {
       if (isCoinTossActive()) return;
-      if (!data?.engine || !prompt || error || catchingUp || data.mySeat !== prompt.seat ||
+      if (!data?.engine || !prompt || fieldHeld || error || catchingUp || data.mySeat !== prompt.seat ||
           data.session.status !== "active" || viewerOut || inFlight.current) return;
       const command = { promptId: prompt.id, revision: data.engine.revision, answer };
       // The answer is on its way (e.g. an Extra Deck summon picked in the pile viewer): the next prompt decides
@@ -556,12 +592,14 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       // Only an opponent or direct-attack pick gets the general "pick again" notice on a 400 (a seat may have left).
       void run(() => sendDuelAction(slug, command), isOpponentPick(prompt) || isAttackDuelistPrompt(prompt) ? "seat-pick" : undefined);
     },
-    [data, prompt, error, catchingUp, run, slug, pick.noteAnswer, viewerOut],
+    [data, prompt, fieldHeld, error, catchingUp, run, slug, pick.noteAnswer, viewerOut],
   );
 
   /** A prompt tile or response row under the pointer: show the card in the inspector, as board cards do. */
   function inspectInfo(card: DuelCardInfo) {
-    if (pane === "card") setInspect({ type: "info", card });
+    // The HUD shows it in the hover preview: the Card flyout would cover the prompt.
+    if (hud) rowPreview.show(card);
+    else if (pane === "card") setInspect({ type: "info", card });
   }
 
   function showInspector(target: InspectTarget, mobile = false, reveal = false) {
@@ -579,9 +617,11 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       return;
     }
     setInspect(target);
+    // The HUD opens its Card flyout here: only a click, Inspect or a log row gets this far, never a hover.
+    if (hud) hudState.openCard();
     // A board click on the Log tab keeps the log (the hover card already shows it). A click on a log row (reveal),
     // or any click from Settings or the narrow layout, goes to the Card tab. The log keeps its place.
-    if (reveal || pane !== "log" || narrow) setPane("card");
+    else if (reveal || pane !== "log" || narrow) setPane("card");
     if (mobile && narrow) setMobileInspect(true);
   }
 
@@ -627,15 +667,20 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       return;
     }
     setHover({ card, anchor });
-    if (pane === "card") setInspect({ type: "card", card });
+    // The HUD's Card flyout opens on a click, never on a hover.
+    if (pane === "card" && !hud) setInspect({ type: "card", card });
   }
 
   function onFieldActivate(keys: string[], card: DuelCard | null, anchor: HTMLElement, preserveInspector = false) {
     // TableShell owns card menus and field picks. Its adapter still routes every answer through onSubmitAnswer.
     if (liveTable) return;
     setHover(null);
-    if (card && !preserveInspector) showInspector({ type: "card", card });
-    if (busy || error || catchingUp) return;
+    // The HUD opens the Card flyout only when no prompt took the click (below): a pick or a menu keeps the board clear.
+    if (card && !preserveInspector && !hud) showInspector({ type: "card", card });
+    if (busy || error || catchingUp || fieldHeld) {
+      if (card && !preserveInspector && hud) showInspector({ type: "card", card });
+      return;
+    }
     const mine = prompt != null && data?.mySeat != null && prompt.seat === data.mySeat;
     if (mine && (prompt.kind === "choice" || prompt.kind === "toggle")) {
       const options = optionsForCard(prompt, card, keys);
@@ -647,6 +692,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         setMenu({
           anchor,
           title: card?.name ?? "Card",
+          card,
           options,
           promptId: prompt.id,
           revision: data.engine.revision,
@@ -687,7 +733,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     slug,
     serverMode: data?.engine?.chainMode,
     enabled: data?.mySeat != null && !spectate && !viewerOut && !ownWindowGate && data.session.status === "active" && !data.engine?.result,
-    suspended: confirmSurrender || deckMenuOpen,
+    suspended: confirmSurrender || confirmCancel || deckMenuOpen,
     send: async (mode) => {
       const seq = ++mutationSeq.current;
       try {
@@ -761,7 +807,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     return (
       <>
         {lobby}
-        <OpeningScreen opening={opening} mySeat={data.mySeat} names={[seatName(0), seatName(1)]} busy={busy} error={actionError}
+        <OpeningScreen opening={opening} receivedAt={data.receivedAt} mySeat={data.mySeat} names={Array.from({ length: seatCountFor(data.session.format) }, (_, seat) => seatName(seat))} busy={busy} error={actionError} reducedMotion={preferences.reducedMotion}
           onPick={(move) => void run(() => pickOpeningMove(slug, move))}
           onChoose={(choice) => void run(() => chooseOpeningOrder(slug, choice))} />
       </>
@@ -784,6 +830,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const terminal = data.session.status !== "active";
   const isOrganizer = actorPlayerId === data.session.organizerPlayerId || data.session.seats.some((seat) =>
     seat.seat === data.mySeat && seat.playerId === data.session.organizerPlayerId);
+  const canCancel = !terminal && isOrganizer && !data.session.ranked && data.session.seriesId == null && data.series == null;
   const canArchive = terminal && isOrganizer && !data.session.archivedAt;
   const series = data.series ?? null;
   const myIndex = series ? seriesPlayerIndex(data, series) : null;
@@ -797,6 +844,10 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     if (inDuelWindow) exitDuelWindow(slug, () => router.replace("/duels"));
     else router.replace("/duels");
   };
+  // The Surrender confirm is a modal: the HUD flyout that held the button closes, so the modal owns Esc.
+  const askSurrender = () => { hudState.close(); setConfirmSurrender(true); };
+  // The Cancel duel confirm is a modal too: the flyout closes the same way.
+  const askCancel = () => { hudState.close(); setConfirmCancel(true); };
   const surrenderOpen = confirmSurrender && canSurrender;
   const surrenderModal = <SurrenderModal open={surrenderOpen} busy={busy || tossLocked} multiplayer={multi && (format === "ffa3" || format === "ffa4")} tag={multi && format === "tag"}
     onClose={() => setConfirmSurrender(false)} onConfirm={() => {
@@ -804,10 +855,22 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       setConfirmSurrender(false);
       void run(() => surrenderDuel(slug));
     }} />;
+  const cancelOpen = confirmCancel && canCancel;
+  const cancelModal = <Modal open={cancelOpen} onClose={() => setConfirmCancel(false)} title="Cancel duel">
+    <p className="text-sm text-text-secondary">This ends the duel for every player without a winner.</p>
+    <div className="mt-4 flex gap-2">
+      <Button type="button" variant="danger" loading={busy} disabled={busy || tossLocked} onClick={() => {
+        if (!canCancel || isCoinTossActive()) return;
+        setConfirmCancel(false);
+        void run(() => cancelDuel(slug));
+      }}>Cancel duel</Button>
+      <Button type="button" variant="ghost" onClick={() => setConfirmCancel(false)}>Keep playing</Button>
+    </div>
+  </Modal>;
   // Your own deck opens a Surrender menu. It uses the same confirm and the same surrender call as the header button.
   const deckSurrender: DeckSurrenderValue = {
     seat: data.mySeat, available: canSurrender, busy: busy || catchingUp || Boolean(error),
-    onSurrender: () => { if (!isCoinTossActive()) setConfirmSurrender(true); }, onMenuOpenChange: setDeckMenuOpen,
+    onSurrender: () => { if (!isCoinTossActive()) askSurrender(); }, onMenuOpenChange: setDeckMenuOpen,
     scope: `${prompt?.id ?? ""}|${data.engine?.turnSeat ?? ""}`,
   };
   // The series has moved on to its next game and this room is about to follow it (the effect on nextTarget).
@@ -857,7 +920,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     // One seam set for both live shells, so the room stays one code path.
     const shellProps: TableShellProps = {
       controller: liveController, fillViewport: true, boardRef, pickContinuation: pick, preferences,
-      inputSuspended: surrenderOpen || deckMenuOpen,
+      inputSuspended: surrenderOpen || cancelOpen || deckMenuOpen,
       chainMode,
       fxActive: !error && !realtime.recovering, busy: busy || Boolean(error) || catchingUp,
       initialOutOrder: eliminationOrder(liveController.engine),
@@ -869,7 +932,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         {popOutControl}
         {leaveControl}
         {canSurrender ? <Button type="button" variant="danger" size="sm" disabled={busy || catchingUp || Boolean(error) || tossLocked}
-          onClick={() => setConfirmSurrender(true)}>Surrender</Button> : null}
+          onClick={askSurrender}>Surrender</Button> : null}
+        {canCancel ? <Button type="button" variant="secondary" size="sm" disabled={busy || catchingUp || Boolean(error) || tossLocked}
+          onClick={askCancel}>Cancel duel</Button> : null}
       </>,
       settingsTools: canArchive ? <Button type="button" variant="secondary" size="sm" disabled={busy}
         onClick={() => void run(() => archiveDuel(slug))}>Archive table</Button> : null,
@@ -882,6 +947,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       </>,
       modals: <>
         {surrenderModal}
+        {cancelModal}
       </>,
     };
     // The shells keep their own pile viewer, inspector and menus. A new key on the change to spectator drops them with the room's.
@@ -961,7 +1027,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     onSubmitAnswer({ choice: option.id });
   };
   const masterRail = domain && engine ? (
-    <DeckMasterRail engine={engine} mySeat={data.mySeat} legalKeys={legalKeys}
+    <DeckMasterRail engine={engine} mySeat={data.mySeat} legalKeys={fieldLegalKeys}
       selectedKeys={selectedKeys} canAct={canAct}
       legalActionsFor={legalActionsFor}
       onChooseAction={onChooseAction}
@@ -970,7 +1036,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   ) : null;
   // The Log list stays mounted behind the other tabs (SidePanel keepMounted), so it keeps the rows it has built.
   // Only the instance in the column counts unread rows; the narrow sheet gets its own, uncounted copy.
-  const logVisible = pane === "log" && (!narrow || mobileInspect);
+  const logVisible = hud ? hudState.pane === "log" : pane === "log" && (!narrow || mobileInspect);
   const logPanel = (counted: boolean) => (
     <div className={styles.logPane}>
       {engine ? <DuelHistoryRail key={slug} events={engine.events} engine={engine} mySeat={data.mySeat} playerName={playerName}
@@ -992,6 +1058,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       <RoomInvite room={data} slug={slug} />
       <h2>Presentation</h2>
       <DuelAnimationSpeedControl />
+      <DuelCardTextSizeControl />
+      <DuelDiceSkinControl />
       <DuelSoundControls enabled={preferences.soundEnabled} volume={preferences.soundVolume}
         onEnabledChange={preferences.setSoundEnabled} onVolumeChange={preferences.setSoundVolume} />
       <label className="flex flex-col gap-2">Motion
@@ -1056,7 +1124,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       ) : null}
       <BugReportMenuButton room={data} />
       {canSurrender ? <Button type="button" variant="danger" size="sm" disabled={busy || tossLocked}
-        onClick={() => setConfirmSurrender(true)}>Surrender</Button> : null}
+        onClick={askSurrender}>Surrender</Button> : null}
+      {canCancel ? <Button type="button" variant="secondary" size="sm" disabled={busy || tossLocked}
+        onClick={askCancel}>Cancel duel</Button> : null}
       {canArchive ? <Button type="button" variant="secondary" size="sm" disabled={busy}
         onClick={() => void run(() => archiveDuel(slug))}>Archive table</Button> : null}
       {data.session.status === "completed" || data.session.status === "interrupted" ? (
@@ -1084,8 +1154,15 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
 
   const solid = view.mode === "3d" && !multi && !liveTable;
 
+  // The HUD's Deck Master plates read the same seat views and legal actions as the rail of the classic page.
+  const hudSeatTones = new Map<number, { main: string; ink: string }>(
+    (engine?.seats ?? []).map((seat) => [seat.seat, seat.seat === localSeat ? SEAT_TONE_HEX.ice : SEAT_TONE_HEX.rose]),
+  );
+  const hudMaster = (seatView: NonNullable<typeof engine>["seats"][number] | undefined, local: boolean, title: string) =>
+    hudMasterProps({ legalKeys: fieldLegalKeys, selectedKeys, canAct, prompt, onAnswer: onSubmitAnswer, onActivate: onFieldActivate, onHoverCard }, seatView, local, title);
+
   // The pieces of the flat page, built once so the classic page and the 3D mode page (SolidRoom) show the same nodes.
-  const wordmark = <Link href="/duels" replace={inDuelWindow}>Duelists Kingdom</Link>;
+  const wordmark = <Link href="/duels" replace={inDuelWindow}>Dueling Domain</Link>;
   const spectatorTag = spectator ? <strong className={styles.viewerRole} title="You are watching. Both players' hidden cards remain private.">
     <Eye size={15} strokeWidth={1.5} aria-hidden /> You are spectating
   </strong> : null;
@@ -1169,7 +1246,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       data-prompt-surface={dockMode === "idle" ? undefined : ""}
     >
       <PromptTray prompt={prompt} mySeat={data.mySeat} slug={slug} busy={busy || Boolean(error) || catchingUp}
-        draft={draft} onSubmit={onSubmitAnswer} menuOpen={Boolean(activeMenu) || deckMenuOpen}
+        draft={draft} onSubmit={onSubmitAnswer} menuOpen={promptMenuOpen} escapeHeld={hudFlyoutOpen}
         active={data.session.status === "active" && !viewerOut} aim={promptAim} headless={centered} suspended={centered && !revealed}
         waitingName={multi && prompt ? playerName(prompt.seat) : null}
         disabledIds={engine ? outSeatOptionIds(prompt, outOrLeavingSeats(engine.seats)) : undefined} />
@@ -1199,7 +1276,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     reducedMotion: preferences.reducedMotion,
     priorityLive: !busy && !error && !realtime.recovering && !catchingUp &&
       (data.mySeat == null || (engine.prioritySeat ?? prompt?.seat) !== data.mySeat || revealed),
-    legalKeys, selectedKeys, onActivate: onFieldActivate,
+    legalKeys: fieldLegalKeys, selectedKeys, onActivate: onFieldActivate,
     onHoverCard, onInspect: (target: InspectTarget) => showInspector(target, true),
     bottomName: playerName(localSeat),
     topName: playerName(top?.seat ?? 1 - localSeat),
@@ -1223,45 +1300,50 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       {fxUp ? <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={slug}
         reducedMotion={preferences.reducedMotion} mySeat={data.mySeat} /> : null}
       <BattleFx key={`battle-${slug}`} events={withDestroyCards(engine.events)} seats={engine.seats} reducedMotion={preferences.reducedMotion}
-        active={fxUp} aim={solid ? null : battleAim} result={engine.result} battleStep={battleStep} />
+        active={fxUp} aim={solid ? null : battleAim} result={engine.result} battleStep={battleStep} nameOf={playerName} />
       <DestroyFx key={`destroy-${slug}`} events={withDestroyCards(engine.events)} reducedMotion={preferences.reducedMotion}
         active={fxUp} mySeat={localSeat} />
       </FxBoundary>
-      <PromptCenter prompt={prompt ?? pick.waiting} mySeat={data.mySeat} active={data.session.status === "active" && !viewerOut} slug={slug}
+      <RowPreviewBoundary row={rowPreview} enabled={hud}>
+        <PromptCenter prompt={prompt ?? pick.waiting} mySeat={data.mySeat} active={data.session.status === "active" && !viewerOut} slug={slug}
         busy={busy || Boolean(error) || catchingUp || (prompt == null && pick.waiting != null)} draft={draft} onSubmit={onSubmitAnswer}
-        menuOpen={Boolean(activeMenu) || deckMenuOpen} chain={engine.chain} aim={promptAim}
+        menuOpen={promptMenuOpen} escapeHeld={hudFlyoutOpen} chain={engine.chain} aim={promptAim}
         aimLocked={aimLock != null && aimLock.promptId === prompt?.id}
         reducedMotion={preferences.reducedMotion} revision={engine.revision} battleStep={battleStep}
         outSeats={outOrLeavingSeats(engine.seats)} leavingSeats={leavingOnlySeats(engine.seats)}
         revealed={revealed} onInspectCard={inspectInfo} nameOf={playerName} />
+      </RowPreviewBoundary>
       {pile ? (
         <PileViewer title={pile.title} owner={pile.owner} open={pile.open}
           cards={livePileCards(pile, engine, localSeat)} onClose={closePile}
           onInspectCard={(card) => { setInspect({ type: "card", card }); if (pane !== "log") setPane("card"); }}
-          onHoverCard={(card) => { if (pane === "card") setInspect({ type: "card", card }); }}
+          onHoverCard={(card) => { if (pane === "card" && !hud) setInspect({ type: "card", card }); }}
           onActivateCard={onInspectorActivate}
-          legalKeys={legalKeys} selectedKeys={selectedKeys}
+          legalKeys={fieldLegalKeys} selectedKeys={selectedKeys}
           reducedMotion={preferences.reducedMotion} />
       ) : null}
     </MoveSourceBoundary>
   ) : <p className="p-4">{data.session.status === "active" ? "Waiting for engine view…" : "No saved final board is available for this record."}</p>;
   const trackNode = (
     <StationTrack
-      phase={shownPhase}
-      battleStep={battleStep}
-      turn={engine?.turn}
-      turnSeat={engine?.turnSeat}
-      mySeat={data.mySeat}
-      playerName={playerName}
-      actionOptions={mine ? actionOptions : []}
-      canAct={canAct}
-      noLegalMoves={canAct && hasNoLegalMoves(actionOptions)}
-      onChoose={(id) => onSubmitAnswer({ choice: id })}
-      clock={!solid && data.clock ? <DuelClockDisplay key={data.clock.serverNow} clock={data.clock} session={data.session} /> : null}
-      caption={trackCaption}
-      reducedMotion={preferences.reducedMotion}
-      chainMode={chainMode}
+      {...stationTrackProps({
+        phase: shownPhase,
+        battleStep,
+        turn: engine?.turn,
+        turnSeat: engine?.turnSeat,
+        mySeat: data.mySeat,
+        playerName,
+        promptMine: mine,
+        actionOptions,
+        canAct,
+        onAnswer: onSubmitAnswer,
+        caption: trackCaption,
+        reducedMotion: preferences.reducedMotion,
+        chainMode,
+      })}
+      clock={null}
       phases={phaseHub ? "hub" : "bar"}
+      compact={hud}
     />
   );
   const mobileTabs = tabs(true);
@@ -1283,13 +1365,14 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           onBack={() => setAimLock(null)} />
       ) : null}
       {pickHintShown && pickHint ? <PickRefusalHint anchor={pickHint.anchor} text={pickHint.text} onDone={clearPickHint} /> : null}
-      {hover && !activeMenu && !pickHintShown && !mobileInspect && !pile?.open ? <CardHoverInfo card={hover.card} anchor={hover.anchor} /> : null}
+      {!hud && hover && !activeMenu && !pickHintShown && !mobileInspect && !pile?.open ? <CardHoverInfo card={hover.card} anchor={hover.anchor} /> : null}
       <Sheet open={mobileInspect} onClose={() => setMobileInspect(false)}
         className={solid ? SOLID_SHEET_CLASS : undefined}
         title={pane === "card" ? "Card" : pane === "log" ? "Duel log" : pane === "masters" ? "Deck Masters" : "Settings"}>
         {sidePanes(false)}
       </Sheet>
       {surrenderModal}
+      {cancelModal}
       {showResult ? (
         <DuelResultScreen room={data} slug={slug} reducedMotion={preferences.reducedMotion}
           soundEnabled={preferences.soundEnabled} onClose={() => setHideResult(true)} onExit={exitDuel}
@@ -1337,6 +1420,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           overlaysNode={overlaysNode}
           fieldProps={fieldProps}
           renderBoard={renderBoard}
+          headerClock={data.clock ? <DuelClockDisplay key={data.clock.serverNow} clock={data.clock} session={data.session} reducedMotion={preferences.reducedMotion} bank /> : null}
           renderClock={(seat) => data.clock ? <DuelClockDisplay key={data.clock.serverNow} clock={data.clock} session={data.session} seats={[seat]} /> : null}
           inspect={inspect}
           pane={pane}
@@ -1353,44 +1437,85 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     <DeckSurrenderContext.Provider value={deckSurrender}>
     <div className={`${styles.shell} ${duelFontClasses} -mx-4 -my-4 sm:-mx-6 sm:-my-6 lg:-mx-8 lg:-my-8`}
       data-duel-fx-speed-root data-domain={domain} data-fit="true" data-phase={battle ? "battle" : undefined}
+      data-hud={hud ? "room" : undefined}
       data-turn={spectator ? "watch" : myTurn ? "you" : "opp"}
-      data-reduced={preferences.reducedMotion ? "true" : "false"}>
-      <header className={styles.header}>
-        {headerIdentity}
-        {headerTurn}
-        <div className={styles.status}>
-          <SeriesGameLabel room={data} />
-          {connectionStatus}
-          {headerTools}
-        </div>
-      </header>
+      data-reduced={preferences.reducedMotion ? "true" : "false"} style={tableTextStyle(textSize)}>
+      {hud ? (
+        <header className={hudStyles.top} data-testid="hud-top">
+          <div className={hudStyles.topLeft}>{headerIdentity}</div>
+          {hudClockBank(data.clock, data.session, preferences.reducedMotion)}
+          <div className={hudStyles.topMid}>{headerTurn}</div>
+          <div className={hudStyles.topRight}>
+            <SeriesGameLabel room={data} />
+            {connectionStatus}
+            {headerTools}
+          </div>
+        </header>
+      ) : (
+        <header className={styles.header}>
+          {headerIdentity}
+          {headerTurn}
+          <div className={styles.status}>
+            <SeriesGameLabel room={data} />
+            {connectionStatus}
+            {headerTools}
+          </div>
+        </header>
+      )}
+      {hud ? null : clockStrip(data.clock, data.session, preferences.reducedMotion)}
       {seriesBanner}
       <div className={styles.layout}>
         {/* Notices float over the top of the layout. In flow they would take height from the board
             and shrink it for as long as the notice shows. */}
         {noticesNode}
-        <aside className={styles.inspector}>
-          {inspectorNode}
-        </aside>
-        {promptDockNode}
+        {hud ? null : (
+          <aside className={styles.inspector}>
+            {inspectorNode}
+          </aside>
+        )}
+        {hud ? null : promptDockNode}
         <section className={styles.boardColumn} aria-label="Duel field">
           <div className={styles.board} ref={boardRef} data-deal-wait={startBeats.waiting ? "true" : undefined}>
             {renderBoard(multi ? (
               <MultiSeatStage key={slug} engine={engine!} mySeat={data.mySeat} masterRule={data.session.masterRule}
                 reducedMotion={preferences.reducedMotion}
-                legalKeys={legalKeys} selectedKeys={selectedKeys} onActivate={onFieldActivate}
+                legalKeys={fieldLegalKeys} selectedKeys={selectedKeys} onActivate={onFieldActivate}
                 onHoverCard={onHoverCard} onInspect={(target) => showInspector(target, true)}
                 nameOf={playerName} promptSeat={prompt?.seat ?? null}
                 focusSeat={focusSeat} onFocusSeat={setPinnedFocus} seatPick={seatPick} />
             ) : fieldProps ? <DuelField key={slug} {...fieldProps} /> : null)}
           </div>
         </section>
-        {masterRail ? <aside className={styles.masters} aria-label="Deck Masters">{masterRail}</aside> : null}
+        {masterRail && !hud ? <aside className={styles.masters} aria-label="Deck Masters">{masterRail}</aside> : null}
       </div>
-      <div className={styles.track}>
-        {trackNode}
-      </div>
+      {hud ? (
+        <div className={hudStyles.corner} data-hud-corner="" data-testid="hud-corner">
+          {promptDockNode}
+          {trackNode}
+        </div>
+      ) : (
+        <div className={styles.track}>
+          {trackNode}
+        </div>
+      )}
       <div className={styles.mobileBar}>{mobileTabs}</div>
+      {hud && engine ? (
+        <HudLayer
+          hud={hudState}
+          panels={{ card: cardPanel, log: logPanel(true), settings: settingsPanel }}
+          chain={engine.chain}
+          chainOpen={engine.chain.length > 0 && !terminal}
+          nameOf={playerName}
+          seatTones={hudSeatTones}
+          logUnread={logUnread}
+          master={domain ? hudMaster(engine.seats.find((seat) => seat.seat === localSeat), !spectator, spectator ? `${playerName(localSeat)}'s Master` : "Your Master") : null}
+          otherMaster={domain && top ? hudMaster(top, false, `${playerName(top.seat)}'s Master`) : null}
+          onInspect={setInspect}
+          preview={hudPreview(hover?.card ?? null, activeMenu?.card, rowPreview.card, (card) => ({ name: playerName(card.controller), ...(hudSeatTones.get(card.controller) ?? SEAT_TONE_HEX.ice) }))}
+          previewHidden={pickHintShown || Boolean(pile?.open)}
+          reducedMotion={preferences.reducedMotion}
+        />
+      ) : null}
       {overlaysNode}
     </div>
     </DeckSurrenderContext.Provider>

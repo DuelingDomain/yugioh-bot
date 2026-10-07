@@ -4,7 +4,7 @@
   left: 0;
   top: 0;
   z-index: 40;
-  width: 196px;
+  width: var(--lpw, 196px);
   color: #efe7d5;
   font-family: var(--font-duel-ui, "Arial Narrow"), "Arial Narrow", sans-serif;
   --sheet: rgb(181 153 99 / 0.34);
@@ -14,8 +14,24 @@
   --loss-ink: #ff9489;
   --ink-3: #958f81;
   --ink-4: #6e6a62;
+  /* Size of the contents: 1 is the natural size. A grid band that is short or narrow sets a smaller one (never under 12px text). */
+  --lpk: 1;
   /* --glide / --glide-ease: the shell shortens the glide while a drawer reflows the table (table-shell.module.css). */
   transition: opacity 0.35s, translate var(--glide, 0.7s) var(--glide-ease, cubic-bezier(0.2, 0.7, 0.2, 1));
+}
+
+/* The grid table sizes the box itself and fits the panel into it: in the flow of the box, no anchor, no glide. */
+.holo[data-fit="true"] {
+  position: relative;
+  width: 100%;
+  transition: opacity 0.35s;
+}
+
+/* The grid moves and scales this panel (FLIP) on every focus change. A backdrop blur of 2px is hardly seen over the field mat,
+   but it is blurred again on every frame of that move, so the fitted panel has none. */
+.holo[data-fit="true"] .body {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 /* The fly-in pump moves the panel every frame: no glide, and it fades when its seat is off screen. */
@@ -29,12 +45,12 @@
 }
 
 .holo[data-me="true"] {
-  width: 212px;
+  width: var(--lpw, 212px);
 }
 
 .body {
   position: relative;
-  padding: 7px 10px 7px 12px;
+  padding: calc(7px * var(--lpk)) calc(10px * var(--lpk)) calc(7px * var(--lpk)) calc(12px * var(--lpk));
   border: 1px solid rgb(var(--t) / 0.55);
   border-radius: 6px 6px 6px 14px;
   background:
@@ -63,12 +79,12 @@
 .top {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: calc(6px * var(--lpk));
 }
 
 .top i {
-  width: 8px;
-  height: 8px;
+  width: calc(8px * var(--lpk));
+  height: calc(8px * var(--lpk));
   flex: none;
   border-radius: 50%;
   background: rgb(var(--t));
@@ -78,7 +94,7 @@
 .top b {
   overflow: hidden;
   color: var(--tink);
-  font-size: 13px;
+  font-size: max(calc(14px * var(--tt, 1) / min(1, var(--stage-k, 1))), calc(max(14px, calc(13px * var(--lpk))) * var(--tt, 1)));
   font-weight: 600;
   line-height: 1;
   text-overflow: ellipsis;
@@ -86,11 +102,11 @@
 }
 
 .turnChip {
-  padding: 2px 5px;
+  padding: calc(2px * var(--lpk)) calc(5px * var(--lpk));
   border-radius: 3px;
   background: rgb(var(--t) / 0.3);
   color: #efe7d5;
-  font-size: 9.5px;
+  font-size: max(calc(13px * var(--tt, 1) / min(1, var(--stage-k, 1))), calc(max(13px, calc(12px * var(--lpk))) * var(--tt, 1)));
   font-weight: 700;
   letter-spacing: 0.12em;
   line-height: 1;
@@ -98,23 +114,26 @@
 }
 
 .main {
-  --lp-size: 34px;
+  --lp-size: calc(34px * var(--lpk));
   display: flex;
   align-items: baseline;
-  margin-top: 5px;
+  min-width: 0;
+  margin-top: calc(5px * var(--lpk));
   text-shadow: 0 0 14px rgb(var(--t) / 0.35);
 }
 
 .holo[data-me="true"] .main {
-  --lp-size: 38px;
+  --lp-size: calc(38px * var(--lpk));
 }
 
 /* Last damage: the LP before it, struck out, over a red chip. Sits beside the numerals. */
 .hit {
   display: grid;
+  flex: 0 1 auto;
   justify-items: start;
-  gap: 2px;
-  margin-left: 8px;
+  min-width: 0;
+  gap: calc(2px * var(--lpk));
+  margin-left: calc(4px * var(--lpk));
   align-self: center;
   text-shadow: none;
   font-family: var(--font-duel-num, "Arial Narrow"), "Arial Narrow", sans-serif;
@@ -124,30 +143,34 @@
 
 .hit s {
   color: var(--ink-4);
-  font-size: 11px;
+  font-size: max(calc(13px * var(--tt, 1) / min(1, var(--stage-k, 1))), calc(max(13px, calc(12px * var(--lpk))) * var(--tt, 1)));
   font-weight: 600;
   text-decoration-color: var(--loss);
 }
 
 .hit b {
-  padding: 1px 6px;
+  max-width: 100%;
+  padding: calc(1px * var(--lpk)) calc(3px * var(--lpk));
+  overflow: hidden;
   border: 1px solid rgb(228 90 77 / 0.55);
   border-radius: 999px;
   background: rgb(228 90 77 / 0.16);
   color: var(--loss-ink);
-  font-size: 12px;
+  font-size: max(calc(13px * var(--tt, 1) / min(1, var(--stage-k, 1))), calc(max(13px, calc(12px * var(--lpk))) * var(--tt, 1)));
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-weight: 700;
-  letter-spacing: 0.02em;
 }
 
 .meta {
   display: flex;
   align-items: center;
-  gap: 9px;
-  margin-top: 6px;
+  min-width: 0;
+  gap: calc(9px * var(--lpk));
+  margin-top: calc(6px * var(--lpk));
   color: var(--ink-3);
   font-family: var(--font-duel-num, "Arial Narrow"), "Arial Narrow", sans-serif;
-  font-size: 12px;
+  font-size: max(calc(13px * var(--tt, 1) / min(1, var(--stage-k, 1))), calc(max(13px, calc(12px * var(--lpk))) * var(--tt, 1)));
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   line-height: 1;
@@ -156,12 +179,12 @@
 .meta span {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: calc(3px * var(--lpk));
 }
 
 .meta .clock {
   margin-left: auto;
-  padding: 2px 6px;
+  padding: calc(2px * var(--lpk)) calc(6px * var(--lpk));
   border: 1px solid var(--sheet-lo);
   border-radius: 3px;
 }
@@ -173,9 +196,9 @@
 }
 
 .state {
-  margin-top: 5px;
+  margin-top: calc(5px * var(--lpk));
   color: var(--ink-3);
-  font-size: 11px;
+  font-size: calc(12px * var(--tt, 1) / min(1, var(--stage-k, 1)));
   font-weight: 700;
   letter-spacing: 0.16em;
   line-height: 1;
@@ -188,9 +211,9 @@
 }
 
 .think {
-  margin-top: 5px;
+  margin-top: calc(5px * var(--lpk));
   color: var(--tink);
-  font-size: 12px;
+  font-size: calc(12px * var(--tt, 1) / min(1, var(--stage-k, 1)));
   font-style: italic;
   line-height: 1;
 }
@@ -261,7 +284,7 @@
   border-radius: 50%;
   background: #5733d1;
   font-family: var(--font-duel-num, "Arial Narrow"), "Arial Narrow", sans-serif;
-  font-size: 12px;
+  font-size: calc(12px * var(--tt, 1) / min(1, var(--stage-k, 1)));
   font-weight: 700;
   line-height: 1;
 }
@@ -332,6 +355,20 @@
 .master:hover, .master:focus-visible { border-color: var(--tink); outline: none; }
 .holo[data-elim="true"] .master { filter: grayscale(1); opacity: 0.6; }
 
+/* In a grid box the Deck Master art shrinks with the panel and sits higher, so it never covers the life numerals. */
+.holo[data-fit="true"] .master {
+  right: calc(6px * var(--lpk));
+  top: calc(-16px * var(--lpk));
+  width: calc(24px * var(--lpk));
+  height: calc(34px * var(--lpk));
+}
+
+/* A box too small for the whole panel (a fit under about 0.6) keeps the name, the numerals and the damage: the counts row
+   and the clock are left out (the clock would sit on the Extra Monster Zone beside the box). */
+.holo[data-compact="true"] .meta {
+  display: none;
+}
+
 /* The seat just left: strike the LP, show the place chip, fade the panel away (1.3 s). It keeps its colours. */
 .holo[data-exiting="true"] {
   animation: holoOut 1.3s linear both;
@@ -370,7 +407,7 @@
   border-radius: 999px;
   background: rgb(7 11 21 / 0.94);
   color: var(--loss-ink);
-  font-size: 11px;
+  font-size: calc(12px * var(--tt, 1) / min(1, var(--stage-k, 1)));
   font-weight: 700;
   letter-spacing: 0.14em;
   line-height: 1;
@@ -409,11 +446,11 @@
   }
 }
 
-/* The seats regroup: the panel waits for the crumble, then glides to its new corner. */
+/* The seats regroup: the panel waits for the crumble and the beat, then glides to its new corner with the boards. */
 .holo[data-glide="true"] {
   transition:
     opacity 0.35s,
-    translate 0.9s cubic-bezier(0.3, 0.7, 0.2, 1) 0.71s;
+    translate 1.4s cubic-bezier(0.5, 0, 0.2, 1) 2.2s;
 }
 
 @keyframes holoIn {

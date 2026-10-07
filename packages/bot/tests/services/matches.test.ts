@@ -1,3 +1,4 @@
+import { createUserService } from "@yugidraft/shared/services";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import { migrate } from "../../src/db/schema.js";
@@ -12,14 +13,14 @@ function setup() {
   const matches = createMatchService(db);
   const tournaments = createTournamentService(db);
 
-  return { matches, players, tournaments };
+  return { db, matches, players, tournaments };
 }
 
 describe("match service", () => {
   it("requires opponent approval before counting stats", () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
 
     const match = app.matches.report({
       guildId: "guild-1",
@@ -40,8 +41,8 @@ describe("match service", () => {
 
   it("prevents the reporter from approving their own report", () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
 
     const match = app.matches.report({
       guildId: "guild-1",
@@ -59,8 +60,8 @@ describe("match service", () => {
 
   it("does not count denied matches", () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
 
     const match = app.matches.report({
       guildId: "guild-1",
@@ -78,8 +79,8 @@ describe("match service", () => {
 
   it("finds the latest pending match involving a player", () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
 
     const match = app.matches.report({
       guildId: "guild-1",
@@ -94,8 +95,8 @@ describe("match service", () => {
 
   it("finds the latest pending match where the player is the opponent", () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
 
     const needsKaibaApproval = app.matches.report({
       guildId: "guild-1",
@@ -117,9 +118,9 @@ describe("match service", () => {
 
   it("builds a leaderboard from approved matches only", () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
-    const joey = app.players.upsert("guild-1", "user-3", "Joey");
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
+    const joey = app.players.upsert("guild-1", "900000000000000114", "Joey");
 
     const approved = app.matches.report({
       guildId: "guild-1",
@@ -146,9 +147,9 @@ describe("match service", () => {
 
   it("does not advance or complete a tournament that is no longer active", () => {
     const app = setup();
-    const t = app.tournaments.create("g1", "Locals", "single_elim", "u1");
-    const yugi = app.players.upsert("g1", "u1", "Yugi");
-    const kaiba = app.players.upsert("g1", "u2", "Kaiba");
+    const t = app.tournaments.create("g1", "Locals", "single_elim", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000110", displayName: "Host" }).id);
+    const yugi = app.players.upsert("g1", "900000000000000110", "Yugi");
+    const kaiba = app.players.upsert("g1", "900000000000000111", "Kaiba");
     app.tournaments.join(t.id, yugi.id);
     app.tournaments.join(t.id, kaiba.id);
     app.tournaments.start(t.id);

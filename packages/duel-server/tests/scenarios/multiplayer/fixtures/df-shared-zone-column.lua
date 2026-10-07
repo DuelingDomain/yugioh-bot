@@ -14,8 +14,8 @@ function s.initial_effect(c)
 	e:SetCode(EVENT_FREE_CHAIN)
 	e:SetOperation(function(e,tp)
 		local saved=Duel.MPSeatBinding()
-		Duel.MPBindSeat(1)
-		local expected=id~=95200156
+		Duel.MPBindSeat(2)
+		local expected=id~=95200155
 		assert(s.card:IsColumn(1,1,LOCATION_MZONE)==expected,'foreign column comparison must use exact own, side and across seats')
 		assert(s.card:IsColumn(s.card:GetSequence()),'the default view is the card own column')
 		if saved==255 then Duel.MPBindSeat() else Duel.MPBindSeat(saved) end

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { defaultDuelSettings, type DuelDeck, type DuelOpeningView, type DuelRoom, type DuelSeriesSummary } from "@yugidraft/shared/duels";
+import { DUEL_OPENING_PICK_MS, DUEL_OPENING_TIE_REVEAL_MS, defaultDuelSettings, type DuelDeck, type DuelRpsOpeningView, type DuelRoom, type DuelSeriesSummary } from "@yugidraft/shared/duels";
 import { SeriesGameLabel } from "../series-banner";
 import { DuelResultScreen } from "../duel-result";
 import { BetweenGamesScreen, type CardMeta } from "../between-games";
@@ -137,7 +137,7 @@ export function SeriesLabHeader({ room }: { room: DuelRoom }) {
   return (
     <header className={styles.header}>
       <div className={styles.identity}>
-        <span>Duelists Kingdom</span>
+        <span>Dueling Domain</span>
         <span className={styles.format}>MR5 · 1v1</span>
       </div>
       <div className={styles.turn}>
@@ -170,18 +170,17 @@ export function SeriesLabScreen({ room, spec, reduced, sound }: { room: DuelRoom
 }
 
 /** The opening view a lab scenario stands for. You are seat 0; the deadline is set when the scenario plays. */
-export function labOpeningView(spec: LabOpening, now = Date.now()): DuelOpeningView {
-  const base: DuelOpeningView = {
-    phase: "rps", round: 1, deadlineAt: new Date(now + 30_000).toISOString(), picked: [false, spec.opponentChose === true],
+export function labOpeningView(spec: LabOpening, now = Date.now()): DuelRpsOpeningView {
+  const base: DuelRpsOpeningView = {
+    serverNow: now,
+    phase: "rps", round: 1, deadlineAt: new Date(now + DUEL_OPENING_PICK_MS).toISOString(), picked: [false, spec.opponentChose === true],
     myPick: null, reveal: null, winnerSeat: null, choice: null, choiceByTimeout: false,
   };
-  // A reveal is on screen for 3 s: the deadline carries that time plus the next 30 s step.
-  const afterReveal = new Date(now + 33_000).toISOString();
+  // The tie deadline carries its reveal plus the full next pick window, just like the server.
+  const afterReveal = new Date(now + DUEL_OPENING_TIE_REVEAL_MS + DUEL_OPENING_PICK_MS).toISOString();
   switch (spec.stage) {
     case "pick": return base;
     case "pick-chosen": return { ...base, picked: [true, spec.opponentChose === true], myPick: "paper" };
-    case "reveal-win": return { ...base, phase: "choose", deadlineAt: afterReveal, winnerSeat: 0, picked: [true, true], reveal: { round: 1, picks: ["paper", "rock"], winnerSeat: 0 } };
-    case "reveal-lose": return { ...base, phase: "choose", deadlineAt: afterReveal, winnerSeat: 1, picked: [true, true], reveal: { round: 1, picks: ["rock", "paper"], winnerSeat: 1 } };
     case "reveal-tie": return { ...base, round: 2, deadlineAt: afterReveal, reveal: { round: 1, picks: ["scissors", "scissors"], winnerSeat: null } };
     case "choose": return { ...base, phase: "choose", winnerSeat: 0, picked: [true, true], reveal: { round: 1, picks: ["paper", "rock"], winnerSeat: 0 } };
     case "wait-choose": return { ...base, phase: "choose", winnerSeat: 1, picked: [true, true], reveal: { round: 1, picks: ["rock", "paper"], winnerSeat: 1 } };
@@ -191,7 +190,7 @@ export function labOpeningView(spec: LabOpening, now = Date.now()): DuelOpeningV
 
 /** The real opening screen over the lab board. The reveal and the choice are on a fresh deadline each run. */
 export function OpeningLabScreen({ spec }: { spec: LabOpening }) {
-  // A reveal stage opens with its 3 s reveal still to play; the other stages open after it.
+  // A tie opens with its reveal still to play; other stages open with their controls ready.
   const opening = useMemo(() => labOpeningView(spec), [spec]);
   const [error, setError] = useState<string | null>(null);
   const fail = () => setError("The lab has no server: this button calls the real API.");

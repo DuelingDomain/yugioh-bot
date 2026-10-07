@@ -65,12 +65,16 @@ export type {
   DuelOpeningReveal,
   DuelOpeningState,
   DuelOpeningView,
+  DuelRpsOpeningState,
+  DuelRpsOpeningView,
   DuelRpsMove,
 } from "./opening.js";
 export {
   DUEL_OPENING_PICK_MS,
   DUEL_OPENING_REVEAL_MS,
+  DUEL_OPENING_TIE_REVEAL_MS,
   DUEL_RPS_MOVES,
+  isDiceOpening,
   isFirstChoice,
   isRpsMove,
   rpsWinner,
@@ -170,6 +174,8 @@ export interface DuelDeckValidation {
 
 export interface DuelCardInfo {
   code: number;
+  /** Engine artwork-family main; equals code for cards without an artwork alias. */
+  canonicalPasscode?: number;
   name: string;
   description: string;
   type: number;
@@ -189,6 +195,8 @@ export interface DuelCard {
   /** Opaque animation identity; hand order and sequence always come from the engine query. */
   handId?: string;
   code?: number;
+  /** Engine artwork-family main, omitted with the rest of a hidden card's identity. */
+  canonicalPasscode?: number;
   name?: string;
   description?: string;
   attack?: number;
@@ -306,7 +314,7 @@ export interface DuelSeatView {
   /** Team of this seat (`teamOfSeat(format, seat)`). Absent in 1v1 views made before multi-player formats. */
   team?: number;
   /**
-   * Living across seat sharing these Extra Monster Zones in FFA4 (0/2, 1/3). Null in other formats or
+   * Living facing seat sharing these Extra Monster Zones in FFA4 (0/1, 2/3). Null in other formats or
    * when either seat is eliminated. Sequences 5/6 mirror to 6/5. Absent in older views.
    */
   sharedExtraWith?: number | null;
@@ -369,7 +377,7 @@ export interface DuelEvent {
   id: number;
   kind:
     | "summon" | "set" | "activate" | "target" | "chain-resolving" | "chain-resolved" | "chain-negated" | "chain-end"
-    | "attack" | "battle" | "battle-end" | "phase" | "damage" | "recover" | "destroy" | "move" | "position" | "equip" | "confirm" | "toss";
+    | "attack" | "attack-negated" | "battle" | "battle-end" | "phase" | "damage" | "recover" | "destroy" | "move" | "position" | "equip" | "confirm" | "toss";
   seat?: number;
   card?: DuelCardInfo;
   chainIndex?: number;
@@ -428,6 +436,8 @@ export interface DuelEvent {
   cause?: "battle" | "effect" | "cost" | "rule" | "other";
   /** destroy / move / toss: passcode of the source (the effect's card, or the opposing battler). */
   sourceCode?: number;
+  /** destroy / move: engine artwork-family main of sourceCode; selected artwork stays in sourceCode. */
+  sourceCanonicalCode?: number;
   /** destroy / move: card type of the source when it activated (monster, spell or trap). */
   sourceKind?: "monster" | "spell" | "trap";
   /** destroy / move: seat that controlled the reason (the player the destruction is attributed to). */
@@ -553,7 +563,7 @@ export interface DuelRoom {
   mySide?: DuelSeriesSideState | null;
   /** True when the duel host was busy and answered with the last view it built for this seat. The client asks again soon. */
   stale?: boolean;
-  /** Rock-paper-scissors before the game starts; null when there is none. */
+  /** Rock-paper-scissors or FFA dice rolls before the game starts; null when there is none. */
   opening?: DuelOpeningView | null;
 }
 
@@ -672,3 +682,8 @@ export {
   parseCardQuery,
   parseCardSearchTerms,
 } from "./card-query.js";
+
+export type { CardArtworkFamily, SelectableCardArtwork, CardArtworksResponse, DeckArtworkSwapRequest } from "./artworks.js";
+
+export type { DuelDiceRound, DuelDiceOpeningState, DuelDiceOpeningView } from "./dice-opening.js";
+export { DUEL_DICE_REVEAL_MS, MAX_DICE_ROUNDS as DUEL_DICE_MAX_ROUNDS } from "./dice-opening.js";

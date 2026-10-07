@@ -50,17 +50,17 @@ describe("camera keys on the 3-way shell", () => {
   it("opens a reloaded elimination view at home with the full centred turn ring", () => {
     const { container } = render(<Shell id="elimination" />);
     expect(stageOf(container).getAttribute("data-camera-mode")).toBe("home");
-    expect(container.querySelector("[data-camera-cue]")).toBeNull();
+    expect(container.querySelector("[data-camera-hint]")).toBeNull();
     expect(container.querySelector("[data-turn-ring]")?.getAttribute("style")).toContain("translate(488px, 260px) scale(1)");
   });
 
-  it("steps focus with Tab and Shift+Tab, and sends Home back", () => {
+  it("steps focus with ] and [, and sends Home back", () => {
     const { container } = render(<Shell id="main" />);
     const stage = stageOf(container);
     expect(stage.getAttribute("data-camera-mode")).toBe("home");
-    press("Tab");
+    press("]");
     expect(stage.getAttribute("data-camera-mode")).toBe("focus");
-    press("Tab", { shiftKey: true });
+    press("[");
     press("h");
     expect(stage.getAttribute("data-camera-mode")).toBe("home");
   });
@@ -81,7 +81,7 @@ describe("camera keys on the 3-way shell", () => {
 
   it("ignores keys with a modifier and keys typed in a field", () => {
     const { container } = render(<Shell id="main" />);
-    press("Tab", { ctrlKey: true });
+    press("]", { ctrlKey: true });
     expect(stageOf(container).getAttribute("data-camera-mode")).toBe("home");
     const input = document.createElement("input");
     document.body.append(input);

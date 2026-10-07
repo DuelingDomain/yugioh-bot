@@ -6,7 +6,7 @@ import { LinkStub, fontMock, ready } from "./shell/helpers";
 vi.mock("next/font/google", () => fontMock());
 vi.mock("next/navigation", () => ({ usePathname: vi.fn() }));
 vi.mock("next/link", () => ({ default: LinkStub }));
-vi.mock("next-auth/react", () => ({ signOut: vi.fn() }));
+vi.mock("@/components/account/sign-out", () => ({ useSignOut: () => vi.fn() }));
 
 import { usePathname } from "next/navigation";
 import { MobileDrawer } from "../../src/components/layout/mobile-drawer";
@@ -29,6 +29,7 @@ describe("MobileDrawer", () => {
     const { container } = render(<MobileDrawer open={true} onClose={vi.fn()} account={ready} live={null} />);
     const dialog = screen.getByRole("dialog", { name: "Navigation" });
     expect(dialog).toHaveAttribute("aria-modal", "true");
+    expect(screen.getByText("Dueling")).toHaveTextContent(/^Dueling Domain$/);
     expect(container.contains(dialog)).toBe(false);
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close menu" }));
   });
@@ -53,12 +54,12 @@ describe("MobileDrawer", () => {
     render(<MobileDrawer open={true} onClose={vi.fn()} account={ready} live={null} />);
     const dialog = screen.getByRole("dialog");
     const close = screen.getByRole("button", { name: "Close menu" });
-    const accountBtn = screen.getByRole("button", { name: /account menu/i });
-    accountBtn.focus();
+    const lastLink = screen.getByRole("link", { name: "Privacy" });
+    lastLink.focus();
     fireEvent.keyDown(dialog, { key: "Tab" });
     expect(document.activeElement).toBe(close);
     fireEvent.keyDown(dialog, { key: "Tab", shiftKey: true });
-    expect(document.activeElement).toBe(accountBtn);
+    expect(document.activeElement).toBe(lastLink);
   });
 
   it("marks the current page", () => {

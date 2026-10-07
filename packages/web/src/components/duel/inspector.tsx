@@ -3,6 +3,8 @@
 import type { CSSProperties } from "react";
 import type { DuelCard, DuelCardInfo } from "@yugidraft/shared/duels";
 import { CardBack } from "./card-face";
+import { hasCardName, useDuelCardInfo } from "./card-info";
+import { cardTextStyle, useCardTextSize } from "./card-text-size";
 import {
   cardArtUrl,
   cardCombatText,
@@ -19,12 +21,29 @@ export type InspectTarget =
   | { type: "info"; card: DuelCardInfo }
   | { type: "pile"; title: string; cards: DuelCard[] };
 
-function InfoBody({ card }: { card: DuelCard | DuelCardInfo }) {
+function InfoBody({ card: liveCard }: { card: DuelCard | DuelCardInfo }) {
   const styles = useSkinStyles(baseStyles, "inspector");
-  const code = card.code;
-  if (isHiddenCard(card) || code == null) {
+  const textSize = useCardTextSize();
+  const textStyle = cardTextStyle(textSize);
+  const code = liveCard.code;
+  const hidden = isHiddenCard(liveCard) || code == null;
+  const resolved = useDuelCardInfo(!hidden && (!hasCardName(liveCard) || !liveCard.description?.trim()) ? code : null);
+  // Fill static text while retaining ATK/DEF, counters and other live fields.
+  const card = resolved ? {
+    ...resolved, ...liveCard,
+    canonicalPasscode: liveCard.canonicalPasscode ?? resolved.canonicalPasscode,
+    type: liveCard.type ?? resolved.type,
+    attack: liveCard.attack ?? resolved.attack,
+    defense: liveCard.defense ?? resolved.defense,
+    level: liveCard.level ?? resolved.level,
+    attribute: liveCard.attribute ?? resolved.attribute,
+    race: liveCard.race ?? resolved.race,
+    name: hasCardName(liveCard) ? liveCard.name : resolved.name,
+    description: liveCard.description?.trim() ? liveCard.description : resolved.description,
+  } : liveCard;
+  if (hidden) {
     return (
-      <div className={styles.root}>
+      <div className={styles.root} data-card-text={textSize} style={textStyle}>
         <div className={`${styles.art} card-frame`}>
           <CardBack className={styles.artBack} />
         </div>
@@ -39,7 +58,7 @@ function InfoBody({ card }: { card: DuelCard | DuelCardInfo }) {
   const description = card.description?.trim() ?? "";
 
   return (
-    <div className={styles.root}>
+    <div className={styles.root} data-card-text={textSize} style={textStyle}>
       <div className={`${styles.art} card-frame`}>
         <img src={cardArtUrl(code, "full")} alt="" />
       </div>
@@ -77,13 +96,15 @@ export function CardInspector({
   ownerOf?: (card: DuelCard) => InspectorOwner | null;
 }) {
   const styles = useSkinStyles(baseStyles, "inspector");
+  const textSize = useCardTextSize();
+  const textStyle = cardTextStyle(textSize);
   if (!target) {
-    return <div className={styles.empty}>Select a card to inspect.</div>;
+    return <div className={styles.empty} style={textStyle}>Select a card to inspect.</div>;
   }
 
   if (target.type === "pile") {
     return (
-      <div className={styles.root}>
+      <div className={styles.root} data-card-text={textSize} style={textStyle}>
         <h2 className={styles.pileTitle}>{target.title}</h2>
         {target.cards.length === 0 ? (
           <p className={styles.details}>Empty.</p>
@@ -146,14 +167,14 @@ export function CardInspector({
         <p
           className={styles.owner}
           data-testid="inspector-owner"
-          style={{ "--seat-main": owner.tone.main, "--seat-ink": owner.tone.ink } as CSSProperties}
+          style={{ ...textStyle, "--seat-main": owner.tone.main, "--seat-ink": owner.tone.ink } as CSSProperties}
         >
           <i aria-hidden="true" />
           Owner <b>{owner.name}</b>
         </p>
       ) : null}
       {extras.length > 0 ? (
-        <ul className={styles.metaList}>
+        <ul className={styles.metaList} style={textStyle}>
           {extras.map((line) => (
             <li key={line}>{line}</li>
           ))}

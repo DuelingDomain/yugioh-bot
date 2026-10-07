@@ -1,5 +1,5 @@
 if not aux.MPKey then return end
--- Artmage Academic Arcane Arts Acropolis: per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey).
+-- Artmage Academic Arcane Arts Acropolis: R-COMMON-SEAT-STATE (owner Q6): declarations are per FFA seat or Tag team. Keep the mapped table across the stock turn-end reset. Stock AnnounceCard takes the filter table directly.
 local mp_resets={}
 local mp_stores={}
 -- the slot of a real seat (a value function gets a folded player value: use the seat of a card instead)
@@ -46,6 +46,17 @@ local function mp_seat_table(t)
 	end
 	setmetatable(t,meta)
 	mp_resets[#mp_resets+1]=reset
+end
+-- Stock's anonymous turn-end callback replaces declared_names, discarding the
+-- generated seat/team mapping. Initialize its global table here so that only
+-- the generated mp_reset_all resets it, keeping the table and metatable alive.
+local mp_stock_initial_effect=s.initial_effect
+function s.initial_effect(c)
+	if not s.global_check then
+		s.global_check=true
+		s.declared_names={[0]={},[1]={}}
+	end
+	mp_stock_initial_effect(c)
 end
 local mp_ie=s.initial_effect
 function s.initial_effect(c)

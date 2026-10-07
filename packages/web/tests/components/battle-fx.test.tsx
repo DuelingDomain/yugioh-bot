@@ -184,10 +184,109 @@ describe("BattleFx", () => {
     }
   });
 
-  it("keeps the 1v1 LP destination for older events without targetSeat", () => {
+  it("renames the caption of a declared attack when the player names load", () => {
+    const declaration: DuelEvent = { id: 2, kind: "attack", seat: 2, text: "attack", zone: { controller: 2, location: 4, sequence: 0 }, targetSeat: 3 };
+    board.insertAdjacentHTML("beforeend", '<div data-zones="2:4:0"><div data-card-art></div></div>');
+    boxes["2:4:0"] = { left: 500, top: 300, width: 60, height: 88 } as DOMRect;
+    const names = (map: Record<number, string>) => (seat: number) => map[seat] ?? `Player ${seat + 1}`;
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion nameOf={names({})} />);
+    rerender(<BattleFx events={[phase, declaration]} reducedMotion nameOf={names({})} />);
+    expect(document.querySelector("[data-attack-caption]")?.textContent).toBe("Player 3: direct attack on Player 4");
+    rerender(<BattleFx events={[phase, declaration]} reducedMotion nameOf={names({ 2: "Kaiba", 3: "Joey" })} />);
+    expect(document.querySelector("[data-attack-caption]")?.textContent).toBe("Kaiba: direct attack on Joey");
+  });
+
+  it("moves the arrow and the ring with the board when it is panned or zoomed", async () => {
     const { rerender } = render(<BattleFx events={[phase]} reducedMotion />);
-    rerender(<BattleFx events={[phase, { ...direct, id: 2 }]} reducedMotion />);
-    expect(document.querySelector('[data-aim="locked"] rect[x="15"][y="15"]')).not.toBeNull();
+    rerender(<BattleFx events={[phase, { ...attack, id: 2 }]} reducedMotion />);
+    const frame = () => act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => resolve())); });
+    await frame();
+    const before = document.querySelector('[data-aim="locked"] path')!.getAttribute("d");
+    const ringBefore = document.querySelector('[data-aim="locked"] rect')!.getAttribute("x");
+    // A pan: the target zone moves 120 px (a transform, so no resize event).
+    boxes["1:4:0"] = { ...boxes["1:4:0"], left: boxes["1:4:0"].left + 120 } as DOMRect;
+    await frame();
+    await frame();
+    expect(document.querySelector('[data-aim="locked"] path')!.getAttribute("d")).not.toBe(before);
+    expect(document.querySelectorAll('[data-aim="locked"] rect')[1]?.getAttribute("x") ?? "").not.toBe(ringBefore);
+    boxes["1:4:0"] = { ...boxes["1:4:0"], left: boxes["1:4:0"].left - 120 } as DOMRect;
+  });
+
+  it("names the attacker and the defender on every seat while an attack is declared", () => {
+    const names = (seat: number) => ["Ann", "Bo", "Cy", "Di"][seat]!;
+    const declaration: DuelEvent = { ...direct, id: 2, seat: 2, targetSeat: 3, zone: { controller: 2, location: 4, sequence: 0 } };
+    board.insertAdjacentHTML("beforeend", '<div data-zones="2:4:0"><div data-card-art></div></div>');
+    boxes["2:4:0"] = { left: 500, top: 300, width: 60, height: 88 } as DOMRect;
+    // A bystander (seat 0) and the defender (seat 3) read the same line.
+    for (const viewer of [0, 3]) {
+      for (const node of board.querySelectorAll<HTMLElement>("[data-lp-seat]")) node.dataset.side = Number(node.dataset.lpSeat) === viewer ? "you" : "opp";
+      const { rerender, unmount } = render(<BattleFx events={[phase]} reducedMotion nameOf={names} />);
+      rerender(<BattleFx events={[phase, declaration]} reducedMotion nameOf={names} />);
+      expect(document.querySelector("[data-attack-caption]")?.textContent).toBe("Cy: direct attack on Di");
+      expect(document.querySelector('[data-aim="locked"]')).not.toBeNull();
+      unmount();
+    }
+    const monster: DuelEvent = { ...attack, id: 2, seat: 0, target: { controller: 3, location: 4, sequence: 0 } };
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion nameOf={names} />);
+    rerender(<BattleFx events={[phase, monster]} reducedMotion nameOf={names} />);
+    expect(document.querySelector("[data-attack-caption]")?.textContent).toBe("Ann attacks Di");
+  });
+
+  it("outlines a turned field on the card's real corners (a straight box stays a rect)", () => {
+    const declared: DuelEvent = { ...attack, id: 2 };
+    // 0:4:0 sits in a field turned 120 degrees; 1:4:0 is straight. A 60 x 88 card.
+    for (const key of ["0:4:0", "1:4:0"]) Object.defineProperty(board.querySelector(`[data-zones="${key}"] [data-card-art]`)!, "offsetWidth", { value: 60 });
+    for (const key of ["0:4:0", "1:4:0"]) Object.defineProperty(board.querySelector(`[data-zones="${key}"] [data-card-art]`)!, "offsetHeight", { value: 88 });
+    const turnedZone = board.querySelector('[data-zones="0:4:0"]')!;
+    const real = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation(((el: Element, pseudo?: string | null) => {
+      const style = real(el, pseudo);
+      return { getPropertyValue: (name: string) => (el === turnedZone && name === "rotate" ? "120deg" : style.getPropertyValue(name)) };
+    }) as never);
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion />);
+    rerender(<BattleFx events={[phase, declared]} reducedMotion />);
+    const svg = document.querySelector('[data-aim="locked"]')!;
+    // The attacker is turned: its ring is a path; the straight target keeps a rect.
+    expect(svg.querySelectorAll("path[data-turned]")).toHaveLength(1);
+    expect(svg.querySelectorAll("rect")).toHaveLength(1);
+  });
+
+  /** Engine-view seats with no monsters: only how many seats play matters. */
+  const emptySeats = (count: number) => Array.from({ length: count }, (_, seat) => ({ seat, monsters: [] })) as unknown as DuelSeatView[];
+
+  it.each([3, 4])("draws no arrow at a defender it does not know in a %i seat duel (no 1 - controller guess)", count => {
+    const declaration: DuelEvent = { ...direct, id: 2, seat: 2, zone: { controller: 2, location: 4, sequence: 0 } };
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion seats={emptySeats(count)} />);
+    rerender(<BattleFx events={[phase, declaration]} reducedMotion seats={emptySeats(count)} />);
+    expect(document.querySelector("[data-attack-caption]")).toBeNull();
+    expect(document.querySelector('[data-aim="locked"]')).toBeNull();
+  });
+
+  it("plays a seat 2 direct attack on seat 3 when a coin toss (Jirai Gumo) comes between the declaration and the battle", () => {
+    const declaration: DuelEvent = { ...direct, id: 2, seat: 2, targetSeat: 3, zone: { controller: 2, location: 4, sequence: 0 } };
+    board.insertAdjacentHTML("beforeend", '<div data-zones="2:4:0"><div data-card-art></div></div>');
+    boxes["2:4:0"] = { left: 500, top: 300, width: 60, height: 88 } as DOMRect;
+    const trigger: DuelEvent = { id: 3, kind: "activate", seat: 2, text: "", zone: declaration.zone };
+    const toss: DuelEvent = { id: 4, kind: "toss", seat: 2, text: "coin", zone: declaration.zone } as DuelEvent;
+    const hurt: DuelEvent = { id: 6, kind: "damage", seat: 3, amount: 2200, cause: "battle", text: "" };
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion />);
+    rerender(<BattleFx events={[phase, declaration, trigger]} reducedMotion />);
+    rerender(<BattleFx events={[phase, declaration, trigger, toss, { id: 5, kind: "chain-end", text: "" } as DuelEvent]} reducedMotion />);
+    expect(document.querySelector('[data-aim="locked"]')).not.toBeNull();
+    expect(playLayer()).toBeNull();
+    rerender(<BattleFx events={[phase, declaration, trigger, toss, { id: 5, kind: "chain-end", text: "" } as DuelEvent, hurt]} reducedMotion />);
+    expect(playLayer()).not.toBeNull();
+    expect(document.querySelector('[data-aim="locked"]')).toBeNull();
+  });
+
+  // A 1v1 Standard duel never sends targetSeat: the seat count of the duel says who is hit, whatever plates the page draws.
+  it.each([[2, true], [3, true], [4, true], [0, false]])("keeps the 1v1 LP destination for events without targetSeat with %i LP plates on the page", (plates, arrow) => {
+    for (let seat = 3; seat >= plates; seat -= 1) board.querySelector(`[data-lp-seat="${seat}"]`)?.remove();
+    if (plates === 2) board.querySelector('[data-lp-seat="1"]')!.insertAdjacentHTML("afterend", '<div data-lp-seat="1" hidden><strong>8000</strong></div>');
+    const seats = emptySeats(2);
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion seats={seats} />);
+    rerender(<BattleFx events={[phase, { ...direct, id: 2 }]} reducedMotion seats={seats} />);
+    expect(document.querySelector('[data-aim="locked"] rect[x="15"][y="15"]') != null).toBe(arrow);
   });
 
   it.each([0, 1, null])("keeps a face-down Defense target's calculation stats hidden for viewer %s", viewer => {
@@ -290,6 +389,40 @@ describe("BattleFx", () => {
         unmount();
       } finally { setSharedFx3d(null); }
     }
+  });
+
+  it("asks the zone, not the seat field, whether the picture is turned: an attack from the grid's bottom-right rival is not upside down", () => {
+    // A seat field says "opp" even at 0 degrees, but its zones (which turn the art) say "you" there.
+    const zone = board.querySelector<HTMLElement>('[data-zones="3:4:0"]')!;
+    const field = document.createElement("div");
+    field.dataset.side = "opp";
+    zone.replaceWith(field);
+    field.appendChild(zone);
+    zone.dataset.side = "you";
+    board.querySelector<HTMLElement>('[data-zones="1:4:0"]')!.dataset.side = "opp";
+    const attack3: DuelEvent = { id: 2, kind: "attack", seat: 3, text: "attack", zone: { controller: 3, location: 4, sequence: 0 }, target: attack.target };
+    const calculation: DuelEvent = { id: 3, kind: "battle", text: "Calculation", zone: attack3.zone, target: attack3.target,
+      battle: { attacker: { attack: 2300, defense: 2100, position: 1 }, target: { attack: 2300, defense: 1500, position: 1 } } };
+    const before = [
+      { seat: 3, monsters: [{ controller: 3, location: 4, sequence: 0, position: 1, ...warrior }] },
+      { seat: 1, monsters: [{ controller: 1, location: 4, sequence: 0, position: 1, ...warrior }] },
+    ] as unknown as DuelSeatView[];
+    const after = [{ seat: 3, monsters: [null] }, { seat: 1, monsters: [null] }] as unknown as DuelSeatView[];
+    const play = vi.fn((_id: string, _request: FxRequest) => Promise.resolve());
+    setSharedFx3d({ host: board, api: { ready: true, play, prefetchArt() {}, cancelAll() {} } });
+    try {
+      const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} seats={before} />);
+      rerender(<BattleFx events={[phase, attack3, calculation,
+        { id: 4, kind: "destroy", text: "", zone: attack3.zone, cause: "battle" },
+        { id: 5, kind: "destroy", text: "", zone: attack3.target, cause: "battle" }]} reducedMotion={false} seats={after} />);
+      const breaks = play.mock.calls[0]?.[1].battle?.breaks ?? [];
+      expect(breaks).toHaveLength(2);
+      const byCode = breaks.map((entry) => entry.turned);
+      // Attacker (the bottom-right rival, zone "you") first or second by break order; exactly one picture is turned: the 1v1-style target.
+      expect(byCode.filter(Boolean)).toHaveLength(1);
+      expect(breaks.find((entry) => entry.rect.x < 500)?.turned).toBe(true);
+      expect(breaks.find((entry) => entry.rect.x >= 500)?.turned).toBeFalsy();
+    } finally { setSharedFx3d(null); }
   });
 
   it("refreshes declaration-time art from the engine calculation position", () => {
@@ -578,10 +711,11 @@ describe("BattleFx", () => {
   });
 
   it("plays only the newest attack of a burst", () => {
-    const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} />);
+    const duo = emptySeats(2); // a 1v1 duel: a direct attack needs no targetSeat
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} seats={duo} />);
     act(() => undefined);
     const dealt: DuelEvent = { id: 5, kind: "damage", seat: 1, amount: 800, cause: "battle", text: "" };
-    rerender(<BattleFx events={[phase, attack, direct, dealt]} reducedMotion={false} />);
+    rerender(<BattleFx events={[phase, attack, direct, dealt]} reducedMotion={false} seats={duo} />);
     // The newest attack is the direct one: there is no card to cut.
     expect(playLayer()?.getAttribute("data-kind")).toBe("direct");
     expect(document.body.querySelectorAll("div[style*='clip-path']")).toHaveLength(0);
@@ -595,6 +729,39 @@ describe("BattleFx", () => {
     expect(playLayer()?.getAttribute("data-style")).toBe("lightning");
     // The signature's name shows at the attacker.
     expect(document.body.textContent).toContain("White Lightning");
+  });
+
+  describe("alternate art signatures", () => {
+    const BLUE_EYES = 89631139;
+    const ALT = 89631140;
+    const altAttacker = { code: ALT, name: "Blue-Eyes White Dragon", race: "Dragon", attribute: 16, attack: 3000, defense: 2500 };
+    const play = (seats: DuelSeatView[]) => {
+      const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} seats={seats} />);
+      rerender(<BattleFx events={[phase, attack, hurt]} reducedMotion={false} seats={seats} />);
+    };
+
+    it("plays the signature of an alternate art from the canonical passcode on the card", () => {
+      play(seatsOf({ ...altAttacker, canonicalPasscode: BLUE_EYES } as typeof altAttacker, machine));
+      expect(playLayer()?.getAttribute("data-style")).toBe("lightning");
+      expect(document.body.textContent).toContain("White Lightning");
+    });
+
+    it("keeps the card's own passcode when an old view has no canonical passcode", () => {
+      play(seatsOf(altAttacker, machine));
+      expect(playLayer()?.getAttribute("data-style")).not.toBe("lightning");
+    });
+
+    it("asks the artworks API for nothing", async () => {
+      const fetch = vi.fn(async () => Response.json({}));
+      vi.stubGlobal("fetch", fetch);
+      try {
+        render(<BattleFx events={[]} reducedMotion />);
+        await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+        expect(fetch).not.toHaveBeenCalled();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
   });
 
   it("picks the style from the card that attacked, using the board as it was before the snapshot", () => {
@@ -804,6 +971,27 @@ describe("BattleFx resolution", () => {
     expect(playLayer()?.getAttribute("data-counter-style")).toBe("beam");
   });
 
+  const toss: DuelEvent = { id: 4, kind: "toss", seat: 0, text: "coin", zone: { controller: 0, location: 4, sequence: 0 } } as DuelEvent;
+
+  it("still plays the fight when a coin toss came between the declaration and the battle (response window, later snapshot)", () => {
+    const { rerender } = open();
+    rerender(<BattleFx events={[phase, attack]} reducedMotion={false} seats={seats()} />);
+    const window = [phase, attack, { ...activate, seat: 0, zone: { controller: 0, location: 4, sequence: 0 } }, toss];
+    rerender(<BattleFx events={window} reducedMotion={false} seats={seats()} />);
+    expect(playLayer()).toBeNull();
+    expect(markerOf()?.getAttribute("data-aim")).toBe("locked");
+    rerender(<BattleFx events={[...window, { id: 5, kind: "chain-end", text: "" } as DuelEvent, damage(6, 1, 800), destroyed(7, 1)]} reducedMotion={false} seats={seats()} />);
+    expect(playLayer()?.getAttribute("data-kind")).toBe("win");
+    expect(markerOf()).toBeNull();
+  });
+
+  it("still plays the fight when the toss and the battle arrive in one snapshot with the declaration", () => {
+    const { rerender } = open();
+    const all = [phase, attack, { ...activate, seat: 0, zone: { controller: 0, location: 4, sequence: 0 } }, toss, damage(5, 1, 800), destroyed(6, 1)];
+    rerender(<BattleFx events={all} reducedMotion={false} seats={seats()} />);
+    expect(playLayer()?.getAttribute("data-kind")).toBe("win");
+  });
+
   it("plays no attack animation when the attack is negated or the attacker leaves", () => {
     const { rerender, unmount } = open();
     rerender(<BattleFx events={[phase, attack]} reducedMotion={false} seats={seats()} />);
@@ -823,6 +1011,22 @@ describe("BattleFx resolution", () => {
     again.rerender(<BattleFx events={[phase, attack, activate, trap]} reducedMotion={false} seats={seats()} />);
     expect(playLayer()).toBeNull();
     expect(markerOf()).toBeNull();
+  });
+
+  it.each([["a 4-way grid", 4], ["a 1v1 duel", 2]])("clears the declared arrow and caption when the attack is negated and nothing follows (%s)", (_name, count) => {
+    const duo = Array.from({ length: count }, (_, seat) => ({ seat, monsters: [] })) as unknown as DuelSeatView[];
+    const declaration: DuelEvent = { id: 2, kind: "attack", seat: 0, text: "attack", zone: { controller: 0, location: 4, sequence: 0 }, ...(count === 4 ? { targetSeat: 1 } : {}) };
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion seats={duo} />);
+    rerender(<BattleFx events={[phase, declaration]} reducedMotion seats={duo} />);
+    expect(document.querySelector("[data-attack-caption]")).not.toBeNull();
+    // A response window, then an effect damage: the attack is not over yet.
+    const effectDamage: DuelEvent = { id: 4, kind: "damage", seat: 0, amount: 500, cause: "effect", text: "" };
+    rerender(<BattleFx events={[phase, declaration, activate, effectDamage]} reducedMotion seats={duo} />);
+    expect(document.querySelector("[data-attack-caption]")).not.toBeNull();
+    // The engine negates the attack (Magic Cylinder, ...): no phase or attack follows.
+    rerender(<BattleFx events={[phase, declaration, activate, effectDamage, { id: 5, kind: "attack-negated", text: "" }]} reducedMotion seats={duo} />);
+    expect(document.querySelector("[data-attack-caption]")).toBeNull();
+    expect(document.querySelector('[data-aim="locked"]')).toBeNull();
   });
 
   it("does not play a fight for an attack that was already in the first snapshot", () => {

@@ -61,6 +61,8 @@
 .thumbs img { display: block; width: 100%; aspect-ratio: 421 / 614; object-fit: cover; border-radius: 3px; box-shadow: 0 0 0 1px rgb(239 231 213 / 0.1); background: var(--panel-2); }
 .extraNote { margin: 0; padding-top: 12px; border-top: 1px solid var(--rule-lo); color: var(--ink-3); font-size: 14px; line-height: 1.5; }
 .custom { display: flex; }
+.cubeCount small { margin-left: 14px; color: var(--ink-2); font-size: 15px; }
+.cubeCount small b { margin-right: 4px; font: 600 20px/1 var(--f-num); color: var(--ink); }
 
 /* ---- status bar ---- */
 .sbar { position: relative; display: grid; gap: 12px; padding: 14px 16px 14px 18px; border: 1px solid var(--rule-lo); border-radius: 10px; background: var(--floor); animation: fadein 220ms var(--ease); }
@@ -131,6 +133,10 @@
 
 /* ---- the pool list ---- */
 .plHead { display: grid; gap: 10px; padding: 16px 18px 12px; border-top: 1px solid var(--rule-lo); border-bottom: 1px solid var(--rule-lo); background: var(--floor); }
+.lanes { justify-self: start; max-width: 100%; }
+.lanes button { padding: 0 14px; }
+.lanes small { margin-left: 6px; color: var(--ink-3); font: 600 14px/1 var(--f-num); }
+.lanes button[aria-pressed="true"] small { color: var(--ink-2); }
 .plChips { display: flex; flex-wrap: wrap; gap: 6px; }
 .fchip { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border: 1px solid var(--rule); border-radius: 999px; background: none; color: var(--ink-2); font: inherit; font-size: 14px; cursor: pointer; }
 .fchip small { color: var(--ink-3); font: 600 14px/1 var(--f-num); }
@@ -172,6 +178,17 @@
 .seats svg { flex: none; margin-top: 2px; }
 .seatsOk svg { color: var(--ok); }
 .seatsWarn { color: var(--warn-ink); }
+.seats + .seats { margin-top: 10px; padding-top: 10px; }
+
+/* ---- lists that were added at once ---- */
+.imps { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.imp { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid var(--rule-lo); border-radius: 8px; background: var(--floor); }
+.impTop { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.impLine { display: flex; align-items: flex-start; gap: 8px; min-width: 0; margin: 0; color: var(--ink-2); font-size: 14.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.impLine svg { flex: none; margin-top: 2px; color: var(--ok); }
+.impLine b { color: var(--ink); font-weight: 600; }
+.impBusy { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--ink-3); font-size: 14.5px; }
+.impDrop { display: grid; gap: 8px; }
 
 @container (max-width: 620px) {
   .start :global(.seg) { display: grid; width: 100%; min-width: 0; }

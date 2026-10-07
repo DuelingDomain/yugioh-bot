@@ -38,9 +38,9 @@ describe("draft cleanup service", () => {
         ).run(id);
       }
 
-      const creator = players.upsert("guild-1", "user-1", "Yugi");
-      const joiner = players.upsert("guild-1", "user-2", "Kaiba");
-      const draft = drafts.create("guild-1", "channel-1", "cube", {}, "user-1", creator.id);
+      const creator = players.upsert("guild-1", "900000000000000112", "Yugi");
+      const joiner = players.upsert("guild-1", "900000000000000113", "Kaiba");
+      const draft = drafts.create("guild-1", "channel-1", "cube", {}, creator.userId, creator.id);
       drafts.join(draft.id, joiner.id);
       drafts.start(draft.id);
 
@@ -96,6 +96,22 @@ describe("draft cleanup service", () => {
       expect(await readdir(dir)).toEqual(["1.png"]);
     } finally {
       await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("applies the byte cap to full, alternate, small and cropped images", async () => {
+    const db = new Database(":memory:"); migrate(db);
+    const dir = await mkdtemp(path.join(tmpdir(), "draft-cleanup-"));
+    try {
+      for (const filename of ["81480460.jpg", "81480461.jpg", "81480461-small.jpg", "81480461-cropped.jpg"]) {
+        await writeFile(path.join(dir, filename), Buffer.alloc(100));
+      }
+      const cleanup = createDraftCleanupService(db, { imageCacheDir: dir });
+      expect(await cleanup.imageCacheBytes()).toBe(400);
+      expect(await cleanup.removeOldestImages(100)).toBe(3);
+      expect(await cleanup.imageCacheBytes()).toBe(100);
+    } finally {
+      db.close(); await rm(dir, { recursive: true, force: true });
     }
   });
 

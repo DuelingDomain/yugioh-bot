@@ -1,10 +1,11 @@
+import { fixtureUserId } from "../fixtures/identity";
 import { describe, expect, it } from "vitest";
 import { deriveMyMatches } from "../../src/components/tournament/use-my-matches";
 import type { TournamentDetail } from "../../src/components/tournament/types";
 
 const base: TournamentDetail = {
   id: 1, name: "RR", format: "round_robin", status: "active",
-  createdByUserId: "host", participants: [], isParticipant: true,
+  createdByUserId: fixtureUserId("host"), participants: [], isParticipant: true,
   currentUserPlayerId: 10,
   startedAt: null, createdAt: "2026-01-01T00:00:00Z",
   matches: [
@@ -33,3 +34,5 @@ describe("deriveMyMatches", () => {
     expect(r.needsMeCount).toBe(0);
   });
 });
+
+const FIXTURE_KEYS = ["host"] as const;

@@ -1,14 +1,16 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mockDiscordAccess } from "./fixtures/discord-access";
 
 const auth = vi.fn();
 const tempDirs: string[] = [];
-let discord: ReturnType<typeof mockDiscordAccess>;
 
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 
 async function setupDb() {
   const tempDir = mkdtempSync(join(tmpdir(), "yugioh-cubes-pool-"));
@@ -21,6 +23,7 @@ async function setupDb() {
   const { migrate } = await import("@yugidraft/shared/db");
   const db = new Database(dbPath);
   migrate(db);
+  seedFixtureUsers(db, FIXTURE_KEYS);
   const ins = db.prepare(
     `insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
      values (?,?,?,?,?,?,?,?)`,
@@ -28,6 +31,8 @@ async function setupDb() {
   ins.run(1, "Main A", "Normal Monster", "normal", "i", "i", "[]", "t");
   ins.run(2, "Xyz B", "XYZ Monster", "xyz", "i", "i", "[]", "t");
   ins.run(3, "Main C", "Effect Monster", "effect", "i", "i", "[]", "t");
+  db.exec(`insert into card_artworks (card_id,artwork_id,image_url,image_url_small,is_main)
+    select ygoprodeck_id,ygoprodeck_id,image_url,image_url_small,1 from card_catalog`);
   db.close();
 }
 
@@ -42,9 +47,7 @@ describe("cube pool routes", () => {
   beforeEach(() => {
     vi.resetModules();
     auth.mockReset();
-    auth.mockResolvedValue({ user: { id: "creator", name: "Yugi" } });
-    discord = mockDiscordAccess();
-    discord.permissions = "0";
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("creator")), discordUserId: fixtureDiscordId("creator"), name: "Yugi" } });
   });
 
   afterEach(() => {
@@ -63,6 +66,41 @@ describe("cube pool routes", () => {
     const { POST } = await import("../app/api/cubes/route");
     return POST(json({ kind: "pool", ...body }));
   }
+
+  it.each(["network", "timeout", "429", "503", "json"])("saves a legacy cube during %s failures and returns 503 for missing data", async (failure) => {
+    await setupDb();
+    const db = await rawDb(); db.exec("delete from card_artworks"); db.close();
+    const upstream = vi.fn(async () => {
+      if (failure === "network") throw new Error("offline");
+      if (failure === "timeout") throw new DOMException("timeout", "TimeoutError");
+      return new Response("bad JSON", { status: failure === "json" ? 200 : Number(failure), headers: { "Retry-After": "2" } });
+    });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
+      String(input).includes("ygoprodeck") ? upstream() : Promise.reject(new Error(`Unexpected fetch: ${input}`))));
+    const cached = await createPool({ name: "Cached", cards: [{ id: 1, copies: 3 }, { id: 2, copies: 1 }] });
+    expect(cached.status).toBe(201);
+    expect(upstream).not.toHaveBeenCalled();
+    const missing = await createPool({ name: "Missing", cards: [{ id: 99999999, copies: 1 }] });
+    expect(missing.status).toBe(503);
+    expect((await missing.json()).error).toContain("Try again");
+    const verify = await rawDb();
+    expect(verify.prepare("select count(*) as n from cubes where name = 'Missing'").get()).toEqual({ n: 0 });
+    verify.close();
+  });
+
+  it("bounds catalog warming to 50 fetches and reports skipped ids", async () => {
+    await setupDb();
+    const discordFetch = globalThis.fetch;
+    const upstream = vi.fn(async () => Response.json({ error: "No card matching your query was found" }, { status: 400 }));
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
+      String(input).includes("ygoprodeck") ? upstream() : discordFetch(input, init)));
+    const ids = Array.from({ length: 1000 }, (_, i) => 900000 + i);
+    const result = await (await createPool({ name: "Limited", cards: [
+      { id: 1, copies: 2 }, ...ids.map((id) => ({ id, copies: 1 })),
+    ].slice(0, 1000) })).json();
+    expect(result).toMatchObject({ lookupLimited: true, unknownIds: ids.slice(0, 999) });
+    expect(upstream).toHaveBeenCalledTimes(50);
+  }, 40000);
 
   it("saves a pool as a real cube, splitting extra frames, summing duplicates and reporting unknown ids", async () => {
     await setupDb();
@@ -93,7 +131,7 @@ describe("cube pool routes", () => {
       if (!taken) {
         taken = true;
         const db = await rawDb();
-        db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1','RACE','other')").run();
+        db.prepare(`insert into cubes (guild_id, name, created_by_user_id) values ('guild-1', 'RACE', ${fixtureUserId("other")})`).run();
         db.close();
       }
       return Response.json({ data: [] });
@@ -123,8 +161,8 @@ describe("cube pool routes", () => {
   it("copies the extra pool of another cube in the guild only", async () => {
     await setupDb();
     const db = await rawDb();
-    db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1','Src','x')").run();
-    db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('other','Foreign','x')").run();
+    db.prepare(`insert into cubes (guild_id, name, created_by_user_id) values ('guild-1', 'Src', ${fixtureUserId("x")})`).run();
+    db.prepare(`insert into cubes (guild_id, name, created_by_user_id) values ('other', 'Foreign', ${fixtureUserId("x")})`).run();
     db.prepare("insert into cube_cards (cube_id, catalog_card_id, pool, max_copies) values (1,2,'extra',3)").run();
     db.prepare("insert into cube_cards (cube_id, catalog_card_id, pool, max_copies) values (2,2,'extra',3)").run();
     db.close();
@@ -143,7 +181,7 @@ describe("cube pool routes", () => {
       await setupDb();
       const db = await rawDb();
       db.prepare(
-        "insert into cubes (guild_id, name, created_by_user_id, config_json) values ('guild-1','Legacy','creator',?)",
+        `insert into cubes (guild_id, name, created_by_user_id, config_json) values ('guild-1', 'Legacy', ${fixtureUserId("creator")}, ?)`,
       ).run(JSON.stringify({ setNames: ["S"], customCardIds: [1], draftType: "theme" }));
       db.prepare("insert into cube_cards (cube_id, catalog_card_id, pool, max_copies) values (1,1,'main',2)").run();
       db.prepare("insert into cube_cards (cube_id, catalog_card_id, pool, max_copies) values (1,2,'extra',4)").run();
@@ -168,12 +206,12 @@ describe("cube pool routes", () => {
       db.close();
     });
 
-    it("is 403 for a non-owner non-admin and 400 for bad cards", async () => {
+    it("is 403 for a non-creator and 400 for bad cards", async () => {
       const post = await seededCube();
       expect((await post({ op: "replaceMain", cards: [{ id: 3, copies: 0 }] })).status).toBe(400);
-      auth.mockResolvedValue({ user: { id: "stranger", name: "Joey" } });
+      auth.mockResolvedValue({ user: { id: String(fixtureUserId("stranger")), discordUserId: fixtureDiscordId("stranger"), name: "Joey" } });
       expect((await post({ op: "replaceMain", cards: [{ id: 3, copies: 1 }] })).status).toBe(403);
-      discord.permissions = "32";
+      auth.mockResolvedValue({ user: { id: String(fixtureUserId("creator")), discordUserId: null, name: "Yugi" } });
       vi.resetModules();
       const { POST } = await import("../app/api/cubes/[id]/cards/route");
       const res = await POST(json({ op: "replaceMain", cards: [{ id: 3, copies: 1 }] }), { params: Promise.resolve({ id: "1" }) });
@@ -184,21 +222,23 @@ describe("cube pool routes", () => {
   it("GET returns creator, creator name and canEdit", async () => {
     await setupDb();
     const db = await rawDb();
-    db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('guild-1','creator','Yugi')").run();
-    db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1','Mine','creator')").run();
-    db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1','Theirs','someone')").run();
+    db.prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('guild-1', ${fixtureUserId("creator")}, '${fixtureDiscordId("creator")}', 'Yugi')`).run();
+    db.prepare("update users set display_name = ? where id = ?").run("Yugi", fixtureUserId("creator"));
+    db.prepare("update users set display_name = ? where id = ?").run("Seto", fixtureUserId("someone"));
+    db.prepare(`insert into cubes (guild_id, name, created_by_user_id) values ('guild-1', 'Mine', ${fixtureUserId("creator")})`).run();
+    db.prepare(`insert into cubes (guild_id, name, created_by_user_id) values ('guild-1', 'Theirs', ${fixtureUserId("someone")})`).run();
     db.close();
     const { GET } = await import("../app/api/cubes/route");
     const cubes = (await (await GET()).json()).cubes;
     expect(cubes.map((c: any) => [c.name, c.createdByUserId, c.createdByName, c.canEdit])).toEqual([
-      ["Mine", "creator", "Yugi", true],
-      ["Theirs", "someone", null, false],
+      ["Mine", fixtureUserId("creator"), "Yugi", true],
+      ["Theirs", fixtureUserId("someone"), "Seto", false],
     ]);
-    discord.permissions = "32";
     vi.resetModules();
     const again = (await (await (await import("../app/api/cubes/route")).GET()).json()).cubes;
-    expect(again.map((c: any) => c.canEdit)).toEqual([true, true]);
-    discord.memberStatus = 500;
+    expect(again.map((c: any) => c.canEdit)).toEqual([true, false]);
+    // Cube reads remain available without any Discord service.
+    vi.stubGlobal("fetch", vi.fn(() => { throw new Error("Unexpected Discord I/O"); }));
     vi.resetModules();
     const failed = await (await import("../app/api/cubes/route")).GET();
     expect(failed.status).toBe(200);
@@ -206,9 +246,10 @@ describe("cube pool routes", () => {
 
   it("validates poolSource on draft create and keeps the cube name from the database", async () => {
     await setupDb();
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ data: [] })));
     const db = await rawDb();
-    db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1','Real Name','x')").run();
-    db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('other','Foreign','x')").run();
+    db.prepare(`insert into cubes (guild_id, name, created_by_user_id) values ('guild-1', 'Real Name', ${fixtureUserId("x")})`).run();
+    db.prepare(`insert into cubes (guild_id, name, created_by_user_id) values ('other', 'Foreign', ${fixtureUserId("x")})`).run();
     db.close();
     const { POST } = await import("../app/api/drafts/route");
     const make = (name: string, poolSource: unknown) =>
@@ -225,3 +266,5 @@ describe("cube pool routes", () => {
     check.close();
   });
 });
+
+const FIXTURE_KEYS = ["creator", "other", "x", "stranger", "someone"] as const;

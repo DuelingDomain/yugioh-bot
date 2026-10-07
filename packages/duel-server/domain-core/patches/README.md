@@ -1,6 +1,6 @@
 # Core patch series (multi core)
 
-This directory holds the patch series for the N-duelist ygopro-core. The series is for 3-player, 4-player and 2v2 Tag duels. No server uses the multi core yet.
+This directory holds the patch series for the N-duelist ygopro-core. The series is for 3-player, 4-player and 2v2 Tag duels. The duel host loads the multi core (`ocgcore.multi.wasm`, or `ocgcore.multi-domain.wasm` for Domain) for every table with more than two seats (`src/engine.ts`, `readMultiWasm`). Those tables are open when `MULTIPLAYER_TABLES` is on, which is the Compose default.
 
 ## What the series is
 
@@ -87,7 +87,7 @@ This directory holds the patch series for the N-duelist ygopro-core. The series 
 | `0074-rotate-control.patch` | Add `Duel.MPRotateControl` for one atomic monster control rotation through the living FFA seats. | All zone choices precede the move; an outgoing monster can free its zone for the incoming monster. |
 | `0075-owner-seat.patch` | Add `Duel.MPOwnerSeat` to read a card's real owner without folding the seat. | A stolen card still reports its owner; the 1v1 result equals the stock owner value. |
 | `0076-action-seat.patch` | Add `Duel.MPActionSeat` and exact-actor support for actions, summon checks, card confirmations and hints. | The actor can differ from the bound recipient without changing the opponent binding. |
-| `0077-ffa4-shared-zones.patch` | Share Extra Monster Zones, columns and Link geometry only with the living across seat in FFA4. | Zone masks retain their seat and geometry context; FFA3 and Tag keep separate fields. |
+| `0077-ffa4-shared-zones.patch` | Share Extra Monster Zones, columns and Link geometry only with the living facing seat in FFA4; patch 0105 sets the pairs to 0/1 and 2/3. | Zone masks retain their seat and geometry context; FFA3 and Tag keep separate fields. |
 | `0078-turn-seat.patch` | Add `Duel.MPTurnSeat` and `Duel.MPTurnControls` for real turn-seat and controller checks. | A Tag partner's turn does not count as the current controller's own turn. |
 | `0079-living-seats.patch` | Add `Duel.MPIsAlive` for a real seat query in global callbacks. | Invalid or eliminated multiplayer seats return false without folding the argument. |
 | `0080-hint-call-boundaries.patch` | Add one `HINT_LOG_CALL` boundary before each multiplayer log-hint call's recipient messages. | Clients can deduplicate one call's fanout and retain later equal calls. |
@@ -102,6 +102,11 @@ This directory holds the patch series for the N-duelist ygopro-core. The series 
 | `0089-ffa-chain-topology-and-return-group.patch` | Keep stored fields readable on removed links, reject mutators on those links, preserve started-link messages and restart living FFA response windows. | Lost-target equips retain rule destruction events; elimination return groups remain atomic. |
 | `0090-ffa-chain-response-order.patch` | R-FFA-CHAIN (owner, 2026-10-04): restart the response round clockwise after the latest link's activating seat, with the activator last. Existing pass reset and eliminated-cursor handling stay in use. | FFA3/FFA4 only. Open windows still start with the turn player. SEGOC trigger ordering, Tag response order and 1v1 are unchanged. After a trigger chain or a mandatory quick-trigger link, the first response goes to the next living seat after the last link's controller. |
 | `0100-resolution-opponent-decisions.patch` | Summarize the reviewed `aux.MPChooseOpponent` closure as a resolution-time binding in the activation analyzer. | Decision-only opponent card choices stay at resolution; arbitrary wrappers and resource/action declarations keep normal analysis. The helper name, source and exact line span must stay aligned (catalog guard). |
+| `0101-ffa-finish-rotation-before-leave.patch` | `Duel.MPBeginControlRotation` marks the resolving link before Lua card choices. Defer pending FFA losses for that link or a queued or running `RotateControl` processor. | Card choices, placements and the atomic rotation finish before removal for surrender or timeout, including aliases and copied operations (owner, 2026-10-05). |
+| `0105-ffa4-adjacent-shared-zones.patch` | Owner decision 2026-10-04: FFA4 shares mirrored EMZ, Link arrows and columns between facing seats 0/1 and 2/3 (`seat ^ 1`). | Eliminated partners contribute no shared zones or columns. Clockwise turn order, FFA3, Tag and 1v1 remain unchanged. Numbers 0091–0099 and 0102–0104 remain reserved for parallel work. |
+| `0106-ffa3-column-peer.patch` | R-FFA-THREE-COLUMNS: flagged activated effects use a declared FFA3 column peer with three living seats; all column queries use the sole opponent with two. | `column_peer_of` is separate from `across_of`; FFA3 EMZ and Links, FFA4, Tag and 1v1 retain their geometry. Lua opt-ins select opponents before card/zone choices. |
+| `0109-disabled-zone-opponent-reset.patch` | `card::reset` clears `disfield_opp`, `disfield_selected` and `disfield_operation_opp` of an operation-based `EFFECT_DISABLE_FIELD` effect together with its value, so the next operation of the card (Ojama King, OD-OJAMA-KING) picks and blocks the zones of its new opponent. | Only at `n_duelists > 2`, only for effects with an operation (the recorded opponent of a prompt belonged to the zones that the reset cleared). FFA4 re-evaluates its opponent on each refresh already; FFA3 and Tag kept the first opponent. |
+| `0110-bound-event-dead-owner.patch` | The draw, summon and battle event filter of `effect::is_activateable` (patch 0072) reads the subject of the event directly when the seat that registered a bound field effect left the duel. `field::event_opponent` keeps its dead-seat guard. | Only at `n_duelists > 2`. A resolved lock of a seat that surrendered (Eradicator Epidemic Virus) now hits only its declared opponent, as rulebook v1.4 "Removing players from the game" says. Living registering seats take the old path. |
 
 ## Commands
 
@@ -165,6 +170,12 @@ The rest of that owner decision is implemented by:
 - `0089-ffa-chain-topology-and-return-group.patch`: ignore removed links in response checks, retain resolved response locks, discard locks from removed unresolved links, and calculate all fallback destinations before moving the departing group.
 
 Removed links retain private storage until safe cleanup. Their original numeric IDs remain stable for living links that saved a target. In FFA, `Duel.GetCurrentChain()` returns the current living link's original ID; `Duel.GetCurrentChain(true)` counts completed living activations. `Duel.MPChainCount()` counts active links, including the current activation's target step. `Duel.MPPreviousChain([true])` returns the previous active link's original ID, or zero. FFA card suffixes use these helpers for counts and adjacency, save selected IDs before yielding, and tolerate a removed source when a living operation resolves. Tag keeps its existing functions; 1v1 does not load the suffixes.
+
+`0108-ffa-cost-elimination-response.patch` implements the 2026-10-06 R-FFA-CHAIN owner decision.
+QuickEffect refreshes a queued responder after activation costs remove links. A surviving chain starts after its
+newest living link; an empty chain is cleaned up before the single normal post-chain open round. It changes only
+FFA3/FFA4 paths with removed links. Tag and two-player paths are unchanged. Native checks:
+`cost-elimination-response`, `nduel-response-order`, `response-order`, `response-cursor`, `surrender-response-window`.
 
 ## How to add a patch
 

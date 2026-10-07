@@ -1,3 +1,5 @@
+import { fixtureUserId, fixtureDiscordId } from "./fixtures/identity";
+import { finishTestLobbyStart } from "./drafts-lobby-routes.test";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -11,16 +13,17 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..")
 const tempDirs: string[] = [];
 const testTimeoutMs = 20000;
 
-vi.mock("@/lib/auth", () => ({
-  auth,
-}));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 
 describe("POST /api/drafts/[slug]/pick", () => {
   beforeEach(() => {
     vi.resetModules();
     auth.mockReset();
     auth.mockResolvedValue({
-      user: { id: "196382527131222016", name: "imran443" },
+      user: { id: String(fixtureUserId("196382527131222016")), discordUserId: fixtureDiscordId("196382527131222016"), name: "imran443" },
     });
   });
 
@@ -147,12 +150,13 @@ describe("POST /api/drafts/[slug]/pick", () => {
     const { POST: startDraft } = await import("../app/api/drafts/[slug]/route");
     const startResponse = await startDraft(
       new NextRequest("http://localhost/api/drafts/legendary-draft", {
-        method: "POST",
+        method: "POST", body: JSON.stringify({ force: true }),
       }),
       { params: Promise.resolve({ slug: "legendary-draft" }) }
     );
 
-    expect(startResponse.status).toBe(200);
+    expect(startResponse.status).toBe(202);
+    await finishTestLobbyStart(startResponse);
 
     // Get initial draft state to find a valid card
     const { GET } = await import("../app/api/drafts/[slug]/route");
@@ -217,12 +221,13 @@ describe("POST /api/drafts/[slug]/pick", () => {
     fixtureDb.close();
     // Start the draft first
     const { POST: startDraft } = await import("../app/api/drafts/[slug]/route");
-    await startDraft(
+    const scheduled = await startDraft(
       new NextRequest("http://localhost/api/drafts/legendary-draft", {
-        method: "POST",
+        method: "POST", body: JSON.stringify({ force: true }),
       }),
       { params: Promise.resolve({ slug: "legendary-draft" }) }
     );
+    await finishTestLobbyStart(scheduled);
 
     const { POST: pickCard } = await import("../app/api/drafts/[slug]/pick/route");
 
@@ -285,16 +290,17 @@ describe("POST /api/drafts/[slug]/pick", () => {
     fixtureDb.close();
     // Start the draft first
     const { POST: startDraft } = await import("../app/api/drafts/[slug]/route");
-    await startDraft(
+    const scheduled = await startDraft(
       new NextRequest("http://localhost/api/drafts/legendary-draft", {
-        method: "POST",
+        method: "POST", body: JSON.stringify({ force: true }),
       }),
       { params: Promise.resolve({ slug: "legendary-draft" }) }
     );
+    await finishTestLobbyStart(scheduled);
 
     // Authenticate as a different user who is not a participant
     auth.mockResolvedValue({
-      user: { id: "non-participant-123", name: "Stranger" },
+      user: { id: String(fixtureUserId("non-participant-123")), discordUserId: fixtureDiscordId("non-participant-123"), name: "Stranger" },
     });
 
     const { POST: pickCard } = await import("../app/api/drafts/[slug]/pick/route");
@@ -312,3 +318,7 @@ describe("POST /api/drafts/[slug]/pick", () => {
     expect(payload.error).toContain("not a participant");
   }, testTimeoutMs);
 });
+
+const FIXTURE_KEYS = ["196382527131222016", "non-participant-123"] as const;
+
+// Session resolution is mocked; authorization still runs through the real web boundary.

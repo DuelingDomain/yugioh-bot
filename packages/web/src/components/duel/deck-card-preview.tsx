@@ -1,48 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import type { DuelCardInfo } from "@yugidraft/shared/duels";
-import { searchDuelCards } from "./api";
+import { useDuelCardInfo } from "./card-info";
 import { cardArtUrl, cardCombatText, cardDetailsText, cardKindText } from "./constants";
 import styles from "./deck-card-preview.module.css";
 
-const infoCache = new Map<number, Promise<DuelCardInfo | null>>();
-
-/** Card text for a passcode, from the duel host's card database. Cached per page load. */
-export function loadDuelCardInfo(code: number): Promise<DuelCardInfo | null> {
-  let pending = infoCache.get(code);
-  if (!pending) {
-    pending = searchDuelCards(String(code)).then(
-      ({ cards }) => cards.find((card) => card.code === code) ?? null,
-      () => {
-        infoCache.delete(code);
-        return null;
-      },
-    );
-    infoCache.set(code, pending);
-  }
-  return pending;
-}
-
-/** undefined while loading, null when the card is unknown. */
-function useCardInfo(code: number | null): DuelCardInfo | null | undefined {
-  const [loaded, setLoaded] = useState<{ code: number; card: DuelCardInfo | null } | null>(null);
-  useEffect(() => {
-    if (code == null) return undefined;
-    let live = true;
-    void loadDuelCardInfo(code).then((card) => {
-      if (live) setLoaded({ code, card });
-    });
-    return () => {
-      live = false;
-    };
-  }, [code]);
-  return code != null && loaded?.code === code ? loaded.card : undefined;
-}
+export { loadDuelCardInfo } from "./card-info";
 
 /** Large art and text of the deck card under the pointer, beside the deck lists. */
 export function DeckCardPreview({ code, compact = false }: { code: number | null; compact?: boolean }) {
-  const card = useCardInfo(code);
+  const card = useDuelCardInfo(code);
 
   if (code == null) {
     return (

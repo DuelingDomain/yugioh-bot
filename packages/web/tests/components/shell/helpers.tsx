@@ -2,9 +2,9 @@ import React from "react";
 import { vi } from "vitest";
 import type { ShellAccount } from "../../../src/components/layout/use-shell-account";
 
-export const ready: ShellAccount = { status: "ready", name: "Imran", image: null, playerId: 7, profileSettled: true, tier: "Gold", elo: 1432 };
+export const ready: ShellAccount = { status: "ready", name: "Imran", email: "imran@example.com", image: null, playerId: 7, profileSettled: true, tier: "Gold", elo: 1432, isAdmin: false };
 export const noProfile: ShellAccount = { ...ready, playerId: null };
-export const loading: ShellAccount = { status: "loading", name: "", image: null, playerId: null, profileSettled: false, tier: null, elo: null };
+export const loading: ShellAccount = { status: "loading", name: "", email: null, image: null, playerId: null, profileSettled: false, tier: null, elo: null, isAdmin: false };
 
 export function LinkStub({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) {
   return (
@@ -25,10 +25,14 @@ export function stubFetch(
   session: object | "fail" = { user: { name: "Imran" } },
   me: object | null = { playerId: 7 },
   live: object | null = NOT_LIVE,
+  admin = false,
 ) {
   global.fetch = vi.fn((url: string) => {
     if (url.includes("/api/auth/session")) {
       return session === "fail" ? Promise.reject(new Error("x")) : Promise.resolve({ ok: true, json: () => Promise.resolve(session) });
+    }
+    if (url.includes("/api/admin/access")) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ admin }) });
     }
     if (url.includes("/api/live")) {
       return Promise.resolve({ ok: live !== null, status: live !== null ? 200 : 401, json: () => Promise.resolve(live) });

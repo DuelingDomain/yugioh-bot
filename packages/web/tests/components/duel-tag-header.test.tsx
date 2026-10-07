@@ -39,7 +39,7 @@ function header(room: DuelRoom, extra: Partial<React.ComponentProps<typeof TagHe
 
 function track(room: DuelRoom, extra: Partial<React.ComponentProps<typeof TagTrack>> = {}) {
   return render(
-    <TagTrack session={room.session} engine={room.engine!} clock={room.clock} nameOf={nameOf} {...extra} />,
+    <TagTrack engine={room.engine!} nameOf={nameOf} {...extra} />,
   );
 }
 
@@ -55,12 +55,12 @@ describe("TagHeader", () => {
   it("takes the mode label from the session, not a fixed word", () => {
     const domain = { ...baseRoom, session: { ...baseRoom.session, mode: "domain" as const } };
     const view = header(domain);
-    expect(screen.getByText(/Domain/)).toBeTruthy();
+    expect(screen.getByText("Custom Domain · Tag duel (2v2)")).toBeTruthy();
     view.unmount();
     const standard = { ...baseRoom, session: { ...baseRoom.session, mode: "normal" as const, masterRule: 5 as const } };
     header(standard);
-    expect(screen.queryByText(/Domain/)).toBeNull();
-    expect(screen.getByText(/MR5/)).toBeTruthy();
+    expect(screen.queryByText("Custom Domain · Tag duel (2v2)")).toBeNull();
+    expect(screen.getByText("MR5 · Tag duel (2v2)")).toBeTruthy();
   });
 
   it("shows the session name as the title", () => {
@@ -68,9 +68,9 @@ describe("TagHeader", () => {
     expect(screen.getByText("Friday Tag Night")).toBeTruthy();
   });
 
-  it("names the brand link Duelists Kingdom and points it at the duel list", () => {
+  it("names the brand link Dueling Domain and points it at the duel list", () => {
     header(baseRoom);
-    const brand = screen.getByRole("link", { name: "Duelists Kingdom" });
+    const brand = screen.getByRole("link", { name: "Dueling Domain" });
     expect(brand.getAttribute("href")).toBe("/duels");
   });
 
@@ -157,13 +157,8 @@ describe("TagTrack", () => {
     expect(now[0].getAttribute("aria-current")).toBe("step");
   });
 
-  it("renders the decision clock", () => {
+  it("does not render a clock: the clocks live in the top-left block", () => {
     track(baseRoom);
-    expect(screen.getByRole("timer", { name: "Decision clocks" })).toBeTruthy();
-  });
-
-  it("renders nothing for the clock when the duel has none", () => {
-    track(baseRoom, { clock: null });
     expect(screen.queryByRole("timer")).toBeNull();
   });
 

@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "../helpers/identity.js";
 import Database from "better-sqlite3";
 import { describe, expect, it, vi } from "vitest";
 import { migrate } from "../../src/db/index.js";
@@ -7,11 +8,8 @@ import { createTournamentService } from "../../src/services/tournaments.js";
 function setup() {
   const db = new Database(":memory:");
   migrate(db);
-  const insertPlayer = db.prepare(
-    "insert into players (guild_id, discord_user_id, display_name) values (?, ?, ?)",
-  );
-  const p1 = Number(insertPlayer.run("g1", "u1", "Yugi").lastInsertRowid);
-  const p2 = Number(insertPlayer.run("g1", "u2", "Kaiba").lastInsertRowid);
+  const p1 = seedIdentity(db, { guildId: "g1", name: "Yugi", userId: seedUser(db, "u1").userId, discordUserId: seedUser(db, "u1").discordUserId ?? "u1" }).playerId;
+  const p2 = seedIdentity(db, { guildId: "g1", name: "Kaiba", userId: seedUser(db, "u2").userId, discordUserId: seedUser(db, "u2").discordUserId ?? "u2" }).playerId;
   return {
     db,
     matches: createMatchService(db),
@@ -27,7 +25,7 @@ function seedPendingTournamentMatch(
   app: ReturnType<typeof setup>,
   opts: { windowHours?: number | null; createdAt: string },
 ) {
-  const t = app.tournaments.create("g1", "Cup", "round_robin", "u1", {
+  const t = app.tournaments.create("g1", "Cup", "round_robin", seedUser(app.db, "u1").userId, {
     reportConfirmWindowHours: opts.windowHours ?? null,
   });
   app.tournaments.join(t.id, app.p1);
@@ -116,7 +114,7 @@ describe("matches.findOverduePendingConfirmations", () => {
 
 describe("matches.recordConfirmedResult", () => {
   function tournamentSlot(app: ReturnType<typeof setup>, format: "round_robin" | "single_elim" = "single_elim") {
-    const t = app.tournaments.create("g1", "Cup", format, "u1");
+    const t = app.tournaments.create("g1", "Cup", format, seedUser(app.db, "u1").userId);
     app.tournaments.join(t.id, app.p1);
     app.tournaments.join(t.id, app.p2);
     app.tournaments.start(t.id);
@@ -183,9 +181,7 @@ describe("matches.recordConfirmedResult", () => {
   it("rejects a completed slot, other players and a pending report, leaving no match behind", () => {
     const app = setup();
     const { t, slot } = tournamentSlot(app);
-    const other = Number(
-      app.db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', 'u3', 'Joey')").run().lastInsertRowid,
-    );
+    const other = seedIdentity(app.db, { guildId: "g1", name: "Joey", userId: seedUser(app.db, "u3").userId, discordUserId: seedUser(app.db, "u3").discordUserId ?? "u3" }).playerId;
     const input = { guildId: "g1", playerOneId: app.p1, playerTwoId: app.p2, winnerId: app.p1, source: "tournament" as const, tournamentMatchId: slot.id };
     expect(() => app.matches.recordConfirmedResult({ ...input, playerTwoId: other })).toThrow(/do not match/i);
     expect(() => app.matches.recordConfirmedResult({ ...input, tournamentMatchId: 9999 })).toThrow(/not found/i);

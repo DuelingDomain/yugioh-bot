@@ -1,0 +1,464 @@
+"use client";
+
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import {
+  clampView,
+  edgeInsets,
+  FLAT_FRAME,
+  isIdentity,
+  isZoomed,
+  layerOffset,
+  layerTransform,
+  FOLLOW_ATTR,
+  panBy,
+  pinchView,
+  PressSplit,
+  stepView,
+  VIEW_IDENTITY,
+  viewsClose,
+  wheelFactor,
+  zoomAt,
+  type LayerFrame,
+  type Point,
+  type Insets,
+  type Rect,
+  type View,
+} from "./view-zoom";
+import styles from "./view-zoom.module.css";
+
+/** The HUD over the board: a press or a wheel that starts here is its own, never a pan or a zoom of the board. */
+const HUD = "[data-slot], [data-holo], [data-grid-lp], [data-grid-hub], [data-hub-slot], [data-grid-controls], [data-view-reset], [data-camera-panel], [data-table-chrome], [data-opponent-bar], [role='dialog']";
+/** Where the wheel keeps its own meaning (lists that scroll, menus). */
+const NO_WHEEL = "[data-slot='prompt'], [data-slot='overlay'], [data-camera-panel], [data-table-chrome], [role='dialog'], [role='menu']";
+/** Not empty board space: a double-click here does not reset the view. */
+const NOT_EMPTY = "[data-uid], [data-zones], [data-hand-seat], [data-pile], button, a, input, select, textarea, [role='button'], [data-legal='true'], [data-holo]";
+
+/**
+ * The HUD that stays in place while the board zooms (the prompts, the controls, the shell's corners and header). The
+ * pan may take the edge of the board in under it (see `clampView`), so no card has to stay under it. The life plates and
+ * the phase hub are not here: they follow the board (see `followCss`).
+ */
+export const VIEW_OCCLUDERS = [
+  "[data-prompt-panel]",
+  "[data-prompt-surface]",
+  "[data-slot='prompt'] [data-place]",
+  "[data-grid-controls]",
+  "[data-view-reset]",
+  "[data-camera-panel]",
+  "[data-testid='hud-corner']",
+  "[data-testid='hud-top']",
+  "[data-testid='hud-master']",
+  "[data-opponent-bar]",
+  "[data-table-chrome]",
+  "[data-zoom-occluder]",
+].join(", ");
+
+/** The rects (px of the root's box) of the fixed HUD that is over the root. */
+export function occluderRects(root: HTMLElement, selector: string = VIEW_OCCLUDERS): Rect[] {
+  const box = root.getBoundingClientRect();
+  const out: Rect[] = [];
+  for (const node of Array.from(root.ownerDocument.querySelectorAll<HTMLElement>(selector))) {
+    const r = node.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) continue;
+    if (r.right <= box.left || r.left >= box.right || r.bottom <= box.top || r.top >= box.bottom) continue;
+    out.push({ x: r.left - box.left, y: r.top - box.top, width: r.width, height: r.height });
+  }
+  return out;
+}
+
+/** Time constant of the ease (ms): a wheel notch settles in about a quarter of a second. */
+const EASE_MS = 70;
+/** A double-click this soon after a drag is part of the drag, not a reset. */
+const AFTER_DRAG_MS = 400;
+/** Wheel events this close together are one gesture: the HUD insets are read at its first event only. */
+const WHEEL_GESTURE_MS = 250;
+
+/** The box and the HUD insets one gesture works with. */
+type Held = { box: ReturnType<typeof sizeOf>; insets: Insets };
+
+export interface UseViewZoomOptions {
+  /** The board box: it takes the wheel, the presses and the touches. */
+  rootRef: RefObject<HTMLElement | null>;
+  /** The board layer that zooms and pans (the HUD is outside it). */
+  layerRef: RefObject<HTMLElement | null>;
+  /** Off in the fly-in view (it has its own orbit and zoom) and before the board is measured: the view is the identity. */
+  enabled: boolean;
+  reducedMotion: boolean;
+  /** The layout of the board (camera mode and target, focus, seats out, the final duel). A change resets the view. */
+  resetKey: string;
+  /** Where the layer sits in its parent (see `LayerFrame`). */
+  frame?: LayerFrame;
+  /** The fixed HUD (a CSS selector, see `VIEW_OCCLUDERS`). */
+  occluders?: string;
+}
+
+export interface UseViewZoom {
+  /** The view at rest (it is not updated on every frame of a move). */
+  view: View;
+  zoomed: boolean;
+  /** Back to the camera pose, eased (at once with reduced motion). */
+  reset: () => void;
+  /** The HUD over the board changed (a prompt opened, closed or moved): the view eases into the new clamps. */
+  refit: () => void;
+}
+
+const pointIn = (node: HTMLElement, event: { clientX: number; clientY: number }): Point => {
+  const rect = node.getBoundingClientRect();
+  return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+};
+
+const sizeOf = (node: HTMLElement) => ({ width: node.clientWidth, height: node.clientHeight });
+
+/**
+ * Zoom and pan of the board under a flat camera: the wheel (and Ctrl+wheel, a trackpad pinch) zooms about the
+ * pointer; a left-button drag pans; on touch, one finger pans a zoomed board and two fingers pinch. A press is a pan
+ * only after it moves past the threshold, and the click that ends a pan is dropped, so one press never is both.
+ * The layer transform is written to the DOM on every frame; React sees the view only when it comes to rest.
+ */
+export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKey, frame = FLAT_FRAME, occluders = VIEW_OCCLUDERS }: UseViewZoomOptions): UseViewZoom {
+  const [rest, setRest] = useState<View>(VIEW_IDENTITY);
+  // `held`: the box and the HUD insets a gesture (a drag, a pinch, a wheel run) reads at its start and keeps.
+  const live = useRef({ current: VIEW_IDENTITY as View, target: VIEW_IDENTITY as View, frame, reducedMotion, enabled, raf: 0, last: 0, held: null as Held | null });
+  live.current.frame = frame;
+  live.current.reducedMotion = reducedMotion;
+  live.current.enabled = enabled;
+  const occluderSelector = useRef(occluders);
+  occluderSelector.current = occluders;
+  /** The HUD insets of the box now (the HUD moves: a prompt opens, a drawer slides), read at each gesture. */
+  const insetsOf = useCallback((root: HTMLElement): Insets => edgeInsets(occluderRects(root, occluderSelector.current), sizeOf(root)), []);
+
+  /** Writes the view to the DOM; `atRest` writes the follow vars on the root too (see followShift). */
+  const write = useCallback((atRest = false) => {
+    const layer = layerRef.current;
+    const root = rootRef.current;
+    const state = live.current;
+    if (layer) {
+      layer.style.transform = layerTransform(state.current, state.frame);
+      layer.style.transformOrigin = isIdentity(state.current) ? "" : "0 0";
+      layer.style.willChange = state.raf !== 0 ? "transform" : "";
+    }
+    if (root) {
+      if (isZoomed(state.current)) root.dataset.viewZoomed = "true";
+      else delete root.dataset.viewZoomed;
+      // The HUD that follows the board (see followShift) reads the layer offset and the scale: on every frame from its
+      // own style, at rest from the root as well (a follower that mounts later inherits it).
+      const u = layerOffset(state.current, state.frame);
+      const x = `${u.x.toFixed(2)}px`;
+      const y = `${u.y.toFixed(2)}px`;
+      const s = state.current.s.toFixed(4);
+      const targets: HTMLElement[] = Array.from(root.querySelectorAll<HTMLElement>(`[${FOLLOW_ATTR}]`));
+      if (atRest) targets.push(root);
+      for (const node of targets) {
+        node.style.setProperty("--vz-x", x);
+        node.style.setProperty("--vz-y", y);
+        node.style.setProperty("--vz-s", s);
+      }
+    }
+  }, [layerRef, rootRef]);
+
+  const settle = useCallback(() => {
+    const state = live.current;
+    if (state.raf) cancelAnimationFrame(state.raf);
+    state.raf = 0;
+    write(true);
+    const at = state.current;
+    setRest((prev) => (viewsClose(prev, at) ? prev : at));
+  }, [write]);
+
+  const tick = useCallback((time: number) => {
+    const state = live.current;
+    const dt = state.last ? Math.min(64, time - state.last) : 16;
+    state.last = time;
+    state.current = stepView(state.current, state.target, dt, EASE_MS);
+    if (state.current === state.target) {
+      settle();
+      return;
+    }
+    write();
+    state.raf = requestAnimationFrame(tick);
+  }, [settle, write]);
+
+  /** Moves the view to `next`: eased, or at once (a drag, a pinch, reduced motion). */
+  const go = useCallback((next: View, instant: boolean) => {
+    const state = live.current;
+    state.target = next;
+    if (instant || state.reducedMotion) {
+      state.current = next;
+      if (state.raf) {
+        cancelAnimationFrame(state.raf);
+        state.raf = 0;
+      }
+      write();
+      // With reduced motion a wheel step or a reset lands at once and is at rest; a drag or a pinch rests when it ends.
+      if (!instant) settle();
+      return;
+    }
+    if (!state.raf) {
+      state.last = 0;
+      state.raf = requestAnimationFrame(tick);
+      write();
+    }
+  }, [settle, tick, write]);
+
+  const reset = useCallback(() => go(VIEW_IDENTITY, false), [go]);
+
+  const refit = useCallback(() => {
+    const root = rootRef.current;
+    const state = live.current;
+    if (!root || !isZoomed(state.target)) return;
+    // A gesture that is on now keeps these new insets: with its old ones its next move would pull the board back.
+    const held = { box: sizeOf(root), insets: insetsOf(root) };
+    if (state.held) state.held = held;
+    const next = clampView(state.target, held.box, held.insets);
+    if (!viewsClose(next, state.target)) go(next, false);
+  }, [go, insetsOf, rootRef]);
+
+  // A new layout of the board resets the view; with reduced motion at once.
+  const lastKey = useRef(resetKey);
+  useLayoutEffect(() => {
+    if (lastKey.current === resetKey) return;
+    lastKey.current = resetKey;
+    if (isIdentity(live.current.target) && isIdentity(live.current.current)) return;
+    reset();
+  }, [resetKey, reset]);
+
+  // Off (the fly-in view): the identity at once, so the fly camera never sees a zoomed layer.
+  useLayoutEffect(() => {
+    if (enabled) return;
+    go(VIEW_IDENTITY, true);
+    settle();
+  }, [enabled, go, settle]);
+
+  // A new fit of the board (a resize, a drawer): the view keeps its scale inside the new clamps.
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const state = live.current;
+    const box = sizeOf(root);
+    const insets = insetsOf(root);
+    state.target = clampView(state.target, box, insets);
+    state.current = state.raf ? clampView(state.current, box, insets) : state.target;
+    write(state.raf === 0);
+  }, [frame.x, frame.y, frame.k, rootRef, write, insetsOf]);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root || !enabled) return;
+    const state = live.current;
+    const split = new PressSplit();
+    let press: { id: number; touch: boolean; last: Point; pan: boolean } | null = null;
+    const touches = new Map<number, Point>();
+    let pinch: { start: View; a0: Point; b0: Point; ids: [number, number] } | null = null;
+    let dropClick = false;
+    let dropTimer = 0;
+    let dragEnd = 0;
+    let gesture: View | null = null;
+
+    root.style.touchAction = "none";
+
+    const inHud = (target: EventTarget | null) => {
+      const node = target as Element | null;
+      if (!node?.closest) return true;
+      if (layerRef.current?.contains(node)) return false;
+      return node.closest(HUD) != null;
+    };
+    // The box and the HUD insets are read once at the start of a gesture (a drag, a pinch, a wheel run), not on every
+    // move: a read right after a transform write would force a style and layout pass on each frame.
+    // A refit while a gesture is on gives it the new insets (see refit).
+    state.held = null;
+    let wheelAt = -Infinity;
+    const readInsets = () => {
+      state.held = { box: sizeOf(root), insets: insetsOf(root) };
+      return state.held;
+    };
+    const box = () => (state.held ?? readInsets()).box;
+    const insets = () => (state.held ?? readInsets()).insets;
+    const endDrag = () => {
+      root.classList.remove(styles.dragging);
+      dragEnd = performance.now();
+    };
+    const drop = () => {
+      dropClick = true;
+      window.clearTimeout(dropTimer);
+      // The click of this press comes in the same task as its pointerup; a later click is a new press.
+      dropTimer = window.setTimeout(() => {
+        dropClick = false;
+      }, 0);
+    };
+
+    const down = (event: PointerEvent) => {
+      if (event.pointerType === "touch") {
+        if (inHud(event.target)) return;
+        touches.set(event.pointerId, pointIn(root, event));
+        if (touches.size === 2) {
+          // Two fingers: a pinch. The press of the first finger is neither a click nor a pan.
+          split.cancel();
+          if (press?.pan) {
+            try {
+              root.releasePointerCapture(press.id);
+            } catch {
+              // Already released.
+            }
+            endDrag();
+          }
+          press = null;
+          const [[ia, a0], [ib, b0]] = [...touches.entries()];
+          pinch = { start: state.target, a0, b0, ids: [ia, ib] };
+          readInsets();
+          return;
+        }
+        if (touches.size > 2) return;
+      } else if (event.button !== 0 || inHud(event.target)) {
+        return;
+      }
+      const at = pointIn(root, event);
+      split.down(at);
+      press = { id: event.pointerId, touch: event.pointerType === "touch", last: at, pan: false };
+      dropClick = false;
+    };
+
+    const move = (event: PointerEvent) => {
+      if (event.pointerType === "touch" && touches.has(event.pointerId)) {
+        touches.set(event.pointerId, pointIn(root, event));
+        if (pinch) {
+          const a = touches.get(pinch.ids[0]);
+          const b = touches.get(pinch.ids[1]);
+          if (a && b) go(pinchView(pinch.start, pinch.a0, pinch.b0, a, b, box(), insets()), true);
+          return;
+        }
+      }
+      if (!press || event.pointerId !== press.id) return;
+      const at = pointIn(root, event);
+      const step = split.move(at);
+      if (step === "idle") return;
+      if (step === "start") {
+        // One finger pans only a zoomed board; a mouse or a pen drag always pans (at scale 1 the clamps hold it still).
+        press.pan = !press.touch || isZoomed(state.target);
+        if (press.pan) {
+          readInsets();
+          root.classList.add(styles.dragging);
+          window.getSelection?.()?.removeAllRanges();
+          try {
+            root.setPointerCapture(event.pointerId);
+          } catch {
+            // Pointer capture is optional.
+          }
+        }
+      }
+      if (press.pan) go(panBy(state.target, at.x - press.last.x, at.y - press.last.y, box(), insets()), true);
+      press.last = at;
+    };
+
+    const up = (event: PointerEvent) => {
+      const cancelled = event.type === "pointercancel";
+      if (touches.delete(event.pointerId) && pinch) {
+        // The pinch ends with its first finger up; the other finger does nothing until it is lifted too.
+        if (pinch.ids.includes(event.pointerId)) {
+          pinch = null;
+          drop();
+          settle();
+        }
+        return;
+      }
+      if (!press || event.pointerId !== press.id) return;
+      const result = split.up();
+      if (press.pan) {
+        try {
+          root.releasePointerCapture(event.pointerId);
+        } catch {
+          // Already released.
+        }
+      }
+      if (result === "drag") {
+        if (!cancelled) drop();
+        endDrag();
+        settle();
+      }
+      press = null;
+    };
+
+    // Window, capture phase: the first listener of all, so no handler of the board (React's included) sees the click.
+    const click = (event: MouseEvent) => {
+      if (!dropClick) return;
+      dropClick = false;
+      event.stopPropagation();
+      event.preventDefault();
+    };
+
+    const wheel = (event: WheelEvent) => {
+      const target = event.target as Element | null;
+      if (target?.closest?.(NO_WHEEL)) {
+        // A pinch over a prompt must not zoom the page either.
+        if (event.ctrlKey) event.preventDefault();
+        return;
+      }
+      event.preventDefault();
+      const now = performance.now();
+      if (now - wheelAt > WHEEL_GESTURE_MS) readInsets();
+      wheelAt = now;
+      go(zoomAt(state.target, pointIn(root, event), wheelFactor(event.deltaY, event.deltaMode, event.ctrlKey), box(), insets()), false);
+    };
+
+    const dblclick = (event: MouseEvent) => {
+      const target = event.target as Element | null;
+      if (!target?.closest || inHud(target) || target.closest(NOT_EMPTY)) return;
+      if (performance.now() - dragEnd < AFTER_DRAG_MS) return;
+      reset();
+    };
+
+    // Safari: a trackpad pinch comes as gesture events; the page must not zoom.
+    type GestureEventLike = Event & { scale?: number; clientX?: number; clientY?: number };
+    const gestureStart = (event: Event) => {
+      event.preventDefault();
+      gesture = state.target;
+      readInsets();
+    };
+    const gestureChange = (event: Event) => {
+      event.preventDefault();
+      const e = event as GestureEventLike;
+      if (!gesture || typeof e.scale !== "number") return;
+      const rect = root.getBoundingClientRect();
+      const at = typeof e.clientX === "number" && typeof e.clientY === "number" ? pointIn(root, { clientX: e.clientX, clientY: e.clientY }) : { x: rect.width / 2, y: rect.height / 2 };
+      go(zoomAt(gesture, at, e.scale, box(), insets()), true);
+    };
+    const gestureEnd = (event: Event) => {
+      event.preventDefault();
+      gesture = null;
+      settle();
+    };
+
+    root.addEventListener("pointerdown", down);
+    root.addEventListener("pointermove", move);
+    root.addEventListener("pointerup", up);
+    root.addEventListener("pointercancel", up);
+    root.addEventListener("wheel", wheel, { passive: false });
+    root.addEventListener("dblclick", dblclick);
+    root.addEventListener("gesturestart", gestureStart);
+    root.addEventListener("gesturechange", gestureChange);
+    root.addEventListener("gestureend", gestureEnd);
+    window.addEventListener("click", click, true);
+    return () => {
+      root.removeEventListener("pointerdown", down);
+      root.removeEventListener("pointermove", move);
+      root.removeEventListener("pointerup", up);
+      root.removeEventListener("pointercancel", up);
+      root.removeEventListener("wheel", wheel);
+      root.removeEventListener("dblclick", dblclick);
+      root.removeEventListener("gesturestart", gestureStart);
+      root.removeEventListener("gesturechange", gestureChange);
+      root.removeEventListener("gestureend", gestureEnd);
+      window.removeEventListener("click", click, true);
+      window.clearTimeout(dropTimer);
+      root.classList.remove(styles.dragging);
+      root.style.touchAction = "";
+    };
+  }, [enabled, go, layerRef, reset, rootRef, settle]);
+
+  useEffect(() => () => {
+    const state = live.current;
+    if (state.raf) cancelAnimationFrame(state.raf);
+    state.raf = 0;
+  }, []);
+
+  return { view: rest, zoomed: isZoomed(rest), reset, refit };
+}

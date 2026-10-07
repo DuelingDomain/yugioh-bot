@@ -756,8 +756,8 @@ export function createDuelSeriesService(db: Database.Database): DuelSeriesServic
   const store = createSeriesStore(db);
   const duels = createDuelService(db);
 
-  const selectPlayer = db.prepare<[number], { guild_id: string; discord_user_id: string; display_name: string }>(
-    "select guild_id, discord_user_id, display_name from players where id = ?",
+  const selectPlayer = db.prepare<[number], { guild_id: string; user_id: number; discord_user_id: string | null; display_name: string }>(
+    "select guild_id, user_id, discord_user_id, display_name from players where id = ?",
   );
   const assertPlayerGuild = (playerId: number, guildId: string) => {
     const player = selectPlayer.get(playerId);
@@ -785,7 +785,7 @@ export function createDuelSeriesService(db: Database.Database): DuelSeriesServic
       guild_id: string;
       name: string;
       status: string;
-      created_by_user_id: string;
+      created_by_user_id: number;
       best_of: number | null;
       duel_rules_json: string | null;
       draft_id: number | null;
@@ -909,7 +909,7 @@ export function createDuelSeriesService(db: Database.Database): DuelSeriesServic
       if (slot.player_two_id === null) throw new DuelServiceError("A bye has no duel to play", 400);
       const actor = assertPlayerGuild(input.actorPlayerId, input.guildId);
       const isPlayer = input.actorPlayerId === slot.player_one_id || input.actorPlayerId === slot.player_two_id;
-      if (!isPlayer && actor.discord_user_id !== tournament.created_by_user_id) {
+      if (!isPlayer && actor.user_id !== tournament.created_by_user_id) {
         throw new DuelServiceError("Only a match player or the tournament organizer can start this duel", 403);
       }
       if (tournament.status !== "active") throw new DuelServiceError("Tournament is not active", 409);

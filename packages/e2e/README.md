@@ -12,32 +12,35 @@ npm run e2e:report --workspace=packages/e2e
 
 - `e2e:nobuild` skips the build step. `E2E_FORCE_BUILD=1` rebuilds all. `E2E_SKIP_BUILD=1` skips builds.
 - Run one file: `npx playwright test duel-1v1-match` (from `packages/e2e`).
+- Fast auth gate after building: `npx playwright test tests/auth.setup.ts` (from `packages/e2e`).
 - Shard: `npx playwright test --shard=1/3`. Each shard starts its own stack, so run shards on separate machines.
 - Retries: 1 in CI, 0 locally. Traces are kept on the first retry in CI and on failure locally. Screenshots and video are kept on failure. A failed test also attaches more evidence: see Failure evidence.
 
 ## The isolated stack
 
-Playwright `webServer` runs `stack/start.mjs`. It starts three processes on non-live ports and stops them at the end:
+Playwright `webServer` runs `stack/start.mjs`. It starts four processes on non-live ports, waits for `GET /api/auth/session`, and stops them at the end:
 
 | Service | Port | Notes |
 | --- | --- | --- |
 | web (production standalone build) | 3300 | `http://localhost:3300`. Use `localhost`, not `127.0.0.1`. |
 | ws Socket.IO | 3302 public, 4302 internal | `NEXT_PUBLIC_WS_URL` is baked into the web build. |
 | duel host | 4303 | Uses `data/duel-engine-next` read-only. |
+| worker | none | Advances unattended drafts and tournaments; uses the isolated DB and image cache. |
 
-- Database: a fresh SQLite file at `packages/e2e/.stack/e2e.sqlite`, seeded with one guild and 5 players (p1 to p4 take seats; p5 is the unseated watcher). The live `data/bot.sqlite` is never used.
+- Database: a fresh SQLite file at `packages/e2e/.stack/e2e.sqlite`, seeded with one guild and 5 players (p1 to p4 take seats in four-seat specs; p5 is the email-only watcher). `p5` has user ID 105, a verified fixture email, and NULL Discord IDs on both user and player rows. It also hosts the existing practice-bot duel spec. The live `data/bot.sqlite` is never used.
 - The duel and web services set `MULTIPLAYER_TABLES=1` to permit FFA3, FFA4 and 2v2 Tag tables and presets.
-- Secrets: new random values for each run (`stack/env.mjs`). The stack sets every variable the three servers read, so a value in a `.env` file cannot change the run. The duel host still loads the repo `.env` by a fixed path (dotenv never overrides a variable that is set). The ws server loads no `.env`.
+- Secrets: new random values for each run (`stack/env.mjs`): 24 random bytes encoded as 48 hex characters for auth, WS and duel secrets. The stack sets every variable the services read, so a value in a `.env` file cannot change the run. The duel host still loads the repo `.env` by a fixed path (dotenv never overrides a variable that is set). The ws server loads no `.env`.
 - Memory: the duel host keeps each unfinished duel's engine worker for 5 minutes after its last request (`DUEL_IDLE_WORKER_MS`). A long `--repeat-each` run can use several GB. The memory goes down when the idle workers close.
-- The web build is `next build` with the E2E ws URL, so `packages/web/.next` is overwritten. `stack/prepare.mjs` rebuilds only what is older than its sources.
-- Discord is not called. `stack/fetch-stub.mjs` is preloaded into the web server only. It answers the guild-member check for the 4 fake players and serves a tiny JPEG for card images. The production checks in `duel-host.ts` are unchanged. Bot announcements are skipped because `BOT_ANNOUNCE_URL` is empty.
-- The stack refuses to start on a live port (3000, 3001, 3002, 4001, 4002, 4003) or on a busy port.
+- The web build is `next build` with the E2E ws URL, `E2E_AUTH=1`, a throwaway auth secret and the format-valid dummy Clerk publishable key `pk_test_Y2xlcmsuZXhhbXBsZS5jb20k`, so `packages/web/.next` is overwritten. `stack/prepare.mjs` rebuilds stale sources and outputs whose stamp does not match `{ wsUrl, e2eAuth: true, clerkPublishableKey }`. A production build or a build with another key is rebuilt.
+- Discord is not called: web and worker run with `DISCORD_BOT_ENABLED=0`. `stack/fetch-stub.mjs` is preloaded into both services and retains only the card-set and card-image stubs. Web gets `WEB_URL`, the E2E gate/secret and the dummy publishable key; no Discord login credentials are needed.
+- The stack refuses to start on a live port (3000, 3001, 3002, 3100, 3110, 4001, 4002, 4003, 4010) or on a busy port.
+- Concurrent runs: set `E2E_SLOT=N` (one digit, 0 to 9). Ports become web `3301+10N`, ws `3303+10N`, ws internal `4304+10N`, duel `4305+10N`, and the state folder `.stack-N` replaces `.stack`. Each slot needs its own build. See `stack/MANUAL.md`.
 
 ## Test login
 
-`packages/web/src/lib/auth.ts` adds a NextAuth Credentials provider (`e2e`) only when `E2E_AUTH=1` and `E2E_AUTH_SECRET` has at least 32 characters. Without both, the provider does not exist and the login page is unchanged. The secret is compared in constant time. The session has the same `user.id` (Discord id) as a Discord login.
+The web app enables offline auth only when `E2E_AUTH=1` and `E2E_AUTH_SECRET` has at least 32 characters. `POST /api/test-auth/session` with JSON `{ userId, secret }` issues the signed, expiring HttpOnly/SameSite `dd_e2e_session` cookie for a seeded application user. `GET /api/auth/session` returns `{ user: { id, ... } }`, with `id === String(users.id)`, or `null` when signed out. With the gate disabled, the login endpoint returns 404 and the cookie is ignored. Test mode bypasses Clerk middleware/provider network initialization and uses offline account controls.
 
-`tests/auth.setup.ts` logs in players p1 to p4 through the API and saves `.auth/p1.json` to `.auth/p4.json`. Tests load them with the `player` fixture.
+`stack/login-auth.mjs` posts only the application user ID and secret, requires HTTP 200, then checks the session's application ID. `tests/auth.setup.ts` uses it for all five players and saves `.auth/p1.json` to `.auth/p5.json` (inside the slot directory when `E2E_SLOT` is set). Tests load them with the `player` fixture. `stack/login.mjs` uses the same helper for manual browsers and rejects secrets shorter than 32 characters before opening one.
 
 ## Add a flow
 
@@ -118,10 +121,18 @@ Limits: only duels with recorded answers replay (a duel that never started has n
 | `duel-domain.spec.ts` | A Deck Master is summoned from its zone, destroyed, recalled (Returns 1) and summoned again for 500 LP. |
 | `duel-reconnect.spec.ts` | Both duelists reload during a chain. The chain and the open question come back. |
 | `duel-win-spectator.spec.ts` | Win, lose and spectator result screens. |
+| `duel-tag-table.spec.ts`, `duel-tag-battle.spec.ts`, `duel-tag-chain.spec.ts`, `duel-tag-surrender-spectator.spec.ts` | Tag 2v2 on the Rooftop table: four fields and shared team LP, the first Battle Phase on turn 4, partner visibility and the opposing team answering first, one surrender ends the duel, spectator view. |
+| `duel-3p-ffa.spec.ts`, `duel-3p-ffa-table.spec.ts`, `duel-3p-ffa-rules.spec.ts`, `duel-3p-ffa-elimination.spec.ts`, `duel-3p-ffa-surrender.spec.ts` | FFA3 on the real engine: separate fields, no Battle Phase before the last duelist's turn, opponent picks, chain order, elimination and placings, Domain start, immediate surrender and automatic spectating. |
+| `duel-4p-ffa.spec.ts` | FFA4 with four browser players or bots (see Scale to 4 players). |
+| `duel-presets-multi.spec.ts` | Every multi-seat preset mounts the right table shell and plays on (see Multi-seat presets). |
+| `duel-practice-bot-spectator.spec.ts` | The host plays one action against the practice bot. A spectator sees no hand faces. |
+| `live-tables-rules.spec.ts` | A private lobby is hidden from other players, and Close removes it. |
+| `table-hand-label.spec.ts` | FFA3 and FFA4 table preview (`/dev/table-preview`): a six-card hand leaves the own field name clear at 1440x900 and 1280x720. |
+| `multiplayer-flag-off.spec.ts` | Runs only with `E2E_MULTIPLAYER_TABLES=0`: no Tag, 3-player or 4-player option, and the API refuses them. |
 
 ## Unit tests of the evidence helpers
 
-`npm run test:unit --workspace=packages/e2e` runs `node --test` on `tests-unit/` (timeline merge and rendering, leak compare). No browser and no stack. Node 24 runs the TypeScript files directly.
+`npm run test:unit --workspace=packages/e2e` runs `node --test` on `tests-unit/` (login, seed, isolated supervisor/build fixtures, timeline merge and rendering, leak compare). No browser or full stack. Node 22.23.2 runs the TypeScript files directly. Some CLI/supervisor tests need subprocesses and temporary sockets, so run the full suite outside restricted sandboxes.
 
 ## Scale to 4 players
 
@@ -134,7 +145,7 @@ Limits: only duels with recorded answers replay (a duel that never started has n
 
 - The seed already has p3 and p4 (`stack/env.mjs`). Add more players there if needed.
 - Open up to 4 contexts in one test with `player("p1")` to `player("p4")`.
-- The lobby and creator UI today is 1v1 (two seats). When 2v2 and 3-4 player tables land, update `helpers/duel.ts` (`createStandardTable`, `importDeckAndReady`) and add a `.ydk` fixture per player if decks must differ.
+- The creator and lobby support Tag, FFA3 and FFA4 (`createTable` with `format`, see above). Add a `.ydk` fixture per player if decks must differ.
 - `fixtures/earth-normals-40.ydk` is 40 legal Normal Monsters (2 copies of 20 cards). Every player can use it.
 
 ## More evidence (journal and frames)

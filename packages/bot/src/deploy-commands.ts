@@ -1,6 +1,12 @@
+import { writeSync } from "node:fs";
 import "dotenv/config";
 import { REST, Routes } from "discord.js";
 import { commandDefinitions } from "./commands/definitions.js";
+
+if (process.env.DISCORD_BOT_ENABLED !== "1") {
+  writeSync(1, "[bot] disabled\n");
+  process.exit(0);
+}
 
 const token = process.env.DISCORD_TOKEN;
 const clientId = process.env.DISCORD_CLIENT_ID;

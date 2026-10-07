@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import useSWR, { SWRConfig } from "swr";
+import type { DuelRoom } from "@yugidraft/shared/duels";
+import {
+  newOpening, openingView, submitOpeningChoice, submitOpeningPick,
+  type DuelFirstChoice, type DuelRpsMove,
+} from "../../shared/src/duels/opening.js";
 
 vi.mock("next/font/google", () => {
   const font = () => ({ variable: "font-var", className: "font-class" });
@@ -11,8 +17,11 @@ vi.mock("next/font/google", () => {
 import { findScenario, scenariosIn } from "@/components/duel/fx-lab/scenarios";
 import { labOpeningView } from "@/components/duel/fx-lab/series-view";
 import { OpeningScreen } from "@/components/duel/opening";
+import { duelRoomKey, getDuelRoom, pickOpeningMove } from "@/components/duel/api";
+import { applyAnswerResult, type RoomMutate } from "@/components/duel/answer-result";
+import { makeSeriesRoom } from "./helpers/duel-series";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 const NAMES: [string, string] = ["Sulman", "Imran"];
 
@@ -27,7 +36,7 @@ describe("fx lab: rock-paper-scissors scenarios", () => {
   it("lists every opening scenario with an opening spec", () => {
     const ids = scenariosIn("Match").map((scenario) => scenario.id).filter((id) => id.startsWith("rps-"));
     expect(ids).toEqual([
-      "rps-choosing", "rps-waiting", "rps-opponent-chose", "rps-reveal-win", "rps-reveal-lose",
+      "rps-choosing", "rps-waiting", "rps-opponent-chose",
       "rps-reveal-tie", "rps-choose-order", "rps-opponent-choosing", "rps-start",
     ]);
     for (const id of ids) expect(findScenario(id)!.build().opening).toBeDefined();
@@ -35,6 +44,51 @@ describe("fx lab: rock-paper-scissors scenarios", () => {
 });
 
 describe("OpeningScreen", () => {
+  const choices: DuelFirstChoice[] = ["first", "second"];
+  const immediateCases = ([0, 1] as const).flatMap((winnerSeat) =>
+    [-60_000, 0, 60_000].flatMap((clockOffset) => choices.map((choice) => ({ winnerSeat, clockOffset, choice }))));
+
+  it.each(immediateCases)("shows the result and order buttons at once (winner $winnerSeat, clock offset $clockOffset, $choice)", ({ winnerSeat, clockOffset, choice }) => {
+    const serverNow = 1_000_000;
+    vi.useFakeTimers();
+    vi.setSystemTime(serverNow + clockOffset);
+    let state = newOpening(1, serverNow);
+    const draw = () => <>{([0, 1] as const).map((seat) => (
+      <section key={seat} data-testid={`seat-${seat}`}>
+        <OpeningScreen opening={openingView(state, seat, serverNow)} mySeat={seat} names={NAMES}
+          onPick={(move) => { state = submitOpeningPick(state, seat, move, serverNow); }}
+          onChoose={(order) => { state = submitOpeningChoice(state, seat, order, serverNow); }} />
+      </section>
+    ))}</>;
+    const { rerender } = render(draw());
+    const seats = [within(screen.getByTestId("seat-0")), within(screen.getByTestId("seat-1"))];
+    const moves: [DuelRpsMove, DuelRpsMove] = winnerSeat === 0 ? ["rock", "scissors"] : ["paper", "scissors"];
+    fireEvent.click(seats[0].getByTestId(`opening-move-${moves[0]}`));
+    rerender(draw());
+    expect(seats[1].queryByTestId("opening-reveal")).toBeNull();
+    fireEvent.click(seats[1].getByTestId(`opening-move-${moves[1]}`));
+    rerender(draw());
+
+    for (const seat of [0, 1] as const) {
+      expect(seats[seat].getByTestId("opening-reveal")).toHaveAttribute("data-outcome", seat === winnerSeat ? "win" : "lose");
+      expect(seats[seat].getByTestId("opening-reveal")).toHaveTextContent(/Rock|Paper/);
+      expect(seats[seat].getByTestId("opening-reveal")).toHaveTextContent("Scissors");
+    }
+    expect(seats[winnerSeat].getByTestId("opening-first")).toBeEnabled();
+    expect(seats[winnerSeat].getByTestId("opening-second")).toBeEnabled();
+    expect(seats[1 - winnerSeat].queryByTestId("opening-first")).toBeNull();
+    expect(seats[winnerSeat].getByTestId("opening-status")).toHaveTextContent("You win. Go first or second?");
+    expect(seats[1 - winnerSeat].getByTestId("opening-status")).toHaveTextContent("You lose. Opponent is choosing…");
+
+    fireEvent.click(seats[winnerSeat].getByTestId(`opening-${choice}`));
+    rerender(draw());
+    expect(state.phase).toBe("start");
+    expect(state.choiceByTimeout).toBe(false);
+    for (const seat of seats) expect(seat.getByTestId("opening-screen")).toHaveAttribute("data-stage", "start");
+    // No timer or deadline was advanced to make either transition.
+    expect(Date.now()).toBe(serverNow + clockOffset);
+  });
+
   it("offers three moves and sends the one clicked", () => {
     const onPick = vi.fn();
     open("rps-choosing", { onPick });
@@ -44,6 +98,181 @@ describe("OpeningScreen", () => {
     expect(screen.getByTestId("opening-opponent").textContent).toBe("Opponent is choosing…");
     fireEvent.click(screen.getByTestId("opening-move-scissors"));
     expect(onPick).toHaveBeenCalledWith("scissors");
+  });
+
+  it.each(([0, 1] as const).flatMap((seat) => [-60_000, 60_000].map((clockOffset) => ({ seat, clockOffset }))))(
+    "enables the next throw two seconds after a tie (seat $seat, clock offset $clockOffset)", ({ seat, clockOffset }) => {
+      const serverNow = 1_000_000;
+      vi.useFakeTimers();
+      vi.setSystemTime(serverNow + clockOffset);
+      let state = newOpening(1, serverNow);
+      state = submitOpeningPick(state, 0, "rock", serverNow);
+      state = submitOpeningPick(state, 1, "rock", serverNow);
+      const onPick = vi.fn();
+      const opening = openingView(state, seat, serverNow);
+      render(<OpeningScreen opening={opening} mySeat={seat} names={NAMES} onPick={onPick} onChoose={() => undefined} />);
+
+      expect(screen.getByTestId("opening-screen")).toHaveAttribute("data-stage", "reveal");
+      act(() => vi.advanceTimersByTime(1_999));
+      expect(screen.queryByTestId("opening-move-paper")).toBeNull();
+      act(() => vi.advanceTimersByTime(1));
+      expect(screen.getByTestId("opening-screen")).toHaveAttribute("data-stage", "pick");
+      expect(screen.getByTestId("opening-move-paper")).toBeEnabled();
+      expect(screen.getByTestId("opening-countdown").querySelector("b")?.textContent).toBe("30");
+      fireEvent.click(screen.getByTestId("opening-move-paper"));
+      expect(onPick).toHaveBeenCalledWith("paper");
+    },
+  );
+
+  it("accepts the next throw two seconds after tying against the practice bot", () => {
+    const serverNow = 1_000_000;
+    vi.useFakeTimers();
+    vi.setSystemTime(serverNow);
+    let state = submitOpeningPick(newOpening(1, serverNow), 1, "rock", serverNow);
+    state = submitOpeningPick(state, 0, "rock", serverNow);
+    // The host's practice bot picks for the next round immediately after a tie.
+    state = submitOpeningPick(state, 1, "rock", serverNow);
+    const draw = () => <OpeningScreen opening={openingView(state, 0, Date.now())} mySeat={0} names={["Yugi", "Practice Bot"]}
+      onPick={(move) => { state = submitOpeningPick(state, 0, move, Date.now()); }} onChoose={() => undefined} />;
+    const { rerender } = render(draw());
+    expect(screen.getByTestId("opening-status")).toHaveTextContent("Tie — again");
+    expect(screen.getByTestId("opening-reveal").querySelectorAll("span")).toHaveLength(2);
+    expect(screen.getAllByText("Rock")).toHaveLength(2);
+    act(() => vi.advanceTimersByTime(2_000));
+    expect(screen.getByTestId("opening-move-paper")).toBeEnabled();
+    expect(screen.getByTestId("opening-opponent")).toHaveTextContent("Opponent chose");
+    fireEvent.click(screen.getByTestId("opening-move-paper"));
+    rerender(draw());
+    expect(state.phase).toBe("choose");
+    expect(state.winnerSeat).toBe(0);
+    expect(screen.getByTestId("opening-first")).toBeEnabled();
+  });
+
+  it.each([1_000, 2_000, 4_000])("does not extend a tie reveal when the cached room is %s ms old", async (age) => {
+    const serverNow = 1_000_000;
+    vi.useFakeTimers();
+    vi.setSystemTime(serverNow - 60_000);
+    const opening = labOpeningView({ stage: "reveal-tie" }, serverNow);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({
+      ...makeSeriesRoom({ series: null, status: "lobby" }), opening,
+    })));
+    const room = await getDuelRoom("table");
+    act(() => vi.advanceTimersByTime(age));
+    const draw = () => <OpeningScreen opening={room.opening!} receivedAt={room.receivedAt}
+      mySeat={0} names={NAMES} onPick={() => undefined} onChoose={() => undefined} />;
+    const { unmount } = render(draw());
+
+    if (age < 2_000) {
+      expect(screen.getByTestId("opening-screen")).toHaveAttribute("data-stage", "reveal");
+      act(() => vi.advanceTimersByTime(2_000 - age));
+    }
+    expect(screen.getByTestId("opening-screen")).toHaveAttribute("data-stage", "pick");
+    expect(screen.getByTestId("opening-move-paper")).toBeEnabled();
+    const seconds = screen.getByTestId("opening-countdown").querySelector("b")?.textContent;
+    unmount();
+    render(draw());
+    expect(screen.getByTestId("opening-screen")).toHaveAttribute("data-stage", "pick");
+    expect(screen.getByTestId("opening-countdown").querySelector("b")?.textContent).toBe(seconds);
+  });
+
+  it.each([
+    { host: "current", clockOffset: -60_000, hasServerNow: true },
+    { host: "older", clockOffset: 0, hasServerNow: false },
+  ])("keeps the opening clock correct after a remount from a POST answer in SWR with a $host host", async ({ clockOffset, hasServerNow }) => {
+    const serverNow = 1_000_000;
+    vi.useFakeTimers();
+    vi.setSystemTime(serverNow + clockOffset);
+    const opening = labOpeningView({ stage: "reveal-tie" }, serverNow);
+    if (!hasServerNow) delete (opening as Partial<typeof opening>).serverNow;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({
+      ...makeSeriesRoom({ series: null, status: "lobby" }), opening,
+    })));
+    const cache = new Map();
+    let mutate!: RoomMutate;
+    function CachedOpening() {
+      const room = useSWR<DuelRoom & { receivedAt?: number }>(duelRoomKey("table"), null, { revalidateOnMount: false });
+      mutate = room.mutate;
+      const data = room.data;
+      return data?.opening ? <OpeningScreen opening={data.opening} receivedAt={data.receivedAt}
+        mySeat={0} names={NAMES} onPick={() => undefined} onChoose={() => undefined} /> : null;
+    }
+    const draw = () => <SWRConfig value={{ provider: () => cache }}><CachedOpening /></SWRConfig>;
+    const { unmount } = render(draw());
+    await act(async () => { await applyAnswerResult(mutate, await pickOpeningMove("table", "scissors")); });
+    expect(screen.getByTestId("opening-screen")).toHaveAttribute("data-stage", "reveal");
+    act(() => vi.advanceTimersByTime(1_000));
+    unmount();
+    act(() => vi.advanceTimersByTime(3_000));
+    render(draw());
+
+    expect(screen.getByTestId("opening-screen")).toHaveAttribute("data-stage", "pick");
+    expect(screen.getByTestId("opening-move-paper")).toBeEnabled();
+    expect(screen.getByTestId("opening-countdown").querySelector("b")?.textContent).toBe("28");
+  });
+
+  const countdownCases = ["pick", "choose", "wait-choose"] as const;
+  it.each([...countdownCases, "reveal-tie"] as const)("uses browser time for an older host without serverNow in %s", (stage) => {
+    const now = 1_000_000;
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    const opening = labOpeningView({ stage }, now);
+    delete (opening as Partial<typeof opening>).serverNow;
+    const draw = () => <OpeningScreen opening={opening} mySeat={0} names={NAMES} onPick={() => undefined} onChoose={() => undefined} />;
+    const { rerender } = render(draw());
+    const seconds = () => screen.getByTestId("opening-countdown").querySelector("b")?.textContent;
+
+    if (stage === "reveal-tie") {
+      expect(screen.getByTestId("opening-screen")).toHaveAttribute("data-stage", "reveal");
+    } else {
+      expect(seconds()).toBe("30");
+    }
+    act(() => vi.advanceTimersByTime(5_000));
+    const remaining = stage === "reveal-tie" ? "27" : "25";
+    expect(seconds()).toBe(remaining);
+    vi.setSystemTime(Date.now() + 120_000);
+    rerender(draw());
+    expect(seconds()).toBe(remaining);
+  });
+
+  it.each(countdownCases.flatMap((stage) => [-60_000, 60_000].map((clockOffset) => ({ stage, clockOffset }))))(
+    "counts down from server time in $stage with clock offset $clockOffset",
+    ({ stage, clockOffset }) => {
+      const serverNow = 1_000_000;
+      vi.useFakeTimers();
+      vi.setSystemTime(serverNow + clockOffset);
+      const opening = labOpeningView({ stage }, serverNow);
+      const draw = () => <OpeningScreen opening={opening} mySeat={0} names={NAMES} onPick={() => undefined} onChoose={() => undefined} />;
+      const { rerender } = render(draw());
+      const seconds = () => screen.getByTestId("opening-countdown").querySelector("b")?.textContent;
+
+      expect(seconds()).toBe("30");
+      act(() => vi.advanceTimersByTime(5_000));
+      expect(seconds()).toBe("25");
+      vi.setSystemTime(Date.now() + 120_000);
+      rerender(draw());
+      expect(seconds()).toBe("25");
+      act(() => vi.advanceTimersByTime(25_000));
+      expect(seconds()).toBe("0");
+      act(() => vi.advanceTimersByTime(5_000));
+      expect(seconds()).toBe("0");
+    },
+  );
+
+  it("updates the countdown from a new server snapshot without reusing elapsed time", () => {
+    const serverNow = 1_000_000;
+    vi.useFakeTimers();
+    vi.setSystemTime(serverNow - 60_000);
+    let opening = labOpeningView({ stage: "pick" }, serverNow);
+    const draw = () => <OpeningScreen opening={opening} mySeat={0} names={NAMES} onPick={() => undefined} onChoose={() => undefined} />;
+    const { rerender } = render(draw());
+    const seconds = () => screen.getByTestId("opening-countdown").querySelector("b")?.textContent;
+    act(() => vi.advanceTimersByTime(5_000));
+    expect(seconds()).toBe("25");
+    opening = { ...opening, serverNow: serverNow + 10_000 };
+    rerender(draw());
+    expect(seconds()).toBe("20");
+    act(() => vi.advanceTimersByTime(1_000));
+    expect(seconds()).toBe("19");
   });
 
   it("locks the moves after a pick and shows the opponent state", () => {
@@ -58,13 +287,15 @@ describe("OpeningScreen", () => {
     expect(screen.getByTestId("opening-opponent").textContent).toBe("Opponent chose");
   });
 
-  it("reveals a win, a loss and a tie", () => {
-    const { unmount } = open("rps-reveal-win");
-    expect(screen.getByTestId("opening-status").textContent).toBe("You win");
-    expect(screen.getByTestId("opening-reveal")).toBeTruthy();
+  it("shows win and loss during order choice, and reveals a tie", () => {
+    const { unmount } = open("rps-choose-order");
+    expect(screen.getByTestId("opening-status").textContent).toBe("You win. Go first or second?");
+    expect(screen.getByTestId("opening-reveal")).toHaveAttribute("data-outcome", "win");
+    expect(screen.getByTestId("opening-first")).toBeEnabled();
     unmount();
-    const lost = open("rps-reveal-lose");
-    expect(screen.getByTestId("opening-status").textContent).toBe("You lose");
+    const lost = open("rps-opponent-choosing");
+    expect(screen.getByTestId("opening-status").textContent).toBe("You lose. Opponent is choosing…");
+    expect(screen.getByTestId("opening-reveal")).toHaveAttribute("data-outcome", "lose");
     lost.unmount();
     open("rps-reveal-tie");
     expect(screen.getByTestId("opening-status").textContent).toBe("Tie — again");
@@ -81,8 +312,18 @@ describe("OpeningScreen", () => {
 
   it("tells the loser that the opponent is choosing the order", () => {
     open("rps-opponent-choosing");
-    expect(screen.getByTestId("opening-status").textContent).toBe("Opponent is choosing to go first or second…");
+    expect(screen.getByTestId("opening-status").textContent).toBe("You lose. Opponent is choosing…");
     expect(screen.queryByTestId("opening-first")).toBeNull();
+  });
+
+  it.each([0, 1] as const)("tells spectators which player won and is choosing (winner %s)", (winnerSeat) => {
+    const opening = labOpeningView({ stage: winnerSeat === 0 ? "choose" : "wait-choose" });
+    render(<OpeningScreen opening={opening} mySeat={null} names={NAMES} onPick={() => undefined} onChoose={() => undefined} />);
+    const winner = NAMES[winnerSeat];
+    expect(screen.getByTestId("opening-status")).toHaveTextContent(`${winner} wins. ${winner} is choosing…`);
+    expect(screen.queryByTestId("opening-first")).toBeNull();
+    expect(screen.queryByTestId("opening-second")).toBeNull();
+    expect(screen.getByTestId("opening-reveal")).toHaveAttribute("data-outcome", "decided");
   });
 
   it("shows the settled order", () => {

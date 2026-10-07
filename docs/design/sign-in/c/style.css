@@ -1,0 +1,47 @@
+/* Concept C: Quiet table. Near-empty field, faint duel-table lines, one compact centred panel. */
+.c-page { position: relative; min-height: 100vh; min-height: 100svh; isolation: isolate; overflow: hidden; display: grid; place-items: center; padding: 28px 0; }
+.c-bg { position: absolute; inset: 0; z-index: -2; background: radial-gradient(55% 60% at 50% 50%, rgba(124, 58, 237, .13), transparent 70%), linear-gradient(180deg, #0A0E1A, #0B1020 60%, #0A0E1A); }
+#table { position: absolute; inset: 0; z-index: -1; width: 100%; height: 100%; pointer-events: none; color: var(--gold-soft); }
+#table .ln { fill: none; stroke: currentColor; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: .26; }
+#table .dash { stroke-dasharray: 4 5; }
+#table .rim { opacity: .14; }
+#table .spell .ln { opacity: .15; }
+#table { -webkit-mask-image: radial-gradient(ellipse 80% 80% at 50% 50%, #000 45%, rgba(0,0,0,.4) 100%); mask-image: radial-gradient(ellipse 80% 80% at 50% 50%, #000 45%, rgba(0,0,0,.4) 100%); }
+#table .mid { opacity: .2; }
+#table .grp { animation: fadein 1.1s var(--ease) both; animation-delay: var(--gd, 0s); }
+@keyframes fadein { from { opacity: 0; } }
+#table .hot { fill: rgba(245, 158, 11, 0); stroke: var(--gold-hi); opacity: .2; }
+#table .gem { fill: currentColor; opacity: .5; }
+#table .land { opacity: 0; }
+html[data-s="signing"] #table .hot { fill: rgba(245, 158, 11, .14); opacity: .95; animation: hotpulse 1s ease-in-out infinite alternate; }
+@keyframes hotpulse { from { opacity: .5; } to { opacity: 1; } }
+html[data-s="signing"] #table .land { opacity: 1; animation: drop .6s var(--ease) both; }
+@keyframes drop { from { opacity: 0; transform: translateY(-26px) rotate(-8deg); } }
+
+.c-stack { width: min(400px, 100% - 32px); display: flex; flex-direction: column; align-items: center; gap: 16px; }
+.c-mark { width: 44px; height: 44px; filter: drop-shadow(0 0 14px rgba(245, 158, 11, .25)); }
+.c-mark a { display: block; }
+.c-panel { width: 100%; padding: 28px 26px 22px; border-radius: 16px; background: rgba(15, 20, 36, .9); border: 1px solid rgba(201, 164, 92, .3);
+  box-shadow: 0 40px 70px -30px rgba(0, 0, 0, .9), 0 0 0 6px rgba(10, 14, 26, .6), inset 0 1px 0 rgba(255, 255, 255, .04); backdrop-filter: blur(6px); }
+.scr { animation: panelin .3s var(--ease) both; }
+@keyframes panelin { from { opacity: 0; transform: translateY(10px); } }
+.ttl { font-family: var(--display); font-weight: 400; font-size: 27px; line-height: 1.1; text-wrap: balance; }
+.ttl em { font-style: normal; color: var(--gold-hi); }
+.lede { margin-top: 8px; font-size: 16px; line-height: 1.45; color: #BCC4DA; text-wrap: pretty; }
+.lede [data-email] { color: var(--text); font-weight: 600; word-break: break-all; }
+.scr .form { margin-top: 20px; }
+.scr .foot-links { margin-top: 18px; padding-top: 14px; border-top: 1px dashed rgba(201, 164, 92, .25); }
+.scr .foot-links:empty { display: none; }
+.c-top { position: absolute; top: 18px; right: 22px; }
+.c-top a { font-size: 13px; letter-spacing: .14em; text-transform: uppercase; text-decoration: none; color: var(--text-3); padding: 8px 2px; }
+.c-top a:hover { color: var(--text); text-decoration: underline; text-decoration-color: var(--gold-soft); text-underline-offset: 6px; }
+@media (max-width: 520px) {
+  .c-page { align-items: start; padding: 20px 0 28px; }
+  .c-stack { gap: 14px; }
+  .c-panel { padding: 22px 18px 16px; }
+  .ttl { font-size: 25px; }
+  .c-top { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-s="signing"] #table .land { opacity: 1; }
+}

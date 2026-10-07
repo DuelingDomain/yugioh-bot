@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "../fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -6,17 +7,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const auth = vi.fn();
 const tempDirs: string[] = [];
 
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("../fixtures/session");
+  return sessionFixture(auth);
+});
 
 async function seedTournamentWithParticipants(dbPath: string) {
   const Database = (await import("better-sqlite3")).default;
   const { migrate } = await import("../../../shared/src/db/schema");
   const seedDb = new Database(dbPath);
   migrate(seedDb);
-  seedDb.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', 'u-org', 'Org'), ('g1', 'u-vict', 'Vict')").run();
-  seedDb.prepare("insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug) values ('g1', 'T', 'round_robin', 'pending', 'u-org', 'slug-1')").run();
+  seedFixtureUsers(seedDb, FIXTURE_KEYS);
+  seedDb.prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('g1', ${fixtureUserId("u-org")}, '${fixtureDiscordId("u-org")}', 'Org'), ('g1', ${fixtureUserId("u-vict")}, '${fixtureDiscordId("u-vict")}', 'Vict')`).run();
+  seedDb.prepare(`insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug) values ('g1', 'T', 'round_robin', 'pending', ${fixtureUserId("u-org")}, 'slug-1')`).run();
   const tId = (seedDb.prepare("select id from tournaments where web_slug = 'slug-1'").get() as any).id;
-  const victId = (seedDb.prepare("select id from players where discord_user_id = 'u-vict'").get() as any).id;
+  const victId = (seedDb.prepare(`select id from players where user_id = ${fixtureUserId("u-vict")}`).get() as any).id;
   seedDb.prepare("insert into tournament_participants (tournament_id, player_id) values (?, ?)").run(tId, victId);
   seedDb.close();
   return { victId };
@@ -39,7 +44,7 @@ describe("POST /api/tournaments/[slug]/kick", () => {
   });
 
   it("organizer can kick a participant", async () => {
-    auth.mockResolvedValue({ user: { id: "u-org", name: "Org" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-org")), discordUserId: fixtureDiscordId("u-org"), name: "Org" } });
 
     const tempDir = mkdtempSync(join(tmpdir(), "tourney-kick-"));
     const dbPath = join(tempDir, "t.sqlite");
@@ -66,7 +71,7 @@ describe("POST /api/tournaments/[slug]/kick", () => {
   });
 
   it("non-organizer cannot kick", async () => {
-    auth.mockResolvedValue({ user: { id: "u-vict", name: "Vict" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-vict")), discordUserId: fixtureDiscordId("u-vict"), name: "Vict" } });
 
     const tempDir = mkdtempSync(join(tmpdir(), "tourney-kick-2-"));
     const dbPath = join(tempDir, "t.sqlite");
@@ -86,3 +91,7 @@ describe("POST /api/tournaments/[slug]/kick", () => {
     expect(res.status).toBe(403);
   });
 });
+
+const FIXTURE_KEYS = ["u-org", "u-vict"] as const;
+
+// Session resolution is mocked; authorization still runs through the real web boundary.

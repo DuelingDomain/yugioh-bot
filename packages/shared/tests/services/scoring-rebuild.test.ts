@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "../helpers/identity.js";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "../../src/db/index.js";
@@ -16,9 +17,8 @@ function setup() {
   const db = new Database(":memory:");
   databases.push(db);
   migrate(db);
-  const ins = db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', ?, ?)");
-  const a = Number(ins.run("a", "Alice").lastInsertRowid);
-  const b = Number(ins.run("b", "Bob").lastInsertRowid);
+  const a = seedIdentity(db, { guildId: "g2", name: "Alice", userId: seedUser(db, "a").userId, discordUserId: seedUser(db, "a").discordUserId ?? "a" }).playerId;
+  const b = seedIdentity(db, { guildId: "g2", name: "Bob", userId: seedUser(db, "b").userId, discordUserId: seedUser(db, "b").discordUserId ?? "b" }).playerId;
   return { db, a, b, matches: createMatchService(db), scoring: createScoringService(db), seasons: createSeasonService(db) };
 }
 
@@ -96,7 +96,7 @@ describe("scoring.rebuildStandings", () => {
   it("repairs stale round-robin placements left by an earlier reopen and correction", () => {
     const { db, a, b, matches, scoring } = setup();
     const tournaments = createTournamentService(db);
-    const t = tournaments.create("g1", "Cup", "round_robin", "host");
+    const t = tournaments.create("g1", "Cup", "round_robin", seedUser(db, "host").userId);
     tournaments.join(t.id, a);
     tournaments.join(t.id, b);
     tournaments.start(t.id);
@@ -125,7 +125,7 @@ describe("scoring.rebuildStandings", () => {
     const { db, a, b, matches, scoring, seasons } = setup();
     const season = seasons.start("g1");
     const tournaments = createTournamentService(db);
-    const t = tournaments.create("g1", "Cup", "round_robin", "host");
+    const t = tournaments.create("g1", "Cup", "round_robin", seedUser(db, "host").userId);
     tournaments.join(t.id, a);
     tournaments.join(t.id, b);
     tournaments.start(t.id);
@@ -170,7 +170,7 @@ describe("scoring.rebuildStandings", () => {
     const { db, a, b, matches, scoring, seasons } = setup();
     const s1 = seasons.start("g1");
     const tournaments = createTournamentService(db);
-    const t = tournaments.create("g1", "Cup", "round_robin", "host");
+    const t = tournaments.create("g1", "Cup", "round_robin", seedUser(db, "host").userId);
     tournaments.join(t.id, a);
     tournaments.join(t.id, b);
     tournaments.start(t.id);
@@ -260,9 +260,9 @@ describe("scoring.rebuildStandings", () => {
 
   it("keeps placement seasons after a pending denial and missing final score across two rebuilds", () => {
     const { db, a, b, matches, scoring, seasons } = setup();
-    const c = Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', 'c', 'C')").run().lastInsertRowid);
+    const c = seedIdentity(db, { guildId: "g1", name: "C", userId: seedUser(db, "c").userId, discordUserId: seedUser(db, "c").discordUserId ?? "c" }).playerId;
     const tournaments = createTournamentService(db);
-    const t = tournaments.create("g1", "Cup", "round_robin", "host");
+    const t = tournaments.create("g1", "Cup", "round_robin", seedUser(db, "host").userId);
     for (const p of [a, b, c]) tournaments.join(t.id, p);
     tournaments.start(t.id);
     const slots = tournaments.matches(t.id).filter((slot) => slot.playerTwoId !== null);
@@ -307,7 +307,7 @@ describe("scoring.rebuildStandings", () => {
   it("recovers missing completed tournament bonuses only when explicitly requested", () => {
     const { db, a, b, matches, scoring } = setup();
     const tournaments = createTournamentService(db);
-    const t = tournaments.create("g1", "Cup", "round_robin", "host");
+    const t = tournaments.create("g1", "Cup", "round_robin", seedUser(db, "host").userId);
     tournaments.join(t.id, a);
     tournaments.join(t.id, b);
     tournaments.start(t.id);
@@ -335,15 +335,12 @@ describe("scoring.rebuildStandings", () => {
 
   it("preserves explicit bracket placement awards and other guilds", () => {
     const { db, a, b, matches, scoring } = setup();
-    const tournamentId = Number(db.prepare(
-      "insert into tournaments (guild_id, name, format, status, created_by_user_id) values ('g1', 'Bracket', 'single_elim', 'completed', 'host')",
-    ).run().lastInsertRowid);
+    const tournamentId = Number(db.prepare("insert into tournaments (guild_id, name, format, status, created_by_user_id) values ('g1', 'Bracket', 'single_elim', 'completed', ?)").run(seedUser(db, "host").userId).lastInsertRowid);
     db.prepare("insert into tournament_participants (tournament_id, player_id) values (?, ?), (?, ?)")
       .run(tournamentId, a, tournamentId, b);
     scoring.recordTournamentResult(tournamentId, { champion: b, runnerUp: a, top4: [] });
-    const ins = db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g2', ?, ?)");
-    const c = Number(ins.run("c", "C").lastInsertRowid);
-    const d = Number(ins.run("d", "D").lastInsertRowid);
+      const c = seedIdentity(db, { guildId: "g2", name: "C", userId: seedUser(db, "c").userId, discordUserId: seedUser(db, "c").discordUserId ?? "c" }).playerId;
+    const d = seedIdentity(db, { guildId: "g2", name: "D", userId: seedUser(db, "d").userId, discordUserId: seedUser(db, "d").discordUserId ?? "d" }).playerId;
     matches.recordConfirmedResult({ guildId: "g2", playerOneId: c, playerTwoId: d, winnerId: c, source: "casual" });
     const expected = snapshot(db);
     db.prepare("update player_ratings set career_winnings=9999 where guild_id='g1'").run();

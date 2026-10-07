@@ -1,2 +1,2 @@
--- FFA4: a side-seat activation is not in this card's physical column.
-s.negop=aux.MPGeometryChainFilter(s.negop)
+-- A foreign activation must come from this card's current column peer.
+s.negop=aux.MPColumnChainFilter(s.negop)

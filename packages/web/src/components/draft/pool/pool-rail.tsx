@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { Check, TriangleAlert } from "lucide-react";
-import { railPool, seatCheck } from "./pool-model";
+import { extraCheck, railPool, seatCheck } from "./pool-model";
 import type { PoolEditor } from "./use-pool-editor";
 import styles from "./pool.module.css";
 
@@ -32,6 +32,21 @@ export function SeatNote({ total, perPlayer }: { total: number; perPlayer: numbe
   const check = seatCheck(total, perPlayer);
   return (
     <p className={`${styles.seats} ${check.enough ? styles.seatsOk : styles.seatsWarn}`} role="status">
+      {check.enough ? <Check size={16} aria-hidden="true" /> : <TriangleAlert size={16} aria-hidden="true" />}
+      <span>{check.text}</span>
+    </p>
+  );
+}
+
+/**
+ * The Extra Deck round needs one pack for every player. Says whether the Extra pool is big enough for 8 seats (the most
+ * a draft holds), or how many Extra Deck cards are missing. Nothing shows when the round is off or its size is 0.
+ */
+export function ExtraNote({ size, total, players = 8, className }: { size: number; total: number; players?: number; className?: string }) {
+  const check = extraCheck({ on: true, size, total, players });
+  if (!check) return null;
+  return (
+    <p className={`${styles.seats} ${check.enough ? styles.seatsOk : styles.seatsWarn}${className ? ` ${className}` : ""}`} role="status">
       {check.enough ? <Check size={16} aria-hidden="true" /> : <TriangleAlert size={16} aria-hidden="true" />}
       <span>{check.text}</span>
     </p>

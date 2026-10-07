@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, type CSSProperties } from "react";
-import { CompactChips } from "./compact-chips";
+import { useEffect, useMemo, useRef, type CSSProperties, type KeyboardEvent } from "react";
 import { slotZIndex } from "./geometry";
 import { boardWidth, crumbleCards } from "./crumble-model";
+import { textScale } from "./seat-angle";
 import { SeatCrumble } from "./seat-crumble";
 import type { DuelSeatView } from "@yugidraft/shared/duels";
 import type { SeatFieldProps, SeatFieldRenderer, SeatPose, SeatTone } from "./types";
@@ -15,8 +15,19 @@ export interface RivalFieldProps {
   render: SeatFieldRenderer;
   /** Extra turn of the whole world (the fly-in view), added to the angle the field reads for upright text. */
   angleOffsetDeg?: number;
+  /**
+   * A fixed place in the parent's px (the grid table): the box sits at `left`/`top` and turns with the CSS `rotate`
+   * property. `transform` stays free for the stage to animate. `pose.x/y/scale` are not used; `pose.z` is the card height.
+   */
+  placement?: { left: number; top: number; zIndex: number; small?: boolean; lh?: number; boxX?: number; handShift?: number; handWidth?: number };
   /** Seats are regrouping after an elimination: the move waits for the crumble, then glides slowly. */
   glide?: boolean;
+  /** This field is the one the viewer enlarged (the 3-way plaza). */
+  enlarged?: boolean;
+  /** The seat box is a keyboard stop (the 3-way plaza): Enter or Space on the box itself enlarges it or goes back. */
+  reach?: { label: string; onToggle: () => void };
+  /** This field holds the targets the viewer must pick: a ring on the field, with no camera move. */
+  targeted?: boolean;
 }
 
 /** CSS transform of a seat box: its centre goes to the pose, then it tilts, turns and scales about its own centre. */
@@ -36,44 +47,43 @@ export function seatTransform(pose: Pick<SeatPose, "x" | "y" | "rotateDeg" | "ti
 /**
  * One seat of the table at its pose. The wrapper owns the place, tilt, turn and scale; the seat field inside
  * draws the board at a fixed card size (`--sf-z`) and counter-rotates its own text when upright is on.
- * It serves the viewer's own seat too: that pose is simply upright at full size. A compact pose (a 4-way rival that
- * is too small to read) hides the board and draws chips over it; the board stays mounted so the effects can still
- * find its zones.
+ * It serves the viewer's own seat too: that pose is simply upright at full size.
  */
-export function RivalField({ pose, field, render, angleOffsetDeg = 0, glide = false }: RivalFieldProps) {
-  const style: CSSProperties & Record<string, string | number> = {
-    "--sf-z": `${pose.z}px`,
-    transform: seatTransform(pose),
-    zIndex: slotZIndex(pose.slot, pose.scale),
-  };
+export function RivalField({ pose, field, render, angleOffsetDeg = 0, placement, glide = false, enlarged = false, reach, targeted = false }: RivalFieldProps) {
+  const style: CSSProperties & Record<string, string | number> = placement
+    ? { "--sf-z": `${pose.z}px`, "--sf-ts": textScale(pose.scale).toFixed(2), ...(placement.lh != null ? { "--sf-lh": `${placement.lh}px` } : {}), ...(placement.boxX != null ? { "--sf-box-x": `${placement.boxX}px` } : {}), ...(placement.handShift != null ? { "--hand-shift": placement.handShift } : {}), ...(placement.handWidth != null ? { "--hand-w": placement.handWidth } : {}), left: placement.left, top: placement.top, rotate: pose.rotateDeg ? `${pose.rotateDeg}deg` : "none", zIndex: placement.zIndex }
+    : { "--sf-z": `${pose.z}px`, "--sk": `calc(var(--stage-k, 1) * ${pose.scale})`, transform: seatTransform(pose), zIndex: slotZIndex(pose.slot, pose.scale) };
   return (
     <div
       className={styles.seat}
       style={style}
       data-seat-slot={pose.seat}
       data-pose-scale={pose.scale}
+      data-def-full={pose.width ? "true" : undefined}
       data-docked={pose.docked ? "true" : undefined}
+      data-small={placement?.small ? "true" : undefined}
       data-compact={pose.compact ? "true" : undefined}
       data-glide={glide ? "true" : undefined}
+      data-enlarged={enlarged ? "true" : undefined}
+      data-target-hint={targeted ? "true" : undefined}
       hidden={pose.hidden || undefined}
+      {...(reach
+        ? {
+            role: "button",
+            tabIndex: 0,
+            "aria-pressed": enlarged,
+            "aria-label": `${reach.label}. ${enlarged ? "Press Enter to go back." : "Press Enter to enlarge."}`,
+            onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {
+              // Keys of the controls inside the field stay theirs.
+              if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
+              event.preventDefault();
+              event.stopPropagation();
+              reach.onToggle();
+            },
+          }
+        : {})}
     >
-      {render({ ...field, angleDeg: pose.rotateDeg + angleOffsetDeg, scale: pose.scale })}
-      {pose.compact ? (
-        <CompactChips
-          engine={field.engine}
-          seat={field.seat}
-          tone={field.tone}
-          name={field.name ?? `Player ${field.seat + 1}`}
-          rotateDeg={pose.rotateDeg}
-          scale={pose.scale}
-          usable={field.usable}
-          legalKeys={field.legalKeys}
-          selectedKeys={field.selectedKeys}
-          onActivate={field.onActivate}
-          onInspect={field.onInspect}
-          onHoverCard={field.onHoverCard}
-        />
-      ) : null}
+      {render(placement ? { ...field, angleDeg: pose.rotateDeg + angleOffsetDeg } : { ...field, angleDeg: pose.rotateDeg + angleOffsetDeg, scale: pose.scale })}
     </div>
   );
 }
@@ -99,6 +109,8 @@ export interface ExitingSeatProps {
   /** Extra turn of the world (the fly-in view), so gravity stays down on the screen. */
   angleOffsetDeg?: number;
   reducedMotion: boolean;
+  /** Cut the top of the board this many px (in the board's own turn): the 4-way grid keeps the shared Extra Monster row. */
+  clipTop?: number;
   /** Called once when the layer can go. */
   onDone: () => void;
 }
@@ -108,8 +120,8 @@ export interface ExitingSeatProps {
  * engine has emptied: the cards are drawn from the last view. It is a plain box the size of a field, turned and scaled
  * like one, so it lines up with the pad under it. Under reduced motion it only fades down.
  */
-export function ExitingSeat({ pose, tone, view, masterRule, faceUpHand, angleOffsetDeg = 0, reducedMotion, onDone }: ExitingSeatProps) {
-  const width = boardWidth(masterRule);
+export function ExitingSeat({ pose, tone, view, masterRule, faceUpHand, angleOffsetDeg = 0, reducedMotion, clipTop, onDone }: ExitingSeatProps) {
+  const width = pose.width ?? boardWidth(masterRule);
   const cards = useMemo(() => crumbleCards(view, { faceUpHand, width }), [view, faceUpHand, width]);
   const done = useRef(onDone);
   done.current = onDone;
@@ -124,6 +136,7 @@ export function ExitingSeat({ pose, tone, view, masterRule, faceUpHand, angleOff
     height: CRUMBLE_UNIT * FIELD_H * unit,
     transform: seatTransform(pose),
     zIndex: slotZIndex(pose.slot, pose.scale) + 1,
+    ...(clipTop != null ? { clipPath: `inset(${clipTop}px -600px -600px -600px)` } : {}),
   };
   return (
     <div className={styles.seat} style={style} data-seat-exit={pose.seat} data-exit-motion={reducedMotion ? "reduced" : "full"} aria-hidden="true">

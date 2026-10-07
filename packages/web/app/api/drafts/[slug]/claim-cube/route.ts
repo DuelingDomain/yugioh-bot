@@ -1,74 +1,75 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { cubeReferenceAccess } from "@/lib/cube-access";
+import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
-import { createDraftService } from "@yugidraft/shared/services";
 import { broadcaster } from "@/lib/notify";
+import {
+  invalidateThemeLobby, pendingThemeDraft, ThemeDraftMutationError,
+  themeDraftMutationBody, themeDraftMutationResponse,
+} from "@/lib/theme-draft-validation";
 
 export const runtime = "nodejs";
+type Context = { params: Promise<{ slug: string }> };
 
-export async function POST(request: Request, { params }: { params: Promise<{ slug: string }> }) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+async function mutateClaim(request: Request, { params }: Context, release: boolean) {
+  const actor = await requireWebAccess();
+  if (!actor.ok) return actor.response;
+  const userId = actor.userId;
   const { slug } = await params;
   const db = getDb();
   const guildId = env.discordGuildId;
 
-  const draftRow = db
-    .prepare("select id, status from drafts where web_slug = ? and guild_id = ?")
-    .get(slug, guildId) as { id: number; status: string } | undefined;
-  if (!draftRow) {
-    return NextResponse.json({ error: "Draft not found" }, { status: 404 });
+  try {
+    const body = release ? undefined : await themeDraftMutationBody(request);
+    const cubeId = release ? null : body!.cubeId;
+    const changed = db.transaction(() => {
+      const draft = pendingThemeDraft(db, slug, guildId, userId);
+      if ((draft.config.themeSelection ?? "player_pick") !== "player_pick") {
+        throw new ThemeDraftMutationError("THEME_SELECTION_REQUIRED", "This draft does not allow player cube picks");
+      }
+      const player = db.prepare(`select p.id from players p join draft_players dp on dp.player_id = p.id
+        where p.guild_id = ? and p.user_id = ? and dp.draft_id = ?`)
+        .get(guildId, userId, draft.id) as { id: number } | undefined;
+      if (!player) throw new ThemeDraftMutationError("NOT_JOINED", "Join the draft first");
+      if (!release) {
+        if (!Number.isSafeInteger(cubeId) || (cubeId as number) <= 0) {
+          throw new ThemeDraftMutationError("INVALID_BODY", "cubeId must be a positive integer");
+        }
+        if (!(draft.config.allowedCubeIds ?? []).includes(cubeId as number)) {
+          throw new ThemeDraftMutationError("CUBE_NOT_ALLOWED", "Cube is not allowed for this draft");
+        }
+        if (!db.prepare("select id from cubes where id = ? and guild_id = ?").get(cubeId, guildId)) {
+          throw new ThemeDraftMutationError("CUBE_NOT_FOUND", "Cube not found");
+        }
+        if ((draft.config.uniqueThemes ?? true) && db.prepare(
+          "select 1 from draft_player_cube where draft_id = ? and cube_id = ? and player_id != ?",
+        ).get(draft.id, cubeId, player.id)) {
+          throw new ThemeDraftMutationError("CUBE_TAKEN", "That cube is already taken");
+        }
+      }
+      const current = db.prepare("select cube_id from draft_player_cube where draft_id = ? and player_id = ?")
+        .get(draft.id, player.id) as { cube_id: number } | undefined;
+      if ((current?.cube_id ?? null) === cubeId) return false;
+      if (release) {
+        db.prepare("delete from draft_player_cube where draft_id = ? and player_id = ?").run(draft.id, player.id);
+      } else {
+        db.prepare(`insert into draft_player_cube (draft_id, player_id, cube_id) values (?, ?, ?)
+          on conflict (draft_id, player_id) do update set cube_id = excluded.cube_id`).run(draft.id, player.id, cubeId);
+      }
+      invalidateThemeLobby(db, draft.id, { playerIds: [player.id] });
+      return true;
+    }).immediate();
+    if (changed) void broadcaster.draft({ kind: "seats", slug });
+    return NextResponse.json({ ok: true, cubeId });
+  } catch (error) {
+    return themeDraftMutationResponse(error);
   }
-  if (draftRow.status !== "pending") {
-    return NextResponse.json({ error: "Draft is no longer accepting cube picks" }, { status: 400 });
-  }
+}
 
-  const draft = createDraftService(db).findById(draftRow.id);
-  if (draft.config.mode !== "theme" || (draft.config.themeSelection ?? "player_pick") !== "player_pick") {
-    return NextResponse.json({ error: "This draft does not allow player cube picks" }, { status: 400 });
-  }
+export async function POST(request: Request, context: Context) {
+  return mutateClaim(request, context, false);
+}
 
-  const player = db
-    .prepare("select id from players where guild_id = ? and discord_user_id = ?")
-    .get(guildId, session.user.id) as { id: number } | undefined;
-  if (!player) {
-    return NextResponse.json({ error: "Join the draft first" }, { status: 400 });
-  }
-
-  const participant = db
-    .prepare("select 1 from draft_players where draft_id = ? and player_id = ?")
-    .get(draftRow.id, player.id);
-  if (!participant) {
-    return NextResponse.json({ error: "Join the draft first" }, { status: 403 });
-  }
-
-  const body = (await request.json().catch(() => ({}))) as { cubeId?: number };
-  const cubeId = body.cubeId;
-  if (!Number.isInteger(cubeId) || !(draft.config.allowedCubeIds ?? []).includes(cubeId as number)) {
-    return NextResponse.json({ error: "Cube is not allowed for this draft" }, { status: 400 });
-  }
-
-  const denied = cubeReferenceAccess(db, [cubeId]);
-  if (denied) return denied;
-
-  if (draft.config.uniqueThemes ?? true) {
-    const taken = db
-      .prepare("select 1 from draft_player_cube where draft_id = ? and cube_id = ? and player_id != ?")
-      .get(draftRow.id, cubeId, player.id);
-    if (taken) {
-      return NextResponse.json({ error: "That cube is already taken" }, { status: 409 });
-    }
-  }
-
-  db.prepare(
-    `insert into draft_player_cube (draft_id, player_id, cube_id) values (?, ?, ?)
-     on conflict (draft_id, player_id) do update set cube_id = excluded.cube_id`,
-  ).run(draftRow.id, player.id, cubeId);
-  void broadcaster.draft({ kind: "seats", slug });
-
-  return NextResponse.json({ ok: true, cubeId });
+export async function DELETE(request: Request, context: Context) {
+  return mutateClaim(request, context, true);
 }

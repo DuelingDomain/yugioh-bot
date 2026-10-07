@@ -1,0 +1,24 @@
+{
+  "name": "Dueling Domain",
+  "short_name": "Dueling Domain",
+  "description": "Card drafts and browser duels with friends. Closed alpha waitlist.",
+  "lang": "en",
+  "start_url": "/",
+  "display": "browser",
+  "theme_color": "#0A0E1A",
+  "background_color": "#0A0E1A",
+  "icons": [
+    {
+      "src": "/logo-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/logo-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

@@ -1,12 +1,18 @@
 export interface DraftConfig {
+  /** Integer seat target, 2–8. New web drafts default 4; absence stays legacy/unbounded/manual-only. */
+  lobbySeats?: number;
   setNames?: string[];
   customCardIds?: number[];
+  /** Normal draft Extra pool: one ID per copy. An explicit [] overrides the source cube. */
+  customExtraCardIds?: number[];
   includeNames?: string[];
   excludeNames?: string[];
   packSize?: number;
   packsPerPlayer?: number;
   cardsPerPlayer?: number;
   pickSeconds?: number;
+  /** Normal drafts: sequential timed picks from each pack before passing; 1 (default) or 2. */
+  picksPerStep?: number;
   alternatePassDirection?: boolean;
   randomizeSeats?: boolean;
   /** Limit picks to three copies, with booster swaps or forced picks when needed. Default true. */
@@ -16,8 +22,13 @@ export interface DraftConfig {
   cubeCardIds?: number[];
   /** @deprecated legacy key, still read for drafts created before the rename */
   poolCardIds?: number[];
-  /** The saved cube a cube draft's pool started from (display and Reset only; the pool itself is customCardIds). */
+  /** Source cube for display/reset and the normal Extra pool when customExtraCardIds is absent. */
   poolSource?: { cubeId: number; cubeName: string };
+
+  /** Run an Extra Deck phase. Normal drafts default false; theme drafts default true. */
+  extraDeckEnabled?: boolean;
+  /** Extra cards per player (default 15). Normal drafts: integer 0–15, one extra pack per seat. */
+  extraDeckSize?: number;
 
   // ----- theme mode -----
   /** Draft mode. Absent or "booster" => existing behavior. */
@@ -26,16 +37,12 @@ export interface DraftConfig {
   allowedCubeIds?: number[];
   /** How each player's theme is chosen. Default "player_pick". */
   themeSelection?: "host_assigned" | "random" | "player_pick";
-  /** Optional explicit player -> theme map for host_assigned. */
+  /** Complete player-ID -> cube-ID map for host_assigned; filtered from non-host views. */
   themeAssignments?: Record<string, number>;
   /** If true (default), every player gets a distinct cube, capping players at allowedCubeIds.length. */
   uniqueThemes?: boolean;
   /** Number of choices shown per pick. Admin-set; default 3, any X >= 2. */
   themePackSize?: number;
-  /** Whether to run the Extra Deck draft phase at all. Default true. */
-  extraDeckEnabled?: boolean;
-  /** Extra Deck cards to draft in phase 2 (ignored when extraDeckEnabled is false). Default 15. */
-  extraDeckSize?: number;
   /** If true, the (themePackSize - 1) unpicked cards are discarded each round; if false (default) they return. */
   burnUnpicked?: boolean;
 
@@ -47,10 +54,10 @@ export interface DraftConfig {
 export interface Draft {
   id: number;
   guildId: string;
-  channelId: string;
+  channelId: string | null;
   name: string;
   status: "pending" | "active" | "cancelled" | "completed";
-  createdByUserId: string;
+  createdByUserId: number;
   config: DraftConfig;
   currentPackRound: number;
   currentPickStep: number;
@@ -105,7 +112,7 @@ export interface Tournament {
   name: string;
   format: "round_robin" | "single_elim";
   status: "pending" | "active" | "cancelled" | "completed";
-  createdByUserId: string;
+  createdByUserId: number;
   webSlug?: string;
   deadlineAt?: string; // ISO timestamp; undefined = no deadline
   reportConfirmWindowHours?: number; // undefined = use DEFAULT_REPORT_CONFIRM_HOURS
@@ -129,6 +136,7 @@ export interface TournamentMatch {
 
 export interface Card {
   ygoprodeckId: number;
+  canonicalCardId?: number;
   name: string;
   type: string;
   frameType: string;
@@ -139,6 +147,7 @@ export interface Card {
   level?: number;
   imageUrl: string;
   imageUrlSmall: string;
+  imageUrlCropped?: string;
   cardSets: Array<{ set_name: string }>;
   cachedAt: string;
   archetype?: string;
@@ -166,5 +175,12 @@ export interface Cube {
   banlist: string | null;
   /** Pack/mode defaults + set/passcode pool sources (bot templates & set draws). */
   config: DraftConfig;
-  createdByUserId: string;
+  createdByUserId: number;
 }
+
+export type {
+  EngineDataSource, DataStatus, EngineSourcePin, EngineDataStatus, CatalogSetStatus,
+  CardCatalogStatus, CardDataGapCard, CardDataSetGapStatus, CardDataGapStatus, UpstreamSourceStatus,
+  EngineUpdateWorkflowStatus, CardDataStatus, LocalCardDataStatus,
+} from "./card-data-status.js";
+export * from "./draft-lobby.js";

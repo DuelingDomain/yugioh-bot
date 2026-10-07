@@ -20,6 +20,7 @@ import {
   type TrapTypeKey,
 } from "@yugidraft/shared/duels";
 import { BANLIST_NONE_ID, BANLIST_OCG_2026_07_ID, BANLIST_TCG_2026_09_ID, banlistLimitsFor } from "./banlists/index.js";
+import { cardArtworkFamily } from "./card-artworks.js";
 import type { CardDatabase } from "./cards.js";
 
 type Kind = "monster" | "spell" | "trap" | "other";
@@ -75,8 +76,8 @@ function buildIndex(cards: CardDatabase): Index {
     const kind = kindOf(card.type);
     // An alternate artwork repeats its original's name and card type. An alias with another name or
     // type (Harpie Lady 2, the Normal Black Luster Soldier) is a separate card and stays listed.
-    const original = card.alias !== 0 ? cards.deckCard(card.alias) : undefined;
-    const altArt = original != null && original.name === card.name && original.type === card.type;
+    const family = cardArtworkFamily(cards, card.code)!;
+    const altArt = family.passcode !== card.code;
     const data = cards.cardData(card.code);
     const entry: Entry = {
       card,
@@ -284,9 +285,10 @@ export function queryCards(cards: CardDatabase, query: CardQuery): CardQueryResu
   const exact = /^\d+$/.test(trimmed) ? index.byCode.get(Number(trimmed)) : undefined;
   const exactPasses = exact != null && compile({ ...query, text: "" }, index).every((check) => check(exact));
 
+  const exactFamily = exact && exactPasses ? cardArtworkFamily(cards, exact.card.code)?.passcode : undefined;
   const found: Entry[] = [];
   for (const entry of index.entries) {
-    if (entry.hidden || entry === exact) continue;
+    if (entry.hidden || entry === exact || (exactFamily !== undefined && cardArtworkFamily(cards, entry.card.code)?.passcode === exactFamily)) continue;
     if (passes(entry)) found.push(entry);
   }
   const member: Matcher | null = query.archetypeMode === "related" && query.archetypes.length > 0
@@ -296,7 +298,7 @@ export function queryCards(cards: CardDatabase, query: CardQuery): CardQueryResu
   // An exact passcode leads, even for an alternate artwork that the list otherwise hides.
   if (exact && exactPasses) sorted.unshift(exact);
   return {
-    cards: sorted.slice(query.offset, query.offset + query.limit).map((entry) => entry.card),
+    cards: sorted.slice(query.offset, query.offset + query.limit).map((entry) => ({ ...entry.card, altArtCount: cardArtworkFamily(cards, entry.card.code)!.artworks.length - 1 })),
     total: sorted.length,
     offset: query.offset,
   };

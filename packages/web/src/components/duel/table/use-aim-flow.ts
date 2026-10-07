@@ -6,6 +6,7 @@ import { targetName } from "../card-interactions";
 import { isAttackDuelistPrompt, isAttackTargetPrompt, optionsForKeys, optionZoneKeys, type PromptAim } from "../prompts";
 import type { AimArrowProps, AimPointerSpot } from "./aim-arrow";
 import { isOutOrLeaving } from "../multi-seat";
+import { seatBehindBoard } from "./seat-at-point";
 import { targetChoices } from "./targets";
 import type { BattleAim, DuelActivateHandler, SeatPick, SeatTone, TableController, TableLayout } from "./types";
 
@@ -16,7 +17,7 @@ import type { BattleAim, DuelActivateHandler, SeatPick, SeatTone, TableControlle
  * under the cursor (an opposing monster, or the whole board of a seat for a direct attack) lights up and the arrow
  * snaps to it. One click on it sends the answer at once. Esc or a right click cancels (the prompt panel does that).
  * Keyboard flow: hover or focus aims, Enter on a card or LP panel locks the aim, a second Enter, the Attack button
- * or the number keys send it; Esc lets go. While aimed or locked the camera does not move (`aiming`).
+ * or the number keys send it; Esc lets go. The camera never moves by itself.
  * A direct attack (a choice with a seat and no zone) works the same through a seat pick on the LP panels.
  * A room that owns its own aim state leaves this hook out and passes its controller to the stage as is.
  */
@@ -144,7 +145,7 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
 
   /** The legal target under a node: an opposing monster, or (direct attack) the board of a seat that can be hit. */
   const resolve = useCallback(
-    (target: EventTarget | null): { optionId: string; to: NonNullable<BattleAim["to"]> } | null => {
+    (target: EventTarget | null, point?: { x: number; y: number }): { optionId: string; to: NonNullable<BattleAim["to"]> } | null => {
       if (!(target instanceof Element)) return null;
       if (attackTarget) {
         const keys = target.closest("[data-zones]")?.getAttribute("data-zones")?.split(" ") ?? [];
@@ -152,13 +153,19 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
         if (key) return { optionId: targets.get(key)!.id, to: { zones: [key] } };
       }
       if (direct) {
-        const seat = seatOfNode(target);
+        // Empty mat takes no pointer (field.module.css): the target is then the zoom layer, and the seat is found from the
+        // point. Only then: the prompt panel, a button or the phase hub over a field must not aim at that field.
+        let seat = seatOfNode(target);
+        if (seat == null && point) {
+          const found = seatBehindBoard(root.current ?? document, target, point.x, point.y);
+          seat = Number.isInteger(found) ? found : null;
+        }
         const optionId = seat != null ? direct.get(seat) : undefined;
         if (seat != null && optionId != null) return { optionId, to: { lpSeat: seat } };
       }
       return null;
     },
-    [attackTarget, direct, targets],
+    [attackTarget, direct, root, targets],
   );
   const resolveRef = useRef(resolve);
   resolveRef.current = resolve;
@@ -280,13 +287,13 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
       pointer.current = { x: event.clientX, y: event.clientY };
       setHasMouse(true);
       if (liveRef.current) return;
-      const hit = resolveRef.current(event.target);
+      const hit = resolveRef.current(event.target, { x: event.clientX, y: event.clientY });
       setHover((current) => (sameTo(current, hit?.to ?? null) ? current : (hit?.to ?? null)));
     };
     const onClick = (event: MouseEvent) => {
       // Only a pointer click: Enter or Space on a focused card (detail 0) keeps the lock-then-confirm flow.
       if (event.detail === 0 || event.button !== 0 || suspendedFlag.current || sentFor.current === promptId) return;
-      const hit = resolveRef.current(event.target);
+      const hit = resolveRef.current(event.target, { x: event.clientX, y: event.clientY });
       if (touching.current) {
         // A finger on a card keeps the lock-then-confirm flow of the card itself. A finger on a board (a direct attack)
         // aims at it with the first tap, which lights it and shows the label, and sends with the second tap.

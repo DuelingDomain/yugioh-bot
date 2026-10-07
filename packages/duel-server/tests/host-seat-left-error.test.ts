@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { createHmac } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -34,9 +35,7 @@ function fixture(format: DuelFormat, state: "eliminated" | "pendingElimination" 
   cleanups.push(async () => { await host?.close(); db.close(); rmSync(dataDirectory, { recursive: true, force: true }); });
   migrate(db);
   const count = seatCountFor(format);
-  const players = Array.from({ length: count }, (_, seat) => Number(db.prepare(
-    "insert into players (guild_id, discord_user_id, display_name) values ('g1', ?, ?)",
-  ).run(`u${seat}`, `P${seat}`).lastInsertRowid));
+  const players = Array.from({ length: count }, (_, seat) => seedIdentity(db, { guildId: "g1", name: `P${seat}`, userId: seedUser(db, `u${seat}`).userId, discordUserId: seedUser(db, `u${seat}`).discordUserId ?? `u${seat}` }).playerId);
   const service = createDuelService(db);
   const session = service.create({ guildId: "g1", organizerPlayerId: players[0]!, name: "Pick test", mode: "normal", format,
     settings: { validateDeck: false, turnSeconds: 0 } });

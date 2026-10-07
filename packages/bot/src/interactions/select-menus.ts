@@ -11,7 +11,7 @@ import type { PlayerRepository } from "../repositories/players.js";
 import type { CardCatalogService } from "../services/card-catalog.js";
 import type { DraftImageService } from "../services/draft-images.js";
 import type { DraftService } from "../services/drafts.js";
-import { createDraftTournamentService, MAX_COPIES_PER_PLAYER } from "@yugidraft/shared/services";
+import { createDraftTournamentService, MAX_COPIES_PER_PLAYER, totalBoosterCards, totalThemeRounds } from "@yugidraft/shared/services";
 import type { TournamentService } from "@yugidraft/shared/services";
 import type { Broadcaster } from "@yugidraft/shared/notify";
 
@@ -81,7 +81,7 @@ export async function handleSelectMenu(
       ).get(draftId, player.id) as { pick_count: number; finished_at: string | null } | undefined;
       if (
         draft.status === "active" && progress &&
-        (progress.finished_at !== null || progress.pick_count >= (draft.config.cardsPerPlayer ?? 40))
+        (progress.finished_at !== null || progress.pick_count >= (draft.config.mode === "theme" ? totalThemeRounds(draft.config) : totalBoosterCards(draft.config)))
       ) {
         await interaction.reply({
           content: "You have finished drafting. Waiting for other players.",
@@ -159,6 +159,8 @@ export async function handleSelectMenu(
   const draftTournamentFormat = /^draft:tournament-format:([a-z0-9-]+)$/.exec(interaction.customId);
 
   if (draftTournamentFormat) {
+    requireGuildId(interaction);
+    const actorUserId = deps.players.ensureUser(interaction.user.id, interaction.user.displayName ?? interaction.user.username).id;
     const webSlug = draftTournamentFormat[1];
     const format = interaction.values[0];
 
@@ -169,14 +171,14 @@ export async function handleSelectMenu(
 
     const draftRow = deps.db
       .prepare("select id, created_by_user_id, status from drafts where web_slug = ?")
-      .get(webSlug) as { id: number; created_by_user_id: string; status: string } | undefined;
+      .get(webSlug) as { id: number; created_by_user_id: number; status: string } | undefined;
 
     if (!draftRow) {
       await interaction.reply({ content: "Draft not found.", ephemeral: true });
       return;
     }
 
-    if (draftRow.created_by_user_id !== interaction.user.id) {
+    if (draftRow.created_by_user_id !== actorUserId) {
       await interaction.reply({ content: "Only the draft creator can create a tournament.", ephemeral: true });
       return;
     }
@@ -187,7 +189,7 @@ export async function handleSelectMenu(
       const result = service.createTournamentFromDraft({
         draftId: draftRow.id,
         format,
-        createdByUserId: interaction.user.id,
+        createdByUserId: actorUserId,
       });
       void deps.broadcaster.draft({ kind: "seats", slug: webSlug });
       const link = result.webSlug ? ` View: ${WEB_URL}/tournament/${result.webSlug}` : "";

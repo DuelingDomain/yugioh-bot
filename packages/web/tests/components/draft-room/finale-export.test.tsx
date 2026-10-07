@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { fixtureUserId, fixtureDiscordId } from "../../fixtures/identity";
 import React, { type ComponentPropsWithRef } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -54,14 +55,14 @@ async function openFinale(exportResponse: () => Promise<Response>) {
   let completed = false;
   vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
     const url = String(input);
-    if (url === "/api/auth/session") return Promise.resolve(Response.json({ user: { id: "user-1" } }));
+    if (url === "/api/auth/session") return Promise.resolve(Response.json({ user: { id: String(fixtureUserId("user-1")), discordUserId: fixtureDiscordId("user-1") } }));
     if (url === "/api/drafts/finale-draft/export") return exportResponse();
     if (url === "/api/drafts/finale-draft") {
       return Promise.resolve(Response.json({
         id: 1,
         name: "Friday Draft",
         status: completed ? "completed" : "active",
-        createdByUserId: "user-1",
+        createdByUserId: fixtureUserId("user-1"),
         createdAt: "2026-10-02T00:00:00Z",
         config: { packSize: 1, packsPerPlayer: 1, cardsPerPlayer: 1, pickSeconds: 60 },
         players: [],
@@ -157,3 +158,5 @@ describe("finale export", () => {
     expect(finale.getByRole("button", { name: "Export YDK" })).toBeEnabled();
   });
 });
+
+const FIXTURE_KEYS = ["user-1"] as const;

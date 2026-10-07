@@ -7,7 +7,7 @@ import { ROOM_COLLAPSE_QUERY } from "../../../src/components/layout/shell-model"
 vi.mock("next/font/google", () => fontMock());
 vi.mock("next/navigation", () => ({ usePathname: vi.fn() }));
 vi.mock("next/link", () => ({ default: LinkStub }));
-vi.mock("next-auth/react", () => ({ signOut: vi.fn() }));
+vi.mock("@/components/account/sign-out", () => ({ useSignOut: () => vi.fn() }));
 
 import { usePathname } from "next/navigation";
 import { AppShell } from "../../../src/components/layout/app-shell";
@@ -77,18 +77,18 @@ describe("AppShell frame", () => {
     expect(within(container.querySelector("header") as HTMLElement).getByText("Tournaments")).toBeTruthy();
   });
 
-  it("falls back to Duelists Kingdom for the phone title", () => {
+  it("falls back to Dueling Domain for the phone title", () => {
     mockUsePathname.mockReturnValue("/nowhere");
     const { container } = render(<AppShell><p>x</p></AppShell>);
-    expect(within(container.querySelector("header") as HTMLElement).getByText("Duelists Kingdom")).toBeTruthy();
+    expect(within(container.querySelector("header") as HTMLElement).getByText("Dueling Domain")).toBeTruthy();
   });
 
-  it("names the sidebar and the phone menu Duelists Kingdom", async () => {
+  it("names the sidebar and the phone menu Dueling Domain", async () => {
     render(<AppShell><p>x</p></AppShell>);
-    expect(within(screen.getByRole("complementary", { name: "Sidebar" })).getByText("Duelists Kingdom")).toBeTruthy();
+    expect(within(screen.getByRole("complementary", { name: "Sidebar" })).getByText("Dueling")).toHaveTextContent(/^Dueling Domain$/);
     fireEvent.click(screen.getByRole("button", { name: "Open menu" }));
     const dialog = await screen.findByRole("dialog", { name: "Navigation" });
-    expect(within(dialog).getByText("Duelists Kingdom")).toBeTruthy();
+    expect(within(dialog).getByText("Dueling")).toHaveTextContent(/^Dueling Domain$/);
   });
 
   it("restores the collapsed state from storage after mount", async () => {

@@ -11,7 +11,7 @@ import type {
 } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
 import { searchDuelCards } from "./api";
-import { cardArtUrl, LOCATION_MZONE, zoneKey } from "./constants";
+import { cardArtUrl, LOCATION_HAND, LOCATION_MZONE, zoneKey } from "./constants";
 import { nextEnabledIndex } from "./multi-seat";
 import { backOutAnswer } from "./pick-backout";
 import { selectBarCopy, sumSelectionValues } from "./select-bar-copy";
@@ -90,10 +90,24 @@ export function optionZoneKeys(option: DuelPromptOption): string[] {
   return [zoneKey(option.controller, option.location, option.sequence)];
 }
 
+/** SELECT_EFFECTYN names its hand card in source, while its Yes/No options have no zones. Only Yes activates it. */
+function fieldOptions(prompt: DuelPrompt): DuelPromptOption[] {
+  const source = prompt.source;
+  const zone = source?.zone;
+  if (
+    prompt.kind !== "choice" || prompt.context || prompt.options.length !== 2 ||
+    !prompt.options.some((option) => option.id === "yes") || !prompt.options.some((option) => option.id === "no") ||
+    !source?.name || source.seat !== prompt.seat || zone?.controller !== prompt.seat || zone.location !== LOCATION_HAND
+  ) return prompt.options;
+  return prompt.options.map((option) => option.id === "yes"
+    ? { ...option, ...zone, label: `Activate ${source.name}` }
+    : option);
+}
+
 export function promptLegalKeys(prompt: DuelPrompt | null): Set<string> {
   const keys = new Set<string>();
   if (!prompt) return keys;
-  for (const option of prompt.options) {
+  for (const option of fieldOptions(prompt)) {
     for (const key of optionZoneKeys(option)) keys.add(key);
   }
   return keys;
@@ -112,7 +126,7 @@ export function promptSelectedKeys(prompt: DuelPrompt | null, selected: string[]
 
 export function optionsForKeys(prompt: DuelPrompt, keys: string[]): DuelPromptOption[] {
   const set = new Set(keys);
-  return prompt.options.filter((option) => optionZoneKeys(option).some((key) => set.has(key)));
+  return fieldOptions(prompt).filter((option) => optionZoneKeys(option).some((key) => set.has(key)));
 }
 
 export function optionsForCard(prompt: DuelPrompt, card: DuelCard | null, keys: string[]): DuelPromptOption[] {
@@ -532,6 +546,18 @@ function ChoiceButtons({
   );
 }
 
+/**
+ * Whether `PromptTray` draws anything a player sees. It draws only a screen-reader line while the centred panel holds
+ * the prompt (`headless`), and for an action prompt without a Finish or Cancel button; a floating tray hides itself then.
+ */
+export function promptTrayVisible(prompt: DuelPrompt | null, mySeat: number | null, active: boolean | undefined, headless: boolean | undefined): boolean {
+  const answering = prompt != null && mySeat != null && prompt.seat === mySeat && active !== false;
+  if (!prompt || !answering) return true;
+  if (headless) return false;
+  if (prompt.context?.type === "action") return Boolean(prompt.finishable || prompt.cancelable);
+  return true;
+}
+
 export function PromptTray({
   prompt,
   mySeat,
@@ -540,6 +566,7 @@ export function PromptTray({
   draft,
   onSubmit,
   menuOpen,
+  escapeHeld,
   active,
   aim,
   headless,
@@ -554,6 +581,8 @@ export function PromptTray({
   draft: PromptDraft;
   onSubmit: (answer: DuelAnswer) => void;
   menuOpen?: boolean;
+  /** A floating flyout is open: Esc closes it and does not answer. Every other key still answers. */
+  escapeHeld?: boolean;
   active?: boolean;
   /**
    * The prompt is drawn by PromptCenter over the board. The tray then only keeps its keyboard
@@ -583,6 +612,7 @@ export function PromptTray({
   const onSubmitRef = useRef(onSubmit);
   const answeringRef = useRef(answering);
   const menuOpenRef = useRef(Boolean(menuOpen));
+  const escapeHeldRef = useRef(Boolean(escapeHeld));
   const confirmableRef = useRef(confirmable);
   const aimRef = useRef(aim);
   const suspendedRef = useRef(Boolean(suspended));
@@ -596,6 +626,7 @@ export function PromptTray({
   onSubmitRef.current = onSubmit;
   answeringRef.current = answering;
   menuOpenRef.current = Boolean(menuOpen);
+  escapeHeldRef.current = Boolean(escapeHeld);
   confirmableRef.current = confirmable;
 
   function submitAnswer(answer: DuelAnswer) {
@@ -610,6 +641,7 @@ export function PromptTray({
 
     function onKey(event: KeyboardEvent) {
       if (shouldIgnoreKeyboard(event, menuOpenRef.current)) return;
+      if (event.key === "Escape" && escapeHeldRef.current) return;
       if (suspendedRef.current) return;
       const current = promptRef.current;
       const currentDraft = draftRef.current;
