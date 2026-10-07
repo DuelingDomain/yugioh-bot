@@ -249,14 +249,14 @@
  * A live chain keeps its tower, its strip and its response prompt in view. The flyout opens right of the tower and
  * below the strip (the strip sits at the top of the board and is the way to every link's details, so it gets the
  * height of one strip plus a priority row: 117px at 1366x768, 133px at 1920x1080, 150px at 2560x1440). It also ends
- * left of the prompt buttons, which sit at about 40vw: 329px wide at 1366x768, the full width from 1920 up. It starts
+ * left of the prompt buttons, which sit at about 40vw: 329px wide at 1366x768 (never under 280px, so it passes the buttons below about 1240px), the full width from 1920 up. It starts
  * at 190px, clear of the Deck Master plate under the tower.
  */
 .flyout[data-chain="true"] {
   --chain-shift: calc(80px + 40 * var(--duel-unit, 1px));
   top: calc(56px + var(--chain-shift));
   left: 190px;
-  width: max(320px, min(var(--fly-w), calc(38vw - 190px), calc(100% - 204px)));
+  width: max(280px, min(var(--fly-w), calc(38vw - 190px), calc(100% - 204px)));
 }
 
 .flyTabs {

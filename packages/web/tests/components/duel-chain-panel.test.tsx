@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import React from "react";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DuelCard, DuelCardInfo, DuelChainLink, DuelEvent, DuelSeatView, DuelZoneRef } from "@yugidraft/shared/duels";
 
@@ -246,10 +247,11 @@ describe("one effect", () => {
     flush(60);
     const row = (n: number) => container.querySelector(`[data-chain-panel] button[data-chain-row="${n}"]`) as HTMLButtonElement;
     expect(row(1).tagName).toBe("BUTTON");
-    // The column sits in an aria-hidden dock: its buttons stay out of the tab order, and the hidden screen reader list holds every link and its effect.
-    expect(row(1).tabIndex).toBe(-1);
-    expect(container.querySelector("[data-chain-panel]")?.closest('[aria-hidden="true"]')).not.toBeNull();
-    expect(container.querySelector('[data-chain-sr-link="2"]')?.textContent).toContain("Negate the activation.");
+    // The column is read and tabbed like any panel: no aria-hidden dock, and no second screen reader list of the same links.
+    expect(row(1).tabIndex).toBe(0);
+    expect(container.querySelector("[data-chain-panel]")?.closest('[aria-hidden="true"]')).toBeNull();
+    expect(container.querySelector("[data-chain-sr-list]")).toBeNull();
+    expect(container.querySelector("[data-chain-live]")).not.toBeNull();
     expect(row(1).getAttribute("aria-pressed")).toBe("false");
     act(() => { fireEvent.click(row(1)); });
     expect(row(1).getAttribute("aria-pressed")).toBe("true");
@@ -258,6 +260,28 @@ describe("one effect", () => {
     act(() => { fireEvent.click(row(1)); });
     expect(row(1).getAttribute("aria-pressed")).toBe("false");
     expect(hero(container)?.textContent).toContain("Link 2 of 2");
+  });
+});
+
+describe("the column by keyboard", () => {
+  it("reaches a row with Tab and shows its link in the hero with Enter", async () => {
+    const user = userEvent.setup({ delay: null });
+    const { container } = render(<ChainFx {...base} events={pair()} reducedMotion />);
+    flush(60);
+    // user-event waits on real timers; the panel is up and nothing else here needs the fake clock.
+    vi.useRealTimers();
+    const row = (n: number) => container.querySelector(`[data-chain-panel] button[data-chain-row="${n}"]`) as HTMLButtonElement;
+    // The list reads newest first: row 2 is the live link, row 1 comes after it.
+    await user.tab();
+    await user.tab();
+    expect(document.activeElement).toBe(row(1));
+    await user.keyboard("{Enter}");
+    expect(hero(container)?.textContent).toContain("Link 1 of 2");
+    expect(hero(container)?.textContent).not.toContain("Negate the activation.");
+    await user.tab({ shift: true });
+    expect(document.activeElement).toBe(row(2));
+    await user.keyboard("{Enter}");
+    expect(hero(container)?.textContent).toContain("Negate the activation.");
   });
 });
 

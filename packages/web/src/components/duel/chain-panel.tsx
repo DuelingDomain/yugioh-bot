@@ -110,8 +110,6 @@ function Row({ row, seatTones, expand, pick }: { row: RowView; seatTones: SeatTo
         data-chain-row={row.index}
         data-toned={seatTones?.has(row.seat) ? "true" : undefined}
         aria-pressed={pick.picked}
-        // The column sits in an aria-hidden dock (the screen reader list carries every link and its effect text), so its row buttons stay out of the tab order.
-        tabIndex={-1}
         aria-label={`Chain Link ${row.index}, ${row.name}, ${row.owner}. ${pick.picked ? "Showing its details" : "Show details"}`}
         style={toneVars(seatTones, row.seat)}
         onClick={pick.onPick}
