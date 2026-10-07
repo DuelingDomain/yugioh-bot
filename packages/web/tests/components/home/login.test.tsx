@@ -121,7 +121,8 @@ describe("LoginPage", () => {
     expect(screen.getByRole("link", { name: "Dueling Domain, home" })).toHaveAttribute("href", "https://marketing.example");
     expect(screen.getByRole("link", { name: "Back to site" })).toHaveAttribute("href", "https://marketing.example");
     expect(screen.getByRole("link", { name: "Join the waitlist" })).toHaveAttribute("href", "https://marketing.example/#join");
-    expect(screen.getByRole("link", { name: "Privacy" })).toHaveAttribute("href", "https://marketing.example/privacy");
+    expect(screen.getByRole("link", { name: "Privacy" })).toHaveAttribute("href", "https://duelingdomain.com/privacy");
+    expect(screen.getByRole("link", { name: "Terms" })).toHaveAttribute("href", "https://duelingdomain.com/terms");
   });
 
   it.each([undefined, "GuildMembershipRequired"])("omits external links when MARKETING_URL is unset (%s)", async (error) => {
@@ -129,8 +130,12 @@ describe("LoginPage", () => {
     const { container } = await renderPage(error);
     expect(screen.getByRole("img", { name: "Dueling Domain" }).closest("a")).toBeNull();
     expect(screen.queryByRole("link", { name: "Dueling Domain, home" })).toBeNull();
-    for (const name of ["Back to site", "Join the waitlist", "Privacy"]) expect(screen.queryByRole("link", { name })).toBeNull();
-    expect(container.querySelectorAll('a[href^="http"]')).toHaveLength(0);
+    for (const name of ["Back to site", "Join the waitlist"]) expect(screen.queryByRole("link", { name })).toBeNull();
+    // The legal links are fixed constants, so they stay; nothing else points off the app.
+    expect(Array.from(container.querySelectorAll('a[href^="http"]')).map((a) => a.getAttribute("href"))).toEqual([
+      "https://duelingdomain.com/terms",
+      "https://duelingdomain.com/privacy",
+    ]);
     if (error) {
       screen.getByText("Access opens in waves, and this Discord account isn’t in one yet.");
       expect(screen.queryByText(/Join the waitlist/)).toBeNull();
