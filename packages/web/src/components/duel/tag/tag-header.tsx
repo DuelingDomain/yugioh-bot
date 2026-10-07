@@ -38,7 +38,8 @@ export interface TagHeaderProps {
    * The floating HUD (wide screens): the header is three glass pills over the board, and `baton` (the turn order)
    * sits in the middle one. The nodes inside stay the same, so the e2e hooks (`data-tag-turn`, the who pill) hold.
    */
-  hud?: { baton: ReactNode };
+  /** `clock`: the clock block pill (hudClockBank), right of the identity pill. */
+  hud?: { baton: ReactNode; clock?: ReactNode };
 }
 
 /** The mode label of the pill: "Domain", "Custom Domain" or "MR5". */
@@ -119,6 +120,7 @@ export function TagHeader({ session, engine, viewerSeat, nameOf, teamNames, pref
     return (
       <header className={`${hudStyles.top} ${styles.hudTop}`} data-tag-header data-testid="hud-top">
         <div className={hudStyles.topLeft}>{identityNode}</div>
+        {hud.clock}
         <div className={hudStyles.topMid}>{hud.baton}</div>
         <div className={hudStyles.topRight}>{turnNode}{statusNode}</div>
       </header>
