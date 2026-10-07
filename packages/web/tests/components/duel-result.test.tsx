@@ -172,6 +172,12 @@ describe("describeDuelResult", () => {
     expect(cancelled.outcome).toBe("cancelled");
     expect(cancelled.headline).toBe("TABLE CANCELLED");
     expect(cancelled.scores).toEqual([]);
+    // The host saves the bare word "Cancelled"; the subtitle must not repeat the headline.
+    expect(cancelled.reason).toBe("The table closed before the duel finished");
+    const saved = describeDuelResult(makeRoom({ status: "cancelled", mySeat: 0, winner: null, reason: "Cancelled", engine: false }));
+    expect(saved.reason).toBe("The table closed before the duel finished");
+    const custom = describeDuelResult(makeRoom({ status: "cancelled", mySeat: 0, winner: null, reason: "The organizer closed the table", engine: false }));
+    expect(custom.reason).toBe("The organizer closed the table");
   });
 
   it("prefers the live engine result over the saved session row", () => {
@@ -262,6 +268,17 @@ describe("DuelResultScreen", () => {
     setup({ status: "cancelled", winner: null, reason: null, engine: false });
     expect(screen.queryByRole("link", { name: "Watch replay" })).toBeNull();
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("TABLE CANCELLED");
+  });
+
+  it("lays the actions out as one row of equally styled buttons, the lead one filled", () => {
+    setup({ status: "cancelled", winner: null, reason: "Cancelled", engine: false });
+    const exit = screen.getByRole("link", { name: "Back to tables" });
+    const board = screen.getByRole("button", { name: "View board" });
+    expect(exit.parentElement).toHaveAttribute("data-count", "2");
+    expect(exit).toHaveAttribute("data-kind", "primary");
+    expect(board).toHaveAttribute("data-kind", "secondary");
+    expect(screen.getByText("The table closed before the duel finished")).toBeInTheDocument();
+    expect(screen.queryByText("Cancelled")).toBeNull();
   });
 
   it("calls onClose from View board", () => {
@@ -441,5 +458,23 @@ describe("short phone layout", () => {
     expect(block, "the short-phone media query").not.toBeNull();
     expect(block![1]).toMatch(/--gap:\s*10px/);
     expect(block![1]).toMatch(/\.scroll\s*\{[^}]*padding-block/);
+  });
+});
+
+describe("result layout styles", () => {
+  const css = readFileSync(join(__dirname, "../../src/components/duel/duel-result.module.css"), "utf8");
+
+  it("fades the glow behind the title to nothing, so no straight box edge shows", () => {
+    const light = css.match(/\.light\s*\{([^}]*)\}/);
+    expect(light, "the .light rule").not.toBeNull();
+    expect(light![1]).toMatch(/mask-image:\s*radial-gradient\(closest-side/);
+  });
+
+  it("centres equal-width actions instead of stretching the lead button", () => {
+    const actions = css.match(/\n\.actions\s*\{([^}]*)\}/);
+    expect(actions, "the .actions rule").not.toBeNull();
+    expect(actions![1]).toMatch(/justify-content:\s*center/);
+    expect(actions![1]).toMatch(/grid-auto-columns:\s*minmax\(0,\s*200px\)/);
+    expect(css).not.toMatch(/1\.7fr/);
   });
 });
