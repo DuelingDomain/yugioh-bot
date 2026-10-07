@@ -10,7 +10,7 @@ import Database from "better-sqlite3";
 import { probeEngineData } from "./probe-engine-data.js";
 import { withValidation, prereleaseUpdateReport } from "./engine-data-report.js";
 import { listIndex, reconcile, scanText } from "./scan-multiplayer-scripts.js";
-import { downloadReleasedCardData, restrictPrereleaseScripts } from "./released-card-data.js";
+import { discoverReleasedDatabases, downloadReleasedCardData, restrictPrereleaseScripts } from "./released-card-data.js";
 
 export type Pins = { scripts: string; database: string; strings: string };
 const repositories: Record<keyof Pins, string> = { scripts: "CardScripts", database: "BabelCDB", strings: "Distribution" };
@@ -172,11 +172,16 @@ export async function runUpdate(options: Options = {}) {
     for (const path of newTree.keys()) if (path.endsWith(".lua")) stock.set(path, await readFile(join(extracted, path), "utf8"));
     const preparation = await readFile(join(root, preparePath), "utf8");
     const historyStart = /prereleaseHistoryStart:\s*"([a-f0-9]{12,40})"/.exec(preparation)?.[1];
+    let oldDataError: string | undefined;
     const [database, oldDatabase] = await Promise.all([
       downloadReleasedCardData(next.database, temporary, download, { historyStart }),
-      downloadReleasedCardData(old.database, join(temporary,"old-data"), download),
+      downloadReleasedCardData(old.database, join(temporary,"old-data"), download).catch((error: unknown) => {
+        if (!(error instanceof Error) || !/^Ambiguous\b/.test(error.message)) throw error;
+        oldDataError = error.message;
+        return null;
+      }),
     ]);
-    const oldDatabases = oldDatabase.files;
+    const oldDatabases = oldDatabase?.files ?? await discoverReleasedDatabases(old.database, download);
     const releases = database.files.filter(path => path.startsWith("release-"));
     const loadedCodes = new Set([...database.releaseCodes, ...database.prereleaseCodes]);
     report.push("", "## Released databases", "", `Loaded in order: ${database.files.map(path => `\`${path}\``).join(", ")}.`,
@@ -184,7 +189,8 @@ export async function runUpdate(options: Options = {}) {
       `Added release databases: ${releases.filter(path => !oldDatabases.includes(path)).map(path => `\`${path}\``).join(", ") || "None"}.`,
       `Removed release databases: ${oldDatabases.filter(path => path.startsWith("release-") && !releases.includes(path)).map(path => `\`${path}\``).join(", ") || "None"}.`,
       "The candidate is rebuilt from its base, prerelease and release files; expansions merged upstream into cards.cdb are not carried forward.");
-    report.push("", prereleaseUpdateReport(oldDatabase.prerelease, database));
+    if (oldDataError) report.push("", "## Previous card-data comparison", "", `Finding: ${markdown(oldDataError)}. The old snapshot could not be reconciled; this finding does not block the candidate update.`);
+    report.push("", prereleaseUpdateReport(oldDatabase?.prerelease ?? null, database, oldDatabase?.released));
     restrictPrereleaseScripts(extracted, database.scriptCodes);
     const releasePaths = [...loadedCodes].flatMap(code => {
       const officialPath = `official/c${code}.lua`;

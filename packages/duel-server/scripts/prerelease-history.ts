@@ -4,7 +4,10 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { isPrereleaseDatabaseFile } from "../src/released-database-files.js";
 
-export interface CardIdentity { code: number; name: string; type: number; alias?: number }
+export interface CardIdentity {
+  code: number; name: string; type: number; alias?: number;
+  atk?: number; def?: number; level?: number; attribute?: number;
+}
 
 export const hasDedupeIdentity = (card: CardIdentity) => !card.alias && (card.type & 0x4000) === 0 && !!card.name.trim();
 

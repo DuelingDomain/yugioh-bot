@@ -127,7 +127,7 @@ describe("engine data update", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
-  it.each([[true, nextPins], [false, nextPins], [false, { ...oldPins, database: nextPins.database }]])("reports a complete mocked update (dryRun=%s), preserving overlays and core pins", async (dryRun, overrides) => {
+  it.each([[true, nextPins, undefined], [false, nextPins, undefined], [false, { ...oldPins, database: nextPins.database }, undefined], [false, nextPins, "old"], [false, nextPins, "next"]] as const)("reports a complete mocked update (dryRun=%s), preserving overlays and core pins", async (dryRun, overrides, ambiguous) => {
     const { root } = await fixture();
     const manifest = { cards: [{ code: 1, file: "c1.lua", name: "Old card", stockSha256: sha256("old") }] };
     const manifestPath = join(root, "packages/duel-server/domain-core/multi-scripts/MANIFEST.json");
@@ -163,7 +163,8 @@ describe("engine data update", () => {
     };
     const oldRelease = await makePreview("old-release.cdb",[]);
     const oldPreview = await makePreview("old-preview.cdb",[[100000001,"New card"],[100000003,"Withdrawn preview"]]);
-    const nextPreview = await makePreview("next-preview.cdb",[[100000002,"New preview"]]);
+    const conflictingPreview = await makePreview("conflicting-preview.cdb",[[100000001,"@reviewer Changed #123 card"]]);
+    const nextPreview = await makePreview("next-preview.cdb",[[ambiguous === "next" ? 100000001 : 100000002,"New preview"]]);
     const request = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
       if (url.includes("/compare/")) return Response.json({ ahead_by: 2, behind_by: 0, status: "ahead" });
@@ -171,6 +172,7 @@ describe("engine data update", () => {
         if (url.includes("/BabelCDB/")) return Response.json({ truncated: false, tree: [
           { path: "cards.cdb", type: "blob", sha: "base" },
           { path: "prerelease-test.cdb", type: "blob", sha: "preview" },
+          ...(ambiguous === (url.includes(oldPins.database) ? "old" : "next") ? [{path:"prerelease-conflict.cdb",type:"blob",sha:"conflict"}] : []),
           { path: url.includes(oldPins.database) ? "release-old.cdb" : "release-new.cdb", type: "blob", sha: "release" },
         ] });
         const old = url.includes(oldPins.scripts);
@@ -185,9 +187,15 @@ describe("engine data update", () => {
       if (url.endsWith("/cards.cdb")) return new Response(new Uint8Array(database));
       if (url.endsWith("/release-new.cdb")) return new Response(new Uint8Array(release));
       if (url.endsWith("/release-old.cdb")) return new Response(new Uint8Array(oldRelease));
+      if (url.endsWith("/prerelease-conflict.cdb")) return new Response(new Uint8Array(conflictingPreview));
       if (url.endsWith("/prerelease-test.cdb")) return new Response(new Uint8Array(url.includes(oldPins.database) ? oldPreview : nextPreview));
       throw new Error(`Unexpected request: ${url}`);
     });
+    if (ambiguous === "next") {
+      await expect(runUpdate({root,overrides,dryRun,request,validate:false})).rejects.toThrow(/Ambiguous/);
+      expect(await readPins(root)).toEqual(oldPins);
+      return;
+    }
     const result = await runUpdate({ root, overrides, dryRun, request, validate: false });
     expect(result.changed).toBe(true);
     expect(await readPins(root)).toEqual(dryRun ? oldPins : overrides);
@@ -197,10 +205,18 @@ describe("engine data update", () => {
     expect(report).toContain("Removed release databases");
     expect(result.changedPaths).toContain("official/c2.lua");
     expect(result.changedPaths).toContain("pre-release/c100000002.lua");
-    expect(report).toContain("Added prerelease cards (1)");
-    expect(report).toContain("Removed prerelease cards (1)");
-    expect(report).toContain("Graduated prerelease cards (1)");
-    expect(report).toContain("100000001 → 2 New card");
+    if (ambiguous === "old") {
+      expect(report).toContain("Previous card-data comparison");
+      expect(report).toContain("Ambiguous retained prerelease passcode 100000001");
+      expect(report).toContain("could not be determined");
+      expect(report).not.toContain("Added prerelease cards (1)");
+      expect(report).toContain("Dropped prerelease rows (0)");
+    } else {
+      expect(report).toContain("Added prerelease cards (1)");
+      expect(report).toContain("Removed prerelease cards (1)");
+      expect(report).toContain("Graduated prerelease cards (1)");
+      expect(report).toContain("100000001 → 2 New card");
+    }
     if (overrides.scripts === oldPins.scripts) {
       expect(report).toContain("New official card scripts (0)");
       expect(report).toContain("Changed official scripts (0)");
