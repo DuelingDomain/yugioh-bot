@@ -20,7 +20,7 @@ describe("FFA dice opening", () => {
     for (let round = 1; round <= 10; round++) state = settleDiceOpening(state, state.deadline, roll);
     expect(state.phase).toBe("start");
     expect(state.rounds).toHaveLength(10);
-    expect(state.order?.toSorted()).toEqual(Array.from({ length: seatCount }, (_, seat) => seat));
+    expect(state.order && [...state.order].sort()).toEqual(Array.from({ length: seatCount }, (_, seat) => seat));
     expect(roll).toHaveBeenCalledTimes(10 * seatCount);
     expect(settleDiceOpening(state, state.deadline + 3000, roll)).toBe(state);
   });
