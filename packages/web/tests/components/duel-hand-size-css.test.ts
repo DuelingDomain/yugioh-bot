@@ -42,4 +42,17 @@ describe("your hand is drawn larger than the strip reserves", () => {
     expect(css).toMatch(/\.zone\[data-legal="true"\] \.zoneHit::before,[^{]*\.zone\[data-selected="true"\] \.zoneHit::before \{[^}]*bottom: 100%;[^}]*height: calc\(var\(--lh\) \* 0\.05\);/);
     expect(css).toMatch(/\.zone\[data-selected="true"\] \.zoneHit::before \{\s*height: calc\(var\(--lh\) \* 0\.12\);/);
   });
+
+  it("draws the rival's HUD room hand about 30% larger and keeps its peek under the header pills", () => {
+    // 0.47 / 0.36 = 1.31 times the old backs. The part above the board (--ohk x --top-hide = 0.18 zone) is what it was
+    // (0.36 x 0.5), so the cards grow downward into the strip the LP tally holds open and never reach the pills.
+    const hud = /\[data-hud="room"\]\) \.playmat \{([^}]*)\}/.exec(css)?.[1] ?? "";
+    const ohk = Number(/--ohk: ([\d.]+);/.exec(hud)?.[1]);
+    const hide = Number(/--top-hide: ([\d.]+);/.exec(hud)?.[1]);
+    expect(ohk / 0.36).toBeGreaterThanOrEqual(1.25);
+    expect(ohk / 0.36).toBeLessThanOrEqual(1.4);
+    expect(ohk * hide).toBeLessThanOrEqual(0.36 * 0.5 + 0.005);
+    // The layout reserve (--ohkr = ohk x (1 - hide + 0.05)) stays near the old 0.198, so the board frame does not shrink.
+    expect(ohk * (1 - hide + 0.05)).toBeLessThanOrEqual(0.33);
+  });
 });
