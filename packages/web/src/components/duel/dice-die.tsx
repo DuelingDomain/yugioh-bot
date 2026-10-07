@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 import type { DiceSkinId } from "./dice-skins";
 import type { DiceLanding, DicePlan, DiceTimeline } from "./dice-model";
 import { landsAt } from "./dice-model";
@@ -109,7 +109,8 @@ export function DiceDie({ value, skin, throwRound, plan, timeline, landing, tied
   const shock = useRef<HTMLDivElement>(null);
   const glint = useRef<HTMLDivElement>(null);
   const latest = useRef({ sampleElapsed, plan, timeline, landing, reduced, value });
-  useEffect(() => { latest.current = { sampleElapsed, plan, timeline, landing, reduced, value }; });
+  // Layout timing and declared first: the throw effect below reads this on the same commit.
+  useLayoutEffect(() => { latest.current = { sampleElapsed, plan, timeline, landing, reduced, value }; });
 
   // Starts the throw when a new round throws this die. Layout timing, so the die never flashes at rest before it drops.
   useLayoutEffect(() => {
