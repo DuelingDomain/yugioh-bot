@@ -52,7 +52,7 @@ The output is one `cards.cdb`, read by artwork identity and catalog writers, due
 
 Only main-art rows (`alias=0`) without the token bit (`type & 0x4000`) participate in identity deduplication or historical remaps. Alternate artworks and tokens keep their distinct passcodes; exact-code released rows still take precedence. Identity is trimmed, case-folded name plus exact numeric type. A released identity wins over every preview, including a preview with a different passcode. Renamed/type-corrected historical previews additionally use the v3 policy below. Duplicate previews prefer an official-size passcode (below 100,000,000), then an `-en.cdb` source, then the lowest code. Every dropped preview is printed during preparation and listed in the weekly report, with its retained passcode when available. References in `datas.alias` to graduated main-card IDs follow their remap. Conflicting remaps or remap sources still retained under another identity stop preparation instead of redirecting a saved card silently. Released and preview artwork families remain intact. Read/import paths and startup skip remaps whose source is a retained alternate artwork or token. Startup checks application artwork families inside the same immediate transaction as its writes. The unsafe v1 recipe omitted alias metadata for dropped artwork rows; nonempty v1 remaps are refused before any saved data or cache records change, requiring bundle preparation with v2. Historical graduations also update the alias of each surviving artwork to its current main code.
 
-The manifest records `sources.databaseFormat = "official-releases-prerelease-v3"`, the ordered `sources.databaseFiles`, and `sources.prereleaseHistoryStart`. `integrity.cards` is SHA-256 over ordered `<filename>:<input SHA-256>` records, joined by newlines with no trailing newline. `integrity.cardsMerged` hashes the merged output bytes and verifies the cached `cards.cdb` on disk. `card-remaps.json` contains schema version 1, old-to-current `remaps`, retained `prerelease` identities and `drops`; `integrity.cardRemaps` hashes its exact bytes. That hash participates in `bundleVersion`. Startup, bundle cache checks and installation verify it; the new recipe requires the artifact even if its remap map is empty. Every bundle version writer excludes only `cardsMerged` and `multiScripts`: SQLite layout/library changes alone cannot invalidate duels or replays. The format marker forces older recipes at unchanged upstream pins to rebuild. Bump it when selection, merge or script filtering changes.
+The manifest records `sources.databaseFormat = "official-releases-prerelease-v4"`, the ordered `sources.databaseFiles`, and `sources.prereleaseHistoryStart`. `integrity.cards` is SHA-256 over ordered `<filename>:<input SHA-256>` records, joined by newlines with no trailing newline. `integrity.cardsMerged` hashes the merged output bytes and verifies the cached `cards.cdb` on disk. `card-remaps.json` contains schema version 1, old-to-current `remaps`, retained `prerelease` identities and `drops`; `integrity.cardRemaps` hashes its exact bytes. That hash participates in `bundleVersion`. Startup, bundle cache checks and installation verify it; the new recipe requires the artifact even if its remap map is empty. Every bundle version writer excludes only `cardsMerged` and `multiScripts`: SQLite layout/library changes alone cannot invalidate duels or replays. The format marker forces older recipes at unchanged upstream pins to rebuild. Bump it when selection, merge or script filtering changes.
 
 `integrity.scripts` continues to hash the pinned input archive. Preparation keeps `pre-release/cNNN.lua` only when its code is present in the final merged database, and prefers an `official/` copy when both exist. Basename lookup prefers `official/`, then `pre-release/`, then root/shared helpers and other directories; explicit paths remain available. Native fixed-path checks also search `pre-release/` after root and `official/`. Artwork aliases resolve through the merged database.
 
@@ -232,4 +232,35 @@ installed engine, even offline; cubes and draft references therefore display the
 correct official name/type instead of copied preview labels. Historical duel records
 retain the existing replay rules. Update all three workflow bundle cache inputs when
 adding a matching helper or override input. The database format is now
-`official-releases-prerelease-v3`; older recipes rebuild at unchanged source pins.
+`official-releases-prerelease-v4`; older recipes rebuild at unchanged source pins.
+
+
+### Required prerelease script smoke check (v4)
+
+Every fresh preparation registers **every retained prerelease passcode**, including
+unchanged scripts and alternate artworks, on installed npm `ocgcore-wasm@0.1.2`.
+Native registration loads the effective script and invokes `initial_effect` without
+playing a duel. Each card gets a fresh duel so earlier errors cannot poison later
+checks. Optional scriptless Normal Monsters keep the engine's existing behavior.
+Card-attributed script-load, missing-script and `initial_effect` errors exclude that
+preview from both `datas` and `texts`; released rows are never excluded, even when
+their script still resides in `pre-release/`. Artwork previews depending on an
+excluded main preview also disappear. Filtered scripts and final database bytes are
+hashed only after exclusions. Remaps targeting an excluded preview are suppressed,
+so saved source codes remain unknown rather than migrating to a missing target.
+
+The worker isolates synchronous Lua. A per-card five-second timeout or crash excludes
+the active preview and resumes untested cards in a new worker. Missing core/helpers,
+invalid progress and other un-attributed infrastructure failures stop preparation
+instead of excluding the whole pool. Output lists each **excluded: script error**
+with its code, name, source and error, plus checked/excluded counts.
+`card-remaps.json.scriptSmoke` retains checked counts, exclusions and suppressed
+remaps under the existing integrity hash and bundle version. Weekly inline validation
+uses the same checker; deferred CI validation reads the exact prepared artifact,
+verifies its hash and includes the findings in the weekly report. Cache hits reuse the
+recorded check for the same pins/recipe/override inputs. Workflow bundle cache inputs
+include both smoke helpers. The format is `official-releases-prerelease-v4`.
+
+This is an initialization check. A callback that fails later during an effect still
+needs gameplay investigation. Runtime EDOPro-style logging and the manually reviewed
+card block list are maintained on the separate `feat/edopro-script-errors` branch.

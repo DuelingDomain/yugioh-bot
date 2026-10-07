@@ -7,6 +7,8 @@ import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { installMultiScripts } from "../src/multi-scripts.js";
 import { downloadReleasedCardData, restrictPrereleaseScripts } from "./released-card-data.js";
+import { smokePrereleaseScripts } from "./prerelease-script-smoke.js";
+import { applyPrereleaseSmokeResult } from "./prerelease-script-exclusions.js";
 import { installCardScriptPatches } from "./card-script-patches.js";
 
 export const sources = {
@@ -14,7 +16,7 @@ export const sources = {
   scripts: "37f270dc813a12d123707ae255f2bda7922999c4",
   database: "fdf92aea31033cd6c44afa89987c5e00665205e2",
   strings: "54a6e2395c532648ff762540e9615319fac4f51b",
-  databaseFormat: "official-releases-prerelease-v3",
+  databaseFormat: "official-releases-prerelease-v4",
   // Immutable support boundary; abbreviated so the weekly pin rewrite never advances it.
   prereleaseHistoryStart: "fdf92aea3103",
 };
@@ -116,7 +118,6 @@ export async function prepareData(
       download(`https://raw.githubusercontent.com/ProjectIgnis/Distribution/${sources.strings}/config/strings.conf`, request),
       download(`https://codeload.github.com/ProjectIgnis/CardScripts/tar.gz/${sources.scripts}`, request),
     ]);
-    const cards = database.bytes;
     const archive = join(temporary, "scripts.tar.gz");
     await writeFile(archive, scripts);
     const scriptStaging = join(temporary, "card-scripts");
@@ -126,6 +127,14 @@ export async function prepareData(
     for (const drop of database.drops) console.log(`[prerelease] Drop ${drop.code} ${drop.name} (${drop.file}): ${drop.reason}${drop.keptCode ? ` → ${drop.keptCode}` : ""}`);
     for (const card of database.unmatched) console.log(`[prerelease] ${card.code} ${card.name}: unmatched graduation, needs review`);
     const cardScriptPatches = installCardScriptPatches(scriptStaging);
+    await writeFile(join(temporary, "strings.conf"), strings);
+    const smoke = await smokePrereleaseScripts(temporary, [...database.prereleaseCodes]);
+    await applyPrereleaseSmokeResult(database, smoke);
+    restrictPrereleaseScripts(scriptStaging, database.scriptCodes);
+    const findings = JSON.parse(database.remapBytes).scriptSmoke;
+    console.log(`[prerelease] Script smoke: checked ${smoke.checked}, excluded ${findings.excluded.length}`);
+    for (const card of findings.excluded) console.log(`[prerelease] ${card.code} ${card.name} (${card.file}): excluded: script error — ${card.errors.join("; ")}`);
+    const cards = database.bytes;
     if (savedLua) await writeFile(join(scriptStaging, "domain.lua"), savedLua);
     if (savedLegacyLua) await writeFile(join(scriptStaging, "domain.legacy.lua"), savedLegacyLua);
     const scriptDirectory = join(directory, "card-scripts");
