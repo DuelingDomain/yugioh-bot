@@ -291,18 +291,21 @@ describe("the Tag HUD with a prompt", () => {
   });
 });
 
-describe("the Tag clock in the bottom pill", () => {
-  it("shows the answering seat only, and nothing when no clock runs", () => {
+describe("the Tag clocks at the top left", () => {
+  it("shows all four clocks in the header with the answering seat marked, and none in the bottom pill", () => {
     media(false);
     const withClock = (activeSeat: number | null) => (controller: TableController): TableController => ({
       ...controller,
-      room: { ...controller.room, clock: { turn: 1, remainingMs: [180_000, 170_000, 160_000, 150_000], activeSeat, startedAt: null, serverNow: 0 } },
+      room: { ...controller.room, clock: { turn: 1, remainingMs: [180_000, 170_000, 160_000, 150_000], activeSeat, startedAt: activeSeat == null ? null : 0, serverNow: 0 } },
     });
     const { unmount } = render(<Shell tweak={withClock(1)} />);
-    const timer = within(screen.getByTestId("hud-bottom")).getByRole("timer");
-    expect(timer.querySelectorAll("[data-active]")).toHaveLength(1);
+    const timer = within(screen.getByTestId("hud-top")).getByRole("timer");
+    expect(timer.querySelectorAll('[data-testid="clock-cell"]')).toHaveLength(4);
+    expect(timer.querySelectorAll('[data-active="true"]')).toHaveLength(1);
+    expect(within(screen.getByTestId("hud-bottom")).queryByRole("timer")).toBeNull();
     unmount();
     render(<Shell tweak={withClock(null)} />);
-    expect(within(screen.getByTestId("hud-bottom")).queryByRole("timer")).toBeNull();
+    const idle = within(screen.getByTestId("hud-top")).getByRole("timer");
+    expect(idle.querySelectorAll('[data-active="true"]')).toHaveLength(0);
   });
 });
