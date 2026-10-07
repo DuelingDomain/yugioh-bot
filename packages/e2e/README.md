@@ -12,33 +12,35 @@ npm run e2e:report --workspace=packages/e2e
 
 - `e2e:nobuild` skips the build step. `E2E_FORCE_BUILD=1` rebuilds all. `E2E_SKIP_BUILD=1` skips builds.
 - Run one file: `npx playwright test duel-1v1-match` (from `packages/e2e`).
+- Fast auth gate after building: `npx playwright test tests/auth.setup.ts` (from `packages/e2e`).
 - Shard: `npx playwright test --shard=1/3`. Each shard starts its own stack, so run shards on separate machines.
 - Retries: 1 in CI, 0 locally. Traces are kept on the first retry in CI and on failure locally. Screenshots and video are kept on failure. A failed test also attaches more evidence: see Failure evidence.
 
 ## The isolated stack
 
-Playwright `webServer` runs `stack/start.mjs`. It starts three processes on non-live ports and stops them at the end:
+Playwright `webServer` runs `stack/start.mjs`. It starts four processes on non-live ports, waits for `GET /api/auth/session`, and stops them at the end:
 
 | Service | Port | Notes |
 | --- | --- | --- |
 | web (production standalone build) | 3300 | `http://localhost:3300`. Use `localhost`, not `127.0.0.1`. |
 | ws Socket.IO | 3302 public, 4302 internal | `NEXT_PUBLIC_WS_URL` is baked into the web build. |
 | duel host | 4303 | Uses `data/duel-engine-next` read-only. |
+| worker | none | Advances unattended drafts and tournaments; uses the isolated DB and image cache. |
 
-- Database: a fresh SQLite file at `packages/e2e/.stack/e2e.sqlite`, seeded with one guild and 5 players (p1 to p4 take seats; p5 is the unseated watcher). The live `data/bot.sqlite` is never used.
+- Database: a fresh SQLite file at `packages/e2e/.stack/e2e.sqlite`, seeded with one guild and 5 players (p1 to p4 take seats in four-seat specs; p5 is the email-only watcher). `p5` has user ID 105, a verified fixture email, and NULL Discord IDs on both user and player rows. It also hosts the existing practice-bot duel spec. The live `data/bot.sqlite` is never used.
 - The duel and web services set `MULTIPLAYER_TABLES=1` to permit FFA3, FFA4 and 2v2 Tag tables and presets.
-- Secrets: new random values for each run (`stack/env.mjs`). The stack sets every variable the three servers read, so a value in a `.env` file cannot change the run. The duel host still loads the repo `.env` by a fixed path (dotenv never overrides a variable that is set). The ws server loads no `.env`.
+- Secrets: new random values for each run (`stack/env.mjs`): 24 random bytes encoded as 48 hex characters for auth, WS and duel secrets. The stack sets every variable the services read, so a value in a `.env` file cannot change the run. The duel host still loads the repo `.env` by a fixed path (dotenv never overrides a variable that is set). The ws server loads no `.env`.
 - Memory: the duel host keeps each unfinished duel's engine worker for 5 minutes after its last request (`DUEL_IDLE_WORKER_MS`). A long `--repeat-each` run can use several GB. The memory goes down when the idle workers close.
-- The web build is `next build` with the E2E ws URL, so `packages/web/.next` is overwritten. `stack/prepare.mjs` rebuilds only what is older than its sources.
-- Discord is not called. `stack/fetch-stub.mjs` is preloaded into the web server only. It answers the guild-member check for the 4 fake players and serves a tiny JPEG for card images. The production checks in `duel-host.ts` are unchanged. Bot announcements are skipped because `BOT_ANNOUNCE_URL` is empty.
+- The web build is `next build` with the E2E ws URL, `E2E_AUTH=1`, a throwaway auth secret and the format-valid dummy Clerk publishable key `pk_test_Y2xlcmsuZXhhbXBsZS5jb20k`, so `packages/web/.next` is overwritten. `stack/prepare.mjs` rebuilds stale sources and outputs whose stamp does not match `{ wsUrl, e2eAuth: true, clerkPublishableKey }`. A production build or a build with another key is rebuilt.
+- Discord is not called: web and worker run with `DISCORD_BOT_ENABLED=0`. `stack/fetch-stub.mjs` is preloaded into both services and retains only the card-set and card-image stubs. Web gets `WEB_URL`, the E2E gate/secret and the dummy publishable key; no Discord login credentials are needed.
 - The stack refuses to start on a live port (3000, 3001, 3002, 3100, 3110, 4001, 4002, 4003, 4010) or on a busy port.
 - Concurrent runs: set `E2E_SLOT=N` (one digit, 0 to 9). Ports become web `3301+10N`, ws `3303+10N`, ws internal `4304+10N`, duel `4305+10N`, and the state folder `.stack-N` replaces `.stack`. Each slot needs its own build. See `stack/MANUAL.md`.
 
 ## Test login
 
-`packages/web/src/lib/auth.ts` adds a NextAuth Credentials provider (`e2e`) only when `E2E_AUTH=1` and `E2E_AUTH_SECRET` has at least 32 characters. Without both, the provider does not exist and the login page is unchanged. The secret is compared in constant time. The session has the same `user.id` (Discord id) as a Discord login.
+The web app enables offline auth only when `E2E_AUTH=1` and `E2E_AUTH_SECRET` has at least 32 characters. `POST /api/test-auth/session` with JSON `{ userId, secret }` issues the signed, expiring HttpOnly/SameSite `dd_e2e_session` cookie for a seeded application user. `GET /api/auth/session` returns `{ user: { id, ... } }`, with `id === String(users.id)`, or `null` when signed out. With the gate disabled, the login endpoint returns 404 and the cookie is ignored. Test mode bypasses Clerk middleware/provider network initialization and uses offline account controls.
 
-`tests/auth.setup.ts` logs in players p1 to p4 through the API and saves `.auth/p1.json` to `.auth/p4.json`. Tests load them with the `player` fixture.
+`stack/login-auth.mjs` posts only the application user ID and secret, requires HTTP 200, then checks the session's application ID. `tests/auth.setup.ts` uses it for all five players and saves `.auth/p1.json` to `.auth/p5.json` (inside the slot directory when `E2E_SLOT` is set). Tests load them with the `player` fixture. `stack/login.mjs` uses the same helper for manual browsers and rejects secrets shorter than 32 characters before opening one.
 
 ## Add a flow
 
@@ -130,7 +132,7 @@ Limits: only duels with recorded answers replay (a duel that never started has n
 
 ## Unit tests of the evidence helpers
 
-`npm run test:unit --workspace=packages/e2e` runs `node --test` on `tests-unit/` (timeline merge and rendering, leak compare). No browser and no stack. Node 24 runs the TypeScript files directly.
+`npm run test:unit --workspace=packages/e2e` runs `node --test` on `tests-unit/` (login, seed, isolated supervisor/build fixtures, timeline merge and rendering, leak compare). No browser or full stack. Node 22.23.2 runs the TypeScript files directly. Some CLI/supervisor tests need subprocesses and temporary sockets, so run the full suite outside restricted sandboxes.
 
 ## Scale to 4 players
 

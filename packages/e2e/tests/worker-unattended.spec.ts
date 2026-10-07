@@ -5,10 +5,9 @@ import { dbPath, guildId, players } from "../stack/env.mjs";
 import { authFile } from "../helpers/players";
 
 test.use({storageState: authFile("p1")});
-test("offline NextAuth uses app IDs while an unattended draft advances", async ({request}) => {
+test("offline signed-cookie auth uses app IDs while an unattended draft advances", async ({request}) => {
   const session = await (await request.get("/api/auth/session")).json();
   expect(session.user.id).toBe("101");
-  expect(session.user.discordUserId).toBe(players[0].discordId);
   const db = openDatabase(dbPath);
   let draftId: number | undefined;
   try {

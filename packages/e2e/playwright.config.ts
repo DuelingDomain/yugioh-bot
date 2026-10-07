@@ -49,7 +49,7 @@ export default defineConfig({
   // One supervised stack: ws + duel host + worker + web. It stops when Playwright stops.
   webServer: {
     command: "node stack/start.mjs",
-    url: `${webUrl}/login`,
+    url: `${webUrl}/api/auth/session`,
     // Never reuse: a stale stack would hold old secrets and a stale database.
     reuseExistingServer: false,
     // Slot startup can queue behind other slots' serialized web builds.

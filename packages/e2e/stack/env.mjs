@@ -34,16 +34,17 @@ export const manualInfoFile = resolve(stackDir, "manual.json");
 // "localhost", not 127.0.0.1: the socket connection is refused on 127.0.0.1.
 export const webUrl = `http://localhost:${ports.web}`;
 export const wsUrl = `http://localhost:${ports.ws}`;
+export const clerkPublishableKey = "pk_test_Y2xlcmsuZXhhbXBsZS5jb20k";
 
 export const guildId = "900000000000000001";
-// Fake Discord user ids. The stub treats exactly these ids as guild members.
+// Application identities; linked Discord IDs are optional fixture metadata.
 export const players = [
   { key: "p1", userId: 101, discordId: "900000000000000101", name: "E2E Alice" },
   { key: "p2", userId: 102, discordId: "900000000000000102", name: "E2E Bob" },
   { key: "p3", userId: 103, discordId: "900000000000000103", name: "E2E Carol" },
   { key: "p4", userId: 104, discordId: "900000000000000104", name: "E2E Dave" },
   // Never seated by the four-seat specs: the unseated watcher of a full table.
-  { key: "p5", userId: 105, discordId: "900000000000000105", name: "E2E Eve" },
+  { key: "p5", userId: 105, discordId: null, email: "eve@example.test", name: "E2E Eve" },
 ];
 
 export const workerHealthPath = resolve(stackDir, "worker-health.json");
@@ -71,12 +72,11 @@ export function ensureSecrets() {
   // One id for every worker of a run, inside this slot's multiStatusDir.
   process.env.E2E_MULTI_RUN_ID ??= new Date().toISOString().replace(/[:.]/g, "-");
   const make = () => randomBytes(24).toString("hex");
-  for (const name of ["E2E_AUTH_SECRET", "E2E_NEXTAUTH_SECRET", "E2E_WS_SECRET", "E2E_DUEL_SECRET"]) {
+  for (const name of ["E2E_AUTH_SECRET", "E2E_WS_SECRET", "E2E_DUEL_SECRET"]) {
     process.env[name] ??= make();
   }
   return {
     auth: process.env.E2E_AUTH_SECRET,
-    nextauth: process.env.E2E_NEXTAUTH_SECRET,
     ws: process.env.E2E_WS_SECRET,
     duel: process.env.E2E_DUEL_SECRET,
   };

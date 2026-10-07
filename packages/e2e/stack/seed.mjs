@@ -1,5 +1,4 @@
-// Makes a fresh temp SQLite with the guild's players. Guild membership itself is
-// answered by stack/fetch-stub.mjs, so no code path in the web app changes.
+// Makes a fresh temp SQLite with application users and their community players.
 import { mkdirSync, rmSync } from "node:fs";
 import { dirname } from "node:path";
 import { dbPath, guildId, players } from "./env.mjs";
@@ -14,10 +13,10 @@ export async function seedDatabase({ databasePath = dbPath, savedDecks = [] } = 
   try {
     const decks = createSavedDeckService(db);
     const playerService = createPlayerService(db);
-    const insert = db.prepare("insert into users(id,username,display_name,discord_user_id) values(?,?,?,?)");
+    const insert = db.prepare("insert into users(id,username,display_name,discord_user_id,email,email_verified) values(?,?,?,?,?,?)");
     db.transaction(() => {
       for (const player of players) {
-        insert.run(player.userId, player.name, player.name, player.discordId);
+        insert.run(player.userId, player.name, player.name, player.discordId, player.email ?? null, player.email ? 1 : 0);
         playerService.findOrCreate(guildId, player.userId, player.name);
         for (const deck of savedDecks) decks.create(guildId, player.userId, deck);
       }
