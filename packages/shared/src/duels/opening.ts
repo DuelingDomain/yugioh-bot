@@ -1,4 +1,4 @@
-import { diceOpeningView, settleDiceOpening, type DuelDiceOpeningState, type DuelDiceOpeningView } from "./dice-opening.js";
+import { diceOpeningView, type DuelDiceOpeningState, type DuelDiceOpeningView } from "./dice-opening.js";
 
 /**
  * FFA games roll dice before each game; 1v1 game 1 uses rock-paper-scissors and the winner
@@ -195,7 +195,7 @@ export function swapOpeningSeats(state: DuelRpsOpeningState): DuelRpsOpeningStat
 export function settleOpening(state: DuelRpsOpeningState, at: number, random?: () => number): DuelRpsOpeningState;
 export function settleOpening(state: DuelOpeningState, at: number, random?: () => number): DuelOpeningState;
 export function settleOpening(state: DuelOpeningState, at: number, random: () => number = Math.random): DuelOpeningState {
-  if (isDiceOpening(state)) return settleDiceOpening(state, at);
+  if (isDiceOpening(state)) throw new DuelOpeningError("Use settleDiceOpening with a server die source for dice openings", 409);
   if (state.phase === "start" || at < state.deadline) return state;
   if (state.phase === "choose") {
     return submitOpeningChoice(state, state.winnerSeat as number, "first", at, true);

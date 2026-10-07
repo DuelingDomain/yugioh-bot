@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { newDiceOpening, settleDiceOpening, diceOpeningView } from "../../src/duels/dice-opening.js";
-import { parseOpening } from "../../src/duels/opening.js";
+import { DuelOpeningError, parseOpening, settleOpening } from "../../src/duels/opening.js";
 
 function rolls(...values: number[]) {
   return vi.fn(() => {
@@ -11,6 +11,42 @@ function rolls(...values: number[]) {
 }
 
 describe("FFA dice opening", () => {
+  it.each([3, 4])("ends %i-seat ties after ten rounds even with a stuck die source", (seatCount) => {
+    const roll = vi.fn(() => {
+      if (roll.mock.calls.length > 10 * seatCount) throw new Error("Roll limit exceeded");
+      return 1;
+    });
+    let state = newDiceOpening(42, seatCount, 0, roll);
+    for (let round = 1; round <= 10; round++) state = settleDiceOpening(state, state.deadline, roll);
+    expect(state.phase).toBe("start");
+    expect(state.rounds).toHaveLength(10);
+    expect(state.order?.toSorted()).toEqual(Array.from({ length: seatCount }, (_, seat) => seat));
+    expect(roll).toHaveBeenCalledTimes(10 * seatCount);
+    expect(settleDiceOpening(state, state.deadline + 3000, roll)).toBe(state);
+  });
+
+  it("uses crypto randomness only within the remaining tied ranks", () => {
+    const random = vi.spyOn(globalThis.crypto, "getRandomValues").mockImplementation((buffer) => {
+      (buffer as Uint32Array)[0] = 0;
+      return buffer;
+    });
+    try {
+      const roll = vi.fn(() => 3);
+      let state = newDiceOpening(42, 4, 0, rolls(6, 3, 3, 1));
+      for (let round = 1; round <= 10; round++) state = settleDiceOpening(state, state.deadline, roll);
+      expect(state.order).toEqual([0, 2, 1, 3]);
+      expect(state.groups).toEqual([[0], [2], [1], [3]]);
+      expect(random).toHaveBeenCalledTimes(1);
+      expect(roll).toHaveBeenCalledTimes(18);
+    } finally { random.mockRestore(); }
+  });
+
+  it("rejects dice in the plain RPS settler with a clear opening error", () => {
+    const state = newDiceOpening(42, 3, 0, rolls(3, 3, 3));
+    expect(() => settleOpening(state, state.deadline)).toThrow(DuelOpeningError);
+    expect(() => settleOpening(state, state.deadline)).toThrow(/settleDiceOpening.*server die source/);
+  });
+
   it("orders all lobby seats by descending rolls and starts at the final reveal deadline", () => {
     const state = newDiceOpening(42, 4, 1000, rolls(3, 1, 6, 4));
     expect(state).toMatchObject({ phase: "dice", round: 1, deadline: 4000, order: [2, 3, 0, 1] });

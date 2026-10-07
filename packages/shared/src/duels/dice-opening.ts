@@ -1,4 +1,5 @@
 export const DUEL_DICE_REVEAL_MS = 3_000;
+const MAX_DICE_ROUNDS = 10;
 
 export interface DuelDiceRound {
   round: number;
@@ -64,6 +65,22 @@ export function newDiceOpening(startedBy: number, seatCount: number, at: number,
 export function settleDiceOpening(state: DuelDiceOpeningState, at: number, rollDie?: () => number): DuelDiceOpeningState {
   if (state.phase === "start" || at < state.deadline) return state;
   if (state.order) return { ...state, phase: "start" };
+  if (state.round >= MAX_DICE_ROUNDS) {
+    const groups = state.groups.flatMap((group) => {
+      const seats = [...group];
+      for (let i = seats.length - 1; i > 0; i--) {
+        const range = i + 1;
+        const limit = 2 ** 32 - (2 ** 32 % range);
+        const sample = new Uint32Array(1);
+        // Rejection sampling keeps every shuffle position equally likely.
+        do { globalThis.crypto.getRandomValues(sample); } while (sample[0]! >= limit);
+        const j = sample[0]! % range;
+        [seats[i], seats[j]] = [seats[j]!, seats[i]!];
+      }
+      return seats.map((seat) => [seat]);
+    });
+    return { ...state, phase: "start", groups, order: groups.flat() };
+  }
   if (!rollDie) throw new Error("Dice opening requires a server die source");
   return rollRound(state, at, rollDie);
 }
