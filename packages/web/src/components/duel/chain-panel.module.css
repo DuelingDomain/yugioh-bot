@@ -225,6 +225,7 @@
 .cr[data-shape="sheet"] .rowLine { font-size: calc(13px * var(--tt, 1)); }
 .cr[data-shape="sheet"] .thumb { width: 34px; height: 34px; }
 .detail { padding: 0 0 2px; }
+.detail[hidden] { display: none; }
 .detail .hero { border-bottom: 0; padding-top: 4px; }
 .cr[data-shape="sheet"] .effect { display: block; overflow: visible; font-size: calc(15px * var(--tt, 1)); -webkit-line-clamp: unset; }
 .cr[data-shape="sheet"] .art { width: 96px; }

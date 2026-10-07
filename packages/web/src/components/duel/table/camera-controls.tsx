@@ -106,7 +106,7 @@ export function CameraControls({ layout, camera, locked, hint = null, nameOf, di
   const label = cameraLabel(camera, nameOf, layout.anchorSeat);
   const plaza = layout.format === "ffa3" && !faceOff;
   const enlarged = plaza && camera.mode === "focus";
-  const keysHint = faceOff ? "" : flyOn ? "Drag · wheel · 1-3 · Esc" : enlarged ? "Click the field again · Esc back" : plaza ? "Click a field to enlarge · E yours · P look · 0 overview" : "[ ] focus · P look · 0 overview";
+  const keysHint = faceOff ? "" : flyOn ? "Drag · wheel · 1-3 · Esc" : enlarged ? "Esc or Back to leave" : plaza ? "Click a field to enlarge · E yours · P look · 0 overview" : "[ ] focus · P look · 0 overview";
 
   const showPanel = variant !== "stage";
   const showStage = variant !== "panel";
@@ -133,8 +133,7 @@ export function CameraControls({ layout, camera, locked, hint = null, nameOf, di
           <span>View</span>
           <Key>{open ? "close" : "H"}</Key>
         </button>}
-        {open ? (
-          <div id="camera-view-grid" className={styles.grid} role="group" aria-label="Camera">
+        <div id="camera-view-grid" className={styles.grid} role="group" aria-label="Camera" hidden={!open}>
             <ViewButton action="home" label="Home" icon={<House size={13} aria-hidden="true" />} hotkey="H" pressed={camera.mode === "home"} disabled={locked} onClick={() => dispatch({ type: "home" })} />
             {faceOff ? null : (
               <>
@@ -200,23 +199,22 @@ export function CameraControls({ layout, camera, locked, hint = null, nameOf, di
             ) : null}
             {faceOff ? null : <ViewButton action="fly" label={`Fly-in overview ${flyReady ? "on" : "off"}`} icon={<Orbit size={13} aria-hidden="true" />} hotkey="F" pressed={flyReady} disabled={locked} wide onClick={() => dispatch({ type: "toggleFly" })} />}
             <ViewButton action="upright" label={`Upright text ${camera.upright ? "on" : "off"}`} icon={<Focus size={13} aria-hidden="true" />} hotkey="S" pressed={camera.upright} wide onClick={() => dispatch({ type: "toggleUpright" })} />
-          </div>
-        ) : null}
+        </div>
       </div>
       ) : null}
 
       {showStage ? (
         <>
-      <div className={styles.chip} data-camera-chip data-lock={locked ? "true" : undefined} role="status">
+      <div className={styles.chip} data-camera-chip data-lock={locked ? "true" : undefined}>
         <Focus size={13} aria-hidden="true" />
-        <b>{label}</b>
+        <b role="status">{label}</b>
         {keysHint ? <span className={styles.hint}>{keysHint}</span> : null}
         {enlarged ? (
           <button type="button" className={styles.back} data-camera-back disabled={locked} onClick={() => dispatch({ type: "home" })}>
             Back <Key>Esc</Key>
           </button>
         ) : null}
-        <span className={styles.lock}>
+        <span className={styles.lock} role="status">
           <Lock size={11} aria-hidden="true" />
           Camera locked · FX
         </span>

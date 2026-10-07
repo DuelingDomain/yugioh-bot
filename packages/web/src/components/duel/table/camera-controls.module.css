@@ -52,6 +52,8 @@
   overflow: auto;
 }
 
+.grid[hidden] { display: none; }
+
 .panel[data-open="true"] {
   display: flex;
   flex-direction: column-reverse;

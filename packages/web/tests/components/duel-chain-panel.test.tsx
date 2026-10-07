@@ -189,6 +189,8 @@ describe("the strip", () => {
     expect(rowButton(1).getAttribute("aria-controls")).toBe(first.parentElement?.id);
     act(() => { fireEvent.click(rowButton(1)); });
     expect(details()).toEqual(["2"]);
+    // The region that a row names exists while it is closed too (hidden), so the reference never dangles.
+    expect(document.getElementById(rowButton(1).getAttribute("aria-controls") ?? "")?.hasAttribute("hidden")).toBe(true);
     // The focus link closes too: nothing opens or closes by itself.
     act(() => { fireEvent.click(rowButton(2)); });
     expect(details()).toEqual([]);

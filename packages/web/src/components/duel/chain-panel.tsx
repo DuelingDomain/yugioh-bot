@@ -212,7 +212,7 @@ export function ChainPanel({ view, shape, seatTones, priority, mySeat, nameOf, p
             return (
               <li key={row.index} className={styles.item} data-open={isOpen ? "true" : "false"}>
                 <Row row={row} seatTones={seatTones} expand={{ open: isOpen, controls: id, onToggle: () => toggle(row.index) }} />
-                {isOpen ? <div id={id} className={styles.detail}><Hero hero={view.details[at]} /></div> : null}
+                <div id={id} className={styles.detail} hidden={!isOpen}>{isOpen ? <Hero hero={view.details[at]} /> : null}</div>
               </li>
             );
           })}
@@ -253,7 +253,7 @@ export function ChainStrip({ view, open, controls, onToggle, buttonRef }: ChainS
       data-tone={view.tone}
       data-chain-strip="true"
       aria-expanded={open}
-      aria-controls={controls}
+      aria-controls={open ? controls : undefined}
       aria-label={stripLabel(view)}
       onClick={onToggle}
     >
