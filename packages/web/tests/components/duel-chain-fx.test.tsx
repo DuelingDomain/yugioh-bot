@@ -537,13 +537,21 @@ describe("ChainFx", () => {
     const stack = () => [activate(1, 0, 11, z(0, SZONE, 0)), { ...activate(2, 1, 22, z(1, SZONE, 0)), description: "Negate it" }];
     const srItems = (c: HTMLElement) => [...c.querySelectorAll("[data-chain-sr-link]")].map((el) => el.textContent);
 
-    it("keeps a hidden list of every link, in chain order, outside the aria-hidden layer", () => {
+    it("keeps a hidden list of every link, in chain order, outside the aria-hidden layer, while the strip shows", () => {
       placeZones("0:8:0", "1:8:0");
-      const { container } = render(view(stack()));
+      const { container } = render(<ChainFx events={stack()} chain={[]} duelKey="t" reducedMotion={false} mySeat={0} playerName={names} table="ffa4" />);
       expect(srItems(container)).toEqual(["Chain Link 1: Card 11, You", "Chain Link 2: Card 22, Opponent. Negate it"]);
       const list = container.querySelector("[data-chain-sr-list]") as HTMLElement;
       expect(list.getAttribute("aria-label")).toBe("Current chain");
       expect(list.closest('[aria-hidden="true"]')).toBeNull();
+    });
+
+    it("drops the list while a column shows (its rows are buttons), but keeps the live region", () => {
+      placeZones("0:8:0", "1:8:0");
+      const { container } = render(view(stack()));
+      expect(container.querySelector("[data-chain-panel]")?.closest('[aria-hidden="true"]')).toBeNull();
+      expect(container.querySelector("[data-chain-sr-list]")).toBeNull();
+      expect(container.querySelector("[data-chain-live]")).not.toBeNull();
     });
 
     it("announces a new link, a resolving link and the end of the chain", () => {

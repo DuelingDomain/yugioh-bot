@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/font/google", () => {
@@ -64,13 +64,14 @@ describe("TableShell on the 3-way fixtures: the whole table", () => {
     expect(container.querySelector("[data-dim], [data-dimmed]")).toBeNull();
   });
 
-  it("shows the floating HUD of the 4-way grid: the dock with Settings, Chain and Camera, no Log, no rail and no bottom bar", () => {
+  it("shows the floating HUD of the 4-way grid: the dock with Settings and Camera, no Log, no Chain, no rail and no bottom bar", () => {
     const { container } = render(<Shell id="main" />);
     expect(container.querySelector("[data-hud='true'][data-plaza-hud='true']")).not.toBeNull();
     expect(container.querySelector("nav[aria-label='Duel phases']")).not.toBeNull();
     expect(container.querySelectorAll("[aria-label='Turn order'] li")).toHaveLength(3);
     expect(container.querySelector("[data-testid='seat-strip']")).not.toBeNull();
-    for (const id of ["settings", "chain", "camera"]) expect(container.querySelector(`[data-testid='hud-dock-${id}']`), id).not.toBeNull();
+    for (const id of ["settings", "camera"]) expect(container.querySelector(`[data-testid='hud-dock-${id}']`), id).not.toBeNull();
+    expect(container.querySelector("[data-testid='hud-dock-chain']")).toBeNull();
     // The 3-way has no Log: the history strip and the Log pane are gone. The 4-way keeps its Log icon.
     expect(container.querySelector("[data-testid='hud-dock-log']")).toBeNull();
     expect(container.querySelector("[data-testid='table-rail']")).toBeNull();
@@ -115,6 +116,15 @@ describe("TableShell on the 3-way fixtures: the whole table", () => {
     withChain.unmount();
     const plain = render(<Shell id="main" />);
     expect(plain.container.querySelector("[data-testid='priority-chips']")).toBeNull();
+  });
+
+  it("opens every link's details from the chain strip, as the tower has no Chain button", () => {
+    render(<Shell id="chain-2" />);
+    expect(within(screen.getByTestId("chain-tower")).queryByRole("button", { name: /Chain/ })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Chain details" })).toBeNull();
+    fireEvent.click(document.querySelector("[data-chain-strip]") as HTMLElement);
+    const sheet = screen.getByRole("dialog", { name: "Chain details" });
+    expect(sheet.querySelectorAll("[data-chain-row]")).toHaveLength(2);
   });
 
   it("puts rival Deck Masters on the holo panels, your own on the HUD plate, and the camera panel behind the Camera dock icon", () => {

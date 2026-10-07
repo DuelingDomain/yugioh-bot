@@ -886,7 +886,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
         </div>;
       }))}
       {showPanel && view && stripView ? (
-        <div className={styles.dock} aria-hidden={form === "strip" ? undefined : "true"}>
+        <div className={styles.dock}>
           {form === "strip" ? (
             <div ref={stripWrapRef} className={panelStyles.stripWrap} data-chain-panel="true" data-chain-strip-wrap="true" data-priority={priority?.length ? "true" : undefined}>
               <ChainStrip view={stripView} open={sheetOpen} controls={sheetId} onToggle={() => setSheetWanted((open) => !open)} buttonRef={stripButtonRef} />
@@ -918,7 +918,8 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
   return (
     <>
       <div className={styles.sr} data-chain-sr="true">
-        {links.length > 0 ? (
+        {/* The wide and narrow columns are readable themselves (every row is a button), so the list would read each link twice. */}
+        {links.length > 0 && !(form !== "strip" && view != null && stripView != null) ? (
           <ol aria-label="Current chain" data-chain-sr-list="true">
             {links.map((link) => (
               <li key={link.index} data-chain-sr-link={link.index}>{chainLinkLabel(link, mySeat, playerName, true, named, partner)}</li>

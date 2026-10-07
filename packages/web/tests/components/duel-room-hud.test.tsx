@@ -159,7 +159,8 @@ describe("the floating HUD of the 1v1 room", () => {
     // back on for an open prompt dock there.
     expect(corner.hasAttribute("data-hud-corner")).toBe(true);
     expect(screen.queryByRole("complementary", { name: "Duel panels" })).toBeNull();
-    for (const id of ["log", "settings", "chain"]) expect(screen.getByTestId(`hud-dock-${id}`)).toBeTruthy();
+    for (const id of ["log", "settings"]) expect(screen.getByTestId(`hud-dock-${id}`)).toBeTruthy();
+    expect(screen.queryByTestId("hud-dock-chain")).toBeNull();
     expect(screen.queryByTestId("hud-dock-history")).toBeNull();
     expect(isOpen()).toBe(false);
   });
@@ -224,8 +225,9 @@ describe("the floating HUD of the 1v1 room", () => {
     expect(screen.getByTestId("chain-tower").getAttribute("data-links")).toBe("1");
     fireEvent.click(screen.getByTestId("hud-dock-log"));
     expect(screen.getByTestId("chain-tower")).toBeTruthy();
-    fireEvent.click(screen.getByTestId("hud-dock-chain"));
-    expect(within(flyout()).getAllByTestId("chain-row")).toHaveLength(1);
+    expect(screen.queryByTestId("hud-dock-chain")).toBeNull();
+    expect(within(flyout()).queryByTestId("hud-tab-chain")).toBeNull();
+    expect(within(screen.getByTestId("chain-tower")).queryByRole("button", { name: /Chain/ })).toBeNull();
   });
 
   it("has no chain tower when no chain is open", () => {
