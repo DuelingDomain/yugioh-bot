@@ -320,8 +320,10 @@ jobs:
                [ "$healthy" = 1 ] || { docker compose -f docker-compose.yml logs --tail=60 "$service"; exit 1; }
              done
              # Anonymous auth checks: no redirects, no cookies and exact null body.
+             # Next listens on the container's HOSTNAME, not on 127.0.0.1.
              docker compose -f docker-compose.yml exec -T web node -e '
-               Promise.all([fetch("http://127.0.0.1:3000/sign-in", {redirect:"manual"}), fetch("http://127.0.0.1:3000/api/auth/session", {redirect:"manual"})])
+               const base = `http://${process.env.HOSTNAME}:3000`;
+               Promise.all([fetch(`${base}/sign-in`, {redirect:"manual"}), fetch(`${base}/api/auth/session`, {redirect:"manual"})])
                  .then(async ([page, session]) => { if(page.status !== 200 || session.status !== 200 || (await session.text()).trim() !== "null") process.exit(1); })
                  .catch(() => process.exit(1));
              '
