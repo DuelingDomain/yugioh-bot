@@ -36,18 +36,76 @@ The exact list-mode response shape is `{cards: CardSummary[], entries: Array<{id
 - `unknown` and `corrected` have the same unique, ordered diagnostic semantics described below. Ordinary unknown lines/passcodes are not request failures. Comment-only or wholly unresolved lists return 200 with empty `cards`/`entries`; `unknown` contains any unresolved lines and `corrected` is empty.
 - No cube is created, updated, or attached, and no cube permission/guild-configuration check is added. Catalog cache/artwork writes are permitted. The existing resolve modes retain their `{cards,unknownIds}` payloads; list mode uses `unknown` for both names and passcodes.
 
-Use a separate client list-resolve helper to consume this payload. Cache `cards` as usual; build the occurrences map from **main** entries so explicitly extra-placed cards cannot enter the main pool:
+Use the client list-resolve helper to consume this payload. Cache `cards` as usual and retain **both** pools. Expand copies separately when submitting a normal draft:
 
 ```ts
-putCards(result.cards);
-const occurrences = new Map(result.entries
-  .filter((entry) => entry.pool === "main")
-  .map((entry) => [entry.id, entry.copies]));
-const outcome = ctl.addPasscodes(occurrences, result.cards, []);
-// Display result.unknown/result.corrected separately; extra entries can be reported as skipped.
+const main = poolFromEntries(result.entries.filter((entry) => entry.pool === "main"));
+const extra = poolFromEntries(result.entries.filter((entry) => entry.pool === "extra"));
+const poolConfig = configPool(main, null, extra);
+// {setNames:[], customCardIds:[...], customExtraCardIds:[...], poolSource:null}
+// Display result.unknown/result.corrected separately.
 ```
 
-This is a backend contract; the existing `PasscodesTab`/`resolvePasscodes` still uses the passcode-only mode until the UI is wired to list resolution. Do not create a cube as an intermediate step.
+Resolve the scratch list without creating a cube as an intermediate step. The existing pool controller/model still needs UI wiring to retain separate main/extra maps; its legacy merge helpers discard extras.
+
+## Normal cube draft Extra Deck contract (2026-10-06)
+
+This applies to the shared-pool **Start from scratch / Use a cube** draft (`mode` absent or `"booster"`). Theme drafts keep their existing private-choice extra rounds and default ON behavior.
+
+Send these fields inside `config` to `POST /api/drafts` or the pending host's `PUT /api/drafts/:slug`:
+
+| Field | Normal default / contract |
+| --- | --- |
+| `extraDeckEnabled` | `false`; must be a boolean if supplied. Retaining an extra pool does not enable the phase. |
+| `extraDeckSize` | `15`; integer 0–15. Each player drafts this many Extra Deck cards. OFF or size 0 means no extra pack. |
+| `customExtraCardIds` | Optional array of positive, safe integer catalog IDs, **one per copy**, like `customCardIds`. An explicit array, including `[]`, overrides the source cube's extra pool. |
+| `poolSource` | `{cubeId,cubeName}`. If `customExtraCardIds` is absent, use that cube's `cube_cards` rows with `pool='extra'` and their `max_copies`. The server sanitizes the reference to this guild and uses the database name. A missing/foreign reference is removed. |
+| `picksPerStep` | `1`; accepts 1 or 2. Sequential selections per pack **before passing**. Each individual selection retains its own existing `pickStep` and deadline; no multi-select request is needed. |
+
+Scratch example (illustrative card IDs and deliberately short main quota):
+
+```json
+{"name":"Cube night","config":{"mode":"booster","setNames":[],"customCardIds":[53129443,53129443,46986414,46986414],"customExtraCardIds":[44508094,44508094],"packsPerPlayer":1,"packSize":2,"cardsPerPlayer":2,"extraDeckEnabled":true,"extraDeckSize":1,"picksPerStep":2}}
+```
+
+For the owner's **5 rounds / 4 players / 24 cards per pile / 2-Pick** format, use `packsPerPlayer:5`, `packSize:24`, `cardsPerPlayer:120`, `picksPerStep:2`, and add the four players through the existing join flow. Main dealing needs 480 authored copies. Extra size 15 adds pack **6**, with 15 cards per player and 60 Extra copies required. Extra pack size is independent of the main `packSize`; the last group takes one card if its pack has an odd size. Passing direction follows the existing alternating round rule, and copy limits, forced picks, swaps, expiry, bots, and broadcasts use the existing mechanics.
+
+`cardsPerPlayer` continues to be the **main pick quota**, not the size of the finished deck. The final main pack can leave cards unpicked when the quota is smaller than pack capacity. Extra cards never fill that quota. All main picks finish before the extra phase starts, and players are marked finished only after their combined quota. Explicit main `packsPerPlayer` values are retained on edit; changing main size/pack size without supplying a round count derives `ceil(cardsPerPlayer/packSize)`. An extra-only edit preserves all main format values. Main numeric edits allow 40–120 cards per player and packs of 5 through that quota, with a positive integer round count.
+
+Both pools are shuffled separately and the entire main+extra deal is persisted atomically at **start**, so editing/deleting the source cube after start cannot change later packs. Extra counts are authored quantities; no catalog/set repetition expands them. Only Fusion/Synchro/Xyz/Link monsters (including hybrid frames recognized by the shared classifier) are eligible in extra dealing. Unknown IDs or other card types in the extra list are excluded from eligible counts, as non-main cards are excluded from normal main resolution. Extra arrays are retained even while OFF.
+
+Create/edit return `201`/`200` with the existing identity/status fields, normalized `config`, `errors:string[]`, and `warnings:string[]`. A too-small pool is an **advisory** create/edit error, matching main checks. `GET /api/drafts/:slug/preflight` checks `max(2,joined player count)`; the shared start transaction checks actual seats and blocks with `400 {error}` before writing seats, deal, or status. Example error: `Extra pool: The cube has 8 cards. 4 players × 1 packs × 3 cards needs 12. Add cards, or use fewer packs or smaller packs.` Copy-cap reachability warnings also carry the `Extra pool:` prefix.
+
+Invalid new fields return `400 {"error":"..."}` before draft/config writes:
+
+- `Extra deck enabled must be a boolean`
+- `Extra deck size must be a whole number from 0 to 15`
+- `Picks per step must be 1 or 2`
+- `customExtraCardIds must be a list of positive card IDs (one per copy)`
+
+Null is invalid for supplied new fields. Existing omitted fields normalize to OFF / 15 / 1. Theme size validation/defaults remain unchanged.
+
+`GET /api/drafts/:slug` and pick responses expose the normalized `config`, plus normal draft metadata:
+
+```json
+{"phase":"extra","packRound":6,"pickStep":1,"totalPackRounds":6,"currentPackSize":15,"boosterProgress":{"main":120,"mainTotal":120,"extra":0,"extraTotal":15}}
+```
+
+`phase` is `main`/`extra` when a nonzero extra phase is enabled; otherwise it is omitted for compatibility. `totalPackRounds` includes the extra pack, `currentPackSize` describes the active pack's original size, and `boosterProgress` counts the viewer's picks by phase (`0` for a viewer without a seat). `themeProgress` remains theme-only. Use the config toggle/size to show **Extra Deck round** in the lobby; use `phase` to label the active room and `currentPackSize` for pack counts. `pickStep` counts individual selections, so with 2-Pick, even steps trigger passing. WebSocket `resync`/`complete` behavior is unchanged.
+
+`GET /api/drafts/:slug/pool` returns `{cards:CardSummary[], extraCards:CardSummary[]}` with authored `qty` values. `cards` stays main-only. `extraCards` is returned even while OFF, allowing the editor to retain/re-enable/save the pool. `fetchDraftPools(slug)` returns `{main:Map,extra:Map}` and caches both sets of summaries; legacy `fetchDraftPool` still returns main only. `fetchCubeDetail` now returns `{main:Map,extra:Map,extraCount:number}` (extraCount is distinct IDs), and `configPool(main,source,extra)` expands both maps to their config fields. Calling it without the third argument retains source-cube fallback.
+
+Save-as-cube uses `createPoolCube({name,cards,extraCards,copyExtraFromCubeId?})` → `POST /api/cubes`:
+
+```json
+{"kind":"pool","name":"Saved cube","cards":[{"id":53129443,"copies":3}],"extraCards":[{"id":44508094,"copies":2}]}
+```
+
+`extraCards` uses the existing ID/copies validation (1–99 copies, duplicate IDs summed/capped, at most 1000 distinct per array); explicit entries are stored with `pool='extra'`. When `extraCards` is present, including `[]`, it supplies the entire Extra pool and **overrides** `copyExtraFromCubeId`. If omitted, the existing guild-scoped source-copy path remains available. Extra Deck monsters in `cards` also route to extra. The existing config-backed cube save path accepts `config.customExtraCardIds` and materializes its repeated copies into real extra rows. Saved cubes flatten those extra rows through `applyCubeToConfig` for Discord/shared consumers as well.
+
+Completion saves Extra Deck monsters in each human player's Extra Deck, using existing deck limits (main 60, extra 15, side 15); excess main picks from the 120-card format remain available in the draft pool for deck building. Test bots do not get saved decks. Engine identity files are not required for draft logic verification.
+
+UI handoff: add the toggle/size and 2-Pick option, maintain extra maps in `pool-model` / controller / import paths, pass them to `configPool` and `createPoolCube`, and consume the phase/progress metadata. No screens or pool-controller state were changed in this backend task. Rebuild shared before consumer work; generated build outputs are removed after verification.
 
 List-mode errors use the existing route's JSON style, `{"error":"message"}`:
 
@@ -172,7 +230,7 @@ The editor can call `importList` and consume `pools`/`cards` exactly as it does 
 {"kind":"existing","cubeId":42}
 ```
 
-The create API deliberately returns the stored cube/config and diagnostics; fetch cube detail if the UI needs card previews. No screens or draft APIs were changed.
+The cube create API returns the stored cube/config and diagnostics; fetch cube detail if the UI needs card previews. The normal draft API additions are documented above; screens remain for the UI agent.
 
 The supplied full Google Doc export was checked against its passcode reference using a seeded in-memory catalog and mocked remote responses: **258 IDs, 486 copies, every ID/count matching, four typo corrections**. Only a small trimmed fixture is committed; this is not a live upstream availability test.
 
@@ -221,3 +279,65 @@ prlimit --core=0:0 npm run typecheck --workspace=packages/web -- \
 ```
 
 The initial test-first run had 35 expected failures (32 list-route cases and three section-order assertions) and 22 passes. Every new route test rejects cube insert/update/delete attempts with SQLite triggers and compares the complete cube/config/card rows afterward. Coverage includes actual catalog warming, names/passcodes/typos, YDK/ydke order, extra placement, quantity caps, exact limit boundaries, authentication, invalid text, mixed resolve modes, and upstream 503/429 responses. Only these three test files were run for this backend addition.
+
+### Normal Extra Deck round verification (2026-10-06)
+
+Node v22.23.3 via nvm. Commands ran in this worktree, under `prlimit --core=0:0`, with explicit files and a single worker. No full/package suite was run. `DUEL_DATA_DIR` pointed at an unused fixture path inside this worktree, preventing protected engine-directory reads. The expected missing-engine identity notice is harmless; these checks use the seeded catalog. Shared was rebuilt before consumer checks.
+
+```bash
+source /home/sulman633/.nvm/nvm.sh
+nvm use 22
+
+prlimit --core=0:0 env DUEL_DATA_DIR="$PWD/packages/web/tests/fixtures/extra-round-no-engine" \
+  ./node_modules/.bin/vitest run \
+  packages/shared/tests/services/drafts-booster-extra.test.ts \
+  packages/shared/tests/services/drafts.test.ts \
+  packages/shared/tests/services/drafts-theme.test.ts \
+  packages/shared/tests/services/drafts-copy-cap.test.ts \
+  packages/shared/tests/services/cubes.test.ts \
+  packages/shared/tests/draft-pick-concurrency.test.ts \
+  packages/shared/tests/draft-pack-options-concurrency.test.ts \
+  packages/shared/tests/draft-pool-snapshot.test.ts \
+  packages/shared/tests/draft-swap-random.test.ts --maxWorkers=1
+# Test Files 9 passed (9); Tests 206 passed (206), 0 failed. New extra file: 17 tests.
+
+prlimit --core=0:0 npm run build --workspace=packages/shared
+# Exit 0.
+
+prlimit --core=0:0 env DUEL_DATA_DIR="$PWD/packages/web/tests/fixtures/extra-round-no-engine" \
+  ./node_modules/.bin/vitest run \
+  packages/web/tests/drafts-extra-round-route.test.ts \
+  packages/web/tests/draft-pool-api.test.ts \
+  packages/web/tests/drafts-put-route.test.ts \
+  packages/web/tests/drafts-booster-preflight.test.ts \
+  packages/web/tests/drafts-pool-route.test.ts \
+  packages/web/tests/cubes-pool-route.test.ts \
+  -c packages/web/vitest.config.ts --maxWorkers=1
+# Test Files 6 passed (6); Tests 79 passed (79), 0 failed. New route file: 20 tests.
+
+prlimit --core=0:0 env DUEL_DATA_DIR="$PWD/packages/web/tests/fixtures/extra-round-no-engine" \
+  ./node_modules/.bin/vitest run \
+  packages/web/tests/draft-pick-websocket-route.test.ts \
+  packages/web/tests/drafts-theme-response.test.ts \
+  packages/web/tests/drafts-theme-numbers.test.ts \
+  packages/web/tests/cubes-import-list-route.test.ts \
+  packages/web/tests/cubes-route.test.ts \
+  -c packages/web/vitest.config.ts --maxWorkers=1
+# Test Files 5 passed (5); Tests 70 passed (70), 0 failed.
+
+prlimit --core=0:0 env DUEL_DATA_DIR="$PWD/packages/web/tests/fixtures/extra-round-no-engine" \
+  ./node_modules/.bin/vitest run \
+  packages/bot/tests/interactions/select-menus.test.ts \
+  packages/bot/tests/services/draft-timer.test.ts --maxWorkers=1
+# Test Files 2 passed (2); Tests 20 passed (20), 0 failed.
+
+prlimit --core=0:0 npm run typecheck --workspace=packages/shared
+prlimit --core=0:0 npm run typecheck --workspace=packages/web -- \
+  --typeRoots ./node_modules/@types,../../node_modules/@types
+prlimit --core=0:0 npm run typecheck --workspace=packages/bot
+# Each exit 0, no diagnostics. Bot typecheck also rebuilds shared.
+```
+
+Total selected checks: **375 tests passed, 0 failed** (206 shared, 149 web, 20 bot). The initial shared extra tests had 13 failures / 1 pass; initial route tests had 18 failures / 1 pass. Four pool-helper cases and the config-backed cube save failed before their implementations. The Discord regression failed before its quota fix. Independent review identified a legacy mixed-pool swap regression while OFF; its new test failed before restoring the legacy remainder behavior. Existing format expectations were updated to assert retained explicit pack counts and the corresponding insufficiency errors.
+
+Shared `dist` and web incremental typecheck output were removed after final verification. No push was performed. Rebuild shared before the UI agent runs consumers.
