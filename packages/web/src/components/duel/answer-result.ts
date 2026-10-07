@@ -1,7 +1,8 @@
 import type { DuelRoom } from "@yugidraft/shared/duels";
+import { withRoomReceivedAt, type ReceivedDuelRoom } from "./api";
 
 /** The part of SWR's bound `mutate` that an answer needs. */
-export type RoomMutate = (data?: DuelRoom, options?: { revalidate: boolean }) => Promise<unknown>;
+export type RoomMutate = (data?: ReceivedDuelRoom, options?: { revalidate: boolean }) => Promise<unknown>;
 
 /**
  * Put the room that an action answered with on the board. That room is the full, fresh view, so it is
@@ -15,7 +16,7 @@ export async function applyAnswerResult(
   result: DuelRoom | { session: unknown } | void,
 ): Promise<void> {
   if (result && "engine" in result) {
-    await mutate(result, { revalidate: false });
+    await mutate(withRoomReceivedAt(result), { revalidate: false });
     if (result.stale === true) void mutate().catch(() => {});
     return;
   }

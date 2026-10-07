@@ -63,7 +63,8 @@ function useNow(opening: DuelOpeningView, receivedAt?: number): number | null {
   const [clock, setClock] = useState({ opening, receivedAt, now: opening.serverNow });
   useEffect(() => {
     const serverNow = opening.serverNow ?? Date.now();
-    const at = receivedAt ?? performance.now();
+    // Browser time already includes the cache age when an older host omits serverNow.
+    const at = opening.serverNow == null ? performance.now() : receivedAt ?? performance.now();
     const sample = () => serverNow + (performance.now() - at);
     const update = () => setClock({ opening, receivedAt, now: sample() });
     update();

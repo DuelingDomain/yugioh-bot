@@ -156,7 +156,17 @@ export function describeDuelResult(room: DuelRoom): DuelResultModel {
         }));
 
   if (session.status === "cancelled") {
-    return { outcome: "cancelled", headline: "TABLE CANCELLED", winnerSeat: null, reasonKind: "other", reason: raw || "This table was cancelled", scores };
+    // The host stores the bare word "Cancelled" as the reason, which only repeats the headline. Say what it means,
+    // using only what the client knows: the table closed and no duel was finished. Any other saved text is kept.
+    const repeatsHeadline = !raw || /^(?:table\s+)?cancell?ed\.?$/i.test(raw);
+    return {
+      outcome: "cancelled",
+      headline: "TABLE CANCELLED",
+      winnerSeat: null,
+      reasonKind: "other",
+      reason: repeatsHeadline ? "The table closed before the duel finished" : raw,
+      scores,
+    };
   }
   if (session.status === "interrupted") {
     return { outcome: "interrupted", headline: "DUEL INTERRUPTED", winnerSeat: null, reasonKind: "other", reason: raw || "This duel ended without a result", scores };
@@ -632,7 +642,7 @@ export function DuelResultScreen({ room, slug, reducedMotion, onClose, onExit, o
             <SeriesResult room={room} slug={slug} onChanged={onSeriesChanged} onNavigate={onNavigate} />
           ) : null}
 
-          <div className={styles.actions} data-lead={leaveKindNow === "primary" ? "true" : "false"} style={{ "--n": actionCount - 1 } as CSSProperties}>
+          <div className={styles.actions} data-count={actionCount}>
             {onExit ? (
               <button type="button" className={styles.btn} data-kind={leaveKindNow} onClick={onExit}>Exit duel</button>
             ) : (
@@ -641,7 +651,7 @@ export function DuelResultScreen({ room, slug, reducedMotion, onClose, onExit, o
             {canReplay ? (
               <Link href={`/duels/${slug}/replay`} className={styles.btn} data-kind="secondary">Watch replay</Link>
             ) : null}
-            <button type="button" className={styles.btn} data-kind="quiet" onClick={onClose}>View board</button>
+            <button type="button" className={styles.btn} data-kind="secondary" onClick={onClose}>View board</button>
           </div>
         </div>
       </div>

@@ -172,6 +172,12 @@ describe("describeDuelResult", () => {
     expect(cancelled.outcome).toBe("cancelled");
     expect(cancelled.headline).toBe("TABLE CANCELLED");
     expect(cancelled.scores).toEqual([]);
+    // The host saves the bare word "Cancelled"; the subtitle must not repeat the headline.
+    expect(cancelled.reason).toBe("The table closed before the duel finished");
+    const saved = describeDuelResult(makeRoom({ status: "cancelled", mySeat: 0, winner: null, reason: "Cancelled", engine: false }));
+    expect(saved.reason).toBe("The table closed before the duel finished");
+    const custom = describeDuelResult(makeRoom({ status: "cancelled", mySeat: 0, winner: null, reason: "The organizer closed the table", engine: false }));
+    expect(custom.reason).toBe("The organizer closed the table");
   });
 
   it("prefers the live engine result over the saved session row", () => {
@@ -262,6 +268,30 @@ describe("DuelResultScreen", () => {
     setup({ status: "cancelled", winner: null, reason: null, engine: false });
     expect(screen.queryByRole("link", { name: "Watch replay" })).toBeNull();
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("TABLE CANCELLED");
+  });
+
+  it("lays the actions out as one row of equally styled buttons, the lead one filled", () => {
+    setup({ status: "cancelled", winner: null, reason: "Cancelled", engine: false });
+    const exit = screen.getByRole("link", { name: "Back to tables" });
+    const board = screen.getByRole("button", { name: "View board" });
+    expect(exit.parentElement).toHaveAttribute("data-count", "2");
+    expect(exit).toHaveAttribute("data-kind", "primary");
+    expect(board).toHaveAttribute("data-kind", "secondary");
+    expect(screen.getByText("The table closed before the duel finished")).toBeInTheDocument();
+    expect(screen.queryByText("Cancelled")).toBeNull();
+  });
+
+  it("counts three actions for a completed duel, with the replay link between the two buttons", () => {
+    setup({ status: "completed" });
+    const exit = screen.getByRole("link", { name: "Back to tables" });
+    expect(exit.parentElement).toHaveAttribute("data-count", "3");
+    expect(Array.from(exit.parentElement!.children).map((node) => node.textContent)).toEqual(["Back to tables", "Watch replay", "View board"]);
+  });
+
+  it("keeps a saved reason other than the bare word as the cancelled subtitle", () => {
+    setup({ status: "cancelled", winner: null, reason: "Series cancelled", engine: false });
+    expect(screen.getByText("Series cancelled")).toBeInTheDocument();
+    expect(screen.queryByText("The table closed before the duel finished")).toBeNull();
   });
 
   it("calls onClose from View board", () => {
@@ -441,5 +471,48 @@ describe("short phone layout", () => {
     expect(block, "the short-phone media query").not.toBeNull();
     expect(block![1]).toMatch(/--gap:\s*10px/);
     expect(block![1]).toMatch(/\.scroll\s*\{[^}]*padding-block/);
+  });
+});
+
+describe("result layout styles", () => {
+  const css = readFileSync(join(__dirname, "../../src/components/duel/duel-result.module.css"), "utf8");
+
+  it("fades the glow behind the title to nothing, so no straight box edge shows", () => {
+    const light = css.match(/\.light\s*\{([^}]*)\}/);
+    expect(light, "the .light rule").not.toBeNull();
+    expect(light![1]).toMatch(/mask-image:\s*radial-gradient\(closest-side/);
+  });
+
+  it("centres equal-width actions instead of stretching the lead button", () => {
+    const actions = css.match(/\n\.actions\s*\{([^}]*)\}/);
+    expect(actions, "the .actions rule").not.toBeNull();
+    expect(actions![1]).toMatch(/justify-content:\s*center/);
+    expect(actions![1]).toMatch(/grid-auto-columns:\s*minmax\(0,\s*200px\)/);
+    expect(css).not.toMatch(/1\.7fr/);
+  });
+
+  it("keeps the title out of the global reduced-motion transition, so the fit reads the size it just set", () => {
+    // globals.css gives every element a 0.01ms transition under prefers-reduced-motion. A transition makes the
+    // computed font size lag one read behind, so the fit measured the old size and the title overflowed.
+    const rule = css.match(/\n\.title,\s*\.title \*\s*\{([^}]*)\}/);
+    expect(rule, "the .title, .title * rule").not.toBeNull();
+    expect(rule![1]).toMatch(/transition-property:\s*none/);
+  });
+});
+
+describe("title fit", () => {
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it("sets --fs from the measured width", () => {
+    // jsdom has no layout: the column is 300px wide and the text is 600px wide at 100px, so it fits at about 50px.
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(300);
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(600);
+    const room = makeRoom({ status: "cancelled", mySeat: 0, winner: null, reason: null, engine: false });
+    render(<DuelResultScreen room={room} slug="abc" reducedMotion={false} soundEnabled={false} onClose={vi.fn()} />);
+    const title = screen.getByRole("heading", { level: 1 });
+    expect(Number.parseFloat(title.style.getPropertyValue("--fs"))).toBeCloseTo(49.75, 1);
   });
 });
