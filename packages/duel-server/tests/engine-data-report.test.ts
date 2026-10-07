@@ -50,3 +50,20 @@ it("reports additions, withdrawals, graduations and every dropped preview row", 
   expect(report).toContain("100000004 → 100000003");
   expect(report).toContain("Withdrawn");
 });
+
+
+it("lists disappeared codes without a remap, including renamed releases with matching-stat suggestions", async () => {
+ const { prereleaseUpdateReport } = await import("../scripts/engine-data-report.js");
+ const stats={type:33,atk:2500,def:2000,level:7,attribute:32};
+ const previous=[{code:100000001,name:"Preview name",...stats},{code:100000002,name:"Withdrawn",type:33},{code:44,name:"Same code",type:33},{code:100000003,name:"Mapped",type:33}];
+ const next={prerelease:[],released:[{code:12,name:"Official name",...stats},{code:44,name:"Same code",type:33},{code:55,name:"Mapped",type:33}],remaps:{100000003:55},drops:[]};
+ const report=prereleaseUpdateReport(previous,next);
+ const missing=report.split("Removed preview codes with no remap (2)")[1]?.split("Dropped prerelease rows")[0];
+ expect(missing).toContain("100000001 Preview name");
+ expect(missing).toContain("12 Official name");
+ expect(missing).toContain("100000002 Withdrawn");
+ expect(missing).not.toContain("44 Same code");
+ expect(missing).not.toContain("100000003 Mapped");
+ const withExistingMatch=prereleaseUpdateReport(previous,next,[{code:12,name:"Official name",...stats}]);
+ expect(withExistingMatch.split("Removed preview codes with no remap")[1]).not.toContain("12 Official name");
+});

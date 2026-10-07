@@ -365,6 +365,7 @@ it("preserves Cynet Mining's real prerelease alternate artwork beside its releas
   expect(result.drops).toEqual([]);
   expect(result.remaps).toEqual({});
   expect([...result.prereleaseCodes]).toEqual([57160137]);
+  expect(result.prerelease[0]).toMatchObject({atk:2500,def:2000,level:7,attribute:32});
   const db = new Database(result.path, { readonly: true });
   try { expect(db.prepare("SELECT alias FROM datas WHERE id=57160137").get()).toEqual({ alias: 57160136 }); }
   finally { db.close(); }

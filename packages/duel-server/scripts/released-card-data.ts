@@ -66,7 +66,9 @@ export async function downloadReleasedCardData(commit: string, directory: string
     await writeFile(path, bytes);
     const db = new Database(path, { readonly: true });
     try {
-      rows.push(...(db.prepare("SELECT d.id AS code, d.ot, d.alias, d.type, t.name FROM datas d JOIN texts t USING(id) ORDER BY d.id").all() as Omit<Row, "file">[]).map(row => ({ ...row, file })));
+      const columns = new Set((db.prepare("PRAGMA table_info(datas)").all() as { name: string }[]).map(row => row.name));
+      const stats = ["atk", "def", "level", "attribute"].filter(column => columns.has(column)).map(column => `, d.${column}`).join("");
+      rows.push(...(db.prepare(`SELECT d.id AS code, d.ot, d.alias, d.type, t.name${stats} FROM datas d JOIN texts t USING(id) ORDER BY d.id`).all() as Omit<Row, "file">[]).map(row => ({ ...row, file })));
     } finally { db.close(); }
   }
   const released = new Map<number, Row>();
@@ -154,7 +156,7 @@ export async function downloadReleasedCardData(commit: string, directory: string
       addRemap(row.code, winner.code);
     }
   }
-  const prerelease = [...keptIds.values()].sort((a,b) => a.code-b.code).map(({code,name,type,file}) => ({code,name,type,file}));
+  const prerelease = [...keptIds.values()].sort((a,b) => a.code-b.code).map(({ot: _ot, ...card}) => card);
   drops.sort((a,b) => a.file.localeCompare(b.file) || a.code-b.code);
   const remapBytes = JSON.stringify({ version: 1, remaps, prerelease, drops }, null, 2) + "\n";
   await writeFile(join(directory, "card-remaps.json"), remapBytes);

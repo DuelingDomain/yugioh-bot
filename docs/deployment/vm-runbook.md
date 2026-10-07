@@ -93,6 +93,9 @@ The deploy workflow requires these GitHub Actions secrets:
    script checks the active duels once more (a table could start during the build, which takes minutes); on that
    second refusal or any exit after stopping web, an EXIT trap runs `docker compose start web` and
    cleans temporary files. The web recovery trap is cleared after `up -d` succeeds. It never writes `data/bot.sqlite`.
+   Bundle rollback does not reverse completed passcode migrations. Saved decks/cubes may already use official
+   codes absent from the older bundle: retain a bundle containing all remap targets or use a matched DB
+   backup with intervening writes reconciled under the restore procedure below; do not reverse remaps blindly.
    Each multi core is installed independently (atomic renames per file, checked against its `.sha256`),
    also when `manifest.json` is identical. A changed multi core is refused while a Tag or free-for-all duel is active.
    A 1v1 duel never blocks it and never reads it. Without the multi core, a Tag, 3 or 4 player table answers 409
