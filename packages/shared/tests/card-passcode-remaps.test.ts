@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
@@ -13,7 +13,7 @@ function bundle(remaps: Record<string,number> = {100000001:12}){
  const bytes=JSON.stringify({version:1,remaps,prerelease:[],drops:[]});
  writeFileSync(join(directory,"card-remaps.json"),bytes);
  writeFileSync(join(directory,"manifest.json"),JSON.stringify({bundleVersion:"next",integrity:{cardRemaps:createHash("sha256").update(bytes).digest("hex")}}));
- const cdb=new Database(join(directory,"cards.cdb"));cdb.exec("CREATE TABLE datas(id INTEGER PRIMARY KEY,alias INTEGER DEFAULT 0); INSERT INTO datas(id) VALUES(12)");cdb.close();
+ const cdb=new Database(join(directory,"cards.cdb"));cdb.exec("CREATE TABLE datas(id INTEGER PRIMARY KEY,alias INTEGER DEFAULT 0,type INTEGER DEFAULT 0); INSERT INTO datas(id) VALUES(12)");cdb.close();
  return directory;
 }
 it.each([[2,3,5],[60,70,99]])("rewrites user passcodes once with foreign keys and cube collisions (%i + %i = %i), preserving picks and finished replays",(oldCopies,officialCopies,total)=>{
@@ -122,8 +122,8 @@ it.each([true,false])("never rewrites or deletes real alternate-art catalog/artw
  try {
   seedIdentity(db,{userId:1,playerId:1,guildId:"g"});
   const cdb=new Database(join(dir,"cards.cdb"));
-  cdb.exec("INSERT INTO datas VALUES(57160136,0)");
-  if(loaded)cdb.exec("INSERT INTO datas VALUES(57160137,57160136)");cdb.close();
+  cdb.exec("INSERT INTO datas(id,alias) VALUES(57160136,0)");
+  if(loaded)cdb.exec("INSERT INTO datas(id,alias) VALUES(57160137,57160136)");cdb.close();
   db.exec(`INSERT INTO card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
    VALUES(57160136,'Cynet Mining','Spell Card','spell','main','main','[]','now'),(57160137,'Cynet Mining','Spell Card','spell','art','art','[]','now');
    INSERT INTO card_artworks(card_id,artwork_id,image_url,image_url_small,is_main,source)
@@ -145,4 +145,21 @@ it.each(["official-releases-prerelease-v1","official-releases-prerelease-v2"])("
  rmSync(join(dir,"card-remaps.json"));
  writeFileSync(join(dir,"manifest.json"),JSON.stringify({sources:{databaseFormat:format}}));
  expect(()=>sharedDb.loadCardPasscodeRemaps(dir)).toThrow(/Missing card-remaps/);
+});
+
+
+it("refuses unsafe v1 remaps before touching legacy artworks with no family mapping",()=>{
+ const dir=bundle({57160137:57160136}),db=sharedDb.openDatabase(":memory:");
+ try{
+  const cdb=new Database(join(dir,"cards.cdb"));cdb.exec("INSERT INTO datas(id) VALUES(57160136)");cdb.close();
+  const manifest=JSON.parse(readFileSync(join(dir,"manifest.json"),"utf8"));
+  manifest.sources={databaseFormat:"official-releases-prerelease-v1"};
+  writeFileSync(join(dir,"manifest.json"),JSON.stringify(manifest));
+  db.exec(`INSERT INTO card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
+   VALUES(57160137,'Cynet Mining','Spell Card','spell','art','art','[]','now');`);
+  const before=db.prepare("SELECT * FROM card_catalog").all();
+  expect(()=>sharedDb.applyEngineCardRemaps(db,dir)).toThrow(/Unsafe.*v1.*rebuild/i);
+  expect(db.prepare("SELECT * FROM card_catalog").all()).toEqual(before);
+  expect(db.prepare("SELECT * FROM engine_card_remap_runs").all()).toEqual([]);
+ }finally{db.close();}
 });
