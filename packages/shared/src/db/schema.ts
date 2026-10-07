@@ -793,6 +793,25 @@ export function migrate(db: Database.Database) {
   `);
 
   db.exec(`
+    -- Runtime card failures are independent of engine bundle identity and duel snapshots.
+    create table if not exists card_script_errors (
+      code integer primary key,
+      count integer not null default 0,
+      last_message text not null,
+      last_script_file text not null,
+      last_line integer not null,
+      last_mode text not null,
+      last_duel_id integer not null,
+      last_seen text not null default current_timestamp
+    );
+    -- Only the deterministic occurrence key is retained; no private duel snapshot is stored here.
+    create table if not exists card_script_error_occurrences (
+      duel_id integer not null,
+      command_hash text not null,
+      error_index integer not null,
+      primary key (duel_id, command_hash, error_index)
+    );
+
     create table if not exists duels (
       id integer primary key autoincrement,
       guild_id text not null,

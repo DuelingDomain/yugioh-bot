@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import type { DuelScriptError } from "./script-errors.js";
 import { parentPort } from "node:worker_threads";
 import { createEngineGame, type EngineGame } from "./engine.js";
 import { createLegacyEngineGame } from "./legacy/index.js";
@@ -9,10 +11,31 @@ import { EngineAnswerError } from "./prompts.js";
 let game: EngineGame | null = null;
 let queue = Promise.resolve();
 let traceSeats = 0;
+const scriptErrors: DuelScriptError[] = [];
+let commandPath = "start";
+
+function canonicalCommand(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalCommand);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, entry]) => [key, canonicalCommand(entry)]));
+}
+
+function commandIdentity(request: DuelWorkerRequest): string {
+  // A saved seed identifies creation across recovery; failed new starts use a fresh seed.
+  // Resource paths and worker transport IDs do not belong to its command path.
+  const { id: _id, ...command } = request;
+  const value = request.op === "create" ? { op: "create", seed: request.options.seed } : command;
+  return createHash("sha256").update(commandPath).update("\n").update(JSON.stringify(canonicalCommand(value))).digest("hex");
+}
 
 /** Every answer carries the core identity and counters, so the host can show them even when a later call hangs. */
 export async function handleWorkerRequest(request: DuelWorkerRequest): Promise<DuelWorkerResponse> {
+  const mutation = ["create", "answer", "eliminate", "chain-mode"].includes(request.op);
+  const commandHash = mutation ? commandIdentity(request) : commandPath;
   const response = await runWorkerRequest(request);
+  if (scriptErrors.length) response.scriptErrors = scriptErrors.splice(0).map((error) => ({ ...error, commandHash }));
+  if (mutation && response.ok) commandPath = commandHash;
+  if (request.op === "close") commandPath = "start";
   if (response.ok && game) {
     try {
       response.info = game.coreInfo();
@@ -37,7 +60,7 @@ async function runWorkerRequest(request: DuelWorkerRequest): Promise<DuelWorkerR
         if (game) return { id: request.id, ok: false, error: "A game is already running in this worker" };
         // The legacy engine plays two-seat tables only; every other table uses the merged engine and its multi core.
         const legacy = request.options.engine === "legacy" && (request.options.format ?? "1v1") === "1v1";
-        game = await (legacy ? createLegacyEngineGame : createEngineGame)(request.options);
+        game = await (legacy ? createLegacyEngineGame : createEngineGame)({ ...request.options, onScriptError: (error) => scriptErrors.push(error) });
         traceSeats = process.env.DUEL_SCENARIOS === "1" && (request.options.format ?? "1v1") !== "1v1"
           ? seatCountFor(request.options.format!) : 0;
         return { id: request.id, ok: true };
@@ -78,7 +101,7 @@ async function runWorkerRequest(request: DuelWorkerRequest): Promise<DuelWorkerR
     }
   } catch (error) {
     return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error),
-      ...(error instanceof EngineAnswerError && error.code ? { code: error.code } : {}) };
+      ...(error instanceof EngineAnswerError ? { answerError: true as const, ...(error.code ? { code: error.code } : {}) } : {}) };
   }
 }
 

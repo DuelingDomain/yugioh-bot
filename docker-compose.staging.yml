@@ -87,6 +87,8 @@ services:
       - MULTIPLAYER_TABLES=${STAGING_MULTIPLAYER_TABLES:-1}
       # Staging tests the 1v1 engine that production uses. Set STAGING_DUEL_1V1_ENGINE=pinned to test the merged engine.
       - DUEL_1V1_ENGINE=${STAGING_DUEL_1V1_ENGINE:-legacy}
+      # Card script runtime failures report and continue; strict is an operational override.
+      - DUEL_SCRIPT_ERRORS=${STAGING_DUEL_SCRIPT_ERRORS:-tolerant}
     volumes:
       - ${STAGING_DATA_DIR:-./data-staging}:/app/data
     mem_limit: ${STAGING_MEM_DUEL:-768m}

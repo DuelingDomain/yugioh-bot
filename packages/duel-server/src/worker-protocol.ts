@@ -1,8 +1,10 @@
+import type { DuelScriptError } from "./script-errors.js";
 import type { EngineCoreInfo, EngineDiagnostic, EngineStartupScript } from "./engine.js";
 import type { PromptTraceEntry } from "./prompt-trace.js";
-import type { DuelAnswer, DuelCardInfo, DuelChainMode, DuelDeck, DuelEngineChoice, DuelEngineView, DuelErrorCode, DuelFormat, DuelMasterRule, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
+import type { DuelAnswer, DuelCardInfo, DuelChainMode, DuelDeck, DuelEngineChoice, DuelEngineView, DuelErrorCode, DuelFormat, DuelMasterRule, DuelMode, DuelSettings, DuelScriptErrorMode } from "@yugidraft/shared/duels";
 
 export interface DuelWorkerCreateOptions {
+  scriptErrorMode?: DuelScriptErrorMode;
   mode: DuelMode;
   decks: DuelDeck[];
   seed: string[];
@@ -32,5 +34,5 @@ export type DuelWorkerRequest =
   | { id: number; op: "close" };
 
 export type DuelWorkerResponse =
-  | { id: number; ok: true; value?: DuelEngineView | DuelCardInfo[] | EngineDiagnostic[] | boolean; info?: EngineCoreInfo; promptTrace?: PromptTraceEntry }
-  | { id: number; ok: false; error: string; code?: DuelErrorCode };
+  | { id: number; ok: true; value?: DuelEngineView | DuelCardInfo[] | EngineDiagnostic[] | boolean; info?: EngineCoreInfo; promptTrace?: PromptTraceEntry; scriptErrors?: DuelScriptError[] }
+  | { id: number; ok: false; error: string; answerError?: true; code?: DuelErrorCode; scriptErrors?: DuelScriptError[] };

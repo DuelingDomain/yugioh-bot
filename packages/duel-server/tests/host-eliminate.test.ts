@@ -161,4 +161,19 @@ describeWithCores("host eliminates a seat while a prompt is open (real engine)",
       expect(view.prompt).toBeNull();
     }
   }, 60_000);
+  it("discards a worker when elimination advances the board and then fails before journaling", async () => {
+    const t = await table("ffa3", 3);
+    expect((await post(t.host, { op: "start", ...t.organizer })).status).toBe(200);
+    const holder = await holderOf(t, 3);
+    const before = await Promise.all([0, 1, 2].map((seat) => t.view(t.host, seat)));
+    const eliminate = t.worker.eliminate.bind(t.worker);
+    t.worker.eliminate = async (...args) => { await eliminate(...args); throw new Error("Card script error (strict mode)"); };
+    const failed = await post(t.host, { op: "surrender", slug: t.slug, guildId: "g1", playerId: t.players[holder] });
+    expect(failed.status).toBe(409);
+    expect(t.worker.running).toBe(false);
+    expect(t.duels.privateState(t.slug, "g1").commands).toHaveLength(0);
+    const host2 = makeHost(t.db, new RealEngineWorker());
+    expect(await Promise.all([0, 1, 2].map((seat) => t.view(host2, seat)))).toEqual(before);
+  }, 30_000);
+
 });

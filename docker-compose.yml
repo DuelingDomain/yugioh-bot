@@ -48,6 +48,8 @@ services:
       # The engine that new 1v1 duels start on. legacy is the engine production ran before the n-seat work (the default).
       # pinned is the merged engine. A duel keeps the engine it started on. Tables with 3 or 4 seats always use the multi core.
       - DUEL_1V1_ENGINE=${DUEL_1V1_ENGINE:-legacy}
+      # Card script runtime failures report and continue; strict is an operational override.
+      - DUEL_SCRIPT_ERRORS=${DUEL_SCRIPT_ERRORS:-tolerant}
     # The VM has 4 GB. The first game loads the card database and scripts (about 114 MB), each game adds a few MB.
     mem_limit: ${DUEL_MEM_LIMIT:-1g}
     volumes:
