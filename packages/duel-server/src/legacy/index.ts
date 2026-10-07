@@ -7,7 +7,7 @@ import { LEGACY_DOMAIN_WASM_FILE, createEngineGame as createMainEngineGame } fro
 
 /**
  * The legacy one-against-one engine (main's engine, views and prompts, see ./engine.ts) behind the merged `EngineGame`
- * interface. It plays two-seat Standard and Domain duels only; it has no elimination, no startup scripts and no diagnostics.
+ * interface. It plays two-seat Standard and Domain duels with board fixture scripts, but has no elimination or diagnostics.
  */
 
 const NPM_CORE_NAME = "ocgcore-wasm npm package core (built in)";
@@ -37,10 +37,15 @@ function legacyCoreIdentity(options: EngineGameOptions): Pick<EngineCoreInfo, "w
 
 export async function createLegacyEngineGame(options: EngineGameOptions): Promise<EngineGame> {
   if (options.format && options.format !== "1v1") throw new Error("The legacy engine plays 1v1 tables only");
-  if (options.startupScripts?.length) throw new Error("The legacy engine has no startup scripts");
+  if (options.startupScripts?.some((script) => typeof script?.name !== "string" || typeof script?.content !== "string")) {
+    throw new Error("Invalid startup script: expected name and content");
+  }
   const identity = legacyCoreIdentity(options);
   const inner = await createMainEngineGame({
     mode: options.mode,
+    scriptErrorMode: options.scriptErrorMode,
+    onScriptError: options.onScriptError,
+    startupScripts: options.startupScripts,
     decks: options.decks,
     seed: options.seed,
     dataDirectory: options.dataDirectory,

@@ -1,4 +1,6 @@
-import type { DuelAnswer, DuelBattleStep, DuelChainMode, DuelCardInfo, DuelDeck, DuelEngineView, DuelFormat, DuelMasterRule, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
+import { scriptErrorCoreFactory } from "./script-load-scope.js";
+import { CARD_SCRIPT_ERROR_TEXT, createScriptErrorPolicy, type DuelScriptError } from "./script-errors.js";
+import type { DuelAnswer, DuelBattleStep, DuelChainMode, DuelCardInfo, DuelDeck, DuelEngineView, DuelFormat, DuelMasterRule, DuelMode, DuelSettings, DuelScriptErrorMode } from "@yugidraft/shared/duels";
 import { DUEL_SEAT_LEFT_ERROR_CODE, defaultChainMode, partnerSeatOf, seatCountFor, seatsOfTeam, startingLpFor, teamOfSeat } from "@yugidraft/shared/duels";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -7,7 +9,6 @@ import createCore, {
   OcgDuelMode,
   OcgHintType,
   OcgLocation,
-  OcgLogType,
   OcgMessageType,
   OcgPosition,
   OcgProcessResult,
@@ -126,6 +127,9 @@ function readMultiWasm(dataDirectory: string, mode: DuelMode): LoadedWasm {
 }
 
 export interface EngineGameOptions {
+  scriptErrorMode?: DuelScriptErrorMode;
+  /** Private telemetry callback; omitted by standalone replay tools. */
+  onScriptError?: (error: DuelScriptError) => void;
   mode: DuelMode;
   decks: DuelDeck[];
   seed: string[];
@@ -360,7 +364,9 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   const cards = loadCardDatabase(options.dataDirectory);
   // Duels with more than two seats read the Lua overlay. 1v1 gets none, so its script text stays the original.
   const overlay = multi ? loadMultiScriptsFor(options.dataDirectory, options.multiScriptsDirectory) : undefined;
-  const errors: string[] = [];
+  const scriptErrors = createScriptErrorPolicy({ ...options, engine: "pinned" });
+  const errors = scriptErrors.errors;
+  const scopedCreateCore = scriptErrorCoreFactory(createCore, scriptErrors);
   const eventContext = createEventContext(format);
   const cardReader = (code: number) => {
     if (!code) return null;
@@ -377,7 +383,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   const errorHandler = (type: number, text: string) => {
     if (readAttackTargetQuery(text, attackTargetQuery)) return;
     if (noteDestroyLog(eventContext, text) || noteChainTargetLog(eventContext, text)) return;
-    if (type === OcgLogType.ERROR || type === OcgLogType.UNDEFINED) errors.push(text);
+    scriptErrors.note(type, text);
   };
   const team = {
     // Tag: one LP total per team, so the core gets the team starting LP.
@@ -418,7 +424,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   if (options.mode === "domain") {
     if (!domainCoreFactory) throw new Error("Domain core is not registered");
     const created = await domainCoreFactory({
-      createStockCore: ((coreOptions: object) => createCore({ ...coreOptions, ...tapOptions } as never)) as unknown as typeof createCore,
+      createStockCore: ((coreOptions: object) => scopedCreateCore({ ...coreOptions, ...tapOptions } as never)) as unknown as typeof createCore,
       dataDirectory: options.dataDirectory,
       seed,
       decks: options.decks,
@@ -435,7 +441,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     if (!created.getDomainState) throw new Error("Domain core did not provide getDomainState");
     getDomainState = created.getDomainState;
   } else {
-    lib = await createCore({
+    lib = await scopedCreateCore({
       sync: true,
       wasmBinary: multiWasm ?? loaded.binary,
       ...tapOptions,
@@ -507,6 +513,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       Duel.RegisterEffect(e,0)
     `)) throw new Error("Failed to register opening deck shuffle");
     }
+    if (errors.length) throw new Error(errors.join("; "));
     lib.startDuel(handle);
   } catch (error) {
     lib.destroyDuel(handle);
@@ -895,7 +902,10 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     resetEventBatch(eventContext, continuingSummon);
     leftFieldLines.length = 0;
     while (!result) {
-      const status = lib.duelProcess(handle);
+      scriptErrors.enterProcess();
+      let status: ReturnType<typeof lib.duelProcess>;
+      try { status = lib.duelProcess(handle); }
+      finally { scriptErrors.leaveProcess(); }
       // The wrapper warns once per message id 200, 201, 202 and 203 (it does not know them). The tap reads them below.
       const messages = tap ? withoutDuelistParseWarnings(() => lib.duelGetMessage(handle)) : lib.duelGetMessage(handle);
       callsSinceLastPrompt += 1;
@@ -917,6 +927,12 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
         }
       }
       flushDeferredDestroys();
+      for (const error of scriptErrors.drain()) {
+        if (error.scriptErrorMode === "strict") continue;
+        const event: StoredDuelEvent = { id: nextEventId, kind: "script-error", text: CARD_SCRIPT_ERROR_TEXT, publicText: CARD_SCRIPT_ERROR_TEXT, revealCardTo: "all" };
+        pushEvent(event);
+        appendLog(CARD_SCRIPT_ERROR_TEXT).eventId = event.id;
+      }
       if (errors.length > 0) {
         const detail = errors.join("; ");
         errors.length = 0;

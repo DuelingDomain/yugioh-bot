@@ -48,3 +48,10 @@ The npm core cannot return the triggering Link or Scale properties. The adapter
 omits those two properties from the bulk snapshot. It keeps supported properties,
 direct getters, and the core binary unchanged. Domain does not use this adapter.
 Kuriboh battle scenarios test the original failure and damage prevention on both seats.
+
+The owner decision of 2026-10-07 also applies the shared runtime script-error policy
+in `src/script-errors.ts`: report and continue by default, with a saved strict
+override. `src/script-load-scope.ts` distinguishes loading errors from runtime
+callbacks without changing the legacy WASM. Board fixture startup scripts are now
+supported so the stock Sabersaurus failure can be tested on this engine; production
+presets still select the pinned engine. See `docs/deployment/engine-data-updates.md`.

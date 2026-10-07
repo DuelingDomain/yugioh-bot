@@ -1,6 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { findSyncWasmExport } from "./wasm-sync-export.js";
 
 /**
  * Raw message capture (design section 9: the differential test compares message bytes, not only
@@ -13,20 +11,6 @@ import { fileURLToPath } from "node:url";
  * returns. The copy only reads wasm memory, so the core behaves the same.
  */
 
-let getMessageExport: string | null = null;
-
-/** Name of the minified wasm export that the sync glue binds to `_ocgapiDuelGetMessage`. */
-function findGetMessageExport(): string {
-  if (getMessageExport) return getMessageExport;
-  const dist = dirname(fileURLToPath(import.meta.resolve("ocgcore-wasm")));
-  for (const file of readdirSync(dist)) {
-    if (!file.startsWith("ocgcore.sync-") || !file.endsWith(".js")) continue;
-    const match = /_ocgapiDuelGetMessage=\w+\.(\w+)/.exec(readFileSync(join(dist, file), "utf8"));
-    if (match) return (getMessageExport = match[1]!);
-  }
-  throw new Error(`raw message capture: no sync glue in ${dist} binds _ocgapiDuelGetMessage`);
-}
-
 export interface RawMessageCapture {
   /** Pass these options to the emscripten factory (createCore spreads its options into it). */
   instantiateWasm: (imports: WebAssembly.Imports, callback: (instance: WebAssembly.Instance, module: WebAssembly.Module) => void) => object;
@@ -35,7 +19,7 @@ export interface RawMessageCapture {
 }
 
 export function rawMessageCapture(wasmBinary: ArrayBuffer): RawMessageCapture {
-  const name = findGetMessageExport();
+  const name = findSyncWasmExport("_ocgapiDuelGetMessage");
   let buffers: Uint8Array[] = [];
   return {
     // Synchronous on purpose: an error thrown here rejects the glue's promise. An async failure
