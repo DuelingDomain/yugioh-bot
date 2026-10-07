@@ -37,8 +37,13 @@ type DraftData = DraftDetailResponse & {
 
 export default function DraftDetailPage() {
   const params = useParams();
-  const router = useRouter();
   const slug = typeof params.slug === "string" ? params.slug : "";
+  // A new address mounts a new body, so the last draft never shows for a frame under the new slug.
+  return <DraftDetailBody key={slug} slug={slug} />;
+}
+
+function DraftDetailBody({ slug }: { slug: string }) {
+  const router = useRouter();
 
   const [draft, setDraft] = useState<DraftData | null>(null);
   const [error, setError] = useState<{ status: number | null } | null>(null);
@@ -70,24 +75,13 @@ export default function DraftDetailPage() {
   const generationRef = useRef(0);
   const inflightRef = useRef<Promise<void> | null>(null);
   const queuedRef = useRef(false);
-  const slugRef = useRef(slug);
+  // False once this body unmounts (the address changed): an answer that lands later must not touch the shared store.
+  const aliveRef = useRef(true);
 
-  // A new draft address starts unloaded and empty, so nothing of the last draft (its room, its finale, its pool) shows
-  // under the new one, and a failed first load of it shows the error sheet.
+  // The shared draft store is global, so a new address clears what the last draft left in it. Nothing of the last
+  // draft (its room, its pool) may show under the new one.
   useEffect(() => {
-    if (slugRef.current === slug) return;
-    slugRef.current = slug;
-    generationRef.current += 1;
-    inflightRef.current = null;
-    queuedRef.current = false;
-    loadedRef.current = false;
-    draftRef.current = null;
-    setDraft(null);
-    setError(null);
-    setWasInRoom(false);
-    setFinaleClosed(false);
-    setFinaleExporting(false);
-    setFinaleExportError(null);
+    aliveRef.current = true;
     setFromServer({
       slug,
       packRound: 1,
@@ -100,12 +94,15 @@ export default function DraftDetailPage() {
       completed: false,
       pickSeconds: 60,
     });
+    return () => {
+      aliveRef.current = false;
+    };
   }, [slug, setFromServer]);
 
   const loadDraft = useCallback(async (generation: number) => {
     try {
       const res = await fetch(`/api/drafts/${slug}`);
-      if (generation !== generationRef.current) return;
+      if (generation !== generationRef.current || !aliveRef.current) return;
       if (!res.ok) {
         if (res.status === 401) {
           router.push("/login");
@@ -117,7 +114,7 @@ export default function DraftDetailPage() {
         return;
       }
       const data = (await res.json()) as DraftData;
-      if (generation !== generationRef.current) return;
+      if (generation !== generationRef.current || !aliveRef.current) return;
       // A lobby read that is older than the one on screen (a slow answer that crossed a newer one) must not undo it.
       const held = draftRef.current;
       if (data.status === "pending" && data.lobby && held?.status === "pending" && held.lobby && data.lobby.revision < held.lobby.revision) {
@@ -142,7 +139,7 @@ export default function DraftDetailPage() {
       loadedRef.current = true;
       setError(null);
     } catch {
-      if (generation === generationRef.current && !loadedRef.current) setError({ status: null });
+      if (generation === generationRef.current && aliveRef.current && !loadedRef.current) setError({ status: null });
     }
   }, [setFromServer, slug, router]);
 
@@ -237,9 +234,12 @@ export default function DraftDetailPage() {
     await fetchDraft();
   };
 
-  const handleUpdate = async (data: { name?: string; config?: unknown }) => {
+  const handleUpdate = async ({ revision: seen, ...data }: { name?: string; config?: unknown; revision?: number }) => {
+    // The newest revision known: the page's own read, or the lobby answer the caller saw after its own change (Ready,
+    // a seat edit). Without the second, the host's own change makes a false "the lobby changed" answer.
     const held = draftRef.current;
-    const revision = held?.status === "pending" ? held.lobby?.revision : undefined;
+    const pageRevision = held?.status === "pending" ? held.lobby?.revision : undefined;
+    const revision = pageRevision === undefined ? seen : seen === undefined ? pageRevision : Math.max(pageRevision, seen);
     const res = await fetch(`/api/drafts/${slug}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -312,6 +312,7 @@ export default function DraftDetailPage() {
           slug={slug}
           isCreator={isCreator}
           isParticipant={isParticipant}
+          viewerUserId={currentUserId}
           discordEnabled={discordEnabled}
           onJoin={handleJoin}
           onAddBot={handleAddBot}
@@ -411,6 +412,7 @@ function ThemeTablePage({
   slug,
   isCreator,
   isParticipant,
+  viewerUserId,
   discordEnabled,
   onJoin,
   onAddBot,
@@ -421,6 +423,7 @@ function ThemeTablePage({
   slug: string;
   isCreator: boolean;
   isParticipant: boolean;
+  viewerUserId: string | null;
   discordEnabled: boolean;
   onJoin: () => Promise<void>;
   onAddBot: () => Promise<void>;
@@ -475,6 +478,7 @@ function ThemeTablePage({
         draft={draft}
         isCreator={isCreator}
         isParticipant={isParticipant}
+        viewerUserId={viewerUserId}
         onJoin={onJoin}
         onAddBot={onAddBot}
         botsEnabled={draft.botsEnabled === true}

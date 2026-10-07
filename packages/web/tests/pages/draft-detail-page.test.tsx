@@ -10,6 +10,8 @@ import { useDraftStore } from "../../src/lib/stores/draft-store";
 // ---------------------------------------------------------------------------
 const mockRouter = { push: vi.fn(), refresh: vi.fn() };
 const mockParams = vi.hoisted(() => ({ slug: "test-draft" }));
+// Every render of the mocked booster lobby, as "slug:name", to see what a render showed before any effect ran.
+const manageRenders = vi.hoisted(() => [] as string[]);
 vi.mock("next/navigation", () => ({
   useParams: () => ({ slug: mockParams.slug }),
   useRouter: () => mockRouter,
@@ -37,11 +39,13 @@ vi.mock("../../src/components/draft/draft-manage-view", () => ({
   DraftManageView: function DraftManageView(props: {
     discordEnabled?: boolean;
     botsEnabled?: boolean;
+    slug?: string;
     draft: { name: string; lobby?: { revision: number } };
-    onUpdate: (data: { name?: string; config?: unknown }) => Promise<void>;
+    onUpdate: (data: { name?: string; config?: unknown; revision?: number }) => Promise<void>;
     onChanged?: () => void;
   }) {
     const [message, setMessage] = React.useState("");
+    manageRenders.push(`${props.slug}:${props.draft.name}`);
     return (
       <div
         data-testid="draft-manage-view"
@@ -52,6 +56,8 @@ vi.mock("../../src/components/draft/draft-manage-view", () => ({
       >
         Manage
         <button type="button" onClick={() => void props.onUpdate({ name: "Renamed" }).catch((e: Error) => setMessage(e.message))}>save</button>
+        <button type="button" onClick={() => void props.onUpdate({ name: "Renamed", revision: 9 }).catch((e: Error) => setMessage(e.message))}>save newer</button>
+        <button type="button" onClick={() => void props.onUpdate({ name: "Renamed", revision: 3 }).catch((e: Error) => setMessage(e.message))}>save older</button>
         <button type="button" onClick={() => props.onChanged?.()}>changed</button>
         {message && <p role="alert">{message}</p>}
       </div>
@@ -606,6 +612,7 @@ describe("DraftDetailPage — pending lobby wiring", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockParams.slug = "test-draft";
+    manageRenders.length = 0;
     useDraftStore.setState(baseStoreState);
   });
   afterEach(() => {
@@ -720,6 +727,46 @@ describe("DraftDetailPage — pending lobby wiring", () => {
     expect(useDraftStore.getState().slug).toBe("draft-b");
     await act(async () => { release(); });
     expect(screen.getByTestId("draft-manage-view").getAttribute("data-name")).toBe("Draft draft-b");
+  });
+
+  it("never renders the old draft under the new address, not even for the first render", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    serve(async (_call, slug) => {
+      if (slug === "draft-b") await gate;
+      return pending({ name: `Draft ${slug}` });
+    });
+    mockParams.slug = "draft-a";
+    const { rerender } = render(<DraftDetailPage />);
+    await screen.findByTestId("draft-manage-view");
+    manageRenders.length = 0;
+    mockParams.slug = "draft-b";
+    rerender(<DraftDetailPage />);
+    expect(screen.queryByTestId("draft-manage-view")).toBeNull();
+    await act(async () => { release(); });
+    await waitFor(() => expect(screen.getByTestId("draft-manage-view").getAttribute("data-name")).toBe("Draft draft-b"));
+    expect(manageRenders.filter((r) => r.startsWith("draft-b:") && r !== "draft-b:Draft draft-b")).toEqual([]);
+    expect(manageRenders).not.toContain("draft-b:Draft draft-a");
+  });
+
+  it("sends the newest revision it knows: the answer the lobby saw, or its own read", async () => {
+    const base = serve(() => pending({ lobby: lobby(5) }));
+    const original = global.fetch as unknown as (url: string, init?: RequestInit) => Promise<Response>;
+    global.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/drafts/test-draft" && init?.method === "PUT") {
+        base.calls.push({ url, method: "PUT", body: JSON.parse(String(init.body)) });
+        return json({});
+      }
+      return original(url, init);
+    });
+    render(<DraftDetailPage />);
+    await screen.findByTestId("draft-manage-view");
+    fireEvent.click(screen.getByRole("button", { name: "save newer" }));
+    await waitFor(() => expect(base.drafts("PUT")).toHaveLength(1));
+    expect(base.drafts("PUT")[0].body).toEqual({ name: "Renamed", revision: 9 });
+    fireEvent.click(screen.getByRole("button", { name: "save older" }));
+    await waitFor(() => expect(base.drafts("PUT")).toHaveLength(2));
+    expect(base.drafts("PUT")[1].body).toEqual({ name: "Renamed", revision: 5 });
   });
 
   it("does not show the last draft's finale under another draft", async () => {
