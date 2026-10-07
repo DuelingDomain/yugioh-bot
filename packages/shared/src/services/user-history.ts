@@ -2,11 +2,11 @@ import type Database from "better-sqlite3";
 
 export type HistoryCounts = Record<string, number>;
 
-const ownershipReferences: Record<string, readonly string[]> = {
+export const ownershipReferences: Readonly<Record<string, readonly string[]>> = {
   tournaments: ["created_by_user_id"], cubes: ["created_by_user_id"], drafts: ["created_by_user_id"],
   seasons: ["created_by_user_id"], saved_decks: ["owner_user_id"],
 };
-const playerReferences: Record<string, readonly string[]> = {
+export const playerReferences: Readonly<Record<string, readonly string[]>> = {
   tournament_participants: ["player_id"], draft_player_cube: ["player_id"], draft_players: ["player_id"],
   matches: ["player_one_id", "player_two_id", "winner_id", "reporter_id", "approver_id"],
   tournament_matches: ["player_one_id", "player_two_id"],
