@@ -638,12 +638,54 @@ describe("the pinned card peek of the 1v1 room", () => {
       expect(peek().style.getPropertyValue("--pin-w")).toBe("700px");
     });
 
-    it("makes the panel wider before the effect text scrolls", () => {
-      layout({ left: 1200, right: 1270, top: 300, bottom: 420 }, (panel) => parseInt(panel.style.getPropertyValue("--pin-w"), 10) >= 820);
+    it("makes the panel wider before the effect text scrolls, up to 60% of the layer", () => {
+      layout({ left: 1200, right: 1270, top: 300, bottom: 420 }, (panel) => parseInt(panel.style.getPropertyValue("--pin-w"), 10) >= 760);
       mountWithText();
       pin();
-      expect(peek().style.getPropertyValue("--pin-w")).toBe("820px");
+      // 60% of the 1280 px layer.
+      expect(peek().style.getPropertyValue("--pin-w")).toBe("768px");
       expect(peek().getAttribute("data-art")).toBeNull();
+    });
+
+    it("never goes wider than 60% of the layer, even when a wider panel would fit the text", () => {
+      layout({ left: 1200, right: 1270, top: 300, bottom: 420 }, (panel) => parseInt(panel.style.getPropertyValue("--pin-w"), 10) >= 900);
+      mountWithText();
+      pin();
+      expect(parseInt(peek().style.getPropertyValue("--pin-w"), 10)).toBeLessThanOrEqual(768);
+    });
+
+    it("places the panel again when a camera move puts the clicked card under it", () => {
+      vi.useFakeTimers();
+      try {
+        const box = { left: 900, right: 980, top: 300, bottom: 420 };
+        layout(box);
+        mount();
+        pin();
+        expect(peek().getAttribute("data-side")).toBe("left");
+        // The camera moves the card to the left, under the panel.
+        box.left = 300; box.right = 380;
+        act(() => { vi.advanceTimersByTime(600); });
+        expect(peek().getAttribute("data-side")).toBe("right");
+      } finally { vi.useRealTimers(); }
+    });
+
+    it("lifts the bottom of a right panel above the controls at the bottom right", () => {
+      layout({ left: 300, right: 380, top: 120, bottom: 240 });
+      mount();
+      const corner = screen.getByTestId("hud-corner");
+      corner.getBoundingClientRect = () => ({ left: 1100, right: 1270, top: 520, bottom: 712, width: 170, height: 192, x: 1100, y: 520, toJSON: () => ({}) }) as DOMRect;
+      try {
+        pin();
+        // The layer ends at 720: 720 - 520 + the 10 px gap.
+        expect(peek().style.getPropertyValue("--pv-reserve-right")).toBe("210px");
+      } finally { delete (corner as Partial<HTMLElement>).getBoundingClientRect; }
+    });
+
+    it("takes the pointer in CSS, so a click on a pinned panel never reaches a card under it", () => {
+      // jsdom ignores CSS: read the rule. (The Playwright check with a target prompt open lives in the manual run.)
+      const css = readFileSync(join(__dirname, "../../src/components/duel/table/grid-hud.module.css"), "utf8");
+      const rule = css.match(/\.preview\[data-pinned="true"\]\s*\{[^}]*\}/);
+      expect(rule?.[0]).toMatch(/pointer-events:\s*auto/);
     });
 
     it("drops the art only when nothing else makes the effect text fit", () => {

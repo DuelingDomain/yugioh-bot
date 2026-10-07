@@ -640,8 +640,8 @@
  * scroll. It stays by the left edge like the hover panel, but moves to the right (data-side) or gets narrower (data-narrow)
  * when it would touch the card that was clicked. A text that does not fit the height makes the panel wider first (grid-preview.tsx
  * tries wider places), and only a very small screen scrolls it. On the left it keeps clear of the Deck Master plate (--pv-reserve),
- * on the right of the bottom right controls (--pv-reserve-right). It lets the pointer through to the board: only the X button
- * and a scrolling text take it.
+ * on the right of the bottom right controls (--pv-reserve-right, set from the real controls). Unlike the hover panel it takes the pointer,
+ * so a click on it never reaches a card under it.
  */
 .preview[data-pinned="true"] {
   flex-direction: row;
@@ -649,9 +649,11 @@
   gap: 16px;
   width: min(var(--pin-w, 700px), calc(100% - 88px));
   padding: 14px 44px 12px 14px;
+  /* The panel takes the pointer like any panel: a click on it never reaches the board under it (a target of a prompt may be covered). */
+  pointer-events: auto;
 }
 /* On the right edge the Deck Master plate is far away: only the timer, Responses and End Turn at the bottom right are kept free. */
-.preview[data-pinned="true"][data-side="right"] { max-height: max(300px, calc(100% - 50px - var(--pv-reserve-right, 206px))); }
+.preview[data-pinned="true"][data-side="right"] { max-height: max(300px, calc(100% - 50px - var(--pv-reserve-right, 200px))); }
 .preview[data-pinned="true"][data-narrow="true"] { gap: 12px; }
 .preview[data-pinned="true"][data-narrow="true"] .previewArt,
 .preview[data-pinned="true"][data-art="small"] .previewArt { width: clamp(96px, 34%, 140px); }
