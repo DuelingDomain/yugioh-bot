@@ -1,5 +1,3 @@
-import { randomInt } from "node:crypto";
-
 export const DUEL_DICE_REVEAL_MS = 3_000;
 
 export interface DuelDiceRound {
@@ -32,11 +30,6 @@ export interface DuelDiceOpeningView {
   finalSeats: number[] | null;
 }
 
-/** Production rolls use the operating system's cryptographic random source. */
-export function rollDuelDie(): number {
-  return randomInt(1, 7);
-}
-
 function rollRound(state: DuelDiceOpeningState, at: number, rollDie: () => number): DuelDiceOpeningState {
   const rolls: Array<number | null> = Array(state.groups.flat().length).fill(null);
   const groups = state.groups.flatMap((group) => {
@@ -60,7 +53,7 @@ function rollRound(state: DuelDiceOpeningState, at: number, rollDie: () => numbe
   };
 }
 
-export function newDiceOpening(startedBy: number, seatCount: number, at: number, rollDie = rollDuelDie): DuelDiceOpeningState {
+export function newDiceOpening(startedBy: number, seatCount: number, at: number, rollDie: () => number): DuelDiceOpeningState {
   if (seatCount !== 3 && seatCount !== 4) throw new Error("Dice opening requires FFA3 or FFA4");
   return rollRound({
     phase: "dice", round: 0, deadline: at, startedBy, rounds: [],
@@ -68,9 +61,10 @@ export function newDiceOpening(startedBy: number, seatCount: number, at: number,
   }, at, rollDie);
 }
 
-export function settleDiceOpening(state: DuelDiceOpeningState, at: number, rollDie = rollDuelDie): DuelDiceOpeningState {
+export function settleDiceOpening(state: DuelDiceOpeningState, at: number, rollDie?: () => number): DuelDiceOpeningState {
   if (state.phase === "start" || at < state.deadline) return state;
   if (state.order) return { ...state, phase: "start" };
+  if (!rollDie) throw new Error("Dice opening requires a server die source");
   return rollRound(state, at, rollDie);
 }
 

@@ -72,7 +72,7 @@ describe("FFA dice opening", () => {
   });
 
   it("rejects other seat counts and invalid die values", () => {
-    expect(() => newDiceOpening(42, 2, 0)).toThrow();
+    expect(() => newDiceOpening(42, 2, 0, rolls())).toThrow();
     expect(() => newDiceOpening(42, 4, 0, rolls(0))).toThrow();
     expect(() => newDiceOpening(42, 3, 0, rolls(7))).toThrow();
   });

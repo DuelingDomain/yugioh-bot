@@ -32,7 +32,7 @@ import {
   parseStoredDuelClock,
   parseStoredDuelSettings,
 } from "../duels/settings.js";
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { randomInt, randomBytes, timingSafeEqual } from "node:crypto";
 // duel-series.ts imports this module too; see the note there about the cycle.
 import { createSeriesStore } from "./duel-series.js";
 import { isDuelEngineChoice, type DuelEngineChoice } from "../duels/engine-switch.js";
@@ -538,6 +538,7 @@ const LIST_ACCESS_SQL = `
 
 
 export function createDuelService(db: Database.Database, options: { rollDie?: () => number } = {}): DuelService {
+  const rollDie = options.rollDie ?? (() => randomInt(1, 7));
   const selectDuelById = db.prepare<[number], DuelRow>("select * from duels where id = ?");
   const selectDuelBySlug = db.prepare<[string, string], DuelRow>("select * from duels where web_slug = ? and guild_id = ?");
   const selectSeats = db.prepare<[number], SeatRow>(
@@ -813,7 +814,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     } else if (row.organizer_player_id !== actorPlayerId) {
       throw new DuelServiceError("Only the organizer can start this duel", 403);
     }
-    const state = format === "1v1" ? newOpening(actorPlayerId, at) : newDiceOpening(actorPlayerId, seatCount, at, options.rollDie);
+    const state = format === "1v1" ? newOpening(actorPlayerId, at) : newDiceOpening(actorPlayerId, seatCount, at, rollDie);
     storeOpening(row.id, state);
     return state;
   });
@@ -1411,7 +1412,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     settleOpening(slug, guildId, at, random) {
       const row = loadDuelRow(slug, guildId);
       if (row.status !== "lobby" || !parseOpening(row.opening_json)) return parseOpening(row.opening_json);
-      return openingStepTx(slug, guildId, (state) => isDiceOpening(state) ? settleDiceOpening(state, at, options.rollDie) : settleOpening(state, at, random));
+      return openingStepTx(slug, guildId, (state) => isDiceOpening(state) ? settleDiceOpening(state, at, rollDie) : settleOpening(state, at, random));
     },
 
     abortOpening(slug, guildId) {
