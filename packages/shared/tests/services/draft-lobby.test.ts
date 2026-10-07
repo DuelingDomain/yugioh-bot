@@ -390,6 +390,25 @@ describe("manual and automatic deadlines", () => {
     expect(() => app.lobby.stopStart(app.draft.id, "host", state.lobby.start!.token, now)).toThrowError(expect.objectContaining({ code: "START_TOKEN_MISMATCH" }));
   });
 
+  it.each([false, true])("retries Stop without changing the revision or held state (auto=%s)", (auto) => {
+    const app = setup({ lobbySeats: 2 });
+    app.ready();
+    const revision = app.read().lobby.revision;
+    const scheduled = auto
+      ? app.lobby.setAutoStart(app.draft.id, "host", { enabled: true, revision }, now)
+      : app.lobby.scheduleStart(app.draft.id, "host", { revision }, now);
+    const token = scheduled.lobby.start!.token;
+    const stopped = app.lobby.stopStart(app.draft.id, "host", token, later(1000));
+    expect(stopped.lobby).toMatchObject({ start: null, autoStart: { enabled: auto, held: auto } });
+    expect(app.lobby.stopStart(app.draft.id, "host", token, later(2000))).toEqual({
+      ...stopped, lobby: { ...stopped.lobby, serverNow: later(2000).toISOString() },
+    });
+    expect(app.lobby.tick(later(20000))).toEqual({ started: [], changedSlugs: [] });
+    expect(app.read().lobby.revision).toBe(stopped.lobby.revision);
+    expect(() => app.lobby.stopStart(app.draft.id, "guest", token, now))
+      .toThrowError(expect.objectContaining({ code: "HOST_REQUIRED" }));
+  });
+
   it("holds a failed preflight after external edits and rolls back any partial deal", () => {
     const app = themeSetup();
     app.ids.forEach(app.claim);

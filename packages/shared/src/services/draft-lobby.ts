@@ -293,6 +293,7 @@ export function createDraftLobbyService(db: Database.Database) {
       return db.transaction(() => {
         const { draft, row } = pending(draftId);
         host(draft, actorUserId);
+        if (row.lobby_start_token === null) return project(draftId, actorUserId, now);
         if (!token || token !== row.lobby_start_token) throw new DraftLobbyServiceError("Start token does not match the current countdown", "START_TOKEN_MISMATCH");
         clearDraftLobbyStart(db, draftId);
         db.prepare("update drafts set lobby_revision = lobby_revision + 1, lobby_auto_held = lobby_auto_start where id = ?").run(draftId);
