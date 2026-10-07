@@ -793,7 +793,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     return (
       <>
         {lobby}
-        <OpeningScreen opening={opening} receivedAt={data.receivedAt} mySeat={data.mySeat} names={Array.from({ length: seatCountFor(data.session.format) }, (_, seat) => seatName(seat))} busy={busy} error={actionError}
+        <OpeningScreen opening={opening} receivedAt={data.receivedAt} mySeat={data.mySeat} names={Array.from({ length: seatCountFor(data.session.format) }, (_, seat) => seatName(seat))} busy={busy} error={actionError} reducedMotion={preferences.reducedMotion}
           onPick={(move) => void run(() => pickOpeningMove(slug, move))}
           onChoose={(choice) => void run(() => chooseOpeningOrder(slug, choice))} />
       </>
