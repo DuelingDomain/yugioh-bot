@@ -9,7 +9,8 @@ import { revealEndsAt } from "./opening-model";
  * `tickMs` is how often it samples while the opening is live (the dice screen needs a faster tick than a countdown).
  */
 export function useNow(opening: DuelOpeningView, receivedAt?: number, tickMs = 500): number | null {
-  const [clock, setClock] = useState({ opening, receivedAt, now: opening.serverNow });
+  // A remount from a cached room starts at the sampled server time, not at the old `serverNow`.
+  const [clock, setClock] = useState(() => ({ opening, receivedAt, now: opening.serverNow == null ? null : sampleServerNow(opening, receivedAt) }));
   useEffect(() => {
     const serverNow = opening.serverNow ?? Date.now();
     // Browser time already includes the cache age when an older host omits serverNow.
