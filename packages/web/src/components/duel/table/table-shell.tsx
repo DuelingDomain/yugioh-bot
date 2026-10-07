@@ -301,6 +301,7 @@ function TableShellBody({
   // or the drawer their own keys close it and hand focus back to the button.
   const escRef = useRef({ open: false, owned: false, close: () => {} });
   const escOwned = suspended || flow.aiming || flow.seatKeys || centered || camera.state.mode === "fly" || (promptMine && (prompt?.cancelable === true || prompt?.finishable === true));
+  camera.escapeOwned.current = suspended || flow.aiming || flow.seatKeys || centered || (promptMine && (prompt?.cancelable === true || prompt?.finishable === true));
   escRef.current = { open: drawer.open, owned: escOwned, close: () => drawer.close(false) };
   useEffect(() => {
     if (narrow) return;

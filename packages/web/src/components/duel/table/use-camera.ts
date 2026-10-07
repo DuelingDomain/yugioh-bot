@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, type MutableRefObject } from "react";
 import { isEliminated } from "../multi-seat";
 import {
   cameraActionForKey,
@@ -47,6 +47,11 @@ export interface UseCamera {
   choices: TargetChoice[];
   /** Seats the camera never goes to. */
   out: number[];
+  /**
+   * The shell sets this each render: an aim, a prompt that can be backed out or a pick of a seat owns Esc. The camera listens once at
+   * mount and the aim and prompt keys listen later, so it cannot see their preventDefault in time.
+   */
+  escapeOwned: MutableRefObject<boolean>;
 }
 
 function typing(target: EventTarget | null): boolean {
@@ -98,6 +103,7 @@ export function useCamera({ controller, layout, initial, initialLock = null, sea
     if (faceOff && state.mode !== "home") dispatch({ type: "home" });
   }, [faceOff, state.mode]);
 
+  const escapeOwned = useRef(false);
   const keyRef = useRef({ state, seatKeys, suspended, uprightOnly });
   keyRef.current = { state, seatKeys, suspended, uprightOnly };
   useEffect(() => {
@@ -111,7 +117,7 @@ export function useCamera({ controller, layout, initial, initialLock = null, sea
       if (target?.closest?.("[data-table-chrome]")) return;
       if (/^[1-9]$/.test(event.key) && keyRef.current.seatKeys) return;
       // Esc belongs to what is open first (a card menu, a flyout, a pile, the chain details): only a bare table goes back.
-      if (event.key === "Escape" && (event.defaultPrevented || document.querySelector("[role='dialog']:not([hidden]), [role='menu']:not([hidden])"))) return;
+      if (event.key === "Escape" && (event.defaultPrevented || escapeOwned.current || document.querySelector("[role='dialog']:not([hidden]), [role='menu']:not([hidden])"))) return;
       const action = cameraActionForKey(event, env.current.layout, keyRef.current.state, env.current.ctx);
       if (!action) return;
       if (event.key === "Tab" || event.key === " " || event.key === "s" || event.key === "S") event.preventDefault();
@@ -128,5 +134,5 @@ export function useCamera({ controller, layout, initial, initialLock = null, sea
   );
   const send = useCallback((action: CameraAction) => dispatch(action), []);
 
-  return { state, shown, dispatch: send, locked: state.lock != null, hint, choices, out };
+  return { state, shown, dispatch: send, locked: state.lock != null, hint, choices, out, escapeOwned };
 }
