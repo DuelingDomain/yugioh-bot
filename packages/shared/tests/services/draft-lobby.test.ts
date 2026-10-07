@@ -34,9 +34,9 @@ function setup(config: DraftConfig = {}, identities = ["host", "guest"]) {
   return { db, drafts, draft, ids, lobby, read, ready };
 }
 
-function themeSetup(selection: "player_pick" | "random" | "host_assigned" = "player_pick") {
+function themeSetup(selection: "player_pick" | "random" | "host_assigned" = "player_pick", identities = ["host", "guest"]) {
   const app = setup({ mode: "theme", themeSelection: selection, cardsPerPlayer: 4,
-    themePackSize: 3, extraDeckEnabled: true, extraDeckSize: 15, uniqueThemes: false });
+    themePackSize: 3, extraDeckEnabled: true, extraDeckSize: 15, uniqueThemes: false }, identities);
   const cubeId = Number(app.db.prepare(
     "insert into cubes (guild_id,name,created_by_user_id) values ('g','Theme','host')",
   ).run().lastInsertRowid);
@@ -399,6 +399,41 @@ describe("manual and automatic deadlines", () => {
     );
     app.lobby.scheduleStart(app.draft.id, "host", { revision: app.read().lobby.revision, force: true }, now);
     expect(app.lobby.tick(later(5000)).started).toHaveLength(1);
+  });
+
+  it.each(["manual", "auto-enable", "auto-tick"] as const)("gives an unclaimed test bot a random theme at %s start without confirmation", (kind) => {
+    const bot = `${TEST_BOT_DISCORD_PREFIX}1`;
+    const app = themeSetup("player_pick", ["host", bot]);
+    const config = { ...app.drafts.findById(app.draft.id).config, lobbySeats: 2 };
+    app.db.prepare("update drafts set config_json = ? where id = ?").run(JSON.stringify(config), app.draft.id);
+    app.claim(app.ids[0]);
+    if (kind === "auto-tick") {
+      app.lobby.setAutoStart(app.draft.id, "host", { enabled: true, revision: app.read().lobby.revision }, now);
+      expect(app.read().lobby.start).toBeNull();
+    }
+    app.lobby.setReady(app.draft.id, "host", true, now);
+    expect(app.read().players[1]).toMatchObject({ isBot: true, ready: true, cubeId: null });
+    expect(app.read().lobby).toMatchObject({ allReady: true, autoStart: { eligible: true } });
+    const revision = app.read().lobby.revision;
+    if (kind === "manual") app.lobby.scheduleStart(app.draft.id, "host", { revision }, now);
+    else if (kind === "auto-enable") app.lobby.setAutoStart(app.draft.id, "host", { enabled: true, revision }, now);
+    else app.lobby.tick(now);
+    const deadline = kind === "manual" ? 5000 : 10000;
+    expect(app.read().lobby.start).toMatchObject({ kind: kind === "manual" ? "manual" : "auto", startsAt: later(deadline).toISOString() });
+    expect(app.lobby.tick(later(deadline - 1)).started).toEqual([]);
+    expect(app.lobby.tick(later(deadline)).started).toHaveLength(1);
+    expect(app.db.prepare("select cube_id from draft_player_cube where draft_id = ? and player_id = ?")
+      .get(app.draft.id, app.ids[1])).toEqual({ cube_id: app.cubeId });
+    expect(app.lobby.tick(later(deadline + 1)).started).toEqual([]);
+  });
+
+  it("keeps unclaimed humans in confirmation details while skipping test bots", () => {
+    const app = themeSetup("player_pick", ["host", "guest", `${TEST_BOT_DISCORD_PREFIX}1`]);
+    app.claim(app.ids[0]);
+    app.lobby.setReady(app.draft.id, "host", true, now);
+    expect(() => app.lobby.scheduleStart(app.draft.id, "host", { revision: app.read().lobby.revision }, now)).toThrowError(
+      expect.objectContaining({ code: "NOT_READY", notReadyPlayerIds: [app.ids[1]], unclaimedPlayerIds: [app.ids[1]] }),
+    );
   });
 
   it.each(["player_pick", "random", "host_assigned"] as const)(

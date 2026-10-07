@@ -60,6 +60,9 @@ export function createDraftLobbyService(db: Database.Database) {
   const cubeExists = (id: number, guildId: string) => !!db.prepare("select 1 from cubes where id = ? and guild_id = ?").get(id, guildId);
   const validClaim = (draft: Draft, player: PlayerRow) => player.cube_id !== null
     && (draft.config.allowedCubeIds ?? []).includes(player.cube_id) && cubeExists(player.cube_id, draft.guildId);
+  // Test bots receive a random theme from the draft kernel when it starts.
+  const isUnclaimedHuman = (draft: Draft, player: PlayerRow) => !isTestBotDiscordId(player.discord_user_id)
+    && !validClaim(draft, player);
 
   const setupHash = (draft: Draft): string => {
     // Assignment acknowledgement is per seat: removing one assignment cannot
@@ -182,7 +185,7 @@ export function createDraftLobbyService(db: Database.Database) {
       joined: players.length, ready, allReady, autoStart: { enabled: row.lobby_auto_start === 1,
         held: row.lobby_auto_held === 1, eligible: targetSeats !== null && players.length === targetSeats && allReady
           && analysis.errors.length === 0 && !(draft.config.mode === "theme" && draft.config.themeSelection === "player_pick"
-            && rows.some((p) => !validClaim(draft, p))) },
+            && rows.some((p) => isUnclaimedHuman(draft, p))) },
       start: row.lobby_start_token && row.lobby_start_at && row.lobby_start_kind
         ? { token: row.lobby_start_token, kind: row.lobby_start_kind, startsAt: row.lobby_start_at } : null,
       errors: hideAssigned && analysis.errors.length ? ["Host-assigned setup needs host attention"] : analysis.errors,
@@ -280,7 +283,7 @@ export function createDraftLobbyService(db: Database.Database) {
         const state = project(draftId, actorUserId, now);
         const notReadyPlayerIds = state.players.filter((p) => !isReadyToStart(p, "manual")).map((p) => p.playerId);
         const unclaimedPlayerIds = draft.config.mode === "theme" && draft.config.themeSelection === "player_pick"
-          ? players.filter((p) => !validClaim(draft, p)).map((p) => p.player_id) : undefined;
+          ? players.filter((p) => isUnclaimedHuman(draft, p)).map((p) => p.player_id) : undefined;
         if (!request.force && (notReadyPlayerIds.length || unclaimedPlayerIds?.length)) {
           throw new DraftLobbyServiceError("Players must be Ready before starting", "NOT_READY", {
             notReadyPlayerIds, ...(unclaimedPlayerIds ? { unclaimedPlayerIds } : {}),
@@ -379,7 +382,7 @@ export function createDraftLobbyService(db: Database.Database) {
           const state = project(id, draft.createdByUserId, now);
           if (state.lobby.errors.length) return fail(state.lobby.errors.join(" "));
           if (!row.lobby_start_force && (!state.players.every((p) => isReadyToStart(p, row.lobby_start_kind))
-            || (draft.config.mode === "theme" && draft.config.themeSelection === "player_pick" && players.some((p) => !validClaim(draft, p))))) {
+            || (draft.config.mode === "theme" && draft.config.themeSelection === "player_pick" && players.some((p) => isUnclaimedHuman(draft, p))))) {
             return fail("Players are no longer Ready for this setup");
           }
           if (row.lobby_start_kind === "auto" && (!row.lobby_auto_start || row.lobby_auto_held || !state.lobby.autoStart.eligible)) {

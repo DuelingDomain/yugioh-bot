@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
 import * as sharedServices from "@yugidraft/shared/services";
-import { createDraftService } from "@yugidraft/shared/services";
+import { createDraftService, TEST_BOT_DISCORD_PREFIX } from "@yugidraft/shared/services";
 import type { DraftLobbyResponse } from "@yugidraft/shared/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -343,6 +343,31 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
     expect(response.status).toBe(409);
     expect(await response.json()).toMatchObject({ code: "NOT_READY", notReadyPlayerIds: [2], unclaimedPlayerIds: [1, 2] });
     expect(api.read(1, "host").lobby.start).toBeNull();
+  });
+
+  it.each(["manual", "auto"])("starts an unclaimed test bot with a random theme through the %s route", async (kind) => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-07T12:00:00Z"));
+    const api = await useRealLobbyService();
+    const draft = createDraftService(db).findById(1);
+    db.prepare("update drafts set config_json = ? where id = 1").run(JSON.stringify({ ...draft.config, themeSelection: "player_pick" }));
+    db.prepare("update players set discord_user_id = ? where id = 2").run(`${TEST_BOT_DISCORD_PREFIX}1`);
+    db.exec("insert into draft_player_cube (draft_id,player_id,cube_id) values (1,1,1)");
+    api.setReady(1, "host", true);
+    const state = api.read(1, "host");
+    expect(state.players[1]).toMatchObject({ isBot: true, ready: true, cubeId: null });
+    expect(state.lobby.autoStart.eligible).toBe(true);
+    const response = kind === "manual"
+      ? await route("start", "POST", { revision: state.lobby.revision })
+      : await route("auto", "PUT", { enabled: true, revision: state.lobby.revision });
+    expect(response.status).toBe(kind === "manual" ? 202 : 200);
+    const body = await response.json() as DraftLobbyResponse;
+    expect(body.lobby.start?.kind).toBe(kind);
+    const deadline = new Date(body.lobby.start!.startsAt).getTime();
+    expect(api.tick(deadline - 1, 1).started).toHaveLength(0);
+    expect(api.tick(deadline, 1).started).toHaveLength(1);
+    expect(db.prepare("select cube_id from draft_player_cube where draft_id = 1 and player_id = 2").get()).toEqual({ cube_id: 1 });
+    expect(api.tick(deadline + 1, 1).started).toHaveLength(0);
   });
 
   it.each([undefined, "0", "true", "01", "1"])("returns the explicit Discord flag for DISCORD_BOT_ENABLED=%s", async (enabled) => {
