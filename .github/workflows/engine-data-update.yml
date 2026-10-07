@@ -63,6 +63,10 @@ jobs:
       - name: Install without a write token
         run: prlimit --core=1:1 -- npm ci
 
+      # Build checked-out repository code before applying candidate data pins.
+      - name: Build shared for engine-data scripts
+        run: prlimit --core=1:1 -- npm run build --workspace=packages/shared
+
       # Even a workflow dry run applies candidates in this disposable, read-only-token job.
       - name: Resolve pins and write report
         id: update
@@ -78,8 +82,12 @@ jobs:
           if [ -n "$STRINGS_SHA" ]; then args+=(--strings "$STRINGS_SHA"); fi
           prlimit --core=1:1 -- node --import tsx packages/duel-server/scripts/update-engine-data.ts "${args[@]}"
 
+      # Preparation discovers cards.cdb + release-*.cdb at the new database pin.
+      # No generated file list or additional writable publication path is needed.
       - name: Download and validate candidate engine bundle
         if: steps.update.outputs.changed == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: prlimit --core=1:1 -- npm run duel:prepare
 
       - name: Check multiplayer overlay and record result

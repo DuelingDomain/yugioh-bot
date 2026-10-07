@@ -159,7 +159,7 @@ static int read_script(void*, OCG_Duel duel, const char* name) {
 		}
 	}
 	if(text.empty()) {
-		const std::string roots[] = { std::string(kScripts) + "/", std::string(kScripts) + "/official/" };
+		const std::string roots[] = { std::string(kScripts) + "/", std::string(kScripts) + "/official/", std::string(kScripts) + "/pre-release/" };
 		bool found = false;
 		for(const auto& r : roots) {
 			if(read_file(r + n, text) || read_file(r + base, text)) {

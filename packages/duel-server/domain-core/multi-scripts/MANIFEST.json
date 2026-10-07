@@ -2476,6 +2476,20 @@
       "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
     },
     {
+      "code": 27572350,
+      "file": "c27572350.lua",
+      "name": "Bystial Dis Pater",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "QUICK_O",
+      "redefined": [
+        "destg",
+        "desop"
+      ],
+      "stockSha256": "55bed0bfa7962b78ec92de728c506330b0000924299da156e42babc309943803",
+      "note": "Script fix (#217): own deck destroys, the deck of the opponent that activated the monster effect negates (Duel.MPChainSeat), any other deck does nothing else. Compares real seats, not 1-tp."
+    },
+    {
       "code": 27769400,
       "file": "c27769400.lua",
       "name": "Tualatin",
@@ -7486,6 +7500,19 @@
       "stockSha256": "f0a79bad5d47a018d6388b67fd08b3df27aaca47562441bbd55080e062ab85c0"
     },
     {
+      "code": 85967160,
+      "file": "c85967160.lua",
+      "name": "Aromage Bergamot",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "FIELD",
+      "redefined": [
+        "pccon"
+      ],
+      "stockSha256": "f1d55671c188355c0471133dd8e80132e6db1314a8f3ff73afc1bae9dcc26b41",
+      "note": "Script fix (#215): the piercing condition compares your LP with the LP of the opponent that the attack goes at (Duel.MPAttackedSeat), not with the best case over all opponents. No pick."
+    },
+    {
       "code": 86066372,
       "file": "c86066372.lua",
       "name": "Accesscode Talker",
@@ -7804,6 +7831,19 @@
       "stockSha256": "443717ee2ca68266e0133f3a59a78194e893aa04bd6efda2a4f01c0f962cd0cf"
     },
     {
+      "code": 90140980,
+      "file": "c90140980.lua",
+      "name": "Ojama King",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "FIELD",
+      "redefined": [
+        "disop"
+      ],
+      "stockSha256": "3566c0b4bd37f44de47b249344c347aca4f4bef4fe5f5319b898f1f4317dbf26",
+      "note": "Script fix (#218, OD-OJAMA-KING): the controller picks one opponent with a free Main Monster Zone, once (label); the 3 zones are all of that opponent. If it leaves the duel, nothing is blocked and nobody is picked again."
+    },
+    {
       "code": 90173539,
       "file": "c90173539.lua",
       "name": "World Dino Wrestling",
@@ -8032,6 +8072,21 @@
       },
       "chooserClass": "CH-TRIG",
       "stockSha256": "88e8ba425dd0a0b82a005178a8899cb2f97fd54b4425d3c97fcf4c4ead48bdf1"
+    },
+    {
+      "code": 92435533,
+      "file": "c92435533.lua",
+      "name": "Lazion, the Timelord",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "FIELD+TRIGGER_F",
+      "redefined": [
+        "tdcon",
+        "tdtg",
+        "tdop"
+      ],
+      "stockSha256": "5ef1eb8325ea2f3c8979f1fa12d3da7c1ce0b9cab24782d46f7671da41b3453a",
+      "note": "Script fix (#213, OD-LAZION): continuous effects record each opponent that Lazion attacked (the seat declared at the attack, kept after a redirect) or that attacked it; the controller picks among the living recorded opponents at resolution and only that Graveyard is shuffled. Tag keeps the stock effect."
     },
     {
       "code": 92530005,

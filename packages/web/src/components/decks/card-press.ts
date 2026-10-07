@@ -19,18 +19,33 @@ export type PressActions = {
   select: () => void;
   /** Right-click, long press, the ContextMenu key and Shift+F10. */
   menu: (anchor: HTMLElement) => void;
+  /** Ctrl+right-click (Cmd+right-click on a Mac): one more copy of this card, in the same section. */
+  copy: () => void;
 };
+
+/** True on macOS, where a Ctrl+click is the system's right-click. */
+export function isMacPlatform(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const nav = navigator as Navigator & { userAgentData?: { platform?: string } };
+  return /mac/i.test(nav.userAgentData?.platform ?? navigator.platform ?? "");
+}
 
 /**
  * Click rules for the cards of a deck, shared by all the tiles of one grid:
  * left-click removes, Ctrl or Cmd+click moves to or from the Side Deck, right-click or long press opens
  * the art menu. A tap on a touch screen or pen, Enter and Space never remove a card; they select it.
  *
+ * Ctrl+right-click adds a copy and never opens the menu or the browser context menu. On a Mac only
+ * Cmd+right-click adds: a Mac turns Ctrl+left-click into a contextmenu event with ctrlKey set (and some browsers
+ * report it as button 2), so Ctrl there cannot be told from a right-click with Ctrl held, and it keeps
+ * opening the art menu as before. Cmd+left-click is still the Side Deck move, so Cmd+click and Cmd+right-click
+ * are different events and never both fire. The contextmenu path clears the armed press, so no click can follow it.
+ *
  * Removal needs proof of a real mouse press: a primary-button pointerdown on the same tile arms it, and the
  * click that follows removes. A click with no such pointerdown (a screen reader, a script, the keyboard)
  * only selects. A second click of a double-click does nothing, so one double-click removes one card.
  */
-export function useCardPress() {
+export function useCardPress({ mac = isMacPlatform() }: { mac?: boolean } = {}) {
   const armed = useRef<HTMLElement | null>(null);
   const timer = useRef<number | undefined>(undefined);
   const settle = useRef<number | undefined>(undefined);
@@ -101,6 +116,10 @@ export function useCardPress() {
       armed.current = null;
       // Android sends contextmenu after the long press that already opened the menu.
       if (longPressed.current) return;
+      if (mac ? event.metaKey : event.ctrlKey) {
+        actions.copy();
+        return;
+      }
       actions.menu(event.currentTarget);
     },
     /** ContextMenu and Shift+F10 open the menu from the keyboard. */
@@ -109,5 +128,5 @@ export function useCardPress() {
       event.preventDefault();
       actions.menu(event.currentTarget);
     },
-  }), [cancel]);
+  }), [cancel, mac]);
 }

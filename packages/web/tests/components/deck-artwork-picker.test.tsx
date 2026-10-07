@@ -657,7 +657,7 @@ describe("deck art menu details", () => {
     stored = savedDeck([MAIN.code]);
     render(<SavedDeckEditor deckId="7" />);
     const tile = await screen.findByRole("button", { name: copyName });
-    expect(tile).toHaveAttribute("aria-keyshortcuts", "Delete ContextMenu Shift+F10");
+    expect(tile).toHaveAttribute("aria-keyshortcuts", "Delete Plus = ContextMenu Shift+F10");
     expect(tile).not.toHaveAttribute("aria-haspopup");
     expect(tile).not.toHaveAttribute("aria-expanded");
   });

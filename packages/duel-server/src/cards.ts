@@ -103,6 +103,10 @@ export function isOptionalCardScript(name: string, cardData: (code: number) => O
 function indexScripts(root: string): Map<string, string> {
   const indexed = new Map<string, string>();
   if (!existsSync(root)) return indexed;
+  const priority = (path: string) => {
+    const name = relative(root, path).replaceAll("\\", "/");
+    return name.startsWith("official/") ? 3 : name.startsWith("pre-release/") ? 2 : !name.includes("/") ? 1 : 0;
+  };
   const visit = (directory: string) => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const full = join(directory, entry.name);
@@ -111,8 +115,10 @@ function indexScripts(root: string): Map<string, string> {
         continue;
       }
       if (!entry.name.endsWith(".lua")) continue;
-      indexed.set(entry.name, full);
-      indexed.set(relative(root, full).replaceAll("\\", "/"), full);
+      const previous = indexed.get(entry.name);
+      if (!previous || priority(full) > priority(previous)) indexed.set(entry.name, full);
+      const path = relative(root, full).replaceAll("\\", "/");
+      if (path !== entry.name) indexed.set(path, full);
     }
   };
   visit(root);

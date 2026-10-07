@@ -1250,6 +1250,23 @@ describe("prompt privacy", () => {
     expect(JSON.stringify(view.prompt?.options.slice(0, 2))).not.toMatch(/Mirror Force|Torrential Tribute|44095762|53582587/);
   });
 
+  it("keeps zone labels on an opponent's empty places in a zone prompt", () => {
+    const view = project({
+      viewer: 0,
+      promptSeat: 0,
+      prompt: {
+        id: "p-places",
+        seat: 0,
+        kind: "places",
+        title: "Select a zone for Vassal Token",
+        options: [
+          { id: "place:0", label: "Monster Zone 1", controller: 1, location: OcgLocation.MZONE, sequence: 0, values: [1, OcgLocation.MZONE, 0] },
+        ],
+      },
+    });
+    expect(view.prompt?.options[0]).toMatchObject({ id: "place:0", label: "Monster Zone 1", controller: 1, sequence: 0 });
+  });
+
   it("hides facedown tribute targets while retaining release metadata", () => {
     const view = project({
       viewer: 0,

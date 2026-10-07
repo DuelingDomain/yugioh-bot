@@ -18,7 +18,7 @@ async function fixture(scripts: Record<string, string>) {
     atk INTEGER, def INTEGER, level INTEGER, race INTEGER, attribute INTEGER);
     CREATE TABLE texts (id INTEGER, name TEXT, desc TEXT);`);
   for (const name of Object.keys(scripts)) {
-    const code = /^official\/c(\d+)\.lua$/.exec(name)?.[1];
+    const code = /^(?:official|pre-release)\/c(\d+)\.lua$/.exec(name)?.[1];
     if (code) database.prepare("INSERT INTO datas VALUES (?, 3, 0, 0, 33, 1000, 1000, 4, 1, 1)").run(Number(code));
   }
   database.close();
@@ -36,6 +36,14 @@ async function fixture(scripts: Record<string, string>) {
 }
 
 describe("candidate engine data probe", () => {
+  it("initializes loaded release cards whose scripts remain in pre-release", async () => {
+    const root = await fixture({
+      "pre-release/c17242022.lua": 'local s,id=GetID()\nfunction s.initial_effect(c) error("released card initialization") end',
+    });
+    const result = await probeEngineData(root, ["pre-release/c17242022.lua"]);
+    expect(result.cardsChecked).toBe(1);
+    expect(result.errors.join("\n")).toContain("released card initialization");
+  });
   it("checks every missing API and constant through the installed core, including Group", async () => {
     const root = await fixture({
       "official/c1001.lua": `local s,id=GetID()
