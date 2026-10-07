@@ -41,6 +41,7 @@ export function createRecentCardSetCache(db: Database.Database, options: {
   const invalid = new Set<string>();
   const shutdown = new AbortController();
   let stopped = false;
+  let refreshing: Promise<void> | undefined;
   const get = db.prepare("select fetched_at, cards_json from card_data_set_cache where set_name = ?");
   const getFetchedAt = db.prepare("select fetched_at from card_data_set_cache where set_name = ?");
   const save = db.prepare(`insert into card_data_set_cache (set_name,fetched_at,cards_json) values (?,?,?)
@@ -73,7 +74,11 @@ export function createRecentCardSetCache(db: Database.Database, options: {
           return fetch(input, { ...init, signal: AbortSignal.any([shutdown.signal, init!.signal!]) });
         }, async response => {
           const payload = await response.json() as { data?: unknown; error?: unknown };
-          return compactCards(payload.data == null && typeof payload.error === "string" ? [] : payload.data, set.name);
+          if (response.status === 400) {
+            if (typeof payload.error === "string" && payload.error.startsWith("No card matching")) return [];
+            throw new Error("Unexpected set card response");
+          }
+          return compactCards(payload.data, set.name);
         }, [400]);
         if (!stopped) save.run(set.name, new Date(now()).toISOString(), JSON.stringify(cards));
         invalid.delete(set.name);
@@ -87,16 +92,20 @@ export function createRecentCardSetCache(db: Database.Database, options: {
     pending.set(set.name, work);
     return work;
   }
-  async function refresh(sets: readonly CatalogSetStatus[]): Promise<void> {
-    for (const set of recentTcgSets(sets, now())) {
-      if (stopped) break;
-      await refreshSet(set);
-    }
+  function refresh(sets: readonly CatalogSetStatus[]): Promise<void> {
+    if (refreshing) return refreshing;
+    refreshing = (async () => {
+      for (const set of recentTcgSets(sets, now())) {
+        if (stopped) break;
+        await refreshSet(set);
+      }
+    })().finally(() => { refreshing = undefined; });
+    return refreshing;
   }
   return {
     read(sets: readonly CatalogSetStatus[]): CachedCardSet[] {
       const rows = recentTcgSets(sets, now()).map(cached);
-      void refresh(sets);
+      void refresh(sets).catch(() => {});
       return rows;
     },
     refresh,
