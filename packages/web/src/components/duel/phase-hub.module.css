@@ -496,6 +496,26 @@ button.chip:focus-visible {
 :global([data-hub-size="sm"]) .root[data-variant="table"] .captionLit {
   display: block;
 }
+/* A big text size: the small caption has no room for "You Turn 5 Battle step" on one line. "You" goes (the dot and the lit
+   phase say whose turn it is) and the caption wraps under the turn number, the strip dropping one line with it. */
+:global([data-text-big="true"]) :global([data-hub-size="sm"]) .root[data-variant="table"] {
+  height: auto;
+  min-height: 61px;
+}
+:global([data-text-big="true"]) :global([data-hub-size="sm"]) .root[data-variant="table"] .caption {
+  flex-wrap: wrap;
+  height: auto;
+  min-height: 16px;
+  row-gap: 2px;
+  overflow: visible;
+  line-height: 1.1;
+}
+:global([data-text-big="true"]) :global([data-hub-size="sm"]) .root[data-variant="table"] .who[data-me="true"] .whoName {
+  display: none;
+}
+:global([data-text-big="true"]) :global([data-hub-size="sm"]) .root[data-variant="table"] .captionLit {
+  white-space: normal;
+}
 :global([data-hub-size="sm"]) .root[data-variant="table"] .chip[data-state="current"] {
   width: var(--cw);
   padding: 0;
