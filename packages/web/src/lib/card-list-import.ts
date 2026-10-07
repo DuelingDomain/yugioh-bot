@@ -67,5 +67,23 @@ export function listAddedLine(added: number, copies: number): string {
   return copies === added ? `Added ${cards}.` : `Added ${cards}, ${plural(copies, "copy", "copies")}.`;
 }
 
+/** A refusal with a message fit to show. `retryAfter` is the seconds the server asked us to wait (503 with Retry-After). */
+export class ListImportError extends Error {
+  constructor(
+    message: string,
+    readonly retryAfter?: number,
+  ) {
+    super(message);
+  }
+}
+
+/** Reads a refused response: the server's message, and how long it asked us to wait. */
+export async function listImportErrorFrom(res: Response, fallback: string): Promise<ListImportError> {
+  const data = (await res.json().catch(() => ({}))) as { error?: unknown };
+  const message = typeof data.error === "string" && data.error ? data.error : fallback;
+  const seconds = Number(res.headers.get("Retry-After"));
+  return new ListImportError(message, Number.isFinite(seconds) && seconds > 0 ? seconds : undefined);
+}
+
 /** The sentence when nothing in the list was a card. */
 export const NOTHING_FOUND = "No cards found in that list.";

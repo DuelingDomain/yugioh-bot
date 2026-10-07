@@ -75,6 +75,8 @@ export interface StubOptions {
   /** Answer to POST /api/cubes/[id]/cards. */
   replaceMain?: () => Response;
   draftPool?: CardSummary[];
+  /** The draft's Extra pool, from GET /api/drafts/[slug]/pool. */
+  draftExtra?: CardSummary[];
   extra?: Record<string, (init?: RequestInit) => Response | Promise<Response>>;
 }
 
@@ -113,7 +115,7 @@ export function stubFetch(options: StubOptions = {}): Stub {
       return options.replaceMain ? options.replaceMain() : Response.json({ ok: true });
     }
     const draftPool = /^\/api\/drafts\/[^/]+\/pool$/.exec(url);
-    if (draftPool) return Response.json({ cards: options.draftPool ?? [] });
+    if (draftPool) return Response.json({ cards: options.draftPool ?? [], extraCards: options.draftExtra ?? [] });
     if (url.startsWith("/api/archetypes")) return Response.json({ archetypes: ["Blue-Eyes"] });
     if (url === "/api/sets") return Response.json({ sets: [{ setName: "Metal Raiders", setCode: "MRD", cardCount: 2 }] });
     if (url === "/api/cards/resolve" && method === "POST") {
@@ -127,7 +129,7 @@ export function stubFetch(options: StubOptions = {}): Stub {
           const m = /^(\d{1,2})\s+(.+)$/.exec(line);
           const copies = m ? Number(m[1]) : 1;
           const name = (m ? m[2] : line).toLowerCase();
-          const hit = byName.get(name) ?? (name === "cipher soldeir" ? byName.get("cipher soldier") : undefined);
+          const hit = /^\d{3,}$/.test(name) ? byId.get(Number(name)) : byName.get(name) ?? (name === "cipher soldeir" ? byName.get("cipher soldier") : undefined);
           if (!hit) {
             unknown.push(line);
             continue;
@@ -151,7 +153,9 @@ export function stubFetch(options: StubOptions = {}): Stub {
       }
       if (body.fuzzyName) {
         const q = String(body.fuzzyName).toLowerCase();
-        return Response.json({ cards: CATALOG.filter((c) => c.name.toLowerCase().includes(q)), unknownIds: [] });
+        const typo = (c: CardSummary) => q === "blu eyez" && c.name.startsWith("Blue-Eyes");
+        const wanted = CATALOG.filter((c) => (c.name.toLowerCase().includes(q) || typo(c)) && (body.includeExtra === true || !c.type.includes("Fusion")));
+        return Response.json({ cards: wanted, unknownIds: [] });
       }
       if (body.customCardIds) {
         const known = (body.customCardIds as number[]).filter((id) => byId.has(id));

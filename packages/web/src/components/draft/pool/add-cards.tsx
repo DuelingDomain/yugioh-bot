@@ -4,20 +4,19 @@ import * as React from "react";
 import { Check, CircleAlert, Info, Plus, Search } from "lucide-react";
 import { svButtonClass } from "@/components/sheet";
 import { isExtraDeckMonster, type CardSummary } from "@/lib/card-types";
-import { ListFileButton } from "@/components/card-list-import/list-file-button";
+import { AutoImportBox, type ImportEntryView, type ImportRun } from "@/components/card-list-import/auto-import-box";
 import { ListImportReport } from "@/components/card-list-import/list-import-report";
-import { NOTHING_FOUND, loadedFileLine, type ListDiagnostics } from "@/lib/card-list-import";
-import { parseCustomCardIds } from "@/lib/custom-card-pool";
+import { type ListDiagnostics } from "@/lib/card-list-import";
 import { useResultNav } from "@/lib/hooks/use-result-nav";
-import { fetchArchetypes, fetchSets, resolveCardList, resolveCards, resolvePasscodes, type SetInfo } from "./pool-api";
+import { fetchArchetypes, fetchSets, resolveCardList, resolveCards, type SetInfo } from "./pool-api";
 import { CardThumb } from "./pool-bits";
 import {
   DEFAULT_COPIES,
   MAX_COPIES,
   addCopyLine,
   addedLine,
+  importLine,
   kindText,
-  passcodesLine,
 } from "./pool-model";
 import type { PoolEditor } from "./use-pool-editor";
 import styles from "./pool.module.css";
@@ -109,7 +108,7 @@ export function AddCards({ ctl, initialTab }: { ctl: PoolEditor; initialTab: Add
       {tab === "card" && <CardTab ctl={ctl} setNote={setNote} />}
       {tab === "archetype" && <ArchetypeTab ctl={ctl} setNote={setNote} />}
       {tab === "set" && <SetTab ctl={ctl} setNote={setNote} />}
-      {tab === "list" && <ListTab ctl={ctl} setNote={setNote} />}
+      {tab === "list" && <ListTab ctl={ctl} />}
       <NoteLine note={note} />
     </>
   );
@@ -141,10 +140,10 @@ function CardTab({ ctl, setNote }: TabProps) {
     const timer = setTimeout(() => {
       setSearching(true);
       setFailedFor("");
-      resolveCards({ fuzzyName: q })
+      resolveCards({ fuzzyName: q, includeExtra: true })
         .then((r) => {
           if (mine !== seq.current) return;
-          setResults(r.cards.filter((c) => !isExtraDeckMonster(c)).slice(0, 8));
+          setResults(r.cards.slice(0, 8));
           setResultsFor(q);
         })
         .catch(() => {
@@ -162,14 +161,18 @@ function CardTab({ ctl, setNote }: TabProps) {
 
   const trimmed = query.trim();
   const failed = failedFor === trimmed && !searching;
-  const addOne = (card: CardSummary) => setNote({ tone: "ok", text: addCopyLine(card.name, ctl.addCopy(card)) });
+  const copiesOf = (card: CardSummary) => (isExtraDeckMonster(card) ? ctl.extra : ctl.pool).get(card.id) ?? 0;
+  const addOne = (card: CardSummary) => {
+    const result = ctl.addCopy(card);
+    setNote({ tone: "ok", text: addCopyLine(card.name, result.changed, result.lane) });
+  };
   const nav = useResultNav({
     items: results,
     query,
     resultsFor,
     setQuery,
     onPick: addOne,
-    canPick: (card) => (ctl.pool.get(card.id) ?? 0) < MAX_COPIES,
+    canPick: (card) => copiesOf(card) < MAX_COPIES,
   });
   return (
     <>
@@ -187,7 +190,7 @@ function CardTab({ ctl, setNote }: TabProps) {
           {...nav.inputProps}
         />
       </div>
-      {!trimmed && <Hint>Type a card name. Enter or a click adds one copy.</Hint>}
+      {!trimmed && <Hint>Type a card name. Enter or a click adds one copy. Extra Deck monsters go to the Extra pool.</Hint>}
       {trimmed && searching && results.length === 0 && <Hint>Searching.</Hint>}
       {failed && (
         <div role="alert" className={styles.searchErr}>
@@ -203,11 +206,11 @@ function CardTab({ ctl, setNote }: TabProps) {
           </button>
         </div>
       )}
-      {trimmed && !searching && !failed && resultsFor === trimmed && results.length === 0 && <Hint>No main-deck card matches that.</Hint>}
+      {trimmed && !searching && !failed && resultsFor === trimmed && results.length === 0 && <Hint>No card matches that.</Hint>}
       {results.length > 0 && (
         <ul className={styles.res} aria-label={`Results for ${trimmed}`} aria-busy={searching || nav.stale || undefined} data-stale={nav.stale ? "" : undefined} {...nav.listProps}>
           {results.map((card, index) => {
-            const copies = ctl.pool.get(card.id) ?? 0;
+            const copies = copiesOf(card);
             return (
               <li key={card.id} className={styles.resRow} {...nav.optionProps(index)}>
                 <CardThumb id={card.id} src={card.imageUrlSmall} className={styles.thumb} />
@@ -326,7 +329,7 @@ function ArchetypeTab({ ctl, setNote }: TabProps) {
           Add
         </button>
       </div>
-      <Hint>Adds every main-deck card in the archetype, {DEFAULT_COPIES} copies each.</Hint>
+      <Hint>Adds every card in the archetype, {DEFAULT_COPIES} copies each. Extra Deck monsters go to the Extra pool.</Hint>
     </>
   );
 }
@@ -432,116 +435,53 @@ function SetTab({ ctl, setNote }: TabProps) {
   );
 }
 
-/** Plain passcodes, one per line or separated by commas: no names, counts or sections. These keep the older, passcode-only request. */
-const PLAIN_PASSCODES = /^\s*\d+(?:\s*,\s*\d+)*\s*,?\s*$/;
-const isPlainPasscodes = (text: string) =>
-  text.trim() !== "" && text.split(/\r?\n/).every((line) => line.trim() === "" || PLAIN_PASSCODES.test(line));
-
 /**
- * Card list: names, passcodes, YDK text or a ydke link, typed, pasted or loaded from a file.
- * A file only fills the box. The owner reads what came in and adds it with one more click.
+ * Card list: names, passcodes, YDK text or a ydke link. A paste or a loaded file is added at once, typed text when the
+ * typing stops. Every list that went in stays under the box with a Remove button that takes out only its copies.
  */
-function ListTab({ ctl, setNote }: TabProps) {
-  const begin = useAddGuard(ctl);
-  const inputId = React.useId();
-  const [text, setText] = React.useState("");
-  const [fileLine, setFileLine] = React.useState<string | null>(null);
-  const [busy, setBusy] = React.useState(false);
-  const plain = isPlainPasscodes(text);
-  const parsed = React.useMemo(() => (plain ? parseCustomCardIds(text) : null), [plain, text]);
-  const count = parsed?.cardIds.length ?? 0;
-  const empty = text.trim() === "";
+function ListTab({ ctl }: { ctl: PoolEditor }) {
+  const ctlRef = React.useRef(ctl);
+  ctlRef.current = ctl;
 
-  const addPasscodes = async (current: () => boolean, ids: number[]) => {
-    const occurrences = new Map<number, number>();
-    for (const id of ids) occurrences.set(id, (occurrences.get(id) ?? 0) + 1);
-    const { cards, unknownIds } = await resolvePasscodes(Array.from(occurrences.keys()));
-    if (!current()) return;
-    const outcome = ctl.addPasscodes(occurrences, cards, unknownIds);
-    setNote({ tone: "ok", text: passcodesLine(outcome) });
-    setText("");
-    setFileLine(null);
-  };
-
-  const addList = async (current: () => boolean) => {
+  const run = React.useCallback<ImportRun>(async (text, fileName) => {
+    const started = ctlRef.current.session();
     const result = await resolveCardList(text);
-    if (!current()) return;
-    // Main entries only: a card the list put in the Extra Deck cannot enter a main-deck pool.
-    const occurrences = new Map(result.entries.filter((e) => e.pool === "main").map((e) => [e.id, e.copies] as const));
-    const mainCards = result.cards.filter((card) => occurrences.has(card.id));
-    const outcome = ctl.addPasscodes(occurrences, mainCards, []);
-    const extraSkipped = result.entries.filter((e) => e.pool === "extra").length + outcome.extraSkipped;
+    // A Reset, a cube change or a save since the request left means the pool is not the one the list was meant for.
+    if (ctlRef.current.session() !== started) throw new Error("The pool changed while the list was loading. Add the list again.");
     const report = { unknown: result.unknown, corrected: result.corrected };
-    if (result.entries.length === 0) {
-      setNote({ tone: "bad", text: NOTHING_FOUND, report });
-      return;
-    }
-    setNote({ tone: "ok", text: passcodesLine({ ...outcome, unknown: 0, extraSkipped }), report });
-    setText("");
-    setFileLine(null);
-  };
+    if (result.entries.length === 0) return { nothing: true, report };
+    ctlRef.current.importList(result.entries, { fileName, ...report });
+  }, []);
 
-  const submit = async () => {
-    if (empty || busy) return;
-    if (plain && count === 0) return;
-    setBusy(true);
-    setNote(null);
-    const current = begin();
-    try {
-      if (plain && parsed) await addPasscodes(current, parsed.cardIds);
-      else await addList(current);
-    } catch (error) {
-      if (current()) setNote({ tone: "bad", text: error instanceof Error && error.message ? error.message : `Couldn't add the list. ${NOT_REACHABLE}` });
-    } finally {
-      setBusy(false);
-    }
-  };
+  const entries = React.useMemo<ImportEntryView[]>(
+    () =>
+      ctl.imports.map((record) => ({
+        key: record.key,
+        label: record.label,
+        line: importLine(record),
+        report: { unknown: record.unknown, corrected: record.corrected },
+      })),
+    [ctl.imports],
+  );
 
   return (
-    <>
-      <label className={styles.sr} htmlFor={inputId}>
-        Card list
-      </label>
-      <textarea
-        id={inputId}
-        className="input"
-        rows={6}
-        placeholder={"3 Dark Hole\nShooting Star Dragon\n46986414\n\nOr paste a whole .ydk file"}
-        spellCheck={false}
-        value={text}
-        onChange={(e) => {
-          setText(e.target.value);
-          setFileLine(null);
-        }}
-      />
-      <Hint>
-        Card names or passcodes, one per line. A number before a name is its copies, like 3 Dark Hole. Without one, a card gets 1 copy.
-        Extra Deck cards stay out.
-      </Hint>
-      <div className={styles.addRow}>
-        <ListFileButton
-          buttonClassName={svButtonClass("quiet")}
-          inputClassName={styles.sr}
-          disabled={busy}
-          onLoaded={(loaded, name) => {
-            setText(loaded);
-            setFileLine(loadedFileLine(name, loaded));
-            setNote(null);
-          }}
-          onError={(message) => setNote({ tone: "bad", text: message })}
-        />
-        <button
-          type="button"
-          className={svButtonClass("ghost")}
-          disabled={empty || (plain && count === 0) || busy}
-          aria-busy={busy || undefined}
-          onClick={() => void submit()}
-        >
-          <Plus size={16} aria-hidden="true" />
-          {plain && count > 0 ? `Add ${count} ${count === 1 ? "passcode" : "passcodes"}` : "Add list"}
-        </button>
-      </div>
-      {fileLine && <Hint>Loaded {fileLine}. Check it, then add it.</Hint>}
-    </>
+    <AutoImportBox
+      label="Card list"
+      labelClassName={styles.sr}
+      placeholder={"3 Dark Hole\nShooting Star Dragon\n46986414\n\nOr paste a whole .ydk file"}
+      hint={
+        <>
+          Card names or passcodes, one per line. A number before a name is its copies, like 3 Dark Hole. Without one, a card gets 1
+          copy. Pasted text and loaded files are added at once; Extra Deck monsters go to the Extra pool. Typed text is added when you
+          stop typing, or press Enter.
+        </>
+      }
+      hintClassName={`${styles.note} ${styles.quiet}`}
+      run={run}
+      entries={entries}
+      onRemove={(key) => ctl.removeImport(Number(key))}
+      fileButtonClassName={svButtonClass("quiet")}
+      fileInputClassName={styles.sr}
+    />
   );
 }

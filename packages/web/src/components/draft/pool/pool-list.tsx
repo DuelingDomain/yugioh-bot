@@ -14,6 +14,7 @@ import {
   type CardInfo,
   type Kind,
   type KindFilter,
+  type Lane,
 } from "./pool-model";
 import type { PoolEditor } from "./use-pool-editor";
 import styles from "./pool.module.css";
@@ -82,13 +83,19 @@ const PoolRow = React.memo(function PoolRow({ id, copies, baseCopies, card, star
  * changed this session get a violet marker and sit first. Cards taken out of the starting point wait under "Removed".
  */
 export function PoolList({ ctl }: { ctl: PoolEditor }) {
+  const [lane, setLane] = React.useState<Lane>("main");
   const [query, setQuery] = React.useState("");
   const [filter, setFilter] = React.useState<KindFilter>("all");
   const [removedOpen, setRemovedOpen] = React.useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const removedId = React.useId();
-  const { pool, base, info, pinned, meta, diff } = ctl;
+  const extraLane = lane === "extra";
+  const { info, pinned, meta } = ctl;
+  const pool = extraLane ? ctl.extra : ctl.pool;
+  const base = extraLane ? ctl.baseExtra : ctl.base;
+  const diff = extraLane ? ctl.extraDiff : ctl.diff;
   const hasBase = meta !== null;
+  const onStep = React.useCallback((id: number, delta: number) => ctl.step(id, delta, lane), [ctl.step, lane]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The order changes when cards come or go, not when a count steps, so a click does not re-sort the list.
   const structure = React.useMemo(() => Array.from(pool.keys()).join(","), [pool]);
@@ -99,6 +106,12 @@ export function PoolList({ ctl }: { ctl: PoolEditor }) {
   );
   const counts = React.useMemo(() => tallyDistinct(pool, info), [structure, info]); // eslint-disable-line react-hooks/exhaustive-deps
   const copies = React.useMemo(() => tallyCopies(pool, info), [pool, info]);
+
+  const switchLane = (next: Lane) => {
+    setLane(next);
+    setFilter("all");
+    setQuery("");
+  };
 
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -116,6 +129,14 @@ export function PoolList({ ctl }: { ctl: PoolEditor }) {
             <b>{copies.total}</b> cards, <b>{pool.size}</b> different
           </span>
         </div>
+        <div className={`seg ${styles.lanes}`} role="group" aria-label="Pool">
+          <button type="button" aria-pressed={!extraLane} onClick={() => switchLane("main")}>
+            Main <small>{ctl.total}</small>
+          </button>
+          <button type="button" aria-pressed={extraLane} onClick={() => switchLane("extra")}>
+            Extra <small>{ctl.extraTotal}</small>
+          </button>
+        </div>
         <div className={styles.in}>
           <Search size={16} aria-hidden="true" />
           <input
@@ -128,19 +149,21 @@ export function PoolList({ ctl }: { ctl: PoolEditor }) {
             autoComplete="off"
           />
         </div>
-        <div className={styles.plChips} role="group" aria-label="Filter by kind">
-          {FILTERS.map((f) => (
-            <button key={f.value} type="button" className={styles.fchip} aria-pressed={filter === f.value} onClick={() => setFilter(f.value)}>
-              {f.label} <small>{counts[f.value]}</small>
-            </button>
-          ))}
-        </div>
+        {!extraLane && (
+          <div className={styles.plChips} role="group" aria-label="Filter by kind">
+            {FILTERS.map((f) => (
+              <button key={f.value} type="button" className={styles.fchip} aria-pressed={filter === f.value} onClick={() => setFilter(f.value)}>
+                {f.label} <small>{counts[f.value]}</small>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       {rows.length === 0 ? (
-        <p className={styles.plNone}>{pool.size > 0 ? "No card matches that." : "No cards in the pool."}</p>
+        <p className={styles.plNone}>{pool.size > 0 ? "No card matches that." : extraLane ? "No Extra Deck cards in the pool." : "No cards in the pool."}</p>
       ) : (
-        <div ref={scrollRef} className={styles.plScroll} role="region" tabIndex={0} aria-label="Cards in the pool">
-          <div className={styles.plIn} role="list" aria-label="Pool cards" style={{ height: virtualizer.getTotalSize() }}>
+        <div ref={scrollRef} className={styles.plScroll} role="region" tabIndex={0} aria-label={extraLane ? "Cards in the Extra pool" : "Cards in the pool"}>
+          <div className={styles.plIn} role="list" aria-label={extraLane ? "Extra pool cards" : "Pool cards"} style={{ height: virtualizer.getTotalSize() }}>
             {virtualizer.getVirtualItems().map((item) => {
               const id = rows[item.index];
               return (
@@ -151,7 +174,7 @@ export function PoolList({ ctl }: { ctl: PoolEditor }) {
                   baseCopies={hasBase ? (base.get(id) ?? 0) : null}
                   card={info(id)}
                   start={item.start}
-                  onStep={ctl.step}
+                  onStep={onStep}
                 />
               );
             })}
@@ -173,7 +196,7 @@ export function PoolList({ ctl }: { ctl: PoolEditor }) {
                   <li key={id} className={styles.rmRow}>
                     <CardThumb id={id} src={card?.imageUrlSmall} className={styles.thumb} />
                     <b title={name}>{name}</b>
-                    <button type="button" className={styles.textBtn} aria-label={`Undo removing ${name}`} onClick={() => ctl.undo(id)}>
+                    <button type="button" className={styles.textBtn} aria-label={`Undo removing ${name}`} onClick={() => ctl.undo(id, lane)}>
                       <Undo2 size={15} aria-hidden="true" />
                       Undo
                     </button>

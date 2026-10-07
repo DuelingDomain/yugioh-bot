@@ -3,6 +3,10 @@ import {
   addCopyLine,
   addOneCopy,
   addedLine,
+  applyListEntries,
+  extraCheck,
+  importLine,
+  subtractGains,
   changesText,
   clampCopies,
   cubeCardCount,
@@ -12,8 +16,7 @@ import {
   freeCubeName,
   listRows,
   mergeAdd,
-  mergePasscodes,
-  passcodesLine,
+  pasteLabel,
   poolFromEntries,
   poolFromIds,
   poolToEntries,
@@ -90,60 +93,110 @@ describe("mergeAdd", () => {
     { card: card(5, "Link", "Link Monster", "link"), copies: 3 },
   ];
 
-  it("leaves Extra Deck cards out, including pendulum variants, and keeps copies of cards already in", () => {
+  it("sends Extra Deck cards to the Extra pool, pendulum variants too, and keeps copies of cards already in", () => {
     const base = poolFromEntries([{ id: 2, copies: 1 }]);
     const out = mergeAdd(base, items);
     expect(out.added).toBe(1);
+    expect(out.extraAdded).toBe(3);
     expect(out.alreadyIn).toBe(1);
-    expect(out.extraSkipped).toBe(3);
     expect(out.pool.get(1)).toBe(3);
     expect(out.pool.get(2)).toBe(1);
-    expect(out.pool.has(3)).toBe(false);
-    expect(out.pool.has(4)).toBe(false);
-    expect(out.pool.has(5)).toBe(false);
+    expect([...out.pool.keys()].sort()).toEqual([1, 2]);
+    expect([...out.extra.keys()].sort()).toEqual([3, 4, 5]);
+    expect(out.extra.get(3)).toBe(3);
     expect(base.size).toBe(1);
   });
 
   it("words the result", () => {
-    expect(addedLine("Blue-Eyes", { added: 34, alreadyIn: 0, extraSkipped: 6 })).toBe(
-      "Added 34 cards from Blue-Eyes. 6 Extra Deck cards stay out.",
+    expect(addedLine("Blue-Eyes", { added: 34, alreadyIn: 0, extraAdded: 6 })).toBe(
+      "Added 34 cards from Blue-Eyes. 6 Extra Deck cards went to the Extra pool.",
     );
-    expect(addedLine("Blue-Eyes", { added: 1, alreadyIn: 1, extraSkipped: 1 })).toBe(
-      "Added 1 card from Blue-Eyes. 1 Extra Deck card stays out. 1 was already in the pool.",
+    expect(addedLine("Blue-Eyes", { added: 1, alreadyIn: 1, extraAdded: 1 })).toBe(
+      "Added 1 card from Blue-Eyes. 1 Extra Deck card went to the Extra pool. 1 was already in the pool.",
     );
-    expect(extraNote(38)).toBe("38 Extra Deck cards stay out. Cube drafts deal main-deck cards.");
+    expect(extraNote(38)).toBe("38 Extra Deck cards stay out of the main packs. Turn on the Extra Deck round to draft them.");
+    expect(extraNote(1)).toBe("1 Extra Deck card stays out of the main packs. Turn on the Extra Deck round to draft it.");
     expect(extraNote(0)).toBeNull();
     expect(addCopyLine("Mirror Force", true)).toBe("Added 1 copy of Mirror Force.");
+    expect(addCopyLine("Mirror Force", true, "extra")).toBe("Added 1 copy of Mirror Force to the Extra pool.");
     expect(addCopyLine("Mirror Force", false)).toBe("Mirror Force is already at 99 copies.");
-    expect(passcodesLine({ added: 3, copies: 5, unknown: 1, extraSkipped: 2, atCap: 0 })).toBe(
-      "Added 5 copies of 3 cards. 1 passcode isn't in the card list yet. 2 Extra Deck cards stay out.",
+  });
+});
+
+describe("list imports", () => {
+  it("routes every copy to the pool the server chose and reports the gains after the 99 cap", () => {
+    const out = applyListEntries(
+      poolFromEntries([{ id: 1, copies: 98 }]),
+      poolFromEntries([{ id: 9, copies: 1 }]),
+      [
+        { id: 1, copies: 3, pool: "main" },
+        { id: 2, copies: 2, pool: "main" },
+        { id: 9, copies: 2, pool: "extra" },
+        { id: 8, copies: 1, pool: "extra" },
+        { id: 0, copies: 1, pool: "main" },
+      ],
     );
-    expect(passcodesLine({ added: 12, copies: 12, unknown: 0, extraSkipped: 0, atCap: 0, invalid: 2 })).toBe(
-      "Added 12 cards. 2 entries aren't passcodes.",
-    );
+    expect(Object.fromEntries(out.main)).toEqual({ 1: 99, 2: 2 });
+    expect(Object.fromEntries(out.extra)).toEqual({ 9: 3, 8: 1 });
+    expect(Object.fromEntries(out.gainedMain)).toEqual({ 1: 1, 2: 2 });
+    expect(Object.fromEntries(out.gainedExtra)).toEqual({ 9: 2, 8: 1 });
   });
 
-  it("adds a copy for every time a passcode is pasted, to new and existing cards", () => {
-    const base = poolFromEntries([
-      { id: 1, copies: 2 },
-      { id: 2, copies: 99 },
+  it("takes out exactly the copies an import added and leaves earlier copies", () => {
+    const before = poolFromEntries([{ id: 1, copies: 2 }]);
+    const { main, gainedMain } = applyListEntries(before, new Map(), [
+      { id: 1, copies: 3, pool: "main" },
+      { id: 2, copies: 1, pool: "main" },
     ]);
-    const out = mergePasscodes(
-      base,
-      new Map([
-        [1, 2],
-        [2, 1],
-        [3, 1],
-        [4, 1],
-      ]),
-      [card(1, "A"), card(2, "B"), card(3, "C"), card(4, "Link", "Link Monster", "link")],
-      [77, 77, 78],
-    );
-    expect(out.pool.get(1)).toBe(4);
-    expect(out.pool.get(2)).toBe(99);
-    expect(out.pool.get(3)).toBe(1);
-    expect(out.pool.has(4)).toBe(false);
-    expect(out).toMatchObject({ added: 2, copies: 3, unknown: 2, extraSkipped: 1, atCap: 1 });
+    const back = subtractGains(main, gainedMain);
+    expect(Object.fromEntries(back)).toEqual({ 1: 2 });
+    expect(subtractGains(main, new Map())).toBe(main);
+  });
+
+  it("never goes below zero when the user already lowered a card", () => {
+    expect(Object.fromEntries(subtractGains(new Map([[1, 1]]), new Map([[1, 3]])))).toEqual({});
+    expect(subtractGains(new Map([[1, 1]]), new Map([[5, 3]])).get(1)).toBe(1);
+  });
+
+  it("words the entry line and leaves out zero parts", () => {
+    const base = { label: "Pasted list", main: new Map([[1, 10]]), extra: new Map([[9, 2]]), corrected: [], unknown: [] };
+    expect(importLine(base)).toBe("Pasted list - 12 cards (10 Main, 2 Extra)");
+    expect(
+      importLine({
+        ...base,
+        label: "Cube.txt",
+        corrected: [{ from: "a", to: "b" }, { from: "c", to: "d" }] as never,
+        unknown: ["x"],
+      }),
+    ).toBe("Cube.txt - 12 cards (10 Main, 2 Extra) - 2 names corrected - 1 line skipped");
+  });
+
+  it("names unnamed pastes apart", () => {
+    expect(pasteLabel([])).toBe("Pasted list");
+    expect(pasteLabel(["Pasted list"])).toBe("Pasted list 2");
+    expect(pasteLabel(["Pasted list", "Pasted list 2", "a.txt"])).toBe("Pasted list 3");
+  });
+});
+
+describe("extraCheck", () => {
+  it("is null when the round is off or empty", () => {
+    expect(extraCheck({ on: false, size: 15, total: 0, players: 4 })).toBeNull();
+    expect(extraCheck({ on: true, size: 0, total: 0, players: 4 })).toBeNull();
+  });
+
+  it("says enough when the pool covers players x size", () => {
+    expect(extraCheck({ on: true, size: 15, total: 60, players: 4 })).toEqual({
+      enough: true,
+      supported: 4,
+      text: "Extra pool: enough for 4 players at 15 cards each.",
+    });
+  });
+
+  it("says how many more cards the pool needs", () => {
+    const out = extraCheck({ on: true, size: 15, total: 40, players: 4 });
+    expect(out?.enough).toBe(false);
+    expect(out?.supported).toBe(2);
+    expect(out?.text).toBe("Extra pool is too small. 4 players x 15 needs 60 Extra Deck cards, and the pool has 40 (enough for 2 players). Add 20 more.");
   });
 });
 

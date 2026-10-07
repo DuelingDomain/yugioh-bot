@@ -6,7 +6,7 @@
 import type { CardSummary } from "@/lib/card-types";
 import { isExtraDeckMonster } from "@/lib/card-types";
 import { putCards } from "@/lib/cards-cache";
-import type { ListDiagnostics } from "@/lib/card-list-import";
+import { listImportErrorFrom, type ListDiagnostics } from "@/lib/card-list-import";
 import { clampCopies, poolFromEntries, poolToIds, type Pool, type PoolSource } from "./pool-model";
 
 export interface CubeOption {
@@ -91,6 +91,8 @@ export async function resolveCards(body: {
   customCardIds?: number[];
   archetype?: string;
   fuzzyName?: string;
+  /** With `fuzzyName`: also return Extra Deck monsters (the pool has an Extra pool for them). */
+  includeExtra?: boolean;
 }): Promise<Resolved> {
   const res = await fetch("/api/cards/resolve", {
     method: "POST",
@@ -102,21 +104,6 @@ export async function resolveCards(body: {
   const cards = data.cards ?? [];
   putCards(cards);
   return { cards, unknownIds: data.unknownIds ?? [] };
-}
-
-/** Passcodes resolved in chunks, so a long paste is not one huge request. Passcodes the card list lacks come back as unknown. */
-export async function resolvePasscodes(ids: number[]): Promise<Resolved> {
-  const distinct = Array.from(new Set(ids));
-  const chunks: number[][] = [];
-  for (let i = 0; i < distinct.length; i += 100) chunks.push(distinct.slice(i, i + 100));
-  const results = await Promise.all(chunks.map((chunk) => resolveCards({ customCardIds: chunk })));
-  const byId = new Map<number, CardSummary>();
-  const unknown = new Set<number>();
-  for (const r of results) {
-    for (const card of r.cards) byId.set(card.id, card);
-    for (const id of r.unknownIds) unknown.add(id);
-  }
-  return { cards: [...byId.values()], unknownIds: [...unknown] };
 }
 
 export interface ResolvedList extends ListDiagnostics {
@@ -134,7 +121,7 @@ export async function resolveCardList(listText: string): Promise<ResolvedList> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ listText }),
   });
-  if (!res.ok) throw new Error(await readError(res, "The card database may be unreachable."));
+  if (!res.ok) throw await listImportErrorFrom(res, "The card database may be unreachable.");
   const data = (await res.json()) as Partial<ResolvedList>;
   const cards = data.cards ?? [];
   putCards(cards);
@@ -179,11 +166,6 @@ export async function fetchCubeDetail(cube: Pick<CubeOption, "id" | "setNames" |
   }
   return { main: poolFromEntries(Array.from(copies, ([id, n]) => ({ id, copies: n }))),
     extra: poolFromEntries((data.pools?.extra ?? []).map((c) => ({ id: c.catalogCardId, copies: c.maxCopies }))), extraCount };
-}
-
-/** The pool a draft will deal: its resolved cards with copies. Remembers the cards. */
-export async function fetchDraftPool(slug: string): Promise<Pool> {
-  return (await fetchDraftPools(slug)).main;
 }
 
 /** Both authored pools, including extras when the extra round is currently OFF. */
@@ -263,12 +245,11 @@ export async function fetchArchetypes(query: string): Promise<string[]> {
 }
 
 /** The pool a draft config carries: one passcode per copy, no sets, and the cube it started from. */
-export function configPool(pool: Pool, source: PoolSource | null, extra?: Pool): {
+export function configPool(pool: Pool, source: PoolSource | null, extra: Pool): {
   setNames: string[];
   customCardIds: number[];
-  customExtraCardIds?: number[];
+  customExtraCardIds: number[];
   poolSource: PoolSource | null;
 } {
-  return { setNames: [], customCardIds: poolToIds(pool), poolSource: source,
-    ...(extra !== undefined ? { customExtraCardIds: poolToIds(extra) } : {}) };
+  return { setNames: [], customCardIds: poolToIds(pool), customExtraCardIds: poolToIds(extra), poolSource: source };
 }

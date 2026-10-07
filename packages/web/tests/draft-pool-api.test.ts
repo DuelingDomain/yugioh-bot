@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { configPool, createPoolCube, fetchCubeDetail, fetchDraftPools, fetchSets, resolvePasscodes } from "../src/components/draft/pool/pool-api";
+import { configPool, createPoolCube, fetchCubeDetail, fetchDraftPools, fetchSets, resolveCardList } from "../src/components/draft/pool/pool-api";
 
 const card = (id: number, extra: Record<string, unknown> = {}) => ({
   id,
@@ -9,42 +9,38 @@ const card = (id: number, extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
-/** The resolve route answers 200 with the passcodes it lacks in unknownIds. */
-function stubResolve(known: Set<number>, unreachable = false) {
-  const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
-    if (unreachable) return new Response(JSON.stringify({ error: "down" }), { status: 500 });
-    const ids = (JSON.parse(String(init?.body)) as { customCardIds: number[] }).customCardIds;
-    return new Response(
-      JSON.stringify({ cards: ids.filter((id) => known.has(id)).map((id) => card(id)), unknownIds: ids.filter((id) => !known.has(id)) }),
-      { status: 200 },
-    );
-  });
-  vi.stubGlobal("fetch", fetchMock);
-  return fetchMock;
-}
-
 afterEach(() => vi.unstubAllGlobals());
 
-describe("resolvePasscodes", () => {
-  it("resolves a clean paste in one request", async () => {
-    const fetchMock = stubResolve(new Set([1, 2, 3]));
-    const out = await resolvePasscodes([1, 2, 3, 3]);
-    expect(out.cards.map((c) => c.id).sort()).toEqual([1, 2, 3]);
-    expect(out.unknownIds).toEqual([]);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+describe("resolveCardList", () => {
+  it("returns entries with their pool, and the lines it could not read", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+      cards: [card(1), card(9, { type: "Fusion Monster", frameType: "fusion" })],
+      entries: [{ id: 1, copies: 3, pool: "main" }, { id: 9, copies: 2, pool: "extra" }],
+      unknown: ["Main Deck"],
+      corrected: [{ from: "Dark Hol", to: "Dark Hole" }],
+    })));
+    const out = await resolveCardList("3 Dark Hole");
+    expect(out.entries).toEqual([{ id: 1, copies: 3, pool: "main" }, { id: 9, copies: 2, pool: "extra" }]);
+    expect(out.unknown).toEqual(["Main Deck"]);
+    expect(out.corrected).toHaveLength(1);
   });
 
-  it("uses the unknownIds the server returns, in one request", async () => {
-    const fetchMock = stubResolve(new Set([1, 2, 4]));
-    const out = await resolvePasscodes([1, 2, 3, 4]);
-    expect(out.cards.map((c) => c.id).sort()).toEqual([1, 2, 4]);
-    expect(out.unknownIds).toEqual([3]);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+  it("keeps the server message and the Retry-After wait when the card list is unavailable", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "Card database is unavailable. Try again shortly." }), {
+      status: 503,
+      headers: { "Retry-After": "7" },
+    })));
+    await expect(resolveCardList("x")).rejects.toMatchObject({
+      message: "Card database is unavailable. Try again shortly.",
+      retryAfter: 7,
+    });
   });
 
-  it("throws when the card list is unreachable, so it isn't reported as unknown passcodes", async () => {
-    stubResolve(new Set(), true);
-    await expect(resolvePasscodes([1, 2, 3])).rejects.toThrow();
+  it("keeps the 400 message and has no wait", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "List is too long." }), { status: 400 })));
+    const error = await resolveCardList("x").catch((e: unknown) => e);
+    expect(error).toMatchObject({ message: "List is too long." });
+    expect((error as { retryAfter?: number }).retryAfter).toBeUndefined();
   });
 });
 
