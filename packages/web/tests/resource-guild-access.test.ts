@@ -6,12 +6,6 @@ import type { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const auth = vi.fn();
-vi.mock("@/lib/draft-lobby-api", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@/lib/draft-lobby-api")>();
-  const { createTestDraftLobbyApi } = await import("./drafts-lobby-routes.test");
-  return { ...original, createDraftLobbyApi: createTestDraftLobbyApi };
-});
-
 vi.mock("@/lib/auth", () => ({ auth }));
 vi.mock("@/lib/notify", () => ({ broadcaster: { tournament: vi.fn(), draft: vi.fn() }, announcer: { announce: vi.fn() } }));
 vi.mock("@/lib/notify-duel", () => ({ notifyDuelChange: vi.fn() }));
@@ -153,7 +147,7 @@ describe("mutations are limited to the configured guild", () => {
     }, "host", host.id);
     drafts.join(draft.id, guest.id);
     const { POST } = await import("../app/api/drafts/[slug]/route");
-    const res = await POST(new Request("http://x", { method: "POST" }), { params: Promise.resolve({ slug: draft.webSlug! }) });
+    const res = await POST(new Request("http://x", { method: "POST", body: JSON.stringify({ force: true }) }), { params: Promise.resolve({ slug: draft.webSlug! }) });
     expect(res.status).toBe(status);
     if (status === 202) await finishTestLobbyStart(res, db);
     expect(drafts.findById(draft.id).status).toBe(draftStatus);

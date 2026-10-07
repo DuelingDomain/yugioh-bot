@@ -8,12 +8,6 @@ const auth = vi.fn();
 const syncDraftPool = vi.fn().mockResolvedValue([]);
 const tempDirs: string[] = [];
 
-vi.mock("@/lib/draft-lobby-api", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@/lib/draft-lobby-api")>();
-  const { createTestDraftLobbyApi } = await import("./drafts-lobby-routes.test");
-  return { ...original, createDraftLobbyApi: createTestDraftLobbyApi };
-});
-
 vi.mock("@/lib/auth", () => ({ auth }));
 
 // Prevent syncDraftPool from making real network calls — the route calls it to

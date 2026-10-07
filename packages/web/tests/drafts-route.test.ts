@@ -11,12 +11,6 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..")
 const tempDirs: string[] = [];
 const testTimeoutMs = 40000;
 
-vi.mock("@/lib/draft-lobby-api", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@/lib/draft-lobby-api")>();
-  const { createTestDraftLobbyApi } = await import("./drafts-lobby-routes.test");
-  return { ...original, createDraftLobbyApi: createTestDraftLobbyApi };
-});
-
 vi.mock("@/lib/auth", () => ({
   auth,
 }));
@@ -164,7 +158,7 @@ describe("GET /api/drafts/[slug]", () => {
     db.prepare("update drafts set config_json = json_set(config_json, '$.cardsPerPlayer', 15) where web_slug = 'legendary-draft'").run();
     const { POST: startDraft, GET } = await import("../app/api/drafts/[slug]/route");
 
-    const startResponse = await startDraft(new Request("http://localhost/api/drafts/legendary-draft", { method: "POST" }), {
+    const startResponse = await startDraft(new Request("http://localhost/api/drafts/legendary-draft", { method: "POST", body: JSON.stringify({ force: true }) }), {
       params: Promise.resolve({ slug: "legendary-draft" }),
     });
 
@@ -259,7 +253,7 @@ describe("GET /api/drafts/[slug]", () => {
     );
 
     const { POST: startDraft } = await import("../app/api/drafts/[slug]/route");
-    const response = await startDraft(new Request(`http://localhost/api/drafts/${draft.webSlug}`, { method: "POST" }), {
+    const response = await startDraft(new Request(`http://localhost/api/drafts/${draft.webSlug}`, { method: "POST", body: JSON.stringify({ force: true }) }), {
       params: Promise.resolve({ slug: draft.webSlug ?? "" }),
     });
 
@@ -411,7 +405,7 @@ describe("GET /api/drafts/[slug]", () => {
     );
 
     const { POST: startDraft } = await import("../app/api/drafts/[slug]/route");
-    const response = await startDraft(new Request(`http://localhost/api/drafts/${draft.webSlug}`, { method: "POST" }), {
+    const response = await startDraft(new Request(`http://localhost/api/drafts/${draft.webSlug}`, { method: "POST", body: JSON.stringify({ force: true }) }), {
       params: Promise.resolve({ slug: draft.webSlug ?? "" }),
     });
 

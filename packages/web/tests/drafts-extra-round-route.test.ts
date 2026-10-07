@@ -6,12 +6,6 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const { realPoolSync } = vi.hoisted(() => ({ realPoolSync: { enabled: false } }));
 const auth = vi.fn();
 const broadcaster = { draft: vi.fn() };
-vi.mock("@/lib/draft-lobby-api", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@/lib/draft-lobby-api")>();
-  const { createTestDraftLobbyApi } = await import("./drafts-lobby-routes.test");
-  return { ...original, createDraftLobbyApi: createTestDraftLobbyApi };
-});
-
 vi.mock("@/lib/auth", () => ({ auth }));
 vi.mock("@/lib/notify", () => ({ announcer: { announce: vi.fn() }, broadcaster }));
 vi.mock("@/lib/draft-engine-types", () => ({ lookupDraftCardTypes: vi.fn().mockResolvedValue(new Map()) }));

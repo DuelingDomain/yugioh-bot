@@ -12,12 +12,6 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..")
 const tempDirs: string[] = [];
 const testTimeoutMs = 20000;
 
-vi.mock("@/lib/draft-lobby-api", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@/lib/draft-lobby-api")>();
-  const { createTestDraftLobbyApi } = await import("./drafts-lobby-routes.test");
-  return { ...original, createDraftLobbyApi: createTestDraftLobbyApi };
-});
-
 vi.mock("@/lib/auth", () => ({
   auth,
 }));
@@ -154,7 +148,7 @@ describe("POST /api/drafts/[slug]/pick", () => {
     const { POST: startDraft } = await import("../app/api/drafts/[slug]/route");
     const startResponse = await startDraft(
       new NextRequest("http://localhost/api/drafts/legendary-draft", {
-        method: "POST",
+        method: "POST", body: JSON.stringify({ force: true }),
       }),
       { params: Promise.resolve({ slug: "legendary-draft" }) }
     );
@@ -227,7 +221,7 @@ describe("POST /api/drafts/[slug]/pick", () => {
     const { POST: startDraft } = await import("../app/api/drafts/[slug]/route");
     const scheduled = await startDraft(
       new NextRequest("http://localhost/api/drafts/legendary-draft", {
-        method: "POST",
+        method: "POST", body: JSON.stringify({ force: true }),
       }),
       { params: Promise.resolve({ slug: "legendary-draft" }) }
     );
@@ -296,7 +290,7 @@ describe("POST /api/drafts/[slug]/pick", () => {
     const { POST: startDraft } = await import("../app/api/drafts/[slug]/route");
     const scheduled = await startDraft(
       new NextRequest("http://localhost/api/drafts/legendary-draft", {
-        method: "POST",
+        method: "POST", body: JSON.stringify({ force: true }),
       }),
       { params: Promise.resolve({ slug: "legendary-draft" }) }
     );

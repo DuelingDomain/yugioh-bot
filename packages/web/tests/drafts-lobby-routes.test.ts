@@ -1,84 +1,11 @@
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
 import * as sharedServices from "@yugidraft/shared/services";
-import { createDraftService, isTestBotDiscordId } from "@yugidraft/shared/services";
-import type { DraftLobbyResponse, DraftLobbyTickResult } from "@yugidraft/shared/types";
-import type { BrowserDraftLobbyService } from "@/lib/draft-lobby-api";
+import { createDraftService } from "@yugidraft/shared/services";
+import type { DraftLobbyResponse } from "@yugidraft/shared/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-/**
- * Adapter fixture for T04 only, while T03 is developed in another worktree.
- * The real draft engine validates/deals; only lobby read/schedule/invalidation
- * are substituted. It does not verify the shared state machine or its races.
- * This owned file also supplies fixtures to the owned legacy route suites.
- */
-export function createTestDraftLobbyApi(db: Database.Database): BrowserDraftLobbyService {
-  const drafts = createDraftService(db);
-  const read = (id: number, userId: string): DraftLobbyResponse => {
-    const draft = drafts.findById(id);
-    const row = db.prepare("select * from drafts where id = ?").get(id) as any;
-    const players = (db.prepare(`select p.id, p.discord_user_id, p.display_name, dp.*,
-      c.cube_id from draft_players dp join players p on p.id = dp.player_id
-      left join draft_player_cube c on c.draft_id = dp.draft_id and c.player_id = dp.player_id
-      where dp.draft_id = ? order by dp.joined_at, dp.rowid`).all(id) as any[]).map((p) => ({
-      playerId: p.id, displayName: p.display_name, seatIndex: p.seat_index ?? undefined,
-      pickCount: p.pick_count, joinedAt: p.joined_at,
-      isHost: p.discord_user_id === draft.createdByUserId, isYou: p.discord_user_id === userId,
-      isBot: isTestBotDiscordId(p.discord_user_id), ready: true, readyAt: p.ready_at,
-      cubeId: draft.config.mode !== "theme" ? null
-        : draft.config.themeSelection === "random" ? null
-        : draft.config.themeSelection === "host_assigned"
-          ? userId === draft.createdByUserId ? draft.config.themeAssignments?.[String(p.id)] ?? null : null
-          : p.cube_id ?? null,
-    }));
-    return { players, lobby: {
-      revision: row.lobby_revision, serverNow: new Date().toISOString(),
-      targetSeats: draft.config.lobbySeats ?? null, joined: players.length, ready: players.length,
-      allReady: true, autoStart: { enabled: !!row.lobby_auto_start, held: !!row.lobby_auto_held, eligible: false },
-      start: row.lobby_start_token ? { token: row.lobby_start_token, kind: row.lobby_start_kind, startsAt: row.lobby_start_at } : null,
-      errors: [], warnings: [], lastStartError: row.lobby_start_error,
-    } };
-  };
-  return {
-    read,
-    invalidate(id) {
-      db.prepare(`update drafts set lobby_revision = lobby_revision + 1,
-        lobby_start_token = null, lobby_start_at = null, lobby_start_kind = null where id = ?`).run(id);
-    },
-    scheduleStart(id, userId, { revision }) {
-      const current = read(id, userId);
-      if (revision !== current.lobby.revision) throw Object.assign(new Error("Lobby changed"), { code: "STALE_LOBBY" });
-      if (current.lobby.start) return current;
-      // Validate through the existing engine without committing any cards.
-      const validated = {};
-      try { db.transaction(() => { drafts.start(id); throw validated; })(); }
-      catch (error) {
-        if (error !== validated) throw Object.assign(error as Error, { code: "PREFLIGHT_FAILED" });
-      }
-      db.prepare(`update drafts set lobby_start_token = ?, lobby_start_kind = 'manual', lobby_start_at = ? where id = ?`)
-        .run(`test-${id}`, new Date(Date.now() + 5000).toISOString(), id);
-      return read(id, userId);
-    },
-    tick(now, draftId) {
-      const started: DraftLobbyTickResult["started"] = [];
-      const rows = db.prepare("select id, web_slug from drafts where status = 'pending' and lobby_start_at <= ?")
-        .all(new Date(now).toISOString()) as Array<{ id: number; web_slug: string }>;
-      for (const row of rows) {
-        if (draftId !== undefined && row.id !== draftId) continue;
-        db.transaction(() => {
-          // Invoke the unscheduled engine kernel; the fixture owns its deadline.
-          db.prepare(`update drafts set lobby_start_token = null, lobby_start_at = null, lobby_start_kind = null,
-            lobby_start_revision = null, lobby_start_setup_hash = null, lobby_start_force = 0 where id = ?`).run(row.id);
-          started.push(drafts.start(row.id));
-        }).immediate();
-      }
-      return { started, changedSlugs: started.map((d) => d.webSlug!) };
-    },
-    setReady: vi.fn(), leave: vi.fn(), removePlayer: vi.fn(), stopStart: vi.fn(), setAutoStart: vi.fn(),
-  };
-}
-
-/** Advance only the injected lobby clock, with the existing engine still real. */
+/** Drive the real persisted lobby through its deadline without waiting on wall time. */
 export async function finishTestLobbyStart(response: Response, database?: Database.Database) {
   expect(response.status).toBe(202);
   const body = await response.clone().json() as DraftLobbyResponse;
@@ -86,7 +13,8 @@ export async function finishTestLobbyStart(response: Response, database?: Databa
   const db = database ?? (await import("@/lib/db")).getDb();
   const row = db.prepare("select id from drafts where lobby_start_token = ?").get(body.lobby.start!.token) as { id: number };
   expect(db.prepare("select count(*) as n from draft_cards where draft_id = ?").get(row.id)).toEqual({ n: 0 });
-  const api = createTestDraftLobbyApi(db);
+  const { createDraftLobbyApi } = await vi.importActual<typeof import("@/lib/draft-lobby-api")>("@/lib/draft-lobby-api");
+  const api = createDraftLobbyApi(db);
   const deadline = new Date(body.lobby.start!.startsAt).getTime();
   expect(api.tick(deadline - 1, row.id).started).toHaveLength(0);
   const result = api.tick(deadline, row.id);
@@ -102,7 +30,7 @@ const service = vi.hoisted(() => ({
   read: vi.fn(), setReady: vi.fn(), leave: vi.fn(), removePlayer: vi.fn(), scheduleStart: vi.fn(),
   stopStart: vi.fn(), setAutoStart: vi.fn(), invalidate: vi.fn(), tick: vi.fn(),
 }));
-// Importing the fixture from a legacy suite must not register this suite again.
+// Importing the deadline helper from a regression suite must not register this suite again.
 if (expect.getState().testPath?.endsWith("/drafts-lobby-routes.test.ts")) describe("browser lobby contracts", () => {
   let db: Database.Database;
   let projection: DraftLobbyResponse;
@@ -127,7 +55,7 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
       values ('guild','channel','Lobby','pending','host','{"mode":"theme","themeSelection":"random","allowedCubeIds":[]}', 'lobby');
       insert into draft_players (draft_id, player_id) values (1,1);`);
     auth.mockResolvedValue({ user: { id: "host" } });
-    projection = createTestDraftLobbyApi(db).read(1, "host");
+    projection = sharedServices.createDraftLobbyService(db).read(1, "host");
     for (const name of ["read", "setReady", "leave", "removePlayer", "scheduleStart", "stopStart", "setAutoStart"] as const) {
       service[name].mockReturnValue(projection);
     }
@@ -197,8 +125,9 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
     expect(notify.announcer.announce).not.toHaveBeenCalled();
   });
   it("maps service conflict details without losing NOT_READY information", async () => {
-    service.scheduleStart.mockImplementationOnce(() => { throw Object.assign(new Error("Confirm unready seats"), {
-      code: "NOT_READY", notReadyPlayerIds: [1], unclaimedPlayerIds: [1],
+    const { DraftLobbyServiceError } = await import("@yugidraft/shared/services");
+    service.scheduleStart.mockImplementationOnce(() => { throw new DraftLobbyServiceError("Confirm unready seats", "NOT_READY", {
+      notReadyPlayerIds: [1], unclaimedPlayerIds: [1],
     }); });
     const response = await route("start", "POST", { revision: 0 });
     expect(response.status).toBe(409);
@@ -272,7 +201,7 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
       insert into cube_cards (cube_id,catalog_card_id,pool,max_copies) values (1,1,'main',5),(1,2,'extra',3);
       update drafts set config_json = '{"mode":"theme","themeSelection":"player_pick","allowedCubeIds":[1]}';
       insert into draft_player_cube (draft_id,player_id,cube_id) values (1,1,1);`);
-    projection = createTestDraftLobbyApi(db).read(1, "viewer");
+    projection = sharedServices.createDraftLobbyService(db).read(1, "viewer");
     service.read.mockReturnValue({ ...projection, players: projection.players.map((p) => ({ ...p, discordUserId: "secret", readySetupHash: "secret" })) });
     auth.mockResolvedValue({ user: { id: "viewer" } });
     const { GET } = await import("../app/api/drafts/[slug]/route");
@@ -366,9 +295,17 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
     const { createDraftLobbyApi } = await import("@/lib/draft-lobby-api");
     return createDraftLobbyApi(db);
   }
-  // The T01-only branch skips these two. A read-only services alias to committed
-  // T03 source runs them before integration without changing packages/shared.
-  it.skipIf(!("createDraftLobbyService" in sharedServices))("T03 runtime: Ready, manual retry/Stop, auto Hold/Resume and GET expiry", async () => {
+  it("preserves the shared service clock, optional viewer and invalidation contract", async () => {
+    const api = await useRealLobbyService();
+    const now = new Date("2026-10-07T12:00:00Z");
+    const snapshot = api.read(1, undefined, now);
+    expect(snapshot.lobby.serverNow).toBe(now.toISOString());
+    expect(snapshot.players.every((p) => !p.isYou)).toBe(true);
+    expect(() => api.invalidate(1, { expectedRevision: snapshot.lobby.revision + 1 }))
+      .toThrow(expect.objectContaining({ code: "STALE_LOBBY", status: 409 }));
+    expect(api.read(1, "host", now).lobby.revision).toBe(snapshot.lobby.revision);
+  });
+  it("T03 runtime: Ready, manual retry/Stop, auto Hold/Resume and GET expiry", async () => {
     vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-10-07T12:00:00Z"));
     try {
       const api = await useRealLobbyService();
@@ -409,7 +346,7 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
       expect((await route("ready", "POST", { ready: false })).status).toBe(409);
     } finally { vi.useRealTimers(); }
   });
-  it.skipIf(!("createDraftLobbyService" in sharedServices))("T03 runtime: host Leave, scoped removal and unready rejoin", async () => {
+  it("T03 runtime: host Leave, scoped removal and unready rejoin", async () => {
     const api = await useRealLobbyService();
     expect((await route("leave", "DELETE")).status).toBe(200);
     expect((await route("leave", "DELETE")).status).toBe(200);

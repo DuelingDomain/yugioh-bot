@@ -4,13 +4,14 @@ import { ensureCatalogCards } from "@/lib/cube-pool";
 import { auth } from "@/lib/auth";
 import { cardFetchErrorResponse } from "@/lib/card-fetch-errors";
 import { createDraftLobbyApi } from "@/lib/draft-lobby-api";
-import { DRAFT_LOBBY_ERROR_STATUS, type DraftConfig, type DraftLobbyErrorCode, type DraftLobbyResponse, type DraftLobbyTickResult } from "@yugidraft/shared/types";
+import { DRAFT_LOBBY_ERROR_STATUS, type DraftAllowedCube, type DraftConfig, type DraftLobbyErrorCode, type DraftLobbyResponse, type DraftLobbyTickResult } from "@yugidraft/shared/types";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import {
   createCardCatalogService,
   createCardLookupBudget,
   createDraftService,
+  DraftLobbyServiceError,
   createSavedDeckService,
   MAX_COPIES_PER_PLAYER,
   boosterDraftPhase,
@@ -295,9 +296,7 @@ export async function buildDraftResponse(slug: string, userId: string) {
     boosterProgress = { main: counts?.main ?? 0, mainTotal: mainSize, extra: counts?.extra ?? 0, extraTotal: extraSize };
   }
 
-  let allowedCubes:
-    | Array<{ id: number; name: string; archetype: string | null; mainCount: number; extraCount: number; sampleImages: string[] }>
-    | undefined;
+  let allowedCubes: DraftAllowedCube[] | undefined;
   let themeProgress: { main: number; mainTotal: number; extra: number; extraTotal: number } | undefined;
   if (isTheme) {
     const ids = draftModel.config.allowedCubeIds ?? [];
@@ -433,10 +432,12 @@ export class DraftLobbyApiError extends Error {
 export function draftLobbyErrorResponse(error: unknown): Response {
   const fetchFailure = cardFetchErrorResponse(error);
   if (fetchFailure) return fetchFailure;
+  if (error instanceof DraftLobbyServiceError) {
+    return NextResponse.json({ error: error.message, code: error.code, ...error.details }, { status: error.status });
+  }
   const failure = error as { message?: string; code?: string; details?: Record<string, unknown> } | null;
   if (failure?.code && Object.hasOwn(DRAFT_LOBBY_ERROR_STATUS, failure.code)) {
     const code = failure.code as DraftLobbyErrorCode;
-    // T03 may attach error details directly or through a details object.
     const details = failure.details ?? failure;
     const body: Record<string, unknown> = { error: failure.message ?? "Lobby action failed", code };
     for (const key of ["notReadyPlayerIds", "unclaimedPlayerIds", "errors", "warnings"] as const) {

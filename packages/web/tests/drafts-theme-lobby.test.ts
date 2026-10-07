@@ -9,12 +9,6 @@ const auth = vi.fn();
 const syncDraftPool = vi.fn();
 const tempDirs: string[] = [];
 
-vi.mock("@/lib/draft-lobby-api", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@/lib/draft-lobby-api")>();
-  const { createTestDraftLobbyApi } = await import("./drafts-lobby-routes.test");
-  return { ...original, createDraftLobbyApi: createTestDraftLobbyApi };
-});
-
 vi.mock("@/lib/auth", () => ({ auth }));
 vi.mock("@/lib/notify", () => ({ announcer: { announce: vi.fn() }, broadcaster: { draft: vi.fn() } }));
 vi.mock("@yugidraft/shared/services", async (importOriginal) => {
@@ -144,7 +138,7 @@ describe("theme lobby routes", () => {
     const { GET } = await import("../app/api/drafts/[slug]/preflight/route");
     const preflight = await GET(new Request("http://localhost"), { params: Promise.resolve({ slug: "theme-slug" }) });
     expect((await preflight.json()).errors).toEqual([]);
-    const started = await POST(new Request("http://localhost", { method: "POST" }), { params: Promise.resolve({ slug: "theme-slug" }) });
+    const started = await POST(new Request("http://localhost", { method: "POST", body: JSON.stringify({ force: true }) }), { params: Promise.resolve({ slug: "theme-slug" }) });
     expect(started.status).toBe(202);
     expect((await finishTestLobbyStart(started)).status).toBe("active");
   }, 30000);
@@ -169,7 +163,7 @@ describe("theme lobby routes", () => {
     const original = await vi.importActual<typeof import("@yugidraft/shared/services")>("@yugidraft/shared/services");
     syncDraftPool.mockImplementationOnce(original.createCardCatalogService(db).syncDraftPool);
     const { POST } = await import("../app/api/drafts/[slug]/route");
-    const starting = POST(new Request("http://localhost", { method: "POST" }), { params: Promise.resolve({ slug: "theme-slug" }) });
+    const starting = POST(new Request("http://localhost", { method: "POST", body: JSON.stringify({ force: true }) }), { params: Promise.resolve({ slug: "theme-slug" }) });
 
     await requested;
     db.prepare("update cubes set guild_id = 'guild-2' where id = ?").run(cubeIds[1]);
@@ -216,7 +210,7 @@ describe("theme lobby routes", () => {
           ? await PUT(new Request("http://localhost", {
             method: "PUT", body: JSON.stringify({ name: "Renamed Night", config: { pickSeconds: 60 } }),
           }) as NextRequest, params)
-          : await POST(new Request("http://localhost", { method: "POST" }), params);
+          : await POST(new Request("http://localhost", { method: "POST", body: JSON.stringify({ force: true }) }), params);
         expect(response.status).toBe(entryPoint === "start" ? 202 : 200);
         const body = entryPoint === "start" ? await finishTestLobbyStart(response) : await response.json();
         if (entryPoint === "edit") expect(body).toMatchObject({ name: "Renamed Night", config: { pickSeconds: 60 } });
@@ -250,7 +244,7 @@ describe("theme lobby routes", () => {
           ? await PUT(new Request("http://localhost", {
             method: "PUT", body: JSON.stringify({ name: "Renamed Night", config: { pickSeconds: 60 } }),
           }) as NextRequest, params)
-          : await POST(new Request("http://localhost", { method: "POST" }), params);
+          : await POST(new Request("http://localhost", { method: "POST", body: JSON.stringify({ force: true }) }), params);
         expect(response.status).toBe(404);
         expect(await response.json()).toEqual({ error: "Cube not found" });
       }
@@ -280,7 +274,7 @@ describe("theme lobby routes", () => {
           ? await PUT(new Request("http://localhost", {
             method: "PUT", body: JSON.stringify({ config: { pickSeconds: 60 } }),
           }) as NextRequest, params)
-          : await POST(new Request("http://localhost", { method: "POST" }), params);
+          : await POST(new Request("http://localhost", { method: "POST", body: JSON.stringify({ force: true }) }), params);
         expect(response.status).toBe(entryPoint === "start" ? 202 : 200);
         const body = entryPoint === "start" ? await finishTestLobbyStart(response) : await response.json();
         if (entryPoint === "edit") expect(body.config).toMatchObject({ pickSeconds: 60, allowedCubeIds: cubeIds, themeAssignments: { [p1]: cubeIds[0], [p2]: cubeIds[1] } });
@@ -321,11 +315,14 @@ describe("theme lobby routes", () => {
           ? await PUT(new Request("http://localhost", {
             method: "PUT", body: JSON.stringify({ config: { pickSeconds: 60 } }),
           }) as NextRequest, params)
-          : await POST(new Request("http://localhost", { method: "POST" }), params);
+          : await POST(new Request("http://localhost", { method: "POST", body: JSON.stringify({ force: true }) }), params);
         expect(response.status).toBe(invalidCube === "foreign-guild" ? 404 : entryPoint === "start" ? 409 : 400);
-        expect((await response.json()).error).toBe(invalidCube === "foreign-guild"
-          ? "Cube not found"
-          : "Host-assigned themes must exist in the draft's guild. Choose valid themes or switch to Random or Players pick.");
+        const failure = await response.json();
+        if (invalidCube === "foreign-guild") expect(failure.error).toBe("Cube not found");
+        else if (entryPoint === "start") {
+          expect(failure.code).toBe("PREFLIGHT_FAILED");
+          expect(failure.errors).toContain("Host-assigned themes require an allowed theme assignment for every player");
+        } else expect(failure.error).toBe("Host-assigned themes must exist in the draft's guild. Choose valid themes or switch to Random or Players pick.");
       }
 
       const row = db.prepare("select status, config_json from drafts").get() as { status: string; config_json: string };
@@ -354,7 +351,7 @@ describe("theme lobby routes", () => {
           ? await PUT(new Request("http://localhost", {
             method: "PUT", body: JSON.stringify({ config: { pickSeconds: 60 } }),
           }) as NextRequest, params)
-          : await POST(new Request("http://localhost", { method: "POST" }), params);
+          : await POST(new Request("http://localhost", { method: "POST", body: JSON.stringify({ force: true }) }), params);
         expect(response.status).toBe(uniqueThemes ? (entryPoint === "start" ? 409 : 400) : entryPoint === "start" ? 202 : 200);
         const body = entryPoint === "start" && response.status === 202 ? await finishTestLobbyStart(response) : await response.json();
         if (uniqueThemes) expect(body.error).toMatch(/distinct.*uniqueThemes/i);
@@ -384,7 +381,7 @@ describe("theme lobby routes", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ errors: [], warnings: [] });
     const { POST } = await import("../app/api/drafts/[slug]/route");
-    const started = await POST(new Request("http://localhost", { method: "POST" }), params);
+    const started = await POST(new Request("http://localhost", { method: "POST", body: JSON.stringify({ force: true }) }), params);
     expect(started.status).toBe(202);
     expect((await finishTestLobbyStart(started)).status).toBe("active");
     expect(db.prepare("select player_id, cube_id from draft_player_cube order by player_id").all())
@@ -433,7 +430,7 @@ describe("theme lobby routes", () => {
     getDb().prepare("delete from cubes where id = 3").run();
     auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
     const { POST } = await import("../app/api/drafts/[slug]/route");
-    const response = await POST(new Request("http://localhost", { method: "POST" }), { params: Promise.resolve({ slug: "theme-slug" }) });
+    const response = await POST(new Request("http://localhost", { method: "POST", body: JSON.stringify({ force: true }) }), { params: Promise.resolve({ slug: "theme-slug" }) });
 
     expect(response.status).toBe(202);
     expect((await finishTestLobbyStart(response)).status).toBe("active");
@@ -452,9 +449,11 @@ describe("theme lobby routes", () => {
     const lobby = await getDraft(new Request("http://localhost"), { params: Promise.resolve({ slug: "theme-slug" }) });
     expect(lobby.status).toBe(200);
     expect((await lobby.json()).status).toBe("pending");
-    const started = await POST(new Request("http://localhost", { method: "POST" }), { params: Promise.resolve({ slug: "theme-slug" }) });
+    const started = await POST(new Request("http://localhost", { method: "POST", body: JSON.stringify({ force: true }) }), { params: Promise.resolve({ slug: "theme-slug" }) });
     expect(started.status).toBe(409);
-    expect((await started.json()).error).toMatch(/choose random or players pick/i);
+    expect(await started.json()).toMatchObject({
+      code: "PREFLIGHT_FAILED", errors: expect.arrayContaining(["Host-assigned themes require an allowed theme assignment for every player"]),
+    });
 
     const Database = (await import("better-sqlite3")).default;
     const db = new Database(dbPath);
@@ -619,7 +618,7 @@ describe("theme lobby routes", () => {
       createCubeService(db, createCardCatalogService(db)).deleteCube(cubeIds[0]);
       auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
       const { POST } = await import("../app/api/drafts/[slug]/route");
-      const response = await POST(new Request("http://x", { method: "POST" }), {
+      const response = await POST(new Request("http://x", { method: "POST", body: JSON.stringify({ force: true }) }), {
         params: Promise.resolve({ slug: "theme-slug" }),
       });
       expect(response.status).toBe(202);
@@ -660,7 +659,7 @@ describe("theme lobby routes", () => {
       db.prepare("update cubes set guild_id = 'other-guild' where id = ?").run(cubeIds[0]);
       auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
       const { POST } = await import("../app/api/drafts/[slug]/route");
-      const response = await POST(new Request("http://x", { method: "POST" }), {
+      const response = await POST(new Request("http://x", { method: "POST", body: JSON.stringify({ force: true }) }), {
         params: Promise.resolve({ slug: "theme-slug" }),
       });
       expect(response.status).toBe(404);
@@ -713,7 +712,7 @@ describe("theme lobby routes", () => {
     db.prepare("insert into draft_player_cube (draft_id, player_id, cube_id) values (1, ?, ?), (1, ?, ?)").run(p1, poisonedId, p2, cubeIds[1]);
     auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
     const { POST } = await import("../app/api/drafts/[slug]/route");
-    const response = await POST(new Request("http://x", { method: "POST" }), { params: Promise.resolve({ slug: "theme-slug" }) });
+    const response = await POST(new Request("http://x", { method: "POST", body: JSON.stringify({ force: true }) }), { params: Promise.resolve({ slug: "theme-slug" }) });
     expect(response.status).toBe(kind === "foreign" ? 404 : 400);
     expect(db.prepare("select status from drafts where id = 1").get()).toEqual({ status: "pending" });
     expect(db.prepare("select count(*) as n from draft_cards").get()).toEqual({ n: 0 });
