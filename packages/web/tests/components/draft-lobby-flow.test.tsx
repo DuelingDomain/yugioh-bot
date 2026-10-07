@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useDraftStore } from "../../src/lib/stores/draft-store";
 import { installVirtualizerJsdomEnv } from "../helpers/virtualizer-jsdom";
+import { fixtureUserId } from "../fixtures/identity";
 
 // The real page with the real lobby screens, talking to a fake draft server.
 // Only the socket, the room, the finale and the summary are stand-ins.
@@ -34,7 +35,7 @@ import { useDraftWebsocket } from "../../src/lib/hooks/use-draft-websocket";
 
 const NOW = Date.parse("2026-10-07T12:00:00.000Z");
 
-interface FakePlayer { id: number; name: string; userId: string; ready: boolean; cubeId: number | null }
+interface FakePlayer { id: number; name: string; userId: number; ready: boolean; cubeId: number | null }
 
 /** One draft on the fake server. The same state answers every viewer; `isYou` and `isParticipant` follow the viewer. */
 interface FakeServer {
@@ -44,11 +45,12 @@ interface FakeServer {
   players: FakePlayer[];
   autoStart: { enabled: boolean; held: boolean };
   start: { token: string; kind: "auto" | "manual"; startsAt: string } | null;
-  viewer: string;
+  viewer: number;
   calls: Array<{ url: string; method: string; body?: Record<string, unknown> }>;
 }
 
-const HOST_USER = "u1";
+const HOST_USER = fixtureUserId("u1");
+const ANA_USER = fixtureUserId("u2");
 const cube = (id: number, name: string) => ({
   id, name, archetype: name, mainCount: 60, extraCount: 15, mainDistinct: 30, extraDistinct: 8, mainCopies: 60, extraCopies: 15, sampleImages: [],
 });
@@ -60,8 +62,8 @@ function newServer(over: Partial<FakeServer> = {}): FakeServer {
     revision: 5,
     players: [
       { id: 1, name: "Imran", userId: HOST_USER, ready: true, cubeId: null },
-      { id: 2, name: "Ana", userId: "u2", ready: false, cubeId: null },
-      { id: 3, name: "Bob", userId: "u3", ready: true, cubeId: null },
+      { id: 2, name: "Ana", userId: ANA_USER, ready: false, cubeId: null },
+      { id: 3, name: "Bob", userId: fixtureUserId("u3"), ready: true, cubeId: null },
     ],
     autoStart: { enabled: true, held: false },
     start: null,
@@ -142,7 +144,7 @@ function serve(s: FakeServer) {
     const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : undefined;
     s.calls.push({ url, method, body });
     const me = s.players.find((p) => p.userId === s.viewer);
-    if (url === "/api/auth/session") return json({ user: { id: s.viewer } });
+    if (url === "/api/auth/session") return json({ user: { id: String(s.viewer) } });
     if (url === "/api/drafts/s" && method === "GET") return json(draftOf(s));
     if (url === "/api/drafts/s/ready" && method === "POST" && me) {
       me.ready = body?.ready === true;
@@ -188,7 +190,7 @@ afterEach(() => {
 
 describe("draft lobby flow — Seats First", () => {
   it("lets a player mark Ready and shows the server's answer", async () => {
-    const s = newServer({ viewer: "u2" });
+    const s = newServer({ viewer: ANA_USER });
     serve(s);
     render(<DraftDetailPage />);
     const ready = await screen.findByRole("button", { name: /i'm ready/i });
@@ -212,11 +214,11 @@ describe("draft lobby flow — Seats First", () => {
   });
 
   it("takes the Ready button away from a player the host removed", async () => {
-    const s = newServer({ viewer: "u2" });
+    const s = newServer({ viewer: ANA_USER });
     serve(s);
     render(<DraftDetailPage />);
     await screen.findByRole("button", { name: /i'm ready/i });
-    s.players = s.players.filter((p) => p.userId !== "u2");
+    s.players = s.players.filter((p) => p.userId !== ANA_USER);
     s.revision += 1;
     await act(async () => { await vi.advanceTimersByTimeAsync(10_100); });
     await waitFor(() => expect(screen.queryByRole("button", { name: /i'm ready/i })).not.toBeInTheDocument());
@@ -292,7 +294,7 @@ describe("draft lobby flow — Seats First", () => {
 
 describe("draft lobby flow — Theme Table", () => {
   it("shows the Theme Table for a pending theme draft and shows a claim to the other viewer after the poll", async () => {
-    const s = newServer({ theme: true, viewer: "u2" });
+    const s = newServer({ theme: true, viewer: ANA_USER });
     serve(s);
     const mine = render(<DraftDetailPage />);
     expect(await screen.findByRole("heading", { level: 1, name: "Theme Table" })).toBeInTheDocument();
@@ -307,7 +309,7 @@ describe("draft lobby flow — Theme Table", () => {
     s.viewer = HOST_USER;
     render(<DraftDetailPage />);
     expect(await screen.findByText("Taken by Ana")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Cancel draft" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Cancel draft" })).toBeInTheDocument();
   });
 
   it("opens the room for a theme draft only when the server says active", async () => {

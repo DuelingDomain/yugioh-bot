@@ -190,7 +190,7 @@ describe("start, confirm and force", () => {
     fireEvent.click(screen.getByRole("button", { name: /^start draft/i }));
     const dialog = await screen.findByRole("dialog", { name: /not everyone is ready/i });
     expect(within(dialog).getByText(/Ana is not ready/)).toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: /wait for them/i })).toHaveFocus();
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: /wait for them/i })).toHaveFocus());
     fireEvent.click(within(dialog).getByRole("button", { name: /wait for them/i }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(api.start).toHaveBeenCalledExactlyOnceWith({ revision: 5 });
