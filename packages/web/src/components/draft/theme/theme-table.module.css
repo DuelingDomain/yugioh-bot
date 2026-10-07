@@ -1,7 +1,9 @@
 /* The Theme Table: an oval with the seats, the box of theme cubes, and the table card. Match Sheet tokens only.
    Gold marks you, purple marks what is active, green marks ready. Nothing zooms or lifts on hover, and motion stops for
    people who ask for less of it. The seat list carries every control; the oval beside it is a picture of the same seats. */
-.page { display: grid; gap: 16px; align-content: start; min-width: 0; }
+/* The page is the size container of the layout rules below: the breakpoints follow the room the page really has (the
+   side rail takes 236 px of the screen), not the screen width. */
+.page { display: grid; gap: 16px; align-content: start; min-width: 0; container: tt / inline-size; }
 .page > * { min-width: 0; }
 .feedback { display: grid; gap: 8px; }
 
@@ -148,6 +150,8 @@
 .cubeHolder { color: var(--ink-3); font-size: 13px; font-weight: 600; }
 .cubeHolder[data-mine] { color: var(--gold); }
 .cubeActs { grid-area: acts; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+/* Edit and the menu (or Remove) move as one unit, so the menu never sits alone on a line of its own. */
+.cubeHostActs { display: inline-flex; flex-wrap: nowrap; align-items: center; gap: 8px; }
 
 .tools { display: grid; gap: 12px; padding-top: 14px; border-top: 1px solid var(--rule-lo); min-width: 0; }
 .toolsT { margin: 0; color: var(--ink); font: 600 15px/1.2 var(--f-ui); }
@@ -200,13 +204,14 @@
 
 .smallBtn:focus-visible, .suggest button:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 2px; }
 
-/* ---- tablet: the table on top, the box and the card side by side ---- */
-@media (max-width: 1279px) {
+/* ---- tablet: the table on top, the box and the card side by side ----
+   Three columns need 668 px for the box, the card and the gaps, and the oval needs about 560 px beside them for 8 seats. */
+@container tt (max-width: 1229px) {
   .layout { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "table table" "box card"; }
 }
 
 /* ---- phone: one column; a small oval, no names on it ---- */
-@media (max-width: 719px) {
+@container tt (max-width: 719px) {
   .layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "table" "box" "card"; gap: 20px; }
   .tableWrap { --tw: 100cqw; --seat: 38px; aspect-ratio: 1 / 0.9; min-height: 0; }
   .oval { inset: 14% 12%; }
