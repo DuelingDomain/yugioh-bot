@@ -58,15 +58,24 @@ it("retries transient lookup errors on a later inspection", async () => {
   expect(fetchCards).toHaveBeenCalledTimes(2);
 });
 
-it("retries an incomplete response on a later inspection", async () => {
-  const card = cards[0];
-  fetchCards.mockResolvedValueOnce(Response.json({ cards: [{ ...card, description: "" }], missing: [] }));
+it("caches named tokens with an empty description across inspections", async () => {
+  const card = { ...cards[0], name: "Token", description: "" };
+  fetchCards.mockResolvedValueOnce(Response.json({ cards: [card], missing: [] }));
   const { DeckCardPreview } = await import("../../src/components/duel/deck-card-preview");
   const first = render(<DeckCardPreview code={card.code} />);
   await screen.findByRole("heading", { name: card.name });
   first.unmount();
-  const { container } = render(<DeckCardPreview code={card.code} />);
-  await waitFor(() => expect([...container.querySelectorAll("p")].some(p => p.textContent === card.description)).toBe(true));
+  render(<DeckCardPreview code={card.code} />);
+  await screen.findByRole("heading", { name: card.name });
+  expect(fetchCards).toHaveBeenCalledTimes(1);
+});
+
+it.each([`Card ${cards[0].code}`, "", "  "])("retries a response with the placeholder or blank name %j", async name => {
+  const card = cards[0];
+  fetchCards.mockResolvedValueOnce(Response.json({ cards: [{ ...card, name }], missing: [] }));
+  const { loadDuelCardInfo } = await import("../../src/components/duel/card-info");
+  expect(await loadDuelCardInfo(card.code)).toMatchObject({ name });
+  expect(await loadDuelCardInfo(card.code)).toMatchObject(card);
   expect(fetchCards).toHaveBeenCalledTimes(2);
 });
 

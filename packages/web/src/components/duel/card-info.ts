@@ -19,7 +19,7 @@ export function loadDuelCardInfo(code: number): Promise<DuelCardInfo | null> {
     pending = getDuelCards([code]).then(
       ({ cards }) => {
         const card = cards.find(card => card.code === code) ?? null;
-        if (!card || !hasCardName(card) || !card.description?.trim()) infoCache.delete(code);
+        if (!card || !hasCardName(card)) infoCache.delete(code);
         return card;
       },
       () => { infoCache.delete(code); return null; },
