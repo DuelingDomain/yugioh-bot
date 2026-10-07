@@ -17,13 +17,13 @@ it("retains every supported pinned preview identity across edits and file deleti
  cdb("prerelease-a.cdb",100000001,"Updated preview name");cdb("prerelease-new.cdb",100000002,"Later preview");commit();
  rmSync(join(root,"prerelease-a.cdb"));rmSync(join(root,"prerelease-new.cdb"));const current=commit();
  const history=await readPrereleaseHistory(root,start,current,join(root,"history-output"));
- expect(history).toEqual(expect.arrayContaining([{code:100000001,name:"First preview",type:33},{code:100000001,name:"Updated preview name",type:33},{code:100000002,name:"Later preview",type:33}]));
+ expect(history).toEqual(expect.arrayContaining([{code:100000001,name:"First preview",type:33,alias:0},{code:100000001,name:"Updated preview name",type:33,alias:0},{code:100000002,name:"Later preview",type:33,alias:0}]));
  expect(history).toHaveLength(3);
  expect(await readPrereleaseHistory(root,start,current,join(root,"second-output"))).toEqual(history);
 });
 
 
-it("excludes alternate artworks and tokens from historical identity remaps", async () => {
+it("retains alternate artwork aliases in history while excluding tokens", async () => {
  const root=mkdtempSync(join(tmpdir(),"preview-history-art-"));dirs.push(root);
  const git=(args:string[])=>execFileSync("git",["-C",root,...args],{encoding:"utf8"}).trim();
  git(["init","-q"]);
@@ -34,7 +34,10 @@ it("excludes alternate artworks and tokens from historical identity remaps", asy
  INSERT INTO texts VALUES(57160136,'Cynet Mining'),(57160137,'Cynet Mining'),(23116809,'Fireball Token');`);db.close();
  git(["add","."]);git(["-c","user.name=test","-c","user.email=test@example.test","commit","-qm","snapshot"]);
  const pin=git(["rev-parse","HEAD"]);
- expect(await readPrereleaseHistory(root,pin,pin,join(root,"output"))).toEqual([{code:57160136,name:"Cynet Mining",type:2}]);
+ expect(await readPrereleaseHistory(root,pin,pin,join(root,"output"))).toEqual([
+  {code:57160136,name:"Cynet Mining",type:2,alias:0},
+  {code:57160137,name:"Cynet Mining",type:2,alias:57160136},
+ ]);
 });
 
 
@@ -74,6 +77,6 @@ it("includes previews on a merged branch even when the merge restores the origin
  git(["checkout","-q","main"]);git(["merge","--no-ff","-s","ours","side","-qm","restore first preview"]);
  const current=git(["rev-parse","HEAD"]);
  expect(await readPrereleaseHistory(root,start,current,join(root,"output"))).toEqual([
-  {code:100000001,name:"First",type:33},{code:100000001,name:"Side preview",type:33},
+  {code:100000001,name:"First",type:33,alias:0},{code:100000001,name:"Side preview",type:33,alias:0},
  ]);
 });

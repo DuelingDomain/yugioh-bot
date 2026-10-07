@@ -407,6 +407,26 @@ it("preserves distinct same-name tokens and never creates historical token remap
 });
 
 
+it("remaps a missing historical alternate artwork to its graduated main card", async () => {
+  const dir = root();
+  const databases = new Map([
+    ["cards.cdb", cdb(dir, "base.cdb", [[10000080, 0, "The Winged Dragon of Ra"]])],
+  ]);
+  const request = async (url: string) => url.includes("/git/trees/") ? Response.json(tree([...databases.keys()]))
+    : new Response(new Uint8Array(databases.get(url.split("/").pop()!)!));
+  const result = await downloadReleasedCardData(sources.database, join(dir, "bundle"), request, {
+    historicalCards: [
+      { code: 101403130, alias: 101403030, name: "The Winged Dragon of Ra", type: 33 },
+      { code: 101403131, alias: 101403031, name: "The Winged Dragon of Ra", type: 33 },
+      { code: 101403132, alias: 101403030, name: "Ra Token", type: 16401 },
+      { code: 101403030, name: "The Winged Dragon of Ra", type: 33 },
+    ],
+  });
+  expect(result.remaps).toEqual({ 101403030: 10000080, 101403130: 10000080 });
+  expect(JSON.parse(readFileSync(join(dir, "bundle/card-remaps.json"), "utf8")).remaps).toEqual(result.remaps);
+  expect(result.scriptCodes.has(101403130)).toBe(false);
+});
+
 it("updates a surviving artwork alias after its main preview graduates through history", async () => {
  const dir=root();
  const databases=new Map([
@@ -414,7 +434,10 @@ it("updates a surviving artwork alias after its main preview graduates through h
   ["prerelease-art.cdb",cdb(dir,"art.cdb",[[100000002,100000001,"Graduated"]])],
  ]);
  const request=async(url:string)=>url.includes("/git/trees/")?Response.json(tree([...databases.keys()])):new Response(new Uint8Array(databases.get(url.split("/").pop()!)!));
- const result=await downloadReleasedCardData(sources.database,join(dir,"bundle"),request,{historicalCards:[{code:100000001,name:"Graduated",type:33}]});
+ const result=await downloadReleasedCardData(sources.database,join(dir,"bundle"),request,{historicalCards:[
+  {code:100000002,alias:100000001,name:"Graduated",type:33},
+  {code:100000001,name:"Graduated",type:33},
+ ]});
  expect(result.remaps).toEqual({100000001:12});
  expect([...result.prereleaseCodes]).toEqual([100000002]);
  const db=new Database(result.path,{readonly:true});

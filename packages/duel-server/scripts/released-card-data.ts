@@ -154,6 +154,13 @@ export async function downloadReleasedCardData(commit: string, directory: string
       addRemap(row.code, winner.code);
     }
   }
+  // Missing historical artworks inherit their main card's remap after all main
+  // identities are resolved. Retained artwork codes remain selectable.
+  for (const row of historical) {
+    if (!row.alias || (row.type & 0x4000) !== 0 || scriptCodes.has(row.code)) continue;
+    const target = remaps[row.alias];
+    if (target !== undefined) addRemap(row.code, target);
+  }
   // Include historical graduations before repairing surviving artwork families.
   const merged = new Database(path);
   try {
