@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DeckCardInfo } from "@yugidraft/shared/duels";
 import { SandboxBuilder } from "@/components/sandbox/builder";
 import type { BuilderServices } from "@/components/sandbox/api";
-import type { SandboxBuilderState } from "@/components/sandbox/board-model";
+import { createBuilderState, type SandboxBuilderState } from "@/components/sandbox/board-model";
+import { CARD_DRAG_TYPE } from "@/components/decks/drag";
 import { TYPE_CONTINUOUS, TYPE_EFFECT, TYPE_MONSTER, TYPE_SPELL, TYPE_XYZ } from "@/components/duel/constants";
 
 function card(code: number, name: string, type: number): DeckCardInfo {
@@ -29,9 +30,9 @@ const services: BuilderServices = {
   start: vi.fn(async () => ({ slug: "abc" })),
 };
 
-function setup() {
+function setup(initial?: SandboxBuilderState) {
   const changes: SandboxBuilderState[] = [];
-  render(<SandboxBuilder services={services} onChange={(state) => changes.push(state)} />);
+  render(<SandboxBuilder services={services} initial={initial} onChange={(state) => changes.push(state)} />);
   return { last: () => changes[changes.length - 1] };
 }
 
@@ -44,6 +45,21 @@ async function quickAdd(user: ReturnType<typeof userEvent.setup>, text: string) 
 afterEach(() => cleanup());
 
 describe("SandboxBuilder", () => {
+  it.each([true, false])("drops a card into the destination FFA seat's GY (metadata loaded=%s)", async (loaded) => {
+    const user = userEvent.setup();
+    const initial = createBuilderState("ffa4");
+    const { last } = setup(initial);
+    if (loaded) await quickAdd(user, "dark magician");
+    const before = loaded ? last().board.p0 : initial.board.p0;
+    const target = screen.getByRole("button", { name: /Graveyard of P2, 0 cards/ });
+    fireEvent.drop(target, { dataTransfer: {
+      types: [CARD_DRAG_TYPE],
+      getData: (type: string) => type === CARD_DRAG_TYPE ? JSON.stringify({ code: MAGICIAN.code, from: "list" }) : "",
+    } });
+    await waitFor(() => expect(last().board.p2?.grave).toEqual([MAGICIAN.code]));
+    expect(last().board.p0).toEqual(before);
+  });
+
   it("adds the top hit to the hand with Enter", async () => {
     const user = userEvent.setup();
     const { last } = setup();

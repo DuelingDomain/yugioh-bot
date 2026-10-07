@@ -228,22 +228,22 @@ export function SandboxBuilder({
       say(`Placed ${card.name} in ${zoneName(to.zone)}${to.zone === "field" || to.zone === "deckMaster" ? "" : ` ${to.index + 1}`}.`);
       return true;
     }
-    return addToPile(card, to.zone as PileZone, 1);
+    return addToPile(card, to.seat, to.zone as PileZone, 1);
   }
 
-  function addToPile(card: DeckCardInfo, zone: PileZone, count: number, note?: string): boolean {
+  function addToPile(card: DeckCardInfo, seat: SandboxDuelistId, zone: PileZone, count: number, note?: string): boolean {
     remember([card]);
     if (count <= 1) {
-      if (!act({ type: "add", seat: activeSeat, zone, card: card.code })) return false;
+      if (!act({ type: "add", seat, zone, card: card.code })) return false;
       say(`Added ${card.name} to ${zoneName(zone)}.${note ? ` ${note}` : ""}`);
       return true;
     }
-    const result = applyAction(stateRef.current, { type: "paste", seat: activeSeat, zone, codes: Array(count).fill(card.code) });
+    const result = applyAction(stateRef.current, { type: "paste", seat, zone, codes: Array(count).fill(card.code) });
     if (result.error) {
       say(result.error, "warn");
       return false;
     }
-    dispatch({ type: "paste", seat: activeSeat, zone, codes: Array(count).fill(card.code) });
+    dispatch({ type: "paste", seat, zone, codes: Array(count).fill(card.code) });
     const dropped = result.overflow ?? 0;
     say(`Added ${result.added ?? 0}x ${card.name} to ${zoneName(zone)}.${dropped ? ` ${dropped} did not fit.` : ""}`, dropped ? "warn" : "ok");
     return true;
@@ -258,7 +258,7 @@ export function SandboxBuilder({
       return;
     }
     if (route.kind === "pile") {
-      addToPile(card, route.zone, count, route.note);
+      addToPile(card, activeSeat, route.zone, count, route.note);
       return;
     }
     // `act` reads the board of the last render, so chain the copies on a local board.
@@ -304,7 +304,7 @@ export function SandboxBuilder({
       const card = infos.get(drag.code);
       if (card) placeCard(card, to);
       else if (isSlotZone(to.zone)) act({ type: "place", at: to, card: drag.code });
-      else act({ type: "add", seat: activeSeat, zone: to.zone as PileZone, card: drag.code });
+      else act({ type: "add", seat: to.seat, zone: to.zone as PileZone, card: drag.code });
       return;
     }
     if (drag.loc.seat !== to.seat) return;
@@ -420,7 +420,7 @@ export function SandboxBuilder({
     onDropOnLoc,
     onSelectTarget: (zone) => setTarget(zone),
     onAddArmedToPile: (zone) => {
-      if (armed) addToPile(armed, zone, 1);
+      if (armed) addToPile(armed, activeSeat, zone, 1);
     },
     onOpen: setOpen,
     onAddMaterialByName: addMaterialByName,
