@@ -1,0 +1,331 @@
+/* Card data status: floor rows and plain lines. Tokens come from the page's `.ms` root. */
+.page {
+  display: grid;
+  gap: 30px;
+  max-width: 980px;
+  min-width: 0;
+}
+
+.block {
+  container-type: inline-size;
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.loadError {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 10px 16px;
+}
+
+.loadError > div {
+  flex: 1 1 280px;
+  min-width: 0;
+}
+
+/* Summary: the answer first. Gold for current, amber for behind, quiet for unknown. */
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px 32px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--rule-lo);
+}
+
+.summaryMain {
+  flex: 1 1 340px;
+  min-width: 0;
+}
+
+.summaryAside {
+  display: grid;
+  gap: 8px;
+  flex: 0 1 300px;
+  justify-items: start;
+  min-width: 0;
+}
+
+.stateWord {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  color: var(--ink);
+  font: 600 30px/1.1 var(--f-disp);
+}
+
+.stateDot {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--ink-3);
+}
+
+.stateWord[data-state="up-to-date"] .stateDot { background: var(--chain); }
+.stateWord[data-state="behind"] .stateDot { background: var(--warn); }
+.stateWord[data-state="up-to-date"] { color: var(--chain-ink); }
+.stateWord[data-state="behind"] { color: var(--warn-ink); }
+
+.headline {
+  margin: 8px 0 0;
+  color: var(--ink);
+  font: 450 17px/1.4 var(--f-ui);
+  overflow-wrap: anywhere;
+}
+
+.reasons {
+  margin: 8px 0 0;
+  padding: 0 0 0 18px;
+  color: var(--ink-2);
+  font: 400 14.5px/1.5 var(--f-ui);
+}
+
+.rowTitle {
+  margin: 0;
+  color: var(--ink);
+  font: 500 15.5px/1.3 var(--f-ui);
+}
+
+.rowNote {
+  margin: 2px 0 0;
+  color: var(--ink-3);
+  font: 400 13.5px/1.45 var(--f-ui);
+  overflow-wrap: anywhere;
+}
+
+.mute { color: var(--ink-3); }
+
+.mono {
+  font: 500 13.5px/1.4 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.sha {
+  font: 500 13.5px/1.4 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  color: var(--gold-ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.sha:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+.label {
+  margin: 0 0 6px;
+  color: var(--ink-2);
+  font: 500 13px/1.3 var(--f-ui);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Source rows: name and pin on the left, verdict on the right; they stack on a phone. */
+.sourceRow :global(.sv-row-in) {
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 6px 20px;
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+.sourceMain { flex: 1 1 220px; min-width: 0; }
+.sourceState { flex: 1 1 220px; min-width: 0; }
+
+.verdict {
+  margin: 0;
+  color: var(--ink-2);
+  font: 500 14.5px/1.35 var(--f-ui);
+}
+
+.sourceState[data-tone="ready"] .verdict { color: var(--chain-ink); }
+.sourceState[data-tone="warn"] .verdict { color: var(--warn-ink); }
+.sourceState[data-tone="neutral"] .verdict { color: var(--ink-3); }
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px 24px;
+  margin: 0;
+}
+
+.facts > div { min-width: 0; }
+
+.facts dt {
+  color: var(--ink-3);
+  font: 400 13px/1.3 var(--f-ui);
+}
+
+.facts dd {
+  margin: 3px 0 0;
+  color: var(--ink);
+  font: 500 16px/1.35 var(--f-ui);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.facts dd[data-bad="true"] { color: var(--warn-ink); }
+
+.flag {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border: 1px solid var(--warn);
+  border-radius: 4px;
+  color: var(--warn-ink);
+  font: 450 12.5px/1.5 var(--f-ui);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chip {
+  padding: 2px 9px;
+  border: 1px solid var(--rule-lo);
+  border-radius: 4px;
+  color: var(--ink-2);
+  font: 450 12.5px/1.5 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+
+.newFiles { margin-top: 10px; }
+
+/* The gap list scrolls inside its own box, never the page. */
+.gapScroll {
+  max-height: 440px;
+  max-width: 100%;
+  overflow: auto;
+  border-top: 1px solid var(--rule-lo);
+  border-bottom: 1px solid var(--rule-lo);
+}
+
+.gapScroll:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+.gapTable {
+  width: 100%;
+  min-width: 520px;
+  border-collapse: collapse;
+  font: 400 14px/1.4 var(--f-ui);
+}
+
+.gapTable th {
+  position: sticky;
+  top: 0;
+  padding: 8px 10px;
+  background: var(--panel);
+  color: var(--ink-3);
+  font: 500 12.5px/1.3 var(--f-ui);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.gapTable td {
+  padding: 6px 10px;
+  border-top: 1px solid var(--rule-lo);
+  vertical-align: middle;
+}
+
+.gapName { color: var(--ink); font-weight: 500; }
+.thumbCol { width: 44px; }
+
+.thumb {
+  display: block;
+  width: 32px;
+  height: 46px;
+  border-radius: 2px;
+  background: var(--panel-2);
+  object-fit: cover;
+}
+
+@media (max-width: 620px) {
+  .stateWord { font-size: 26px; }
+  .summaryAside { flex-basis: 100%; }
+}
+
+.note {
+  display: block;
+  margin-top: 2px;
+  color: var(--ink-3);
+  font: 400 12.5px/1.4 var(--f-ui);
+}
+
+.linkButton {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--gold-ink);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.linkButton:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+.quiet { padding-top: 4px; }
+
+.mismatchList {
+  margin: 8px 0 0;
+  padding: 0 0 0 18px;
+  color: var(--ink-2);
+  font: 400 13.5px/1.5 var(--f-ui);
+}
+
+/* Recent sets: one button row per set; the missing cards open under it. */
+.setList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--rule-lo);
+}
+
+.setItem { border-bottom: 1px solid var(--rule-lo); min-width: 0; }
+
+.setRow {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) 110px 110px minmax(0, 1.2fr) 130px;
+  align-items: baseline;
+  gap: 4px 14px;
+  width: 100%;
+  padding: 10px 4px;
+  color: var(--ink);
+  font: 400 14.5px/1.4 var(--f-ui);
+  text-align: left;
+}
+
+.setRow > * { min-width: 0; overflow-wrap: anywhere; }
+
+.setButton {
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.setButton:hover { background: var(--pen-soft); }
+.setButton:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+
+.setName { font-weight: 500; }
+
+.setVerdict { color: var(--ink-2); font-weight: 500; }
+.setVerdict[data-state="missing"] { color: var(--warn-ink); }
+.setVerdict[data-state="complete"] { color: var(--chain-ink); }
+.setVerdict[data-state="unknown"] { color: var(--ink-3); }
+
+.setPanel { padding: 4px 4px 14px; }
+.cardTable { display: grid; gap: 10px; justify-items: start; min-width: 0; max-width: 100%; }
+.cardTable > .gapScroll { justify-self: stretch; }
+
+/* Two columns when the block is narrow, whatever the viewport is. */
+@container (max-width: 620px) {
+  .setRow { grid-template-columns: minmax(0, 1fr) auto; }
+  .setRow > :nth-child(3), .setRow > :nth-child(5) { grid-column: 1 / -1; }
+}

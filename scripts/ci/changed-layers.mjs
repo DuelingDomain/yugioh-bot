@@ -13,7 +13,7 @@ export function changedLayers(files, event) {
   // The ADR-0002 rules and the coverage table are inputs of rule-coverage.
   const engine = files.some((file) => !nonEngine.test(file) && /^(packages\/(duel-server|shared|e2e)\/|patches\/|scripts\/|\.github\/workflows\/test\.yml$|package(-lock)?\.json$|turbo\.json$|tsconfig[^/]*\.json$|\.nvmrc$|docs\/adr\/0002-multiplayer-duel-rules\.md$|docs\/specs\/multiplayer-rule-coverage\.md$)/.test(file));
   // Golden rows depend only on the core, overlay, data pins and native tooling (and the step's own wiring).
-  const golden = files.some((file) => /^(\.github\/workflows\/test\.yml$|scripts\/ci\/changed-layers\.mjs$)|^packages\/duel-server\/(domain-core\/(patches\/|multi-scripts\/|pins\.json$)|scripts\/(native\/|(?:run-nduel|build-native-core|prepare-multi-core-tree|multi-core-common)\.sh$|prepare-data\.ts$))/.test(file));
+  const golden = files.some((file) => /^(\.github\/workflows\/test\.yml$|scripts\/ci\/changed-layers\.mjs$)|^packages\/duel-server\/(domain-core\/(patches\/|multi-scripts\/|pins\.json$)|scripts\/(native\/|(?:run-nduel|build-native-core|prepare-multi-core-tree|multi-core-common)\.sh$|(?:prepare-data|released-card-data)\.ts$))/.test(file));
   // Main pushes always run the full engine suites when engine=true; only pull requests get a narrow test selection.
   const tests_only = event === "pull_request" && files.length > 0 && files.every((file) => file.startsWith("packages/duel-server/tests/"));
   return { engine, golden, tests_only };

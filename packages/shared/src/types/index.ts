@@ -170,3 +170,9 @@ export interface Cube {
   config: DraftConfig;
   createdByUserId: number;
 }
+
+export type {
+  EngineDataSource, DataStatus, EngineSourcePin, EngineDataStatus, CatalogSetStatus,
+  CardCatalogStatus, CardDataGapCard, CardDataSetGapStatus, CardDataGapStatus, UpstreamSourceStatus,
+  EngineUpdateWorkflowStatus, CardDataStatus, LocalCardDataStatus,
+} from "./card-data-status.js";

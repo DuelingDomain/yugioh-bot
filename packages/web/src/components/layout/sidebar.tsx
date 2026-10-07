@@ -48,7 +48,7 @@ export function Sidebar({ collapsed, onToggle, account, live, onReportBug }: Sid
             </Tip>
           </div>
         ) : null}
-        <NavList activeHref={activeHref} label="Main navigation" size={size} live={live} />
+        <NavList activeHref={activeHref} label="Main navigation" size={size} live={live} isAdmin={account.isAdmin} />
         <div className={styles.foot}>
           <SettingsLink activeHref={activeHref} size={size} />
           <AccountMenu account={account} pathname={pathname} variant="side" rail={collapsed} onReportBug={onReportBug} />

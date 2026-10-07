@@ -79,7 +79,7 @@ function DrawerDialog({ onClose, account, live, onReportBug, state }: Omit<Mobil
           </button>
         </div>
         <LightRule />
-        <NavList activeHref={activeHref} label="Mobile navigation" size="phone" live={live} onNavigate={onClose} />
+        <NavList activeHref={activeHref} label="Mobile navigation" size="phone" live={live} isAdmin={account.isAdmin} onNavigate={onClose} />
         <div className={styles.foot}>
           <SettingsLink activeHref={activeHref} size="phone" onNavigate={onClose} />
           <AccountMenu account={account} pathname={pathname} variant="side" onNavigate={onClose} onReportBug={onReportBug} />

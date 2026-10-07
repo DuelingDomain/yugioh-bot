@@ -67,7 +67,7 @@ static int read_script(void*, OCG_Duel duel, const char* name) {
 		text = kSpellScript;
 	} else {
 		const std::string dir = check_scripts_dir();
-		for(const std::string root : { dir + "/", dir + "/official/" }) {
+		for(const std::string root : { dir + "/", dir + "/official/", dir + "/pre-release/" }) {
 			std::ifstream in(root + base, std::ios::binary);
 			if(!in) continue;
 			std::stringstream buf;

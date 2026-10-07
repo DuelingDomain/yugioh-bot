@@ -3509,6 +3509,17 @@
       "note": "R-FFA-THREE-COLUMNS: declare one living column opponent before card or zone choices for the named activated operation(s). Other formats keep stock behavior."
     },
     {
+      "code": 39513225,
+      "file": "c39513225.lua",
+      "name": "Seventh Barian's",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "e2660350dea5571ccf7b5e37de9df9281a584aa7dd609f3650fb179769857549",
+      "note": "R1: count Xyz Monsters on all fields and damage every living duelist, including the Tag partner. Extra Deck summon flags use the summoning seat in FFA and the team in Tag (Q6)."
+    },
+    {
       "code": 39552584,
       "file": "c39552584.lua",
       "name": "Grapha, Dragon Overlord of Dark World",

@@ -3,10 +3,11 @@ import type { LiveOpponent } from "@yugidraft/shared/services";
 import type { DuelPresencePayload } from "@yugidraft/shared/ws";
 
 /** Sidebar grouping from the b14 board. nav-items.ts keeps its links and icons. */
-export const NAV_GROUPS: { label: string | null; hrefs: string[] }[] = [
+export const NAV_GROUPS: { label: string | null; hrefs: string[]; adminOnly?: boolean }[] = [
   { label: null, hrefs: ["/dashboard"] },
   { label: "Compete", hrefs: ["/tournaments", "/drafts", "/duels", "/leaderboard"] },
   { label: "Build", hrefs: ["/decks", "/cubes"] },
+  { label: "Admin", hrefs: ["/settings/card-data"], adminOnly: true },
 ];
 
 export const FOOT_HREF = "/settings/account";
@@ -15,8 +16,9 @@ export function navItemByHref(href: string): NavItem | undefined {
   return navItems.find((item) => item.href === href);
 }
 
-export function groupedNav(): { label: string | null; items: NavItem[] }[] {
-  return NAV_GROUPS.map((g) => ({
+/** The sidebar groups. The Admin group is left out unless the person is a guild admin. */
+export function groupedNav(isAdmin = false): { label: string | null; items: NavItem[] }[] {
+  return NAV_GROUPS.filter((g) => isAdmin || !g.adminOnly).map((g) => ({
     label: g.label,
     items: g.hrefs.map(navItemByHref).filter((i): i is NavItem => Boolean(i)),
   }));

@@ -11,17 +11,28 @@ export function httpTransport(cfg: { url: string; secret: string; timeoutMs?: nu
     async post(path, body) {
       if (!cfg.url || !cfg.secret) return { ok: false, status: 0, text: "not configured" };
       const sig = "sha256=" + createHmac("sha256", cfg.secret).update(body).digest("hex");
+      const controller = cfg.timeoutMs ? new AbortController() : undefined;
+      let timer: ReturnType<typeof setTimeout> | undefined;
       try {
-        const res = await fetch(`${cfg.url}${path}`, {
-          method: "POST",
-          headers: { "content-type": "application/json", "x-announce-signature": sig },
-          body,
-          signal: AbortSignal.timeout(cfg.timeoutMs ?? 5000),
+        const request = (async () => {
+          const res = await fetch(`${cfg.url}${path}`, {
+            method: "POST",
+            headers: { "content-type": "application/json", "x-announce-signature": sig },
+            body, ...(controller ? { signal: controller.signal } : {}),
+          });
+          const text = await res.text();
+          return { ok: res.ok, status: res.status, text };
+        })();
+        if (!controller) return await request;
+        const deadline = new Promise<never>((_, reject) => {
+          timer = setTimeout(() => { controller.abort(); reject(new Error("Internal request timed out")); }, cfg.timeoutMs);
         });
-        const text = await res.text();
-        return { ok: res.ok, status: res.status, text };
+        return await Promise.race([request, deadline]);
       } catch (err) {
         return { ok: false, status: 0, text: err instanceof Error ? err.message : "Network error" };
+      } finally {
+        clearTimeout(timer);
+        controller?.abort();
       }
     },
   };

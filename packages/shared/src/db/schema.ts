@@ -619,6 +619,29 @@ export function migrate(db: Database.Database) {
   backfillMainArtworkRows(db);
   addColumnIfMissing(db, "card_sets", "card_count", "integer");
   addColumnIfMissing(db, "card_sets", "set_code", "text");
+  addColumnIfMissing(db, "card_sets", "release_date", "text");
+
+  // Independent of the on-demand catalog: compact released-set identities for
+  // the operator gap report. Old released sets survive process restarts.
+  db.exec(`create table if not exists card_data_set_cache (
+    set_name text primary key not null,
+    fetched_at text not null,
+    cards_json text not null
+  );`);
+
+  // One persisted revision lets readers cache card status across processes without
+  // rescanning the catalog on every request or invalidating it on duel writes.
+  db.exec(`create table if not exists card_catalog_revision (
+    id integer primary key check (id = 1), revision integer not null default 0
+  ); insert or ignore into card_catalog_revision (id) values (1);`);
+  for (const table of ["card_catalog", "card_artworks", "card_sets"]) {
+    for (const event of ["insert", "update", "delete"]) {
+      db.exec(`create trigger if not exists ${table}_status_${event}
+        after ${event} on ${table} begin
+          update card_catalog_revision set revision = revision + 1 where id = 1;
+        end;`);
+    }
+  }
   addColumnIfMissing(db, "drafts", "tournament_id", "integer references tournaments(id)");
   addColumnIfMissing(db, "drafts", "complete_message_id", "text");
   addColumnIfMissing(db, "matches", "notify_channel_id", "text");

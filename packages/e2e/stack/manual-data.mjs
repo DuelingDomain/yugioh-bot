@@ -48,7 +48,7 @@ export function prepareManualData(sourceDirectory, {
     if (entry !== "manifest.json") symlinkSync(join(source, entry), join(output, entry));
   }
   manifest.integrity = { ...manifest.integrity, wrapper: wrapperHash };
-  const { multiScripts: _overlay, ...engine } = manifest.integrity;
+  const { multiScripts: _overlay, cardsMerged: _merged, ...engine } = manifest.integrity;
   manifest.bundleVersion = hash(JSON.stringify({ sources: manifest.sources, integrity: engine }));
   writeFileSync(join(output, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
   console.log("[e2e:manual] pinned runtime manifest to the checked-in wrapper; snapshot cores unchanged");

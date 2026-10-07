@@ -133,7 +133,7 @@ test("golden runs only for native driver, core, overlay, data inputs and its CI 
     "domain-core/patches/0001.patch", "domain-core/multi-scripts/nested/c1.lua",
     "domain-core/pins.json", "scripts/native/nduel.cpp", "scripts/native/golden.tsv",
     "scripts/run-nduel.sh", "scripts/build-native-core.sh", "scripts/prepare-multi-core-tree.sh",
-    "scripts/multi-core-common.sh", "scripts/prepare-data.ts",
+    "scripts/multi-core-common.sh", "scripts/prepare-data.ts", "scripts/released-card-data.ts",
   ].map((path) => pkg + path).concat("scripts/ci/changed-layers.mjs", ".github/workflows/test.yml");
   const unrelated = [
     "packages/shared/src/services/duels.ts", "packages/e2e/src/run.ts",
