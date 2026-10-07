@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type FocusEvent, type MouseEvent, type ReactNode } from "react";
 import type { DuelCard, DuelCardInfo, DuelChainLink, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import type { DuelHoverHandler } from "../field-keys";
-import { ChainList, ChainTower, DOCK_PANES, DOCK_PANES_CAMERA, GridDock, GridFlyout, useHudDismiss, type DockPane, type HudPane } from "./grid-hud";
+import { ChainTower, DOCK_PANES, DOCK_PANES_CAMERA, GridDock, GridFlyout, useHudDismiss, type DockPane, type HudPane } from "./grid-hud";
 import { GridMasterToken } from "./grid-master";
 import { GridHoverPreview } from "./grid-preview";
 import type { DuelActivateHandler, InspectTarget } from "./types";
@@ -38,7 +38,7 @@ export interface HudPaneState {
 export function useHudPane({ camera = false, log = true }: {
   /** The table has a camera panel (the Tag Rooftop, the 3-way plaza): the dock gets a camera icon. */
   camera?: boolean;
-  /** The dock has the Log icon. The 3-way plaza has none: it keeps Settings, Chain and Camera only. */
+  /** The dock has the Log icon. The 3-way plaza has none: it keeps Settings and Camera only. */
   log?: boolean;
 } = {}): HudPaneState {
   const [pane, setPane] = useState<HudPane | null>(null);
@@ -98,7 +98,7 @@ export interface HudMasterProps {
 
 export interface HudLayerProps {
   hud: HudPaneState;
-  /** The Card panel, Log panel and Settings panel; the Chain panel is built here from `chain`. The dock icons come from `hud.dock`. */
+  /** The Card panel, Log panel and Settings panel. The dock icons come from `hud.dock`. */
   panels: Pick<Record<HudPane, ReactNode>, "card" | "settings"> & { log?: ReactNode; camera?: ReactNode };
   chain: readonly DuelChainLink[];
   /** A chain is live: the tower shows under the dock. */
@@ -120,15 +120,10 @@ export interface HudLayerProps {
 }
 
 export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, master, otherMaster = null, onInspect, preview, previewHidden, reducedMotion }: HudLayerProps) {
-  const chainCount = chainOpen ? chain.length : 0;
-  const allPanels: Partial<Record<HudPane, ReactNode>> = {
-    ...panels,
-    chain: <ChainList chain={chain} nameOf={nameOf} tones={seatTones} />,
-  };
   return (
     <>
-      <GridDock pane={hud.pane} onToggle={hud.toggle} unread={logUnread} chainCount={chainCount} panes={hud.dock} />
-      {chainOpen ? <ChainTower chain={chain} nameOf={nameOf} tones={seatTones} onOpen={() => hud.setPane("chain")} /> : null}
+      <GridDock pane={hud.pane} onToggle={hud.toggle} unread={logUnread} panes={hud.dock} />
+      {chainOpen ? <ChainTower chain={chain} nameOf={nameOf} tones={seatTones} /> : null}
       {master ? (
         <GridMasterToken
           {...master}
@@ -148,8 +143,7 @@ export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, log
           onInspect={(target) => { onInspect(target); hud.setPane("card"); }}
         />
       ) : null}
-      <GridFlyout pane={hud.pane} tabs={hud.tabs} panels={allPanels} keepMounted={HUD_KEEP} onSelect={hud.setPane} onClose={hud.close}
-        chainCount={chainCount} chainLive={chainOpen} />
+      <GridFlyout pane={hud.pane} tabs={hud.tabs} panels={panels} keepMounted={HUD_KEEP} onSelect={hud.setPane} onClose={hud.close} chainLive={chainOpen} />
       <GridHoverPreview card={hud.pane == null && !previewHidden && preview ? preview.card : null} owner={preview?.owner ?? null} reducedMotion={reducedMotion} />
     </>
   );
