@@ -5,6 +5,7 @@ import type { DuelCard, DuelCardInfo, DuelChainLink, DuelPromptOption, DuelSeatV
 import type { DuelHoverHandler } from "../field-keys";
 import { ChainTower, DOCK_PANES, DOCK_PANES_CAMERA, GridDock, GridFlyout, useHudDismiss, type DockPane, type HudPane } from "./grid-hud";
 import { GridMasterToken } from "./grid-master";
+import { LOCATION_HAND } from "../constants";
 import type { EquipLinks } from "../equip-links";
 import { cardExtraLines } from "../inspector";
 import { GridHoverPreview } from "./grid-preview";
@@ -57,7 +58,8 @@ export function useHudPane({ camera = false, log = true }: {
   log?: boolean;
 } = {}): HudPaneState {
   const [pane, setPaneState] = useState<HudPane | null>(null);
-  const [pin, setPin] = useState<{ card: DuelCard; anchor: HTMLElement | null } | null>(null);
+  // `handSize`: the hand of the pinned card as the last sync saw it, so a shifted sequence can be told from another copy.
+  const [pin, setPin] = useState<{ card: DuelCard; anchor: HTMLElement | null; handSize?: number } | null>(null);
   const epochRef = useRef(0);
   const epoch = useCallback(() => epochRef.current, []);
   // A flyout and the pinned peek never show together: opening one lets the other go.
@@ -95,10 +97,30 @@ export function useHudPane({ camera = false, log = true }: {
     setPin((current) => {
       if (!current) return current;
       const was = current.card;
-      const live = seats.flatMap(PIN_ZONES).find((card) => card != null
-        && card.code === was.code && card.controller === was.controller && card.location === was.location && card.sequence === was.sequence) ?? null;
+      const same = (card: DuelCard | null): card is DuelCard => card != null && card.code === was.code && card.controller === was.controller && card.location === was.location;
+      let live: DuelCard | null = null;
+      let handSize: number | undefined;
+      if (was.location === LOCATION_HAND) {
+        // The hand closes up when a card leaves it: the pinned card keeps its place in the line, but its sequence moves. It is the copy
+        // of the same code whose sequence moved by no more than the hand grew or shrank (another copy farther away is not the pinned one).
+        const hand = seats.find((view) => view.seat === was.controller)?.hand ?? [];
+        handSize = hand.length;
+        const change = handSize - (current.handSize ?? handSize);
+        const lo = Math.min(0, change);
+        const hi = Math.max(0, change);
+        let best = Infinity;
+        for (const card of hand) {
+          if (!same(card)) continue;
+          const shift = card.sequence - was.sequence;
+          if (shift < lo || shift > hi || Math.abs(shift) >= best) continue;
+          best = Math.abs(shift);
+          live = card;
+        }
+      } else {
+        live = seats.flatMap(PIN_ZONES).find((card) => same(card) && card.sequence === was.sequence) ?? null;
+      }
       if (live == null) return null;
-      return live === was ? current : { card: live, anchor: current.anchor };
+      return live === was && handSize === current.handSize ? current : { card: live, anchor: current.anchor, handSize };
     });
   }, []);
   const pinned = pin?.card ?? null;
@@ -152,10 +174,11 @@ export function useHudEscape(hud: HudPaneState, enabled: boolean, suspended: boo
  * the fresh copy (stats, position, counters). A card that left the zone, or turned face-down, lets the pin go.
  */
 export function usePinSync(hud: HudPaneState, seats: readonly DuelSeatView[] | undefined): void {
-  const { syncPin } = hud;
+  const { syncPin, pinned } = hud;
+  // Runs for a new pin as well: it records the size of the hand that the pin was made in.
   useEffect(() => {
     if (seats) syncPin(seats);
-  }, [seats, syncPin]);
+  }, [seats, syncPin, pinned]);
 }
 
 /**
