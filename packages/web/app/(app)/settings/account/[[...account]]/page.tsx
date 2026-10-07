@@ -1,9 +1,14 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { SheetRoot } from "@/components/sheet";
+import { DeleteAccountSection } from "@/components/account/delete-account-section";
 import { SignOutRow } from "@/components/account/sign-out-row";
 import { LegalLinks } from "@/components/layout/legal-links";
 import { DuelViewToggle } from "@/components/settings/duel-view-toggle";
+import { createUserService } from "@yugidraft/shared/services";
+import { DEFAULT_MARKETING_URL } from "@/components/auth/marketing-links";
+import { marketingUrlFromEnv } from "@/lib/auth-page-params";
+import { getDb } from "@/lib/db";
 import { isE2EAuthEnabled } from "@/lib/e2e-auth";
 import { resolveSessionIdentity } from "@/lib/session-identity";
 import styles from "@/components/account/account-page.module.css";
@@ -18,6 +23,7 @@ export default async function AccountPage() {
   const e2e = isE2EAuthEnabled();
   const result = await resolveSessionIdentity();
   const identity = result.ok ? result.identity : null;
+  const username = identity ? createUserService(getDb()).findById(identity.userId)?.username ?? null : null;
   return (
     <SheetRoot>
       <header className="page-h sheet-head">
@@ -53,7 +59,9 @@ export default async function AccountPage() {
             <LegalLinks />
           </div>
         </section>
-        {/* DeleteAccountSection mounts here */}
+        {username && (
+          <DeleteAccountSection username={username} e2eMode={e2e} marketingUrl={marketingUrlFromEnv() ?? DEFAULT_MARKETING_URL} />
+        )}
       </div>
     </SheetRoot>
   );

@@ -25,6 +25,11 @@ vi.mock("@clerk/nextjs", () => ({
 vi.mock("@/components/account/sign-out", () => ({ useSignOut: () => signOut }));
 vi.mock("@/lib/e2e-auth", () => ({ isE2EAuthEnabled: isE2E }));
 vi.mock("@/lib/session-identity", () => ({ resolveSessionIdentity: resolveIdentity }));
+vi.mock("@/lib/db", () => ({ getDb: () => ({}) }));
+vi.mock("@yugidraft/shared/services", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@yugidraft/shared/services")>()),
+  createUserService: () => ({ findById: (id: number) => (id === 7 ? { id: 7, username: "sam_duels" } : undefined) }),
+}));
 vi.mock("@/components/settings/duel-view-toggle", () => ({ DuelViewToggle: () => <div data-testid="duel-view-toggle" /> }));
 
 import { AccountPanel } from "../../../app/(app)/settings/account/[[...account]]/account-panel";
@@ -121,7 +126,7 @@ describe("SignOutRow", () => {
 });
 
 describe("AccountPage", () => {
-  it("lays out the sections, the duel view toggle, the legal links and the delete-account mount spot", async () => {
+  it("lays out the sections, the duel view toggle, and the legal links", async () => {
     resolveIdentity.mockResolvedValue({ ok: true, identity: { name: "Sam", email: "sam@example.com" } });
     render(await AccountPage());
     screen.getByRole("heading", { level: 1, name: "Account" });
@@ -142,11 +147,20 @@ describe("AccountPage", () => {
     isE2E.mockReturnValue(false);
   });
 
-  it("keeps the marked spot for the delete-account section", async () => {
-    const { readFileSync } = await import("node:fs");
-    const { join } = await import("node:path");
-    const source = readFileSync(join(__dirname, "../../../app/(app)/settings/account/[[...account]]/page.tsx"), "utf8");
-    expect(source).toContain("{/* DeleteAccountSection mounts here */}");
+  it("shows the delete-account section with the signed-in username", async () => {
+    isE2E.mockReturnValue(true);
+    resolveIdentity.mockResolvedValue({ ok: true, identity: { userId: 7, name: "Sam", email: "sam@example.com" } });
+    render(await AccountPage());
+    screen.getByRole("heading", { name: "Delete account" });
+    expect(screen.getByText("sam_duels")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Delete my account" })).toBeDisabled();
+    isE2E.mockReturnValue(false);
+  });
+
+  it("leaves the delete-account section out when the account can't be found", async () => {
+    resolveIdentity.mockResolvedValue({ ok: true, identity: { userId: 99, name: "Sam", email: "sam@example.com" } });
+    render(await AccountPage());
+    expect(screen.queryByRole("heading", { name: "Delete account" })).toBeNull();
   });
 });
 
