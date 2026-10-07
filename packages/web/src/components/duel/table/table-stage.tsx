@@ -250,8 +250,10 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
         .filter((r) => r.width > 1 && r.height > 1)
         .map((r) => ({ x: Math.round(r.left - board.left), y: Math.round(r.top - board.top), width: Math.round(r.width), height: Math.round(r.height) }));
       const next = boxes('[data-legal="true"]');
-      const rest = boxes('[data-zones]:not([data-legal="true"])');
-      const hud = occluderRects(root, BAR_HUD).map((r) => ({ x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) }));
+      // The seat name under a field counts as a zone: the docked bar keeps off it.
+      const rest = boxes('[data-zones]:not([data-legal="true"]), [data-seat-name]');
+      // The life-point plates are HUD too: the docked bar keeps off them.
+      const hud = occluderRects(root, `${BAR_HUD}, [data-holo]`).map((r) => ({ x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) }));
       setTargets((current) => (sameRects(current, next) ? current : next));
       setZones((current) => (sameRects(current, rest) ? current : rest));
       setHudRects((current) => (sameRects(current, hud) ? current : hud));

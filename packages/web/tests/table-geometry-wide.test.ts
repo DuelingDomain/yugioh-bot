@@ -238,6 +238,12 @@ describe("the wide plaza", () => {
           }
           expect(overlap(r, { l: 488, r: 612, t: 348, b: 486 }), `${layout.format} ${name}: ${kind} room vs the ring`).toBe(false);
           expect(overlap(r, { l: 220, r: 880, t: 856, b: 960 }), `${layout.format} ${name}: ${kind} room vs your hand`).toBe(false);
+          // The name plate under the board's left corner (REN ARATA), which a big text size widens.
+          for (const [seat, pose] of poses) {
+            if (pose.slot !== "home") continue;
+            const board = boardBounds(pose);
+            expect(overlap(r, { l: board.l, r: board.l + 230 * pose.scale, t: board.b - 6, b: board.b + 44 * pose.scale }), `${layout.format} ${name}: ${kind} room vs the name of seat ${seat}`).toBe(false);
+          }
           expect(overlap(r, hint), `${layout.format} ${name}: ${kind} room vs the camera hint`).toBe(false);
         }
         // Tight rooms scroll the expanded choices while keeping the panel clear of the hand.
