@@ -570,7 +570,7 @@ describe("the pinned card peek of the 1v1 room", () => {
           return this.tagName === "P" ? 200 + (panel && !fits(panel) ? 100 : 0) : 0;
         }),
         vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) { return isPanel(this) ? 300 : 0; }),
-        vi.spyOn(HTMLElement.prototype, "offsetTop", "get").mockImplementation(function (this: HTMLElement) { return isPanel(this) ? 56 : 0; }),
+        vi.spyOn(HTMLElement.prototype, "offsetTop", "get").mockImplementation(function (this: HTMLElement) { return isPanel(this) ? (parseInt(this.style.getPropertyValue("--pv-top"), 10) || 56) : 0; }),
         vi.spyOn(HTMLElement.prototype, "offsetLeft", "get").mockImplementation(function (this: HTMLElement) {
           if (!isPanel(this)) return 0;
           return this.getAttribute("data-side") === "right" ? 1280 - 16 - widthOf(this) : 16;
@@ -669,7 +669,7 @@ describe("the pinned card peek of the 1v1 room", () => {
       } finally { vi.useRealTimers(); }
     });
 
-    it("lifts the bottom of a right panel above the visible controls at the bottom right, not above hidden items", () => {
+    it("stops a right panel above the visible controls at the bottom right, not above hidden items", () => {
       layout({ left: 300, right: 380, top: 120, bottom: 240 });
       mount();
       const corner = screen.getByTestId("hud-corner");
@@ -689,8 +689,9 @@ describe("the pinned card peek of the 1v1 room", () => {
       // The existing children of the stub corner have no size in jsdom, so they do not count.
       try {
         pin();
-        // The layer ends at 720: 720 - 520 + the 10 px gap.
-        expect(peek().style.getPropertyValue("--pv-reserve-right")).toBe("210px");
+        expect(peek().getAttribute("data-side")).toBe("right");
+        // The panel runs from 50 (under the header) to the controls at 520, less the 12 px gap.
+        expect(peek().style.getPropertyValue("--pv-max-h")).toBe("458px");
       } finally { added.forEach((node) => node.remove()); }
     });
 
@@ -706,6 +707,80 @@ describe("the pinned card peek of the 1v1 room", () => {
       mountWithText();
       pin();
       expect(peek().getAttribute("data-art")).toBe("none");
+    });
+
+    /** A part of the page with a fixed box (jsdom has no layout). */
+    function part(attrs: Record<string, string>, b: Box) {
+      const node = document.createElement("div");
+      for (const [name, value] of Object.entries(attrs)) node.setAttribute(name, value);
+      node.getBoundingClientRect = () => ({ ...b, x: b.left, y: b.top, width: b.right - b.left, height: b.bottom - b.top, toJSON: () => ({}) }) as DOMRect;
+      document.body.appendChild(node);
+      return node;
+    }
+    const TOWER: Box = { left: 14, right: 162, top: 232, bottom: 348 };
+
+    it("stands below the chain tower, in the free band down to the bottom of the layer", () => {
+      layout({ left: 900, right: 980, top: 300, bottom: 420 });
+      const tower = part({ "data-testid": "chain-tower" }, TOWER);
+      try {
+        mount();
+        pin();
+        expect(peek().getAttribute("data-side")).toBe("left");
+        // 348 (the tower) + the 12 px gap; the band runs on to the layer end at 720 less 8.
+        expect(peek().style.getPropertyValue("--pv-top")).toBe("360px");
+        expect(peek().style.getPropertyValue("--pv-max-h")).toBe("352px");
+      } finally { tower.remove(); }
+    });
+
+    it("puts the hover panel below the chain tower too", () => {
+      layout({ left: 900, right: 980, top: 300, bottom: 420 });
+      const tower = part({ "data-testid": "chain-tower" }, TOWER);
+      try {
+        mount();
+        fireEvent.mouseEnter(screen.getByTestId("field-card"));
+        expect(peek().getAttribute("data-open")).toBe("true");
+        expect(peek().getAttribute("data-pinned")).toBeNull();
+        expect(peek().style.getPropertyValue("--pv-top")).toBe("360px");
+      } finally { tower.remove(); }
+    });
+
+    it("fits the free side area beside the board: a narrower panel with the art on top of the text", () => {
+      layout({ left: 900, right: 980, top: 300, bottom: 420 });
+      // The board starts at x 400: 400 - 12 (gap) - 72 (the left edge) = 316 px of room on the left.
+      const board = part({ "data-zones": "1:4:0" }, { left: 400, right: 900, top: 100, bottom: 500 });
+      try {
+        mount();
+        pin();
+        expect(peek().getAttribute("data-side")).toBe("left");
+        expect(peek().style.getPropertyValue("--pin-w")).toBe("316px");
+        expect(peek().getAttribute("data-stack")).toBe("true");
+      } finally { board.remove(); }
+    });
+
+    it("shrinks the hover panel to the free side area", () => {
+      layout({ left: 900, right: 980, top: 300, bottom: 420 });
+      // 340 - 12 - 72 = 256 px on the left; the right side has the same room, so the left edge stays.
+      const board = part({ "data-zones": "1:4:0" }, { left: 340, right: 940, top: 100, bottom: 500 });
+      try {
+        mount();
+        fireEvent.mouseEnter(screen.getByTestId("field-card"));
+        expect(peek().getAttribute("data-side")).toBe("left");
+        expect(peek().style.getPropertyValue("--pv-w")).toBe("256px");
+      } finally { board.remove(); }
+    });
+
+    it("places the panel again when a chain opens under it", () => {
+      vi.useFakeTimers();
+      let tower: HTMLElement | null = null;
+      try {
+        layout({ left: 900, right: 980, top: 300, bottom: 420 });
+        mount();
+        pin();
+        expect(peek().style.getPropertyValue("--pv-top")).toBe("50px");
+        tower = part({ "data-testid": "chain-tower" }, TOWER);
+        act(() => { vi.advanceTimersByTime(600); });
+        expect(peek().style.getPropertyValue("--pv-top")).toBe("360px");
+      } finally { tower?.remove(); vi.useRealTimers(); }
     });
 
     it("keeps the wide left panel for a card below it", () => {
