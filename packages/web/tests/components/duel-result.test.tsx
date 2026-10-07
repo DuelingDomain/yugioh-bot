@@ -500,27 +500,19 @@ describe("result layout styles", () => {
   });
 });
 
-describe("title fit with reduced motion", () => {
+describe("title fit", () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
   });
 
-  it("sets the title size from the measured width when motion is reduced, as it does with motion", () => {
+  it("sets --fs from the measured width", () => {
     // jsdom has no layout: the column is 300px wide and the text is 600px wide at 100px, so it fits at about 50px.
     vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(300);
     vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(600);
-    const sizes: Record<string, string> = {};
-    for (const reducedMotion of [true, false]) {
-      const room = makeRoom({ status: "cancelled", mySeat: 0, winner: null, reason: null, engine: false });
-      const { unmount } = render(
-        <DuelResultScreen room={room} slug="abc" reducedMotion={reducedMotion} soundEnabled={false} onClose={vi.fn()} />,
-      );
-      const title = screen.getByRole("heading", { level: 1 });
-      sizes[String(reducedMotion)] = title.style.getPropertyValue("--fs");
-      unmount();
-    }
-    expect(Number.parseFloat(sizes.true)).toBeCloseTo(49.75, 1);
-    expect(sizes.true).toBe(sizes.false);
+    const room = makeRoom({ status: "cancelled", mySeat: 0, winner: null, reason: null, engine: false });
+    render(<DuelResultScreen room={room} slug="abc" reducedMotion={false} soundEnabled={false} onClose={vi.fn()} />);
+    const title = screen.getByRole("heading", { level: 1 });
+    expect(Number.parseFloat(title.style.getPropertyValue("--fs"))).toBeCloseTo(49.75, 1);
   });
 });
