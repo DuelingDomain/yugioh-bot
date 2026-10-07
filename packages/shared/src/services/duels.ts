@@ -1309,7 +1309,7 @@ export function createDuelService(db: Database.Database): DuelService {
       const linked = row.series_id === null ? undefined : series.byId(row.series_id);
       room.series = linked ? series.summarize(linked) : null;
       const opening = row.status === "lobby" ? parseOpening(row.opening_json) : null;
-      room.opening = opening ? openingView(opening, mySeat) : null;
+      room.opening = opening ? openingView(opening, mySeat, Date.now()) : null;
       room.mySide = null;
       if (linked && seated && series.playerIndex(linked, playerId) !== null) {
         const own = ownDeck(row.id, playerId);

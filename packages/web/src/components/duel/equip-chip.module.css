@@ -11,14 +11,14 @@
   align-items: center;
   gap: 2px;
   max-width: calc(100% - 6px);
-  height: max(11px, calc(var(--z, 80px) * 0.12));
-  padding: 0 4px 0 2px;
+  min-height: max(11px, calc(var(--z, 80px) * 0.12));
+  padding: 1px 4px 1px 2px;
   border: 1px solid var(--pen, #9b7eff);
   border-radius: 999px;
   background: rgb(12 18 36 / 0.92);
   color: var(--pen-ink, #c6b6ff);
   font-family: var(--f-num, inherit);
-  font-size: max(7px, calc(var(--z, 80px) * 0.085));
+  font-size: max(var(--fl, 7px), calc(var(--z, 80px) * 0.085));
   font-weight: 700;
   letter-spacing: 0.04em;
   line-height: 1;

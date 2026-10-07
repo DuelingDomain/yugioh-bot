@@ -1,12 +1,12 @@
-import type { DuelEvent, DuelSeatView } from "@yugidraft/shared/duels";
 import { aliveLayout, flyYawFor, normalizeAngle } from "./geometry";
-import { scaleLockMs as scaleLock } from "../camera-lock-time";
-import type { CameraAction, CameraLockReason, CameraMode, CameraState, FlyPose, TableLayout } from "./types";
+import type { CameraAction, CameraMode, CameraState, FlyPose, TableLayout } from "./types";
 
 /**
  * The camera of the multiplayer table as a pure model. The reducer takes a layout (who sits where) and an optional
- * context (the seats that are out of the duel). The FX lock holds the camera at the play view while an effect
- * plays: movement is ignored, and the stored pose comes back when the lock ends.
+ * context (the seats that are out of the duel). The view changes ONLY on an action of the viewer (a click or a key):
+ * a remote move, a chain, an attack, a prompt or a new turn never dispatches one. (A face-off, with two seats left,
+ * has one view, so it is home. A rival that leaves is no view any more.) The `lock` of the state is a preview
+ * switch (`?lock=`): the duel itself never sets it.
  */
 
 /** The plaza pose: no turn, tilted 40 degrees, a little zoomed out, looking at the arena. */
@@ -34,16 +34,11 @@ export function initialCamera(layout: TableLayout, partial: Partial<CameraState>
     lookSeat: null,
     upright: false,
     compact: "auto",
-    auto: true,
-    pinned: false,
-    aiming: false,
     fly: FLY_HOME,
     lock: null,
-    autoMoved: false,
     flyIn: true,
   };
-  const merged: CameraState = { ...base, ...partial, fly: partial.fly ?? FLY_HOME };
-  return { ...merged, pinned: partial.pinned ?? merged.mode !== "home" };
+  return { ...base, ...partial, fly: partial.fly ?? FLY_HOME };
 }
 
 function seatsOf(layout: TableLayout, ctx?: CameraContext) {
@@ -56,7 +51,7 @@ function seatsOf(layout: TableLayout, ctx?: CameraContext) {
 
 const HOME_VIEW = { mode: "home" as CameraMode, focusSeat: null, lookSeat: null, fly: FLY_HOME };
 
-/** A manual move: it pins the camera unless it goes home. */
+/** A move of the viewer: the one way the view changes (a click, a key). Nothing in the duel moves it. */
 function move(state: CameraState, patch: Partial<CameraState> & { mode: CameraMode }): CameraState {
   return {
     ...state,
@@ -64,8 +59,6 @@ function move(state: CameraState, patch: Partial<CameraState> & { mode: CameraMo
     lookSeat: null,
     fly: FLY_HOME,
     ...patch,
-    pinned: patch.mode !== "home",
-    autoMoved: false,
   };
 }
 
@@ -79,9 +72,9 @@ export function isFaceOff(layout: TableLayout, out: readonly number[] | Readonly
   return layout.slots.filter((slot) => !gone.has(slot.seat)).length <= 2;
 }
 
-const FACE_OFF_VIEWS = new Set<CameraAction["type"]>(["overview", "focus", "focusStep", "look", "toggleFly", "flyTo"]);
+const FACE_OFF_VIEWS = new Set<CameraAction["type"]>(["overview", "focus", "enlarge", "focusStep", "look", "toggleFly", "flyTo"]);
 
-const MOVES = new Set<CameraAction["type"]>(["home", "overview", "focus", "focusStep", "look", "toggleFly", "flyTo", "orbit", "zoom"]);
+const MOVES = new Set<CameraAction["type"]>(["home", "overview", "focus", "enlarge", "focusStep", "look", "toggleFly", "flyTo", "orbit", "zoom"]);
 
 export function cameraReducer(state: CameraState, action: CameraAction, layout: TableLayout, ctx?: CameraContext): CameraState {
   const { anchor, known, out, rivals } = seatsOf(layout, ctx);
@@ -90,21 +83,27 @@ export function cameraReducer(state: CameraState, action: CameraAction, layout: 
   if (faceOff && state.mode !== "home" && (action.type === "home" || FACE_OFF_VIEWS.has(action.type))) return move(state, HOME_VIEW);
   if (state.lock != null && MOVES.has(action.type)) return state;
   if (faceOff) {
-    // One view only: a request for another one sends the camera home, and the auto camera does not follow a rival.
+    // One view only: a request for another one sends the camera home.
     if (FACE_OFF_VIEWS.has(action.type)) return state.mode === "home" ? state : move(state, HOME_VIEW);
-    if (action.type === "autoFollow" && action.seat != null && action.seat !== anchor) return state;
   }
   switch (action.type) {
     case "home":
       return move(state, HOME_VIEW);
     case "overview": {
       if (state.flyIn === false) return move(state, { mode: "overview" });
-      if (state.mode === "fly") return { ...state, fly: FLY_HOME, pinned: true, autoMoved: false };
+      if (state.mode === "fly") return { ...state, fly: FLY_HOME };
       return move(state, { mode: "fly" });
     }
     case "focus": {
       if (action.seat === anchor) return move(state, HOME_VIEW);
       if (!known.has(action.seat) || out.has(action.seat)) return state;
+      return move(state, { mode: "focus", focusSeat: action.seat });
+    }
+    case "enlarge": {
+      // The one viewer action of the 3-way plaza: a click or Enter on a field. The same field again goes home.
+      if (layout.format !== "ffa3") return state;
+      if (!known.has(action.seat) || out.has(action.seat)) return state;
+      if (state.mode === "focus" && state.focusSeat === action.seat) return move(state, HOME_VIEW);
       return move(state, { mode: "focus", focusSeat: action.seat });
     }
     case "focusStep": {
@@ -122,15 +121,15 @@ export function cameraReducer(state: CameraState, action: CameraAction, layout: 
     case "toggleFly": {
       if (state.flyIn === false) return move({ ...state, flyIn: true }, { mode: "fly" });
       const next = { ...state, flyIn: false };
-      return state.mode === "fly" ? { ...next, mode: "overview", fly: FLY_HOME, pinned: true, autoMoved: false } : next;
+      return state.mode === "fly" ? { ...next, mode: "overview", fly: FLY_HOME } : next;
     }
     case "flyTo": {
       if (!known.has(action.seat)) return state;
       if (state.mode === "fly" && state.fly.targetSeat === action.seat && !state.fly.free) {
-        return { ...state, fly: FLY_HOME, pinned: true, autoMoved: false };
+        return { ...state, fly: FLY_HOME };
       }
       const fly: FlyPose = { yawDeg: flyYawFor(aliveLayout(layout, out), action.seat), tiltDeg: SEAT_TILT, zoom: SEAT_ZOOM, targetSeat: action.seat, free: false };
-      if (state.mode === "fly") return { ...state, fly, pinned: true, autoMoved: false };
+      if (state.mode === "fly") return { ...state, fly };
       return move({ ...state, flyIn: true }, { mode: "fly", fly });
     }
     case "orbit": {
@@ -151,21 +150,6 @@ export function cameraReducer(state: CameraState, action: CameraAction, layout: 
       return { ...state, upright: !state.upright };
     case "toggleCompact":
       return { ...state, compact: state.compact === "auto" ? "on" : state.compact === "on" ? "off" : "auto" };
-    case "toggleAuto":
-      return { ...state, auto: !state.auto };
-    case "pin":
-      return { ...state, pinned: action.on, autoMoved: false };
-    case "aiming":
-      return state.aiming === action.on ? state : { ...state, aiming: action.on };
-    case "autoFollow": {
-      if (!state.auto || state.aiming || state.pinned) return state;
-      if (action.seat == null || action.seat === anchor) {
-        return state.mode === "home" ? state : { ...state, ...HOME_VIEW, pinned: false, autoMoved: false };
-      }
-      if (!known.has(action.seat) || out.has(action.seat)) return state;
-      if (state.mode === "focus" && state.focusSeat === action.seat && state.autoMoved) return state;
-      return { ...state, mode: "focus", focusSeat: action.seat, lookSeat: null, fly: FLY_HOME, pinned: false, autoMoved: true };
-    }
     case "lock": {
       const untilMs = action.nowMs + action.ms;
       if (state.lock && state.lock.untilMs > action.nowMs && state.lock.untilMs >= untilMs) return state;
@@ -176,6 +160,9 @@ export function cameraReducer(state: CameraState, action: CameraAction, layout: 
       // The lock ends in a face-off: no view but home is left, so the camera goes home in the same update.
       return faceOff && state.mode !== "home" ? move({ ...state, lock: null }, HOME_VIEW) : { ...state, lock: null };
     }
+    default:
+      // An action the table no longer has (the old auto camera, Keep, aim hold) changes nothing.
+      return state;
   }
 }
 
@@ -206,6 +193,8 @@ export function effectiveCamera(state: CameraState, nowMs: number): CameraState 
 
 export interface CameraKeyEvent {
   key: string;
+  /** The physical key: the bracket keys step the focus on layouts where `[` and `]` are typed with AltGr or another key. */
+  code?: string;
   shiftKey?: boolean;
 }
 
@@ -213,15 +202,18 @@ export interface CameraKeyEvent {
 export function cameraActionForKey(
   event: CameraKeyEvent,
   layout: TableLayout,
-  camera: Pick<CameraState, "mode" | "lookSeat" | "pinned" | "fly">,
+  camera: Pick<CameraState, "mode" | "lookSeat" | "fly">,
   ctx?: CameraContext,
 ): CameraAction | null {
-  const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+  const key = event.code === "BracketLeft" ? "[" : event.code === "BracketRight" ? "]" : event.key.length === 1 ? event.key.toLowerCase() : event.key;
   const faceOff = isFaceOff(layout, ctx?.out ?? []);
-  if (faceOff && (key === "Tab" || key === "o" || key === "0" || key === "f" || key === "p" || key === "Escape")) return null;
+  if (faceOff && (key === "]" || key === "[" || key === "o" || key === "0" || key === "f" || key === "p" || key === "Escape")) return null;
   switch (key) {
-    case "Tab":
-      return { type: "focusStep", dir: event.shiftKey ? -1 : 1 };
+    // Tab is left to the browser: the seat boxes are keyboard stops. [ and ] walk the rivals.
+    case "]":
+      return { type: "focusStep", dir: 1 };
+    case "[":
+      return { type: "focusStep", dir: -1 };
     case "h":
       return { type: "home" };
     case "o":
@@ -231,10 +223,9 @@ export function cameraActionForKey(
       return { type: "toggleFly" };
     case "s":
       return { type: "toggleUpright" };
-    case "a":
-      return { type: "toggleAuto" };
-    case "k":
-      return { type: "pin", on: !camera.pinned };
+    case "e":
+      // 3-way: enlarge your own field, or go back from it. The reducer ignores it on any other table.
+      return layout.format === "ffa3" ? { type: "enlarge", seat: layout.anchorSeat } : null;
     case "p": {
       const { rivals } = seatsOf(layout, ctx);
       if (rivals.length === 0) return null;
@@ -243,6 +234,7 @@ export function cameraActionForKey(
       return { type: "look", seat: at + 1 < rivals.length ? rivals[at + 1] : null };
     }
     case "Escape":
+      if (camera.mode === "focus") return { type: "home" };
       return camera.mode === "fly" && (camera.fly.targetSeat != null || camera.fly.free === true) ? { type: "overview" } : null;
     default:
   }
@@ -256,65 +248,8 @@ export function cameraActionForKey(
   return null;
 }
 
-/** An FX lock: why, for how long, and the last event id the lock has read. */
-export interface FxLock {
-  reason: CameraLockReason;
-  ms: number;
-  lastId?: number;
-}
-
-const LOCK_PRIORITY: Record<CameraLockReason, number> = { destroy: 1, chain: 2, battle: 3, direct: 4, elimination: 5 };
-const LOCK_MS: Record<CameraLockReason, number> = { chain: 900, destroy: 1300, battle: 1500, direct: 1900, elimination: 2400 };
-const DAMAGE_LOCK_MS = 1100;
-
 /**
  * The longest home move of the table camera: the fly tween (`DURATION_MS` in use-fly-world.ts). The rival fields ease
  * for 0.76 s (rival-field.module.css). Neither is scaled by the FX speed.
  */
 export const CAMERA_HOME_MS = 950;
-
-/** Real milliseconds a lock of `ms` FX milliseconds lasts at the viewer's pace (`duelFxClock.factor()`). */
-export const scaleLockMs = (ms: number, speed: number): number => scaleLock(ms, speed, CAMERA_HOME_MS);
-
-/** The lock one event asks for. An attack with a target is a battle; with none it is a direct attack. */
-export function fxLockFor(event: DuelEvent): FxLock | null {
-  switch (event.kind) {
-    case "toss":
-      return null;
-    case "attack":
-      return event.target ? { reason: "battle", ms: LOCK_MS.battle } : { reason: "direct", ms: LOCK_MS.direct };
-    case "chain-resolving":
-      return { reason: "chain", ms: LOCK_MS.chain };
-    case "destroy":
-      return { reason: "destroy", ms: LOCK_MS.destroy };
-    case "damage":
-      return event.cause !== "battle" ? { reason: "direct", ms: DAMAGE_LOCK_MS } : null;
-    default:
-      return null;
-  }
-}
-
-/** The lock of the events with an id above `afterId`: the strongest reason and the longest time. `speed` is the viewer's FX rate. */
-export function lockForEvents(events: readonly DuelEvent[], afterId: number, speed = 1): FxLock | null {
-  let reason: CameraLockReason | null = null;
-  let ms = 0;
-  let lastId = afterId;
-  for (const event of events) {
-    if (event.id <= afterId) continue;
-    lastId = Math.max(lastId, event.id);
-    const next = fxLockFor(event);
-    if (!next) continue;
-    if (reason === null || LOCK_PRIORITY[next.reason] > LOCK_PRIORITY[reason]) reason = next.reason;
-    ms = Math.max(ms, next.ms);
-  }
-  return reason === null ? null : { reason, ms: scaleLockMs(ms, speed), lastId };
-}
-
-/** A seat that starts to leave or is newly out locks the camera for the elimination. */
-export function lockForSeats(previous: readonly DuelSeatView[], next: readonly DuelSeatView[], speed = 1): FxLock | null {
-  const gone = (view: DuelSeatView | undefined) => view != null && (view.eliminated === true || view.pendingElimination === true);
-  for (const view of next) {
-    if (gone(view) && !gone(previous.find((entry) => entry.seat === view.seat))) return { reason: "elimination", ms: scaleLockMs(LOCK_MS.elimination, speed) };
-  }
-  return null;
-}

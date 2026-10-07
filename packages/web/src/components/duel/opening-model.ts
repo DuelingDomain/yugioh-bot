@@ -13,7 +13,7 @@ import {
 export const MOVE_LABEL: Record<DuelRpsMove, string> = { rock: "Rock", paper: "Paper", scissors: "Scissors" };
 
 export type OpeningStage =
-  /** A decided round is on screen (win, lose or tie). */
+  /** A tied round is on screen before the next pick. */
   | "reveal"
   /** Both players pick a move. */
   | "pick"
@@ -24,40 +24,34 @@ export type OpeningStage =
   /** The order is settled; the duel is about to start. */
   | "start";
 
-/** Epoch ms when the reveal ends and the next step (pick or choice) starts. */
+/** Epoch ms when the tie reveal ends and the next pick starts. */
 export function revealEndsAt(opening: DuelOpeningView): number {
   return Date.parse(opening.deadlineAt) - DUEL_OPENING_PICK_MS;
 }
 
-/** The reveal belongs to the step it opened: the tie before this round, or the win before the choice. */
+/** The tie reveal belongs to the round before this pick. */
 function revealIsCurrent(opening: DuelOpeningView): boolean {
   if (!opening.reveal) return false;
-  return opening.phase === "choose" || (opening.phase === "rps" && opening.reveal.round === opening.round - 1);
+  return opening.phase === "rps" && opening.reveal.round === opening.round - 1;
 }
 
 export function openingStage(opening: DuelOpeningView, mySeat: number | null, now: number): OpeningStage {
   if (opening.phase === "start") return "start";
+  // The server already accepts the winner's choice. A browser clock must not hide it until the timeout.
+  if (opening.phase === "choose") return mySeat != null && opening.winnerSeat === mySeat ? "choose" : "wait-choose";
   if (revealIsCurrent(opening) && now < revealEndsAt(opening)) return "reveal";
-  if (opening.phase === "rps") return "pick";
-  return mySeat != null && opening.winnerSeat === mySeat ? "choose" : "wait-choose";
+  return "pick";
 }
 
 export type RevealOutcome = "win" | "lose" | "tie" | "decided";
 
-/** "You win", "You lose" or "Tie, again" for the viewer; spectators get "decided". */
+/** The reveal outcome for the viewer; spectators get "decided" for a winning round. */
 export function revealOutcome(opening: DuelOpeningView, mySeat: number | null): RevealOutcome | null {
   const reveal = opening.reveal;
   if (!reveal) return null;
   if (reveal.winnerSeat === null) return "tie";
   if (mySeat !== 0 && mySeat !== 1) return "decided";
   return reveal.winnerSeat === mySeat ? "win" : "lose";
-}
-
-export function revealHeadline(outcome: RevealOutcome, winnerName: string | null): string {
-  if (outcome === "win") return "You win";
-  if (outcome === "lose") return "You lose";
-  if (outcome === "tie") return "Tie — again";
-  return winnerName ? `${winnerName} wins` : "Decided";
 }
 
 /** The viewer's own seat and the other seat; a spectator is shown seat 0 against seat 1. */

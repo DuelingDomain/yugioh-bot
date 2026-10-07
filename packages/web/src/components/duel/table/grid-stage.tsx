@@ -147,6 +147,18 @@ export function pickBarRoom(pair: GridRect, targets: readonly GridRect[], others
 }
 
 /**
+ * A place for the pick bar in `pair` that covers none of `blocks` (cards and piles, targets or not), trying a narrower bar
+ * (it stacks its text and buttons) when the widest has none; empty zones may be covered. Undefined when no width is clear.
+ */
+export function clearBarRoom(pair: GridRect, blocks: readonly GridRect[], others: readonly GridRect[] = []): string | undefined {
+  for (const width of [PICK_BAR.max, ...DOCK_NARROW]) {
+    const best = planBarRoom(pair, blocks, others, width);
+    if (best && blocks.every((r) => overlap(best.box, { x: r.x - PICK_BAR.clear, y: r.y - PICK_BAR.clear, width: r.width + 2 * PICK_BAR.clear, height: r.height + 2 * PICK_BAR.clear }) === 0)) return [best.box.x, best.box.y, best.box.width, best.box.height].map(Math.round).join(",");
+  }
+  return undefined;
+}
+
+/**
  * The pick bar at rest: in the pair (pickBarRoom) where it is clear of every zone, else in the dock at the bottom of the
  * board box (dockBarRoom) when that is clear, else the pair room that covers the least.
  */
@@ -195,9 +207,9 @@ const DOCK_NARROW = [380, 340, 300];
 /** The thin margin under a docked bar when the usual one leaves no clear place. */
 const DOCK_THIN_EDGE = 4;
 
-function planBarRoom(pair: GridRect, targets: readonly GridRect[], others: readonly GridRect[]): { box: GridRect; cover: number; far: number } | null {
+function planBarRoom(pair: GridRect, targets: readonly GridRect[], others: readonly GridRect[], maxWidth: number = PICK_BAR.max): { box: GridRect; cover: number; far: number } | null {
   if (pair.width <= 0 || pair.height <= 0) return null;
-  const width = Math.min(PICK_BAR.max, pair.width - 2 * PICK_BAR.edge);
+  const width = Math.min(maxWidth, pair.width - 2 * PICK_BAR.edge);
   if (width < 200) return null;
   const height = Math.min(width < PICK_BAR.row ? PICK_BAR.stackHeight : PICK_BAR.rowHeight, pair.height - 2 * PICK_BAR.edge);
   const blocks = targets
@@ -326,26 +338,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
   const { focus } = focusControl;
   const focusCell = focus.seat != null ? cells.find((cell) => cell.seat === focus.seat) ?? null : null;
 
-  // A seat pick shows every life plate (they are the targets, with their keys), so the camera steps back for it and
-  // returns to the field it left when the pick is over.
-  const picking = picks != null;
-  const resume = useRef<number | null>(null);
-  const live = useRef({ seat: focus.seat, control: focusControl });
-  live.current = { seat: focus.seat, control: focusControl };
-  // A layout effect: the step back to all fields lands in the frame the pick opens, with no frame of the old focus.
-  useLayoutEffect(() => {
-    const { seat, control } = live.current;
-    if (picking) {
-      if (seat != null) {
-        resume.current = seat;
-        control.showAll();
-      }
-    } else if (resume.current != null) {
-      const back = resume.current;
-      resume.current = null;
-      if (seat == null) control.focusSeat(back);
-    }
-  }, [picking]);
+  // A seat pick never moves the view: every life plate is a target (glow and key), and the turn strip lists them too.
 
   // The final layout, once. The fields get real sizes from it (never a zoom); a change of focus only FLIPs between two layouts.
   // Only a seat in the duel draws a field: one that is out crumbles (see `useSeatExits`) and leaves an outline.
