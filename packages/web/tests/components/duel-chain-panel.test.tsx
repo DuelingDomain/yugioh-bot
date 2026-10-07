@@ -246,6 +246,10 @@ describe("one effect", () => {
     flush(60);
     const row = (n: number) => container.querySelector(`[data-chain-panel] button[data-chain-row="${n}"]`) as HTMLButtonElement;
     expect(row(1).tagName).toBe("BUTTON");
+    // The column sits in an aria-hidden dock: its buttons stay out of the tab order, and the hidden screen reader list holds every link and its effect.
+    expect(row(1).tabIndex).toBe(-1);
+    expect(container.querySelector("[data-chain-panel]")?.closest('[aria-hidden="true"]')).not.toBeNull();
+    expect(container.querySelector('[data-chain-sr-link="2"]')?.textContent).toContain("Negate the activation.");
     expect(row(1).getAttribute("aria-pressed")).toBe("false");
     act(() => { fireEvent.click(row(1)); });
     expect(row(1).getAttribute("aria-pressed")).toBe("true");
