@@ -759,9 +759,16 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       const newSeat = (seat: number) => order.indexOf(seat);
       // Park every row above the public range, then place it without primary key collisions.
       // Player, bot, ready and deck fields all remain on the same row.
-      db.prepare("update duel_seats set seat = seat + ? where duel_id = ?").run(order.length, duelId);
+      const parked = db.prepare("update duel_seats set seat = seat + ? where duel_id = ?").run(order.length, duelId);
+      if (parked.changes !== order.length) throw new DuelServiceError("Dice seat move did not park every seat", 500);
       const move = db.prepare("update duel_seats set seat = ? where duel_id = ? and seat = ?");
-      order.forEach((lobbySeat, seat) => move.run(seat, duelId, lobbySeat + order.length));
+      let moved = 0;
+      order.forEach((lobbySeat, seat) => {
+        const result = move.run(seat, duelId, lobbySeat + order.length);
+        if (result.changes !== 1) throw new DuelServiceError("Dice seat move did not change exactly one row", 500);
+        moved += result.changes;
+      });
+      if (moved !== order.length) throw new DuelServiceError("Dice seat move did not place every seat", 500);
       const clock = rowClock(row);
       if (clock) updateClock.run(serializeClock({
         ...clock, remainingMs: order.map((seat) => clock.remainingMs[seat]!),

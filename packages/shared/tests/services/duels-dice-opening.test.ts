@@ -100,6 +100,21 @@ describe("FFA opening seat move", () => {
     expect(t.duels.openingState(t.slug, "g")).toEqual(initial);
   });
 
+  it.each(["parking", "placement"])("rolls back seats, clock, setup and opening when %s silently skips a row", (step) => {
+    const t = table();
+    t.duels.setClock(t.slug, "g", { turn: 1, remainingMs: [1000, 2000, 3000, 4000], activeSeat: 3, startedAt: 100 });
+    t.duels.setSetup(t.slug, "g", { botPolicies: { "2": "scripted" }, surrenderedSeats: [1] });
+    t.duels.startOpening(t.slug, "g", t.players[0]!, 1000);
+    const before = t.duels.privateState(t.slug, "g");
+    const initial = t.duels.openingState(t.slug, "g");
+    t.db.exec(`create trigger skip_seat_move before update of seat on duel_seats
+      when ${step === "parking" ? "old.seat = 0 and new.seat >= 4" : "new.seat = 3"}
+      begin select raise(ignore); end`);
+    expect(() => t.duels.settleOpening(t.slug, "g", 4000)).toThrow(/Dice seat move/);
+    expect(t.duels.privateState(t.slug, "g")).toEqual(before);
+    expect(t.duels.openingState(t.slug, "g")).toEqual(initial);
+  });
+
   it("requires the organizer and rejects Tag openings", () => {
     const t = table();
     expect(() => t.duels.startOpening(t.slug, "g", t.players[1]!, 0)).toThrow(/organizer/);
