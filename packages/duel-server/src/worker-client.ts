@@ -1,14 +1,16 @@
 import type { SandboxEngineSnapshot } from "./sandbox-snapshot.js";
+import type { DuelScriptError } from "./script-errors.js";
 import { Worker } from "node:worker_threads";
 import type { PromptTraceEntry } from "./prompt-trace.js";
 import type { EngineCoreInfo, EngineDiagnostic, EngineStartupScript } from "./engine.js";
 import type { DuelWorkerResponse } from "./worker-protocol.js";
 import { EngineAnswerError } from "./prompts.js";
-import type { DuelAnswer, DuelCardInfo, DuelChainMode, DuelDeck, DuelEngineChoice, DuelEngineView, DuelFormat, DuelMasterRule, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
+import type { DuelAnswer, DuelCardInfo, DuelChainMode, DuelDeck, DuelEngineChoice, DuelEngineView, DuelFormat, DuelMasterRule, DuelMode, DuelSettings, DuelScriptErrorMode } from "@yugidraft/shared/duels";
 
 const PROMPT_LOG_LIMIT = 5_000;
 
 export interface GameOptions {
+  scriptErrorMode?: DuelScriptErrorMode;
   mode: DuelMode;
   decks: DuelDeck[];
   seed: string[];
@@ -74,7 +76,7 @@ export class GameWorker implements DuelGameWorker {
   /** Index of the oldest prompt in the ring. Writes never shift the retained entries. */
   private promptStart = 0;
 
-  constructor() {
+  constructor(onScriptError?: (error: DuelScriptError) => void) {
     const development = import.meta.url.endsWith(".ts");
     const module = new URL(development ? "./worker.ts" : "./worker.js", import.meta.url);
     this.worker = development
@@ -82,6 +84,7 @@ export class GameWorker implements DuelGameWorker {
       : new Worker(module);
     this.worker.on("message", (message: DuelWorkerResponse) => {
       if (this.stopped) return;
+      for (const error of message.scriptErrors ?? []) onScriptError?.(error);
       if (message.ok && message.info) this.info = message.info;
       if (message.ok && message.promptTrace) {
         const latest = this.prompts[(this.promptStart + this.prompts.length - 1) % PROMPT_LOG_LIMIT];
@@ -97,7 +100,7 @@ export class GameWorker implements DuelGameWorker {
       if (!request) return;
       this.pending.delete(message.id);
       if (message.ok) request.resolve(message.value);
-      else request.reject(message.code
+      else request.reject(message.answerError || message.code
         ? new EngineAnswerError(message.error, message.code)
         : new Error(message.error ?? "Engine rejected the request"));
     });

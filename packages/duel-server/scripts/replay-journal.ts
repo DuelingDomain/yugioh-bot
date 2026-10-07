@@ -26,6 +26,7 @@ import { parseJournalText } from "./lib/journal-file.js";
 import { join } from "node:path";
 import { isDuelFormat, legacyDuelSettings, normalizeDuelSettings, seatCountFor, type DuelAnswer, type DuelDeck, type DuelFormat, type DuelMasterRule, type DuelMode } from "@yugidraft/shared/duels";
 import { engineDataDirectory } from "../tests/fuzz/config.js";
+import { createLegacyEngineGame } from "../src/legacy/index.js";
 import { createEngineGame } from "../src/engine.js";
 import { applyJournaledCommand, isPromptlessCommand } from "../src/journal-command.js";
 import { activeMultiScriptsHash, pinnedEngineVersion } from "../src/multi-scripts.js";
@@ -46,7 +47,7 @@ interface JournalFile {
   decks: Array<DuelDeck | null>;
   /** Lua chunks that ran before the duel started (presets). A report writes them with names; an E2E journal keeps only the texts in `setup`. */
   startupScripts?: Array<{ name: string; content: string }>;
-  setup?: { startupScripts?: string[]; firstTurnDraw?: boolean } | null;
+  setup?: { startupScripts?: string[]; firstTurnDraw?: boolean; scriptErrorMode?: "tolerant" | "strict"; engine?: "legacy" | "pinned" } | null;
   wasmSha?: string | null;
   wasmFile?: string | null;
   commands: Array<{ seq?: number; seat: number; command: { promptId: string; revision: number; answer: DuelAnswer } }>;
@@ -92,9 +93,12 @@ const startupScripts = journal.startupScripts ?? (journal.setup?.startupScripts 
 if (journal.wasmSha) log(`journal core: ${journal.wasmFile ?? "(unnamed)"} sha256 ${journal.wasmSha}`);
 
 const stopAt = arg("stop-at") === undefined ? journal.commands.length : Math.min(Number(arg("stop-at")), journal.commands.length);
-const game = await createEngineGame({
+const engine = journal.setup?.engine ?? (startupScripts.length ? "pinned" : "legacy");
+const createGame = format === "1v1" && engine === "legacy" && !wasmBinary ? createLegacyEngineGame : createEngineGame;
+const game = await createGame({
   firstTurnDraw: savedFirstTurnDraw(journal.setup?.firstTurnDraw, journal.mode, journal.masterRule, format),
   mode: journal.mode,
+  scriptErrorMode: journal.setup?.scriptErrorMode ?? "tolerant",
   masterRule: journal.masterRule,
   ...(format !== "1v1" ? { format } : {}),
   ...(wasmBinary ? (seatCountFor(format) > 2 ? { multiWasmBinary: wasmBinary } : { standardWasmBinary: wasmBinary }) : {}),
