@@ -537,16 +537,20 @@ export function PoolBrowser(props: PoolBrowserProps) {
   const mainSummary = React.useMemo(() => summarize(mainEntries), [mainEntries]);
   const extraSummary = React.useMemo(() => summarize(extraEntries), [extraEntries]);
 
+  const { onLaneChange } = props;
   const setLane = React.useCallback(
     (next: PoolLaneView) => {
       setLaneState(next);
       setFilters((f) => (f.chip !== "all" && !chipGroups(next).includes(f.chip) ? { ...f, chip: "all" } : f));
-      props.onLaneChange?.(next);
+      onLaneChange?.(next);
     },
-    [props],
+    [onLaneChange],
   );
 
-  const chipEntries = view === "main" ? mainEntries : view === "extra" ? extraEntries : [...mainEntries, ...extraEntries];
+  const chipEntries = React.useMemo(
+    () => (view === "main" ? mainEntries : view === "extra" ? extraEntries : [...mainEntries, ...extraEntries]),
+    [view, mainEntries, extraEntries],
+  );
   const tally = React.useMemo(() => tallyGroups(chipEntries), [chipEntries]);
   const chips = chipGroups(view);
   const chipTotal = chips.reduce((n, g) => n + tally[g], 0);
