@@ -19,11 +19,13 @@ const tempDirs: string[] = [];
 describe("report route notifies opponent", () => {
   beforeEach(() => {
     vi.resetModules();
+    vi.stubEnv("DISCORD_BOT_ENABLED", "1");
     auth.mockReset();
     announcer.announce.mockClear();
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-a")), discordUserId: fixtureDiscordId("u-a"), name: "Alice" } });
   });
   afterEach(() => {
+    vi.unstubAllEnvs();
     delete process.env.DATABASE_PATH;
     delete process.env.DISCORD_GUILD_ID;
     while (tempDirs.length) {

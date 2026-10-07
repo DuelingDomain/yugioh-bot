@@ -16,6 +16,7 @@ export async function POST(
   _request: Request,
   { params }: { params: Promise<{ slug: string }> }
 ) {
+  if (!env.discordBotEnabled) return NextResponse.json({ error: "discord_disabled" }, { status: 404 });
   try {
     const actor = await requireWebAccess();
     if (!actor.ok) return actor.response;

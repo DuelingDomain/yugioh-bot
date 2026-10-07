@@ -1,7 +1,8 @@
 import { isDuelFormat, MULTI_CORE_UNAVAILABLE_MESSAGE, multiDomainBlockReason, multiplayerTablesBlockReason, multiplayerTablesEnabled, type DuelTableCapabilities } from "@yugidraft/shared/duels";
 import { NextRequest, NextResponse } from "next/server";
 import { createDuelSeriesService } from "@yugidraft/shared/services";
-import { sendDuelInvite } from "@/lib/announce-bot";
+import { env } from "@/lib/env";
+import { duelUrl, sendDuelInvite } from "@/lib/announce-bot";
 import { getDb } from "@/lib/db";
 import { callDuelHost, duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
 import { notifyDuelChange } from "@/lib/notify-duel";
@@ -106,31 +107,31 @@ export async function POST(request: NextRequest) {
         name: name || undefined,
       });
       await notifyDuelChange(duel.slug, actor.guildId).catch(() => undefined);
-      // True only when the bot accepted the invite; the challenger copies the link when it did not.
-      let notified = false;
-      try {
-        const db = getDb();
-        const opponent = playerIdentity(db, opponentPlayerId as number);
-        const challenger = playerIdentity(db, actor.playerId);
-        if (opponent?.discordUserId) {
-          notified = await sendDuelInvite(
-            {
-              slug: duel.slug,
-              guildId: actor.guildId,
-              opponentDiscordUserId: opponent.discordUserId,
-              challengerName: challenger?.displayName ?? "A player",
-              duelName: duel.name,
-              bestOf: series.bestOf,
-              ranked: series.ranked,
-              tournamentName: null,
-            },
-            request,
-          );
+      if (env.discordBotEnabled) {
+        try {
+          const db = getDb();
+          const opponent = playerIdentity(db, opponentPlayerId as number);
+          const challenger = playerIdentity(db, actor.playerId);
+          if (opponent?.discordUserId) {
+            await sendDuelInvite(
+              {
+                slug: duel.slug,
+                guildId: actor.guildId,
+                opponentDiscordUserId: opponent.discordUserId,
+                challengerName: challenger?.displayName ?? "A player",
+                duelName: duel.name,
+                bestOf: series.bestOf,
+                ranked: series.ranked,
+                tournamentName: null,
+              },
+              request,
+            );
+          }
+        } catch (error) {
+          console.warn("[api/duels] duel invite failed", error);
         }
-      } catch (error) {
-        console.warn("[api/duels] duel invite failed", error);
       }
-      return NextResponse.json({ session: duel, series, notified }, { status: 201 });
+      return NextResponse.json({ session: duel, series, shareUrl: duelUrl(duel.slug, request) }, { status: 201 });
     }
 
     const session = actor.duels.create({
@@ -149,7 +150,7 @@ export async function POST(request: NextRequest) {
     } catch {
       // Create already committed.
     }
-    return NextResponse.json({ session }, { status: 201 });
+    return NextResponse.json({ session, shareUrl: duelUrl(session.slug, request) }, { status: 201 });
   } catch (error) {
     return duelErrorResponse(error);
   }

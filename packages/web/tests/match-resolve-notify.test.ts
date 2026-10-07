@@ -38,11 +38,13 @@ function scenario() {
 describe("approve/deny emit match-resolved", () => {
   beforeEach(() => {
     vi.resetModules();
+    vi.stubEnv("DISCORD_BOT_ENABLED", "1");
     auth.mockReset();
     announcer.announce.mockClear();
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-b")), discordUserId: fixtureDiscordId("u-b"), name: "B" } }); // opponent resolves
   });
   afterEach(() => {
+    vi.unstubAllEnvs();
     delete process.env.DATABASE_PATH;
     delete process.env.DISCORD_GUILD_ID;
     while (tempDirs.length) { const d = tempDirs.pop(); if (d) rmSync(d, { recursive: true, force: true }); }
