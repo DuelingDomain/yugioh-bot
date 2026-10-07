@@ -423,3 +423,28 @@ describe("the 3-way face-off has one view", () => {
     expect(run(HOME, { type: "overview" }).mode).toBe("fly");
   });
 });
+
+describe("3-way enlarge: the viewer's click on a field", () => {
+  it("enlarges the field, and the same field again goes home", () => {
+    const rival = run(HOME, { type: "enlarge", seat: 1 });
+    expect(rival).toMatchObject({ mode: "focus", focusSeat: 1 });
+    expect(run(rival, { type: "enlarge", seat: 2 })).toMatchObject({ mode: "focus", focusSeat: 2 });
+    expect(run(rival, { type: "enlarge", seat: 1 })).toMatchObject({ mode: "home", focusSeat: null });
+    const own = run(HOME, { type: "enlarge", seat: 0 });
+    expect(own).toMatchObject({ mode: "focus", focusSeat: 0 });
+    expect(run(own, { type: "enlarge", seat: 0 })).toMatchObject({ mode: "home" });
+  });
+
+  it("ignores a seat that is out, an unknown seat, and any table that is not a 3-way", () => {
+    expect(run(HOME, { type: "enlarge", seat: 1 }, L3, [1])).toBe(HOME);
+    expect(run(HOME, { type: "enlarge", seat: 9 })).toBe(HOME);
+    expect(run(initialCamera(L4), { type: "enlarge", seat: 1 }, L4)).toMatchObject({ mode: "home" });
+  });
+
+  it("E toggles your own field and Esc goes back from an enlarged field", () => {
+    expect(cameraActionForKey({ key: "e", shiftKey: false }, L3, HOME)).toEqual({ type: "enlarge", seat: 0 });
+    expect(cameraActionForKey({ key: "Escape", shiftKey: false }, L3, run(HOME, { type: "enlarge", seat: 1 }))).toEqual({ type: "home" });
+    expect(cameraActionForKey({ key: "Escape", shiftKey: false }, L3, HOME)).toBeNull();
+    expect(cameraActionForKey({ key: "e", shiftKey: false }, L4, initialCamera(L4))).toBeNull();
+  });
+});

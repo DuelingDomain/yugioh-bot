@@ -72,9 +72,9 @@ export function isFaceOff(layout: TableLayout, out: readonly number[] | Readonly
   return layout.slots.filter((slot) => !gone.has(slot.seat)).length <= 2;
 }
 
-const FACE_OFF_VIEWS = new Set<CameraAction["type"]>(["overview", "focus", "focusStep", "look", "toggleFly", "flyTo"]);
+const FACE_OFF_VIEWS = new Set<CameraAction["type"]>(["overview", "focus", "enlarge", "focusStep", "look", "toggleFly", "flyTo"]);
 
-const MOVES = new Set<CameraAction["type"]>(["home", "overview", "focus", "focusStep", "look", "toggleFly", "flyTo", "orbit", "zoom"]);
+const MOVES = new Set<CameraAction["type"]>(["home", "overview", "focus", "enlarge", "focusStep", "look", "toggleFly", "flyTo", "orbit", "zoom"]);
 
 export function cameraReducer(state: CameraState, action: CameraAction, layout: TableLayout, ctx?: CameraContext): CameraState {
   const { anchor, known, out, rivals } = seatsOf(layout, ctx);
@@ -97,6 +97,13 @@ export function cameraReducer(state: CameraState, action: CameraAction, layout: 
     case "focus": {
       if (action.seat === anchor) return move(state, HOME_VIEW);
       if (!known.has(action.seat) || out.has(action.seat)) return state;
+      return move(state, { mode: "focus", focusSeat: action.seat });
+    }
+    case "enlarge": {
+      // The one viewer action of the 3-way plaza: a click or Enter on a field. The same field again goes home.
+      if (layout.format !== "ffa3") return state;
+      if (!known.has(action.seat) || out.has(action.seat)) return state;
+      if (state.mode === "focus" && state.focusSeat === action.seat) return move(state, HOME_VIEW);
       return move(state, { mode: "focus", focusSeat: action.seat });
     }
     case "focusStep": {
@@ -211,6 +218,9 @@ export function cameraActionForKey(
       return { type: "toggleFly" };
     case "s":
       return { type: "toggleUpright" };
+    case "e":
+      // 3-way: enlarge your own field, or go back from it. The reducer ignores it on any other table.
+      return layout.format === "ffa3" ? { type: "enlarge", seat: layout.anchorSeat } : null;
     case "p": {
       const { rivals } = seatsOf(layout, ctx);
       if (rivals.length === 0) return null;
@@ -219,6 +229,7 @@ export function cameraActionForKey(
       return { type: "look", seat: at + 1 < rivals.length ? rivals[at + 1] : null };
     }
     case "Escape":
+      if (camera.mode === "focus") return { type: "home" };
       return camera.mode === "fly" && (camera.fly.targetSeat != null || camera.fly.free === true) ? { type: "overview" } : null;
     default:
   }

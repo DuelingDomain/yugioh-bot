@@ -110,6 +110,8 @@ export function useCamera({ controller, layout, initial, initialLock = null, sea
       // The rail and the drawer are ordinary controls: Tab walks through them, Space presses a button, and no key drives the camera from there.
       if (target?.closest?.("[data-table-chrome]")) return;
       if (/^[1-9]$/.test(event.key) && keyRef.current.seatKeys) return;
+      // Esc belongs to what is open first (a card menu, a flyout, a pile, the chain details): only a bare table goes back.
+      if (event.key === "Escape" && (event.defaultPrevented || document.querySelector("[role='dialog']:not([hidden]), [role='menu']:not([hidden])"))) return;
       const action = cameraActionForKey(event, env.current.layout, keyRef.current.state, env.current.ctx);
       if (!action) return;
       if (event.key === "Tab" || event.key === " " || event.key === "s" || event.key === "S") event.preventDefault();

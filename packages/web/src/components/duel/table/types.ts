@@ -85,6 +85,8 @@ export type CameraAction =
   | { type: "home" }
   | { type: "overview" }
   | { type: "focus"; seat: number }
+  /** A click on a field of a 3-way table: that field is shown larger; a second click on it goes home. */
+  | { type: "enlarge"; seat: number }
   | { type: "focusStep"; dir: 1 | -1 }
   | { type: "look"; seat: number | null }
   | { type: "toggleFly" }

@@ -168,6 +168,14 @@ function homeTable(format: TableFormat): readonly HomeSlot[] {
 
 type CameraView = Pick<CameraState, "mode"> & Partial<Pick<CameraState, "focusSeat" | "lookSeat" | "compact">>;
 
+/** The viewer clicked their own field on a 3-way table (all three seats alive): it is shown larger, the rivals dock. */
+export function isOwnFocus(layout: Pick<TableLayout, "format" | "arrangement" | "anchorSeat" | "slots">, camera: CameraView): boolean {
+  return camera.mode === "focus" && camera.focusSeat != null && camera.focusSeat === layout.anchorSeat && arrangementOf(layout) === "ffa3" && layout.slots.length === 3;
+}
+
+/** Your own field enlarged (3-way): its size and place, and the place of the two docked rivals above it. */
+const OWN_FOCUS = { scale: 1.2, y: 560, dockY: 200, ring: { x: 550, y: 150, scale: 0.9 }, hub: { x: 550, y: 288 } } as const;
+
 /**
  * The place of every seat of a 3 or 4 seat table, by drawing order (viewer first). Null for Tag, which has no
  * named places yet. Home: you at the bottom, the next seat after you up-left (3-way) or west (4-way), and so on
@@ -191,6 +199,8 @@ export function slotPlan(layout: TableLayout, camera: CameraView): PoseSlot[] | 
   if (camera.mode === "overview" || camera.mode === "fly") return four ? ["oHome", "oL", "oN", "oR"] : ["oHome", "oL", "oR"];
   if (camera.mode === "focus") {
     const place = seatAt(camera.focusSeat);
+    // 3-way: your own field enlarged. Both rivals dock at the sides and the stage above your field is free.
+    if (place === 0 && isOwnFocus(layout, camera)) return ["home", "dockL", "dockR"];
     if (place > 0) {
       const plan: PoseSlot[] = ["home"];
       const docks: PoseSlot[] = ["dockL", "dockR"];
@@ -228,9 +238,12 @@ export function seatPoses(
   const duo = arrangementOf(layout) === "duo" && camera.mode !== "fly" && viewport ? duoFinaleSlots(stageSpread(viewport)) : null;
   const wide = duo ?? (viewport && arrangementOf(layout) !== "duo" ? wideHomeSlots(layout.format, stageSpread(viewport), plazaView(viewport)) : null);
   const poses = new Map<number, SeatPose>();
+  const ownFocus = isOwnFocus(layout, camera);
   layout.slots.forEach((slot, place) => {
     const name = plan?.[place];
-    const at = name ? (wide?.[name] ?? table[name]) : home[Math.min(place, home.length - 1)];
+    let at = name ? (wide?.[name] ?? table[name]) : home[Math.min(place, home.length - 1)];
+    if (ownFocus && name === "home") at = { ...at, scale: OWN_FOCUS.scale, y: OWN_FOCUS.y };
+    else if (ownFocus && (name === "dockL" || name === "dockR")) at = { ...at, y: OWN_FOCUS.dockY };
     poses.set(slot.seat, {
       seat: slot.seat,
       x: at.x,
@@ -937,6 +950,7 @@ export function ringPose(layout: TableLayout, camera: CameraView, spread = 0): {
   if (camera.mode === "fly") return { x: 550, y: 430, scale: 1 };
   if (camera.mode === "overview") return { x: 550, y: 98, scale: 0.9 };
   if (camera.mode === "focus") {
+    if (isOwnFocus(layout, camera)) return OWN_FOCUS.ring;
     // Beside the docked rival's far side, so it never covers that field.
     const place = layout.slots.findIndex((slot) => slot.seat === camera.focusSeat);
     return { x: place === 2 ? 950 : 150, y: 404, scale: 0.62 };
@@ -1142,7 +1156,7 @@ function classicHubPose(layout: TableLayout, camera: CameraView): HubPose {
   } else if (camera.mode === "focus") {
     // Above the small ring beside the docked rival.
     size = "sm";
-    at = layout.slots.findIndex((slot) => slot.seat === camera.focusSeat) === 2 ? { x: 952, y: 326 } : { x: 109, y: 326 };
+    at = isOwnFocus(layout, camera) ? OWN_FOCUS.hub : layout.slots.findIndex((slot) => slot.seat === camera.focusSeat) === 2 ? { x: 952, y: 326 } : { x: 109, y: 326 };
   } else {
     // Home, look and fly: the seats close in on the ring from every side, so the strip stands in the open stage right
     // of your own field, level with its top half and above your LP plate.

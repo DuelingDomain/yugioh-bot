@@ -395,6 +395,7 @@ export function PileSlot({
       className={styles.zone}
       data-zones={keys.join(" ")}
       data-kind={kind}
+      data-pile="true"
       data-legal={legal ? "true" : "false"}
       data-selected={selected ? "true" : "false"}
       data-occupied={count > 0 ? "true" : "false"}

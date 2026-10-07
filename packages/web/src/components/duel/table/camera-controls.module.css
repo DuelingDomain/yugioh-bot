@@ -172,6 +172,25 @@
   text-transform: uppercase;
 }
 
+/* The chip takes no pointer input, except the way back from an enlarged field. */
+.back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 9px;
+  border: 1px solid rgb(155 126 255 / 0.55);
+  border-radius: 999px;
+  background: rgb(155 126 255 / 0.16);
+  color: #d9ccff;
+  font: inherit;
+  font-size: calc(12px * var(--tt, 1));
+  font-weight: 600;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.back:hover { background: rgb(155 126 255 / 0.3); }
+.back:focus-visible { outline: 2px solid #c6b6ff; outline-offset: 2px; }
+
 .lock {
   display: none;
   align-items: center;
@@ -376,6 +395,7 @@
 .chip {
   pointer-events: none;
 }
+.chip .back { pointer-events: auto; }
 
 /* The wide table's rail owns the toggle: with it the panel is only the grid, and it opens beside the rail. */
 .panel[data-side="left"] {

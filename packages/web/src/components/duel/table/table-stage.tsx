@@ -333,16 +333,25 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
   const promptSeat = controller.prompt?.seat ?? null;
   const flyYaw = fly ? world.yawDeg : 0;
 
+  const plaza3 = layout.format === "ffa3" && layout.slots.length === 3;
+
   const onSeatClick = (event: MouseEvent<HTMLDivElement>) => {
     const target = event.target as Element | null;
     const slot = target?.closest?.("[data-seat-slot]");
-    if (!slot || target?.closest?.(CLICK_PASS)) return;
+    if (!slot) return;
+    // 3-way: a plain card or empty zone (nothing to pick there; piles open their own list) is part of the field, so a click on it enlarges the field too. Its own handler still runs.
+    const zone = target?.closest?.("[data-zones]");
+    const plainZone = plaza3 && zone != null && zone.getAttribute("data-legal") !== "true" && zone.getAttribute("data-selected") !== "true" && !target?.closest?.("[data-duel-menu], [data-holo], a") && zone.getAttribute("data-pile") !== "true";
+    if (target?.closest?.(CLICK_PASS) && !plainZone) return;
     const seat = Number(slot.getAttribute("data-seat-slot"));
     if (!Number.isInteger(seat) || out.includes(seat)) return;
     if (fly) {
       dispatchCamera({ type: "flyTo", seat });
-    } else if (seat !== layout.anchorSeat && !(camera.mode === "focus" && camera.focusSeat === seat) && !(looking && camera.lookSeat === seat)) {
-      dispatchCamera({ type: "focus", seat });
+    } else if (!plaza3) {
+      if (seat !== layout.anchorSeat && !(camera.mode === "focus" && camera.focusSeat === seat) && !(looking && camera.lookSeat === seat)) dispatchCamera({ type: "focus", seat });
+    } else if (!(looking && camera.lookSeat === seat)) {
+      // A click on a field enlarges it; a click on the enlarged field goes back. This and the keys are the only moves.
+      dispatchCamera({ type: "enlarge", seat });
     }
   };
 
@@ -462,7 +471,11 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
                   onInspect: controller.onInspect,
                   onHoverCard: controller.onHoverCard,
                 };
-                return <RivalField key={slot.seat} pose={pose} field={field} render={renderSeatField} angleOffsetDeg={flyYaw} glide={gliding && regroup} />;
+                const enlarged = camera.mode === "focus" && camera.focusSeat === slot.seat;
+                const reach = plaza3 && !fly && !locked && !out.includes(slot.seat)
+                  ? { label: `${nameOf(slot.seat)}${slot.seat === layout.anchorSeat ? " (you)" : ""}'s field`, onToggle: () => dispatchCamera({ type: "enlarge", seat: slot.seat }) }
+                  : undefined;
+                return <RivalField key={slot.seat} pose={pose} field={field} render={renderSeatField} angleOffsetDeg={flyYaw} glide={gliding && regroup} enlarged={enlarged} reach={reach} />;
               })}
             </div>
           </div>

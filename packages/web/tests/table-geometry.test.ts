@@ -201,9 +201,17 @@ describe("3-way camera places", () => {
     expect(poses.get(0)?.slot).toBe("home");
   });
 
-  it("focus with no seat, or on you, stays at home", () => {
+  it("focus with no seat stays at home", () => {
     expect(slots({ mode: "focus", focusSeat: null })).toEqual(["home", "vL", "vR"]);
-    expect(slots({ mode: "focus", focusSeat: 0 })).toEqual(["home", "vL", "vR"]);
+  });
+
+  it("focus on you enlarges your field and docks both rivals above it", () => {
+    expect(slots({ mode: "focus", focusSeat: 0 })).toEqual(["home", "dockL", "dockR"]);
+    const poses = seatPoses(layout, camera({ mode: "focus", focusSeat: 0 }));
+    const home = seatPoses(layout, camera());
+    expect(poses.get(0)!.scale).toBeGreaterThan(home.get(0)!.scale);
+    expect(poses.get(1)).toMatchObject({ docked: true });
+    expect(poses.get(2)).toMatchObject({ docked: true });
   });
 
   it("look turns the table so the rival you look from takes the home place", () => {

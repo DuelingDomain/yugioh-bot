@@ -146,3 +146,66 @@ describe("the focused field only changes when the viewer asks", () => {
     expect(chip(container)).toBe("Home");
   });
 });
+
+describe("3-way: a click on a field enlarges it, and nothing else does", () => {
+  const seatBox = (root: HTMLElement, seat: number) => root.querySelector<HTMLElement>(`[data-seat-slot='${seat}']`)!;
+
+  it("a click enlarges a rival or your own field; the same click again goes back", () => {
+    const { container } = render(<Table state={variant(() => {})} />);
+    fireEvent.click(seatBox(container, RYO));
+    expect(chip(container)).toBe("Focus · Ryo Sato");
+    expect(seatBox(container, RYO).getAttribute("data-enlarged")).toBe("true");
+    fireEvent.click(seatBox(container, REN));
+    expect(chip(container)).toBe("Focus · Ren Arata");
+    expect(seatBox(container, REN).getAttribute("data-enlarged")).toBe("true");
+    expect(seatBox(container, RYO).getAttribute("data-enlarged")).toBeNull();
+    fireEvent.click(seatBox(container, REN));
+    expect(chip(container)).toBe("Home");
+  });
+
+  it("a click on a plain zone of a field enlarges it, but a pile button only opens the pile", () => {
+    const { container } = render(<Table state={variant(() => {})} />);
+    const zone = seatBox(container, RYO).querySelector<HTMLElement>("[data-zones]:not([data-pile]):not([data-legal='true']) button")!;
+    fireEvent.click(zone);
+    expect(chip(container)).toBe("Focus · Ryo Sato");
+    fireEvent.click(container.querySelector("[data-camera-back]")!);
+    fireEvent.click(seatBox(container, MIKA).querySelector<HTMLElement>("[data-pile] button")!);
+    expect(chip(container)).toBe("Home");
+  });
+
+  it("Esc and the Back button return to the normal layout", () => {
+    const { container } = render(<Table state={variant(() => {})} />);
+    fireEvent.click(seatBox(container, MIKA));
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(chip(container)).toBe("Home");
+    fireEvent.click(seatBox(container, MIKA));
+    fireEvent.click(container.querySelector("[data-camera-back]")!);
+    expect(chip(container)).toBe("Home");
+    expect(container.querySelector("[data-camera-back]")).toBeNull();
+  });
+
+  it("a seat box is a keyboard stop: Enter enlarges it and Enter again goes back", () => {
+    const { container } = render(<Table state={variant(() => {})} />);
+    const box = seatBox(container, RYO);
+    expect(box.getAttribute("tabindex")).toBe("0");
+    expect(box.getAttribute("aria-label")).toContain("Ryo Sato");
+    fireEvent.keyDown(box, { key: "Enter" });
+    expect(chip(container)).toBe("Focus · Ryo Sato");
+    fireEvent.keyDown(seatBox(container, RYO), { key: " " });
+    expect(chip(container)).toBe("Home");
+  });
+
+  it("an enlarged field stays enlarged through an attack, a chain and a new turn", () => {
+    const { container, rerender } = render(<Table state={variant(() => {})} />);
+    fireEvent.click(seatBox(container, MIKA));
+    for (const patch of [
+      (engine: NonNullable<TableFixtureState["room"]["engine"]>) => { engine.events = [...engine.events, ev(910, "attack")]; },
+      (engine: NonNullable<TableFixtureState["room"]["engine"]>) => { engine.turn += 1; engine.turnSeat = RYO; },
+      onlyOn(REN),
+    ]) {
+      rerender(<Table state={variant(patch)} />);
+      advance(3000);
+      expect(chip(container)).toBe("Focus · Mika Hana");
+    }
+  });
+});

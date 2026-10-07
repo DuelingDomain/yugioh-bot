@@ -104,7 +104,9 @@ export function CameraControls({ layout, camera, locked, hint = null, nameOf, di
   const flyOn = camera.mode === "fly";
   const flyReady = camera.flyIn !== false;
   const label = cameraLabel(camera, nameOf, layout.anchorSeat);
-  const keysHint = faceOff ? "" : flyOn ? "Drag · wheel · 1-3 · Esc" : "Tab focus · P look · 0 overview";
+  const plaza = layout.format === "ffa3" && !faceOff;
+  const enlarged = plaza && camera.mode === "focus";
+  const keysHint = faceOff ? "" : flyOn ? "Drag · wheel · 1-3 · Esc" : enlarged ? "Click the field again · Esc back" : plaza ? "Click a field to enlarge · E yours · P look · 0 overview" : "Tab focus · P look · 0 overview";
 
   const showPanel = variant !== "stage";
   const showStage = variant !== "panel";
@@ -209,6 +211,11 @@ export function CameraControls({ layout, camera, locked, hint = null, nameOf, di
         <Focus size={13} aria-hidden="true" />
         <b>{label}</b>
         {keysHint ? <span className={styles.hint}>{keysHint}</span> : null}
+        {enlarged ? (
+          <button type="button" className={styles.back} data-camera-back disabled={locked} onClick={() => dispatch({ type: "home" })}>
+            Back <Key>Esc</Key>
+          </button>
+        ) : null}
         <span className={styles.lock}>
           <Lock size={11} aria-hidden="true" />
           Camera locked · FX
