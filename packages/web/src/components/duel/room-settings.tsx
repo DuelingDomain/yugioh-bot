@@ -124,11 +124,6 @@ function formatGain(ms: number): string {
   return seconds < 60 ? `+${seconds}s` : `+${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-/** A name that fits the HUD pill: long names are cut. The full name stays in the title and the accessible label. */
-function shortName(name: string): string {
-  return name.length > 10 ? `${name.slice(0, 9)}…` : name;
-}
-
 function formatClock(seconds: number): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
@@ -152,11 +147,10 @@ function carriedPops(key: string, count: number): (ClockPop | null)[] {
 
 // The parent keys this sampler by serverNow so each authoritative snapshot resets elapsed time.
 // `seats` limits it to some seats (3D mode shows one clock per cell); each choice keeps its own pop memory.
-// `compact` shows the answering seat's time only. `pill` (the floating HUD) shows every seat, each with a short name, so
-// a duelist reads the rival's time bank too and the pill is never empty between two answers.
 // `bank` is the top-left clock block: every seat (2 to 4) as a cell with the full name over big digits, the answering seat
-// marked, and a red look at 1:00 or less.
-export function DuelClockDisplay({ clock, session, reducedMotion = false, compact = false, pill = false, bank = false, seats }: { clock: DuelClock; session: DuelSession; reducedMotion?: boolean; compact?: boolean; pill?: boolean; bank?: boolean; seats?: readonly number[] }) {
+// marked, and a red look at 1:00 or less. `seatCode` adds a short seat code (Tag: 1A, 2A, 1B, 2B) that a narrow header shows
+// in place of the name. The plain form (one `seats` entry per 3D cell) shows a seat's name and time.
+export function DuelClockDisplay({ clock, session, reducedMotion = false, bank = false, seatCode, seats }: { clock: DuelClock; session: DuelSession; reducedMotion?: boolean; bank?: boolean; seatCode?: (seat: number) => string | null; seats?: readonly number[] }) {
   const memoryKey = seats ? `${session.slug}#${seats.join(",")}` : session.slug;
   const [elapsed, setElapsed] = useState(0);
   const [pops, setPops] = useState<(ClockPop | null)[]>(() => carriedPops(memoryKey, clock.remainingMs.length));
@@ -195,9 +189,11 @@ export function DuelClockDisplay({ clock, session, reducedMotion = false, compac
           const low = seconds <= LOW_CLOCK_MS / 1000;
           const name = session.seats.find((player) => player.seat === seat)?.displayName ?? `Player ${seat + 1}`;
           const pop = pops[seat];
+          const code = seatCode?.(seat) ?? null;
           return <span key={seat} className={clockStyles.cell} data-active={active} data-low={low ? "true" : undefined}
             data-motion={reducedMotion ? "off" : "on"} data-testid="clock-cell"
-            title={`${name}${active ? " · answering" : ""}${low ? " · under a minute" : ""}`} aria-label={`${name}: ${time}${active ? ", answering" : ""}`}>
+            title={`${name}${active ? " · answering" : ""}${low ? " · under a minute" : ""}`}>
+            {code ? <small className={clockStyles.code} aria-hidden>{code}</small> : null}
             <small className={clockStyles.name}>{name}</small>
             <span className={clockStyles.time}>{time}</span>
             {pop ? (
@@ -210,17 +206,16 @@ export function DuelClockDisplay({ clock, session, reducedMotion = false, compac
     );
   }
   return (
-    <div className={styles.clock} role="timer" aria-label="Decision clocks" aria-live="off" data-pill={pill ? "true" : undefined}>
+    <div className={styles.clock} role="timer" aria-label="Decision clocks" aria-live="off">
       {clock.remainingMs.map((remaining, seat) => {
         if (seats && !seats.includes(seat)) return null;
-        if (compact && clock.activeSeat !== seat) return null;
         const active = clock.activeSeat === seat && clock.startedAt != null;
         const seconds = Math.ceil(Math.max(0, remaining - (active ? Math.max(0, clock.serverNow + elapsed - clock.startedAt!) : 0)) / 1000);
         const time = formatClock(seconds);
         const name = session.seats.find((player) => player.seat === seat)?.displayName ?? `Player ${seat + 1}`;
         const pop = pops[seat];
         return <span key={seat} className={clockStyles.seat} data-active={active} title={`${name}${active ? " · answering" : ""}`} aria-label={`${name}: ${time}`}>
-          {compact ? null : <small>{pill ? shortName(name) : name}</small>} <span className={styles.clockTime}>{time}</span>
+          <small>{name}</small> <span className={styles.clockTime}>{time}</span>
           {pop ? (
             <span key={pop.id} className={clockStyles.pop} data-motion={reducedMotion ? "off" : "on"} aria-hidden
               style={{ "--pop-delay": `${pop.delay}ms` } as React.CSSProperties}>{pop.text}</span>

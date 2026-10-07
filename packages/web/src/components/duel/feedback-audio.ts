@@ -20,6 +20,8 @@ export type DuelSoundCue = DuelEventKind | DuelFxCue;
 
 export interface DuelFeedbackAudio {
   unlock: () => Promise<boolean>;
+  /** True once the audio context runs (a gesture unlocked it). Muted and zero volume still count as ready. */
+  ready: () => boolean;
   setMuted: (muted: boolean) => void;
   /** Master level 0..1, eased in so a slider drag does not click. Applies while unmuted. */
   setVolume: (volume: number) => void;
@@ -459,5 +461,5 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
     }
   }
 
-  return { unlock, setMuted, setVolume, play, playBattle, stopAll, dispose };
+  return { unlock, ready: () => unlocked, setMuted, setVolume, play, playBattle, stopAll, dispose };
 }

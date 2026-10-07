@@ -23,6 +23,7 @@ import { useIsNarrow } from "../side-panel";
 import { resolveBattleStep, StationTrack } from "../station-track";
 import { RowPreviewBoundary, useHudEscape, useHudPane, useRowPreview } from "../table/hud-layer";
 import { clockStrip, hudClockBank, stationTrackProps } from "../table/hud-shared";
+import { tagSeatCode } from "../table-format";
 import { OpponentBar } from "../table/opponent-bar";
 import { attackLockAt, toneBySeat } from "../table/seat-state";
 import { tableLayout } from "../table/geometry";
@@ -311,7 +312,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
         headerTools={headerTools}
         onExit={hasResult && resultReady ? () => actions?.onExit?.() : undefined}
         onShowResult={hasResult && hideResult ? () => setHideResult(false) : undefined}
-        hud={hud ? { baton: <TagBaton engine={engine} nameOf={nameOf} toneOf={toneOf} />, clock: hudClockBank(room.clock, session, controller.reducedMotion) } : undefined}
+        hud={hud ? { baton: <TagBaton engine={engine} nameOf={nameOf} toneOf={toneOf} />, clock: hudClockBank(room.clock, session, controller.reducedMotion, (seat) => tagSeatCode("tag", seat)) } : undefined}
       />
       {hud ? null : clockStrip(room.clock, session, controller.reducedMotion)}
       {room.series && !showResult ? (
@@ -422,13 +423,10 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
         </div>
       ) : (
         <TagTrack
-          session={session}
           engine={engine}
-          clock={null}
           nameOf={nameOf}
           prompt={prompt}
           toneOf={toneOf}
-          reducedMotion={controller.reducedMotion}
         >
           <StationTrack {...trackProps} clock={null} />
         </TagTrack>

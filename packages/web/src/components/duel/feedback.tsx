@@ -255,6 +255,8 @@ export function DuelFeedback({
     audioRef.current = audio;
     audio.setMuted(!soundRef.current);
     audio.setVolume(volumeRef.current);
+    // A player who already used the page does not need another click: after a remount the audio unlocks at once.
+    if (typeof navigator !== "undefined" && navigator.userActivation?.hasBeenActive) void audio.unlock();
 
     const onGesture = (event: Event) => {
       if (!event.isTrusted) return;
@@ -272,6 +274,11 @@ export function DuelFeedback({
       if (detail.cue === "battle") {
         if (detail.battle) audioRef.current?.playBattle(detail.battle);
         return;
+      }
+      if (detail.cue === "clock-low") {
+        // Taken only when the audio can play: otherwise the sender keeps the cue pending and tries again.
+        if (!audioRef.current?.ready()) return;
+        event.preventDefault();
       }
       audioRef.current?.play(detail.cue, detail.strength);
     };

@@ -86,7 +86,8 @@
   transform: translateY(-50%);
 }
 
-.name {
+.name,
+.code {
   max-width: 100%;
   min-width: 0;
   overflow: hidden;
@@ -95,6 +96,8 @@
   line-height: 1.1;
   letter-spacing: 0.02em;
 }
+/* The seat code (Tag: 1A, 2A, 1B, 2B) stays hidden until a narrow header swaps it in for the name. */
+.code { display: none; }
 /* A table of two has room: the name beside the digits, so the digits can be big. */
 .bank[data-count="2"] .cell { grid-template-rows: none; grid-auto-flow: column; align-items: center; justify-items: start; gap: 9px; }
 .bank[data-count="2"] .name { max-width: 14ch; }

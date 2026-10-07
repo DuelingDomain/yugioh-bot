@@ -51,11 +51,11 @@ export function hudMasterProps(source: HudMasterSource, view: DuelSeatView | und
  * full name over big digits, the answering seat marked and a red look at 1:00 or less. `null` when the duel has no clock.
  * It sits in the header band (y 6 to 46), above the rail, the flyout, the card preview and the chain tower.
  */
-export function hudClockBank(clock: DuelClock | null | undefined, session: DuelSession, reducedMotion: boolean): ReactNode {
+export function hudClockBank(clock: DuelClock | null | undefined, session: DuelSession, reducedMotion: boolean, seatCode?: (seat: number) => string | null): ReactNode {
   if (!clock) return null;
   return (
     <div className={hudStyles.topClocks} data-testid="hud-clocks" data-count={clock.remainingMs.length}>
-      <DuelClockDisplay key={clock.serverNow} clock={clock} session={session} reducedMotion={reducedMotion} bank />
+      <DuelClockDisplay key={clock.serverNow} clock={clock} session={session} reducedMotion={reducedMotion} seatCode={seatCode} bank />
     </div>
   );
 }

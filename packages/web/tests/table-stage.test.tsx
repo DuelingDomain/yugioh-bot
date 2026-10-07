@@ -32,13 +32,21 @@ function Shell({ id }: { id: keyof typeof FFA3_FIXTURES.states }) {
 }
 
 describe("TableShell on the 3-way fixtures", () => {
-  it("keeps decision clocks on the LP panels and clear of the dock name and turn label", () => {
+  it("keeps decision clocks in the header block, off the bar and clear of the dock name and turn label", () => {
     const { container } = render(<Shell id="main" />);
-    // The phases moved to the hub on the board; the bar keeps the clock beside the turn button.
-    const clock = container.querySelector('nav[aria-label="Turn actions"] [role="timer"]')!;
-    expect(clock.textContent?.trim()).toBe("3:12");
-    expect(clock.querySelector("small")).toBeNull();
-    expect(container.querySelector('[data-holo="1"]')).toHaveTextContent("04:00");
+    // The clocks of every seat moved to the top-left block of the header; the bar keeps no clock beside the turn button.
+    const bank = container.querySelector('[data-testid="hud-clocks"]')!;
+    expect(bank).not.toBeNull();
+    expect(bank.getAttribute("data-count")).toBe("3");
+    const cells = bank.querySelectorAll('[data-testid="clock-cell"]');
+    expect(cells).toHaveLength(3);
+    expect(bank).toHaveTextContent("3:12");
+    expect(bank).toHaveTextContent("4:00");
+    expect(container.querySelector('nav[aria-label="Turn actions"] [role="timer"]')).toBeNull();
+    // The clocks sit in neither the dock (name, turn label) nor the LP panels.
+    expect(container.querySelector('nav[aria-label="Turn actions"]')?.contains(bank)).toBe(false);
+    expect(container.querySelector('[data-holo="1"]')?.contains(bank)).toBe(false);
+    expect(container.querySelector('[data-holo="1"] [role="timer"]')).toBeNull();
     expect(container.querySelector('nav[aria-label="Duel phases"]')).toHaveTextContent("Turn 5");
   });
 

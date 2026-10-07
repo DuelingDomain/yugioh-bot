@@ -24,6 +24,8 @@ export function BugReportHeaderButton({ room }: { room: DuelRoom }) {
       <button
         type="button"
         aria-haspopup="dialog"
+        aria-label="Report bug"
+        title="Report bug"
         data-bug-header-button
         onClick={() => setOpen(true)}
         className={styles.header}
