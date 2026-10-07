@@ -36,6 +36,7 @@ export function cardAddBlock(
   settings: Pick<DuelSettings, "cardPool" | "validateDeck">,
   limits?: BanlistLimits,
 ): string | null {
+  if (card.unavailableReason) return `Unavailable: ${card.unavailableReason}`;
   if ((card.ot & (CARD_POOL_OCG | CARD_POOL_TCG)) === 0 || (card.ot & OT_UNPLAYABLE) !== 0) return "Not playable";
   if (settings.cardPool === "tcg" && (card.ot & CARD_POOL_TCG) === 0) return "Not TCG legal";
   if (settings.cardPool === "ocg" && (card.ot & CARD_POOL_OCG) === 0) return "Not OCG legal";

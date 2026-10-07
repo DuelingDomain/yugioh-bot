@@ -16,6 +16,7 @@ import type {
 import { canonicalCardCode, checkDeckAgainstPool } from "@yugidraft/shared/duels";
 import { banlistLimitsFor, type BanlistLimit } from "./banlists/index.js";
 import { MULTIPLAYER_TABLE_LABEL, multiplayerForbiddenFor, type MultiplayerTable } from "./banlists/multiplayer.js";
+import { cardBlockIndex, type CardBlockEntry } from "./card-block-list.js";
 
 export type { MultiplayerTable };
 
@@ -738,6 +739,29 @@ function collectMultiplayerIssues(
   }
 }
 
+function collectBlockedIssues(deck: DuelDeck, catalog: Catalog, issues: DuelDeckIssue[]): void {
+  const blocked = cardBlockIndex(catalog.cards);
+  const groups = new Map<CardBlockEntry, DuelDeckCardRef[]>();
+  const add = (section: DuelDeckCardRef["section"], code: number, index: number) => {
+    const entry = blocked.get(code);
+    if (!entry) return;
+    const name = catalog.cards.get(code)?.name;
+    const ref = { section, index, code, ...(name ? { name } : {}) };
+    const refs = groups.get(entry) ?? [];
+    refs.push(ref);
+    groups.set(entry, refs);
+  };
+  for (const section of ["main", "extra", "side"] as const) {
+    deck[section].forEach((code, index) => add(section, code, index));
+  }
+  if (deck.deckMaster !== undefined) add("deckMaster", deck.deckMaster, 0);
+  // Put operational blocks first so duel admission gives the card and the configured reason.
+  issues.unshift(...[...groups].map(([entry, cards]) => ({
+    message: `${catalog.cards.get(entry.code)?.name ?? cards[0]?.name ?? entry.code} is unavailable: ${entry.reason}`,
+    cards,
+  })));
+}
+
 export function inspectDeck(
   mode: DuelMode,
   deck: DuelDeck,
@@ -780,6 +804,7 @@ export function inspectDeck(
   if (deck.side.length > 15) issues.push({ message: "Side Deck must have 15 or fewer cards", cards: [] });
 
   const catalog = loadCatalog(dataDirectory);
+  collectBlockedIssues(deck, catalog, issues);
   const identities = identityIndex(catalog);
   const main = resolveSection(catalog, "main", deck.main, issues);
   const extra = resolveSection(catalog, "extra", deck.extra, issues);

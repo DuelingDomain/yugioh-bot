@@ -1,3 +1,4 @@
+import { cardBlockIndex } from "./card-block-list.js";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -35,7 +36,7 @@ import { DeckLegalityError, inspectDeck, validateDeck, type InspectDeckOptions }
 import { cardArtworkFamily } from "./card-artworks.js";
 import { canonicalEngineCardCode, loadDraftDeckPool, normalizeCardCodes, normalizeImportedDeck } from "./deck-import.js";
 import { loadCardDatabase } from "./cards.js";
-import { cardFacets, queryCards } from "./card-search.js";
+import { cardFacets, queryCards, deckCardUnavailableReason } from "./card-search.js";
 import { activeMultiScriptsHash, pinnedEngineVersion } from "./multi-scripts.js";
 import { firstTurnDrawFor, savedFirstTurnDraw } from "./first-turn-draw.js";
 import { botTableOf, buildPracticeBotDeck, choosePracticeBotAnswer, chooseSurrenderedAnswer, PracticeBotError } from "./practice-bot.js";
@@ -1479,6 +1480,12 @@ export function createDuelHost(options: {
     } catch (error) {
       throw new RequestError(error instanceof Error ? error.message : "Preset board is invalid", 500);
     }
+    const catalog = loadCardDatabase(options.dataDirectory);
+    const blocked = cardBlockIndex(new Map([...catalog.all()].map((card) => [card.code, card])));
+    for (const code of compiled.codes) {
+      const entry = blocked.get(code);
+      if (entry) throw new RequestError(`${catalog.get(code)?.name ?? code} is unavailable: ${entry.reason}`, 400);
+    }
     const copts = compiled.options;
     const seatCount = seatCountFor(preset.format);
     const created = service.create({
@@ -2240,7 +2247,10 @@ export function createDuelHost(options: {
       const missing: number[] = [];
       for (const code of new Set<number>(body.codes)) {
         const card = catalog.deckCard(code);
-        if (card) cards.push({ ...card, altArtCount: (cardArtworkFamily(catalog, code)?.artworks.length ?? 1) - 1 });
+        if (card) {
+          const unavailableReason = deckCardUnavailableReason(catalog, code);
+          cards.push({ ...card, ...(unavailableReason ? { unavailableReason } : {}), altArtCount: (cardArtworkFamily(catalog, code)?.artworks.length ?? 1) - 1 });
+        }
         else missing.push(code);
       }
       return { cards, missing };
