@@ -58,7 +58,7 @@ export function verifyEngineBundle(dataDirectory: string, options: { wrapperPath
   const legacyWasm = join(dataDirectory, LEGACY_DOMAIN_WASM_FILE);
   const legacyLua = join(dataDirectory, "card-scripts", LEGACY_DOMAIN_LUA_FILE);
   const checks: Array<{ key: string; path: () => string; hint: string; required?: boolean }> = [
-    { key: "cardRemaps", path: () => join(dataDirectory, "card-remaps.json"), hint: dataHint, required: manifest.sources?.databaseFormat === "official-releases-prerelease-v1" },
+    { key: "cardRemaps", path: () => join(dataDirectory, "card-remaps.json"), hint: dataHint, required: /^official-releases-prerelease-v\d+$/.test(String(manifest.sources?.databaseFormat ?? "")) },
     { key: "cardsMerged", path: () => cards, hint: dataHint },
     { key: "standardWasm", path: () => standardWasm, hint: standardHint },
     { key: "domainWasm", path: () => domainWasm, hint: domainHint },

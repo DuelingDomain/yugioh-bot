@@ -310,3 +310,13 @@ it.each([true,false])("refuses a missing/corrupt prerelease remap artifact befor
  writeFileSync(join(f.src,"card-remaps.json"),"valid-remaps");
  expect(run(f,preflight).status).toBe(0);
 });
+
+
+it.each(["official-releases-prerelease-v1","official-releases-prerelease-v2"])("refuses the %s recipe without a remap hash", format=>{
+ const f=fixture({tag:"old"},{tag:"new"},[]),before=snapshot(f.dst);
+ const path=join(f.src,"manifest.json"),manifest=JSON.parse(readFileSync(path,"utf8"));
+ manifest.sources={databaseFormat:format};delete manifest.integrity.cardRemaps;
+ writeFileSync(path,JSON.stringify(manifest));
+ expect(run(f,true).status).not.toBe(0);
+ expect(snapshot(f.dst)).toEqual(before);
+});

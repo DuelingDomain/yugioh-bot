@@ -20,14 +20,14 @@ const root = () => { const dir = mkdtempSync(join(tmpdir(), "released-data-test-
 afterEach(() => { roots.splice(0).forEach(dir => rmSync(dir, { recursive: true, force: true })); vi.unstubAllEnvs(); vi.useRealTimers(); vi.restoreAllMocks(); });
 const hash = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
 const tree = (paths: string[]) => ({ truncated: false, tree: paths.map(path => ({ path, type: "blob", sha: "unused" })) });
-function cdb(dir: string, name: string, rows: Array<[number, number, string]>) {
+function cdb(dir: string, name: string, rows: Array<[number, number, string, number?]>) {
   const path = join(dir, name);
   const db = new Database(path);
   db.exec(`CREATE TABLE datas (id INTEGER PRIMARY KEY, ot INTEGER, alias INTEGER, setcode INTEGER, type INTEGER,
     atk INTEGER, def INTEGER, level INTEGER, race INTEGER, attribute INTEGER, category INTEGER);
     CREATE TABLE texts (id INTEGER PRIMARY KEY, name TEXT, desc TEXT);`);
-  for (const [code, alias, label] of rows) {
-    db.prepare("INSERT INTO datas VALUES (?,3,?,9223372036854775807,33,2500,2000,7,1,32,0)").run(code, alias);
+  for (const [code, alias, label, type = 33] of rows) {
+    db.prepare("INSERT INTO datas VALUES (?,3,?,9223372036854775807,?,2500,2000,7,1,32,0)").run(code, alias, type);
     db.prepare("INSERT INTO texts VALUES (?,?,'release effect')").run(code, label);
   }
   db.close();
@@ -317,7 +317,7 @@ it("records graduated historical identities even when Ignis deleted their prerel
 it("includes the remap artifact in bundle identity and repairs a corrupt cached artifact", async () => {
   const {request,directory} = fixture();
   const first=await prepareData(directory,request);
-  expect(first.sources.databaseFormat).toBe("official-releases-prerelease-v1");
+  expect(first.sources.databaseFormat).toBe("official-releases-prerelease-v2");
   expect(first.integrity.cardRemaps).toBe(hash(readFileSync(join(directory,"card-remaps.json"))));
   writeFileSync(join(directory,"card-remaps.json"),"corrupt");
   request.mockClear();
@@ -348,4 +348,59 @@ it("refuses historical graduation when a different current preview reuses the ol
  await expect(downloadReleasedCardData(sources.database,join(dir,"bundle"),request,{historicalCards:[
   {code:100000001,name:"Graduated A",type:33},
  ]})).rejects.toThrow(/Ambiguous.*passcode/);
+});
+
+
+it("preserves Cynet Mining's real prerelease alternate artwork beside its released main art", async () => {
+  const dir = root();
+  const databases = new Map([
+    ["cards.cdb", cdb(dir, "base.cdb", [[57160136, 0, "Cynet Mining", 2]])],
+    ["prerelease-imph.cdb", cdb(dir, "preview.cdb", [[57160137, 57160136, "Cynet Mining", 2]])],
+  ]);
+  const request = async (url: string) => url.includes("/git/trees/") ? Response.json(tree([...databases.keys()]))
+    : new Response(new Uint8Array(databases.get(url.split("/").pop()!)!));
+  const result = await downloadReleasedCardData(sources.database, join(dir, "bundle"), request, {
+    historicalCards: [{ code: 57160137, alias: 57160136, name: "Cynet Mining", type: 2 }],
+  });
+  expect(result.drops).toEqual([]);
+  expect(result.remaps).toEqual({});
+  expect([...result.prereleaseCodes]).toEqual([57160137]);
+  const db = new Database(result.path, { readonly: true });
+  try { expect(db.prepare("SELECT alias FROM datas WHERE id=57160137").get()).toEqual({ alias: 57160136 }); }
+  finally { db.close(); }
+});
+
+it("only uses main artworks for identity matches between preview files and released rows", async () => {
+  const dir = root();
+  const databases = new Map([
+    ["cards.cdb", cdb(dir, "base.cdb", [[57160137, 57160136, "Cynet Mining", 2]])],
+    ["prerelease-a.cdb", cdb(dir, "preview.cdb", [[57160136, 0, "Cynet Mining", 2], [57160138, 57160136, "Cynet Mining", 2]])],
+  ]);
+  const request = async (url: string) => url.includes("/git/trees/") ? Response.json(tree([...databases.keys()]))
+    : new Response(new Uint8Array(databases.get(url.split("/").pop()!)!));
+  const result = await downloadReleasedCardData(sources.database, join(dir, "bundle"), request);
+  expect(result.drops).toEqual([]);
+  expect(result.remaps).toEqual({});
+  expect([...result.prereleaseCodes]).toEqual([57160136, 57160138]);
+});
+
+it("preserves distinct same-name tokens and never creates historical token remaps", async () => {
+  const dir = root();
+  const databases = new Map([
+    ["cards.cdb", cdb(dir, "base.cdb", [[23116809, 0, "Fireball Token"]])],
+    ["prerelease-tokens.cdb", cdb(dir, "tokens.cdb", [[98596597, 0, "Fireball Token"], [100000002, 0, "Fireball Token"]])],
+  ]);
+  for (const [file, path] of [["cards.cdb", "base.cdb"], ["prerelease-tokens.cdb", "tokens.cdb"]]) {
+    const db = new Database(join(dir, path!));
+    db.exec("UPDATE datas SET type=16401"); db.close();
+    databases.set(file!, readFileSync(join(dir, path!)));
+  }
+  const request = async (url: string) => url.includes("/git/trees/") ? Response.json(tree([...databases.keys()]))
+    : new Response(new Uint8Array(databases.get(url.split("/").pop()!)!));
+  const result = await downloadReleasedCardData(sources.database, join(dir, "bundle"), request, {
+    historicalCards: [{ code: 100000003, name: "Fireball Token", type: 16401 }],
+  });
+  expect(result.drops).toEqual([]);
+  expect(result.remaps).toEqual({});
+  expect([...result.prereleaseCodes]).toEqual([98596597, 100000002]);
 });

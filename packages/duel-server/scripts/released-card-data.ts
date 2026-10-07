@@ -4,7 +4,7 @@ import { existsSync, readdirSync, unlinkSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { isPrereleaseDatabaseFile, releasedDatabaseFiles, type ReleasedDatabaseTree } from "../src/released-database-files.js";
-import { prereleaseHistory, type CardIdentity } from "./prerelease-history.js";
+import { hasDedupeIdentity, prereleaseHistory, type CardIdentity } from "./prerelease-history.js";
 export { releasedDatabaseFiles } from "../src/released-database-files.js";
 
 type Download = (url: string, init?: RequestInit) => Promise<Response>;
@@ -73,7 +73,7 @@ export async function downloadReleasedCardData(commit: string, directory: string
   for (const row of rows) if (!isPrereleaseDatabaseFile(row.file) && (row.ot & 0x600) === 0) released.set(row.code, row);
   const releasedNames = new Map<string, Row[]>();
   for (const row of released.values()) {
-    if (!row.name.trim()) continue;
+    if (!hasDedupeIdentity(row)) continue;
     const group = releasedNames.get(identity(row)) ?? [];
     group.push(row); releasedNames.set(identity(row), group);
   }
@@ -91,14 +91,14 @@ export async function downloadReleasedCardData(commit: string, directory: string
   for (const row of [...previews].sort(preferred)) {
     const drop = (reason: PrereleaseDrop["reason"], winner?: Row) => {
       drops.push({ code: row.code, name: row.name, type: row.type, file: row.file, reason, ...(winner ? { keptCode: winner.code } : {}) });
-      if (winner && row.code !== winner.code && !released.has(row.code)) addRemap(row.code, winner.code);
+      if (winner && hasDedupeIdentity(row) && row.code !== winner.code && !released.has(row.code)) addRemap(row.code, winner.code);
     };
     if (row.ot & 0x600) { drop("rush"); continue; }
-    const official = released.get(row.code) ?? releasedNames.get(identity(row))?.[0];
+    const official = released.get(row.code) ?? (hasDedupeIdentity(row) ? releasedNames.get(identity(row))?.[0] : undefined);
     if (official) { drop("released", official); continue; }
-    const winner = keptIds.get(row.code) ?? kept.get(identity(row));
+    const winner = keptIds.get(row.code) ?? (hasDedupeIdentity(row) ? kept.get(identity(row)) : undefined);
     if (winner) { drop("duplicate", winner); continue; }
-    kept.set(identity(row), row);
+    if (hasDedupeIdentity(row)) kept.set(identity(row), row);
     keptIds.set(row.code, row);
   }
   const path = join(directory, "cards.cdb");
@@ -113,7 +113,7 @@ export async function downloadReleasedCardData(commit: string, directory: string
     db.exec("CREATE TEMP TABLE accepted (id INTEGER PRIMARY KEY)");
     for (const file of files.slice(1)) {
       const preview = isPrereleaseDatabaseFile(file);
-      const accepted = preview ? [...kept.values()].filter(row => row.file === file) : rows.filter(row => row.file === file && (row.ot & 0x600) === 0);
+      const accepted = preview ? [...keptIds.values()].filter(row => row.file === file) : rows.filter(row => row.file === file && (row.ot & 0x600) === 0);
       const insert = db.prepare("INSERT INTO accepted VALUES (?)");
       db.exec("DELETE FROM accepted");
       for (const row of accepted) insert.run(row.code);
@@ -133,12 +133,13 @@ export async function downloadReleasedCardData(commit: string, directory: string
     for (const row of db.prepare("SELECT id FROM datas ORDER BY id").all() as { id: number }[]) scriptCodes.add(row.id);
     // A source still present under another identity must never redirect a saved card.
     for (const old of Object.keys(remaps)) if (scriptCodes.has(Number(old))) throw new Error(`Ambiguous retained prerelease passcode ${old}`);
-    // Resolve references to artwork variants removed by identity deduplication.
+    // Artwork families pointing to a graduated main card follow its new code.
     for (const [old, code] of Object.entries(remaps)) db.prepare("UPDATE datas SET alias=? WHERE alias=?").run(code, Number(old));
   } finally { db.close(); }
   const historical = options.historicalCards ?? (options.historyStart && !commit.startsWith(options.historyStart)
     ? await prereleaseHistory(options.historyStart, commit, directory) : []);
   for (const row of historical) {
+    if (!hasDedupeIdentity(row)) continue;
     const winner = releasedNames.get(identity(row))?.[0] ?? kept.get(identity(row));
     if (scriptCodes.has(row.code)) {
       const current = released.get(row.code) ?? keptIds.get(row.code);
@@ -153,7 +154,7 @@ export async function downloadReleasedCardData(commit: string, directory: string
       addRemap(row.code, winner.code);
     }
   }
-  const prerelease = [...kept.values()].sort((a,b) => a.code-b.code).map(({code,name,type,file}) => ({code,name,type,file}));
+  const prerelease = [...keptIds.values()].sort((a,b) => a.code-b.code).map(({code,name,type,file}) => ({code,name,type,file}));
   drops.sort((a,b) => a.file.localeCompare(b.file) || a.code-b.code);
   const remapBytes = JSON.stringify({ version: 1, remaps, prerelease, drops }, null, 2) + "\n";
   await writeFile(join(directory, "card-remaps.json"), remapBytes);
