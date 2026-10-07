@@ -57,6 +57,8 @@ export interface TableStageViewProps extends TableStageProps {
   locked?: boolean;
   /** Seats that are out of the duel: a click on them does nothing. */
   out?: readonly number[];
+  /** The seat that holds the targets the viewer must pick: its field is ringed. The camera stays where it is. */
+  targetSeat?: number | null;
   /** Draw the turn ring (default true on a 3-way table). */
   ring?: boolean;
   /** The focus of the 4-way grid, owned by the shell so the turn strip can drive it. The plaza stage ignores it. */
@@ -83,7 +85,7 @@ export interface TableStageViewProps extends TableStageProps {
  * overlay are slots over the whole box, so they measure the real screen position of `[data-zones]` and
  * `[data-lp-seat]` nodes. `camera` is the camera to draw (the shell passes the effective one).
  */
-export function TableStage({ controller, layout, camera, dispatchCamera, renderSeatField, fx, promptCenter, overlay, hub, masterChip, wantMode, locked = false, out = [], ring = true, placeLabels, centerPrompts = false }: TableStageViewProps) {
+export function TableStage({ controller, layout, camera, dispatchCamera, renderSeatField, fx, promptCenter, overlay, hub, masterChip, wantMode, locked = false, out = [], targetSeat = null, ring = true, placeLabels, centerPrompts = false }: TableStageViewProps) {
   const { engine, room, viewerSeat, nameOf, legalKeys, selectedKeys, reducedMotion } = controller;
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -477,7 +479,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
                 const reach = plaza3 && !fly && !locked && !out.includes(slot.seat)
                   ? { label: `${nameOf(slot.seat)}${slot.seat === layout.anchorSeat ? " (you)" : ""}'s field`, onToggle: () => dispatchCamera({ type: "enlarge", seat: slot.seat }) }
                   : undefined;
-                return <RivalField key={slot.seat} pose={pose} field={field} render={renderSeatField} angleOffsetDeg={flyYaw} glide={gliding && regroup} enlarged={enlarged} reach={reach} />;
+                return <RivalField key={slot.seat} pose={pose} field={field} render={renderSeatField} angleOffsetDeg={flyYaw} glide={gliding && regroup} enlarged={enlarged} reach={reach} targeted={targetSeat === slot.seat} />;
               })}
             </div>
           </div>

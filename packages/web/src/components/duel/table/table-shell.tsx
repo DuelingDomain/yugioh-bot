@@ -648,6 +648,7 @@ function TableShellBody({
                 wantMode={camera.state.mode}
                 locked={camera.locked}
                 out={camera.out}
+                targetSeat={camera.targetSeat}
                 placeLabels={placeLabels}
                 dispatchCamera={camera.dispatch}
                 grid={grid ? gridFocus : undefined}

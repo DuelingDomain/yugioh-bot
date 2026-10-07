@@ -43,7 +43,10 @@ export interface UseCamera {
   shown: CameraState;
   dispatch: (action: CameraAction) => void;
   locked: boolean;
+  /** The field with targets to pick, when it is out of view (not at home or in the overview, and not the field on show). */
   hint: TargetHint | null;
+  /** The seat that holds the targets to pick, in view or not: the table rings it. */
+  targetSeat: number | null;
   choices: TargetChoice[];
   /** Seats the camera never goes to. */
   out: number[];
@@ -127,11 +130,15 @@ export function useCamera({ controller, layout, initial, initialLock = null, sea
   }, []);
 
   const shown = useMemo(() => effectiveCamera(state, 0), [state]);
-  const hint = useMemo<TargetHint | null>(
-    () => (target && !(state.mode === "focus" && state.focusSeat === target.seat) ? target : null),
-    [state.focusSeat, state.mode, target],
-  );
+  // The cue and its Show button are for a field the viewer cannot see: at home and in the overview every field is on the table.
+  // A focused rival, a look from a seat and a fly-in to a seat each show one field, so the others can hold the targets out of view.
+  const hint = useMemo<TargetHint | null>(() => {
+    if (!target) return null;
+    const onShow = state.mode === "focus" ? state.focusSeat : state.mode === "look" ? state.lookSeat : state.mode === "fly" ? state.fly.targetSeat : undefined;
+    if (onShow === undefined) return null;
+    return onShow === target.seat ? null : target;
+  }, [state.focusSeat, state.lookSeat, state.fly.targetSeat, state.mode, target]);
   const send = useCallback((action: CameraAction) => dispatch(action), []);
 
-  return { state, shown, dispatch: send, locked: state.lock != null, hint, choices, out, escapeOwned };
+  return { state, shown, dispatch: send, locked: state.lock != null, hint, targetSeat: target?.seat ?? null, choices, out, escapeOwned };
 }

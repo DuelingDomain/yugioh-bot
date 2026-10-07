@@ -26,6 +26,8 @@ export interface RivalFieldProps {
   enlarged?: boolean;
   /** The seat box is a keyboard stop (the 3-way plaza): Enter or Space on the box itself enlarges it or goes back. */
   reach?: { label: string; onToggle: () => void };
+  /** This field holds the targets the viewer must pick: a ring on the field, with no camera move. */
+  targeted?: boolean;
 }
 
 /** CSS transform of a seat box: its centre goes to the pose, then it tilts, turns and scales about its own centre. */
@@ -47,7 +49,7 @@ export function seatTransform(pose: Pick<SeatPose, "x" | "y" | "rotateDeg" | "ti
  * draws the board at a fixed card size (`--sf-z`) and counter-rotates its own text when upright is on.
  * It serves the viewer's own seat too: that pose is simply upright at full size.
  */
-export function RivalField({ pose, field, render, angleOffsetDeg = 0, placement, glide = false, enlarged = false, reach }: RivalFieldProps) {
+export function RivalField({ pose, field, render, angleOffsetDeg = 0, placement, glide = false, enlarged = false, reach, targeted = false }: RivalFieldProps) {
   const style: CSSProperties & Record<string, string | number> = placement
     ? { "--sf-z": `${pose.z}px`, "--sf-ts": textScale(pose.scale).toFixed(2), ...(placement.lh != null ? { "--sf-lh": `${placement.lh}px` } : {}), ...(placement.boxX != null ? { "--sf-box-x": `${placement.boxX}px` } : {}), ...(placement.handShift != null ? { "--hand-shift": placement.handShift } : {}), ...(placement.handWidth != null ? { "--hand-w": placement.handWidth } : {}), left: placement.left, top: placement.top, rotate: pose.rotateDeg ? `${pose.rotateDeg}deg` : "none", zIndex: placement.zIndex }
     : { "--sf-z": `${pose.z}px`, "--sk": `calc(var(--stage-k, 1) * ${pose.scale})`, transform: seatTransform(pose), zIndex: slotZIndex(pose.slot, pose.scale) };
@@ -63,6 +65,7 @@ export function RivalField({ pose, field, render, angleOffsetDeg = 0, placement,
       data-compact={pose.compact ? "true" : undefined}
       data-glide={glide ? "true" : undefined}
       data-enlarged={enlarged ? "true" : undefined}
+      data-target-hint={targeted ? "true" : undefined}
       hidden={pose.hidden || undefined}
       {...(reach
         ? {

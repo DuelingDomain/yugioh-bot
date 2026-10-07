@@ -62,6 +62,7 @@ function Table({ state, camera }: { state: TableFixtureState; camera?: Partial<C
 }
 
 const chip = (root: HTMLElement) => root.querySelector("[data-camera-chip] b")?.textContent;
+const seatBox = (root: HTMLElement, seat: number) => root.querySelector(`[data-seat-slot="${seat}"]`) as HTMLElement;
 const pressed = (root: HTMLElement) =>
   Array.from(root.querySelectorAll<HTMLElement>("[data-seat-switch][aria-pressed='true']")).map((node) => node.getAttribute("data-seat-switch"));
 const advance = (ms: number) => act(() => void vi.advanceTimersByTime(ms));
@@ -113,13 +114,22 @@ describe("the focused field only changes when the viewer asks", () => {
     }
   });
 
-  it("marks the field that holds the targets, and Show moves the camera only when the viewer clicks it", () => {
+  it("rings the field that holds the targets; the Show cue is only for a field that is out of view", () => {
     const { container, rerender } = render(<Table state={variant(() => {})} />);
     expect(container.querySelector("[data-camera-hint]")).toBeNull();
+    // At home all three fields are on the table: the field is ringed and there is no cue.
     rerender(<Table state={variant(onlyOn(MIKA))} />);
+    expect(container.querySelector("[data-camera-hint]")).toBeNull();
+    expect(seatBox(container, MIKA).getAttribute("data-target-hint")).toBe("true");
+    expect(seatBox(container, RYO).getAttribute("data-target-hint")).toBeNull();
+    expect(chip(container)).toBe("Home");
+  });
+
+  it("names a field out of view and Show moves the camera only when the viewer clicks it", () => {
+    const { container } = render(<Table state={variant(onlyOn(MIKA))} camera={{ mode: "focus", focusSeat: RYO }} />);
     const hint = container.querySelector("[data-camera-hint]");
     expect(hint?.textContent).toContain("Mika Hana");
-    expect(chip(container)).toBe("Home");
+    expect(chip(container)).toBe("Focus · Ryo Sato");
     expect(container.querySelector("[data-seat-switch='2'][data-target-hint='true']")).not.toBeNull();
     fireEvent.click(hint!.querySelector("button")!);
     expect(chip(container)).toBe("Focus · Mika Hana");
