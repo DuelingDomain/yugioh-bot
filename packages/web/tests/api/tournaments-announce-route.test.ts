@@ -31,6 +31,7 @@ describe("POST /api/tournaments/[slug]/announce", () => {
 
   beforeEach(() => {
     vi.resetModules();
+    vi.stubEnv("DISCORD_BOT_ENABLED", "1");
     vi.stubEnv("DISCORD_GUILD_ID", "g1");
     auth.mockReset();
     fetchSpy.mockReset();
@@ -43,6 +44,7 @@ describe("POST /api/tournaments/[slug]/announce", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
     while (tempDirs.length > 0) {

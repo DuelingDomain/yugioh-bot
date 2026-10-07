@@ -174,7 +174,7 @@ export async function POST(
         }
       | undefined;
 
-    if (meta?.reporter_discord_id && meta.opponent_discord_id) {
+    if (env.discordBotEnabled && meta?.reporter_discord_id && meta.opponent_discord_id) {
       void announcer.announce(
         {
           kind: "match-report-pending",

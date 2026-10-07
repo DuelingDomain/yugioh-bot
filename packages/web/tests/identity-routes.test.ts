@@ -7,7 +7,7 @@ vi.mock("@/lib/session-identity", async () => {
   const { sessionFixture } = await import("./fixtures/session");
   return sessionFixture((() => ({ auth: async () => ({ user: { id: state.userId, discordUserId: state.discordId, name: "Host" } }) }))().auth);
 });
-vi.mock("@/lib/env", () => ({ env: { discordGuildId: "g", wsInternalSecret: "secret", discordDefaultChannelId: "channel" } }));
+vi.mock("@/lib/env", () => ({ env: { discordBotEnabled: true, webUrl: "https://web.example", discordGuildId: "g", wsInternalSecret: "secret", discordDefaultChannelId: "channel" } }));
 beforeEach(() => {
   state.db = new Database(":memory:"); migrate(state.db); state.db.pragma("foreign_keys=on");
   state.db.exec(`insert into users(id,username,display_name,discord_user_id) values
@@ -133,7 +133,8 @@ it("creates and broadcasts a challenge without sending a stale Discord recipient
   }) as never);
   expect(response.status).toBe(201);
   const body = await response.json();
-  expect(body.notified).toBe(false);
+  expect(body).not.toHaveProperty("notified");
+  expect(body.shareUrl).toBe(`https://web.example/duels/${body.session.slug}`);
   expect(state.db!.prepare("select count(*) as n from duel_series").get()).toEqual({ n: 1 });
   expect(notifyDuelChange).toHaveBeenCalledWith(body.session.slug, "g");
   expect(effects.announce).not.toHaveBeenCalled();

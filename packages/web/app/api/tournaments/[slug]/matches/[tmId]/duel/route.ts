@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createDuelSeriesService } from "@yugidraft/shared/services";
-import { announceDuelInvite } from "@/lib/announce-bot";
+import { env } from "@/lib/env";
+import { duelUrl, announceDuelInvite } from "@/lib/announce-bot";
 import { getDb } from "@/lib/db";
 import { mapDraftTournamentDecks } from "@/lib/draft-deck-codes";
 import { linkDraftDeck } from "@/lib/draft-decks";
@@ -77,7 +78,7 @@ export async function POST(
     void broadcaster.tournament({ kind: "match-updated", slug });
 
     // An open series returned as-is was announced when it started.
-    if (created) {
+    if (env.discordBotEnabled && created) {
       const challenger = playerIdentity(db, actor.playerId);
       for (const playerId of series.playerIds) {
         if (playerId === actor.playerId) continue;
@@ -99,7 +100,7 @@ export async function POST(
       }
     }
 
-    return NextResponse.json({ series, duel, created }, { status: created ? 201 : 200 });
+    return NextResponse.json({ series, duel, created, shareUrl: duelUrl(duel.slug, request) }, { status: created ? 201 : 200 });
   } catch (error) {
     return duelErrorResponse(error);
   }

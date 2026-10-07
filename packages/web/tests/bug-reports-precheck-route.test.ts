@@ -29,7 +29,7 @@ async function seed() {
   tempDirs.push(dir);
   process.env.DATABASE_PATH = join(dir, "test.sqlite");
   process.env.DISCORD_GUILD_ID = GUILD;
-  process.env.NEXTAUTH_URL = "https://duel.example.com/";
+  process.env.WEB_URL = "https://duel.example.com/";
   const Database = (await import("better-sqlite3")).default;
   const { migrate } = await import("@yugidraft/shared/db");
   const db = new Database(process.env.DATABASE_PATH);
@@ -81,7 +81,7 @@ describe("POST /api/bug-reports/precheck", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
-    for (const key of ["DATABASE_PATH", "DISCORD_GUILD_ID", "NEXTAUTH_URL"]) delete process.env[key];
+    for (const key of ["DATABASE_PATH", "DISCORD_GUILD_ID", "WEB_URL"]) delete process.env[key];
     while (tempDirs.length) { const d = tempDirs.pop(); if (d) rmSync(d, { recursive: true, force: true }); }
   });
 

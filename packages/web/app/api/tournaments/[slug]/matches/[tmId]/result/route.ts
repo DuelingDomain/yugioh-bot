@@ -56,7 +56,7 @@ export async function POST(
 
     // The bot sweep covers a missed announce.
     if (result.tournamentCompleted) {
-      if (createMatchService(db).claimTournamentCompletionAnnouncement(tournament.id)) {
+      if (env.discordBotEnabled && createMatchService(db).claimTournamentCompletionAnnouncement(tournament.id)) {
         void announcer.announce({ kind: "tournament-completed", tournamentId: tournament.id });
       }
       void broadcaster.tournament({ kind: "completed", slug });

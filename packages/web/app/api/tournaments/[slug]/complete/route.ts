@@ -39,7 +39,7 @@ export async function POST(
     const { tournament: completed, changedDuelSlugs } = tournaments.completeWithChanges(tournament.id);
 
     const matches = createMatchService(db);
-    if (matches.claimTournamentCompletionAnnouncement(completed.id)) {
+    if (env.discordBotEnabled && matches.claimTournamentCompletionAnnouncement(completed.id)) {
       void announcer.announce({ kind: "tournament-completed", tournamentId: completed.id });
     }
 

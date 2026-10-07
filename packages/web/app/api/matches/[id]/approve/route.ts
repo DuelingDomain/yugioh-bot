@@ -43,11 +43,11 @@ export async function POST(
     }
 
     const approved = matches.approve(matchId, player.id);
-    void announcer.announce(
+    if (env.discordBotEnabled) void announcer.announce(
       { kind: "match-resolved", matchId },
     );
-    if (approved.tournamentId && matches.claimTournamentCompletionAnnouncement(approved.tournamentId)) {
-      void announcer.announce({ kind: "tournament-completed", tournamentId: approved.tournamentId });
+    if (env.discordBotEnabled && approved.tournamentId && matches.claimTournamentCompletionAnnouncement(approved.tournamentId)) {
+      if (env.discordBotEnabled) void announcer.announce({ kind: "tournament-completed", tournamentId: approved.tournamentId });
     }
     if (match.tournament_slug) {
       void broadcaster.tournament(

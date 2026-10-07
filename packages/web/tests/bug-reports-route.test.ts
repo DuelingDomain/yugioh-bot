@@ -31,7 +31,7 @@ async function seed() {
   tempDirs.push(dir);
   process.env.DATABASE_PATH = join(dir, "test.sqlite");
   process.env.DISCORD_GUILD_ID = GUILD;
-  process.env.NEXTAUTH_URL = "https://duel.example.com/";
+  process.env.WEB_URL = "https://duel.example.com/";
   const Database = (await import("better-sqlite3")).default;
   const { migrate } = await import("@yugidraft/shared/db");
   const db = new Database(process.env.DATABASE_PATH);
@@ -98,7 +98,7 @@ describe("POST /api/bug-reports", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
-    for (const key of ["DATABASE_PATH", "DISCORD_GUILD_ID", "NEXTAUTH_URL"]) delete process.env[key];
+    for (const key of ["DATABASE_PATH", "DISCORD_GUILD_ID", "WEB_URL"]) delete process.env[key];
     while (tempDirs.length) { const d = tempDirs.pop(); if (d) rmSync(d, { recursive: true, force: true }); }
   });
 
@@ -168,20 +168,16 @@ describe("POST /api/bug-reports", () => {
     expect(call!.payload.body).toContain("`Report #1`");
   });
 
-  it("builds the replay link only from NEXTAUTH_URL or AUTH_URL, never from the request", async () => {
+  it("builds the replay link only from WEB_URL, never from the request", async () => {
     const POST = await route();
-    vi.stubEnv("NEXTAUTH_URL", "");
-    vi.stubEnv("AUTH_URL", "https://auth.example.com/");
-    vi.stubEnv("WEB_URL", "https://web-url.example.com");
+    vi.stubEnv("WEB_URL", "https://web-url.example.com/");
     await POST(new Request("https://evil.example/api/bug-reports", { method: "POST", body: JSON.stringify(body()) }));
-    expect(githubCalls()[0]!.payload.body).toContain("https://auth.example.com/duels/duel-a/replay");
+    expect(githubCalls()[0]!.payload.body).toContain("https://web-url.example.com/duels/duel-a/replay");
   });
 
   it("leaves the replay link out when no public URL is configured, even if the request has an origin", async () => {
     const POST = await route();
-    vi.stubEnv("NEXTAUTH_URL", "");
-    vi.stubEnv("AUTH_URL", "");
-    vi.stubEnv("WEB_URL", "https://web-url.example.com");
+    vi.stubEnv("WEB_URL", "");
     const res = await POST(new Request("https://evil.example/api/bug-reports", { method: "POST", body: JSON.stringify(body()) }));
     expect(res.status).toBe(200);
     const text = githubCalls()[0]!.payload.body as string;
@@ -194,7 +190,7 @@ describe("POST /api/bug-reports", () => {
 
   it("ignores a configured URL that is not http or https", async () => {
     const POST = await route();
-    vi.stubEnv("NEXTAUTH_URL", "javascript:alert(1)");
+    vi.stubEnv("WEB_URL", "javascript:alert(1)");
     await POST(post(body()));
     expect(githubCalls()[0]!.payload.body).not.toContain("## Replay");
   });
@@ -409,7 +405,7 @@ describe("POST /api/bug-reports with duplicateOf", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
-    for (const key of ["DATABASE_PATH", "DISCORD_GUILD_ID", "NEXTAUTH_URL"]) delete process.env[key];
+    for (const key of ["DATABASE_PATH", "DISCORD_GUILD_ID", "WEB_URL"]) delete process.env[key];
     while (tempDirs.length) { const d = tempDirs.pop(); if (d) rmSync(d, { recursive: true, force: true }); }
   });
 
@@ -430,8 +426,7 @@ describe("POST /api/bug-reports with duplicateOf", () => {
 
   it("leaves the replay link out of the +1 comment when no public URL is configured", async () => {
     serve();
-    vi.stubEnv("NEXTAUTH_URL", "");
-    vi.stubEnv("AUTH_URL", "");
+    vi.stubEnv("WEB_URL", "");
     const POST = await route();
     expect((await POST(new Request("https://evil.example/api/bug-reports", { method: "POST", body: JSON.stringify(body({ duplicateOf: ISSUE })) }))).status).toBe(200);
     const text = String(comments()[0]!.body.body);

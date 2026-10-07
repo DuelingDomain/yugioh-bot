@@ -43,7 +43,7 @@ export async function POST(
     }
 
     const denied = matches.deny(matchId, player.id);
-    void announcer.announce(
+    if (env.discordBotEnabled) void announcer.announce(
       { kind: "match-resolved", matchId },
     );
     if (match.tournament_slug) {

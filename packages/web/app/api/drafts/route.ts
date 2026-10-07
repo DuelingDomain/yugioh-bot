@@ -115,9 +115,9 @@ async function handlePOST(request: NextRequest) {
   };
 
   const guildId = env.discordGuildId;
-  const resolvedChannelId = channelId || env.discordDefaultChannelId;
+  const resolvedChannelId = channelId || env.discordDefaultChannelId || null;
 
-  if (!guildId || !resolvedChannelId) {
+  if (!guildId) {
     return NextResponse.json(
       { error: "Server not configured for draft creation" },
       { status: 500 }
@@ -153,7 +153,7 @@ async function handlePOST(request: NextRequest) {
       player.id,
     );
 
-    if (draft.channelId && draft.webSlug) {
+    if (env.discordBotEnabled && draft.channelId && draft.webSlug) {
       void announcer.announce({
         kind: "draft-created",
         draftId: draft.id,
@@ -218,7 +218,7 @@ async function handlePOST(request: NextRequest) {
     player.id,
   );
 
-  if (draft.channelId && draft.webSlug) {
+  if (env.discordBotEnabled && draft.channelId && draft.webSlug) {
     void announcer.announce(
       {
         kind: "draft-created",
