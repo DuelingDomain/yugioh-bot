@@ -1,6 +1,6 @@
 import type { DraftMessenger } from "../commands/handlers.js";
 import type { DraftService } from "./drafts.js";
-import type { DraftLobbyTickResult } from "@yugidraft/shared/types";
+import type { DraftLobbyService } from "@yugidraft/shared/services";
 import type { Broadcaster } from "@yugidraft/shared/notify";
 
 const DELIVERY_TIMEOUT_MS = 5_000;
@@ -15,7 +15,7 @@ export function createDraftTimerService({
   onDraftCompleted,
 }: {
   drafts: DraftService;
-  lobby: { tick(now: Date): DraftLobbyTickResult };
+  lobby: Pick<DraftLobbyService, "tick">;
   now?: () => Date;
   onDraftStarted?: (draftId: number) => Promise<void>;
   messenger: DraftMessenger;

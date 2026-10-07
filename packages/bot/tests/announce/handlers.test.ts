@@ -3,6 +3,7 @@ import { migrate } from "../../src/db/schema.js";
 import { describe, expect, it, vi } from "vitest";
 import { ChannelType } from "discord.js";
 import { createAnnounceHandlers } from "../../src/announce/handlers.js";
+import { createDraftLobbyService } from "@yugidraft/shared/services";
 
 describe("announce handlers", () => {
   it("posts a real started announcement using the committed draft and stored channel", async () => {
@@ -181,6 +182,17 @@ describe("Nudge delivery validation", () => {
       expect(message.allowedMentions).toEqual({ parse: [], users: [unreadyId] });
       expect(message.content).toContain("Actual");
       expect(message.components[0].toJSON().components[0].url).toContain("/draft/actual");
+    } finally { app.db.close(); }
+  });
+  it("reads persisted readiness from the shared service when no lobby is injected", async () => {
+    const app = setup();
+    try {
+      createDraftLobbyService(app.db).setReady(1, readyId, true);
+      const handlers = createAnnounceHandlers({ client: { channels: { fetch: app.fetch } } as any, db: app.db,
+        guildSettings: {} as any, drafts: {} as any, messenger: {} as any });
+      await handlers.onDraftNudge(app.payload);
+      expect(app.send.mock.calls[0][0].allowedMentions).toEqual({ parse: [], users: [unreadyId] });
+      expect(app.read).not.toHaveBeenCalled();
     } finally { app.db.close(); }
   });
   it.each(["absent", "foreign", "unsendable", "send-failure", "active", "ready-after-fetch", "leave-after-fetch"])("handles %s channels or state without claiming false success", async scenario => {

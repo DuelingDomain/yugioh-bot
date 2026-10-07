@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import type Database from "better-sqlite3";
-import * as sharedServices from "@yugidraft/shared/services";
-import { NUDGE_COOLDOWN_MS, type DraftLobbyResponse } from "@yugidraft/shared/types";
+import { createDraftLobbyService, isTestBotDiscordId } from "@yugidraft/shared/services";
+import { NUDGE_COOLDOWN_MS } from "@yugidraft/shared/types";
 import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
@@ -10,12 +9,6 @@ import { announcer } from "@/lib/notify";
 
 export const runtime = "nodejs";
 
-// T03 supplies this factory. Keep the boundary local while its implementation lands.
-const lobbyServices = sharedServices as typeof sharedServices & {
-  createDraftLobbyService(db: Database.Database): {
-    read(draftId: number, viewerUserId: string, now?: Date): DraftLobbyResponse;
-  };
-};
 type DraftRow = {
   id: number; guild_id: string; channel_id: string; name: string; web_slug: string;
   status: string; created_by_user_id: string; lobby_nudged_at: string | null;
@@ -55,11 +48,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
       if (!draft) fail("Draft not found", 404, "DRAFT_NOT_FOUND");
       if (draft.created_by_user_id !== userId) fail("Only the draft host can Nudge", 403, "HOST_REQUIRED");
       if (draft.status !== "pending") fail("Draft is no longer pending", 409, "DRAFT_NOT_PENDING");
-      const state = lobbyServices.createDraftLobbyService(db).read(draft.id, userId, now);
+      const state = createDraftLobbyService(db).read(draft.id, userId, now);
       const unready = new Set(state.players.filter(player => !player.ready && !player.isBot).map(player => player.playerId));
       const members = (db.prepare(`select p.id, p.discord_user_id from draft_players dp
         join players p on p.id = dp.player_id where dp.draft_id = ? and p.guild_id = ?`).all(draft.id, draft.guild_id) as Array<{ id: number; discord_user_id: string }>)
-        .filter(member => unready.has(member.id) && !sharedServices.isTestBotDiscordId(member.discord_user_id) && validDiscordId(member.discord_user_id));
+        .filter(member => unready.has(member.id) && !isTestBotDiscordId(member.discord_user_id) && validDiscordId(member.discord_user_id));
       const targets = playerId === undefined ? members : members.filter(member => member.id === playerId);
       if (playerId !== undefined && targets.length === 0) fail("Choose a joined, unready human player", 400, "NUDGE_TARGET_INVALID");
       const nextAt = draft.lobby_nudged_at ? new Date(draft.lobby_nudged_at).getTime() + NUDGE_COOLDOWN_MS : 0;

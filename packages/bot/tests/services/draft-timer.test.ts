@@ -1,4 +1,7 @@
 import Database from "better-sqlite3";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "../../src/db/schema.js";
 import { createPlayerRepository } from "../../src/repositories/players.js";
@@ -6,7 +9,7 @@ import { createCardCatalogService } from "../../src/services/card-catalog.js";
 import { createDraftImageService } from "../../src/services/draft-images.js";
 import { createDraftService } from "../../src/services/drafts.js";
 import { createDraftTimerService } from "../../src/services/draft-timer.js";
-import { createTournamentService } from "@yugidraft/shared/services";
+import { createDraftLobbyService, createTournamentService } from "@yugidraft/shared/services";
 import { recordingTransport, createBroadcaster } from "@yugidraft/shared/notify";
 
 function seedDraftCatalog(app: ReturnType<typeof setup>, count: number) {
@@ -39,8 +42,8 @@ function seedDraftCatalog(app: ReturnType<typeof setup>, count: number) {
   }
 }
 
-function setup() {
-  const db = new Database(":memory:");
+function setup(databasePath = ":memory:") {
+  const db = new Database(databasePath);
   db.exec(`
     create table if not exists card_sets (
       set_name text primary key not null,
@@ -57,6 +60,7 @@ function setup() {
     players: createPlayerRepository(db),
     tournaments: createTournamentService(db),
     drafts: createDraftService(db),
+    lobby: createDraftLobbyService(db),
     cards: createCardCatalogService(db),
     draftImages: createDraftImageService({ cacheDir: "./data/test-card-images" }),
     messenger: {
@@ -91,7 +95,7 @@ describe("draft timer service", () => {
 
     const rec = recordingTransport();
     const broadcaster = createBroadcaster(rec.transport);
-    const timer = createDraftTimerService({ drafts: app.drafts, messenger: app.messenger, broadcaster, lobby: { tick: () => ({ started: [], changedSlugs: [] }) } });
+    const timer = createDraftTimerService({ ...app, broadcaster });
     const now = new Date(Date.now() + 60000); // 60s after start, past default 45s deadline
 
     await timer.tick(now);
@@ -114,7 +118,7 @@ describe("draft timer service", () => {
 
     const rec = recordingTransport();
     const broadcaster = createBroadcaster(rec.transport);
-    const timer = createDraftTimerService({ drafts: app.drafts, messenger: app.messenger, broadcaster, lobby: { tick: () => ({ started: [], changedSlugs: [] }) } });
+    const timer = createDraftTimerService({ ...app, broadcaster });
     const now = new Date(Date.now() + 1000); // 1s after start, before 45s deadline
 
     await timer.tick(now);
@@ -137,7 +141,7 @@ describe("draft timer service", () => {
     // Simulate bot being offline by not ticking
     const rec = recordingTransport();
     const broadcaster = createBroadcaster(rec.transport);
-    const timer = createDraftTimerService({ drafts: app.drafts, messenger: app.messenger, broadcaster, lobby: { tick: () => ({ started: [], changedSlugs: [] }) } });
+    const timer = createDraftTimerService({ ...app, broadcaster });
     const now = new Date(Date.now() + 300000); // 5 minutes after start
 
     await timer.tick(now);
@@ -153,13 +157,142 @@ describe("draft timer service", () => {
 
     const rec = recordingTransport();
     const broadcaster = createBroadcaster(rec.transport);
-    const timer = createDraftTimerService({ drafts: app.drafts, messenger: app.messenger, broadcaster, lobby: { tick: () => ({ started: [], changedSlugs: [] }) } });
+    const timer = createDraftTimerService({ ...app, broadcaster });
     timer.start();
 
     expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 1000);
 
     timer.stop();
     setIntervalSpy.mockRestore();
+  });
+});
+
+describe("shared lobby timer integration", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-07T15:00:00Z"));
+  });
+  afterEach(() => { vi.useRealTimers(); });
+
+  function readyDraft(app: ReturnType<typeof setup>, targetSeats = 4) {
+    const host = app.players.upsert("guild-1", "user-7", "Yugi");
+    const guest = app.players.upsert("guild-1", "user-9", "Kaiba");
+    seedDraftCatalog(app, 24);
+    const draft = app.drafts.create("guild-1", "channel-1", "Scheduled", {
+      lobbySeats: targetSeats, packSize: 3, packsPerPlayer: 2, cardsPerPlayer: 6,
+      cubeCardIds: Array.from({ length: 24 }, (_, index) => index + 1),
+    }, "user-7", host.id);
+    app.drafts.join(draft.id, guest.id);
+    app.lobby.setReady(draft.id, "user-7", true);
+    app.lobby.setReady(draft.id, "user-9", true);
+    return draft;
+  }
+
+  it("starts an early manual countdown through the running bot interval without browser calls", async () => {
+    const app = setup();
+    const draft = readyDraft(app);
+    const revision = app.lobby.read(draft.id).lobby.revision;
+    const scheduled = app.lobby.scheduleStart(draft.id, "user-7", { revision });
+    const rec = recordingTransport();
+    const startedObservations: Array<{ inTransaction: boolean; status: string }> = [];
+    const onDraftStarted = vi.fn(async () => {
+      startedObservations.push({ inTransaction: app.db.inTransaction, status: app.drafts.findById(draft.id).status });
+    });
+    const timer = createDraftTimerService({ ...app, broadcaster: createBroadcaster(rec.transport), onDraftStarted });
+    timer.start();
+    try {
+      expect(scheduled.lobby.start?.startsAt).toBe("2026-10-07T15:00:05.000Z");
+      await vi.advanceTimersByTimeAsync(4_000);
+      expect(app.drafts.findById(draft.id).status).toBe("pending");
+      expect(rec.calls).toEqual([]);
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(app.drafts.findById(draft.id)).toMatchObject({ status: "active", currentPickStep: 1 });
+      expect(rec.calls.map(call => [call.path, JSON.parse(call.body)])).toEqual([
+        ["/internal/draft/status", { slug: draft.webSlug, status: "active" }],
+      ]);
+      expect(onDraftStarted).toHaveBeenCalledExactlyOnceWith(draft.id);
+      expect(startedObservations).toEqual([{ inTransaction: false, status: "active" }]);
+      expect(app.updateStatusCalls).toEqual([{ draftId: draft.id }]);
+    } finally { timer.stop(); app.db.close(); }
+  });
+
+  it("recovers an overdue auto countdown after reopening the database", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "draft-timer-restart-"));
+    const databasePath = join(directory, "bot.sqlite");
+    const app = setup(databasePath);
+    let restarted: ReturnType<typeof setup> | undefined;
+    try {
+      const draft = readyDraft(app, 2);
+      app.lobby.setAutoStart(draft.id, "user-7", { enabled: true, revision: app.lobby.read(draft.id).lobby.revision });
+      const schedule = app.lobby.read(draft.id).lobby.start;
+      expect(schedule).toMatchObject({ kind: "auto", startsAt: "2026-10-07T15:00:10.000Z" });
+      app.db.close();
+      vi.advanceTimersByTime(20_000);
+      restarted = setup(databasePath);
+      expect(restarted.lobby.read(draft.id).lobby.start).toEqual(schedule);
+      const onDraftStarted = vi.fn(async () => {});
+      const rec = recordingTransport();
+      const timer = createDraftTimerService({ ...restarted, broadcaster: createBroadcaster(rec.transport), onDraftStarted });
+      await timer.tick();
+      await timer.tick();
+      expect(restarted.drafts.findById(draft.id)).toMatchObject({ status: "active", currentPickStep: 1 });
+      expect(onDraftStarted).toHaveBeenCalledExactlyOnceWith(draft.id);
+      expect(rec.calls.map(call => call.path)).toEqual(["/internal/draft/status"]);
+    } finally {
+      if (app.db.open) app.db.close();
+      restarted?.db.close();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it.each(["timer", "fallback"])("commits one start when the %s wins a scoped fallback sweep", async winner => {
+    const app = setup();
+    try {
+      const draft = readyDraft(app);
+      app.lobby.scheduleStart(draft.id, "user-7", { revision: app.lobby.read(draft.id).lobby.revision });
+      vi.advanceTimersByTime(5_000);
+      const fallback = createDraftLobbyService(app.db);
+      const onDraftStarted = vi.fn(async () => {});
+      const rec = recordingTransport();
+      const timer = createDraftTimerService({ ...app, broadcaster: createBroadcaster(rec.transport), onDraftStarted });
+      let fallbackResult;
+      if (winner === "fallback") {
+        fallbackResult = fallback.tick(new Date(), draft.id);
+        await timer.tick();
+      } else {
+        const ticking = timer.tick();
+        fallbackResult = fallback.tick(new Date(), draft.id);
+        await ticking;
+      }
+      await timer.tick();
+      expect(app.drafts.findById(draft.id)).toMatchObject({ status: "active", currentPickStep: 1 });
+      expect(app.db.prepare("select count(*) as count from draft_packs where draft_id = ?").get(draft.id)).toEqual({ count: 2 });
+      expect(fallbackResult.started).toHaveLength(winner === "fallback" ? 1 : 0);
+      expect(onDraftStarted).toHaveBeenCalledTimes(winner === "timer" ? 1 : 0);
+      expect(rec.calls).toHaveLength(winner === "timer" ? 1 : 0);
+    } finally { app.db.close(); }
+  });
+
+  it("holds a failed persisted countdown and broadcasts the committed lobby change once", async () => {
+    const app = setup();
+    try {
+      const draft = readyDraft(app, 2);
+      app.lobby.setAutoStart(draft.id, "user-7", { enabled: true, revision: app.lobby.read(draft.id).lobby.revision });
+      app.db.prepare("update drafts set config_json = ? where id = ?").run(
+        JSON.stringify({ ...draft.config, cubeCardIds: [1] }), draft.id,
+      );
+      const rec = recordingTransport();
+      const onDraftStarted = vi.fn(async () => {});
+      const timer = createDraftTimerService({ ...app, broadcaster: createBroadcaster(rec.transport), onDraftStarted });
+      await timer.tick();
+      await timer.tick();
+      expect(app.lobby.read(draft.id).lobby).toMatchObject({ start: null, autoStart: { held: true }, lastStartError: expect.any(String) });
+      expect(app.drafts.findById(draft.id).status).toBe("pending");
+      expect(rec.calls.map(call => [call.path, JSON.parse(call.body)])).toEqual([
+        ["/internal/draft/seats", { slug: draft.webSlug }],
+      ]);
+      expect(onDraftStarted).not.toHaveBeenCalled();
+    } finally { app.db.close(); }
   });
 });
 

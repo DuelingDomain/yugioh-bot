@@ -17,7 +17,6 @@ import {
 } from "discord.js";
 import {
   handleCommand,
-  createBotDraftLobbyService,
   type CommandInteractionLike,
   type DraftMessenger,
 } from "./commands/handlers.js";
@@ -25,6 +24,7 @@ import {
   createCardCatalogService,
   createCubeService,
   createDraftImageService,
+  createDraftLobbyService,
   createDraftService,
   createGuildSettingsService,
 } from "@yugidraft/shared/services";
@@ -149,7 +149,7 @@ const deps = {
   players: createPlayerRepository(db),
   tournaments: createTournamentService(db),
   drafts: createDraftService(db),
-  lobby: createBotDraftLobbyService(db),
+  lobby: createDraftLobbyService(db),
   cards: createCardCatalogService(db),
   deleteNotifyMessage: (matchId: number) => deleteNotifyMessage(client, db, matchId),
   announceTournamentCompleted: (tournamentId: number) => announceTournamentCompleted(client, db, guildSettings, tournamentId),

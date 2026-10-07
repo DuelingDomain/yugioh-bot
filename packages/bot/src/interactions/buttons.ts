@@ -11,11 +11,11 @@ import {
 import type Database from "better-sqlite3";
 import type { Tournament, TournamentMatch } from "@yugidraft/shared/types";
 import { formatStats } from "../formatters/stats.js";
-import { scheduleDiscordDraftStart, type DraftEntryLobbyService, type DiscordUserLike } from "../commands/handlers.js";
+import { scheduleDiscordDraftStart, type DiscordUserLike } from "../commands/handlers.js";
 import type { PlayerRepository } from "../repositories/players.js";
 import type { CardCatalogService } from "../services/card-catalog.js";
 import type { DraftService } from "../services/drafts.js";
-import type { MatchService } from "@yugidraft/shared/services";
+import type { DraftLobbyService, MatchService } from "@yugidraft/shared/services";
 import type { TournamentService } from "@yugidraft/shared/services";
 import type { Broadcaster } from "@yugidraft/shared/notify";
 
@@ -35,7 +35,7 @@ type ButtonDependencies = {
   players: PlayerRepository;
   tournaments: TournamentService;
   drafts: DraftService;
-  lobby?: Pick<DraftEntryLobbyService, "read" | "scheduleStart">;
+  lobby?: Pick<DraftLobbyService, "read" | "scheduleStart">;
   cards: CardCatalogService;
   db: Database.Database;
   deleteNotifyMessage?: (matchId: number) => Promise<void>;

@@ -2,9 +2,9 @@ import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "../../shared/src/db/schema";
 
-const { auth, database, checkDiscordWebAccess, announce, read } = vi.hoisted(() => ({
+const { auth, database, checkDiscordWebAccess, announce, read, createDraftLobbyService } = vi.hoisted(() => ({
   auth: vi.fn(), database: { current: null as Database.Database | null },
-  checkDiscordWebAccess: vi.fn(), announce: vi.fn(), read: vi.fn(),
+  checkDiscordWebAccess: vi.fn(), announce: vi.fn(), read: vi.fn(), createDraftLobbyService: vi.fn(),
 }));
 vi.mock("@/lib/auth", () => ({ auth }));
 vi.mock("@/lib/db", () => ({ getDb: () => database.current! }));
@@ -12,7 +12,7 @@ vi.mock("@/lib/env", () => ({ env: { discordGuildId: "guild-1" } }));
 vi.mock("@/lib/discord-web-access", () => ({ checkDiscordWebAccess, webAccessError: () => "Membership unavailable" }));
 vi.mock("@/lib/notify", () => ({ announcer: { announce } }));
 vi.mock("@yugidraft/shared/services", () => ({
-  isTestBotDiscordId: (id: string) => id.startsWith("bot_player_dev_"), createDraftLobbyService: () => ({ read }),
+  isTestBotDiscordId: (id: string) => id.startsWith("bot_player_dev_"), createDraftLobbyService,
 }));
 vi.mock("@yugidraft/shared/types", () => import("../../shared/src/types/index"));
 
@@ -41,6 +41,7 @@ describe("draft Nudge route", () => {
     auth.mockResolvedValue({ user: { id: "host" } });
     checkDiscordWebAccess.mockResolvedValue({ ok: true });
     announce.mockResolvedValue({ ok: true });
+    createDraftLobbyService.mockReturnValue({ read });
     read.mockReturnValue({ players: [
       { playerId: 1, ready: false, isBot: false }, { playerId: 2, ready: true, isBot: false },
       { playerId: 3, ready: true, isBot: true }, { playerId: 4, ready: false, isBot: false },
@@ -55,6 +56,19 @@ describe("draft Nudge route", () => {
     expect(announce).toHaveBeenCalledWith({ kind: "draft-nudge", draftId: 1, channelId: "stored-channel", name: "Night", webSlug: "night", mentionUserIds: ["123456789012345678"] });
     expect(nudgedAt()).toBe("2026-10-07T15:00:00.000Z");
     expect(database.current!.prepare("select lobby_revision as revision from drafts where id = 1").get()).toEqual({ revision: 0 });
+  });
+
+  it("uses persisted readiness from the real shared lobby service", async () => {
+    const services = await vi.importActual<typeof import("@yugidraft/shared/services")>("@yugidraft/shared/services");
+    createDraftLobbyService.mockImplementation(services.createDraftLobbyService);
+    const lobby = services.createDraftLobbyService(database.current!);
+    lobby.setReady(1, "234567890123456789", true);
+    const revision = lobby.read(1).lobby.revision;
+    read.mockClear();
+    expect((await nudge()).status).toBe(200);
+    expect(announce.mock.calls[0][0].mentionUserIds).toEqual(["123456789012345678"]);
+    expect(lobby.read(1).lobby.revision).toBe(revision);
+    expect(read).not.toHaveBeenCalled();
   });
 
   it("targets one joined unready human", async () => {

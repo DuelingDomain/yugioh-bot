@@ -4,33 +4,14 @@ import type { PlayerRepository } from "../repositories/players.js";
 import type { CardCatalogService } from "../services/card-catalog.js";
 import type { DraftImageService } from "../services/draft-images.js";
 import type { Draft, DraftService } from "../services/drafts.js";
-import type { CubeService, MatchService } from "@yugidraft/shared/services";
+import type { CubeService, DraftLobbyService, MatchService } from "@yugidraft/shared/services";
 import type { TournamentFormat, TournamentService } from "@yugidraft/shared/services";
 import type { Broadcaster } from "@yugidraft/shared/notify";
-import * as sharedServices from "@yugidraft/shared/services";
-import type Database from "better-sqlite3";
-import type { DraftLobbyResponse, DraftLobbyTickResult, DraftStartRequest } from "@yugidraft/shared/types";
-
-/** T03's shared service boundary; transports and catalog hydration stay in callers. */
-export interface DraftEntryLobbyService {
-  read(draftId: number, viewerUserId: string, now?: Date): DraftLobbyResponse;
-  scheduleStart(draftId: number, actorUserId: string, request: DraftStartRequest, now?: Date): DraftLobbyResponse;
-  tick(now: Date): DraftLobbyTickResult;
-}
-
-export function createBotDraftLobbyService(db: Database.Database): DraftEntryLobbyService {
-  const services = sharedServices as typeof sharedServices & {
-    createDraftLobbyService(db: Database.Database): DraftEntryLobbyService;
-  };
-  if (typeof services.createDraftLobbyService !== "function") {
-    throw new Error("Shared draft lobby service is unavailable; build shared after T03 lands");
-  }
-  return services.createDraftLobbyService(db);
-}
+import type { DraftLobbyResponse } from "@yugidraft/shared/types";
 
 /** Shared by slash/button entry points. Only the web presents the force confirmation. */
 export async function scheduleDiscordDraftStart(draft: Draft, userId: string, deps: {
-  lobby?: Pick<DraftEntryLobbyService, "read" | "scheduleStart">;
+  lobby?: Pick<DraftLobbyService, "read" | "scheduleStart">;
   cards: CardCatalogService;
   broadcaster: Broadcaster;
 }): Promise<string> {
@@ -104,7 +85,7 @@ type CommandDependencies = {
   matches: MatchService;
   tournaments: TournamentService;
   drafts: DraftService;
-  lobby?: Pick<DraftEntryLobbyService, "read" | "scheduleStart">;
+  lobby?: Pick<DraftLobbyService, "read" | "scheduleStart">;
   cards: CardCatalogService;
   templates: CubeService;
   draftImages: DraftImageService;

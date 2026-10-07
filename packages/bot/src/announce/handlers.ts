@@ -1,7 +1,7 @@
 import { ChannelType, type Client } from "discord.js";
 import type Database from "better-sqlite3";
-import { createBotDraftLobbyService, type DraftEntryLobbyService, type DraftMessenger } from "../commands/handlers.js";
-import { isTestBotDiscordId } from "@yugidraft/shared/services";
+import type { DraftMessenger } from "../commands/handlers.js";
+import { createDraftLobbyService, isTestBotDiscordId, type DraftLobbyService } from "@yugidraft/shared/services";
 import type { DraftService } from "../services/drafts.js";
 import type { AnnounceHandlers } from "./server.js";
 import type { GuildSettingsService } from "@yugidraft/shared/services";
@@ -31,7 +31,7 @@ export function createAnnounceHandlers({
   drafts: DraftService;
   messenger: DraftMessenger;
   guildSettings: GuildSettingsService;
-  lobby?: Pick<DraftEntryLobbyService, "read">;
+  lobby?: Pick<DraftLobbyService, "read">;
 }): AnnounceHandlers {
   return {
     async onDraftCreated({ channelId, name, webSlug }) {
@@ -73,7 +73,7 @@ export function createAnnounceHandlers({
         throw new Error("Draft channel is unavailable in its guild");
       }
       // Fetching Discord can yield to Ready/Leave/Start, so re-read the current roster afterwards.
-      const state = (lobby ?? createBotDraftLobbyService(db)).read(draft.id, draft.created_by_user_id);
+      const state = (lobby ?? createDraftLobbyService(db)).read(draft.id, draft.created_by_user_id);
       const unready = new Set(state.players.filter(player => !player.ready && !player.isBot).map(player => player.playerId));
       const requested = new Set(payload.mentionUserIds);
       const members = db.prepare(`select p.id, p.discord_user_id from draft_players dp join players p on p.id = dp.player_id

@@ -7,7 +7,7 @@ import { createPlayerRepository } from "../../src/repositories/players.js";
 import { createCardCatalogService } from "../../src/services/card-catalog.js";
 import { createDraftImageService } from "../../src/services/draft-images.js";
 import { createDraftService } from "../../src/services/drafts.js";
-import { createMatchService } from "@yugidraft/shared/services";
+import { createDraftLobbyService, createMatchService } from "@yugidraft/shared/services";
 import { createCubeService, createDuelSeriesService, createTournamentService } from "@yugidraft/shared/services";
 import { recordingTransport, createBroadcaster } from "@yugidraft/shared/notify";
 
@@ -387,6 +387,33 @@ describe("command handlers", () => {
     expect(app.postStatusCalls).toEqual([]);
     expect(app.lobby.scheduleStart).toHaveBeenCalledWith(draft.id, "user-7", { revision: 7, force: false });
     expect(app.broadcasterCalls.map(c => c.path)).toEqual(["/internal/draft/seats"]);
+  });
+
+  it.each([true, false])("/draft start uses persisted readiness (all ready: %s)", async allReady => {
+    const app = setup();
+    try {
+      const host = app.players.upsert("guild-1", "user-7", "Yugi");
+      const guest = app.players.upsert("guild-1", "user-9", "Kaiba");
+      seedDraftCatalog(app, 24);
+      const draft = app.drafts.create("guild-1", "channel-1", "Night", {
+        packSize: 3, packsPerPlayer: 2, cardsPerPlayer: 6, lobbySeats: 4,
+        cubeCardIds: Array.from({ length: 24 }, (_, index) => index + 1),
+      }, "user-7", host.id);
+      app.drafts.join(draft.id, guest.id);
+      const lobby = createDraftLobbyService(app.db);
+      lobby.setReady(draft.id, "user-7", true);
+      if (allReady) lobby.setReady(draft.id, "user-9", true);
+      const { interaction, replies } = fakeInteraction({ commandName: "draft", subcommand: "start",
+        user: { id: "user-7", username: "Yugi" }, strings: { name: "Night" } });
+      await handleCommand(interaction, { ...app, lobby });
+      expect(replies[0]).toContain(allReady ? "Start scheduled for Night" : "confirm Start anyway");
+      expect(replies[0]).toContain(`/draft/${draft.webSlug}`);
+      expect(lobby.read(draft.id).lobby.start).toEqual(allReady ? expect.objectContaining({ kind: "manual" }) : null);
+      expect(app.drafts.findById(draft.id).status).toBe("pending");
+      expect(app.db.prepare("select count(*) as count from draft_cards where draft_id = ?").get(draft.id)).toEqual({ count: 0 });
+      expect(app.broadcasterCalls).toHaveLength(allReady ? 1 : 0);
+      expect(app.postStatusCalls).toEqual([]);
+    } finally { app.db.close(); }
   });
 
   it("/draft start hydrates set-backed pools before scheduling without opening a wave", async () => {
