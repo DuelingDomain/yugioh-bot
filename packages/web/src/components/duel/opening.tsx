@@ -14,7 +14,6 @@ import {
   openingStage,
   opponentPickText,
   revealEndsAt,
-  revealHeadline,
   revealOutcome,
   startText,
   waitChooseText,
@@ -104,10 +103,13 @@ export function OpeningScreen({ opening, mySeat, names, busy = false, error = nu
   const picked = mySeat != null ? opening.myPick : null;
 
   let status = "";
-  if (stage === "reveal" && outcome) status = revealHeadline(outcome, reveal?.winnerSeat != null ? names[reveal.winnerSeat] : null);
+  if (stage === "reveal") status = "Tie — again";
   else if (stage === "pick") status = player ? (picked ? `You chose ${MOVE_LABEL[picked]}. ${theirs.text}` : "Choose your move") : "Rock-paper-scissors";
   else if (stage === "choose") status = "You win. Go first or second?";
-  else if (stage === "wait-choose") status = waitChooseText(opening, mySeat, names);
+  else if (stage === "wait-choose") {
+    const winner = opening.winnerSeat == null ? "The winner" : names[opening.winnerSeat];
+    status = player ? "You lose. Opponent is choosing…" : `${winner} wins. ${winner} is choosing…`;
+  }
   else status = startText(opening, mySeat, names);
 
   return (

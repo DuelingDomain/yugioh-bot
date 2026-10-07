@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DUEL_OPENING_PICK_MS, type DuelOpeningView } from "@yugidraft/shared/duels";
 import {
-  myPickText, openingStage, opponentPickText, revealEndsAt, revealHeadline, revealOutcome, startText, waitChooseText,
+  myPickText, openingStage, opponentPickText, revealEndsAt, revealOutcome, startText, waitChooseText,
 } from "../src/components/duel/opening-model";
 
 const NOW = 1_000_000;
@@ -57,13 +57,13 @@ describe("openingStage", () => {
   });
 });
 
-describe("reveal text", () => {
+describe("reveal outcomes", () => {
   const win = view({ reveal: { round: 1, picks: ["paper", "rock"], winnerSeat: 0 } });
-  it("says win, lose, tie or decided", () => {
-    expect(revealHeadline(revealOutcome(win, 0)!, "Yugi")).toBe("You win");
-    expect(revealHeadline(revealOutcome(win, 1)!, "Yugi")).toBe("You lose");
-    expect(revealHeadline(revealOutcome(view({ reveal: { round: 1, picks: ["rock", "rock"], winnerSeat: null } }), 0)!, null)).toBe("Tie — again");
-    expect(revealHeadline(revealOutcome(win, null)!, "Yugi")).toBe("Yugi wins");
+  it("identifies a win, a loss, a tie or a spectator's result", () => {
+    expect(revealOutcome(win, 0)).toBe("win");
+    expect(revealOutcome(win, 1)).toBe("lose");
+    expect(revealOutcome(view({ reveal: { round: 1, picks: ["rock", "rock"], winnerSeat: null } }), 0)).toBe("tie");
+    expect(revealOutcome(win, null)).toBe("decided");
     expect(revealOutcome(view(), 0)).toBeNull();
   });
 });

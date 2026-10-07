@@ -72,7 +72,8 @@ describe("OpeningScreen", () => {
     expect(seats[winnerSeat].getByTestId("opening-first")).toBeEnabled();
     expect(seats[winnerSeat].getByTestId("opening-second")).toBeEnabled();
     expect(seats[1 - winnerSeat].queryByTestId("opening-first")).toBeNull();
-    expect(seats[1 - winnerSeat].getByTestId("opening-status")).toHaveTextContent("Opponent is choosing to go first or second…");
+    expect(seats[winnerSeat].getByTestId("opening-status")).toHaveTextContent("You win. Go first or second?");
+    expect(seats[1 - winnerSeat].getByTestId("opening-status")).toHaveTextContent("You lose. Opponent is choosing…");
 
     fireEvent.click(seats[winnerSeat].getByTestId(`opening-${choice}`));
     rerender(draw());
@@ -176,7 +177,7 @@ describe("OpeningScreen", () => {
     expect(screen.getByTestId("opening-first")).toBeEnabled();
     unmount();
     const lost = open("rps-reveal-lose");
-    expect(screen.getByTestId("opening-status").textContent).toBe("Opponent is choosing to go first or second…");
+    expect(screen.getByTestId("opening-status").textContent).toBe("You lose. Opponent is choosing…");
     expect(screen.getByTestId("opening-reveal")).toHaveAttribute("data-outcome", "lose");
     lost.unmount();
     open("rps-reveal-tie");
@@ -194,8 +195,18 @@ describe("OpeningScreen", () => {
 
   it("tells the loser that the opponent is choosing the order", () => {
     open("rps-opponent-choosing");
-    expect(screen.getByTestId("opening-status").textContent).toBe("Opponent is choosing to go first or second…");
+    expect(screen.getByTestId("opening-status").textContent).toBe("You lose. Opponent is choosing…");
     expect(screen.queryByTestId("opening-first")).toBeNull();
+  });
+
+  it.each([0, 1] as const)("tells spectators which player won and is choosing (winner %s)", (winnerSeat) => {
+    const opening = labOpeningView({ stage: winnerSeat === 0 ? "choose" : "wait-choose" });
+    render(<OpeningScreen opening={opening} mySeat={null} names={NAMES} onPick={() => undefined} onChoose={() => undefined} />);
+    const winner = NAMES[winnerSeat];
+    expect(screen.getByTestId("opening-status")).toHaveTextContent(`${winner} wins. ${winner} is choosing…`);
+    expect(screen.queryByTestId("opening-first")).toBeNull();
+    expect(screen.queryByTestId("opening-second")).toBeNull();
+    expect(screen.getByTestId("opening-reveal")).toHaveAttribute("data-outcome", "decided");
   });
 
   it("shows the settled order", () => {

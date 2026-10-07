@@ -54,13 +54,6 @@ export function revealOutcome(opening: DuelOpeningView, mySeat: number | null): 
   return reveal.winnerSeat === mySeat ? "win" : "lose";
 }
 
-export function revealHeadline(outcome: RevealOutcome, winnerName: string | null): string {
-  if (outcome === "win") return "You win";
-  if (outcome === "lose") return "You lose";
-  if (outcome === "tie") return "Tie — again";
-  return winnerName ? `${winnerName} wins` : "Decided";
-}
-
 /** The viewer's own seat and the other seat; a spectator is shown seat 0 against seat 1. */
 export function openingSeats(mySeat: number | null): { me: 0 | 1; them: 0 | 1 } {
   return mySeat === 1 ? { me: 1, them: 0 } : { me: 0, them: 1 };
