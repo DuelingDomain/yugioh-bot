@@ -208,7 +208,8 @@ const draftTimer = createDraftTimerService({
   broadcaster,
   onDraftStarted: async (draftId) => {
     const draft = deps.drafts.findById(draftId);
-    if (!draft.webSlug) return;
+    // A draft made while Discord was off has no channel to post in.
+    if (!draft.webSlug || !draft.channelId) return;
     await createAnnounceHandlers({ client, db, drafts: deps.drafts, messenger: deps.messenger,
       guildSettings: deps.guildSettings, lobby: deps.lobby }).onDraftStarted({
         draftId: draft.id, channelId: draft.channelId, name: draft.name, webSlug: draft.webSlug,
