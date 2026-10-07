@@ -197,7 +197,7 @@ export function applyListEntries(main: Pool, extra: Pool, entries: Iterable<List
   return { main: out.main, extra: out.extra, gainedMain: gained.main, gainedExtra: gained.extra };
 }
 
-/** Takes the copies an import added back out. A card the user has since lowered loses only what is left of its gain. */
+/** Takes copies out of a pool, never below 0. `gains` is what the import ledger says the import still owns. */
 export function subtractGains(pool: Pool, gains: ReadonlyMap<number, number>): Pool {
   let out: Pool | null = null;
   for (const [id, gain] of gains) {

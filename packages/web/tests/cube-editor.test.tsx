@@ -45,8 +45,6 @@ let resolveGate: Promise<void> | null;
 let resolveFails: boolean;
 /** When set, the next write to the cube's cards is refused like this. */
 let importFailure: { status: number; error: string; retryAfter?: string } | null;
-/** When true, importList adds 40 different main cards. */
-let bulk: boolean;
 
 function detail() {
   return { pools: { main: [...main], extra: [...extra] }, cards: CARDS };
@@ -64,7 +62,6 @@ beforeEach(() => {
   resolveGate = null;
   resolveFails = false;
   importFailure = null;
-  bulk = false;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: unknown, init?: RequestInit) => {
@@ -82,12 +79,15 @@ beforeEach(() => {
           } as Response;
         }
         posts.push(body);
-        if (bulk && body.op === "importList") {
-          main = Array.from({ length: 40 }, (_, i) => ({ catalogCardId: 100 + i, pool: "main" as const, maxCopies: 1 }));
-          return { ok: true, json: async () => ({ ...detail(), added: 40, copies: 40, unknown: [], corrected: [] }) } as Response;
-        }
-        if (body.op === "replaceMain") {
-          main = (body.cards as Array<{ id: number; copies: number }>).map((c) => ({ catalogCardId: c.id, pool: "main" as const, maxCopies: c.copies }));
+        if (body.op === "subtract") {
+          for (const e of body.entries as Array<{ id: number; copies: number; pool: "main" | "extra" }>) {
+            const lower = (list: Entry[]) =>
+              list
+                .map((x) => (x.catalogCardId === e.id ? { ...x, maxCopies: Math.max(0, x.maxCopies - e.copies) } : x))
+                .filter((x) => x.maxCopies > 0);
+            if (e.pool === "main") main = lower(main);
+            else extra = lower(extra);
+          }
           return { ok: true, json: async () => detail() } as Response;
         }
         if (body.op === "import") {
@@ -341,16 +341,29 @@ describe("CubeEditor", () => {
     expect(screen.getByRole("button", { name: /Main\s*1/ })).toBeInTheDocument();
   });
 
-  it("adds typed text after a pause, and on Enter at once, never twice", async () => {
+  it("never adds typed text by itself, and adds it on Enter once", async () => {
     await open();
     fireEvent.click(screen.getByRole("button", { name: "Card list" }));
     const box = screen.getByLabelText("Card list");
     fireEvent.change(box, { target: { value: "3 Dark Ho" } });
-    await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 1200));
+    expect(posts).toEqual([]);
+    expect(box).toHaveValue("3 Dark Ho");
+    expect(fireEvent.keyDown(box, { key: "Enter", shiftKey: true })).toBe(true);
     expect(posts).toEqual([]);
     fireEvent.keyDown(box, { key: "Enter" });
     await screen.findByText(/^Pasted list - 4 cards/);
     await new Promise((r) => setTimeout(r, 1000));
+    expect(posts).toHaveLength(1);
+  });
+
+  it("adds typed text with the Add button", async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Card list" }));
+    expect(screen.getByRole("button", { name: "Add" })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Card list"), { target: { value: "3 Dark Hole" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    await screen.findByText(/^Pasted list - 4 cards/);
     expect(posts).toHaveLength(1);
   });
 
@@ -404,9 +417,15 @@ describe("CubeEditor", () => {
 
       fireEvent.click(screen.getByRole("button", { name: "Remove Pasted list" }));
       await waitFor(() => expect(screen.queryByRole("list", { name: "Added lists" })).toBeNull());
+      // One call for the whole import, with only the copies it added.
       expect(posts).toEqual([
-        { op: "setMaxCopies", catalogCardId: 1, maxCopies: 2 },
-        { op: "remove", catalogCardId: 2 },
+        {
+          op: "subtract",
+          entries: [
+            { id: 1, copies: 1, pool: "main" },
+            { id: 2, copies: 1, pool: "extra" },
+          ],
+        },
       ]);
       expect(main).toEqual([{ catalogCardId: 1, pool: "main", maxCopies: 2 }]);
       expect(extra).toEqual([]);
@@ -436,16 +455,93 @@ describe("CubeEditor", () => {
       expect(screen.getByText(/^Pasted list - /)).toBeInTheDocument();
     });
 
-    it("uses one replaceMain request when an import added many main cards", async () => {
-      bulk = true;
+    it("does not take back copies the owner lowered after the import (3, import to 5, lowered to 3, Remove leaves 3)", async () => {
+      main = [{ catalogCardId: 1, pool: "main", maxCopies: 3 }];
       await open();
       fireEvent.click(screen.getByRole("button", { name: "Card list" }));
-      pasteInto("Card list", "many");
-      await screen.findByText(/^Pasted list - 40 cards \(40 Main, 0 Extra\)/);
+      pasteInto("Card list", "MORE");
+      await screen.findByText(/^Pasted list - 2 cards \(2 Main, 0 Extra\)/);
+      expect(main[0]!.maxCopies).toBe(5);
+
+      fireEvent.click(screen.getByRole("button", { name: "Main A, 5 copies" }));
+      fireEvent.click(screen.getByRole("button", { name: "One fewer copy" }));
+      await waitFor(() => expect(main[0]!.maxCopies).toBe(4));
+      await waitFor(() => expect(screen.getByRole("button", { name: "One fewer copy" })).toBeEnabled());
+      fireEvent.click(screen.getByRole("button", { name: "One fewer copy" }));
+      await waitFor(() => expect(main[0]!.maxCopies).toBe(3));
+      await waitFor(() => expect(screen.getByRole("button", { name: "One fewer copy" })).toBeEnabled());
+      fireEvent.click(screen.getByRole("button", { name: "Close, back to Add cards" }));
+      fireEvent.click(screen.getByRole("button", { name: "Card list" }));
       posts.length = 0;
+
       fireEvent.click(screen.getByRole("button", { name: "Remove Pasted list" }));
-      await waitFor(() => expect(posts).toHaveLength(1));
-      expect(posts[0]).toEqual({ op: "replaceMain", cards: [] });
+      await waitFor(() => expect(screen.queryByRole("list", { name: "Added lists" })).toBeNull());
+      // Nothing of the import is left, so no request goes out and the card keeps its 3 copies.
+      expect(posts).toEqual([]);
+      expect(main).toEqual([{ catalogCardId: 1, pool: "main", maxCopies: 3 }]);
+    });
+
+    it("removes two stacked imports in either order and ends at the starting copies", async () => {
+      main = [{ catalogCardId: 1, pool: "main", maxCopies: 3 }];
+      await open();
+      fireEvent.click(screen.getByRole("button", { name: "Card list" }));
+      pasteInto("Card list", "MORE");
+      await screen.findByText(/^Pasted list - 2 cards/);
+      pasteInto("Card list", "MORE");
+      await screen.findByText(/^Pasted list 2 - 2 cards/);
+      expect(main[0]!.maxCopies).toBe(7);
+      posts.length = 0;
+
+      fireEvent.click(screen.getByRole("button", { name: "Remove Pasted list" }));
+      await waitFor(() => expect(screen.queryByText(/^Pasted list - /)).toBeNull());
+      expect(posts).toEqual([{ op: "subtract", entries: [{ id: 1, copies: 2, pool: "main" }] }]);
+      expect(main[0]!.maxCopies).toBe(5);
+
+      fireEvent.click(screen.getByRole("button", { name: "Remove Pasted list 2" }));
+      await waitFor(() => expect(screen.queryByRole("list", { name: "Added lists" })).toBeNull());
+      expect(posts[1]).toEqual({ op: "subtract", entries: [{ id: 1, copies: 2, pool: "main" }] });
+      expect(main).toEqual([{ catalogCardId: 1, pool: "main", maxCopies: 3 }]);
+    });
+
+    it("takes the owner's lowering from the newest import first", async () => {
+      main = [{ catalogCardId: 1, pool: "main", maxCopies: 3 }];
+      await open();
+      fireEvent.click(screen.getByRole("button", { name: "Card list" }));
+      pasteInto("Card list", "MORE");
+      await screen.findByText(/^Pasted list - 2 cards/);
+      pasteInto("Card list", "MORE");
+      await screen.findByText(/^Pasted list 2 - 2 cards/);
+      fireEvent.click(screen.getByRole("button", { name: "Main A, 7 copies" }));
+      fireEvent.click(screen.getByRole("button", { name: "One fewer copy" }));
+      await waitFor(() => expect(main[0]!.maxCopies).toBe(6));
+      await waitFor(() => expect(screen.getByRole("button", { name: "One fewer copy" })).toBeEnabled());
+      fireEvent.click(screen.getByRole("button", { name: "Close, back to Add cards" }));
+      fireEvent.click(screen.getByRole("button", { name: "Card list" }));
+      posts.length = 0;
+
+      // The newest import lost one copy to the owner, the oldest still has its two.
+      fireEvent.click(screen.getByRole("button", { name: "Remove Pasted list 2" }));
+      await waitFor(() => expect(screen.queryByText(/^Pasted list 2 - /)).toBeNull());
+      expect(posts).toEqual([{ op: "subtract", entries: [{ id: 1, copies: 1, pool: "main" }] }]);
+      expect(main[0]!.maxCopies).toBe(5);
+    });
+
+    it("keeps the entry and the same amounts after a refusal, so a retry cannot take twice", async () => {
+      main = [{ catalogCardId: 1, pool: "main", maxCopies: 3 }];
+      await open();
+      fireEvent.click(screen.getByRole("button", { name: "Card list" }));
+      pasteInto("Card list", "MORE");
+      await screen.findByText(/^Pasted list - 2 cards/);
+      posts.length = 0;
+      importFailure = { status: 409, error: "This cube is in a running draft." };
+      fireEvent.click(screen.getByRole("button", { name: "Remove Pasted list" }));
+      expect(await screen.findByText("This cube is in a running draft.")).toBeInTheDocument();
+      expect(main[0]!.maxCopies).toBe(5);
+
+      fireEvent.click(screen.getByRole("button", { name: "Remove Pasted list" }));
+      await waitFor(() => expect(screen.queryByRole("list", { name: "Added lists" })).toBeNull());
+      expect(posts).toEqual([{ op: "subtract", entries: [{ id: 1, copies: 2, pool: "main" }] }]);
+      expect(main[0]!.maxCopies).toBe(3);
     });
   });
 

@@ -399,7 +399,7 @@ export function AddCardsBody(props: AddRailProps) {
             <>
               Card names or passcodes, one per line. A number before a name is its copies, like 3 Dark Hole. Without one, a card
               gets 1 copy. A paste or a loaded file is added at once and copies add to the ones already in the cube. Extra Deck
-              monsters go to the Extra pool. Typed text is added when you stop typing, or press Enter.
+              monsters go to the Extra pool. Typed text is added when you press Enter or choose Add. Shift+Enter starts a new line.
             </>
           }
         />
@@ -414,7 +414,7 @@ export function AddCardsBody(props: AddRailProps) {
           hint={
             <>
               List a card as many times as you want copies, up to 99. A card already in the cube takes the new count, so one line
-              sets it to ×1. A paste or a loaded file is added at once. Typed text is added when you stop typing, or press Enter.
+              sets it to ×1. A paste or a loaded file is added at once. Typed text is added when you press Enter or choose Add. Shift+Enter starts a new line.
             </>
           }
         />

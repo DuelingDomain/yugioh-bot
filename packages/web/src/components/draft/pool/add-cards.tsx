@@ -436,8 +436,7 @@ function SetTab({ ctl, setNote }: TabProps) {
 }
 
 /**
- * Card list: names, passcodes, YDK text or a ydke link. A paste or a loaded file is added at once, typed text when the
- * typing stops. Every list that went in stays under the box with a Remove button that takes out only its copies.
+ * Card list: names, passcodes, YDK text or a ydke link. A paste or a loaded file is added at once, typed text on Enter or Add. Every list that went in stays under the box with a Remove button that takes out only its copies.
  */
 function ListTab({ ctl }: { ctl: PoolEditor }) {
   const ctlRef = React.useRef(ctl);
@@ -473,7 +472,7 @@ function ListTab({ ctl }: { ctl: PoolEditor }) {
         <>
           Card names or passcodes, one per line. A number before a name is its copies, like 3 Dark Hole. Without one, a card gets 1
           copy. Pasted text and loaded files are added at once; Extra Deck monsters go to the Extra pool. Typed text is added when you
-          stop typing, or press Enter.
+          press Enter or choose Add. Shift+Enter starts a new line.
         </>
       }
       hintClassName={`${styles.note} ${styles.quiet}`}

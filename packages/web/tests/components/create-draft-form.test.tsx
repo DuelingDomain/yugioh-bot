@@ -359,7 +359,7 @@ describe("CreateDraftForm pool: customizing a cube", () => {
     return stub;
   };
 
-  it("adds pasted passcodes and names at once, with no Add button, and routes Extra Deck cards to the Extra pool", async () => {
+  it("adds pasted passcodes and names at once and routes Extra Deck cards to the Extra pool", async () => {
     const stub = await openList();
     expect(screen.queryByRole("button", { name: /^Add list/ })).toBeNull();
     paste("105\n105\n900\n424242");
@@ -389,22 +389,55 @@ describe("CreateDraftForm pool: customizing a cube", () => {
     expect(screen.getByLabelText("Card list")).toHaveValue("");
   });
 
-  it("imports typed text after a pause, not on every key", async () => {
+  it("never imports typed text by itself: a pause after a partial name sends no request", async () => {
     const stub = await openList();
     const box = screen.getByLabelText("Card list");
     const imports = () => resolveBodies(stub).filter((b) => b.listText !== undefined);
-    fireEvent.change(box, { target: { value: "3 Dra" } });
-    await new Promise((r) => setTimeout(r, 400));
-    fireEvent.change(box, { target: { value: "3 Dragon Egg" } });
-    await new Promise((r) => setTimeout(r, 500));
-    // 900 ms after the first key, but only 500 ms after the last: nothing was imported.
+    // "Dark Magician" is a real card; the owner is still typing "Dark Magician of Chaos".
+    fireEvent.change(box, { target: { value: "Dragon Egg" } });
+    await new Promise((r) => setTimeout(r, 1200));
     expect(imports()).toHaveLength(0);
-    expect(await screen.findByText("Pasted list - 3 cards (3 Main, 0 Extra)", {}, { timeout: 2000 })).toBeInTheDocument();
-    expect(imports()).toHaveLength(1);
-    expect(imports()[0].listText).toBe("3 Dragon Egg");
+    expect(box).toHaveValue("Dragon Egg");
+    expect(screen.queryByText(/^Pasted list/)).toBeNull();
   });
 
-  it("does not import twice when a paste is followed by the pause timer", async () => {
+  it("imports typed text with the Add button, which is off while the box is empty", async () => {
+    const stub = await openList();
+    const box = screen.getByLabelText("Card list");
+    const add = screen.getByRole("button", { name: "Add" });
+    expect(add).toBeDisabled();
+    fireEvent.change(box, { target: { value: "3 Dragon Egg" } });
+    expect(add).toBeEnabled();
+    fireEvent.click(add);
+    expect(await screen.findByText("Pasted list - 3 cards (3 Main, 0 Extra)")).toBeInTheDocument();
+    expect(resolveBodies(stub).filter((b) => b.listText !== undefined)).toHaveLength(1);
+    expect(box).toHaveValue("");
+  });
+
+  it("adds a second paste that comes while the first import runs, after the first", async () => {
+    const stub = await openList();
+    const inner = globalThis.fetch;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let held = 0;
+    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
+      const isList = String(input) === "/api/cards/resolve" && String(init?.body ?? "").includes("listText");
+      if (isList && held++ === 0) return gate.then(() => inner(input, init));
+      return inner(input, init);
+    });
+    paste("3 Dragon Egg");
+    expect(await screen.findByText("Adding the list.")).toBeInTheDocument();
+    paste("2 Cipher Soldier");
+    expect(await screen.findByText("1 more list is waiting.")).toBeInTheDocument();
+    release();
+    expect(await screen.findByText("Pasted list 2 - 2 cards (2 Main, 0 Extra)")).toBeInTheDocument();
+    expect(screen.getByText("Pasted list - 3 cards (3 Main, 0 Extra)")).toBeInTheDocument();
+    expect(resolveBodies(stub).filter((b) => b.listText !== undefined).map((b) => b.listText)).toEqual(["3 Dragon Egg", "2 Cipher Soldier"]);
+    expect(within(poolRow("Dragon Egg")).getByLabelText("3 copies")).toBeInTheDocument();
+    expect(within(poolRow("Cipher Soldier")).getByLabelText("2 copies")).toBeInTheDocument();
+  });
+
+  it("does not import twice when a paste follows typed text", async () => {
     const stub = await openList();
     const box = screen.getByLabelText("Card list");
     fireEvent.change(box, { target: { value: "3 Dragon Egg" } });
@@ -454,6 +487,44 @@ describe("CreateDraftForm pool: customizing a cube", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Main/ }));
     expect(within(poolRow("Dragon Egg")).getByLabelText("3 copies")).toBeInTheDocument();
     expect(screen.getByText("Pasted list 2 - 3 cards (3 Main, 0 Extra)")).toBeInTheDocument();
+  });
+
+  const step = (name: string, times: number) => {
+    for (let i = 0; i < times; i += 1) fireEvent.click(within(poolRow(name)).getByRole("button", { name: `One fewer ${name}` }));
+  };
+
+  it("does not take back copies the owner lowered: import to 5, lowered to 3, Remove leaves 3", async () => {
+    await openList();
+    paste("3 Dragon Egg");
+    await screen.findByText("Pasted list - 3 cards (3 Main, 0 Extra)");
+    paste("2 Dragon Egg");
+    await screen.findByText("Pasted list 2 - 2 cards (2 Main, 0 Extra)");
+    expect(within(poolRow("Dragon Egg")).getByLabelText("5 copies")).toBeInTheDocument();
+
+    step("Dragon Egg", 2);
+    expect(within(poolRow("Dragon Egg")).getByLabelText("3 copies")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Remove Pasted list 2" }));
+    await waitFor(() => expect(screen.queryByText(/^Pasted list 2 - /)).toBeNull());
+    expect(within(poolRow("Dragon Egg")).getByLabelText("3 copies")).toBeInTheDocument();
+  });
+
+  it("removes two stacked imports in any order, and never goes below zero", async () => {
+    await openList();
+    paste("3 Dragon Egg");
+    await screen.findByText("Pasted list - 3 cards (3 Main, 0 Extra)");
+    paste("2 Dragon Egg");
+    await screen.findByText("Pasted list 2 - 2 cards (2 Main, 0 Extra)");
+
+    // The oldest first: only its 3 copies leave, the newest import's 2 stay.
+    fireEvent.click(screen.getByRole("button", { name: "Remove Pasted list" }));
+    await waitFor(() => expect(screen.queryByText(/^Pasted list - /)).toBeNull());
+    expect(within(poolRow("Dragon Egg")).getByLabelText("2 copies")).toBeInTheDocument();
+    // The owner lowers the rest by one: the newest import has one copy left to take.
+    step("Dragon Egg", 1);
+    expect(within(poolRow("Dragon Egg")).getByLabelText("1 copy")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Remove Pasted list 2" }));
+    await waitFor(() => expect(screen.queryByRole("list", { name: "Added lists" })).toBeNull());
+    expect(within(screen.getByRole("list", { name: "Pool cards" })).queryByText("Dragon Egg")).toBeNull();
   });
 
   it("says so when nothing in the list is a card, and keeps the text", async () => {

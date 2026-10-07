@@ -12,7 +12,8 @@ import { ListImportError, listImportErrorFrom } from "@/lib/card-list-import";
 import { parseCustomCardIds } from "@/lib/custom-card-pool";
 import { importLine, pasteLabel } from "@/components/draft/pool/pool-model";
 import { AddCardsBody, type CubeImportEntry, type ImportKind, type ImportOutcome } from "./cube-add-rail";
-import { gainMap, gainsBetween, planRemoval, type CubeGain, type RemovalOp } from "./cube-import-model";
+import { EMPTY_LEDGER, record as recordInLedger, remaining, settle, withoutEntry, type Ledger } from "@/components/card-list-import/import-ledger";
+import { gainKeys, gainMap, gainsBetween, poolCounts, subtractEntries, type CubeGain } from "./cube-import-model";
 import { CubeCardGrid } from "./cube-card-grid";
 import {
   DEFAULT_VIEW,
@@ -55,9 +56,6 @@ interface UndoInfo {
   copies: number;
 }
 
-/** A removal that changes more main cards than this goes as one replaceMain call instead of one request per card. */
-const BULK_REMOVE_FROM = 30;
-
 interface ImportRecord extends CubeImportEntry {
   gains: CubeGain[];
 }
@@ -99,6 +97,9 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
   const removalSequence = React.useRef(0);
   const [imports, setImports] = React.useState<ImportRecord[]>([]);
   const importSequence = React.useRef(0);
+  // Which copies still belong to each import. It looks at the pools after every response, so a card the owner lowered
+  // takes copies out of the newest import's gain, and Remove takes out only what is left.
+  const ledgerRef = React.useRef<Ledger>(EMPTY_LEDGER);
   const poolsRef = React.useRef(pools);
   poolsRef.current = pools;
   const importsRef = React.useRef(imports);
@@ -110,6 +111,7 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
 
   const applyDetail = React.useCallback((data: { cube?: CubeDto; pools: CubePoolsDto; cards: CardSummary[] }) => {
     if (data.cube) setCube(data.cube);
+    ledgerRef.current = settle(ledgerRef.current, poolCounts(data.pools));
     setPools(data.pools);
     putCards(data.cards);
     setCardsById(new Map(data.cards.map((c) => [c.id, c])));
@@ -222,7 +224,9 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
       const label = fileName ?? pasteLabel(importsRef.current.map((entry) => entry.label));
       const report = { unknown, corrected };
       const line = importLine({ label, main: gainMap(gains, "main"), extra: gainMap(gains, "extra"), corrected, unknown });
-      setImports((prev) => [...prev, { key: ++importSequence.current, kind, label, line, report, gains }]);
+      const key = ++importSequence.current;
+      ledgerRef.current = recordInLedger(ledgerRef.current, key, gainKeys(gains), poolCounts(data.pools));
+      setImports((prev) => [...prev, { key, kind, label, line, report, gains }]);
       return undefined;
     } finally {
       setBusy(false);
@@ -232,18 +236,20 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
   const removeImport = async (key: number | string) => {
     const entry = importsRef.current.find((e) => e.key === key);
     if (!entry) return;
-    const plan = planRemoval(poolsRef.current, entry.gains);
+    const before = ledgerRef.current;
+    const left = remaining(before, key, poolCounts(poolsRef.current));
     setBusy(true);
     setError(null);
+    // The ledger forgets the import before the request, so the response (which has fewer copies) is not read as the
+    // owner lowering other imports' cards. A failed request puts it back and leaves the entry as it was.
+    ledgerRef.current = withoutEntry(before, key);
     try {
-      const run = (op: RemovalOp) => writeCards(op, "Couldn't remove that list.");
-      if (plan.main.length > BULK_REMOVE_FROM) {
-        await writeCards({ op: "replaceMain", cards: plan.mainTarget }, "Couldn't remove that list.");
-      } else {
-        for (const op of plan.main) await run(op);
-      }
-      for (const op of plan.extra) await run(op);
+      // One call, one transaction on the server: it all goes out or none of it does.
+      if (left.size > 0) await writeCards({ op: "subtract", entries: subtractEntries(left) }, "Couldn't remove that list.");
       setImports((prev) => prev.filter((e) => e.key !== key));
+    } catch (error) {
+      ledgerRef.current = before;
+      throw error;
     } finally {
       setBusy(false);
     }

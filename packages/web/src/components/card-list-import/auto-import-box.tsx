@@ -7,9 +7,6 @@ import { ListFileButton } from "./list-file-button";
 import { ListImportReport } from "./list-import-report";
 import styles from "./auto-import-box.module.css";
 
-/** Typed text is imported after this long without a key press. */
-export const IMPORT_DEBOUNCE_MS = 800;
-
 /** What `run` resolves with when the list held no cards: the box keeps the text and says so. */
 export type NothingFound = { nothing: true; report?: Partial<ListDiagnostics> };
 
@@ -56,9 +53,17 @@ interface Props {
   hintClassName?: string;
 }
 
+/** One list that waits for the import in front of it. */
+interface Queued {
+  value: string;
+  fileName: string | null;
+}
+
 /**
- * A box for a card list that adds it at once. A paste or a loaded file imports now; typed text imports when the
- * typing stops (about 800 ms) or on Enter / Ctrl+Enter. Each import then shows as an entry that can be removed again.
+ * A box for a card list that adds it at once. A paste, a drop or a loaded file imports now. Typed text never imports
+ * by itself (a pause can fall in the middle of a card name): it imports on Enter, or with the Add button, and
+ * Shift+Enter is a new line. A list that arrives while another import runs waits its turn.
+ * Each import then shows as an entry that can be removed again.
  * The box is empty after an import, and keeps its text when the import failed or found nothing.
  */
 export function AutoImportBox({
@@ -83,7 +88,8 @@ export function AutoImportBox({
   const [busy, setBusy] = React.useState(false);
   const [problem, setProblem] = React.useState<Problem | null>(null);
   const [waiting, setWaiting] = React.useState(false);
-  const typing = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const queue = React.useRef<Queued[]>([]);
+  const [queued, setQueued] = React.useState(0);
   const waitTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const inFlight = React.useRef(false);
   const mounted = React.useRef(true);
@@ -94,24 +100,18 @@ export function AutoImportBox({
     mounted.current = true;
     return () => {
       mounted.current = false;
-      if (typing.current) clearTimeout(typing.current);
       if (waitTimer.current) clearTimeout(waitTimer.current);
     };
   }, []);
 
-  const stopTyping = React.useCallback(() => {
-    if (typing.current) clearTimeout(typing.current);
-    typing.current = null;
-  }, []);
-
   const start = React.useCallback(
-    async (value: string, fileName: string | null) => {
-      stopTyping();
-      // One import at a time, and never the same text twice: a paste cancels the typing timer above.
+    async (value: string, fileName: string | null, fromQueue = false) => {
+      // One import at a time; a list that comes in meanwhile goes to the queue (see `enqueue`).
       if (inFlight.current || value.trim() === "") return;
       inFlight.current = true;
       setBusy(true);
-      setProblem(null);
+      // A list from the queue leaves the problem of the one before it on screen.
+      if (!fromQueue) setProblem(null);
       setWaiting(false);
       try {
         const result = await runRef.current(value, fileName);
@@ -120,7 +120,8 @@ export function AutoImportBox({
           setText(value);
           setProblem({ tone: "warn", message: NOTHING_FOUND, report: result.report });
         } else {
-          setText("");
+          // Text typed since is not the list that went in.
+          setText((now) => (now === value || !fromQueue ? "" : now));
         }
       } catch (error) {
         if (!mounted.current) return;
@@ -140,10 +141,31 @@ export function AutoImportBox({
         if (mounted.current) setBusy(false);
       }
     },
-    [stopTyping],
+    [],
   );
 
   const locked = busy || disabled;
+  // `enqueue` also runs from a file read that finishes later, so it reads the lock from here, not from its own render.
+  const lockedRef = React.useRef(locked);
+  lockedRef.current = locked;
+
+  /** A paste or a file while the box is busy waits here and goes in next. */
+  const enqueue = (value: string, fileName: string | null) => {
+    if (value.trim() === "") return;
+    if (!lockedRef.current && !inFlight.current) {
+      void start(value, fileName);
+      return;
+    }
+    queue.current.push({ value, fileName });
+    setQueued(queue.current.length);
+  };
+
+  React.useEffect(() => {
+    if (locked || inFlight.current || queue.current.length === 0) return;
+    const next = queue.current.shift()!;
+    setQueued(queue.current.length);
+    void start(next.value, next.fileName, true);
+  }, [locked, queued, start]);
 
   return (
     <div className={styles.box}>
@@ -163,27 +185,33 @@ export function AutoImportBox({
           aria-busy={busy || undefined}
           aria-describedby={hintId}
           onPaste={(event) => {
-            if (locked) return;
             const pasted = event.clipboardData?.getData("text") ?? "";
             if (pasted.trim() === "") return;
             event.preventDefault();
+            if (locked) {
+              // The box shows the list that is going in; this one waits its turn.
+              enqueue(pasted, null);
+              return;
+            }
             const el = event.currentTarget;
             const value = el.value.slice(0, el.selectionStart) + pasted + el.value.slice(el.selectionEnd);
             setText(value);
-            void start(value, null);
+            enqueue(value, null);
           }}
           onChange={(event) => {
             if (locked) return;
             const value = event.target.value;
             setText(value);
             setProblem(null);
-            stopTyping();
+            // Some browsers paste or drop without a paste event; those lists go in at once. Typing never does.
             const inputType = (event.nativeEvent as InputEvent).inputType;
-            if (inputType === "insertFromPaste" || inputType === "insertFromDrop") {
-              void start(value, null);
-            } else if (value.trim() !== "") {
-              typing.current = setTimeout(() => void start(value, null), IMPORT_DEBOUNCE_MS);
-            }
+            if (inputType === "insertFromPaste" || inputType === "insertFromDrop") enqueue(value, null);
+          }}
+          onDrop={(event) => {
+            const dropped = event.dataTransfer?.getData("text") ?? "";
+            if (dropped.trim() === "") return;
+            event.preventDefault();
+            enqueue(dropped, null);
           }}
           onKeyDown={(event) => {
             if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
@@ -203,18 +231,30 @@ export function AutoImportBox({
           disabled={locked}
           label={fileLabel}
           onLoaded={(loaded, name) => {
-            stopTyping();
-            setText(loaded);
-            void start(loaded, name);
+            if (!lockedRef.current) setText(loaded);
+            enqueue(loaded, name);
           }}
           onError={(message) => setProblem({ tone: "bad", message })}
         />
+        <button
+          type="button"
+          className={fileButtonClassName}
+          disabled={locked || text.trim() === ""}
+          onClick={() => void start(text, null)}
+        >
+          Add
+        </button>
       </div>
       <div role="status" aria-live="polite">
         {busy && (
           <p className={styles.busy}>
             <LoaderCircle size={16} aria-hidden="true" />
             <span>Adding the list.</span>
+          </p>
+        )}
+        {queued > 0 && (
+          <p className={styles.busy}>
+            {queued === 1 ? "1 more list is waiting." : `${queued} more lists are waiting.`}
           </p>
         )}
       </div>

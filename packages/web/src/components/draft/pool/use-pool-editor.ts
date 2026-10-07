@@ -17,6 +17,16 @@ import {
 import { isExtraDeckMonster } from "@/lib/card-types";
 import type { ListCorrection } from "@/lib/card-list-import";
 import {
+  EMPTY_LEDGER,
+  cardKey,
+  countsOf,
+  record as recordInLedger,
+  remaining as ledgerRemaining,
+  settle as settleLedger,
+  withoutEntry,
+  type Ledger,
+} from "@/components/card-list-import/import-ledger";
+import {
   addOneCopy,
   applyListEntries,
   diffPools,
@@ -60,6 +70,8 @@ interface Slot {
   pinned: ReadonlySet<number>;
   /** Pasted or loaded lists, oldest first. Each can be taken out again. */
   imports: ImportRecord[];
+  /** Which copies in the pools still belong to each import, after the owner's own edits. */
+  ledger: Ledger;
 }
 
 const EMPTY_PINNED: ReadonlySet<number> = new Set();
@@ -71,7 +83,19 @@ const emptySlot = (): Slot => ({
   extra: new Map(),
   pinned: EMPTY_PINNED,
   imports: [],
+  ledger: EMPTY_LEDGER,
 });
+
+const slotCounts = (s: Pick<Slot, "pool" | "extra">) => countsOf(["main", s.pool], ["extra", s.extra]);
+
+/** Lets the ledger see how the pools stand now: a card the owner lowered takes copies out of the newest import's gain. */
+function settle(s: Slot): Slot {
+  const ledger = settleLedger(s.ledger, slotCounts(s));
+  return ledger === s.ledger ? s : { ...s, ledger };
+}
+
+const gainKeys = (pool: "main" | "extra", gains: ReadonlyMap<number, number>) =>
+  new Map([...gains].map(([id, copies]) => [cardKey(pool, id), copies] as const));
 
 /** The cards that differ from the starting point, in either pool, when there is one. */
 function repin(s: Slot): Slot {
@@ -273,8 +297,8 @@ export function usePoolEditor(options: PoolEditorOptions): PoolEditor {
   latest.current = { slot, editingCube };
 
   const patchSlot = React.useCallback((fn: (s: Slot) => Slot) => {
-    if (latest.current.editingCube) setCubeSlot((s) => (s ? fn(s) : s));
-    else setScratchSlot((s) => fn(s));
+    if (latest.current.editingCube) setCubeSlot((s) => (s ? settle(fn(s)) : s));
+    else setScratchSlot((s) => settle(fn(s)));
   }, []);
 
   const diff = React.useMemo(() => diffPools(slot.base, slot.pool), [slot.base, slot.pool]);
@@ -338,7 +362,7 @@ export function usePoolEditor(options: PoolEditorOptions): PoolEditor {
   // tick (two imports back to back) builds on the first and not on the slot as it was rendered.
   const change = React.useCallback(
     (fn: (s: Slot) => Slot) => {
-      const next = fn(latest.current.slot);
+      const next = settle(fn(latest.current.slot));
       latest.current = { ...latest.current, slot: next };
       patchSlot(fn);
       return next;
@@ -369,7 +393,13 @@ export function usePoolEditor(options: PoolEditorOptions): PoolEditor {
         corrected: details.corrected,
         unknown: details.unknown,
       };
-      change((s) => repin({ ...s, pool: out.main, extra: out.extra, imports: [...s.imports, record] }));
+      change((s) => {
+        // Lowerings the owner made before this import are settled first, then the import is recorded on the new counts.
+        const settled = settle(s);
+        const gains = new Map([...gainKeys("main", out.gainedMain), ...gainKeys("extra", out.gainedExtra)]);
+        const ledger = recordInLedger(settled.ledger, key, gains, slotCounts({ pool: out.main, extra: out.extra }));
+        return repin({ ...settled, pool: out.main, extra: out.extra, imports: [...settled.imports, record], ledger });
+      });
       return record;
     },
     [change],
@@ -377,16 +407,21 @@ export function usePoolEditor(options: PoolEditorOptions): PoolEditor {
 
   const removeImport = React.useCallback(
     (key: number) => {
-      const found = latest.current.slot.imports.find((i) => i.key === key);
-      if (!found) return;
-      change((s) =>
-        repin({
-          ...s,
-          pool: subtractGains(s.pool, found.main),
-          extra: subtractGains(s.extra, found.extra),
-          imports: s.imports.filter((i) => i.key !== key),
-        }),
-      );
+      if (!latest.current.slot.imports.some((i) => i.key === key)) return;
+      change((s) => {
+        // Only what is left of this import's gain comes out; stacked imports can go in any order.
+        const settled = settle(s);
+        const left = ledgerRemaining(settled.ledger, key, slotCounts(settled));
+        const take = (pool: "main" | "extra") =>
+          new Map([...left].filter(([k]) => k.startsWith(`${pool}:`)).map(([k, copies]) => [Number(k.slice(pool.length + 1)), copies] as const));
+        return repin({
+          ...settled,
+          pool: subtractGains(settled.pool, take("main")),
+          extra: subtractGains(settled.extra, take("extra")),
+          imports: settled.imports.filter((i) => i.key !== key),
+          ledger: withoutEntry(settled.ledger, key),
+        });
+      });
     },
     [change],
   );
@@ -430,7 +465,7 @@ export function usePoolEditor(options: PoolEditorOptions): PoolEditor {
 
   const reset = React.useCallback(() => {
     sessionRef.current += 1;
-    patchSlot((s) => ({ ...s, pool: new Map(s.base), extra: new Map(s.baseExtra), pinned: EMPTY_PINNED, imports: [] }));
+    patchSlot((s) => ({ ...s, pool: new Map(s.base), extra: new Map(s.baseExtra), pinned: EMPTY_PINNED, imports: [], ledger: EMPTY_LEDGER }));
   }, [patchSlot]);
 
   const flashSaved = React.useCallback((name: string) => {
@@ -488,7 +523,7 @@ export function usePoolEditor(options: PoolEditorOptions): PoolEditor {
         // and it keeps whatever the pool holds now, not the pool as it was when the request left.
         if (sessionRef.current !== startedIn) return { ok: true };
         const now = latest.current.slot;
-        setCubeSlot(repin({ ...emptySlot(), meta, base: pool, baseExtra: extra, pool: new Map(now.pool), extra: new Map(now.extra), imports: now.imports }));
+        setCubeSlot(repin({ ...emptySlot(), meta, base: pool, baseExtra: extra, pool: new Map(now.pool), extra: new Map(now.extra), imports: now.imports, ledger: now.ledger }));
         setModeState("cube");
         setPickerOpen(false);
         if (!from) setScratchSlot(emptySlot());

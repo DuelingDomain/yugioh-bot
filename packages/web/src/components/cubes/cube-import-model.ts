@@ -1,9 +1,11 @@
 /**
- * What a list import added to a cube, and how to take exactly that out again.
- * The server does not record imports, so the editor compares the pools before and after, and keeps the gains.
+ * What a list import added to a cube.
+ * The server does not record imports, so the editor compares the pools before and after one import to find its gains,
+ * then tracks them in the import ledger (`card-list-import/import-ledger.ts`) so "Remove" takes out only what is left.
  */
 
-import type { CubeCardDto, CubePoolName, CubePoolsDto } from "@/lib/cube-pools";
+import { cardKey, type CountOf } from "@/components/card-list-import/import-ledger";
+import type { CubePoolName, CubePoolsDto } from "@/lib/cube-pools";
 
 /** Copies one import added to one card. */
 export interface CubeGain {
@@ -12,14 +14,35 @@ export interface CubeGain {
   copies: number;
 }
 
-/** The copies each card gained between two states of the cube. A card that lost copies or did not change is left out. */
+const POOLS = ["main", "extra"] as const;
+
+function totals(pools: CubePoolsDto): Map<number, number> {
+  const out = new Map<number, number>();
+  for (const pool of POOLS) for (const e of pools[pool]) out.set(e.catalogCardId, (out.get(e.catalogCardId) ?? 0) + e.maxCopies);
+  return out;
+}
+
+/**
+ * The copies each card gained between two states of the cube. Only a real rise in copies counts: a card that lost
+ * copies, did not change, or only moved from one pool to the other is left out.
+ */
 export function gainsBetween(before: CubePoolsDto, after: CubePoolsDto): CubeGain[] {
   const gains: CubeGain[] = [];
-  for (const pool of ["main", "extra"] as const) {
-    const was = new Map(before[pool].map((e) => [e.catalogCardId, e.maxCopies]));
+  const wasTotal = totals(before);
+  const rise = new Map(POOLS.map((pool) => [pool, new Map(before[pool].map((e) => [e.catalogCardId, e.maxCopies]))] as const));
+  const seenTotal = new Map<number, number>();
+  const afterTotal = totals(after);
+  for (const pool of POOLS) {
     for (const entry of after[pool]) {
-      const copies = entry.maxCopies - (was.get(entry.catalogCardId) ?? 0);
-      if (copies > 0) gains.push({ id: entry.catalogCardId, pool, copies });
+      const id = entry.catalogCardId;
+      const poolRise = entry.maxCopies - (rise.get(pool)?.get(id) ?? 0);
+      if (poolRise <= 0) continue;
+      // The card's total is the limit: copies that moved between pools were there before.
+      const room = (afterTotal.get(id) ?? 0) - (wasTotal.get(id) ?? 0) - (seenTotal.get(id) ?? 0);
+      const copies = Math.min(poolRise, room);
+      if (copies <= 0) continue;
+      seenTotal.set(id, (seenTotal.get(id) ?? 0) + copies);
+      gains.push({ id, pool, copies });
     }
   }
   return gains;
@@ -29,37 +52,22 @@ export function gainMap(gains: CubeGain[], pool: CubePoolName): Map<number, numb
   return new Map(gains.filter((g) => g.pool === pool).map((g) => [g.id, g.copies]));
 }
 
-export type RemovalOp =
-  | { op: "remove"; catalogCardId: number }
-  | { op: "setMaxCopies"; catalogCardId: number; maxCopies: number };
-
-export interface RemovalPlan {
-  main: RemovalOp[];
-  extra: RemovalOp[];
-  /** The whole main pool after the removal, for one `replaceMain` call when there are many changes. */
-  mainTarget: Array<{ id: number; copies: number }>;
+/** The gains as ledger keys. */
+export function gainKeys(gains: CubeGain[]): Map<string, number> {
+  return new Map(gains.map((g) => [cardKey(g.pool, g.id), g.copies]));
 }
 
-/**
- * Lowers each gained card by the copies the import added; a card that falls to 0 is removed.
- * Copies the cube had before the import stay, and a card the owner already lowered or removed is not touched below 0.
- */
-export function planRemoval(current: CubePoolsDto, gains: CubeGain[]): RemovalPlan {
-  const plan: RemovalPlan = { main: [], extra: [], mainTarget: [] };
-  for (const pool of ["main", "extra"] as const) {
-    const gained = gainMap(gains, pool);
-    for (const entry of current[pool] as CubeCardDto[]) {
-      const take = gained.get(entry.catalogCardId) ?? 0;
-      const left = entry.maxCopies - take;
-      if (take > 0) {
-        plan[pool].push(
-          left <= 0
-            ? { op: "remove", catalogCardId: entry.catalogCardId }
-            : { op: "setMaxCopies", catalogCardId: entry.catalogCardId, maxCopies: left },
-        );
-      }
-      if (pool === "main" && left > 0) plan.mainTarget.push({ id: entry.catalogCardId, copies: left });
-    }
-  }
-  return plan;
+/** The pools as a ledger lookup. */
+export function poolCounts(pools: CubePoolsDto): CountOf {
+  const flat = new Map<string, number>();
+  for (const pool of POOLS) for (const e of pools[pool]) flat.set(cardKey(pool, e.catalogCardId), e.maxCopies);
+  return (key) => flat.get(key) ?? 0;
+}
+
+/** The body of the `subtract` op for the copies an import still owns. */
+export function subtractEntries(left: ReadonlyMap<string, number>): Array<{ id: number; copies: number; pool: CubePoolName }> {
+  return [...left].map(([key, copies]) => {
+    const [pool, id] = key.split(":") as [CubePoolName, string];
+    return { id: Number(id), copies, pool };
+  });
 }
