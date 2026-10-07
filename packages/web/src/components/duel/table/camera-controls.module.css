@@ -382,6 +382,13 @@
 
   .phoneSeats button:disabled { opacity: 0.55; }
 
+  /* The field with the targets to pick: a ring on its button, no camera move. On a wide table the field itself is ringed
+     (rival-field.module.css). */
+  .phoneSeats button[data-target-hint="true"] {
+    border-color: rgb(var(--t, 181 153 99));
+    box-shadow: 0 0 0 2px rgb(var(--t, 181 153 99) / 0.45), 0 0 14px rgb(var(--t, 181 153 99) / 0.6);
+  }
+
   .hint { display: none; }
 }
 
@@ -401,10 +408,4 @@
   right: auto;
   left: 10px;
   bottom: 10px;
-}
-
-/* The field with the targets to pick: a ring on its seat button (desktop and phone), no camera move. */
-button[data-target-hint="true"] {
-  border-color: rgb(var(--t, 181 153 99));
-  box-shadow: 0 0 0 2px rgb(var(--t, 181 153 99) / 0.45), 0 0 14px rgb(var(--t, 181 153 99) / 0.6);
 }
