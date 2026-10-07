@@ -103,19 +103,16 @@ export function promptSeats(views: NViews): number[] {
   return out;
 }
 
-/** The order PLAN.md gives for the answers after a Chain Link of `linkSeat` (response order, invariant 6). */
-export function expectedResponseOrder(format: DuelFormat, linkSeat: number, turnSeat: number, living: readonly number[]): number[] {
+/** The response order after a Chain Link of `linkSeat` (ADR-0002, R-FFA-CHAIN and R-TAG-RESPONSE). */
+export function expectedResponseOrder(format: DuelFormat, linkSeat: number, _turnSeat: number, living: readonly number[]): number[] {
   const n = seatCountFor(format);
   let order: number[];
   if (format === "tag") {
     // The opposing team first (L+1, then L+3), then the partner L+2, then L.
     order = [(linkSeat + 1) % n, (linkSeat + 3) % n, (linkSeat + 2) % n, linkSeat];
-  } else if (linkSeat === turnSeat) {
-    // The next duelist clockwise first, the turn player last.
-    order = Array.from({ length: n }, (_, i) => (turnSeat + 1 + i) % n);
   } else {
-    // The turn player first, then clockwise; the link owner answers in its own place.
-    order = Array.from({ length: n }, (_, i) => (turnSeat + i) % n);
+    // Each new link restarts clockwise after its activating seat, with that seat last.
+    order = Array.from({ length: n }, (_, i) => (linkSeat + 1 + i) % n);
   }
   return order.filter((seat) => living.includes(seat));
 }

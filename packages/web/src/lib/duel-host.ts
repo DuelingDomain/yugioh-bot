@@ -12,8 +12,9 @@ import type { CardQuery, DuelChainMode, DuelCommand, DuelDeck, DuelFirstChoice, 
 import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
+import type { CardDataStatus } from "@yugidraft/shared/types";
 
-export type DuelHostOp = "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "cards" | "card-details" | "card-artworks" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "ready" | "unready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "report" | "debug-trace" | "bug-context" | "chain-mode";
+export type DuelHostOp = "engine-data-status" | "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "cards" | "card-details" | "card-artworks" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "ready" | "unready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "report" | "debug-trace" | "bug-context" | "chain-mode";
 
 /** Dev scenario tools (presets page, Report button). Server side only. Exactly "1" turns them on. */
 export function scenariosEnabled(): boolean {
@@ -115,7 +116,7 @@ export async function callDuelHost(input: {
     console.error(`[duel-host] ${configProblem}`);
     return { ok: false, response: NextResponse.json({ error: configProblem }, { status: 503 }) };
   }
-  const transport = httpTransport(cfg);
+  const transport = httpTransport({ ...cfg, ...(input.op === "engine-data-status" ? { timeoutMs: 5000 } : {}) });
   const payload: Record<string, unknown> = {
     op: input.op,
     guildId: input.guildId,
@@ -173,4 +174,13 @@ export function sessionFromHost(data: unknown) {
     return { session: data.session };
   }
   return { session: data };
+}
+
+/** Typed operator snapshot over the same HMAC-authenticated internal channel. */
+export async function callEngineDataStatus(input: { guildId: string; playerId: number }): Promise<
+  { ok: true; data: CardDataStatus } | { ok: false; response: NextResponse }
+> {
+  const result = await callDuelHost({ ...input, op: "engine-data-status" });
+  if (!result.ok) return result;
+  return { ok: true, data: result.data as CardDataStatus };
 }

@@ -44,3 +44,12 @@ it.each([undefined,"0","true","1"])("enables Discord only for literal 1 (switch=
     ? ["http://ws/internal/draft/complete","http://bot/internal/announce/match-resolved"]
     : ["http://ws/internal/draft/complete"]);
 });
+
+it("bounds every WS and bot call with an abort signal", async () => {
+  const fetchMock=vi.fn(async(_url:string|URL|Request,_init?:RequestInit)=>new Response(null,{status:204}));
+  vi.stubGlobal("fetch",fetchMock);
+  const effects=effectsFromEnv({DISCORD_BOT_ENABLED:"1",WS_INTERNAL_URL:"http://ws",WS_INTERNAL_SECRET:"ws-secret",BOT_ANNOUNCE_URL:"http://bot",BOT_ANNOUNCE_SECRET:"bot-secret"});
+  await effects.draft({kind:"complete",slug:"draft"});
+  await effects.discord({kind:"match-resolved",matchId:7});
+  expect(fetchMock.mock.calls.map(call=>call[1]?.signal instanceof AbortSignal)).toEqual([true,true]);
+});

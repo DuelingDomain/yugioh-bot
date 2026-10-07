@@ -53,5 +53,14 @@ it("bounds a stalled request", async () => {
   expect(aborted).toBe(true);
   expect(result.ok).toBe(false);
   expect(result.status).toBe(0);
-  expect(result.text).toMatch(/timeout/i);
+  expect(result.text).toMatch(/timed out/i);
+});
+
+it("sets no deadline unless the caller asks for one", async () => {
+  const fetch = vi.fn(async (_url: string, init?: RequestInit) => {
+    expect(init?.signal).toBeUndefined();
+    return new Response("ok");
+  });
+  vi.stubGlobal("fetch", fetch);
+  expect((await httpTransport({ url: "http://duel", secret: "secret" }).post("/x", "{}")).ok).toBe(true);
 });

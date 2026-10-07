@@ -68,11 +68,13 @@ async function probeInProcess(dataDirectory: string, changedPaths: string[]): Pr
     const database = cards;
     const scriptRoot = resolve(dataDirectory, "card-scripts");
     const changed = [...new Set(changedPaths.map((path) => path.replaceAll("\\", "/")))].filter((path) => path.endsWith(".lua"));
+    const loadedCardScript = (path: string) => /^official\/c\d+\.lua$/.test(path) ||
+      (/^pre-release\/c\d+\.lua$/.test(path) && database.cardData(Number(/c(\d+)\.lua$/.exec(path)![1])) !== null);
     const changedOfficialSources = new Map<string, string>();
     // The general database indexes duplicate basenames too (e.g. pre-errata).
     // Make changed official scripts authoritative during native initialization,
     // including when another card loads one as a dependency first.
-    for (const path of changed.filter((path) => /^official\/c\d+\.lua$/.test(path))) {
+    for (const path of changed.filter(loadedCardScript)) {
       attempt(path, () => {
         const source = readFileSync(resolve(scriptRoot, path), "utf8");
         changedOfficialSources.set(path, source);
@@ -122,7 +124,7 @@ async function probeInProcess(dataDirectory: string, changedPaths: string[]): Pr
     // Load helpers, initialize official cards natively, then inspect other card
     // scripts. A manually created pre-errata cN table lacks the native card
     // metatable and must never precede initialization of official card N.
-    const loadOrder = (path: string) => /^official\/c\d+\.lua$/.test(path) ? 1 : /^c\d+\.lua$/.test(basename(path)) ? 2 : 0;
+    const loadOrder = (path: string) => loadedCardScript(path) ? 1 : /^c\d+\.lua$/.test(basename(path)) ? 2 : 0;
     changed.sort((a, b) => loadOrder(a) - loadOrder(b) || a.localeCompare(b));
     for (const path of changed) {
       attempt(path, () => {
@@ -138,7 +140,7 @@ async function probeInProcess(dataDirectory: string, changedPaths: string[]): Pr
             collected.set(name, paths);
           }
         }
-        const official = /^official\/c(\d+)\.lua$/.exec(path);
+        const official = loadedCardScript(path) ? /c(\d+)\.lua$/.exec(path) : null;
         if (official) {
           const code = Number(official[1]);
           attempt(`${path} (initial_effect)`, () => {

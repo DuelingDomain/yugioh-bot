@@ -38,6 +38,13 @@ async function fixture() {
 }
 
 describe("engine data update", () => {
+  it("scans newly playable release scripts for multiplayer risk while excluding unrelated pre-release cards", () => {
+    const stock = new Map([
+      ["pre-release/c17242022.lua", "Duel.GetFieldGroup(tp,LOCATION_HAND,LOCATION_HAND)"],
+      ["pre-release/c999.lua", "Duel.GetFieldGroup(tp,LOCATION_HAND,LOCATION_HAND)"],
+    ]);
+    expect(findNewRisks(stock, [...stock.keys()], new Set(), new Set([17242022])).map(card => card.code)).toEqual([17242022]);
+  });
   it("diffs full official script lists, including removals, without counting helpers or unofficial cards", () => {
     const old = new Map([["official/c1.lua", "one"], ["official/c2.lua", "two"], ["official/c3.lua", "three"]]);
     const next = new Map([["official/c1.lua", "one"], ["official/c2.lua", "changed"], ["official/c4.lua", "four"], ["utility.lua", "helper"], ["unofficial/c5.lua", "five"]]);
@@ -135,28 +142,43 @@ describe("engine data update", () => {
     const archive = execFileSync("tar", ["-czf", "-", "-C", root, "stock"]);
     const dbPath = join(root, "cards.cdb");
     const db = new Database(dbPath);
-    db.exec("CREATE TABLE texts (id INTEGER, name TEXT); INSERT INTO texts VALUES (1, '@reviewer Changed #123 card'), (2, 'New card');");
+    db.exec("CREATE TABLE datas (id INTEGER PRIMARY KEY); INSERT INTO datas VALUES (1); CREATE TABLE texts (id INTEGER PRIMARY KEY, name TEXT); INSERT INTO texts VALUES (1, '@reviewer Changed #123 card');");
     db.close();
     const database = await readFile(dbPath);
+    const releasePath = join(root, "release-new.cdb");
+    const releaseDb = new Database(releasePath);
+    releaseDb.exec("CREATE TABLE datas (id INTEGER PRIMARY KEY); INSERT INTO datas VALUES (2); CREATE TABLE texts (id INTEGER PRIMARY KEY, name TEXT); INSERT INTO texts VALUES (2, 'New card');");
+    releaseDb.close();
+    const release = await readFile(releasePath);
     const request = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
       if (url.includes("/compare/")) return Response.json({ ahead_by: 2, behind_by: 0, status: "ahead" });
       if (url.includes("/git/trees/")) {
+        if (url.includes("/BabelCDB/")) return Response.json({ truncated: false, tree: [
+          { path: "cards.cdb", type: "blob", sha: "base" },
+          { path: url.includes(oldPins.database) ? "release-old.cdb" : "release-new.cdb", type: "blob", sha: "release" },
+          { path: "prerelease-hidden.cdb", type: "blob", sha: "excluded" },
+        ] });
         const old = url.includes(oldPins.scripts);
         return Response.json({ truncated: false, tree: [
           { path: "utility.lua", type: "blob", sha: old ? "old-helper" : "new-helper" },
           { path: "official/c1.lua", type: "blob", sha: old ? "old" : "changed" },
-          { path: old ? "official/c3.lua" : "official/c2.lua", type: "blob", sha: "other" },
+          { path: overrides.scripts === oldPins.scripts ? "official/c2.lua" : old ? "official/c3.lua" : "official/c2.lua", type: "blob", sha: "other" },
         ] });
       }
       if (url.includes("codeload.github.com")) return new Response(new Uint8Array(archive));
       if (url.endsWith("/cards.cdb")) return new Response(new Uint8Array(database));
+      if (url.endsWith("/release-new.cdb")) return new Response(new Uint8Array(release));
       throw new Error(`Unexpected request: ${url}`);
     });
     const result = await runUpdate({ root, overrides, dryRun, request, validate: false });
     expect(result.changed).toBe(true);
     expect(await readPins(root)).toEqual(dryRun ? oldPins : overrides);
     const report = await readFile(result.reportPath, "utf8");
+    expect(report).toContain("release-new.cdb");
+    expect(report).toContain("release-old.cdb");
+    expect(report).toContain("Removed release databases");
+    expect(result.changedPaths).toContain("official/c2.lua");
     if (overrides.scripts === oldPins.scripts) {
       expect(report).toContain("New official card scripts (0)");
       expect(report).toContain("Changed official scripts (0)");

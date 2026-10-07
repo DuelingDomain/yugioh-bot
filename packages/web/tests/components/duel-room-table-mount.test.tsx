@@ -56,7 +56,9 @@ function room(source: DuelRoom) {
 function mount(windowed = true) { return render(<DuelRoomView slug="live" windowed={windowed}
   legacyStage={new URLSearchParams(window.location.search).get("stage") === "legacy"} />); }
 
-describe("live room table mount", () => {
+// Each case mounts a whole duel room, then rerenders it. That takes about a second on a free machine
+// and went past the 5 s default on a loaded CI shard (the ffa4 "result lands" case timed out).
+describe("live room table mount", { timeout: 30_000 }, () => {
   it.each([FFA3_FIXTURES, FFA4_FIXTURES])("mounts $format with every engine seat", (fixtures) => {
     room(fixtures.states.main.room);
     const { container } = mount();
