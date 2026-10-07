@@ -125,6 +125,16 @@ describe("open now", () => {
     expect(result.drafts.map((row) => row.slug)).toEqual(["newest", "tie-last", "tie-first", "four", "three"]);
   });
 
+  it.each([0, 1])("excludes the viewer's active duel when seated in seat %s", (seat) => {
+    const ownId = duel("own");
+    db.prepare("insert into duel_seats(duel_id, seat, player_id) values (?, ?, ?)")
+      .run(ownId, seat, viewer.playerId);
+    duel("other-visible");
+    const service = createOpenNowService(db);
+    expect(service.forPlayer("g", viewer.playerId).duelsInProgress).toBe(1);
+    expect(service.forPlayer("g", null).duelsInProgress).toBe(2);
+  });
+
   it("counts only visible active, unarchived duels under the lobby's idle rules", () => {
     duel("public");
     const privateId = duel("private", { private: true });
@@ -139,7 +149,7 @@ describe("open now", () => {
       .run(privateId, viewer.playerId);
     expect(service.forPlayer("g", viewer.playerId).duelsInProgress).toBe(2);
     db.prepare("insert into duel_seats(duel_id, seat, player_id) values (?, 0, ?)").run(idleId, viewer.playerId);
-    expect(service.forPlayer("g", viewer.playerId).duelsInProgress).toBe(3);
+    expect(service.forPlayer("g", viewer.playerId).duelsInProgress).toBe(2);
     expect(service.forPlayer("g", host.playerId).duelsInProgress).toBe(3);
     expect(service.forPlayer("empty", null).duelsInProgress).toBe(0);
   });

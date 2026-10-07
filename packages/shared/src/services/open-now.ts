@@ -55,7 +55,7 @@ export function createOpenNowService(db: Database.Database): OpenNowService {
       return {
         tournaments: tournaments.all(params).map((row) => ({ ...row, viewerJoined: Boolean(row.viewerJoined) })),
         drafts: drafts.all(params).map((row) => ({ ...row, viewerJoined: Boolean(row.viewerJoined) })),
-        duelsInProgress: live.countInProgress(guildId, playerId),
+        duelsInProgress: live.countInProgress(guildId, playerId, { excludeSeated: true }),
       };
     },
   };

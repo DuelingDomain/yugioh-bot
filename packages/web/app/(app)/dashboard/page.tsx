@@ -144,7 +144,7 @@ export default async function DashboardPage() {
   const rejoin = hasPlayer ? findRejoinDrafts(db, env.discordGuildId, userId) : [];
 
   return (
-    <PageFrame title="Dashboard" sub={hasPlayer ? <DashboardDate /> : undefined}>
+    <PageFrame title="Dashboard" sub={<DashboardDate />}>
       <RejoinDraftBanner drafts={rejoin} />
       {isNewPlayer ? (
         <WelcomePanel standing={<YourStanding profile={profileData ?? STARTING_PROFILE} record={stats} />} />

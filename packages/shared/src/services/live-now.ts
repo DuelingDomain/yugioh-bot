@@ -14,8 +14,8 @@ export interface LiveNow {
 export interface LiveNowService {
   /** Small database reads, no duel-host calls. Safe to poll. */
   forPlayer(guildId: string, playerId: number): LiveNow;
-  /** Same visibility and idle rules as the lobby; null viewers see public duels. */
-  countInProgress(guildId: string, playerId: number | null): number;
+  /** Same visibility and idle rules as the lobby; optionally exclude the viewer's seats. Null viewers see public duels. */
+  countInProgress(guildId: string, playerId: number | null, options?: { excludeSeated?: boolean }): number;
 }
 
 type OwnRow = {
@@ -76,6 +76,10 @@ const COUNT_SQL = `
     and status = 'active'
     and archived_at is null
     and (
+      @excludeSeated = 0
+      or not exists (select 1 from duel_seats s where s.duel_id = duels.id and s.player_id = @viewer)
+    )
+    and (
       organizer_player_id = @viewer
       or exists (select 1 from duel_seats s where s.duel_id = duels.id and s.player_id = @viewer)
       or exists (select 1 from duel_invite_grants g where g.duel_id = duels.id and g.player_id = @viewer)
@@ -106,8 +110,8 @@ export function createLiveNowService(db: Database.Database): LiveNowService {
     order by x.seat
   `);
   const idle = `-${Math.ceil(DUEL_LIVE_IDLE_AFTER_MS / 1000)} seconds`;
-  const countInProgress = (guildId: string, playerId: number | null) =>
-    count.get({ guild: guildId, viewer: playerId, idle })?.n ?? 0;
+  const countInProgress = (guildId: string, playerId: number | null, options: { excludeSeated?: boolean } = {}) =>
+    count.get({ guild: guildId, viewer: playerId, idle, excludeSeated: options.excludeSeated ? 1 : 0 })?.n ?? 0;
 
   return {
     countInProgress,
