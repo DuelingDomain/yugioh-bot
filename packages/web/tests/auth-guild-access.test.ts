@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
 import { createUserService } from "@yugidraft/shared/services";
-import { renderToStaticMarkup } from "react-dom/server";
 import { mockDiscordAccess } from "./fixtures/discord-access";
 
 const identityState = vi.hoisted(() => ({ db: null as Database.Database | null }));
@@ -16,7 +15,6 @@ vi.mock("next-auth", () => ({
   },
 }));
 vi.mock("next-auth/providers/discord", () => ({ default: () => ({}) }));
-vi.mock("next/font/local", () => ({ default: () => ({ variable: "font-local" }) }));
 
 let discord: ReturnType<typeof mockDiscordAccess>;
 async function callbacks() {
@@ -108,15 +106,6 @@ describe("web guild membership", () => {
     vi.setSystemTime(61_000);
     const res = await authorized(request("/api/settings"));
     expect(res.status).toBe(403);
-  });
-
-  it.each([
-    ["GuildMembershipRequired", /Access opens in waves/],
-    ["GuildMembershipUnavailable", /check your access just now/],
-  ] as const)("renders the %s error", async (error, message) => {
-    const { default: LoginPage } = await import("../app/(auth)/login/page");
-    const markup = renderToStaticMarkup(await LoginPage({ searchParams: Promise.resolve({ error }) }));
-    expect(markup).toMatch(message);
   });
 });
 

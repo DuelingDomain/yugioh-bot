@@ -188,7 +188,7 @@ describe("NewPasswordStep", () => {
 describe("CreateAccountStep", () => {
   const base = { lockedEmail: "sam@example.com", errors: {}, pending: false, onSubmit: noop, onDiscord: noop };
 
-  it("locks the invitation email and always renders the CAPTCHA mount", () => {
+  it("locks the invitation email and leaves the single CAPTCHA mount to the page", () => {
     const { container } = render(<CreateAccountStep {...base} />);
     expect(title("You’re in the alpha").querySelector("em")).toHaveTextContent("alpha");
     screen.getByText("Invite accepted");
@@ -196,11 +196,14 @@ describe("CreateAccountStep", () => {
     const email = screen.getByLabelText("Email address");
     expect(email).toHaveAttribute("readonly");
     expect(email).toHaveValue("sam@example.com");
-    const captcha = container.querySelector("#clerk-captcha");
-    expect(captcha).not.toBeNull();
-    expect(container.querySelectorAll("#clerk-captcha")).toHaveLength(1);
-    expect(captcha?.children).toHaveLength(0);
+    expect(container.querySelector("#clerk-captcha")).toBeNull();
     screen.getByRole("link", { name: "Sign in" });
+  });
+
+  it("draws the framed placeholder, carrying the one #clerk-captcha, only for the preview", () => {
+    const { container } = render(<CreateAccountStep {...base} captchaPlaceholder />);
+    expect(container.querySelectorAll("#clerk-captcha")).toHaveLength(1);
+    screen.getByText("Bot check loads here");
   });
 
   it("links consent to the two constant legal URLs", () => {
@@ -318,5 +321,25 @@ describe("step modules", () => {
     ].filter((f) => /\.tsx?$/.test(f));
     expect(files.length).toBeGreaterThanOrEqual(12);
     for (const file of files) expect(readFileSync(file, "utf8"), file).not.toMatch(/@clerk/);
+  });
+});
+
+describe("banners and the locked-email code step", () => {
+  const banner = { tone: "bad" as const, body: "Sign-in is having trouble. Try again in a moment.", code: "network" };
+
+  it("shows a service banner on the password, code and new password steps", () => {
+    const { rerender } = render(<PasswordStep identifier="a@b.co" banner={banner} pending={false} onSubmit={noop} onForgot={noop} onBack={noop} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("Sign-in is having trouble.");
+    rerender(<CodeStep purpose="reset" identifier="a@b.co" banner={banner} pending={false} resendAvailableAt={null} onSubmit={noop} onResend={noop} onBack={noop} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("Error: network");
+    rerender(<NewPasswordStep errors={{}} banner={banner} pending={false} onSubmit={noop} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("Sign-in is having trouble.");
+  });
+
+  it("hides the different-email link when the code step has no onBack", () => {
+    const { rerender } = render(<CodeStep purpose="signup" identifier="a@b.co" pending={false} resendAvailableAt={null} onSubmit={noop} onResend={noop} />);
+    expect(screen.queryByRole("button", { name: "Use a different email" })).toBeNull();
+    rerender(<CodeStep purpose="reset" identifier="a@b.co" pending={false} resendAvailableAt={null} onSubmit={noop} onResend={noop} onBack={noop} />);
+    screen.getByRole("button", { name: "Use a different email" });
   });
 });

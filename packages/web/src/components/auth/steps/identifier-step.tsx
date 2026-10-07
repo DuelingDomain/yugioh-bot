@@ -5,7 +5,7 @@ import { DiscordButton, OrDivider, TextField } from "../fields";
 import { SignInBanner } from "../sign-in-error";
 import { SignInFootLinks, SignInStep } from "../sign-in-step";
 import shell from "../sign-in-shell.module.css";
-import type { AuthBanner } from "./types";
+import type { AuthBanner } from "@/lib/auth-flow";
 
 export interface IdentifierStepProps {
   identifier?: string;

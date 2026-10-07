@@ -211,21 +211,26 @@ export function ConsentCheckbox({ name, error, errorId = "f-legal-err" }: Consen
 }
 
 /**
- * Where Clerk mounts its bot check. The element is always present with the id Clerk looks for. It is empty (and takes no
- * space) until Clerk fills it. `placeholder` draws the mock's framed "Bot check loads here" box, for the preview page only.
+ * Where Clerk mounts its bot check. Clerk looks the element up by this id when `signUp.ticket()` or an OAuth transfer
+ * runs, which is on mount. The page therefore owns exactly one of these from its first render (see `AuthFlowShell`);
+ * no step renders it. It is empty, and takes no space, until Clerk fills it.
  */
-export function CaptchaSlot({ placeholder = false }: { placeholder?: boolean }) {
+export function CaptchaMount() {
+  return <div id="clerk-captcha" data-clerk="captcha" className={styles["captcha-mount"]} />;
+}
+
+/**
+ * The mock's framed "Bot check loads here" box, for the preview page only. It carries the id because the preview has no
+ * page-level mount; never render it next to `CaptchaMount`.
+ */
+export function CaptchaPlaceholder() {
   return (
-    <div id="clerk-captcha" data-clerk="captcha" className={placeholder ? styles["captcha-slot"] : styles["captcha-mount"]}>
-      {placeholder && (
-        <>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
-            <path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6Z" />
-            <path d="m9 12 2 2 4-4" />
-          </svg>
-          <span>Bot check loads here</span>
-        </>
-      )}
+    <div id="clerk-captcha" data-clerk="captcha" className={styles["captcha-slot"]}>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+        <path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6Z" />
+        <path d="m9 12 2 2 4-4" />
+      </svg>
+      <span>Bot check loads here</span>
     </div>
   );
 }

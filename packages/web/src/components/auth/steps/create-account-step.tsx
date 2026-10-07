@@ -1,11 +1,11 @@
 "use client";
 
 import { useRef, type FormEvent } from "react";
-import { CaptchaSlot, ConsentCheckbox, DiscordButton, LockedInput, OrDivider, PasswordField, TextField } from "../fields";
+import { CaptchaPlaceholder, ConsentCheckbox, DiscordButton, LockedInput, OrDivider, PasswordField, TextField } from "../fields";
 import { SignInBanner } from "../sign-in-error";
 import { SignInFootLinks, SignInStep } from "../sign-in-step";
 import shell from "../sign-in-shell.module.css";
-import type { AuthBanner } from "./types";
+import type { AuthBanner } from "@/lib/auth-flow";
 
 export interface CreateAccountStepProps {
   lockedEmail: string;
@@ -21,7 +21,10 @@ export interface CreateAccountStepProps {
   passwordOptional?: boolean;
   /** Pre-fills the username (preview page only; a live form keeps what was typed). */
   defaultUsername?: string;
-  /** Draws the framed bot-check placeholder (preview page only). */
+  /**
+   * Draws the framed bot-check placeholder, which carries `#clerk-captcha` (preview page only). Live pages leave this off:
+   * the page owns the single `#clerk-captcha` node (`AuthFlowShell`), so the step never renders one.
+   */
   captchaPlaceholder?: boolean;
 }
 
@@ -74,7 +77,7 @@ export function CreateAccountStep({ lockedEmail, errors, banner, pending, onSubm
           <PasswordField id="f-cp" name="password" label="Create password" autoComplete="new-password" error={errors.password} hint="At least 8 characters." />
         )}
         <ConsentCheckbox name="legal" error={errors.legal} />
-        <CaptchaSlot placeholder={captchaPlaceholder} />
+        {captchaPlaceholder && <CaptchaPlaceholder />}
         <button className={`${shell.btn} ${shell["btn-primary"]}`} type="submit" disabled={pending}>Create account</button>
         {!passwordOptional && (
           <>

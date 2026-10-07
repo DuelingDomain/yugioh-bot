@@ -39,7 +39,7 @@
 .captcha-slot { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 66px; padding: 8px 12px; border-radius: 10px; border: 1px dashed rgba(201, 164, 92, .4); color: var(--text-2); font-size: 13px; letter-spacing: .08em; text-transform: uppercase; background: repeating-linear-gradient(135deg, rgba(255, 255, 255, .02) 0 1px, transparent 1px 9px); }
 .captcha-slot svg { width: 18px; height: 18px; color: var(--gold-soft); }
 /* The real mount is an empty div that Clerk fills; it takes no space until a widget appears. The framed placeholder above is preview-only. */
-.captcha-mount { display: flex; justify-content: center; }
+.captcha-mount { display: flex; justify-content: center; margin-top: 16px; }
 .captcha-mount:empty { display: none; }
 
 .otp-group { display: flex; flex-direction: column; gap: 14px; }
