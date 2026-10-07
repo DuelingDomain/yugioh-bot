@@ -126,7 +126,7 @@ export function PoolList({ ctl }: { ctl: PoolEditor }) {
         <div className={styles.edH}>
           <h3>Pool</h3>
           <span className={styles.nums}>
-            <b>{copies.total}</b> cards, <b>{pool.size}</b> different
+            <b>{copies.total}</b> {copies.total === 1 ? "card" : "cards"}, <b>{pool.size}</b> different
           </span>
         </div>
         <div className={`seg ${styles.lanes}`} role="group" aria-label="Pool">
