@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import Database from "better-sqlite3";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -73,4 +74,13 @@ it("writes a blocking report and fails validation for artwork script fallback", 
   expect(report).not.toContain("c12.lua"); // within 10 of its main: the core loads c10.lua itself
   expect(report).toContain("GetID()");
   expect(readFileSync(join(f.root, "pr-body.md"), "utf8")).toBe(report);
+});
+
+it("uses the integrity-protected prepare-time exclusions in the deferred weekly report",()=>{
+ const f=fixture(true);
+ const bytes=JSON.stringify({version:1,remaps:{},scriptSmoke:{checked:139,excluded:[{code:100000001,name:"Broken preview",file:"prerelease-a.cdb",errors:["initial_effect error"]}],suppressedRemaps:[]}});
+ writeFileSync(join(f.data,"card-remaps.json"),bytes);
+ writeFileSync(join(f.data,"manifest.json"),JSON.stringify({sources:{...next,databaseFormat:"official-releases-prerelease-v4"},integrity:{cardRemaps:createHash("sha256").update(bytes).digest("hex")}}));
+ const result=f.run();expect(result.status).toBe(1); // fixture intentionally lacks card data for the separate artwork scan
+ const report=readFileSync(join(f.root,"report.md"),"utf8");expect(report).toContain("registered 139");expect(report).toContain("excluded: script error");expect(report).toContain("initial_effect error");
 });

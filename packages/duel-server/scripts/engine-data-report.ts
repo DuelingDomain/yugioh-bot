@@ -5,12 +5,23 @@ export function boundedReport(report: string, runUrl: string, maxBytes: number):
   const golden = report.match(/\n## Golden hashes\n[\s\S]*?(?=\n## |$)/)?.[0] ?? "";
   const artwork = report.match(/\n## Artwork script safety\n[\s\S]*?(?=\n## |$)/)?.[0] ?? "";
   const patches = report.match(/\n## Card script patches\n[\s\S]*?(?=\n## |$)/)?.[0] ?? "";
-  const footer = `\n\n_Report truncated. Full report: [run summary](${runUrl}#summary) and [engine-data-update-report artifact](${runUrl}#artifacts)._\n${warnings}${golden}${artwork}${patches}`;
-  const bytes = Buffer.from(report);
-  let end = maxBytes - Buffer.byteLength(footer);
-  // Avoid cutting a UTF-8 character in half.
-  while (end > 0 && (bytes[end]! & 0xc0) === 0x80) end--;
-  return bytes.subarray(0, Math.max(0, end)).toString("utf8") + footer;
+  const smoke = report.match(/\n## Prerelease script safety\n[\s\S]*?(?=\n## |$)/)?.[0] ?? "";
+  const notice = `\n\n_Report truncated. Full report: [run summary](${runUrl}#summary) and [engine-data-update-report artifact](${runUrl}#artifacts)._\n`;
+  const prefix = (value: string, budget: number) => {
+    const bytes = Buffer.from(value);
+    let end = Math.max(0, Math.min(bytes.length, budget));
+    while (end > 0 && end < bytes.length && (bytes[end]! & 0xc0) === 0x80) end--;
+    return bytes.subarray(0, end).toString("utf8");
+  };
+  const sections = [warnings, golden, artwork, patches, smoke].filter(Boolean);
+  const sectionLimit = Math.floor(Math.max(0, maxBytes - Buffer.byteLength(notice)) / (2 * Math.max(1, sections.length)));
+  const limited = sections.map(section => {
+    if (Buffer.byteLength(section) <= sectionLimit) return section;
+    const suffix = "\n_Findings truncated; see the full report artifact._\n";
+    return prefix(section, Math.max(0, sectionLimit - Buffer.byteLength(suffix))) + prefix(suffix, sectionLimit);
+  });
+  const footer = prefix(notice + limited.join(""), maxBytes);
+  return prefix(report, maxBytes - Buffer.byteLength(footer)) + footer;
 }
 
 type Probe = { artworkScriptScanError?: string; artworkScriptFallbacks?: Array<{ passcode: number; main: number; requested?: number }>; errors: string[]; scriptsChecked: number; apiSymbolsChecked: number; globalsChecked: number; cardsChecked: number };
@@ -80,4 +91,21 @@ export function prereleaseUpdateReport(previous: PreviewIdentity[] | null, next:
     `Graduated prerelease cards (${graduated.length})`, "", ...lines(graduated,true), "",
     `Removed preview codes with no remap (${unmapped.length})`, "", ...missingLines, "", ...dropLines, ...reviewLines,
     "The bundle retains historical remaps. Disappeared codes without a remap remain saved and are reported as unknown/illegal. Only unique same-bump stats and exact self-name-normalized text matches are inferred for renamed/type-changed cards. Uncertain suggestions require human review and a validated override.", ""].join("\n");
+}
+
+export interface PrereleaseScriptSafety {
+  checked: number;
+  excluded: Array<{ code: number; name: string; file: string; errors: string[] }>;
+  suppressedRemaps: Array<{ old: number; target: number }>;
+}
+export function prereleaseScriptReport(smoke: PrereleaseScriptSafety): string {
+  return ["## Prerelease script safety", "",
+    `Prepare-time smoke: registered ${smoke.checked} prerelease cards on npm ocgcore-wasm@0.1.2; excluded ${smoke.excluded.length}. Released cards are never excluded by this check.`, "",
+    ...(smoke.excluded.length ? smoke.excluded.map(card => `- ${card.code} ${safe(card.name)} (${safe(card.file)}): excluded: script error — ${card.errors.map(safe).join("; ")}`) : ["No prerelease script errors found."]), "",
+    ...(smoke.suppressedRemaps.length ? ["Remap destinations excluded; these saved source codes remain unknown:", "", ...smoke.suppressedRemaps.map(remap => `- ${remap.old} → ${remap.target}`), ""] : []),
+    "Registration checks script loading and initial_effect only. Later effect callbacks remain outside this smoke check.", ""].join("\n");
+}
+export function withPrereleaseSmoke(report: string, smoke: PrereleaseScriptSafety): string {
+  const section = prereleaseScriptReport(smoke);
+  return report.includes("## Prerelease script safety\n") ? report.replace(/## Prerelease script safety\n[\s\S]*?(?=\n## |$)/, section) : `${report}\n${section}`;
 }

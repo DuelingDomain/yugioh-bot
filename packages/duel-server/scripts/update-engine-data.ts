@@ -7,8 +7,10 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import Database from "better-sqlite3";
+import { smokePrereleaseScripts } from "./prerelease-script-smoke.js";
+import { applyPrereleaseSmokeResult } from "./prerelease-script-exclusions.js";
 import { probeEngineData } from "./probe-engine-data.js";
-import { withValidation, prereleaseUpdateReport } from "./engine-data-report.js";
+import { withValidation, prereleaseUpdateReport, prereleaseScriptReport } from "./engine-data-report.js";
 import { listIndex, reconcile, scanText } from "./scan-multiplayer-scripts.js";
 import { discoverReleasedDatabases, downloadReleasedCardData, restrictPrereleaseScripts } from "./released-card-data.js";
 
@@ -249,12 +251,22 @@ export async function runUpdate(options: Options = {}) {
       // Stop before rewriting pins, so duel:prepare cannot apply an unreviewed suffix.
       throw new Error(`patch needs review: ${patchConflicts.map(patch => patch.stockPath).join(", ")}. Current pins unchanged. Report: ${reportPath}`);
     }
+    if (options.validate !== false) {
+      await writeFile(join(temporary, "strings.conf"), Buffer.from(await (await download(`https://raw.githubusercontent.com/ProjectIgnis/Distribution/${next.strings}/config/strings.conf`)).arrayBuffer()));
+      try {
+        await applyPrereleaseSmokeResult(database, await smokePrereleaseScripts(temporary, [...database.prereleaseCodes]));
+        restrictPrereleaseScripts(extracted, database.scriptCodes);
+        report.push("", prereleaseScriptReport(JSON.parse(database.remapBytes).scriptSmoke));
+      } catch (error) {
+        report.push("", "## Prerelease script safety", "", `BLOCKING: ${markdown(String(error))}. Current pins retained.`);
+        await saveReport(); throw error;
+      }
+    } else report.push("", "## Prerelease script safety", "", "Pending required prepare-time smoke check of every prerelease card; final validation reads the prepared bundle's exclusions.");
     const files = await rewritePins(root, old, next, true);
     report.push("", "## Synchronized files", "", ...files.map((path) => `- \`${path}\``));
     report.push("", "## Deployment", "", "**Live-duel warning:** a data pin bump changes bundleVersion. On recovery after deploy, an active duel whose bundleVersion differs is interrupted. Drain active duels and merge at a quiet time. The deploy preflight may refuse until duels finish. **Replay-loss warning:** every data bump also makes replays of all earlier duels with a different bundleVersion unavailable; host replay recovery refuses the mismatch. The owner must account for this when deciding update cadence.");
     report.push("", "## Golden hashes", "", "**Reviewer action in this PR:** re-record golden hashes with `run-nduel.sh --record` against the candidate bundle, review the diff, then run `run-nduel.sh --check`. Data pins change the cards.cdb/scripts inputs. Automated CI dispatch uses `nightly=false`; this does not waive golden re-recording before merge.");
     if (options.validate !== false) {
-      await writeFile(join(temporary, "strings.conf"), Buffer.from(await (await download(`https://raw.githubusercontent.com/ProjectIgnis/Distribution/${next.strings}/config/strings.conf`)).arrayBuffer()));
       const probe = await probeEngineData(temporary, changedPaths);
       let overlayExit = 0;
       let overlayLog = "";

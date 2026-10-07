@@ -396,7 +396,7 @@ it("records graduated historical identities even when Ignis deleted their prerel
 it("includes the remap artifact in bundle identity and repairs a corrupt cached artifact", async () => {
   const {request,directory} = fixture();
   const first=await prepareData(directory,request);
-  expect(first.sources.databaseFormat).toBe("official-releases-prerelease-v3");
+  expect(first.sources.databaseFormat).toBe("official-releases-prerelease-v4");
   expect(first.integrity.cardRemaps).toBe(hash(readFileSync(join(directory,"card-remaps.json"))));
   writeFileSync(join(directory,"card-remaps.json"),"corrupt");
   request.mockClear();
@@ -553,4 +553,26 @@ it("carries detected historical edges through reviewed overrides to the retained
  const result=await downloadReleasedCardData(sources.database,directory,request,{historicalCards:[example.before,{...example.after,code:100000010}],historicalGraduations:[{commit:"earlier",removed:[example.before],added:[{...example.after,code:100000010}]}],overrideBytes:'{"100000010":17242022}\n'});
  expect(result.remaps).toEqual({101402001:17242022,100000010:17242022});
  expect(result.unmatched).toEqual([]);
+});
+
+it("smoke-checks unchanged prerelease scripts during preparation, removes failures, and caches the result",async()=>{
+ const f=fixture(),dir=root();
+ f.databases.set("prerelease-test.cdb",cdb(dir,"preview.cdb",[[100000001,0,"Healthy preview"],[100000002,0,"Broken preview"]]));
+ const scripts=join(dir,"stock");mkdirSync(join(scripts,"pre-release"),{recursive:true});mkdirSync(join(scripts,"official"));
+ writeFileSync(join(scripts,"constant.lua"),"");writeFileSync(join(scripts,"utility.lua"),"function GetID() return self_table,self_code end");
+ writeFileSync(join(scripts,"pre-release/c100000001.lua"),"local s,id=GetID();function s.initial_effect(c) end");
+ writeFileSync(join(scripts,"pre-release/c100000002.lua"),"local s,id=GetID();function s.initial_effect(c) error('broken preview') end");
+ writeFileSync(join(scripts,"official/c1.lua"),"local s,id=GetID();function s.initial_effect(c) error('released error') end");
+ cpSync(new URL("./fixtures/card-scripts/c3743515.lua",import.meta.url),join(scripts,"official/c3743515.lua"));
+ const archive=execFileSync("tar",["-czf","-","-C",dir,"stock"]);
+ const original=f.request.getMockImplementation()!;
+ f.request.mockImplementation(async(input:string|URL|Request)=>String(input).includes("/git/trees/")?Response.json(tree([...f.databases.keys()])):String(input).includes("codeload")?new Response(new Uint8Array(archive)):original(input));
+ const prepared=await prepareData(f.directory,f.request),artifact=JSON.parse(readFileSync(join(f.directory,"card-remaps.json"),"utf8"));
+ expect(artifact.scriptSmoke.checked).toBe(2);expect(artifact.scriptSmoke.excluded.map((card:any)=>card.code)).toEqual([100000002]);
+ expect(artifact.prerelease.map((card:any)=>card.code)).toEqual([100000001]);
+ const db=new Database(join(f.directory,"cards.cdb"));try{expect(db.prepare("SELECT id FROM datas WHERE id IN (1,100000001,100000002) ORDER BY id").all()).toEqual([{id:1},{id:100000001}]);}finally{db.close();}
+ expect(existsSync(join(f.directory,"card-scripts/pre-release/c100000002.lua"))).toBe(false);
+ expect(existsSync(join(f.directory,"card-scripts/official/c1.lua"))).toBe(true);
+ expect(prepared.integrity.cardRemaps).toBe(hash(readFileSync(join(f.directory,"card-remaps.json"))));
+ f.request.mockClear();expect((await prepareData(f.directory,f.request)).skipped).toBe(true);expect(f.request).not.toHaveBeenCalled();
 });

@@ -1,7 +1,8 @@
 /** Finalize the report after duel:prepare, using the exact prepared candidate bundle. */
+import { createHash } from "node:crypto";
 import { readFile, writeFile, appendFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { boundedReport, withValidation } from "./engine-data-report.js";
+import { boundedReport, withValidation, withPrereleaseSmoke } from "./engine-data-report.js";
 import { probeEngineData } from "./probe-engine-data.js";
 
 const artifact = resolve(process.env.UPDATE_ARTIFACT_DIR!);
@@ -15,6 +16,13 @@ if (metadata.changed) {
   const manifest = JSON.parse(await readFile(join(dataDirectory, "manifest.json"), "utf8"));
   for (const key of ["scripts", "database", "strings"]) {
     if (manifest.sources[key] !== metadata.next[key]) throw new Error(`Prepared ${key} pin differs from candidate`);
+  }
+  if (manifest.sources.databaseFormat === "official-releases-prerelease-v4") {
+    const remapBytes = await readFile(join(dataDirectory, "card-remaps.json"));
+    if (createHash("sha256").update(remapBytes).digest("hex") !== manifest.integrity?.cardRemaps) throw new Error("Prepared card-remaps.json integrity mismatch");
+    const artifact = JSON.parse(remapBytes.toString("utf8"));
+    if (!artifact.scriptSmoke) throw new Error("Prepared prerelease script smoke results missing");
+    report = withPrereleaseSmoke(report, artifact.scriptSmoke);
   }
   const probe = await probeEngineData(dataDirectory, metadata.changedPaths);
   const overlayExit = Number(await readFile(join(artifact, "overlay-exit.txt"), "utf8"));

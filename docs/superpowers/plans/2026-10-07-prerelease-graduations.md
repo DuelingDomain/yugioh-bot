@@ -9,19 +9,19 @@
 **Tech Stack:** Node 22, TypeScript, better-sqlite3, Git history, ocgcore-wasm, Vitest.
 
 ### 1. Historical evidence and matching
-- [ ] Record three real BETB rows and script rename commits in a reproducible fixture.
-- [ ] Add failing tests for renamed/type-changed transitions, unrelated same stats, ambiguous pairings, skipped bumps, artworks, manual overrides and reporting.
-- [ ] Extend `scripts/prerelease-history.ts`; add `scripts/prerelease-graduations.ts` and `card-remap-overrides.json`.
-- [ ] Integrate with `scripts/released-card-data.ts`, `prepare-data.ts` and weekly report/update helpers. Bump recipe; include helper/override in bundle cache inputs.
-- [ ] Verify import and startup migration using historical codes and official names/types, covering decks, cubes, drafts, registration, series and scenarios.
-- [ ] Run targeted Vitest with `prlimit --core=0`, `--maxWorkers=1`; commit with requested trailer.
+- [x] Record three real BETB rows and script rename commits in a reproducible fixture.
+- [x] Add failing tests for renamed/type-changed transitions, unrelated same stats, ambiguous pairings, skipped bumps, artworks, manual overrides and reporting.
+- [x] Extend `scripts/prerelease-history.ts`; add `scripts/prerelease-graduations.ts` and `card-remap-overrides.json`.
+- [x] Integrate with `scripts/released-card-data.ts`, `prepare-data.ts` and weekly report/update helpers. Bump recipe; include helper/override in bundle cache inputs.
+- [x] Verify import and startup migration using historical codes and official names/types, covering decks, cubes, drafts, registration, series and scenarios.
+- [x] Run targeted Vitest with `prlimit --core=0`, `--maxWorkers=1`; commit with requested trailer.
 
 ### 2. Prepare-time prerelease safety
-- [ ] Add failing engine tests for load/initial_effect errors, healthy previews, aliases, unchanged previews, released errors and probe infrastructure failure.
-- [ ] Add isolated registration smoke checking of every preview on the installed npm core. Exclude only previews with attributable errors; fail preparation on infrastructure errors. Do not play effect callbacks.
-- [ ] Persist exclusions in remap artifact and report `excluded: script error`; filter database and scripts before hashing.
-- [ ] Update deferred weekly validation, cache keys and deployment documentation.
-- [ ] Prepare `data/engine-prerelease/bundle-v3`, reuse local cores read-only; targeted checks; commit.
+- [x] Add failing engine tests for load/initial_effect errors, healthy previews, aliases, unchanged previews, released errors and probe infrastructure failure.
+- [x] Add isolated registration smoke checking of every preview on the installed npm core. Exclude only previews with attributable errors; fail preparation on infrastructure errors. Do not play effect callbacks.
+- [x] Persist exclusions in remap artifact and report `excluded: script error`; filter database and scripts before hashing.
+- [x] Update deferred weekly validation, cache keys and deployment documentation.
+- [x] Prepare `data/engine-prerelease/bundle-v3`, reuse local cores read-only; targeted checks; commit.
 
 ### 3. Separate runtime policy branch
 - [ ] Create child branch `feat/edopro-script-errors` in the same worktree after committing prerelease work.
