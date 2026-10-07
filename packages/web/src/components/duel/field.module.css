@@ -2316,6 +2316,16 @@
   font-size: min(max(calc(var(--z) * 0.116 * var(--ts)), var(--fl)), calc(var(--cardw) * 0.2));
 }
 
+/* At a big text size the hand card is too narrow for "1400 / 1200" at the text floor: the plate shows ATK only, like a quarter-turned field. */
+[data-text-big="true"] .seatField .handCard .plate {
+  font-size: max(calc(var(--z) * 0.116 * var(--ts)), var(--fl));
+}
+
+[data-text-big="true"] .seatField .handCard .plate .plateSep,
+[data-text-big="true"] .seatField .handCard .plate .plateDef {
+  display: none;
+}
+
 /* A field turned a quarter: the level plate has only a card's width to sit in, so it shows one stat (ATK, or DEF in defense) and sizes to it. */
 .seatField[data-quarter="true"] .plate {
   right: auto;

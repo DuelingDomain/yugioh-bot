@@ -1,6 +1,6 @@
 "use client";
 
-import { multiTableTextStyle, useCardTextSize, useMultiTableTextFloor } from "../card-text-size";
+import { multiTableTextStyle, tableTextBig, useCardTextSize, useMultiTableTextFloor } from "../card-text-size";
 import { eliminationOrder } from "@/lib/duel/elimination-order";
 import { connectionLabel as labelForConnection } from "../connection-label";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
@@ -547,6 +547,7 @@ function TableShellBody({
       data-phase={battle ? "battle" : undefined}
       data-turn={spectator ? "watch" : myTurn ? "you" : "opp"}
       data-reduced={controller.reducedMotion ? "true" : "false"}
+      data-text-big={tableTextBig(textSize)}
       style={multiTableTextStyle(textSize)}
     >
       {/* One live region that stays mounted: a region that appears with its text is not always read out. */}

@@ -33,6 +33,11 @@ export function tableTextStyle(size: CardTextSize): CSSProperties {
   return { "--tt": String(TABLE_SCALE[size]) } as CSSProperties;
 }
 
+/** `data-text-big` on a table root: set when the table text is larger than the base (Large, Extra large). CSS cannot compare `--tt`. */
+export function tableTextBig(size: CardTextSize): "true" | undefined {
+  return TABLE_SCALE[size] > 1 ? "true" : undefined;
+}
+
 /**
  * `tableTextStyle` for the 3-way, 4-way and Tag tables. `--ft` lifts the old 10-11px text minimums to 12px (the 1v1 room
  * keeps them): modules write `calc((10px + 2px * var(--ft, 0)) * var(--tt, 1))`.

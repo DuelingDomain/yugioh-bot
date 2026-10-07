@@ -5,7 +5,7 @@ import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DuelCard } from "@yugidraft/shared/duels";
-import { CARD_TEXT_SIZE_KEY, cardTextStyle, loadCardTextSize, normalizeCardTextSize, saveCardTextSize, setCardTextSize, multiTableTextStyle, tableTextScale, tableTextStyle, useMultiTableTextFloor, useTableTextScale } from "@/components/duel/card-text-size";
+import { CARD_TEXT_SIZE_KEY, cardTextStyle, loadCardTextSize, normalizeCardTextSize, saveCardTextSize, setCardTextSize, multiTableTextStyle, tableTextBig, tableTextScale, tableTextStyle, useMultiTableTextFloor, useTableTextScale } from "@/components/duel/card-text-size";
 import { DuelCardTextSizeControl } from "@/components/duel/card-text-size-control";
 import { LOCATION_MZONE, POS_FACEUP_ATTACK } from "@/components/duel/constants";
 import { CardInspector } from "@/components/duel/inspector";
@@ -83,6 +83,13 @@ describe("the table text multiplier on a table root", () => {
     // Only the multi tables lift the small-text minimums; the 1v1 root keeps its old ones.
     expect(multiTableTextStyle("large")).toEqual({ "--tt": "1.15", "--ft": "1" });
     expect(tableTextStyle("large")).not.toHaveProperty("--ft");
+  });
+
+  it("flags the sizes above the base on a table root, for the CSS that cannot compare --tt", () => {
+    expect(tableTextBig("small")).toBeUndefined();
+    expect(tableTextBig("medium")).toBeUndefined();
+    expect(tableTextBig("large")).toBe("true");
+    expect(tableTextBig("xlarge")).toBe("true");
   });
 });
 
