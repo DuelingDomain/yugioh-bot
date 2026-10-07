@@ -6,6 +6,7 @@ import { duelFontClasses } from "../fonts";
 import { formatStartingLp } from "../table-format";
 import { hexToRgbTriplet } from "../table/seat-angle";
 import { SEAT_TONE_HEX, type SeatFieldProps, type SeatTone, type TagStageProps } from "../table/types";
+import { useIsNarrow } from "../side-panel";
 import { HelipadHub, type HubSeatTone } from "./helipad-hub";
 import { OwnHand, PartnerHand } from "./tag-hand";
 import {
@@ -41,6 +42,10 @@ export interface TagBoardProps extends Omit<TagStageProps, "camera"> {
 const TAG = "tag" as const;
 const HALF_W = ROOF_FIELD.width / 2;
 const HALF_H = ROOF_FIELD.height / 2;
+/** The phase hub shows its full strip when the helipad is at least this wide on screen (px); under it, the short strip. */
+const PHASE_HUB_LG_PAD = 380;
+/** Space between the phase hub and the chain hub while both are on the helipad. */
+const PHASE_HUB_GAP = 8;
 /** Anchor above the far strip: the rival plate hangs from here. */
 const FAR_ANCHOR_Y = -ROOF_FIELD.offsetY - ROOF_FIELD.height - 46;
 
@@ -62,7 +67,7 @@ function toneHex(tone: SeatTone | undefined): HubSeatTone {
  * the chain hub and the hands. It draws the fields only through `renderSeatField`. FX, the prompt panel and any overlay
  * are slots over the whole box, so they measure the real screen position of `[data-zones]` and `[data-lp-seat]` nodes.
  */
-export function TagStage({ controller, layout, camera, dispatchCamera, renderSeatField, fx, promptCenter, overlay, teamNames }: TagBoardProps) {
+export function TagStage({ controller, layout, camera, dispatchCamera, renderSeatField, fx, promptCenter, overlay, hub: phaseHub, teamNames }: TagBoardProps) {
   const { engine, room, viewerSeat, nameOf, legalKeys, selectedKeys, reducedMotion, prompt, promptSeat } = controller;
   const target = camera.pose;
   const anchor = layout.anchorSeat;
@@ -99,8 +104,12 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
   const farRef = useRef<HTMLDivElement>(null);
   const pillsRef = useRef<HTMLDivElement | null>(null);
   const hubRef = useRef<HTMLDivElement | null>(null);
+  const phaseHubRef = useRef<HTMLDivElement | null>(null);
   const ownPlateRef = useRef<HTMLDivElement | null>(null);
   const farPlateRef = useRef<HTMLDivElement | null>(null);
+  // apply() runs every frame of a camera tween: it reads the narrow flag from a ref, never from a new media query.
+  const narrowRef = useRef(false);
+  narrowRef.current = useIsNarrow();
   const poseRef = useRef<RoofPose>(target);
   const tweenRef = useRef<Tween | null>(null);
   const rafRef = useRef(0);
@@ -116,7 +125,21 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
       root.querySelector<HTMLElement>("[data-hand-dock]")?.offsetHeight ?? 0,
       root.querySelector<HTMLElement>("[data-partner-hand]")?.offsetHeight ?? 0,
     );
-    const hudH = Math.max(ownPlateRef.current?.offsetHeight ?? 0, handH) + 10;
+    const narrow = narrowRef.current;
+    let hudH = Math.max(ownPlateRef.current?.offsetHeight ?? 0, handH) + 10;
+    if (narrow) {
+      // A phone has no room for the plate and the hands side by side: the plate takes the bottom row, the own hand sits
+      // above it and the partner hand above that (see the narrow block in the CSS). The band is as tall as the stack.
+      const plateH = ownPlateRef.current?.offsetHeight ?? 0;
+      const ownH = root.querySelector<HTMLElement>("[data-hand-dock]")?.offsetHeight ?? 0;
+      root.style.setProperty("--plate-h", `${plateH}px`);
+      root.style.setProperty("--hand-h", `${ownH}px`);
+      const rootTop = root.getBoundingClientRect().top;
+      const tops = [ownPlateRef.current, root.querySelector<HTMLElement>("[data-hand-dock]"), root.querySelector<HTMLElement>("[data-partner-hand]")]
+        .filter((node): node is HTMLElement => node != null)
+        .map((node) => node.getBoundingClientRect().top - rootTop);
+      if (tops.length > 0) hudH = Math.max(hudH, h - Math.min(...tops) + 4);
+    }
     const view = { left: 8, right: w - 8, top: 6, bottom: Math.max(60, h - hudH - 8) };
     const fit = roofFit(view) || 1;
     const cx = (view.left + view.right) / 2;
@@ -132,7 +155,30 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     const pad = padRef.current?.getBoundingClientRect();
     const far = farRef.current?.getBoundingClientRect();
     const hub = hubRef.current;
-    if (hub && pad) {
+    const phases = phaseHubRef.current;
+    // A camera that focuses a seat can leave the helipad out of the view. The hub then hides instead of sliding onto the
+    // field it zoomed in on; the bottom bar still has the turn buttons.
+    const padAt = pad ? { x: pad.left - box.left, y: pad.top - box.top } : null;
+    const padSeen = padAt != null && padAt.x >= view.left && padAt.x <= view.right && padAt.y >= view.top && padAt.y <= view.bottom;
+    if (phases) {
+      if (padSeen) phases.removeAttribute("data-off");
+      else phases.setAttribute("data-off", "true");
+    }
+    if (phases && pad && padSeen) {
+      // The phase hub takes the middle of the helipad (the decoration under it is plain paint). The full strip needs the
+      // pad's width; a smaller pad gets the short one. While the chain hub is open the two stack around the middle.
+      const padSize = root.querySelector<SVGElement>("[data-roof='pad']")?.getBoundingClientRect().width ?? 0;
+      phases.setAttribute("data-hub-size", padSize >= PHASE_HUB_LG_PAD ? "lg" : "sm");
+      const stackH = phases.offsetHeight + (hub ? PHASE_HUB_GAP + hub.offsetHeight : 0);
+      const at = clampCenter({ x: pad.left - box.left, y: pad.top - box.top }, { w: Math.max(phases.offsetWidth, hub?.offsetWidth ?? 0), h: stackH }, view);
+      const top = at.y - stackH / 2;
+      phases.style.left = `${at.x.toFixed(1)}px`;
+      phases.style.top = `${(top + phases.offsetHeight / 2).toFixed(1)}px`;
+      if (hub) {
+        hub.style.left = `${at.x.toFixed(1)}px`;
+        hub.style.top = `${(top + phases.offsetHeight + PHASE_HUB_GAP + hub.offsetHeight / 2).toFixed(1)}px`;
+      }
+    } else if (hub && pad) {
       const at = clampCenter({ x: pad.left - box.left, y: pad.top - box.top }, { w: hub.offsetWidth, h: hub.offsetHeight }, view);
       hub.style.left = `${at.x.toFixed(1)}px`;
       hub.style.top = `${at.y.toFixed(1)}px`;
@@ -339,6 +385,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
       {fx != null ? <div className={styles.slot}>{fx}</div> : null}
       {plate(anchorTeam, true)}
       {plate(1 - anchorTeam, false)}
+      {phaseHub != null ? <div ref={phaseHubRef} className={styles.phaseHub} data-phase-hub-slot>{phaseHub}</div> : null}
       <HelipadHub
         chain={engine.chain}
         anchorSeat={anchor}

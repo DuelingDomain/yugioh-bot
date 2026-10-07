@@ -155,10 +155,24 @@ describe("the floating HUD of the Tag Rooftop", () => {
     expect(tray.textContent).toMatch(/choosing|waiting/i);
   });
 
-  it("puts the phase buttons and the attack lock in the bottom pill", () => {
+  it("puts the phase buttons on the helipad and keeps the turn controls in the bottom pill", () => {
     media(false);
-    render(<Shell />);
-    expect(within(screen.getByTestId("hud-bottom")).getByRole("button", { name: "Go to the Battle Phase" })).toBeTruthy();
+    const onAnswer = vi.fn();
+    const { container } = render(<Shell tweak={(controller) => ({ ...controller, onAnswer })} />);
+    const slot = container.querySelector("[data-phase-hub-slot]") as HTMLElement;
+    expect(slot).not.toBeNull();
+    const battle = within(slot).getByRole("button", { name: "Go to the Battle Phase" });
+    act(() => void fireEvent.click(battle));
+    expect(onAnswer).toHaveBeenCalledWith({ choice: "to_bp" });
+    const bottom = screen.getByTestId("hud-bottom");
+    expect(within(bottom).queryByRole("button", { name: "Go to the Battle Phase" })).toBeNull();
+    expect(bottom.querySelector("nav[data-phases='hub']")).not.toBeNull();
+  });
+
+  it("hides the phase hub while a centered prompt covers the helipad", () => {
+    media(false);
+    const { container } = render(<Shell id="target-pick" />);
+    expect(container.querySelector("[data-phase-hub-slot]")).toBeNull();
   });
 
   it("keeps the old layout on a narrow screen: no dock, no pills", () => {
