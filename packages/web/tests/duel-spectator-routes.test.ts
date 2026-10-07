@@ -60,3 +60,33 @@ it("keeps public and seated views in separate fetch/cache keys", async () => {
     expect(duelRoomKey("abc")).toBe("/api/duels/abc");
   } finally { globalThis.fetch = original; }
 });
+
+it("issues a fresh token from the moved FFA seat rows", async () => {
+  const { default: Database } = await import("better-sqlite3");
+  const { migrate } = await import("@yugidraft/shared/db");
+  const { createDuelService } = await import("@yugidraft/shared/services");
+  const db = new Database(":memory:");
+  try {
+    migrate(db);
+    const players = [0, 1, 2].map((i) => Number(db.prepare(
+      "insert into players (guild_id, discord_user_id, display_name) values ('guild', ?, ?)",
+    ).run(`u${i}`, `P${i}`).lastInsertRowid));
+    const dice = [1, 2, 6];
+    const duels = createDuelService(db, { rollDie: () => dice.shift()! });
+    const session = duels.create({ guildId: "guild", organizerPlayerId: players[0]!, name: "Dice", mode: "normal", format: "ffa3" });
+    for (const [seat, player] of players.entries()) {
+      if (seat) duels.takeSeat(session.slug, "guild", player, seat);
+      duels.setDeck(session.slug, "guild", player, { main: Array(40).fill(1), extra: [], side: [] });
+    }
+    mocks.actor.mockResolvedValue({ ok: true, guildId: "guild", playerId: players[2], duels });
+    const ctx = { params: Promise.resolve({ slug: session.slug }) };
+    const req = () => new Request(`http://localhost/api/duels/${session.slug}/connection`);
+    const oldToken = await (await connectionGet(req(), ctx)).json();
+    expect(verifyDuelConnectionToken(oldToken.token, "spectator-token-test")).toMatchObject({ seat: 2 });
+    duels.startOpening(session.slug, "guild", players[0]!, 1000);
+    duels.settleOpening(session.slug, "guild", 4000);
+    const newToken = await (await connectionGet(req(), ctx)).json();
+    expect(verifyDuelConnectionToken(newToken.token, "spectator-token-test")).toMatchObject({ playerId: players[2], seat: 0 });
+    expect(newToken.token).not.toBe(oldToken.token);
+  } finally { db.close(); }
+});

@@ -80,6 +80,8 @@ export type LabScript = {
   series?: LabSeries;
   /** The rock-paper-scissors opening: the screen opens over the board, in a lobby room. */
   opening?: LabOpening;
+  /** The 3-way or 4-way dice opening: the real screen plays the scripted rounds on the server's 3 second beat. */
+  diceOpening?: LabDiceOpening;
   /**
    * The first step is not played as it arrives: the board opens on that step's finished state with its
    * events already in the list, as a real room does on its first load of a new duel (finished hands,
@@ -93,6 +95,19 @@ export type LabOpening = {
   stage: "pick" | "pick-chosen" | "reveal-tie" | "choose" | "wait-choose" | "start";
   /** Opponent already played this round. */
   opponentChose?: boolean;
+};
+
+/**
+ * What a dice opening lab scenario plays. Rolls are by lobby seat, a seat that keeps its roll has `null`. The last
+ * round carries the order, as the server's does. You are `mySeat` (a lobby seat), or a spectator when `null`.
+ */
+export type LabDiceOpening = {
+  rounds: Array<Array<number | null>>;
+  /** Rank to lobby seat, as the server sends it after the last round. */
+  order: number[];
+  mySeat: number | null;
+  /** Open on the finished screen (the duel is about to start), as after a random tie-break. */
+  startPhase?: boolean;
 };
 
 /** What the series part of a Best of 3 lab scenario shows. Static for the whole run. */

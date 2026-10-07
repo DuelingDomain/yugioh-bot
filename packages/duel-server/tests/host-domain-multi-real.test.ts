@@ -6,7 +6,8 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { DUEL_OPENING_GRACE_MS, seatCountFor, teamOfSeat, type DuelDeck, type DuelEngineView, type DuelFormat, type DuelRoom } from "@yugidraft/shared/duels";
 import { createDuelService } from "@yugidraft/shared/services";
-import { createDuelHost, type DuelHost } from "../src/host.js";
+import type { DuelHost } from "../src/host.js";
+import { createTestDuelHost as createDuelHost, finishTestDiceOpening } from "./support/test-opening.js";
 import { AXE_RAIDER, botTableOf, buildPracticeBotDeck, choosePracticeBotAnswer } from "../src/practice-bot.js";
 import { GameWorker } from "../src/worker-client.js";
 import { engineDataDirectory as DATA } from "./engine-data-dir.js";
@@ -39,11 +40,12 @@ async function table(format: DuelFormat, humans = 1, drawPerTurn = 1) {
   const host = createDuelHost({ db, dataDirectory: DATA, secret: SECRET, searchCards: () => [], pollIntervalMs: 60_000,
     now: () => time.now, createWorker: () => { const worker = new GameWorker(); workers.push(worker); return worker; } });
   resources.push({ host, db });
-  const post = async (op: string, extra: Record<string, unknown> = {}, seat = 0) => {
+  const post = async (op: string, extra: Record<string, unknown> = {}, seat = 0): Promise<{ status: number; data: DuelRoom & { error?: string } }> => {
     const raw = JSON.stringify({ op, slug: session.slug, guildId: "g", playerId: players[seat], ...extra });
     const response = await host.handle(new Request("http://localhost/internal/duel", { method: "POST", body: raw,
       headers: { "x-announce-signature": "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex") } }));
-    return { status: response.status, data: await response.json() as DuelRoom & { error?: string } };
+    return finishTestDiceOpening(host, { op, slug: session.slug },
+      { status: response.status, data: await response.json() as DuelRoom & { error?: string } }, () => post("view", extra, seat));
   };
   for (const player of players.slice(1)) duels.takeSeat(session.slug, "g", player);
   const deck = buildPracticeBotDeck("domain", DATA);

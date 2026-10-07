@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from "react";
 import { SWRConfig } from "swr";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultDuelSettings, type DuelRoom } from "@yugidraft/shared/duels";
 import { makeSeriesRoom } from "../helpers/duel-series";
@@ -67,6 +67,27 @@ function open() {
 }
 
 describe("room seat transitions", () => {
+  it("matches dice names to seat numbers when session seats arrive out of order", async () => {
+    const data = room(0, true);
+    data.session.format = "ffa3";
+    const base = data.session.seats[0]!;
+    data.session.seats = [
+      { ...base, seat: 2, playerId: 3, displayName: "Joey" },
+      { ...base, seat: 0, playerId: 1, displayName: "Yugi" },
+      { ...base, seat: 1, playerId: 2, displayName: "Kaiba" },
+    ];
+    data.opening = { phase: "dice", round: 1, serverNow: 3500, deadlineAt: new Date(4000).toISOString(),
+      rounds: [{ round: 1, rolls: [1, 6, 3] }], order: [1, 2, 0], finalSeats: [2, 0, 1] };
+    server.room = data;
+    open();
+    const opening = await screen.findByTestId("opening-screen");
+    expect(within(screen.getByTestId("dice-tile-0")).getByText("Yugi")).toBeInTheDocument();
+    expect(within(screen.getByTestId("dice-tile-1")).getByText("Kaiba")).toBeInTheDocument();
+    expect(within(screen.getByTestId("dice-tile-2")).getByText("Joey")).toBeInTheDocument();
+    expect(screen.getAllByTestId("dice-die").map((die) => die.getAttribute("data-value"))).toEqual(["1", "6", "3"]);
+    expect(screen.getByTestId("dice-status")).toHaveTextContent("Kaiba goes first");
+  });
+
   it("enters watching, seats only on a click, and stays in the room after Watch instead", async () => {
     open();
     const take = await screen.findByRole("button", { name: "Take seat 2" });

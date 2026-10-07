@@ -5,14 +5,17 @@ import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 const sockets: FakeSocket[] = [];
 
 class FakeSocket {
+  joinedTokens: string[] = [];
   connected = false;
   id = "s1";
   handlers = new Map<string, (payload?: unknown) => void>();
   on(event: string, handler: (payload?: unknown) => void) { this.handlers.set(event, handler); return this; }
   timeout() {
     return {
-      emit: (_event: string, _payload: unknown, ack: (error: Error | null, answer: unknown) => void) =>
-        ack(null, { ok: true, onlineSeats: [0, 1], spectatorCount: 0 }),
+      emit: (_event: string, payload: { token: string }, ack: (error: Error | null, answer: unknown) => void) => {
+        this.joinedTokens.push(payload.token);
+        ack(null, { ok: true, onlineSeats: [0, 1], spectatorCount: 0 });
+      },
     };
   }
   emit() {}
@@ -92,4 +95,20 @@ describe("useDuelWebsocket change notices", () => {
     expect(result.current.syncing).toBe(true);
     await act(async () => { read.open(); await read.promise; });
   });
+});
+
+it("requests fresh credentials and rejoins after the dice opening moves the player's seat", async () => {
+  const fetch = vi.fn()
+    .mockResolvedValueOnce(Response.json({ guildId: "g1", token: "lobby-seat-2", expiresAt: Date.now() + 300_000 }))
+    .mockResolvedValueOnce(Response.json({ guildId: "g1", token: "final-seat-0", expiresAt: Date.now() + 300_000 }));
+  vi.stubGlobal("fetch", fetch);
+  const { result, rerender } = renderHook(({ seat }) => useDuelWebsocket("duel-a", seat, async () => {}),
+    { initialProps: { seat: 2 } });
+  await waitFor(() => expect(result.current.connected).toBe(true));
+  expect(sockets[0].joinedTokens).toEqual(["lobby-seat-2"]);
+  rerender({ seat: 0 });
+  await waitFor(() => expect(sockets[1]?.joinedTokens).toEqual(["final-seat-0"]));
+  await waitFor(() => expect(result.current.connected).toBe(true));
+  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(sockets[0].connected).toBe(false);
 });

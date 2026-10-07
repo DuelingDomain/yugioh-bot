@@ -1185,8 +1185,11 @@ describe("rock-paper-scissors opening", () => {
     const { duels, p1, p2, slug } = lobby();
     duels.startOpening(slug, "g1", p1, 1000);
     duels.submitOpeningPick(slug, "g1", 0, "rock", 1100);
-    expect(duels.room(slug, "g1", p1).opening?.myPick).toBe("rock");
+    const own = duels.room(slug, "g1", p1).opening;
+    if (!own || !("myPick" in own)) throw new Error("Expected RPS opening");
+    expect(own.myPick).toBe("rock");
     const other = duels.room(slug, "g1", p2).opening;
+    if (!other || !("myPick" in other)) throw new Error("Expected RPS opening");
     expect(other?.myPick).toBeNull();
     expect(other?.picked).toEqual([true, false]);
     expect(JSON.stringify(other)).not.toContain("rock");
@@ -1206,6 +1209,7 @@ describe("rock-paper-scissors opening", () => {
     expect(duels.privateState(slug, "g1").decks[0]?.main[0]).toBe(500);
     // The room shows the result in the new seat numbers.
     const view = duels.room(slug, "g1", p1).opening;
+    if (!view || !("winnerSeat" in view)) throw new Error("Expected RPS opening");
     expect(view?.winnerSeat).toBe(1);
     expect(view?.reveal?.picks).toEqual(["scissors", "rock"]);
   });
@@ -1230,7 +1234,8 @@ describe("rock-paper-scissors opening", () => {
     expect(settled?.phase).toBe("choose");
     const chosen = duels.settleOpening(slug, "g1", settled!.deadline);
     expect(chosen?.phase).toBe("start");
-    expect(chosen?.choice).toBe("first");
+    if (!chosen || !("choice" in chosen)) throw new Error("Expected RPS opening");
+    expect(chosen.choice).toBe("first");
   });
 
   it("drops a settled opening so the lobby can change again", () => {
