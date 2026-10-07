@@ -3,6 +3,7 @@
 import type { CSSProperties } from "react";
 import type { DuelCard, DuelCardInfo } from "@yugidraft/shared/duels";
 import { CardBack } from "./card-face";
+import { hasCardName, useDuelCardInfo } from "./card-info";
 import { cardTextStyle, useCardTextSize } from "./card-text-size";
 import {
   cardArtUrl,
@@ -20,12 +21,27 @@ export type InspectTarget =
   | { type: "info"; card: DuelCardInfo }
   | { type: "pile"; title: string; cards: DuelCard[] };
 
-function InfoBody({ card }: { card: DuelCard | DuelCardInfo }) {
+function InfoBody({ card: liveCard }: { card: DuelCard | DuelCardInfo }) {
   const styles = useSkinStyles(baseStyles, "inspector");
   const textSize = useCardTextSize();
   const textStyle = cardTextStyle(textSize);
-  const code = card.code;
-  if (isHiddenCard(card) || code == null) {
+  const code = liveCard.code;
+  const hidden = isHiddenCard(liveCard) || code == null;
+  const resolved = useDuelCardInfo(!hidden && (!hasCardName(liveCard) || !liveCard.description?.trim()) ? code : null);
+  // Fill static text while retaining ATK/DEF, counters and other live fields.
+  const card = resolved ? {
+    ...resolved, ...liveCard,
+    canonicalPasscode: liveCard.canonicalPasscode ?? resolved.canonicalPasscode,
+    type: liveCard.type ?? resolved.type,
+    attack: liveCard.attack ?? resolved.attack,
+    defense: liveCard.defense ?? resolved.defense,
+    level: liveCard.level ?? resolved.level,
+    attribute: liveCard.attribute ?? resolved.attribute,
+    race: liveCard.race ?? resolved.race,
+    name: hasCardName(liveCard) ? liveCard.name : resolved.name,
+    description: liveCard.description?.trim() ? liveCard.description : resolved.description,
+  } : liveCard;
+  if (hidden) {
     return (
       <div className={styles.root} data-card-text={textSize} style={textStyle}>
         <div className={`${styles.art} card-frame`}>
