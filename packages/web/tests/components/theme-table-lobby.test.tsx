@@ -324,6 +324,70 @@ describe("ThemeTableLobby the box", () => {
   });
 });
 
+describe("ThemeTableLobby deleting a theme", () => {
+  const libraryRoute = (cubes: object[]) => ({ "GET /api/cubes": () => ({ cubes }) });
+  const mine = { id: 10, name: "Blue-Eyes", canEdit: true, createdByUserId: "u1", createdByName: "Imran" };
+  const theirs = { id: 11, name: "Mermail", canEdit: false, createdByUserId: "u9", createdByName: "Ana" };
+  const host = (extra: Partial<ThemeTableLobbyProps> = {}) => table({ isCreator: true, viewerUserId: "u1", ...extra });
+
+  it("offers Delete only for a cube the viewer may delete, and only Remove for another cube", async () => {
+    mockFetch(libraryRoute([mine, theirs]));
+    render(<ThemeTableLobby {...host()} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "More for Blue-Eyes" })).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "More for Mermail" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Remove Mermail from the draft" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Remove Gravekeeper from the draft" })).not.toBeNull();
+  });
+
+  it("takes a cube out of the draft without a library call when the viewer cannot delete it", async () => {
+    const calls = mockFetch({ ...libraryRoute([theirs]), "DELETE /api/drafts/theme-night/cubes": () => ({ ok: true, allowedCubeIds: [10, 12] }) });
+    render(<ThemeTableLobby {...host()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Remove Mermail from the draft" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "DELETE" && c.url === "/api/drafts/theme-night/cubes")).toBe(true));
+    expect(calls.some((c) => c.url.startsWith("/api/cubes/") && c.method === "DELETE")).toBe(false);
+  });
+
+  it("deletes from the library first and then takes the cube out of the draft", async () => {
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    const calls = mockFetch({
+      ...libraryRoute([mine]),
+      "DELETE /api/cubes/10": () => ({ ok: true }),
+      "DELETE /api/drafts/theme-night/cubes": () => ({ ok: true, allowedCubeIds: [11, 12] }),
+    });
+    render(<ThemeTableLobby {...host()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "More for Blue-Eyes" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /delete/i }));
+    await waitFor(() => expect(calls.filter((c) => c.method === "DELETE")).toHaveLength(2));
+    const order = calls.filter((c) => c.method === "DELETE").map((c) => c.url);
+    expect(order).toEqual(["/api/cubes/10", "/api/drafts/theme-night/cubes"]);
+    expect(String((window.confirm as unknown as { mock: { calls: string[][] } }).mock.calls[0][0])).toContain("your library");
+  });
+
+  it("keeps the cube in the draft when the library refuses the delete", async () => {
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    const calls = mockFetch({
+      ...libraryRoute([mine]),
+      "DELETE /api/cubes/10": () => Response.json({ error: "Forbidden" }, { status: 403 }),
+    });
+    render(<ThemeTableLobby {...host()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "More for Blue-Eyes" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /delete/i }));
+    expect(await screen.findByText(/couldn't delete that theme|forbidden/i)).toBeInTheDocument();
+    expect(calls.some((c) => c.method === "DELETE" && c.url === "/api/drafts/theme-night/cubes")).toBe(false);
+  });
+
+  it("names the other member's library when an admin deletes their cube", async () => {
+    vi.stubGlobal("confirm", vi.fn(() => false));
+    mockFetch(libraryRoute([{ ...theirs, canEdit: true }]));
+    render(<ThemeTableLobby {...host()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "More for Mermail" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /delete/i }));
+    const text = String((window.confirm as unknown as { mock: { calls: string[][] } }).mock.calls[0][0]);
+    expect(text).toContain("Ana's library");
+    expect(text).not.toContain("your library");
+  });
+});
+
 describe("ThemeTableLobby Discord", () => {
   it("hides Nudge and the Discord invite text unless Discord is on", () => {
     mockFetch({});
@@ -355,8 +419,11 @@ describe("ThemeTableLobby layout rules", () => {
   });
 
   it("has a tablet and a phone layout and no hover zoom", () => {
-    expect(css).toMatch(/@media \(max-width: 1279px\)/);
-    expect(css).toMatch(/@media \(max-width: 719px\)/);
+    // The breakpoints follow the room of the page (the side rail takes 236 px), not the screen.
+    expect(css).toMatch(/container: tt \/ inline-size/);
+    expect(css).toMatch(/@container tt \(max-width: 1229px\)/);
+    expect(css).toMatch(/@container tt \(max-width: 719px\)/);
+    expect(css).not.toMatch(/@media \(max-width: 1279px\)/);
     expect(css).toMatch(/prefers-reduced-motion/);
     const hover = css.split("\n").filter((line) => line.includes(":hover"));
     for (const line of hover) expect(line).not.toMatch(/scale|zoom|transform|translate/);
