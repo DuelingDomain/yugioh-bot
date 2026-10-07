@@ -11,19 +11,29 @@ import styles from "./grid-hud.module.css";
 export const PREVIEW_HIDE_MS = 220;
 /** The art is dropped when a long text squeezes it under this height. */
 const MIN_ART_PX = 90;
-/** The widest the pinned panel is. */
-const PIN_WIDTH = 700;
-/** The places of the pinned panel, in the order tried: from wide to narrow, the left edge before the right one. */
-const PLACES: ReadonlyArray<{ side: "left" | "right"; width: number }> = [PIN_WIDTH, 600, 520, 430].flatMap((width) => [
-  { side: "left" as const, width },
-  { side: "right" as const, width },
-]);
-/** Under this width the panel uses its compact layout (a smaller art). */
+/**
+ * The places of the pinned panel, in the order tried: the left edge before the right one, the normal art before a small one, and
+ * the normal width before a wider one (a long text gets the room by a smaller art or a wider panel, so it does not scroll), then
+ * the narrower ones (they only serve to keep clear of the clicked card). Last of all comes a panel with no art: the art gives way
+ * before the text scrolls, as in the hover panel.
+ */
+type Place = { side: "left" | "right"; width: number; art: "normal" | "small" | "none" };
+const SIDES = ["left", "right"] as const;
+const WIDE_PLACES: ReadonlyArray<Place> = [700, 820, 940].flatMap((width) => (["normal", "small"] as const).flatMap((art) => SIDES.map((side) => ({ side, width, art }))));
+const NARROW_PLACES: ReadonlyArray<Place> = [600, 520, 430].flatMap((width) => SIDES.map((side) => ({ side, width, art: "small" as const })));
+const NO_ART_PLACES: ReadonlyArray<Place> = [940, 700, 520].flatMap((width) => SIDES.map((side) => ({ side, width, art: "none" as const })));
+const FIRST_PLACE = WIDE_PLACES[0];
+/** The gap kept between the panel and the clicked card, and the offsets of the panel from the layer edges (grid-hud.module.css). */
+const CLEAR_GAP_PX = 12;
+const EDGE_LEFT_PX = 72;
+const EDGE_RIGHT_PX = 16;
+/** Under this width the panel counts as narrow (the compact layout of the earlier fixes). */
 const COMPACT_PX = 560;
-const place = (aside: HTMLElement, side: "left" | "right", width: number) => {
-  aside.setAttribute("data-side", side);
-  aside.style.setProperty("--pin-w", `${width}px`);
-  if (width < COMPACT_PX) aside.setAttribute("data-narrow", "true"); else aside.removeAttribute("data-narrow");
+const place = (aside: HTMLElement, spot: Place) => {
+  aside.setAttribute("data-side", spot.side);
+  aside.style.setProperty("--pin-w", `${spot.width}px`);
+  if (spot.width < COMPACT_PX) aside.setAttribute("data-narrow", "true"); else aside.removeAttribute("data-narrow");
+  if (spot.art !== "normal") aside.setAttribute("data-art", spot.art); else aside.removeAttribute("data-art");
 };
 
 /**
@@ -98,7 +108,7 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
   }, [current, textSize, artKey]);
   const wide = showable ? pinned : shownPinned;
   // Where the pinned panel stands: the first of left, right, then both again narrower, that keeps clear of the clicked card.
-  const [spot, setSpot] = useState<{ side: "left" | "right"; width: number }>(PLACES[0]);
+  const [spot, setSpot] = useState<Place>(FIRST_PLACE);
   const [resizeTick, setResizeTick] = useState(0);
   useEffect(() => {
     if (!wide) return;
@@ -110,22 +120,42 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
     const aside = asideRef.current;
     if (!aside || !wide) return;
     const target = avoid?.isConnected ? avoid.getBoundingClientRect() : null;
-    let chosen = PLACES[0];
-    if (target && target.width > 0 && target.height > 0) {
-      let best = Infinity;
-      for (const candidate of PLACES) {
-        place(aside, candidate.side, candidate.width);
-        const parent = (aside.offsetParent ?? document.body).getBoundingClientRect();
+    const hasTarget = target != null && target.width > 0 && target.height > 0;
+    const parent = (aside.offsetParent ?? document.body).getBoundingClientRect();
+    const text = textRef.current;
+    // The widest panel that still stands clear of the card on each side, tried right after the standard widths.
+    const clear = hasTarget
+      ? (["left", "right"] as const).flatMap((side) => {
+          const width = Math.floor(side === "left" ? target.left - CLEAR_GAP_PX - (parent.left + EDGE_LEFT_PX) : parent.right - EDGE_RIGHT_PX - (target.right + CLEAR_GAP_PX));
+          return width >= 430 && width < 940 ? (["normal", "small", "none"] as const).map((art) => ({ side, width, art })) : [];
+        })
+      : [];
+    const candidates = [
+      ...WIDE_PLACES,
+      ...clear.filter((candidate) => candidate.art !== "none"),
+      ...NARROW_PLACES,
+      ...NO_ART_PLACES,
+      ...clear.filter((candidate) => candidate.art === "none"),
+    ];
+    let chosen = candidates[0];
+    let best = Infinity;
+    for (const candidate of candidates) {
+      place(aside, candidate);
+      let overlap = 0;
+      if (hasTarget) {
         const left = parent.left + aside.offsetLeft;
         const top = parent.top + aside.offsetTop;
-        const overlap = Math.max(0, Math.min(left + aside.offsetWidth, target.right) - Math.max(left, target.left))
+        overlap = Math.max(0, Math.min(left + aside.offsetWidth, target.right) - Math.max(left, target.left))
           * Math.max(0, Math.min(top + aside.offsetHeight, target.bottom) - Math.max(top, target.top));
-        if (overlap < best) { best = overlap; chosen = candidate; }
-        if (overlap === 0) break;
       }
+      const hidden = text ? Math.max(0, text.scrollHeight - text.clientHeight - 1) : 0;
+      // A place that covers the card always ranks after one that does not; then the one that cuts the least text wins.
+      const rank = overlap > 0 ? 1e9 + overlap : hidden;
+      if (rank < best) { best = rank; chosen = candidate; }
+      if (rank === 0) break;
     }
-    place(aside, chosen.side, chosen.width);
-    setSpot((previous) => (previous.side === chosen.side && previous.width === chosen.width ? previous : chosen));
+    place(aside, chosen);
+    setSpot((previous) => (previous.side === chosen.side && previous.width === chosen.width && previous.art === chosen.art ? previous : chosen));
   }, [wide, avoid, current, textSize, resizeTick]);
   if (!current) return null;
 
@@ -143,6 +173,7 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
       data-pinned={wide ? "true" : undefined}
       data-side={wide ? spot.side : undefined}
       data-narrow={wide && spot.width < COMPACT_PX ? "true" : undefined}
+      data-art={wide && spot.art !== "normal" ? spot.art : undefined}
       data-hud-keep={wide ? "" : undefined}
       aria-label={wide ? "Pinned card" : undefined}
       data-card-text={textSize}
