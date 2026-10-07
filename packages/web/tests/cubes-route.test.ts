@@ -1,11 +1,13 @@
 import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
-import { mkdtempSync, rmSync } from "node:fs";
+import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const auth = vi.fn();
 const tempDirs: string[] = [];
+let seedDir: string;
+let seedDbPath: string;
 
 vi.mock("@/lib/session-identity", async () => {
   const { sessionFixture } = await import("./fixtures/session");
@@ -18,19 +20,7 @@ async function setupDb() {
   tempDirs.push(tempDir);
   process.env.DATABASE_PATH = dbPath;
   process.env.DISCORD_GUILD_ID = "guild-1";
-
-  const Database = (await import("better-sqlite3")).default;
-  const { migrate } = await import("@yugidraft/shared/db");
-  const db = new Database(dbPath);
-  migrate(db);
-  seedFixtureUsers(db, FIXTURE_KEYS);
-  const ins = db.prepare(
-    `insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
-     values (?,?,?,?,?,?,?,?)`,
-  );
-  ins.run(1, "Main A", "Normal Monster", "normal", "i", "i", "[]", "t");
-  ins.run(2, "Xyz B", "XYZ Monster", "xyz", "i", "i", "[]", "t");
-  db.close();
+  copyFileSync(seedDbPath, dbPath);
 }
 
 async function cubeIdOf(name: string): Promise<number> {
@@ -42,6 +32,40 @@ async function cubeIdOf(name: string): Promise<number> {
 }
 
 describe("cube API routes", () => {
+  beforeAll(async () => {
+    // Fresh schema creation performs many disk commits. Do it once, then give
+    // each test its own copy so route writes cannot leak between cases.
+    seedDir = mkdtempSync(join(tmpdir(), "yugioh-cubes-routes-seed-"));
+    seedDbPath = join(seedDir, "seed.sqlite");
+    const Database = (await import("better-sqlite3")).default;
+    const { migrate } = await import("@yugidraft/shared/db");
+    const db = new Database(seedDbPath);
+    try {
+      migrate(db);
+      seedFixtureUsers(db, FIXTURE_KEYS);
+      const ins = db.prepare(
+        `insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
+         values (?,?,?,?,?,?,?,?)`,
+      );
+      ins.run(1, "Main A", "Normal Monster", "normal", "i", "i", "[]", "t");
+      ins.run(2, "Xyz B", "XYZ Monster", "xyz", "i", "i", "[]", "t");
+    } finally {
+      db.close();
+    }
+
+    // Pay for cold route transforms/imports outside the individual test timer.
+    await Promise.all([
+      import("../app/api/cubes/route"),
+      import("../app/api/cubes/[id]/route"),
+      import("../app/api/cubes/[id]/cards/route"),
+      import("../app/api/cubes/[id]/ydk/route"),
+    ]);
+  });
+
+  afterAll(() => {
+    if (seedDir) rmSync(seedDir, { recursive: true, force: true });
+  });
+
   beforeEach(() => {
     vi.resetModules();
     auth.mockReset();
