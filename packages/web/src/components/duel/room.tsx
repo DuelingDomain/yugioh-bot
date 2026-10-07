@@ -382,10 +382,11 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   // look, and the 3 and 4 seat tables and the Tag table have their own shells.
   const hud = !narrow && data?.engine != null && !isMultiSeat(data.engine) && !liveTable && view.mode !== "3d";
   const hudState = useHudPane();
+  const closeHud = hudState.close;
   useHudEscape(hudState, hud, Boolean(activeMenu) || Boolean(pile?.open) || deckMenuOpen);
     const promptMenuOpen = Boolean(activeMenu) || deckMenuOpen;
-  // An open flyout holds only Esc (it closes the flyout); the other prompt keys keep answering.
-  const hudFlyoutOpen = hud && hudState.pane != null;
+  // An open flyout or a pinned card holds only Esc (it closes it); the other prompt keys keep answering.
+  const hudFlyoutOpen = hud && (hudState.pane != null || hudState.pinned != null);
   const rowPreview = useRowPreview(prompt?.id ?? null);
 
   // Human attack flow: pick the attacker in the menu (preview arrow), aim at a target, confirm.
@@ -471,6 +472,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
 
   useEffect(() => {
     setInspect(null);
+    closeHud();
     setPile(null);
     setHideResult(false);
     setShowTable(false);
@@ -478,7 +480,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     setLogUnread(0);
     setActionError(null);
     setStarting(false);
-  }, [slug]);
+  }, [slug, closeHud]);
 
   // The room says this viewer no longer plays (role "spectator" or no seat): drop everything private to the seat.
   // The role stays "player" after a result (a draw, a Tag surrender), so a finished duel never clears the screen here.
@@ -486,6 +488,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   useEffect(() => {
     if (!watchingOnly) return;
     setInspect(null);
+    closeHud();
     setPile(null);
     setMobileInspect(false);
     setMenu(null);
@@ -494,7 +497,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     setAimLock(null);
     setPickHint(null);
     setActionError(null);
-  }, [watchingOnly]);
+  }, [watchingOnly, closeHud]);
 
   const run = useCallback(
     async (work: () => Promise<DuelRoom | { session: unknown } | void>, kind?: "seat-pick") => {
@@ -599,6 +602,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         : target.title.toLowerCase().startsWith(playerNameOf(seat).toLowerCase()) ? "you" : "opp";
       setHover(null);
       setMobileInspect(false);
+      if (hud) hudState.pinCard(null);
       // Tables of 3 or 4 seats: the owner is the controller of the pile's cards, not "the other seat".
       const pileSeat = first && isMultiSeat(data?.engine) ? first.controller : undefined;
       setPile({ title: target.title, owner, cards: target.cards, open: true, seat: pileSeat });
@@ -663,10 +667,12 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     // TableShell owns card menus and field picks. Its adapter still routes every answer through onSubmitAnswer.
     if (liveTable) return;
     setHover(null);
-    // The HUD opens the Card flyout only when no prompt took the click (below): a pick or a menu keeps the board clear.
+    // The pin goes with any click on a zone; the HUD pins the card again at the end, when no prompt took the click.
+    if (hud && !preserveInspector) hudState.pinCard(null);
+    // The HUD pins the card in the left peek only when no prompt took the click (below): a pick or a menu keeps the board clear.
     if (card && !preserveInspector && !hud) showInspector({ type: "card", card });
     if (busy || error || catchingUp || fieldHeld) {
-      if (card && !preserveInspector && hud) showInspector({ type: "card", card });
+      if (card && !preserveInspector && hud) pinClicked(card);
       return;
     }
     const mine = prompt != null && data?.mySeat != null && prompt.seat === data.mySeat;
@@ -702,7 +708,16 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       shakeRefusedCard(anchor, preferences.reducedMotion);
       setPickHint({ anchor, text: refusal.text, promptId: prompt.id });
     });
-    if (card && !handled) showInspector({ type: "card", card }, true);
+    if (card && !handled) {
+      if (hud && !preserveInspector) pinClicked(card);
+      else showInspector({ type: "card", card }, true);
+    }
+  }
+
+  /** A click on a board card that no prompt took, in the HUD: the card is pinned in the left peek, not opened in the Card flyout. */
+  function pinClicked(card: DuelCard) {
+    setInspect({ type: "card", card });
+    hudState.pinCard(card);
   }
 
   function onInspectorActivate(card: DuelCard, anchor: HTMLElement) {
@@ -1496,7 +1511,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           master={domain ? hudMaster(engine.seats.find((seat) => seat.seat === localSeat), !spectator, spectator ? `${playerName(localSeat)}'s Master` : "Your Master") : null}
           otherMaster={domain && top ? hudMaster(top, false, `${playerName(top.seat)}'s Master`) : null}
           onInspect={setInspect}
-          preview={hudPreview(hover?.card ?? null, activeMenu?.card, rowPreview.card, (card) => ({ name: playerName(card.controller), ...(hudSeatTones.get(card.controller) ?? SEAT_TONE_HEX.ice) }))}
+          preview={hudPreview(hover?.card ?? null, activeMenu?.card, rowPreview.card, (card) => ({ name: playerName(card.controller), ...(hudSeatTones.get(card.controller) ?? SEAT_TONE_HEX.ice) }), hudState.pinned)}
           previewHidden={pickHintShown || Boolean(pile?.open)}
           reducedMotion={preferences.reducedMotion}
         />

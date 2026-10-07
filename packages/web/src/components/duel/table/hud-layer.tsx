@@ -21,9 +21,14 @@ export interface HudPaneState {
   pane: HudPane | null;
   setPane: (pane: HudPane | null) => void;
   toggle: (pane: HudPane) => void;
+  /** Closes the open flyout and the pinned peek. */
   close: () => void;
-  /** Opens the Card flyout: a click or Inspect on a card. */
+  /** Opens the Card flyout: Inspect on a plate or a log row. A click on a board card pins it instead (`pinCard`). */
   openCard: () => void;
+  /** The board card pinned in the left peek, or `null`. It never shows together with a flyout. */
+  pinned: DuelCard | null;
+  /** A click on a board card pins it in the peek (another card moves the pin); `null` lets the pin go (a flyout stays). A face-down card has no peek: it opens the Card flyout. */
+  pinCard: (card: DuelCard | null) => void;
   /** The Card tab only shows while it is the open pane: it is not a dock icon. */
   tabs: readonly HudPane[];
   /** The dock icons, in order. */
@@ -41,22 +46,49 @@ export function useHudPane({ camera = false, log = true }: {
   /** The dock has the Log icon. The 3-way plaza has none: it keeps Settings and Camera only. */
   log?: boolean;
 } = {}): HudPaneState {
-  const [pane, setPane] = useState<HudPane | null>(null);
-  const toggle = useCallback((next: HudPane) => setPane((current) => (current === next ? null : next)), []);
-  const close = useCallback(() => setPane(null), []);
-  const openCard = useCallback(() => setPane("card"), []);
+  const [pane, setPaneState] = useState<HudPane | null>(null);
+  const [pinned, setPinned] = useState<DuelCard | null>(null);
+  // A flyout and the pinned peek never show together: opening one lets the other go.
+  const setPane = useCallback((next: HudPane | null) => {
+    setPaneState(next);
+    if (next != null) setPinned(null);
+  }, []);
+  const toggle = useCallback((next: HudPane) => {
+    setPaneState((current) => (current === next ? null : next));
+    setPinned(null);
+  }, []);
+  const close = useCallback(() => {
+    setPaneState(null);
+    setPinned(null);
+  }, []);
+  const openCard = useCallback(() => setPane("card"), [setPane]);
+  const pinCard = useCallback((card: DuelCard | null) => {
+    if (card == null) {
+      setPinned(null);
+      return;
+    }
+    if (card.code == null) {
+      setPane("card");
+      return;
+    }
+    setPaneState(null);
+    setPinned(card);
+  }, [setPane]);
   const dock = useMemo<readonly DockPane[]>(() => (camera ? DOCK_PANES_CAMERA : DOCK_PANES).filter((id) => log || id !== "log"), [camera, log]);
   const tabs: readonly HudPane[] = pane === "card" ? ["card", ...dock] : dock;
-  return { pane, setPane, toggle, close, openCard, tabs, dock };
+  return { pane, setPane, toggle, close, openCard, pinned, pinCard, tabs, dock };
 }
 
 /**
- * Esc and a press outside close the open flyout. A card menu or the pile viewer (`suspended`) keeps Esc, and so does a
- * modal dialog. Pass `hud.pane != null` to the prompt panel's `escapeHeld` as well, or the same Esc also declines the
+ * Esc and a press outside close the open flyout and the pinned peek. A card menu or the pile viewer (`suspended`) keeps Esc, and so does a
+ * modal dialog. Pass `hud.pane != null || hud.pinned != null` to the prompt panel's `escapeHeld` as well, or the same Esc also declines the
  * prompt. The other prompt keys keep answering while a flyout is open.
  */
 export function useHudEscape(hud: HudPaneState, enabled: boolean, suspended: boolean): void {
-  useHudDismiss(enabled && hud.pane != null, suspended, hud.close);
+  // A press on a board card never lets the pin go: the click that follows pins that card, or a prompt takes it and unpins.
+  const pinned = hud.pinned != null;
+  const onBoard = useCallback((target: Element | null) => pinned && target?.closest?.("[data-zones]") != null, [pinned]);
+  useHudDismiss(enabled && (hud.pane != null || pinned), suspended, hud.close, onBoard);
 }
 
 /**
@@ -112,8 +144,8 @@ export interface HudLayerProps {
   otherMaster?: HudMasterProps | null;
   /** Shows the Card flyout for the master (Inspect on the plate). */
   onInspect: (target: InspectTarget) => void;
-  /** The hovered card and its owner, or `null` when nothing is hovered. A prompt row card has no owner. */
-  preview: { card: DuelCard | DuelCardInfo; owner: { name: string; main: string; ink: string } | null } | null;
+  /** The card for the left peek and its owner, or `null` when there is none. A prompt row card has no owner. `pinned`: it stays until closed. */
+  preview: { card: DuelCard | DuelCardInfo; owner: { name: string; main: string; ink: string } | null; pinned?: boolean } | null;
   /** The pile viewer is open, or a pick hint is shown: the preview hides. An open card menu does not hide it. */
   previewHidden: boolean;
   reducedMotion: boolean;
@@ -144,7 +176,13 @@ export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, log
         />
       ) : null}
       <GridFlyout pane={hud.pane} tabs={hud.tabs} panels={panels} keepMounted={HUD_KEEP} onSelect={hud.setPane} onClose={hud.close} chainLive={chainOpen} />
-      <GridHoverPreview card={hud.pane == null && !previewHidden && preview ? preview.card : null} owner={preview?.owner ?? null} reducedMotion={reducedMotion} />
+      <GridHoverPreview
+        card={hud.pane == null && !previewHidden && preview ? preview.card : null}
+        owner={preview?.owner ?? null}
+        reducedMotion={reducedMotion}
+        pinned={preview?.pinned === true}
+        onClose={hud.close}
+      />
     </>
   );
 }

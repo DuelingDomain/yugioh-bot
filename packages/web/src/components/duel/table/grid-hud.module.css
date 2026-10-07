@@ -635,6 +635,45 @@
 .previewOwner i { display: inline-block; width: 0.6em; height: 0.6em; margin-right: 6px; vertical-align: 0.05em; border-radius: 50%; background: var(--seat-main, var(--duel-ink-3)); }
 .previewOwner b { color: var(--seat-ink, var(--duel-ink)); font-weight: 600; }
 
+/* The wrapper of the name, type, stats, text and owner: the hover panel stacks them under the art, so it adds no box. */
+.previewBody { display: contents; }
+
+/*
+ * The pinned panel (a click on a board card): wide, with the art beside the text, so the whole effect text shows with no
+ * scroll. It stays by the left edge like the hover panel and takes the pointer (the X button, a wheel scroll). The width
+ * stops at about half the screen so the board stays readable; a long text then grows the panel taller, not wider.
+ */
+.preview[data-pinned="true"] {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 16px;
+  width: min(700px, 56vw);
+  /* The panel may reach further down than the hover one: it keeps only a small strip free above the bottom edge. */
+  max-height: max(300px, calc(100% - 50px - 96px));
+  padding: 14px 44px 16px 14px;
+  pointer-events: auto;
+}
+.preview[data-pinned="true"] .previewArt { flex: none; align-self: flex-start; width: clamp(130px, 30%, 190px); height: auto; margin: 0; }
+.preview[data-pinned="true"][data-squeezed="true"] .previewArt { display: block; }
+.preview[data-pinned="true"] .previewBody { display: flex; flex: 1 1 0; flex-direction: column; align-self: stretch; min-width: 0; min-height: 0; }
+.preview[data-pinned="true"] .previewText { flex: 0 1 auto; min-height: 0; padding-right: 6px; pointer-events: auto; }
+.previewClose {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--duel-ink-2);
+  cursor: pointer;
+}
+.previewClose:hover, .previewClose:focus-visible { background: rgb(255 255 255 / 0.1); color: var(--duel-ink); }
+
 @media (prefers-reduced-motion: reduce) {
   .preview { transition: none; }
 }

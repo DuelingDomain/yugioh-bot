@@ -205,9 +205,9 @@ function TableShellBody({
   const hud = !narrow && (grid || plazaHud);
   // The Card pane is a flyout in the HUD: a hover must not fill it, only a click or Inspect does.
   const hudState = useHudPane({ camera: plazaHud, log: !plazaHud });
-  const ui = useTableUi(tracked, { initialPane: grid && hud ? "log" : undefined, hud, onOpenCard: hudState.openCard });
+  const ui = useTableUi(tracked, { initialPane: grid && hud ? "log" : undefined, hud, onOpenCard: hudState.openCard, onPinCard: hudState.pinCard });
   useHudEscape(hudState, hud, ui.suspended);
-  const hudOpen = hud && hudState.pane != null;
+  const hudOpen = hud && (hudState.pane != null || hudState.pinned != null);
   // A modal (Surrender) opened from the Settings flyout: the flyout closes so the modal owns Esc.
   const closeHud = hudState.close;
   useEffect(() => { if (inputSuspended) closeHud(); }, [inputSuspended, closeHud]);
@@ -831,7 +831,7 @@ function TableShellBody({
             spectator ? `${nameOf(layout.anchorSeat)}'s Master` : "Your Master",
           ) : null}
           onInspect={ui.setInspect}
-          preview={hudPreview(ui.hover?.card ?? null, ui.menu?.card, rowPreview.card, (card) => ({ name: nameOf(card.controller), ...toneOf(card.controller) }))}
+          preview={hudPreview(ui.hover?.card ?? null, ui.menu?.card, rowPreview.card, (card) => ({ name: nameOf(card.controller), ...toneOf(card.controller) }), hudState.pinned)}
           previewHidden={ui.pile?.open === true}
           reducedMotion={controller.reducedMotion}
         />
