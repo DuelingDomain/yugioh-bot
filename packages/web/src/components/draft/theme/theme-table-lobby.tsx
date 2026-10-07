@@ -41,6 +41,8 @@ export interface ThemeTableLobbyProps {
   onAddBot?: () => Promise<void>;
   /** Show Add bot. The server decides; the table never reads the environment. */
   botsEnabled?: boolean;
+  /** The Discord bot is on (the draft API's `discordEnabled`). When false there is no Nudge, no Post to Discord and no Discord text. */
+  discordEnabled?: boolean;
   /** The page refetches the draft. Called after a join, a leave, a claim, an attach or a stale answer. */
   onChanged?: () => void;
 }
@@ -50,7 +52,7 @@ export interface ThemeTableLobbyProps {
  * After Start the normal theme draft runs, each player alone from their own pool. The component renders the body only;
  * the page puts it in its frame and keeps the active DraftRoom out of it.
  */
-export function ThemeTableLobby({ slug, draft, isCreator, isParticipant, onJoin, onAddBot, botsEnabled, onChanged }: ThemeTableLobbyProps) {
+export function ThemeTableLobby({ slug, draft, isCreator, isParticipant, onJoin, onAddBot, botsEnabled, discordEnabled = false, onChanged }: ThemeTableLobbyProps) {
   const youIds = React.useMemo(
     () => new Set((draft.seats ?? []).filter((s) => s.isCurrentPlayer).map((s) => s.playerId)),
     [draft.seats],
@@ -124,6 +126,7 @@ export function ThemeTableLobby({ slug, draft, isCreator, isParticipant, onJoin,
             onInvite={() => setInviteOpen(true)}
             onAddBot={onAddBot}
             botsEnabled={botsEnabled}
+            discordEnabled={discordEnabled}
             inviteRef={inviteButton}
           />
         </div>
@@ -168,7 +171,7 @@ export function ThemeTableLobby({ slug, draft, isCreator, isParticipant, onJoin,
         />
       )}
       {inviteOpen && (
-        <InviteModal slug={slug} onClose={() => setInviteOpen(false)} controller={controller} canPost={isCreator} returnFocusRef={inviteButton} />
+        <InviteModal slug={slug} onClose={() => setInviteOpen(false)} controller={controller} canPost={isCreator} discordEnabled={discordEnabled} returnFocusRef={inviteButton} />
       )}
     </div>
   );

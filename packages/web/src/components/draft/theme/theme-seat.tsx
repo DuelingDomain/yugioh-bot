@@ -92,6 +92,8 @@ export interface ThemeSeatsProps {
   onInvite?: () => void;
   onAddBot?: () => Promise<void>;
   botsEnabled?: boolean;
+  /** The Discord bot is on. When false the host gets no Nudge. */
+  discordEnabled?: boolean;
   inviteRef?: React.Ref<HTMLButtonElement>;
 }
 
@@ -99,7 +101,7 @@ export interface ThemeSeatsProps {
  * The seats with their theme controls. This list is the real interface; the oval beside it only draws the same seats.
  * One open seat carries Invite (and Add bot where test bots are allowed).
  */
-export function ThemeSeats({ players, lobby, table, cubes, controller, isHost, isMember, onInvite, onAddBot, botsEnabled, inviteRef }: ThemeSeatsProps) {
+export function ThemeSeats({ players, lobby, table, cubes, controller, isHost, isMember, onInvite, onAddBot, botsEnabled, discordEnabled = false, inviteRef }: ThemeSeatsProps) {
   const slots = seatSlots(players, lobby.targetSeats);
   const firstOpen = slots.findIndex((s) => s.type === "open");
   const locked = lobby.start !== null;
@@ -128,7 +130,7 @@ export function ThemeSeats({ players, lobby, table, cubes, controller, isHost, i
                 </span>
               </span>
               <SeatTheme player={p} table={table} cubes={cubes} isHost={isHost} controller={controller} locked={locked} />
-              <SeatControls player={p} lobby={lobby} controller={controller} isHost={isHost} />
+              <SeatControls player={p} lobby={lobby} controller={controller} isHost={isHost} discordEnabled={discordEnabled} />
             </li>
           );
         }

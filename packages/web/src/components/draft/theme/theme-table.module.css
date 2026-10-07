@@ -221,3 +221,16 @@
 @media (prefers-reduced-motion: reduce) {
   .page * { transition-duration: 0.01ms !important; animation: none !important; }
 }
+
+/* ---- short creation form ---- */
+.advanced { margin-top: 8px; }
+.advanced > summary { display: inline-flex; align-items: center; min-height: 40px; padding: 0 4px; color: var(--ink-2); font: 600 15px/1 var(--f-ui); cursor: pointer; }
+.advanced > summary:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 2px; border-radius: 6px; }
+.advanced[open] > summary { color: var(--ink); }
+.stepper { display: inline-flex; align-items: stretch; width: fit-content; overflow: hidden; border: 1px solid var(--rule); border-radius: 8px; background: var(--floor); }
+.stepper button { width: 40px; border: 0; background: none; color: var(--ink-2); font-size: 20px; line-height: 1; cursor: pointer; }
+.stepper button:hover:not(:disabled) { background: rgb(239 231 213 / 0.08); color: var(--ink); }
+.stepper button:disabled { opacity: 0.35; cursor: default; }
+.stepper button:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: -2px; }
+.stepper > :global(.input) { width: 64px; border: 0; border-inline: 1px solid var(--rule-lo); border-radius: 0; text-align: center; font-variant-numeric: tabular-nums; }
+@media (max-width: 719px) { .stepper button { width: 48px; min-height: 44px; } }

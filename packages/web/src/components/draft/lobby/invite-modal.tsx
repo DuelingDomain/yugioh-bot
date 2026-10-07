@@ -13,6 +13,8 @@ export interface InviteModalProps {
   controller?: LobbyController;
   /** Show Post to Discord. Only the host may post. */
   canPost?: boolean;
+  /** The Discord bot is on. When false, the Discord command line and Post to Discord are hidden; the link stays. */
+  discordEnabled?: boolean;
   /** Where focus goes on close when the button that opened the modal is gone. */
   returnFocusRef?: React.RefObject<HTMLElement | null>;
 }
@@ -21,7 +23,7 @@ export interface InviteModalProps {
  * The invite modal: the draft link with Copy, the Discord command, and for the host a button that posts the invite
  * (and a mention for each player who is not ready) in the draft channel. Esc and the backdrop close it.
  */
-export function InviteModal({ slug, onClose, controller, canPost = false, returnFocusRef }: InviteModalProps) {
+export function InviteModal({ slug, onClose, controller, canPost = false, discordEnabled = true, returnFocusRef }: InviteModalProps) {
   const [link, setLink] = React.useState(`/draft/${slug}`);
   const titleId = React.useId();
   const closeRef = React.useRef<HTMLButtonElement>(null);
@@ -42,10 +44,12 @@ export function InviteModal({ slug, onClose, controller, canPost = false, return
         </div>
         <p className={styles.dialogP}>Anyone in the server can join with this link.</p>
         <CopyLinkRow value={link} label="Invite link" />
-        <p className={styles.dialogP}>
-          Players can also join from Discord with <code className="cmd">/draft join</code>.
-        </p>
-        {canPost && controller && (
+        {discordEnabled && (
+          <p className={styles.dialogP}>
+            Players can also join from Discord with <code className="cmd">/draft join</code>.
+          </p>
+        )}
+        {discordEnabled && canPost && controller && (
           <div className={styles.invitePost}>
             <SvButton
               variant="ghost"
