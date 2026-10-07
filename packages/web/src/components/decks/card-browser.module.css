@@ -28,6 +28,7 @@
 .de-left { color: var(--ink); }
 .de-left[data-zero] { color: var(--ink-3); box-shadow: 0 0 0 1px var(--rule-lo); }
 .de-t[data-full] img { opacity: 0.38; filter: grayscale(0.6); }
+.unavailable { position: absolute; left: 4px; bottom: 4px; padding: 2px 5px; border-radius: 4px; background: rgb(5 8 15 / 0.95); color: var(--ink); font-size: 11px; }
 
 
 .de-list { container: de-list / inline-size; position: relative; display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; min-height: 0; border-left: 1px solid var(--rule-lo); background: rgb(4 7 14 / 0.35); }

@@ -65,7 +65,7 @@ export function CardActions({
   if (home === "main" && deck.extra.includes(card.code)) sections.splice(1, 0, "extra");
   if (home === "extra" && deck.main.includes(card.code)) sections.splice(1, 0, "main");
   const inPool = poolCopies !== undefined;
-  const full = inPool ? copies >= poolCopies : copies >= limit;
+  const full = !!card.unavailableReason || (inPool ? copies >= poolCopies : copies >= limit);
   const status = inPool ? null : limitName(limit);
   const own = cardArchetypes(card.setcodes, archetypes);
   const isMaster = deck.deckMaster === card.code;
@@ -73,6 +73,7 @@ export function CardActions({
 
   return (
     <div className={styles["de-acts-c"]}>
+      {card.unavailableReason ? <p className={styles.chipBad}>Unavailable: {card.unavailableReason}</p> : null}
       {hideSummary ? null : <div className={styles.actionsHead}>
         <CardCopyCount copies={copies} limit={limit} poolCopies={poolCopies} forced={forced} />
         {status ? (
@@ -114,7 +115,7 @@ export function CardActions({
       </ul>
 
       {canMaster ? (
-        <DeckButton size="sm" kind={isMaster ? "quiet" : "secondary"} block disabled={isMaster} onClick={onMaster}>
+        <DeckButton size="sm" kind={isMaster ? "quiet" : "secondary"} block disabled={isMaster || !!card.unavailableReason} onClick={onMaster}>
           <Crown size={15} strokeWidth={1.6} aria-hidden />
           {isMaster ? "This is your Deck Master" : "Use as Deck Master"}
         </DeckButton>

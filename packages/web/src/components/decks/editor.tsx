@@ -627,6 +627,10 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   }
 
   function roomFor(card: DeckCardInfo): boolean {
+    if (card.unavailableReason) {
+      setNotice(`${card.name} is unavailable: ${card.unavailableReason}`);
+      return false;
+    }
     // Domain is singleton in a draft deck too: the pool may hold more copies, the deck takes one.
     if (mode === "domain" && deckCount(card) >= 1) {
       setNotice(DOMAIN_ONE_COPY);
@@ -741,6 +745,10 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
 
   function makeMaster(code: number, section?: DeckSection) {
     const card = catalog.get(code);
+    if (card?.unavailableReason) {
+      setNotice(`${card.name} is unavailable: ${card.unavailableReason}`);
+      return;
+    }
     if (card && (card.type & TYPE_MONSTER) === 0) {
       setNotice("The Deck Master must be a monster.");
       return;

@@ -21,6 +21,7 @@ import {
 } from "@yugidraft/shared/duels";
 import { BANLIST_NONE_ID, BANLIST_OCG_2026_07_ID, BANLIST_TCG_2026_09_ID, banlistLimitsFor } from "./banlists/index.js";
 import { cardArtworkFamily } from "./card-artworks.js";
+import { cardBlockIndex } from "./card-block-list.js";
 import type { CardDatabase } from "./cards.js";
 
 type Kind = "monster" | "spell" | "trap" | "other";
@@ -72,6 +73,7 @@ function trapType(type: number): TrapTypeKey {
 function buildIndex(cards: CardDatabase): Index {
   const entries: Entry[] = [];
   const byCode = new Map<number, Entry>();
+  const blocked = cardBlockIndex(new Map([...cards.all()].map(card => [card.code, card])));
   for (const card of cards.all()) {
     const kind = kindOf(card.type);
     // An alternate artwork repeats its original's name and card type. An alias with another name or
@@ -79,8 +81,9 @@ function buildIndex(cards: CardDatabase): Index {
     const family = cardArtworkFamily(cards, card.code)!;
     const altArt = family.passcode !== card.code;
     const data = cards.cardData(card.code);
+    const unavailableReason = blocked.get(card.code)?.reason;
     const entry: Entry = {
-      card,
+      card: unavailableReason ? { ...card, unavailableReason } : card,
       name: foldCardText(card.name),
       text: foldCardText(card.description),
       code: String(card.code),
@@ -112,6 +115,11 @@ function buildIndex(cards: CardDatabase): Index {
   }
   archetypes.sort((a, b) => a.name.localeCompare(b.name, "en"));
   return { entries, byCode, archetypes };
+}
+
+/** Shares the builder's admission flag with card-details (draft pools and cards already in a deck). */
+export function deckCardUnavailableReason(cards: CardDatabase, code: number): string | undefined {
+  return indexFor(cards).byCode.get(code)?.card.unavailableReason;
 }
 
 function indexFor(cards: CardDatabase): Index {

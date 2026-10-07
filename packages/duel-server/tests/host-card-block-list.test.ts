@@ -1,0 +1,66 @@
+import { createHmac } from "node:crypto";
+import Database from "better-sqlite3";
+import { afterEach, expect, it, vi } from "vitest";
+import { migrate } from "@yugidraft/shared/db";
+import { createDuelService } from "@yugidraft/shared/services";
+import { defaultDuelSettings, seatCountFor } from "@yugidraft/shared/duels";
+import { createDuelHost, type DuelHost } from "../src/host.js";
+import { seedIdentity, seedUser } from "./helpers/identity.js";
+import { engineDataDirectory as DATA } from "./engine-data-dir.js";
+
+vi.mock("node:fs", async (original) => {
+  const fs = await original<typeof import("node:fs")>();
+  return { ...fs, readFileSync: (path: Parameters<typeof fs.readFileSync>[0], ...args: unknown[]) => {
+    if (String(path).endsWith("/card-block-list.json")) return JSON.stringify([{ code: 89631139, reason: "Repeated script errors under investigation" }, { code: 77585513, reason: "Repeated script errors under investigation" }]);
+    return (fs.readFileSync as (...args: unknown[]) => unknown)(path, ...args);
+  } };
+});
+
+const SECRET = "blocked-start";
+const hosts: DuelHost[] = [];
+afterEach(async () => { for (const host of hosts.splice(0)) await host.close(); vi.unstubAllEnvs(); });
+
+async function post(host: DuelHost, body: Record<string, unknown>) {
+  const raw = JSON.stringify(body);
+  const result = await host.handle(new Request("http://local/internal/duel", { method: "POST", headers: { "content-type": "application/json", "x-announce-signature": "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex") }, body: raw }));
+  return { status: result.status, data: await result.json() as any };
+}
+
+it.each((["1v1", "tag", "ffa3", "ffa4"] as const).flatMap((format) => (["normal", "domain"] as const).map((mode) => ({ format, mode }))))("$format $mode: refuses a saved blocked deck at start even when validation is disabled", async ({ format, mode }) => {
+  vi.stubEnv("MULTIPLAYER_TABLES", "1");
+  const db = new Database(":memory:");
+  migrate(db);
+  const players = Array.from({ length: seatCountFor(format) }, (_, i) => seedIdentity(db, { guildId: "g", name: `P${i}`, userId: seedUser(db, `block${i}`).userId }).playerId);
+  const duels = createDuelService(db);
+  const session = duels.create({ guildId: "g", organizerPlayerId: players[0]!, name: "Blocked", format, mode, settings: { ...defaultDuelSettings(mode), validateDeck: false, banlist: "none" } });
+  players.slice(1).forEach((player) => duels.takeSeat(session.slug, "g", player));
+  players.forEach((player) => duels.setDeck(session.slug, "g", player, { main: Array(40).fill(89631139), extra: [], side: [], ...(mode === "domain" ? { deckMaster: 89631139 } : {}) }));
+  const createWorker = vi.fn(() => { throw new Error("Blocked deck must be refused before creating a core"); });
+  const host = createDuelHost({ db, dataDirectory: DATA, secret: SECRET, searchCards: () => [], createWorker }); hosts.push(host);
+  try {
+    const result = await post(host, { op: "start", slug: session.slug, guildId: "g", playerId: players[0] });
+    expect(result.status).toBe(400);
+    expect(result.data.error).toContain("Blue-Eyes White Dragon is unavailable: Repeated script errors under investigation");
+    expect(createWorker).not.toHaveBeenCalled();
+    expect(duels.get(session.slug, "g").status).toBe("lobby");
+    const details = await post(host, { op: "card-details", codes: [89631139], guildId: "g", playerId: players[0] });
+    expect(details.status).toBe(200);
+    expect(details.data.cards[0].unavailableReason).toBe("Repeated script errors under investigation");
+  } finally { await host.close(); hosts.splice(hosts.indexOf(host), 1); db.close(); }
+});
+
+
+it("refuses a blocked preset board card before creating a session or core", async () => {
+  vi.stubEnv("DUEL_SCENARIOS", "1");
+  const db = new Database(":memory:"); migrate(db);
+  const player = seedIdentity(db, { guildId: "g", name: "P0", userId: seedUser(db, "preset").userId }).playerId;
+  const createWorker = vi.fn(() => { throw new Error("Blocked board must not create a core"); });
+  const host = createDuelHost({ db, dataDirectory: DATA, secret: SECRET, searchCards: () => [], createWorker }); hosts.push(host);
+  try {
+    const result = await post(host, { op: "start-preset", presetId: "jinzo-stops-trap", guildId: "g", playerId: player });
+    expect(result.status).toBe(400);
+    expect(result.data.error).toContain("Jinzo is unavailable: Repeated script errors under investigation");
+    expect(createWorker).not.toHaveBeenCalled();
+    expect(db.prepare("SELECT count(*) AS n FROM duels").get()).toEqual({ n: 0 });
+  } finally { await host.close(); hosts.splice(hosts.indexOf(host), 1); db.close(); }
+});
