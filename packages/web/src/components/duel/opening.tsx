@@ -60,11 +60,12 @@ function Countdown({ iso, label, now }: { iso: string; label: string; now: numbe
 }
 
 /** Server time plus monotonic elapsed time; ticks countdowns and ends reveals without a poll. */
-function useNow(opening: DuelOpeningView, receivedAt?: number): number {
+function useNow(opening: DuelOpeningView, receivedAt?: number): number | null {
   const [clock, setClock] = useState({ opening, receivedAt, now: opening.serverNow });
   useEffect(() => {
+    const serverNow = opening.serverNow ?? Date.now();
     const at = receivedAt ?? performance.now();
-    const sample = () => opening.serverNow + (performance.now() - at);
+    const sample = () => serverNow + (performance.now() - at);
     const update = () => setClock({ opening, receivedAt, now: sample() });
     update();
     if (opening.phase === "start") return undefined;
@@ -77,7 +78,7 @@ function useNow(opening: DuelOpeningView, receivedAt?: number): number {
       if (timer != null) window.clearTimeout(timer);
     };
   }, [opening, receivedAt]);
-  return clock.opening === opening && clock.receivedAt === receivedAt ? clock.now : opening.serverNow;
+  return (clock.opening === opening && clock.receivedAt === receivedAt ? clock.now : opening.serverNow) ?? null;
 }
 
 /**
@@ -96,6 +97,7 @@ export function OpeningScreen({ opening, receivedAt, mySeat, names, busy = false
   onChoose: (choice: DuelFirstChoice) => void;
 }) {
   const now = useNow(opening, receivedAt);
+  if (now == null) return null;
   const stage = openingStage(opening, mySeat, now);
   const player = isOpeningPlayer(mySeat);
   const { me, them } = openingSeats(mySeat);

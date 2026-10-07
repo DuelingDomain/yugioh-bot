@@ -146,6 +146,29 @@ describe("OpeningScreen", () => {
   });
 
   const countdownCases = ["pick", "choose", "wait-choose"] as const;
+  it.each([...countdownCases, "reveal-tie"] as const)("uses browser time for an older host without serverNow in %s", (stage) => {
+    const now = 1_000_000;
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    const opening = labOpeningView({ stage }, now);
+    delete (opening as Partial<typeof opening>).serverNow;
+    const draw = () => <OpeningScreen opening={opening} mySeat={0} names={NAMES} onPick={() => undefined} onChoose={() => undefined} />;
+    const { rerender } = render(draw());
+    const seconds = () => screen.getByTestId("opening-countdown").querySelector("b")?.textContent;
+
+    if (stage === "reveal-tie") {
+      expect(screen.getByTestId("opening-screen")).toHaveAttribute("data-stage", "reveal");
+    } else {
+      expect(seconds()).toBe("30");
+    }
+    act(() => vi.advanceTimersByTime(5_000));
+    const remaining = stage === "reveal-tie" ? "28" : "25";
+    expect(seconds()).toBe(remaining);
+    vi.setSystemTime(Date.now() + 120_000);
+    rerender(draw());
+    expect(seconds()).toBe(remaining);
+  });
+
   it.each(countdownCases.flatMap((stage) => [-60_000, 60_000].map((clockOffset) => ({ stage, clockOffset }))))(
     "counts down from server time in $stage with clock offset $clockOffset",
     ({ stage, clockOffset }) => {
