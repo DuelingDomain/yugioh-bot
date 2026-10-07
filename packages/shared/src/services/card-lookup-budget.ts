@@ -1,4 +1,4 @@
-/** One user request may issue at most this many remote card searches, including artwork enrichment. */
+/** Maximum remote card resolution searches per request; optional artwork enrichment is excluded. */
 export const CARD_LOOKUP_LIMIT = 50;
 
 export interface CardLookupBudget {

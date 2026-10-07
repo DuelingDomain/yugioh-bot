@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "../../src/db/schema.js";
 import type { CardCatalogService } from "../../src/services/card-catalog.js";
+import { createCardLookupBudget } from "../../src/services/card-lookup-budget.js";
 
 const paths: Array<[string, (catalog: CardCatalogService) => Promise<unknown>]> = [
   ["id", (c) => c.syncCardById(12345678)],
@@ -73,6 +74,40 @@ describe("healthy draft imports", () => {
     expect(catalog.findByIds(cards.map((card) => card.id))).toHaveLength(60);
     expect(db.prepare("select count(*) as n from card_catalog").get()).toEqual({ n: 60 });
     expect(fetch).toHaveBeenCalledTimes(120);
+  });
+});
+
+describe("passcode lookup budget", () => {
+  it.each([
+    ["individual", 50], ["individual", 51], ["draft pool", 50], ["draft pool", 51],
+  ] as const)("resolves 50 new cards with artwork enrichment via %s (%i requested)", async (path, count) => {
+    const { createCardCatalogService } = await import("../../src/services/card-catalog.js");
+    const cards = Array.from({ length: count }, (_, i) => ({
+      id: 10000000 + i, name: `New Card ${i}`, type: "Effect Monster", frameType: "effect",
+      card_images: [{ id: 10000000 + i, image_url: "full", image_url_small: "small" }],
+    }));
+    const fetch = vi.fn(async (input: string | URL | Request) => {
+      const params = new URL(String(input)).searchParams;
+      const card = cards.find((card) => params.has("id") ? card.id === Number(params.get("id")) : card.name === params.get("name"));
+      return Response.json({ data: card ? [card] : [] });
+    });
+    const catalog = createCardCatalogService(db, { fetch, identityCatalog: new Map() });
+    const lookupBudget = createCardLookupBudget();
+    const ids = cards.map((card) => card.id);
+    const resolve = async () => {
+      if (path === "draft pool") {
+        await catalog.syncDraftPool({ setNames: [], customCardIds: ids, includeNames: [], excludeNames: [] }, { lookupBudget });
+      } else {
+        for (const id of ids) await catalog.syncCardById(id, { lookupBudget });
+      }
+    };
+    await Promise.all([resolve(), vi.runAllTimersAsync()]);
+    expect(catalog.findByIds(ids).map((card) => card.ygoprodeckId)).toEqual(ids.slice(0, 50));
+    expect(lookupBudget).toEqual({ remaining: 0, lookupLimited: count > 50 });
+    expect(fetch.mock.calls.filter(([input]) => new URL(String(input)).searchParams.has("id"))).toHaveLength(50);
+    // A cached card remains usable without triggering another lookup after exhaustion.
+    expect((await catalog.syncCardById(ids[0], { lookupBudget }))?.ygoprodeckId).toBe(ids[0]);
+    expect(lookupBudget.lookupLimited).toBe(count > 50);
   });
 });
 

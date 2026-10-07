@@ -200,3 +200,25 @@ it("shares 50 remote lookups across names, fallbacks and passcodes and reports t
   expect(result).toMatchObject({ lookupLimited: true, unknown: [...names, ...codes], entries: [{ id: 1, copies: 1, pool: "main" }] });
   expect(upstream).toHaveBeenCalledTimes(50);
 }, 40000);
+
+it.each([50, 51])("resolves 50 uncached passcodes and lists budget-skipped cards (%i requested)", async (count) => {
+  const cards = Array.from({ length: count }, (_, i) => ({
+    id: 900000 + i, name: `Fresh Card ${i}`, type: "Spell Card", frameType: "spell",
+    card_images: [{ id: 900000 + i, image_url: "fresh", image_url_small: "fresh-small" }],
+  }));
+  upstream.mockImplementation(async (input) => {
+    const params = new URL(String(input)).searchParams;
+    const card = cards.find((card) => params.has("id") ? card.id === Number(params.get("id")) : card.name === params.get("name"));
+    return Response.json({ data: card ? [card] : [] });
+  });
+  const response = await resolve({ listText: [...cards.map((card) => String(card.id)), "Dark Hole"].join("\n") });
+  expect(response.status).toBe(200);
+  const result = await response.json();
+  expect(result.entries).toEqual([...cards.slice(0, 50).map((card) => ({ id: card.id, copies: 1, pool: "main" })),
+    { id: 1, copies: 1, pool: "main" }]);
+  expect(result.cards.map((card: { id: number }) => card.id)).toEqual([...cards.slice(0, 50).map((card) => card.id), 1]);
+  expect(result.unknown).toEqual(cards.slice(50).map((card) => String(card.id)));
+  if (count > 50) expect(result.lookupLimited).toBe(true);
+  else expect(result).not.toHaveProperty("lookupLimited");
+  expect(upstream.mock.calls.filter(([input]) => new URL(String(input)).searchParams.has("id"))).toHaveLength(50);
+}, 40000);

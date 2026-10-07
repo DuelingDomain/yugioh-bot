@@ -210,14 +210,15 @@ export function createCardCatalogService(
 
   // Passcode responses can contain only the requested image. Exact-name
   // responses include the released alternatives; retain both sets of images.
-  const enrichArtworkFamilies = async (cards: YgoprodeckCard[], lookupBudget?: CardLookupBudget): Promise<YgoprodeckCard[]> => {
+  const enrichArtworkFamilies = async (cards: YgoprodeckCard[]): Promise<YgoprodeckCard[]> => {
     const enriched: YgoprodeckCard[] = [];
     for (const card of cards) {
       // Extra artwork discovery is optional. Keep the usable ID response if
       // the API is offline or rate limited; a later bulk sync can fill it.
+      // It must not spend the budget needed to resolve other cards.
       let named: YgoprodeckCard | undefined;
       try {
-        named = (await fetchCardsWith({ name: card.name }, lookupBudget))
+        named = (await fetchCardsWith({ name: card.name }))
           .find((candidate) => normalizeName(candidate.name) === normalizeName(card.name) && candidate.type === card.type);
       } catch {
         enriched.push(card);
@@ -236,7 +237,7 @@ export function createCardCatalogService(
   };
   const fetchArtworkFamily = async (id: number, lookupBudget?: CardLookupBudget) => {
     const cards = await fetchCardsWith({ id: String(id) }, lookupBudget);
-    if (cards.length > 0) return enrichArtworkFamilies(cards, lookupBudget);
+    if (cards.length > 0) return enrichArtworkFamilies(cards);
     // Engine-only IDs can have images but no API ID result. Use their validated
     // original's printed name only after the ID endpoint reports no match.
     const engine = engineIdentity();
