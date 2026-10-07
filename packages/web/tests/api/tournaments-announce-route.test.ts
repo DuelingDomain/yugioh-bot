@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "../fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -6,16 +7,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const auth = vi.fn();
 const tempDirs: string[] = [];
 
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("../fixtures/session");
+  return sessionFixture(auth);
+});
 
 async function seedTournament(dbPath: string) {
   const Database = (await import("better-sqlite3")).default;
   const { migrate } = await import("../../../shared/src/db/schema");
   const db = new Database(dbPath);
   migrate(db);
-  db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', 'u-org', 'Org')").run();
-  const orgPlayerId = (db.prepare("select id from players where discord_user_id = 'u-org'").get() as any).id;
-  db.prepare("insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug) values ('g1','My Tournament','round_robin','pending','u-org','slug-1')").run();
+  seedFixtureUsers(db, FIXTURE_KEYS);
+  db.prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('g1', ${fixtureUserId("u-org")}, '${fixtureDiscordId("u-org")}', 'Org')`).run();
+  const orgPlayerId = (db.prepare(`select id from players where user_id = ${fixtureUserId("u-org")}`).get() as any).id;
+  db.prepare(`insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug) values ('g1', 'My Tournament', 'round_robin', 'pending', ${fixtureUserId("u-org")}, 'slug-1')`).run();
   const tId = (db.prepare("select id from tournaments where web_slug = 'slug-1'").get() as any).id;
   db.prepare("insert into tournament_participants (tournament_id, player_id) values (?, ?)").run(tId, orgPlayerId);
   db.close();
@@ -26,6 +31,7 @@ describe("POST /api/tournaments/[slug]/announce", () => {
 
   beforeEach(() => {
     vi.resetModules();
+    vi.stubEnv("DISCORD_BOT_ENABLED", "1");
     vi.stubEnv("DISCORD_GUILD_ID", "g1");
     auth.mockReset();
     fetchSpy.mockReset();
@@ -38,6 +44,7 @@ describe("POST /api/tournaments/[slug]/announce", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
     while (tempDirs.length > 0) {
@@ -47,7 +54,7 @@ describe("POST /api/tournaments/[slug]/announce", () => {
   });
 
   it("returns 400 when no announce channel is configured", async () => {
-    auth.mockResolvedValue({ user: { id: "u-org", name: "Org" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-org")), discordUserId: fixtureDiscordId("u-org"), name: "Org" } });
     const tempDir = mkdtempSync(join(tmpdir(), "ta-1-"));
     const dbPath = join(tempDir, "t.sqlite");
     tempDirs.push(tempDir);
@@ -64,7 +71,7 @@ describe("POST /api/tournaments/[slug]/announce", () => {
   });
 
   it("falls back to DISCORD_DEFAULT_CHANNEL_ID and POSTs to the bot announce endpoint", async () => {
-    auth.mockResolvedValue({ user: { id: "u-org", name: "Org" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-org")), discordUserId: fixtureDiscordId("u-org"), name: "Org" } });
     vi.stubEnv("DISCORD_DEFAULT_CHANNEL_ID", "channel-default");
 
     const tempDir = mkdtempSync(join(tmpdir(), "ta-2-"));
@@ -84,13 +91,13 @@ describe("POST /api/tournaments/[slug]/announce", () => {
     expect(url).toBe("http://bot:4001/internal/announce/tournament-created");
     const body = JSON.parse((init as any).body as string);
     expect(body.channelId).toBe("channel-default");
-    expect(body.organizerUserId).toBe("u-org");
+    expect(body.organizerUserId).toBe(fixtureDiscordId("u-org"));
     expect(body.participantCount).toBe(1);
     expect(body.name).toBe("My Tournament");
   });
 
   it("returns 403 for non-organizer", async () => {
-    auth.mockResolvedValue({ user: { id: "u-someone-else", name: "Stranger" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-someone-else")), discordUserId: fixtureDiscordId("u-someone-else"), name: "Stranger" } });
     vi.stubEnv("DISCORD_DEFAULT_CHANNEL_ID", "channel-default");
 
     const tempDir = mkdtempSync(join(tmpdir(), "ta-3-"));
@@ -106,3 +113,7 @@ describe("POST /api/tournaments/[slug]/announce", () => {
     expect(res.status).toBe(403);
   });
 });
+
+const FIXTURE_KEYS = ["u-org", "u-someone-else"] as const;
+
+// Session resolution is mocked; authorization still runs through the real web boundary.

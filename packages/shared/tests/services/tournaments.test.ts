@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "../helpers/identity.js";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import { migrate } from "../../src/db/index.js";
@@ -11,10 +12,8 @@ function setup() {
 }
 
 function insertPlayer(db: Database.Database, guildId: string, discordUserId: string, name: string) {
-  const r = db
-    .prepare("insert into players (guild_id, discord_user_id, display_name) values (?, ?, ?)")
-    .run(guildId, discordUserId, name);
-  return Number(r.lastInsertRowid);
+  const r = seedIdentity(db, { guildId: guildId, name: name, userId: seedUser(db, discordUserId).userId, discordUserId: seedUser(db, discordUserId).discordUserId ?? discordUserId });
+  return r.playerId;
 }
 
 describe("tournaments service", () => {
@@ -22,7 +21,7 @@ describe("tournaments service", () => {
     it("removes a participant from a pending tournament", () => {
       const { db, tournaments } = setup();
       const alice = insertPlayer(db, "g1", "u-alice", "Alice");
-      const t = tournaments.create("g1", "T", "round_robin", "u-alice");
+      const t = tournaments.create("g1", "T", "round_robin", seedUser(db, "u-alice").userId);
       tournaments.join(t.id, alice);
 
       tournaments.leave(t.id, alice);
@@ -34,7 +33,7 @@ describe("tournaments service", () => {
       const { db, tournaments } = setup();
       const alice = insertPlayer(db, "g1", "u-alice", "Alice");
       const bob = insertPlayer(db, "g1", "u-bob", "Bob");
-      const t = tournaments.create("g1", "T", "round_robin", "u-alice");
+      const t = tournaments.create("g1", "T", "round_robin", seedUser(db, "u-alice").userId);
       tournaments.join(t.id, alice);
       tournaments.join(t.id, bob);
       tournaments.start(t.id);
@@ -45,7 +44,7 @@ describe("tournaments service", () => {
     it("throws when the participant is not in the tournament", () => {
       const { db, tournaments } = setup();
       const alice = insertPlayer(db, "g1", "u-alice", "Alice");
-      const t = tournaments.create("g1", "T", "round_robin", "u-alice");
+      const t = tournaments.create("g1", "T", "round_robin", seedUser(db, "u-alice").userId);
 
       expect(() => tournaments.leave(t.id, alice)).toThrow(/not a participant|not joined/i);
     });
@@ -56,11 +55,11 @@ describe("tournaments service", () => {
       const { db, tournaments } = setup();
       const alice = insertPlayer(db, "g1", "u-alice", "Alice");
       const bob = insertPlayer(db, "g1", "u-bob", "Bob");
-      const t = tournaments.create("g1", "T", "round_robin", "u-alice");
+      const t = tournaments.create("g1", "T", "round_robin", seedUser(db, "u-alice").userId);
       tournaments.join(t.id, alice);
       tournaments.join(t.id, bob);
 
-      tournaments.kick(t.id, "u-alice", bob);
+      tournaments.kick(t.id, seedUser(db, "u-alice").userId, bob);
 
       expect(tournaments.participants(t.id)).toEqual([alice]);
     });
@@ -69,22 +68,22 @@ describe("tournaments service", () => {
       const { db, tournaments } = setup();
       const alice = insertPlayer(db, "g1", "u-alice", "Alice");
       const bob = insertPlayer(db, "g1", "u-bob", "Bob");
-      const t = tournaments.create("g1", "T", "round_robin", "u-alice");
+      const t = tournaments.create("g1", "T", "round_robin", seedUser(db, "u-alice").userId);
       tournaments.join(t.id, bob);
 
-      expect(() => tournaments.kick(t.id, "u-bob", bob)).toThrow(/only the organizer/i);
+      expect(() => tournaments.kick(t.id, seedUser(db, "u-bob").userId, bob)).toThrow(/only the organizer/i);
     });
 
     it("rejects kick when the tournament is not pending", () => {
       const { db, tournaments } = setup();
       const alice = insertPlayer(db, "g1", "u-alice", "Alice");
       const bob = insertPlayer(db, "g1", "u-bob", "Bob");
-      const t = tournaments.create("g1", "T", "round_robin", "u-alice");
+      const t = tournaments.create("g1", "T", "round_robin", seedUser(db, "u-alice").userId);
       tournaments.join(t.id, alice);
       tournaments.join(t.id, bob);
       tournaments.start(t.id);
 
-      expect(() => tournaments.kick(t.id, "u-alice", bob)).toThrow(/already started/i);
+      expect(() => tournaments.kick(t.id, seedUser(db, "u-alice").userId, bob)).toThrow(/already started/i);
     });
   });
 
@@ -93,7 +92,7 @@ describe("tournaments service", () => {
       const { db, tournaments } = setup();
       const alice = insertPlayer(db, "g1", "u-alice", "Alice");
       const bob = insertPlayer(db, "g1", "u-bob", "Bob");
-      const t = tournaments.create("g1", "T", "round_robin", "u-alice");
+      const t = tournaments.create("g1", "T", "round_robin", seedUser(db, "u-alice").userId);
       tournaments.join(t.id, alice);
       tournaments.join(t.id, bob);
 
@@ -104,8 +103,8 @@ describe("tournaments service", () => {
 
 describe("tournaments timing settings", () => {
   it("create stores deadlineAt and reportConfirmWindowHours when provided", () => {
-    const { tournaments } = setup();
-    const t = tournaments.create("g1", "Cup", "round_robin", "u1", {
+    const { db, tournaments } = setup();
+    const t = tournaments.create("g1", "Cup", "round_robin", seedUser(db, "u1").userId, {
       deadlineAt: "2099-01-01T00:00:00.000Z",
       reportConfirmWindowHours: 6,
     });
@@ -114,15 +113,15 @@ describe("tournaments timing settings", () => {
   });
 
   it("create leaves both null when options omitted", () => {
-    const { tournaments } = setup();
-    const t = tournaments.create("g1", "Cup", "round_robin", "u1");
+    const { db, tournaments } = setup();
+    const t = tournaments.create("g1", "Cup", "round_robin", seedUser(db, "u1").userId);
     expect(t.deadlineAt).toBeUndefined();
     expect(t.reportConfirmWindowHours).toBeUndefined();
   });
 
   it("updateSettings patches only provided keys", () => {
-    const { tournaments } = setup();
-    const t = tournaments.create("g1", "Cup", "round_robin", "u1", { reportConfirmWindowHours: 6 });
+    const { db, tournaments } = setup();
+    const t = tournaments.create("g1", "Cup", "round_robin", seedUser(db, "u1").userId, { reportConfirmWindowHours: 6 });
     const u = tournaments.updateSettings(t.id, { deadlineAt: "2099-02-02T00:00:00.000Z" });
     expect(u.deadlineAt).toBe("2099-02-02T00:00:00.000Z");
     expect(u.reportConfirmWindowHours).toBe(6); // untouched
@@ -131,15 +130,15 @@ describe("tournaments timing settings", () => {
   });
 
   it("updateSettings rejects an out-of-range window", () => {
-    const { tournaments } = setup();
-    const t = tournaments.create("g1", "Cup", "round_robin", "u1");
+    const { db, tournaments } = setup();
+    const t = tournaments.create("g1", "Cup", "round_robin", seedUser(db, "u1").userId);
     expect(() => tournaments.updateSettings(t.id, { reportConfirmWindowHours: 0 })).toThrow();
     expect(() => tournaments.updateSettings(t.id, { reportConfirmWindowHours: 721 })).toThrow();
   });
 
   it("updateSettings throws when tournament is completed", () => {
     const { tournaments, db } = setup();
-    const t = tournaments.create("g1", "Cup", "round_robin", "u1");
+    const t = tournaments.create("g1", "Cup", "round_robin", seedUser(db, "u1").userId);
     db.prepare("update tournaments set status = 'completed' where id = ?").run(t.id);
     expect(() => tournaments.updateSettings(t.id, { reportConfirmWindowHours: 6 })).toThrow();
   });
@@ -148,7 +147,7 @@ describe("tournaments timing settings", () => {
     const { tournaments, db } = setup();
     const p1 = insertPlayer(db, "g1", "u1", "Yugi");
     const p2 = insertPlayer(db, "g1", "u2", "Kaiba");
-    const t = tournaments.create("g1", "Cup", "round_robin", "u1");
+    const t = tournaments.create("g1", "Cup", "round_robin", seedUser(db, "u1").userId);
     tournaments.join(t.id, p1);
     tournaments.join(t.id, p2);
     tournaments.start(t.id); // -> active
@@ -164,9 +163,9 @@ describe("tournaments timing settings", () => {
     const { tournaments, db } = setup();
     const p1 = insertPlayer(db, "g1", "u1", "Yugi");
     const p2 = insertPlayer(db, "g1", "u2", "Kaiba");
-    const overdue = tournaments.create("g1", "Past", "round_robin", "u1", { deadlineAt: "2000-01-01T00:00:00.000Z" });
-    const future = tournaments.create("g1", "Future", "round_robin", "u1", { deadlineAt: "2999-01-01T00:00:00.000Z" });
-    const noDeadline = tournaments.create("g1", "None", "round_robin", "u1");
+    const overdue = tournaments.create("g1", "Past", "round_robin", seedUser(db, "u1").userId, { deadlineAt: "2000-01-01T00:00:00.000Z" });
+    const future = tournaments.create("g1", "Future", "round_robin", seedUser(db, "u1").userId, { deadlineAt: "2999-01-01T00:00:00.000Z" });
+    const noDeadline = tournaments.create("g1", "None", "round_robin", seedUser(db, "u1").userId);
     for (const t of [overdue, future, noDeadline]) {
       tournaments.join(t.id, p1);
       tournaments.join(t.id, p2);
@@ -186,7 +185,7 @@ describe("tournaments complete (manual early finish)", () => {
     const { tournaments, db } = setup();
     const p1 = insertPlayer(db, "g1", "u1", "Yugi");
     const p2 = insertPlayer(db, "g1", "u2", "Kaiba");
-    const t = tournaments.create("g1", "Cup", "round_robin", "u1");
+    const t = tournaments.create("g1", "Cup", "round_robin", seedUser(db, "u1").userId);
     tournaments.join(t.id, p1);
     tournaments.join(t.id, p2);
     tournaments.start(t.id); // -> active
@@ -201,14 +200,14 @@ describe("tournaments complete (manual early finish)", () => {
   });
 
   it("throws when the tournament is still pending (never started)", () => {
-    const { tournaments } = setup();
-    const t = tournaments.create("g1", "Cup", "round_robin", "u1");
+    const { db, tournaments } = setup();
+    const t = tournaments.create("g1", "Cup", "round_robin", seedUser(db, "u1").userId);
     expect(() => tournaments.complete(t.id)).toThrow(/cannot be completed/i);
   });
 
   it("throws when the tournament is already completed", () => {
     const { tournaments, db } = setup();
-    const t = tournaments.create("g1", "Cup", "round_robin", "u1");
+    const t = tournaments.create("g1", "Cup", "round_robin", seedUser(db, "u1").userId);
     db.prepare("update tournaments set status = 'completed' where id = ?").run(t.id);
     expect(() => tournaments.complete(t.id)).toThrow(/cannot be completed/i);
   });

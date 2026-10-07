@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 // packages/web/tests/tournaments-slug-route.test.ts
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -6,7 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const auth = vi.fn();
 const tempDirs: string[] = [];
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 // Avoid real inter-service HTTP calls during settings edits.
 vi.mock("@/lib/notify", () => ({
   broadcaster: { draft: vi.fn(), tournament: vi.fn() },
@@ -25,10 +29,10 @@ async function setupDb(opts?: { status?: string }) {
   const { migrate } = await import("@yugidraft/shared/db");
   const db = new Database(dbPath);
   migrate(db);
+  seedFixtureUsers(db, FIXTURE_KEYS);
   db.prepare(
-    `insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug)
-     values (?, ?, ?, ?, ?, ?)`,
-  ).run("guild-1", "Cup", "round_robin", opts?.status ?? "active", "host", SLUG);
+    "insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug) values (?, ?, ?, ?, ?, ?)",
+  ).run("guild-1", "Cup", "round_robin", opts?.status ?? "active", fixtureUserId("host"), SLUG);
   db.close();
 }
 
@@ -51,7 +55,7 @@ describe("PUT /api/tournaments/[slug] timing settings", () => {
   beforeEach(() => {
     vi.resetModules();
     auth.mockReset();
-    auth.mockResolvedValue({ user: { id: "host", name: "Host" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("host")), discordUserId: fixtureDiscordId("host"), name: "Host" } });
   });
   afterEach(() => {
     delete process.env.DATABASE_PATH;
@@ -89,7 +93,7 @@ describe("PUT /api/tournaments/[slug] timing settings", () => {
 
   it("non-creator gets 403", async () => {
     await setupDb({ status: "active" });
-    auth.mockResolvedValue({ user: { id: "intruder", name: "Nope" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("intruder")), discordUserId: fixtureDiscordId("intruder"), name: "Nope" } });
     const { PUT } = await import("../app/api/tournaments/[slug]/route");
     const res = await PUT(
       new Request(`http://localhost/api/tournaments/${SLUG}`, {
@@ -145,7 +149,7 @@ describe("GET /api/tournaments/[slug] exposes timing fields", () => {
   beforeEach(() => {
     vi.resetModules();
     auth.mockReset();
-    auth.mockResolvedValue({ user: { id: "host", name: "Host" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("host")), discordUserId: fixtureDiscordId("host"), name: "Host" } });
   });
   afterEach(() => {
     delete process.env.DATABASE_PATH;
@@ -177,7 +181,7 @@ describe("PUT /api/tournaments/[slug] is atomic", () => {
   beforeEach(() => {
     vi.resetModules();
     auth.mockReset();
-    auth.mockResolvedValue({ user: { id: "host", name: "Host" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("host")), discordUserId: fixtureDiscordId("host"), name: "Host" } });
   });
   afterEach(() => {
     delete process.env.DATABASE_PATH;
@@ -223,3 +227,7 @@ describe("PUT /api/tournaments/[slug] is atomic", () => {
     expect(await row()).toMatchObject({ name: "Renamed", report_confirm_window_hours: 6, best_of: 1 });
   });
 });
+
+const FIXTURE_KEYS = ["host", "intruder"] as const;
+
+// Session resolution is mocked; authorization still runs through the real web boundary.

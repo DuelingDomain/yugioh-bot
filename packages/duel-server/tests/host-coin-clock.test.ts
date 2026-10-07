@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { createHmac } from "node:crypto";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -93,9 +94,7 @@ async function table(options: {
   const format = options.format ?? "1v1";
   const mode = options.mode ?? "normal";
   const db = new Database(":memory:"); databases.push(db); migrate(db);
-  const players = Array.from({ length: seatCountFor(format) }, (_, seat) => Number(db.prepare(
-    "insert into players (guild_id, discord_user_id, display_name) values ('g', ?, ?)",
-  ).run(`u${seat}`, `P${seat}`).lastInsertRowid));
+  const players = Array.from({ length: seatCountFor(format) }, (_, seat) => seedIdentity(db, { guildId: "g", name: `P${seat}`, userId: seedUser(db, `u${seat}`).userId, discordUserId: seedUser(db, `u${seat}`).discordUserId ?? `u${seat}` }).playerId);
   const duels = createDuelService(db);
   const settings = { ...defaultDuelSettings(mode), turnSeconds: 30, timeout: options.timeout ?? "loss", validateDeck: false };
   const session = duels.create({ guildId: "g", organizerPlayerId: players[0]!, name: "Coin clock", mode, format, settings });

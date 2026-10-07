@@ -4,7 +4,10 @@ const actor = { ok: true as const, guildId: "g1", playerId: 7, duels: { room: vi
 const callDuelHost = vi.fn();
 const requireDuelActor = vi.fn(async (): Promise<unknown> => actor);
 
-vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture((() => ({ auth: vi.fn() }))().auth);
+});
 
 vi.mock("@/lib/duel-host", async () => {
   const real = await vi.importActual<typeof import("@/lib/duel-host")>("@/lib/duel-host");

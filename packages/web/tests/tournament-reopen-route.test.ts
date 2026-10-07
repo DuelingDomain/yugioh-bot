@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -7,7 +8,10 @@ import { migrate } from "@yugidraft/shared/db";
 import { createTournamentService, createMatchService } from "@yugidraft/shared/services";
 
 const auth = vi.fn();
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 const tempDirs: string[] = [];
 
 function freshDb() {
@@ -18,13 +22,14 @@ function freshDb() {
   process.env.DISCORD_GUILD_ID = "g1";
   const db = new Database(path);
   migrate(db);
+  seedFixtureUsers(db, FIXTURE_KEYS);
   return db;
 }
 
 function player(db: Database.Database, discordId: string, name: string) {
   return Number(
-    db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', ?, ?)")
-      .run(discordId, name).lastInsertRowid,
+    db.prepare("insert into players (guild_id, user_id, discord_user_id, display_name) values ('g1', ?, ?, ?)")
+      .run(fixtureUserId(discordId), fixtureDiscordId(discordId), name).lastInsertRowid,
   );
 }
 
@@ -32,7 +37,7 @@ describe("POST /api/tournaments/[slug]/reopen", () => {
   beforeEach(() => {
     vi.resetModules();
     auth.mockReset();
-    auth.mockResolvedValue({ user: { id: "u-creator", name: "Host" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-creator")), discordUserId: fixtureDiscordId("u-creator"), name: "Host" } });
   });
   afterEach(() => {
     delete process.env.DATABASE_PATH;
@@ -48,7 +53,7 @@ describe("POST /api/tournaments/[slug]/reopen", () => {
     const m = createMatchService(db);
     const a = player(db, "u-a", "Alice");
     const b = player(db, "u-b", "Bob");
-    const tour = t.create("g1", "RR", "round_robin", "u-creator");
+    const tour = t.create("g1", "RR", "round_robin", fixtureUserId("u-creator"));
     db.prepare("update tournaments set web_slug = 'slug1' where id = ?").run(tour.id);
     t.join(tour.id, a);
     t.join(tour.id, b);
@@ -86,7 +91,7 @@ describe("POST /api/tournaments/[slug]/reopen", () => {
   it("403 for a non-host", async () => {
     const db = freshDb();
     const { tm } = await setupCompletedRR(db);
-    auth.mockResolvedValue({ user: { id: "u-a", name: "Alice" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-a")), discordUserId: fixtureDiscordId("u-a"), name: "Alice" } });
     const { POST } = await import("../app/api/tournaments/[slug]/reopen/route");
     const res = await POST(
       new Request("http://localhost/x", { method: "POST", body: JSON.stringify({ tournamentMatchId: tm.id }) }),
@@ -95,3 +100,7 @@ describe("POST /api/tournaments/[slug]/reopen", () => {
     expect(res.status).toBe(403);
   });
 });
+
+const FIXTURE_KEYS = ["u-creator", "u-a", "Host", "u-b"] as const;
+
+// Session resolution is mocked; authorization still runs through the real web boundary.

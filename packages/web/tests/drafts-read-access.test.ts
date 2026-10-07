@@ -1,18 +1,18 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "../../shared/src/db/schema";
 
-const { auth, database, environment, checkDiscordWebAccess } = vi.hoisted(() => ({
-  auth: vi.fn(), checkDiscordWebAccess: vi.fn(), database: { current: null as Database.Database | null },
+const { auth, database, environment } = vi.hoisted(() => ({
+  auth: vi.fn(), database: { current: null as Database.Database | null },
   environment: { discordGuildId: "guild-1", wsInternalSecret: "room-secret" },
 }));
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/db", () => ({ getDb: () => database.current! }));
 vi.mock("@/lib/env", () => ({ env: environment }));
-vi.mock("@/lib/discord-web-access", async (importOriginal) => ({
-  ...await importOriginal<typeof import("../src/lib/discord-web-access")>(),
-  checkDiscordWebAccess,
-}));
 // Exercise source modules in this worktree without requiring a shared package build.
 vi.mock("@yugidraft/shared/services", () => import("../../shared/src/services/index"));
 vi.mock("@yugidraft/shared/ws", () => import("../../shared/src/ws/index"));
@@ -41,16 +41,13 @@ async function read(route: Route, slug = "test-draft") {
 describe("draft read access", () => {
   beforeEach(() => {
     database.current = new Database(":memory:");
-    migrate(database.current);
-    auth.mockResolvedValue({ user: { id: "player" } });
-    checkDiscordWebAccess.mockReset();
-    checkDiscordWebAccess.mockResolvedValue({ ok: false, status: 403 });
+    migrate(database.current); seedFixtureUsers(database.current, FIXTURE_KEYS);
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("player")), discordUserId: fixtureDiscordId("player") } });
     environment.wsInternalSecret = "room-secret";
-    database.current.prepare("insert into players (id, guild_id, discord_user_id, display_name) values (1, 'guild-1', 'player', 'Yugi')").run();
+    database.current.prepare(`insert into players (id, guild_id, user_id, discord_user_id, display_name) values (1, 'guild-1', ${fixtureUserId("player")}, '${fixtureDiscordId("player")}', 'Yugi')`).run();
     // A player in a different guild must not count as this draft's participant.
-    database.current.prepare("insert into players (id, guild_id, discord_user_id, display_name) values (2, 'guild-2', 'outsider', 'Kaiba')").run();
-    database.current.prepare(`insert into drafts (id, guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug)
-      values (1, 'guild-1', 'channel', 'Draft', 'pending', 'creator', '{}', 'test-draft')`).run();
+    database.current.prepare(`insert into players (id, guild_id, user_id, discord_user_id, display_name) values (2, 'guild-2', ${fixtureUserId("outsider")}, '${fixtureDiscordId("outsider")}', 'Kaiba')`).run();
+    database.current.prepare(`insert into drafts (id, guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug) values (1, 'guild-1', 'channel', 'Draft', 'pending', ${fixtureUserId("creator")}, '{}', 'test-draft')`).run();
     database.current.prepare("insert into draft_players (draft_id, player_id, seat_index) values (1, 1, 0)").run();
   });
 
@@ -66,7 +63,7 @@ describe("draft read access", () => {
         for (const user of users) {
           it(`${status}: ${user}`, async () => {
             database.current!.prepare("update drafts set status = ? where id = 1").run(status);
-            auth.mockResolvedValue({ user: { id: user } });
+            auth.mockResolvedValue({ user: { id: String(fixtureUserId(user)), discordUserId: fixtureDiscordId(user) } });
             const response = await read(route);
             if (status !== "pending" && user === "outsider") {
               expect(response.status).toBe(403);
@@ -89,10 +86,11 @@ describe("draft read access", () => {
               expect(response.status).toBe(200);
               const body = await response.json();
               if (route === "connection") {
+                expect(Number.isSafeInteger(body.userId)).toBe(true);
                 expect(response.headers.get("cache-control")).toBe("no-store");
                 const { verifyDraftRoomToken } = await import("../../shared/src/ws/draft-token");
-                expect(verifyDraftRoomToken(body.token, "room-secret", { slug: "test-draft", userId: user }))
-                  .toMatchObject({ slug: "test-draft", guildId: "guild-1", userId: user, expiresAt: body.expiresAt });
+                expect(verifyDraftRoomToken(body.token, "room-secret", { slug: "test-draft", userId: fixtureUserId(user) }))
+                  .toMatchObject({ slug: "test-draft", guildId: "guild-1", userId: fixtureUserId(user), expiresAt: body.expiresAt });
                 expect(body.expiresAt).toBeGreaterThan(Date.now());
                 expect(body.expiresAt).toBeLessThanOrEqual(Date.now() + 60_000);
               }
@@ -118,7 +116,7 @@ describe("draft read access", () => {
   }
 
   it("refuses a fresh lobby token once an outsider's draft starts", async () => {
-    auth.mockResolvedValue({ user: { id: "outsider" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("outsider")), discordUserId: fixtureDiscordId("outsider") } });
     expect((await read("connection")).status).toBe(200);
     database.current!.prepare("update drafts set status = 'active' where id = 1").run();
     expect((await read("connection")).status).toBe(403);
@@ -127,7 +125,7 @@ describe("draft read access", () => {
   it("does not count a participant from another guild", async () => {
     database.current!.prepare("insert into draft_players (draft_id, player_id) values (1, 2)").run();
     database.current!.prepare("update drafts set status = 'active' where id = 1").run();
-    auth.mockResolvedValue({ user: { id: "outsider" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("outsider")), discordUserId: fixtureDiscordId("outsider") } });
     for (const route of routes) expect((await read(route)).status).toBe(403);
   });
 
@@ -143,23 +141,28 @@ describe("draft read access", () => {
     db.prepare("update drafts set status = 'completed' where id = 1").run();
     expect(await (await read("draft")).json()).toMatchObject({ tournamentId: null, tournamentName: null, tournamentSlug: null });
 
-    db.prepare("insert into tournaments (id, guild_id, name, format, status, created_by_user_id, web_slug) values (7, 'guild-1', 'Draft Cup', 'round_robin', 'pending', 'creator', 'draft-cup')").run();
+    db.prepare(`insert into tournaments (id, guild_id, name, format, status, created_by_user_id, web_slug) values (7, 'guild-1', 'Draft Cup', 'round_robin', 'pending', ${fixtureUserId("creator")}, 'draft-cup')`).run();
     db.prepare("update drafts set tournament_id = 7 where id = 1").run();
     expect(await (await read("draft")).json()).toMatchObject({ tournamentId: 7, tournamentName: "Draft Cup", tournamentSlug: "draft-cup" });
   });
 
   it("does not expose the name or slug of a linked tournament from another guild", async () => {
     const db = database.current!;
-    db.prepare("insert into tournaments (id, guild_id, name, format, status, created_by_user_id, web_slug) values (7, 'guild-2', 'Other Guild Cup', 'round_robin', 'pending', 'outsider', 'other-guild-cup')").run();
+    db.prepare(`insert into tournaments (id, guild_id, name, format, status, created_by_user_id, web_slug) values (7, 'guild-2', 'Other Guild Cup', 'round_robin', 'pending', ${fixtureUserId("outsider")}, 'other-guild-cup')`).run();
     db.prepare("update drafts set status = 'completed', tournament_id = 7 where id = 1").run();
-    checkDiscordWebAccess.mockResolvedValue({ ok: true });
 
     const response = await read("draft");
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       tournamentId: 7, tournamentName: null, tournamentSlug: null, canCreateTournament: false,
     });
-    expect(checkDiscordWebAccess).not.toHaveBeenCalled();
+  });
+
+  it("lets an email-only participant read the draft", async () => {
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("player")), discordUserId: null, name: "Participant" } });
+    const response = await read("draft");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ id: 1 });
   });
 
   describe("canCreateTournament", () => {
@@ -167,61 +170,51 @@ describe("draft read access", () => {
       database.current!.prepare("update drafts set status = 'completed' where id = 1").run();
     });
 
-    it("is true for the creator without checking admin access", async () => {
-      auth.mockResolvedValue({ user: { id: "creator" } });
-      checkDiscordWebAccess.mockResolvedValue({ ok: false, status: 503 });
+    it("is true for the email-only creator", async () => {
+      auth.mockResolvedValue({ user: { id: String(fixtureUserId("creator")), discordUserId: null } });
       const response = await read("draft");
       expect(response.status).toBe(200);
       expect(await response.json()).toMatchObject({ canCreateTournament: true });
-      expect(checkDiscordWebAccess).not.toHaveBeenCalled();
     });
 
-    it("is true for a non-creator admin", async () => {
-      checkDiscordWebAccess.mockResolvedValue({ ok: true });
-      const response = await read("draft");
-      expect(response.status).toBe(200);
-      expect(await response.json()).toMatchObject({ canCreateTournament: true });
-      expect(checkDiscordWebAccess).toHaveBeenCalledExactlyOnceWith("player", "admin");
-    });
-
-    it.each([403, 503])("is false without failing the draft fetch when admin verification returns %s", async (status) => {
-      checkDiscordWebAccess.mockResolvedValue({ ok: false, status });
+    it("is false for a former admin who did not create the draft", async () => {
       const response = await read("draft");
       expect(response.status).toBe(200);
       expect(await response.json()).toMatchObject({ canCreateTournament: false });
-      expect(checkDiscordWebAccess).toHaveBeenCalledExactlyOnceWith("player", "admin");
     });
 
-    it("is false without failing the draft fetch when admin verification throws", async () => {
-      checkDiscordWebAccess.mockRejectedValue(new Error("Discord unavailable"));
+    it.each([403, 503])("keeps participant draft reads available after guild permissions change (%s)", async (status) => {
       const response = await read("draft");
       expect(response.status).toBe(200);
       expect(await response.json()).toMatchObject({ canCreateTournament: false });
-      expect(checkDiscordWebAccess).toHaveBeenCalledExactlyOnceWith("player", "admin");
+    });
+
+    it("keeps participant reads available without a Discord service", async () => {
+      const response = await read("draft");
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ canCreateTournament: false });
     });
 
     for (const user of ["creator", "player"]) {
-      it.each(["pending", "active", "cancelled"])(`is false for ${user} on a %s draft without checking admin access`, async (status) => {
+      it.each(["pending", "active", "cancelled"])(`is false for ${user} on a %s draft with creator-only access`, async (status) => {
         database.current!.prepare("update drafts set status = ? where id = 1").run(status);
-        auth.mockResolvedValue({ user: { id: user } });
-        checkDiscordWebAccess.mockResolvedValue({ ok: true });
+        auth.mockResolvedValue({ user: { id: String(fixtureUserId(user)), discordUserId: fixtureDiscordId(user) } });
         const response = await read("draft");
         expect(response.status).toBe(200);
         expect(await response.json()).toMatchObject({ canCreateTournament: false });
-        expect(checkDiscordWebAccess).not.toHaveBeenCalled();
       });
 
-      it(`is false for ${user} when a tournament exists without checking admin access`, async () => {
+      it(`is false for ${user} when a tournament exists with creator-only access`, async () => {
         const db = database.current!;
-        db.prepare("insert into tournaments (id, guild_id, name, format, status, created_by_user_id, web_slug) values (7, 'guild-1', 'Draft Cup', 'round_robin', 'pending', 'creator', 'draft-cup')").run();
+        db.prepare(`insert into tournaments (id, guild_id, name, format, status, created_by_user_id, web_slug) values (7, 'guild-1', 'Draft Cup', 'round_robin', 'pending', ${fixtureUserId("creator")}, 'draft-cup')`).run();
         db.prepare("update drafts set tournament_id = 7 where id = 1").run();
-        auth.mockResolvedValue({ user: { id: user } });
-        checkDiscordWebAccess.mockResolvedValue({ ok: true });
+        auth.mockResolvedValue({ user: { id: String(fixtureUserId(user)), discordUserId: fixtureDiscordId(user) } });
         const response = await read("draft");
         expect(response.status).toBe(200);
         expect(await response.json()).toMatchObject({ canCreateTournament: false });
-        expect(checkDiscordWebAccess).not.toHaveBeenCalled();
       });
     }
   });
 });
+
+const FIXTURE_KEYS = ["player", "outsider", "creator", "admin"] as const;

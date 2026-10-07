@@ -10,8 +10,15 @@ export function openDatabase(path = process.env.DATABASE_PATH ?? "./data/bot.sql
   // single writer proceed concurrently across processes; busy_timeout makes a
   // contended writer wait instead of throwing SQLITE_BUSY (which has no retry and
   // would silently fail picks / drop the step-completing resync broadcast).
-  db.pragma("journal_mode = WAL");
-  db.pragma("busy_timeout = 5000");
-  migrate(db);
-  return db;
+  try {
+    db.pragma("foreign_keys = on");
+    db.pragma("busy_timeout = 5000");
+    db.pragma("journal_mode = WAL");
+    migrate(db);
+    if (db.pragma("foreign_keys", { simple: true }) !== 1) throw new Error("Foreign keys must be enabled");
+    return db;
+  } catch (error) {
+    db.close();
+    throw error;
+  }
 }

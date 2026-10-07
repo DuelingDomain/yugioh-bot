@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { createHmac } from "node:crypto";
 import Database from "better-sqlite3";
 import { afterEach, expect, it, vi } from "vitest";
@@ -17,7 +18,7 @@ afterEach(async () => { for (const host of hosts.splice(0)) await host.close(); 
 async function table(format: DuelFormat = "ffa3", eliminated = true) {
   const db = new Database(":memory:"); databases.push(db); migrate(db);
   const players = Array.from({ length: format === "ffa4" || format === "tag" ? 4 : format === "1v1" ? 2 : 3 }, (_, seat) =>
-    Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g', ?, ?)").run(`u${seat}`, `P${seat}`).lastInsertRowid));
+    seedIdentity(db, { guildId: "g", name: `P${seat}`, userId: seedUser(db, `u${seat}`).userId, discordUserId: seedUser(db, `u${seat}`).discordUserId ?? `u${seat}` }).playerId);
   const duels = createDuelService(db);
   const session = duels.create({ guildId: "g", organizerPlayerId: players[0]!, name: "watch", mode: "normal", format });
   for (const player of players.slice(1)) duels.takeSeat(session.slug, "g", player);
@@ -89,7 +90,7 @@ function finish(t: Awaited<ReturnType<typeof table>>, status: "completed" | "int
 it("restores the saved public final view for an unseated watcher instead of a private seat snapshot", async () => {
   const t = await table();
   const { publicView } = finish(t);
-  const watcher = Number(t.db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g', 'watcher', 'Watcher')").run().lastInsertRowid);
+  const watcher = seedIdentity(t.db, { guildId: "g", name: "Watcher", userId: seedUser(t.db, "watcher").userId, discordUserId: seedUser(t.db, "watcher").discordUserId ?? "watcher" }).playerId;
   const result = await t.post({ op: "view", spectate: true, playerId: watcher });
   expect(result.status, JSON.stringify(result.data)).toBe(200);
   expect(result.data.engine).toEqual(publicView);

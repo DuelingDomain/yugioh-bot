@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createMatchService, createTournamentDuelService, TournamentDuelError } from "@yugidraft/shared/services";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { announcer, broadcaster } from "@/lib/notify";
@@ -14,10 +14,8 @@ export async function POST(
   { params }: { params: Promise<{ slug: string; tmId: string }> },
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const actor = await requireWebAccess();
+    if (!actor.ok) return actor.response;
     const { slug, tmId } = await params;
     const tournamentMatchId = Number(tmId);
 
@@ -48,7 +46,7 @@ export async function POST(
 
     const result = createTournamentDuelService(db).setResultByOrganizer({
       tournamentMatchId,
-      organizerUserId: session.user.id,
+      organizerUserId: actor.userId,
       winnerPlayerId,
     });
 
@@ -58,7 +56,7 @@ export async function POST(
 
     // The bot sweep covers a missed announce.
     if (result.tournamentCompleted) {
-      if (createMatchService(db).claimTournamentCompletionAnnouncement(tournament.id)) {
+      if (env.discordBotEnabled && createMatchService(db).claimTournamentCompletionAnnouncement(tournament.id)) {
         void announcer.announce({ kind: "tournament-completed", tournamentId: tournament.id });
       }
       void broadcaster.tournament({ kind: "completed", slug });

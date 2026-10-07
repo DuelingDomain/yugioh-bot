@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
 import { createTournamentService } from "@yugidraft/shared/services";
 import { broadcaster } from "@/lib/notify";
 
@@ -12,10 +12,8 @@ export async function POST(
   { params }: { params: Promise<{ slug: string }> },
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const actor = await requireWebAccess();
+    if (!actor.ok) return actor.response;
 
     const { slug } = await params;
     const body = (await request.json()) as { tournamentMatchId?: number };
@@ -39,7 +37,7 @@ export async function POST(
     }
 
     try {
-      createTournamentService(db).reopenTournamentMatch(body.tournamentMatchId, session.user.id);
+      createTournamentService(db).reopenTournamentMatch(body.tournamentMatchId, actor.userId);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to reopen";
       const status = /organizer/i.test(message) ? 403 : 400;

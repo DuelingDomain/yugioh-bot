@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
 import { env } from "@/lib/env";
 import { createDraftService, createPlayerService } from "@yugidraft/shared/services";
 import { broadcaster } from "@/lib/notify";
@@ -44,10 +44,8 @@ export async function POST(
   }
 
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const actor = await requireWebAccess();
+    if (!actor.ok) return actor.response;
 
     const { slug } = await params;
     const db = getDb();
@@ -55,13 +53,13 @@ export async function POST(
 
     const draft = db
       .prepare("select id, guild_id, status, created_by_user_id from drafts where web_slug = ? and guild_id = ?")
-      .get(slug, guildId) as { id: number; guild_id: string; status: string; created_by_user_id: string } | undefined;
+      .get(slug, guildId) as { id: number; guild_id: string; status: string; created_by_user_id: number } | undefined;
 
     if (!draft) {
       return NextResponse.json({ error: "Draft not found" }, { status: 404 });
     }
 
-    if (draft.created_by_user_id !== session.user.id) {
+    if (draft.created_by_user_id !== actor.userId) {
       return NextResponse.json({ error: "Only the draft host can add bots" }, { status: 403 });
     }
 
@@ -71,7 +69,7 @@ export async function POST(
 
     const slot = nextBotSlot(db, draft.id);
     const players = createPlayerService(db);
-    const bot = players.findOrCreate(guildId, slot.discordId, slot.displayName);
+    const bot = players.findOrCreateTestPlayer(guildId, slot.discordId, slot.displayName);
 
     const drafts = createDraftService(db);
     drafts.join(draft.id, bot.id);

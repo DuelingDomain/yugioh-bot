@@ -5,7 +5,7 @@ import { expectReadyToAct } from "../helpers/board";
 
 // Flow b: solo table with the practice bot, one played action, then a spectator joins.
 test("host plays one action against the practice bot and a spectator sees no hand faces", async ({ player }) => {
-  const host = await player("p3");
+  const host = await player("p5"); // Email-only user creates and plays the duel.
   const spectator = await player("p4");
   const table = uniqueTableName("bot");
 

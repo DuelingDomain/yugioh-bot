@@ -6,25 +6,19 @@ export function WelcomePanel() {
   return (
     <section className={styles.hello} aria-labelledby="db-hello-t">
       <SectionHead title="Your first match puts you on the board" id="db-hello-t" />
-      <p>Everything here starts in Discord. Join something on the server and this page fills in.</p>
+      <p>Join something here and this page fills in.</p>
       <ol className={styles.steps}>
         <li>
           Join a tournament
-          <small>
-            <code className="cmd">/event join</code> or open one from Tournaments
-          </small>
+          <small>Open one from Tournaments</small>
         </li>
         <li>
           Join a draft
-          <small>
-            <code className="cmd">/draft join</code> or pick one from Drafts
-          </small>
+          <small>Pick one from Drafts</small>
         </li>
         <li>
           Challenge someone
-          <small>
-            <code className="cmd">/duel</code> with their name
-          </small>
+          <small>Start a duel from Duels and send them the link</small>
         </li>
       </ol>
       <div className={styles.start}>

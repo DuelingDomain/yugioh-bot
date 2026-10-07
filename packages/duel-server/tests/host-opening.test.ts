@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { createHmac } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
@@ -51,7 +52,7 @@ function setup() {
   const db = new Database(":memory:");
   migrate(db);
   const player = (id: string, name: string) =>
-    Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values (?, ?, ?)").run(GUILD, id, name).lastInsertRowid);
+    seedIdentity(db, { guildId: GUILD, name: name, userId: seedUser(db, id).userId, discordUserId: seedUser(db, id).discordUserId ?? id }).playerId;
   return { db, duels: createDuelService(db), series: createDuelSeriesService(db), p1: player("u1", "Yugi"), p2: player("u2", "Kaiba") };
 }
 type App = ReturnType<typeof setup>;

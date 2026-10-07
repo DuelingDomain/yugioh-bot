@@ -1,3 +1,4 @@
+import { createUserService } from "@yugidraft/shared/services";
 import Database from "better-sqlite3";
 import { describe, expect, it, vi } from "vitest";
 import { handleCommand, type CommandInteractionLike } from "../../src/commands/handlers.js";
@@ -154,7 +155,7 @@ function fakeInteraction(input: {
 describe("command handlers", () => {
   it("/help lists duel and tournament commands", async () => {
     const app = setup();
-    const yugi = { id: "user-1", username: "Yugi" };
+    const yugi = { id: "900000000000000112", username: "Yugi" };
     const { interaction, replies } = fakeInteraction({ commandName: "help", user: yugi });
 
     await handleCommand(interaction, app);
@@ -180,7 +181,7 @@ describe("command handlers", () => {
 
   it("/event dashboard replies privately with dashboard buttons", async () => {
     const app = setup();
-    const yugi = { id: "user-1", username: "Yugi" };
+    const yugi = { id: "900000000000000112", username: "Yugi" };
     const { interaction, replies } = fakeInteraction({
       commandName: "event",
       subcommand: "dashboard",
@@ -201,7 +202,7 @@ describe("command handlers", () => {
 
   it("/draft dashboard replies privately with draft buttons", async () => {
     const app = setup();
-    const yugi = { id: "user-1", username: "Yugi" };
+    const yugi = { id: "900000000000000112", username: "Yugi" };
     const { interaction, replies } = fakeInteraction({
       commandName: "draft",
       subcommand: "dashboard",
@@ -221,7 +222,7 @@ describe("command handlers", () => {
 
   it("/draft create creates a draft with sets, includes, and excludes", async () => {
     const app = setup();
-    const yugi = { id: "user-1", username: "Yugi" };
+    const yugi = { id: "900000000000000112", username: "Yugi" };
     const { interaction, replies } = fakeInteraction({
       commandName: "draft",
       subcommand: "create",
@@ -264,7 +265,7 @@ describe("command handlers", () => {
 
   it("/draft create can turn the pick copy limit off", async () => {
     const app = setup();
-    const { interaction } = fakeInteraction({ commandName: "draft", subcommand: "create", user: { id: "u", username: "Host" }, strings: { name: "No cap" }, booleans: { copy_limit: false } });
+    const { interaction } = fakeInteraction({ commandName: "draft", subcommand: "create", user: { id: "900000000000000107", username: "Host" }, strings: { name: "No cap" }, booleans: { copy_limit: false } });
     await handleCommand(interaction, app);
     expect(app.drafts.findByName("guild-1", "No cap")?.config.copyLimit).toBe(false);
     app.db.close();
@@ -275,7 +276,7 @@ describe("command handlers", () => {
     const { interaction } = fakeInteraction({
       commandName: "draft",
       subcommand: "create",
-      user: { id: "user-1", username: "Yugi" },
+      user: { id: "900000000000000112", username: "Yugi" },
       strings: {
         name: "trimmed draft",
         set1: " Metal Raiders ",
@@ -294,7 +295,7 @@ describe("command handlers", () => {
 
   it("/draft create creates a draft with no optional fields", async () => {
     const app = setup();
-    const yugi = { id: "user-1", username: "Yugi" };
+    const yugi = { id: "900000000000000112", username: "Yugi" };
     const { interaction, replies } = fakeInteraction({
       commandName: "draft",
       subcommand: "create",
@@ -331,12 +332,12 @@ describe("command handlers", () => {
 
   it("/draft join joins a pending draft by name", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-7", "Yugi");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-7", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000116", "Yugi");
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" }).id, yugi.id);
     const { interaction, replies } = fakeInteraction({
       commandName: "draft",
       subcommand: "join",
-      user: { id: "user-9", username: "Kaiba" },
+      user: { id: "900000000000000117", username: "Kaiba" },
       strings: { name: "cube night" },
     });
 
@@ -351,15 +352,15 @@ describe("command handlers", () => {
 
   it("/draft start requires the creator and sends pick prompts to all joined players", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-7", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-9", "Kaiba");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-7", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000116", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000117", "Kaiba");
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" }).id, yugi.id);
     app.drafts.join(draft.id, kaiba.id);
     seedDraftCatalog(app, 80);
     const { interaction, replies } = fakeInteraction({
       commandName: "draft",
       subcommand: "start",
-      user: { id: "user-7", username: "Yugi" },
+      user: { id: "900000000000000116", username: "Yugi" },
       strings: { name: "cube night" },
     });
 
@@ -382,7 +383,7 @@ describe("command handlers", () => {
         "Legend of Blue Eyes White Dragon": mockCardsForSet("Legend of Blue Eyes White Dragon", 2000, 40),
       },
     });
-    const yugi = { id: "user-7", username: "Yugi" };
+    const yugi = { id: "900000000000000116", username: "Yugi" };
 
     await handleCommand(
       fakeInteraction({
@@ -402,7 +403,7 @@ describe("command handlers", () => {
       fakeInteraction({
         commandName: "draft",
         subcommand: "join",
-        user: { id: "user-9", username: "Kaiba" },
+        user: { id: "900000000000000117", username: "Kaiba" },
         strings: { name: "retro draft" },
       }).interaction,
       app,
@@ -426,11 +427,11 @@ describe("command handlers", () => {
 
   it.each(["foreign-guild", "duplicate"])("/draft start surfaces an error for %s host assignments and leaves the draft pending", async (invalidAssignment) => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-7", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-9", "Kaiba");
+    const yugi = app.players.upsert("guild-1", "900000000000000116", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000117", "Kaiba");
     seedDraftCatalog(app, 42);
     const cubeIds = ["Theme 1", "Theme 2"].map((name) => {
-      const cubeId = Number(app.db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1', ?, 'user-7')").run(name).lastInsertRowid);
+      const cubeId = Number(app.db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1', ?, ?)").run(name, createUserService(app.db).ensureDiscord({discordUserId: "900000000000000116", displayName: "Host"}).id).lastInsertRowid);
       for (let cardId = 1; cardId <= 42; cardId++) {
         app.db.prepare("insert into cube_cards (cube_id, catalog_card_id, pool, max_copies) values (?, ?, 'main', 1)").run(cubeId, cardId);
       }
@@ -439,11 +440,11 @@ describe("command handlers", () => {
     const draft = app.drafts.create("guild-1", "channel-1", "theme night", {
       mode: "theme", themeSelection: "host_assigned", allowedCubeIds: cubeIds, uniqueThemes: true, extraDeckEnabled: false,
       themeAssignments: { [yugi.id]: cubeIds[0], [kaiba.id]: invalidAssignment === "duplicate" ? cubeIds[0] : cubeIds[1] },
-    }, "user-7", yugi.id);
+    }, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" }).id, yugi.id);
     app.drafts.join(draft.id, kaiba.id);
     if (invalidAssignment === "foreign-guild") app.db.prepare("update cubes set guild_id = 'guild-2' where id = ?").run(cubeIds[1]);
     const { interaction, replies } = fakeInteraction({
-      commandName: "draft", subcommand: "start", user: { id: "user-7", username: "Yugi" }, strings: { name: "theme night" },
+      commandName: "draft", subcommand: "start", user: { id: "900000000000000116", username: "Yugi" }, strings: { name: "theme night" },
     });
 
     await expect(handleCommand(interaction, app)).rejects.toThrow(
@@ -457,16 +458,16 @@ describe("command handlers", () => {
 
   it("/draft start rejects non-creators", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-7", "Yugi");
-    app.players.upsert("guild-1", "user-9", "Kaiba");
-    app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-7", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000116", "Yugi");
+    app.players.upsert("guild-1", "900000000000000117", "Kaiba");
+    app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" }).id, yugi.id);
 
     await expect(
       handleCommand(
         fakeInteraction({
           commandName: "draft",
           subcommand: "start",
-          user: { id: "user-9", username: "Kaiba" },
+          user: { id: "900000000000000117", username: "Kaiba" },
           strings: { name: "cube night" },
         }).interaction,
         app,
@@ -476,9 +477,9 @@ describe("command handlers", () => {
 
   it("/draft export returns a ydk attachment when deck is complete", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-7", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-9", "Kaiba");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-7", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000116", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000117", "Kaiba");
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" }).id, yugi.id);
     app.drafts.join(draft.id, kaiba.id);
     seedDraftCatalog(app, 80);
     app.drafts.start(draft.id);
@@ -493,7 +494,7 @@ describe("command handlers", () => {
     const { interaction, replies } = fakeInteraction({
       commandName: "draft",
       subcommand: "export",
-      user: { id: "user-7", username: "Yugi" },
+      user: { id: "900000000000000116", username: "Yugi" },
       strings: { name: "cube night" },
     });
 
@@ -507,9 +508,9 @@ describe("command handlers", () => {
 
   it("/draft export rejects incomplete decks", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-7", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-9", "Kaiba");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-7", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000116", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000117", "Kaiba");
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" }).id, yugi.id);
     app.drafts.join(draft.id, kaiba.id);
     seedDraftCatalog(app, 80);
     app.drafts.start(draft.id);
@@ -519,7 +520,7 @@ describe("command handlers", () => {
         fakeInteraction({
           commandName: "draft",
           subcommand: "export",
-          user: { id: "user-7", username: "Yugi" },
+          user: { id: "900000000000000116", username: "Yugi" },
           strings: { name: "cube night" },
         }).interaction,
         app,
@@ -529,12 +530,12 @@ describe("command handlers", () => {
 
   it("/draft cancel cancels a pending draft by name", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-7", "Yugi");
-    app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-7", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000116", "Yugi");
+    app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" }).id, yugi.id);
     const { interaction, replies } = fakeInteraction({
       commandName: "draft",
       subcommand: "cancel",
-      user: { id: "user-7", username: "Yugi" },
+      user: { id: "900000000000000116", username: "Yugi" },
       strings: { name: "cube night" },
     });
 
@@ -548,15 +549,15 @@ describe("command handlers", () => {
 
   it("/draft cancel rejects non-creators", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-7", "Yugi");
-    app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-7", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000116", "Yugi");
+    app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" }).id, yugi.id);
 
     await expect(
       handleCommand(
         fakeInteraction({
           commandName: "draft",
           subcommand: "cancel",
-          user: { id: "user-9", username: "Kaiba" },
+          user: { id: "900000000000000117", username: "Kaiba" },
           strings: { name: "cube night" },
         }).interaction,
         app,
@@ -566,14 +567,14 @@ describe("command handlers", () => {
 
   it("/draft show displays draft details and participants", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-7", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-9", "Kaiba");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-7", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000116", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000117", "Kaiba");
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" }).id, yugi.id);
     app.drafts.join(draft.id, kaiba.id);
     const { interaction, replies } = fakeInteraction({
       commandName: "draft",
       subcommand: "show",
-      user: { id: "user-1", username: "Yugi" },
+      user: { id: "900000000000000112", username: "Yugi" },
       strings: { name: "cube night" },
     });
 
@@ -587,15 +588,15 @@ describe("command handlers", () => {
 
   it("/draft show caps participant lists", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-7", "Yugi");
-    app.drafts.create("guild-1", "channel-1", "big draft", {}, "user-7", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000116", "Yugi");
+    app.drafts.create("guild-1", "channel-1", "big draft", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" }).id, yugi.id);
 
     for (let index = 0; index < 30; index += 1) {
       await handleCommand(
         fakeInteraction({
           commandName: "draft",
           subcommand: "join",
-          user: { id: `user-${index + 100}`, username: `Player ${index + 1}` },
+          user: { id: `900000000000001${index + 100}`, username: `Player ${index + 1}` },
           strings: { name: "big draft" },
         }).interaction,
         app,
@@ -605,7 +606,7 @@ describe("command handlers", () => {
     const { interaction, replies } = fakeInteraction({
       commandName: "draft",
       subcommand: "show",
-      user: { id: "user-1", username: "Yugi" },
+      user: { id: "900000000000000112", username: "Yugi" },
       strings: { name: "big draft" },
     });
 
@@ -618,12 +619,12 @@ describe("command handlers", () => {
 
   it("/draft join replies clearly for duplicate joins", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-7", "Yugi");
-    app.drafts.create("guild-1", "channel-1", "cube night", {}, "user-7", yugi.id);
+    const yugi = app.players.upsert("guild-1", "900000000000000116", "Yugi");
+    app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" }).id, yugi.id);
     const { interaction, replies } = fakeInteraction({
       commandName: "draft",
       subcommand: "join",
-      user: { id: "user-7", username: "Yugi" },
+      user: { id: "900000000000000116", username: "Yugi" },
       strings: { name: "cube night" },
     });
 
@@ -638,7 +639,7 @@ describe("command handlers", () => {
     const { interaction, replies } = fakeInteraction({
       commandName: "draft",
       subcommand: "sets",
-      user: { id: "user-1", username: "Yugi" },
+      user: { id: "900000000000000112", username: "Yugi" },
     });
 
     await handleCommand(interaction, app);
@@ -657,7 +658,7 @@ describe("command handlers", () => {
     const { interaction, replies } = fakeInteraction({
       commandName: "draft",
       subcommand: "sets",
-      user: { id: "user-1", username: "Yugi" },
+      user: { id: "900000000000000112", username: "Yugi" },
       strings: { query: "metal" },
     });
 
@@ -668,8 +669,8 @@ describe("command handlers", () => {
 
   it("/duel creates a pending match and /approve finalizes it", async () => {
     const app = setup();
-    const yugi = { id: "user-1", username: "Yugi" };
-    const kaiba = { id: "user-2", username: "Kaiba" };
+    const yugi = { id: "900000000000000112", username: "Yugi" };
+    const kaiba = { id: "900000000000000113", username: "Kaiba" };
 
     await handleCommand(
       fakeInteraction({
@@ -692,7 +693,7 @@ describe("command handlers", () => {
 
   it("/stats replies with a player's record", async () => {
     const app = setup();
-    const yugi = { id: "user-1", username: "Yugi" };
+    const yugi = { id: "900000000000000112", username: "Yugi" };
     const { interaction, replies } = fakeInteraction({ commandName: "stats", user: yugi });
 
     await handleCommand(interaction, app);
@@ -702,8 +703,8 @@ describe("command handlers", () => {
 
   it("/stats with a tournament replies with tournament-only approved stats", async () => {
     const app = setup();
-    const yugi = { id: "user-1", username: "Yugi" };
-    const kaiba = { id: "user-2", username: "Kaiba" };
+    const yugi = { id: "900000000000000112", username: "Yugi" };
+    const kaiba = { id: "900000000000000113", username: "Kaiba" };
 
     await handleCommand(
       fakeInteraction({ commandName: "duel", user: yugi, users: { player: kaiba }, strings: { result: "loss" } })
@@ -752,9 +753,9 @@ describe("command handlers", () => {
 
   it("/stats without a tournament uses the only active tournament for the target player", async () => {
     const app = setup();
-    const yugi = { id: "user-1", username: "Yugi" };
-    const kaiba = { id: "user-2", username: "Kaiba" };
-    const joey = { id: "user-3", username: "Joey" };
+    const yugi = { id: "900000000000000112", username: "Yugi" };
+    const kaiba = { id: "900000000000000113", username: "Kaiba" };
+    const joey = { id: "900000000000000114", username: "Joey" };
 
     await handleCommand(
       fakeInteraction({ commandName: "duel", user: yugi, users: { player: kaiba }, strings: { result: "loss" } })
@@ -799,9 +800,9 @@ describe("command handlers", () => {
 
   it("/stats player applies active tournament context to the target player", async () => {
     const app = setup();
-    const yugi = { id: "user-1", username: "Yugi" };
-    const kaiba = { id: "user-2", username: "Kaiba" };
-    const joey = { id: "user-3", username: "Joey" };
+    const yugi = { id: "900000000000000112", username: "Yugi" };
+    const kaiba = { id: "900000000000000113", username: "Kaiba" };
+    const joey = { id: "900000000000000114", username: "Joey" };
 
     await handleCommand(
       fakeInteraction({
@@ -840,8 +841,8 @@ describe("command handlers", () => {
 
   it("/stats without a tournament falls back to lifetime stats when the player has no active tournaments", async () => {
     const app = setup();
-    const yugi = { id: "user-1", username: "Yugi" };
-    const kaiba = { id: "user-2", username: "Kaiba" };
+    const yugi = { id: "900000000000000112", username: "Yugi" };
+    const kaiba = { id: "900000000000000113", username: "Kaiba" };
 
     await handleCommand(
       fakeInteraction({ commandName: "duel", user: yugi, users: { player: kaiba }, strings: { result: "win" } })
@@ -860,8 +861,8 @@ describe("command handlers", () => {
 
   it("/stats without a tournament asks for scope when the player has multiple active tournaments", async () => {
     const app = setup();
-    const yugi = { id: "user-1", username: "Yugi" };
-    const kaiba = { id: "user-2", username: "Kaiba" };
+    const yugi = { id: "900000000000000112", username: "Yugi" };
+    const kaiba = { id: "900000000000000113", username: "Kaiba" };
 
     for (const name of ["locals", "regionals"]) {
       await handleCommand(
@@ -889,7 +890,7 @@ describe("command handlers", () => {
 
   it("/stats with an unknown tournament rejects the name", async () => {
     const app = setup();
-    const yugi = { id: "user-1", username: "Yugi" };
+    const yugi = { id: "900000000000000112", username: "Yugi" };
 
     await expect(
       handleCommand(
@@ -901,8 +902,8 @@ describe("command handlers", () => {
 
   it("/event list shows active tournaments before pending tournaments", async () => {
     const app = setup();
-    const yugi = { id: "user-1", username: "Yugi" };
-    const kaiba = { id: "user-2", username: "Kaiba" };
+    const yugi = { id: "900000000000000112", username: "Yugi" };
+    const kaiba = { id: "900000000000000113", username: "Kaiba" };
 
     await handleCommand(
       fakeInteraction({
@@ -951,8 +952,8 @@ describe("command handlers", () => {
 
   it("/event list limits active and pending sections with summary counts", async () => {
     const app = setup();
-    const yugi = { id: "user-1", username: "Yugi" };
-    const kaiba = { id: "user-2", username: "Kaiba" };
+    const yugi = { id: "900000000000000112", username: "Yugi" };
+    const kaiba = { id: "900000000000000113", username: "Kaiba" };
 
     for (let index = 1; index <= 11; index += 1) {
       await handleCommand(
@@ -1001,8 +1002,8 @@ describe("command handlers", () => {
 
   it("/event list stays below Discord's reply limit with max-length tournament names", async () => {
     const app = setup();
-    const yugi = { id: "user-1", username: "Yugi" };
-    const kaiba = { id: "user-2", username: "Kaiba" };
+    const yugi = { id: "900000000000000112", username: "Yugi" };
+    const kaiba = { id: "900000000000000113", username: "Kaiba" };
 
     for (let index = 1; index <= 6; index += 1) {
       const activeName = `active-${String(index).padStart(2, "0")}-${"a".repeat(90)}`;
@@ -1052,9 +1053,9 @@ describe("command handlers", () => {
 
   it("/event participants lists tournament participants with count and numbered names", async () => {
     const app = setup();
-    const yugi = { id: "user-1", username: "Yugi" };
-    const kaiba = { id: "user-2", username: "Kaiba" };
-    const joey = { id: "user-3", username: "Joey" };
+    const yugi = { id: "900000000000000112", username: "Yugi" };
+    const kaiba = { id: "900000000000000113", username: "Kaiba" };
+    const joey = { id: "900000000000000114", username: "Joey" };
 
     await handleCommand(
       fakeInteraction({
@@ -1081,7 +1082,7 @@ describe("command handlers", () => {
 
   it("/event participants says when the tournament has no participants", async () => {
     const app = setup();
-    const yugi = { id: "user-1", username: "Yugi" };
+    const yugi = { id: "900000000000000112", username: "Yugi" };
 
     await handleCommand(
       fakeInteraction({
@@ -1107,14 +1108,14 @@ describe("command handlers", () => {
 
   it("/event participants caps long lists and summarizes hidden participants", async () => {
     const app = setup();
-    const yugi = { id: "user-1", username: "Yugi" };
+    const yugi = { id: "900000000000000112", username: "Yugi" };
     const users = Object.fromEntries(
       Array.from({ length: 30 }, (_, index) => {
         const playerNumber = index + 1;
 
         return [
           `player${playerNumber}`,
-          { id: `user-${playerNumber}`, username: `Player ${playerNumber}` },
+          { id: `900000000000002${playerNumber}`, username: `Player ${playerNumber}` },
         ];
       }),
     );
@@ -1154,8 +1155,8 @@ describe("command handlers", () => {
 
   it("/event signup requires the creator and posts a join button", async () => {
     const app = setup();
-    const yugi = { id: "user-1", username: "Yugi" };
-    const kaiba = { id: "user-2", username: "Kaiba" };
+    const yugi = { id: "900000000000000112", username: "Yugi" };
+    const kaiba = { id: "900000000000000113", username: "Kaiba" };
     const role = { id: "role-1", name: "Duelists" };
 
     await handleCommand(
@@ -1198,8 +1199,8 @@ describe("command handlers", () => {
 
   it("/event signup only works for pending tournaments", async () => {
     const app = setup();
-    const yugi = { id: "user-1", username: "Yugi" };
-    const kaiba = { id: "user-2", username: "Kaiba" };
+    const yugi = { id: "900000000000000112", username: "Yugi" };
+    const kaiba = { id: "900000000000000113", username: "Kaiba" };
 
     await handleCommand(
       fakeInteraction({
@@ -1228,8 +1229,8 @@ describe("command handlers", () => {
 
   it("handles event create, join, start, report, and cancel", async () => {
     const app = setup();
-    const yugi = { id: "user-1", username: "Yugi" };
-    const kaiba = { id: "user-2", username: "Kaiba" };
+    const yugi = { id: "900000000000000112", username: "Yugi" };
+    const kaiba = { id: "900000000000000113", username: "Kaiba" };
 
     await handleCommand(
       fakeInteraction({
@@ -1283,8 +1284,8 @@ describe("command handlers", () => {
 
   it("/event report is refused while an online duel series is open", async () => {
     const app = setup();
-    const yugi = { id: "user-1", username: "Yugi" };
-    const kaiba = { id: "user-2", username: "Kaiba" };
+    const yugi = { id: "900000000000000112", username: "Yugi" };
+    const kaiba = { id: "900000000000000113", username: "Kaiba" };
     for (const [subcommand, user] of [["create", yugi], ["join", yugi], ["join", kaiba], ["start", yugi]] as const) {
       await handleCommand(
         fakeInteraction({
@@ -1322,7 +1323,7 @@ describe("command handlers", () => {
 
   it("/event create posts a public join button", async () => {
     const app = setup();
-    const yugi = { id: "user-1", username: "Yugi" };
+    const yugi = { id: "900000000000000112", username: "Yugi" };
     const { interaction, replies } = fakeInteraction({
       commandName: "event",
       subcommand: "create",
@@ -1344,7 +1345,7 @@ describe("command handlers", () => {
 
   it("passes confirm_hours and deadline_days through /event create", async () => {
     const app = setup();
-    const yugi = { id: "user-1", username: "Yugi" };
+    const yugi = { id: "900000000000000112", username: "Yugi" };
     const { interaction } = fakeInteraction({
       commandName: "event",
       subcommand: "create",
@@ -1366,13 +1367,13 @@ describe("command handlers", () => {
 
   it("/event join replies clearly for duplicate joins", async () => {
     const app = setup();
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", "user-1");
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
     app.tournaments.join(tournament.id, yugi.id);
     const { interaction, replies } = fakeInteraction({
       commandName: "event",
       subcommand: "join",
-      user: { id: "user-1", username: "Yugi" },
+      user: { id: "900000000000000112", username: "Yugi" },
       strings: { name: "locals" },
     });
 
@@ -1383,9 +1384,9 @@ describe("command handlers", () => {
 
   it("/event create seeds unique provided players", async () => {
     const app = setup();
-    const yugi = { id: "user-1", username: "Yugi" };
-    const kaiba = { id: "user-2", username: "Kaiba" };
-    const joey = { id: "user-3", username: "Joey" };
+    const yugi = { id: "900000000000000112", username: "Yugi" };
+    const kaiba = { id: "900000000000000113", username: "Kaiba" };
+    const joey = { id: "900000000000000114", username: "Joey" };
     const { interaction, replies } = fakeInteraction({
       commandName: "event",
       subcommand: "create",
@@ -1407,7 +1408,7 @@ describe("command handlers", () => {
 
   it("/event create without seeded players still works", async () => {
     const app = setup();
-    const yugi = { id: "user-1", username: "Yugi" };
+    const yugi = { id: "900000000000000112", username: "Yugi" };
     const { interaction, replies } = fakeInteraction({
       commandName: "event",
       subcommand: "create",
@@ -1419,6 +1420,10 @@ describe("command handlers", () => {
 
     const tournament = app.tournaments.findByName("guild-1", "locals")!;
     expect(app.tournaments.participants(tournament.id)).toHaveLength(0);
+    const owner = createUserService(app.db).findByDiscordId(yugi.id)!;
+    expect(tournament.createdByUserId).toBe(owner.id);
+    expect(owner.discordUserId).toBe(yugi.id);
+    expect(app.db.prepare("select count(*) as count from players").get()).toEqual({ count: 0 });
     expect(replies[0]).toMatchObject({
       content: expect.stringContaining("Signups are open for locals (round_robin). Click Join Tournament to enter."),
     });
@@ -1426,7 +1431,7 @@ describe("command handlers", () => {
 
   it("/event cancel notifies each duel game closed with the event", async () => {
     const app = setup();
-    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", "user-1");
+    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
     const real = app.tournaments.cancelWithChanges;
     vi.spyOn(app.tournaments, "cancelWithChanges").mockImplementation((id) => ({
       ...real(id),
@@ -1438,7 +1443,7 @@ describe("command handlers", () => {
       fakeInteraction({
         commandName: "event",
         subcommand: "cancel",
-        user: { id: "user-1", username: "Yugi" },
+        user: { id: "900000000000000112", username: "Yugi" },
         strings: { name: "locals" },
       }).interaction,
       { ...app, notifyDuelChange },
@@ -1450,8 +1455,8 @@ describe("command handlers", () => {
 
   it("prevents non-creators from starting or cancelling events", async () => {
     const app = setup();
-    const yugi = { id: "user-1", username: "Yugi" };
-    const kaiba = { id: "user-2", username: "Kaiba" };
+    const yugi = { id: "900000000000000112", username: "Yugi" };
+    const kaiba = { id: "900000000000000113", username: "Kaiba" };
 
     await handleCommand(
       fakeInteraction({
@@ -1482,10 +1487,10 @@ describe("command handlers", () => {
 
   it("/draft template save over an existing cube replaces the draft config but keeps what the cube is for", async () => {
     const app = setup();
-    const yugi = { id: "user-7", username: "Yugi" };
+    const yugi = { id: "900000000000000116", username: "Yugi" };
     const player = app.players.upsert("guild-1", yugi.id, "Yugi");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", { packSize: 12, setNames: ["Metal Raiders"] }, yugi.id, player.id);
-    const cube = app.templates.save("guild-1", "Weekend", { packSize: 9, customCardIds: [1, 2] }, yugi.id);
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", { packSize: 12, setNames: ["Metal Raiders"] }, createUserService(app.db).ensureDiscord({ discordUserId: yugi.id, displayName: "Host" }).id, player.id);
+    const cube = app.templates.save("guild-1", "Weekend", { packSize: 9, customCardIds: [1, 2] }, createUserService(app.db).ensureDiscord({ discordUserId: yugi.id, displayName: "Host" }).id);
     app.db
       .prepare("update cubes set config_json = ? where id = ?")
       .run(JSON.stringify({ packSize: 9, customCardIds: [1, 2], draftType: "booster" }), cube.id);

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
 import { createPlayerService } from "@yugidraft/shared/services";
 import { broadcaster } from "@/lib/notify";
 import { backfillDraftDecks, linkDraftDeck } from "@/lib/draft-decks";
@@ -13,10 +13,8 @@ export async function POST(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const actor = await requireWebAccess();
+    if (!actor.ok) return actor.response;
 
     const { slug } = await params;
     const db = getDb();
@@ -37,7 +35,7 @@ export async function POST(
     const guildId = tournament.guild_id;
 
     const players = createPlayerService(db);
-    const player = players.findOrCreate(guildId, session.user.id, session.user.name ?? "Unknown");
+    const player = players.findOrCreate(guildId, actor.userId, actor.userName);
 
     const existing = db
       .prepare("select 1 from tournament_participants where tournament_id = ? and player_id = ?")
@@ -52,7 +50,7 @@ export async function POST(
     ).run(tournamentId, player.id);
 
     // A draft tournament entry takes the player's drafted deck at once (a no-op for any other tournament).
-    backfillDraftDecks(guildId, session.user.id, db);
+    backfillDraftDecks(guildId, actor.userId, db);
     linkDraftDeck(tournamentId, player.id, db);
 
     void broadcaster.tournament(

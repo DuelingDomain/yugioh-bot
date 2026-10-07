@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { fixtureUserId } from "../fixtures/identity";
 import React from "react";
 import { beforeEach, describe, expect, it, vi, afterEach } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -18,7 +19,7 @@ const baseDraft = {
   id: 1,
   name: "Legendary Draft",
   status: "pending",
-  createdByUserId: "creator-1",
+  createdByUserId: fixtureUserId("creator-1"),
   createdAt: "2026-05-06T12:00:00.000Z",
   config: {
     packSize: 5,
@@ -204,7 +205,7 @@ describe("DraftManageView — header, players, start", () => {
     await userEvent.click(screen.getByRole("button", { name: /copy link/i }));
     expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/draft/goat-night`);
     expect(await screen.findByRole("button", { name: /copied/i })).toBeInTheDocument();
-    expect(screen.getByText("/draft join")).toBeInTheDocument();
+    expect(screen.queryByText(/draft join/)).toBeNull();
   });
 
   it("shows a guest the Join card instead of the invite panel, and joins", async () => {
@@ -617,3 +618,5 @@ describe("DraftManageView — editing the setup", () => {
     expect(screen.queryByRole("region", { name: "Pool status" })).toBeNull();
   });
 });
+
+const FIXTURE_KEYS = ["creator-1"] as const;

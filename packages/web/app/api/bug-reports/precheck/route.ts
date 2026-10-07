@@ -41,16 +41,16 @@ export async function POST(request: Request) {
 
   const db = getDb();
   // A read only look-up: a player with no row has no reports, and a check must not create the row. -1 matches no player.
-  const playerId = (db.prepare("select id from players where guild_id = ? and discord_user_id = ?").get(guildId, actor.userId) as { id: number } | undefined)?.id ?? -1;
+  const playerId = (db.prepare("select id from players where guild_id = ? and user_id = ?").get(guildId, actor.userId) as { id: number } | undefined)?.id ?? -1;
   const reports = createBugReportService(db);
   const sameDuelRows: BugReport[] = report.duelSlug
     ? reports.listWithIssueInDuel(guildId, report.duelSlug, playerId).filter((row) => isSameDuelMoment(row, { turn: report.context.turn }))
     : [];
   const sameDuelNumbers = new Set(sameDuelRows.map((row) => row.githubIssueNumber!));
 
-  const owner = db.prepare("select discord_user_id, display_name from players where id = ?");
+  const owner = db.prepare("select u.discord_user_id, p.display_name from players p join users u on u.id = p.user_id where p.id = ?");
   const redactFor = (row: BugReport) => {
-    const who = owner.get(row.playerId) as { discord_user_id?: string; display_name?: string } | undefined;
+    const who = owner.get(row.playerId) as { discord_user_id?: string | null; display_name?: string } | undefined;
     return [who?.discord_user_id ?? "", who?.display_name ?? "", guildId];
   };
   const fromRow = (row: BugReport, sameDuel: boolean): DuplicateCandidate => ({

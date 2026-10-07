@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { createHash, createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -38,9 +39,7 @@ afterEach(() => vi.unstubAllEnvs());
 function hostTable(count: number) {
   const db = new Database(":memory:");
   migrate(db);
-  const players = Array.from({ length: count }, (_, seat) => Number(db.prepare(
-    "insert into players (guild_id, discord_user_id, display_name) values (?, ?, ?)",
-  ).run("g", `u${seat}`, `P${seat}`).lastInsertRowid));
+  const players = Array.from({ length: count }, (_, seat) => seedIdentity(db, { guildId: "g", name: `P${seat}`, userId: seedUser(db, `u${seat}`).userId, discordUserId: seedUser(db, `u${seat}`).discordUserId ?? `u${seat}` }).playerId);
   const service = createDuelService(db);
   const workers: GameWorker[] = [];
   const host = createDuelHost({ db, dataDirectory: DATA, secret: SECRET, searchCards: () => [], pollIntervalMs: 60_000,

@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "./helpers/identity.js";
 /**
  * Regression guard for the concurrent auto-pick race in expireCurrentPickStep.
  *
@@ -29,17 +30,10 @@ import { migrate } from "../src/db/index.js";
 import { createDraftService } from "../src/services/drafts.js";
 
 function insertPlayer(db: Database.Database, guildId: string, discordUserId: string, displayName: string) {
-  const result = db
-    .prepare(
-      `
-        insert into players (guild_id, discord_user_id, display_name)
-        values (?, ?, ?)
-      `,
-    )
-    .run(guildId, discordUserId, displayName);
+  const result = seedIdentity(db, { guildId: guildId, name: displayName, userId: seedUser(db, discordUserId).userId, discordUserId: seedUser(db, discordUserId).discordUserId ?? discordUserId });
 
   return {
-    id: Number(result.lastInsertRowid),
+    id: Number(result.playerId),
     guildId,
     discordUserId,
     displayName,
@@ -90,7 +84,7 @@ it.each(["start", "pick", "manual", "expiry"])("starts %s with an immediate writ
   const a = insertPlayer(db, "g", "a", "A");
   const b = insertPlayer(db, "g", "b", "B");
   seedCatalogCards(db, 8);
-  const draft = drafts.create("g", "c", "Immediate", { packSize: 2, packsPerPlayer: 2, cardsPerPlayer: 4 }, "a", a.id);
+  const draft = drafts.create("g", "c", "Immediate", { packSize: 2, packsPerPlayer: 2, cardsPerPlayer: 4 }, seedUser(db, "a").userId, a.id);
   drafts.join(draft.id, b.id);
   let cardId = 0;
   if (operation !== "start") {
@@ -118,7 +112,7 @@ describe("draft pick concurrency", () => {
       "channel-1",
       "concurrency test",
       { packSize: 8, packsPerPlayer: 2, cardsPerPlayer: 16 },
-      "user-1",
+      seedUser(app.db, "user-1").userId,
       yugi.id,
     );
 
@@ -179,7 +173,7 @@ describe("draft pick concurrency", () => {
       "channel-1",
       "no-op test",
       { packSize: 8, packsPerPlayer: 2, cardsPerPlayer: 16 },
-      "user-1",
+      seedUser(app.db, "user-1").userId,
       yugi.id,
     );
 

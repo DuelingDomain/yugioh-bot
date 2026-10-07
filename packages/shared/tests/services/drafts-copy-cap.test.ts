@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "../helpers/identity.js";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import { migrate } from "../../src/db/index.js";
@@ -15,10 +16,8 @@ import type { DraftConfig } from "../../src/types/index.js";
 // MAX_COPIES_PER_PLAYER in a deck. Fully capped booster packs swap or permit a forced pick.
 
 function insertPlayer(db: Database.Database, name: string): number {
-  const result = db
-    .prepare("insert into players (guild_id, discord_user_id, display_name) values ('g', ?, ?)")
-    .run(`u-${name}`, name);
-  return Number(result.lastInsertRowid);
+  const result = seedIdentity(db, { guildId: "g", name: name, userId: seedUser(db, `u-${name}`).userId, discordUserId: seedUser(db, `u-${name}`).discordUserId ?? `u-${name}` });
+  return Number(result.playerId);
 }
 
 function seedCards(db: Database.Database, count: number) {
@@ -73,7 +72,7 @@ function boosterDraft(config: Partial<DraftConfig>, cubeCardIds: number[], cardC
   const a = insertPlayer(db, "A");
   const b = insertPlayer(db, "B");
   seedCards(db, cardCount);
-  const draft = drafts.create("g", "c", "cap night", { cubeCardIds, ...config }, "host", a);
+  const draft = drafts.create("g", "c", "cap night", { cubeCardIds, ...config }, seedUser(db, "host").userId, a);
   drafts.join(draft.id, b);
   drafts.start(draft.id);
   return { db, drafts, draftId: draft.id, a, b };
@@ -98,14 +97,14 @@ describe("per-player copy cap in booster drafts", () => {
         expect(drafts.picks(draftId).filter((pick) => pick.playerId === player && pick.forced)
           .every((pick) => pick.pickMethod === "auto")).toBe(true);
         const owner = player === a ? "u-A" : "u-B";
-        const deck = createSavedDeckService(db).findByDraft("g", owner, draftId)!.deck;
+        const deck = createSavedDeckService(db).findByDraft("g", seedUser(db, owner).userId, draftId)!.deck;
         expect(deck.main).toHaveLength(10);
         expect(createDraftDeckService(db).mainPoolCount(draftId, player)).toBe(10);
         expect(drafts.exportYdk(draftId, player).split("\n").filter((line) => /^\d+$/.test(line)))
           .toHaveLength(10);
       }
       const { tournamentId } = createDraftTournamentService(db).createTournamentFromDraft({
-        draftId, format: "round_robin", createdByUserId: "host",
+        draftId, format: "round_robin", createdByUserId: seedUser(db, "host").userId,
       });
       for (const player of [a, b]) {
         expect(createTournamentDuelService(db).registration(tournamentId, player)?.deck.main).toHaveLength(10);
@@ -184,7 +183,7 @@ describe("per-player copy cap in booster drafts", () => {
       const decks = createDraftDeckService(db);
       expect(decks.mainPoolCount(draftId, a)).toBe(3);
       decks.saveForDraft(draftId);
-      const saved = db.prepare("select deck_json from saved_decks where draft_id = ? and owner_user_id = 'u-A'").get(draftId) as { deck_json: string };
+      const saved = db.prepare("select deck_json from saved_decks where draft_id = ? and owner_user_id = ?").get(draftId, seedUser(db, "u-A").userId) as { deck_json: string };
       expect(JSON.parse(saved.deck_json)).toEqual({ main: [1, 1, 2], extra: [], side: [] });
       expect(drafts.exportYdk(draftId, a)).toBe("#main\n1\n1\n2\n#extra\n\n!side\n");
     } finally { db.close(); }
@@ -214,7 +213,7 @@ describe("per-player copy cap in booster drafts", () => {
     const draft = drafts.create("g", "c", "last card", {
       cubeCardIds: distinctCube(12).flatMap((id) => Array(10).fill(id)),
       packSize: 6, packsPerPlayer: 6, cardsPerPlayer: 36,
-    }, "host", players[0]);
+    }, seedUser(db, "host").userId, players[0]);
     drafts.join(draft.id, players[1]);
     drafts.start(draft.id);
 
@@ -464,7 +463,7 @@ describe("per-player copy cap in booster drafts", () => {
     const draft = drafts.create("g", "c", "seeded cap property", {
       cubeCardIds: distinctCube(distinct).flatMap((id) => Array(10).fill(id)),
       packSize, packsPerPlayer: waves, cardsPerPlayer,
-    }, "host", players[0]);
+    }, seedUser(db, "host").userId, players[0]);
     for (const id of players.slice(1)) drafts.join(draft.id, id);
     drafts.start(draft.id);
     const collisions = db.prepare(
@@ -526,7 +525,7 @@ describe("per-player copy cap in theme drafts", () => {
     const cubesService = createCubeService(db, catalog);
     const drafts = createDraftService(db, { seedSource: () => 3 });
     const cubeIds = cubes.map((cards, index) => {
-      const cube = cubesService.createBlank("g", `Cube ${index}`, "host");
+      const cube = cubesService.createBlank("g", `Cube ${index}`, seedUser(db, "host").userId);
       for (const [cardId, copies] of cards) cubesService.addCard(cube.id, cardId, "main", copies);
       return cube.id;
     });
@@ -541,7 +540,7 @@ describe("per-player copy cap in theme drafts", () => {
         extraDeckEnabled: false,
         ...config,
       },
-      "host",
+      seedUser(db, "host").userId,
       players[0],
     );
     for (const playerId of players.slice(1)) drafts.join(draft.id, playerId);
@@ -678,7 +677,7 @@ describe("cube copies above the per-player cap", () => {
       fetch: async () => ({ ok: true, async json() { return { data: [] }; } }) as Response,
     });
     const cubes = createCubeService(db, catalog);
-    const cube = cubes.createBlank("g", "Heavy", "host");
+    const cube = cubes.createBlank("g", "Heavy", seedUser(db, "host").userId);
     cubes.addCard(cube.id, 1, "main", 99);
     expect(cubes.getCubePools(cube.id).main[0].maxCopies).toBe(99);
     expect(() => cubes.addCard(cube.id, 2, "main", 100)).toThrow(/1 to 99/);
@@ -687,7 +686,7 @@ describe("cube copies above the per-player cap", () => {
     const a = insertPlayer(db, "A");
     const b = insertPlayer(db, "B");
     const ids = [...Array(8).fill(1), ...distinctCube(20).slice(1, 20)];
-    const draft = drafts.create("g", "c", "heavy", { cubeCardIds: ids, packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8 }, "host", a);
+    const draft = drafts.create("g", "c", "heavy", { cubeCardIds: ids, packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8 }, seedUser(db, "host").userId, a);
     drafts.join(draft.id, b);
     expect(drafts.start(draft.id).status).toBe("active");
   });

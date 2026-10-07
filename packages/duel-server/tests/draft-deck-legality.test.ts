@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { createHmac } from "node:crypto";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -39,15 +40,16 @@ function fixture(forced = 1, copyLimit = true) {
   writeFileSync(join(dir, "strings.conf"), "");
   const db = new Database(":memory:");
   migrate(db);
+  seedIdentity(db, { guildId: "g", playerId: 1, userId: seedUser(db, "a").userId, discordUserId: seedUser(db, "a").discordUserId, name: "A" });
+  seedIdentity(db, { guildId: "g", playerId: 2, userId: seedUser(db, "b").userId, discordUserId: seedUser(db, "b").discordUserId, name: "B" });
   db.exec(`
-    insert into players (id, guild_id, discord_user_id, display_name) values (1, 'g', 'a', 'A'), (2, 'g', 'b', 'B');
     insert into card_catalog (ygoprodeck_id, name, type, frame_type, image_url, image_url_small, card_sets_json, cached_at)
       values (1, 'Card', 'Normal Monster', 'normal', '', '', '[]', 't'),
       (2, 'Card', 'Normal Monster', 'normal', '', '', '[]', 't'),
       (3, 'Another card', 'Normal Monster', 'normal', '', '', '[]', 't'),
       (4, 'Filler', 'Normal Monster', 'normal', '', '', '[]', 't');
     insert into drafts (id, guild_id, channel_id, name, status, created_by_user_id, config_json)
-      values (1, 'g', 'c', 'Draft', 'completed', 'a', '{}');
+      values (1, 'g', 'c', 'Draft', 'completed', ${seedUser(db, 'a').userId}, '{}');
     insert into draft_players (draft_id, player_id) values (1, 1);
   `);
   db.prepare("update drafts set config_json = ?").run(JSON.stringify({ copyLimit }));
@@ -86,7 +88,7 @@ describe("draft deck host validation", () => {
       }
     }
     const { tournamentId } = createDraftTournamentService(app.db).createTournamentFromDraft({
-      draftId: 1, format: "round_robin", createdByUserId: "a",
+      draftId: 1, format: "round_robin", createdByUserId: seedUser(app.db, "a").userId,
     });
     createTournamentService(app.db).start(tournamentId);
     const slot = app.db.prepare("select id from tournament_matches where tournament_id = ? and player_two_id is not null").get(tournamentId) as { id: number };

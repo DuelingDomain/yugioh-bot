@@ -1,5 +1,7 @@
 "use client";
 
+import { parseUserId } from "@/lib/user-id";
+
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { useTournamentWebsocket } from "@/lib/hooks/use-tournament-websocket";
@@ -16,7 +18,7 @@ export default function TournamentDetailPage() {
   const [loaded, setLoaded] = useState<{ slug: string; tournament: TournamentDetail } | null>(null);
   const [error, setError] = useState<{ slug: string; status: number | null } | null>(null);
   const [loadingSlug, setLoadingSlug] = useState<string | null>(null);
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
   const [ratings, setRatings] = useState<PlayerRatings>(() => new Map());
   const tournamentRequest = useRef(0);
   const tournamentInFlight = useRef(false);
@@ -27,7 +29,7 @@ export default function TournamentDetailPage() {
   useEffect(() => {
     let active = true;
     fetch("/api/auth/session").then((response) => response.json()).then((session) => {
-      if (active && session?.user?.id) setCurrentUserId(session.user.id);
+      if (active) setCurrentUserId(parseUserId(session?.user?.id));
     }).catch(() => {});
     return () => { active = false; };
   }, []);

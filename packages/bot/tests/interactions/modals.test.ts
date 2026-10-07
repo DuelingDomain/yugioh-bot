@@ -1,3 +1,4 @@
+import { createUserService } from "@yugidraft/shared/services";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import type { CommandReplyLike } from "../../src/commands/handlers.js";
@@ -22,6 +23,7 @@ function setup() {
   migrate(db);
 
   return {
+    db,
     tournaments: createTournamentService(db),
     drafts: createDraftService(db),
     cards: createCardCatalogService(db),
@@ -43,7 +45,7 @@ function fakeModal(input: {
     customId: input.customId ?? "dashboard_create_event",
     channelId: "channel-1",
     guildId: input.guildId === undefined ? "guild-1" : input.guildId,
-    user: input.user ?? { id: "user-1", username: "Yugi" },
+    user: input.user ?? { id: "900000000000000112", username: "Yugi" },
     fields: {
       getTextInputValue: (name) => fields[name] ?? "",
     },
@@ -65,7 +67,9 @@ describe("modal interactions", () => {
 
     await handleModal(interaction, app);
 
-    expect(app.tournaments.findByName("guild-1", "locals")?.createdByUserId).toBe("user-1");
+    expect(app.tournaments.findByName("guild-1", "locals")?.createdByUserId).toBe(createUserService(app.db).findByDiscordId("900000000000000112")!.id);
+    expect(app.db.prepare("select count(*) as count from players").get()).toEqual({ count: 0 });
+    expect(app.db.prepare("select count(*) as count from users").get()).toEqual({ count: 1 });
     expect(replies[0]).toMatchObject({
       content: expect.stringContaining(
         "Signups are open for locals (round_robin). Click Join Tournament to enter."
@@ -93,7 +97,7 @@ describe("modal interactions", () => {
 
   it("rejects duplicate pending dashboard modal event names", async () => {
     const app = setup();
-    app.tournaments.create("guild-1", "locals", "round_robin", "user-1");
+    app.tournaments.create("guild-1", "locals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
     const { interaction } = fakeModal({
       customId: "dashboard_create_event:single_elim",
       fields: { name: "locals" },
@@ -106,7 +110,7 @@ describe("modal interactions", () => {
 
   it("creates a draft from the dashboard modal, auto-joins the creator, and replies with a join button", async () => {
     const app = setup();
-    const creator = app.players.upsert("guild-1", "user-1", "Yugi");
+    const creator = app.players.upsert("guild-1", "900000000000000112", "Yugi");
     const { interaction, replies } = fakeModal({
       customId: "draft_create_modal",
       fields: {
@@ -125,7 +129,7 @@ describe("modal interactions", () => {
       channelId: "channel-1",
       name: "cube night",
       status: "pending",
-      createdByUserId: "user-1",
+      createdByUserId: createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id,
       config: {
         setNames: ["Metal Raiders", "Pharaoh's Servant"],
         includeNames: ["Dark Magician", "Blue-Eyes White Dragon"],
@@ -142,8 +146,8 @@ describe("modal interactions", () => {
 
   it("creates a draft from a template when template field is provided", async () => {
     const app = setup();
-    const creator = app.players.upsert("guild-1", "user-1", "Yugi");
-    app.templates.save("guild-1", "Classic", { setNames: ["Metal Raiders"], includeNames: ["Dark Magician"], excludeNames: ["Pot of Greed"] }, "user-1");
+    const creator = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    app.templates.save("guild-1", "Classic", { setNames: ["Metal Raiders"], includeNames: ["Dark Magician"], excludeNames: ["Pot of Greed"] }, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
 
     const { interaction, replies } = fakeModal({
       customId: "draft_create_modal",
@@ -175,7 +179,7 @@ describe("modal interactions", () => {
 
   it("rejects draft creation when template is not found", async () => {
     const app = setup();
-    app.players.upsert("guild-1", "user-1", "Yugi");
+    app.players.upsert("guild-1", "900000000000000112", "Yugi");
 
     const { interaction, replies } = fakeModal({
       customId: "draft_create_modal",

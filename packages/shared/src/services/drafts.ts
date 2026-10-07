@@ -231,10 +231,10 @@ export function createDraftService(
   const createDraft = db.transaction(
     (
       guildId: string,
-      channelId: string,
+      channelId: string | null,
       name: string,
       config: DraftConfig,
-      createdByUserId: string,
+      createdByUserId: number,
       creatorPlayerId: number,
     ) => {
       const result = db
@@ -1433,10 +1433,10 @@ export function createDraftService(
   return {
     create(
       guildId: string,
-      channelId: string,
+      channelId: string | null,
       name: string,
       config: DraftConfig,
-      createdByUserId: string,
+      createdByUserId: number,
       creatorPlayerId: number,
     ): Draft {
       const existingCurrent = db
@@ -1671,7 +1671,7 @@ export function createDraftService(
       guildId: string;
       query: string;
       statuses?: DraftStatus[];
-      createdByUserId?: string;
+      createdByUserId?: number;
     }): Draft[] {
       const conditions = ["guild_id = ?", "lower(name) like lower(?)"];
       const params: Array<string | number> = [input.guildId, `%${input.query}%`];

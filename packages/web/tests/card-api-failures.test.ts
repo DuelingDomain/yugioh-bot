@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
@@ -5,11 +6,15 @@ import { NextRequest } from "next/server";
 
 const getDb = vi.fn();
 vi.mock("@/lib/db", () => ({ getDb }));
-vi.mock("@/lib/auth", () => ({ auth: async () => ({ user: { id: "user", name: "Test" } }) }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture((() => ({ auth: async () => ({ user: { id: String(fixtureUserId("user")), discordUserId: fixtureDiscordId("user"), name: "Test" } }) }))().auth);
+});
 vi.mock("@/lib/notify", () => ({ announcer: { announce: async () => {} }, broadcaster: { draft: async () => {} } }));
 let db: Database.Database;
 beforeEach(() => {
-  vi.resetModules(); db = new Database(":memory:"); migrate(db); getDb.mockReturnValue(db);
+  vi.resetModules(); db = new Database(":memory:"); migrate(db);
+  seedFixtureUsers(db, FIXTURE_KEYS); getDb.mockReturnValue(db);
   vi.stubEnv("DISCORD_GUILD_ID", "guild"); vi.stubEnv("DISCORD_DEFAULT_CHANNEL_ID", "channel");
 });
 afterEach(() => { db.close(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
@@ -68,7 +73,7 @@ describe.each(["network", "timeout", "429", "503", "json"])("card API %s failure
     expect(cached.status).toBe(201);
     const draft = await cached.json();
     const { createDraftService, createPlayerService } = await import("@yugidraft/shared/services");
-    const opponent = createPlayerService(db).findOrCreate("guild", "opponent", "Opponent");
+    const opponent = createPlayerService(db).findOrCreate("guild", fixtureUserId("opponent"), "Opponent");
     createDraftService(db).join(draft.id, opponent.id);
     const started = await (await import("../app/api/drafts/[slug]/route")).POST(new Request("http://localhost/start", { method: "POST" }), { params: Promise.resolve({ slug: draft.webSlug }) });
     expect(started.status).toBe(200);
@@ -107,3 +112,7 @@ describe.each([400, 401, 403, 404, 422])("permanent card API HTTP %s failures", 
     expect(response.headers.get("Retry-After")).toBeNull();
   });
 });
+
+const FIXTURE_KEYS = ["user", "opponent"] as const;
+
+// Session resolution is mocked; authorization still runs through the real web boundary.

@@ -5,7 +5,10 @@ const callDuelHost = vi.fn();
 
 vi.mock("../app/(app)/duels/dev-presets/dev-presets", () => ({ DevPresets: () => null }));
 
-vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture((() => ({ auth: vi.fn() }))().auth);
+});
 
 vi.mock("@/lib/duel-host", async () => {
   const real = await vi.importActual<typeof import("@/lib/duel-host")>("@/lib/duel-host");

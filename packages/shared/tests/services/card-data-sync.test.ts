@@ -33,7 +33,8 @@ it("migrates existing set data idempotently and tracks catalog changes without u
   const before = revision();
   db.prepare("update card_sets set release_date = '2025-02-01'").run();
   expect(revision()).toBe(before + 1);
-  db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g','u','U')").run();
+  db.prepare("insert into users (id, username, display_name) values (1, 'u', 'U')").run();
+  db.prepare("insert into players (guild_id, user_id, discord_user_id, display_name) values ('g', 1, 'u', 'U')").run();
   expect(revision()).toBe(before + 1);
 });
 

@@ -6,6 +6,8 @@ export interface ShellAccount {
   /** loading until the session answers; error when it could not be read. */
   status: "loading" | "ready" | "error";
   name: string;
+  /** The email on the account, for the menu subtitle. null when the session has none. */
+  email: string | null;
   image: string | null;
   /** null until /api/player/me answers, or when this person has no profile. */
   playerId: number | null;
@@ -51,7 +53,7 @@ function clearAdminHint(): void {
   }
 }
 
-const INITIAL: ShellAccount = { status: "loading", name: "", image: null, playerId: null, profileSettled: false, tier: null, elo: null, isAdmin: false };
+const INITIAL: ShellAccount = { status: "loading", name: "", email: null, image: null, playerId: null, profileSettled: false, tier: null, elo: null, isAdmin: false };
 
 /** The two requests the old top bar made, plus the profile for the tier and Elo line, once for the whole shell. */
 export function useShellAccount(): ShellAccount {
@@ -61,9 +63,9 @@ export function useShellAccount(): ShellAccount {
     let live = true;
     fetch("/api/auth/session")
       .then((r) => r.json())
-      .then((s: { user?: { id?: string | null; name?: string | null; image?: string | null } } | null) => {
+      .then((s: { user?: { id?: string | null; name?: string | null; email?: string | null; image?: string | null } } | null) => {
         if (!live) return;
-        setAccount((a) => ({ ...a, status: "ready", name: s?.user?.name ?? "", image: s?.user?.image ?? null }));
+        setAccount((a) => ({ ...a, status: "ready", name: s?.user?.name ?? "", email: s?.user?.email ?? null, image: s?.user?.image ?? null }));
         // Only decides whether admin links show. Every admin route still checks access itself.
         const user = s?.user?.id || s?.user?.name || "";
         if (!user) {

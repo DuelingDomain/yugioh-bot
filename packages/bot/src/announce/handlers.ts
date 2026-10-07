@@ -19,6 +19,8 @@ export function createAnnounceHandlers({
   client,
   db,
   guildSettings,
+  drafts,
+  messenger,
 }: {
   client: Pick<Client, "channels" | "users">;
   db: Database.Database;
@@ -26,7 +28,14 @@ export function createAnnounceHandlers({
   messenger: DraftMessenger;
   guildSettings: GuildSettingsService;
 }): AnnounceHandlers {
+  async function onDraftStatus({ draftId }: { draftId: number }): Promise<void> {
+    if (!Number.isSafeInteger(draftId) || draftId <= 0) throw new Error("Invalid draft ID");
+    const draft = drafts.findById(draftId);
+    if (draft.channelId) await messenger.updateStatus(draft);
+  }
+
   return {
+    onDraftStatus,
     async onDraftCreated({ channelId, name, webSlug }) {
       const channel = await client.channels.fetch(channelId);
       if (channel?.type !== ChannelType.GuildText) return;
@@ -35,17 +44,36 @@ export function createAnnounceHandlers({
     async onDraftStarted() {
       return;
     },
-    async onDraftCompleted({ draftId, channelId, name, webSlug }) {
-      const existing = db
-        .prepare("select complete_message_id from drafts where id = ?")
-        .get(draftId) as { complete_message_id: string | null } | undefined;
-      if (existing?.complete_message_id) return; // already posted
-
-      const channel = await client.channels.fetch(channelId);
-      if (channel?.type !== ChannelType.GuildText) return;
-
-      const msg = await channel.send(draftCompletedAnnouncement({ name, webSlug }));
-      db.prepare("update drafts set complete_message_id = ? where id = ?").run(msg.id, draftId);
+    async onDraftCompleted({ draftId }) {
+      const draft = drafts.findById(draftId);
+      if (draft.status !== "completed" || !draft.channelId || !draft.webSlug) return;
+      // Delivery is at-most-once: claim before Discord I/O, and never retry a failed send.
+      const claimed = db.prepare(`update drafts set complete_message_id='worker-claimed'
+        where id=? and status='completed' and complete_message_id is null`).run(draftId).changes === 1;
+      if (!claimed) return;
+      const skip = (reason: string) => {
+        db.prepare("update drafts set complete_message_id='skipped' where id=? and complete_message_id='worker-claimed'")
+          .run(draftId);
+        console.error(`[announce] draft completion skipped for ${draftId}: ${reason}`);
+      };
+      let channel;
+      try {
+        channel = await client.channels.fetch(draft.channelId);
+      } catch (error) {
+        skip(`channel fetch failed (${String(error)})`);
+        return;
+      }
+      if (channel?.type !== ChannelType.GuildText) {
+        skip("channel is missing or is not a guild text channel");
+        return;
+      }
+      try {
+        const msg = await channel.send(draftCompletedAnnouncement({ name: draft.name, webSlug: draft.webSlug }));
+        db.prepare("update drafts set complete_message_id=? where id=? and complete_message_id='worker-claimed'")
+          .run(msg.id, draftId);
+      } catch (error) {
+        console.error(`[announce] draft completion delivery failed for ${draftId}:`, error);
+      }
     },
     async onTournamentCreated({ channelId, name, format, webSlug, organizerUserId, participantCount }) {
       const channel = await client.channels.fetch(channelId);

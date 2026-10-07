@@ -1,3 +1,4 @@
+import { seedFixtureUsers, fixtureUserId, fixtureDiscordId } from "./fixtures/identity";
 import type Database from "better-sqlite3";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -11,14 +12,17 @@ const broadcaster = { draft: vi.fn() };
 const tempDirs: string[] = [];
 const databases: Database.Database[] = [];
 
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/notify", () => ({ announcer, broadcaster }));
 
 describe("draft config privacy", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
-    auth.mockResolvedValue({ user: { id: "participant", name: "Kaiba" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("participant")), discordUserId: fixtureDiscordId("participant"), name: "Kaiba" } });
   });
 
   afterEach(() => {
@@ -35,16 +39,17 @@ describe("draft config privacy", () => {
 
     const { getDb } = await import("@/lib/db");
     const db = getDb();
+    seedFixtureUsers(db, FIXTURE_KEYS);
     databases.push(db);
     const { createCardCatalogService, createCubeService, createDraftService, createPlayerService } =
       await import("@yugidraft/shared/services");
     const players = createPlayerService(db);
-    const creator = players.findOrCreate("guild-1", "creator", "Yugi");
-    const participant = players.findOrCreate("guild-1", "participant", "Kaiba");
+    const creator = players.findOrCreate("guild-1", fixtureUserId("creator"), "Yugi");
+    const participant = players.findOrCreate("guild-1", fixtureUserId("participant"), "Kaiba");
     const cubes = createCubeService(db, createCardCatalogService(db));
     const cubeIds: number[] = [];
     for (let theme = 0; theme < 2; theme++) {
-      const cube = cubes.createBlank("guild-1", `Theme ${theme}`, "creator");
+      const cube = cubes.createBlank("guild-1", `Theme ${theme}`, fixtureUserId("creator"));
       for (let index = 1; index <= 8; index++) {
         const cardId = theme * 8 + index;
         db.prepare(
@@ -65,7 +70,7 @@ describe("draft config privacy", () => {
         mode: "theme", themeSelection: "host_assigned", allowedCubeIds: cubeIds,
         themeAssignments: assignments, cardsPerPlayer: 3, themePackSize: 3, extraDeckEnabled: false,
       },
-      "creator", creator.id,
+      fixtureUserId("creator"), creator.id,
     );
     drafts.join(draft.id, participant.id);
     return { db, drafts, draft, creator, participant, assignments, secretSeed };
@@ -84,7 +89,7 @@ describe("draft config privacy", () => {
     const { GET } = await import("../app/api/drafts/[slug]/route");
     const params = { params: Promise.resolve({ slug: draft.webSlug! }) };
     // A joined non-creator can read the draft without seeing the host's secrets.
-    auth.mockResolvedValue({ user: { id: "participant" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("participant")), discordUserId: fixtureDiscordId("participant") } });
     const response = await GET(new Request(`http://localhost/api/drafts/${draft.webSlug}`), params);
     expect(response.status).toBe(200);
     const body = await response.json();
@@ -95,12 +100,12 @@ describe("draft config privacy", () => {
     expect(JSON.stringify(body)).not.toContain(secretSeed);
 
     // Once the draft starts, someone who didn't join can't read it at all.
-    auth.mockResolvedValue({ user: { id: "observer" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("observer")), discordUserId: fixtureDiscordId("observer") } });
     const observerResponse = await GET(new Request(`http://localhost/api/drafts/${draft.webSlug}`), params);
     expect(observerResponse.status).toBe(status === "pending" ? 200 : 403);
 
     // The host's editor still gets the map, and filtering never alters stored config.
-    auth.mockResolvedValue({ user: { id: "creator" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("creator")), discordUserId: fixtureDiscordId("creator") } });
     const hostResponse = await GET(new Request(`http://localhost/api/drafts/${draft.webSlug}`), params);
     expect(hostResponse.status).toBe(200);
     const hostBody = await hostResponse.json();
@@ -114,7 +119,7 @@ describe("draft config privacy", () => {
 
   it("PUT preserves the creator's theme assignment edit flow without returning a seed", async () => {
     const { drafts, draft, assignments, creator, participant, secretSeed } = await setupDraft();
-    auth.mockResolvedValue({ user: { id: "creator" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("creator")), discordUserId: fixtureDiscordId("creator") } });
     const swapped = { [String(creator.id)]: assignments[String(participant.id)], [String(participant.id)]: assignments[String(creator.id)] };
     const { PUT } = await import("../app/api/drafts/[slug]/route");
     const response = await PUT(new Request(`http://localhost/api/drafts/${draft.webSlug}`, {
@@ -144,3 +149,7 @@ describe("draft config privacy", () => {
     expect(JSON.stringify(body)).not.toContain(secretSeed);
   });
 });
+
+const FIXTURE_KEYS = ["participant", "creator", "observer"] as const;
+
+// Session resolution is mocked; authorization still runs through the real web boundary.

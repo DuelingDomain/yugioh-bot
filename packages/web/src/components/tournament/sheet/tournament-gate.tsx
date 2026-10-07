@@ -44,7 +44,7 @@ export function TournamentGate({ kind, slug, busy = false, onRetry }: {
                 <p className={`${styles.code} ${styles.bad}`}>Error</p>
                 <h1 className={styles.title}>This tournament didn&apos;t load</h1>
                 <LightRule />
-                <p className={styles.text}>Nothing was changed. Try again, and if it keeps happening, tell whoever runs the bot.</p>
+                <p className={styles.text}>Nothing was changed. Try again, and if it keeps happening, email support@duelingdomain.com.</p>
                 <div className={styles.acts}>
                   <SvButton variant="primary" big disabled={busy} aria-busy={busy} onClick={onRetry}>Try again</SvButton>
                   <SvButton as="a" href="/dashboard" variant="quiet" big>Dashboard</SvButton>

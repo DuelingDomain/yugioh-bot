@@ -11,7 +11,7 @@ export const runtime = "nodejs";
 
 async function authCubeId(
   params: Promise<{ id: string }>,
-): Promise<{ cubeId: number; guildId: string; userId: string } | NextResponse> {
+): Promise<{ cubeId: number; guildId: string; userId: number; discordUserId: string | null } | NextResponse> {
   const actor = await requireWebAccess();
   if (!actor.ok) return actor.response;
   if (!env.discordGuildId) {
@@ -22,7 +22,7 @@ async function authCubeId(
   if (!Number.isInteger(cubeId)) {
     return NextResponse.json({ error: "Invalid cube id" }, { status: 400 });
   }
-  return { cubeId, guildId: env.discordGuildId, userId: actor.userId };
+  return { cubeId, guildId: env.discordGuildId, userId: actor.userId, discordUserId: actor.discordUserId };
 }
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -43,7 +43,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
         name: string;
         archetype: string | null;
         banlist: string | null;
-        created_by_user_id: string;
+        created_by_user_id: number;
         config_json: string | null;
       }
     | undefined;
@@ -71,7 +71,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   if (ctx instanceof NextResponse) return ctx;
 
   const db = getDb();
-  const denied = await cubeWriteAccess(db, ctx.cubeId, ctx.userId);
+  const denied = await cubeWriteAccess(db, ctx.cubeId, ctx);
   if (denied) return denied;
   const body = (await request.json().catch(() => ({}))) as { name?: string; draftType?: string };
   const draftType = body.draftType === undefined ? null : parseCubeDraftType(body.draftType);
@@ -98,7 +98,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
   if (ctx instanceof NextResponse) return ctx;
 
   const db = getDb();
-  const denied = await cubeWriteAccess(db, ctx.cubeId, ctx.userId);
+  const denied = await cubeWriteAccess(db, ctx.cubeId, ctx);
   if (denied) return denied;
   createCubeService(db, createCardCatalogService(db)).deleteCube(ctx.cubeId);
   return NextResponse.json({ ok: true });

@@ -1,6 +1,5 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { chromium } from "@playwright/test";
 import { livePorts, manualInfoFile, players, stackDir } from "./env.mjs";
 import { authenticatePlayer } from "./login-auth.mjs";
 
@@ -25,6 +24,7 @@ try {
 
 let context;
 try {
+  const { chromium } = await import("@playwright/test");
   context = await chromium.launchPersistentContext(resolve(stackDir, "browsers", player.key), {
     headless: false,
     baseURL: info.webUrl,

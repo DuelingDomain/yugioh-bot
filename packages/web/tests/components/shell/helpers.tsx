@@ -2,9 +2,9 @@ import React from "react";
 import { vi } from "vitest";
 import type { ShellAccount } from "../../../src/components/layout/use-shell-account";
 
-export const ready: ShellAccount = { status: "ready", name: "Imran", image: null, playerId: 7, profileSettled: true, tier: "Gold", elo: 1432, isAdmin: false };
+export const ready: ShellAccount = { status: "ready", name: "Imran", email: "imran@example.com", image: null, playerId: 7, profileSettled: true, tier: "Gold", elo: 1432, isAdmin: false };
 export const noProfile: ShellAccount = { ...ready, playerId: null };
-export const loading: ShellAccount = { status: "loading", name: "", image: null, playerId: null, profileSettled: false, tier: null, elo: null, isAdmin: false };
+export const loading: ShellAccount = { status: "loading", name: "", email: null, image: null, playerId: null, profileSettled: false, tier: null, elo: null, isAdmin: false };
 
 export function LinkStub({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) {
   return (

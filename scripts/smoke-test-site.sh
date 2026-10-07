@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Usage: scripts/smoke-test-site.sh <site-domain> [legacy-http-host]
-# Requires: curl and jq.
+# Requires: curl.
 set -uo pipefail
 domain=${1:?Usage: $0 <site-domain> [legacy-http-host]}
 legacy=${2:-}
@@ -20,5 +20,10 @@ check 'HTTP redirect'                    test "$(redirect "http://$domain")"    
 check 'www redirect'                     test "$(redirect "https://www.$domain")" = "308 $base$probe"
 [[ -n $legacy ]] && check 'Legacy IP redirect' test "$(redirect "http://$legacy")"      = "308 $base$probe"
 check 'Socket.IO open packet'            test "$(get -f "$base/socket.io/?EIO=4&transport=polling" | head -c2)" = '0{'
-check 'Discord callback URL'             test "$(get -f "$base/api/auth/providers" | jq -r .discord.callbackUrl)" = "$base/api/auth/callback/discord"
+session_body=$(mktemp)
+trap 'rm -f "$session_body"' EXIT
+check 'Sign-in page (200)' test "$(get -o /dev/null -w '%{http_code}' "$base/sign-in")" = 200
+session_status=$(get -o "$session_body" -w '%{http_code}' "$base/api/auth/session")
+check 'Anonymous session (200)' test "$session_status" = 200
+check 'Anonymous session body (null)' test "$(cat "$session_body")" = null
 exit "$failed"

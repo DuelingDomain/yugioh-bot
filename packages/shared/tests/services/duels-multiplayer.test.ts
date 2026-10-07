@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "../helpers/identity.js";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import { migrate } from "../../src/db/index.js";
@@ -5,9 +6,7 @@ import type { DuelDeck, DuelEngineView } from "../../src/duels/index.js";
 import { createDuelService } from "../../src/services/duels.js";
 
 function player(db: Database.Database, n: number) {
-  return Number(
-    db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', ?, ?)").run(`u${n}`, `P${n}`).lastInsertRowid,
-  );
+  return seedIdentity(db, { guildId: "g1", name: `P${n}`, userId: seedUser(db, `u${n}`).userId, discordUserId: seedUser(db, `u${n}`).discordUserId ?? `u${n}` }).playerId;
 }
 
 function deck(start: number): DuelDeck {

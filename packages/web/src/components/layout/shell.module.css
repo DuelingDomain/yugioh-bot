@@ -591,6 +591,49 @@
   background: var(--rule-lo);
 }
 
+/* ---- Legal links: Terms and Privacy, on marketing ---- */
+.legal {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-3);
+  font: 400 12.5px/1.2 var(--f-ui);
+}
+
+.legal a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--rule);
+  text-underline-offset: 3px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .legal a:hover {
+    color: var(--ink);
+    text-decoration-color: currentColor;
+  }
+}
+
+.legal a:focus-visible {
+  outline: 2px solid var(--pen-ink);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.footLegal {
+  display: flex;
+  padding: 6px 12px 0;
+}
+
+.aside[data-rail="true"] .footLegal {
+  display: none;
+}
+
+.menuLegal {
+  display: flex;
+  padding: 8px 10px 6px;
+}
+
 /* ---- Page column ---- */
 .main {
   margin-left: 236px;

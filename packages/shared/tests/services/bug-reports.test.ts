@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "../helpers/identity.js";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
 import { migrate } from "../../src/db/index.js";
@@ -13,9 +14,9 @@ function setup() {
   databases.push(db);
   migrate(db);
   migrate(db);
-  db.prepare("insert into players (id, guild_id, discord_user_id, display_name) values (1, 'guild-a', 'u1', 'One')").run();
-  db.prepare("insert into players (id, guild_id, discord_user_id, display_name) values (2, 'guild-a', 'u2', 'Two')").run();
-  db.prepare("insert into players (id, guild_id, discord_user_id, display_name) values (3, 'guild-b', 'u3', 'Three')").run();
+  seedIdentity(db, { guildId: "guild-a", name: "One", userId: seedUser(db, "u1").userId, discordUserId: seedUser(db, "u1").discordUserId ?? "u1", playerId: 1 });
+  seedIdentity(db, { guildId: "guild-a", name: "Two", userId: seedUser(db, "u2").userId, discordUserId: seedUser(db, "u2").discordUserId ?? "u2", playerId: 2 });
+  seedIdentity(db, { guildId: "guild-b", name: "Three", userId: seedUser(db, "u3").userId, discordUserId: seedUser(db, "u3").discordUserId ?? "u3", playerId: 3 });
   db.prepare("insert into duels (guild_id, web_slug, name, organizer_player_id, mode, status) values ('guild-a', 'duel-a', 'T', 1, 'normal', 'active')").run();
   return { db, reports: createBugReportService(db) };
 }

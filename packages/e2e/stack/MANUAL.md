@@ -148,7 +148,7 @@ with a slot set, it requires fresh service builds and prepares that slot's Webpa
 then supervises them until Ctrl+C. Wait for the web to report `Ready`; check readiness from another terminal:
 
 ```bash
-curl --fail http://localhost:3400/api/auth/csrf
+curl --fail http://localhost:3400/api/auth/session   # 200 with body null before login
 ```
 
 Defaults:

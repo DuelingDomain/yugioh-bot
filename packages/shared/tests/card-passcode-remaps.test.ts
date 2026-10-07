@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, expect, it } from "vitest";
+import { seedIdentity } from "./helpers/identity.js";
 import * as sharedDb from "../src/db/index.js";
 const roots:string[]=[];
 afterEach(()=>roots.splice(0).forEach(p=>rmSync(p,{recursive:true,force:true})));
@@ -20,11 +21,12 @@ it("rewrites user passcodes once with foreign keys and cube collisions, preservi
  const oldDeck=JSON.stringify({main:[100000001,12,999],extra:[100000001],side:[],deckMaster:100000001});
  const migrated=JSON.stringify({main:[12,12,999],extra:[12],side:[],deckMaster:12});
  try{
-  db.exec(`INSERT INTO players(id,guild_id,discord_user_id,display_name) VALUES(1,'g','u','User');
+  seedIdentity(db,{userId:1,playerId:1,guildId:'g',name:'User'});
+  db.exec(`
    INSERT INTO card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) VALUES(100000001,'Preview','Normal Monster','normal','old','old','[]','now'),(12,'Preview','Normal Monster','normal','new','new','[]','now');
-   INSERT INTO cubes(id,guild_id,name,created_by_user_id) VALUES(1,'g','cube','u');
+   INSERT INTO cubes(id,guild_id,name,created_by_user_id) VALUES(1,'g','cube',1);
    INSERT INTO cube_cards VALUES(1,100000001,'main',2,'old'),(1,12,'main',3,'new');
-   INSERT INTO drafts(id,guild_id,channel_id,name,status,created_by_user_id) VALUES(1,'g','c','draft','completed','u');
+   INSERT INTO drafts(id,guild_id,channel_id,name,status,created_by_user_id) VALUES(1,'g','c','draft','completed',1);
    INSERT INTO draft_players(draft_id,player_id) VALUES(1,1);
    INSERT INTO draft_cards(id,draft_id,wave_number,catalog_card_id,picked_by_player_id) VALUES(1,1,1,100000001,1);
    INSERT INTO draft_deal VALUES(1,1,100000001);
@@ -32,7 +34,7 @@ it("rewrites user passcodes once with foreign keys and cube collisions, preservi
    INSERT INTO draft_picks(draft_id,player_id,draft_card_id,wave_number,pick_step,picked_at) VALUES(1,1,1,1,1,'now');
    INSERT INTO duels(id,guild_id,web_slug,name,organizer_player_id,mode,status) VALUES(1,'g','finished','finished',1,'normal','completed'),(2,'g','lobby','lobby',1,'normal','lobby');
    INSERT INTO duel_commands(duel_id,seq,seat,command_json) VALUES(1,1,0,'{"code":100000001}');`);
-  db.prepare("INSERT INTO saved_decks(guild_id,owner_user_id,name,mode,deck_json) VALUES('g','u','deck','normal',?)").run(oldDeck);
+  db.prepare("INSERT INTO saved_decks(guild_id,owner_user_id,name,mode,deck_json) VALUES('g',1,'deck','normal',?)").run(oldDeck);
   for(const id of [1,2])db.prepare("INSERT INTO duel_seats(duel_id,seat,player_id,deck_json) VALUES(?,0,1,?)").run(id,oldDeck);
   db.prepare("UPDATE cubes SET config_json=?").run(JSON.stringify({customCardIds:[100000001],customExtraCardIds:[100000001],cubeCardIds:[100000001],poolCardIds:[100000001],otherNumber:100000001}));
   expect(sharedDb.applyEngineCardRemaps(db,dir).skipped).toBe(false);
@@ -63,12 +65,13 @@ it("creates missing official catalog metadata and migrates registration, series 
  const migrated=JSON.stringify({main:[12],extra:[],side:[],deckMaster:12});
  const setup=JSON.stringify({startupScripts:["Debug.AddCard(100000001,0,0,LOCATION_HAND,0,POS_FACEUP)\nlocal unrelated=100000001"],seed:[100000001]});
  try{
-  db.exec(`INSERT INTO players(id,guild_id,discord_user_id,display_name) VALUES(1,'g','u','User');
+  seedIdentity(db,{userId:1,playerId:1,guildId:'g',name:'User'});
+  db.exec(`
    INSERT INTO card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) VALUES(100000001,'Preview','Normal Monster','normal','old','old','[]','now');
    INSERT INTO card_artworks(card_id,artwork_id,image_url,image_url_small,is_main,source) VALUES(100000001,100000001,'old','old',1,'engine');
-   INSERT INTO tournaments(id,guild_id,name,format,status,created_by_user_id) VALUES(1,'g','Tournament','normal','active','u');
+   INSERT INTO tournaments(id,guild_id,name,format,status,created_by_user_id) VALUES(1,'g','Tournament','normal','active',1);
    INSERT INTO tournament_participants(tournament_id,player_id) VALUES(1,1);
-   INSERT INTO drafts(id,guild_id,channel_id,name,status,created_by_user_id) VALUES(1,'g','c','draft','completed','u');
+   INSERT INTO drafts(id,guild_id,channel_id,name,status,created_by_user_id) VALUES(1,'g','c','draft','completed',1);
    INSERT INTO duels(id,guild_id,web_slug,name,organizer_player_id,mode,status) VALUES(1,'g','done','done',1,'normal','completed'),(2,'g','lobby','lobby',1,'normal','lobby');
    INSERT INTO duel_series(id,guild_id,player0_id,player1_id,mode,settings_json,created_by_player_id,status) VALUES(1,'g',1,1,'normal','{}',1,'between_games'),(2,'g',1,1,'normal','{}',1,'completed');`);
   db.prepare("UPDATE tournament_participants SET deck_json=?").run(oldDeck);
@@ -93,8 +96,9 @@ it("creates missing official catalog metadata and migrates registration, series 
 it("rolls back the whole migration and retries safely after invalid saved JSON is repaired",()=>{
  const dir=bundle(),db=sharedDb.openDatabase(":memory:");
  try{
-  db.prepare("INSERT INTO saved_decks(guild_id,owner_user_id,name,mode,deck_json) VALUES('g','u','a','normal',?)").run(JSON.stringify({main:[100000001],extra:[],side:[]}));
-  db.prepare("INSERT INTO saved_decks(guild_id,owner_user_id,name,mode,deck_json) VALUES('g','u','b','normal','bad json')").run();
+  seedIdentity(db,{userId:1,playerId:1,guildId:"g"});
+  db.prepare("INSERT INTO saved_decks(guild_id,owner_user_id,name,mode,deck_json) VALUES('g',1,'a','normal',?)").run(JSON.stringify({main:[100000001],extra:[],side:[]}));
+  db.prepare("INSERT INTO saved_decks(guild_id,owner_user_id,name,mode,deck_json) VALUES('g',1,'b','normal','bad json')").run();
   expect(()=>sharedDb.applyEngineCardRemaps(db,dir)).toThrow();
   expect(db.prepare("SELECT deck_json FROM saved_decks WHERE name='a'").get()).toEqual({deck_json:'{"main":[100000001],"extra":[],"side":[]}'});
   db.prepare("UPDATE saved_decks SET deck_json=? WHERE name='b'").run('{"main":[],"extra":[],"side":[]}');

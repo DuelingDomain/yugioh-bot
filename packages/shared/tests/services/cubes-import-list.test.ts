@@ -1,3 +1,4 @@
+import { seedUser } from "../helpers/identity.js";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { migrate } from "../../src/db/schema.js";
@@ -15,7 +16,7 @@ beforeEach(() => {
   insert.run(2, "Shooting Star Dragon", "Synchro Monster", "synchro");
   insert.run(3, "Maxx C", "Effect Monster", "effect");
   cubes = createCubeService(db, createCardCatalogService(db, { identityCatalog: new Map() }));
-  cubeId = cubes.createBlank("g", "Cube", "owner").id;
+  cubeId = cubes.createBlank("g", "Cube", seedUser(db, "owner").userId).id;
 });
 afterEach(() => db.close());
 
@@ -49,7 +50,7 @@ describe("transactional resolved list writes", () => {
   });
 
   it("creates from resolved entries in both pools, with frame placement overriding explicit main", () => {
-    const cube = cubes.createWithCards("g", "Imported", "owner", [{ id: 1, copies: 3, pool: "extra" }, { id: 2, copies: 1, pool: "main" }]);
+    const cube = cubes.createWithCards("g", "Imported", seedUser(db, "owner").userId, [{ id: 1, copies: 3, pool: "extra" }, { id: 2, copies: 1, pool: "main" }]);
     expect(cubes.getCubePools(cube.id).main).toEqual([]);
     expect(cubes.getCubePools(cube.id).extra.map((c) => [c.catalogCardId, c.maxCopies])).toEqual([[1, 3], [2, 1]]);
   });

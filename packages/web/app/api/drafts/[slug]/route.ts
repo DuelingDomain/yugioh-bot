@@ -1,7 +1,7 @@
 import { cardFetchErrorResponse } from "@/lib/card-fetch-errors";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
 import { normalizeBoosterDraftNumbers } from "@/lib/booster-draft-validation";
 import { cubeReferenceAccess } from "@/lib/cube-access";
 import { ensureCatalogCards, sanitizePoolSource } from "@/lib/cube-pool";
@@ -26,15 +26,13 @@ export async function GET(
 ) {
   let slug = "unknown";
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const actor = await requireWebAccess();
+    if (!actor.ok) return actor.response;
 
     slug = (await params).slug;
-    const denied = draftReadAccess(getDb(), slug, env.discordGuildId, session.user.id);
+    const denied = draftReadAccess(getDb(), slug, env.discordGuildId, actor.userId);
     if (denied) return denied;
-    const response = await buildDraftResponse(slug, session.user.id);
+    const response = await buildDraftResponse(slug, actor);
 
     if (!response) {
       return NextResponse.json({ error: "Draft not found" }, { status: 404 });
@@ -57,10 +55,8 @@ export async function DELETE(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const actor = await requireWebAccess();
+    if (!actor.ok) return actor.response;
 
     const { slug } = await params;
     const db = getDb();
@@ -68,13 +64,13 @@ export async function DELETE(
 
     const draft = db
       .prepare("select id, created_by_user_id, status from drafts where web_slug = ? and guild_id = ?")
-      .get(slug, guildId) as { id: number; created_by_user_id: string; status: string } | undefined;
+      .get(slug, guildId) as { id: number; created_by_user_id: number; status: string } | undefined;
 
     if (!draft) {
       return NextResponse.json({ error: "Draft not found" }, { status: 404 });
     }
 
-    if (draft.created_by_user_id !== session.user.id) {
+    if (draft.created_by_user_id !== actor.userId) {
       return NextResponse.json({ error: "Only the draft creator can cancel or delete a draft" }, { status: 403 });
     }
 
@@ -125,10 +121,8 @@ export async function PUT(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const actor = await requireWebAccess();
+    if (!actor.ok) return actor.response;
 
     const { slug } = await params;
     const db = getDb();
@@ -136,13 +130,13 @@ export async function PUT(
 
     const draft = db
       .prepare("select id, created_by_user_id, status from drafts where web_slug = ? and guild_id = ?")
-      .get(slug, guildId) as { id: number; created_by_user_id: string; status: string } | undefined;
+      .get(slug, guildId) as { id: number; created_by_user_id: number; status: string } | undefined;
 
     if (!draft) {
       return NextResponse.json({ error: "Draft not found" }, { status: 404 });
     }
 
-    if (draft.created_by_user_id !== session.user.id) {
+    if (draft.created_by_user_id !== actor.userId) {
       return NextResponse.json({ error: "Only the draft creator can modify a draft" }, { status: 403 });
     }
 
@@ -299,10 +293,8 @@ export async function POST(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const actor = await requireWebAccess();
+    if (!actor.ok) return actor.response;
 
     const { slug } = await params;
     const db = getDb();
@@ -310,13 +302,13 @@ export async function POST(
 
     const draft = db
       .prepare("select id, created_by_user_id, status from drafts where web_slug = ? and guild_id = ?")
-      .get(slug, guildId) as { id: number; created_by_user_id: string; status: string } | undefined;
+      .get(slug, guildId) as { id: number; created_by_user_id: number; status: string } | undefined;
 
     if (!draft) {
       return NextResponse.json({ error: "Draft not found" }, { status: 404 });
     }
 
-    if (draft.created_by_user_id !== session.user.id) {
+    if (draft.created_by_user_id !== actor.userId) {
       return NextResponse.json({ error: "Only the draft creator can start a draft" }, { status: 403 });
     }
 
@@ -350,15 +342,17 @@ export async function POST(
 
     const started = drafts.start(draft.id);
 
-    void announcer.announce(
-      {
-        kind: "draft-started",
-        draftId: started.id,
-        channelId: started.channelId,
-        name: started.name,
-        webSlug: started.webSlug ?? "",
-      },
-    );
+    if (env.discordBotEnabled && started.channelId && started.webSlug) {
+      void announcer.announce(
+        {
+          kind: "draft-started",
+          draftId: started.id,
+          channelId: started.channelId,
+          name: started.name,
+          webSlug: started.webSlug ?? "",
+        },
+      );
+    }
 
     void broadcaster.draft(
       { kind: "status", slug: started.webSlug ?? slug, status: DRAFT_STATUS.active },

@@ -49,6 +49,11 @@
       "source": "./src/scoring/index.ts",
       "default": "./dist/scoring/index.js"
     },
+    "./clerk": {
+      "types": "./dist/clerk/index.d.ts",
+      "source": "./src/clerk/index.ts",
+      "default": "./dist/clerk/index.js"
+    },
     "./notify": {
       "types": "./dist/notify/index.d.ts",
       "source": "./src/notify/index.ts",

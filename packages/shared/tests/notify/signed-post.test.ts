@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { createHmac } from "node:crypto";
 import { httpTransport, recordingTransport } from "../../src/notify/signed-post.js";
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("httpTransport", () => {
   it("signs the body and posts to url+path", async () => {
@@ -39,4 +39,28 @@ describe("recordingTransport", () => {
     await rec.transport.post("/internal/announce/draft-created", '{"draftId":1}');
     expect(rec.calls).toEqual([{ path: "/internal/announce/draft-created", body: '{"draftId":1}' }]);
   });
+});
+
+it("bounds a stalled request", async () => {
+  let aborted = false;
+  vi.stubGlobal("fetch", vi.fn((_url, init: RequestInit) => new Promise<Response>((_resolve, reject) => {
+    init.signal?.addEventListener("abort", () => {
+      aborted = true;
+      reject(init.signal!.reason);
+    }, { once: true });
+  })));
+  const result = await httpTransport({ url: "http://bot", secret: "secret", timeoutMs: 5 }).post("/x", "{}");
+  expect(aborted).toBe(true);
+  expect(result.ok).toBe(false);
+  expect(result.status).toBe(0);
+  expect(result.text).toMatch(/timed out/i);
+});
+
+it("sets no deadline unless the caller asks for one", async () => {
+  const fetch = vi.fn(async (_url: string, init?: RequestInit) => {
+    expect(init?.signal).toBeUndefined();
+    return new Response("ok");
+  });
+  vi.stubGlobal("fetch", fetch);
+  expect((await httpTransport({ url: "http://duel", secret: "secret" }).post("/x", "{}")).ok).toBe(true);
 });

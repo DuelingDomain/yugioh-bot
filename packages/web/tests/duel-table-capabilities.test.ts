@@ -19,52 +19,59 @@ describe("creator core status from the real host protocol", () => {
   });
   it("passes all host capabilities to the creator page", async () => {
     const page = await NewDuelPage({ searchParams: Promise.resolve({}) });
-    expect(page.props).toEqual({ focusOpponent: false, multiplayerTables: true, multiCoreReady: true, multiDomainCoreReady: true });
+    expect(page.props).toEqual({ discordEnabled: false, focusOpponent: false, multiplayerTables: true, multiCoreReady: true, multiDomainCoreReady: true });
     expect(host).toHaveBeenCalledWith({ op: "capabilities", guildId: "g", playerId: 7 });
   });
 
   it("keeps challenge focus together with host capabilities", async () => {
     const page = await NewDuelPage({ searchParams: Promise.resolve({ challenge: "1" }) });
-    expect(page.props).toEqual({ focusOpponent: true, multiplayerTables: true, multiCoreReady: true, multiDomainCoreReady: true });
+    expect(page.props).toEqual({ discordEnabled: false, focusOpponent: true, multiplayerTables: true, multiCoreReady: true, multiDomainCoreReady: true });
   });
 
   it.each(["1", "true", "on"])("uses the shared flag reader for %j", async (flag) => {
     vi.stubEnv("MULTIPLAYER_TABLES", flag);
-    expect(await duelCreatorCapabilities()).toEqual({ multiplayerTables: true, multiCoreReady: true, multiDomainCoreReady: true });
+    expect(await duelCreatorCapabilities()).toEqual({ discordEnabled: false, multiplayerTables: true, multiCoreReady: true, multiDomainCoreReady: true });
     expect(host).toHaveBeenCalledOnce();
   });
 
   it("keeps Standard tables available when only the Domain multi core is missing", async () => {
     host.mockResolvedValue({ ok: true, data: { multiplayerTables: true, multiCoreReady: true, multiDomainCoreReady: false } });
-    expect(await duelCreatorCapabilities()).toEqual({ multiplayerTables: true, multiCoreReady: true, multiDomainCoreReady: false });
+    expect(await duelCreatorCapabilities()).toEqual({ discordEnabled: false, multiplayerTables: true, multiCoreReady: true, multiDomainCoreReady: false });
   });
 
   it("reports a missing plain multi core even when the Domain core is installed", async () => {
     host.mockResolvedValue({ ok: true, data: { multiplayerTables: true, multiCoreReady: false, multiDomainCoreReady: true } });
-    expect(await duelCreatorCapabilities()).toEqual({ multiplayerTables: true, multiCoreReady: false, multiDomainCoreReady: true });
+    expect(await duelCreatorCapabilities()).toEqual({ discordEnabled: false, multiplayerTables: true, multiCoreReady: false, multiDomainCoreReady: true });
   });
 
   it.each(["0", "false", ""])("keeps multiplayer closed for flag value %j without a host request", async (flag) => {
     vi.stubEnv("MULTIPLAYER_TABLES", flag);
-    expect(await duelCreatorCapabilities()).toEqual({ multiplayerTables: false, multiCoreReady: false, multiDomainCoreReady: false });
+    expect(await duelCreatorCapabilities()).toEqual({ discordEnabled: false, multiplayerTables: false, multiCoreReady: false, multiDomainCoreReady: false });
     expect(host).not.toHaveBeenCalled();
   });
 
   it("keeps multiplayer closed when the host does not answer", async () => {
     host.mockResolvedValue({ ok: false, response: Response.json({}, { status: 503 }) });
-    expect(await duelCreatorCapabilities()).toEqual({ multiplayerTables: false, multiCoreReady: false, multiDomainCoreReady: false });
+    expect(await duelCreatorCapabilities()).toEqual({ discordEnabled: false, multiplayerTables: false, multiCoreReady: false, multiDomainCoreReady: false });
   });
 
   it("does not accept missing or string capabilities", async () => {
     for (const data of [null, {}, { multiplayerTables: "true", multiCoreReady: "true", multiDomainCoreReady: "true" }]) {
       host.mockResolvedValue({ ok: true, data });
-      expect(await duelCreatorCapabilities()).toEqual({ multiplayerTables: false, multiCoreReady: false, multiDomainCoreReady: false });
+      expect(await duelCreatorCapabilities()).toEqual({ discordEnabled: false, multiplayerTables: false, multiCoreReady: false, multiDomainCoreReady: false });
     }
   });
 
   it("does not send an unauthenticated host request", async () => {
     actor.mockResolvedValue({ ok: false, response: Response.json({}, { status: 401 }) });
-    expect(await duelCreatorCapabilities()).toEqual({ multiplayerTables: false, multiCoreReady: false, multiDomainCoreReady: false });
+    expect(await duelCreatorCapabilities()).toEqual({ discordEnabled: false, multiplayerTables: false, multiCoreReady: false, multiDomainCoreReady: false });
     expect(host).not.toHaveBeenCalled();
   });
+});
+
+it.each([undefined, "0", "true", "1"])("passes Discord capability from the server for %s", async flag => {
+  vi.resetModules();
+  vi.stubEnv("DISCORD_BOT_ENABLED", flag);
+  const { duelCreatorCapabilities: readCapabilities } = await import("@/lib/duel-table-capabilities");
+  expect((await readCapabilities()).discordEnabled).toBe(flag === "1");
 });

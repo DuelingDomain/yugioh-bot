@@ -11,10 +11,11 @@
 #   STAGING_HOST         public address of the VM, used only when .env.staging does not exist yet
 #   STAGING_DOMAIN       host name for the staging address, used only when .env.staging does not exist yet (optional)
 #   STAGING_HTTP_PORT    host port of staging (optional, default 8080, never below 1024)
+#   STAGING_CLERK_ENV    separate staging Clerk source on the VM (default /etc/yugidraft/staging-clerk.env)
 #   STAGING_BUNDLE       the engine bundle sent to a mktemp path by the workflow (required for deploy)
 #
-# It works in /opt/yugioh-bot-staging. It reads from /opt/yugioh-bot exactly three things: the file .env
-# (through make-staging-env.sh, only when .env.staging is missing), data/bot.sqlite (read-only, through
+# It works in /opt/yugioh-bot-staging. Community config comes from production .env; Clerk keys
+# come only from STAGING_CLERK_ENV. It also reads data/bot.sqlite (read-only, through
 # copy-staging-db.sh) and the git remote URL (only for the first clone). It never runs docker compose in
 # /opt/yugioh-bot and never writes there.
 set -eu
@@ -67,12 +68,12 @@ if [ "$action" = "deploy" ]; then
   echo "remote-deploy: staging code is now $(git rev-parse --short HEAD) from $STAGING_REF"
 fi
 
-compose="sh scripts/staging/compose.sh"
+compose() { sh scripts/staging/compose.sh "$@"; }
 
 if [ "$action" = "stop" ]; then
   if [ -f .env.staging ]; then
-    # --rmi local removes the three images that staging built (not the public caddy image).
-    $compose down --rmi local --remove-orphans
+    # --rmi local removes the four images that staging built (not the public caddy image).
+    compose down --rmi local --remove-orphans
     echo "remote-deploy: staging is stopped and its built images are removed. Its data stays in $staging_dir/data-staging."
   else
     echo "remote-deploy: no .env.staging, nothing to stop."
@@ -87,6 +88,7 @@ fi
 # 1. The env file, only when it is missing. Secrets stay on the VM.
 if [ ! -f .env.staging ]; then
   [ -f "$prod_dir/.env" ] || { echo "remote-deploy: $prod_dir/.env not found" >&2; exit 1; }
+  STAGING_CLERK_ENV=${STAGING_CLERK_ENV:-/etc/yugidraft/staging-clerk.env} \
   STAGING_HOST=${STAGING_HOST:-} STAGING_DOMAIN=${STAGING_DOMAIN:-} STAGING_HTTP_PORT=${STAGING_HTTP_PORT:-8080} \
     sh scripts/staging/make-staging-env.sh "$prod_dir/.env" .env.staging
 fi
@@ -106,7 +108,7 @@ else
 fi
 
 # Free the memory of the old staging stack, then check that a build is safe.
-$compose stop || true
+compose stop || true
 if pgrep -f 'turbo run build|next build' >/dev/null 2>&1; then
   echo "remote-deploy: another build is running on this VM (maybe the production deploy). Try again later." >&2
   exit 1
@@ -114,10 +116,9 @@ fi
 # The disk is shared with the production database. Each staging image holds a full node_modules.
 sh scripts/staging/check-resources.sh "before build" "${STAGING_MIN_BUILD_MB:-1100}" "${STAGING_MIN_DISK_MB:-6000}" /opt
 
-# The card image cache of staging has no size limit (only the bot evicts images). It is a cache: drop it.
-rm -rf data-staging/card-images
+# Worker startup and IMAGE_CLEANUP_CRON evict the oldest cached images to the configured byte limit.
 
-# 3. Build the three images. Remember the ids of the old ones, to remove them after a healthy start.
+# 3. Build the four images. Remember the ids of the old ones, to remove them after a healthy start.
 # CI already compiled both multi cores; bake this exact bundle into the duel image.
 rm -rf .deploy-duel-engine
 mkdir .deploy-duel-engine
@@ -125,13 +126,16 @@ tar -C .deploy-duel-engine -xzf "$bundle"
 DUEL_PREFLIGHT=1 DUEL_BUNDLE_SRC="$staging_dir/.deploy-duel-engine" \
   DUEL_DATA_DIR="$staging_dir/.deploy-duel-engine" \
   sh packages/duel-server/scripts/install-engine-bundle.sh
-old_images=$($compose images -q 2>/dev/null | sort -u | tr '\n' ' ' || true)
-$compose build
+old_images=$(compose images -q 2>/dev/null | sort -u | tr '\n' ' ' || true)
+compose build
 sh scripts/staging/check-resources.sh "after build" 0 "${STAGING_MIN_DISK_AFTER_BUILD_MB:-2500}" /opt
 
 # 4. The database: first run, or when asked.
 mkdir -p data-staging
+clerk_scrub_marker=data-staging/.clerk-ids-needs-scrub
 if [ ! -f data-staging/bot.sqlite ] || [ "$refresh_db" = "true" ]; then
+  # Persist the scrub requirement across an interrupted deploy.
+  touch "$clerk_scrub_marker"
   sh scripts/staging/copy-staging-db.sh "$prod_dir/data/bot.sqlite" "$staging_dir/data-staging"
 else
   echo "remote-deploy: keeping the staging database (set refresh_db to copy production again)"
@@ -145,28 +149,44 @@ for core in ocgcore.multi ocgcore.multi-domain; do
   cat "data-staging/duel-engine/$core.SOURCE"
 done
 
+# Migrate the isolated, stopped staging database once before any consumers start.
+copied_db=0
+[ ! -f "$clerk_scrub_marker" ] || copied_db=1
+compose run --rm --no-deps -e STAGING_COPIED_DB="$copied_db" worker node --input-type=module -e '
+  import {openDatabase} from "@yugidraft/shared/db";
+  const db=openDatabase(process.env.DATABASE_PATH);
+  try {
+    // Production Clerk IDs must never reach the staging instance.
+    if(process.env.STAGING_COPIED_DB === "1") db.prepare("UPDATE users SET clerk_user_id = NULL, synced_at = NULL").run();
+    if(db.pragma("foreign_key_check").length)throw new Error("Foreign key check failed");
+    if(db.pragma("integrity_check",{simple:true})!=="ok")throw new Error("Integrity check failed");
+    console.log("staging identity migration verified");
+  } finally {db.close();}
+'
+rm -f "$clerk_scrub_marker"
+
 # 6. Start, only when the VM has the memory for the limits of the stack.
-sh scripts/staging/check-resources.sh "before start" "${STAGING_MIN_START_MB:-1700}"
-$compose up -d
-$compose ps
+sh scripts/staging/check-resources.sh "before start" "${STAGING_MIN_START_MB:-1900}"
+compose up -d
+compose ps
 
 # 7. Health check, logs and memory use.
 if ! sh scripts/staging/health-check.sh 180; then
-  $compose logs --tail=60 || true
+  compose logs --tail=60 || true
   free -m || true
   # Do not leave an unhealthy stack running: it keeps using memory that production may need.
-  $compose stop || true
+  compose stop || true
   echo "remote-deploy: staging did not become healthy. It is stopped now." >&2
   exit 1
 fi
-$compose logs --tail=20
-ids=$($compose ps -q)
+compose logs --tail=20
+ids=$(compose ps -q)
 # shellcheck disable=SC2086
 docker stats --no-stream $ids || true
 free -m || true
 
 # 8. Remove the old staging images. Only the ids from before the build, and only when nothing uses them.
-new_images=$($compose images -q 2>/dev/null | sort -u | tr '\n' ' ' || true)
+new_images=$(compose images -q 2>/dev/null | sort -u | tr '\n' ' ' || true)
 sh scripts/staging/remove-old-images.sh "$old_images" "$new_images"
 df -Pm /opt | awk 'NR == 2 { print "remote-deploy: disk free " $4 " MB" }'
 echo "remote-deploy: staging is running."

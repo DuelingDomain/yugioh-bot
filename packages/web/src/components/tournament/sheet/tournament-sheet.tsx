@@ -39,6 +39,7 @@ export function TournamentSheet({ tournament, tournamentSlug, isHost, ratings, o
   refreshFailed?: boolean;
   /** The `?tab=` value, scrolled to once the sheet first renders. */
   tab?: string | null;
+  /** The server can post to Discord; passed to the lobby, which hides its Discord controls when false. */
 }) {
   const root = useRef<HTMLDivElement>(null);
   // The phone layout and its fixed action bar switch at the width the stylesheet's phone rules use.
@@ -93,7 +94,7 @@ export function TournamentSheet({ tournament, tournamentSlug, isHost, ratings, o
           </div>
         )}
         {pending ? (
-          <TournamentLobby tournament={tournament} tournamentSlug={tournamentSlug} isCreator={isHost} currentUserId={tournament.createdByUserId} onChanged={onChanged} ratings={ratings} />
+          <TournamentLobby tournament={tournament} tournamentSlug={tournamentSlug} isCreator={isHost} currentUserId={tournament.createdByUserId} onChanged={onChanged} ratings={ratings} discordEnabled={tournament.discordEnabled === true} />
         ) : (
           <>
             <div className={styles.body}>

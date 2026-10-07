@@ -1,0 +1,68 @@
+/* Delete account: a settings section whose only red is the rule above it, the heading and the button. */
+.zone.zone,
+:global(.ms) .zone.zone {
+  border-top-color: rgb(228 90 77 / 0.4);
+}
+
+.zone h2 {
+  color: var(--loss-ink);
+}
+
+.form {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  max-width: 520px;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.hint {
+  margin: 0;
+  color: var(--ink-3);
+  font: 400 13.5px/1.45 var(--f-ui);
+}
+
+.hint code {
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: var(--panel-2);
+  color: var(--ink);
+  font: 450 13px/1.4 ui-monospace, Menlo, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+
+.field :global(.input) {
+  max-width: 340px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+}
+
+.actions :global(.sv-btn) {
+  flex: none;
+}
+
+.actions :global(.sv-btn:disabled) {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.error {
+  color: var(--loss-ink);
+  overflow-wrap: anywhere;
+}
+
+.error a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}

@@ -8,6 +8,7 @@ import { createDuelHost, type DuelHost } from "../src/host.js";
 import { GameWorker } from "../src/worker-client.js";
 import { engineDataDirectory as DATA } from "./engine-data-dir.js";
 import { describeWithCores, needs } from "./support/cores.js";
+import { seedIdentity, seedUser } from "./helpers/identity.js";
 
 const SECRET = "real-dice-host";
 const resources: Array<{ host: DuelHost; db: Database.Database }> = [];
@@ -22,9 +23,9 @@ describeWithCores("FFA dice order with real workers, recovery and replay", [need
     const db = new Database(":memory:"); migrate(db);
     const duels = createDuelService(db);
     const count = format === "ffa3" ? 3 : 4;
-    const players = Array.from({ length: count }, (_, i) => Number(db.prepare(
-      "insert into players (guild_id, discord_user_id, display_name) values ('g', ?, ?)",
-    ).run(`u${i}`, `P${i}`).lastInsertRowid));
+    const players = Array.from({ length: count }, (_, i) => seedIdentity(db, {
+      guildId: "g", name: `P${i}`, ...seedUser(db, `u${i}`),
+    }).playerId);
     const session = duels.create({ guildId: "g", organizerPlayerId: players[0]!, name: "Real dice", mode: "normal", format,
       settings: { validateDeck: false, shuffleDeck: false, turnSeconds: 0, stopAtEveryWindow: false } });
     const codes = [15025844, 48305365, 46986414, 89631139];

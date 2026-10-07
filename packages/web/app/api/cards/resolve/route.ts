@@ -1,6 +1,6 @@
 import { withCardFetchErrors } from "@/lib/card-fetch-errors";
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { createDraftService, createCardCatalogService, isExtraDeckFrame, normalizeImportedCardName, rankCardsByTypo } from "@yugidraft/shared/services";
 import { toCardCounts } from "@/lib/custom-card-pool";
@@ -43,10 +43,8 @@ function isUnreachable(error: unknown): boolean {
 }
 
 async function handlePOST(request: Request) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const actor = await requireWebAccess();
+  if (!actor.ok) return actor.response;
 
   const body = (await request.json().catch(() => ({}))) as {
     setNames?: string[];

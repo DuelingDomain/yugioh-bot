@@ -1,19 +1,18 @@
 import { notFound, redirect } from "next/navigation";
 import { SheetRoot } from "@/components/sheet";
 import { CardDataStatusPanel } from "@/components/card-data/card-data-status-panel";
-import { auth } from "@/lib/auth";
-import { checkDiscordWebAccess } from "@/lib/discord-web-access";
+import { isOwnerUser } from "@/lib/owner-access";
+import { resolveSessionIdentity } from "@/lib/session-identity";
 
 export const metadata = { title: "Card data status" };
 export const dynamic = "force-dynamic";
 
 export default async function CardDataStatusPage() {
-  const session = await auth();
-  if (!session?.user?.id) redirect("/login");
-  // Members who are not admins get the normal not-found page. When Discord cannot be asked (503),
+  const result = await resolveSessionIdentity();
+  if (!result.ok && result.status === 401) redirect("/sign-in");
+  // Anyone not listed in OWNER_USER_IDS gets the normal not-found page. When the session can't be read (503),
   // the panel still renders and shows its own unavailable state; the API stays guarded.
-  const decision = await checkDiscordWebAccess(session.user.id, "admin");
-  if (!decision.ok && decision.status === 403) notFound();
+  if (result.ok && !isOwnerUser(result.identity.userId)) notFound();
 
   return (
     <SheetRoot>

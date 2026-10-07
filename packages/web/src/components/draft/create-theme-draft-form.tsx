@@ -10,7 +10,7 @@ import styles from "./create/create.module.css";
 
 type Channel = { id: string; name: string };
 
-export function CreateThemeDraftForm() {
+export function CreateThemeDraftForm({ discordEnabled = false }: { discordEnabled?: boolean }) {
   const router = useRouter();
   const [name, setName] = React.useState("");
   const [channelId, setChannelId] = React.useState("");
@@ -30,11 +30,13 @@ export function CreateThemeDraftForm() {
   const nameRef = React.useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
+    // The channel list only exists when the server can post to Discord.
+    if (!discordEnabled) return;
     fetch("/api/discord/channels")
       .then((res) => res.json())
       .then((data) => setChannels(data.channels ?? []))
       .catch(() => {});
-  }, []);
+  }, [discordEnabled]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,7 +65,7 @@ export function CreateThemeDraftForm() {
       const res = await fetch("/api/drafts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), channelId: channelId || undefined, config }),
+        body: JSON.stringify({ name: name.trim(), channelId: discordEnabled ? channelId || undefined : undefined, config }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -93,7 +95,7 @@ export function CreateThemeDraftForm() {
           <section className={styles.sec} aria-labelledby="dt-d">
             <div className={styles.secSide}>
               <h2 id="dt-d">Draft</h2>
-              <p>Players see this name in Discord and on the web.</p>
+              <p>{discordEnabled ? "Players see this name in Discord and on the web." : "Players see this name in the lobby and on the invite link."}</p>
             </div>
             <div className="fields">
               <div className="wide">
@@ -113,6 +115,7 @@ export function CreateThemeDraftForm() {
                   aria-invalid={nameError ? true : undefined}
                 />
               </div>
+              {discordEnabled ? (
               <div className="wide">
                 <label className="label" htmlFor="theme-draft-channel">
                   Channel
@@ -128,6 +131,7 @@ export function CreateThemeDraftForm() {
                 </select>
                 <p className="hint">The bot posts the draft here so people can join from Discord.</p>
               </div>
+              ) : null}
             </div>
           </section>
 
