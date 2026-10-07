@@ -74,7 +74,7 @@ both fresh and cached `prepare-data.ts` runs. All Standard/Domain, legacy/pinned
 multiplayer readers (including native) therefore load the same corrected card script.
 
 The first patch overrides only `atkcon` and `atktg` in upstream
-[`official/c3743515.lua` at CardScripts `37f270dc813a12d123707ae255f2bda7922999c4`](https://github.com/ProjectIgnis/CardScripts/blob/37f270dc813a12d123707ae255f2bda7922999c4/official/c3743515.lua).
+[`official/c3743515.lua` at CardScripts `37f270dc813a`](https://github.com/ProjectIgnis/CardScripts/blob/37f270dc813a/official/c3743515.lua).
 The stock condition swaps attacker/target and dereferences nil on an opponent's direct
 attack. Both callbacks now use `Duel.GetBattleMonster(tp)`; no own battling monster means
 false/no target. The face-up Dinosaur/other-monster checks, destruction, 2000 ATK boost,
@@ -141,6 +141,7 @@ The first line is `Needs review: N conflicts, M risks, K shared-script changes, 
 
 - **Commits, release databases and official scripts:** compare links show upstream changes; release filename additions/removals and loaded passcodes are listed. New/changed official `cNNN.lua` scripts include names from the merged candidate database. Database-only changes can add released cards without a script diff; loaded release scripts are still probed.
 - **Overlay conflicts:** every manifest stock hash is compared with its explicitly reviewed `stockPath`, or `official/cNNN.lua` by default. A nonofficial copy does not silently become the baseline: without a reviewed path, the report says `removed`. Reconcile affected overlays with upstream and review baseline hashes; do not replace hashes merely to silence a conflict.
+- **Card script patches:** every shared patch baseline is compared with candidate stock. A changed or removed file is reported as **patch needs review** and blocks the candidate before any pin rewrite or bundle preparation. The workflow failure summary and report artifact retain the affected paths and hashes, including when the summary is truncated. Current pins and the deployed bundle remain in service until the patch is reconciled or explicitly retired; the updater never drops the fix or accepts a new stock hash automatically. Historical baseline citations use abbreviated commits so the pin-rewrite guard does not mistake them for active pins.
 - **Changed shared scripts:** every added, changed or removed `.lua` outside `official/cNNN.lua` is listed, including utility, constants, procedures, card-specific helpers and nonofficial scripts. Utility/procedure/constant changes flag `mp-utility.lua` for review. Check shared multiplayer assumptions even when no official card changed.
 - **New multiplayer risks:** new/changed official scripts and loaded release scripts (including retained pre-release scripts) flagged F or ambiguous O and absent from both multiplayer lists need a rule, tested overlay or format-specific ban decision. Releases are scanned even when their scripts did not change.
 - **Changed listed cards:** changed scripts already in `MULTIPLAYER_CARD_RULES` or `MULTIPLAYER_FORBIDDEN` without an overlay need renewed review. This section also includes `formatGap` cards, including unchanged cards whose scan finds Tag coverage missing.

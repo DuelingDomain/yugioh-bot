@@ -36,3 +36,11 @@ it("retains blocking artwork findings in bounded reports", () => {
   const report = "BLOCKING: 1 artwork script fallback\n" + "data\n".repeat(20000) + "\n## Artwork script safety\n\nBLOCKING: c11.lua → c10.lua; GetID() differs.\n";
   expect(boundedReport(report, run, 60000)).toContain("c11.lua → c10.lua");
 });
+
+it("retains patch review details when the weekly failure summary is truncated", () => {
+  const report = "BLOCKING: 1 patch needs review\n" + "data\n".repeat(20000) + "\n## Card script patches\n\n**patch needs review**: official/c3743515.lua; pins unchanged.\n";
+  const summary = boundedReport(report, run, 60000);
+  expect(summary).toContain("official/c3743515.lua");
+  expect(summary).toContain("pins unchanged");
+  expect(Buffer.byteLength(summary)).toBeLessThanOrEqual(60000);
+});

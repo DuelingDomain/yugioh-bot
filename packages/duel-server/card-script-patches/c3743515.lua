@@ -1,6 +1,6 @@
 -- Steamed Sabersaurus: shared Standard/Domain, 1v1/multiplayer bug fix.
 -- Upstream: ProjectIgnis/CardScripts official/c3743515.lua at
--- 37f270dc813a12d123707ae255f2bda7922999c4. An opponent's direct attack
+-- 37f270dc813a (historical baseline). An opponent's direct attack
 -- has no target; swapping attacker/target made atkcon index nil.
 -- GetBattleMonster(tp) selects our battling monster, including in FFA.
 function s.atkcon(e,tp,eg,ep,ev,re,r,rp)
