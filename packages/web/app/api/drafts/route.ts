@@ -13,6 +13,7 @@ import { announcer } from "@/lib/notify";
 import { toUtcIso } from "@/lib/utils";
 import { ensureCatalogCards, sanitizePoolSource } from "@/lib/cube-pool";
 import { hostThemeAssignmentError } from "@/lib/theme-draft-validation";
+import { draftDiscordEnabled } from "@/lib/draft-lobby-api";
 
 export const runtime = "nodejs";
 
@@ -171,13 +172,15 @@ async function handlePOST(request: NextRequest) {
       player.id,
     );
 
-    void announcer.announce({
-      kind: "draft-created",
-      draftId: draft.id,
-      channelId: draft.channelId,
-      name: draft.name,
-      webSlug: draft.webSlug ?? "",
-    });
+    if (draftDiscordEnabled()) {
+      void announcer.announce({
+        kind: "draft-created",
+        draftId: draft.id,
+        channelId: draft.channelId,
+        name: draft.name,
+        webSlug: draft.webSlug ?? "",
+      });
+    }
 
     return NextResponse.json(
       { id: draft.id, name: draft.name, status: draft.status, webSlug: draft.webSlug, warnings: [], errors: [] },
@@ -235,15 +238,17 @@ async function handlePOST(request: NextRequest) {
     player.id,
   );
 
-  void announcer.announce(
-    {
-      kind: "draft-created",
-      draftId: draft.id,
-      channelId: draft.channelId,
-      name: draft.name,
-      webSlug: draft.webSlug ?? "",
-    },
-  );
+  if (draftDiscordEnabled()) {
+    void announcer.announce(
+      {
+        kind: "draft-created",
+        draftId: draft.id,
+        channelId: draft.channelId,
+        name: draft.name,
+        webSlug: draft.webSlug ?? "",
+      },
+    );
+  }
 
   return NextResponse.json(
     {
