@@ -582,12 +582,13 @@
   --pv-reserve: 270px;
   position: absolute;
   left: 72px;
-  top: 50px;
+  /* --pv-top and --pv-max-h come from grid-preview.tsx: the free band of the real layout (below the chain tower, above the Deck Master plate). */
+  top: var(--pv-top, 50px);
   z-index: 34;
   display: flex;
   flex-direction: column;
-  width: clamp(270px, calc(var(--pv-ct) * 18), 284px);
-  max-height: max(300px, calc(100% - 50px - var(--pv-reserve)));
+  width: var(--pv-w, clamp(270px, calc(var(--pv-ct) * 18), 284px));
+  max-height: var(--pv-max-h, max(300px, calc(100% - 50px - var(--pv-reserve))));
   padding: 12px 12px 14px;
   overflow: hidden;
   border: 1px solid rgb(155 126 255 / 0.5);
@@ -604,7 +605,9 @@
 .masterWrap[data-form="tall"]:not([data-slot="other"]) ~ .preview {
   --pv-reserve: calc(var(--hud-master-bottom, calc(clamp(58px, 5.6dvh, 68px) + 20px)) + 341px);
 }
-.preview[data-open="true"] { transform: none; visibility: visible; transition: transform 0.18s ease-out, visibility 0s; }
+/* The right edge (grid-preview.tsx puts a hover or pinned panel there when the left side is full): it slides in from that edge. */
+.preview[data-side="right"] { left: auto; right: 16px; transform: translateX(calc(100% + 32px)); }
+.preview[data-open="true"], .preview[data-side="right"][data-open="true"] { transform: none; visibility: visible; transition: transform 0.18s ease-out, visibility 0s; }
 .preview[data-motion="none"] { transition: none; }
 /* The art gives way first: its shrink weight dwarfs the text's, down to a small card. It stays centered and blends in. */
 .preview[data-squeezed="true"] .previewArt { display: none; }
@@ -653,11 +656,16 @@
   pointer-events: auto;
 }
 /* On the right edge the Deck Master plate is far away: only the timer, Responses and End Turn at the bottom right are kept free. */
-.preview[data-pinned="true"][data-side="right"] { max-height: max(300px, calc(100% - 50px - var(--pv-reserve-right, 200px))); }
+.preview[data-pinned="true"][data-side="right"] { max-height: var(--pv-max-h, max(300px, calc(100% - 50px - var(--pv-reserve-right, 200px)))); }
 .preview[data-pinned="true"][data-narrow="true"] { gap: 12px; }
 .preview[data-pinned="true"][data-narrow="true"] .previewArt,
 .preview[data-pinned="true"][data-art="small"] .previewArt { width: clamp(96px, 34%, 140px); }
 .preview[data-pinned="true"][data-side="right"] { left: auto; right: 16px; }
+/* A narrow side area (under 430 px): the art goes on top of the text and the panel grows taller instead of wider. */
+.preview[data-pinned="true"][data-stack="true"] { flex-direction: column; align-items: stretch; gap: 8px; }
+.preview[data-pinned="true"][data-stack="true"] .previewArt { align-self: flex-start; width: clamp(96px, 38%, 150px); }
+.preview[data-pinned="true"][data-stack="true"][data-art="small"] .previewArt { width: clamp(72px, 26%, 100px); }
+.preview[data-pinned="true"][data-stack="true"] .previewBody { flex: 1 1 auto; align-self: stretch; }
 .preview[data-pinned="true"][data-side="right"][data-open="false"] { transform: translateX(calc(100% + 32px)); }
 .preview[data-pinned="true"] .previewArt { flex: none; align-self: flex-start; width: clamp(130px, 30%, 190px); height: auto; margin: 0; }
 .preview[data-pinned="true"][data-squeezed="true"] .previewArt { display: block; }
