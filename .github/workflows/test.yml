@@ -302,6 +302,14 @@ jobs:
       - name: Test worker
         run: npm test --workspace=packages/worker
 
+      - name: Build web with a dummy Clerk public key
+        env:
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_Y2xlcmsuZXhhbXBsZS5jb20k
+        run: npm run build --workspace=packages/web
+
+      - name: Deployment script tests
+        run: npx vitest run scripts/staging/deploy.test.ts
+
       - name: Typecheck
         run: npm run typecheck
 

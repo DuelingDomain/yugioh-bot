@@ -21,6 +21,8 @@ jobs:
       VM_USER: ${{ secrets.VM_USER }}
       VM_SSH_PRIVATE_KEY: ${{ secrets.VM_SSH_PRIVATE_KEY }}
       VM_PORT: ${{ secrets.VM_PORT || '22' }}
+      # Public production key only. The secret remains in the protected VM runtime env.
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
 
     steps:
       - name: Skip deploy when VM secrets are not configured
@@ -163,6 +165,11 @@ jobs:
         if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
         run: |
           set -eu
+          case "$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" in
+            pk_live_*) ;;
+            *) echo "Set the production NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY repository variable." >&2; exit 1 ;;
+          esac
+          printf '%s' "$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" | grep -Eq '^pk_live_[A-Za-z0-9_-]+$' || exit 1
           bundle_tar=$(mktemp "$RUNNER_TEMP/duel-engine.XXXXXX.tar.gz")
           remote_bundle=
           cleanup_transfer() {
@@ -183,7 +190,7 @@ jobs:
           ssh -i ~/.ssh/vm_deploy_key \
             -p "$VM_PORT" \
             "$VM_USER@$VM_HOST" \
-            "env DEPLOY_COMMIT='$DEPLOY_COMMIT' DEPLOY_BUNDLE='$remote_bundle' sh -s" <<'REMOTE'
+            "env DEPLOY_COMMIT='$DEPLOY_COMMIT' DEPLOY_BUNDLE='$remote_bundle' NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY='$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY' sh -s" <<'REMOTE'
              set -eu
              bundle_src=
              installer=
@@ -225,9 +232,9 @@ jobs:
                docker stop $staging_ids || true
              fi
              # Preserve matching rollback code/env and the actual container image IDs before reset/build.
-             # The old checkout may not yet define worker; inspect its whole existing service set.
+             # Record the previous service set, including its bot image for PR 1 rollback.
              umask 077
-             release_dir="/var/backups/yugioh-bot/pr1-$(date -u +%Y%m%d-%H%M%SZ)"
+             release_dir="/var/backups/yugioh-bot/pr2-$(date -u +%Y%m%d-%H%M%SZ)"
              mkdir -m 0700 "$release_dir"
              git rev-parse HEAD > "$release_dir/checkout-commit"
              printf '%s\n' "$DEPLOY_COMMIT" > "$release_dir/deploy-commit"
@@ -252,8 +259,12 @@ jobs:
              mkdir .deploy-duel-engine
              context_ready=1
              cp -a "$bundle_src/." .deploy-duel-engine/
-             docker compose -f docker-compose.yml build
-             docker compose -f docker-compose.yml stop web bot duel worker ws
+             docker compose -f docker-compose.yml build --build-arg NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY="$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"
+             # Retire the bot container from the previous release before migration.
+             project=$(docker compose -f docker-compose.yml config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["name"])')
+             retired_ids=$(docker ps -q --filter "label=com.docker.compose.project=$project" --filter label=com.docker.compose.service=bot)
+             if [ -n "$retired_ids" ]; then docker stop $retired_ids; fi
+             docker compose -f docker-compose.yml stop web duel worker ws
              # Once schema work can begin, failure must leave traffic stopped. Never restart old binaries.
              trap cleanup EXIT
              DUELING_BACKUP_DIR="$release_dir/drained" python3 scripts/backup/dueling-backup
@@ -271,7 +282,7 @@ jobs:
                } finally {db.close();}
              '
              docker compose -f docker-compose.yml down --remove-orphans
-             docker compose -f docker-compose.yml up -d ws duel web bot worker caddy
+             docker compose -f docker-compose.yml up -d ws duel web worker caddy
              trap - EXIT
              cleanup
              docker compose -f docker-compose.yml ps
@@ -294,5 +305,11 @@ jobs:
                done
                [ "$healthy" = 1 ] || { docker compose -f docker-compose.yml logs --tail=60 "$service"; exit 1; }
              done
+             # Anonymous auth checks: no redirects, no cookies and exact null body.
+             docker compose -f docker-compose.yml exec -T web node -e '
+               Promise.all([fetch("http://127.0.0.1:3000/sign-in", {redirect:"manual"}), fetch("http://127.0.0.1:3000/api/auth/session", {redirect:"manual"})])
+                 .then(async ([page, session]) => { if(page.status !== 200 || session.status !== 200 || (await session.text()).trim() !== "null") process.exit(1); })
+                 .catch(() => process.exit(1));
+             '
              docker image prune -f
           REMOTE

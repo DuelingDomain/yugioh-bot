@@ -15,6 +15,7 @@ services:
     ports:
       - "3000:3000"
     environment:
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:?NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY is required}
       WATCHPACK_POLLING: "true"
       CHOKIDAR_USEPOLLING: "true"
     volumes:

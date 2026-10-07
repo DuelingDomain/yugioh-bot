@@ -1,6 +1,6 @@
 # VM Deployment Runbook
 
-This runbook covers deploying the YuGiOh bot + web app to a VM. The stack runs via Docker Compose with Caddy as a reverse proxy. GitHub Actions deploys `main` automatically on push.
+This runbook covers deploying Dueling Domain web/WS/duel/worker to a VM. The stack runs via Docker Compose with Caddy as a reverse proxy. GitHub Actions deploys `main` automatically on push.
 
 ## Current Repository State
 
@@ -8,7 +8,7 @@ This runbook covers deploying the YuGiOh bot + web app to a VM. The stack runs v
 - Production branch: `main`
 - Deploy workflow: `.github/workflows/deploy.yml`
 - VM provider: Hetzner Cloud
-- VM public IP: `178.105.36.104`; production hostname (`SITE_DOMAIN`): `duelistskingdom.com`
+- VM public IP: `178.105.36.104`; pre-cutover hostname: `duelistskingdom.com`; PR 2 app host: `app.duelingdomain.com` (activate only during the coordinated cutover)
 - VM app path: `/opt/yugioh-bot`
 - Runtime user: `root`
 - Data path: `/opt/yugioh-bot/data/bot.sqlite`
@@ -31,11 +31,11 @@ ssh -i ~/.ssh/hetzner_deploy root@YOUR_VM_IP \
 
 # Inspect production .env
 ssh -i ~/.ssh/hetzner_deploy root@YOUR_VM_IP \
-  'grep -E "^(SITE_DOMAIN|NEXTAUTH_URL|WEB_URL)=" /opt/yugioh-bot/.env'
+  'grep -E "^(SITE_DOMAIN|WEB_URL)=" /opt/yugioh-bot/.env'
 
 # Restart a service
 ssh -i ~/.ssh/hetzner_deploy root@YOUR_VM_IP \
-  'cd /opt/yugioh-bot && docker compose -f docker-compose.yml restart bot'
+  'cd /opt/yugioh-bot && docker compose -f docker-compose.yml restart web'
 ```
 
 Optional — add a `~/.ssh/config` entry so you can drop the `-i` flag:
@@ -87,10 +87,14 @@ The deploy workflow requires these GitHub Actions secrets:
    `mktemp` paths and are removed on refusal or any other exit.
    After preflight, the workflow saves matching checkout/deploy commits, actual container image IDs
    for duel/web/bot/WS/worker, protected env and a WAL-safe online backup under
-   `/var/backups/yugioh-bot/pr1-<UTC timestamp>` (directory 0700, env 0600). It tags those image IDs
+   `/var/backups/yugioh-bot/pr2-<UTC timestamp>` (directory 0700, env 0600). It tags those image IDs
    as `:prev` before resetting the checkout or rebuilding, then prepares the ignored `.deploy-duel-engine`
-   context and builds all images. Set literal `DISCORD_BOT_ENABLED=1` in the protected `.env` before PR 1.
-   It stops web/bot/duel/worker and WS, captures a final drained backup, installs the engine bundle,
+   context and builds web/WS/duel/worker images. The repository variable
+   `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` supplies the production public key as a build arg;
+   the secret is read only by web at runtime from the protected VM `.env`.
+   Compose fixes `DISCORD_BOT_ENABLED=0` for web and worker. The old bot image is recorded only for rollback;
+   any previous bot container is stopped by its project/service labels before migration.
+   It stops web/duel/worker and WS, captures a final drained backup, installs the engine bundle,
    and runs one migration with the new worker image before starting consumers. FK and integrity
    failures abort. The EXIT trap only cleans temporary files; after the coordinated stop, failure
    leaves traffic stopped and backups intact. Never restart old binaries against the migrated schema.
@@ -100,7 +104,7 @@ The deploy workflow requires these GitHub Actions secrets:
    also when `manifest.json` is identical. A changed multi core is refused while a Tag or free-for-all duel is active.
    A 1v1 duel never blocks it and never reads it. Without the multi core, a Tag, 3 or 4 player table answers 409
    with a clear message when it starts.
-5. Compose starts WS, duel, web, the updated bot and exactly one worker, then recreates Caddy. The duel container verifies
+5. Compose removes orphan services (including the old bot), starts WS, duel, web and exactly one worker, then recreates Caddy. The duel container verifies
    the volume bundle and runs `node packages/duel-server/dist/server.js`. The `duel-bundled` image carries
    the same bundle at `/opt/duel-engine`, outside the data mount, and verifies it in place during the
    image build. Production sets `DUEL_BUNDLE_SRC=${DUEL_BUNDLE_SRC_ON_START:-}` to empty by default:
@@ -108,7 +112,8 @@ The deploy workflow requires these GitHub Actions secrets:
    by the compiled host). Set `DUEL_BUNDLE_SRC_ON_START=/opt/duel-engine` only for a deliberate fresh-volume
    installation with drained duels; normal production starts should leave it unset. Container restarts
    do not replace, re-download or recompile the bundle.
-   After the duel startup check (`running restarts=0`) and WS/worker health checks (`running 0 healthy`), the workflow runs
+   After the duel startup check (`running restarts=0`), WS/worker health checks (`running 0 healthy`),
+   and anonymous web auth checks (`/sign-in` 200 and `/api/auth/session` 200 with `null`), the workflow runs
    `docker image prune -f` to remove dangling images. The `:prev` tags retain the rollback images.
 6. Caddy serves `https://<SITE_DOMAIN>` and 308-redirects `www.<SITE_DOMAIN>`
    and every plain-HTTP host (including old IP links), preserving path and query.
@@ -178,7 +183,46 @@ Checks and limits:
 - A human reviews each `needs-triage` issue. See `docs/agents/triage-labels.md`. Create the labels `from-app`, `invalid` and
   `duplicate` in the repository once.
 
-### Rollback
+### PR 2 cutover and owner CLI
+
+Before cutover, record the PR 1-compatible commit, actual image IDs (including its bot), protected env and WAL-safe DB backup. Keep its NextAuth/Discord settings only in that protected rollback release. Production Clerk must use the final app origin, exact DNS/email records and Discord callback from its dashboard. Finish approved marketing privacy/terms disclosures before enabling imports or combined waitlist writes. Rehearse import/linking on a copy with dev keys; never copy those Clerk IDs back to production. Domain/DNS order belongs in `domains.md` after the marketing branch merges.
+
+Owner tools are compiled into the worker image; no `tsx` or host scripts are required. Dry-run is default, `--apply` writes, and `--report <path>` chooses a private 0600 report (default `/app/data/ops-reports/<command>-<utc>.json`). Reports contain counts/IDs and omit emails/secrets. The worker Compose environment includes community ID but no Clerk secret.
+
+```bash
+# Read-only season state; start/end need --apply to write.
+docker compose -f docker-compose.yml run --rm --no-deps worker node packages/worker/dist/ops/cli.js season status
+docker compose -f docker-compose.yml run --rm --no-deps worker node packages/worker/dist/ops/cli.js season start --name 'Community season' --actor 123
+docker compose -f docker-compose.yml run --rm --no-deps worker node packages/worker/dist/ops/cli.js season start --name 'Community season' --actor 123 --apply
+docker compose -f docker-compose.yml run --rm --no-deps worker node packages/worker/dist/ops/cli.js season end --apply
+
+# Export the correct instance secret securely in this shell first; -e forwards it only to this run.
+# Plain dry-runs make no remote writes; reconcile is offline unless --check-remote is supplied.
+docker compose -f docker-compose.yml run --rm --no-deps -e CLERK_SECRET_KEY worker node packages/worker/dist/ops/cli.js clerk-precreate-users
+docker compose -f docker-compose.yml run --rm --no-deps -e CLERK_SECRET_KEY worker node packages/worker/dist/ops/cli.js clerk-precreate-users --apply
+docker compose -f docker-compose.yml run --rm --no-deps -e CLERK_SECRET_KEY worker node packages/worker/dist/ops/cli.js clerk-reconcile-waitlist --check-remote
+docker compose -f docker-compose.yml run --rm --no-deps -e CLERK_SECRET_KEY worker node packages/worker/dist/ops/cli.js clerk-reconcile-waitlist --apply --notify
+unset CLERK_SECRET_KEY
+
+# Review identities/history counts first; replace these example users.id values.
+docker compose -f docker-compose.yml run --rm --no-deps worker node packages/worker/dist/ops/cli.js merge-users --source 123 --target 456
+# Revoke the source account's Clerk sessions first. Drain active work and stop ALL writers and WS.
+docker compose -f docker-compose.yml stop web duel worker ws
+# Stop any separately run shelved bot too; take a final backup before apply.
+docker compose -f docker-compose.yml run --rm --no-deps worker node packages/worker/dist/ops/cli.js merge-users --source 123 --target 456 --apply
+# Review the report/FK result before starting traffic again.
+docker compose -f docker-compose.yml up -d ws duel web worker caddy
+```
+
+`--actor` must identify an existing `users.id`. Precreate selects verified-email Discord users without a Clerk ID, persists each success for resume, skips duplicate local emails, and never binds an existing account by email alone. Only precreate accepts `--skip-legal-checks`, for an owner-approved legacy import. Reconcile respects pending/invited/revoked/rejected entries and existing users; `--no-notify` suppresses notifications. Verify invitation delivery and locked email/username/consent flows before announcing the new URL.
+
+Merge refuses two Clerk IDs or two Discord IDs; resolve the conflict in Clerk first. It moves ownership/history in one transaction, checks foreign keys and rolls back constraint conflicts. Read the report's manual-review references in `config_json.themeAssignments` and `tournament_matches.metadata_json.winnerId`; those embedded IDs are not rewritten.
+
+### PR 2 rollback
+
+Stop web/duel/worker and WS (and any separately run bot). Preserve the current DB/WAL/SHM and Clerk mappings/new activity. Restore the recorded **PR 1-compatible** checkout/images/env/origin, with its explicit bot service and `DISCORD_BOT_ENABLED=1`, then start exactly one worker with the PR 1 bot that has no migrated timers. NextAuth cannot sign in email-only users; keep their rows/history and Clerk accounts for forward recovery. Never replace new activity with a stale backup for a PR 2 auth rollback. Coordinate cached domain redirects. A pre-PR1 rollback requires the separate matched DB restore below.
+
+### PR 1 migration rollback (historical)
 
 Before PR 1, obtain a WAL-safe backup using `scripts/backup/dueling-backup`, save matching commit/image IDs/env, and rehearse migration on an owner-provided copy. Drain active games under the existing engine procedure. Build all images, stop web/bot/duel/worker and WS, capture the final drained backup, migrate once using the new worker image, and verify counts, ownership mappings, unchanged player/gameplay IDs, foreign keys and integrity before accepting traffic. Start WS/duel/web, the updated bot with literal `DISCORD_BOT_ENABLED=1`, and one worker. Check worker/WS health, unattended deadlines, Discord commands/status/completion, reconnecting draft sockets and existing NextAuth sessions. The owner then asks members to sign in for verified-email capture; retain NextAuth credentials.
 
@@ -286,42 +330,32 @@ cp .env.example .env
 nano .env
 ```
 
-Fill in (Compose expands `${SITE_DOMAIN}` in the unquoted URL values):
+Fill in (Compose expands `${SITE_DOMAIN}` in unquoted URL values):
 
 ```bash
-DISCORD_TOKEN=your_bot_token
-DISCORD_CLIENT_ID=your_discord_app_id
-DISCORD_CLIENT_SECRET=your_discord_app_secret
-DISCORD_GUILD_ID=your_guild_id
-DISCORD_REMINDER_CHANNEL_ID=your_channel_id
-DISCORD_DEFAULT_CHANNEL_ID=your_default_channel_id
-
-SITE_DOMAIN=  # hostname without scheme; see facts list
-NEXTAUTH_SECRET=  # generate with: openssl rand -base64 32
-NEXTAUTH_URL=https://${SITE_DOMAIN}
+SITE_DOMAIN=app.duelingdomain.com
+MARKETING_DOMAIN=duelingdomain.com
+LEGACY_DOMAIN=duelistskingdom.com
 WEB_URL=https://${SITE_DOMAIN}
-
-WS_INTERNAL_SECRET=  # openssl rand -hex 32; same on web, bot, duel, worker, ws
-BOT_ANNOUNCE_SECRET=  # openssl rand -hex 32
-DUEL_INTERNAL_SECRET=  # openssl rand -hex 32; same on web and duel
-
-# Compose explicitly sets these for all consumers; native development needs absolute paths.
+MARKETING_URL=https://duelingdomain.com
+DISCORD_GUILD_ID=your_community_id
+DISCORD_BOT_ENABLED=0
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=  # production key, also set as the repository variable
+CLERK_SECRET_KEY=  # production web runtime only; never a build arg
+WS_INTERNAL_SECRET=  # openssl rand -hex 32; web/duel/worker/ws share it
+DUEL_INTERNAL_SECRET=  # openssl rand -hex 32; web/duel share it
 DATABASE_PATH=/app/data/bot.sqlite
 CARD_IMAGE_CACHE_DIR=/app/data/card-images
-DISCORD_BOT_ENABLED=1
 CARD_IMAGE_CACHE_MAX_BYTES=16106127360
 SETS_SYNC_CRON=0 6 * * *
 SETS_SYNC_TIMEZONE=UTC
 IMAGE_CLEANUP_CRON=0 4 * * *
 IMAGE_CLEANUP_TIMEZONE=UTC
-REMINDER_CRON=0 10 * * *
-REMINDER_TIMEZONE=America/New_York
 ```
 
-After editing `.env`, recreate containers with `docker compose -f docker-compose.yml up -d`. `restart` does not re-read `.env`.
-With `DISCORD_BOT_ENABLED` set to anything other than literal `1`, the long-running bot logs `[bot] disabled` once and idles with only a keep-alive timer, without initializing the database, Discord client or HTTP server. It exits successfully on SIGTERM or SIGINT; the one-off command deployment still exits successfully immediately. The bot uses `restart: unless-stopped`, so enabled bots restart after a Docker daemon or VM reboot and disabled bots remain idle. The worker continues without Discord delivery. Deploy health checks cover duel, WS and worker, so a disabled bot does not fail deployment.
+Protect `.env` as 0600. Web has an explicit environment list; no `NEXTAUTH_*`, obsolete `AUTH_*`, Discord token/client credentials, bot announce vars or E2E gate are forwarded. The secret is runtime-only and only web receives it; owner CLI runs use explicit `-e CLERK_SECRET_KEY`. Dev keys never reach staging/production. Staging uses a separate instance and source. `WEB_URL` is required; missing it fails Compose config instead of changing WS CORS to localhost.
 
-### Build & Run
+After runtime edits, recreate affected containers with `docker compose -f docker-compose.yml up -d`; `restart` does not reload `.env`. Changing the public key requires a web rebuild through the Deploy workflow. Preserve protected PR 1 credentials/env for the rollback window; current Compose has no bot service. Worker timers keep running without Discord delivery.
 
 The ARM VM does not compile Domain wasm. First production start should be a `main` push
 or `workflow_dispatch` so GitHub Actions can install `/opt/yugioh-bot/data/duel-engine`.
@@ -341,17 +375,13 @@ docker compose -f docker-compose.yml ps
 docker compose -f docker-compose.yml logs -f
 ```
 
-After deploy, run `scripts/smoke-test-site.sh <SITE_DOMAIN> <VM IP>` from the repo on your workstation to check certificates, redirects, Socket.IO, and the Discord callback URL.
+After deploy, run `scripts/smoke-test-site.sh <SITE_DOMAIN> <VM IP>` from the repo on your workstation to check certificates, redirects, Socket.IO, the sign-in page (200), and anonymous session (200 `null`).
 
-Manually open `https://<SITE_DOMAIN>` in a browser, sign in with Discord, and confirm the dashboard loads and a draft updates live; the smoke script cannot verify these checks.
+Manually open `https://<SITE_DOMAIN>` in a browser, exercise email/password and Discord sign-in, invitation ticket + Discord with locked email/required username/consent, email code/resend and password reset. Confirm history recovery, account refresh, channel-free drafts/decks/duels, WS updates, worker deadlines and published legal links; the smoke script cannot verify these checks.
 
-### Discord OAuth Redirect
+### Clerk configuration
 
-In the [Discord Developer Portal](https://discord.com/developers/applications) → OAuth2 → Redirects, add:
-
-```
-https://<SITE_DOMAIN>/api/auth/callback/discord
-```
+Configure production Clerk for `https://app.duelingdomain.com`: waitlist sign-up mode; email/password with email code verification; required username and legal consent; Discord OAuth; passwordless/passkeys/phone off; 30-day maximum session lifetime with no shorter inactivity timeout; bot protection and invitation/waitlist email templates. Consent URLs are `https://duelingdomain.com/privacy` and `https://duelingdomain.com/terms`. Contact is `support@duelingdomain.com`. Apply the exact Clerk dashboard DNS/email records and verify them; do not invent record values. Register the Clerk-provided Discord callback in the Discord app; the app continuation is `/sso-callback`. Keep previous settings for rollback. Owner approval is required before production cutover.
 
 ## GitHub Actions Secrets
 
@@ -364,7 +394,7 @@ Go to your GitHub repo → Settings → Secrets and variables → Actions, and a
 | `VM_SSH_PRIVATE_KEY` | Full contents of your SSH private key |
 | `VM_PORT` | `22` |
 
-After these are set, every push to `main` will auto-deploy.
+Also set repository **variable** `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` to the production `pk_live_...` value. The runtime `CLERK_SECRET_KEY` stays on the VM. After these are set, every push to `main` will auto-deploy.
 
 ## Auto Deploy From Main
 
@@ -392,7 +422,7 @@ docker compose -f docker-compose.yml logs --tail=200
 docker compose -f docker-compose.yml logs -f
 
 # Restart a service
-docker compose -f docker-compose.yml restart bot
+docker compose -f docker-compose.yml restart web
 
 # Image update: run the Deploy workflow (it pins the application and bundle to one CI commit).
 # Start already built images, without a rebuild:
@@ -446,7 +476,7 @@ cd /opt/yugioh-bot
 unit=dueling-backup
 db=data/bot.sqlite
 compose=(docker compose -f docker-compose.yml)
-services=(bot web duel worker ws)
+services=(web duel worker ws)
 systemctl stop "$unit.timer"
 systemctl start "$unit.service"
 backup=/var/backups/yugioh-bot/bot-YYYYmmdd-HHMMSSZ.sqlite
@@ -486,5 +516,5 @@ systemctl start "$unit.timer"
 - [ ] GitHub Actions secrets configured
 - [ ] Push to `main` (or `workflow_dispatch`) installs `data/duel-engine` and starts services
 - [ ] [Deployment verification passes](#verify)
-- [ ] [Discord OAuth redirect added](#discord-oauth-redirect)
+- [ ] [Clerk instance, callback, DNS/email and production keys configured](#clerk-configuration)
 - [ ] `duel` container logs show the private server listening
