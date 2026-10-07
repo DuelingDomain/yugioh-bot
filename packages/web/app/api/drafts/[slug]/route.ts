@@ -2,6 +2,7 @@ import { cardFetchErrorResponse } from "@/lib/card-fetch-errors";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { auth } from "@/lib/auth";
+import { normalizeBoosterDraftNumbers } from "@/lib/booster-draft-validation";
 import { cubeReferenceAccess } from "@/lib/cube-access";
 import { ensureCatalogCards, sanitizePoolSource } from "@/lib/cube-pool";
 import { env } from "@/lib/env";
@@ -206,24 +207,8 @@ export async function PUT(
       delete (mergedConfig as { poolCardIds?: number[] }).poolCardIds;
 
       const submitted = sanitized as typeof mergedConfig;
-      if (submitted.cardsPerPlayer !== undefined || submitted.packSize !== undefined || submitted.packsPerPlayer !== undefined) {
-        const cardsPerPlayer = mergedConfig.cardsPerPlayer ?? 40;
-        const packSize = mergedConfig.packSize ?? 8;
-        if (!Number.isInteger(cardsPerPlayer) || cardsPerPlayer < 40 || cardsPerPlayer > 120) {
-          return NextResponse.json({ error: "Cards per player must be 40 to 120" }, { status: 400 });
-        }
-        if (!Number.isInteger(packSize) || packSize < 5 || packSize > cardsPerPlayer) {
-          return NextResponse.json({ error: "Pack size must be 5 to cards per player" }, { status: 400 });
-        }
-        // Explicit rounds are independent of the pick quota (e.g. 5 piles of 24).
-        const packs = submitted.packsPerPlayer ?? Math.ceil(cardsPerPlayer / packSize);
-        if (!Number.isSafeInteger(packs) || packs < 1) {
-          return NextResponse.json({ error: "Packs per player must be a positive whole number" }, { status: 400 });
-        }
-        mergedConfig.packSize = packSize;
-        mergedConfig.cardsPerPlayer = cardsPerPlayer;
-        mergedConfig.packsPerPlayer = packs;
-      }
+      const formatError = normalizeBoosterDraftNumbers(mergedConfig, submitted);
+      if (formatError) return NextResponse.json({ error: formatError }, { status: 400 });
 
       const hasPool =
         ((mergedConfig as any).setNames?.length ?? 0) > 0 ||

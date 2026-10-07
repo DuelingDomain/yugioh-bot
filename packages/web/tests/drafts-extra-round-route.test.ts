@@ -45,8 +45,8 @@ afterEach(async () => {
   rmSync(directory, { recursive: true, force: true });
 });
 const json = (body: unknown) => new Request("http://localhost/api/drafts", { method: "POST", body: JSON.stringify(body) }) as NextRequest;
-const baseConfig = { customCardIds: Array.from({ length: 20 }, (_, i) => i + 1),
-  packSize: 3, packsPerPlayer: 2, cardsPerPlayer: 6, pickSeconds: 600,
+const baseConfig = { customCardIds: Array.from({ length: 100 }, (_, i) => i + 1),
+  packSize: 8, packsPerPlayer: 5, cardsPerPlayer: 40, pickSeconds: 600,
   extraDeckEnabled: true, extraDeckSize: 3, customExtraCardIds: [1001, 1001, 1002, 1002, 1003, 1003] };
 async function create(config: object = baseConfig) {
   const { POST } = await import("../app/api/drafts/route");
@@ -161,30 +161,30 @@ it("rejects invalid extra edits without changing the pool or draft name", async 
 });
 
 it("runs test bots through two-pick main and odd-sized extra packs and broadcasts resync/complete", async () => {
-  const result = await create({ ...baseConfig, packSize: 4, packsPerPlayer: 1, cardsPerPlayer: 4, picksPerStep: 2 });
+  const result = await create({ ...baseConfig, packSize: 8, packsPerPlayer: 5, cardsPerPlayer: 40, picksPerStep: 2 });
   const { drafts, db } = await joinBot(result.id);
   drafts.start(result.id);
   const human = drafts.players(result.id)[0].playerId;
   const { POST } = await import("../app/api/drafts/[slug]/pick/route");
   let response: any;
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < 43; i++) {
     const option = drafts.pickOptions(result.id, human)[0];
     expect(option).toBeDefined();
     const picked = await POST(json({ cardId: option.id }), context(result.webSlug));
     expect(picked.status).toBe(200);
     response = await picked.json();
-    if (i === 3) {
-      expect(response).toMatchObject({ status: "active", phase: "extra", totalPackRounds: 2, currentPackSize: 3,
-        boosterProgress: { main: 4, mainTotal: 4, extra: 0, extraTotal: 3 } });
-      expect(broadcaster.draft).toHaveBeenCalledWith({ kind: "resync", slug: result.webSlug, packRound: 2, pickStep: 1 });
+    if (i === 39) {
+      expect(response).toMatchObject({ status: "active", phase: "extra", totalPackRounds: 6, currentPackSize: 3,
+        boosterProgress: { main: 40, mainTotal: 40, extra: 0, extraTotal: 3 } });
+      expect(broadcaster.draft).toHaveBeenCalledWith({ kind: "resync", slug: result.webSlug, packRound: 6, pickStep: 1 });
     }
   }
   expect(response.status).toBe("completed");
-  expect(response.myPool).toHaveLength(7);
+  expect(response.myPool).toHaveLength(43);
   expect(broadcaster.draft).toHaveBeenCalledWith({ kind: "complete", slug: result.webSlug });
   const saved = db.prepare("select deck_json from saved_decks where draft_id = ?").get(result.id) as { deck_json: string };
   expect(JSON.parse(saved.deck_json).extra).toHaveLength(3);
-  expect(drafts.picks(result.id).filter((p) => p.pickMethod === "auto")).toHaveLength(7);
+  expect(drafts.picks(result.id).filter((p) => p.pickMethod === "auto")).toHaveLength(43);
 });
 
 it("saves scratch extras as cube extra rows and respects explicit quantities over source-copy quantities", async () => {
@@ -251,4 +251,35 @@ it.each(["POST", "PUT"])("accepts 1000 distinct extra ids and repeated copies on
     : await (await import("../app/api/drafts/[slug]/route")).PUT(json({ config }), context(created.webSlug));
   expect(response.status).toBe(method === "POST" ? 201 : 200);
   expect((await response.json()).config.customExtraCardIds).toEqual(config.customExtraCardIds);
+});
+
+
+it.each([
+  { cardsPerPlayer: 39 }, { cardsPerPlayer: 121 }, { cardsPerPlayer: 40.5 }, { cardsPerPlayer: "40" }, { cardsPerPlayer: null },
+  { packSize: 4 }, { packSize: 41 }, { packSize: 8.5 }, { packSize: "8" }, { packSize: null },
+  { packsPerPlayer: 0 }, { packsPerPlayer: -1 }, { packsPerPlayer: 1.5 }, { packsPerPlayer: "5" }, { packsPerPlayer: null },
+  { packsPerPlayer: Number.MAX_SAFE_INTEGER + 1 },
+])("validates main numbers on POST before player/draft writes: %j", async (invalid) => {
+  const { POST } = await import("../app/api/drafts/route");
+  const response = await POST(json({ name: "Invalid numbers", config: {
+    ...baseConfig, packSize: 8, packsPerPlayer: 5, cardsPerPlayer: 40, ...invalid,
+  } }));
+  expect(response.status).toBe(400);
+  const { getDb } = await import("../src/lib/db");
+  expect(getDb().prepare("select count(*) n from drafts").get()).toEqual({ n: 0 });
+  expect(getDb().prepare("select count(*) n from players").get()).toEqual({ n: 0 });
+});
+
+it.each([
+  { cardsPerPlayer: 40, packSize: 5, packsPerPlayer: 8 },
+  { cardsPerPlayer: 120, packSize: 120, packsPerPlayer: 1 },
+  { cardsPerPlayer: 120, packSize: 24, packsPerPlayer: 5 },
+])("accepts main numeric boundaries on POST: %j", async (numbers) => {
+  const result = await create({ ...baseConfig, ...numbers });
+  expect(result.config).toMatchObject(numbers);
+});
+
+it("derives rounds on POST when only the main quota is supplied", async () => {
+  const result = await create({ customCardIds: baseConfig.customCardIds, cardsPerPlayer: 50 });
+  expect(result.config).toMatchObject({ cardsPerPlayer: 50, packSize: 8, packsPerPlayer: 7 });
 });

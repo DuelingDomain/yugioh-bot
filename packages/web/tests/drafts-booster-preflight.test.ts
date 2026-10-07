@@ -39,6 +39,11 @@ it.each([
   const created = await POST(new Request("http://x/api/drafts", {
     method: "POST", body: JSON.stringify({ name: "Narrow", config }),
   }) as NextRequest);
+  if (packSize < 5 || cardsPerPlayer < 40) {
+    expect(created.status).toBe(400);
+    expect(db.prepare("select count(*) n from drafts").get()).toEqual({ n: 0 });
+    return;
+  }
   expect(created.status).toBe(201);
   const draft = await created.json();
   const context = { params: Promise.resolve({ slug: draft.webSlug }) };

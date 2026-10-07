@@ -2,6 +2,7 @@ import { withCardFetchErrors } from "@/lib/card-fetch-errors";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { auth } from "@/lib/auth";
+import { normalizeBoosterDraftNumbers } from "@/lib/booster-draft-validation";
 import { cubeReferenceAccess } from "@/lib/cube-access";
 import { env } from "@/lib/env";
 import { boosterDraftConfigError, themeDraftNumberError, createCardLookupBudget, createCardCatalogService, createDraftService, createPlayerService } from "@yugidraft/shared/services";
@@ -179,7 +180,7 @@ async function handlePOST(request: NextRequest) {
       { status: 400 }
     );
   }
-  const numberError = boosterDraftConfigError(config);
+  const numberError = boosterDraftConfigError(config) ?? normalizeBoosterDraftNumbers(config);
   if (numberError) return NextResponse.json({ error: numberError }, { status: 400 });
 
   const players = createPlayerService(db);
