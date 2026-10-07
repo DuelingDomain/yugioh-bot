@@ -723,14 +723,41 @@ describe("DraftManageView — Seats First lobby", () => {
   });
 
   it("asks before it starts with players who are not ready, then sends force only after Start anyway", async () => {
-    const stub = stubFetch({ extra: { "POST /api/drafts/s/start": answerWith({ revision: 6 }) } });
-    render(view());
+    const players = [{ ...hostRow, ready: false }, ana, bob];
+    const start = { token: "tok", kind: "manual", startsAt: new Date(Date.now() + 5_000).toISOString() };
+    const stub = stubFetch({ extra: { "POST /api/drafts/s/start": (init) => {
+      const body = JSON.parse(String(init?.body));
+      if (!body.force) return Response.json({
+        code: "NOT_READY", error: "Players must be Ready before starting", notReadyPlayerIds: [ana.playerId],
+      }, { status: 409 });
+      return Response.json({ lobby: lobby({ revision: 6, start }), players }, { status: 202 });
+    } } });
+    render(view({ draft: lobbyDraft({}, {}, players) }));
     fireEvent.click(screen.getByRole("button", { name: /^start draft/i }));
-    expect(await screen.findByRole("dialog", { name: /not everyone is ready/i })).toBeInTheDocument();
-    expect(postsTo(stub, "/start")).toHaveLength(0);
+    const dialog = await screen.findByRole("dialog", { name: /not everyone is ready/i });
+    expect(dialog).toHaveTextContent("Ana is not ready.");
+    expect(dialog).not.toHaveTextContent("Imran");
+    expect(postsTo(stub, "/start")).toHaveLength(1);
+    expect(postsTo(stub, "/start")[0].body).toEqual({ revision: 5 });
     fireEvent.click(screen.getByRole("button", { name: /start anyway/i }));
-    await waitFor(() => expect(postsTo(stub, "/start")).toHaveLength(1));
-    expect(postsTo(stub, "/start")[0].body).toEqual({ revision: 5, force: true });
+    await waitFor(() => expect(postsTo(stub, "/start")).toHaveLength(2));
+    expect(postsTo(stub, "/start")[1].body).toEqual({ revision: 5, force: true });
+    expect(await screen.findByRole("dialog", { name: /draft starting/i })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: /not everyone is ready/i })).not.toBeInTheDocument();
+  });
+
+  it("starts without force when only the host has not marked Ready", async () => {
+    const players = [{ ...hostRow, ready: false }, { ...ana, ready: true }, bob];
+    const start = { token: "tok", kind: "manual", startsAt: new Date(Date.now() + 5_000).toISOString() };
+    const stub = stubFetch({ extra: { "POST /api/drafts/s/start": () => Response.json({
+      lobby: lobby({ revision: 6, ready: 2, start }), players,
+    }, { status: 202 }) } });
+    render(view({ draft: lobbyDraft({}, { ready: 2 }, players) }));
+    fireEvent.click(screen.getByRole("button", { name: /^start draft/i }));
+    expect(await screen.findByRole("dialog", { name: /draft starting/i })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: /not everyone is ready/i })).not.toBeInTheDocument();
+    expect(postsTo(stub, "/start")).toHaveLength(1);
+    expect(postsTo(stub, "/start")[0].body).toEqual({ revision: 5 });
   });
 
   it("shows the start box from the lobby, stops with the token on Esc, and never starts by timer", async () => {
