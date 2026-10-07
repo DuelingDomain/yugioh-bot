@@ -16,7 +16,6 @@ import {
   revealEndsAt,
   revealOutcome,
   startText,
-  waitChooseText,
 } from "./opening-model";
 import { secondsUntil } from "./series-model";
 
@@ -175,10 +174,7 @@ export function OpeningScreen({ opening, receivedAt, mySeat, names, busy = false
         ) : null}
 
         {stage === "wait-choose" ? (
-          <>
-            <p className={styles.chips}><span className={styles.chip} data-done="false">{waitChooseText(opening, mySeat, names)}</span></p>
-            <Countdown iso={opening.deadlineAt} label="Time left" now={now} />
-          </>
+          <Countdown iso={opening.deadlineAt} label="Time left" now={now} />
         ) : null}
 
         {error ? <p className={styles.error} role="alert">{error}</p> : null}
