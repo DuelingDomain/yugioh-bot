@@ -62,6 +62,8 @@ jobs:
         run: |
           npm ci --ignore-scripts
           npx patch-package --error-on-fail
+          # duel:prepare merges release card databases with better-sqlite3.
+          npm rebuild better-sqlite3
 
       - name: Prepare card data and scripts
         if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' && steps.bundle.outputs.cache-hit != 'true' }}
