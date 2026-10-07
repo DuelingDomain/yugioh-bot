@@ -36,7 +36,10 @@
   var DEFAULT_MSG = 'Email only. One pack per email.';
   var MSG = {
     limited: 'Too many tries. Try again in a few minutes.',
-    error: "Couldn't reach the list. Try again."
+    error: "Couldn't reach the list. Try again.",
+    // Marketing-agreed failure copy; owner sign-off pending.
+    retry: "We couldn't add you just now. Try again in a minute.",
+    serverError: 'Something went wrong on our side. Try again later or email support@duelingdomain.com.'
   };
   var DONE = {
     joined: ["You're on the list.", "We'll email your invite and a sign-in link when your wave opens."],
@@ -55,7 +58,7 @@
     });
   });
 
-  function messageFor(s) { return s === 'invalid' ? (state.error || errorFor(state.value)) : (MSG[s] || DEFAULT_MSG); }
+  function messageFor(s) { return s === 'invalid' ? (state.error || errorFor(state.value)) : (state.error || MSG[s] || DEFAULT_MSG); }
 
   function render() {
     var s = state.status, text = messageFor(s);
@@ -78,7 +81,7 @@
       c.live.textContent = say;
     });
   }
-  function setStatus(s) { state.status = s; if (s !== 'invalid') state.error = ''; render(); }
+  function setStatus(s, message) { state.status = s; if (s !== 'invalid') state.error = message || ''; render(); }
 
   function post(c, email) {
     var ticket = ++inflight;
@@ -95,7 +98,8 @@
     }).then(function (r) {
       if (ticket !== inflight) return;
       var b = r.body || {};
-      if (r.status === 201 && b.status === 'joined') { setStatus('joined'); openAll(); }
+      if (r.status === 503 || b.error === 'retry_later') { setStatus('error', MSG.retry); }
+      else if (r.status === 201 && b.status === 'joined') { setStatus('joined'); openAll(); }
       else if (r.status === 200 && b.status === 'exists') { setStatus('exists'); }
       else if (r.status === 400 && b.error === 'invalid_email') { state.error = errorFor(email); state.status = 'invalid'; render(); c.input.focus(); }
       else if (r.status === 429) { setStatus('limited'); }
@@ -110,7 +114,7 @@
     c.input.addEventListener('input', function () {
       state.value = c.input.value;
       claims.forEach(function (o) { if (o !== c) o.input.value = state.value; });
-      if (state.status === 'limited' || state.status === 'error' || (state.status === 'invalid' && validEmail(state.value.trim()))) state.status = 'idle';
+      if (state.status === 'limited' || state.status === 'error' || (state.status === 'invalid' && validEmail(state.value.trim()))) { state.status = 'idle'; state.error = ''; }
       render();
     });
     c.form.addEventListener('submit', function (e) {
@@ -322,11 +326,12 @@
     plateTimer = setTimeout(function () { plateT.textContent = 'Trailer: coming soon'; plateS.textContent = 'Reserved for the launch trailer'; }, 2200);
   });
 
-  /* ---------- no-JS form fallback: the server redirects to /?waitlist=joined|exists|invalid|limited#join ---------- */
+  /* ---------- no-JS form fallback: the server redirects to /?waitlist=joined|exists|invalid|limited|retry|error#join ---------- */
   (function fromRedirect() {
     var m = /[?&]waitlist=([a-z]+)/.exec(location.search);
     if (!m) return;
-    var map = { joined: 'joined', exists: 'exists', invalid: 'invalid', limited: 'limited' };
+    var map = { joined: 'joined', exists: 'exists', invalid: 'invalid', limited: 'limited', retry: 'error', error: 'error' };
+    var messages = { retry: MSG.retry, error: MSG.serverError };
     var s = map[m[1]];
     // Clean the URL once the browser has finished any #join scroll.
     var clean = function () { try { history.replaceState(null, '', location.pathname); } catch (e) { /* ignore */ } };
@@ -334,7 +339,7 @@
     if (!s) return;
     active = claims[claims.length - 1] || null;
     if (s === 'invalid') state.error = errorFor('');
-    setStatus(s);
+    setStatus(s, messages[m[1]]);
     if (s === 'joined' || s === 'exists') openAll(true);
   })();
 })();
