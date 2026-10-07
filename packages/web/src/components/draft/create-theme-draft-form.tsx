@@ -7,6 +7,11 @@ import { StatusLine, SvButton, SvCheck } from "@/components/sheet";
 import { DraftLayout, DraftMain, DraftRail, Num, RailSection, Rules } from "./draft-frame";
 import { secondsText, themeSelectionText } from "./create/format";
 import styles from "./create/create.module.css";
+import tableStyles from "./theme/theme-table.module.css";
+
+const SEATS_MIN = 2;
+const SEATS_MAX = 8;
+const SEATS_DEFAULT = 4;
 
 type Channel = { id: string; name: string };
 
@@ -24,6 +29,7 @@ export function CreateThemeDraftForm() {
   const [uniqueThemes, setUniqueThemes] = React.useState(true);
   const [themeSelection, setThemeSelection] = React.useState<"player_pick" | "random">("player_pick");
   const [pickSeconds, setPickSeconds] = React.useState(45);
+  const [lobbySeats, setLobbySeats] = React.useState(SEATS_DEFAULT);
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [nameError, setNameError] = React.useState(false);
@@ -45,6 +51,10 @@ export function CreateThemeDraftForm() {
       nameRef.current?.focus();
       return;
     }
+    if (!Number.isInteger(lobbySeats) || lobbySeats < SEATS_MIN || lobbySeats > SEATS_MAX) {
+      setError(`Seats must be a number from ${SEATS_MIN} to ${SEATS_MAX}`);
+      return;
+    }
     const config: DraftConfig = {
       mode: "theme",
       allowedCubeIds: [],
@@ -57,6 +67,7 @@ export function CreateThemeDraftForm() {
       uniqueThemes,
       themeSelection,
       pickSeconds,
+      lobbySeats,
     };
     setSubmitting(true);
     try {
@@ -70,7 +81,7 @@ export function CreateThemeDraftForm() {
         throw new Error(data.error ?? "Failed to create theme draft");
       }
       const draft = await res.json();
-      // Land in the draft, where you build its theme cubes.
+      // Only after this explicit create: land at the Theme Table, where the themes are added and picked.
       router.push(draft.webSlug ? `/draft/${draft.webSlug}` : "/drafts");
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");
@@ -128,6 +139,24 @@ export function CreateThemeDraftForm() {
                 </select>
                 <p className="hint">The bot posts the draft here so people can join from Discord.</p>
               </div>
+              <div className="wide">
+                <label className="label" htmlFor="theme-draft-seats">Seats at the table</label>
+                <div className={tableStyles.stepper}>
+                  <button type="button" aria-label="Fewer seats" disabled={lobbySeats <= SEATS_MIN} onClick={() => setLobbySeats((n) => Math.max(SEATS_MIN, n - 1))}>-</button>
+                  <input
+                    className="input"
+                    id="theme-draft-seats"
+                    type="number"
+                    inputMode="numeric"
+                    min={SEATS_MIN}
+                    max={SEATS_MAX}
+                    value={Number.isFinite(lobbySeats) ? lobbySeats : ""}
+                    onChange={(e) => setLobbySeats(e.target.value === "" ? Number.NaN : Number(e.target.value))}
+                  />
+                  <button type="button" aria-label="More seats" disabled={lobbySeats >= SEATS_MAX} onClick={() => setLobbySeats((n) => Math.min(SEATS_MAX, n + 1))}>+</button>
+                </div>
+                <p className="hint">How many players you want. You can start with fewer. {SEATS_MIN} to {SEATS_MAX}.</p>
+              </div>
             </div>
           </section>
 
@@ -149,7 +178,7 @@ export function CreateThemeDraftForm() {
                       onChange={() => setThemeSelection("player_pick")}
                     />
                     <b>Players pick</b>
-                    <span>Players claim a theme in the lobby. Anyone who hasn&apos;t claimed one gets one at the start.</span>
+                    <span>Players claim a theme at the table. Anyone who hasn&apos;t claimed one gets one at the start.</span>
                   </label>
                   <label className={styles.zoneOpt}>
                     <input
@@ -174,6 +203,8 @@ export function CreateThemeDraftForm() {
             </div>
           </section>
 
+          <details className={tableStyles.advanced}>
+          <summary>Advanced settings</summary>
           <section className={styles.sec} aria-labelledby="dt-p">
             <div className={styles.secSide}>
               <h2 id="dt-p">Picks</h2>
@@ -199,7 +230,7 @@ export function CreateThemeDraftForm() {
                 <input type="checkbox" checked={extraDeckEnabled} onChange={(e) => setExtraDeckEnabled(e.target.checked)} />
                 <span>
                   <b>Draft an Extra deck</b>
-                  After the main deck, everyone drafts Extra deck cards from their theme.
+                  After the main deck, everyone drafts up to this many Extra deck cards from their theme.
                 </span>
               </label>
               <div>
@@ -223,6 +254,7 @@ export function CreateThemeDraftForm() {
               />
             </div>
           </section>
+          </details>
         </div>
       </DraftMain>
 
@@ -239,9 +271,10 @@ export function CreateThemeDraftForm() {
           <p className={`${styles.railName}${unnamed ? ` ${styles.unnamed}` : ""}`}>{unnamed ? "Untitled draft" : name.trim()}</p>
           <Rules
             rows={[
+              { label: "Seats", value: <><Num>{Number.isFinite(lobbySeats) ? lobbySeats : SEATS_DEFAULT}</Num> players</> },
               { label: "Themes", value: themeSelectionText(themeSelection, uniqueThemes) },
               { label: "Main deck", value: <><Num>{cardsPerPlayer}</Num> picks</> },
-              { label: "Extra deck", value: extraDeckEnabled ? <><Num>{extraDeckSize}</Num> picks</> : "Not drafted" },
+              { label: "Extra deck", value: extraDeckEnabled ? <>Up to <Num>{extraDeckSize}</Num> picks</> : "Not drafted" },
               { label: "Each pick", value: <><Num>{themePackSize}</Num> choices</> },
               { label: "Pick duration", value: secondsText(pickSeconds) },
               { label: "Passed cards", value: burnUnpicked ? "Gone for good" : "Can come back" },
@@ -250,7 +283,7 @@ export function CreateThemeDraftForm() {
         </RailSection>
         <RailSection title="What happens next">
           <ol className={styles.steps} aria-label="What happens next">
-            <li><span>You get a lobby. Add one theme cube per archetype there.</span></li>
+            <li><span>You get the Theme Table. Add one theme cube per archetype in its box.</span></li>
             {themeSelection === "random" ? (
               <>
                 <li><span>Players join.</span></li>

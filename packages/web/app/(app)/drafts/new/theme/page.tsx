@@ -7,11 +7,11 @@ export default function NewThemeDraftPage() {
     <DraftFrame
       back={{ href: "/drafts/new", label: "New draft" }}
       title="New theme draft"
-      sub="You add the themes in the lobby."
+      sub="You add the themes at the Theme Table."
     >
       <NewDraftLead
-        pieces={["Create", "Then add themes in the lobby"]}
-        note="One cube per archetype."
+        pieces={["Create", "Then add themes at the table"]}
+        note="Each player drafts alone from their own theme. One cube per archetype."
       />
       <CreateThemeDraftForm />
     </DraftFrame>
