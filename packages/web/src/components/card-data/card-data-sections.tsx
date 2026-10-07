@@ -134,7 +134,9 @@ export function EngineSection({ status, now }: { status: CardDataStatus; now: nu
           ) : (
             <p className={styles.rowNote}>The bundle lists no .cdb files.</p>
           )}
-          {upstream.babelCdbFiles.status !== "ok" ? (
+          {isColdRead(status) ? (
+            <p className={styles.rowNote}>Not checked yet</p>
+          ) : upstream.babelCdbFiles.status !== "ok" ? (
             <p className={styles.rowNote}>Upstream release files could not be checked.</p>
           ) : newCdbs.length ? (
             <div className={styles.newFiles}>
@@ -196,6 +198,7 @@ export function CatalogSection({ status, now }: { status: CardDataStatus; now: n
 export function WorkflowSection({ status, now }: { status: CardDataStatus; now: number }) {
   const { updateWorkflow: wf } = status;
   const run = wf.lastRun;
+  const cold = isColdRead(status);
   const runTone: StatusTone = !run ? "neutral" : run.conclusion === "success" ? "ready" : run.status !== "completed" ? "neutral" : "warn";
   const runWord = !run ? null : run.status !== "completed" ? `Running (${run.status})` : run.conclusion === "success" ? "Succeeded" : `Finished: ${run.conclusion ?? "no result"}`;
   return (
@@ -207,7 +210,9 @@ export function WorkflowSection({ status, now }: { status: CardDataStatus; now: 
       <div className={styles.block}>
         <div>
           <p className={styles.label}>Last run</p>
-          {wf.lastRunStatus !== "ok" ? (
+          {cold ? (
+            <StatusLine tone="neutral">Not checked yet</StatusLine>
+          ) : wf.lastRunStatus !== "ok" ? (
             <StatusLine tone="neutral">Could not read the last run from GitHub.</StatusLine>
           ) : run ? (
             <StatusLine tone={runTone}>
@@ -220,7 +225,9 @@ export function WorkflowSection({ status, now }: { status: CardDataStatus; now: 
         </div>
         <div>
           <p className={styles.label}>Open update pull request</p>
-          {wf.pullRequestStatus !== "ok" ? (
+          {cold ? (
+            <StatusLine tone="neutral">Not checked yet</StatusLine>
+          ) : wf.pullRequestStatus !== "ok" ? (
             <StatusLine tone="neutral">Could not look up pull requests on GitHub.</StatusLine>
           ) : wf.openPullRequest ? (
             <StatusLine tone="ready">

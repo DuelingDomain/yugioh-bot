@@ -163,7 +163,10 @@ describe("CardDataStatusPanel", () => {
     await renderWith(coldStatus());
     expect(screen.getByRole("heading", { name: "Unknown" })).toBeTruthy();
     expect(screen.getByText("GitHub check is running. Refresh in a moment.")).toBeTruthy();
-    expect(screen.getAllByText("Not checked yet")).toHaveLength(3);
+    // Three source rows, the release files line, the last run and the pull request lookup.
+    expect(screen.getAllByText("Not checked yet")).toHaveLength(6);
+    expect(screen.queryByText(/could not be checked/)).toBeNull();
+    expect(screen.queryByText(/Could not/)).toBeNull();
     expect(screen.queryByText(/cached until/)).toBeNull();
     expect(screen.queryByText(/did not answer/)).toBeNull();
   });
