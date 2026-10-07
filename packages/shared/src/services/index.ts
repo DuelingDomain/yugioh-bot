@@ -41,6 +41,8 @@ export {
 export type { DraftDeckNote, DraftDeckService } from "./draft-decks.js";
 export { createSavedDeckService, SavedDeckServiceError } from "./saved-decks.js";
 export type { SavedDeckService, SavedDeckWrite } from "./saved-decks.js";
+export { createSandboxScenarioService, SandboxScenarioServiceError, SANDBOX_SCENARIO_LIMIT } from "./sandbox-scenarios.js";
+export type { SandboxScenarioService, SandboxScenario, SandboxScenarioWrite } from "./sandbox-scenarios.js";
 export { createDuelSeriesService, SERIES_SIDE_WINDOW_MS } from "./duel-series.js";
 export type { DuelSeriesService, CreateChallengeInput, SeriesGameStart } from "./duel-series.js";
 export { createTournamentDuelService, TournamentDuelError } from "./tournament-duels.js";

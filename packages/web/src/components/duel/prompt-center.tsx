@@ -1,5 +1,6 @@
 "use client";
 
+import type { SandboxView } from "./api";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Check, EyeOff, Link2 } from "lucide-react";
 import type { DuelAnswer, DuelCardInfo, DuelChainLink, DuelPrompt, DuelPromptOption, DuelZoneRef } from "@yugidraft/shared/duels";
@@ -749,6 +750,7 @@ function ResponseBody({
   draft,
   busy,
   slug,
+  sandbox,
   chain,
   mySeat,
   onSubmit,
@@ -763,6 +765,7 @@ function ResponseBody({
   draft: PromptDraft;
   busy: boolean;
   slug: string;
+  sandbox?: SandboxView;
   chain: readonly DuelChainLink[];
   mySeat: number | null;
   onSubmit: (answer: DuelAnswer) => void;
@@ -785,6 +788,7 @@ function ResponseBody({
     return (
       <AnnounceSearch
         slug={slug}
+        sandbox={sandbox}
         cardCode={draft.cardCode}
         busy={busy}
         onPick={(card) => {
@@ -1290,6 +1294,7 @@ export interface PromptCenterProps {
   /** The duel is running: prompts are answerable. */
   active: boolean;
   slug: string;
+  sandbox?: SandboxView;
   busy: boolean;
   draft: PromptDraft;
   onSubmit: (answer: DuelAnswer) => void;
@@ -1835,7 +1840,7 @@ export function PromptCenter(props: PromptCenterProps) {
           </span>
           {hide}
         </header>
-        <ResponseBody prompt={prompt} draft={draft} busy={busy} slug={slug} chain={chain} mySeat={mySeat} onSubmit={onSubmit}
+        <ResponseBody prompt={prompt} draft={draft} busy={busy} slug={slug} sandbox={props.sandbox} chain={chain} mySeat={mySeat} onSubmit={onSubmit}
           onInspectCard={onInspectCard} nameOf={props.nameOf} seatTones={props.seatTones} priority={props.priority} outRows={outRows} leavingSeats={props.leavingSeats} />
         {hasActions || optional ? (
           <footer className={styles.foot}>

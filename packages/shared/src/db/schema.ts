@@ -659,6 +659,25 @@ export function migrate(db: Database.Database) {
     create index if not exists saved_decks_owner_list_idx on saved_decks (guild_id, owner_user_id, updated_at);
   `);
 
+  db.exec(`
+    create table if not exists sandbox_scenarios (
+      id integer primary key autoincrement,
+      guild_id text not null,
+      owner_player_id integer not null references players(id),
+      name text not null,
+      format text not null,
+      mode text not null,
+      board_json text not null,
+      run_json text not null,
+      created_at text not null default current_timestamp,
+      updated_at text not null default current_timestamp
+    );
+    create index if not exists sandbox_scenarios_guild_updated_idx
+      on sandbox_scenarios (guild_id, updated_at);
+  `);
+
+  addColumnIfMissing(db, "duels", "sandbox", "integer not null default 0");
+
   // Duel series: a match of 1 or 3 games between two players. Every game is a
   // duels row with series_id. When the series has a winner it writes one
   // approved matches row (tournament or ranked casual) in the same transaction

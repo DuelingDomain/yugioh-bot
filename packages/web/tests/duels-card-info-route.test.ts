@@ -12,6 +12,7 @@ vi.mock("@/lib/duel-host", () => ({
   requireDuelActor, callDuelHost,
   duelErrorResponse: () => NextResponse.json({ error: "Not found" }, { status: 404 }),
 }));
+vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
 vi.mock("@/lib/db", () => ({ getDb }));
 
 const cards: DeckCardInfo[] = fixture.texts.map((row, index) => ({
@@ -27,6 +28,7 @@ beforeEach(() => {
   db = new Database(":memory:"); migrate(db); getDb.mockReturnValue(db);
   requireDuelActor.mockResolvedValue({ ok: true, guildId: "guild-1", playerId: 7, duels: { room } });
   callDuelHost.mockResolvedValue({ ok: true, data: { cards, missing: [] } });
+  room.mockReturnValue({ session: { sandbox: false } });
 });
 afterEach(() => { db.close(); });
 

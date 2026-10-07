@@ -1,3 +1,4 @@
+import { readSandboxEngineSnapshot, type SandboxEngineSnapshot } from "./sandbox-snapshot.js";
 import type { DuelAnswer, DuelBattleStep, DuelChainMode, DuelCardInfo, DuelDeck, DuelEngineView, DuelFormat, DuelMasterRule, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
 import { DUEL_SEAT_LEFT_ERROR_CODE, defaultChainMode, partnerSeatOf, seatCountFor, seatsOfTeam, startingLpFor, teamOfSeat } from "@yugidraft/shared/duels";
 import { createHash } from "node:crypto";
@@ -202,6 +203,8 @@ export function eliminationCodeOf(promptId: string): number | null {
 export const DIAGNOSTICS_LIMIT = 200;
 
 export interface EngineGame {
+  /** Private, unredacted capture for sandbox saves only. Legacy cores may omit it. */
+  sandboxSnapshot?(): SandboxEngineSnapshot;
   view(seat: number | null): DuelEngineView;
   answer(seat: number, promptId: string, answer: DuelAnswer): void;
   searchCards(query: string): DuelCardInfo[];
@@ -1252,6 +1255,10 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       // the departed turn player; that window and prompts held by leavers also receive automatic answers.
       answerForLeavingSeats();
       revision += 1;
+    },
+    sandboxSnapshot() {
+      if (closed) throw new Error("Engine is closed");
+      return readSandboxEngineSnapshot(lib, handle, game.view(0), options.mode === "domain");
     },
     diagnostics() {
       return diagnostics.map((entry) => ({ ...entry }));

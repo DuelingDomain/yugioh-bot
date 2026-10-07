@@ -10,7 +10,7 @@ import type {
   DuelPromptOption,
 } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
-import { searchDuelCards } from "./api";
+import { searchDuelCards, type SandboxView } from "./api";
 import { cardArtUrl, LOCATION_HAND, LOCATION_MZONE, zoneKey } from "./constants";
 import { nextEnabledIndex } from "./multi-seat";
 import { backOutAnswer } from "./pick-backout";
@@ -369,11 +369,13 @@ function OptionButton({
 
 export function AnnounceSearch({
   slug,
+  sandbox,
   cardCode,
   busy,
   onPick,
 }: {
   slug: string;
+  sandbox?: SandboxView;
   cardCode: number | null;
   busy: boolean;
   onPick: (card: DuelCardInfo) => void;
@@ -395,7 +397,7 @@ export function AnnounceSearch({
     let cancelled = false;
     const handle = window.setTimeout(() => {
       setSearching(true);
-      searchDuelCards(trimmed, slug)
+      searchDuelCards(trimmed, slug, sandbox)
         .then((data) => {
           if (cancelled) return;
           setResults(data.cards);
@@ -413,7 +415,7 @@ export function AnnounceSearch({
       cancelled = true;
       window.clearTimeout(handle);
     };
-  }, [query, slug]);
+  }, [query, slug, sandbox?.as, sandbox?.reveal]);
 
   return (
     <div className={styles.search}>
@@ -562,6 +564,7 @@ export function PromptTray({
   prompt,
   mySeat,
   slug,
+  sandbox,
   busy,
   draft,
   onSubmit,
@@ -577,6 +580,7 @@ export function PromptTray({
   prompt: DuelPrompt | null;
   mySeat: number | null;
   slug: string;
+  sandbox?: SandboxView;
   busy: boolean;
   draft: PromptDraft;
   onSubmit: (answer: DuelAnswer) => void;
@@ -887,6 +891,7 @@ export function PromptTray({
         <PromptHeader prompt={prompt} />
         <AnnounceSearch
           slug={slug}
+          sandbox={sandbox}
           cardCode={draft.cardCode}
           busy={busy}
           onPick={(card) => {

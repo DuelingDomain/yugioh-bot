@@ -1,3 +1,4 @@
+import { SANDBOX_OPS } from "@yugidraft/shared/duels";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -51,6 +52,9 @@ import {
   type DecisionClockView,
 } from "./clock.js";
 import { chooseScripted, ScriptedBotError, type Rule, type RuleTraceEntry } from "./scripted-bot.js";
+import { sandboxEliminationSeat, isSandboxOpeningWindow, sandboxStartResult, SANDBOX_PHASE_WALK_NOTE, isSandboxPhaseWindow, createSandboxOps, requireSandboxOwner, setSandboxControl, sandboxPhase, walkSandboxPhases, projectSandboxPhaseWindow, prepareSandboxRoom, type SandboxViewOptions } from "./sandbox.js";
+import { policiesForRun, resolveActingSeat, mergeRevealedHands } from "./sandbox-seats.js";
+import { buildSandboxSnapshot, type SandboxSnapshotWorker } from "./sandbox-snapshot.js";
 import { compileBoard } from "./presets/board.js";
 import { setCatalogDirectory } from "./presets/catalog.js";
 import { multiDomainCoreAvailable, multiStartProblem } from "./multi-domain-guard.js";
@@ -151,6 +155,8 @@ type LiveGame = {
   surrendered: Set<number>;
   /** Scripted bot rules by seat (hand scenarios). Seats not in the map play like the random practice bot. */
   policies: Map<number, Rule[]>;
+  /** Sandbox seats controlled by the organizer. Seat 0 is always manual. */
+  manualSeats: Set<number>;
   /** The rules tried for each auto seat's latest prompt (debug-trace). Kept in memory only. */
   traces: Map<number, RuleTraceEntry[]>;
   /** A hand scenario table. Its scripts are written against every response window, so it has no chain response switch. */
@@ -425,7 +431,7 @@ export function createDuelHost(options: {
     const seats = new Set<number>();
     for (const seat of session.seats) if (seat.isBot) seats.add(seat.seat);
     for (const seat of entry?.surrendered ?? []) seats.add(seat);
-    return [...seats].sort((a, b) => a - b);
+    return [...seats].filter((seat) => !entry?.manualSeats.has(seat)).sort((a, b) => a - b);
   }
 
   type AutoPrompt = { kind: "result"; view: DuelEngineView } | { kind: "prompt"; seat: number; view: DuelEngineView };
@@ -440,8 +446,9 @@ export function createDuelHost(options: {
     return null;
   }
 
-  /** Rebuild the scripted bot rules of a preset table from its saved setup. */
-  function policiesOf(setup: { presetId?: string; botPolicies?: Record<string, string> } | undefined): Map<number, Rule[]> {
+  /** Rebuild sandbox or preset bot rules from saved setup. */
+  function policiesOf(setup: ReturnType<typeof service.privateState>["setup"], format: DuelFormat = "1v1"): Map<number, Rule[]> {
+    if (setup?.sandbox) return policiesForRun(setup.sandbox.run, format).policies;
     const policies = new Map<number, Rule[]>();
     const preset = setup?.presetId ? getPreset(setup.presetId) : undefined;
     if (!preset) return policies;
@@ -724,6 +731,25 @@ export function createDuelHost(options: {
     return true;
   }
 
+  /** Empty sandbox phase hooks are automatic during play; walks call the worker directly. */
+  async function advanceSandboxPhaseWindows(slug: string, guildId: string, game: DuelGameWorker): Promise<void> {
+    const session = service.get(slug, guildId);
+    if (!session.sandbox || session.status !== "active") return;
+    for (let step = 0; step < BOT_ADVANCE_LIMIT; step++) {
+      const publicView = await game.view(null);
+      const seat = publicView.prioritySeat;
+      if (publicView.result || seat == null) return;
+      const view = await game.view(seat);
+      if (!isSandboxPhaseWindow(view.prompt)) return;
+      const command: DuelCommand = { promptId: view.prompt!.id, revision: view.revision, answer: { choice: "num:0" } };
+      const decidedAt = now();
+      await game.answer(seat, command.promptId, command.answer);
+      await persistAcceptedCommand(slug, guildId, seat, command, game, decidedAt, newestEventId(view));
+      await emitChange(slug, guildId);
+    }
+    throw new RequestError("Sandbox phase hooks failed to make progress", 500);
+  }
+
   async function advancePracticeBot(slug: string, guildId: string, game: DuelGameWorker): Promise<void> {
     let stepsInTurn = 0;
     let lastTurn: number | null = null;
@@ -732,6 +758,7 @@ export function createDuelHost(options: {
       const session = service.get(slug, guildId);
       if (session.status !== "active") return;
       const entry = games.get(slug);
+      await advanceSandboxPhaseWindows(slug, guildId, game);
       const autoSeats = autoSeatsOf(session, entry);
       if (autoSeats.length === 0) return;
       const found = await findAutoPrompt(game, autoSeats);
@@ -779,6 +806,7 @@ export function createDuelHost(options: {
       await advancePracticeBot(slug, guildId, game);
       return;
     }
+    await advanceSandboxPhaseWindows(slug, guildId, game);
     startBotLoop(slug, guildId);
   }
 
@@ -904,6 +932,7 @@ export function createDuelHost(options: {
       return null;
     }
     const game = entry.game;
+    await advanceSandboxPhaseWindows(slug, guildId, game);
     let found: AutoPrompt | null;
     try {
       found = await findAutoPrompt(game, autoSeats);
@@ -1037,11 +1066,11 @@ export function createDuelHost(options: {
     return { kind: "acted", visible };
   }
 
-  async function recover(slug: string, guildId: string): Promise<DuelGameWorker> {
+  async function recover(slug: string, guildId: string, drive = true): Promise<DuelGameWorker> {
     const existing = games.get(slug);
     if (existing?.game.running) {
       existing.lastRequestAt = now();
-      await driveBot(slug, guildId, existing.game);
+      if (drive) await driveBot(slug, guildId, existing.game);
       return existing.game;
     }
     games.delete(slug);
@@ -1124,11 +1153,12 @@ export function createDuelHost(options: {
       lastRequestAt: now(),
       guildId,
       surrendered: new Set(state.setup?.surrenderedSeats ?? []),
-      policies: policiesOf(state.setup),
+      policies: policiesOf(state.setup, state.session.format),
+      manualSeats: state.setup?.sandbox ? policiesForRun(state.setup.sandbox.run, state.session.format).manualSeats : new Set(),
       traces: new Map(),
       ...(state.setup?.presetId ? { presetId: state.setup.presetId } : {}),
     });
-    await driveBot(slug, guildId, game);
+    if (drive) await driveBot(slug, guildId, game);
     return game;
   }
 
@@ -1137,7 +1167,7 @@ export function createDuelHost(options: {
    * Returns false when the core cannot do it. Keep the old fallback for time losses;
    * refuse a new surrender when the core has no loss function.
    */
-  async function eliminateInCore(slug: string, guildId: string, game: DuelGameWorker, seat: number, code: number): Promise<boolean> {
+  async function eliminateInCore(slug: string, guildId: string, game: DuelGameWorker, seat: number, code: number, note?: string): Promise<boolean> {
     if (typeof game.eliminate !== "function") return false;
     const before = await game.view(seat);
     try {
@@ -1151,7 +1181,7 @@ export function createDuelHost(options: {
     }
     const command: DuelCommand = { promptId: `${ELIMINATE_PROMPT_PREFIX}${code}`, revision: before.revision, answer: {} };
     try {
-      await persistAcceptedCommand(slug, guildId, seat, command, game, now(), newestEventId(before));
+      await persistAcceptedCommand(slug, guildId, seat, command, game, now(), newestEventId(before), note);
     } catch (error) {
       // Applied but not journaled: drop the worker so the next request rebuilds the duel from the journal.
       await disposeGame(slug);
@@ -1259,8 +1289,13 @@ export function createDuelHost(options: {
     await forfeitSeat(slug, guildId, live, expired, TIME_LIMIT_REASON);
   }
 
-  async function project(slug: string, guildId: string, playerId: number, game?: DuelGameWorker, spectate = false): Promise<DuelRoom> {
-    const room = stampRoomClock(service.room(slug, guildId, playerId), now());
+  async function project(slug: string, guildId: string, playerId: number, game?: DuelGameWorker, spectate = false, sandboxView: SandboxViewOptions = {}): Promise<DuelRoom> {
+    const room = stampRoomClock(service.room(slug, guildId, playerId), now()) as ReturnType<typeof service.room>;
+    if (room.session.sandbox) {
+      prepareSandboxRoom(options.db, service, room, playerId, sandboxView, game?.running === true);
+      // Sandbox spectators are forbidden; the owner always receives an acting-seat view.
+      spectate = false;
+    }
     const setup = room.session.format === "1v1" ? null : service.privateState(slug, guildId);
     // Retired commands identify old setup flags; they are not accepted for new surrender.
     const retiredTurnEndSeats = new Set((setup?.commands ?? []).filter((input) => eliminationAtTurnEnd(input.command.promptId)).map((input) => input.seat));
@@ -1277,9 +1312,15 @@ export function createDuelHost(options: {
       if (games.get(slug)?.presetId) delete room.engine.chainMode;
       if (room.engine.result) {
         await persistComplete(slug, guildId, game, room.engine.result.winnerSeat, room.engine.result.reason);
-        return project(slug, guildId, playerId, undefined, spectate);
+        return project(slug, guildId, playerId, undefined, spectate, sandboxView);
       }
     }
+    if (room.session.sandbox && sandboxView.reveal === true && game?.running && room.engine) {
+      const views = new Map<number, DuelEngineView>();
+      for (let seat = 0; seat < seatCountFor(room.session.format); seat++) views.set(seat, await game.view(seat));
+      room.engine = mergeRevealedHands(room.engine, views);
+    }
+    if (room.session.sandbox && room.engine) room.engine = projectSandboxPhaseWindow(room.engine);
     const playerView = room.engine;
     let replayedView: DuelEngineView | null = null;
     // With no final board, replay the journal to check that the loss did land.
@@ -1327,7 +1368,7 @@ export function createDuelHost(options: {
     }
     // Keep the player, replay and spectator views consistent. A Set avoids marking the same view twice.
     markLegacyLosses(new Set([playerView, replayedView, room.engine]));
-    rememberView(slug, playerSeat, playerView, game);
+    if (!room.session.sandbox) rememberView(slug, playerSeat, playerView, game);
     if (spectate && !ownResult) rememberView(slug, room.mySeat, room.engine, game);
     return room;
   }
@@ -1455,6 +1496,71 @@ export function createDuelHost(options: {
     if (process.env.DUEL_SCENARIOS !== "1") throw new RequestError("Not found", 404);
   }
 
+  async function answerSandboxWalk(slug: string, guildId: string, game: DuelGameWorker,
+    seat: number, view: DuelEngineView, answer: DuelAnswer): Promise<void> {
+    const command: DuelCommand = { promptId: view.prompt!.id, revision: view.revision, answer };
+    const decidedAt = now();
+    await game.answer(seat, command.promptId, answer);
+    await persistAcceptedCommand(slug, guildId, seat, command, game, decidedAt, newestEventId(view), SANDBOX_PHASE_WALK_NOTE);
+  }
+
+  const sandbox = createSandboxOps({
+    db: options.db, service, dataDirectory: options.dataDirectory, now, enqueue,
+    async launch(slug, guildId, actor, seed, setup) {
+      return enqueue(slug, async () => {
+        const state = service.privateState(slug, guildId);
+        const session = state.session;
+        const game = spawn();
+        try {
+          await game.create(workerCreateOptions(session.mode, state.decks, seed, session.masterRule,
+            session.settings, session.format, setup.startupScripts, setup.engine, setup.firstTurnDraw));
+          service.activate(slug, guildId, actor, seed, pinnedVersionFor(session.format), null, setup);
+          games.set(slug, { game, guildId, lastRequestAt: now(), surrendered: new Set(), traces: new Map(),
+            ...policiesForRun(setup.sandbox!.run, session.format) });
+          const board = setup.sandbox!.board;
+          const actingSeat = Number((board.turn ?? "p0").slice(1));
+          const opening = await game.view(actingSeat);
+          const eliminated = board.eliminated ?? [];
+          if (eliminated.length && (opening.turn !== 0 || !isSandboxOpeningWindow(opening.prompt))) {
+            throw new Error("The sandbox engine did not stop before turn 1");
+          }
+          for (const id of eliminated) {
+            if (!await eliminateInCore(slug, guildId, game, Number(id.slice(1)), WIN_REASON_SURRENDER, SANDBOX_PHASE_WALK_NOTE)) {
+              throw new Error("This engine cannot eliminate a sandbox seat");
+            }
+          }
+          if (isSandboxOpeningWindow(opening.prompt)) {
+            const current = await game.view(actingSeat);
+            await answerSandboxWalk(slug, guildId, game, actingSeat, current, { choice: "num:0" });
+          }
+          const requested = board.startAt ?? "draw";
+          await walkSandboxPhases({ game, manualSeats: games.get(slug)!.manualSeats, actingSeat, to: requested,
+            answer: (seat, view, answer) => answerSandboxWalk(slug, guildId, game, seat, view, answer) });
+          const started = await game.view(actingSeat);
+          const result = sandboxStartResult(started, requested);
+          // Keep the requested phase for Manual play; automatic seats must resume their turns.
+          if (started.prioritySeat != null && autoSeatsOf(session, games.get(slug)).includes(started.prioritySeat)) {
+            await driveBot(slug, guildId, game);
+          }
+          await emitChange(slug, guildId);
+          return result;
+        } catch (error) {
+          await disposeGame(slug);
+          await safeClose(game);
+          throw new RequestError(error instanceof Error ? error.message : "Duel engine is temporarily unavailable", 503);
+        }
+      });
+    },
+    async cancel(slug, guildId, actor) {
+      await enqueue(slug, async () => {
+        const session = service.get(slug, guildId);
+        if (session.status === "lobby" || session.status === "active") service.cancel(slug, guildId, actor);
+        await disposeGame(slug);
+        await emitChange(slug, guildId);
+      });
+    },
+  });
+
   /** Hand scenarios: make a table from a preset, fill the bot seats and start the duel. */
   async function startPreset(body: Record<string, unknown>, guildId: string, actor: number): Promise<unknown> {
     const preset = typeof body.presetId === "string" ? getPreset(body.presetId) : undefined;
@@ -1523,6 +1629,7 @@ export function createDuelHost(options: {
         guildId,
         surrendered: new Set(),
         policies: policiesOf({ presetId: preset.id, botPolicies }),
+        manualSeats: new Set(),
         presetId: preset.id,
         traces: new Map(),
       });
@@ -1943,7 +2050,7 @@ export function createDuelHost(options: {
       return writePartialReport(slug, guildId, playerId as number, body.note);
     }
     // A spectator switch must never fall back to this player's private cached view.
-    if (body.spectate === true) return queued;
+    if (body.spectate === true || body.as !== undefined || body.reveal !== undefined || service.get(slug, guildId).sandbox) return queued;
     return staleRoom(slug, guildId, playerId as number) ?? queued;
   }
 
@@ -1999,7 +2106,7 @@ export function createDuelHost(options: {
       service.activate(slug, guildId, organizer, seed, pinnedVersionFor(state.session.format), clock, {
         ...(state.setup ?? {}), firstTurnDraw, ...(engine ? { engine } : {}),
       });
-      games.set(slug, { game, lastRequestAt: now(), guildId, surrendered: new Set(), policies: new Map(), traces: new Map() });
+      games.set(slug, { game, lastRequestAt: now(), guildId, surrendered: new Set(), policies: new Map(), manualSeats: new Set(), traces: new Map() });
       await emitChange(slug, guildId);
       await driveBot(slug, guildId, game);
       return game;
@@ -2209,6 +2316,8 @@ export function createDuelHost(options: {
     if (op === "capabilities") {
       return { multiplayerTables: multiplayerTablesEnabled(), multiCoreReady: multiCoreAvailable(options.dataDirectory), multiDomainCoreReady: multiDomainCoreAvailable(options.dataDirectory) };
     }
+    if (op === SANDBOX_OPS.validate) return sandbox.validate(body.board);
+    if (op === SANDBOX_OPS.start) return sandbox.start(body, guildId, actor);
     if (op === "list-presets") {
       requireScenarios();
       return {
@@ -2281,6 +2390,9 @@ export function createDuelHost(options: {
       if (typeof body.query !== "string" || body.query.length > 200) throw new RequestError("Invalid card search", 400);
       if (typeof body.slug === "string" && body.slug) {
         const room = service.room(body.slug, guildId, actor);
+        const info = room.session.sandbox ? service.privateState(body.slug, guildId).setup?.sandbox : undefined;
+        room.mySeat = resolveActingSeat({ ...room.session, actor, mySeat: room.mySeat,
+          manualSeats: info ? policiesForRun(info.run, room.session.format).manualSeats : new Set(), as: body.as });
         if (room.mySeat === null) throw new RequestError("Join this duel before searching its choices", 403);
         if (room.session.status !== "active") throw new RequestError("This duel is not active", 409);
         const game = await recover(body.slug, guildId);
@@ -2295,7 +2407,80 @@ export function createDuelHost(options: {
     }
     if (typeof body.slug !== "string" || !body.slug || body.slug.length > 128) throw new RequestError("Duel slug is required", 400);
     const slug = body.slug;
+    if (op === SANDBOX_OPS.info) return sandbox.info(slug, guildId, actor);
+    if (op === SANDBOX_OPS.restart) return sandbox.restart(slug, guildId, actor);
+    if (op === SANDBOX_OPS.snapshot) {
+      requireSandboxOwner(service, slug, guildId, actor);
+      if (service.get(slug, guildId).status !== "active") throw new RequestError("This sandbox is not active", 409);
+      const saved = sandbox.info(slug, guildId, actor);
+      const game: SandboxSnapshotWorker = await recover(slug, guildId, false);
+      if (!game.sandboxSnapshot) throw new RequestError("This engine cannot capture a sandbox snapshot", 409);
+      return buildSandboxSnapshot(await game.sandboxSnapshot(), saved.board, saved.run);
+    }
+    if (op === SANDBOX_OPS.close) {
+      requireSandboxOwner(service, slug, guildId, actor);
+      const status = service.get(slug, guildId).status;
+      if (status === "lobby" || status === "active") service.cancel(slug, guildId, actor);
+      await disposeGame(slug);
+      await emitChange(slug, guildId);
+      return { ok: true };
+    }
     const room = service.room(slug, guildId, actor);
+    const sandboxView: SandboxViewOptions = { as: body.as, reveal: body.reveal };
+    if (body.as !== undefined || body.reveal !== undefined || op === SANDBOX_OPS.eliminate || op === SANDBOX_OPS.control || op === SANDBOX_OPS.phase || op === SANDBOX_OPS.nextTurn) {
+      requireSandboxOwner(service, slug, guildId, actor);
+      if (body.reveal !== undefined && typeof body.reveal !== "boolean") throw new RequestError("reveal must be a boolean", 400);
+    }
+    if (body.as !== undefined) {
+      const info = service.privateState(slug, guildId).setup?.sandbox;
+      room.mySeat = resolveActingSeat({ ...room.session, actor, mySeat: room.mySeat,
+        manualSeats: info ? policiesForRun(info.run, room.session.format).manualSeats : new Set(), as: body.as });
+    }
+    if (op === SANDBOX_OPS.eliminate) {
+      if (room.session.status !== "active") throw new RequestError("This duel is not active", 409);
+      const game = await recover(slug, guildId, false);
+      const seat = sandboxEliminationSeat(room.session.format, await game.view(null), body.seat);
+      cancelBotLoop(slug);
+      if (!await eliminateInCore(slug, guildId, game, seat, WIN_REASON_SURRENDER, SANDBOX_PHASE_WALK_NOTE)) {
+        throw new RequestError("This engine cannot eliminate a sandbox seat", 409);
+      }
+      await driveBot(slug, guildId, game);
+      await emitChange(slug, guildId);
+      return project(slug, guildId, actor, game, false, sandboxView);
+    }
+    if (op === SANDBOX_OPS.control) {
+      // Recover without answering the seat that is about to become Manual.
+      const run = setSandboxControl(service, slug, guildId, actor, body.seat, body.control);
+      const game = await recover(slug, guildId, false);
+      Object.assign(games.get(slug)!, policiesForRun(run, room.session.format));
+      await emitChange(slug, guildId);
+      await driveBot(slug, guildId, game);
+      return project(slug, guildId, actor, game, false, sandboxView);
+    }
+    if (op === SANDBOX_OPS.phase || op === SANDBOX_OPS.nextTurn) {
+      const to = op === SANDBOX_OPS.phase ? sandboxPhase(body.to) : undefined;
+      if (room.session.status !== "active") throw new RequestError("This duel is not active", 409);
+      cancelBotLoop(slug);
+      const game = await recover(slug, guildId, false);
+      try {
+        await walkSandboxPhases({ game, manualSeats: games.get(slug)!.manualSeats, actingSeat: room.mySeat!, to,
+          answer: (seat, view, answer) => answerSandboxWalk(slug, guildId, game, seat, view, answer),
+        });
+        if (to === undefined) {
+          const view = await game.view(null);
+          const seat = view.prioritySeat;
+          const run = service.privateState(slug, guildId).setup?.sandbox?.run;
+          if (!view.result && seat != null && run?.bots[String(seat) as keyof typeof run.bots] === "practice") {
+            await driveBot(slug, guildId, game);
+          }
+        }
+        await emitChange(slug, guildId);
+        return await project(slug, guildId, actor, game, false, sandboxView);
+      } catch (error) {
+        await disposeGame(slug);
+        throw error;
+      }
+    }
     if (op === "view") {
       // A timeout that no timer caught yet (a restart, a late timer) is applied here.
       if (room.session.status === "lobby" && room.opening) {
@@ -2304,11 +2489,16 @@ export function createDuelHost(options: {
         if (deadline <= now() || (botAt !== null && botAt <= now())) await driveOpening(slug, guildId);
       }
       if (service.get(slug, guildId).status === "active") {
-        const game = await recover(slug, guildId);
+        // The saved phase-walk note preserves a stop on a bot turn across reads and recovery.
+        // Other reads retain normal bot recovery (including a changed saved control mode).
+        const lastCommand = room.session.sandbox
+          ? service.privateState(slug, guildId).commands.at(-1)?.command as (DuelCommand & { note?: string }) | undefined : undefined;
+        const phaseStopped = lastCommand?.note === SANDBOX_PHASE_WALK_NOTE;
+        const game = await recover(slug, guildId, !phaseStopped);
         await settleClock(slug, guildId, game);
-        return project(slug, guildId, actor, games.get(slug)?.game, body.spectate === true);
+        return project(slug, guildId, actor, games.get(slug)?.game, body.spectate === true, sandboxView);
       }
-      return project(slug, guildId, actor, games.get(slug)?.game, body.spectate === true);
+      return project(slug, guildId, actor, games.get(slug)?.game, body.spectate === true, sandboxView);
     }
     if (op === "add-bot") {
       if (actor !== room.session.organizerPlayerId) throw new RequestError("Only the organizer can add a practice bot", 403);
@@ -2332,14 +2522,14 @@ export function createDuelHost(options: {
       clearOpeningTimer(slug);
       await disposeGame(slug);
       await emitChange(slug, guildId);
-      return project(slug, guildId, actor);
+      return project(slug, guildId, actor, undefined, false, sandboxView);
     }
     if (op === "cancel") {
       service.cancel(slug, guildId, actor);
       clearOpeningTimer(slug);
       await disposeGame(slug);
       await emitChange(slug, guildId);
-      return project(slug, guildId, actor);
+      return project(slug, guildId, actor, undefined, false, sandboxView);
     }
     if (op === "report") return writeReport(slug, guildId, actor, body.note, ctl);
     if (op === "debug-trace") return debugTrace(slug, guildId, actor);
@@ -2453,20 +2643,21 @@ export function createDuelHost(options: {
     if (op === "surrender") {
       const game = await recover(slug, guildId);
       await settleClock(slug, guildId, game);
-      const current = await project(slug, guildId, actor, games.get(slug)?.game);
+      const current = await project(slug, guildId, actor, games.get(slug)?.game, false, sandboxView);
       if (current.session.status !== "active") return current;
       await forfeitSeat(slug, guildId, games.get(slug)?.game ?? game, seat, "Surrender");
-      return project(slug, guildId, actor, games.get(slug)?.game);
+      return project(slug, guildId, actor, games.get(slug)?.game, false, sandboxView);
     }
     if (op !== "respond") throw new RequestError("Unknown duel operation", 400);
     const command = body.command as DuelCommand | undefined;
     if (!command || typeof command.promptId !== "string" || !Number.isSafeInteger(command.revision) || !command.answer || typeof command.answer !== "object") {
       throw new RequestError("Invalid engine command", 400);
     }
-    const game = await recover(slug, guildId);
+    // A walk may expose a phase hook. Validate and accept that exact prompt before auto-play resumes.
+    const game = await recover(slug, guildId, !room.session.sandbox);
     await settleClock(slug, guildId, game);
     if (service.get(slug, guildId).status !== "active") {
-      return project(slug, guildId, actor);
+      return project(slug, guildId, actor, undefined, false, sandboxView);
     }
     const live = games.get(slug)?.game ?? game;
     if (games.get(slug)?.surrendered.has(seat)) throw new RequestError("You surrendered this duel", 409);
@@ -2477,7 +2668,7 @@ export function createDuelHost(options: {
     const decidedAt = now();
     await settleClock(slug, guildId, live, decidedAt);
     if (service.get(slug, guildId).status !== "active") {
-      return project(slug, guildId, actor);
+      return project(slug, guildId, actor, undefined, false, sandboxView);
     }
     try {
       await live.answer(seat, command.promptId, command.answer);
@@ -2489,7 +2680,7 @@ export function createDuelHost(options: {
       await persistAcceptedCommand(slug, guildId, seat, command, live, decidedAt, newestEventId(before));
       await emitChange(slug, guildId);
       await driveBot(slug, guildId, live);
-      return await project(slug, guildId, actor, live);
+      return await project(slug, guildId, actor, live, false, sandboxView);
     } catch (error) {
       await disposeGame(slug);
       throw error;
@@ -2700,7 +2891,10 @@ export function createDuelHost(options: {
         let body: Record<string, unknown>;
         try { body = JSON.parse(raw); } catch { throw new RequestError("Invalid JSON", 400); }
         if (!body || typeof body !== "object" || Array.isArray(body)) throw new RequestError("Invalid request", 400);
-        const key = typeof body.slug === "string" ? body.slug : "catalog";
+        // Start and restart share the actor queue so the active and rate limits cannot race.
+        // They can acquire old duel queues for cancellation without holding another duel queue.
+        const key = body.op === SANDBOX_OPS.start || body.op === SANDBOX_OPS.restart
+          ? `sandbox-player:${body.playerId}` : typeof body.slug === "string" ? body.slug : "catalog";
         // Diagnostics skip the queue; GitHub status reads must not block card editor requests.
         const ctl = { abandoned: false };
         const queued = (body.op === "debug-trace" || body.op === "bug-context" || body.op === "engine-data-status" ? operate(body) : enqueue(key, () => operate(body, ctl)));

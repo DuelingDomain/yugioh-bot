@@ -1,3 +1,4 @@
+import { requireSandboxActor } from "@/lib/sandbox-access";
 import { NextRequest, NextResponse } from "next/server";
 import { isDuelChainMode } from "@yugidraft/shared/duels";
 import { callDuelHost, duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
@@ -25,7 +26,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
 
   try {
-    actor.duels.room(slug, actor.guildId, actor.playerId);
+    const room = actor.duels.room(slug, actor.guildId, actor.playerId);
+    if (room.session.sandbox) {
+      const sandboxActor = await requireSandboxActor();
+      if (!sandboxActor.ok) return sandboxActor.response;
+    }
   } catch (error) {
     return duelErrorResponse(error);
   }

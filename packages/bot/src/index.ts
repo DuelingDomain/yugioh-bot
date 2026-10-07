@@ -47,6 +47,7 @@ import {
 } from "./reminders/tournament-reminders.js";
 import { createDraftTimerService } from "./services/draft-timer.js";
 import { createTournamentTimerService } from "./services/tournament-timer.js";
+import { createSandboxCleanupService } from "./services/sandbox-cleanup.js";
 import { createNotifyCleanupService } from "./services/notify-cleanup.js";
 import { createMatchService } from "@yugidraft/shared/services";
 import { createTournamentService } from "@yugidraft/shared/services";
@@ -460,6 +461,17 @@ client.once("ready", () => {
       console.error("Failed to run initial tournament timer tick:", error);
       tournamentTimer.start();
     });
+
+  const sandboxCleanup = createSandboxCleanupService(db);
+  const cleanSandboxDuels = () => {
+    try {
+      sandboxCleanup.tick();
+    } catch (error) {
+      console.error("Failed to clean up sandbox duels:", error);
+    }
+  };
+  cleanSandboxDuels();
+  cron.schedule("* * * * *", cleanSandboxDuels, { timezone: "UTC" });
 
   const notifyCleanup = createNotifyCleanupService({
     db,

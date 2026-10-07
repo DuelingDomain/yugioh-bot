@@ -3,6 +3,7 @@ import { createCardCatalogService } from "@yugidraft/shared/services";
 import type { DeckCardInfo, DuelCardInfo } from "@yugidraft/shared/duels";
 import { getDb } from "@/lib/db";
 import { callDuelHost, duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
+import { hasSandboxQuery, requireSandboxActor, sandboxErrorResponse, sandboxQueryOptions } from "@/lib/sandbox-access";
 
 export const runtime = "nodejs";
 
@@ -32,28 +33,29 @@ function withCatalogCardText<T extends DuelCardInfo>(cards: T[]): T[] {
 }
 
 export async function GET(request: NextRequest) {
-  const actor = await requireDuelActor();
+  const sandboxQuery = hasSandboxQuery(request);
+  const actor = await (sandboxQuery ? requireSandboxActor() : requireDuelActor());
   if (!actor.ok) return actor.response;
-
-  const query = request.nextUrl.searchParams.get("q") ?? "";
-  const slug = request.nextUrl.searchParams.get("slug") ?? undefined;
-  if (slug) {
-    try {
-      actor.duels.room(slug, actor.guildId, actor.playerId);
-    } catch (error) {
-      return duelErrorResponse(error);
+  try {
+    const query = request.nextUrl.searchParams.get("q") ?? "";
+    const slug = request.nextUrl.searchParams.get("slug") ?? undefined;
+    const options = sandboxQueryOptions(request);
+    if (slug) {
+      const room = actor.duels.room(slug, actor.guildId, actor.playerId);
+      if (room.session.sandbox && !sandboxQuery) {
+        const sandboxActor = await requireSandboxActor();
+        if (!sandboxActor.ok) return sandboxActor.response;
+      }
     }
+    const result = await callDuelHost({
+      op: "cards", slug, guildId: actor.guildId, playerId: actor.playerId, query, ...options,
+    });
+    if (!result.ok) return result.response;
+    const data = result.data as { cards: DuelCardInfo[] };
+    return NextResponse.json({ ...data, cards: withCatalogCardText(data.cards) });
+  } catch (error) {
+    return sandboxErrorResponse(error);
   }
-  const result = await callDuelHost({
-    op: "cards",
-    slug,
-    guildId: actor.guildId,
-    playerId: actor.playerId,
-    query,
-  });
-  if (!result.ok) return result.response;
-  const data = result.data as { cards: DuelCardInfo[] };
-  return NextResponse.json({ ...data, cards: withCatalogCardText(data.cards) });
 }
 
 export async function POST(request: Request) {

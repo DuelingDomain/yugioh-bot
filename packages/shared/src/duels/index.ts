@@ -1,5 +1,9 @@
+export * from "./sandbox-ops.js";
 import type { DuelClock, DuelFormat, DuelSettings } from "./settings.js";
 import type { DuelFirstChoice, DuelOpeningView } from "./opening.js";
+
+export * from "./sandbox-board.js";
+export * from "./sandbox-share.js";
 
 export type DuelMode = "normal" | "domain";
 export type DuelStatus = "lobby" | "active" | "completed" | "interrupted" | "cancelled";

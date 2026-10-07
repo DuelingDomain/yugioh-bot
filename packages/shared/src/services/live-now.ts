@@ -45,13 +45,14 @@ const OWN_SQL = `
   from duels d
   join duel_seats me on me.duel_id = d.id and me.player_id = @viewer
   where d.guild_id = @guild
+    and d.sandbox = 0
     and d.archived_at is null
     and (
       d.status = 'active'
       or (d.status = 'lobby' and (select count(*) from duel_seats c where c.duel_id = d.id) >= 2)
     )
   union all
-  select (select g.web_slug from duels g where g.series_id = s.id order by g.game_number desc, g.id desc limit 1) as slug,
+  select (select g.web_slug from duels g where g.series_id = s.id and g.sandbox = 0 order by g.game_number desc, g.id desc limit 1) as slug,
     'between' as state,
     0 as needs_me,
     case when s.vs_bot = 1 then @bot else op.display_name end as opponent,
@@ -71,6 +72,7 @@ const COUNT_SQL = `
   select count(*) as n
   from duels
   where guild_id = @guild
+    and sandbox = 0
     and status = 'active'
     and archived_at is null
     and (

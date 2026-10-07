@@ -64,6 +64,11 @@ async function runWorkerRequest(request: DuelWorkerRequest): Promise<DuelWorkerR
         if (!game) return { id: request.id, ok: false, error: "No game" };
         return { id: request.id, ok: true, value: game.setChainMode(request.seat, request.mode) };
       }
+      case "sandbox-snapshot": {
+        if (!game) return { id: request.id, ok: false, error: "No game" };
+        if (!game.sandboxSnapshot) throw new Error("This engine cannot capture a sandbox snapshot");
+        return { id: request.id, ok: true, value: game.sandboxSnapshot() };
+      }
       case "diagnostics": {
         if (!game) return { id: request.id, ok: false, error: "No game" };
         return { id: request.id, ok: true, value: game.diagnostics() };

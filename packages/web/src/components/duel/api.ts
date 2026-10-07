@@ -17,6 +17,7 @@ import type {
   DuelSeriesSummary,
   DuelSession,
   DuelSettings,
+  SandboxBotMode,
 } from "@yugidraft/shared/duels";
 
 export class DuelRequestError extends Error {
@@ -130,8 +131,22 @@ export function withRoomReceivedAt(room: DuelRoom & { receivedAt?: number }): Re
   return { ...room, receivedAt: room.receivedAt ?? performance.now() };
 }
 
-export async function getDuelRoom(slug: string, spectate = false): Promise<ReceivedDuelRoom> {
-  return withRoomReceivedAt(await parseBody<DuelRoom>(await fetch(duelRoomKey(slug, spectate), { cache: "no-store" })));
+/** The acting seat and hidden-hand visibility for a developer sandbox. */
+export interface SandboxView {
+  as?: number;
+  reveal?: boolean;
+}
+
+function withSandboxQuery(url: string, sandbox?: SandboxView): string {
+  if (!sandbox || (sandbox.as === undefined && sandbox.reveal === undefined)) return url;
+  const query = new URLSearchParams();
+  if (sandbox.as !== undefined) query.set("as", String(sandbox.as));
+  if (sandbox.reveal !== undefined) query.set("reveal", sandbox.reveal ? "1" : "0");
+  return `${url}${url.includes("?") ? "&" : "?"}${query.toString()}`;
+}
+
+export async function getDuelRoom(slug: string, spectate = false, sandbox?: SandboxView): Promise<ReceivedDuelRoom> {
+  return withRoomReceivedAt(await parseBody<DuelRoom>(await fetch(withSandboxQuery(duelRoomKey(slug, spectate), sandbox), { cache: "no-store" })));
 }
 
 export async function acceptDuelInvite(slug: string, inviteCode: string): Promise<ReceivedDuelRoom> {
@@ -280,9 +295,10 @@ export async function startDuel(slug: string): Promise<ReceivedDuelRoom> {
 export async function sendDuelAction(
   slug: string,
   command: DuelCommand,
+  sandbox?: SandboxView,
 ): Promise<ReceivedDuelRoom> {
   return withRoomReceivedAt(await parseBody<DuelRoom>(
-    await fetch(`/api/duels/${encodeURIComponent(slug)}/actions`, {
+    await fetch(withSandboxQuery(`/api/duels/${encodeURIComponent(slug)}/actions`, sandbox), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(command),
@@ -301,9 +317,9 @@ export async function setChainResponseMode(slug: string, mode: DuelChainMode): P
   ));
 }
 
-export async function surrenderDuel(slug: string): Promise<ReceivedDuelRoom> {
+export async function surrenderDuel(slug: string, sandbox?: SandboxView): Promise<ReceivedDuelRoom> {
   return withRoomReceivedAt(await parseBody<DuelRoom>(
-    await fetch(`/api/duels/${encodeURIComponent(slug)}/surrender`, { method: "POST" }),
+    await fetch(withSandboxQuery(`/api/duels/${encodeURIComponent(slug)}/surrender`, sandbox), { method: "POST" }),
   ));
 }
 
@@ -322,10 +338,11 @@ export async function cancelDuel(slug: string): Promise<ReceivedDuelRoom> {
 export async function searchDuelCards(
   q: string,
   slug?: string,
+  sandbox?: SandboxView,
 ): Promise<{ cards: DuelCardInfo[] }> {
   const params = new URLSearchParams({ q });
   if (slug) params.set("slug", slug);
-  return parseBody(await fetch(`/api/duels/cards?${params.toString()}`, { cache: "no-store" }));
+  return parseBody(await fetch(withSandboxQuery(`/api/duels/cards?${params.toString()}`, sandbox), { cache: "no-store" }));
 }
 
 export async function getDuelCards(codes: number[]): Promise<{ cards: DuelCardInfo[]; missing: number[] }> {
@@ -389,4 +406,79 @@ export async function reportEnabled(slug: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Dev sandbox controls (`POST /api/duels/[slug]/sandbox`). Listed developers only; the host checks the organizer.
+
+export type SandboxWalkPhase = "standby" | "main1" | "battle" | "main2" | "end";
+
+async function postSandbox<T>(slug: string, payload: Record<string, unknown>, sandbox?: SandboxView): Promise<T> {
+  return parseBody<T>(await fetch(`/api/duels/${encodeURIComponent(slug)}/sandbox`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...payload,
+      ...(sandbox?.as !== undefined ? { as: sandbox.as } : {}),
+      ...(sandbox?.reveal !== undefined ? { reveal: sandbox.reveal } : {}),
+    }),
+  }));
+}
+
+/** Set one bot seat (1 to 3) to Auto-pass, Practice bot or Manual. The answer is the room as the acting seat sees it. */
+export async function setSandboxSeatControl(
+  slug: string, seat: number, control: SandboxBotMode, sandbox?: SandboxView,
+): Promise<DuelRoom> {
+  return postSandbox(slug, { action: "control", seat, control }, sandbox);
+}
+
+/** Walk the real engine through each phase (bots pass) until `phase`. The room tells where it stopped. */
+export async function sandboxGoToPhase(slug: string, phase: SandboxWalkPhase, sandbox?: SandboxView): Promise<DuelRoom> {
+  return postSandbox(slug, { action: "go-to-phase", phase }, sandbox);
+}
+
+/** Walk the real engine to the start of the next turn. */
+export async function sandboxNextTurn(slug: string, sandbox?: SandboxView): Promise<DuelRoom> {
+  return postSandbox(slug, { action: "next-turn" }, sandbox);
+}
+
+/** New duel with the same board, seed and bot modes. The old one is cancelled. */
+export async function restartSandbox(slug: string, sandbox?: SandboxView): Promise<{ slug: string }> {
+  return postSandbox(slug, { action: "restart" }, sandbox);
+}
+
+/** The part of a saved scenario the bar shows: its id (for the link) and name. */
+export interface SandboxSavedScenario {
+  id: number;
+  name: string;
+}
+
+/** Answer of `save-state`: the saved scenario and what the board could not keep from the live duel. */
+export interface SandboxSaveStateResult {
+  scenario: SandboxSavedScenario;
+  lost: string[];
+}
+
+/** FFA only: send one seat out through the real elimination path. The answer is the room as the acting seat sees it. */
+export async function eliminateSandboxSeat(slug: string, seat: number, sandbox?: SandboxView): Promise<DuelRoom> {
+  return postSandbox(slug, { action: "eliminate", seat }, sandbox);
+}
+
+/**
+ * Snapshot the live duel and save it as a scenario. `scenarioId` updates one the caller owns; leave it out to make
+ * a new one. Nothing changes in the live duel.
+ */
+export async function saveSandboxState(
+  slug: string, options: { name: string; scenarioId?: number }, sandbox?: SandboxView,
+): Promise<SandboxSaveStateResult> {
+  return postSandbox(slug, {
+    action: "save-state",
+    name: options.name,
+    ...(options.scenarioId !== undefined ? { scenarioId: options.scenarioId } : {}),
+  }, sandbox);
+}
+
+/** End the sandbox duel and release its engine. Repeating it is safe. It saves nothing. */
+export async function closeSandbox(slug: string, sandbox?: SandboxView): Promise<{ ok: true }> {
+  return postSandbox(slug, { action: "close" }, sandbox);
 }
