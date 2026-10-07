@@ -441,6 +441,17 @@ function cardRowsOf(): Map<number, CardRow> {
   return cardRows;
 }
 
+describeWithCores("the table: merged card database coverage", [needs.cards(), stock], () => {
+  it("audits every table entry against the database and official scripts, independently of TABLE_SHARD", () => {
+    const absent = TABLE.filter((row) => !inCardDatabase(row.code)).map((row) => row.code).sort((a, b) => a - b);
+    const expectedAbsent = Object.keys(NOT_IN_CARD_DATABASE).map(Number).sort((a, b) => a - b);
+    expect(absent, "review database exclusions when a table card is released or removed").toEqual(expectedAbsent);
+
+    const withoutScript = TABLE.filter((row) => inCardDatabase(row.code) && !existsSync(join(stockDirectory, `c${row.code}.lua`)));
+    expect(withoutScript, "every available table card needs its official script").toEqual([]);
+  });
+});
+
 type Layout = "behind" | "ahead";
 
 const FILLERS = ["Giant Rat", "Battle Ox", "Celtic Guardian", "Axe Raider", "Silver Fang"];
