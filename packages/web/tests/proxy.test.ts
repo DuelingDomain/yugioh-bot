@@ -16,6 +16,14 @@ it("opens only POST to the exact waitlist route", async () => {
     const res = await proxy(request(path), {} as never); expect(res?.status).toBe(401); expect(await res?.json()).toEqual({ error: "unauthorized" });
   }
 });
+it("allows only the exact anonymous recovery routes and their methods", async () => {
+  for (const [path, method] of [["/welcome-back", "GET"], ["/api/auth/existing-player/start", "GET"], ["/api/auth/callback/discord", "GET"], ["/api/auth/existing-player/complete", "POST"], ["/api/auth/existing-player/ticket", "POST"]]) {
+    expect((await proxy(request(path, method), {} as never))?.status ?? 200).toBe(200);
+  }
+  for (const [path, method] of [["/api/auth/existing-player/start", "POST"], ["/api/auth/callback/discord", "POST"], ["/api/auth/existing-player/complete", "GET"], ["/api/auth/existing-player/ticket", "GET"], ["/api/auth/existing-player/other", "GET"], ["/api/auth/existing-player/start/extra", "GET"]]) {
+    expect((await proxy(request(path, method), {} as never))?.status).toBe(401);
+  }
+});
 it("preserves path and query in the sign-in redirect", async () => {
   const res = await proxy(request("/settings?tab=one"), {} as never);
   expect(new URL(res!.headers.get("location")!).searchParams.get("redirect_url")).toBe("/settings?tab=one");

@@ -13,6 +13,11 @@ const user: ClerkUserJson = {
 };
 
 describe("profileFromClerkUser", () => {
+  it("retains a server-proven recovery identity before Clerk links the external account", () => {
+    expect(profileFromClerkUser({ ...user, external_accounts: [], private_metadata: { existingPlayerDiscordId: "900000000000000101" } }).discordUserId).toBe("900000000000000101");
+    expect(profileFromClerkUser({ ...user, external_accounts: [], private_metadata: { existingPlayerDiscordId: "unsafe" } }).discordUserId).toBeNull();
+    expect(profileFromClerkUser({ ...user, private_metadata: { existingPlayerDiscordId: "900000000000000102" } }).discordUserId).toBe("900000000000000101");
+  });
   it("uses the normalized primary email and verified Discord account", () => {
     expect(profileFromClerkUser(user)).toEqual({
       clerkUserId: "user_yugi", username: "yugi", displayName: "Yugi Muto", email: "yugi@example.com",

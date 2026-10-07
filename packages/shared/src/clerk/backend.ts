@@ -5,6 +5,7 @@ export interface ClerkUserJson {
   last_name: string | null;
   image_url: string | null;
   external_id: string | null;
+  private_metadata?: Record<string, unknown>;
   primary_email_address_id: string | null;
   email_addresses: { id: string; email_address: string; verification: { status: string } | null }[];
   external_accounts: { provider: string; provider_user_id: string; verification: { status: string } | null }[];

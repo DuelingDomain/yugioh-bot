@@ -4,7 +4,8 @@ import { useEffect, useReducer, useRef } from "react";
 import { useSignIn } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import { initialAuthState, reduceAuth, signInStatusEvent, type AuthFlowState } from "../lib/auth-flow";
-import { mapClerkError } from "../lib/auth-errors";
+import { isWaitlistRefusal, mapClerkError } from "../lib/auth-errors";
+import { hardNavigate } from "../components/auth/navigate";
 
 export function useSignInFlow(opts: { returnTo: string; marketingUrl: string | null }): {
   state: AuthFlowState;
@@ -21,6 +22,9 @@ export function useSignInFlow(opts: { returnTo: string; marketingUrl: string | n
   const latest = useRef(signal);
   latest.current = signal;
   const busy = useRef(false);
+  const startedTicket = useRef(false);
+  const recovering = useRef(false);
+  const ssoAttempt = useRef(false);
   const mounted = useRef(true);
   const destination = useRef(state.returnTo);
   const pending = state.pending || signal.fetchStatus === "fetching" || !signal.signIn;
@@ -43,11 +47,15 @@ export function useSignInFlow(opts: { returnTo: string; marketingUrl: string | n
   // Signals also expose field/global errors independently of the method result.
   const errorKey = JSON.stringify(signal.errors);
   useEffect(() => {
-    const context = state.step === "newpw" ? "newpw" : state.step === "code" ? "code" : state.step === "password" ? "password" : "identifier";
+    const context = ssoAttempt.current ? "sso" : startedTicket.current ? "ticket" : state.step === "newpw" ? "newpw" : state.step === "code" ? "code" : state.step === "password" ? "password" : "identifier";
     signalError(context);
   }, [errorKey]);
 
   const fail = (error: unknown, context: Parameters<typeof mapClerkError>[1]) => {
+    if (context === "sso" && isWaitlistRefusal(error)) {
+      if (!recovering.current) { recovering.current = true; hardNavigate("/api/auth/existing-player/start"); }
+      return;
+    }
     if (mounted.current) dispatch({ type: "error", view: mapClerkError(error, context) });
   };
   const signalError = (context: Parameters<typeof mapClerkError>[1]) => {
@@ -97,6 +105,22 @@ export function useSignInFlow(opts: { returnTo: string; marketingUrl: string | n
     if (purpose && await call(send, "code")) dispatch({ type: "code-sent", purpose, now: Date.now() });
   };
 
+  useEffect(() => {
+    if (startedTicket.current || signal.fetchStatus === "fetching" || !signal.signIn || new URLSearchParams(window.location.search).get("existing_player") !== "1") return;
+    startedTicket.current = true;
+    // Replace the marker before consuming the single-use ticket. No token ever
+    // enters browser history, a redirect URL, or a Referer header.
+    const url = new URL(window.location.href); url.searchParams.delete("existing_player");
+    window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+    void run("ticket", async () => {
+      const response = await fetch("/api/auth/existing-player/ticket", { method: "POST", credentials: "same-origin", cache: "no-store" });
+      const body: unknown = await response.json();
+      const ticket = body && typeof body === "object" && "ticket" in body ? body.ticket : null;
+      if (!response.ok || typeof ticket !== "string" || !ticket) { fail({ code: "ticket_expired" }, "ticket"); return; }
+      if (await call(() => latest.current.signIn!.create({ strategy: "ticket", ticket }), "ticket", () => latest.current.signIn!.status !== "needs_identifier")) await advance();
+    });
+  }, [signal.fetchStatus, Boolean(signal.signIn)]);
+
   return {
     state: { ...state, pending: pending || busy.current },
     actions: {
@@ -110,6 +134,7 @@ export function useSignInFlow(opts: { returnTo: string; marketingUrl: string | n
       continueWithDiscord: async () => {
         if (state.step !== "signin") return;
         await run("sso", async () => {
+          ssoAttempt.current = true;
           try { sessionStorage.setItem("dd_auth_resume", JSON.stringify({ kind: "sign-in", returnTo: state.returnTo })); } catch { /* Storage can be unavailable. Clerk still retains the attempt. */ }
           await call(() => latest.current.signIn!.sso({ strategy: "oauth_discord", redirectUrl: state.returnTo, redirectCallbackUrl: "/sso-callback" }), "sso");
         });

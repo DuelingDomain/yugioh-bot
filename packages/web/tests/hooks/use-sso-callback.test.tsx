@@ -5,12 +5,13 @@ import { useSsoCallback } from "../../src/hooks/use-sso-callback";
 import { useSignUpFlow } from "../../src/hooks/use-sign-up-flow";
 import { useSignInFlow } from "../../src/hooks/use-sign-in-flow";
 
-const mock = vi.hoisted(() => ({ signInSignal: {} as any, signUpSignal: {} as any, push: vi.fn() }));
+const mock = vi.hoisted(() => ({ signInSignal: {} as any, signUpSignal: {} as any, push: vi.fn(), hardNavigate: vi.fn() }));
+vi.mock("@/components/auth/navigate", () => ({ hardNavigate: mock.hardNavigate }));
 vi.mock("@clerk/nextjs", () => ({ useSignIn: () => mock.signInSignal, useSignUp: () => mock.signUpSignal }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mock.push }) }));
 const ok = () => Promise.resolve({ error: null });
 beforeEach(() => {
-  vi.useFakeTimers(); vi.setSystemTime(1000); mock.push.mockReset(); sessionStorage.clear();
+  vi.useFakeTimers(); vi.setSystemTime(1000); mock.push.mockReset(); mock.hardNavigate.mockReset(); sessionStorage.clear();
   window.history.replaceState(null, "", "/sso-callback");
   mock.signInSignal = { fetchStatus: "idle", errors: { fields: {}, raw: null, global: null }, signIn: { id: "sia_existing", status: "needs_identifier", isTransferable: false, sso: vi.fn(ok), finalize: vi.fn(ok) } };
   mock.signUpSignal = { fetchStatus: "idle", errors: { fields: {}, raw: null, global: null }, signUp: {
@@ -73,13 +74,23 @@ describe("SSO callback", () => {
     expect(mock.signUpSignal.signUp.password).not.toHaveBeenCalled();
     expect(result.current.state.step).toBe("success");
   });
-  it("rejects a sign-in transferred into signup under waitlist mode", async () => {
+  it("recovers a sign-in transferred into signup under waitlist mode", async () => {
     const signin = renderHook(() => useSignInFlow({ returnTo: "/drafts", marketingUrl: null }));
     await act(() => signin.result.current.actions.continueWithDiscord()); signin.unmount();
     mock.signInSignal.signIn.isTransferable = true;
     const { result } = await mount();
-    expect(result.current.state.step).toBe("err-signup");
+    expect(mock.hardNavigate).toHaveBeenCalledWith("/api/auth/existing-player/start");
+    expect(result.current.state.step).not.toBe("err-signup");
     expect(mock.signUpSignal.signUp.finalize).not.toHaveBeenCalled();
+  });
+  it.each(["sign_up_restricted_waitlist", "not_allowed_access", "sign_up_mode_restricted"])("recovers callback restriction %s even without a loaded attempt", async code => {
+    mock.signUpSignal.signUp.id = undefined;
+    mock.signUpSignal.signUp.emailAddress = null;
+    mock.signInSignal.signIn.id = undefined;
+    mock.signUpSignal.errors.global = [{ code }];
+    const { result } = await mount();
+    expect(mock.hardNavigate).toHaveBeenCalledWith("/api/auth/existing-player/start");
+    expect(result.current.state.step).not.toBe("err-signup");
   });
   it("rejects a callback without any usable attempt", async () => {
     mock.signUpSignal.signUp.emailAddress = null;

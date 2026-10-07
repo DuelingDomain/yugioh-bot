@@ -20,6 +20,17 @@ it("does not fail a committed sync if external ID repair remains unavailable", a
 it("clears an unsuccessful in-flight request so a later request can retry", async () => {
  s.get.mockRejectedValueOnce(new Error("failed")); await expect(syncClerkUser("user_sync")).rejects.toThrow("failed"); expect((await syncClerkUser("user_sync")).user.clerkUserId).toBe("user_sync"); expect(s.get).toHaveBeenCalledTimes(2);
 });
+it("refreshes a recovered profile on its original user and player without losing its proven Discord ID", async () => {
+ const users = createUserService(s.db!);
+ const existing = users.ensureDiscord({ discordUserId: "900000000000000101", displayName: "Original" });
+ const playerId = Number(s.db!.prepare("insert into players(guild_id,user_id,discord_user_id,display_name) values('g',?,?,?)").run(existing.id, existing.discordUserId, "Original").lastInsertRowid);
+ users.claimExistingDiscordUser(existing.id, existing.discordUserId!, "user_sync");
+ s.get.mockResolvedValue({ ...json, external_id: String(existing.id), private_metadata: { existingPlayerDiscordId: existing.discordUserId }, primary_email_address_id: "primary", email_addresses: [{ id: "primary", email_address: "yugi@test.dev", verification: { status: "verified" } }] });
+ const result = await syncClerkUser("user_sync");
+ expect(result.user).toMatchObject({ id: existing.id, clerkUserId: "user_sync", discordUserId: existing.discordUserId, email: "yugi@test.dev", emailVerified: true, username: "sync" });
+ expect(s.db!.prepare("select id,user_id,discord_user_id from players").get()).toEqual({ id: playerId, user_id: existing.id, discord_user_id: existing.discordUserId });
+ expect(s.db!.prepare("select count(*) as n from users").get()).toEqual({ n: 1 });
+});
 it("returns the committed outcome while external ID repair is still pending", async () => {
  let finishRepair!: (value: typeof json) => void;
  s.update.mockReturnValue(new Promise<typeof json>(resolve => { finishRepair = resolve; }));

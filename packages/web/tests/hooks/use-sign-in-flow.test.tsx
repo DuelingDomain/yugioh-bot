@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { flushSync } from "react-dom";
+import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useSignInFlow } from "../../src/hooks/use-sign-in-flow";
 
-const mock = vi.hoisted(() => ({ signal: {} as any, push: vi.fn() }));
+const mock = vi.hoisted(() => ({ signal: {} as any, push: vi.fn(), hardNavigate: vi.fn() }));
+vi.mock("@/components/auth/navigate", () => ({ hardNavigate: mock.hardNavigate }));
 vi.mock("@clerk/nextjs", () => ({ useSignIn: () => mock.signal }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mock.push }) }));
 const ok = () => Promise.resolve({ error: null });
@@ -15,6 +17,8 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(1000);
   mock.push.mockReset();
+  mock.hardNavigate.mockReset();
+  window.history.replaceState(null, "", "/sign-in");
   sessionStorage.clear();
   mock.signal = { fetchStatus: "idle", errors: { fields: {}, raw: null, global: null }, signIn: {
     status: "needs_identifier", supportedSecondFactors: [{ strategy: "email_code" }], isTransferable: false,
@@ -24,9 +28,49 @@ beforeEach(() => {
     resetPasswordEmailCode: { sendCode: vi.fn(ok), verifyCode: vi.fn(ok), submitPassword: vi.fn(ok) },
   } };
 });
-afterEach(() => { cleanup(); vi.useRealTimers(); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe("sign-in flow", () => {
+  it.each(["sign_up_restricted_waitlist", "not_allowed_access", "sign_up_mode_restricted"])("recovers Discord refusal %s", async code => {
+    mock.signal.signIn.sso.mockResolvedValue(error(code));
+    const { result } = setup();
+    await act(() => result.current.actions.continueWithDiscord());
+    expect(mock.hardNavigate).toHaveBeenCalledWith("/api/auth/existing-player/start");
+    expect(result.current.state.step).not.toBe("err-signup");
+  });
+  it("consumes the recovery ticket via a same-origin POST and finalizes once", async () => {
+    window.history.replaceState(null, "", "/sign-in?existing_player=1");
+    const fetcher = vi.fn(async () => Response.json({ ticket: "test-ticket" }));
+    vi.stubGlobal("fetch", fetcher);
+    mock.signal.signIn.create.mockImplementation(async () => { mock.signal.signIn.status = "complete"; return { error: null }; });
+    const { result, rerender } = setup();
+    await act(async () => {});
+    expect(fetcher).toHaveBeenCalledWith("/api/auth/existing-player/ticket", expect.objectContaining({ method: "POST" }));
+    expect(mock.signal.signIn.create).toHaveBeenCalledWith({ strategy: "ticket", ticket: "test-ticket" });
+    expect(result.current.state.step).toBe("success");
+    rerender(); await act(async () => {});
+    expect(mock.signal.signIn.create).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+  });
+  it("maps rejected recovery tickets and does not activate a session", async () => {
+    window.history.replaceState(null, "", "/sign-in?existing_player=1");
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ticket: "expired-ticket" })));
+    mock.signal.signIn.create.mockResolvedValue(error("ticket_expired"));
+    const { result } = setup(); await act(async () => {});
+    expect(result.current.state.step).toBe("err-signup");
+    expect(mock.signal.signIn.finalize).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+  it("consumes a recovery ticket once in StrictMode and waits for SDK fetching", async () => {
+    window.history.replaceState(null, "", "/sign-in?existing_player=1");
+    const fetcher = vi.fn(async () => Response.json({ ticket: "test-ticket" })); vi.stubGlobal("fetch", fetcher);
+    mock.signal.fetchStatus = "fetching";
+    mock.signal.signIn.create.mockImplementation(async () => { mock.signal.signIn.status = "complete"; return { error: null }; });
+    const { result, rerender } = renderHook(() => useSignInFlow({ returnTo: "/dashboard", marketingUrl: null }), { wrapper: StrictMode });
+    await act(async () => {}); expect(fetcher).not.toHaveBeenCalled();
+    mock.signal.fetchStatus = "idle"; rerender(); await act(async () => {});
+    expect(fetcher).toHaveBeenCalledTimes(1); expect(mock.signal.signIn.finalize).toHaveBeenCalledTimes(1); expect(result.current.state.step).toBe("success");
+  });
   it.each([undefined, {}, { result: undefined, error: null }])("shows service trouble when identifying makes no progress (%j)", async (response) => {
     mock.signal.signIn.create.mockResolvedValue(response);
     const { result } = setup();

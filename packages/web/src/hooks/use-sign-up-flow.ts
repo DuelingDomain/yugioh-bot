@@ -4,7 +4,8 @@ import { useEffect, useReducer, useRef, useState } from "react";
 import { useSignIn, useSignUp } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import { initialAuthState, reduceAuth, signUpRequirementsEvent, type AuthFlowState } from "../lib/auth-flow";
-import { mapClerkError } from "../lib/auth-errors";
+import { isWaitlistRefusal, mapClerkError } from "../lib/auth-errors";
+import { hardNavigate } from "../components/auth/navigate";
 import { DEFAULT_RETURN, safeReturnPath } from "../lib/auth-return";
 
 type AccountInput = { username: string; password: string; legalAccepted: boolean };
@@ -36,6 +37,7 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
   const busy = useRef(false);
   const started = useRef(false);
   const mounted = useRef(true);
+  const recovering = useRef(false);
   const lockedEmail = useRef<string | null>(null);
   const destination = useRef(state.returnTo);
   const fetching = signUpSignal.fetchStatus === "fetching" || signInSignal?.fetchStatus === "fetching";
@@ -62,20 +64,29 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
   }, [state.step, router]);
 
   const activeErrors = opts.callback && (resumeKind === "sign-in" || signInSignal?.signIn.status === "complete") ? signInSignal?.errors : signUpSignal.errors;
-  const errorKey = JSON.stringify(activeErrors);
+  const errorKey = JSON.stringify(opts.callback ? [signUpSignal.errors, signInSignal?.errors] : activeErrors);
   useEffect(() => {
+    if (opts.callback) {
+      signalError("sso", "sign-in");
+      signalError("sso", "sign-up");
+      return;
+    }
     signalError(state.step === "code" ? "code" : !opts.callback && !lockedEmail.current ? "ticket" : "signup", activeErrors === signInSignal?.errors ? "sign-in" : "sign-up");
   }, [errorKey]);
 
   const fail = (error: unknown, context: Parameters<typeof mapClerkError>[1]) => {
+    if (context === "sso" && isWaitlistRefusal(error)) { recover(); return; }
     if (mounted.current) dispatch({ type: "error", view: mapClerkError(error, context) });
+  };
+  const recover = () => {
+    if (!recovering.current) { recovering.current = true; hardNavigate("/api/auth/existing-player/start"); }
   };
   const signalError = (context: Parameters<typeof mapClerkError>[1], kind: Exclude<ResumeKind, null> = "sign-up") => {
     const errors = kind === "sign-in" ? latest.current.signInSignal?.errors : latest.current.signUpSignal.errors;
     if (!errors) return false;
     let found = false;
     for (const [name, error] of Object.entries(errors.fields)) {
-      if (error) { fail({ ...error, meta: { paramName: name === "legalAccepted" ? "legal_accepted" : name } }, name === "code" ? "code" : "signup"); found = true; }
+      if (error) { fail({ ...error, meta: { paramName: name === "legalAccepted" ? "legal_accepted" : name } }, context === "sso" ? "sso" : name === "code" ? "code" : "signup"); found = true; }
     }
     for (const error of [...errors.raw ?? [], ...errors.global ?? []]) { fail(error, context); found = true; }
     return found;
@@ -117,7 +128,7 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
   };
 
   useEffect(() => {
-    if (started.current || fetching || loading) return;
+    if (started.current || recovering.current || fetching || loading) return;
     started.current = true;
     void run("signup", async () => {
       const signUp = latest.current.signUpSignal.signUp!;
@@ -127,7 +138,7 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
         if (signIn.status === "complete") { await finalize("sign-in"); return; }
         // A sign-in OAuth transfer is not an invitation. Never start a new signup.
         if (resume.kind === "sign-in" || signIn.isTransferable || (resume.attemptId && resume.attemptId !== signUp.id)) {
-          dispatch({ type: "error", view: { kind: "step", step: "err-signup" } }); return;
+          recover(); return;
         }
         setResumeKind("sign-up");
         await advanceSignup();

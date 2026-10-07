@@ -37,7 +37,7 @@ We decided the following:
 - **Existing members are imported.**
   - PR 1, still on Auth.js, creates a `users` row for every existing Discord player, then records each member's verified Discord email whenever they sign in.
   - At the cutover, a script pre-creates a Clerk account for every user with a verified email. Clerk's account linking connects their first Discord sign-in to it.
-  - Members with no email on file join the waitlist. Their history reattaches when they sign in with Discord.
+  - Members with no email on file recover access through direct Discord OAuth proof, a verified Discord email and legal consent. The server creates their Clerk account and claims the original `users` row; they skip the waitlist. Unknown Discord identities still join the waitlist. This supersedes the original no-email cutover fallback (owner, 2026-10-07).
 - **Linking Discord later** attaches an existing Discord-only user, and their history, to the signed-in account. If both sides already have history, the link is refused and the owner merges them by script.
 - **Clerk is a runtime dependency of web.** If Clerk is down, nobody can sign in, and sessions stop refreshing within about a minute.
   - ws and duel-server are unaffected: they keep verifying our own HMAC tokens.
