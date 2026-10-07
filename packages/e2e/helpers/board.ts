@@ -154,13 +154,13 @@ export type Table = { seats: Seat[]; slug: string; table: string };
  * `bots` are the 0-based seats a practice bot fills (added through the bot route before the humans join, so
  * humans take the seats that are left). Every human imports its deck and readies, then the host starts the duel and
  * all humans enter the duel room. `decks` has one deck for each human, in the same order.
- * These card and turn-rule fixtures seed descending dice in the isolated test database to keep their seat assumptions.
+ * These fixtures default to descending dice; `diceRolls` exercises a different public seat order.
  */
 export async function startTable(
   humans: Seat[],
   label: string,
   decks: DeckSpec[],
-  options: TableOptions & { bots?: number[] } = { ordered: true, looseDecks: true, noBanlist: true, format: "ffa4" },
+  options: TableOptions & { bots?: number[]; diceRolls?: readonly number[] } = { ordered: true, looseDecks: true, noBanlist: true, format: "ffa4" },
 ): Promise<Table> {
   if (humans.length !== decks.length) throw new Error(`startTable: ${humans.length} players but ${decks.length} decks`);
   const [host, ...guests] = humans as [Seat, ...Seat[]];
@@ -184,8 +184,8 @@ export async function startTable(
     await importDeckUploadAndReady(guest.page, ydkUpload(deck), deck.main.length);
   }
   await importDeckUploadAndReady(host.page, ydkUpload(decks[0]!), decks[0]!.main.length);
-  // Card-specific tests keep their actors in the same seats; the host still reveals dice for 3 seconds.
-  await installOrderedDiceOpening(host.page, slug);
+  // The host still reveals dice for 3 seconds, including when a test requests seat moves.
+  await installOrderedDiceOpening(host.page, slug, options.diceRolls);
   const start = host.page.getByRole("button", { name: /^Start duel/ });
   await expect(start).toBeEnabled();
   await start.click();
