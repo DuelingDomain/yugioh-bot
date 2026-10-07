@@ -1,24 +1,39 @@
+import Database from "better-sqlite3";
+import { migrate } from "../../src/db/schema.js";
 import { describe, expect, it, vi } from "vitest";
 import { ChannelType } from "discord.js";
 import { createAnnounceHandlers } from "../../src/announce/handlers.js";
 
 describe("announce handlers", () => {
-  it("does not post draft status messages when a web-started draft announces start", async () => {
-    const drafts = { findById: vi.fn() };
+  it("posts a real started announcement using the committed draft and stored channel", async () => {
+    const send = vi.fn().mockResolvedValue({ id: "message" });
+    const fetch = vi.fn().mockResolvedValue({ type: ChannelType.GuildText, guildId: "g1", send });
+    const draft = { id: 1, guildId: "g1", channelId: "stored", name: "Actual", webSlug: "actual", status: "active" };
     const messenger = { postStatus: vi.fn(), updateStatus: vi.fn() };
-    const handlers = createAnnounceHandlers({
-      client: { channels: { fetch: vi.fn() } } as any,
-      db: { prepare: vi.fn() } as any,
-      guildSettings: {} as any,
-      drafts: drafts as any,
-      messenger,
-    });
+    const handlers = createAnnounceHandlers({ client: { channels: { fetch } } as any, db: {} as any,
+      guildSettings: {} as any, drafts: { findById: () => draft } as any, messenger });
+    await handlers.onDraftStarted({ draftId: 1, channelId: "untrusted", name: "fake", webSlug: "fake" });
+    expect(fetch).toHaveBeenCalledWith("stored");
+    expect(messenger.postStatus).toHaveBeenCalledWith(draft);
+    expect(send.mock.calls[0][0].content).toContain("Actual");
+    expect(send.mock.calls[0][0].components[0].toJSON().components[0].url).toContain("/draft/actual");
+    expect(send.mock.calls[0][0].allowedMentions).toEqual({ parse: [], users: [] });
+  });
 
-    await handlers.onDraftStarted({ draftId: 1, channelId: "c1", name: "test1", webSlug: "1d4wjhls" });
-
-    expect(drafts.findById).not.toHaveBeenCalled();
-    expect(messenger.postStatus).not.toHaveBeenCalled();
-    expect(messenger.updateStatus).not.toHaveBeenCalled();
+  it("still sends the started message if updating the existing status fails", async () => {
+    const draft = { id: 1, guildId: "g1", channelId: "stored", name: "Night", webSlug: "night", status: "active", statusMessageId: "status" };
+    const send = vi.fn().mockResolvedValue({ id: "message" });
+    const messenger = { postStatus: vi.fn(), updateStatus: vi.fn().mockRejectedValue(new Error("Cannot edit")) };
+    const handlers = createAnnounceHandlers({ client: { channels: { fetch: vi.fn().mockResolvedValue({ type: ChannelType.GuildText, guildId: "g1", send }) } } as any,
+      db: {} as any, drafts: { findById: () => draft } as any, messenger, guildSettings: {} as any });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await handlers.onDraftStarted({ draftId: 1, channelId: "stored", name: "Night", webSlug: "night" });
+      expect(messenger.updateStatus).toHaveBeenCalledWith(draft);
+      expect(messenger.postStatus).not.toHaveBeenCalled();
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalled();
+    } finally { warn.mockRestore(); }
   });
 
   it("posts signup announcements to text channels", async () => {
@@ -129,5 +144,68 @@ describe("announce handlers", () => {
       expect(warn).toHaveBeenCalled();
       warn.mockRestore();
     });
+  });
+});
+
+
+describe("Nudge delivery validation", () => {
+  const unreadyId = "123456789012345678", readyId = "234567890123456789";
+  function setup() {
+    const db = new Database(":memory:");
+    migrate(db);
+    db.prepare(`insert into drafts (id, guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug)
+      values (1, 'g1', 'stored', 'Actual', 'pending', 'host', '{}', 'actual')`).run();
+    const ids = [unreadyId, readyId, "bot_player_dev_1", "345678901234567890"];
+    for (const [index, id] of ids.entries()) {
+      db.prepare("insert into players (id, guild_id, discord_user_id, display_name) values (?, ?, ?, 'Player')").run(index + 1, index === 3 ? "other-guild" : "g1", id);
+      db.prepare("insert into draft_players (draft_id, player_id, seat_index) values (1, ?, ?)").run(index + 1, index);
+    }
+    const send = vi.fn().mockResolvedValue({ id: "message" });
+    const fetch = vi.fn().mockResolvedValue({ type: ChannelType.GuildText, guildId: "g1", send });
+    const read = vi.fn(() => ({ players: [
+      { playerId: 1, ready: false, isBot: false }, { playerId: 2, ready: true, isBot: false },
+      { playerId: 3, ready: true, isBot: true }, { playerId: 4, ready: false, isBot: false },
+    ] }));
+    const handlers = createAnnounceHandlers({ client: { channels: { fetch } } as any, db,
+      guildSettings: {} as any, drafts: {} as any, messenger: {} as any, lobby: { read } as any });
+    const payload = { draftId: 1, channelId: "arbitrary", name: "fake", webSlug: "fake",
+      mentionUserIds: [unreadyId, unreadyId, readyId, "bot_player_dev_1", "345678901234567890", "999999999999999999", "@everyone", "1"] };
+    return { db, handlers, send, fetch, read, payload };
+  }
+  it("uses the stored channel/name/slug and whitelists only joined unready guild humans", async () => {
+    const app = setup();
+    try {
+      await app.handlers.onDraftNudge(app.payload);
+      expect(app.fetch).toHaveBeenCalledWith("stored");
+      const message = app.send.mock.calls[0][0];
+      expect(message.allowedMentions).toEqual({ parse: [], users: [unreadyId] });
+      expect(message.content).toContain("Actual");
+      expect(message.components[0].toJSON().components[0].url).toContain("/draft/actual");
+    } finally { app.db.close(); }
+  });
+  it.each(["absent", "foreign", "unsendable", "send-failure", "active", "ready-after-fetch", "leave-after-fetch"])("handles %s channels or state without claiming false success", async scenario => {
+    const app = setup();
+    try {
+      if (scenario === "absent") app.fetch.mockResolvedValue(null as any);
+      if (scenario === "foreign") app.fetch.mockResolvedValue({ type: ChannelType.GuildText, guildId: "other", send: app.send });
+      if (scenario === "unsendable") app.fetch.mockResolvedValue({ type: ChannelType.GuildVoice } as any);
+      if (scenario === "send-failure") app.send.mockRejectedValue(new Error("Cannot send"));
+      if (scenario === "active") app.db.prepare("update drafts set status = 'active'").run();
+      if (scenario === "ready-after-fetch") app.fetch.mockImplementation(async () => {
+        app.read.mockReturnValue({ players: [{ playerId: 1, ready: true, isBot: false }] });
+        return { type: ChannelType.GuildText, guildId: "g1", send: app.send };
+      });
+      if (scenario === "leave-after-fetch") app.fetch.mockImplementation(async () => {
+        app.db.prepare("delete from draft_players where player_id = 1").run();
+        return { type: ChannelType.GuildText, guildId: "g1", send: app.send };
+      });
+      if (scenario.endsWith("after-fetch")) {
+        await app.handlers.onDraftNudge(app.payload);
+        expect(app.send.mock.calls[0][0].allowedMentions.users).toEqual([]);
+      } else {
+        await expect(app.handlers.onDraftNudge(app.payload)).rejects.toThrow();
+        if (scenario !== "send-failure") expect(app.send).not.toHaveBeenCalled();
+      }
+    } finally { app.db.close(); }
   });
 });

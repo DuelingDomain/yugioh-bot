@@ -7,6 +7,57 @@ import type { Draft, DraftService } from "../services/drafts.js";
 import type { CubeService, MatchService } from "@yugidraft/shared/services";
 import type { TournamentFormat, TournamentService } from "@yugidraft/shared/services";
 import type { Broadcaster } from "@yugidraft/shared/notify";
+import * as sharedServices from "@yugidraft/shared/services";
+import type Database from "better-sqlite3";
+import type { DraftLobbyResponse, DraftLobbyTickResult, DraftStartRequest } from "@yugidraft/shared/types";
+
+/** T03's shared service boundary; transports and catalog hydration stay in callers. */
+export interface DraftEntryLobbyService {
+  read(draftId: number, viewerUserId: string, now?: Date): DraftLobbyResponse;
+  scheduleStart(draftId: number, actorUserId: string, request: DraftStartRequest, now?: Date): DraftLobbyResponse;
+  tick(now: Date): DraftLobbyTickResult;
+}
+
+export function createBotDraftLobbyService(db: Database.Database): DraftEntryLobbyService {
+  const services = sharedServices as typeof sharedServices & {
+    createDraftLobbyService(db: Database.Database): DraftEntryLobbyService;
+  };
+  if (typeof services.createDraftLobbyService !== "function") {
+    throw new Error("Shared draft lobby service is unavailable; build shared after T03 lands");
+  }
+  return services.createDraftLobbyService(db);
+}
+
+/** Shared by slash/button entry points. Only the web presents the force confirmation. */
+export async function scheduleDiscordDraftStart(draft: Draft, userId: string, deps: {
+  lobby?: Pick<DraftEntryLobbyService, "read" | "scheduleStart">;
+  cards: CardCatalogService;
+  broadcaster: Broadcaster;
+}): Promise<string> {
+  if (!deps.lobby) throw new Error("Draft lobby service is unavailable");
+  const revision = deps.lobby.read(draft.id, userId).lobby.revision;
+  if (draft.config.mode !== "theme") {
+    await deps.cards.syncDraftPool({ setNames: draft.config.setNames ?? [],
+      includeNames: draft.config.includeNames ?? [], excludeNames: draft.config.excludeNames ?? [] });
+  }
+  const webLink = draft.webSlug ? `${WEB_URL.replace(/\/+$/, "")}/draft/${draft.webSlug}` : "the web draft lobby";
+  let scheduled: DraftLobbyResponse;
+  try {
+    scheduled = deps.lobby.scheduleStart(draft.id, userId, { revision, force: false });
+  } catch (error) {
+    if ((error as { code?: string } | null)?.code === "NOT_READY") {
+      return `Some players are not Ready. Open the lobby to review seats and confirm Start anyway: ${webLink}`;
+    }
+    throw error;
+  }
+  if (!scheduled.lobby.start) throw new Error("Draft start was not scheduled");
+  if (draft.webSlug) {
+    await deps.broadcaster.draft({ kind: "seats", slug: draft.webSlug }).catch(error =>
+      console.warn(`[draft-start] seats broadcast failed for ${draft.id}:`, error));
+  }
+  const deadline = Math.floor(new Date(scheduled.lobby.start.startsAt).getTime() / 1000);
+  return `Start scheduled for ${draft.name}. Starts <t:${deadline}:R>. Open the lobby to follow the countdown or Stop: ${webLink}`;
+}
 
 export type DiscordUserLike = {
   id: string;
@@ -53,6 +104,7 @@ type CommandDependencies = {
   matches: MatchService;
   tournaments: TournamentService;
   drafts: DraftService;
+  lobby?: Pick<DraftEntryLobbyService, "read" | "scheduleStart">;
   cards: CardCatalogService;
   templates: CubeService;
   draftImages: DraftImageService;
@@ -713,18 +765,7 @@ async function handleDraft(
       const name = requireStringOption(interaction, "name");
       const draft = requireDraft(deps, guildId, name);
       requireDraftCreator(draft, interaction.user.id);
-      await deps.cards.syncDraftPool({
-        setNames: draft.config.setNames ?? [],
-        includeNames: draft.config.includeNames ?? [],
-        excludeNames: draft.config.excludeNames ?? [],
-      });
-      const startedDraft = deps.drafts.start(draft.id);
-      if (startedDraft.webSlug) void deps.broadcaster.draft({ kind: "status", slug: startedDraft.webSlug, status: "active" });
-
-      await deps.messenger.postStatus(startedDraft);
-
-      const draftWebLink = startedDraft.webSlug ? `\nPick cards here: ${WEB_URL}/draft/${startedDraft.webSlug}` : "";
-      await interaction.reply(`Started draft: ${startedDraft.name}.${draftWebLink}`);
+      await interaction.reply(await scheduleDiscordDraftStart(draft, interaction.user.id, deps));
       return;
     }
     case "export": {

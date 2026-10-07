@@ -14,6 +14,7 @@ describe("announce server new routes", () => {
       secret: "s",
       handlers: {
         onDraftCreated: vi.fn(),
+        onDraftNudge: vi.fn(),
         onDraftStarted: vi.fn(),
         onDraftCompleted: vi.fn(),
         onTournamentCreated: vi.fn(),
@@ -56,6 +57,7 @@ describe("announce server new routes", () => {
       secret: "s",
       handlers: {
         onDraftCreated: vi.fn(),
+        onDraftNudge: vi.fn(),
         onDraftStarted: vi.fn(),
         onDraftCompleted: vi.fn(),
         onTournamentCreated: vi.fn(),
@@ -85,6 +87,7 @@ describe("announce server new routes", () => {
       secret: "s",
       handlers: {
         onDraftCreated: vi.fn(),
+        onDraftNudge: vi.fn(),
         onDraftStarted: vi.fn(),
         onDraftCompleted: vi.fn(),
         onTournamentCreated: vi.fn(),
@@ -116,4 +119,28 @@ describe("announce server new routes", () => {
     expect(res.status).toBe(204);
     expect(onDuelInvite).toHaveBeenCalledWith(payload);
   });
+});
+
+
+it("dispatches signed Nudge requests and reports delivery failure", async () => {
+  const onDraftNudge = vi.fn().mockResolvedValue(undefined);
+  const handler = vi.fn();
+  const server = createAnnounceServer({ secret: "s", handlers: {
+    onDraftCreated: handler, onDraftStarted: handler, onDraftNudge, onDraftCompleted: handler,
+    onTournamentCreated: handler, onTournamentStarted: handler, onTournamentCompleted: handler,
+    onDuelInvite: handler, onMatchReportPending: handler, onMatchResolved: handler,
+  } });
+  const payload = { draftId: 1, channelId: "stored", name: "Night", webSlug: "abc", mentionUserIds: ["123456789012345678"] };
+  const body = JSON.stringify(payload);
+  const request = (signature = sign(body, "s")) => new Request("http://x/internal/announce/draft-nudge", {
+    method: "POST", body, headers: { "x-announce-signature": signature },
+  });
+  expect((await server.handle(request("sha256=00"))).status).toBe(401);
+  expect(onDraftNudge).not.toHaveBeenCalled();
+  expect((await server.handle(request())).status).toBe(204);
+  expect(onDraftNudge).toHaveBeenCalledWith(payload);
+  onDraftNudge.mockRejectedValue(new Error("Cannot send"));
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  expect((await server.handle(request())).status).toBe(500);
+  error.mockRestore();
 });

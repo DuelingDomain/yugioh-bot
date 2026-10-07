@@ -11,7 +11,7 @@ import {
 import type Database from "better-sqlite3";
 import type { Tournament, TournamentMatch } from "@yugidraft/shared/types";
 import { formatStats } from "../formatters/stats.js";
-import type { DiscordUserLike } from "../commands/handlers.js";
+import { scheduleDiscordDraftStart, type DraftEntryLobbyService, type DiscordUserLike } from "../commands/handlers.js";
 import type { PlayerRepository } from "../repositories/players.js";
 import type { CardCatalogService } from "../services/card-catalog.js";
 import type { DraftService } from "../services/drafts.js";
@@ -35,6 +35,7 @@ type ButtonDependencies = {
   players: PlayerRepository;
   tournaments: TournamentService;
   drafts: DraftService;
+  lobby?: Pick<DraftEntryLobbyService, "read" | "scheduleStart">;
   cards: CardCatalogService;
   db: Database.Database;
   deleteNotifyMessage?: (matchId: number) => Promise<void>;
@@ -513,16 +514,7 @@ export async function handleButton(
     }
 
     requireDraftCreator(draft, interaction.user.id);
-    await deps.cards.syncDraftPool({
-      setNames: draft.config.setNames ?? [],
-      includeNames: draft.config.includeNames ?? [],
-      excludeNames: draft.config.excludeNames ?? [],
-    });
-    const startedDraft = deps.drafts.start(draft.id);
-    if (startedDraft.webSlug) void deps.broadcaster.draft({ kind: "status", slug: startedDraft.webSlug, status: "active" });
-    const webLink = startedDraft.webSlug ? `\nPick cards here: ${WEB_URL}/draft/${startedDraft.webSlug}` : "";
-
-    await interaction.reply({ content: `Started draft: ${startedDraft.name}.${webLink}`, ephemeral: true });
+    await interaction.reply({ content: await scheduleDiscordDraftStart(draft, interaction.user.id, deps), ephemeral: true });
     return;
   }
 

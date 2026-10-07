@@ -1,3 +1,4 @@
+import type { DraftLobbyResponse, DraftStartRequest } from "@yugidraft/shared/types";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handleButton, type ButtonInteractionLike } from "../../src/interactions/buttons.js";
@@ -42,8 +43,20 @@ function seedDraftCatalog(app: ReturnType<typeof setup>, count: number) {
 function setup() {
   const db = new Database(":memory:");
   migrate(db);
+  const state: DraftLobbyResponse = {
+    lobby: { revision: 7, serverNow: "2026-10-07T15:00:00.000Z", targetSeats: null,
+      joined: 2, ready: 2, allReady: true, autoStart: { enabled: false, held: false, eligible: false },
+      start: null, errors: [], warnings: [], lastStartError: null }, players: [],
+  };
+  const lobby = {
+    read: vi.fn(() => state),
+    scheduleStart: vi.fn((_draftId: number, _userId: string, _request: DraftStartRequest): DraftLobbyResponse => ({
+      ...state, lobby: { ...state.lobby, start: { token: "start-token", kind: "manual", startsAt: "2026-10-07T15:00:05.000Z" } },
+    })),
+  };
   const rec = recordingTransport();
   return {
+    lobby,
     db,
     matches: createMatchService(db),
     players: createPlayerRepository(db),
@@ -259,7 +272,7 @@ describe("button interactions", () => {
     expect(replies[0]).toEqual({ content: "You have already joined this draft.", ephemeral: true });
   });
 
-  it("starts a draft from the dashboard and links to the web", async () => {
+  it("schedules a draft from the dashboard and links to the lobby without dealing", async () => {
     const app = setup();
     const yugi = app.players.upsert("guild-1", "user-7", "Yugi");
     const kaiba = app.players.upsert("guild-1", "user-9", "Kaiba");
@@ -274,13 +287,15 @@ describe("button interactions", () => {
     await handleButton(interaction, app);
 
     expect(app.drafts.findById(draft.id)).toMatchObject({
-      status: "active",
-      currentPackRound: 1,
-      currentPickStep: 1,
+      status: "pending",
+      currentPackRound: 0,
+      currentPickStep: 0,
     });
-    expect(replies[0].content).toContain("Started draft: cube night.");
-    expect(replies[0].content).toContain("Pick cards here:");
+    expect(replies[0].content).toContain("Start scheduled for cube night.");
+    expect(replies[0].content).toContain(`/draft/${draft.webSlug}`);
     expect(replies[0].ephemeral).toBe(true);
+    expect(app.lobby.scheduleStart).toHaveBeenCalledWith(draft.id, "user-7", { revision: 7, force: false });
+    expect(app.broadcasterCalls.map(c => c.path)).toEqual(["/internal/draft/seats"]);
   });
 
   it.each(["foreign-guild", "duplicate"])("surfaces an error for %s host assignments from the Start button and leaves the draft pending", async (invalidAssignment) => {
@@ -306,6 +321,9 @@ describe("button interactions", () => {
     });
     vi.spyOn(app.cards, "syncDraftPool").mockResolvedValue([]);
 
+    app.lobby.scheduleStart.mockImplementation(() => { throw new Error(
+      invalidAssignment === "foreign-guild" ? "Cube must exist in the draft guild" : "Cubes must be distinct when uniqueThemes is enabled",
+    ); });
     await expect(handleButton(interaction, app)).rejects.toThrow(
       invalidAssignment === "foreign-guild" ? /exist.*draft.*guild/i : /distinct.*uniqueThemes/i,
     );
@@ -759,4 +777,19 @@ describe("button interactions", () => {
     expect(reply.files).toBeDefined();
     expect((reply.files![0] as { name: string }).name).toBe("cube-night.ydk");
   });
+  it("directs unready hosts to web Start anyway confirmation without forcing", async () => {
+    const app = setup();
+    const host = app.players.upsert("guild-1", "user-7", "Yugi");
+    const draft = app.drafts.create("guild-1", "channel-1", "Night", {}, "user-7", host.id);
+    vi.spyOn(app.cards, "syncDraftPool").mockResolvedValue([]);
+    app.lobby.scheduleStart.mockImplementation(() => { throw Object.assign(new Error("Not Ready"), { code: "NOT_READY" }); });
+    const { interaction, replies } = fakeButton({ customId: `draft_start:${draft.id}`, user: { id: "user-7", username: "Yugi" } });
+    await handleButton(interaction, app);
+    expect(replies[0]).toMatchObject({ ephemeral: true, content: expect.stringContaining("Start anyway") });
+    expect(replies[0].content).toContain(`/draft/${draft.webSlug}`);
+    expect(app.drafts.findById(draft.id).status).toBe("pending");
+    expect(app.lobby.scheduleStart).toHaveBeenCalledWith(draft.id, "user-7", { revision: 7, force: false });
+    expect(app.broadcasterCalls).toEqual([]);
+  });
+
 });

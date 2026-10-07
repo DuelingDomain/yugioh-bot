@@ -1,3 +1,4 @@
+import type { DraftLobbyResponse, DraftStartRequest } from "@yugidraft/shared/types";
 import Database from "better-sqlite3";
 import { describe, expect, it, vi } from "vitest";
 import { handleCommand, type CommandInteractionLike } from "../../src/commands/handlers.js";
@@ -111,10 +112,21 @@ function setup(options: { cardsBySet?: Record<string, unknown[]>; fetchCalls?: s
     },
   };
 
+  const state: DraftLobbyResponse = {
+    lobby: { revision: 7, serverNow: "2026-10-07T15:00:00.000Z", targetSeats: null,
+      joined: 2, ready: 2, allReady: true, autoStart: { enabled: false, held: false, eligible: false },
+      start: null, errors: [], warnings: [], lastStartError: null }, players: [],
+  };
+  const lobby = {
+    read: vi.fn(() => state),
+    scheduleStart: vi.fn((_draftId: number, _userId: string, _request: DraftStartRequest): DraftLobbyResponse => ({
+      ...state, lobby: { ...state.lobby, start: { token: "start-token", kind: "manual", startsAt: "2026-10-07T15:00:05.000Z" } },
+    })),
+  };
   const rec = recordingTransport();
   const broadcaster = createBroadcaster(rec.transport);
 
-  return { db, matches, players, tournaments, drafts, cards, templates, draftImages, messenger, postStatusCalls, updateStatusCalls, broadcaster, broadcasterCalls: rec.calls };
+  return { lobby, db, matches, players, tournaments, drafts, cards, templates, draftImages, messenger, postStatusCalls, updateStatusCalls, broadcaster, broadcasterCalls: rec.calls };
 }
 
 function fakeInteraction(input: {
@@ -349,7 +361,7 @@ describe("command handlers", () => {
     expect(replies[0]).toBe("Joined draft: cube night.");
   });
 
-  it("/draft start requires the creator and sends pick prompts to all joined players", async () => {
+  it("/draft start schedules without dealing or posting active status", async () => {
     const app = setup();
     const yugi = app.players.upsert("guild-1", "user-7", "Yugi");
     const kaiba = app.players.upsert("guild-1", "user-9", "Kaiba");
@@ -366,16 +378,18 @@ describe("command handlers", () => {
     await handleCommand(interaction, app);
 
     expect(app.drafts.findById(draft.id)).toMatchObject({
-      status: "active",
-      currentPackRound: 1,
-      currentPickStep: 1,
+      status: "pending",
+      currentPackRound: 0,
+      currentPickStep: 0,
     });
-    expect(replies[0]).toContain("Started draft: cube night.");
-    expect(replies[0]).toContain("Pick cards here:");
-    expect(app.postStatusCalls).toEqual([{ draftId: draft.id }]);
+    expect(replies[0]).toContain("Start scheduled for cube night.");
+    expect(replies[0]).toContain(`/draft/${draft.webSlug}`);
+    expect(app.postStatusCalls).toEqual([]);
+    expect(app.lobby.scheduleStart).toHaveBeenCalledWith(draft.id, "user-7", { revision: 7, force: false });
+    expect(app.broadcasterCalls.map(c => c.path)).toEqual(["/internal/draft/seats"]);
   });
 
-  it("/draft start syncs set-backed pools before opening the first wave", async () => {
+  it("/draft start hydrates set-backed pools before scheduling without opening a wave", async () => {
     const app = setup({
       cardsBySet: {
         "Metal Raiders": mockCardsForSet("Metal Raiders", 1000, 40),
@@ -420,8 +434,9 @@ describe("command handlers", () => {
 
     const draft = app.drafts.findByName("guild-1", "retro draft")!;
 
-    expect(draft.status).toBe("active");
-    expect(app.db.prepare("select count(*) as count from draft_cards where draft_id = ?").get(draft.id)).toEqual({ count: 16 });
+    expect(draft.status).toBe("pending");
+    expect(app.lobby.scheduleStart).toHaveBeenCalled();
+    expect(app.db.prepare("select count(*) as count from draft_cards where draft_id = ?").get(draft.id)).toEqual({ count: 0 });
   });
 
   it.each(["foreign-guild", "duplicate"])("/draft start surfaces an error for %s host assignments and leaves the draft pending", async (invalidAssignment) => {
@@ -446,6 +461,9 @@ describe("command handlers", () => {
       commandName: "draft", subcommand: "start", user: { id: "user-7", username: "Yugi" }, strings: { name: "theme night" },
     });
 
+    app.lobby.scheduleStart.mockImplementation(() => { throw new Error(
+      invalidAssignment === "foreign-guild" ? "Cube must exist in the draft guild" : "Cubes must be distinct when uniqueThemes is enabled",
+    ); });
     await expect(handleCommand(interaction, app)).rejects.toThrow(
       invalidAssignment === "foreign-guild" ? /exist.*draft.*guild/i : /distinct.*uniqueThemes/i,
     );
@@ -1505,4 +1523,36 @@ describe("command handlers", () => {
     // The old pool keys are replaced, not merged.
     expect(saved.customCardIds).toBeUndefined();
   });
+  it("directs NOT_READY hosts to web confirmation without forcing or dealing", async () => {
+    const app = setup();
+    const host = app.players.upsert("guild-1", "user-7", "Yugi");
+    const draft = app.drafts.create("guild-1", "channel-1", "Night", {}, "user-7", host.id);
+    app.lobby.scheduleStart.mockImplementation(() => { throw Object.assign(new Error("Not ready"), { code: "NOT_READY" }); });
+    const { interaction, replies } = fakeInteraction({ commandName: "draft", subcommand: "start", user: { id: "user-7", username: "Yugi" }, strings: { name: "Night" } });
+    await handleCommand(interaction, app);
+    expect(replies[0]).toContain("Start anyway");
+    expect(replies[0]).toContain(`/draft/${draft.webSlug}`);
+    expect(app.drafts.findById(draft.id).status).toBe("pending");
+    expect(app.lobby.scheduleStart).toHaveBeenCalledWith(draft.id, "user-7", { revision: 7, force: false });
+    expect(app.broadcasterCalls).toEqual([]);
+  });
+
+  it("uses the revision captured before async catalog hydration", async () => {
+    const app = setup();
+    const host = app.players.upsert("guild-1", "user-7", "Yugi");
+    const draft = app.drafts.create("guild-1", "channel-1", "Night", {}, "user-7", host.id);
+    vi.spyOn(app.cards, "syncDraftPool").mockImplementation(async () => {
+      const current = app.lobby.read();
+      app.lobby.read.mockReturnValue({ ...current, lobby: { ...current.lobby, revision: 8 } });
+      return [];
+    });
+    app.lobby.scheduleStart.mockImplementation((_id: number, _actor: string, request: { revision: number }) => {
+      expect(request.revision).toBe(7);
+      throw Object.assign(new Error("Lobby changed"), { code: "STALE_LOBBY" });
+    });
+    const { interaction } = fakeInteraction({ commandName: "draft", subcommand: "start", user: { id: "user-7", username: "Yugi" }, strings: { name: "Night" } });
+    await expect(handleCommand(interaction, app)).rejects.toThrow("Lobby changed");
+    expect(app.drafts.findById(draft.id).status).toBe("pending");
+  });
+
 });
