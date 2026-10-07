@@ -3,6 +3,10 @@
 import * as React from "react";
 import { Plus, Search } from "lucide-react";
 import type { CubeDraftType } from "@/lib/cube-type";
+import { ListImportReport } from "@/components/card-list-import/list-import-report";
+import { listAddedLine } from "@/lib/card-list-import";
+import { CubeListImportPanel, type ImportedCube } from "./cube-list-import-panel";
+import { nextCubeName } from "./library-model";
 import { CubeLobbyPanel } from "./cube-lobby-panel";
 import styles from "@/components/draft/lobby/lobby.module.css";
 
@@ -47,6 +51,8 @@ export function CubeDraftBuilder({
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [info, setInfo] = React.useState<string | null>(null);
+  const [importing, setImporting] = React.useState(false);
+  const [imported, setImported] = React.useState<ImportedCube | null>(null);
   const reqId = React.useRef(0);
   const ids = React.useId();
 
@@ -130,6 +136,27 @@ export function CubeDraftBuilder({
     if (!cubeId) return;
     const cube = library.find((c) => c.id === cubeId);
     void post({ kind: "existing", cubeId }, `Attached "${cube?.name ?? "cube"}".`);
+  };
+
+  // A list becomes a saved theme cube first (POST /api/cubes), then joins this draft like any saved cube.
+  const importList = async (result: ImportedCube) => {
+    setError(null);
+    setInfo(null);
+    const res = await fetch(`/api/drafts/${slug}/cubes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: "existing", cubeId: result.cube.id }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setImporting(false);
+    if (!res.ok) {
+      setError(`Made "${result.cube.name}" in your library, but couldn't add it to this draft. ${data.error ?? ""} You can attach it from the saved cubes list.`.trim());
+      loadLibrary();
+      return;
+    }
+    setImported(result);
+    onChanged();
+    loadLibrary();
   };
 
   const detach = async (cubeId: number) => {
@@ -249,6 +276,24 @@ export function CubeDraftBuilder({
           )}
         </div>
 
+        {importing && (
+          <CubeListImportPanel
+            defaultName={nextCubeName(library.map((c) => c.name))}
+            fixedType="theme"
+            onCreated={importList}
+            onCancel={() => setImporting(false)}
+          />
+        )}
+
+        {imported && (
+          <div role="status" aria-label="Imported theme">
+            <p className="small">
+              Added <b>{imported.cube.name}</b> to this draft. {listAddedLine(imported.added, imported.copies)}
+            </p>
+            <ListImportReport unknown={imported.unknown} corrected={imported.corrected} />
+          </div>
+        )}
+
         {showBlank && (
           <div className={styles.blank}>
             <input
@@ -273,7 +318,12 @@ export function CubeDraftBuilder({
 
         <p className="small">
           Each archetype becomes its own cube in your library, and you can edit it before the start.{" "}
-          {!showBlank && <button className="link" type="button" onClick={() => setShowBlank(true)}>Start a blank cube</button>}
+          {!showBlank && <button className="link" type="button" onClick={() => setShowBlank(true)}>Start a blank cube</button>}{" "}
+          {!importing && (
+            <button className="link" type="button" onClick={() => { setImported(null); setImporting(true); }}>
+              Import a list
+            </button>
+          )}
         </p>
       </div>
     </CubeLobbyPanel>
