@@ -13,7 +13,9 @@ export const sources = {
   scripts: "37f270dc813a12d123707ae255f2bda7922999c4",
   database: "fdf92aea31033cd6c44afa89987c5e00665205e2",
   strings: "54a6e2395c532648ff762540e9615319fac4f51b",
-  databaseFormat: "official-releases-v1",
+  databaseFormat: "official-releases-prerelease-v1",
+  // Immutable support boundary; abbreviated so the weekly pin rewrite never advances it.
+  prereleaseHistoryStart: "fdf92aea3103",
 };
 const hash = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
 // integrity.multiScripts (the Lua overlay of duels with more than two seats) is not part of bundleVersion: the host pins
@@ -57,6 +59,7 @@ async function catalogIsCurrent(directory: string, manifest: Manifest | null): P
     const cards = await readFile(join(directory, "cards.cdb"));
     const stringsFile = await readFile(join(directory, "strings.conf"));
     if (hash(cards) !== manifest.integrity.cardsMerged) return false;
+    if (hash(await readFile(join(directory, "card-remaps.json"))) !== manifest.integrity.cardRemaps) return false;
     if (hash(stringsFile) !== manifest.integrity.strings) return false;
   } catch {
     return false;
@@ -96,7 +99,7 @@ export async function prepareData(
   const temporary = await mkdtemp(join(tmpdir(), "yugidraft-resources-"));
   try {
     const [database, strings, scripts] = await Promise.all([
-      downloadReleasedCardData(sources.database, temporary, request),
+      downloadReleasedCardData(sources.database, temporary, request, { historyStart: sources.prereleaseHistoryStart }),
       download(`https://raw.githubusercontent.com/ProjectIgnis/Distribution/${sources.strings}/config/strings.conf`, request),
       download(`https://codeload.github.com/ProjectIgnis/CardScripts/tar.gz/${sources.scripts}`, request),
     ]);
@@ -106,7 +109,8 @@ export async function prepareData(
     const scriptStaging = join(temporary, "card-scripts");
     await mkdir(scriptStaging, { recursive: true });
     execFileSync("tar", ["-xzf", archive, "--strip-components=1", "-C", scriptStaging]);
-    restrictPrereleaseScripts(scriptStaging, database.releaseCodes);
+    restrictPrereleaseScripts(scriptStaging, database.scriptCodes);
+    for (const drop of database.drops) console.log(`[prerelease] Drop ${drop.code} ${drop.name} (${drop.file}): ${drop.reason}${drop.keptCode ? ` → ${drop.keptCode}` : ""}`);
     if (savedLua) await writeFile(join(scriptStaging, "domain.lua"), savedLua);
     if (savedLegacyLua) await writeFile(join(scriptStaging, "domain.legacy.lua"), savedLegacyLua);
     const scriptDirectory = join(directory, "card-scripts");
@@ -114,6 +118,7 @@ export async function prepareData(
     await cp(scriptStaging, scriptDirectory, { recursive: true });
     await Promise.all([
       writeFile(join(directory, "cards.cdb"), cards),
+      writeFile(join(directory, "card-remaps.json"), database.remapBytes),
       writeFile(join(directory, "strings.conf"), strings),
     ]);
     const wasm = await readFile(fileURLToPath(import.meta.resolve("ocgcore-wasm/lib/ocgcore.sync.wasm")));
@@ -121,6 +126,7 @@ export async function prepareData(
     const integrity: Record<string, string> = {
       cards: hash(database.inputHashes.join("\n")),
       cardsMerged: hash(cards),
+      cardRemaps: hash(database.remapBytes),
       strings: hash(strings),
       scripts: hash(scripts),
       wasm: hash(wasm),

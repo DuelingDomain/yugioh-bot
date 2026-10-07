@@ -14,6 +14,7 @@ const multiScriptsHint = "Run npm run duel:prepare (it installs domain-core/mult
 
 interface Manifest {
   bundleVersion?: unknown;
+  sources?: Record<string, unknown>;
   integrity?: Record<string, unknown>;
 }
 
@@ -57,6 +58,8 @@ export function verifyEngineBundle(dataDirectory: string, options: { wrapperPath
   const legacyWasm = join(dataDirectory, LEGACY_DOMAIN_WASM_FILE);
   const legacyLua = join(dataDirectory, "card-scripts", LEGACY_DOMAIN_LUA_FILE);
   const checks: Array<{ key: string; path: () => string; hint: string; required?: boolean }> = [
+    { key: "cardRemaps", path: () => join(dataDirectory, "card-remaps.json"), hint: dataHint, required: manifest.sources?.databaseFormat === "official-releases-prerelease-v1" },
+    { key: "cardsMerged", path: () => cards, hint: dataHint },
     { key: "standardWasm", path: () => standardWasm, hint: standardHint },
     { key: "domainWasm", path: () => domainWasm, hint: domainHint },
     { key: "domainLegacyWasm", path: () => legacyWasm, hint: legacyHint, required: engine === "legacy" },
@@ -66,7 +69,7 @@ export function verifyEngineBundle(dataDirectory: string, options: { wrapperPath
   for (const { key, path, hint, required } of checks) {
     const expected = integrity[key];
     if (typeof expected !== "string" || !expected) {
-      if (required) throw new Error(`Engine manifest has no integrity.${key}, and 1v1 duels start on the legacy engine (DUEL_1V1_ENGINE). ${hint}`);
+      if (required) throw new Error(`Engine manifest has no integrity.${key}, required by the selected bundle/engine. ${hint}`);
       continue;
     }
     const file = path();

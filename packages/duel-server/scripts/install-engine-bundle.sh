@@ -87,6 +87,16 @@ legacy_files_ok() {
   [ "$(sha256sum "$root/card-scripts/domain.legacy.lua" | cut -d' ' -f1)" = "$want_lua" ]
 }
 
+# Remaps are data inputs and must survive fresh bundle installation intact.
+remap_file_ok() {
+  root="$1"
+  format=$(sed -n 's/.*"databaseFormat": *"\([^"]*\)".*/\1/p' "$root/manifest.json" | head -n 1)
+  expected=$(sed -n 's/.*"cardRemaps": *"\([0-9a-f]*\)".*/\1/p' "$root/manifest.json" | head -n 1)
+  if [ "$format" != "official-releases-prerelease-v1" ] && [ -z "$expected" ]; then return 0; fi
+  [ -n "$expected" ] && [ -f "$root/card-remaps.json" ] || return 1
+  [ "$(sha256sum "$root/card-remaps.json" | cut -d' ' -f1)" = "$expected" ]
+}
+
 required() {
   root="$1"
   [ -f "$root/cards.cdb" ] \
@@ -96,6 +106,7 @@ required() {
     && [ -f "$root/manifest.json" ] \
     && [ -d "$root/card-scripts" ] \
     && [ -f "$root/card-scripts/domain.lua" ] \
+    && remap_file_ok "$root" \
     && legacy_files_ok "$root" \
     && multi_scripts_ok "$root"
 }

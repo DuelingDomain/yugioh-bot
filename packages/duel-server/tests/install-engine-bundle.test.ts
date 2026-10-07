@@ -296,3 +296,17 @@ describe("install-engine-bundle.sh and the legacy 1v1 engine files", () => {
     expect(readFileSync(join(f.dst, "card-scripts", "domain.legacy.lua"), "utf8")).toBe("-- legacy domain");
   });
 });
+
+it.each([true,false])("refuses a missing/corrupt prerelease remap artifact before installation (preflight=%s)",preflight=>{
+ const f=fixture({tag:"old"},{tag:"new"},[]),before=snapshot(f.dst);
+ const path=join(f.src,"manifest.json"),manifest=JSON.parse(readFileSync(path,"utf8"));
+ manifest.sources={databaseFormat:"official-releases-prerelease-v1"};manifest.integrity.cardRemaps=sha("valid-remaps");
+ writeFileSync(path,JSON.stringify(manifest));
+ expect(run(f,preflight).status).not.toBe(0);
+ expect(snapshot(f.dst)).toEqual(before);
+ writeFileSync(join(f.src,"card-remaps.json"),"corrupt-remaps");
+ expect(run(f,preflight).status).not.toBe(0);
+ expect(snapshot(f.dst)).toEqual(before);
+ writeFileSync(join(f.src,"card-remaps.json"),"valid-remaps");
+ expect(run(f,preflight).status).toBe(0);
+});
