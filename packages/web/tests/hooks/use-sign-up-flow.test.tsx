@@ -65,7 +65,8 @@ describe("invited sign-up flow", () => {
     expect(mock.signal.signUp.password).not.toHaveBeenCalled();
     expect(mock.signal.signUp.sso).not.toHaveBeenCalled();
   });
-  it("stores username and consent before password, then sends signup verification", async () => {
+  it("stores username and consent before password, verifies email, then shows success after finalize clears the sign-up", async () => {
+    mock.signal.signUp.finalize.mockImplementation(async () => { mock.signal.signUp.status = null; return { error: null }; });
     mock.signal.signUp.password.mockImplementation(async () => {
       mock.signal.signUp.missingFields = []; mock.signal.signUp.unverifiedFields = ["email_address"]; return { error: null };
     });
@@ -84,7 +85,8 @@ describe("invited sign-up flow", () => {
     mock.signal.signUp.verifications.verifyEmailCode.mockImplementation(async () => { mock.signal.signUp.status = "complete"; return { error: null }; });
     await act(() => result.current.actions.submitCode("123456"));
     expect(mock.signal.signUp.verifications.verifyEmailCode).toHaveBeenCalledWith({ code: "123456" });
-    expect(result.current.state.step).toBe("success");
+    expect(result.current.state).toMatchObject({ step: "success", banner: null });
+    expect(result.current.state.fieldErrors).toEqual({});
     expect(mock.push).not.toHaveBeenCalled();
     act(() => vi.advanceTimersByTime(900));
     expect(mock.push).toHaveBeenCalledWith("/drafts?join=1#seat");
@@ -127,7 +129,7 @@ describe("invited sign-up flow", () => {
     mock.signal.signUp.finalize.mockResolvedValue({ error: { code: "service" } });
     const { result } = await mount();
     await act(() => result.current.actions.submitAccount(account));
-    expect(result.current.state).toMatchObject({ step: "signing", pending: false, banner: { tone: "bad" } });
+    expect(result.current.state).toMatchObject({ step: "signing", pending: false, banner: { tone: "bad", code: "service", body: "Sign-in is having trouble. Try again in a moment." } });
     act(() => vi.advanceTimersByTime(2000));
     expect(mock.push).not.toHaveBeenCalled();
   });

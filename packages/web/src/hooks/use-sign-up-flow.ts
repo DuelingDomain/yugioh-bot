@@ -96,11 +96,7 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
     if (!resource || resource.status !== "complete") { fail(null, "sso"); return; }
     if (signalError("sso", kind)) return;
     setResumeKind(kind); dispatch({ type: "complete" });
-    if (await call(() => resource.finalize({ navigate: ({ decorateUrl }) => { destination.current = decorateUrl(state.returnTo); } }), "sso", kind)) {
-      const current = kind === "sign-in" ? latest.current.signInSignal?.signIn : latest.current.signUpSignal.signUp;
-      if (current?.status === "complete") dispatch({ type: "finalized" });
-      else fail(null, "sso");
-    }
+    if (await call(() => resource.finalize({ navigate: ({ decorateUrl }) => { destination.current = decorateUrl(state.returnTo); } }), "sso", kind)) dispatch({ type: "finalized" });
   };
   const advanceSignup = async () => {
     const signUp = latest.current.signUpSignal.signUp!;

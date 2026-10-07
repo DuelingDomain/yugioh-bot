@@ -41,13 +41,15 @@ describe("SSO callback", () => {
     await act(() => result.current.actions.submitCode("123456"));
     expect(result.current.state.fieldErrors.code).toBe("That code expired. Send a new one.");
   });
-  it.each(["sign-in", "sign-up"] as const)("finalizes a complete %s before navigating", async (kind) => {
+  it.each(["sign-in", "sign-up"] as const)("shows success after finalize clears the complete %s, then navigates", async (kind) => {
     const resource = kind === "sign-in" ? mock.signInSignal.signIn : mock.signUpSignal.signUp;
     resource.status = "complete";
+    resource.finalize.mockImplementation(async () => { resource.status = null; return { error: null }; });
     const { result } = await mount();
     expect(result.current.resumeKind).toBe(kind);
     expect(resource.finalize).toHaveBeenCalledTimes(1);
-    expect(result.current.state.step).toBe("success");
+    expect(result.current.state).toMatchObject({ step: "success", banner: null });
+    expect(result.current.state.fieldErrors).toEqual({});
     expect(mock.push).not.toHaveBeenCalled();
     act(() => vi.advanceTimersByTime(900));
     expect(mock.push).toHaveBeenCalledWith("/dashboard");
@@ -94,7 +96,7 @@ describe("SSO callback", () => {
     mock.signInSignal.fetchStatus = "idle";
     mock.signInSignal.signIn.finalize.mockResolvedValue({ error: { code: "service" } });
     rerender(); await act(async () => {});
-    expect(result.current.state).toMatchObject({ step: "signing", banner: { tone: "bad" } });
+    expect(result.current.state).toMatchObject({ step: "signing", banner: { tone: "bad", code: "service", body: "Sign-in is having trouble. Try again in a moment." } });
     rerender(); await act(async () => {});
     expect(mock.signInSignal.signIn.finalize).toHaveBeenCalledTimes(1);
     act(() => vi.advanceTimersByTime(1000));
@@ -128,12 +130,14 @@ describe("SSO callback", () => {
     expect(result.current.state.step).toBe("err-banned");
     expect(mock.signInSignal.signIn.finalize).not.toHaveBeenCalled();
   });
-  it("waits for signup finalize to resolve before showing success or navigating", async () => {
+  it("waits for signup finalize to resolve and clear the resource before showing success or navigating", async () => {
     mock.signUpSignal.signUp.status = "complete";
     let resolve!: (value: { error: null }) => void;
     mock.signUpSignal.signUp.finalize.mockImplementation(async ({ navigate }: any) => {
       await navigate({ decorateUrl: (path: string) => path });
-      return new Promise(r => { resolve = r; });
+      await new Promise(r => { resolve = r; });
+      mock.signUpSignal.signUp.status = null;
+      return { error: null };
     });
     const { result } = renderHook(() => useSsoCallback());
     await act(async () => {});
@@ -141,7 +145,8 @@ describe("SSO callback", () => {
     act(() => vi.advanceTimersByTime(1000));
     expect(mock.push).not.toHaveBeenCalled();
     await act(async () => { resolve({ error: null }); });
-    expect(result.current.state.step).toBe("success");
+    expect(result.current.state).toMatchObject({ step: "success", banner: null });
+    expect(result.current.state.fieldErrors).toEqual({});
     act(() => vi.advanceTimersByTime(900));
     expect(mock.push).toHaveBeenCalledWith("/dashboard");
   });

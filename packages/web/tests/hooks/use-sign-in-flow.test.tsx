@@ -52,12 +52,14 @@ describe("sign-in flow", () => {
     await act(() => result.current.actions.submitPassword("wrong"));
     expect(result.current.state).toMatchObject({ step: "password", fieldErrors: { password: "That password doesn't match. Try again or reset it." } });
   });
-  it("blocks duplicates and delays navigation until successful finalize plus the success frame", async () => {
+  it("blocks duplicates and shows success after finalize clears the sign-in, then navigates", async () => {
     let finish!: (value: { error: null }) => void;
     mock.signal.signIn.password.mockImplementation(async () => { mock.signal.signIn.status = "complete"; return { error: null }; });
     mock.signal.signIn.finalize.mockImplementation(async ({ navigate }: any) => {
       await navigate({ decorateUrl: (path: string) => path });
-      return new Promise(resolve => { finish = resolve; });
+      await new Promise(resolve => { finish = resolve; });
+      mock.signal.signIn.status = null;
+      return { error: null };
     });
     const { result } = setup();
     await act(() => result.current.actions.submitIdentifier("a@test.dev"));
@@ -69,7 +71,8 @@ describe("sign-in flow", () => {
     expect(mock.signal.signIn.password).toHaveBeenCalledTimes(1);
     expect(mock.push).not.toHaveBeenCalled();
     await act(async () => { finish({ error: null }); await request; });
-    expect(result.current.state.step).toBe("success");
+    expect(result.current.state).toMatchObject({ step: "success", banner: null });
+    expect(result.current.state.fieldErrors).toEqual({});
     act(() => vi.advanceTimersByTime(899));
     expect(mock.push).not.toHaveBeenCalled();
     act(() => vi.advanceTimersByTime(1));
@@ -81,7 +84,7 @@ describe("sign-in flow", () => {
     const { result } = setup();
     await act(() => result.current.actions.submitIdentifier("a@test.dev"));
     await act(() => result.current.actions.submitPassword("secret"));
-    expect(result.current.state).toMatchObject({ step: "signing", pending: false, banner: { tone: "bad" } });
+    expect(result.current.state).toMatchObject({ step: "signing", pending: false, banner: { tone: "bad", code: "service_unavailable", body: "Sign-in is having trouble. Try again in a moment." } });
     act(() => vi.advanceTimersByTime(2000));
     expect(mock.push).not.toHaveBeenCalled();
   });
@@ -112,7 +115,8 @@ describe("sign-in flow", () => {
     expect(mock.signal.signIn.mfa.sendEmailCode).not.toHaveBeenCalled();
     expect(result.current.state.banner?.tone).toBe("bad");
   });
-  it("resets by code, rejects confirmation mismatch locally, then finalizes", async () => {
+  it("resets by code, rejects confirmation mismatch locally, then shows success after finalize clears the sign-in", async () => {
+    mock.signal.signIn.finalize.mockImplementation(async () => { mock.signal.signIn.status = null; return { error: null }; });
     const { result } = setup();
     await act(() => result.current.actions.submitIdentifier("a@test.dev"));
     await act(() => result.current.actions.forgotPassword());
@@ -132,7 +136,8 @@ describe("sign-in flow", () => {
     mock.signal.signIn.resetPasswordEmailCode.submitPassword.mockImplementation(async () => { mock.signal.signIn.status = "complete"; return { error: null }; });
     await act(() => result.current.actions.submitNewPassword("secret", "secret"));
     expect(mock.signal.signIn.resetPasswordEmailCode.submitPassword).toHaveBeenCalledWith({ password: "secret" });
-    expect(result.current.state.step).toBe("success");
+    expect(result.current.state).toMatchObject({ step: "success", banner: null });
+    expect(result.current.state.fieldErrors).toEqual({});
   });
   it("resets the Clerk attempt on back and disallows requests from the wrong step", async () => {
     const { result } = setup();

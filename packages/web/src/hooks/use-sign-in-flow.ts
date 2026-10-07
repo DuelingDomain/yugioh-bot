@@ -83,10 +83,7 @@ export function useSignInFlow(opts: { returnTo: string; marketingUrl: string | n
       dispatch(event);
       // Clerk invokes navigate during activation. Capture its decorated destination;
       // navigation itself waits for the finalize result and the success frame.
-      if (await call(() => signIn.finalize({ navigate: ({ decorateUrl }) => { destination.current = decorateUrl(state.returnTo); } }), "password")) {
-        if (latest.current.signIn?.status === "complete") dispatch({ type: "finalized" });
-        else fail(null, "password");
-      }
+      if (await call(() => signIn.finalize({ navigate: ({ decorateUrl }) => { destination.current = decorateUrl(state.returnTo); } }), "password")) dispatch({ type: "finalized" });
     } else dispatch(event);
   };
   const sendCode = async () => {
