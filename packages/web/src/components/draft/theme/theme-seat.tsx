@@ -171,7 +171,7 @@ export function ThemeSeats({ players, lobby, table, cubes, controller, isHost, i
 /** Where seat `i` of `n` sits on the oval: the viewer's seat is at the bottom, the rest follow around the table. */
 export function ovalPosition(i: number, n: number): { left: number; top: number } {
   const angle = (2 * Math.PI * i) / Math.max(n, 1);
-  return { left: 50 - 46 * Math.sin(angle), top: 50 + 44 * Math.cos(angle) };
+  return { left: 50 - 41 * Math.sin(angle), top: 50 + 38 * Math.cos(angle) };
 }
 
 export interface ThemeOvalProps {
