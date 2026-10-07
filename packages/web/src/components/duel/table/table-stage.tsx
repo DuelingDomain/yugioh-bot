@@ -345,6 +345,8 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
     if (target?.closest?.(CLICK_PASS) && !plainZone) return;
     const seat = Number(slot.getAttribute("data-seat-slot"));
     if (!Number.isInteger(seat) || out.includes(seat)) return;
+    // A zone click (a card inspect) only enlarges: it never sends an enlarged field home, and it never enlarges while the viewer answers a prompt with legal choices.
+    if (plainZone && (legalKeys.size > 0 || (camera.mode === "focus" && camera.focusSeat === seat))) return;
     if (fly) {
       dispatchCamera({ type: "flyTo", seat });
     } else if (!plaza3) {

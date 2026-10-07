@@ -163,14 +163,42 @@ describe("3-way: a click on a field enlarges it, and nothing else does", () => {
     expect(chip(container)).toBe("Home");
   });
 
-  it("a click on a plain zone of a field enlarges it, but a pile button only opens the pile", () => {
-    const { container } = render(<Table state={variant(() => {})} />);
-    const zone = seatBox(container, RYO).querySelector<HTMLElement>("[data-zones]:not([data-pile]):not([data-legal='true']) button")!;
-    fireEvent.click(zone);
+  const idle = () => variant((engine) => { engine.prompt = null; });
+  const plainZone = (root: HTMLElement, seat: number) =>
+    seatBox(root, seat).querySelector<HTMLElement>("[data-zones][data-occupied='true']:not([data-pile]):not([data-legal='true']) button")!;
+
+  it("a click on a plain zone enlarges a field, but a pile button only opens the pile", () => {
+    const { container } = render(<Table state={idle()} />);
+    fireEvent.click(plainZone(container, RYO));
     expect(chip(container)).toBe("Focus · Ryo Sato");
     fireEvent.click(container.querySelector("[data-camera-back]")!);
     fireEvent.click(seatBox(container, MIKA).querySelector<HTMLElement>("[data-pile] button")!);
     expect(chip(container)).toBe("Home");
+  });
+
+  it("a card inspect click on an enlarged field keeps it enlarged", () => {
+    const { container } = render(<Table state={idle()} camera={{ mode: "focus", focusSeat: RYO }} />);
+    fireEvent.click(plainZone(container, RYO));
+    expect(chip(container)).toBe("Focus · Ryo Sato");
+    fireEvent.click(plainZone(container, RYO));
+    expect(chip(container)).toBe("Focus · Ryo Sato");
+  });
+
+  it("a zone click never enlarges while the viewer has a prompt with legal choices", () => {
+    const { container } = render(<Table state={variant(() => {})} />);
+    fireEvent.click(plainZone(container, RYO));
+    expect(chip(container)).toBe("Home");
+  });
+
+  it("Esc cancels a locked aim first and leaves the enlarged field alone", () => {
+    const aim = FFA3_FIXTURES.states["battle-aim"];
+    const { container } = render(<Table state={aim} camera={{ mode: "focus", focusSeat: RYO }} />);
+    const target = container.querySelector<HTMLElement>("[data-zones][data-legal='true']")!;
+    fireEvent.click(target.querySelector("button") ?? target);
+    expect(document.body.querySelector("[data-attack-confirm]")).not.toBeNull();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(document.body.querySelector("[data-attack-confirm]")).toBeNull();
+    expect(chip(container)).toBe("Focus · Ryo Sato");
   });
 
   it("Esc and the Back button return to the normal layout", () => {
