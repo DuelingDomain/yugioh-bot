@@ -10,6 +10,7 @@ import { seatCountFor, type DuelAnswer, type DuelEngineView, type DuelFormat } f
 import { createDuelHost, type DuelHost } from "../src/host.js";
 import type { DuelGameWorker, GameOptions } from "../src/worker-client.js";
 import { createTestDuelHost, finishTestDiceOpening } from "./support/test-opening.js";
+import { seedIdentity, seedUser } from "./helpers/identity.js";
 
 const SECRET = "dice-host-test";
 const resources: Array<{ host: DuelHost; db: Database.Database; dir: string }> = [];
@@ -62,9 +63,9 @@ function table(format: DuelFormat, values: number[], botSeat?: number, keepFixtu
   const db = new Database(":memory:"); migrate(db);
   const duels = createDuelService(db);
   const count = seatCountFor(format);
-  const players = Array.from({ length: count + 1 }, (_, seat) => Number(db.prepare(
-    "insert into players (guild_id, discord_user_id, display_name) values ('g', ?, ?)",
-  ).run(`u${seat}`, `Player ${seat}`).lastInsertRowid));
+  const players = Array.from({ length: count + 1 }, (_, seat) => seedIdentity(db, {
+    guildId: "g", name: `Player ${seat}`, ...seedUser(db, `u${seat}`),
+  }).playerId);
   const session = duels.create({ guildId: "g", organizerPlayerId: players[0]!, name: "Dice", mode: "normal", format,
     settings: { validateDeck: false, turnSeconds: 0 } });
   for (let seat = 0; seat < count; seat++) {
