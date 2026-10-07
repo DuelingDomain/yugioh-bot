@@ -22,7 +22,8 @@
     "duel:prepare": "npm run prepare:data --workspace=@yugidraft/duel-server",
     "dev:web": "npm run dev --workspace=@yugioh-discord-bot/web",
     "e2e": "npm run e2e --workspace=@yugidraft/e2e",
-    "dev:worker": "npm run dev --workspace=@yugidraft/worker"
+    "dev:worker": "npm run dev --workspace=@yugidraft/worker",
+    "ops": "tsx packages/worker/src/ops/cli.ts"
   },
   "devDependencies": {
     "dotenv": "^17.4.2",
