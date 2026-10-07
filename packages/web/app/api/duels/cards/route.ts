@@ -1,23 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
-import { resolve } from "node:path";
-import { createCardCatalogService, readEngineCardInfo, withCatalogCardText } from "@yugidraft/shared/services";
+import { createCardCatalogService } from "@yugidraft/shared/services";
 import type { DeckCardInfo, DuelCardInfo } from "@yugidraft/shared/duels";
 import { getDb } from "@/lib/db";
 import { callDuelHost, duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
 
 export const runtime = "nodejs";
 
+let catalog: ReturnType<typeof createCardCatalogService> | undefined;
 function cardCatalog() {
-  // Engine metadata supplies canonical artwork passcodes. Avoid a second CDB
-  // identity lookup whose relative path would depend on the web process cwd.
-  return createCardCatalogService(getDb(), { identityCatalog: new Map() });
+  // Artwork identity comes from the host; catalog lookups only read cached rows.
+  return catalog ??= createCardCatalogService(getDb(), { identityCatalog: new Map() });
 }
 
-function exactCardInfo(codes: number[]) {
-  // Match getDb's workspace-relative defaults; Compose supplies an absolute
-  // DUEL_DATA_DIR shared with the duel host. No YGOPRODeck request is needed.
-  const directory = resolve(process.cwd(), "..", "..", process.env.DUEL_DATA_DIR ?? "data/duel-engine");
-  return readEngineCardInfo(codes, directory, cardCatalog());
+function hasName(code: number, name: string | undefined) {
+  return !!name?.trim() && name.trim() !== `Card ${code}`;
+}
+
+function withCatalogCardText<T extends DuelCardInfo>(cards: T[]): T[] {
+  const incomplete = cards.filter(card => !hasName(card.code, card.name) || !card.description?.trim());
+  if (!incomplete.length) return cards;
+  const ids = [...new Set(incomplete.flatMap(card => [card.code, card.canonicalPasscode ?? card.code]))];
+  const cachedCards = new Map(cardCatalog().findByIds(ids).map(card => [card.ygoprodeckId, card]));
+  return cards.map(card => {
+    const cached = cachedCards.get(card.code) ?? cachedCards.get(card.canonicalPasscode ?? card.code);
+    return {
+      ...card,
+      name: !hasName(card.code, card.name) && cached && hasName(cached.ygoprodeckId, cached.name) ? cached.name : card.name,
+      description: !card.description?.trim() && cached?.effectText?.trim() ? cached.effectText : card.description,
+    };
+  });
 }
 
 export async function GET(request: NextRequest) {
@@ -33,10 +44,6 @@ export async function GET(request: NextRequest) {
       return duelErrorResponse(error);
     }
   }
-  // Slug-bound searches must retain the host's announce-card permission checks.
-  const code = /^\d+$/.test(query.trim()) ? Number(query) : null;
-  const local = !slug && query.length <= 200 && code !== null && Number.isSafeInteger(code) && code > 0 && code <= 0xffffffff
-    ? exactCardInfo([code]) : null;
   const result = await callDuelHost({
     op: "cards",
     slug,
@@ -44,15 +51,9 @@ export async function GET(request: NextRequest) {
     playerId: actor.playerId,
     query,
   });
-  if (!result.ok) {
-    if (result.response.status === 503 && local?.cards.length) return NextResponse.json({ cards: local.cards });
-    return result.response;
-  }
-  if (local?.cards.length) {
-    const data = result.data as { cards: DuelCardInfo[] };
-    return NextResponse.json({ cards: [...local.cards, ...data.cards.filter(card => card.code !== code)] });
-  }
-  return NextResponse.json(result.data);
+  if (!result.ok) return NextResponse.json({ cards: [] });
+  const data = result.data as { cards: DuelCardInfo[] };
+  return NextResponse.json({ ...data, cards: withCatalogCardText(data.cards) });
 }
 
 export async function POST(request: Request) {
@@ -69,25 +70,14 @@ export async function POST(request: Request) {
     || codes.some((code) => !Number.isSafeInteger(code) || code <= 0 || code > 0xffffffff)) {
     return NextResponse.json({ error: "Provide at most 1000 positive card passcodes" }, { status: 400 });
   }
-  const local = exactCardInfo(codes);
-  if (local && local.missing.length === 0) return NextResponse.json(local);
+  const ids = [...new Set<number>(codes)];
   const result = await callDuelHost({
     op: "card-details",
     guildId: actor.guildId,
     playerId: actor.playerId,
-    codes: local?.missing ?? codes,
+    codes: ids,
   });
-  if (!result.ok) {
-    if (result.response.status === 503 && local?.cards.length) return NextResponse.json(local);
-    return result.response;
-  }
+  if (!result.ok) return NextResponse.json({ cards: [], missing: ids });
   const data = result.data as { cards: DeckCardInfo[]; missing: number[] };
-  const cards = withCatalogCardText(data.cards, cardCatalog());
-  if (!local) return NextResponse.json({ ...data, cards });
-  const combined = new Map([...local.cards, ...cards].map(card => [card.code, card]));
-  const ids = [...new Set<number>(codes)];
-  return NextResponse.json({
-    cards: ids.flatMap(code => combined.has(code) ? [combined.get(code)!] : []),
-    missing: ids.filter(code => !combined.has(code)),
-  });
+  return NextResponse.json({ ...data, cards: withCatalogCardText(data.cards) });
 }
