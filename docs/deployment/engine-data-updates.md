@@ -1,5 +1,39 @@
 # Weekly engine data updates
 
+The admin `GET /api/admin/card-data-status` endpoint reports the installed bundle and
+each pinned source's GitHub committer date as **data as of** (`engine.sources.*.pinnedCommitDate`).
+Preparation time is unknown (`preparedAt: null`, `preparedAtSource: "unknown"`); manifest
+mtime only reflects a file copy. The running host uses its startup manifest, including
+validated `sources.databaseFiles` provenance, with `cards.cdb` as the old-manifest fallback.
+The installed `cards.cdb` is the prepared merged database once release-CDB preparation lands.
+The upstream file list follows that same rule: root `cards.cdb` and `release-*.cdb` only.
+
+The primary gap compares the engine against **TCG sets released in the last 12 calendar
+months through today (UTC)** from the daily `card_sets` sync. Per-set YGOPRODeck cardinfo
+requests use the shared card/image fetch queue. Compact identities and printing codes
+persist in `card_data_set_cache`; sets at most 60 days old refresh daily and older released
+sets remain cached indefinitely. Reports count playable alias/artwork families, exclude
+skills/tokens, and separate same-name/type ID mismatches from missing cards. A set that
+has never fetched successfully has unknown/null totals, never a false zero; the primary
+count is also null before the set index has synced. Cached set
+data is served while refreshing, with `checkedAt` showing its last successful fetch.
+`cachedCatalogMissing*` remains a diagnostic for the incomplete on-demand catalog;
+there is no reverse engine-versus-cache metric.
+
+Status reads keep local snapshots for at least 60 seconds even when catalog writes bump
+the revision. GitHub reads serve cached metadata and refresh in the background, including
+an immediate unknown snapshot on first use. Only used response fields are cached; successes
+last one hour and failures five minutes, honoring `x-ratelimit-reset` on 403/429.
+HEAD/compare-base dates avoid separate repository and pinned-commit lookups: normally
+nine public API calls per hourly refresh. `defaultBranch` stays null; omitting `sha` still resolves HEAD
+on the default branch. Workflow and PR links must begin with `https://github.com/`.
+The web-to-duel status call has a five-second deadline covering the response body.
+
+`GITHUB_TOKEN` is **optional and unset in production** for this public-read status
+feature. Healthy unauthenticated reads at <=15 calls/hour fit its intended budget. Never use
+`BUG_REPORT_GITHUB_TOKEN` for card-data status. This runtime setting is separate from
+the GitHub Actions workflow token described below.
+
 The **Engine data update** workflow runs Mondays at 06:00 UTC. It advances only Project Ignis CardScripts, BabelCDB and Distribution, with an exact pin-file allowlist of `packages/duel-server/scripts/prepare-data.ts`, `packages/duel-server/domain-core/pins.json` and `packages/duel-server/legacy-1v1/domain-core/pins.json`. If an old data SHA appears in another tracked file, the updater fails before writing anything. Both core-build `pins.json` files retain their `cardScripts` record and advance it together with the scripts pin in `prepare-data.ts`. Those records are part of `bundleVersion`. A real CardScripts bump invalidates both core build caches; the resulting multicore rebuild during deployment is accepted. The updater never advances ygopro-core, ocgcore-wasm, Lua or Emscripten.
 
 The `prepare` job has contents-read permission, checks out without persisted credentials, and installs without a token in its environment. It builds shared before running the updater. Pin resolution and candidate bundle preparation receive the read-only GitHub token. It resolves candidate pins, prepares a temporary bundle, checks overlays, probes the installed production core, and uploads a pin-only patch, metadata and full report. The separate `publish` job installs no dependencies, checks out without persisted credentials, validates the artifact's exact paths and pin-only content, then uses its write token to commit, push and manage the PR. Automated bot commits have no Claude co-author or session trailers.
@@ -23,6 +57,12 @@ At database pin `fdf92aea…`, the inputs are `cards.cdb` plus `release-betb.cdb
 The release-data fix changes the prepared bundle version even though all upstream pins remain unchanged. Without optional built-core metadata, the original base-only version was `23993561abcaedcdf5aacadbfb9b4f43c4484b2590a99e9906efe29fb59cdfa8`; the reviewed input-hash version is `661ab25721cdf1dfd2ad78e9e127899837ad769519c9ae5e3dd3d15ca815472d`, verified by fresh preparation on 2026-10-06. Its `integrity.cards` is `a71b47633363bede95e2858eaa6d1734f18735a0ecf27bd000d8d5e63c8dd9df`; `cardsMerged` is `4c4025613e2fb7588ad8e520a16af72d9d7e509f7848a9bffec461f1cbcd0548` with SQLite 3.53.0. Built-core bundle versions also change because their sources/integrity include this data. Owner review is required before merging/deploying because existing duel/replay version checks apply.
 
 The weekly workflow uses this same merge for names and candidate validation, reports added/removed release filenames, and includes loaded release scripts in its advisory initialization probe even when those scripts did not change. Tree discovery receives `GITHUB_TOKEN` in CI, deployment, staging and candidate preparation. Tree/database downloads retry HTTP 403, 429 and 5xx three times, using `Retry-After` (seconds or HTTP date); `x-ratelimit-reset` also applies only when `x-ratelimit-remaining` is `0`. Exponential delays apply when no future server deadline is available. Each delay is capped at 60 seconds; exhausted retries fail the command so an operator can rerun it. Publication still accepts only the three existing pin files; no release list is generated or committed. Bundle cache keys in CI, deployment and staging include the merge helper. Core-only checksums remain unchanged; `expected-sha256.txt` files contain WASM/Domain Lua hashes, not card-data hashes.
+
+The C6 geometry audit scans every Lua directory in the prepared `card-scripts/` corpus and requires an exact match with `packages/duel-server/tests/fixtures/c6-geometry-audit.json`, including a reviewed reason for every expression. At the pins above, release filtering removes `pre-release/c100458010.lua`, `c101402090.lua` and `c101403030.lua`, reducing the stock audit from 173 to 169 expressions. Their four rows therefore leave the fixture. Retained scripts excluded only because their passcode lacks a database row keep their `requiresAbsentCode` guard. Any future retained pre-release geometry expression must receive its own audit row; the scan does not skip that directory.
+
+The merged database also makes Bingo Card, Red-Eyes Black Dragon Exceed, Swiftwind Panther Warrior and Seventh Barian's loadable in the multiplayer table. Their database-absence exceptions are removed. The existing R1/R2 overlays for the first three stay in place; Exceed's summon triggers cannot run on the generic board, so the table records that limit explicitly. Seventh Barian's moves from `R1_NO_CHANGE` to a real R1 suffix: its End Phase damage counts Xyz Monsters on all fields and affects every living duelist (ADR-0002 Q3), while its Extra Deck summon flags use one key per FFA seat or Tag team (Q6). The R1 total remains 93.
+
+Re-record `scripts/native/golden.tsv` with `packages/duel-server/scripts/run-nduel.sh --record`, then verify it with `--check`, after changing the merged database or release filtering even when the three source pins stay the same. The native driver samples the effective card pool, so the merge changes seeded duels and their recorded hashes. Overlay edits also require an explicitly recorded fingerprint. At this update, all 80 golden duels are re-recorded against the merged bundle; final-link elimination coverage uses a fixed real-duel fixture rather than relying on the old seeded deck.
 
 ## Run by hand
 

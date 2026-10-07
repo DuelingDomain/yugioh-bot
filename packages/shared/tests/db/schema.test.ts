@@ -313,6 +313,7 @@ describe("shared database schema", () => {
       "synced_at",
       "card_count",
       "set_code",
+      "release_date",
     ]);
     expect(getTableInfo(db, "card_catalog").map((column) => column.name)).toEqual([
       "ygoprodeck_id",

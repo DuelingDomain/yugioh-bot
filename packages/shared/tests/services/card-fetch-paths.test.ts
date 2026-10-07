@@ -27,7 +27,8 @@ async function setup(failure: string, cached: boolean) {
       values (12345678,'Cached Dragon','Effect Monster','effect','full','small',?,'old','Cached')`)
       .run(JSON.stringify([{ set_name: "Cached Set" }]));
     db.exec(`insert into card_artworks (card_id,artwork_id,image_url,image_url_small,is_main) values (12345678,12345678,'full','small',1);
-      insert into card_sets values ('Cached Set','CS',1,'old'); insert into archetypes values ('Cached','old');`);
+      insert into card_sets (set_name,set_code,card_count,synced_at) values ('Cached Set','CS',1,'old');
+      insert into archetypes values ('Cached','old');`);
   }
   const fetch = vi.fn(async () => {
     if (failure === "network") throw new Error("offline");

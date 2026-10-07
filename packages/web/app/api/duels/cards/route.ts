@@ -1,7 +1,35 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createCardCatalogService } from "@yugidraft/shared/services";
+import type { DeckCardInfo, DuelCardInfo } from "@yugidraft/shared/duels";
+import { getDb } from "@/lib/db";
 import { callDuelHost, duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
 
 export const runtime = "nodejs";
+
+let catalog: ReturnType<typeof createCardCatalogService> | undefined;
+function cardCatalog() {
+  // Artwork identity comes from the host; catalog lookups only read cached rows.
+  return catalog ??= createCardCatalogService(getDb(), { identityCatalog: new Map() });
+}
+
+function hasName(code: number, name: string | undefined) {
+  return !!name?.trim() && name.trim() !== `Card ${code}`;
+}
+
+function withCatalogCardText<T extends DuelCardInfo>(cards: T[]): T[] {
+  const incomplete = cards.filter(card => !hasName(card.code, card.name) || !card.description?.trim());
+  if (!incomplete.length) return cards;
+  const ids = [...new Set(incomplete.flatMap(card => [card.code, card.canonicalPasscode ?? card.code]))];
+  const cachedCards = new Map(cardCatalog().findByIds(ids).map(card => [card.ygoprodeckId, card]));
+  return cards.map(card => {
+    const cached = cachedCards.get(card.code) ?? cachedCards.get(card.canonicalPasscode ?? card.code);
+    return {
+      ...card,
+      name: !hasName(card.code, card.name) && cached && hasName(cached.ygoprodeckId, cached.name) ? cached.name : card.name,
+      description: !card.description?.trim() && cached?.effectText?.trim() ? cached.effectText : card.description,
+    };
+  });
+}
 
 export async function GET(request: NextRequest) {
   const actor = await requireDuelActor();
@@ -24,7 +52,8 @@ export async function GET(request: NextRequest) {
     query,
   });
   if (!result.ok) return result.response;
-  return NextResponse.json(result.data);
+  const data = result.data as { cards: DuelCardInfo[] };
+  return NextResponse.json({ ...data, cards: withCatalogCardText(data.cards) });
 }
 
 export async function POST(request: Request) {
@@ -41,12 +70,14 @@ export async function POST(request: Request) {
     || codes.some((code) => !Number.isSafeInteger(code) || code <= 0 || code > 0xffffffff)) {
     return NextResponse.json({ error: "Provide at most 1000 positive card passcodes" }, { status: 400 });
   }
+  const ids = [...new Set<number>(codes)];
   const result = await callDuelHost({
     op: "card-details",
     guildId: actor.guildId,
     playerId: actor.playerId,
-    codes,
+    codes: ids,
   });
   if (!result.ok) return result.response;
-  return NextResponse.json(result.data);
+  const data = result.data as { cards: DeckCardInfo[]; missing: number[] };
+  return NextResponse.json({ ...data, cards: withCatalogCardText(data.cards) });
 }
