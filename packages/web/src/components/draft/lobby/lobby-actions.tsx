@@ -359,8 +359,49 @@ export function LobbyStartBox({
   const stopping = controller.pending === "stop";
   const stop = () => { void controller.stop(start.token); };
   const auto = start.kind === "auto";
+  const note = auto ? "Every seat is filled and ready, so auto-start is counting down." : "The host started the draft.";
+  // Screen readers hear one line when the countdown starts and then the last three seconds, not every tick.
+  const spoken = !count.expired && count.seconds <= 3 ? String(count.seconds) : "Draft is starting.";
+  const live = <span className="sr-only" role="status" aria-live="polite">{spoken}</span>;
+
+  // A guest has nothing to press, so the page stays theirs: a banner at the top, not a dialog that takes focus.
+  if (!isHost) {
+    return (
+      <SheetPortal>
+        <div
+          data-start-banner=""
+          data-kind={start.kind}
+          style={{
+            position: "fixed",
+            top: 12,
+            left: "50%",
+            translate: "-50% 0",
+            zIndex: 60,
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            maxWidth: "min(92vw, 520px)",
+            padding: "10px 16px",
+            border: "1px solid var(--rule)",
+            borderRadius: 12,
+            background: "var(--panel-2)",
+            boxShadow: "0 12px 30px rgb(0 0 0 / 0.5)",
+            color: "var(--ink)",
+          }}
+        >
+          <span aria-hidden="true" style={{ font: "600 26px/1 var(--f-num)", fontVariantNumeric: "tabular-nums", minWidth: 28, textAlign: "center" }}>{count.seconds}</span>
+          <span style={{ display: "grid", gap: 2 }}>
+            <strong aria-hidden="true" style={{ font: "600 16px/1.2 var(--f-display)" }}>{count.expired ? "Starting now" : `Starting in ${count.seconds} s`}</strong>
+            <span style={{ color: "var(--ink-3)", fontSize: 13.5, lineHeight: 1.4 }}>{note} Only the host can stop it.</span>
+          </span>
+          {live}
+        </div>
+      </SheetPortal>
+    );
+  }
+
   return (
-    <LobbyDialog label="Draft starting" initialFocusRef={stopRef} onClose={isHost ? stop : undefined}>
+    <LobbyDialog label="Draft starting" initialFocusRef={stopRef} onClose={stop}>
       <div className={styles.startBox} data-kind={start.kind}>
         <div className={styles.gring} aria-hidden="true">
           <svg viewBox="0 0 108 108">
@@ -379,24 +420,17 @@ export function LobbyStartBox({
         <h2 className={styles.startTitle} aria-busy={count.expired || undefined}>
           {count.expired ? "Starting now" : `Starting in ${count.seconds} s`}
         </h2>
-        <p className={styles.startNote}>
-          {auto ? "Every seat is filled and ready, so auto-start is counting down." : "The host started the draft."}
-        </p>
+        {live}
+        <p className={styles.startNote}>{note}</p>
         {controller.error && (
           <div role="alert"><StatusLine tone="block">{controller.error}</StatusLine></div>
         )}
-        {isHost ? (
-          <>
-            <button ref={stopRef} type="button" className={svButtonClass("danger", { big: true, wide: true })} disabled={stopping} aria-busy={stopping || undefined} onClick={stop}>
-              Stop
-            </button>
-            <p className={styles.startFoot}>
-              Esc stops too.{auto ? " Stopping holds auto-start until you resume it." : ""}
-            </p>
-          </>
-        ) : (
-          <p className={styles.startFoot}>Only the host can stop it.</p>
-        )}
+        <button ref={stopRef} type="button" className={svButtonClass("danger", { big: true, wide: true })} disabled={stopping} aria-busy={stopping || undefined} onClick={stop}>
+          Stop
+        </button>
+        <p className={styles.startFoot}>
+          Esc stops too.{auto ? " Stopping holds auto-start until you resume it." : ""}
+        </p>
       </div>
     </LobbyDialog>
   );

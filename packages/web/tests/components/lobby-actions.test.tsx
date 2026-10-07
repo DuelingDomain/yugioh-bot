@@ -285,6 +285,30 @@ describe("start box and countdown", () => {
     expect(screen.getByText(/only the host can stop it/i)).toBeInTheDocument();
   });
 
+  it("gives a guest a banner, not a dialog, and gives the host the dialog", () => {
+    const { unmount } = render(<Harness players={[ANA, BOB]} lobby={starting("manual", 5)} isMember />);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(document.body.style.overflow).not.toBe("hidden");
+    expect(document.querySelector("[data-start-banner]")).not.toBeNull();
+    expect(screen.getByText("Starting in 5 s")).toBeInTheDocument();
+    unmount();
+    render(<Harness players={[HOST, ANA, BOB]} lobby={starting("manual", 5)} isHost />);
+    expect(screen.getByRole("dialog", { name: /draft starting/i })).toBeInTheDocument();
+  });
+
+  it("says it once, then only the last three seconds, in a polite live region", () => {
+    vi.useFakeTimers({ now: NOW });
+    render(<Harness players={[ANA, BOB]} lobby={starting("auto", 10)} isMember />);
+    const live = () => document.querySelector('[aria-live="polite"][role="status"].sr-only')!;
+    expect(live().textContent).toBe("Draft is starting.");
+    act(() => { vi.advanceTimersByTime(3000); });
+    expect(live().textContent).toBe("Draft is starting.");
+    act(() => { vi.advanceTimersByTime(4000); });
+    expect(live().textContent).toBe("3");
+    act(() => { vi.advanceTimersByTime(1000); });
+    expect(live().textContent).toBe("2");
+  });
+
   it("stops with the token on the Stop button and on Esc", async () => {
     const api = makeApi();
     render(<Harness players={[HOST, ANA, BOB]} lobby={starting("manual", 5, "abc")} isHost api={api} />);
