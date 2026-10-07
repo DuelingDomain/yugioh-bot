@@ -832,7 +832,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
               })
             : null}
           {hubStyle && gridHub ? (
-            <div className={styles.hub} {...{ [FOLLOW_ATTR]: "" }} data-grid-hub={hubPlace === "center" && finale == null ? "center" : "band"} data-hub-fit={hubPlace === "center" && finale == null ? undefined : hubFit?.mode} style={hubStyle}>
+            <div className={styles.hub} {...{ [FOLLOW_ATTR]: "" }} data-grid-hub={hubPlace === "center" && finale == null ? "center" : "band"} data-hub-fit={hubPlace === "center" && finale == null ? undefined : hubFit?.mode} data-emz-zones={masterRule >= 4 ? undefined : "false"} style={hubStyle}>
               {gridHub(hubPlace === "center" && finale == null ? "center" : "band")}
             </div>
           ) : null}

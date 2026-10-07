@@ -76,9 +76,21 @@ describe("4-way grid: the phase hub sits in the free cells beside the Extra Mons
 
   it("takes the chip size from the grid, breaks the hairline at the zones and drops the text lines when stacked", () => {
     expect(hub).toMatch(/--hc: var\(--hub-hc, clamp\(26px, calc\(var\(--hub-z\) \* 0\.28\), 38px\)\);/);
-    expect(hub).toMatch(/:global\(\[data-hub-fit\]\) \.line,\s*:global\(\[data-hub-fit\]\) \.cell\[data-cell\] \.pair::before \{\s*display: none;/);
+    expect(hub).toMatch(/:global\(\[data-hub-fit\]\) \.cell\[data-cell\] \.pair::before \{\s*display: none;/);
     expect(hub).toMatch(/:global\(\[data-hub-fit="stack"\]\) \.pair \{\s*flex-direction: column;/);
     expect(hub).toMatch(/:global\(\[data-hub-fit="stack"\]\) \.owner,\s*:global\(\[data-hub-fit="stack"\]\) \.under \{\s*display: none;/);
+  });
+});
+
+describe("phase hub hairline: it never enters an Extra Monster Zone", () => {
+  const hub = readFileSync(join(__dirname, "../src/components/duel/phase-hub.module.css"), "utf8");
+  it("is drawn in one piece per cell that stops short of the zones' widest (landscape) guide, not as one line across the row", () => {
+    expect(hub).not.toMatch(/^\.line \{/m);
+    expect(hub).toMatch(/--stop: calc\(var\(--hub-z\) \/ 2 - var\(--hub-g\) - 50% \+ var\(--emz-air\)\);/);
+    expect(hub).toMatch(/\.cell::before \{[^}]*right: var\(--stop\);[^}]*left: var\(--stop\);/);
+  });
+  it("runs whole where the board draws no Extra Monster Zones (Master Rule 3)", () => {
+    expect(hub).toMatch(/:global\(\[data-emz-zones="false"\]\) \.root\[data-variant="band"\] \{\s*--stop: calc\(-1 \* var\(--hub-g\) - 50%\);/);
   });
 });
 

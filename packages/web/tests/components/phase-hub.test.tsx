@@ -227,10 +227,8 @@ describe("PhaseHub turn owner", () => {
     expect(cells.map((cell) => [...cell.querySelectorAll("[data-phase]")].map((chip) => chip.getAttribute("data-phase")))).toEqual([
       ["DP", "SP"], ["M1", "BP"], ["M2", "EP"],
     ]);
-    // One hairline for the whole strip, decoration only; no pill, no track and no caption line.
-    const lines = nav.querySelectorAll("[class*='line']");
-    expect(lines).toHaveLength(1);
-    expect(lines[0].getAttribute("aria-hidden")).toBe("true");
+    // The hairline is drawn by the cells' CSS (a piece per cell, stopping short of the zones): no line element, no pill, no track and no caption line.
+    expect(nav.querySelector("[class*='line']")).toBeNull();
     expect(nav.querySelector("[class*='plate']")).toBeNull();
     expect(nav.querySelector("[class*='track']")).toBeNull();
     expect(nav.querySelector("[class*='caption']")).toBeNull();

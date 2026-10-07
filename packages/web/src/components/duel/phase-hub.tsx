@@ -77,7 +77,7 @@ function Chip({ view, litName, onChoose }: { view: StationView; litName: string;
 const PAIRS = [[0, 1], [2, 3], [4, 5]] as const;
 
 /**
- * The phases of the turn, in the middle of the board: DP SP M1 BP M2 EP, as one strip at a table and as three pairs on one hairline in the 1v1 band. It reads the same model as the bar (`phaseStations`) and sends the
+ * The phases of the turn, in the middle of the board: DP SP M1 BP M2 EP, as one strip at a table and as three pairs on one hairline in the 1v1 band (a hairline that stops short of the Extra Monster Zones). It reads the same model as the bar (`phaseStations`) and sends the
  * same option ids through the same `onChoose`: Battle, Main 2 and End are buttons only while the local seat may answer
  * and the engine offers that move; on every other turn, and while anything else is being decided, it is read-only.
  * The lit chip is wider and carries the phase's full name (a cell too narrow for it keeps the code and puts the name under the pair).
@@ -131,7 +131,6 @@ export function PhaseHub({
       <p className={styles.srOnly} role="status" aria-live="polite" aria-atomic="true">{summary}</p>
       {variant === "band" ? (
         <>
-          <span className={styles.line} aria-hidden="true" />
           {PAIRS.map((pair, p) => (
             <div key={p} className={styles.cell} data-cell={p}>
               <div className={styles.pair}>
