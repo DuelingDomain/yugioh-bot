@@ -26,11 +26,8 @@ export const LOBBY_SEATS_MIN = 2;
 export const LOBBY_SEATS_MAX = 8;
 export const LOBBY_SEATS_DEFAULT = 4;
 
-/**
- * Stub for T01, which adds `lobbySeats` to the shared DraftConfig. Drop this alias and use DraftConfig
- * once that type has landed.
- */
-export type SeatedDraftConfig = DraftConfig & { lobbySeats?: number };
+/** Kept as an alias: `DraftConfig.lobbySeats` now comes from the shared types. */
+export type SeatedDraftConfig = DraftConfig;
 
 /** The pack fields as typed. The pool lives in the pool editor, not here. */
 export type DraftConfigFieldsValue = {
