@@ -48,8 +48,8 @@ export function DeleteAccountView({ username, value, onValueChange, pending, err
       <div className="set-intro">
         <h2 id="set-delete-account">Delete account</h2>
         <p id="set-delete-account-note">
-          This deletes your sign-in, email and saved decks. Your match results stay in other players&apos; history as
-          &ldquo;Deleted player&rdquo;. This can&apos;t be undone.
+          This removes your sign-in, email address and saved decks. Your matches, drafts, tournaments and cubes stay on
+          the site as &ldquo;Deleted player&rdquo;, so other players keep their history. You can&apos;t undo this.
         </p>
       </div>
       <form

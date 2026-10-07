@@ -26,7 +26,7 @@ describe("DeleteAccountSection", () => {
   it("shows the approved copy and the username as a hint", () => {
     render(<DeleteAccountSection username="Yugi_1" e2eMode={false} />);
     expect(screen.getByRole("heading", { name: "Delete account" })).toBeTruthy();
-    expect(screen.getByText(/This deletes your sign-in, email and saved decks\. Your match results stay in other players' history as “Deleted player”\. This can't be undone\./)).toBeTruthy();
+    expect(screen.getByText(/This removes your sign-in, email address and saved decks\. Your matches, drafts, tournaments and cubes stay on the site as “Deleted player”, so other players keep their history\. You can't undo this\./)).toBeTruthy();
     expect(screen.getByText("Yugi_1").tagName).toBe("CODE");
     expect(button().textContent).toBe("Delete my account");
   });
