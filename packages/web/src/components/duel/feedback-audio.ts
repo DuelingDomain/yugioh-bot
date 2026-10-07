@@ -20,6 +20,8 @@ export type DuelSoundCue = DuelEventKind | DuelFxCue;
 
 export interface DuelFeedbackAudio {
   unlock: () => Promise<boolean>;
+  /** True once the audio context runs (a gesture unlocked it). Muted and zero volume still count as ready. */
+  ready: () => boolean;
   setMuted: (muted: boolean) => void;
   /** Master level 0..1, eased in so a slider drag does not click. Applies while unmuted. */
   setVolume: (volume: number) => void;
@@ -298,6 +300,11 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
         synth.tone({ freq: 659.25, type: "sine", start: t, duration: 0.18, peak: 0.04 });
         synth.tone({ freq: 987.77, type: "sine", start: t + 0.04, duration: 0.14, peak: 0.022 });
         break;
+      case "clock-low":
+        // One minute left on the viewer's own clock: two plain, clear beeps (a pitch no other cue uses).
+        synth.tone({ freq: 1046.5, type: "sine", start: t, duration: 0.16, peak: 0.09, attack: 0.008 });
+        synth.tone({ freq: 1046.5, type: "sine", start: t + 0.24, duration: 0.16, peak: 0.09, attack: 0.008 });
+        break;
       case "chain-resolving":
         synth.tone({ freq: 784, type: "triangle", start: t, duration: 0.07, peak: 0.03, attack: 0.006 });
         break;
@@ -454,5 +461,5 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
     }
   }
 
-  return { unlock, setMuted, setVolume, play, playBattle, stopAll, dispose };
+  return { unlock, ready: () => unlocked, setMuted, setVolume, play, playBattle, stopAll, dispose };
 }

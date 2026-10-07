@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import type { DuelAnswer, DuelCard, DuelClock, DuelPrompt, DuelSeatView, DuelSession } from "@yugidraft/shared/duels";
 import { DuelClockDisplay } from "../room-settings";
+import clockStyles from "../room-clock.module.css";
+import hudStyles from "./grid-hud.module.css";
 import type { DuelHoverHandler } from "../field-keys";
 import { optionsForCard } from "../prompts";
 import { hasNoLegalMoves, type StationTrackProps } from "../station-track";
@@ -45,13 +47,27 @@ export function hudMasterProps(source: HudMasterSource, view: DuelSeatView | und
 }
 
 /**
- * The 1v1 HUD pill shows both clocks with a short name each, so a duelist reads the rival's time bank too. `null` when
- * the duel has no clock. Only a 2-seat table uses it: the pill is one row high, and the tables of 3 or 4 seats keep the
- * compact clock of the answering seat.
+ * The clock block of the floating HUD header, right of the identity pill at the top left: every seat (2 to 4) with its
+ * full name over big digits, the answering seat marked and a red look at 1:00 or less. `null` when the duel has no clock.
+ * It sits in the header band (y 6 to 46), above the rail, the flyout, the card preview and the chain tower.
  */
-export function hudClock(clock: DuelClock | null | undefined, session: DuelSession, reducedMotion: boolean): ReactNode {
+export function hudClockBank(clock: DuelClock | null | undefined, session: DuelSession, reducedMotion: boolean, seatCode?: (seat: number) => string | null): ReactNode {
   if (!clock) return null;
-  return <DuelClockDisplay key={clock.serverNow} clock={clock} session={session} reducedMotion={reducedMotion} pill />;
+  return (
+    <div className={hudStyles.topClocks} data-testid="hud-clocks" data-count={clock.remainingMs.length}>
+      <DuelClockDisplay key={clock.serverNow} clock={clock} session={session} reducedMotion={reducedMotion} seatCode={seatCode} bank />
+    </div>
+  );
+}
+
+/** The same block as one row in the flow, under the header of a room without the floating HUD (a narrow screen). */
+export function clockStrip(clock: DuelClock | null | undefined, session: DuelSession, reducedMotion: boolean): ReactNode {
+  if (!clock) return null;
+  return (
+    <div className={clockStyles.strip} data-testid="clock-strip">
+      <DuelClockDisplay key={clock.serverNow} clock={clock} session={session} reducedMotion={reducedMotion} bank />
+    </div>
+  );
 }
 
 type TrackShared = Pick<

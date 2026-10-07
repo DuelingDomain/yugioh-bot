@@ -57,9 +57,13 @@ describe("3D mode room", () => {
     expect(container.querySelector("[data-sv-plane]")).not.toBeNull();
     expect(container.querySelector('[data-sv-clock="opp"]')).not.toBeNull();
     expect(container.querySelector('[data-sv-clock="you"]')).not.toBeNull();
-    // The clocks live only in the plane gaps (owner decision 4), one per seat, never on the phase bar.
-    expect(container.querySelectorAll('[role=timer]')).toHaveLength(2);
+    // One clock per seat stays in the plane gaps, never on the phase bar; the header also shows the top-left block
+    // with every seat's clock (the answering seat marked).
     expect(container.querySelectorAll('[data-sv-clock] [role=timer]')).toHaveLength(2);
+    const bank = container.querySelector('header [role=timer][data-count="2"]') as HTMLElement;
+    expect(bank.querySelectorAll('[data-testid="clock-cell"]')).toHaveLength(2);
+    expect(bank.querySelectorAll('[data-active="true"]')).toHaveLength(1);
+    expect(container.querySelectorAll('[role=timer]')).toHaveLength(3);
     expect(container.querySelectorAll("[data-hand-seat]").length).toBe(2);
     expect(container.querySelectorAll("[data-zones]").length).toBeGreaterThan(20);
     // Brand text: the 3D header says Dueling Domain, never Yugidraft.

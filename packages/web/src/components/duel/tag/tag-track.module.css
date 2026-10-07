@@ -49,8 +49,6 @@
   white-space: nowrap;
 }
 
-.clock { display: inline-flex; align-items: center; color: var(--duel-ink-2); font-family: var(--duel-f-num); font-size: var(--duel-t-sm); font-variant-numeric: tabular-nums; }
-
 @media (max-width: 900px) {
   .row { flex-wrap: wrap; gap: 4px 10px; }
 }

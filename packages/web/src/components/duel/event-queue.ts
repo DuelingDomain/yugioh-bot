@@ -371,13 +371,14 @@ export function fxSoundsItself(event: DuelEvent): boolean {
 
 /** SummonFx and PositionFx tell the audio layer when their moments land. */
 export const DUEL_FX_CUE_EVENT = "yugidraft:duel-fx-cue";
-export type DuelFxCue = "holo" | "slam" | "shatter" | "turn" | "flip" | "battle" | SceneCueName | SummonStyle;
+export type DuelFxCue = "holo" | "slam" | "shatter" | "turn" | "flip" | "battle" | "clock-low" | SceneCueName | SummonStyle;
 /** `battle` carries the plan of the fight (BattleFx sends it when a fight starts playing). */
 export type DuelFxCueDetail = { cue: DuelFxCue; strength: number; battle?: BattleSoundPlan };
 
-export function emitDuelFxCue(detail: DuelFxCueDetail): void {
-  if (typeof window === "undefined") return;
-  window.dispatchEvent(new CustomEvent<DuelFxCueDetail>(DUEL_FX_CUE_EVENT, { detail }));
+/** Returns true when a listener took the cue and called `preventDefault()` (the feedback layer does, once it can play). */
+export function emitDuelFxCue(detail: DuelFxCueDetail): boolean {
+  if (typeof window === "undefined") return false;
+  return !window.dispatchEvent(new CustomEvent<DuelFxCueDetail>(DUEL_FX_CUE_EVENT, { detail, cancelable: true }));
 }
 
 /**

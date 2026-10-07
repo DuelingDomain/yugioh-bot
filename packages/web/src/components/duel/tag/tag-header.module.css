@@ -111,3 +111,16 @@
 /* Floating HUD (wide): the identity pill keeps the brand and the format; the long table name stays in the tab title. */
 .hudTop .title, .hudTop .identity i { display: none; }
 .hudTop .turn, .hudTop .status { gap: 8px; }
+
+/* Four clocks sit in the header on a narrow screen: the turn pill gives up the phase name (the track shows it) and the
+   team name, the bug button its label, and the gaps shrink, so the baton keeps its room. */
+@media (max-width: 1500px) {
+  .hudTop { gap: 6px; }
+  .hudTop .phase, .hudTop .turnPill small { display: none; }
+  .hudTop .turn, .hudTop .status { gap: 6px; }
+  .hudTop .status button[data-bug-header-button] span { display: none; }
+  .hudTop .tool { white-space: nowrap; }
+  /* A player name does not fit beside the wordmark: the cell shows the seat code (1A, 2A, 1B, 2B) and keeps the full name in its tooltip. */
+  .hudTop [data-testid="hud-clocks"] [data-testid="clock-cell"] small:not([aria-hidden]) { display: none; }
+  .hudTop [data-testid="hud-clocks"] [data-testid="clock-cell"] small[aria-hidden] { display: block; }
+}
