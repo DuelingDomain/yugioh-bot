@@ -143,7 +143,7 @@ describe("legacy 1v1 engine core identity", () => {
     }
   });
 
-  it("the legacy engine refuses what only the merged engine can do", async () => {
+  it("the legacy engine refuses multiplayer and malformed startup fixtures", async () => {
     await expect(createLegacyEngineGame({ mode: "normal", format: "ffa3", decks: decks(false), seed: ["1", "2", "3", "4"], dataDirectory: DATA, settings })).rejects.toThrow(/1v1/);
     await expect(createLegacyEngineGame({ mode: "normal", format: "1v1", decks: decks(false), seed: ["1", "2", "3", "4"], dataDirectory: DATA, settings, startupScripts: ["x"] } as never)).rejects.toThrow(/startup/);
   });
