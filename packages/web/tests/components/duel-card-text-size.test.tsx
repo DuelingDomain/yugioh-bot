@@ -5,7 +5,7 @@ import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DuelCard } from "@yugidraft/shared/duels";
-import { CARD_TEXT_SIZE_KEY, cardTextStyle, loadCardTextSize, normalizeCardTextSize, saveCardTextSize, setCardTextSize, multiTableTextStyle, tableTextScale, tableTextStyle, useTableTextScale } from "@/components/duel/card-text-size";
+import { CARD_TEXT_SIZE_KEY, cardTextStyle, loadCardTextSize, normalizeCardTextSize, saveCardTextSize, setCardTextSize, multiTableTextStyle, tableTextScale, tableTextStyle, useMultiTableTextFloor, useTableTextScale } from "@/components/duel/card-text-size";
 import { DuelCardTextSizeControl } from "@/components/duel/card-text-size-control";
 import { LOCATION_MZONE, POS_FACEUP_ATTACK } from "@/components/duel/constants";
 import { CardInspector } from "@/components/duel/inspector";
@@ -63,6 +63,16 @@ describe("card text size preference", () => {
     expect(Number(document.documentElement.style.getPropertyValue("--tt"))).toBe(tableTextScale("xlarge"));
     unmount();
     expect(document.documentElement.style.getPropertyValue("--tt")).toBe("");
+  });
+});
+
+describe("the small-text floor of the multi tables", () => {
+  it("is on the document while a multi table is open, for the menus and tooltips that render into the body", () => {
+    function Probe() { useMultiTableTextFloor(); return null; }
+    const { unmount } = render(<Probe />);
+    expect(document.documentElement.style.getPropertyValue("--ft")).toBe("1");
+    unmount();
+    expect(document.documentElement.style.getPropertyValue("--ft")).toBe("");
   });
 });
 

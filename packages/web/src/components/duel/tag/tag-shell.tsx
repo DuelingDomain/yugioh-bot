@@ -1,6 +1,6 @@
 "use client";
 
-import { multiTableTextStyle, useCardTextSize } from "../card-text-size";
+import { multiTableTextStyle, useCardTextSize, useMultiTableTextFloor } from "../card-text-size";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { teamOfSeat } from "@yugidraft/shared/duels";
 import { AttackConfirm, CardActionMenu, CardHoverInfo, confirmSide, targetName } from "../card-interactions";
@@ -134,6 +134,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
   );
   const rootRef = useRef<HTMLDivElement>(null);
   const textSize = useCardTextSize();
+  useMultiTableTextFloor();
   const ownBoardRef = useRef<HTMLDivElement>(null);
   const boardRef = roomBoardRef ?? ownBoardRef;
   const [sheetOpen, setSheetOpen] = useState(false);

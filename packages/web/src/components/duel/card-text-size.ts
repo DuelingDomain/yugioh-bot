@@ -41,6 +41,19 @@ export function multiTableTextStyle(size: CardTextSize): CSSProperties {
   return { ...tableTextStyle(size), "--ft": "1" } as CSSProperties;
 }
 
+/**
+ * `--ft` on the document while a 3-way, 4-way or Tag table is open. The card menu and the card tooltip render into
+ * `document.body`, outside the table root that sets it inline, and need the same small-text minimums as the table.
+ * Call it from the multi table shells; the 1v1 room never does.
+ */
+export function useMultiTableTextFloor(): void {
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty("--ft", "1");
+    return () => { root.style.removeProperty("--ft"); };
+  }, []);
+}
+
 export function isCardTextSize(value: unknown): value is CardTextSize {
   return typeof value === "string" && (CARD_TEXT_SIZES as readonly string[]).includes(value);
 }
