@@ -6,7 +6,7 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, expect, it, vi } from "vitest";
 import { prepareData, sources } from "../scripts/prepare-data.js";
-import { discoverReleasedDatabases, downloadReleasedCardData, releasedDatabaseFiles, restrictPrereleaseScripts } from "../scripts/released-card-data.js";
+import { discoverReleasedDatabases, downloadReleasedCardData, restrictPrereleaseScripts } from "../scripts/released-card-data.js";
 import * as releasedCardData from "../scripts/released-card-data.js";
 import { loadCardDatabase } from "../src/cards.js";
 import { inspectDeck } from "../src/deck-legality.js";
@@ -110,13 +110,6 @@ it("stops after three retries and does not retry other client errors", async () 
   const missing = vi.fn(async () => new Response("missing", { status: 404 }));
   await expect(discoverReleasedDatabases(sources.database, missing)).rejects.toThrow("(404)");
   expect(missing).toHaveBeenCalledTimes(1);
-});
-
-it("discovers only root official base/release databases in EDOPro order and refuses incomplete trees", () => {
-  expect(releasedDatabaseFiles(tree(["release-z.cdb", "release-a.cdb", "cards.cdb", "prerelease-test.cdb", "cards-rush.cdb", "nested/release-x.cdb"]))).toEqual(["cards.cdb", "release-a.cdb", "release-z.cdb"]);
-  expect(() => releasedDatabaseFiles({ ...tree(["cards.cdb"]), truncated: true })).toThrow(/truncated/i);
-  expect(() => releasedDatabaseFiles(tree(["release-z.cdb"]))).toThrow(/cards.cdb/);
-  expect(releasedDatabaseFiles(tree(["release-Z.cdb", "cards.cdb", "release-a_extra.cdb"]))).toEqual(["cards.cdb", "release-a_extra.cdb", "release-Z.cdb"]);
 });
 
 it("merges release rows and text deterministically without converting SQLite 64-bit values or loading prerelease data", async () => {

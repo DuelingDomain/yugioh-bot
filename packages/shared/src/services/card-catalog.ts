@@ -27,6 +27,7 @@ type YgoprodeckSetInfo = {
   set_name: string;
   set_code: string;
   num_of_cards: number;
+  tcg_date?: string;
 };
 
 type YgoprodeckCard = {
@@ -673,12 +674,17 @@ export function createCardCatalogService(
       const syncedAt = new Date().toISOString();
 
       const insert = db.prepare(
-        `insert or replace into card_sets (set_name, set_code, card_count, synced_at) values (?, ?, ?, ?)`
+        `insert into card_sets (set_name, set_code, card_count, synced_at, release_date) values (?, ?, ?, ?, ?)
+         on conflict(set_name) do update set set_code = excluded.set_code, card_count = excluded.card_count,
+           synced_at = excluded.synced_at, release_date = coalesce(excluded.release_date, card_sets.release_date)`
       );
 
       db.transaction(() => {
         for (const set of payload) {
-          insert.run(set.set_name, set.set_code, set.num_of_cards, syncedAt);
+          const releaseDate = typeof set.tcg_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(set.tcg_date)
+            && Number.isFinite(Date.parse(set.tcg_date))
+            && new Date(set.tcg_date).toISOString().slice(0, 10) === set.tcg_date ? set.tcg_date : null;
+          insert.run(set.set_name, set.set_code, set.num_of_cards, syncedAt, releaseDate);
         }
       })();
 

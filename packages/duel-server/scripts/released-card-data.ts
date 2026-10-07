@@ -3,22 +3,10 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync, unlinkSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { releasedDatabaseFiles, type ReleasedDatabaseTree } from "../src/released-database-files.js";
+export { releasedDatabaseFiles } from "../src/released-database-files.js";
 
 type Download = (url: string, init?: RequestInit) => Promise<Response>;
-type Tree = { truncated: boolean; tree: Array<{ path: string; type: string }> };
-
-/** EDOPro sorts CDB filenames case-insensitively and replaces previously loaded rows.
- * Base first, then release-*.cdb in the same filename order.
- * See docs/deployment/engine-data-updates.md for the upstream implementation.
- */
-export function releasedDatabaseFiles(tree: Tree): string[] {
-  if (tree.truncated) throw new Error("GitHub truncated the database tree; refusing incomplete released card data");
-  const files = tree.tree.filter(entry => entry.type === "blob" &&
-    (entry.path === "cards.cdb" || /^release-[^/\\]*\.cdb$/.test(entry.path))).map(entry => entry.path)
-    .sort((a, b) => a.toLowerCase() < b.toLowerCase() ? -1 : a.toLowerCase() > b.toLowerCase() ? 1 : a < b ? -1 : a > b ? 1 : 0);
-  if (!files.includes("cards.cdb")) throw new Error("BabelCDB tree is missing cards.cdb");
-  return files;
-}
 
 async function download(url: string, request: Download, init?: RequestInit): Promise<Response> {
   for (let retry = 0; ; retry++) {
@@ -43,7 +31,7 @@ export async function discoverReleasedDatabases(commit: string, request: Downloa
     headers: { "User-Agent": "yugidraft-released-card-data", Accept: "application/vnd.github+json",
       "X-GitHub-Api-Version": "2022-11-28", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
   });
-  return releasedDatabaseFiles(await response.json() as Tree);
+  return releasedDatabaseFiles(await response.json() as ReleasedDatabaseTree);
 }
 
 /** Copy the pinned base byte-for-byte, then merge complete data/text pairs in sorted order.
