@@ -41,11 +41,11 @@ describe("transactional resolved list writes", () => {
       { id: 1, copies: 3, pool: "main" }, { id: 1, copies: 2, pool: "extra" },
       { id: 2, copies: 2, pool: "main" }, { id: 3, copies: 1 },
     ]);
-    expect(result).toEqual({ added: 3, copies: 5 });
-    expect(cubes.getCubePools(cubeId)).toMatchObject({ main: [{ catalogCardId: 3, maxCopies: 1 }], extra: [
-      { catalogCardId: 1, maxCopies: 99 }, { catalogCardId: 2, maxCopies: 2 },
+    expect(result).toEqual({ added: 3, copies: 5, movedToMain: 1 });
+    expect(cubes.getCubePools(cubeId)).toMatchObject({ main: [{ catalogCardId: 1, maxCopies: 99 }, { catalogCardId: 3, maxCopies: 1 }], extra: [
+      { catalogCardId: 2, maxCopies: 2 },
     ] });
-    expect(cubes.importResolvedCards(cubeId, [{ id: 1, copies: 2, pool: "extra" }])).toEqual({ added: 1, copies: 0 });
+    expect(cubes.importResolvedCards(cubeId, [{ id: 1, copies: 2, pool: "extra" }])).toEqual({ added: 1, copies: 0, movedToMain: 1 });
   });
 
   it("creates from resolved entries in both pools, with frame placement overriding explicit main", () => {

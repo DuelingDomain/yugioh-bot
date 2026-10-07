@@ -9,6 +9,8 @@ export interface ListImportResult {
   copies: number;
   unknown: string[];
   lookupLimited?: true;
+  /** Distinct main cards listed under Extra and routed to Main by a saved-cube list import. */
+  movedToMain?: number;
   corrected: Array<{ from: string; to: string }>;
 }
 

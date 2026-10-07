@@ -20,6 +20,8 @@ export interface ListDiagnostics {
   /** Names that were close to a card and were matched to it. */
   corrected: ListCorrection[];
   lookupLimited?: true;
+  /** Distinct main cards listed under Extra and routed to Main by a saved-cube list import. */
+  movedToMain?: number;
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;

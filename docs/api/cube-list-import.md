@@ -214,6 +214,7 @@ Both successful imports return `added: number`, `copies: number`, `unknown: stri
 - `added` counts distinct resolved IDs touched, including IDs already in the cube.
 - `copies` counts copies gained after the 99 cap, so reimporting adds copies, and an already capped card contributes zero.
 - `unknown` preserves unique trimmed original lines, including counts/notes. It also includes skipped document labels. Render these as lines that were not imported; they need not prevent saving the resolved cards.
+- Optional `movedToMain:number` counts distinct non-Extra-Deck IDs listed under Extra but stored in Main by `importList` / `importText` (including YDK/ydke text submitted to those list endpoints). Omitted when zero. Saved-cube list imports always place cards by frame: Fusion/Synchro/Xyz/Link go to Extra, and all other cards go to Main.
 - `corrected` reports unique parsed-name corrections, e.g. `{"from":"Artifact Moraltech","to":"Artifact Moralltach"}`. Case, quotes, punctuation, and whitespace normalization do not produce correction notices.
 - A comment-only or entirely unresolved editor import returns 200 with `added:0,copies:0` and leaves the cube unchanged. Creation with zero resolved cards returns 400 as above.
 
@@ -231,7 +232,7 @@ Each list resolve/import, passcode/YDK import, pool save/replacement, and normal
 - Names: `Dark Hole` (one copy), `3 Dark Hole`, `3x Dark Hole`, `x3 Dark Hole`, `Dark Hole x3`, `Dark Hole (x3)`.
 - Digit-leading printed names such as `7 Colored Fish` and `7 Completed` use one copy if the count interpretation fails and the full name matches exactly; `7 Colored Fish x3` and `3 7 Colored Fish` are supported.
 - Full YDK (`#main`, `#extra`, `!side`, `#created by` comments, optional `#deckmaster`) and `ydke://` links reuse the existing deck parser. Side/Deck Master cards join main unless their frame requires extra.
-- Name/passcode lists recognize `#extra`/`Extra Deck:`, `#main`/`Main Deck:`, and `!side`/`#side`/`Side Deck:`. Any explicit extra placement wins for a card appearing in both sections; Extra Deck frames always go to extra.
+- Name/passcode lists recognize `#extra`/`Extra Deck:`, `#main`/`Main Deck:`, and `!side`/`#side`/`Side Deck:`. Saved-cube `importList` / `importText` route by frame and report non-Extra-Deck IDs listed under Extra as `movedToMain`; scratch list resolve retains explicit extra placement. Extra Deck frames always go to extra.
 - Blank lines, `#`/`//` comments, BOM and CRLF are supported. Trailing non-count notes such as `(Soul-Linked to Quasar)` are stripped. Typographic quotes/apostrophes match straight ones.
 - In a document with both `Last updated:` and `Current Size:` preambles, labels preceded by two blank lines that repeat a counted card in the following contiguous section are reported as skipped headings. Explicit deck section headers end that section. This handles the real sample’s `Fossil Fusion`, `Dark Magician`, and `Jinzo` labels without adding extra copies. Other bare name lines remain one-copy entries; ordinary lists are insensitive to blank lines.
 

@@ -153,12 +153,13 @@ export async function POST(request: Request) {
       if (entries.length === 0) {
         return NextResponse.json({ error: "No cards found in that list.", added: 0, copies: 0, unknown, corrected, ...(lookupLimited ? { lookupLimited } : {}) }, { status: 400 });
       }
-      const cube = db.transaction(() => {
-        const created = cubes.createWithCards(guildId, name, session.user!.id!, entries);
+      const result = db.transaction(() => {
+        const created = cubes.createWithCards(guildId, name, session.user!.id!, []);
+        const result = cubes.importResolvedCards(created.id, entries);
         if (draftType) setCubeDraftType(db, created.id, draftType);
-        return withDraftType(db, created.id, cubes.findCube(created.id));
+        return { cube: withDraftType(db, created.id, cubes.findCube(created.id)), ...result };
       })();
-      return NextResponse.json({ cube, added: entries.length, copies: entries.reduce((sum, entry) => sum + entry.copies, 0), unknown, corrected, ...(lookupLimited ? { lookupLimited } : {}) }, { status: 201 });
+      return NextResponse.json({ ...result, unknown, corrected, ...(lookupLimited ? { lookupLimited } : {}) }, { status: 201 });
     }
     if (body.kind === "archetype") {
       const archetype = body.archetype?.trim();

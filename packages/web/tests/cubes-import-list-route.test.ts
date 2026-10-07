@@ -68,10 +68,11 @@ describe("cube editor list import", () => {
     expect(rows()).toEqual([{ id: 1, pool: "main", copies: 99 }, { id: 2, pool: "extra", copies: 1 }, { id: 3, pool: "main", copies: 2 }]);
   });
 
-  it("honors name section headers and frame detection, including cards in both sections", async () => {
+  it("uses frame detection and reports main cards incorrectly listed under extra", async () => {
     const result = await mutate({ op: "importList", text: "Dark Hole\n#extra\n2 Dark Hole\n#main\nShooting Star Dragon" });
     expect(result.status).toBe(200);
-    expect(rows()).toEqual([{ id: 1, pool: "extra", copies: 3 }, { id: 2, pool: "extra", copies: 1 }]);
+    expect(await result.json()).toMatchObject({ movedToMain: 1 });
+    expect(rows()).toEqual([{ id: 1, pool: "main", copies: 3 }, { id: 2, pool: "extra", copies: 1 }]);
   });
 
   it("accepts YDK and reports unknown names with their original count/notes", async () => {
@@ -132,8 +133,8 @@ describe("create cube from list", () => {
     expect(result.status).toBe(201);
     const body = await result.json();
     expect(body).toMatchObject({ cube: { name: "Imported", guildId: "guild-1", createdByUserId: "owner", draftType: "booster" }, added: 2, copies: 4,
-      unknown: ["Glue"], corrected: [{ from: "Artifact Moraltech", to: "Artifact Moralltach" }] });
-    expect(rows()).toEqual([{ id: 1, pool: "main", copies: 3 }, { id: 3, pool: "extra", copies: 1 }]);
+      unknown: ["Glue"], corrected: [{ from: "Artifact Moraltech", to: "Artifact Moralltach" }], movedToMain: 1 });
+    expect(rows()).toEqual([{ id: 1, pool: "main", copies: 3 }, { id: 3, pool: "main", copies: 1 }]);
     expect(JSON.parse((db.prepare("select config_json from cubes where id = ?").get(body.cube.id) as { config_json: string }).config_json).draftType).toBe("booster");
   });
 

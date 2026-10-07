@@ -195,20 +195,23 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
 
   return {
     /** Add copies atomically, reading existing totals inside the write transaction. */
-    importResolvedCards(cubeId: number, entries: readonly CubeImportEntry[]): { added: number; copies: number } {
+    importResolvedCards(cubeId: number, entries: readonly CubeImportEntry[]): { added: number; copies: number; movedToMain?: number } {
       return db.transaction(() => {
         const cube = findCube(cubeId);
         if (entries.length === 0) return { added: 0, copies: 0 };
         const cards = new Map(catalog.findByIds(entries.map((e) => e.id)).map((card) => [card.ygoprodeckId, card]));
         const totals = new Map<number, { copies: number; pool: CubePool }>();
+        const movedToMain = new Set<number>();
         for (const { id, copies, pool } of entries) {
           assertCubeCopies(copies);
           const card = cards.get(id);
           if (!card || !catalog.hasCatalogRow(id)) throw new Error(`Card ${id} is missing from the catalog`);
           const previous = totals.get(id);
+          const extra = isExtraDeckFrame(card);
+          if (pool === "extra" && !extra) movedToMain.add(id);
           totals.set(id, {
             copies: Math.min(MAX_CUBE_COPIES, (previous?.copies ?? 0) + copies),
-            pool: pool === "extra" || previous?.pool === "extra" || isExtraDeckFrame(card) ? "extra" : "main",
+            pool: extra ? "extra" : "main",
           });
         }
         const pools = getCubePools(cubeId);
@@ -236,7 +239,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
           db.prepare("update cubes set config_json = ? where id = ?").run(JSON.stringify(config), cubeId);
         }
         bump(cubeId);
-        return { added: totals.size, copies: gained };
+        return { added: totals.size, copies: gained, ...(movedToMain.size ? { movedToMain: movedToMain.size } : {}) };
       })();
     },
 
