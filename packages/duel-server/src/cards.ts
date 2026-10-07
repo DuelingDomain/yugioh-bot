@@ -200,6 +200,7 @@ function loadFromDisk(root: string): LoadedCardDatabase {
     const text = texts.get(code);
     const base: DuelCardInfo = {
       code,
+      ...((pools.get(code) ?? 0) & 0x100 ? { prerelease: true } : {}),
       name: text?.name ?? `Card ${code}`,
       description: text?.description ?? "",
       type: card.type as number,
