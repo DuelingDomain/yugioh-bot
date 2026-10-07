@@ -274,10 +274,10 @@ describe("GET /api/drafts/[slug]", () => {
     vi.stubEnv("DISCORD_GUILD_ID", guildId);
     vi.stubEnv("DISCORD_DEFAULT_CHANNEL_ID", "channel-1");
 
-    // card 1 has 5 copies > 3 waves; plus cards 2..19 for 19 distinct total.
+    // card 1 has 5 copies > 3 waves; plus cards 2..59 so a 40-card deck is possible.
     const range = (start: number, end: number) =>
       Array.from({ length: end - start }, (_, i) => start + i);
-    const customCardIds = [1, 1, 1, 1, 1, ...range(2, 20)];
+    const customCardIds = [1, 1, 1, 1, 1, ...range(2, 60)];
     const distinctIds = [...new Set(customCardIds)];
 
     const Database = (await import("better-sqlite3")).default;
@@ -321,7 +321,7 @@ describe("GET /api/drafts/[slug]", () => {
         body: JSON.stringify({
           name: "warns draft",
           channelId: "channel-1",
-          config: { customCardIds, packSize: 4, packsPerPlayer: 3, cardsPerPlayer: 12 },
+          config: { customCardIds, packSize: 14, packsPerPlayer: 3, cardsPerPlayer: 40 },
         }),
       }) as any,
     );
