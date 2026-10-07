@@ -51,9 +51,9 @@ export function loadedFileLine(name: string, text: string): string {
   return `${name}, ${plural(lineCount(text), "line")}`;
 }
 
-/** "Skipped 3 lines that are not card names" */
+/** "Skipped 3 lines that are not card names". A section title lands here, so it must not read as an error. */
 export function skippedHeading(n: number): string {
-  return `Skipped ${plural(n, "line")} that ${n === 1 ? "is" : "are"} not card names`;
+  return n === 1 ? "Skipped 1 line that is not a card name" : `Skipped ${n} lines that are not card names`;
 }
 
 /** "Corrected 2 names" */

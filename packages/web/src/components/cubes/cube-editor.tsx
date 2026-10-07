@@ -151,7 +151,7 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
         return null;
       }
       applyDetail({ pools: data.pools, cards: data.cards });
-      return { added: data.added, unknown: data.unknown, copies: data.copies };
+      return { added: data.added, unknown: data.unknown, copies: data.copies, corrected: data.corrected };
     } catch {
       // The request itself failed (network down): say so instead of leaving an unhandled rejection.
       report(op.op === "setArtwork" ? "Could not change the art." : "Update failed.");
@@ -352,6 +352,7 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
     onSeedArchetype: (archetype: string) => mutate({ op: "seedArchetype", archetype }),
     onImportCodes: (codes: number[]) => mutate({ op: "import", codes }),
     onImportYdk: (text: string) => mutate({ op: "importYdk", text }),
+    onImportList: (text: string) => mutate({ op: "importList", text }),
   };
 
   const inspector = selected ? (

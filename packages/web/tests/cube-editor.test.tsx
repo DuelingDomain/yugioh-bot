@@ -79,6 +79,23 @@ beforeEach(() => {
             json: async () => ({ ...detail(), added: 2, copies: 4, unknown: [777, 888] }),
           } as Response;
         }
+        if (body.op === "importList") {
+          if (String(body.text).includes("NOPE")) {
+            return { ok: true, json: async () => ({ ...detail(), added: 0, copies: 0, unknown: ["NOPE"], corrected: [] }) } as Response;
+          }
+          main = [{ catalogCardId: 1, pool: "main", maxCopies: 3 }];
+          extra = [{ catalogCardId: 2, pool: "extra", maxCopies: 1 }];
+          return {
+            ok: true,
+            json: async () => ({
+              ...detail(),
+              added: 2,
+              copies: 4,
+              unknown: ["Engines", "Glue"],
+              corrected: [{ from: "Artifact Moraltech", to: "Artifact Moralltach" }],
+            }),
+          } as Response;
+        }
         if (body.op === "setMaxCopies") {
           main = main.map((e) => (e.catalogCardId === body.catalogCardId ? { ...e, maxCopies: body.maxCopies } : e));
         } else if (body.op === "remove") {
@@ -266,6 +283,49 @@ describe("CubeEditor", () => {
     expect(posts[0]).toEqual({ op: "importYdk", text: "#main\n1\n1\n1\n#extra\n2\n" });
     expect(screen.getByText(/Not found/)).toHaveTextContent("777, 888");
     expect(screen.getByRole("button", { name: /Main\s*1/ })).toBeInTheDocument();
+  });
+
+  it("imports a card list by name and reports copies, corrected names and skipped lines", async () => {
+    await open();
+
+    fireEvent.click(screen.getByRole("button", { name: "Card list" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add list" }));
+    expect(posts).toEqual([]);
+    expect(screen.getByText("Load a file or paste a card list first.")).toBeInTheDocument();
+
+    const text = "Engines\n3 Dark Hole\n1 Artifact Moraltech\nGlue";
+    fireEvent.change(screen.getByLabelText("Card list"), { target: { value: text } });
+    fireEvent.click(screen.getByRole("button", { name: "Add list" }));
+
+    await screen.findByText("Added 2 cards, 4 copies.");
+    expect(posts[0]).toEqual({ op: "importList", text });
+    const report = screen.getByTestId("list-import-report");
+    expect(within(report).getByRole("list", { name: "Corrected names" })).toHaveTextContent("Artifact Moraltech");
+    expect(within(report).getByRole("list", { name: "Corrected names" })).toHaveTextContent("Artifact Moralltach");
+    expect(within(report).getByText("Skipped 2 lines that are not card names")).toBeInTheDocument();
+    expect(within(report).getByRole("list", { name: "Skipped lines", hidden: true })).toHaveTextContent("Engines");
+    expect(screen.getByLabelText("Card list")).toHaveValue("");
+    expect(screen.getByRole("button", { name: /Main\s*1/ })).toBeInTheDocument();
+  });
+
+  it("loads a .txt file into the card list box and adds it only on the next click", async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Card list" }));
+    const file = new File(["3 Dark Hole\nGlue\n"], "Flip.txt", { type: "text/plain" });
+    fireEvent.change(screen.getByLabelText("Upload card list file"), { target: { files: [file] } });
+    await waitFor(() => expect(screen.getByLabelText("Card list")).toHaveValue("3 Dark Hole\nGlue\n"));
+    expect(screen.getByText("Loaded Flip.txt, 2 lines. Check it, then add it.")).toBeInTheDocument();
+    expect(posts).toEqual([]);
+  });
+
+  it("says no cards were found when the list imports nothing, and keeps the text", async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Card list" }));
+    fireEvent.change(screen.getByLabelText("Card list"), { target: { value: "NOPE" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add list" }));
+    await screen.findByText("No cards found in that list.");
+    expect(screen.getByText("Skipped 1 line that is not a card name")).toBeInTheDocument();
+    expect(screen.getByLabelText("Card list")).toHaveValue("NOPE");
   });
 
   it("loads a .ydk file into the YDK box", async () => {
