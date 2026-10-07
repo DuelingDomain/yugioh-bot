@@ -6,6 +6,8 @@ import { normalizeBoosterDraftNumbers } from "@/lib/booster-draft-validation";
 import { cubeReferenceAccess } from "@/lib/cube-access";
 import { env } from "@/lib/env";
 import { boosterDraftConfigError, themeDraftNumberError, createCardLookupBudget, createCardCatalogService, createDraftService, createPlayerService } from "@yugidraft/shared/services";
+import { DEFAULT_LOBBY_SEATS, isValidLobbySeats } from "@yugidraft/shared/types";
+import { assertDraftConfigShape, readLobbyBody, draftLobbyErrorResponse } from "./[slug]/helpers";
 import type { DraftConfig } from "@yugidraft/shared/types";
 import { announcer } from "@/lib/notify";
 import { toUtcIso } from "@/lib/utils";
@@ -108,15 +110,26 @@ async function handlePOST(request: NextRequest) {
   const actor = await requireWebAccess();
   if (!actor.ok) return actor.response;
 
-  const body = await request.json();
+  const body = await readLobbyBody(request);
   const { name, channelId, config: rawConfig } = body as {
     name: string;
     channelId?: string;
     config: DraftConfig;
   };
+  const discordEnabled = env.discordBotEnabled;
 
+  if (typeof name !== "string" || !name.trim() || !rawConfig || typeof rawConfig !== "object" || Array.isArray(rawConfig)
+    || (discordEnabled && channelId !== undefined && typeof channelId !== "string")) {
+    return NextResponse.json({ error: "name and config are required", code: "INVALID_BODY" }, { status: 400 });
+  }
+  assertDraftConfigShape(rawConfig);
+  const lobbySeats = rawConfig.lobbySeats === undefined ? DEFAULT_LOBBY_SEATS : rawConfig.lobbySeats;
+  if (!isValidLobbySeats(lobbySeats)) {
+    return NextResponse.json({ error: "lobbySeats must be an integer from 2 to 8", code: "INVALID_LOBBY_SEATS" }, { status: 400 });
+  }
   const guildId = env.discordGuildId;
-  const resolvedChannelId = channelId || env.discordDefaultChannelId || null;
+  // Drafts can be created without a Discord channel.
+  const resolvedChannelId = discordEnabled ? channelId || env.discordDefaultChannelId || null : null;
 
   if (!guildId) {
     return NextResponse.json(
@@ -126,7 +139,7 @@ async function handlePOST(request: NextRequest) {
   }
 
   const db = getDb();
-  const config = sanitizePoolSource(db, guildId, rawConfig);
+  const config = sanitizePoolSource(db, guildId, { ...rawConfig, lobbySeats });
   const denied = cubeReferenceAccess(db, config?.allowedCubeIds);
   if (denied) return denied;
 
@@ -156,7 +169,7 @@ async function handlePOST(request: NextRequest) {
       player.id,
     );
 
-    if (env.discordBotEnabled && draft.channelId && draft.webSlug) {
+    if (discordEnabled && draft.channelId) {
       void announcer.announce({
         kind: "draft-created",
         draftId: draft.id,
@@ -207,10 +220,8 @@ async function handlePOST(request: NextRequest) {
     );
   }
 
-  // Advisory feasibility check at create time. The draft has no opponents yet, so
-  // assume the minimum start count of 2 players. Non-blocking: the cube can grow
-  // before start, and startDraft is the authoritative gate.
-  const expectedPlayers = 2;
+  // Advisory demand uses the real target; manual starts may use fewer seats.
+  const expectedPlayers = lobbySeats;
   const analysis = drafts.analyzeBoosterDraft({ ...config, cubeCardIds }, expectedPlayers, guildId);
 
   const configWithPool: typeof config = { ...config, cubeCardIds };
@@ -224,7 +235,7 @@ async function handlePOST(request: NextRequest) {
     player.id,
   );
 
-  if (env.discordBotEnabled && draft.channelId && draft.webSlug) {
+  if (discordEnabled && draft.channelId) {
     void announcer.announce(
       {
         kind: "draft-created",
@@ -252,4 +263,7 @@ async function handlePOST(request: NextRequest) {
   );
 }
 
-export const POST = withCardFetchErrors(handlePOST);
+export const POST = withCardFetchErrors(async (request: NextRequest) => {
+  try { return await handlePOST(request); }
+  catch (error) { return draftLobbyErrorResponse(error); }
+});

@@ -1,8 +1,19 @@
+/** Signed POST /internal/announce/draft-nudge; the bot revalidates channel and mentions. */
+export interface DraftNudgeAnnouncePayload {
+  kind: "draft-nudge";
+  draftId: number;
+  channelId: string;
+  name: string;
+  webSlug: string;
+  mentionUserIds: string[];
+}
+
 export type AnnouncePayload =
   | { kind: "draft-status"; draftId: number }
   | { kind: "draft-created"; draftId: number; channelId: string; name: string; webSlug: string }
   | { kind: "draft-started"; draftId: number; channelId: string; name: string; webSlug: string }
   | { kind: "draft-completed"; draftId: number; channelId: string; name: string; webSlug: string }
+  | DraftNudgeAnnouncePayload
   | { kind: "tournament-created"; tournamentId: number; channelId: string; name: string; format: string; webSlug: string; organizerUserId: string; participantCount: number }
   | { kind: "tournament-started"; tournamentId: number; channelId: string; name: string; format: string; webSlug: string }
   | {

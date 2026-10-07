@@ -110,11 +110,49 @@ describe("PUT /api/drafts/[slug]", () => {
     const response = await PUT(new Request("http://localhost/api/drafts/test-slug", {
       method: "PUT", body: JSON.stringify({ name: "Changed", config: { cardsPerPlayer: 60, packSize: 15, copyLimit: false } }),
     }) as NextRequest, { params: Promise.resolve({ slug: "test-slug" }) });
-    expect(response.status).toBe(400);
-    expect((await response.json()).error).toBe("Can only modify pending drafts");
+    expect(response.status).toBe(409);
+    expect((await response.json()).code).toBe("DRAFT_NOT_PENDING");
     expect(db.prepare("select config_json from drafts where id = 1").get()).toEqual(storedConfig);
     expect(db.prepare("select * from draft_deal where draft_id = 1 order by position").all()).toEqual(storedDeal);
     expect(db.prepare("select status, name from drafts where id = 1").get()).toEqual({ status: "active", name: "My Draft" });
+  });
+
+  it.each(["attach", "detach"])("rejects a %s racing catalog hydration without losing the cube update", async (operation) => {
+    await setupDraftWithCustomPool();
+    const { getDb } = await import("@/lib/db");
+    const db = getDb();
+    db.exec(`insert into cubes (guild_id,name,created_by_user_id) values ('guild-1','One',${fixtureUserId("creator-user")}), ('guild-1','Two',${fixtureUserId("creator-user")})`);
+    const config = JSON.parse((db.prepare("select config_json from drafts where id = 1").get() as { config_json: string }).config_json);
+    config.allowedCubeIds = [1];
+    db.prepare("update drafts set config_json = ? where id = 1").run(JSON.stringify(config));
+    let committed: unknown;
+    syncDraftPool.mockImplementationOnce(async () => {
+      config.allowedCubeIds = operation === "attach" ? [1, 2] : [];
+      db.prepare("update drafts set config_json = ?, lobby_revision = lobby_revision + 1 where id = 1").run(JSON.stringify(config));
+      committed = db.prepare("select config_json, name, lobby_revision from drafts where id = 1").get();
+      return [];
+    });
+    const { PUT } = await import("../app/api/drafts/[slug]/route");
+    const response = await PUT(new Request("http://localhost", { method: "PUT", body: JSON.stringify({
+      name: "Lost edit", config: { allowedCubeIds: [1], pickSeconds: 60 },
+    }) }) as NextRequest, { params: Promise.resolve({ slug: "test-slug" }) });
+    expect(response.status).toBe(409); expect((await response.json()).code).toBe("STALE_LOBBY");
+    expect(db.prepare("select config_json, name, lobby_revision from drafts where id = 1").get()).toEqual(committed);
+  });
+
+  it("rechecks the current cube guild inside the write transaction after hydration", async () => {
+    await setupDraftWithCustomPool();
+    const { getDb } = await import("@/lib/db");
+    const db = getDb();
+    db.exec(`insert into cubes (guild_id,name,created_by_user_id) values ('guild-1','One',${fixtureUserId("creator-user")})`);
+    syncDraftPool.mockImplementationOnce(async () => { db.prepare("update cubes set guild_id = 'foreign' where id = 1").run(); return []; });
+    const before = db.prepare("select config_json,name,lobby_revision from drafts where id = 1").get();
+    const { PUT } = await import("../app/api/drafts/[slug]/route");
+    const response = await PUT(new Request("http://localhost", { method: "PUT", body: JSON.stringify({
+      name: "Unsafe rename", config: { allowedCubeIds: [1] },
+    }) }) as NextRequest, { params: Promise.resolve({ slug: "test-slug" }) });
+    expect(response.status).toBe(404);
+    expect(db.prepare("select config_json,name,lobby_revision from drafts where id = 1").get()).toEqual(before);
   });
 
   it("renames a pending draft and can keep its current name", async () => {

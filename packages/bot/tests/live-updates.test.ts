@@ -28,6 +28,13 @@ function setup() {
         pickOptions: vi.fn(() => [{ id: 10, catalogCardId: 20 }]), pickCard: vi.fn(),
         listActive: vi.fn(), expireCurrentPickStep: vi.fn(),
       },
+      lobby: {
+        read: vi.fn(() => ({ lobby: { revision: 5 } })),
+        scheduleStart: vi.fn(() => ({ lobby: { start: {
+          token: "start-token", kind: "manual", startsAt: "2026-10-07T15:00:05.000Z",
+        } } })),
+        tick: vi.fn(() => ({ started: [], changedSlugs: [] })),
+      },
       tournaments: {
         findByName: vi.fn(() => tournament), findById: vi.fn(() => tournament),
         start: vi.fn(), cancelWithChanges: vi.fn(() => ({ changedDuelSlugs: [] })),
@@ -68,23 +75,35 @@ describe("state change broadcasts", () => {
     ["approve", "", "tournament", { kind: "match-updated", slug: "cup" }],
     ["deny", "", "tournament", { kind: "match-updated", slug: "cup" }],
     ["draft", "join", "draft", { kind: "seats", slug: "draft-cup" }],
-    ["draft", "start", "draft", { kind: "status", slug: "draft-cup", status: "active" }],
+    ["draft", "start", "draft", { kind: "seats", slug: "draft-cup" }],
     ["draft", "cancel", "draft", { kind: "status", slug: "draft-cup", status: "cancelled" }],
   ] as const)("/%s %s broadcasts the web event", async (name, subcommand, room, payload) => {
     const { deps } = setup();
-    await handleCommand(command(name, subcommand), deps as unknown as Parameters<typeof handleCommand>[1]);
+    const interaction = command(name, subcommand);
+    await handleCommand(interaction, deps as unknown as Parameters<typeof handleCommand>[1]);
     expect(deps.broadcaster[room]).toHaveBeenCalledExactlyOnceWith(payload);
+    if (name === "draft" && subcommand === "start") {
+      expect(deps.lobby.scheduleStart).toHaveBeenCalledExactlyOnceWith(1, 101, { revision: 5, force: false });
+      expect(deps.drafts.start).not.toHaveBeenCalled();
+      expect(interaction.reply).toHaveBeenCalledWith(expect.stringContaining("Start scheduled"));
+    }
   });
 
   it.each([
     ["join_draft:1", "draft", { kind: "seats", slug: "draft-cup" }],
-    ["draft_start:1", "draft", { kind: "status", slug: "draft-cup", status: "active" }],
+    ["draft_start:1", "draft", { kind: "seats", slug: "draft-cup" }],
     ["dashboard_start:2", "tournament", { kind: "started", slug: "cup" }],
     ["dashboard_cancel:2", "tournament", { kind: "cancelled", slug: "cup" }],
   ] as const)("%s broadcasts the web event", async (customId, room, payload) => {
     const { deps } = setup();
-    await handleButton({ ...command("", ""), customId }, deps as unknown as Parameters<typeof handleButton>[1]);
+    const interaction = { ...command("", ""), customId };
+    await handleButton(interaction, deps as unknown as Parameters<typeof handleButton>[1]);
     expect(deps.broadcaster[room]).toHaveBeenCalledExactlyOnceWith(payload);
+    if (customId === "draft_start:1") {
+      expect(deps.lobby.scheduleStart).toHaveBeenCalledExactlyOnceWith(1, 101, { revision: 5, force: false });
+      expect(deps.drafts.start).not.toHaveBeenCalled();
+      expect(interaction.reply).toHaveBeenCalledWith({ content: expect.stringContaining("Start scheduled"), ephemeral: true });
+    }
   });
 
   it.each(["approve", "deny"])("/%s sends no tournament event for casual reports", async (name) => {

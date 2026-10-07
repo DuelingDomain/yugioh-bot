@@ -1,4 +1,5 @@
 import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
+import { finishTestLobbyStart } from "./drafts-lobby-routes.test";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
@@ -75,9 +76,9 @@ describe.each(["network", "timeout", "429", "503", "json"])("card API %s failure
     const { createDraftService, createPlayerService } = await import("@yugidraft/shared/services");
     const opponent = createPlayerService(db).findOrCreate("guild", fixtureUserId("opponent"), "Opponent");
     createDraftService(db).join(draft.id, opponent.id);
-    const started = await (await import("../app/api/drafts/[slug]/route")).POST(new Request("http://localhost/start", { method: "POST" }), { params: Promise.resolve({ slug: draft.webSlug }) });
-    expect(started.status).toBe(200);
-    expect((await started.json()).status).toBe("active");
+    const started = await (await import("../app/api/drafts/[slug]/route")).POST(new Request("http://localhost/start", { method: "POST", body: JSON.stringify({ force: true }) }), { params: Promise.resolve({ slug: draft.webSlug }) });
+    expect(started.status).toBe(202);
+    expect((await finishTestLobbyStart(started, db)).status).toBe("active");
     const missing = await create("Missing Set");
     expect(missing.status).toBe(503);
     expect((await missing.json()).error).toContain("Try again");

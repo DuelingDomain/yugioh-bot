@@ -4,7 +4,7 @@ import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "../../shared/src/db/schema";
 import {
-  createCardCatalogService, createCubeService, createDraftService, createPlayerService,
+  createCardCatalogService, createCubeService, createDraftLobbyService, createDraftService, createPlayerService,
   createSavedDeckService, createTournamentService,
 } from "../../shared/src/services/index";
 
@@ -69,14 +69,45 @@ describe("draft and tournament route broadcasts", () => {
     vi.useRealTimers();
   });
 
-  it.each([
-    ["POST", { kind: "status", slug: "draft-cup", status: "active" }],
-    ["DELETE", { kind: "status", slug: "draft-cup", status: "cancelled" }],
-  ] as const)("the web draft %s action broadcasts", async (method, payload) => {
+  it("the web draft POST schedules a start and broadcasts active only after the server countdown", async () => {
+    const { draft, drafts } = fixture();
+    const route = await import("../app/api/drafts/[slug]/route");
+    const rejected = await route.POST(request("POST"), draftCtx);
+    expect(rejected.status).toBe(409);
+    expect(await rejected.json()).toMatchObject({ code: "NOT_READY" });
+    expect(broadcaster.draft).not.toHaveBeenCalled();
+
+    // Pressing Start acknowledges the host; only the guest needs to mark Ready.
+    const lobby = createDraftLobbyService(db);
+    lobby.setReady(draft.id, fixtureUserId("opponent"), true);
+    expect(lobby.read(draft.id).players.find(player => player.isHost)?.ready).toBe(false);
+    const scheduled = await route.POST(request("POST"), draftCtx);
+    expect(scheduled.status).toBe(202);
+    expect(await scheduled.json()).toMatchObject({ lobby: { start: {
+      kind: "manual", startsAt: "2026-01-01T00:01:05.000Z",
+    } } });
+    expect(drafts.findById(draft.id).status).toBe("pending");
+    expect(db.prepare("select count(*) as count from draft_packs where draft_id = ?").get(draft.id)).toEqual({ count: 0 });
+    expect(broadcaster.draft).toHaveBeenCalledExactlyOnceWith({ kind: "seats", slug: "draft-cup" });
+
+    broadcaster.draft.mockClear();
+    vi.setSystemTime(new Date("2026-01-01T00:01:04.999Z"));
+    expect((await (await route.GET(request("GET"), draftCtx)).json()).status).toBe("pending");
+    expect(broadcaster.draft).not.toHaveBeenCalled();
+    vi.setSystemTime(new Date("2026-01-01T00:01:05.000Z"));
+    expect((await (await route.GET(request("GET"), draftCtx)).json()).status).toBe("active");
+    expect(db.prepare("select count(*) as count from draft_packs where draft_id = ?").get(draft.id)).toEqual({ count: 2 });
+    expect(broadcaster.draft).toHaveBeenCalledExactlyOnceWith({ kind: "status", slug: "draft-cup", status: "active" });
+    broadcaster.draft.mockClear();
+    expect((await route.GET(request("GET"), draftCtx)).status).toBe(200);
+    expect(broadcaster.draft).not.toHaveBeenCalled();
+  });
+
+  it("the web draft DELETE action broadcasts", async () => {
     fixture();
     const route = await import("../app/api/drafts/[slug]/route");
-    expect((await route[method](request(method), draftCtx)).status).toBe(200);
-    expect(broadcaster.draft).toHaveBeenCalledExactlyOnceWith(payload);
+    expect((await route.DELETE(request("DELETE"), draftCtx)).status).toBe(200);
+    expect(broadcaster.draft).toHaveBeenCalledExactlyOnceWith({ kind: "status", slug: "draft-cup", status: "cancelled" });
   });
 
   it.each([
