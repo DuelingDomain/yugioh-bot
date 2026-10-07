@@ -87,6 +87,48 @@ legacy_files_ok() {
   [ "$(sha256sum "$root/card-scripts/domain.legacy.lua" | cut -d' ' -f1)" = "$want_lua" ]
 }
 
+# Verify the sorted receipt paths and actual patched bytes, matching cardScriptPatchesHash.
+# Older bundles without this integrity entry retain their existing validation rules.
+card_script_patches_ok() {
+  python3 - "$1" <<'PY'
+from pathlib import Path
+import hashlib
+import json
+import re
+import sys
+
+try:
+    root = Path(sys.argv[1])
+    integrity = json.loads((root / "manifest.json").read_text())["integrity"]
+    if "cardScriptPatches" not in integrity:
+        sys.exit(0)
+    expected = integrity["cardScriptPatches"]
+    if not isinstance(expected, str) or not re.fullmatch(r"[a-f0-9]{64}", expected):
+        raise ValueError("invalid hash")
+    scripts = root / "card-scripts"
+    receipt = json.loads((scripts / ".host-card-script-patches.json").read_text())
+    if not isinstance(receipt, list):
+        raise ValueError("receipt must be a list")
+    paths = []
+    for patch in receipt:
+        path = patch.get("stockPath") if isinstance(patch, dict) else None
+        if not isinstance(path, str) or not re.fullmatch(r"(?:[A-Za-z0-9_-]+/)*c[0-9]+\.lua", path):
+            raise ValueError("invalid stockPath")
+        paths.append(path)
+    if len(set(paths)) != len(paths):
+        raise ValueError("duplicate stockPath")
+    actual = hashlib.sha256()
+    for path in sorted(paths, key=lambda path: path.encode()):
+        digest = hashlib.sha256((scripts / path).read_bytes()).hexdigest()
+        actual.update(f"{path}\0{digest}\n".encode())
+    if actual.hexdigest() != expected:
+        raise ValueError("patched file hash mismatch")
+except (OSError, ValueError, KeyError, TypeError) as error:
+    print(f"card scripts do not match manifest integrity.cardScriptPatches: {error}", file=sys.stderr)
+    sys.exit(1)
+PY
+}
+
 required() {
   root="$1"
   [ -f "$root/cards.cdb" ] \
@@ -97,7 +139,8 @@ required() {
     && [ -d "$root/card-scripts" ] \
     && [ -f "$root/card-scripts/domain.lua" ] \
     && legacy_files_ok "$root" \
-    && multi_scripts_ok "$root"
+    && multi_scripts_ok "$root" \
+    && card_script_patches_ok "$root"
 }
 
 cleanup() {
