@@ -281,6 +281,19 @@ describe("DuelResultScreen", () => {
     expect(screen.queryByText("Cancelled")).toBeNull();
   });
 
+  it("counts three actions for a completed duel, with the replay link between the two buttons", () => {
+    setup({ status: "completed" });
+    const exit = screen.getByRole("link", { name: "Back to tables" });
+    expect(exit.parentElement).toHaveAttribute("data-count", "3");
+    expect(Array.from(exit.parentElement!.children).map((node) => node.textContent)).toEqual(["Back to tables", "Watch replay", "View board"]);
+  });
+
+  it("keeps a saved reason other than the bare word as the cancelled subtitle", () => {
+    setup({ status: "cancelled", winner: null, reason: "Series cancelled", engine: false });
+    expect(screen.getByText("Series cancelled")).toBeInTheDocument();
+    expect(screen.queryByText("The table closed before the duel finished")).toBeNull();
+  });
+
   it("calls onClose from View board", () => {
     const { onClose } = setup();
     fireEvent.click(screen.getByRole("button", { name: "View board" }));
