@@ -1,6 +1,6 @@
 "use client";
 
-import { tableTextStyle, useCardTextSize } from "../card-text-size";
+import { multiTableTextStyle, useCardTextSize } from "../card-text-size";
 import { eliminationOrder } from "@/lib/duel/elimination-order";
 import { connectionLabel as labelForConnection } from "../connection-label";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
@@ -546,7 +546,7 @@ function TableShellBody({
       data-phase={battle ? "battle" : undefined}
       data-turn={spectator ? "watch" : myTurn ? "you" : "opp"}
       data-reduced={controller.reducedMotion ? "true" : "false"}
-      style={tableTextStyle(textSize)}
+      style={multiTableTextStyle(textSize)}
     >
       {/* One live region that stays mounted: a region that appears with its text is not always read out. */}
       <p className={styles.liveNote} role="status" aria-live="polite" data-testid="table-live">

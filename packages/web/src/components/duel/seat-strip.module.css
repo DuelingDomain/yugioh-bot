@@ -48,7 +48,7 @@ button.hit:focus-visible {
   height: 16px;
   border: 1px solid currentColor;
   border-radius: 50%;
-  font-size: calc(12px * var(--tt, 1));
+  font-size: calc((10px + 2px * var(--ft, 0)) * var(--tt, 1));
   line-height: 14px;
   text-align: center;
 }
@@ -70,7 +70,7 @@ button.hit:focus-visible {
   padding: 0 4px;
   border: 1px solid currentColor;
   border-radius: 2px;
-  font-size: calc(12px * var(--tt, 1));
+  font-size: calc((9.5px + 2.5px * var(--ft, 0)) * var(--tt, 1));
   font-weight: 700;
   letter-spacing: 0.08em;
   line-height: 14px;
@@ -181,7 +181,7 @@ button.hit:focus-visible {
   max-width: 9ch;
 }
 .compact .status {
-  font-size: calc(12px * var(--tt, 1));
+  font-size: calc((9px + 3px * var(--ft, 0)) * var(--tt, 1));
   padding: 0 4px;
   line-height: 13px;
 }

@@ -81,7 +81,7 @@
   padding: 0;
   /* Visible: a hovered hand card grows outward (over the station track or the header), never over the board. */
   overflow: visible;
-  font-size: calc(14px * var(--tt, 1));
+  font-size: calc((13px + 1px * var(--ft, 0)) * var(--tt, 1));
   /* The ground (obsidian navy) belongs to the shell; the field only adds soft lamp glows on top of it. */
   background:
     radial-gradient(70% 60% at 52% 46%, rgb(22 34 62 / 0.55), transparent 72%),
@@ -356,7 +356,7 @@
   border-radius: 3px;
   color: var(--chain-ink);
   background: rgb(228 182 79 / 0.08);
-  font-size: calc(12px * var(--tt, 1));
+  font-size: calc((10px + 2px * var(--ft, 0)) * var(--tt, 1));
   line-height: 1.25;
 }
 
@@ -364,7 +364,7 @@
   flex: none;
   color: var(--pen-ink);
   font-family: var(--f-ui);
-  font-size: calc(12px * var(--tt, 1));
+  font-size: calc((10px + 2px * var(--ft, 0)) * var(--tt, 1));
   font-weight: 600;
   line-height: 1.25;
   text-align: right;
@@ -1857,7 +1857,7 @@
   .tPriorityShort { display: inline; }
 
   .tTurn {
-    font-size: calc(12px * var(--tt, 1));
+    font-size: calc((9.5px + 2.5px * var(--ft, 0)) * var(--tt, 1));
   }
 }
 
@@ -1924,7 +1924,7 @@
   }
 
   .masterTitle {
-    font-size: calc(14px * var(--tt, 1));
+    font-size: calc((13px + 1px * var(--ft, 0)) * var(--tt, 1));
   }
 
   .masterHit {
@@ -1942,11 +1942,11 @@
 
   .masterStats {
     margin-top: 3px;
-    font-size: calc(14px * var(--tt, 1));
+    font-size: calc((13px + 1px * var(--ft, 0)) * var(--tt, 1));
   }
 
   .masterMeta {
-    font-size: calc(12px * var(--tt, 1));
+    font-size: calc((11px + 1px * var(--ft, 0)) * var(--tt, 1));
   }
 
   .masterMeta > div {
@@ -2001,7 +2001,7 @@
   box-sizing: border-box;
   width: calc(var(--z) * 5.83);
   height: calc(var(--z) * 3.393);
-  font-size: calc(14px * var(--tt, 1));
+  font-size: calc((13px + 1px * var(--ft, 0)) * var(--tt, 1));
   --seat-line: rgb(var(--t, 155 126 255) / 0.45);
 }
 

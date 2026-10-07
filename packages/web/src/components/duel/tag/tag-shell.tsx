@@ -1,6 +1,6 @@
 "use client";
 
-import { tableTextStyle, useCardTextSize } from "../card-text-size";
+import { multiTableTextStyle, useCardTextSize } from "../card-text-size";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { teamOfSeat } from "@yugidraft/shared/duels";
 import { AttackConfirm, CardActionMenu, CardHoverInfo, confirmSide, targetName } from "../card-interactions";
@@ -297,7 +297,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
       data-turn={spectator ? "watch" : myTurn ? "you" : "opp"}
       data-reduced={controller.reducedMotion ? "true" : "false"}
       data-hud={hud ? "true" : undefined}
-      style={tableTextStyle(textSize)}
+      style={multiTableTextStyle(textSize)}
     >
       <TagHeader
         session={session}

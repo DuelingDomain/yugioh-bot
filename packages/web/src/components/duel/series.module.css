@@ -30,7 +30,7 @@
 .opp[data-ready="true"] { color: var(--s-gold); }
 .opp[data-ready="true"] i { background: var(--s-gold); animation: none; }
 @keyframes oppWait { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
-.strip .next .opp { font-size: calc(14px * var(--tt, 1)); }
+.strip .next .opp { font-size: calc((13px + 1px * var(--ft, 0)) * var(--tt, 1)); }
 
 /* ---------- both players' Ready state (spectator view between games) ---------- */
 .watchHead {
@@ -52,8 +52,8 @@
 .readyRow[data-ready="true"] .readyState i { background: var(--s-gold); animation: none; }
 .next[data-viewer="spectator"] .status { color: var(--s-ink-2); }
 .strip .readyRows { display: flex; flex-wrap: wrap; width: auto; margin: 0; gap: 6px; }
-.strip .readyRow { padding: 3px 10px; font-size: calc(14px * var(--tt, 1)); }
-.strip .watchHead { font-size: calc(12px * var(--tt, 1)); }
+.strip .readyRow { padding: 3px 10px; font-size: calc((13px + 1px * var(--ft, 0)) * var(--tt, 1)); }
+.strip .watchHead { font-size: calc((11px + 1px * var(--ft, 0)) * var(--tt, 1)); }
 @media (max-width: 560px) {
   .readyRows { grid-template-columns: minmax(0, 1fr); }
 }
@@ -80,7 +80,7 @@
   color: var(--s-ink-2); font-size: var(--duel-t-body, 13px); white-space: nowrap; font-variant-numeric: tabular-nums;
   cursor: default;
 }
-@media (max-width: 600px) { .gameLabel { padding: 0 4px; gap: 0.35em; font-size: calc(12px * var(--tt, 1)); } }
+@media (max-width: 600px) { .gameLabel { padding: 0 4px; gap: 0.35em; font-size: calc((11px + 1px * var(--ft, 0)) * var(--tt, 1)); } }
 .gameLabel b { color: var(--s-ink); font-weight: 500; letter-spacing: 0.01em; }
 .gameLabel i { font-style: normal; color: var(--s-ink-3); }
 .gameLabel span { color: var(--s-gold); font-weight: 600; }
@@ -102,7 +102,7 @@ a.badge:focus-visible { outline: 2px solid var(--s-ink); outline-offset: 2px; }
 .strip {
   flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px;
   padding: 6px 16px; border-bottom: 1px solid var(--s-rule);
-  background: rgb(155 126 255 / 0.07); color: var(--s-ink-2); font-size: calc(14px * var(--tt, 1));
+  background: rgb(155 126 255 / 0.07); color: var(--s-ink-2); font-size: calc((13px + 1px * var(--ft, 0)) * var(--tt, 1));
 }
 .stripMain { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; min-width: 0; }
 .stripNext { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-left: auto; }
@@ -120,7 +120,7 @@ a.badge:focus-visible { outline: 2px solid var(--s-ink); outline-offset: 2px; }
 /* ---------- lobby header ---------- */
 .lobbyBlock { display: grid; gap: 10px; }
 .lockedDeck { display: grid; gap: 10px; }
-.lockedCounts { display: flex; flex-wrap: wrap; gap: 6px 22px; color: var(--s-ink-3); font-size: calc(14px * var(--tt, 1)); }
+.lockedCounts { display: flex; flex-wrap: wrap; gap: 6px 22px; color: var(--s-ink-3); font-size: calc((13.5px + 0.5px * var(--ft, 0)) * var(--tt, 1)); }
 .lockedCounts b { margin-left: 5px; color: var(--s-ink); font-size: 19px; font-weight: 400; }
 
 /* ---------- side deck sheet ---------- */
@@ -136,7 +136,7 @@ a.badge:focus-visible { outline: 2px solid var(--s-ink); outline-offset: 2px; }
 .sideCol { display: grid; gap: 16px; min-width: 0; padding: 18px; border: 1px solid var(--s-rule-hi); border-radius: 12px; background: linear-gradient(180deg, rgb(19 32 55 / 0.4), rgb(10 17 32 / 0.85)); }
 .group { display: grid; gap: 8px; }
 .groupHead { display: flex; align-items: baseline; gap: 9px; color: var(--s-ink); font-size: calc(15px * var(--tt, 1)); font-weight: 450; }
-.groupHead span { color: var(--s-ink-3); font-size: calc(14px * var(--tt, 1)); font-weight: 400; }
+.groupHead span { color: var(--s-ink-3); font-size: calc((13px + 1px * var(--ft, 0)) * var(--tt, 1)); font-weight: 400; }
 .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(58px, 1fr)); gap: 6px; }
 .tile {
   position: relative; display: block; width: 100%; aspect-ratio: 59 / 86; overflow: hidden; padding: 0;
@@ -151,11 +151,11 @@ a.badge:focus-visible { outline: 2px solid var(--s-ink); outline-offset: 2px; }
   content: ""; position: absolute; top: 3px; right: 3px; width: 8px; height: 8px;
   border-radius: 50%; background: var(--s-gold); box-shadow: 0 0 0 1px rgb(7 11 21 / 0.8);
 }
-.hintLine { color: var(--s-ink-3); font-size: calc(14px * var(--tt, 1)); line-height: 1.55; max-width: 72ch; }
-.problem { color: var(--s-loss); font-size: calc(14px * var(--tt, 1)); }
+.hintLine { color: var(--s-ink-3); font-size: calc((13px + 1px * var(--ft, 0)) * var(--tt, 1)); line-height: 1.55; max-width: 72ch; }
+.problem { color: var(--s-loss); font-size: calc((13.5px + 0.5px * var(--ft, 0)) * var(--tt, 1)); }
 .sideFoot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding-top: 16px; border-top: 1px solid var(--s-rule); }
 .sideFoot .spacer { flex: 1 1 auto; }
-.changed { color: var(--s-gold); font-size: calc(14px * var(--tt, 1)); }
+.changed { color: var(--s-gold); font-size: calc((13px + 1px * var(--ft, 0)) * var(--tt, 1)); }
 
 @media (max-width: 900px) {
   .sideCols { grid-template-columns: minmax(0, 1fr); }
@@ -173,5 +173,5 @@ a.badge:focus-visible { outline: 2px solid var(--s-ink); outline-offset: 2px; }
 
 .strip .next { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-left: auto; }
 .strip .next .actions { margin: 0; }
-.strip .next .countdown, .strip .next .status { font-size: calc(14px * var(--tt, 1)); }
+.strip .next .countdown, .strip .next .status { font-size: calc((13px + 1px * var(--ft, 0)) * var(--tt, 1)); }
 .strip .next .status { max-width: none; }

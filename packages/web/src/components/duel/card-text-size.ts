@@ -33,6 +33,14 @@ export function tableTextStyle(size: CardTextSize): CSSProperties {
   return { "--tt": String(TABLE_SCALE[size]) } as CSSProperties;
 }
 
+/**
+ * `tableTextStyle` for the 3-way, 4-way and Tag tables. `--ft` lifts the old 10-11px text minimums to 12px (the 1v1 room
+ * keeps them): modules write `calc((10px + 2px * var(--ft, 0)) * var(--tt, 1))`.
+ */
+export function multiTableTextStyle(size: CardTextSize): CSSProperties {
+  return { ...tableTextStyle(size), "--ft": "1" } as CSSProperties;
+}
+
 export function isCardTextSize(value: unknown): value is CardTextSize {
   return typeof value === "string" && (CARD_TEXT_SIZES as readonly string[]).includes(value);
 }

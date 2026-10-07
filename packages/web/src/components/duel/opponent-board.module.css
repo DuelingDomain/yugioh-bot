@@ -145,7 +145,7 @@
   background: rgb(155 126 255 / 0.14);
   color: var(--pen-ink);
   font: inherit;
-  font-size: calc(12px * var(--tt, 1));
+  font-size: calc((10px + 2px * var(--ft, 0)) * var(--tt, 1));
   font-weight: 700;
   letter-spacing: 0.08em;
   line-height: 17px;
@@ -213,7 +213,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: calc(12px * var(--tt, 1));
+  font-size: calc((10px + 2px * var(--ft, 0)) * var(--tt, 1));
   color: var(--ink-2);
 }
 
@@ -223,7 +223,7 @@
 
 .disabledNote {
   margin: 0;
-  font-size: calc(12px * var(--tt, 1));
+  font-size: calc((10px + 2px * var(--ft, 0)) * var(--tt, 1));
   color: var(--ink-2);
 }
 
@@ -257,7 +257,7 @@
 
 .extraLabel {
   margin-right: 4px;
-  font-size: calc(12px * var(--tt, 1));
+  font-size: calc((10px + 2px * var(--ft, 0)) * var(--tt, 1));
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--ink-3);
@@ -331,7 +331,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: calc(14px * var(--tt, 1));
+  font-size: calc((13px + 1px * var(--ft, 0)) * var(--tt, 1));
   font-weight: 700;
   letter-spacing: 0.02em;
   color: var(--ink);
@@ -356,7 +356,7 @@
   padding: 0 5px;
   border: 1px solid var(--sheet);
   border-radius: 2px;
-  font-size: calc(12px * var(--tt, 1));
+  font-size: calc((10px + 2px * var(--ft, 0)) * var(--tt, 1));
   font-weight: 700;
   letter-spacing: 0.08em;
   line-height: 15px;
@@ -401,7 +401,7 @@
 }
 
 .lpPrefix {
-  font-size: calc(12px * var(--tt, 1));
+  font-size: calc((10px + 2px * var(--ft, 0)) * var(--tt, 1));
   letter-spacing: 0.1em;
   color: var(--ink-3);
 }
@@ -437,7 +437,7 @@
   border-radius: 2px;
   background: transparent;
   color: var(--ink-2);
-  font-size: calc(12px * var(--tt, 1));
+  font-size: calc((11px + 1px * var(--ft, 0)) * var(--tt, 1));
   cursor: pointer;
 }
 
@@ -578,7 +578,7 @@
   padding: 3px 8px;
   border: 1px solid var(--loss);
   border-radius: 3px;
-  font-size: calc(12px * var(--tt, 1));
+  font-size: calc((11px + 1px * var(--ft, 0)) * var(--tt, 1));
   letter-spacing: 0.06em;
   color: var(--loss);
 }
