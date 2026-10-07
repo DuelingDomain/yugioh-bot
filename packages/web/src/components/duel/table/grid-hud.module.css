@@ -433,7 +433,7 @@
 }
 .master[data-away="true"] .masterArt { filter: saturate(0.55); }
 .masterId { display: grid; flex: 1 1 0; gap: 2px; min-width: 0; }
-.masterId small { overflow: hidden; color: var(--duel-ink-3); font-size: calc(12px * var(--tt, 1)); letter-spacing: 0.08em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+.masterId small { overflow: hidden; color: var(--duel-ink-3); font-size: calc(12px * var(--tt, 1)); letter-spacing: 0.02em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
 /* The name is at most two lines, then an ellipsis. */
 .masterId b {
   display: -webkit-box;
