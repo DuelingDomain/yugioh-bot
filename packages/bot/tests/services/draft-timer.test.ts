@@ -279,6 +279,7 @@ describe("shared lobby timer integration", () => {
     try {
       const draft = readyDraft(app, 2);
       app.lobby.setAutoStart(draft.id, "user-7", { enabled: true, revision: app.lobby.read(draft.id).lobby.revision });
+      const schedule = app.lobby.read(draft.id).lobby.start;
       app.db.prepare("update drafts set config_json = ? where id = ?").run(
         JSON.stringify({ ...draft.config, cubeCardIds: [1] }), draft.id,
       );
@@ -286,8 +287,15 @@ describe("shared lobby timer integration", () => {
       const onDraftStarted = vi.fn(async () => {});
       const timer = createDraftTimerService({ ...app, broadcaster: createBroadcaster(rec.transport), onDraftStarted });
       await timer.tick();
+      expect(app.lobby.read(draft.id).lobby.start).toEqual(schedule);
+      expect(rec.calls).toEqual([]);
+      // Persisted countdowns revalidate the setup when their deadline is due.
+      vi.advanceTimersByTime(10_000);
       await timer.tick();
-      expect(app.lobby.read(draft.id).lobby).toMatchObject({ start: null, autoStart: { held: true }, lastStartError: expect.any(String) });
+      await timer.tick();
+      expect(app.lobby.read(draft.id).lobby).toMatchObject({
+        start: null, autoStart: { held: true }, lastStartError: expect.stringMatching(/setup changed during the countdown/i),
+      });
       expect(app.drafts.findById(draft.id).status).toBe("pending");
       expect(rec.calls.map(call => [call.path, JSON.parse(call.body)])).toEqual([
         ["/internal/draft/seats", { slug: draft.webSlug }],
