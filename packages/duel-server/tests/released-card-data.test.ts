@@ -82,7 +82,7 @@ it.each([
   expect(request.mock.calls[1][1].headers.Authorization).toBe("Bearer test-read-token");
 });
 
-it.each([
+it.each<Record<string, string>>([
   { "Retry-After": "3600" },
   { "Retry-After": "Tue, 06 Oct 2026 13:00:00 GMT" },
   { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1791291600" },

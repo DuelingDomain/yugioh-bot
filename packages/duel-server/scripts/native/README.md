@@ -95,8 +95,8 @@ Without the flag they print one `NDUEL NOTE` line per check and run.
   prompt before cleanup `MSG_CHAIN_END` fails, including a correctly ordered redundant round.
   `MSG_CHAIN_END` validates collected responses before resetting, including when no `MSG_CHAIN_SOLVING` arrived.
   The engine emits cleanup `MSG_CHAIN_END` before one normal open response round when the last link is removed.
-  The `nduel-response-order` regression tests the shared checker with synthetic windows and requires seed 18
-  to exercise final-link elimination followed by `MSG_CHAIN_END` with an open tracked anchor.
+  The `nduel-response-order` regression tests the shared checker with synthetic windows and a fixed real-duel
+  fixture that requires final-link elimination followed by `MSG_CHAIN_END` with an open tracked anchor.
 - `direct-pick`: a `MSG_SELECT_OPTION` whose options all are `0xFFFF0000|d` lists only living opponents of the
   prompted duelist. The next `MSG_ATTACK_DUELIST` (201) must name the picked duelist (the answer sent by nduel) and
   a living opponent of the turn player.
@@ -114,8 +114,10 @@ Without the flag they print one `NDUEL NOTE` line per check and run.
 Messages 200, 201 and 202 are parsed and skipped without a `msg-parse` failure.
 
 The targeted checker regression is `bash packages/duel-server/scripts/native/checks/run.sh nduel-response-order`.
-It runs the actual nduel driver with FFA4 seed 18, 60 turns, 3000 LP and `--check-future`. Seat 3 pays its last
-1000 LP for Cosmic Cyclone; its sole link is removed, and later windows must not retain its response anchor.
+It runs the actual nduel driver with FFA4 seed 18, 60 turns, 3000 LP and `--check-future`, then a fixed real-duel
+fixture where seat 3 pays all remaining LP for a hand quick effect. Its sole link must be removed without resolving,
+cleanup must emit exactly one open-anchor `MSG_CHAIN_END`, and the following open round must prompt seats 0, 1, 2.
+The fixture guarantees this coverage even when released cards change the seeded driver's random decks.
 
 ## Round 3 additions
 

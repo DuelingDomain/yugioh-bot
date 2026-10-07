@@ -158,10 +158,10 @@ describe("the R1 entries (each duelist, hand suffixes with aux.MPForEachDuelist)
     expect(r1Cards.filter((card) => R1_NO_CHANGE.includes(card.code))).toEqual([]);
   });
 
-  it("are complete: 92 suffixes and 1 card without change make the 93 R1 cards", () => {
+  it("are complete: all 93 R1 cards have suffixes", () => {
     expect(R1_COMPLETE).toBe(true);
-    expect(r1Cards).toHaveLength(92);
-    expect(R1_NO_CHANGE).toEqual([39513225]);
+    expect(r1Cards).toHaveLength(93);
+    expect(R1_NO_CHANGE).toEqual([]);
     expect(r1Cards.length + R1_NO_CHANGE.length).toBe(EXPECTED_COUNTS.r1);
   });
 
