@@ -1,11 +1,12 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, expect, it, vi } from "vitest";
 import { prepareData, sources } from "../scripts/prepare-data.js";
+import { installCardScriptPatches } from "../scripts/card-script-patches.js";
 import { discoverReleasedDatabases, downloadReleasedCardData, restrictPrereleaseScripts } from "../scripts/released-card-data.js";
 import * as releasedCardData from "../scripts/released-card-data.js";
 import { loadCardDatabase } from "../src/cards.js";
@@ -42,6 +43,7 @@ function fixture() {
   ]);
   const scripts = join(dir, "stock"); mkdirSync(join(scripts, "official"), { recursive: true }); mkdirSync(join(scripts, "pre-release"));
   for (const file of ["official/c1.lua", "official/c2.lua", "pre-release/c17242022.lua", "pre-release/c999.lua"]) writeFileSync(join(scripts, file), `-- ${file}\n`);
+  cpSync(new URL("./fixtures/card-scripts/c3743515.lua", import.meta.url), join(scripts, "official/c3743515.lua"));
   const archive = execFileSync("tar", ["-czf", "-", "-C", dir, "stock"]);
   const request = vi.fn(async (input: string | URL | Request) => {
     const url = String(input);
@@ -54,6 +56,83 @@ function fixture() {
   });
   return { request, databases, directory: join(dir, "bundle") };
 }
+
+it("prepares the Sabersaurus fix in the shared card scripts and versions its effective bytes", async () => {
+  const { request, directory } = fixture();
+  const result = await prepareData(directory, request);
+  const script = readFileSync(join(directory, "card-scripts/official/c3743515.lua"), "utf8");
+  expect(script).toContain("Duel.GetBattleMonster(tp)");
+  expect(result.integrity.cardScriptPatches).toMatch(/^[a-f0-9]{64}$/);
+  request.mockClear();
+  expect((await prepareData(directory, request)).bundleVersion).toBe(result.bundleVersion);
+  expect(readFileSync(join(directory, "card-scripts/official/c3743515.lua"), "utf8")).toBe(script);
+  expect(request).not.toHaveBeenCalled();
+});
+
+it("patches an unchanged cached bundle without downloads and changes its version", async () => {
+  const { request, directory } = fixture();
+  const first = await prepareData(directory, request);
+  const { cardScriptPatches: _patches, ...integrity } = first.integrity;
+  const { multiScripts: _multi, cardsMerged: _cards, ...engine } = integrity;
+  const bundleVersion = hash(JSON.stringify({ sources: first.sources, integrity: engine }));
+  writeFileSync(join(directory, "manifest.json"), JSON.stringify({ sources: first.sources, integrity, bundleVersion }));
+  cpSync(new URL("./fixtures/card-scripts/c3743515.lua", import.meta.url), join(directory, "card-scripts/official/c3743515.lua"));
+  request.mockClear();
+  const next = await prepareData(directory, request);
+  expect(next.skipped).toBe(true);
+  expect(next.bundleVersion).not.toBe(bundleVersion);
+  expect(next.integrity.cardScriptPatches).toMatch(/^[a-f0-9]{64}$/);
+  expect(readFileSync(join(directory, "card-scripts/official/c3743515.lua"), "utf8")).toContain("Duel.GetBattleMonster(tp)");
+  expect(request).not.toHaveBeenCalled();
+});
+
+it("refuses an unreviewed upstream Sabersaurus script before applying its patch", async () => {
+  const { request, directory } = fixture();
+  await prepareData(directory, request);
+  writeFileSync(join(directory, "card-scripts/official/c3743515.lua"), "-- changed upstream\n");
+  await expect(prepareData(directory, request)).rejects.toThrow(/Card script patch stock mismatch.*c3743515/);
+});
+
+it("gives fresh and cached patch installs the same version with optional built-core metadata", async () => {
+  const { request, directory } = fixture();
+  const first = await prepareData(directory, request);
+  writeFileSync(join(directory, "card-scripts/domain.lua"), "domain");
+  writeFileSync(join(directory, "card-scripts/domain.legacy.lua"), "legacy domain");
+  for (const name of ["domain", "domain.legacy", "standard"]) writeFileSync(join(directory, `ocgcore.${name}.wasm`), name);
+  // Force a fresh catalog preparation, preserving the optional core resources.
+  writeFileSync(join(directory, "manifest.json"), JSON.stringify({ ...first, sources: {
+    ...first.sources, databaseFormat: "old", domainCore: {}, domainCoreLegacy: {}, standardCore: {},
+  } }));
+  const fresh = await prepareData(directory, request);
+  const { cardScriptPatches: _patches, ...integrity } = fresh.integrity;
+  const { multiScripts: _multi, cardsMerged: _merged, ...engine } = integrity;
+  writeFileSync(join(directory, "manifest.json"), JSON.stringify({ sources: fresh.sources, integrity,
+    bundleVersion: hash(JSON.stringify({ sources: fresh.sources, integrity: engine })),
+  }));
+  cpSync(new URL("./fixtures/card-scripts/c3743515.lua", import.meta.url), join(directory, "card-scripts/official/c3743515.lua"));
+  request.mockClear();
+  const cached = await prepareData(directory, request);
+  expect(cached.skipped).toBe(true);
+  expect(cached.integrity).toEqual(fresh.integrity);
+  expect(cached.bundleVersion).toBe(fresh.bundleVersion);
+  expect(request).not.toHaveBeenCalled();
+});
+
+it("restores stock bytes when a shared patch is retired from a cached recipe", () => {
+  const directory = root();
+  const recipe = join(directory, "recipe");
+  cpSync(new URL("../card-script-patches/", import.meta.url), recipe, { recursive: true });
+  const scripts = join(directory, "scripts");
+  mkdirSync(join(scripts, "official"), { recursive: true });
+  const stock = readFileSync(new URL("./fixtures/card-scripts/c3743515.lua", import.meta.url), "utf8");
+  const path = join(scripts, "official/c3743515.lua");
+  writeFileSync(path, stock);
+  installCardScriptPatches(scripts, recipe);
+  expect(readFileSync(path, "utf8")).not.toBe(stock);
+  writeFileSync(join(recipe, "MANIFEST.json"), "[]\n");
+  expect(installCardScriptPatches(scripts, recipe)).toBe(hash(""));
+  expect(readFileSync(path, "utf8")).toBe(stock);
+});
 
 it.each([
   [403, { "Retry-After": "2" }, 2_000],

@@ -28,6 +28,7 @@ async function fixture() {
     "packages/duel-server/scripts/prepare-data.ts": `const sources = ${JSON.stringify({ corePackage: "ocgcore-wasm@0.1.2", ...oldPins })};`,
     "packages/duel-server/domain-core/pins.json": corePins,
     "packages/duel-server/legacy-1v1/domain-core/pins.json": corePins,
+    "packages/duel-server/card-script-patches/MANIFEST.json": "[]\n",
   };
   for (const [file, content] of Object.entries(files)) {
     await mkdir(dirname(join(root, file)), { recursive: true });
@@ -75,7 +76,7 @@ describe("engine data update", () => {
   it("synchronizes all three pin files, leaving non-data core pins untouched", async () => {
     const { root, files } = await fixture();
     const rewritten = await rewritePins(root, oldPins, nextPins, false);
-    expect(rewritten.sort()).toEqual(Object.keys(files).sort());
+    expect(rewritten.sort()).toEqual(Object.keys(files).filter(file => file !== "packages/duel-server/card-script-patches/MANIFEST.json").sort());
     for (const [file, original] of Object.entries(files)) {
       let expected = original;
       for (const key of Object.keys(oldPins) as (keyof Pins)[]) expected = expected.replaceAll(oldPins[key], nextPins[key]);
@@ -93,7 +94,7 @@ describe("engine data update", () => {
 
   it("dry-run discovers rewrites but writes no pins", async () => {
     const { root, files } = await fixture();
-    expect(await rewritePins(root, oldPins, nextPins, true)).toHaveLength(Object.keys(files).length);
+    expect(await rewritePins(root, oldPins, nextPins, true)).toHaveLength(3);
     for (const [file, original] of Object.entries(files)) expect(await readFile(join(root, file), "utf8")).toBe(original);
   });
 
@@ -127,8 +128,14 @@ describe("engine data update", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
-  it.each([[true, nextPins, undefined], [false, nextPins, undefined], [false, { ...oldPins, database: nextPins.database }, undefined], [false, nextPins, "old"], [false, nextPins, "next"]] as const)("reports a complete mocked update (dryRun=%s), preserving overlays and core pins", async (dryRun, overrides, ambiguous) => {
-    const { root } = await fixture();
+  it.each([
+    [true, nextPins, "unchanged", undefined], [false, nextPins, "unchanged", undefined],
+    [false, { ...oldPins, database: nextPins.database }, "unchanged", undefined],
+    [false, nextPins, "unchanged", "old"], [false, nextPins, "unchanged", "next"],
+    [false, nextPins, "changed", undefined], [true, nextPins, "changed", undefined],
+    [false, nextPins, "missing", undefined],
+  ] as const)("reports a complete mocked update (dryRun=%s, pins=%j, patch=%s, ambiguous=%s), preserving overlays and core pins", async (dryRun, overrides, patchState, ambiguous) => {
+    const { root, files } = await fixture();
     const manifest = { cards: [{ code: 1, file: "c1.lua", name: "Old card", stockSha256: sha256("old") }] };
     const manifestPath = join(root, "packages/duel-server/domain-core/multi-scripts/MANIFEST.json");
     await mkdir(dirname(manifestPath), { recursive: true });
@@ -141,6 +148,10 @@ describe("engine data update", () => {
     await mkdir(join(stock, "../pre-release"));
     await writeFile(join(stock, "../pre-release/c100000002.lua"), "-- preview script already exists upstream\n");
     await writeFile(join(stock, "../utility.lua"), "-- shared change\n");
+    const patchManifestPath = join(root, "packages/duel-server/card-script-patches/MANIFEST.json");
+    const patches = [{ stockPath: patchState === "missing" ? "official/c3743515.lua" : "official/c1.lua",
+      stockSha256: sha256(patchState === "unchanged" ? "s.state[tp]=true\n" : "old"), suffix: "c1.lua" }];
+    await writeFile(patchManifestPath, JSON.stringify(patches));
     const archive = execFileSync("tar", ["-czf", "-", "-C", root, "stock"]);
     const dbPath = join(root, "cards.cdb");
     const db = new Database(dbPath);
@@ -196,10 +207,28 @@ describe("engine data update", () => {
       expect(await readPins(root)).toEqual(oldPins);
       return;
     }
+    if (patchState !== "unchanged") {
+      await expect(runUpdate({ root, overrides, dryRun, request, validate: false })).rejects.toThrow(/patch needs review/);
+      const report = await readFile(join(root, ".status/engine-data-update.md"), "utf8");
+      expect(report).toMatch(/^BLOCKING: 1 patch needs review/);
+      expect(report).toContain("## Card script patches");
+      expect(report).toContain(patches[0]!.stockPath);
+      expect(report).toContain(patchState === "missing" ? "removed" : sha256("s.state[tp]=true\n"));
+      expect(report).toContain("pins unchanged");
+      expect(await readPins(root)).toEqual(oldPins);
+      expect(await readFile(patchManifestPath, "utf8")).toBe(JSON.stringify(patches));
+      for (const [file, original] of Object.entries(files)) {
+        if (file.endsWith("pins.json")) expect(await readFile(join(root, file), "utf8")).toBe(original);
+      }
+      return;
+    }
     const result = await runUpdate({ root, overrides, dryRun, request, validate: false });
     expect(result.changed).toBe(true);
     expect(await readPins(root)).toEqual(dryRun ? oldPins : overrides);
     const report = await readFile(result.reportPath, "utf8");
+    expect(report).toContain("## Prerelease cards");
+    expect(report).toContain("## Card script patches");
+    expect(report).toContain("All shared card-script patch stock hashes match the candidate.");
     expect(report).toContain("release-new.cdb");
     expect(report).toContain("release-old.cdb");
     expect(report).toContain("Removed release databases");
@@ -243,6 +272,7 @@ describe("engine data update", () => {
       "packages/duel-server/legacy-1v1/domain-core/pins.json",
     ].sort());
     expect(await readFile(manifestPath, "utf8")).toBe(JSON.stringify(manifest));
+    expect(await readFile(patchManifestPath, "utf8")).toBe(JSON.stringify(patches));
     for (const file of ["domain-core/pins.json", "legacy-1v1/domain-core/pins.json"]) {
       const pins = JSON.parse(await readFile(join(root, "packages/duel-server", file), "utf8"));
       expect(pins.ygoproCore.commit).toBe("1".repeat(40));

@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { duel1v1Engine, type DuelEngineChoice } from "@yugidraft/shared/duels";
 import { LEGACY_DOMAIN_LUA_FILE, LEGACY_DOMAIN_WASM_FILE } from "./legacy/engine.js";
 import { MULTI_SCRIPTS_DIRECTORY_NAME, multiScriptsFolderHash } from "./multi-scripts.js";
+import { cardScriptPatchesHash } from "./card-script-patches.js";
 
 const standardHint = "Build it with docker.io/emscripten/emsdk:4.0.9 and packages/duel-server/scripts/build-standard-core.sh";
 const domainHint = "Build it with docker.io/emscripten/emsdk:4.0.9 and packages/duel-server/scripts/build-domain-core.sh";
@@ -88,6 +89,16 @@ export function verifyEngineBundle(dataDirectory: string, options: { wrapperPath
     const actual = multiScriptsFolderHash(folder);
     if (actual !== expectedMultiScripts) {
       throw new Error(`Engine folder ${folder} does not match manifest integrity.multiScripts (expected ${expectedMultiScripts}, got ${actual}). ${multiScriptsHint}`);
+    }
+  }
+  const expectedPatches = integrity.cardScriptPatches;
+  if (expectedPatches !== undefined) {
+    try {
+      if (typeof expectedPatches !== "string" || !/^[a-f0-9]{64}$/.test(expectedPatches)) throw new Error("invalid hash");
+      const actual = cardScriptPatchesHash(scripts);
+      if (actual !== expectedPatches) throw new Error(`expected ${expectedPatches}, got ${actual}`);
+    } catch (error) {
+      throw new Error(`Card scripts at ${scripts} do not match manifest integrity.cardScriptPatches (${error instanceof Error ? error.message : String(error)}). ${dataHint}`);
     }
   }
   return { bundleVersion: manifest.bundleVersion };
