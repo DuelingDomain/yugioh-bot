@@ -11,7 +11,7 @@ export function fxLabEnabled(): boolean {
 
 /**
  * Paths that need no login while the lab is on: the lab page, the multiplayer table preview (/dev/table-preview
- * and the pages under it), the 3D mode preview (/dev/solid-preview and the pages under it), the sign-in step preview (/dev/sign-in-preview) and the card art route.
+ * and the pages under it), the 3D mode preview (/dev/solid-preview and the pages under it), the sign-in step preview (/dev/sign-in-preview), the delete-account preview (/dev/delete-account-preview) and the card art route.
  */
 export function isFxLabPublicPath(pathname: string): boolean {
   return (
@@ -21,6 +21,7 @@ export function isFxLabPublicPath(pathname: string): boolean {
     pathname === "/dev/solid-preview" ||
     pathname.startsWith("/dev/solid-preview/") ||
     pathname === "/dev/sign-in-preview" ||
+    pathname === "/dev/delete-account-preview" ||
     /^\/api\/cards\/\d+\/image$/.test(pathname) ||
     /^\/duel\/[\w-]+\.(webp|svg)$/.test(pathname) ||
     // The coin toss art (the two faces of the coin).

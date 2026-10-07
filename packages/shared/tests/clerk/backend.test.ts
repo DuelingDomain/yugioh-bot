@@ -89,4 +89,31 @@ describe("Clerk Backend REST client", () => {
     expect(JSON.stringify(error)).not.toContain(secretKey);
     expect(error.stack).not.toContain(secretKey);
   });
+  describe("deleteUser", () => {
+    it("sends DELETE /users/{id} with the bearer secret and no body", async () => {
+      const seen: { url: string; method: string; body: unknown; auth: string | null }[] = [];
+      const fetcher: typeof fetch = async (input, init) => {
+        seen.push({ url: String(input), method: init?.method ?? "GET", body: init?.body ?? null, auth: new Headers(init?.headers).get("Authorization") });
+        return json({ object: "deleted_object", id: "user/a", deleted: true });
+      };
+      await expect(createClerkBackend({ secretKey, fetch: fetcher }).deleteUser("user/a")).resolves.toBeUndefined();
+      expect(seen).toEqual([{ url: "https://api.clerk.com/v1/users/user%2Fa", method: "DELETE", body: null, auth: `Bearer ${secretKey}` }]);
+    });
+    it("treats a 404 as already deleted", async () => {
+      const fetcher: typeof fetch = async () => json({ errors: [{ code: "resource_not_found", message: "Not found" }] }, 404);
+      await expect(createClerkBackend({ secretKey, fetch: fetcher }).deleteUser("user_gone")).resolves.toBeUndefined();
+    });
+    it.each([[401, false], [403, false], [422, false], [429, true], [500, true], [503, true]])("maps status %i to a ClerkBackendError", async (status, retryable) => {
+      const fetcher: typeof fetch = async () => json({ errors: [{ code: "request_failed", message: "Nope" }] }, status);
+      const error = await createClerkBackend({ secretKey, fetch: fetcher }).deleteUser("user_1").catch(error => error);
+      expect(error).toBeInstanceOf(ClerkBackendError);
+      expect(error).toMatchObject({ status, retryable });
+    });
+    it("maps a transport failure to a retryable error without the secret", async () => {
+      const fetcher: typeof fetch = async () => { throw new Error(`Bearer ${secretKey}`); };
+      const error = await createClerkBackend({ secretKey, fetch: fetcher }).deleteUser("user_1").catch(error => error);
+      expect(error).toMatchObject({ status: 0, retryable: true });
+      expect(String(error)).not.toContain(secretKey);
+    });
+  });
 });

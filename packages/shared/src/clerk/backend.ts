@@ -32,6 +32,8 @@ export interface ClerkBackend {
   updateUserExternalId(clerkUserId: string, externalId: string): Promise<ClerkUserJson>;
   createWaitlistEntry(input: { emailAddress: string; notify: boolean }): Promise<ClerkWaitlistEntryJson>;
   listWaitlistEntries(query: { query?: string; status?: string; offset?: number; limit?: number }): Promise<{ data: ClerkWaitlistEntryJson[]; totalCount: number }>;
+  /** DELETE /users/{id}. A 404 means the user is already gone and resolves like a success. */
+  deleteUser(clerkUserId: string): Promise<void>;
 }
 
 export function createClerkBackend(opts: { secretKey: string; apiUrl?: string; fetch?: typeof fetch; timeoutMs?: number }): ClerkBackend {
@@ -61,6 +63,8 @@ export function createClerkBackend(opts: { secretKey: string; apiUrl?: string; f
           Number.isFinite(seconds) ? seconds * 1000 : null,
         );
       }
+      // A deleted-object body is informational; an empty 2xx body must not turn a delete into a failure.
+      if (method === "DELETE") return await response.json().catch(() => ({})) as T;
       return await response.json() as T;
     } catch (error) {
       if (error instanceof ClerkBackendError) throw error;
@@ -98,6 +102,10 @@ export function createClerkBackend(opts: { secretKey: string; apiUrl?: string; f
         skip_password_requirement: input.skipPasswordRequirement,
         ...(input.skipLegalChecks === undefined ? {} : { skip_legal_checks: input.skipLegalChecks }),
       });
+    },
+    async deleteUser(clerkUserId) {
+      try { await request(`/users/${encodeURIComponent(clerkUserId)}`, "DELETE"); }
+      catch (error) { if (!(error instanceof ClerkBackendError) || error.status !== 404) throw error; }
     },
     updateUserExternalId(clerkUserId, externalId) { return request(`/users/${encodeURIComponent(clerkUserId)}`, "PATCH", { external_id: externalId }); },
     createWaitlistEntry(input) { return request("/waitlist_entries", "POST", { email_address: input.emailAddress, notify: input.notify }); },
