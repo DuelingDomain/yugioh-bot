@@ -27,15 +27,15 @@
   pointer-events: none;
 }
 
-/* The keyboard stop of a field (it enlarges on Enter): a ring in the viewer's light, apart from the gold target ring. */
+/* The keyboard stop of a field (it enlarges on Enter): a ring in the viewer's light. It sits outside the gold target ring and uses ::before, so both show when both apply. */
 .seat:focus-visible {
   outline: none;
 }
 
-.seat:focus-visible::after {
+.seat:focus-visible::before {
   content: "";
   position: absolute;
-  inset: -4px;
+  inset: -9px;
   z-index: 8;
   border: 2px solid rgb(239 231 213 / 0.92);
   border-radius: 14px;
