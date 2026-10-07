@@ -13,7 +13,7 @@ import { resolveCard } from "../src/presets/catalog.js";
 import { queryCards } from "../src/card-search.js";
 const roots:string[]=[];
 afterEach(()=>roots.splice(0).forEach(p=>rmSync(p,{recursive:true,force:true})));
-function fixture(){
+function fixture(remapsRecord:Record<string,number>={100000003:12}){
  const dir=mkdtempSync(join(tmpdir(),"prerelease-read-"));roots.push(dir);
  const db=new Database(join(dir,"cards.cdb"));
  db.exec(`CREATE TABLE datas(id INTEGER PRIMARY KEY,ot INTEGER,alias INTEGER,setcode INTEGER,type INTEGER,atk INTEGER,def INTEGER,level INTEGER,race INTEGER,attribute INTEGER);
@@ -26,7 +26,7 @@ function fixture(){
  }
  db.close();
  mkdirSync(join(dir,"card-scripts"));writeFileSync(join(dir,"strings.conf"),"");
- const remaps=JSON.stringify({version:1,remaps:{100000003:12},prerelease:[],drops:[]});
+ const remaps=JSON.stringify({version:1,remaps:remapsRecord,prerelease:[],drops:[]});
  writeFileSync(join(dir,"card-remaps.json"),remaps);
  writeFileSync(join(dir,"manifest.json"),JSON.stringify({bundleVersion:"test",integrity:{cardRemaps:createHash("sha256").update(remaps).digest("hex")}}));
  return dir;
@@ -62,4 +62,19 @@ it("exposes prerelease metadata and respects TCG/OCG bits, with unlisted cards u
    expect(inspectDeck("normal",{main:[denied,denied,denied,...filler],extra:[],side:[]},dir,settings).issues.some(x=>x.message.includes(`not ${pool.toUpperCase()} legal`))).toBe(true);
   }
  }finally{cards.close();}
+});
+
+
+it("ignores bad retained-artwork/token remaps during import and preserves selected passcodes", async () => {
+ const dir=fixture({57160137:57160136,98596597:23116809,100000003:12}),db=openDatabase(":memory:");
+ const warning=vi.spyOn(console,"warn").mockImplementation(()=>{});
+ const cdb=new Database(join(dir,"cards.cdb"));
+ cdb.exec(`INSERT INTO datas VALUES(57160136,3,0,0,2,0,0,0,0,0),(57160137,259,57160136,0,2,0,0,0,0,0),
+ (23116809,3,0,0,16401,0,0,1,1,1),(98596597,259,0,0,16401,0,0,1,1,1);
+ INSERT INTO texts VALUES(57160136,'Cynet Mining',''),(57160137,'Cynet Mining',''),(23116809,'Fireball Token',''),(98596597,'Fireball Token','');`);cdb.close();
+ try {
+  const deck={main:[57160137,98596597,100000003],extra:[],side:[]};
+  expect(await normalizeImportedDeck(deck,dir,db,{fetch:vi.fn()})).toEqual({...deck,main:[57160137,98596597,12]});
+  expect(await normalizeCardCodes(deck.main,dir,db,{fetch:vi.fn(),preserveArtwork:true})).toEqual(new Map([[57160137,57160137],[98596597,98596597],[100000003,12]]));
+ } finally {warning.mockRestore();db.close();}
 });

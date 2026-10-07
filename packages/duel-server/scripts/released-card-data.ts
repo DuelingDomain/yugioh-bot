@@ -135,8 +135,6 @@ export async function downloadReleasedCardData(commit: string, directory: string
     for (const row of db.prepare("SELECT id FROM datas ORDER BY id").all() as { id: number }[]) scriptCodes.add(row.id);
     // A source still present under another identity must never redirect a saved card.
     for (const old of Object.keys(remaps)) if (scriptCodes.has(Number(old))) throw new Error(`Ambiguous retained prerelease passcode ${old}`);
-    // Artwork families pointing to a graduated main card follow its new code.
-    for (const [old, code] of Object.entries(remaps)) db.prepare("UPDATE datas SET alias=? WHERE alias=?").run(code, Number(old));
   } finally { db.close(); }
   const historical = options.historicalCards ?? (options.historyStart && !commit.startsWith(options.historyStart)
     ? await prereleaseHistory(options.historyStart, commit, directory) : []);
@@ -156,6 +154,12 @@ export async function downloadReleasedCardData(commit: string, directory: string
       addRemap(row.code, winner.code);
     }
   }
+  // Include historical graduations before repairing surviving artwork families.
+  const merged = new Database(path);
+  try {
+    const update = merged.prepare("UPDATE datas SET alias=? WHERE alias=?");
+    merged.transaction(() => { for (const [old, code] of Object.entries(remaps)) update.run(code, Number(old)); })();
+  } finally { merged.close(); }
   const prerelease = [...keptIds.values()].sort((a,b) => a.code-b.code).map(({ot: _ot, ...card}) => card);
   drops.sort((a,b) => a.file.localeCompare(b.file) || a.code-b.code);
   const remapBytes = JSON.stringify({ version: 1, remaps, prerelease, drops }, null, 2) + "\n";

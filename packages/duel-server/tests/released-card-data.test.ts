@@ -405,3 +405,18 @@ it("preserves distinct same-name tokens and never creates historical token remap
   expect(result.remaps).toEqual({});
   expect([...result.prereleaseCodes]).toEqual([98596597, 100000002]);
 });
+
+
+it("updates a surviving artwork alias after its main preview graduates through history", async () => {
+ const dir=root();
+ const databases=new Map([
+  ["cards.cdb",cdb(dir,"base.cdb",[[12,0,"Graduated"]])],
+  ["prerelease-art.cdb",cdb(dir,"art.cdb",[[100000002,100000001,"Graduated"]])],
+ ]);
+ const request=async(url:string)=>url.includes("/git/trees/")?Response.json(tree([...databases.keys()])):new Response(new Uint8Array(databases.get(url.split("/").pop()!)!));
+ const result=await downloadReleasedCardData(sources.database,join(dir,"bundle"),request,{historicalCards:[{code:100000001,name:"Graduated",type:33}]});
+ expect(result.remaps).toEqual({100000001:12});
+ expect([...result.prereleaseCodes]).toEqual([100000002]);
+ const db=new Database(result.path,{readonly:true});
+ try{expect(db.prepare("SELECT alias FROM datas WHERE id=100000002").get()).toEqual({alias:12});}finally{db.close();}
+});

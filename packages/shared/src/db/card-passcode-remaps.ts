@@ -9,10 +9,11 @@ const codeIsValid = (code: unknown): code is number => typeof code === "number" 
 
 /** Old bundles have no remap file. New bundles require its exact manifest hash. */
 export function loadCardPasscodeRemaps(directory: string): ReadonlyMap<number, number> {
-  const root = resolve(directory), path = join(root, "card-remaps.json"), manifestPath = join(root, "manifest.json");
+  const root = resolve(directory), path = join(root, "card-remaps.json"), manifestPath = join(root, "manifest.json"), enginePath = join(root, "cards.cdb");
   const manifestStat = existsSync(manifestPath) ? statSync(manifestPath) : undefined;
   const remapStat = existsSync(path) ? statSync(path) : undefined;
-  const stamp = `${manifestStat?.mtimeMs}:${manifestStat?.size}:${remapStat?.mtimeMs}:${remapStat?.size}`;
+  const engineStat = existsSync(enginePath) ? statSync(enginePath) : undefined;
+  const stamp = `${manifestStat?.mtimeMs}:${manifestStat?.size}:${remapStat?.mtimeMs}:${remapStat?.size}:${engineStat?.mtimeMs}:${engineStat?.size}`;
   const cached = cache.get(root);
   if (cached?.stamp === stamp) return cached.remaps;
   const manifest = manifestStat ? JSON.parse(readFileSync(manifestPath, "utf8")) : {};
@@ -29,6 +30,24 @@ export function loadCardPasscodeRemaps(directory: string): ReadonlyMap<number, n
   for (const [old, target] of Object.entries(artifact.remaps)) {
     if (!/^\d+$/.test(old) || !codeIsValid(Number(old)) || !codeIsValid(target) || Number(old) === target) throw new Error("Invalid passcode remap");
     remaps.set(Number(old), target);
+  }
+  // The first recipe could erase real artworks and omitted their alias metadata.
+  // Without that source identity, its mappings cannot be safely migrated or read.
+  if (remaps.size && manifest.sources?.databaseFormat === "official-releases-prerelease-v1") {
+    throw new Error("Unsafe prerelease-v1 remaps: rebuild the engine bundle with the prerelease-v2 recipe");
+  }
+  if (remaps.size) {
+    const engine = new Database(enginePath, { readonly: true, fileMustExist: true });
+    try {
+      const find = engine.prepare("SELECT alias,type FROM datas WHERE id=?");
+      for (const old of remaps.keys()) {
+        const row = find.get(old) as { alias: number; type: number } | undefined;
+        if (row && (row.alias || (row.type & 0x4000))) {
+          console.warn(`[card-remaps] Skipping retained ${row.alias ? "alternate artwork" : "token"} ${old}`);
+          remaps.delete(old);
+        }
+      }
+    } finally { engine.close(); }
   }
   // Resolve chains once and reject cycles before any writes.
   for (const [old, target] of remaps) {
@@ -64,20 +83,19 @@ export function applyEngineCardRemaps(db: Database.Database, directory: string):
   if (typeof manifest.bundleVersion !== "string" || !manifest.bundleVersion) throw new Error("Missing bundleVersion for passcode migration");
   const engine = new Database(join(directory, "cards.cdb"), { readonly: true, fileMustExist: true });
   try {
-    const alias = engine.prepare("SELECT alias FROM datas WHERE id=?");
-    const artwork = db.prepare("SELECT 1 FROM card_artworks WHERE artwork_id=? AND card_id<>artwork_id");
-    for (const old of remaps.keys()) {
-      if ((alias.get(old) as { alias: number } | undefined)?.alias || artwork.get(old)) {
-        console.warn(`[card-remaps] Skipping alternate artwork ${old}`);
-        remaps.delete(old);
-      }
-    }
     const find = engine.prepare("SELECT 1 FROM datas WHERE id=?");
     for (const target of new Set(remaps.values())) if (!find.get(target)) throw new Error(`Remap target ${target} is absent from engine database`);
   } finally { engine.close(); }
   const remap = (code: number) => remaps.get(code) ?? code;
   return db.transaction(() => {
     if (db.prepare("SELECT 1 FROM engine_card_remap_runs WHERE bundle_version=?").get(manifest.bundleVersion)) return { skipped: true, remappedPasscodes: 0 };
+    // Catalog writers share this DB. Check artwork families under the same write
+    // lock as the rewrite, so an intervening sync cannot turn a source into real art.
+    const artwork = db.prepare("SELECT 1 FROM card_artworks WHERE artwork_id=? AND card_id<>artwork_id");
+    for (const old of remaps.keys()) if (artwork.get(old)) {
+      console.warn(`[card-remaps] Skipping alternate artwork ${old}`);
+      remaps.delete(old);
+    }
     const columns = (db.prepare("PRAGMA table_info(card_catalog)").all() as { name: string }[]).map(row => row.name);
     const quoted = columns.map(column => `"${column}"`);
     const copyCatalog = db.prepare(`INSERT OR IGNORE INTO card_catalog (${quoted.join(",")}) SELECT ${columns.map((column,index) => column === "ygoprodeck_id" ? "?" : quoted[index]).join(",")} FROM card_catalog WHERE ygoprodeck_id=?`);
