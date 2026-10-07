@@ -80,14 +80,15 @@ interface HarnessProps {
   onJoin?: () => Promise<void>;
   onAddBot?: () => Promise<void>;
   botsEnabled?: boolean;
+  discordEnabled?: boolean;
 }
 
-function Harness({ players, lobby: snapshot = lobby(), isHost = false, isMember = true, api, onRefetch, onExpire, onJoin, onAddBot, botsEnabled }: HarnessProps) {
+function Harness({ players, lobby: snapshot = lobby(), isHost = false, isMember = true, api, onRefetch, onExpire, onJoin, onAddBot, botsEnabled, discordEnabled }: HarnessProps) {
   const [view, setView] = React.useState<DraftLobbyResponse>({ lobby: snapshot, players });
   const controller = useLobbyController({ slug: "demo", lobby: view.lobby, onResponse: setView, onRefetch, api });
   return (
     <>
-      <SeatSlots players={view.players} lobby={view.lobby} controller={controller} isHost={isHost} isMember={isMember} botsEnabled={botsEnabled} onAddBot={onAddBot} onInvite={() => {}} />
+      <SeatSlots players={view.players} lobby={view.lobby} controller={controller} isHost={isHost} isMember={isMember} botsEnabled={botsEnabled} onAddBot={onAddBot} onInvite={() => {}} discordEnabled={discordEnabled} />
       <SeatMeter lobby={view.lobby} />
       <LobbyAutoStart lobby={view.lobby} controller={controller} isHost={isHost} />
       <LobbyActions lobby={view.lobby} players={view.players} controller={controller} isHost={isHost} isMember={isMember} onJoin={onJoin} onExpire={onExpire} />
@@ -444,7 +445,7 @@ describe("seat buttons", () => {
   it("nudges a player who is not ready, never a ready player or a bot", async () => {
     const api = makeApi();
     const bot = player(4, "Botty", { isBot: true });
-    render(<Harness players={[HOST, ANA, BOB, bot]} lobby={lobby({ joined: 4 })} isHost api={api} />);
+    render(<Harness players={[HOST, ANA, BOB, bot]} lobby={lobby({ joined: 4 })} isHost api={api} discordEnabled />);
     expect(screen.queryByRole("button", { name: "Nudge Bob" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Nudge Botty" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Nudge Ana" }));
@@ -459,7 +460,7 @@ describe("seat buttons", () => {
         throw new LobbyRequestError(429, { code: "NUDGE_COOLDOWN", error: "wait", retryAfterSeconds: 42 }, "x");
       }),
     });
-    render(<Harness players={[HOST, ANA, BOB]} isHost api={api} />);
+    render(<Harness players={[HOST, ANA, BOB]} isHost api={api} discordEnabled />);
     fireEvent.click(screen.getByRole("button", { name: "Nudge Ana" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(/wait 42 s/i);
     expect(screen.getByRole("button", { name: /Nudge Ana \(wait \d+ s\)/ })).toBeDisabled();
@@ -498,14 +499,14 @@ describe("seat slots and meter", () => {
 });
 
 describe("InviteModal", () => {
-  function InviteHarness({ canPost = true, api }: { canPost?: boolean; api: LobbyApi }) {
+  function InviteHarness({ canPost = true, api, discordEnabled }: { canPost?: boolean; api: LobbyApi; discordEnabled?: boolean }) {
     const [open, setOpen] = React.useState(false);
     const [view, setView] = React.useState<DraftLobbyResponse>({ lobby: lobby(), players: [HOST, ANA] });
     const controller = useLobbyController({ slug: "demo", lobby: view.lobby, onResponse: setView, api });
     return (
       <>
         <button type="button" onClick={() => setOpen(true)}>Open invite</button>
-        {open && <InviteModal slug="demo" onClose={() => setOpen(false)} controller={controller} canPost={canPost} />}
+        {open && <InviteModal slug="demo" onClose={() => setOpen(false)} controller={controller} canPost={canPost} discordEnabled={discordEnabled} />}
       </>
     );
   }
@@ -514,7 +515,7 @@ describe("InviteModal", () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
     const api = makeApi();
-    render(<InviteHarness api={api} />);
+    render(<InviteHarness api={api} discordEnabled />);
     const opener = screen.getByRole("button", { name: "Open invite" });
     opener.focus();
     fireEvent.click(opener);
@@ -532,7 +533,7 @@ describe("InviteModal", () => {
   });
 
   it("hides Post to Discord from a player", async () => {
-    render(<InviteHarness api={makeApi()} canPost={false} />);
+    render(<InviteHarness api={makeApi()} canPost={false} discordEnabled />);
     fireEvent.click(screen.getByRole("button", { name: "Open invite" }));
     const dialog = await screen.findByRole("dialog", { name: /invite players/i });
     expect(within(dialog).queryByRole("button", { name: /post to discord/i })).not.toBeInTheDocument();

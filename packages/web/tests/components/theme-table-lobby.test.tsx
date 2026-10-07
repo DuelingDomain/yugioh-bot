@@ -376,15 +376,15 @@ describe("ThemeTableLobby deleting a theme", () => {
     expect(calls.some((c) => c.method === "DELETE" && c.url === "/api/cubes/10")).toBe(false);
   });
 
-  it("names the other member's library when an admin deletes their cube", async () => {
+  it("keeps an owned cube when its owner cancels deletion", async () => {
     vi.stubGlobal("confirm", vi.fn(() => false));
-    mockFetch(libraryRoute([{ ...theirs, canEdit: true }]));
+    const calls = mockFetch(libraryRoute([mine]));
     render(<ThemeTableLobby {...host()} />);
-    fireEvent.click(await screen.findByRole("button", { name: "More for Mermail" }));
+    fireEvent.click(await screen.findByRole("button", { name: "More for Blue-Eyes" }));
     fireEvent.click(screen.getByRole("menuitem", { name: /delete/i }));
     const text = String((window.confirm as unknown as { mock: { calls: string[][] } }).mock.calls[0][0]);
-    expect(text).toContain("Ana's library");
-    expect(text).not.toContain("your library");
+    expect(text).toContain("your library");
+    expect(calls.some((c) => c.method === "DELETE")).toBe(false);
   });
 });
 

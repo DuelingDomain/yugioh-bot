@@ -122,15 +122,16 @@ describe.each(["theme", "booster"] as const)("POST /api/drafts (%s Discord setti
     },
   );
 
-  it.each([undefined, ""])("still requires a channel when Discord is on (channelId=%j)", async (channelId) => {
+  it.each([undefined, ""])("creates without a channel when Discord is on (channelId=%j)", async (channelId) => {
     vi.stubEnv("DISCORD_BOT_ENABLED", "1");
     vi.stubEnv("DISCORD_DEFAULT_CHANNEL_ID", undefined);
 
     const response = await createDraft(channelId);
+    const body = await response.json();
 
-    expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: "Server not configured for draft creation" });
-    expect(db.prepare("select count(*) as count from drafts").get()).toEqual({ count: 0 });
+    expect(response.status).toBe(201);
+    expect(db.prepare("select channel_id from drafts where id = ?").get(body.id)).toEqual({ channel_id: null });
+    expect(db.prepare("select count(*) as count from draft_players where draft_id = ?").get(body.id)).toEqual({ count: 1 });
     expect(announce).not.toHaveBeenCalled();
   });
 

@@ -128,10 +128,10 @@ async function handlePOST(request: NextRequest) {
     return NextResponse.json({ error: "lobbySeats must be an integer from 2 to 8", code: "INVALID_LOBBY_SEATS" }, { status: 400 });
   }
   const guildId = env.discordGuildId;
-  // Browser-only drafts have no Discord channel.
-  const resolvedChannelId = discordEnabled ? channelId || env.discordDefaultChannelId : null;
+  // Drafts can be created without a Discord channel.
+  const resolvedChannelId = discordEnabled ? channelId || env.discordDefaultChannelId || null : null;
 
-  if (!guildId || (discordEnabled && !resolvedChannelId)) {
+  if (!guildId) {
     return NextResponse.json(
       { error: "Server not configured for draft creation" },
       { status: 500 }

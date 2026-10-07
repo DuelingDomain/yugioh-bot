@@ -23,7 +23,7 @@ export interface InviteModalProps {
  * The invite modal: the draft link with Copy, the Discord command, and for the host a button that posts the invite
  * (and a mention for each player who is not ready) in the draft channel. Esc and the backdrop close it.
  */
-export function InviteModal({ slug, onClose, controller, canPost = false, discordEnabled = true, returnFocusRef }: InviteModalProps) {
+export function InviteModal({ slug, onClose, controller, canPost = false, discordEnabled = false, returnFocusRef }: InviteModalProps) {
   const [link, setLink] = React.useState(`/draft/${slug}`);
   const titleId = React.useId();
   const closeRef = React.useRef<HTMLButtonElement>(null);

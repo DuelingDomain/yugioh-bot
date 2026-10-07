@@ -23,7 +23,7 @@ interface LibraryCube {
   mainCount: number;
   extraCount: number;
   draftType?: CubeDraftType;
-  /** From the library answer: the viewer made this cube or is an admin, which is what Delete needs. */
+  /** From the library answer: the viewer owns this cube, which is what Delete needs. */
   canEdit?: boolean;
   createdByUserId?: number;
   createdByName?: string | null;
@@ -42,7 +42,7 @@ export interface ThemeBoxProps {
   onPreview: (cubeId: number) => void;
   /** After a library change that the draft page does not see. */
   onChanged: () => void;
-  /** The viewer's user id, to tell their own cube from another member's one in the Delete text. */
+  /** The viewer's application user id. */
   viewerUserId?: number | null;
 }
 
@@ -51,7 +51,7 @@ const different = (n: number) => `${n} different`;
 const copies = (n: number) => `${n} ${n === 1 ? "copy" : "copies"}`;
 
 /** One cube in the box: pictures, name, the distinct and copy counts, who holds it, and what you can do with it. */
-function BoxCube({ cube, table, controller, isHost, canTake, yourCubeId, slug, onPreview, onChanged, library, viewerUserId }: { cube: DraftAllowedCube; library: LibraryCube[] } & Omit<ThemeBoxProps, "cubes">) {
+function BoxCube({ cube, table, controller, isHost, canTake, yourCubeId, slug, onPreview, onChanged, library }: { cube: DraftAllowedCube; library: LibraryCube[] } & Omit<ThemeBoxProps, "cubes">) {
   const holder = table.holderOf(cube.id);
   const mine = yourCubeId === cube.id;
   const busy = controller.pending !== null;
@@ -59,15 +59,12 @@ function BoxCube({ cube, table, controller, isHost, canTake, yourCubeId, slug, o
   const taken = holder !== null && !mine && table.unique;
   const showHolder = table.selection === "player_pick" && holder !== null;
 
-  // Delete needs the cube's owner or an admin. Until the library says so, the host can only take the cube out of the draft.
+  // Only the cube's owner may delete it. Other hosts can take it out of the draft.
   const entry = library.find((c) => c.id === cube.id);
   const canDelete = entry?.canEdit === true;
 
   const remove = async () => {
-    // An admin may delete another member's cube; the text names whose library it leaves.
-    const others = entry?.createdByUserId && viewerUserId && entry.createdByUserId !== viewerUserId;
-    const where = others ? `${entry?.createdByName ? `${entry.createdByName}'s` : "another member's"} library` : "your library";
-    if (typeof window !== "undefined" && !window.confirm(`Delete "${cube.name}" from ${where} for good? This can't be undone.`)) return;
+    if (typeof window !== "undefined" && !window.confirm(`Delete "${cube.name}" from your library for good? This can't be undone.`)) return;
     // Draft first: detach also drops the players' claims on the cube, which the library delete needs gone (the claim
     // rows point at the cube). Only viewers the library lets delete get here, so the second step is not refused.
     await controller.run("detach", async () => {

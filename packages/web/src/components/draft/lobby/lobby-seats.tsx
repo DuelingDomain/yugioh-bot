@@ -103,7 +103,7 @@ export interface SeatSlotsProps {
  * dashed open seats up to the target. The first open seat carries Invite and, for the host with bots on, Add bot.
  * A legacy lobby (no target) shows its players and one open seat. Seat buttons come from `SeatControls`.
  */
-export function SeatSlots({ players, lobby, controller, isHost, isMember, onInvite, onAddBot, botsEnabled, discordEnabled = true, inviteRef, className }: SeatSlotsProps) {
+export function SeatSlots({ players, lobby, controller, isHost, isMember, onInvite, onAddBot, botsEnabled, discordEnabled = false, inviteRef, className }: SeatSlotsProps) {
   const list = useRef<HTMLUListElement>(null);
   useFlipList(list, { enter: true });
   const slots = seatSlots(players, lobby.targetSeats);

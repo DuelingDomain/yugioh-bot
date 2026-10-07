@@ -692,7 +692,7 @@ export function LobbyAutoStart({ lobby, controller, isHost, className }: { lobby
  * The small buttons on a seat. You get Leave on your own seat. The host gets Nudge (a Discord reminder, not for bots or
  * ready players) and Remove (two presses) on the other seats. Everything waits while a start is running.
  */
-export function SeatControls({ player, lobby, controller, isHost, discordEnabled = true, className }: { player: LobbyPlayer; lobby: LobbySnapshot; controller: LobbyController; isHost: boolean; /** The Discord bot is on. When false there is no Nudge. */ discordEnabled?: boolean; className?: string }) {
+export function SeatControls({ player, lobby, controller, isHost, discordEnabled = false, className }: { player: LobbyPlayer; lobby: LobbySnapshot; controller: LobbyController; isHost: boolean; /** The Discord bot is on. When false there is no Nudge. */ discordEnabled?: boolean; className?: string }) {
   const [armed, setArmed] = React.useState(false);
   const locked = lobby.start !== null;
   const key = (prefix: string) => `${prefix}:${player.playerId}`;
