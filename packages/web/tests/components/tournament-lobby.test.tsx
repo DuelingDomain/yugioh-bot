@@ -30,9 +30,9 @@ const three: TournamentDetail = {
   ],
 };
 
-function show(tournament: TournamentDetail, isCreator = false, currentUserId: number | null = null, onChanged = () => {}) {
+function show(tournament: TournamentDetail, isCreator = false, currentUserId: number | null = null, onChanged = () => {}, discordEnabled = false) {
   return render(
-    <SheetRoot><TournamentLobby tournament={tournament} tournamentSlug="slug1" isCreator={isCreator} currentUserId={currentUserId} onChanged={onChanged} /></SheetRoot>,
+    <SheetRoot><TournamentLobby tournament={tournament} tournamentSlug="slug1" isCreator={isCreator} currentUserId={currentUserId} onChanged={onChanged} discordEnabled={discordEnabled} /></SheetRoot>,
   );
 }
 
@@ -129,3 +129,18 @@ describe("firstRoundNote", () => {
 });
 
 const FIXTURE_KEYS = ["host", "someone"] as const;
+
+describe("TournamentLobby Discord switch", () => {
+  it("hides the Announce button and the /event hint when Discord is off", () => {
+    show(three, true);
+    expect(screen.queryByRole("button", { name: /announce/i })).toBeNull();
+    expect(screen.queryByText("/event join")).toBeNull();
+    expect(screen.getByText("Anyone with the link can join.")).toBeInTheDocument();
+  });
+
+  it("shows both when Discord is on", () => {
+    show(three, true, null, () => {}, true);
+    expect(screen.getByRole("button", { name: "Announce in Discord" })).toBeInTheDocument();
+    expect(screen.getByText("/event join")).toBeInTheDocument();
+  });
+});

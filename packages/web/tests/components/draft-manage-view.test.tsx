@@ -205,7 +205,7 @@ describe("DraftManageView — header, players, start", () => {
     await userEvent.click(screen.getByRole("button", { name: /copy link/i }));
     expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/draft/goat-night`);
     expect(await screen.findByRole("button", { name: /copied/i })).toBeInTheDocument();
-    expect(screen.getByText("/draft join")).toBeInTheDocument();
+    expect(screen.queryByText(/draft join/)).toBeNull();
   });
 
   it("shows a guest the Join card instead of the invite panel, and joins", async () => {

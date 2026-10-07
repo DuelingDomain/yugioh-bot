@@ -6,6 +6,8 @@ export interface ShellAccount {
   /** loading until the session answers; error when it could not be read. */
   status: "loading" | "ready" | "error";
   name: string;
+  /** The email on the account, for the menu subtitle. null when the session has none. */
+  email: string | null;
   image: string | null;
   /** null until /api/player/me answers, or when this person has no profile. */
   playerId: number | null;
@@ -16,7 +18,7 @@ export interface ShellAccount {
   elo: number | null;
 }
 
-const INITIAL: ShellAccount = { status: "loading", name: "", image: null, playerId: null, profileSettled: false, tier: null, elo: null };
+const INITIAL: ShellAccount = { status: "loading", name: "", email: null, image: null, playerId: null, profileSettled: false, tier: null, elo: null };
 
 /** The two requests the old top bar made, plus the profile for the tier and Elo line, once for the whole shell. */
 export function useShellAccount(): ShellAccount {
@@ -26,9 +28,9 @@ export function useShellAccount(): ShellAccount {
     let live = true;
     fetch("/api/auth/session")
       .then((r) => r.json())
-      .then((s: { user?: { name?: string | null; image?: string | null } } | null) => {
+      .then((s: { user?: { name?: string | null; email?: string | null; image?: string | null } } | null) => {
         if (!live) return;
-        setAccount((a) => ({ ...a, status: "ready", name: s?.user?.name ?? "", image: s?.user?.image ?? null }));
+        setAccount((a) => ({ ...a, status: "ready", name: s?.user?.name ?? "", email: s?.user?.email ?? null, image: s?.user?.image ?? null }));
       })
       .catch(() => {
         if (live) setAccount((a) => ({ ...a, status: "error" }));

@@ -68,7 +68,7 @@ describe("DraftDetailPage finale — live tournament update", () => {
 
     const deck = await screen.findByRole("link", { name: "View your deck" });
     await waitFor(() => expect(document.activeElement).toBe(deck));
-    expect(screen.getByText("The host or a server admin will start the tournament.")).toBeTruthy();
+    expect(screen.getByText("The host will start the tournament.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Create tournament" })).toBeNull();
 
     draftBody = { ...completed, tournamentId: 4, tournamentName: "Cup", tournamentSlug: "cup" };

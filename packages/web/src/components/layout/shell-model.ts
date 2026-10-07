@@ -9,7 +9,7 @@ export const NAV_GROUPS: { label: string | null; hrefs: string[] }[] = [
   { label: "Build", hrefs: ["/decks", "/cubes"] },
 ];
 
-export const FOOT_HREF = "/settings";
+export const FOOT_HREF = "/settings/account";
 
 export function navItemByHref(href: string): NavItem | undefined {
   return navItems.find((item) => item.href === href);
@@ -49,6 +49,7 @@ export function activeNavHref(pathname: string, playerId: number | null = null, 
   if (pathname === "/tournament" || pathname.startsWith("/tournament/")) return "/tournaments";
   if (pathname === "/draft" || pathname.startsWith("/draft/")) return "/drafts";
   if (pathname === "/themes" || pathname.startsWith("/themes/")) return "/cubes";
+  if (pathname === "/settings") return "/settings/account";
   for (const item of navItems) {
     const on = item.match === "exact" ? pathname === item.href : pathname === item.href || pathname.startsWith(`${item.href}/`);
     if (on) return item.href;

@@ -204,7 +204,7 @@ export function CubesLibraryList() {
       }
     >
       <p className={styles.lede}>
-        Reusable card pools for cube drafts and theme drafts. Anyone on the server can use them; only the creator or an admin can edit one.
+        Reusable card pools for cube drafts and theme drafts. Anyone can use them; only the creator can edit one.
       </p>
 
       {chooser && (

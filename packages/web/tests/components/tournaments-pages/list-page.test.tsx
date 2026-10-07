@@ -40,10 +40,11 @@ describe("TournamentsPage", () => {
       .prepare(`insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug, created_at) values (?, ?, ?, ?, ${fixtureUserId("u1")}, ?, ?)`)
       .run(guild, name, format, status, slug, createdAt);
 
-  it("shows the empty state naming /event create", async () => {
+  it("shows the empty state without a Discord command", async () => {
     render(await TournamentsPage());
     expect(screen.getByRole("heading", { name: "No tournaments yet" })).toBeTruthy();
-    expect(screen.getByText("/event create")).toBeTruthy();
+    expect(screen.queryByText("/event create")).toBeNull();
+    expect(screen.getByText(/ready to share by link/)).toBeTruthy();
     expect(screen.getAllByRole("link", { name: /new tournament/i }).length).toBe(2);
     expect(document.querySelector(".sv-bar-sub")).toBeNull();
   });
