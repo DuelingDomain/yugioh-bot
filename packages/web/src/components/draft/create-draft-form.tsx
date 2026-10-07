@@ -2,7 +2,9 @@
 
 /**
  * Normal draft creation, as the Workbench: sources and the card preview on the left, the pool you edit in the middle,
- * the rules and Create on the right. One pool editor feeds all three. The request is the real config: target seats,
+ * the rules and Create on the right. The card preview is always on the left (a big readable pane): inside the sources
+ * column when it is open, in a column of its own at mid width or when the sources are collapsed. Only a phone gets the
+ * card sheet. One pool editor feeds all three. The request is the real config: target seats,
  * explicit rounds, the custom Main and Extra pools and the Extra Deck round.
  */
 
@@ -12,6 +14,7 @@ import { HideImportEntriesContext, ImportEntries, type ImportEntryView } from "@
 import { configFromFields, type DraftConfigFieldsValue } from "./draft-config-fields";
 import { importLine, reportOf } from "./pool/pool-model";
 import { usePoolEditor } from "./pool/use-pool-editor";
+import { CardInspector } from "./setup/card-inspector";
 import { PoolBrowser, type PoolBrowserHandle } from "./setup/pool-browser";
 import { RulesMetaFields, RulesPanel, useRulesAnalysis } from "./setup/rules-panel";
 import { applyPreset, readinessText } from "./setup/rules-model";
@@ -98,28 +101,26 @@ export function CreateDraftForm({ discordEnabled = true }: CreateDraftFormProps 
   const createDisabled = !analysis.ok || submitting || pool.loading;
 
   const { step } = pool;
-  const actions = React.useMemo<PoolEditActions>(
-    () => ({
+  // The callbacks read the pool from a ref, so `actions` keeps its identity while copies change and the tiles stay memoised.
+  const poolRef = React.useRef({ main: pool.pool, extra: pool.extra });
+  poolRef.current = { main: pool.pool, extra: pool.extra };
+  const actions = React.useMemo<PoolEditActions>(() => {
+    const have = (id: number, lane: PoolLane) => (lane === "extra" ? poolRef.current.extra : poolRef.current.main).get(id) ?? 0;
+    return {
       onStep: (id, delta, lane) => step(id, delta, lane),
-      onSetCopies: (id, copies, lane: PoolLane) => {
-        const have = (lane === "extra" ? pool.extra : pool.pool).get(id) ?? 0;
-        step(id, copies - have, lane);
-      },
-      onRemove: (id, lane: PoolLane) => {
-        const have = (lane === "extra" ? pool.extra : pool.pool).get(id) ?? 0;
-        step(id, -have, lane);
-      },
-    }),
-    [step, pool.pool, pool.extra],
-  );
+      onSetCopies: (id, copies, lane: PoolLane) => step(id, copies - have(id, lane), lane),
+      onRemove: (id, lane: PoolLane) => step(id, -have(id, lane), lane),
+    };
+  }, [step]);
 
-  // The inspector sits in the left column when it is wide and open. Anywhere else it is the card sheet.
+  // The preview is a pane everywhere except a phone, where it is the card sheet.
+  const docked = mode === "mid" || layout.sourcesCollapsed;
   const inspector = useCardInspector({
     main: pool.pool,
     extra: pool.extra,
     getCard: pool.info,
     actions,
-    mode: mode === "wide" && !layout.sourcesCollapsed ? "pane" : "sheet",
+    mode: mode === "phone" ? "sheet" : "pane",
   });
 
   const entries = React.useMemo<ImportEntryView[]>(
@@ -176,7 +177,7 @@ export function CreateDraftForm({ discordEnabled = true }: CreateDraftFormProps 
   React.useEffect(() => {
     if (!focusRequest) return;
     if (focusRequest.target === "filter") browser.current?.focusSearch();
-    else document.querySelector<HTMLInputElement>('input[aria-label="Search cards by name"]')?.focus();
+    else document.querySelector<HTMLInputElement>("input[data-card-search]")?.focus();
   }, [focusRequest]);
 
   const drawer = mode === "mid" ? { open: layout.drawerOpen, onClose: layout.closeSources } : undefined;
@@ -185,6 +186,7 @@ export function CreateDraftForm({ discordEnabled = true }: CreateDraftFormProps 
       <SourceRail
         ctl={pool}
         inspector={inspector}
+        inspect={!docked}
         tab={tab}
         onTabChange={setTab}
         drawer={drawer}
@@ -255,6 +257,7 @@ export function CreateDraftForm({ discordEnabled = true }: CreateDraftFormProps 
           emptyState={<WorkbenchEmpty onList={() => showSource("list")} onCubes={() => showSource("cubes")} onSearch={searchCards} />}
         />
       }
+      preview={<CardInspector controller={inspector} />}
       rules={rules}
       poolCount={counts.main + counts.extra}
       tone={analysis.ok ? "ok" : "bad"}

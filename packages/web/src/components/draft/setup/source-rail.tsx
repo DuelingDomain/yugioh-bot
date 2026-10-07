@@ -26,7 +26,10 @@
  *   inspector     the controller from `useCardInspector`; the rail renders `CardInspector` for it.
  *   tab, defaultTab, onTabChange   the selected source. Pass `tab` to control it (for "Add cards" buttons elsewhere).
  *   drawer        `{ open, onClose }` turns the column into a left drawer with a scrim (mid-width screens). While it is
- *                 closed it is inert and out of the Tab order. Esc closes it unless the inspector used that Esc to unpin.
+ *                 closed it is inert and out of the Tab order. Open, it is a modal dialog named "Add cards": Tab stays inside and
+ *                 Esc closes it, unless the inspector used that Esc to unpin.
+ *   inspect       false when the card preview is shown elsewhere (a docked left column): the rail then holds only the sources,
+ *                 with no Sources / Card switch. Default true.
  *   onCollapse    shows a collapse button in the header (desktop). Ignored when `drawer` is set (it gets a Close button).
  *   cubeActions   Save as new cube / Save changes / Reset under the Cubes tab (default true).
  *   className     for the column.
@@ -63,6 +66,7 @@ export interface SourceRailProps {
   defaultTab?: SourceTab;
   onTabChange?: (tab: SourceTab) => void;
   drawer?: { open: boolean; onClose: () => void };
+  inspect?: boolean;
   onCollapse?: () => void;
   cubeActions?: boolean;
   className?: string;
@@ -91,7 +95,7 @@ function useRailView(inspector: CardInspectorController): { view: RailView; choo
   return { view, choose };
 }
 
-export function SourceRail({ ctl, inspector, tab: tabProp, defaultTab = "cards", onTabChange, drawer, onCollapse, cubeActions = true, className }: SourceRailProps) {
+export function SourceRail({ ctl, inspector, tab: tabProp, defaultTab = "cards", onTabChange, drawer, inspect = true, onCollapse, cubeActions = true, className }: SourceRailProps) {
   const ids = React.useId();
   const [tabState, setTabState] = React.useState<SourceTab>(defaultTab);
   const tab = tabProp ?? tabState;
@@ -100,8 +104,11 @@ export function SourceRail({ ctl, inspector, tab: tabProp, defaultTab = "cards",
   const [visited, setVisited] = React.useState<ReadonlySet<SourceTab>>(() => new Set([tab]));
   if (!visited.has(tab)) setVisited(new Set(visited).add(tab));
 
-  const { view, choose } = useRailView(inspector);
+  const { view: railView, choose } = useRailView(inspector);
   const sheet = inspector.sheet;
+  // The Sources / Card switch exists only when the inspector lives in this column.
+  const split = inspect && !sheet;
+  const view: RailView = split ? railView : "sources";
   const closed = drawer ? !drawer.open : false;
 
   const selectTab = (next: SourceTab) => {
@@ -146,6 +153,24 @@ export function SourceRail({ ctl, inspector, tab: tabProp, defaultTab = "cards",
     };
   }, [open, onClose]);
 
+  // A modal drawer keeps Tab inside it.
+  const trapTab = (e: React.KeyboardEvent) => {
+    if (!open || e.key !== "Tab") return;
+    const items = Array.from(railRef.current?.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href]") ?? []).filter(
+      (el) => el.tabIndex >= 0 && !el.closest("[hidden]"),
+    );
+    if (items.length === 0) return;
+    const first = items[0]!;
+    const last = items[items.length - 1]!;
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
+
   const sourcesId = `${ids}-sources`;
   const cardId = `${ids}-card`;
   const pinnedAway = inspector.pinnedId !== null && view !== "card";
@@ -155,14 +180,17 @@ export function SourceRail({ ctl, inspector, tab: tabProp, defaultTab = "cards",
     <aside
       ref={railRef}
       className={`${styles.rail}${drawer ? ` ${styles.drawer}` : ""}${className ? ` ${className}` : ""}`}
-      aria-label="Sources and card preview"
+      role={drawer && open ? "dialog" : undefined}
+      aria-modal={drawer && open ? true : undefined}
+      aria-label={drawer ? "Add cards" : "Sources and card preview"}
+      onKeyDown={drawer ? trapTab : undefined}
       data-view={view}
       data-open={drawer ? (drawer.open ? "" : undefined) : undefined}
       inert={closed || undefined}
       aria-hidden={closed || undefined}
     >
       <div className={styles.head}>
-        {sheet ? (
+        {!split ? (
           <h2 className={styles.title}>Sources</h2>
         ) : (
           <div className={styles.switch} role="tablist" aria-label="Left panel">
@@ -199,7 +227,7 @@ export function SourceRail({ ctl, inspector, tab: tabProp, defaultTab = "cards",
         ) : null}
       </div>
 
-      <div className={styles.sources} id={sourcesId} role={sheet ? undefined : "tabpanel"} aria-labelledby={sheet ? undefined : `${ids}-t-sources`} hidden={view === "card"}>
+      <div className={styles.sources} id={sourcesId} role={split ? "tabpanel" : undefined} aria-labelledby={split ? `${ids}-t-sources` : undefined} hidden={view === "card"}>
         <div className={styles.tabs} role="tablist" aria-label="Where cards come from" onKeyDown={tabKeys}>
           {SOURCE_TABS.map((t) => (
             <button
@@ -252,6 +280,7 @@ export function SourceRail({ ctl, inspector, tab: tabProp, defaultTab = "cards",
       {sheet ? (
         <CardInspector controller={inspector} />
       ) : (
+        split &&
         view === "card" && (
           <div className={styles.cardPane} id={cardId} role="tabpanel" aria-labelledby={`${ids}-t-card`}>
             <CardInspector controller={inspector} className={styles.insp} />
@@ -321,6 +350,7 @@ export function CubesSource({ ctl, cubeActions = true }: { ctl: PoolEditor; cube
           userId={ctl.userId}
           selectedId={meta?.cubeId ?? null}
           hasEdits={ctl.edited}
+          replaces={ctl.replacedByPick}
           picking={ctl.picking}
           error={ctl.pickError}
           keepName={null}

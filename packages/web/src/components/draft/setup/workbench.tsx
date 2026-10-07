@@ -6,8 +6,9 @@
  * (`create-draft-form.tsx`) puts the real panes in.
  *
  * Three layouts, picked from the window width (the app sidebar takes room, so a container query would lie):
- *   wide   1280px and up. Three columns. Each side column collapses to a thin strip (`[` and `]`).
- *   mid    721 to 1279px. The pool and the rules. The sources are a left drawer, opened with "Add cards".
+ *   wide   1280px and up. Three columns. The rules collapse to a thin strip (`]`). The sources collapse (`[`) and the left
+ *          column then keeps the card preview alone, with a button to bring the sources back.
+ *   mid    721 to 1279px. The card preview, the pool and the rules. The sources are a modal left drawer, opened with "Add cards".
  *   phone  720px and under. One pane at a time (Sources, Pool, Rules), a tab bar, and a sticky bar with Create.
  * With no `matchMedia` (a test, a server render) the layout is wide.
  *
@@ -154,6 +155,8 @@ export interface WorkbenchProps {
   banner?: React.ReactNode;
   /** The pool browser. */
   pool: React.ReactNode;
+  /** The card preview. Shown as its own left column when the sources are not in the left column (mid width, or wide with the sources collapsed). */
+  preview?: React.ReactNode;
   /** The rules panel. */
   rules: React.ReactNode;
   /** Pool tab badge on a phone. */
@@ -186,10 +189,11 @@ const HELP_ROWS: ReadonlyArray<[keys: string[], text: string]> = [
   [["Ctrl", "↵"], "Create the draft"],
 ];
 
-export function Workbench({ layout, sources, banner, pool, rules, poolCount, tone, stripAction, dock, onCreate, onSearchCards, onFocusFilter, className }: WorkbenchProps) {
+export function Workbench({ layout, sources, banner, pool, preview, rules, poolCount, tone, stripAction, dock, onCreate, onSearchCards, onFocusFilter, className }: WorkbenchProps) {
   const { mode } = layout;
   const wide = mode === "wide";
   const phone = mode === "phone";
+  const docked = !!preview && (mode === "mid" || (wide && layout.sourcesCollapsed));
   const ref = React.useRef<HTMLDivElement>(null);
   useTopOffset(ref);
   const [help, setHelp] = React.useState(false);
@@ -249,10 +253,24 @@ export function Workbench({ layout, sources, banner, pool, rules, poolCount, ton
       data-mode={mode}
       data-sources={layout.sourcesCollapsed ? "off" : undefined}
       data-rules={layout.rulesCollapsed ? "off" : undefined}
+      data-preview={docked ? "" : undefined}
       data-tab={phone ? tab : undefined}
     >
       <div className={styles.srcCol} hidden={phone && tab !== "sources"}>
-        {wide && layout.sourcesCollapsed && (
+        {docked && (
+          <div className={styles.prevCol}>
+            <div className={styles.prevHead}>
+              <h2>Card</h2>
+              {wide && (
+                <button type="button" className={styles.iconBtn} aria-label="Show sources" title="Show sources ([)" onClick={layout.openSources}>
+                  <ChevronRight size={17} aria-hidden="true" />
+                </button>
+              )}
+            </div>
+            <div className={styles.prevBody}>{preview}</div>
+          </div>
+        )}
+        {wide && layout.sourcesCollapsed && !docked && (
           <div className={styles.strip} data-side="left">
             <button type="button" className={styles.stripBtn} aria-label="Show sources" title="Show sources ([)" onClick={layout.openSources}>
               <ChevronRight size={17} aria-hidden="true" />

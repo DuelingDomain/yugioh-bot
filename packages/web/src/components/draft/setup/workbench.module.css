@@ -21,7 +21,7 @@
   color: var(--ink);
   transition: grid-template-columns 200ms var(--ease, ease-out);
 }
-.wb[data-sources="off"] { --cl: 46px; }
+.wb[data-sources="off"]:not([data-preview]) { --cl: 46px; }
 .wb[data-rules="off"] { --cr: 58px; }
 .wb :is(button, a, input, select, textarea):focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 2px; }
 
@@ -50,12 +50,20 @@
 .dot { display: inline-block; flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 10px var(--ok); }
 .dot[data-tone="bad"] { background: var(--loss); box-shadow: 0 0 10px var(--loss); }
 
-/* ---- the mid layout: sources are a drawer, opened from the pool ---- */
+/* ---- the card preview column: the left column when the sources are collapsed (wide) or a drawer (mid) ---- */
+.prevCol { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; min-height: 0; background: var(--panel); border-right: 1px solid var(--rule-lo); }
+.prevHead { display: flex; flex: none; align-items: center; gap: 2px; min-height: 46px; padding: 0 8px 0 14px; border-bottom: 1px solid var(--rule-lo); }
+.prevHead h2 { flex: 1; margin: 0; font: 600 12px/1 var(--f-display); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3); }
+.prevBody { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+.prevBody > * { flex: 1 1 auto; }
+
+/* ---- the mid layout: the card preview on the left, the sources are a drawer opened from the pool ---- */
 .addRow { display: flex; flex: none; padding: 10px 12px 0; }
 .addBtn { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px 0 10px; border: 1px solid var(--rule); border-radius: 9px; background: var(--panel); color: var(--ink); font: inherit; font-size: 14.5px; font-weight: 500; cursor: pointer; }
 .addBtn:hover { border-color: var(--rule-hi); background: var(--panel-2); }
 
-.wb[data-mode="mid"] { grid-template-columns: minmax(0, 1fr) var(--cr); }
+.wb[data-mode="mid"] { --cm: clamp(230px, 24%, 300px); grid-template-columns: minmax(0, 1fr) var(--cr); }
+.wb[data-mode="mid"][data-preview] { grid-template-columns: var(--cm) minmax(0, 1fr) var(--cr); }
 .wb[data-mode="mid"] :is(.srcCol, .srcHost) { display: contents; }
 /* A closed drawer sits off the left edge of the sheet, over the app sidebar: hide it once it has slid out. */
 .wb .shut { visibility: hidden; box-shadow: none; transition: transform 220ms var(--ease, ease-out), visibility 0s linear 220ms; }
@@ -112,6 +120,11 @@
 .help dd { margin: 0; color: var(--ink-2); font-size: 14.5px; }
 .help kbd { min-width: 24px; padding: 2px 7px; border: 1px solid var(--rule); border-bottom-width: 2px; border-radius: 6px; background: var(--floor); color: var(--ink); font: 600 12px/1.4 var(--f-num); text-align: center; }
 .helpFoot { display: flex; justify-content: flex-end; }
+
+/* A narrow mid window: the preview and the rules take less so the pool keeps room. */
+@media (min-width: 721px) and (max-width: 1000px) {
+  .wb[data-mode="mid"] { --cm: 210px; --cr: 280px; }
+}
 
 @media (max-width: 720px) {
   .empty h2 { font-size: 22px; }

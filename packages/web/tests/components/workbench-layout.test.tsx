@@ -37,7 +37,9 @@ afterEach(() => {
 });
 
 const root = (container: HTMLElement) => container.querySelector<HTMLElement>("[data-mode]")!;
-const rail = () => screen.getByLabelText("Sources and card preview", { selector: "aside" });
+const rail = () => screen.getByLabelText(/Sources and card preview|Add cards/, { selector: "aside" });
+const inspectorPane = () => screen.queryByRole("region", { name: "Card inspector" });
+const tile = (name: string) => screen.getByRole("button", { name: new RegExp(`^${name},`) });
 const createButtons = () => screen.getAllByRole("button", { name: /create draft/i });
 
 describe("Workbench layout", () => {
@@ -64,6 +66,30 @@ describe("Workbench layout", () => {
       fireEvent.click(screen.getByRole("button", { name: "Show sources" }));
       expect(root(container)).not.toHaveAttribute("data-sources");
       expect(screen.getByRole("button", { name: "Collapse sources" })).toBeInTheDocument();
+    });
+
+    it("keeps the card preview in the left column when the sources are collapsed", async () => {
+      stubFetch();
+      const { container } = render(<CreateDraftForm />);
+      fireEvent.click(screen.getByRole("tab", { name: "Cubes" }));
+      fireEvent.click(await screen.findByRole("button", { name: /Goat cube/ }));
+      await screen.findByRole("region", { name: "Chosen cube" });
+      // Open, the preview is the Card view of the sources column.
+      expect(screen.getByRole("tablist", { name: "Left panel" })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "Collapse sources" }));
+      expect(root(container)).toHaveAttribute("data-sources", "off");
+      expect(inspectorPane()).toBeVisible();
+      expect(screen.queryByRole("tablist", { name: "Left panel" })).toBeNull();
+      fireEvent.focus(await screen.findByRole("button", { name: /^Alpha Beast,/ }));
+      expect(within(inspectorPane()!).getByRole("heading", { name: "Alpha Beast" })).toBeInTheDocument();
+      // One inspector at a time.
+      expect(screen.getAllByRole("region", { name: "Card inspector", hidden: true })).toHaveLength(1);
+
+      fireEvent.click(screen.getByRole("button", { name: "Show sources" }));
+      expect(root(container)).not.toHaveAttribute("data-sources");
+      expect(screen.getByRole("tablist", { name: "Left panel" })).toBeInTheDocument();
+      expect(screen.getAllByRole("region", { name: "Card inspector", hidden: true })).toHaveLength(1);
     });
 
     it("collapses the rules to a strip that keeps one Create button", () => {
@@ -93,6 +119,38 @@ describe("Workbench layout", () => {
       expect(rail()).not.toHaveAttribute("aria-hidden");
       fireEvent.click(within(rail()).getByRole("button", { name: "Close sources" }));
       expect(rail()).toHaveAttribute("aria-hidden", "true");
+    });
+
+    it("keeps the card preview in a left column, and shows the hovered card there", async () => {
+      stubFetch();
+      render(<CreateDraftForm />);
+      const pane = inspectorPane();
+      expect(pane).not.toBeNull();
+      expect(pane).toBeVisible();
+      // The drawer holds only the sources: no Sources / Card switch.
+      expect(within(rail()).queryByRole("tablist", { name: "Left panel" })).toBeNull();
+
+      fireEvent.click(screen.getByRole("button", { name: "Add cards" }));
+      fireEvent.click(within(rail()).getByRole("tab", { name: "Cubes" }));
+      fireEvent.click(await screen.findByRole("button", { name: /Goat cube/ }));
+      await screen.findByRole("region", { name: "Chosen cube" });
+      fireEvent.click(within(rail()).getByRole("button", { name: "Close sources" }));
+      fireEvent.focus(await screen.findByRole("button", { name: /^Alpha Beast,/ }));
+      expect(within(inspectorPane()!).getByRole("heading", { name: "Alpha Beast" })).toBeInTheDocument();
+      // The preview is a pane, not a sheet: no dialog opens for a pinned card.
+      fireEvent.click(tile("Alpha Beast"));
+      expect(within(inspectorPane()!).getByText("Pinned")).toBeInTheDocument();
+      expect(screen.queryByRole("dialog", { name: "Alpha Beast" })).toBeNull();
+    });
+
+    it("makes the drawer a modal dialog named like its button", () => {
+      stubFetch();
+      render(<CreateDraftForm />);
+      const open = screen.getByRole("button", { name: "Add cards" });
+      expect(open).toHaveAttribute("aria-haspopup", "dialog");
+      expect(screen.queryByRole("dialog", { name: "Add cards" })).toBeNull();
+      fireEvent.click(open);
+      expect(screen.getByRole("dialog", { name: "Add cards" })).toHaveAttribute("aria-modal", "true");
     });
 
     it("opens the drawer from the empty pool's buttons", () => {
@@ -130,6 +188,19 @@ describe("Workbench layout", () => {
 
       fireEvent.click(tabButton(/Sources/));
       expect(rail()).toBeVisible();
+    });
+
+    it("has no preview column: a pinned card opens the card sheet", async () => {
+      stubFetch();
+      render(<CreateDraftForm />);
+      expect(inspectorPane()).toBeNull();
+      fireEvent.click(tabButton(/Sources/));
+      fireEvent.click(within(rail()).getByRole("tab", { name: "Cubes" }));
+      fireEvent.click(await screen.findByRole("button", { name: /Goat cube/ }));
+      await screen.findByRole("region", { name: "Chosen cube" });
+      fireEvent.click(tabButton(/Pool/));
+      fireEvent.click(await screen.findByRole("button", { name: /^Alpha Beast,/ }));
+      expect(screen.getByRole("dialog", { name: "Alpha Beast" })).toHaveAttribute("aria-modal", "true");
     });
 
     it("keeps one sticky Create button with the summary, on every tab", () => {

@@ -289,6 +289,29 @@ describe("SourceRail: tabs", () => {
     await waitFor(() => expect(screen.queryByRole("region", { name: "Chosen cube" })).toBeNull());
   });
 
+  it("warns that picking a cube replaces the cards of a scratch pool, and only then", async () => {
+    stubFetch();
+    render(<Harness defaultTab="list" />);
+    await screen.findByLabelText("Card list");
+    fireEvent.click(sourceTab("Cubes"));
+    await screen.findByRole("button", { name: /Goat cube/ });
+    expect(screen.queryByText(/replaces your/)).toBeNull();
+
+    fireEvent.click(sourceTab("List"));
+    paste("3 Dragon Egg");
+    await screen.findByText("Pasted list - 3 cards (3 Main, 0 Extra)");
+    fireEvent.click(sourceTab("Cubes"));
+    expect(screen.getByText("Picking a cube replaces your 3 cards. Start from scratch brings them back.")).toBeInTheDocument();
+
+    // The scratch cards are kept: going back to scratch shows them again, and the note is gone once a cube is open.
+    fireEvent.click(screen.getByRole("button", { name: /Goat cube/ }));
+    const region = await screen.findByRole("region", { name: "Chosen cube" });
+    expect(screen.queryByText(/replaces your/)).toBeNull();
+    expect(copies(DRAGON_EGG)).toBeNull();
+    fireEvent.click(within(region).getByRole("button", { name: "Start from scratch instead" }));
+    await waitFor(() => expect(copies(DRAGON_EGG)).toBe(3));
+  });
+
   it("shows the save actions for an edited cube, and hides them with cubeActions off", async () => {
     stubFetch();
     const first = render(<Harness defaultTab="cubes" />);
@@ -399,7 +422,7 @@ describe("SourceRail: drawer", () => {
   it("is out of reach while closed, opens with focus inside and closes with the scrim", async () => {
     stubFetch();
     render(<Harness startOpen={false} />);
-    const rail = screen.getByLabelText("Sources and card preview", { selector: "aside" });
+    const rail = screen.getByLabelText("Add cards", { selector: "aside" });
     expect(rail).toHaveAttribute("aria-hidden", "true");
     expect(rail).toHaveAttribute("inert");
     expect(screen.queryByRole("button", { name: "Close sources" })).toBeNull();
@@ -420,7 +443,7 @@ describe("SourceRail: drawer", () => {
   it("closes with the Close button and with Esc, but not when the Esc was used to unpin", async () => {
     stubFetch();
     render(<Harness startOpen defaultTab="list" />);
-    const rail = screen.getByLabelText("Sources and card preview", { selector: "aside" });
+    const rail = screen.getByLabelText("Add cards", { selector: "aside" });
     await screen.findByLabelText("Card list");
     paste("3 Dragon Egg");
     await screen.findByText("Pasted list - 3 cards (3 Main, 0 Extra)");
@@ -441,5 +464,39 @@ describe("SourceRail: drawer", () => {
     expect(rail).toHaveAttribute("aria-hidden", "true");
     // The imports stay while the drawer is shut.
     expect(copies(DRAGON_EGG)).toBe(3);
+  });
+
+  it("is a modal dialog named Add cards while open, keeps Tab inside, and is a plain complementary region while closed", async () => {
+    stubFetch();
+    render(<Harness startOpen />);
+    const rail = screen.getByRole("dialog", { name: "Add cards" });
+    expect(rail).toHaveAttribute("aria-modal", "true");
+    const close = within(rail).getByRole("button", { name: "Close sources" });
+    close.focus();
+    // Shift+Tab from the first control wraps to the last one inside the drawer.
+    fireEvent.keyDown(within(rail).getAllByRole("tab", { selected: true })[0]!, { key: "Tab", shiftKey: true });
+    expect(rail.contains(document.activeElement)).toBe(true);
+    const last = Array.from(rail.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]), a[href]")).filter((el) => el.tabIndex >= 0 && !el.closest("[hidden]")).pop()!;
+    last.focus();
+    const tab = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    act(() => {
+      last.dispatchEvent(tab);
+    });
+    expect(tab.defaultPrevented).toBe(true);
+    expect(rail.contains(document.activeElement)).toBe(true);
+
+    fireEvent.click(within(rail).getByRole("button", { name: "Close sources" }));
+    expect(screen.queryByRole("dialog", { name: "Add cards" })).toBeNull();
+    expect(screen.getByLabelText("Add cards", { selector: "aside" })).not.toHaveAttribute("aria-modal");
+  });
+
+  it("drops the Sources / Card switch when the preview is shown elsewhere", () => {
+    stubFetch();
+    const { rerender } = render(<Harness />);
+    expect(screen.getByRole("tablist", { name: "Left panel" })).toBeInTheDocument();
+    rerender(<Harness inspect={false} />);
+    expect(screen.queryByRole("tablist", { name: "Left panel" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Sources" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Card inspector" })).toBeNull();
   });
 });

@@ -185,6 +185,7 @@ export function CardTab({ ctl, setNote }: TabProps) {
           type="search"
           placeholder="Search cards by name"
           aria-label="Search cards by name"
+          data-card-search=""
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           autoComplete="off"
