@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DUEL_OPENING_PICK_MS, type DuelRpsOpeningView } from "@yugidraft/shared/duels";
+import { newOpening, openingView, submitOpeningPick } from "../../shared/src/duels/opening.js";
 import {
   myPickText, openingStage, opponentPickText, revealEndsAt, revealOutcome, startText,
 } from "../src/components/duel/opening-model";
@@ -38,13 +39,15 @@ describe("openingStage", () => {
     expect(openingStage(won, null, NOW + 3_001)).toBe("wait-choose");
   });
 
-  it("shows a tie, then the next round", () => {
-    const tie = view({
-      round: 2, deadlineAt: new Date(NOW + 3_000 + DUEL_OPENING_PICK_MS).toISOString(),
-      reveal: { round: 1, picks: ["rock", "rock"], winnerSeat: null },
-    });
-    expect(openingStage(tie, 0, NOW)).toBe("reveal");
-    expect(openingStage(tie, 0, NOW + 3_500)).toBe("pick");
+  it.each([0, 1, null])("shows a tie for two seconds, then the next round (seat %s)", (seat) => {
+    let state = newOpening(7, NOW);
+    state = submitOpeningPick(state, 0, "rock", NOW);
+    state = submitOpeningPick(state, 1, "rock", NOW);
+    const tie = openingView(state, seat, NOW);
+    expect(revealEndsAt(tie)).toBe(NOW + 2_000);
+    expect(openingStage(tie, seat, NOW)).toBe("reveal");
+    expect(openingStage(tie, seat, NOW + 1_999)).toBe("reveal");
+    expect(openingStage(tie, seat, NOW + 2_000)).toBe("pick");
   });
 
   it("does not replay an old reveal in a later round", () => {

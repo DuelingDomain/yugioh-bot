@@ -44,7 +44,7 @@ export const SERIES_SCENARIOS: LabScenario[] = [
     id: "rps-reveal-tie",
     category: "Match",
     name: "Rock-paper-scissors: tie",
-    description: "Both played scissors. Tie, again: the moves show for 3 seconds, then the next round starts.",
+    description: "Both played scissors. Tie, again: the moves show for 2 seconds, then the next round starts.",
     build: () => openingScript({ stage: "reveal-tie" }),
   },
   {
