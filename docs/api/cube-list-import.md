@@ -1,4 +1,4 @@
-# Cube list import — Duelists Kingdom
+# Cube list import — Dueling Domain
 
 The backend is ready for an “Import a list (.txt / .ydk or paste)” control. Read the file as text and send JSON; there is no multipart upload endpoint.
 
