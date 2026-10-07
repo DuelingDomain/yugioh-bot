@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties, type MouseEvent } from "react";
 import { seatsOfTeam, teamOfSeat } from "@yugidraft/shared/duels";
 import { duelFontClasses } from "../fonts";
 import { formatStartingLp } from "../table-format";
@@ -23,10 +23,12 @@ import {
   type RoofCameraState,
   type RoofPose,
 } from "./roof-camera";
+import { CameraRail } from "./camera-rail";
 import { Baton, RoofDecor, TeamStrip } from "./roof-world";
 import { batonOrder, lastTeamDamage, responseWindow, rivalPickOptions, teamGlyph, teamLoss, teamLp } from "./tag-logic";
 import { plateState, TeamLpPlate, type PlateMember } from "./team-lp-plate";
 import styles from "./tag-stage.module.css";
+import cameraStyles from "./tag-camera.module.css";
 
 export interface TagBoardProps extends Omit<TagStageProps, "camera"> {
   /**
@@ -43,6 +45,13 @@ const HALF_W = ROOF_FIELD.width / 2;
 const HALF_H = ROOF_FIELD.height / 2;
 /** Anchor above the far strip: the rival plate hangs from here. */
 const FAR_ANCHOR_Y = -ROOF_FIELD.offsetY - ROOF_FIELD.height - 46;
+/**
+ * A click on one of these does its own job (play a card, pick a zone, press a button): it never moves the camera.
+ * Everything else on a field (the mat, the name label, a zone that offers no action) or on a seat chip focuses that field.
+ */
+const RAIL_COLUMN_MIN = 900;
+const RAIL_ROW = 46;
+const ACTION_TARGET = "button, a, input, select, textarea, summary, [role='button'], [data-legal='true'], [data-pickable='true']";
 
 interface Tween {
   from: RoofPose;
@@ -117,7 +126,15 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
       root.querySelector<HTMLElement>("[data-partner-hand]")?.offsetHeight ?? 0,
     );
     const hudH = Math.max(ownPlateRef.current?.offsetHeight ?? 0, handH) + 10;
-    const view = { left: 8, right: w - 8, top: 6, bottom: Math.max(60, h - hudH - 8) };
+    // The far team plate hangs from the top edge: its height is not free space for the fields.
+    const plateH = farPlateRef.current?.offsetHeight ?? 0;
+    const bottom = Math.max(60, h - hudH - 8);
+    // A narrow screen has no side room for the camera rail: it takes its own row under the plate, kept in every mode so
+    // the fit does not jump when a focus starts.
+    const railRow = w < RAIL_COLUMN_MIN ? RAIL_ROW : 0;
+    const railTop = 6 + (plateH > 0 ? plateH + 8 : 0);
+    root.style.setProperty("--rail-top", `${railTop}px`);
+    const view = { left: 8, right: w - 8, top: Math.min(railTop + railRow, bottom - 40), bottom };
     const fit = roofFit(view) || 1;
     const cx = (view.left + view.right) / 2;
     const cy = (view.top + view.bottom) / 2;
@@ -139,12 +156,9 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     }
     const plate = farPlateRef.current;
     if (plate && far && pad) {
-      const flipped = far.top > pad.top;
       const at = clampCenter({ x: far.left - box.left, y: 0 }, { w: plate.offsetWidth, h: 0 }, view);
-      const desired = far.top - box.top - plate.offsetHeight - 4;
-      const top = flipped ? view.top + 14 : Math.max(view.top + 14, desired);
       plate.style.left = `${(at.x - plate.offsetWidth / 2).toFixed(1)}px`;
-      plate.style.top = `${top.toFixed(1)}px`;
+      plate.style.top = "6px";
     }
   }, []);
 
@@ -198,6 +212,28 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     return () => window.clearTimeout(timer);
   }, [lockUntil, dispatchCamera]);
 
+  // ---------- focus ----------
+  // The switcher lists the fields as they sit on the roof: the far strip first, each strip left to right.
+  const railSeats = useMemo(
+    () =>
+      layout.slots
+        .map((slot) => ({ seat: slot.seat, code: slot.code ?? String(slot.seat + 1), rgb: toneOf(slot.seat).rgb, at: slotsOf[slot.seat] }))
+        .sort((a, b) => Number(a.at?.near ?? false) - Number(b.at?.near ?? false) || (a.at?.x ?? 0) - (b.at?.x ?? 0))
+        .map(({ seat, code, rgb }) => ({ seat, code, rgb })),
+    [layout.slots, slotsOf, toneOf],
+  );
+  // A close-up needs a free camera: not under an FX lock, and not while an attack is aimed (the aim wants every rival).
+  const focusField = (seat: number) => {
+    if (camera.lock || camera.aiming || controller.aim != null) return;
+    dispatchCamera({ type: "focus", seat });
+  };
+  const onStageClick = (event: MouseEvent<HTMLDivElement>) => {
+    const node = event.target instanceof Element ? event.target : null;
+    if (!node || node.closest(ACTION_TARGET)) return;
+    const seat = Number(node.closest<HTMLElement>("[data-field-hold]")?.dataset.fieldHold ?? node.closest<HTMLElement>("[data-member-seat]")?.dataset.memberSeat);
+    if (Number.isInteger(seat) && engine.seats.some((s) => s.seat === seat)) focusField(seat);
+  };
+
   // ---------- fields ----------
   const fieldHold = (seat: number) => {
     const slot = slotsOf[seat];
@@ -232,16 +268,33 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     const transform = near
       ? `translate3d(${slot.x - HALF_W}px, ${slot.y - HALF_H}px, 2px)`
       : `translate3d(${slot.x}px, ${slot.y}px, 2px) rotate(180deg) translate(${-HALF_W}px, ${-HALF_H}px)`;
+    const focused = camera.mode === "focus" && camera.focusSeat === seat;
     return (
       <div
         key={seat}
         className={styles.fieldHold}
         data-field-hold={seat}
+        data-focusable={focused ? undefined : "true"}
         data-relation={relation}
         data-out={view.eliminated || loss.lostTeam === teamOfSeat(TAG, seat) ? "true" : undefined}
         style={{ width: ROOF_FIELD.width, height: ROOF_FIELD.height, transform }}
       >
         {renderSeatField(props)}
+        {focused ? null : (
+          <button
+            type="button"
+            className={cameraStyles.focusBtn}
+            data-field-focus={seat}
+            data-near={near ? "true" : "false"}
+            aria-label={`Focus ${nameOf(seat)}'s field`}
+            title={`Focus ${nameOf(seat)}'s field`}
+            onClick={() => focusField(seat)}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+            </svg>
+          </button>
+        )}
       </div>
     );
   };
@@ -308,6 +361,8 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
       data-spectator={spectator ? "true" : undefined}
       data-reduced-motion={reducedMotion ? "true" : "false"}
       data-camera-mode={camera.mode}
+      data-camera-seat={camera.mode === "focus" && camera.focusSeat != null ? camera.focusSeat : undefined}
+      onClick={onStageClick}
       data-camera-locked={camera.lock ? camera.lock.reason : undefined}
     >
       <div className={styles.persp}>
@@ -371,6 +426,15 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
           onHoverCard={controller.onHoverCard}
           label={`${nameOf(partnerView.seat)} hand`}
           partnerName={nameOf(partnerView.seat).split(" ")[0]}
+        />
+      ) : null}
+      {camera.mode === "focus" && !camera.lock ? (
+        <CameraRail
+          focusSeat={camera.focusSeat}
+          seats={railSeats}
+          nameOf={nameOf}
+          out={outSeats}
+          dispatch={dispatchCamera}
         />
       ) : null}
       {camera.lock ? (

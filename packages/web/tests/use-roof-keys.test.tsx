@@ -6,8 +6,22 @@ import { useRoofKeys } from "@/components/duel/tag/use-roof-keys";
 
 afterEach(cleanup);
 
-function Probe({ suspended, yields, dispatch, pinned = false }: { suspended?: boolean; yields?: boolean; dispatch: (action: unknown) => void; pinned?: boolean }) {
-  useRoofKeys({ dispatch, anchorSeat: 0, pinned, suspended, yields });
+function Probe({
+  suspended,
+  yields,
+  dispatch,
+  pinned = false,
+  mode,
+  escapeFree,
+}: {
+  suspended?: boolean;
+  yields?: boolean;
+  dispatch: (action: unknown) => void;
+  pinned?: boolean;
+  mode?: "overview" | "home" | "focus" | "look" | "fly";
+  escapeFree?: boolean;
+}) {
+  useRoofKeys({ dispatch, anchorSeat: 0, pinned, suspended, yields, mode, escapeFree });
   return (
     <div>
       <input aria-label="chat" />
@@ -24,6 +38,56 @@ function press(key: string, init: KeyboardEventInit = {}, target: Element | Wind
   (target as EventTarget).dispatchEvent(event);
   return event;
 }
+
+describe("useRoofKeys Esc", () => {
+  it("goes back to the overview from a close-up when nothing else owns Esc", () => {
+    const dispatch = vi.fn();
+    render(<Probe dispatch={dispatch} mode="focus" escapeFree />);
+    const event = press("Escape");
+    expect(dispatch).toHaveBeenCalledWith({ type: "overview" });
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("does nothing in the overview", () => {
+    const dispatch = vi.fn();
+    render(<Probe dispatch={dispatch} mode="overview" escapeFree />);
+    const event = press("Escape");
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it("leaves Esc to a prompt, an aim or a flyout (escapeFree is false)", () => {
+    const dispatch = vi.fn();
+    render(<Probe dispatch={dispatch} mode="focus" escapeFree={false} />);
+    const event = press("Escape");
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it("still works while the camera yields its other keys, but never while input is suspended or under a modal", () => {
+    const dispatch = vi.fn();
+    const view = render(<Probe dispatch={dispatch} mode="focus" escapeFree yields />);
+    press("Escape");
+    expect(dispatch).toHaveBeenCalledWith({ type: "overview" });
+    dispatch.mockClear();
+    view.rerender(<Probe dispatch={dispatch} mode="focus" escapeFree suspended />);
+    press("Escape");
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it("is skipped when an earlier handler already took the key", () => {
+    const dispatch = vi.fn();
+    render(<Probe dispatch={dispatch} mode="focus" escapeFree />);
+    const early = (event: KeyboardEvent) => event.preventDefault();
+    window.addEventListener("keydown", early, true);
+    try {
+      press("Escape");
+    } finally {
+      window.removeEventListener("keydown", early, true);
+    }
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+});
 
 describe("useRoofKeys", () => {
   it("sends a digit to the camera when nothing is open", () => {
