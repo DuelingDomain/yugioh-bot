@@ -236,6 +236,31 @@ describe("3-way: a click on a field enlarges it, and nothing else does", () => {
     expect(chip(container)).toBe("Focus · Ryo Sato");
   });
 
+  it("Esc while an attack is being aimed (no confirm dialog open) does not leave the enlarged field", () => {
+    const { container } = render(<Table state={FFA3_FIXTURES.states["battle-aim"]} camera={{ mode: "focus", focusSeat: RYO }} />);
+    expect(document.body.querySelector("[data-attack-confirm]")).toBeNull();
+    expect(document.querySelector("[role='dialog']:not([hidden]), [role='menu']:not([hidden])")).toBeNull();
+    // Whichever listener runs first, the camera must not rely on defaultPrevented: it has to know the aim owns the key.
+    vi.spyOn(Event.prototype, "preventDefault").mockImplementation(() => {});
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(chip(container)).toBe("Focus · Ryo Sato");
+  });
+
+  it("Esc backs out of a cancelable prompt once, and the field stays enlarged", () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const cancelable = variant((engine) => {
+      const source = structuredClone(FFA3_FIXTURES.states["target-pick"].room.engine!.prompt!);
+      engine.prompt = { ...source, cancelable: true } as typeof engine.prompt;
+    });
+    const { container } = render(<Table state={cancelable} camera={{ mode: "focus", focusSeat: RYO }} />);
+    expect(document.querySelector("[role='dialog']:not([hidden]), [role='menu']:not([hidden])")).toBeNull();
+    vi.spyOn(Event.prototype, "preventDefault").mockImplementation(() => {});
+    fireEvent.keyDown(window, { key: "Escape" });
+    const answers = info.mock.calls.filter((call) => call[0] === "[table-preview] answer").map((call) => (call[1] as { answer: unknown }).answer);
+    expect(answers).toEqual([{ cancel: true }]);
+    expect(chip(container)).toBe("Focus · Ryo Sato");
+  });
+
   it("Esc and the Back button return to the normal layout", () => {
     const { container } = render(<Table state={variant(() => {})} />);
     fireEvent.click(seatBox(container, MIKA));
