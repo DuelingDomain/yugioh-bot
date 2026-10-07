@@ -37,6 +37,32 @@ describe("usePinSync", () => {
     expect(view.result.current.pinned).toMatchObject({ attack: 2400 });
   });
 
+  const inHand = (code: number, sequence: number): DuelCard => ({ ...monster(0), code, location: 2, sequence, name: `Card ${code}` }) as unknown as DuelCard;
+  const handOf = (...cards: DuelCard[]): DuelSeatView[] => [{ ...seatWith([])[0], hand: cards }] as unknown as DuelSeatView[];
+
+  describe("a pinned hand card", () => {
+    it("stays pinned when an earlier hand card is played and its sequence moves", () => {
+      const view = renderHook(({ seats }) => useRig(true, seats), { initialProps: { seats: handOf(inHand(1, 0), inHand(2, 1), inHand(3, 2)) } });
+      act(() => view.result.current.pinCard(inHand(3, 2)));
+      view.rerender({ seats: handOf(inHand(2, 0), inHand(3, 1)) });
+      expect(view.result.current.pinned).toMatchObject({ code: 3, sequence: 1 });
+    });
+
+    it("follows the right copy of two copies when the other copy is played", () => {
+      const view = renderHook(({ seats }) => useRig(true, seats), { initialProps: { seats: handOf(inHand(7, 0), inHand(2, 1), inHand(7, 2)) } });
+      act(() => view.result.current.pinCard(inHand(7, 2)));
+      view.rerender({ seats: handOf(inHand(2, 0), inHand(7, 1)) });
+      expect(view.result.current.pinned).toMatchObject({ code: 7, sequence: 1 });
+    });
+
+    it("lets the pin go when the pinned copy is played and the other copy is far away", () => {
+      const view = renderHook(({ seats }) => useRig(true, seats), { initialProps: { seats: handOf(inHand(7, 0), inHand(2, 1), inHand(7, 2)) } });
+      act(() => view.result.current.pinCard(inHand(7, 2)));
+      view.rerender({ seats: handOf(inHand(7, 0), inHand(2, 1)) });
+      expect(view.result.current.pinned).toBeNull();
+    });
+  });
+
   it("lets the pin go when the card left its zone or the zone has another card", () => {
     const view = renderHook(({ seats }) => useRig(true, seats), { initialProps: { seats: seatWith([monster(2)]) } });
     act(() => view.result.current.pinCard(monster(2)));
