@@ -197,6 +197,7 @@ describe("shared lobby timer integration", () => {
     const startedObservations: Array<{ inTransaction: boolean; status: string }> = [];
     const onDraftStarted = vi.fn(async () => {
       startedObservations.push({ inTransaction: app.db.inTransaction, status: app.drafts.findById(draft.id).status });
+      await app.messenger.updateStatus(app.drafts.findById(draft.id));
     });
     const timer = createDraftTimerService({ ...app, broadcaster: createBroadcaster(rec.transport), onDraftStarted });
     timer.start();
@@ -319,20 +320,20 @@ describe("pending lobby timer sweep", () => {
       ["/internal/draft/status", { slug: draft.webSlug, status: "active" }],
     ]);
     expect(onDraftStarted).toHaveBeenCalledWith(draft.id);
-    expect(app.updateStatusCalls).toEqual([{ draftId: draft.id }]);
+    expect(app.updateStatusCalls).toEqual([]);
     lobby.tick.mockReturnValue({ started: [], changedSlugs: [] });
     await timer.tick();
     expect(onDraftStarted).toHaveBeenCalledTimes(1);
     app.db.close();
   });
 
-  it("still announces a committed start and expires picks when Discord status fails", async () => {
+  it("still sweeps active drafts when the start announcement fails", async () => {
     const app = setup();
     const host = app.players.upsert("guild-1", "user-7", "Yugi");
     const draft = app.drafts.create("guild-1", "channel-1", "Scheduled", {}, "user-7", host.id);
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const listActive = vi.spyOn(app.drafts, "listActive").mockReturnValue([]);
-    const onDraftStarted = vi.fn(async () => {});
+    const onDraftStarted = vi.fn().mockRejectedValue(new Error("Discord offline"));
     const timer = createDraftTimerService({ ...app,
       lobby: { tick: () => ({ started: [{ ...draft, status: "active" }], changedSlugs: [] }) },
       messenger: { postStatus: vi.fn(), updateStatus: vi.fn().mockRejectedValue(new Error("Discord offline")) },
@@ -355,7 +356,7 @@ describe("pending lobby timer sweep", () => {
     const statusEntered = new Promise<void>(resolve => { entered = resolve; });
     const lobby = { tick: vi.fn().mockReturnValueOnce({ started: [{ ...draft, status: "active" as const }], changedSlugs: [] }).mockReturnValue({ started: [], changedSlugs: [] }) };
     const timer = createDraftTimerService({ ...app, lobby,
-      messenger: { postStatus: vi.fn(), updateStatus: () => new Promise<void>(resolve => { finish = resolve; entered(); }) },
+      onDraftStarted: () => new Promise<void>(resolve => { finish = resolve; entered(); }),
       broadcaster: createBroadcaster(recordingTransport().transport),
     });
     const first = timer.tick();

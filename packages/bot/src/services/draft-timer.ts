@@ -54,7 +54,6 @@ export function createDraftTimerService({
       }
       for (const draft of result.started) {
         if (draft.webSlug) queue(`start broadcast for ${draft.id}`, () => broadcaster.draft({ kind: "status", slug: draft.webSlug!, status: "active" }));
-        queue(`start status for ${draft.id}`, () => messenger.updateStatus(draft));
         if (onDraftStarted) queue(`onDraftStarted for ${draft.id}`, () => onDraftStarted(draft.id));
       }
     } catch (error) {
