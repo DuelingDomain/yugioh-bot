@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef } from "react";
-import { duelFxClock } from "../fx-clock";
 import { isEliminated } from "../multi-seat";
 import {
   cameraActionForKey,
@@ -9,11 +8,9 @@ import {
   isFaceOff,
   effectiveCamera,
   initialCamera,
-  lockForEvents,
-  lockForSeats,
   type CameraContext,
 } from "./camera-model";
-import { autoFollowSeat, targetChoices } from "./targets";
+import { targetChoices, targetHintSeat } from "./targets";
 import type { CameraAction, CameraLockReason, CameraState, TableController, TableLayout, TargetChoice } from "./types";
 
 export interface UseCameraOptions {
@@ -23,8 +20,6 @@ export interface UseCameraOptions {
   initial?: Partial<CameraState>;
   /** A lock that is on from the start and never ends by time. The preview shows the lock chip with it. */
   initialLock?: CameraLockReason | null;
-  /** An attack is being aimed or its target chosen: the auto camera holds still. */
-  aiming: boolean;
   /** A pick of a seat owns the number keys. */
   seatKeys: boolean;
   /** A menu or the pile viewer is open: no camera key fires while it is. */
@@ -35,7 +30,8 @@ export interface UseCameraOptions {
   now?: () => number;
 }
 
-export interface CameraCue {
+/** A field that holds the targets the viewer must pick. The table marks it; the camera stays where it is. */
+export interface TargetHint {
   seat: number;
   reason: string;
 }
@@ -43,17 +39,15 @@ export interface CameraCue {
 export interface UseCamera {
   /** The stored camera: where the player left it. */
   state: CameraState;
-  /** What the stage draws: the play view while an effect plays, the stored camera otherwise. */
+  /** What the stage draws. */
   shown: CameraState;
   dispatch: (action: CameraAction) => void;
   locked: boolean;
-  cue: CameraCue | null;
+  hint: TargetHint | null;
   choices: TargetChoice[];
   /** Seats the camera never goes to. */
   out: number[];
 }
-
-const maxEventId = (events: ReadonlyArray<{ id: number }>) => events.reduce((max, event) => Math.max(max, event.id), 0);
 
 function typing(target: EventTarget | null): boolean {
   const node = target as HTMLElement | null;
@@ -62,11 +56,12 @@ function typing(target: EventTarget | null): boolean {
 }
 
 /**
- * The camera of a table: the pure model, the FX lock fed by engine events and seat changes, the auto camera, the
- * aim hold and the keys. It reads the clock only inside effects.
+ * The camera of a table: the pure model and the keys. The view changes ONLY on a click or a key of the viewer. A
+ * remote move, a chain, an effect, a prompt or a new turn never moves it. When the viewer must pick a target on a
+ * field that is not in view, `hint` names that field and the table marks it. It reads the clock only inside effects.
  */
-export function useCamera({ controller, layout, initial, initialLock = null, aiming, seatKeys, suspended = false, uprightOnly = false, now = Date.now }: UseCameraOptions): UseCamera {
-  const { engine, prompt, viewerSeat, nameOf, reducedMotion } = controller;
+export function useCamera({ controller, layout, initial, initialLock = null, seatKeys, suspended = false, uprightOnly = false, now = Date.now }: UseCameraOptions): UseCamera {
+  const { engine, prompt, viewerSeat, nameOf } = controller;
   const out = useMemo(
     () => engine.seats.filter(isEliminated).map((view) => view.seat),
     [engine.seats],
@@ -80,21 +75,6 @@ export function useCamera({ controller, layout, initial, initialLock = null, aim
     () => initialCamera(layout, { ...initial, lock: initialLock ? { reason: initialLock, untilMs: Number.POSITIVE_INFINITY } : null }),
   );
 
-  // FX lock: a new engine event, or a seat that starts to leave. With reduced motion the effects are instant, so no
-  // lock starts (like the Rooftop), but the cursors still move: old events never lock the camera later.
-  const lastId = useRef(maxEventId(engine.events));
-  useEffect(() => {
-    const lock = reducedMotion ? null : lockForEvents(engine.events, lastId.current, duelFxClock.factor());
-    lastId.current = Math.max(lastId.current, lock?.lastId ?? 0, maxEventId(engine.events));
-    if (lock) dispatch({ type: "lock", reason: lock.reason, nowMs: now(), ms: lock.ms });
-  }, [engine.events, now, reducedMotion]);
-  const lastSeats = useRef(engine.seats);
-  useEffect(() => {
-    const lock = reducedMotion ? null : lockForSeats(lastSeats.current, engine.seats, duelFxClock.factor());
-    lastSeats.current = engine.seats;
-    if (lock) dispatch({ type: "lock", reason: lock.reason, nowMs: now(), ms: lock.ms });
-  }, [engine.seats, now, reducedMotion]);
-
   const lockUntil = state.lock?.untilMs ?? null;
   useEffect(() => {
     if (lockUntil == null || !Number.isFinite(lockUntil)) return;
@@ -102,18 +82,9 @@ export function useCamera({ controller, layout, initial, initialLock = null, aim
     return () => clearTimeout(timer);
   }, [lockUntil, now]);
 
-  // The aim holds the auto camera.
-  useEffect(() => {
-    dispatch({ type: "aiming", on: aiming });
-  }, [aiming]);
-
-  // Auto camera follows a field with targets to pick; elimination alone never changes the view.
+  // A field with targets to pick is only marked, never followed.
   const choices = useMemo(() => targetChoices(prompt, engine, viewerSeat, nameOf), [engine, nameOf, prompt, viewerSeat]);
-  const follow = useMemo(() => autoFollowSeat(choices, engine, viewerSeat), [choices, engine, viewerSeat]);
-  const followSeat = follow?.seat ?? null;
-  useEffect(() => {
-    dispatch({ type: "autoFollow", seat: followSeat });
-  }, [followSeat, aiming]);
+  const target = useMemo(() => targetHintSeat(choices, engine, viewerSeat), [choices, engine, viewerSeat]);
 
   // A rival that leaves the duel while it is the focus sends the camera home.
   useEffect(() => {
@@ -149,11 +120,11 @@ export function useCamera({ controller, layout, initial, initialLock = null, aim
   }, []);
 
   const shown = useMemo(() => effectiveCamera(state, 0), [state]);
-  const cue = useMemo<CameraCue | null>(
-    () => (state.autoMoved && state.mode === "focus" && state.focusSeat != null && follow?.seat === state.focusSeat ? { seat: state.focusSeat, reason: follow.reason } : null),
-    [follow, state.autoMoved, state.focusSeat, state.mode],
+  const hint = useMemo<TargetHint | null>(
+    () => (target && !(state.mode === "focus" && state.focusSeat === target.seat) ? target : null),
+    [state.focusSeat, state.mode, target],
   );
   const send = useCallback((action: CameraAction) => dispatch(action), []);
 
-  return { state, shown, dispatch: send, locked: state.lock != null, cue, choices, out };
+  return { state, shown, dispatch: send, locked: state.lock != null, hint, choices, out };
 }

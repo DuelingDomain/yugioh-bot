@@ -50,7 +50,7 @@ describe("camera keys on the 3-way shell", () => {
   it("opens a reloaded elimination view at home with the full centred turn ring", () => {
     const { container } = render(<Shell id="elimination" />);
     expect(stageOf(container).getAttribute("data-camera-mode")).toBe("home");
-    expect(container.querySelector("[data-camera-cue]")).toBeNull();
+    expect(container.querySelector("[data-camera-hint]")).toBeNull();
     expect(container.querySelector("[data-turn-ring]")?.getAttribute("style")).toContain("translate(488px, 260px) scale(1)");
   });
 

@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, type CSSProperties, type ReactNode } from "react";
-import { Eye, Focus, House, Lock, Orbit, Pin, PinOff, Video } from "lucide-react";
+import { Eye, Focus, House, Lock, Orbit, Video } from "lucide-react";
 import { isFaceOff } from "./camera-model";
-import type { CameraCue } from "./use-camera";
+import type { TargetHint } from "./use-camera";
 import { hexToRgbTriplet } from "./seat-angle";
 import { SEAT_TONE_HEX, type CameraAction, type CameraState, type TableLayout } from "./types";
 import styles from "./camera-controls.module.css";
@@ -13,14 +13,15 @@ export interface CameraControlsProps {
   /** The stored camera (where the player left it). */
   camera: CameraState;
   locked: boolean;
-  cue: CameraCue | null;
+  /** A field that holds the targets to pick, when it is not the focus. The camera never goes there by itself. */
+  hint?: TargetHint | null;
   nameOf: (seat: number) => string;
   dispatch: (action: CameraAction) => void;
   /** Seats that are out: no button for them. */
   out?: readonly number[];
   /**
    * `float` (default): everything floats over the board. `panel`: only the View panel, in the flow of its parent (a
-   * side column). `stage`: the chip, the auto-camera cue and the look banner, without the View panel. A table that
+   * side column). `stage`: the chip, the target hint and the look banner, without the View panel. A table that
    * puts the panel in a column renders `panel` there and `stage` over the board.
    */
   variant?: "float" | "panel" | "stage";
@@ -91,10 +92,10 @@ function ViewButton({ action, label, icon, seatStyle, hotkey, pressed, disabled,
 
 /**
  * The camera UI of a table: the View panel (home, overview, focus, look from a seat, fly into a seat, the fly-in,
- * upright and auto switches, the Keep pin), the camera chip with its FX lock mark, the auto-camera cue and the
- * look-from-seat banner. It only dispatches camera actions. While the FX lock is on the buttons are off.
+ * and the upright switch), the camera chip with its preview lock mark, the target hint and the look-from-seat
+ * banner. It only dispatches camera actions that the viewer asked for. While the preview lock is on the buttons are off.
  */
-export function CameraControls({ layout, camera, locked, cue, nameOf, dispatch, out = [], variant = "float", view }: CameraControlsProps) {
+export function CameraControls({ layout, camera, locked, hint = null, nameOf, dispatch, out = [], variant = "float", view }: CameraControlsProps) {
   const [ownOpen, setOpen] = useState(false);
   const open = view ? view.open : ownOpen;
   const rivals = layout.slots.filter((slot) => slot.seat !== layout.anchorSeat && !out.includes(slot.seat));
@@ -102,9 +103,8 @@ export function CameraControls({ layout, camera, locked, cue, nameOf, dispatch, 
   const faceOff = isFaceOff(layout, out);
   const flyOn = camera.mode === "fly";
   const flyReady = camera.flyIn !== false;
-  const keep = camera.pinned && camera.mode !== "home";
   const label = cameraLabel(camera, nameOf, layout.anchorSeat);
-  const hint = faceOff ? "" : flyOn ? "Drag · wheel · 1-3 · Esc" : "Tab focus · P look · 0 overview";
+  const keysHint = faceOff ? "" : flyOn ? "Drag · wheel · 1-3 · Esc" : "Tab focus · P look · 0 overview";
 
   const showPanel = variant !== "stage";
   const showStage = variant !== "panel";
@@ -198,17 +198,6 @@ export function CameraControls({ layout, camera, locked, cue, nameOf, dispatch, 
             ) : null}
             {faceOff ? null : <ViewButton action="fly" label={`Fly-in overview ${flyReady ? "on" : "off"}`} icon={<Orbit size={13} aria-hidden="true" />} hotkey="F" pressed={flyReady} disabled={locked} wide onClick={() => dispatch({ type: "toggleFly" })} />}
             <ViewButton action="upright" label={`Upright text ${camera.upright ? "on" : "off"}`} icon={<Focus size={13} aria-hidden="true" />} hotkey="S" pressed={camera.upright} wide onClick={() => dispatch({ type: "toggleUpright" })} />
-            <ViewButton action="auto" label={`Auto camera ${camera.auto ? "on" : "off"}`} icon={<Focus size={13} aria-hidden="true" />} hotkey="A" pressed={camera.auto} wide onClick={() => dispatch({ type: "toggleAuto" })} />
-            <ViewButton
-              action="keep"
-              label={keep ? "Camera kept" : "Keep this view"}
-              icon={keep ? <Pin size={13} aria-hidden="true" /> : <PinOff size={13} aria-hidden="true" />}
-              hotkey="K"
-              pressed={keep}
-              disabled={camera.mode === "home"}
-              wide
-              onClick={() => dispatch({ type: "pin", on: !camera.pinned })}
-            />
           </div>
         ) : null}
       </div>
@@ -219,7 +208,7 @@ export function CameraControls({ layout, camera, locked, cue, nameOf, dispatch, 
       <div className={styles.chip} data-camera-chip data-lock={locked ? "true" : undefined} role="status">
         <Focus size={13} aria-hidden="true" />
         <b>{label}</b>
-        {hint ? <span className={styles.hint}>{hint}</span> : null}
+        {keysHint ? <span className={styles.hint}>{keysHint}</span> : null}
         <span className={styles.lock}>
           <Lock size={11} aria-hidden="true" />
           Camera locked · FX
@@ -237,6 +226,7 @@ export function CameraControls({ layout, camera, locked, cue, nameOf, dispatch, 
             type="button"
             data-seat-switch={slot.seat}
             aria-pressed={camera.mode === "focus" && camera.focusSeat === slot.seat}
+            data-target-hint={hint?.seat === slot.seat ? "true" : undefined}
             disabled={locked}
             style={toneVars(layout, slot.seat)}
             onClick={() => dispatch({ type: "focus", seat: slot.seat })}
@@ -253,16 +243,13 @@ export function CameraControls({ layout, camera, locked, cue, nameOf, dispatch, 
         )}
       </div>
 
-      {cue ? (
-        <div className={styles.cue} data-camera-cue style={toneVars(layout, cue.seat)} role="status">
+      {hint ? (
+        <div className={styles.cue} data-camera-hint style={toneVars(layout, hint.seat)} role="status">
           <span>
-            Auto camera · <b>{nameOf(cue.seat)}</b> · {cue.reason}
+            {hint.reason} on <b>{nameOf(hint.seat)}</b>&apos;s field
           </span>
-          <button type="button" onClick={() => dispatch({ type: "pin", on: true })}>
-            Keep
-          </button>
-          <button type="button" onClick={() => dispatch({ type: "home" })}>
-            Home
+          <button type="button" onClick={() => dispatch({ type: "focus", seat: hint.seat })} disabled={locked}>
+            Show
           </button>
         </div>
       ) : null}

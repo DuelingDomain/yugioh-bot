@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DuelEngineView, DuelPrompt, DuelSeatView } from "@yugidraft/shared/duels";
-import { autoFollowSeat, defaultTargetSeat, seatStatus, targetChoices } from "@/components/duel/table/targets";
+import { targetHintSeat, defaultTargetSeat, seatStatus, targetChoices } from "@/components/duel/table/targets";
 
 function seatView(seat: number, extra: Partial<DuelSeatView> = {}): DuelSeatView {
   return {
@@ -61,7 +61,7 @@ describe("targetChoices", () => {
     const eng = engine([seatView(0), seatView(1, { eliminated: true }), seatView(2, { pendingElimination: true })]);
     const choices = targetChoices(attack([monsterOption("a", 1, 0), monsterOption("c", 2, 1)]), eng, 0, nameOf);
     expect(choices).toEqual([{ seat: 2, zones: ["2:4:1"], direct: false, optionIds: ["c"], label: "Mika" }]);
-    expect(autoFollowSeat(choices, eng, 0)).toEqual({ seat: 2, reason: "Pick a target" });
+    expect(targetHintSeat(choices, eng, 0)).toEqual({ seat: 2, reason: "Pick a target" });
   });
 
   it("keeps the cards of a Leaving seat as targets while a chain is open, and never those of an eliminated seat", () => {
@@ -132,27 +132,27 @@ describe("seatStatus", () => {
   });
 });
 
-describe("autoFollowSeat", () => {
-  it("follows the one rival that holds every target", () => {
+describe("targetHintSeat", () => {
+  it("names the one rival that holds every target", () => {
     const choices = targetChoices(attack([monsterOption("a", 1, 0), monsterOption("b", 1, 1)]), THREE, 0, nameOf);
-    expect(autoFollowSeat(choices, THREE, 0)).toEqual({ seat: 1, reason: "Pick a target" });
+    expect(targetHintSeat(choices, THREE, 0)).toEqual({ seat: 1, reason: "Pick a target" });
   });
-  it("does not follow when the targets are split", () => {
+  it("names none when the targets are split", () => {
     const choices = targetChoices(attack([monsterOption("a", 1, 0), monsterOption("c", 2, 0)]), THREE, 0, nameOf);
-    expect(autoFollowSeat(choices, THREE, 0)).toBeNull();
+    expect(targetHintSeat(choices, THREE, 0)).toBeNull();
   });
-  it("does not follow for a direct pick or an open prompt", () => {
+  it("names none for a direct pick or an open prompt", () => {
     const direct: DuelPrompt = { id: "d", seat: 0, kind: "choice", title: "x", options: [{ id: "d1", label: "x", controller: 1 }] };
-    expect(autoFollowSeat(targetChoices(direct, THREE, 0, nameOf), THREE, 0)).toBeNull();
-    expect(autoFollowSeat([], THREE, 0)).toBeNull();
+    expect(targetHintSeat(targetChoices(direct, THREE, 0, nameOf), THREE, 0)).toBeNull();
+    expect(targetHintSeat([], THREE, 0)).toBeNull();
   });
   it("keeps the table stable after elimination until a prompt has a target to inspect", () => {
     const eng = engine([seatView(0), seatView(1), seatView(2, { eliminated: true })]);
-    expect(autoFollowSeat([], eng, 0)).toBeNull();
+    expect(targetHintSeat([], eng, 0)).toBeNull();
     const choices = targetChoices(attack([monsterOption("a", 1, 0)]), eng, 0, nameOf);
-    expect(autoFollowSeat(choices, eng, 0)).toEqual({ seat: 1, reason: "Pick a target" });
+    expect(targetHintSeat(choices, eng, 0)).toEqual({ seat: 1, reason: "Pick a target" });
   });
   it("is null for a spectator", () => {
-    expect(autoFollowSeat([], THREE, null)).toBeNull();
+    expect(targetHintSeat([], THREE, null)).toBeNull();
   });
 });

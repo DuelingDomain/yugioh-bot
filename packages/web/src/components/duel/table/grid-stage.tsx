@@ -326,26 +326,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
   const { focus } = focusControl;
   const focusCell = focus.seat != null ? cells.find((cell) => cell.seat === focus.seat) ?? null : null;
 
-  // A seat pick shows every life plate (they are the targets, with their keys), so the camera steps back for it and
-  // returns to the field it left when the pick is over.
-  const picking = picks != null;
-  const resume = useRef<number | null>(null);
-  const live = useRef({ seat: focus.seat, control: focusControl });
-  live.current = { seat: focus.seat, control: focusControl };
-  // A layout effect: the step back to all fields lands in the frame the pick opens, with no frame of the old focus.
-  useLayoutEffect(() => {
-    const { seat, control } = live.current;
-    if (picking) {
-      if (seat != null) {
-        resume.current = seat;
-        control.showAll();
-      }
-    } else if (resume.current != null) {
-      const back = resume.current;
-      resume.current = null;
-      if (seat == null) control.focusSeat(back);
-    }
-  }, [picking]);
+  // A seat pick never moves the view: every life plate is a target (glow and key), and the turn strip lists them too.
 
   // The final layout, once. The fields get real sizes from it (never a zoom); a change of focus only FLIPs between two layouts.
   // Only a seat in the duel draws a field: one that is out crumbles (see `useSeatExits`) and leaves an outline.
