@@ -334,6 +334,9 @@ export function nudgeWaitSeconds(nextAllowedAt: string | null, now: number): num
 
 export const NUDGE_COOLDOWN_SECONDS = Math.round(NUDGE_COOLDOWN_MS / 1000);
 
+/** The auto-start delay in seconds, for the words on the page. */
+export const AUTO_START_SECONDS = Math.round(AUTO_START_DELAY_MS / 1000);
+
 // --- Lobby requests ----------------------------------------------------------------------------------------------
 
 /** A failed lobby request. `body` is the parsed JSON error body, or null when there was none. */
