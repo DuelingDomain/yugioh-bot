@@ -14,3 +14,15 @@ Execution is inline in the supplied worktree, with focused TDD and small commits
 - [x] Implement cube merge and both routes; run only affected test files.
 - [x] Typecheck shared/web, review diff, document UI contracts and integration, commit.
 - [x] Remove generated build output, verify clean branch, report exact verification results.
+
+## Follow-up: resolve lists for the unsaved draft pool
+
+Goal: resolve uploaded/pasted names or passcodes into the client pool editor without saving a cube.
+
+Design: extend `POST /api/cards/resolve` with exclusive `{listText:string}` mode. Reuse `prepareCubeListImport` for parser/catalog resolution, format normal card summaries and ordered `{id,copies,pool}` entries, and return `unknown`/`corrected`. Classify Extra Deck frames before returning entries. Retain the existing auth guard and card-fetch error wrapper; map parser errors to JSON 400. Preserve YDK first-appearance order and ydke main/extra/side order. No cube/draft service is invoked for this mode.
+
+- [x] Write failing tests in `cards-resolve-list-route.test.ts` and parser section-order regressions; run those plus `cards-resolve-route.test.ts` with one worker on Node 22.
+- [x] Extend the resolve route and fix deck-list entry order/error typing; rerun only the same three targeted files.
+- [x] Document request/response, limits/errors, and the client occurrences-map handoff in `docs/api/cube-list-import.md`.
+- [x] Review the change and typecheck web; clarify the saved-cube versus scratch-pool documentation.
+- [x] Finish with generated-output cleanup, diff verification, and a local commit with the requested co-author; verify clean status without pushing.

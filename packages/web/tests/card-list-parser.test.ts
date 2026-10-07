@@ -24,7 +24,7 @@ describe("parseCardList", () => {
   it("reuses YDK parsing for main, extra, side and deckmaster", () => {
     expect(parseCardList("#created by owner\n#main\n44095762\n44095762\n#extra\n44508094\n!side\n53129443\n#deckmaster\n89631139")
       .map(({ query, copies, pool }) => [query, copies, pool])).toEqual([
-      [44095762, 1, "main"], [44095762, 1, "main"], [53129443, 1, "main"], [89631139, 1, "main"], [44508094, 1, "extra"],
+      [44095762, 1, "main"], [44095762, 1, "main"], [44508094, 1, "extra"], [53129443, 1, "main"], [89631139, 1, "main"],
     ]);
     expect(() => parseCardList("#deckmaster\n1\n#deckmaster\n2")).toThrow(/multiple/);
     expect(() => parseCardList("#deckmaster\nnope")).toThrow(/Invalid Deck Master/);
@@ -32,7 +32,7 @@ describe("parseCardList", () => {
 
   it("treats #side as main consistently in passcode and name lists", () => {
     expect(parseCardList("#main\n1\n#extra\n2\n#side\n3").map(({ query, pool }) => [query, pool])).toEqual([
-      [1, "main"], [3, "main"], [2, "extra"],
+      [1, "main"], [2, "extra"], [3, "main"],
     ]);
   });
 
@@ -44,7 +44,7 @@ describe("parseCardList", () => {
   it("reuses ydke links, including extra and side", () => {
     const encode = (code: number) => { const bytes = Buffer.alloc(4); bytes.writeUInt32LE(code); return bytes.toString("base64"); };
     expect(parseCardList(`ydke://${encode(44095762)}!${encode(44508094)}!${encode(53129443)}!`)
-      .map(({ query, pool }) => [query, pool])).toEqual([[44095762, "main"], [53129443, "main"], [44508094, "extra"]]);
+      .map(({ query, pool }) => [query, pool])).toEqual([[44095762, "main"], [44508094, "extra"], [53129443, "main"]]);
     expect(() => parseCardList("ydke://%%%!!!")).toThrow();
   });
 

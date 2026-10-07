@@ -1,5 +1,6 @@
 import { normalizeImportedCardName } from "@yugidraft/shared/services";
 import { parseDeckText } from "@/components/duel/ydk";
+import type { DuelDeck } from "@yugidraft/shared/duels";
 import { IMPORT_MAX_DISTINCT, tooManyDistinct, YDK_MAX_CHARS } from "./ydk-file";
 
 export const LIST_MAX_CHARS = YDK_MAX_CHARS;
@@ -28,13 +29,25 @@ export function parseCardList(text: string): CardListEntry[] {
   let entries: CardListEntry[] = [];
   const isYdk = lines.some((line) => /^#(?:main|extra|deckmaster)|^!side/i.test(line))
     && lines.every((line) => /^(?:#|\/\/|!)/.test(line) || /^\d{1,10}$/.test(line));
-  if (/^ydke:\/\//i.test(clean.trim()) || isYdk || lines.some((line) => /^#deckmaster/i.test(line))) {
-    const deck = parseDeckText(/^ydke:\/\//i.test(clean.trim()) ? clean : `#main\n${clean.replace(/^\s*#side\s*$/gim, "!side")}`);
+  const isYdke = /^ydke:\/\//i.test(clean.trim());
+  if (isYdke || isYdk || lines.some((line) => /^#deckmaster/i.test(line))) {
+    let deck: DuelDeck;
+    try { deck = parseDeckText(isYdke ? clean : `#main\n${clean.replace(/^\s*#side\s*$/gim, "!side")}`); }
+    catch (error) { throw new CardListError(error instanceof Error ? error.message : "Invalid deck list."); }
     entries = [
-      ...[...deck.main, ...deck.side, ...(deck.deckMaster == null ? [] : [deck.deckMaster])]
-        .map((query): CardListEntry => ({ query, copies: 1, pool: "main", original: String(query) })),
+      ...deck.main.map((query): CardListEntry => ({ query, copies: 1, pool: "main", original: String(query) })),
       ...deck.extra.map((query): CardListEntry => ({ query, copies: 1, pool: "extra", original: String(query) })),
+      ...[...deck.side, ...(deck.deckMaster == null ? [] : [deck.deckMaster])]
+        .map((query): CardListEntry => ({ query, copies: 1, pool: "main", original: String(query) })),
     ];
+    if (!isYdke) {
+      // The deck parser groups sections. Restore each ID's first appearance in the source file.
+      const firstLine = new Map<number, number>();
+      rawLines.forEach((line, index) => {
+        if (/^\d{1,10}$/.test(line) && !firstLine.has(Number(line))) firstLine.set(Number(line), index);
+      });
+      entries.sort((a, b) => firstLine.get(a.query as number)! - firstLine.get(b.query as number)!);
+    }
   } else {
     let pool: "main" | "extra" = "main";
     const byLine = new Map<number, { entry: CardListEntry; counted: boolean }>();

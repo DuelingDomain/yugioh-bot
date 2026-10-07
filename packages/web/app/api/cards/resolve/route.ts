@@ -2,9 +2,11 @@ import { withCardFetchErrors } from "@/lib/card-fetch-errors";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { createDraftService, createCardCatalogService } from "@yugidraft/shared/services";
+import { createDraftService, createCardCatalogService, isExtraDeckFrame } from "@yugidraft/shared/services";
 import { toCardCounts } from "@/lib/custom-card-pool";
 import type { CardSummary } from "@/lib/card-types";
+import { CardListError } from "@/lib/card-list-parser";
+import { prepareCubeListImport } from "@/lib/cube-list-import";
 
 export const runtime = "nodejs";
 
@@ -53,6 +55,7 @@ async function handlePOST(request: Request) {
     fuzzyName?: string;
     includeExtra?: boolean;
     archetype?: string;
+    listText?: unknown;
   };
   const setNames = Array.isArray(body.setNames) ? body.setNames.filter((s): s is string => typeof s === "string") : [];
   const customCardIds = Array.isArray(body.customCardIds)
@@ -63,8 +66,29 @@ async function handlePOST(request: Request) {
   const archetype = typeof body.archetype === "string" ? body.archetype.trim() : "";
 
   const db = getDb();
-  const drafts = createDraftService(db);
   const catalog = createCardCatalogService(db);
+
+  if (body.listText !== undefined) {
+    if ([body.setNames, body.customCardIds, body.cardName, body.fuzzyName, body.archetype, body.includeExtra]
+      .some((option) => option !== undefined)) {
+      return NextResponse.json({ error: "listText cannot be combined with other resolve options." }, { status: 400 });
+    }
+    try {
+      // This preparation only resolves/warm-caches cards; it never opens a cube write transaction.
+      const resolved = await prepareCubeListImport(catalog, body.listText);
+      const cards = catalog.findByIds(resolved.entries.map((entry) => entry.id));
+      const byId = new Map(cards.map((card) => [card.ygoprodeckId, card]));
+      const entries = resolved.entries.map((entry) => ({
+        id: entry.id,
+        copies: entry.copies,
+        pool: entry.pool === "extra" || isExtraDeckFrame(byId.get(entry.id)!) ? "extra" : "main",
+      }));
+      return NextResponse.json({ cards: cards.map(toCardSummary), entries, unknown: resolved.unknown, corrected: resolved.corrected });
+    } catch (error) {
+      if (!(error instanceof CardListError)) throw error;
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+  }
 
   if (archetype) {
     const { main, extra } = await catalog.syncByArchetype(archetype);
@@ -114,7 +138,7 @@ async function handlePOST(request: Request) {
     }
   }
 
-  const resolvedIds = drafts.resolvePoolCardIds({
+  const resolvedIds = createDraftService(db).resolvePoolCardIds({
     setNames,
     customCardIds,
   });
