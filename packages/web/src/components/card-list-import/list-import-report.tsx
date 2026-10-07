@@ -4,7 +4,7 @@ import * as React from "react";
 import { correctedHeading, skippedHeading, type ListDiagnostics } from "@/lib/card-list-import";
 import styles from "./list-import-report.module.css";
 
-/** Said when the server ran out of lookups: the lines it did not reach are not "unknown", so they are not listed. */
+/** Said when the server ran out of lookups. The cards it did not reach also come back in "unknown", so add the list again. */
 export const LOOKUP_LIMITED_LINE = "Some cards were not looked up this time. Add the list again to look up the rest.";
 
 /** "3 cards listed under Extra are not Extra Deck monsters - added to Main" */
