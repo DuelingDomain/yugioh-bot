@@ -16,7 +16,6 @@ import {
   lobbyStartBlocker,
   lobbyStartLine,
   nameList,
-  notReadyPlayers,
   nudgeWaitSeconds,
   plural,
   startFractionLeft,
