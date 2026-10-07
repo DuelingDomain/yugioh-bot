@@ -21,7 +21,7 @@ import roomStyles from "../room.module.css";
 import { SeriesBanner } from "../series-banner";
 import { useIsNarrow } from "../side-panel";
 import { resolveBattleStep, StationTrack } from "../station-track";
-import { RowPreviewBoundary, useHudEscape, useHudPane, useRowPreview } from "../table/hud-layer";
+import { RowPreviewBoundary, useHudEscape, useHudPane, usePinSync, useRowPreview } from "../table/hud-layer";
 import { DuelClockDisplay } from "../room-settings";
 import { stationTrackProps } from "../table/hud-shared";
 import { OpponentBar } from "../table/opponent-bar";
@@ -141,6 +141,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
   // One flag for the aim flow and the camera keys. A seat pick or an aim does not suspend input: they need their keys.
   const suspended = tagInputSuspended({ inputSuspended, menu: ui.menu, pile: ui.pile, narrow, sheetOpen });
   useHudEscape(hudState, hud, suspended);
+  usePinSync(hudState, engine.seats);
   const hudOpen = hud && (hudState.pane != null || hudState.pinned != null);
   // A modal (Surrender) opened from the Settings flyout: the flyout closes so the modal owns Esc.
   const closeHud = hudState.close;

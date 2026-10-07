@@ -640,23 +640,36 @@
 
 /*
  * The pinned panel (a click on a board card): wide, with the art beside the text, so the whole effect text shows with no
- * scroll. It stays by the left edge like the hover panel and takes the pointer (the X button, a wheel scroll). The width
- * stops at about half the screen so the board stays readable; a long text then grows the panel taller, not wider.
+ * scroll. It stays by the left edge like the hover panel, but moves to the right (data-side) or gets narrower (data-narrow)
+ * when it would touch the card that was clicked. The width stops at about half the screen so the board stays readable; a
+ * long text then grows the panel taller, not wider. Like the hover panel it keeps clear of the Deck Master plate (--pv-reserve),
+ * and it lets the pointer through to the board: only the X button and a scrolling text take it.
  */
 .preview[data-pinned="true"] {
   flex-direction: row;
   align-items: flex-start;
   gap: 16px;
-  width: min(700px, 56vw);
-  /* The panel may reach further down than the hover one: it keeps only a small strip free above the bottom edge. */
-  max-height: max(300px, calc(100% - 50px - 96px));
+  width: min(var(--pin-w, 700px), 56vw);
   padding: 14px 44px 16px 14px;
-  pointer-events: auto;
 }
+.preview[data-pinned="true"][data-narrow="true"] { gap: 12px; }
+.preview[data-pinned="true"][data-narrow="true"] .previewArt { width: clamp(96px, 34%, 140px); }
+.preview[data-pinned="true"][data-side="right"] { left: auto; right: 16px; }
+.preview[data-pinned="true"][data-side="right"][data-open="false"] { transform: translateX(calc(100% + 32px)); }
 .preview[data-pinned="true"] .previewArt { flex: none; align-self: flex-start; width: clamp(130px, 30%, 190px); height: auto; margin: 0; }
 .preview[data-pinned="true"][data-squeezed="true"] .previewArt { display: block; }
 .preview[data-pinned="true"] .previewBody { display: flex; flex: 1 1 0; flex-direction: column; align-self: stretch; min-width: 0; min-height: 0; }
-.preview[data-pinned="true"] .previewText { flex: 0 1 auto; min-height: 0; padding-right: 6px; pointer-events: auto; }
+.preview[data-pinned="true"] .previewText { flex: 0 1 auto; min-height: 0; padding-right: 6px; }
+.previewExtras {
+  flex: none;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--duel-ink-2);
+  font-size: calc(var(--pv-ct) * 0.95);
+  line-height: 1.4;
+}
+.previewExtras li { padding: 3px 0; border-top: 1px solid rgb(255 255 255 / 0.08); overflow-wrap: anywhere; }
 .previewClose {
   position: absolute;
   top: 8px;
@@ -671,6 +684,7 @@
   background: transparent;
   color: var(--duel-ink-2);
   cursor: pointer;
+  pointer-events: auto;
 }
 .previewClose:hover, .previewClose:focus-visible { background: rgb(255 255 255 / 0.1); color: var(--duel-ink); }
 

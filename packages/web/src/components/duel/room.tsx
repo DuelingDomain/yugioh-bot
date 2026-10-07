@@ -61,7 +61,7 @@ import { resolveEquipLinks } from "./equip-links";
 import styles from "./room.module.css";
 import hudStyles from "./table/grid-hud.module.css";
 import { hudPreview } from "./table/hud-preview";
-import { HudLayer, RowPreviewBoundary, useHudEscape, useHudPane, useRowPreview } from "./table/hud-layer";
+import { HudLayer, RowPreviewBoundary, useHudEscape, useHudPane, usePinSync, useRowPreview } from "./table/hud-layer";
 import { hudClock, hudMasterProps, stationTrackProps } from "./table/hud-shared";
 import { SEAT_TONE_HEX } from "./table/types";
 import { AttackConfirm, CardActionMenu, CardHoverInfo, PickRefusalHint, shakeRefusedCard, confirmSide, targetName, zoneAnchor, type CardMenuState } from "./card-interactions";
@@ -384,6 +384,14 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const hudState = useHudPane();
   const closeHud = hudState.close;
   useHudEscape(hudState, hud, Boolean(activeMenu) || Boolean(pile?.open) || deckMenuOpen);
+  usePinSync(hudState, data?.engine?.seats);
+  // A new prompt for this seat lets the pinned peek go: it must not cover the cards the prompt asks for.
+  const promptId = prompt?.id ?? null;
+  useEffect(() => {
+    if (promptId != null && promptMine) hudState.pinCard(null);
+    // Only a new prompt decides this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [promptId]);
     const promptMenuOpen = Boolean(activeMenu) || deckMenuOpen;
   // An open flyout or a pinned card holds only Esc (it closes it); the other prompt keys keep answering.
   const hudFlyoutOpen = hud && (hudState.pane != null || hudState.pinned != null);
@@ -672,7 +680,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     // The HUD pins the card in the left peek only when no prompt took the click (below): a pick or a menu keeps the board clear.
     if (card && !preserveInspector && !hud) showInspector({ type: "card", card });
     if (busy || error || catchingUp || fieldHeld) {
-      if (card && !preserveInspector && hud) pinClicked(card);
+      if (card && !preserveInspector && hud) pinClicked(card, anchor);
       return;
     }
     const mine = prompt != null && data?.mySeat != null && prompt.seat === data.mySeat;
@@ -709,15 +717,15 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       setPickHint({ anchor, text: refusal.text, promptId: prompt.id });
     });
     if (card && !handled) {
-      if (hud && !preserveInspector) pinClicked(card);
+      if (hud && !preserveInspector) pinClicked(card, anchor);
       else showInspector({ type: "card", card }, true);
     }
   }
 
   /** A click on a board card that no prompt took, in the HUD: the card is pinned in the left peek, not opened in the Card flyout. */
-  function pinClicked(card: DuelCard) {
+  function pinClicked(card: DuelCard, anchor: HTMLElement) {
     setInspect({ type: "card", card });
-    hudState.pinCard(card);
+    hudState.pinCard(card, anchor);
   }
 
   function onInspectorActivate(card: DuelCard, anchor: HTMLElement) {
@@ -1512,6 +1520,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           otherMaster={domain && top ? hudMaster(top, false, `${playerName(top.seat)}'s Master`) : null}
           onInspect={setInspect}
           preview={hudPreview(hover?.card ?? null, activeMenu?.card, rowPreview.card, (card) => ({ name: playerName(card.controller), ...(hudSeatTones.get(card.controller) ?? SEAT_TONE_HEX.ice) }), hudState.pinned)}
+          equipLinks={resolveEquipLinks(engine.seats)}
           previewHidden={pickHintShown || Boolean(pile?.open)}
           reducedMotion={preferences.reducedMotion}
         />
