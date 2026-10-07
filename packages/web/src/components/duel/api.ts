@@ -123,18 +123,23 @@ export async function searchPlayers(q: string, signal?: AbortSignal): Promise<{ 
   return parseBody(await fetch(`/api/players?${new URLSearchParams({ q }).toString()}`, { cache: "no-store", signal }));
 }
 
-/** Keep the client receive time with the room when SWR caches it. */
-export async function getDuelRoom(slug: string, spectate = false): Promise<DuelRoom & { receivedAt?: number }> {
-  const room = await parseBody<DuelRoom>(await fetch(duelRoomKey(slug, spectate), { cache: "no-store" }));
-  return { ...room, receivedAt: performance.now() };
+export type ReceivedDuelRoom = DuelRoom & { receivedAt: number };
+
+/** Keep the original client receive time with the room when SWR caches it. */
+export function withRoomReceivedAt(room: DuelRoom & { receivedAt?: number }): ReceivedDuelRoom {
+  return { ...room, receivedAt: room.receivedAt ?? performance.now() };
 }
 
-export async function acceptDuelInvite(slug: string, inviteCode: string): Promise<DuelRoom> {
-  return parseBody(await fetch(`/api/duels/${encodeURIComponent(slug)}/invite`, {
+export async function getDuelRoom(slug: string, spectate = false): Promise<ReceivedDuelRoom> {
+  return withRoomReceivedAt(await parseBody<DuelRoom>(await fetch(duelRoomKey(slug, spectate), { cache: "no-store" })));
+}
+
+export async function acceptDuelInvite(slug: string, inviteCode: string): Promise<ReceivedDuelRoom> {
+  return withRoomReceivedAt(await parseBody<DuelRoom>(await fetch(`/api/duels/${encodeURIComponent(slug)}/invite`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ inviteCode }),
-  }));
+  })));
 }
 
 export async function takeDuelSeat(slug: string, seat: number): Promise<{ session: DuelSession }> {
@@ -245,73 +250,73 @@ export async function cancelSeries(seriesId: number): Promise<void> {
 }
 
 /** Plays a rock-paper-scissors move in the opening. The pick is final. */
-export async function pickOpeningMove(slug: string, move: DuelRpsMove): Promise<DuelRoom> {
-  return parseBody(
+export async function pickOpeningMove(slug: string, move: DuelRpsMove): Promise<ReceivedDuelRoom> {
+  return withRoomReceivedAt(await parseBody<DuelRoom>(
     await fetch(`/api/duels/${encodeURIComponent(slug)}/opening`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ move }),
     }),
-  );
+  ));
 }
 
 /** The opening winner chooses to go first or second. */
-export async function chooseOpeningOrder(slug: string, choice: DuelFirstChoice): Promise<DuelRoom> {
-  return parseBody(
+export async function chooseOpeningOrder(slug: string, choice: DuelFirstChoice): Promise<ReceivedDuelRoom> {
+  return withRoomReceivedAt(await parseBody<DuelRoom>(
     await fetch(`/api/duels/${encodeURIComponent(slug)}/opening`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ choice }),
     }),
-  );
+  ));
 }
 
-export async function startDuel(slug: string): Promise<DuelRoom> {
-  return parseBody(
+export async function startDuel(slug: string): Promise<ReceivedDuelRoom> {
+  return withRoomReceivedAt(await parseBody<DuelRoom>(
     await fetch(`/api/duels/${encodeURIComponent(slug)}/start`, { method: "POST" }),
-  );
+  ));
 }
 
 export async function sendDuelAction(
   slug: string,
   command: DuelCommand,
-): Promise<DuelRoom> {
-  return parseBody(
+): Promise<ReceivedDuelRoom> {
+  return withRoomReceivedAt(await parseBody<DuelRoom>(
     await fetch(`/api/duels/${encodeURIComponent(slug)}/actions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(command),
     }),
-  );
+  ));
 }
 
 /** Set your own chain response switch. The answer is your room view, like an action. */
-export async function setChainResponseMode(slug: string, mode: DuelChainMode): Promise<DuelRoom> {
-  return parseBody(
+export async function setChainResponseMode(slug: string, mode: DuelChainMode): Promise<ReceivedDuelRoom> {
+  return withRoomReceivedAt(await parseBody<DuelRoom>(
     await fetch(`/api/duels/${encodeURIComponent(slug)}/chain-mode`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ mode }),
     }),
-  );
+  ));
 }
 
-export async function surrenderDuel(slug: string): Promise<DuelRoom> {
-  return parseBody(
+export async function surrenderDuel(slug: string): Promise<ReceivedDuelRoom> {
+  return withRoomReceivedAt(await parseBody<DuelRoom>(
     await fetch(`/api/duels/${encodeURIComponent(slug)}/surrender`, { method: "POST" }),
-  );
+  ));
 }
 
 export async function leaveDuel(slug: string): Promise<{ session: DuelSession }> {
   return parseBody(await fetch(`/api/duels/${encodeURIComponent(slug)}/leave`, { method: "POST" }));
 }
 
-export async function archiveDuel(slug: string): Promise<DuelRoom> {
-  return parseBody(await fetch(`/api/duels/${encodeURIComponent(slug)}/archive`, { method: "POST" }));
+export async function archiveDuel(slug: string): Promise<ReceivedDuelRoom> {
+  return withRoomReceivedAt(await parseBody<DuelRoom>(await fetch(`/api/duels/${encodeURIComponent(slug)}/archive`, { method: "POST" })));
 }
 
-export async function cancelDuel(slug: string): Promise<DuelRoom> {
-  return parseBody(await fetch(`/api/duels/${encodeURIComponent(slug)}/cancel`, { method: "POST" }));
+export async function cancelDuel(slug: string): Promise<ReceivedDuelRoom> {
+  return withRoomReceivedAt(await parseBody<DuelRoom>(await fetch(`/api/duels/${encodeURIComponent(slug)}/cancel`, { method: "POST" })));
 }
 
 export async function searchDuelCards(
