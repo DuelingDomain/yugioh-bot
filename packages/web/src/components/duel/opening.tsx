@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { DuelFirstChoice, DuelOpeningView, DuelRpsMove } from "@yugidraft/shared/duels";
 import { DUEL_RPS_MOVES } from "@yugidraft/shared/duels";
 import { duelFontClasses } from "./fonts";
@@ -62,16 +62,17 @@ function Countdown({ iso, label }: { iso: string; label: string }) {
 
 /** Re-renders when the reveal ends, so the screen moves on without waiting for a poll. */
 function useNow(opening: DuelOpeningView): number {
-  const [now, setNow] = useState(() => Date.now());
+  const received = useRef({ opening, at: performance.now() });
+  if (received.current.opening !== opening) received.current = { opening, at: performance.now() };
+  const [, tick] = useState(0);
   useEffect(() => {
-    setNow(Date.now());
     const end = revealEndsAt(opening);
-    const wait = end - Date.now();
+    const wait = end - opening.serverNow - (performance.now() - received.current.at);
     if (wait <= 0) return undefined;
-    const timer = window.setTimeout(() => setNow(Date.now()), wait + 20);
+    const timer = window.setTimeout(() => tick((value) => value + 1), wait + 20);
     return () => window.clearTimeout(timer);
   }, [opening]);
-  return now;
+  return opening.serverNow + (performance.now() - received.current.at);
 }
 
 /**

@@ -172,6 +172,7 @@ export function SeriesLabScreen({ room, spec, reduced, sound }: { room: DuelRoom
 /** The opening view a lab scenario stands for. You are seat 0; the deadline is set when the scenario plays. */
 export function labOpeningView(spec: LabOpening, now = Date.now()): DuelOpeningView {
   const base: DuelOpeningView = {
+    serverNow: now,
     phase: "rps", round: 1, deadlineAt: new Date(now + 30_000).toISOString(), picked: [false, spec.opponentChose === true],
     myPick: null, reveal: null, winnerSeat: null, choice: null, choiceByTimeout: false,
   };

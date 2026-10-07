@@ -9,6 +9,7 @@ const NAMES: [string, string] = ["Yugi", "Kaiba"];
 
 function view(overrides: Partial<DuelOpeningView> = {}): DuelOpeningView {
   return {
+    serverNow: NOW,
     phase: "rps", round: 1, deadlineAt: new Date(NOW + DUEL_OPENING_PICK_MS).toISOString(), picked: [false, false],
     myPick: null, reveal: null, winnerSeat: null, choice: null, choiceByTimeout: false, ...overrides,
   };

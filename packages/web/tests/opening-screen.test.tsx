@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   newOpening, openingView, submitOpeningChoice, submitOpeningPick,
@@ -50,7 +50,7 @@ describe("OpeningScreen", () => {
     let state = newOpening(1, serverNow);
     const draw = () => <>{([0, 1] as const).map((seat) => (
       <section key={seat} data-testid={`seat-${seat}`}>
-        <OpeningScreen opening={openingView(state, seat)} mySeat={seat} names={NAMES}
+        <OpeningScreen opening={openingView(state, seat, serverNow)} mySeat={seat} names={NAMES}
           onPick={(move) => { state = submitOpeningPick(state, seat, move, serverNow); }}
           onChoose={(order) => { state = submitOpeningChoice(state, seat, order, serverNow); }} />
       </section>
@@ -92,6 +92,27 @@ describe("OpeningScreen", () => {
     expect(screen.getByTestId("opening-opponent").textContent).toBe("Opponent is choosing…");
     fireEvent.click(screen.getByTestId("opening-move-scissors"));
     expect(onPick).toHaveBeenCalledWith("scissors");
+  });
+
+  it.each([0, 1] as const)("shows the next pick after a tie with the browser 60 seconds slow (seat %s)", (seat) => {
+    const serverNow = 1_000_000;
+    vi.useFakeTimers();
+    vi.setSystemTime(serverNow - 60_000);
+    let state = newOpening(1, serverNow);
+    state = submitOpeningPick(state, 0, "rock", serverNow);
+    state = submitOpeningPick(state, 1, "rock", serverNow);
+    const onPick = vi.fn();
+    const opening = openingView(state, seat, serverNow);
+    render(<OpeningScreen opening={opening} mySeat={seat} names={NAMES} onPick={onPick} onChoose={() => undefined} />);
+
+    expect(screen.getByTestId("opening-screen")).toHaveAttribute("data-stage", "reveal");
+    act(() => vi.advanceTimersByTime(2_999));
+    expect(screen.queryByTestId("opening-move-paper")).toBeNull();
+    act(() => vi.advanceTimersByTime(101));
+    expect(screen.getByTestId("opening-screen")).toHaveAttribute("data-stage", "pick");
+    expect(screen.getByTestId("opening-move-paper")).toBeEnabled();
+    fireEvent.click(screen.getByTestId("opening-move-paper"));
+    expect(onPick).toHaveBeenCalledWith("paper");
   });
 
   it("locks the moves after a pick and shows the opponent state", () => {
