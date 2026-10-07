@@ -332,8 +332,9 @@ export function SandboxBar({ slug, room, info, acting, reveal, follow, onActAs, 
 
   const setMode = (seat: number, mode: SandboxBotMode) => {
     void guarded(async () => {
-      const next = await setSandboxSeatControl(slug, seat, mode, view);
-      if (seat === acting && mode !== "manual") {
+      const handingOff = seat === acting && mode !== "manual";
+      const next = await setSandboxSeatControl(slug, seat, mode, handingOff ? { ...view, as: 0 } : view);
+      if (handingOff) {
         await switchTo(0);
       } else {
         await onRoom(next);

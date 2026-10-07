@@ -78,6 +78,20 @@ describe("SandboxBar", () => {
     expect(api.setSandboxSeatControl).not.toHaveBeenCalled();
   });
 
+  it.each(["pass", "practice"] as const)("returns to P0 when the acting Manual seat becomes %s", async (mode) => {
+    const next = room();
+    api.setSandboxSeatControl.mockImplementation(async (_slug, seat, control, view) => {
+      if (seat === view.as && control !== "manual") throw new Error("Take control of seat 1 first");
+      return next;
+    });
+    api.getDuelRoom.mockResolvedValue(next);
+    const props = mount({ acting: 1, info: info({ run: { bots: { "1": "manual", "2": "pass", "3": "pass" } } }) });
+    fireEvent.click(screen.getByLabelText("Set P1 mode"));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: mode === "pass" ? "Auto-pass" : "Practice bot" }));
+    await waitFor(() => expect(props.onActAs).toHaveBeenCalledWith(0, next));
+    expect(api.setSandboxSeatControl).toHaveBeenCalledWith("abc", 1, mode, { as: 0, reveal: true });
+  });
+
   it("marks the seat the engine waits on with a dot", () => {
     mount({ room: room({ prioritySeat: 1 }) });
     expect(screen.getByTestId("sandbox-seat-1").querySelector("[role=img]")).not.toBeNull();
