@@ -89,7 +89,7 @@ interface DraftManageViewProps {
   isParticipant: boolean;
   onStart: () => Promise<void>;
   onCancel: () => Promise<void>;
-  onUpdate: (data: { name?: string; config?: unknown }) => Promise<void>;
+  onUpdate: (data: { name?: string; config?: unknown; revision?: number }) => Promise<void>;
   onJoin: () => Promise<void>;
   onAddBot?: () => Promise<void>;
   /** Show Add bot. The server decides (see draftTestBotsEnabled); the view never reads the environment. */
@@ -174,8 +174,11 @@ export function DraftManageView({
       .catch(() => setPoolError(true));
   }, [slug, isTheme]);
   React.useEffect(() => { loadPool(); }, [loadPool]);
+  // The newest lobby revision this view saw (set below, after the Seats First state), so a save after the host's own
+  // Ready does not send the page's older revision.
+  const lobbyRevision = React.useRef<number | undefined>(undefined);
   const onUpdateWithPoolRefresh = React.useCallback(async (data: { name?: string; config?: unknown }) => {
-    await onUpdate(data);
+    await onUpdate({ ...data, revision: lobbyRevision.current });
     if (data.config !== undefined) loadPool();
   }, [onUpdate, loadPool]);
 
@@ -307,7 +310,10 @@ export function DraftManageView({
     : null;
   const lobbyFallback = React.useMemo(() => fallbackLobby(roster, Date.now()), [roster]);
   const rosterSize = React.useRef(roster.length);
-  React.useEffect(() => { rosterSize.current = lobbyView?.players.length ?? roster.length; });
+  React.useEffect(() => {
+    rosterSize.current = lobbyView?.players.length ?? roster.length;
+    lobbyRevision.current = lobbyView?.lobby.revision;
+  });
   const controller = useLobbyController({
     slug: slug ?? "",
     lobby: lobbyView?.lobby ?? lobbyFallback,
