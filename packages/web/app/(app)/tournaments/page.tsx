@@ -1,6 +1,7 @@
 import { env } from "@/lib/env";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
+import { parseUserId } from "@/lib/user-id";
 import { getDb } from "@/lib/db";
 import { FloorList, SectionHead, SvButton } from "@/components/sheet";
 import { PageFrame } from "@/components/dashboard/page-frame";
@@ -16,7 +17,8 @@ import {
 
 export default async function TournamentsPage() {
   const session = await auth();
-  if (!session?.user?.id) redirect("/login");
+  const userId = parseUserId(session?.user?.id);
+  if (userId === null) redirect("/login");
 
   const db = getDb();
   const tournaments: TournamentListItem[] = db
@@ -44,8 +46,8 @@ export default async function TournamentsPage() {
 
   // Round strips and duel actions need the pairings of the tournaments still in play.
   const viewer = db
-    .prepare("select id from players where discord_user_id = ? and guild_id = ?")
-    .get(session.user.id, env.discordGuildId) as { id: number } | undefined;
+    .prepare("select id from players where user_id = ? and guild_id = ?")
+    .get(userId, env.discordGuildId) as { id: number } | undefined;
   const viewerId = viewer?.id ?? null;
   const rounds = loadTournamentRounds(db, env.discordGuildId, [...groups.running, ...groups.open]);
 
@@ -63,8 +65,7 @@ export default async function TournamentsPage() {
         <section aria-labelledby="tl-none">
           <SectionHead title="No tournaments yet" id="tl-none" />
           <p className={styles.lede}>
-            Create one here, or run <code className="cmd">/event create</code> in Discord. Either way it shows up on this
-            page.
+            Create one and it shows up on this page, ready to share by link.
           </p>
           <SvButton as="a" href="/tournaments/new" variant="primary">
             New tournament

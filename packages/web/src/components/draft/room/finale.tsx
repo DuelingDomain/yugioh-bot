@@ -14,7 +14,7 @@ export interface FinaleProps {
   theme: boolean;
   /** How many of the picks are Extra deck cards (theme drafts). */
   extraCount: number;
-  /** The server says the viewer may create the tournament (the draft host or a server admin). */
+  /** The server says the viewer may create the tournament (the draft host). */
   canCreateTournament: boolean;
   /** Tournament made from this draft, plus the state to create one. */
   tournament: DraftTournament;
@@ -66,7 +66,7 @@ export function DraftFinale(p: FinaleProps) {
     ? "The tournament is ready. Saved draft decks are registered for it."
     : p.canCreateTournament
       ? "Create the tournament when you are ready. Saved draft decks are registered for it."
-      : "The host or a server admin will start the tournament.";
+      : "The host will start the tournament.";
   // Close plays the exit (the overlay fades, the page behind shows) and then tells the page.
   const [closing, setClosing] = useState(false);
   const closeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);

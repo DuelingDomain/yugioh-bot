@@ -1,0 +1,21 @@
+import Database from "better-sqlite3";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { migrate } from "@yugidraft/shared/db";
+import { beforeEach, afterEach, expect, it, vi } from "vitest";
+const s = vi.hoisted(() => ({ db: null as Database.Database | null, userId: 2 }));
+vi.mock("@/lib/db", () => ({ getDb: () => s.db! }));
+vi.mock("@/lib/env", () => ({ env: { discordGuildId: "g" } }));
+vi.mock("@/lib/web-access", () => ({ requireWebAccess: async () => ({ ok: true, userId: s.userId, userName: "Email user", discordUserId: null }) }));
+beforeEach(() => { s.db = new Database(":memory:"); migrate(s.db); s.db.exec("insert into users(id,username,display_name) values(1,'owner','Owner'),(2,'other','Other'); insert into cubes(id,guild_id,name,created_by_user_id) values(1,'g','Cube',1); insert into drafts(id,guild_id,name,status,created_by_user_id,web_slug,config_json) values(1,'g','Draft','completed',1,'draft','{}');"); s.userId = 2; });
+afterEach(() => s.db?.close());
+it("rejects non-creators on cube and cube cards writes and tournament creation", async () => {
+ const cube = await import("../app/api/cubes/[id]/route"); const cards = await import("../app/api/cubes/[id]/cards/route"); const tournament = await import("../app/api/drafts/[slug]/tournament/route");
+ const req = new Request("http://localhost", { method: "PUT", body: JSON.stringify({ name: "Stolen", format: "round_robin" }) });
+ expect((await cube.PUT(req, { params: Promise.resolve({ id: "1" }) })).status).toBe(403);
+ expect((await cards.POST(req.clone(), { params: Promise.resolve({ id: "1" }) })).status).toBe(403);
+ expect((await tournament.POST(req.clone() as never, { params: Promise.resolve({ slug: "draft" }) })).status).toBe(403);
+ const { GET } = await import("../app/api/cubes/route"); expect((await (await GET()).json()).cubes[0].canEdit).toBe(false);
+});
+it("permits email-only creators to write cubes", async () => { s.userId = 1; const { PUT } = await import("../app/api/cubes/[id]/route"); expect((await PUT(new Request("http://localhost", { method: "PUT", body: JSON.stringify({ name: "Renamed" }) }), { params: Promise.resolve({ id: "1" }) })).status).toBe(200); });
+it("removes settings and admin season API routes", () => { for (const path of ["../app/api/settings/route.ts", "../app/api/admin/season/route.ts"]) expect(existsSync(fileURLToPath(new URL(path, import.meta.url)))).toBe(false); });

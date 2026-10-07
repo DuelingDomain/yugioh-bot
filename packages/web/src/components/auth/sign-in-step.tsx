@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { PRIVACY_URL, TERMS_URL } from "./legal-links";
 import styles from "./sign-in-shell.module.css";
 
 interface SignInStepProps {
@@ -22,12 +23,22 @@ export function SignInStep({ eyebrow, title, lede, children, foot, screen = "sig
   );
 }
 
-export function SignInFootLinks({ marketingUrl, waitlist = true }: { marketingUrl?: string; waitlist?: boolean }) {
-  if (!marketingUrl) return null;
+interface SignInFootLinksProps {
+  marketingUrl?: string;
+  waitlist?: boolean;
+  /** Replaces the waitlist line, e.g. "Already have an account? Sign in". */
+  lead?: ReactNode;
+}
+
+/** Foot of a step card. The legal links are fixed; the waitlist line needs the marketing URL. */
+export function SignInFootLinks({ marketingUrl, waitlist = true, lead }: SignInFootLinksProps) {
   return (
     <>
-      {waitlist && <p>Not in the alpha yet? <a href={`${marketingUrl}/#join`}>Join the waitlist</a></p>}
-      <p className={styles.legal}><a href={`${marketingUrl}/privacy`}>Privacy</a></p>
+      {lead ?? (waitlist && marketingUrl ? <p>Not in the alpha yet? <a href={`${marketingUrl}/#join`}>Join the waitlist</a></p> : null)}
+      <p className={styles.legal}>
+        <a href={TERMS_URL}>Terms</a>
+        <a href={PRIVACY_URL}>Privacy</a>
+      </p>
     </>
   );
 }

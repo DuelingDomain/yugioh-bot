@@ -1,3 +1,4 @@
+import { seedUser } from "../helpers/identity.js";
 import Database from "better-sqlite3";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -44,13 +45,14 @@ describe("the ws draft access reader", () => {
   let dir: string;
   let db: Database.Database;
   let reader: ReturnType<typeof createDraftAccessReader>;
-  const claims = { slug: "draft", guildId: "guild", userId: "outsider" };
+  let claims: { slug: string; guildId: string; userId: number };
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "draft-room-access-"));
     db = new Database(join(dir, "drafts.sqlite"));
     migrate(db);
-    db.prepare("insert into drafts (guild_id, channel_id, name, status, created_by_user_id, web_slug) values ('guild', 'channel', 'Draft', 'pending', 'creator', 'draft')").run();
+    db.prepare("insert into drafts (guild_id, channel_id, name, status, created_by_user_id, web_slug) values ('guild', 'channel', 'Draft', 'pending', ?, 'draft')").run(seedUser(db, "creator").userId);
+    claims = { slug: "draft", guildId: "guild", userId: seedUser(db, "outsider").userId };
     reader = createDraftAccessReader(join(dir, "drafts.sqlite"));
   });
 
@@ -64,7 +66,7 @@ describe("the ws draft access reader", () => {
     expect(reader.canReadDraft(claims)).toBe(true);
     db.prepare("update drafts set status = 'active'").run();
     expect(reader.canReadDraft(claims)).toBe(false);
-    expect(reader.canReadDraft({ ...claims, userId: "creator" })).toBe(true);
+    expect(reader.canReadDraft({ ...claims, userId: seedUser(db, "creator").userId })).toBe(true);
   });
 
   it("does not expose a draft in another guild", () => {

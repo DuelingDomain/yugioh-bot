@@ -18,18 +18,18 @@ export function stackFixture() {
   }
   put("package.json", '{"type":"module"}');
   put("tsconfig.json", "{}");
-  for (const name of ["shared", "ws", "duel-server"]) {
-    put(`packages/${name}/src/server.ts`, "source");
+  for (const name of ["shared", "ws", "duel-server", "worker"]) {
+    put(`packages/${name}/src/${name === "worker" ? "index" : "server"}.ts`, "source");
     put(`packages/${name}/package.json`, "{}");
     put(`packages/${name}/tsconfig.json`, "{}");
     put(`packages/${name}/tsconfig.build.json`, "{}");
-    put(`packages/${name}/dist/${name === "shared" ? "services/index.js" : "server.js"}`, "compiled");
+    put(`packages/${name}/dist/${name === "shared" ? "services/index.js" : name === "worker" ? "index.js" : "server.js"}`, "compiled");
   }
   // Service outputs are newer than shared outputs, and all inputs are older.
   utimesSync(at("packages/shared/dist/services/index.js"), 2, 2);
   utimesSync(at("packages/shared/dist/services"), 2, 2);
   utimesSync(at("packages/shared/dist"), 2, 2);
-  for (const name of ["ws", "duel-server"]) utimesSync(at(`packages/${name}/dist/server.js`), 3, 3);
+  for (const [name, entry] of [["ws", "server.js"], ["duel-server", "server.js"], ["worker", "index.js"]]) utimesSync(at(`packages/${name}/dist/${entry}`), 3, 3);
   put("packages/web/next-env.d.ts", "original Next types");
   put("packages/web/tsconfig.json", "original config");
   put("bin/npm", `#!${process.execPath}
@@ -39,6 +39,7 @@ export function stackFixture() {
     const root = process.cwd();
     appendFileSync(resolve(root, 'commands.jsonl'), JSON.stringify(process.argv.slice(2)) + '\\n');
     if (process.argv.includes('--workspace=packages/web') && !process.argv.includes('package:standalone')) {
+      writeFileSync(resolve(root, 'web-build-env.json'), JSON.stringify({ e2eAuth: process.env.E2E_AUTH, clerkPublishableKey: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }));
       writeFileSync(resolve(root, 'packages/web/next-env.d.ts'), 'Next changed types');
       writeFileSync(resolve(root, 'packages/web/tsconfig.json'), 'Next changed config');
       writeFileSync(resolve(root, 'build-started'), String(process.pid));

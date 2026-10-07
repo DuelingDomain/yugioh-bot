@@ -1,3 +1,4 @@
+import { fixtureUserId } from "./identity";
 import type { DuelSeriesSummary, Match, TournamentDetail } from "@/components/tournament/types";
 import { defaultDuelSettings } from "@yugidraft/shared/duels";
 
@@ -35,7 +36,7 @@ function slot(id: number, one: number, two: number, winner: number | null = null
 }
 // Every pair and result in Board 02; the two own open slots come first.
 export const sheetTournament: TournamentDetail = {
-  id: 12, name: "Friday Night Duels #12", format: "round_robin", status: "active", createdByUserId: "host",
+  id: 12, name: "Friday Night Duels #12", format: "round_robin", status: "active", createdByUserId: fixtureUserId("host"),
   participants: sheetPlayers, isParticipant: true, currentUserPlayerId: 5,
   startedAt: "2026-09-26T00:04:00Z", createdAt: "2026-09-25T20:00:00Z", deadlineAt: "2026-10-03T03:00:00Z",
   reportConfirmWindowHours: 24, bestOf: 3, rulesLocked: true,
@@ -58,3 +59,5 @@ export const threeMatchTournament: TournamentDetail = {
     { ...sheetTournament.matches[0], roundNumber: 2 },
   ],
 };
+
+const FIXTURE_KEYS = ["host"] as const;

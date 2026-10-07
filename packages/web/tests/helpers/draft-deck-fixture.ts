@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "../fixtures/identity";
 import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -34,7 +35,7 @@ export async function seedDraftDeck(options: {
   const Database = (await import("better-sqlite3")).default;
   const { migrate } = await import("@yugidraft/shared/db");
   const db = new Database(dbPath);
-  migrate(db);
+  migrate(db); seedFixtureUsers(db, FIXTURE_KEYS);
 
   const insertCard = db.prepare(
     `insert or ignore into card_catalog (ygoprodeck_id, name, type, frame_type, effect_text, atk, def, attribute, level, image_url, image_url_small, card_sets_json, cached_at)
@@ -50,13 +51,12 @@ export async function seedDraftDeck(options: {
   const players: Record<string, number> = {};
   for (const [user, name] of [["drafter", "Yugi"], ["outsider", "Kaiba"]] as const) {
     players[user] = Number(
-      db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('guild-1', ?, ?)").run(user, name).lastInsertRowid,
+      db.prepare("insert into players (guild_id, user_id, discord_user_id, display_name) values ('guild-1', ?, ?, ?)").run(fixtureUserId(user), fixtureDiscordId(user), name).lastInsertRowid,
     );
   }
   const draftId = Number(
     db.prepare(
-      `insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug)
-       values ('guild-1', 'ch1', 'Friday Draft', ?, 'drafter', '{}', 'slug-1')`,
+      `insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug) values ('guild-1', 'ch1', 'Friday Draft', ?, ${fixtureUserId("drafter")}, '{}', 'slug-1')`,
     ).run(options.status ?? "completed").lastInsertRowid,
   );
   db.prepare("insert into draft_players (draft_id, player_id) values (?, ?)").run(draftId, players.drafter);
@@ -79,8 +79,7 @@ export async function seedDraftDeck(options: {
   if (options.tournamentUsers) {
     const tournamentId = Number(
       db.prepare(
-        `insert into tournaments (guild_id, name, format, status, created_by_user_id)
-         values ('guild-1', 'T', 'round_robin', ?, 'drafter')`,
+        `insert into tournaments (guild_id, name, format, status, created_by_user_id) values ('guild-1', 'T', 'round_robin', ?, ${fixtureUserId("drafter")})`,
       ).run(options.tournamentStatus ?? "pending").lastInsertRowid,
     );
     for (const user of options.tournamentUsers) {
@@ -94,3 +93,5 @@ export async function seedDraftDeck(options: {
 
 /** ids 1..count as Normal Monsters, one copy each. */
 export const mainIds = (count: number, from = 1) => Array.from({ length: count }, (_, index) => from + index);
+
+const FIXTURE_KEYS = ["drafter","outsider"] as const;

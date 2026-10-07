@@ -95,7 +95,7 @@ export function CreateTournamentForm() {
           <section className={`mk-sec ${styles.sec}`} aria-labelledby="mk-ev">
             <div className="mk-side">
               <h2 id="mk-ev">Event</h2>
-              <p>Players see this name in Discord and on the web.</p>
+              <p>Players see this name in the lobby and on the invite link.</p>
             </div>
             <div className="fields">
               <div className="wide">

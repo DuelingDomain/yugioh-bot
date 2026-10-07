@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -7,14 +8,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 
 const auth = vi.fn();
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 const tempDirs: string[] = [];
 
 describe("GET /api/players", () => {
   beforeEach(() => {
     vi.resetModules();
     auth.mockReset();
-    auth.mockResolvedValue({ user: { id: "u-me", name: "Yugi" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-me")), discordUserId: fixtureDiscordId("u-me"), name: "Yugi" } });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
   });
   afterEach(() => {
@@ -34,11 +38,12 @@ describe("GET /api/players", () => {
     process.env.DISCORD_TOKEN = "bot-token";
     const db = new Database(process.env.DATABASE_PATH);
     migrate(db);
-    const insert = db.prepare("insert into players (guild_id, discord_user_id, display_name) values (?, ?, ?)");
-    insert.run("g1", "u-me", "Yugi");
-    insert.run("g1", "u-k", "Kaiba");
-    insert.run("g1", "u-j", "Joey");
-    insert.run("g2", "u-o", "Kaiba Other Guild");
+    seedFixtureUsers(db, FIXTURE_KEYS);
+    const insert = db.prepare("insert into players (guild_id, user_id, discord_user_id, display_name) values (?, ?, ?, ?)");
+    insert.run("g1", fixtureUserId("u-me"), fixtureDiscordId("u-me"), "Yugi");
+    insert.run("g1", fixtureUserId("u-k"), fixtureDiscordId("u-k"), "Kaiba");
+    insert.run("g1", fixtureUserId("u-j"), fixtureDiscordId("u-j"), "Joey");
+    insert.run("g2", fixtureUserId("u-o"), fixtureDiscordId("u-o"), "Kaiba Other Guild");
     db.close();
   }
 
@@ -66,3 +71,7 @@ describe("GET /api/players", () => {
     expect((await call()).status).toBe(401);
   });
 });
+
+const FIXTURE_KEYS = ["u-me", "u-k", "u-j", "u-o"] as const;
+
+// Session resolution is mocked; authorization still runs through the real web boundary.

@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -8,7 +9,10 @@ const auth = vi.fn();
 const broadcaster = { draft: vi.fn(), tournament: vi.fn() };
 const tempDirs: string[] = [];
 
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/notify", () => ({ broadcaster, announcer: { announce: vi.fn() } }));
 
 describe("draftTestBotsEnabled", () => {
@@ -41,7 +45,7 @@ describe("test bots in a production build", () => {
     vi.resetModules();
     auth.mockReset();
     broadcaster.draft.mockReset();
-    auth.mockResolvedValue({ user: { id: "host", name: "Yugi" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("host")), discordUserId: fixtureDiscordId("host"), name: "Yugi" } });
     vi.stubEnv("NODE_ENV", "production");
   });
 
@@ -67,19 +71,20 @@ describe("test bots in a production build", () => {
     const { createDraftService, createPlayerService } = await import("@yugidraft/shared/services");
     const db = new Database(dbPath);
     migrate(db);
+    seedFixtureUsers(db, FIXTURE_KEYS);
     const ins = db.prepare(
       "insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (?,?,?,?,?,?,?,?)",
     );
     const ids = Array.from({ length: 24 }, (_, i) => 500 + i);
     for (const id of ids) ins.run(id, `Card ${id}`, "Effect Monster", "effect", "i", "i", "[]", "t");
-    const host = createPlayerService(db).findOrCreate("guild-1", "host", "Yugi");
+    const host = createPlayerService(db).findOrCreate("guild-1", fixtureUserId("host"), "Yugi");
     const drafts = createDraftService(db);
     const draft = drafts.create(
       "guild-1",
       "channel-1",
       "bot night",
       { setNames: [], customCardIds: ids, cubeCardIds: ids, packSize: 3, packsPerPlayer: 2, cardsPerPlayer: 6 },
-      "host",
+      fixtureUserId("host"),
       host.id,
     );
     db.close();
@@ -109,10 +114,10 @@ describe("test bots in a production build", () => {
     vi.stubEnv("DRAFT_TEST_BOTS", "1");
     const { draft } = await setup();
 
-    auth.mockResolvedValue({ user: { id: "someone-else" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("someone-else")), discordUserId: fixtureDiscordId("someone-else") } });
     expect((await addBot(draft.webSlug!)).status).toBe(403);
 
-    auth.mockResolvedValue({ user: { id: "host" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("host")), discordUserId: fixtureDiscordId("host") } });
     const res = await addBot(draft.webSlug!);
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toMatchObject({ success: true, displayName: "Bot 1" });
@@ -121,9 +126,9 @@ describe("test bots in a production build", () => {
   it("tells the page whether bots are allowed, from the server", async () => {
     const { draft } = await setup();
     const { buildDraftResponse } = await import("../app/api/drafts/[slug]/helpers");
-    expect((await buildDraftResponse(draft.webSlug!, "host"))?.botsEnabled).toBe(false);
+    expect((await buildDraftResponse(draft.webSlug!, { userId: fixtureUserId("host"), discordUserId: fixtureDiscordId("host") }))?.botsEnabled).toBe(false);
     vi.stubEnv("DRAFT_TEST_BOTS", "1");
-    expect((await buildDraftResponse(draft.webSlug!, "host"))?.botsEnabled).toBe(true);
+    expect((await buildDraftResponse(draft.webSlug!, { userId: fixtureUserId("host"), discordUserId: fixtureDiscordId("host") }))?.botsEnabled).toBe(true);
   });
 
   it("bots pick after the human with no dev gate: a full booster draft finishes", async () => {
@@ -159,3 +164,7 @@ describe("test bots in a production build", () => {
     db.close();
   }, 30000);
 });
+
+const FIXTURE_KEYS = ["host", "someone-else"] as const;
+
+// Session resolution is mocked; authorization still runs through the real web boundary.

@@ -3,11 +3,15 @@ import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { seedDraftDeck } from "./helpers/draft-deck-fixture";
+import { fixtureUserId, fixtureDiscordId } from "./fixtures/identity";
 const { auth, callDuelHost } = vi.hoisted(() => ({ auth: vi.fn(), callDuelHost: vi.fn() }));
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/duel-host", () => ({ callDuelHost }));
 const dirs: string[] = [];
-beforeEach(() => { vi.resetModules(); auth.mockResolvedValue({ user: { id: "drafter", name: "Yugi" } }); });
+beforeEach(() => { vi.resetModules(); auth.mockResolvedValue({ user: { id: String(fixtureUserId("drafter")), discordUserId: fixtureDiscordId("drafter"), name: "Yugi" } }); });
 afterEach(() => { delete process.env.DATABASE_PATH; delete process.env.DISCORD_GUILD_ID; for (const dir of dirs.splice(0)) rmSync(dir, { force: true, recursive: true }); });
 
 it.each([[10, 11], [11, 10], [11, 12]])("preserves chosen art %s → %s through draft save/read and export while checking canonical pool", async (drafted, chosen) => {

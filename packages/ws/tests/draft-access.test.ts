@@ -34,7 +34,7 @@ describe("draft socket access without starting a server", () => {
     return { socket, handlers };
   }
 
-  function join(c: ReturnType<typeof client>, userId: string, options: { slug?: string; token?: string | null } = {}) {
+  function join(c: ReturnType<typeof client>, userId: number, options: { slug?: string; token?: string | null } = {}) {
     const slug = options.slug ?? "test-draft";
     const token = "token" in options ? options.token : createDraftRoomToken({ slug, userId, guildId: "guild-1", expiresAt: Date.now() + 60_000 }, secret);
     const ack = vi.fn();
@@ -56,8 +56,9 @@ describe("draft socket access without starting a server", () => {
     vi.useFakeTimers();
     db = new Database(":memory:");
     migrate(db);
-    db.prepare("insert into players (id, guild_id, discord_user_id, display_name) values (1, 'guild-1', 'player', 'Yugi')").run();
-    db.prepare("insert into drafts (guild_id, channel_id, name, status, created_by_user_id, web_slug) values ('guild-1', 'channel', 'Draft', 'pending', 'creator', 'test-draft')").run();
+    db.prepare("insert into users (id, discord_user_id, username, display_name) values (101, '900000000000000101', 'yugi', 'Yugi'), (102, '900000000000000102', 'creator', 'Creator')").run();
+    db.prepare("insert into players (id, guild_id, user_id, discord_user_id, display_name) values (1, 'guild-1', 101, '900000000000000101', 'Yugi')").run();
+    db.prepare("insert into drafts (guild_id, channel_id, name, status, created_by_user_id, web_slug) values ('guild-1', 'channel', 'Draft', 'pending', 102, 'test-draft')").run();
     db.prepare("insert into draft_players (draft_id, player_id) values (1, 1)").run();
     rooms = new DraftRoomManager();
     clients.length = 0;
@@ -81,11 +82,11 @@ describe("draft socket access without starting a server", () => {
   });
 
   for (const status of ["pending", "active", "completed", "cancelled"]) {
-    for (const user of ["player", "creator", "outsider"]) {
+    for (const [user, userId] of [["player", 101], ["creator", 102], ["outsider", 103]] as const) {
       it(`${status}: signed room join for ${user}`, () => {
         db.prepare("update drafts set status = ? where id = 1").run(status);
         const allowed = status === "pending" || user !== "outsider";
-        expect(join(clients[0], user)).toEqual(allowed ? undefined : error);
+        expect(join(clients[0], userId)).toEqual(allowed ? undefined : error);
         expect(clients[0].socket.rooms.has("draft:test-draft")).toBe(allowed);
       });
     }
@@ -94,33 +95,43 @@ describe("draft socket access without starting a server", () => {
   for (const status of ["pending", "active"]) {
     it.each([null, undefined, ""])(`requires a token for ${status} drafts: %s`, (token) => {
       db.prepare("update drafts set status = ? where id = 1").run(status);
-      expect(join(clients[0], "player", { token })).toEqual(error);
+      expect(join(clients[0], 101, { token })).toEqual(error);
       expect(rooms.getRoom("test-draft")).toBeUndefined();
     });
   }
 
   it.each([
     { slug: "wrong-draft" },
-    { userId: "wrong-user" },
+    { userId: 104 },
     { guildId: "wrong-guild" },
     { expiresAt: 0 },
   ])("rejects a mismatched or expired token: %s", (overrides) => {
-    const token = createDraftRoomToken({ slug: "test-draft", userId: "player", guildId: "guild-1", expiresAt: Date.now() + 60_000, ...overrides }, secret);
-    expect(join(clients[0], "player", { token })).toEqual(error);
+    const token = createDraftRoomToken({ slug: "test-draft", userId: 101, guildId: "guild-1", expiresAt: Date.now() + 60_000, ...overrides }, secret);
+    expect(join(clients[0], 101, { token })).toEqual(error);
+    expect(rooms.getRoom("test-draft")).toBeUndefined();
+  });
+
+  it.each(["101", "01", "1e3", "900000000000000101", 0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, null])("rejects an invalid socket user ID before room admission: %s", (userId) => {
+    const c = clients[0];
+    const token = createDraftRoomToken({ slug: "test-draft", userId: 101, guildId: "guild-1", expiresAt: Date.now() + 60_000 }, secret);
+    const ack = vi.fn();
+    c.handlers.get("draft:join")!({ slug: "test-draft", userId, token }, ack);
+    expect(ack).toHaveBeenCalledWith(error);
+    expect(c.socket.rooms.has("draft:test-draft")).toBe(false);
     expect(rooms.getRoom("test-draft")).toBeUndefined();
   });
 
   it("checks access again when a lobby token is replayed after the draft starts", () => {
-    const token = createDraftRoomToken({ slug: "test-draft", userId: "outsider", guildId: "guild-1", expiresAt: Date.now() + 60_000 }, secret);
+    const token = createDraftRoomToken({ slug: "test-draft", userId: 103, guildId: "guild-1", expiresAt: Date.now() + 60_000 }, secret);
     db.prepare("update drafts set status = 'active' where id = 1").run();
-    expect(join(clients[0], "outsider", { token })).toEqual(error);
+    expect(join(clients[0], 103, { token })).toEqual(error);
     expect(rooms.getRoom("test-draft")).toBeUndefined();
   });
 
   it.each(["status", "pick", "resync", "complete", "seats"])("removes lobby outsiders before a started draft's %s broadcast", async (kind) => {
     clients.push(client("socket-2"));
-    join(clients[0], "outsider");
-    join(clients[1], "player");
+    join(clients[0], 103);
+    join(clients[1], 101);
     db.prepare("update drafts set status = 'active' where id = 1").run();
     const response = await broadcast(kind);
     expect(response.status).toBe(204);
@@ -133,7 +144,7 @@ describe("draft socket access without starting a server", () => {
 
   it("keeps a joined socket subscribed and receiving broadcasts after token expiry", async () => {
     db.prepare("update drafts set status = 'active' where id = 1").run();
-    expect(join(clients[0], "player")).toBeUndefined();
+    expect(join(clients[0], 101)).toBeUndefined();
     vi.advanceTimersByTime(60_001);
     expect(clients[0].socket.rooms.has("draft:test-draft")).toBe(true);
     const response = await broadcast("pick");
@@ -145,7 +156,7 @@ describe("draft socket access without starting a server", () => {
 
   it("removes a socket whose database access is revoked on the next broadcast", async () => {
     db.prepare("update drafts set status = 'active' where id = 1").run();
-    expect(join(clients[0], "player")).toBeUndefined();
+    expect(join(clients[0], 101)).toBeUndefined();
     db.prepare("delete from draft_players where draft_id = 1 and player_id = 1").run();
     expect(clients[0].socket.rooms.has("draft:test-draft")).toBe(true);
     const response = await broadcast("pick");
@@ -157,16 +168,16 @@ describe("draft socket access without starting a server", () => {
   });
 
   it("removes memberships on disconnect", () => {
-    join(clients[0], "player");
+    join(clients[0], 101);
     clients[0].handlers.get("disconnecting")!();
     expect(rooms.getRoom("test-draft")).toBeUndefined();
   });
 
   it("keeps memberships in multiple drafts after both tokens expire", () => {
-    db.prepare("insert into drafts (guild_id, channel_id, name, status, created_by_user_id, web_slug) values ('guild-1', 'channel', 'Other draft', 'pending', 'creator', 'other-draft')").run();
-    join(clients[0], "player");
+    db.prepare("insert into drafts (guild_id, channel_id, name, status, created_by_user_id, web_slug) values ('guild-1', 'channel', 'Other draft', 'pending', 102, 'other-draft')").run();
+    join(clients[0], 101);
     vi.advanceTimersByTime(30_000);
-    join(clients[0], "player", { slug: "other-draft" });
+    join(clients[0], 101, { slug: "other-draft" });
     vi.advanceTimersByTime(60_001);
     guard.pruneDraftRoom("test-draft");
     guard.pruneDraftRoom("other-draft");
@@ -175,14 +186,14 @@ describe("draft socket access without starting a server", () => {
   });
 
   it("refuses an unknown draft even with a correctly signed token", () => {
-    expect(join(clients[0], "player", { slug: "missing-draft" })).toEqual(error);
+    expect(join(clients[0], 101, { slug: "missing-draft" })).toEqual(error);
     expect(rooms.getRoom("missing-draft")).toBeUndefined();
   });
 
   it("fails closed if the permission query fails", () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(db, "prepare").mockImplementationOnce(() => { throw new Error("Database unavailable"); });
-    expect(join(clients[0], "player")).toEqual(error);
+    expect(join(clients[0], 101)).toEqual(error);
     expect(rooms.getRoom("test-draft")).toBeUndefined();
     log.mockRestore();
   });

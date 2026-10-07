@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "../helpers/identity.js";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import { migrate } from "../../src/db/index.js";
@@ -6,9 +7,8 @@ import { createScoringService } from "../../src/services/scoring.js";
 function setup() {
   const db = new Database(":memory:");
   migrate(db);
-  const insP = db.prepare("insert into players (guild_id, discord_user_id, display_name) values (?, ?, ?)");
-  const p1 = Number(insP.run("g1", "u1", "Yugi").lastInsertRowid);
-  const p2 = Number(insP.run("g1", "u2", "Kaiba").lastInsertRowid);
+  const p1 = seedIdentity(db, { guildId: "g1", name: "Yugi", userId: seedUser(db, "u1").userId, discordUserId: seedUser(db, "u1").discordUserId ?? "u1" }).playerId;
+  const p2 = seedIdentity(db, { guildId: "g1", name: "Kaiba", userId: seedUser(db, "u2").userId, discordUserId: seedUser(db, "u2").discordUserId ?? "u2" }).playerId;
   const scoring = createScoringService(db);
   const m = (winner: number) =>
     Number(

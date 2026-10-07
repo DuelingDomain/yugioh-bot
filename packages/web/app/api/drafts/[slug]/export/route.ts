@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
 import { env } from "@/lib/env";
 import { createDraftService } from "@yugidraft/shared/services";
 import { draftReadAccess } from "@/lib/draft-access";
@@ -12,15 +12,13 @@ export async function GET(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const actor = await requireWebAccess();
+    if (!actor.ok) return actor.response;
 
     const { slug } = await params;
     const db = getDb();
     const guildId = env.discordGuildId;
-    const denied = draftReadAccess(db, slug, guildId, session.user.id);
+    const denied = draftReadAccess(db, slug, guildId, actor.userId);
     if (denied) return denied;
 
     const draft = db
@@ -33,9 +31,9 @@ export async function GET(
 
     const player = db
       .prepare(
-        "select p.id as player_id from draft_players dp inner join players p on p.id = dp.player_id where dp.draft_id = ? and p.discord_user_id = ?"
+        "select p.id as player_id from draft_players dp inner join players p on p.id = dp.player_id where dp.draft_id = ? and p.user_id = ?"
       )
-      .get(draft.id, session.user.id) as { player_id: number } | undefined;
+      .get(draft.id, actor.userId) as { player_id: number } | undefined;
 
     if (!player) {
       return NextResponse.json({ error: "Not a participant" }, { status: 403 });

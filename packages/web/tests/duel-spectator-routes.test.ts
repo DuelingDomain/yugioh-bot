@@ -2,6 +2,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { NextResponse } from "next/server";
 import { verifyDuelConnectionToken } from "@yugidraft/shared/ws";
 import { getDuelRoom, duelRoomKey } from "../src/components/duel/api";
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 
 const mocks = vi.hoisted(() => ({ actor: vi.fn(), host: vi.fn(), room: vi.fn() }));
 vi.mock("@/lib/duel-host", () => ({ requireDuelActor: mocks.actor, callDuelHost: mocks.host,
@@ -68,9 +69,10 @@ it("issues a fresh token from the moved FFA seat rows", async () => {
   const db = new Database(":memory:");
   try {
     migrate(db);
+    seedFixtureUsers(db, ["u0", "u1", "u2"]);
     const players = [0, 1, 2].map((i) => Number(db.prepare(
-      "insert into players (guild_id, discord_user_id, display_name) values ('guild', ?, ?)",
-    ).run(`u${i}`, `P${i}`).lastInsertRowid));
+      "insert into players (guild_id, user_id, discord_user_id, display_name) values ('guild', ?, ?, ?)",
+    ).run(fixtureUserId(`u${i}`), fixtureDiscordId(`u${i}`), `P${i}`).lastInsertRowid));
     const dice = [1, 2, 6];
     const duels = createDuelService(db, { rollDie: () => dice.shift()! });
     const session = duels.create({ guildId: "guild", organizerPlayerId: players[0]!, name: "Dice", mode: "normal", format: "ffa3" });

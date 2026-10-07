@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "../helpers/identity.js";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import { migrate } from "../../src/db/index.js";
@@ -6,13 +7,10 @@ import { createScoringService } from "../../src/services/scoring.js";
 function setup() {
   const db = new Database(":memory:");
   migrate(db);
-  const insP = db.prepare("insert into players (guild_id, discord_user_id, display_name) values (?, ?, ?)");
   // 16 distinct participants so sizeMultiplier(16) = 2
-  const ids = Array.from({ length: 16 }, (_, i) => Number(insP.run("g1", "u" + i, "u" + i).lastInsertRowid));
+  const ids = Array.from({ length: 16 }, (_, i) => seedIdentity(db, { guildId: "g1", name: "u" + i, userId: seedUser(db, "u" + i).userId, discordUserId: seedUser(db, "u" + i).discordUserId ?? "u" + i }).playerId);
   const t = Number(
-    db.prepare(
-      "insert into tournaments (guild_id, name, format, status, created_by_user_id) values ('g1','Cup','single_elim','completed','u1')",
-    ).run().lastInsertRowid,
+    db.prepare("insert into tournaments (guild_id, name, format, status, created_by_user_id) values ('g1', 'Cup', 'single_elim', 'completed', ?)").run(seedUser(db, "u1").userId).lastInsertRowid,
   );
   const insPart = db.prepare("insert into tournament_participants (tournament_id, player_id) values (?, ?)");
   for (const pid of ids) insPart.run(t, pid);

@@ -1,4 +1,5 @@
 import { createWaitlistService } from "@yugidraft/shared/services";
+import { createClerkBackend } from "@yugidraft/shared/clerk";
 import { getDb } from "@/lib/db";
 
 const MAX_BODY_BYTES = 2048;
@@ -54,7 +55,7 @@ async function readBody(request: Request): Promise<string> {
   }
 }
 
-type Outcome = "joined" | "exists" | "invalid" | "limited";
+type Outcome = "joined" | "exists" | "invalid" | "limited" | "retry" | "error";
 
 export async function POST(request: Request): Promise<Response> {
   const type = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
@@ -68,6 +69,8 @@ export async function POST(request: Request): Promise<Response> {
     }
     if (outcome === "invalid") return Response.json({ error: "invalid_email" }, { status: 400, headers });
     if (outcome === "limited") return Response.json({ error: "rate_limited" }, { status: 429, headers });
+    if (outcome === "retry") return Response.json({ error: "retry_later" }, { status: 503, headers });
+    if (outcome === "error") return Response.json({ error: "server_error" }, { status: 500, headers });
     return Response.json({ status: outcome }, { status: outcome === "joined" ? 201 : 200, headers });
   }
 
@@ -95,16 +98,28 @@ export async function POST(request: Request): Promise<Response> {
   const email = typeof data.email === "string" ? data.email.trim().toLowerCase() : "";
   if (email.length > 254 || !/^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(email)) return respond("invalid");
 
+  let result: { status: "joined" | "exists" };
   try {
-    const result = createWaitlistService(getDb()).join(email, {
+    result = createWaitlistService(getDb()).join(email, {
       source: typeof data.source === "string" ? data.source : "form",
       userAgent: request.headers.get("user-agent"),
     });
-    return respond(result.status);
   } catch {
     // Never return/log request data or database errors containing an email address.
-    return Response.json({ error: "server_error" }, { status: 500, headers });
+    return respond("error");
   }
+
+  // The atomic local join has committed before any HTTP call. Retry even on
+  // "exists" so a previous Clerk failure can heal without replacing metadata.
+  const secretKey = process.env.CLERK_SECRET_KEY;
+  if (!secretKey) return respond("retry");
+  try {
+    await createClerkBackend({ secretKey }).createWaitlistEntry({ emailAddress: email, notify: true });
+  } catch {
+    // Keep the local row for retries/reconciliation; never expose upstream data.
+    return respond("retry");
+  }
+  return respond(result.status);
 }
 
 export const runtime = "nodejs";

@@ -41,7 +41,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
 
   const db = getDb();
-  const denied = await cubeWriteAccess(db, cubeId, actor.userId);
+  const denied = await cubeWriteAccess(db, cubeId, actor);
   if (denied) return denied;
 
   const catalog = createCardCatalogService(db);

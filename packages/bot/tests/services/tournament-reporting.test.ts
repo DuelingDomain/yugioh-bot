@@ -1,3 +1,4 @@
+import { createUserService } from "@yugidraft/shared/services";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import { migrate } from "../../src/db/schema.js";
@@ -10,6 +11,7 @@ function setup() {
   migrate(db);
 
   return {
+    db,
     matches: createMatchService(db),
     players: createPlayerRepository(db),
     tournaments: createTournamentService(db),
@@ -19,10 +21,10 @@ function setup() {
 describe("tournament reporting", () => {
   it("starting a round robin tournament creates all tournament matches", () => {
     const app = setup();
-    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", "user-1");
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
-    const joey = app.players.upsert("guild-1", "user-3", "Joey");
+    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
+    const joey = app.players.upsert("guild-1", "900000000000000114", "Joey");
 
     app.tournaments.join(tournament.id, yugi.id);
     app.tournaments.join(tournament.id, kaiba.id);
@@ -38,9 +40,9 @@ describe("tournament reporting", () => {
 
   it("reporting a tournament match creates a pending approved-stats match tied to the tournament", () => {
     const app = setup();
-    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", "user-1");
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
+    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
 
     app.tournaments.join(tournament.id, yugi.id);
     app.tournaments.join(tournament.id, kaiba.id);
@@ -55,9 +57,9 @@ describe("tournament reporting", () => {
 
   it("approving a tournament result completes the tournament match", () => {
     const app = setup();
-    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", "user-1");
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
+    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
 
     app.tournaments.join(tournament.id, yugi.id);
     app.tournaments.join(tournament.id, kaiba.id);
@@ -72,11 +74,11 @@ describe("tournament reporting", () => {
 
   it("advances single elimination winners after a round is complete", () => {
     const app = setup();
-    const tournament = app.tournaments.create("guild-1", "finals", "single_elim", "user-1");
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
-    const joey = app.players.upsert("guild-1", "user-3", "Joey");
-    const mai = app.players.upsert("guild-1", "user-4", "Mai");
+    const tournament = app.tournaments.create("guild-1", "finals", "single_elim", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
+    const joey = app.players.upsert("guild-1", "900000000000000114", "Joey");
+    const mai = app.players.upsert("guild-1", "900000000000000115", "Mai");
 
     for (const player of [yugi, kaiba, joey, mai]) {
       app.tournaments.join(tournament.id, player.id);
@@ -96,10 +98,10 @@ describe("tournament reporting", () => {
 
   it("marks a round-robin tournament completed once all matches are approved", () => {
     const app = setup();
-    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", "user-1");
-    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
-    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
-    const joey = app.players.upsert("guild-1", "user-3", "Joey");
+    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
+    const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
+    const joey = app.players.upsert("guild-1", "900000000000000114", "Joey");
 
     for (const player of [yugi, kaiba, joey]) {
       app.tournaments.join(tournament.id, player.id);

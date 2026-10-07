@@ -23,7 +23,7 @@ describe("Card data nav entry", () => {
 
   it("lights its own link and titles the phone bar", () => {
     expect(activeNavHref("/settings/card-data")).toBe("/settings/card-data");
-    expect(activeNavHref("/settings")).toBe("/settings");
+    expect(activeNavHref("/settings")).toBe("/settings/account");
     expect(pageTitle("/settings/card-data")).toBe("Card data");
   });
 

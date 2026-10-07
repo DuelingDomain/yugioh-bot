@@ -22,14 +22,20 @@ test("manual seed gives each player owned Standard and Domain saved decks", asyn
       const service = createSavedDeckService(db);
       const ids = new Set<number>();
       for (const player of players) {
-        const decks = service.list(guildId, player.discordId);
+        assert.deepEqual(db.prepare("select u.id,u.discord_user_id,u.email_verified,p.user_id from users u join players p on p.user_id=u.id where p.guild_id=? and u.id=?")
+          .get(guildId,player.userId), {id:player.userId,discord_user_id:player.discordId,email_verified:player.key === "p5" ? 1 : 0,user_id:player.userId});
+        const decks = service.list(guildId, player.userId);
         assert.equal(decks.length, 2);
         assert.deepEqual(decks.find((deck) => deck.mode === "normal")?.deck, standard.deck);
         assert.deepEqual(decks.find((deck) => deck.mode === "domain")?.deck, domain.deck);
         for (const deck of decks) ids.add(deck.id);
       }
+      assert.deepEqual(db.prepare("select u.id,u.email,u.email_verified,u.discord_user_id,p.discord_user_id as player_discord_id from users u join players p on p.user_id=u.id where u.id=105").get(), {
+        id: 105, email: "eve@example.test", email_verified: 1, discord_user_id: null, player_discord_id: null,
+      });
+      assert.deepEqual(db.pragma("foreign_key_check"), []);
       assert.equal(ids.size, players.length * 2, "every player owns separate saved decks");
-      assert.deepEqual(service.list(guildId, "someone-else"), []);
+      assert.deepEqual(service.list(guildId, 999999), []);
     } finally { db.close(); }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

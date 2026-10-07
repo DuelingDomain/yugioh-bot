@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { createHmac } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
@@ -85,7 +86,7 @@ async function post(host: DuelHost, body: Record<string, unknown>) {
 async function setup(options: { botStepDelayMs?: number | ((prompt: DuelPrompt) => number); worker?: BotWorker } = {}) {
   const db = new Database(":memory:");
   migrate(db);
-  const player = Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values (?, ?, ?)").run("g1", "u1", "Yugi").lastInsertRowid);
+  const player = seedIdentity(db, { guildId: "g1", name: "Yugi", userId: seedUser(db, "u1").userId, discordUserId: seedUser(db, "u1").discordUserId ?? "u1" }).playerId;
   const duels = createDuelService(db);
   const session = duels.create({ guildId: "g1", organizerPlayerId: player, name: "Duel", mode: "normal" });
   duels.setDeck(session.slug, "g1", player, buildPracticeBotDeck("normal", DATA));

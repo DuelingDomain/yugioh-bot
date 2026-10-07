@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { afterEach, expect, it } from "vitest";
@@ -70,7 +71,7 @@ async function table(format: DuelFormat, humans: number, botSeats: number[] = []
   migrate(db);
   const players: number[] = [];
   for (let index = 0; index < humans; index += 1) {
-    players.push(Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values (?, ?, ?)").run("g1", `u${index}`, `P${index}`).lastInsertRowid));
+    players.push(seedIdentity(db, { guildId: "g1", name: `P${index}`, userId: seedUser(db, `u${index}`).userId, discordUserId: seedUser(db, `u${index}`).discordUserId ?? `u${index}` }).playerId);
   }
   const duels = createDuelService(db);
   const session = duels.create({ guildId: "g1", organizerPlayerId: players[0]!, name: "Duel", mode: "normal", format, settings: { ...defaultDuelSettings("normal"), startingLP: extra.startingLP ?? 8000 } });

@@ -1,3 +1,4 @@
+import { createPlayerService } from "@yugidraft/shared/services";
 import Database from "better-sqlite3";
 import { describe, expect, it, vi } from "vitest";
 import { migrate } from "../../src/db/schema.js";
@@ -7,8 +8,8 @@ import { createAnnounceHandlers } from "../../src/announce/handlers.js";
 function baseDeps() {
   const db = new Database(":memory:");
   migrate(db);
-  const a = Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g','a','A')").run().lastInsertRowid);
-  const b = Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g','b','B')").run().lastInsertRowid);
+  const a = createPlayerService(db).findOrCreateByDiscord("g", "900000000000000101", "A").id;
+  const b = createPlayerService(db).findOrCreateByDiscord("g", "900000000000000102", "B").id;
   const matchId = Number(
     db.prepare("insert into matches (guild_id, player_one_id, player_two_id, reporter_id, status, source) values ('g',?,?,?, 'pending','tournament')")
       .run(a, b, a).lastInsertRowid,
@@ -31,7 +32,7 @@ describe("announce match handlers", () => {
     await handlers.onMatchReportPending({
       guildId: "g", slug: "s", matchId, tournamentMatchId: 7,
       tournamentName: "RR", roundNumber: 1,
-      reporterDiscordId: "a", opponentDiscordId: "b",
+      reporterDiscordId: "900000000000000101", opponentDiscordId: "900000000000000102",
       reporterName: "A", opponentName: "B", opponentLost: true,
     });
     expect(client.channels.fetch).toHaveBeenCalledWith("chan-1");
@@ -49,7 +50,7 @@ describe("announce match handlers", () => {
     });
     await handlers.onMatchReportPending({
       guildId: "g", slug: "s", matchId, tournamentMatchId: 7, tournamentName: "RR",
-      roundNumber: 1, reporterDiscordId: "a", opponentDiscordId: "b",
+      roundNumber: 1, reporterDiscordId: "900000000000000101", opponentDiscordId: "900000000000000102",
       reporterName: "A", opponentName: "B", opponentLost: true,
     });
     expect(client.channels.fetch).not.toHaveBeenCalled();

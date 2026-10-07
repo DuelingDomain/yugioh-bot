@@ -23,9 +23,9 @@ describe("web draft deck helpers", () => {
     vi.doMock("@yugidraft/shared/services", () => ({ createDraftDeckService: () => service, draftDeckNote }));
     const lib = await import("@/lib/draft-decks");
 
-    lib.backfillDraftDecks("g1", "u1");
+    lib.backfillDraftDecks("g1", 101);
     lib.linkDraftDeck(4, 7);
-    expect(service.ensureForUser).toHaveBeenCalledWith("g1", "u1");
+    expect(service.ensureForUser).toHaveBeenCalledWith("g1", 101);
     expect(service.linkTournament).toHaveBeenCalledWith(4, 7);
     expect(lib.draftDeckNoteFor(db, { draftId: 9, playerId: 7, deck: DECK })).toEqual({ level: "optional", mainCount: 3, message: "m" });
     expect(service.mainPoolCount).toHaveBeenCalledWith(9, 7);
@@ -40,7 +40,7 @@ describe("web draft deck helpers", () => {
       draftDeckNote: boom,
     }));
     const lib = await import("@/lib/draft-decks");
-    expect(() => lib.backfillDraftDecks("g1", "u1")).not.toThrow();
+    expect(() => lib.backfillDraftDecks("g1", 101)).not.toThrow();
     expect(() => lib.linkDraftDeck(4, 7)).not.toThrow();
     expect(lib.draftDeckNoteFor(db, { draftId: 9, playerId: 7, deck: DECK })).toBeNull();
   });
@@ -49,7 +49,7 @@ describe("web draft deck helpers", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.doMock("@yugidraft/shared/services", () => ({}));
     const lib = await import("@/lib/draft-decks");
-    expect(() => lib.backfillDraftDecks("g1", "u1")).not.toThrow();
+    expect(() => lib.backfillDraftDecks("g1", 101)).not.toThrow();
     expect(() => lib.linkDraftDeck(4, 7)).not.toThrow();
     expect(lib.draftDeckNoteFor(db, { draftId: 9, playerId: 7, deck: DECK })).toBeNull();
   });

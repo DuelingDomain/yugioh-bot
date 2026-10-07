@@ -2,6 +2,7 @@ import { env } from "@/lib/env";
 import { redirect } from "next/navigation";
 import { Plus } from "lucide-react";
 import { auth } from "@/lib/auth";
+import { parseUserId } from "@/lib/user-id";
 import { getDb } from "@/lib/db";
 import { FloorList, SectionHead, SvButton } from "@/components/sheet";
 import { DraftFrame } from "@/components/draft/draft-frame";
@@ -19,14 +20,14 @@ import {
 
 export default async function DraftsPage() {
   const session = await auth();
-  if (!session?.user?.id) redirect("/login");
+  const userId = parseUserId(session?.user?.id);
+  if (userId === null) redirect("/login");
 
-  const discordUserId = session.user.id;
   const db = getDb();
 
   const playerRows = db
-    .prepare("select id from players where discord_user_id = ? and guild_id = ?")
-    .all(discordUserId, env.discordGuildId) as Array<{ id: number }>;
+    .prepare("select id from players where user_id = ? and guild_id = ?")
+    .all(userId, env.discordGuildId) as Array<{ id: number }>;
   const playerIds = playerRows.map((r) => r.id);
 
   let drafts: DraftListItem[] = [];
@@ -69,7 +70,7 @@ export default async function DraftsPage() {
       }));
   }
 
-  const rejoin = findRejoinDrafts(db, env.discordGuildId, discordUserId);
+  const rejoin = findRejoinDrafts(db, env.discordGuildId, userId);
   const groups = groupDrafts(drafts);
   const summary = listSummaryParts(groups);
 
@@ -87,8 +88,7 @@ export default async function DraftsPage() {
         <div className={styles.empty}>
           <h2>No drafts yet</h2>
           <p>
-            Start one here, or run <code className="cmd">/draft create</code> in Discord. Drafts you join show up on this
-            page.
+            Start one and share the link. Drafts you join show up on this page.
           </p>
           <SvButton as="a" href="/drafts/new" variant="primary" className={styles.go}>
             <Plus size={16} strokeWidth={2.2} aria-hidden="true" />

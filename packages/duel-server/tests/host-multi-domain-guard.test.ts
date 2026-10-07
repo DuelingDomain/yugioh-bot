@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { createHmac } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -29,9 +30,7 @@ function lobby(format: DuelFormat, files: string[], mode: DuelMode = "domain") {
   for (const file of files) writeFileSync(join(dataDirectory, file), "wasm");
   const db = new Database(":memory:");
   migrate(db);
-  const playerId = Number(
-    db.prepare("insert into players (guild_id, discord_user_id, display_name) values (?, ?, ?)").run("g1", "u0", "P0").lastInsertRowid,
-  );
+  const playerId = seedIdentity(db, { guildId: "g1", name: "P0", userId: seedUser(db, "u0").userId, discordUserId: seedUser(db, "u0").discordUserId ?? "u0" }).playerId;
   const session = createDuelService(db).create({ guildId: "g1", organizerPlayerId: playerId, name: "Duel", mode, format });
   let workersCreated = 0;
   const host = createDuelHost({

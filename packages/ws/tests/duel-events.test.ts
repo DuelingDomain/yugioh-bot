@@ -65,7 +65,7 @@ function emitDuelJoin(client: TestClient, token: string): Promise<DuelJoinAck> {
 }
 
 function emitDraftJoin(client: TestClient, slug: string): Promise<unknown> {
-  const userId = "user-1";
+  const userId = 101;
   const token = createDraftRoomToken({ slug, guildId: "g1", userId, expiresAt: Date.now() + 60_000 }, SECRET);
   return new Promise<unknown>((resolve) => client.emit("draft:join", { slug, userId, token }, resolve));
 }

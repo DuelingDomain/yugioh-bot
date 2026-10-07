@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { createHmac } from "node:crypto";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
@@ -65,8 +66,8 @@ class ScriptedWorker implements DuelGameWorker {
 async function table(worker = new ScriptedWorker(), now?: () => number) {
   const db = new Database(":memory:"); databases.push(db); migrate(db);
   const players = [0, 1, 2].map((seat) =>
-    Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g', ?, ?)").run(`u${seat}`, `P${seat}`).lastInsertRowid));
-  const outsider = Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g', 'out', 'Out')").run().lastInsertRowid);
+    seedIdentity(db, { guildId: "g", name: `P${seat}`, userId: seedUser(db, `u${seat}`).userId, discordUserId: seedUser(db, `u${seat}`).discordUserId ?? `u${seat}` }).playerId);
+  const outsider = seedIdentity(db, { guildId: "g", name: "Out", userId: seedUser(db, "out").userId, discordUserId: seedUser(db, "out").discordUserId ?? "out" }).playerId;
   const duels = createDuelService(db);
   const session = duels.create({ guildId: "g", organizerPlayerId: players[0]!, name: "chain", mode: "normal", format: "ffa3" });
   for (const player of players.slice(1)) duels.takeSeat(session.slug, "g", player);

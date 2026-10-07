@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "../helpers/identity.js";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import { migrate } from "../../src/db/index.js";
@@ -14,10 +15,8 @@ function emptyCatalog(db: Database.Database) {
 }
 
 function insertPlayer(db: Database.Database, guildId: string, discordUserId: string, displayName: string) {
-  const result = db
-    .prepare("insert into players (guild_id, discord_user_id, display_name) values (?, ?, ?)")
-    .run(guildId, discordUserId, displayName);
-  return Number(result.lastInsertRowid);
+  const result = seedIdentity(db, { guildId: guildId, name: displayName, userId: seedUser(db, discordUserId).userId, discordUserId: seedUser(db, discordUserId).discordUserId ?? discordUserId });
+  return Number(result.playerId);
 }
 
 let catalogId = 1;
@@ -29,7 +28,7 @@ function seedThemeCards(
   mainCount: number,
   extraCount: number,
 ) {
-  const theme = themes.createBlank(guildId, name, "host");
+  const theme = themes.createBlank(guildId, name, seedUser(db, "host").userId);
   const insCard = db.prepare(
     `insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
      values (?,?,?,?,?,?,?,?)`,
@@ -77,7 +76,7 @@ function makeThemeDraft(opts: {
       opts.assign.map((themeIndex, playerIndex) => [String(playerIds[playerIndex]), themeIds[themeIndex]]),
     );
   }
-  const draft = drafts.create(guildId, "c", "theme night", config, "host", playerIds[0]);
+  const draft = drafts.create(guildId, "c", "theme night", config, seedUser(db, "host").userId, playerIds[0]);
   for (let i = 1; i < playerIds.length; i++) {
     drafts.join(draft.id, playerIds[i]);
   }
@@ -111,7 +110,7 @@ it("weights distinct theme choices by remaining copies over 1000 fixed-seed draf
   const config = drafts.findById(draftId).config;
   const hits = new Map<number, number>();
   for (let run = 0; run < 1000; run++) {
-    const current = run === 0 ? draftId : drafts.create("g", "c", `Weighted ${run}`, config, "host", playerIds[0]).id;
+    const current = run === 0 ? draftId : drafts.create("g", "c", `Weighted ${run}`, config, seedUser(db, "host").userId, playerIds[0]).id;
     if (run > 0) drafts.join(current, playerIds[1]);
     drafts.start(current);
     const choices = drafts.currentPackOptions(current, playerIds[0]).map((card) => card.catalogCardId);
@@ -147,7 +146,7 @@ describe("theme draft — config normalization", () => {
     migrate(db);
     const drafts = createDraftService(db);
     const yugi = insertPlayer(db, "g", "u", "Yugi");
-    const draft = drafts.create("g", "c", "cube night", { setNames: ["X"] }, "host", yugi);
+    const draft = drafts.create("g", "c", "cube night", { setNames: ["X"] }, seedUser(db, "host").userId, yugi);
     expect(draft.config.themePackSize).toBeUndefined();
     expect(draft.config.mode).toBeUndefined();
   });
@@ -187,13 +186,13 @@ describe("theme draft — start & assignment", () => {
       drafts.start(draftId);
       const first = assignments(draftId);
 
-      const repeat = drafts.create("g", "c", "same seed", config, "host", playerIds[0]);
+      const repeat = drafts.create("g", "c", "same seed", config, seedUser(db, "host").userId, playerIds[0]);
       drafts.join(repeat.id, playerIds[1]);
       drafts.start(repeat.id);
       expect(assignments(repeat.id)).toEqual(first);
 
       seed = "b".repeat(64);
-      const different = drafts.create("g", "c", "different seed", config, "host", playerIds[0]);
+      const different = drafts.create("g", "c", "different seed", config, seedUser(db, "host").userId, playerIds[0]);
       drafts.join(different.id, playerIds[1]);
       drafts.start(different.id);
       expect(assignments(different.id)).not.toEqual(first);
@@ -223,14 +222,14 @@ describe("theme draft — start & assignment", () => {
       const resumed = createDraftService(db, { seedSource: () => { throw new Error("Reads must not redeal"); } });
       expect(resumed.currentPackOptions(draftId, playerIds[0])).toEqual(first);
 
-      const repeat = drafts.create("g", "c", "same pack seed", config, "host", playerIds[0]);
+      const repeat = drafts.create("g", "c", "same pack seed", config, seedUser(db, "host").userId, playerIds[0]);
       drafts.join(repeat.id, playerIds[1]);
       drafts.start(repeat.id);
       expect(drafts.currentPackOptions(repeat.id, playerIds[0]).map((card) => card.catalogCardId))
         .toEqual(first.map((card) => card.catalogCardId));
 
       seed = "b".repeat(64);
-      const different = drafts.create("g", "c", "different pack seed", config, "host", playerIds[0]);
+      const different = drafts.create("g", "c", "different pack seed", config, seedUser(db, "host").userId, playerIds[0]);
       drafts.join(different.id, playerIds[1]);
       drafts.start(different.id);
       expect(drafts.currentPackOptions(different.id, playerIds[0]).map((card) => card.catalogCardId))
@@ -501,7 +500,7 @@ describe("theme draft — tournament hand-off", () => {
     expect(drafts.findById(draftId).status).toBe("completed");
 
     const tourneys = createDraftTournamentService(db);
-    const result = tourneys.createTournamentFromDraft({ draftId, format: "round_robin", createdByUserId: "host" });
+    const result = tourneys.createTournamentFromDraft({ draftId, format: "round_robin", createdByUserId: seedUser(db, "host").userId });
     expect(result).toBeTruthy();
     const row = db.prepare("select count(*) as n from tournaments where guild_id = 'g'").get() as { n: number };
     expect(row.n).toBe(1);

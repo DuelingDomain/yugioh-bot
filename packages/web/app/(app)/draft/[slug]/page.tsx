@@ -1,5 +1,7 @@
 "use client";
 
+import { parseUserId } from "@/lib/user-id";
+
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { DraftManageView } from "@/components/draft/draft-manage-view";
@@ -32,7 +34,7 @@ interface DraftData {
   id: number;
   name: string;
   status: string;
-  createdByUserId: string;
+  createdByUserId: number;
   createdAt: string;
   startedAt?: string;
   endedAt?: string;
@@ -70,7 +72,7 @@ interface DraftData {
   tournamentName?: string | null;
   tournamentSlug?: string | null;
   myDeckId?: number | null;
-  /** Server-checked: completed, no tournament yet, and the viewer is the host or a guild admin. */
+  /** Server-checked: completed, no tournament yet, and the viewer is the draft host. */
   canCreateTournament?: boolean;
   isParticipant: boolean;
   /** Server says test bots are allowed (DRAFT_TEST_BOTS=1 or a non-production build). */
@@ -125,7 +127,7 @@ export default function DraftDetailPage() {
 
   const [draft, setDraft] = useState<DraftData | null>(null);
   const [error, setError] = useState<{ status: number | null } | null>(null);
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
 
   // The room is shown while the draft is active; finishing it from the room ends on the finale.
   const [wasInRoom, setWasInRoom] = useState(false);
@@ -208,7 +210,7 @@ export default function DraftDetailPage() {
     fetch("/api/auth/session")
       .then((r) => r.json())
       .then((s) => {
-        if (s?.user?.id) setCurrentUserId(s.user.id);
+        setCurrentUserId(parseUserId(s?.user?.id));
       })
       .catch(() => {});
   }, []);

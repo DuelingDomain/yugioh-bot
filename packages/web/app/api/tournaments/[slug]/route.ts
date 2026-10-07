@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
 import { env } from "@/lib/env";
 import {
   createDuelSeriesService,
@@ -23,7 +23,7 @@ type TournamentRow = {
   name: string;
   format: string;
   status: string;
-  created_by_user_id: string;
+  created_by_user_id: number;
   web_slug: string | null;
   deadline_at: string | null;
   report_confirm_window_hours: number | null;
@@ -56,16 +56,17 @@ export async function GET(
 
     // A draft tournament entry uses the player's draft deck: save a missing one and register it
     // before the participants are read, so the viewer sees the deck in.
-    const session = await auth();
-    if (session?.user?.id) {
+    const actor = await requireWebAccess();
+    if (!actor.ok) return actor.response;
+    {
       const viewer = db
-        .prepare("select id from players where guild_id = ? and discord_user_id = ?")
-        .get(tournament.guild_id, session.user.id) as { id: number } | undefined;
+        .prepare("select id from players where guild_id = ? and user_id = ?")
+        .get(tournament.guild_id, actor.userId) as { id: number } | undefined;
       const draftRow = viewer
         ? db.prepare("select id from drafts where tournament_id = ? and guild_id = ?").get(tournamentId, tournament.guild_id)
         : undefined;
       if (viewer && draftRow) {
-        backfillDraftDecks(tournament.guild_id, session.user.id, db);
+        backfillDraftDecks(tournament.guild_id, actor.userId, db);
         linkDraftDeck(tournamentId, viewer.id, db);
       }
     }
@@ -164,10 +165,10 @@ export async function GET(
 
     let isParticipant = false;
     let currentUserPlayerId: number | null = null;
-    if (session?.user?.id) {
+    if (actor.ok) {
       const currentPlayer = db
-        .prepare("select id from players where guild_id = ? and discord_user_id = ?")
-        .get(tournament.guild_id, session.user.id) as { id: number } | undefined;
+        .prepare("select id from players where guild_id = ? and user_id = ?")
+        .get(tournament.guild_id, actor.userId) as { id: number } | undefined;
       if (currentPlayer) {
         currentUserPlayerId = currentPlayer.id;
         isParticipant = participants.some((p) => p.playerId === currentPlayer.id);
@@ -176,15 +177,16 @@ export async function GET(
 
     // The size note for the viewer's draft deck: the registered deck, else the saved draft deck.
     let deckNote = null;
-    if (isParticipant && currentUserPlayerId !== null && duelRules.draftId && session?.user?.id) {
+    if (isParticipant && currentUserPlayerId !== null && duelRules.draftId && actor.ok) {
       const deck =
         tournamentDuels.registration(tournamentId, currentUserPlayerId)?.deck ??
-        createSavedDeckService(db).findByDraft(tournament.guild_id, session.user.id, duelRules.draftId)?.deck;
+        createSavedDeckService(db).findByDraft(tournament.guild_id, actor.userId, duelRules.draftId)?.deck;
       if (deck) deckNote = draftDeckNoteFor(db, { draftId: duelRules.draftId, playerId: currentUserPlayerId, deck });
     }
 
     return NextResponse.json({
       id: tournament.id,
+      discordEnabled: env.discordBotEnabled,
       guildId: tournament.guild_id,
       name: tournament.name,
       format: tournament.format,
@@ -228,10 +230,8 @@ export async function DELETE(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const actor = await requireWebAccess();
+    if (!actor.ok) return actor.response;
 
     const { slug } = await params;
     const db = getDb();
@@ -242,7 +242,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Tournament not found" }, { status: 404 });
     }
 
-    if (tournament.created_by_user_id !== session.user.id) {
+    if (tournament.created_by_user_id !== actor.userId) {
       return NextResponse.json({ error: "Only the tournament creator can cancel it" }, { status: 403 });
     }
 
@@ -270,10 +270,8 @@ export async function PUT(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const actor = await requireWebAccess();
+    if (!actor.ok) return actor.response;
 
     const { slug } = await params;
     const db = getDb();
@@ -284,7 +282,7 @@ export async function PUT(
       return NextResponse.json({ error: "Tournament not found" }, { status: 404 });
     }
 
-    if (tournament.created_by_user_id !== session.user.id) {
+    if (tournament.created_by_user_id !== actor.userId) {
       return NextResponse.json({ error: "Only the tournament creator can modify it" }, { status: 403 });
     }
 
@@ -335,7 +333,7 @@ export async function PUT(
     const patch: { deadlineAt?: string | null; reportConfirmWindowHours?: number | null } = {};
     if (deadlineAt !== undefined) patch.deadlineAt = deadlineAt;
     if (reportConfirmWindowHours !== undefined) patch.reportConfirmWindowHours = reportConfirmWindowHours;
-    const userId = session.user.id;
+    const userId = actor.userId;
     const rulesChange = bestOf !== undefined || (duelRules !== undefined && duelRules !== null);
 
     // All updates apply together: a failing step rolls the earlier ones back.
@@ -407,10 +405,8 @@ export async function POST(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const actor = await requireWebAccess();
+    if (!actor.ok) return actor.response;
 
     const { slug } = await params;
     const db = getDb();
@@ -421,14 +417,14 @@ export async function POST(
       return NextResponse.json({ error: "Tournament not found" }, { status: 404 });
     }
 
-    if (tournament.created_by_user_id !== session.user.id) {
+    if (tournament.created_by_user_id !== actor.userId) {
       return NextResponse.json({ error: "Only the tournament creator can start it" }, { status: 403 });
     }
 
     const tournaments = createTournamentService(db);
     const started = tournaments.start(tournament.id);
 
-    void announcer.announce(
+    if (env.discordBotEnabled) void announcer.announce(
       {
         kind: "tournament-started",
         tournamentId: started.id,

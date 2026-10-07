@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
 import { env } from "@/lib/env";
 import { createSavedDeckService, deckRegistrationMark } from "@yugidraft/shared/services";
 import { loadDeckRegistrations } from "@/lib/saved-decks";
@@ -14,10 +14,8 @@ export async function GET(
   { params }: { params: Promise<{ slug: string }> },
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const actor = await requireWebAccess();
+    if (!actor.ok) return actor.response;
     const guildId = env.discordGuildId;
     if (!guildId) {
       return NextResponse.json({ error: "Guild is not configured" }, { status: 500 });
@@ -25,9 +23,9 @@ export async function GET(
 
     const { slug } = await params;
     const db = getDb();
-    const denied = draftReadAccess(db, slug, guildId, session.user.id);
+    const denied = draftReadAccess(db, slug, guildId, actor.userId);
     if (denied) return denied;
-    const found = findDraftDeckContext(db, guildId, session.user.id, { slug });
+    const found = findDraftDeckContext(db, guildId, actor.userId, { slug });
     if (!found.ok) return found.response;
     const { draft } = found;
 
@@ -35,7 +33,7 @@ export async function GET(
     if (!loaded.ok) return loaded.response;
     const { pool } = loaded;
 
-    const saved = createSavedDeckService(db).findByDraft(guildId, session.user.id, draft.id);
+    const saved = createSavedDeckService(db).findByDraft(guildId, actor.userId, draft.id);
     return NextResponse.json({
       draftId: draft.id,
       draftName: draft.name,
@@ -44,7 +42,7 @@ export async function GET(
       mainPoolCount: pool.mainPoolCount,
       savedDeckId: saved?.id ?? null,
       // The tournament this draft's deck is registered for, if any (pending or active tournaments only).
-      registration: deckRegistrationMark(loadDeckRegistrations(guildId, session.user.id), {
+      registration: deckRegistrationMark(loadDeckRegistrations(guildId, actor.userId), {
         savedDeckId: saved?.id ?? null,
         draftId: draft.id,
       }),

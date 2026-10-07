@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "../fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -6,13 +7,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const auth = vi.fn();
 const tempDirs: string[] = [];
 
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("../fixtures/session");
+  return sessionFixture(auth);
+});
 
 describe("GET /api/tournaments/[slug]", () => {
   beforeEach(() => {
     vi.resetModules();
     auth.mockReset();
-    auth.mockResolvedValue({ user: { id: "user-1", name: "Yugi" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("user-1")), discordUserId: fixtureDiscordId("user-1"), name: "Yugi" } });
   });
 
   afterEach(() => {
@@ -35,11 +39,12 @@ describe("GET /api/tournaments/[slug]", () => {
     const { migrate } = await import("../../../shared/src/db/schema");
     const seedDb = new Database(dbPath);
     migrate(seedDb);
+    seedFixtureUsers(seedDb, FIXTURE_KEYS);
     seedDb
       .prepare(
         "insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug) values (?, ?, ?, 'pending', ?, ?)",
       )
-      .run("guild-1", "Locals", "round_robin", "user-1", "abcd1234");
+      .run("guild-1", "Locals", "round_robin", fixtureUserId("user-1"), "abcd1234");
     seedDb.close();
 
     const { GET } = await import("../../app/api/tournaments/[slug]/route");
@@ -63,14 +68,15 @@ describe("GET /api/tournaments/[slug]", () => {
     const { migrate } = await import("../../../shared/src/db/schema");
     const seedDb = new Database(dbPath);
     migrate(seedDb);
+    seedFixtureUsers(seedDb, FIXTURE_KEYS);
 
     seedDb
       .prepare(
-        "insert into tournaments (id, guild_id, name, format, status, created_by_user_id, web_slug, created_at, started_at) values (1, 'guild-1', 'Locals', 'round_robin', 'active', 'user-1', 'abcd1234', '2026-05-01T10:00:00Z', '2026-05-02T12:00:00Z')",
+        `insert into tournaments (id, guild_id, name, format, status, created_by_user_id, web_slug, created_at, started_at) values (1, 'guild-1', 'Locals', 'round_robin', 'active', ${fixtureUserId("user-1")}, 'abcd1234', '2026-05-01T10:00:00Z', '2026-05-02T12:00:00Z')`,
       )
       .run();
-    seedDb.prepare("insert into players (id, guild_id, discord_user_id, display_name) values (1, 'guild-1', 'u-a', 'Alice')").run();
-    seedDb.prepare("insert into players (id, guild_id, discord_user_id, display_name) values (2, 'guild-1', 'u-b', 'Bob')").run();
+    seedDb.prepare(`insert into players (id, guild_id, user_id, discord_user_id, display_name) values (1, 'guild-1', ${fixtureUserId("u-a")}, '${fixtureDiscordId("u-a")}', 'Alice')`).run();
+    seedDb.prepare(`insert into players (id, guild_id, user_id, discord_user_id, display_name) values (2, 'guild-1', ${fixtureUserId("u-b")}, '${fixtureDiscordId("u-b")}', 'Bob')`).run();
     seedDb.prepare("insert into tournament_participants (tournament_id, player_id) values (1, 1)").run();
     seedDb.prepare("insert into tournament_participants (tournament_id, player_id) values (1, 2)").run();
     seedDb
@@ -107,6 +113,7 @@ describe("GET /api/tournaments/[slug]", () => {
     const { migrate } = await import("../../../shared/src/db/schema");
     const seedDb = new Database(dbPath);
     migrate(seedDb);
+    seedFixtureUsers(seedDb, FIXTURE_KEYS);
     seedDb.close();
 
     const { GET } = await import("../../app/api/tournaments/[slug]/route");
@@ -116,3 +123,7 @@ describe("GET /api/tournaments/[slug]", () => {
     expect(res.status).toBe(404);
   });
 });
+
+const FIXTURE_KEYS = ["user-1", "u-a", "u-b"] as const;
+
+// Session resolution is mocked; authorization still runs through the real web boundary.

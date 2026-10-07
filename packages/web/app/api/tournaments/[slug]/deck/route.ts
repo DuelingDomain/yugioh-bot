@@ -8,7 +8,7 @@ import {
   SavedDeckServiceError,
   TournamentDuelError,
 } from "@yugidraft/shared/services";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { callDuelHost } from "@/lib/duel-host";
@@ -30,10 +30,8 @@ function serviceError(error: unknown) {
 
 /** The signed-in participant, or a response that explains why not. */
 async function loadCaller(slug: string) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return { ok: false as const, response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
-  }
+  const actor = await requireWebAccess();
+  if (!actor.ok) return actor;
   const db = getDb();
   const tournament = db.prepare("select id, guild_id from tournaments where web_slug = ? and guild_id = ?").get(slug, env.discordGuildId) as
     | TournamentRow
@@ -41,7 +39,7 @@ async function loadCaller(slug: string) {
   if (!tournament) {
     return { ok: false as const, response: NextResponse.json({ error: "Tournament not found" }, { status: 404 }) };
   }
-  const player = createPlayerService(db).findByGuildAndUser(tournament.guild_id, session.user.id);
+  const player = createPlayerService(db).findByGuildAndUser(tournament.guild_id, actor.userId);
   const isParticipant =
     player &&
     db
@@ -53,7 +51,7 @@ async function loadCaller(slug: string) {
       response: NextResponse.json({ error: "You are not a player in this tournament" }, { status: 403 }),
     };
   }
-  return { ok: true as const, db, tournament, player, userId: session.user.id };
+  return { ok: true as const, db, tournament, player, userId: actor.userId };
 }
 
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {

@@ -1,31 +1,15 @@
 #!/bin/sh
-# Builds the staging env file from the production env file. It never prints a value, only key names.
+# Builds staging env from community config plus a separate staging Clerk source.
+# Never prints values. The source files are read-only; output is atomic and 0600.
 #
-#   STAGING_HOST=203.0.113.7 sh scripts/staging/make-staging-env.sh [--force] <production-env> <staging-env>
-#
-# Settings (environment):
-#   STAGING_HOST         public address of the VM. Needed when STAGING_DOMAIN is empty.
-#   STAGING_DOMAIN       a host name for staging (a second DNS name of the VM). Used instead of STAGING_HOST
-#                        in the address. It gives staging its own cookie scope. Empty (default) means STAGING_HOST.
-#   STAGING_HTTP_PORT    host port of staging. Default 8080. Ports below 1024 are refused: 80 and 443 belong to
-#                        the production Caddy. Staging is plain HTTP only.
-#
-# What the staging file gets:
-#   - copied from production: only the keys the web needs to sign users in and to check the guild
-#     (see COPY_REQUIRED and COPY_OPTIONAL below). Nothing else is copied. NEXTAUTH_SECRET is NOT copied.
-#   - set to the staging address (http://<host>:<port>): NEXTAUTH_URL, AUTH_URL, WEB_URL, NEXT_PUBLIC_WS_URL.
-#   - NEW random secrets: NEXTAUTH_SECRET, WS_INTERNAL_SECRET and DUEL_INTERNAL_SECRET. They differ from
-#     production. A session made in staging is therefore not valid in production, and the other way round.
-#   - empty on purpose: BOT_ANNOUNCE_URL and BOT_ANNOUNCE_SECRET (there is no bot in staging).
-#
-# The script reads the production file and never writes to it. An existing staging file is kept
-# unless --force is given. The new file has mode 600.
+# STAGING_CLERK_ENV=/secure/staging-clerk.env STAGING_HOST=staging.example.com \
+#   sh scripts/staging/make-staging-env.sh [--force] <community-env> <staging-env>
+# STAGING_DOMAIN overrides STAGING_HOST; STAGING_HTTP_PORT defaults to 8080.
+# The Clerk source must belong to a separate staging instance (never dev keys).
 set -eu
 
-# DISCORD_TOKEN is copied because the web uses it as a REST credential to check guild membership
-# (packages/web/src/lib/discord-guild-membership.ts). Staging runs no bot process, so it cannot answer commands.
-COPY_REQUIRED="DISCORD_TOKEN DISCORD_CLIENT_ID DISCORD_CLIENT_SECRET DISCORD_GUILD_ID"
-COPY_OPTIONAL="DISCORD_DEFAULT_CHANNEL_ID DISCORD_REMINDER_CHANNEL_ID"
+COPY_REQUIRED="DISCORD_GUILD_ID"
+COPY_OPTIONAL="MARKETING_URL OWNER_USER_IDS DISCORD_DEFAULT_CHANNEL_ID DISCORD_REMINDER_CHANNEL_ID"
 
 force=0
 if [ "${1:-}" = "--force" ]; then
@@ -56,6 +40,16 @@ esac
 if [ -e "$out" ] && [ "$force" -ne 1 ]; then
   echo "make-staging-env: $out already exists, kept as it is (use --force to rebuild it)"
   exit 0
+fi
+
+clerk_src=${STAGING_CLERK_ENV:-}
+[ -n "$clerk_src" ] && [ -f "$clerk_src" ] || {
+  echo "make-staging-env: STAGING_CLERK_ENV must name a separate staging Clerk env file" >&2
+  exit 1
+}
+if [ "$clerk_src" -ef "$src" ] || { [ -e "$out" ] && [ "$clerk_src" -ef "$out" ]; }; then
+  echo "make-staging-env: Clerk source must be separate from community/production and output env files" >&2
+  exit 1
 fi
 
 domain=${STAGING_DOMAIN:-}
@@ -95,8 +89,6 @@ trap 'rm -f "$tmp"' EXIT INT TERM HUP
 {
   echo "# Staging env file. Made by scripts/staging/make-staging-env.sh. Do not commit."
   echo "# Staging address and ports"
-  echo "NEXTAUTH_URL=$url"
-  echo "AUTH_URL=$url"
   echo "WEB_URL=$url"
   echo "NEXT_PUBLIC_WS_URL=$url"
   echo "STAGING_HTTP_PORT=$http_port"
@@ -106,37 +98,52 @@ trap 'rm -f "$tmp"' EXIT INT TERM HUP
   echo "DATABASE_PATH=/app/data/bot.sqlite"
   echo "DUEL_DATA_DIR=/app/data/duel-engine"
   echo "# No bot in staging: announcements stay off"
-  echo "BOT_ANNOUNCE_URL="
-  echo "BOT_ANNOUNCE_SECRET="
-  echo "# New secrets, not the production ones. Staging sessions must not be valid in production."
-  echo "NEXTAUTH_SECRET=$(random_secret)"
+  echo "DISCORD_BOT_ENABLED=0"
+  echo "CARD_IMAGE_CACHE_DIR=/app/data/card-images"
+  echo "CARD_IMAGE_CACHE_MAX_BYTES=16106127360"
+  echo "SETS_SYNC_CRON=0 6 * * *"
+  echo "SETS_SYNC_TIMEZONE=UTC"
+  echo "IMAGE_CLEANUP_CRON=0 4 * * *"
+  echo "IMAGE_CLEANUP_TIMEZONE=UTC"
+  echo "# Independent internal secrets."
   echo "WS_INTERNAL_SECRET=$(random_secret)"
   echo "DUEL_INTERNAL_SECRET=$(random_secret)"
-  echo "# Copied from the production file"
+  echo "# Community config and separate staging Clerk keys"
 } >> "$tmp"
 
-echo "make-staging-env: set NEXTAUTH_URL AUTH_URL WEB_URL NEXT_PUBLIC_WS_URL to the staging address"
+echo "make-staging-env: set WEB_URL NEXT_PUBLIC_WS_URL to the staging address"
 echo "make-staging-env: set STAGING_HTTP_PORT"
-echo "make-staging-env: generated NEXTAUTH_SECRET WS_INTERNAL_SECRET DUEL_INTERNAL_SECRET (new random values)"
-echo "make-staging-env: left BOT_ANNOUNCE_URL and BOT_ANNOUNCE_SECRET empty"
+echo "make-staging-env: generated WS_INTERNAL_SECRET DUEL_INTERNAL_SECRET (new random values)"
 
 missing=""
-for key in $COPY_REQUIRED $COPY_OPTIONAL; do
+for key in $COPY_REQUIRED $COPY_OPTIONAL CLERK_SECRET_KEY NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY; do
+  key_src=$src
+  case "$key" in CLERK_SECRET_KEY|NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) key_src=$clerk_src ;; esac
   # The last assignment wins, like in an env file. The line is copied as it is and never printed.
-  line=$(grep -E "^${key}=" "$src" | tail -n 1 || true)
+  line=$(grep -E "^${key}=" "$key_src" | tail -n 1 || true)
   if printf '%s' "$line" | grep -Eq "^${key}=[\"']?[^\"'[:space:]]"; then
+    case "$key" in
+      CLERK_SECRET_KEY|NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY)
+        prefix=sk_live_
+        [ "$key" != NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ] || prefix=pk_live_
+        printf '%s' "$line" | grep -Eq "^${key}=[\"']?${prefix}[A-Za-z0-9_-]+[\"']?$" || {
+          echo "make-staging-env: $key must belong to a separate staging instance; dev keys are refused" >&2
+          exit 1
+        }
+        ;;
+    esac
     printf '%s\n' "$line" >> "$tmp"
     echo "make-staging-env: copied $key"
   else
-    case " $COPY_REQUIRED " in
+    case " $COPY_REQUIRED CLERK_SECRET_KEY NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY " in
       *" $key "*) missing="$missing $key" ;;
-      *) echo "make-staging-env: $key is empty or missing in the production file, skipped" ;;
+      *) echo "make-staging-env: $key is empty or missing in its source file, skipped" ;;
     esac
   fi
 done
 
 if [ -n "$missing" ]; then
-  echo "make-staging-env: these keys are empty or missing in the production file:$missing" >&2
+  echo "make-staging-env: these keys are empty or missing in its source file:$missing" >&2
   exit 1
 fi
 

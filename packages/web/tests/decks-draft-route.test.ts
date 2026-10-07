@@ -1,3 +1,4 @@
+import { seedFixtureUsers, fixtureUserId, fixtureDiscordId } from "./fixtures/identity";
 import { rmSync } from "node:fs";
 import { NextResponse } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -6,7 +7,10 @@ import { mainIds, passcodeOf, seedDraftDeck, type DraftDeckFixture } from "./hel
 const auth = vi.fn();
 const callDuelHost = vi.fn();
 const dirs: string[] = [];
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/duel-host", () => ({ callDuelHost }));
 
 // Pool: cards 1..45 once each, card 1 a second time, and Fusion Monster 2001 once.
@@ -24,7 +28,7 @@ describe("draft decks through /api/decks", () => {
     vi.resetModules();
     auth.mockReset();
     callDuelHost.mockReset();
-    auth.mockResolvedValue({ user: { id: "drafter", name: "Yugi" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("drafter")), discordUserId: fixtureDiscordId("drafter"), name: "Yugi" } });
     callDuelHost.mockImplementation(async (input: { codes: number[] }) => ({
       ok: true,
       data: { codes: Object.fromEntries(input.codes.map((id) => [String(id), id >= 100000 ? id : passcodeOf(id)])) },
@@ -84,8 +88,9 @@ describe("draft decks through /api/decks", () => {
       expect((await post(deckBody({ main: Array(4).fill(passcodeOf(1)) }, { draftId }))).status).toBe(201);
     });
 
-    it("saves a legal deck for the draft", async () => {
+    it.each([false, true])("saves a legal deck for the draft (email-only=%s)", async emailOnly => {
       const { draftId } = await seed();
+      if (emailOnly) auth.mockResolvedValue({ user: { id: String(fixtureUserId("drafter")), discordUserId: null, name: "Yugi" } });
       const res = await post(deckBody({ main: main(40) }, { draftId }));
       expect(res.status).toBe(201);
       const json = await res.json();
@@ -123,7 +128,7 @@ describe("draft decks through /api/decks", () => {
 
     it("403 when the caller is not a draft player", async () => {
       const { draftId } = await seed();
-      auth.mockResolvedValue({ user: { id: "outsider", name: "Kaiba" } });
+      auth.mockResolvedValue({ user: { id: String(fixtureUserId("outsider")), discordUserId: fixtureDiscordId("outsider"), name: "Kaiba" } });
       expect((await post(deckBody({ main: main(40) }, { draftId }))).status).toBe(403);
     });
 
@@ -258,8 +263,9 @@ describe("draft decks through /api/decks", () => {
       const { getDb } = await import("@/lib/db");
       const { createSavedDeckService } = await import("@yugidraft/shared/services");
       const db = getDb();
+      seedFixtureUsers(db, FIXTURE_KEYS);
       const raw = { main: [...mainIds(39), 81480461], extra: [2001], side: [81480461], deckMaster: 81480461 };
-      const saved = createSavedDeckService(db).create("guild-1", "drafter", { name: "Stored art", mode: "domain", deck: raw, draftId });
+      const saved = createSavedDeckService(db).create("guild-1", fixtureUserId("drafter"), { name: "Stored art", mode: "domain", deck: raw, draftId });
       callDuelHost.mockResolvedValue(failure === "unavailable"
         ? { ok: false, response: NextResponse.json({ error: "Duel engine unavailable" }, { status: 503 }) }
         : { ok: true, data: { codes: {} } });
@@ -269,7 +275,7 @@ describe("draft decks through /api/decks", () => {
       expect(res.status).toBe(200);
       expect((await res.json()).deck).toMatchObject({ id: saved.id, name: "Stored art", draftId, deck: raw });
       expect(callDuelHost).toHaveBeenCalledWith(expect.objectContaining({ op: "normalize-codes", codes: expect.arrayContaining([81480461, 2001]) }));
-      expect(createSavedDeckService(db).get(saved.id, "guild-1", "drafter").deck).toEqual(raw);
+      expect(createSavedDeckService(db).get(saved.id, "guild-1", fixtureUserId("drafter")).deck).toEqual(raw);
     });
   });
 
@@ -319,7 +325,7 @@ describe("draft decks through /api/decks", () => {
 
     it("404 for a deck of another player, with no tournament detail", async () => {
       const id = await registeredDeck();
-      auth.mockResolvedValue({ user: { id: "outsider", name: "Kaiba" } });
+      auth.mockResolvedValue({ user: { id: String(fixtureUserId("outsider")), discordUserId: fixtureDiscordId("outsider"), name: "Kaiba" } });
       expect((await del(id)).status).toBe(404);
     });
   });
@@ -346,10 +352,11 @@ describe("draft decks through /api/decks", () => {
       const { draftId } = await seed({ picks: [...mainIds(39), 81480461] });
       const { getDb } = await import("@/lib/db");
       const db = getDb();
+      seedFixtureUsers(db, FIXTURE_KEYS);
       db.prepare("update card_catalog set name = 'Barrel Dragon', type = 'Effect Monster', frame_type = 'effect' where ygoprodeck_id = 81480461").run();
       const { createDraftDeckService, createSavedDeckService } = await import("@yugidraft/shared/services");
       createDraftDeckService(db).saveForDraft(draftId);
-      const saved = createSavedDeckService(db).findByDraft("guild-1", "drafter", draftId)!;
+      const saved = createSavedDeckService(db).findByDraft("guild-1", fixtureUserId("drafter"), draftId)!;
       expect(saved.deck.main).toContain(81480461);
       callDuelHost.mockImplementation(async (input: { codes: number[] }) => ({
         ok: true,
@@ -364,7 +371,7 @@ describe("draft decks through /api/decks", () => {
       const res = await put(saved.id, deckBody(saved.deck));
       expect(res.status).toBe(200);
       expect((await res.json()).deck.deck.main).toEqual([...main(39), 81480460]);
-      expect(createSavedDeckService(db).get(saved.id, "guild-1", "drafter").deck.main).toEqual([...main(39), 81480460]);
+      expect(createSavedDeckService(db).get(saved.id, "guild-1", fixtureUserId("drafter")).deck.main).toEqual([...main(39), 81480460]);
     });
 
     it("rejects excess copies when main and side use different artworks", async () => {
@@ -434,3 +441,7 @@ describe("draft decks through /api/decks", () => {
     });
   });
 });
+
+const FIXTURE_KEYS = ["drafter", "outsider"] as const;
+
+// Session resolution is mocked; authorization still runs through the real web boundary.

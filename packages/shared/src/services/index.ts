@@ -11,6 +11,9 @@ export * from "./drafts.js";
 export * from "./draft-access.js";
 export { createGuildSettingsService } from "./guild-settings.js";
 export type { GuildSettingsService, GuildSettings } from "./guild-settings.js";
+export * from "./users.js";
+export * from "./user-history.js";
+export * from "./account-deletion.js";
 export { createPlayerService } from "./players.js";
 export type { PlayerService, Player } from "./players.js";
 export { createMatchService } from "./matches.js";
@@ -53,3 +56,4 @@ export { createBugReportService, BugReportServiceError, BUG_REPORT_LIMIT } from 
 export type { BugReportService, BugReport, BugReportInput, BugReportLimit } from "./bug-reports.js";
 export { createWaitlistService } from "./waitlist.js";
 export type { WaitlistService, WaitlistMeta } from "./waitlist.js";
+export * from "./image-cache-cleanup.js";

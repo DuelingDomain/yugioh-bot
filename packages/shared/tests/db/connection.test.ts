@@ -25,6 +25,8 @@ describe("openDatabase concurrency configuration", () => {
     try {
       expect(db.pragma("journal_mode", { simple: true })).toBe("wal");
       expect(db.pragma("busy_timeout", { simple: true })).toBe(5000);
+      expect(db.pragma("foreign_keys", { simple: true })).toBe(1);
+      expect(() => db.prepare("insert into players(guild_id,user_id,display_name) values('g',999999,'Invalid')").run()).toThrow(/FOREIGN KEY/);
     } finally {
       db.close();
     }

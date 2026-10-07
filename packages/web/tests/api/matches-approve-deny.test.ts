@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "../fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -6,7 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const auth = vi.fn();
 const tempDirs: string[] = [];
 
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("../fixtures/session");
+  return sessionFixture(auth);
+});
 
 async function makeTempDb() {
   const tempDir = mkdtempSync(join(tmpdir(), "match-approve-"));
@@ -19,12 +23,13 @@ async function makeTempDb() {
   const { migrate } = await import("../../../shared/src/db/schema");
   const db = new Database(dbPath);
   migrate(db);
+  seedFixtureUsers(db, FIXTURE_KEYS);
 
-  db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1','reporter','Yugi')").run();
-  db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1','opponent','Kaiba')").run();
+  db.prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('g1', ${fixtureUserId("reporter")}, '${fixtureDiscordId("reporter")}', 'Yugi')`).run();
+  db.prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('g1', ${fixtureUserId("opponent")}, '${fixtureDiscordId("opponent")}', 'Kaiba')`).run();
 
-  const reporter = (db.prepare("select id from players where discord_user_id='reporter'").get() as any).id;
-  const opponent = (db.prepare("select id from players where discord_user_id='opponent'").get() as any).id;
+  const reporter = (db.prepare(`select id from players where user_id = ${fixtureUserId("reporter")}`).get() as any).id;
+  const opponent = (db.prepare(`select id from players where user_id = ${fixtureUserId("opponent")}`).get() as any).id;
 
   const r = db
     .prepare(
@@ -62,7 +67,7 @@ describe("POST /api/matches/[id]/approve", () => {
   });
 
   it("returns 404 when match does not exist", async () => {
-    auth.mockResolvedValue({ user: { id: "opponent", name: "Kaiba" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("opponent")), discordUserId: fixtureDiscordId("opponent"), name: "Kaiba" } });
     await makeTempDb();
     const { POST } = await import("../../app/api/matches/[id]/approve/route");
     const res = await POST(new Request("http://localhost/api/matches/999/approve"), {
@@ -72,7 +77,7 @@ describe("POST /api/matches/[id]/approve", () => {
   });
 
   it("returns 404 when the current user has no player record in the guild", async () => {
-    auth.mockResolvedValue({ user: { id: "stranger", name: "Stranger" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("stranger")), discordUserId: fixtureDiscordId("stranger"), name: "Stranger" } });
     const { matchId } = await makeTempDb();
     const { POST } = await import("../../app/api/matches/[id]/approve/route");
     const res = await POST(new Request(`http://localhost/api/matches/${matchId}/approve`), {
@@ -82,7 +87,7 @@ describe("POST /api/matches/[id]/approve", () => {
   });
 
   it("returns 400 when the reporter tries to approve their own match", async () => {
-    auth.mockResolvedValue({ user: { id: "reporter", name: "Yugi" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("reporter")), discordUserId: fixtureDiscordId("reporter"), name: "Yugi" } });
     const { matchId } = await makeTempDb();
     const { POST } = await import("../../app/api/matches/[id]/approve/route");
     const res = await POST(new Request(`http://localhost/api/matches/${matchId}/approve`), {
@@ -94,7 +99,7 @@ describe("POST /api/matches/[id]/approve", () => {
   });
 
   it("approves the match when the opponent calls it", async () => {
-    auth.mockResolvedValue({ user: { id: "opponent", name: "Kaiba" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("opponent")), discordUserId: fixtureDiscordId("opponent"), name: "Kaiba" } });
     const { matchId } = await makeTempDb();
     const { POST } = await import("../../app/api/matches/[id]/approve/route");
     const res = await POST(new Request(`http://localhost/api/matches/${matchId}/approve`), {
@@ -132,7 +137,7 @@ describe("POST /api/matches/[id]/deny", () => {
   });
 
   it("returns 400 when the reporter tries to deny their own match", async () => {
-    auth.mockResolvedValue({ user: { id: "reporter", name: "Yugi" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("reporter")), discordUserId: fixtureDiscordId("reporter"), name: "Yugi" } });
     const { matchId } = await makeTempDb();
     const { POST } = await import("../../app/api/matches/[id]/deny/route");
     const res = await POST(new Request(`http://localhost/api/matches/${matchId}/deny`), {
@@ -142,7 +147,7 @@ describe("POST /api/matches/[id]/deny", () => {
   });
 
   it("denies the match when the opponent calls it", async () => {
-    auth.mockResolvedValue({ user: { id: "opponent", name: "Kaiba" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("opponent")), discordUserId: fixtureDiscordId("opponent"), name: "Kaiba" } });
     const { matchId } = await makeTempDb();
     const { POST } = await import("../../app/api/matches/[id]/deny/route");
     const res = await POST(new Request(`http://localhost/api/matches/${matchId}/deny`), {
@@ -153,3 +158,7 @@ describe("POST /api/matches/[id]/deny", () => {
     expect(body.status).toBe("denied");
   });
 });
+
+const FIXTURE_KEYS = ["reporter", "opponent", "stranger"] as const;
+
+// Session resolution is mocked; authorization still runs through the real web boundary.

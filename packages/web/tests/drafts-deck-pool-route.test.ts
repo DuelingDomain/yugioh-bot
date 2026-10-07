@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId } from "./fixtures/identity";
 import { rmSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mainIds, passcodeOf, seedDraftDeck } from "./helpers/draft-deck-fixture";
@@ -5,7 +6,10 @@ import { mainIds, passcodeOf, seedDraftDeck } from "./helpers/draft-deck-fixture
 const auth = vi.fn();
 const callDuelHost = vi.fn();
 const dirs: string[] = [];
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/duel-host", () => ({ callDuelHost }));
 
 /** Maps every id to a passcode, except the ids in `unknown`. */
@@ -32,7 +36,7 @@ describe("GET /api/drafts/[slug]/deck-pool", () => {
     vi.resetModules();
     auth.mockReset();
     callDuelHost.mockReset();
-    auth.mockResolvedValue({ user: { id: "drafter", name: "Yugi" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("drafter")), discordUserId: fixtureDiscordId("drafter"), name: "Yugi" } });
     hostKnowing();
   });
   afterEach(() => {
@@ -66,7 +70,7 @@ describe("GET /api/drafts/[slug]/deck-pool", () => {
 
   it("403 when the caller is not a draft player", async () => {
     await seed({ picks: mainIds(3) });
-    auth.mockResolvedValue({ user: { id: "outsider", name: "Kaiba" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("outsider")), discordUserId: fixtureDiscordId("outsider"), name: "Kaiba" } });
     expect((await call()).status).toBe(403);
   });
 
@@ -139,8 +143,7 @@ describe("GET /api/drafts/[slug]/deck-pool", () => {
     const db = new Database(process.env.DATABASE_PATH!);
     const id = Number(
       db.prepare(
-        `insert into saved_decks (guild_id, owner_user_id, name, mode, deck_json, draft_id)
-         values ('guild-1', 'drafter', 'Mine', 'normal', '{"main":[],"extra":[],"side":[]}', ?)`,
+        `insert into saved_decks (guild_id, owner_user_id, name, mode, deck_json, draft_id) values ('guild-1', ${fixtureUserId("drafter")}, 'Mine', 'normal', '{"main":[], "extra":[], "side":[]}', ?)`,
       ).run(draftId).lastInsertRowid,
     );
     db.close();
@@ -154,3 +157,7 @@ describe("GET /api/drafts/[slug]/deck-pool", () => {
     expect((await call()).status).toBe(503);
   });
 });
+
+const FIXTURE_KEYS = ["drafter", "outsider"] as const;
+
+// Session resolution is mocked; authorization still runs through the real web boundary.

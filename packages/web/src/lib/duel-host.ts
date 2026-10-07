@@ -9,10 +9,9 @@ import {
   type DuelService,
 } from "@yugidraft/shared/services";
 import type { CardQuery, DuelChainMode, DuelCommand, DuelDeck, DuelFirstChoice, DuelMasterRule, DuelMode, DuelRpsMove } from "@yugidraft/shared/duels";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
-import { verifyDiscordGuildMembership } from "@/lib/discord-guild-membership";
 import type { CardDataStatus } from "@yugidraft/shared/types";
 
 export type DuelHostOp = "engine-data-status" | "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "cards" | "card-details" | "card-artworks" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "ready" | "unready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "report" | "debug-trace" | "bug-context" | "chain-mode";
@@ -31,30 +30,14 @@ type DuelActor =
   | { ok: false; response: NextResponse };
 
 export async function requireDuelActor(): Promise<DuelActor> {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return { ok: false, response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
-  }
+  const actor = await requireWebAccess();
+  if (!actor.ok) return actor;
   const guildId = env.discordGuildId;
   if (!guildId) {
     return { ok: false, response: NextResponse.json({ error: "Guild is not configured" }, { status: 500 }) };
   }
-  const membership = await verifyDiscordGuildMembership({
-    guildId,
-    userId: session.user.id,
-    botToken: process.env.DISCORD_TOKEN ?? "",
-  });
-  if (!membership.ok) {
-    return {
-      ok: false,
-      response: NextResponse.json(
-        { error: membership.status === 403 ? "Forbidden" : "Guild membership is unavailable" },
-        { status: membership.status },
-      ),
-    };
-  }
   const db = getDb();
-  const player = createPlayerService(db).findOrCreate(guildId, session.user.id, session.user.name ?? "Unknown");
+  const player = createPlayerService(db).findOrCreate(guildId, actor.userId, actor.userName);
   return { ok: true, guildId, playerId: player.id, duels: createDuelService(db) };
 }
 

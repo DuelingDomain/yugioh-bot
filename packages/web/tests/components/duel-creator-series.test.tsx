@@ -25,7 +25,7 @@ import { DuelCreator } from "../../src/components/duel/creator";
 
 beforeEach(() => {
   push.mockReset();
-  api.createDuel.mockReset().mockResolvedValue({ session: { slug: "table-1" }, notified: true });
+  api.createDuel.mockReset().mockResolvedValue({ session: { slug: "table-1" }, shareUrl: "https://app.example/duels/table-1" });
   api.searchPlayers.mockReset().mockResolvedValue({ players: [{ id: 9, displayName: "Imran" }, { id: 12, displayName: "Imra" }] });
 });
 afterEach(cleanup);
@@ -69,18 +69,20 @@ describe("DuelCreator match options", () => {
     expect(await screen.findByText("No players found.")).toBeTruthy();
   });
 
-  it("challenges the picked player, shows the DM note and a copy link, and waits for the click into the room", async () => {
+  it("challenges the picked player, shows the share link and a Copy the link button, and waits for the click into the room", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
     render(<DuelCreator multiplayerTables multiCoreReady />);
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "imr" } });
     fireEvent.click(await screen.findByRole("button", { name: "Imran" }));
     expect(screen.getByTestId("opponent-chip").textContent).toBe("Imran");
+    expect(screen.queryByText(/direct message|DM/)).toBeNull();
     create();
-    expect(await screen.findByText("Challenge sent — the bot sent Imran a DM")).toBeTruthy();
+    expect(await screen.findByText("Challenge created. Send Imran this link to join the table.")).toBeTruthy();
     expect(api.createDuel.mock.calls[0][4]).toEqual({ opponentPlayerId: 9, bestOf: 1, ranked: false });
-    fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/duels/table-1`));
+    expect(screen.getByRole("textbox", { name: "Challenge link" })).toHaveValue("https://app.example/duels/table-1");
+    fireEvent.click(screen.getByRole("button", { name: "Copy the link" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("https://app.example/duels/table-1"));
     expect(screen.getByRole("link", { name: /Open the table/ }).getAttribute("href")).toBe("/duels/table-1");
   });
 
@@ -109,25 +111,13 @@ describe("DuelCreator match options", () => {
     expect((screen.getByRole("radio", { name: "Public" }) as HTMLInputElement).disabled).toBe(false);
   });
 
-  it("tells the challenger to share the link when the bot could not send the DM", async () => {
-    api.createDuel.mockResolvedValue({ session: { slug: "table-1" }, notified: false });
+  it("never mentions the bot or a DM after a challenge", async () => {
     render(<DuelCreator multiplayerTables multiCoreReady />);
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "imr" } });
     fireEvent.click(await screen.findByRole("button", { name: "Imran" }));
     create();
     const status = await screen.findByRole("status");
-    expect(status.textContent).toContain("could not DM Imran");
-    expect(status.textContent).toContain("Copy the link");
-    expect(screen.queryByText(/the bot sent Imran a DM/)).toBeNull();
-  });
-
-  it("says the DM was sent only when the server reports it", async () => {
-    api.createDuel.mockResolvedValue({ session: { slug: "table-1" }, notified: true });
-    render(<DuelCreator multiplayerTables multiCoreReady />);
-    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "imr" } });
-    fireEvent.click(await screen.findByRole("button", { name: "Imran" }));
-    create();
-    expect(await screen.findByText("Challenge sent — the bot sent Imran a DM")).toBeTruthy();
+    expect(status.textContent).not.toMatch(/bot|DM/);
   });
 
   it("says on an open table that Best of 3 works against the practice bot and Ranked does not count", () => {

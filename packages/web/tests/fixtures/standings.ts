@@ -1,3 +1,4 @@
+import { fixtureUserId } from "./identity";
 import { defaultDuelSettings } from "@yugidraft/shared/duels";
 import type { PlayerRatings } from "@/components/tournament/sheet-contracts";
 import type { DuelSeriesSummary, Match, Participant, TournamentDetail } from "@/components/tournament/types";
@@ -55,7 +56,7 @@ const live = standingsMatch(2, 1, 2);
 
 export const standingsTournament: TournamentDetail = {
   id: 12, name: "Friday Night Duels #12", format: "round_robin", status: "active",
-  createdByUserId: "imran-discord", isParticipant: true, currentUserPlayerId: 5,
+  createdByUserId: fixtureUserId("imran-discord"), isParticipant: true, currentUserPlayerId: 5,
   startedAt: "2026-09-25 20:04:00", createdAt: "2026-09-25 19:00:00",
   deadlineAt: "2026-10-02 23:00:00", reportConfirmWindowHours: 24, bestOf: 3,
   duelRules: { bestOf: 3, mode: "normal", masterRule: 5, draftId: null, settings: {
@@ -86,3 +87,5 @@ export function largeStandingsTournament(count = 13): TournamentDetail {
     playerId: i + 1, displayName: `Player ${i + 1}`,
   })) };
 }
+
+const FIXTURE_KEYS = ["imran-discord"] as const;

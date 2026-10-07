@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId } from "./fixtures/identity";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -6,7 +7,10 @@ import { seedDraftDeck } from "./helpers/draft-deck-fixture";
 const auth = vi.fn();
 const broadcaster = { draft: vi.fn(), tournament: vi.fn() };
 const dirs: string[] = [];
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/notify", () => ({ announcer: {}, broadcaster }));
 
 const params = (slug = "slug-1") => ({ params: Promise.resolve({ slug }) });
@@ -43,7 +47,7 @@ describe("POST /api/drafts/[slug]/talk", () => {
     vi.resetModules();
     auth.mockReset();
     broadcaster.draft.mockReset();
-    auth.mockResolvedValue({ user: { id: "drafter", name: "Yugi" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("drafter")), discordUserId: fixtureDiscordId("drafter"), name: "Yugi" } });
     (await import("../src/lib/draft-talk")).resetTalkLimiter();
   });
   afterEach(async () => {
@@ -88,7 +92,7 @@ describe("POST /api/drafts/[slug]/talk", () => {
 
   it("403 when the caller has a player but is not seated in this draft", async () => {
     await seed();
-    auth.mockResolvedValue({ user: { id: "outsider", name: "Kaiba" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("outsider")), discordUserId: fixtureDiscordId("outsider"), name: "Kaiba" } });
     const res = await call({ line: "gg" });
     expect(res.status).toBe(403);
     expect(broadcaster.draft).not.toHaveBeenCalled();
@@ -96,7 +100,7 @@ describe("POST /api/drafts/[slug]/talk", () => {
 
   it("403 when the caller has no player at all", async () => {
     await seed();
-    auth.mockResolvedValue({ user: { id: "stranger", name: "Joey" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("stranger")), discordUserId: fixtureDiscordId("stranger"), name: "Joey" } });
     expect((await call({ line: "gg" })).status).toBe(403);
   });
 
@@ -134,7 +138,7 @@ describe("POST /api/drafts/[slug]/talk", () => {
     const fixture = await seed();
     await seatOutsider(fixture);
     expect((await call({ line: "gg" })).status).toBe(200);
-    auth.mockResolvedValue({ user: { id: "outsider", name: "Kaiba" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("outsider")), discordUserId: fixtureDiscordId("outsider"), name: "Kaiba" } });
     expect((await call({ line: "gl" })).status).toBe(200);
     expect(broadcaster.draft).toHaveBeenLastCalledWith({ kind: "talk", slug: "slug-1", playerId: fixture.players.outsider, line: "gl" });
   });
@@ -145,3 +149,7 @@ describe("POST /api/drafts/[slug]/talk", () => {
     expect((await call({ line: "gg" })).status).toBe(200);
   });
 });
+
+const FIXTURE_KEYS = ["drafter", "outsider", "stranger"] as const;
+
+// Session resolution is mocked; authorization still runs through the real web boundary.

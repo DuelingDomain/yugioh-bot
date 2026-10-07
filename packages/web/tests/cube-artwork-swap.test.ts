@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createDraftService, createCubeService, createCardCatalogService } from "@yugidraft/shared/services";
 import { migrate } from "@yugidraft/shared/db";
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 const { getDb, requireWebAccess, cubeWriteAccess, callDuelHost } = vi.hoisted(() => ({ getDb: vi.fn(), requireWebAccess: vi.fn(), cubeWriteAccess: vi.fn(), callDuelHost: vi.fn() }));
 vi.mock("@/lib/db", () => ({ getDb }));
 vi.mock("@/lib/web-access", () => ({ requireWebAccess }));
@@ -11,8 +12,9 @@ vi.mock("@/lib/env", () => ({ env: { discordGuildId: "g" } }));
 let db: Database.Database;
 beforeEach(() => {
   vi.clearAllMocks(); db = new Database(":memory:"); migrate(db); getDb.mockReturnValue(db);
-  requireWebAccess.mockResolvedValue({ ok: true, userId: "u", userName: "Yugi" }); cubeWriteAccess.mockResolvedValue(null);
-  db.exec(`insert into cubes (id,guild_id,name,created_by_user_id) values (1,'g','Cube','u');
+  seedFixtureUsers(db, ["u", "p1", "p2"]);
+  requireWebAccess.mockResolvedValue({ ok: true, userId: fixtureUserId("u"), discordUserId: fixtureDiscordId("u"), userName: "Yugi" }); cubeWriteAccess.mockResolvedValue(null);
+  db.exec(`insert into cubes (id,guild_id,name,created_by_user_id) values (1,'g','Cube',${fixtureUserId("u")});
     insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (10,'Dragon','Normal Monster','normal','full','small','[]','now');
     insert into cube_cards (cube_id,catalog_card_id,pool,max_copies,source) values (1,10,'main',2,'custom');`);
   callDuelHost.mockResolvedValue({ ok: true, data: { passcode: 10, artworks: [{ passcode: 10, isMain: true }, { passcode: 11, isMain: false }] } });
@@ -46,10 +48,10 @@ it("enforces cube write access before contacting the engine", async () => {
 function themeDraft() {
   db.exec("insert into card_catalog select 20,'Other',type,frame_type,effect_text,atk,def,attribute,level,image_url,image_url_small,card_sets_json,cached_at,archetype from card_catalog where ygoprodeck_id = 10");
   db.exec("insert into cube_cards (cube_id,catalog_card_id,pool,max_copies) values (1,20,'main',3)");
-  const players = ["p1", "p2"].map(user => Number(db.prepare("insert into players (guild_id,discord_user_id,display_name) values ('g',?,?)").run(user, user).lastInsertRowid));
+  const players = ["p1", "p2"].map(user => Number(db.prepare("insert into players (guild_id,user_id,discord_user_id,display_name) values ('g',?,?,?)").run(fixtureUserId(user), fixtureDiscordId(user), user).lastInsertRowid));
   const drafts = createDraftService(db);
   const draft = drafts.create("g", "c", "Theme", { mode: "theme", allowedCubeIds: [1], themeSelection: "random",
-    uniqueThemes: false, cardsPerPlayer: 4, themePackSize: 2, extraDeckEnabled: false, copyLimit: false }, "u", players[0]);
+    uniqueThemes: false, cardsPerPlayer: 4, themePackSize: 2, extraDeckEnabled: false, copyLimit: false }, fixtureUserId("u"), players[0]);
   drafts.join(draft.id, players[1]);
   return { drafts, draft, players };
 }
