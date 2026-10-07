@@ -68,11 +68,11 @@ function BoxCube({ cube, table, controller, isHost, canTake, yourCubeId, slug, o
     const others = entry?.createdByUserId && viewerUserId && entry.createdByUserId !== viewerUserId;
     const where = others ? `${entry?.createdByName ? `${entry.createdByName}'s` : "another member's"} library` : "your library";
     if (typeof window !== "undefined" && !window.confirm(`Delete "${cube.name}" from ${where} for good? This can't be undone.`)) return;
-    // Library first: a refused delete leaves the cube in the draft. A cube that is gone from the library may still be
-    // detached, so the second step cannot fail the way the first can.
+    // Draft first: detach also drops the players' claims on the cube, which the library delete needs gone (the claim
+    // rows point at the cube). Only viewers the library lets delete get here, so the second step is not refused.
     await controller.run("detach", async () => {
-      await themeRequest(`/api/cubes/${cube.id}`, "DELETE");
       await themeRequest(`/api/drafts/${encodeURIComponent(slug)}/cubes`, "DELETE", { cubeId: cube.id });
+      await themeRequest(`/api/cubes/${cube.id}`, "DELETE");
       onChanged();
     }, "Couldn't delete that theme.");
   };

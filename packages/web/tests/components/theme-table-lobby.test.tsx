@@ -347,7 +347,7 @@ describe("ThemeTableLobby deleting a theme", () => {
     expect(calls.some((c) => c.url.startsWith("/api/cubes/") && c.method === "DELETE")).toBe(false);
   });
 
-  it("deletes from the library first and then takes the cube out of the draft", async () => {
+  it("takes the cube out of the draft (and its claims) first, then deletes it from the library", async () => {
     vi.stubGlobal("confirm", vi.fn(() => true));
     const calls = mockFetch({
       ...libraryRoute([mine]),
@@ -359,21 +359,21 @@ describe("ThemeTableLobby deleting a theme", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: /delete/i }));
     await waitFor(() => expect(calls.filter((c) => c.method === "DELETE")).toHaveLength(2));
     const order = calls.filter((c) => c.method === "DELETE").map((c) => c.url);
-    expect(order).toEqual(["/api/cubes/10", "/api/drafts/theme-night/cubes"]);
+    expect(order).toEqual(["/api/drafts/theme-night/cubes", "/api/cubes/10"]);
     expect(String((window.confirm as unknown as { mock: { calls: string[][] } }).mock.calls[0][0])).toContain("your library");
   });
 
-  it("keeps the cube in the draft when the library refuses the delete", async () => {
+  it("does not touch the library when the draft refuses to let the cube go", async () => {
     vi.stubGlobal("confirm", vi.fn(() => true));
     const calls = mockFetch({
       ...libraryRoute([mine]),
-      "DELETE /api/cubes/10": () => Response.json({ error: "Forbidden" }, { status: 403 }),
+      "DELETE /api/drafts/theme-night/cubes": () => Response.json({ error: "Forbidden" }, { status: 403 }),
     });
     render(<ThemeTableLobby {...host()} />);
     fireEvent.click(await screen.findByRole("button", { name: "More for Blue-Eyes" }));
     fireEvent.click(screen.getByRole("menuitem", { name: /delete/i }));
     expect(await screen.findByText(/couldn't delete that theme|forbidden/i)).toBeInTheDocument();
-    expect(calls.some((c) => c.method === "DELETE" && c.url === "/api/drafts/theme-night/cubes")).toBe(false);
+    expect(calls.some((c) => c.method === "DELETE" && c.url === "/api/cubes/10")).toBe(false);
   });
 
   it("names the other member's library when an admin deletes their cube", async () => {
