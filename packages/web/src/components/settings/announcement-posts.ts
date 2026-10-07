@@ -53,8 +53,8 @@ export function botPosts(channelName: string | null): BotPost[] {
     {
       key: "draft-started",
       title: "Draft started",
-      when: "The bot has no post for this",
-      to: { kind: "off" },
+      when: "In the channel the draft was made in",
+      to: { kind: "default", text: "the draft's channel" },
     },
   ];
 }

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AnnouncementToggles } from "@/components/settings/announcement-toggles";
 import { botPosts } from "@/components/settings/announcement-posts";
@@ -36,7 +36,8 @@ describe("AnnouncementToggles", () => {
     await screen.findByText("What the bot posts");
     expect(screen.getAllByRole("listitem")).toHaveLength(6);
     expect(screen.queryByRole("switch")).toBeNull();
-    expect(screen.getByText("Not posted")).toBeInTheDocument();
+    const startedPost = screen.getByText("Draft started").closest("li")!;
+    expect(within(startedPost).getByText("the draft's channel")).toBeInTheDocument();
   });
 
   it("keeps Save off until the channel changes, then PUTs the whole object with only the channel changed", async () => {
@@ -87,6 +88,11 @@ describe("AnnouncementToggles", () => {
 });
 
 describe("botPosts", () => {
+  it.each([null, "tournament-results"])("sends draft-started posts to the draft's channel with announcement channel %s", (channelName) => {
+    const post = botPosts(channelName).find((p) => p.key === "draft-started");
+    expect(post).toMatchObject({ when: "In the channel the draft was made in", to: { kind: "default", text: "the draft's channel" } });
+  });
+
   it("sends approval and finished posts nowhere without a channel", () => {
     const posts = botPosts(null);
     expect(posts.find((p) => p.key === "approval")?.to).toEqual({ kind: "none" });
