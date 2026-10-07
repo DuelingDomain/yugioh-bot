@@ -9,6 +9,7 @@ import { createDuelService } from "@yugidraft/shared/services";
 import { seatCountFor, type DuelAnswer, type DuelEngineView, type DuelFormat } from "@yugidraft/shared/duels";
 import { createDuelHost, type DuelHost } from "../src/host.js";
 import type { DuelGameWorker, GameOptions } from "../src/worker-client.js";
+import { createTestDuelHost, finishTestDiceOpening } from "./support/test-opening.js";
 
 const SECRET = "dice-host-test";
 const resources: Array<{ host: DuelHost; db: Database.Database; dir: string }> = [];
@@ -43,7 +44,7 @@ class Worker implements DuelGameWorker {
   async close() { this.running = false; }
 }
 
-function table(format: DuelFormat, values: number[], botSeat?: number) {
+function table(format: DuelFormat, values: number[], botSeat?: number, keepFixtureSeats = false) {
   vi.stubEnv("MULTIPLAYER_TABLES", "1");
   const dir = mkdtempSync(join(tmpdir(), "host-dice-"));
   writeFileSync(join(dir, "manifest.json"), JSON.stringify({ bundleVersion: "fixture" }));
@@ -81,19 +82,41 @@ function table(format: DuelFormat, values: number[], botSeat?: number) {
   });
   const workers: Worker[] = [];
   const changes = vi.fn();
-  const host = createDuelHost({ db, dataDirectory: dir, secret: SECRET, searchCards: () => [], rollDie,
+  const host = (keepFixtureSeats ? createTestDuelHost : createDuelHost)({ db, dataDirectory: dir, secret: SECRET, searchCards: () => [],
+    rollDie: keepFixtureSeats ? undefined : rollDie,
     onChange: changes, pollIntervalMs: 60 * 60 * 1000, createWorker: () => { const worker = new Worker(); workers.push(worker); return worker; } });
   resources.push({ host, db, dir });
-  const post = async (op: string, playerId = players[0]!, extra: Record<string, unknown> = {}) => {
+  const post = async (op: string, playerId = players[0]!, extra: Record<string, unknown> = {}): Promise<{ status: number; data: Record<string, any> }> => {
     const raw = JSON.stringify({ op, slug: session.slug, guildId: "g", playerId, ...extra });
     const response = await host.handle(new Request("http://localhost/internal/duel", { method: "POST", body: raw,
       headers: { "x-announce-signature": "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex") } }));
-    return { status: response.status, data: await response.json() as Record<string, any> };
+    const result = { status: response.status, data: await response.json() as Record<string, any> };
+    return keepFixtureSeats ? finishTestDiceOpening(host, JSON.parse(raw), result,
+      (body) => post(String(body.op), playerId, body)) : result;
   };
   return { duels, players, slug: session.slug, workers, rollDie, changes, post };
 }
 
 describe("host FFA dice opening", () => {
+  it("restarts descending fixture dice for each FFA opening on the same host", async () => {
+    const t = table("ffa3", [], undefined, true);
+    expect((await t.post("start")).data.session.status).toBe("active");
+    for (const format of ["ffa3", "ffa4", "ffa3"] as const) {
+      const session = t.duels.create({ guildId: "g", organizerPlayerId: t.players[0]!, name: "Next fixture", mode: "normal", format,
+        settings: { validateDeck: false, turnSeconds: 0 } });
+      const count = seatCountFor(format);
+      for (let seat = 0; seat < count; seat++) {
+        if (seat) t.duels.takeSeat(session.slug, "g", t.players[seat]!, seat);
+        t.duels.setDeck(session.slug, "g", t.players[seat]!, { main: Array(40).fill(seat + 1), extra: [], side: [] });
+      }
+      const result = await t.post("start", t.players[0]!, { slug: session.slug });
+      expect(result.status, JSON.stringify(result.data)).toBe(200);
+      expect(result.data.session.status).toBe("active");
+      expect(result.data.session.seats.map((seat: { playerId: number }) => seat.playerId)).toEqual(t.players.slice(0, count));
+      expect(t.workers.at(-1)?.options?.decks.map((deck) => deck.main[0])).toEqual(Array.from({ length: count }, (_, seat) => seat + 1));
+    }
+  });
+
   it.each(["ffa3", "ffa4"] as const)("starts %s with the rolled player and deck in seat 0 at the last reveal deadline", async (format) => {
     vi.useFakeTimers();
     const t = table(format, format === "ffa3" ? [2, 1, 6] : [2, 1, 6, 4]);
