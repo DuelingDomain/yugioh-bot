@@ -17,5 +17,7 @@ for (const target of ["domain", "standard", "legacy-domain", "multi", "multi-dom
   cpSync(join(root, "bundle"), bundle, { recursive: true, filter: (file) => !file.endsWith("/manifest.json") });
   if (existsSync(join(root, "dist"))) cpSync(join(root, "dist"), dist, { recursive: true });
 }
-manifest.bundleVersion = createHash("sha256").update(JSON.stringify({ sources: manifest.sources, integrity: manifest.integrity })).digest("hex");
+// Match prepare-data.ts and the serial core builders.
+const { multiScripts: _overlay, cardsMerged: _merged, ...engineIntegrity } = manifest.integrity;
+manifest.bundleVersion = createHash("sha256").update(JSON.stringify({ sources: manifest.sources, integrity: engineIntegrity })).digest("hex");
 writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
