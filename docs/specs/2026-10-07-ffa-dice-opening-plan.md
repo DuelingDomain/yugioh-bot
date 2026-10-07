@@ -7,3 +7,5 @@ The owner approved public seat moves in roll order. Work stays in the existing w
 3. Drive FFA dice openings from the host regardless of the RPS switch. Keep Tag and 1v1 behavior. Test FFA3 and FFA4, deadlines, delayed reads, ties, bots, and start failure. Add real worker start/recovery/replay tests for CI if the cores are absent here.
 4. Add plain dice text to the opening screen. Check that the current seat-dependent websocket effect requests fresh credentials after the move. Run targeted client and route tests; do not build the UI.
 5. Update the investigation with the chosen approach and remove its standalone mapping proof. Run affected type checks and focused tests with Node 22 and prlimit --core=0. Commit each step with the requested trailers, push the branch, then delete this worktree's dependencies, caches, and generated build files.
+
+Implementation and targeted validation are complete. The investigation records the seat audit and test results. The read-only review found no remaining material issues. Real-core tests remain for CI; the full dice screen remains a separate UI task.

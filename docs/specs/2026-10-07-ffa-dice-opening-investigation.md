@@ -2,19 +2,31 @@
 
 Base: `origin/main` at `25665eda`. Branch: `feat/ffa-dice-opening`.
 
-## Result
+## Chosen approach
 
-The full roll order cannot work in FFA4 with the current public seats, facing pairs, and core. Use the task's investigation stop rule. No production code, core, WASM, bundle version, or UI change is made.
+The owner selected option 2: move players to public seats in dice rank order before the game starts. Rank 1 takes seat 0, rank 2 takes seat 1, and so on. FFA4 facing partners can change. The existing core then starts seat 0 and advances through the numeric seats. No core, WASM, or bundle version change is needed.
 
-This result keeps the current player seats and facing partners. Moving players to new public seats before each game is a possible different approach. It changes who faces whom. The owner has not selected that approach.
+The implementation applies only to FFA3 and FFA4. Every new FFA game rolls again. The 1v1 RPS opening and Tag start behavior stay the same. Series remain 1v1 only.
 
-## Current opening and start
+## Opening and start
 
-- `packages/shared/src/duels/opening.ts` has `rps`, `choose`, and `start` phases. The pick window is 30 s. The reveal time is 3 s. A 1v1 choice can swap seats, so the first player takes seat 0.
-- `packages/shared/src/services/duels.ts` stores the state in `opening_json`. `room()` builds the opening view for players and spectators. `startOpeningTx` accepts only 1v1.
-- `packages/duel-server/src/host.ts` uses `beginGame`, `driveOpening`, and `startGame`. With RPS enabled, only game 1 of 1v1 uses the opening. FFA3, FFA4, and Tag start at once. The opening operations accept player picks or a first/second choice; they do not roll dice.
-- `startGame` passes decks to the worker in seat order. `EngineGameOptions`, `workerCreateOptions`, and the core start API have no first-seat or turn-order input. Recovery and replay use the same seat order.
-- `packages/shared/src/services/duels.ts` refuses `bestOf: 3` for non-1v1 tables. `duel-series.ts` stores two players and creates two-seat games. FFA series do not exist in this base.
+- The shared dice state records all rounds in `opening_json`. Rolls keep the original lobby seat indices. Rank groups split by descending d6 values; only groups with more than one seat roll again. Groups never cross their earlier rank.
+- The server service uses `crypto.randomInt(1, 7)`. The pure shared rules require a die source, so browser imports do not load Node crypto.
+- The first round is rolled when Start is accepted. Each round stays in the `dice` phase for 3 seconds. The final order can be visible during the final reveal. At its deadline the service changes to `start` and moves the seats in one transaction. A late tie step gives the new round a full 3-second reveal.
+- The host schedules each deadline and starts the duel after the final seat move. Room reads and the sweep can finish an overdue opening after a lost timer or host restart. A failed table start clears the opening and keeps the moved seats; another Start makes fresh rolls.
+- Players, bots, and spectators receive the same public dice view. The opening screen shows plain roll, order, seat, and countdown text. A separate UI task will add the real dice screen.
+
+## Seat audit
+
+| Seat-bound data | Handling |
+| --- | --- |
+| Player/session seats, ready flags, bot flags, decks | Move complete `duel_seats` rows through a temporary range in the same transaction. Player IDs and organizer ID remain stable. Decks have no separate seat-keyed link table. |
+| Stored clocks | Move `remainingMs` and `activeSeat` to the new seats. The host creates the game clock after the move. |
+| Saved setup | Move `botPolicies` keys and `surrenderedSeats`. Other setup fields have no seat index. Scenario startup scripts stay on the existing preset path, which creates an active scenario directly and does not use the lobby dice opening. |
+| WebSocket tokens | The room hook depends on `mySeat`. A moved seat closes the old subscription and requests a new token from `/connection`, which reads the moved row. |
+| Presence | Fresh tokens carry the new seat. The WS renewal handler replaces that player's seat in its occupancy map. Sidebar observers never count as occupants. |
+| Bot actions and elimination | Host actions use the moved session rows. Bot answers, surrender, elimination, and results use the final public seat. No active game exists before the move. |
+| Recovery and replay | Saved decks, seed, setup, and subsequent command seats all use the final public order. Recovery needs no engine/public seat map. Tests cover these inputs; real worker start, recovery, and replay tests are added for CI. |
 
 ## Core checks
 
@@ -43,39 +55,41 @@ A startup script with `EFFECT_SKIP_TURN` is not a valid replacement. The core in
 | Approach | Result |
 | --- | --- |
 | Set turn order in the core, with public seats kept | Supports all roll orders and keeps facing pairs. Requires the forbidden core/WASM change and bundle compatibility work. |
-| Move players to public seats in roll order before each game | Supports all roll orders with the existing core. Changes facing partners. Needs a product decision and seat/view remapping. |
+| Move players to public seats in roll order before each game | Supports all roll orders with the existing core. Changes facing partners. Selected by the owner. The service moves public seats and publishes the mapping. |
 | Map ranks to engine seats with public seats kept | Works for FFA3. Changes FFA4 zone and column relations for 16 of 24 orders. |
 | Choose only the first player, then keep clockwise turns | Works for FFA3. Cannot start every FFA4 seat while keeping its current facing pairs. |
 
-## View shape for later work
+## Dice view
 
-No new view type is added. If the limits above are resolved, a proposed dice view is:
+`DuelOpeningView` is a union of the unchanged RPS view and `DuelDiceOpeningView`:
 
 ```ts
 {
   phase: "dice" | "start";
   round: number;
   serverNow: number;
-  deadlineAt: string; // End of the current 3 s reveal.
+  deadlineAt: string; // End of the current 3-second reveal.
   rounds: Array<{ round: number; rolls: Array<number | null> }>;
-  order: number[] | null; // Final public seats, highest rank first.
+  order: number[] | null; // Rank -> original lobby seat.
+  finalSeats: number[] | null; // Original lobby seat -> public seat after the move.
 }
 ```
 
-Each `rolls` array has one entry per public seat. A value is 1 to 6; `null` means that seat did not roll in a tie round. Each tied rank group must be resolved within its original rank. Re-rolls must not compare separate tied groups. `order` stays null until all ranks are unique. Players, bots, and spectators receive the same public rounds. The server would use `crypto.randomInt(1, 7)`, reveal each round for 3 s, and start at the last reveal deadline. Each new FFA game would create fresh state. Existing 1v1 and Tag behavior would stay the same.
+For example, `order: [2, 0, 1]` gives `finalSeats: [1, 2, 0]`. The player who rolled in lobby seat 2 moves to public seat 0. Every `rolls` array stays indexed by the original lobby seat. `null` means that player did not roll in that tie round. Both order fields stay null until all ranks are resolved.
 
 ## Validation
 
-Run with Node 22.23.3:
+All local tests use Node 22.23.3 and `prlimit --core=0`. Only targeted files run. No web build or service port is used.
 
-```sh
-prlimit --core=0 node --test docs/specs/ffa-dice-seat-mapping.test.mjs
-```
-
-All four investigation tests passed. They enumerate seat maps and check the FFA4 pair and clockwise constraints. They do not test a dice state machine or a running engine. Feature and host tests were not added because implementation stopped. Real host tests for a future implementation need the built multi cores and card data; CI provides those resources.
+- Shared tests cover two-seat ties inside FFA, a three-way tie, two tied pairs, final order, reveal deadlines, public views, seat rows, bots, decks, clocks, setup, restart inputs, results, repeated settlement, and transaction rollback.
+- New host unit tests cover FFA3/FFA4 starts with the rolled player in seat 0, tie reveals, missing timers, bot seat moves, fresh rolls after failure, and unchanged Tag behavior.
+- Existing host fixtures use a test helper to finish the dice reveal before their active-game checks. Their deterministic rolls preserve their original seat fixtures. Local fake-worker tests use an isolated temporary resource fixture with core availability marker files; they do not run a WASM engine.
+- New real worker tests cover FFA3/FFA4 initial hands, the first prompt, recovery, and replay. They use the repository core gate. They skip locally when compiled multi cores are absent and must run in CI with `DUEL_REQUIRE_CORES=1`.
+- Client tests cover plain dice text, spectators, all player names, token re-issue after the move, and the socket reconnect. WS tests cover presence after a moved-seat renewal. Existing RPS tests remain in the targeted set.
+- Browser fixtures that require fixed seats seed an ordered dice opening in the isolated Playwright database when the browser sends Start. They keep the real 3-second reveal. Four unit tests cover FFA3, FFA4, Tag, and 1v1. Browser tests did not run.
+- The final targeted results are 114 shared, 178 host, 62 client/route, 5 WS presence, and 4 browser-fixture unit tests passed: 363 total. The two new real-core tests skipped because compiled multi cores are absent. Five existing real-core coin tests were outside the selected fake-worker test name.
+- Shared, duel-server, web, WS, and E2E type checks passed. The obsolete standalone `.mjs` seat-mapping proof is removed.
 
 ## Open questions
 
-1. May players move to new public seats, and get new facing partners, before each FFA game?
-2. If seats and facing partners must stay fixed, can the no-core-change limit be removed?
-3. Is FFA series support a separate feature? The current series model only supports 1v1.
+None for this implementation. The owner approved changing FFA4 facing partners. FFA series and the full dice screen are separate tasks.
