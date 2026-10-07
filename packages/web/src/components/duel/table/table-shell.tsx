@@ -53,6 +53,7 @@ import { tableLayout } from "./geometry";
 import { GridStage } from "./grid-stage";
 import { CAPTION_TEXT, useGridFinale } from "./grid-finale";
 import { gridKeyGates, useGridFocus } from "./grid-focus";
+import { hudPreview } from "./hud-preview";
 import { HudLayer, RowPreviewBoundary, useHudEscape, useHudPane, useRowPreview } from "./hud-layer";
 import { hudMasterProps, stationTrackProps } from "./hud-shared";
 import { gridCells, usesGridLayout } from "./grid-layout";
@@ -830,8 +831,8 @@ function TableShellBody({
             spectator ? `${nameOf(layout.anchorSeat)}'s Master` : "Your Master",
           ) : null}
           onInspect={ui.setInspect}
-          preview={ui.hover ? { card: ui.hover.card, owner: { name: nameOf(ui.hover.card.controller), ...toneOf(ui.hover.card.controller) } } : rowPreview.card ? { card: rowPreview.card, owner: null } : null}
-          previewHidden={ui.menu != null || ui.pile?.open === true}
+          preview={hudPreview(ui.hover?.card ?? null, ui.menu?.card, rowPreview.card, (card) => ({ name: nameOf(card.controller), ...toneOf(card.controller) }))}
+          previewHidden={ui.pile?.open === true}
           reducedMotion={controller.reducedMotion}
         />
       ) : null}

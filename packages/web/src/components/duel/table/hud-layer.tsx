@@ -114,7 +114,7 @@ export interface HudLayerProps {
   onInspect: (target: InspectTarget) => void;
   /** The hovered card and its owner, or `null` when nothing is hovered. A prompt row card has no owner. */
   preview: { card: DuelCard | DuelCardInfo; owner: { name: string; main: string; ink: string } | null } | null;
-  /** A card menu or the pile viewer is open: the preview hides. An open flyout hides it too. */
+  /** The pile viewer is open, or a pick hint is shown: the preview hides. An open card menu does not hide it. */
   previewHidden: boolean;
   reducedMotion: boolean;
 }

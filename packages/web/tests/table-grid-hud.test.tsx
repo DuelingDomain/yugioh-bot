@@ -306,3 +306,18 @@ describe("the clock in the corner of the 4-way grid", () => {
     expect(within(screen.getByTestId("hud-corner")).queryByRole("timer")).toBeNull();
   });
 });
+
+describe("the hover card preview while its action menu is open", () => {
+  it("keeps the card of the menu in the panel once the pointer has left it", () => {
+    const { container } = render(<Shell state={stateOf("main")} />);
+    const card = container.querySelector<HTMLElement>('[data-hand-seat="0"] button[aria-label="Raigeki"]')!;
+    fireEvent.mouseEnter(card);
+    fireEvent.click(card);
+    expect(screen.queryByRole("menu")).not.toBeNull();
+    fireEvent.mouseLeave(card);
+    const preview = screen.getByTestId("hover-preview");
+    expect(preview.getAttribute("data-open")).toBe("true");
+    expect(within(preview).getByText("Raigeki")).toBeTruthy();
+    expect(isOpen()).toBe(false);
+  });
+});

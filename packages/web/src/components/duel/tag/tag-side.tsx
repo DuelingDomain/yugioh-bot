@@ -16,6 +16,7 @@ import { CardTabEmpty, DESKTOP_PANES, desktopPane, SidePanel, SideTabs, useIsNar
 import { MatchSheetLog } from "../text-log";
 import { HistoryStrip } from "../table/history-strip";
 import { HudLayer, type HudPaneState } from "../table/hud-layer";
+import { hudPreview } from "../table/hud-preview";
 import { hudMasterProps } from "../table/hud-shared";
 import { tableLayout } from "../table/geometry";
 import { TablePhonePanes } from "../table/table-phone-panes";
@@ -61,8 +62,8 @@ export type TagSideHud = {
   rowCard: DuelCardInfo | null;
   /** The tray draws something a player sees. When it does not, the floating card hides. */
   trayVisible: boolean;
-  /** A card menu is open: the preview hides. */
-  menuOpen: boolean;
+  /** The card of the open card menu: the preview keeps showing it while the menu is open and no other card is hovered. */
+  menuCard: DuelCard | null;
   camera: ReactNode;
 };
 
@@ -202,7 +203,6 @@ export function TagSide({
       onActivate: controller.onActivate,
       onHoverCard: controller.onHoverCard,
     };
-    const hovered = hud.hover?.card ?? null;
     return (
       <>
         <div className={styles.hudTray} data-tone={prompt?.context?.type === "chain" ? "chain" : "action"} data-empty={hud.trayVisible ? undefined : "true"} data-prompt-surface={prompt ? "" : undefined}>{trayNode}</div>
@@ -217,8 +217,8 @@ export function TagSide({
           master={domain ? hudMasterProps(source, engine.seats.find((view) => view.seat === seat), viewerSeat != null, viewerSeat == null ? `${nameOf(seat)}'s Master` : "Your Master") : null}
           otherMaster={domain && partner != null ? hudMasterProps(source, engine.seats.find((view) => view.seat === partner), false, `${nameOf(partner)}'s Master`) : null}
           onInspect={ui.setInspect}
-          preview={hovered ? { card: hovered, owner: { name: nameOf(hovered.controller), ...(seatTones.get(hovered.controller) ?? SEAT_TONE_HEX.ice) } } : hud.rowCard ? { card: hud.rowCard, owner: null } : null}
-          previewHidden={hud.menuOpen || ui.pile?.open === true}
+          preview={hudPreview(hud.hover?.card ?? null, hud.menuCard, hud.rowCard, (card) => ({ name: nameOf(card.controller), ...(seatTones.get(card.controller) ?? SEAT_TONE_HEX.ice) }))}
+          previewHidden={ui.pile?.open === true}
           reducedMotion={controller.reducedMotion}
         />
       </>

@@ -201,6 +201,7 @@ export function useTableUi(base: TableController, options: TableUiOptions = {}):
           setMenu({
             anchor,
             title: card?.name ?? "Card",
+            card,
             options,
             promptId: prompt.id,
             revision,

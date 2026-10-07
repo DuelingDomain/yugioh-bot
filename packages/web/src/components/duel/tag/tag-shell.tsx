@@ -281,7 +281,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
       tray={tray}
       leftClassName={styles.left}
       mastersClassName={styles.masters}
-      hud={hud ? { state: hudState, hover: ui.hover, rowCard: rowPreview.card, trayVisible: promptTrayVisible(prompt, viewerSeat, !terminal && !viewerOut, centered), menuOpen: ui.menu != null, camera: cameraDock } : undefined}
+      hud={hud ? { state: hudState, hover: ui.hover, rowCard: rowPreview.card, trayVisible: promptTrayVisible(prompt, viewerSeat, !terminal && !viewerOut, centered), menuCard: ui.menu?.card ?? null, camera: cameraDock } : undefined}
     />
   );
 

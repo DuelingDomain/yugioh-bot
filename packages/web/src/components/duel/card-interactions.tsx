@@ -15,6 +15,8 @@ import { useSkinStyles } from "./skin";
 export type CardMenuState = {
   anchor: HTMLElement;
   title: string;
+  /** The card the menu belongs to: the HUD's hover preview keeps showing it while the menu is open. */
+  card?: DuelCard | null;
   options: DuelPromptOption[];
   promptId: string;
   revision: number;
