@@ -88,8 +88,7 @@ export default async function DraftsPage() {
         <div className={styles.empty}>
           <h2>No drafts yet</h2>
           <p>
-            Start one here, or run <code className="cmd">/draft create</code> in Discord. Drafts you join show up on this
-            page.
+            Start one and share the link. Drafts you join show up on this page.
           </p>
           <SvButton as="a" href="/drafts/new" variant="primary" className={styles.go}>
             <Plus size={16} strokeWidth={2.2} aria-hidden="true" />

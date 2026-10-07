@@ -20,8 +20,6 @@
 /* Invite */
 .invite { display: grid; gap: 14px; min-width: 0; }
 .invite > :global(.sv-head) { margin: 0; }
-.joinHint { margin: 0; color: var(--ink-3); font-size: 14.5px; line-height: 1.5; }
-.joinCommand { white-space: nowrap; }
 
 /* Players: a ring, the name, a quiet line under it. Two columns when there is room, one row each on a phone. */
 .seatsSec { display: grid; gap: 4px; min-width: 0; }

@@ -13,9 +13,9 @@ describe("navItems", () => {
     expect(navItems.some((i) => i.href === "/themes")).toBe(false);
   });
 
-  it("keeps Cubes between Drafts and Settings", () => {
+  it("keeps Cubes between Drafts and Account", () => {
     const labels = navItems.map((item) => item.label);
     expect(labels.indexOf("Cubes")).toBeGreaterThan(labels.indexOf("Drafts"));
-    expect(labels.indexOf("Cubes")).toBeLessThan(labels.indexOf("Settings"));
+    expect(labels.indexOf("Cubes")).toBeLessThan(labels.indexOf("Account"));
   });
 });

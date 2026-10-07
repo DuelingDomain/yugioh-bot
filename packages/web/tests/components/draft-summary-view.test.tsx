@@ -421,7 +421,7 @@ describe("DraftSummaryView", () => {
 
   it("tells other players the host starts the tournament, with no create button", () => {
     renderView({ ...baseDraft, participantPickCount: 15, myDeckId: 7 });
-    expect(screen.getByText("The host or a server admin will start the tournament.")).toBeTruthy();
+    expect(screen.getByText("The host will start the tournament.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Create tournament" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Go to tournament" })).toBeNull();
   });

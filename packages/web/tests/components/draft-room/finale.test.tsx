@@ -159,7 +159,7 @@ describe("DraftFinale", () => {
       const { rerender } = render(<DraftFinale {...props} />);
       const deck = await screen.findByRole("link", { name: "View your deck" });
       await waitFor(() => expect(document.activeElement).toBe(deck));
-      const status = screen.getByText("The host or a server admin will start the tournament.");
+      const status = screen.getByText("The host will start the tournament.");
       expect(status.getAttribute("aria-live")).toBe("polite");
 
       rerender(<DraftFinale {...props} tournament={made} />);
@@ -225,7 +225,7 @@ describe("DraftFinale", () => {
       await waitFor(() => expect(document.activeElement).toBe(deck));
       expect(screen.queryByRole("button", { name: "Create tournament" })).toBeNull();
       expect(screen.queryByText("Build your deck")).toBeNull();
-      expect(screen.getByText("The host or a server admin will start the tournament.")).toBeTruthy();
+      expect(screen.getByText("The host will start the tournament.")).toBeTruthy();
       expect(screen.getByRole("button", { name: "Export YDK" })).toBeTruthy();
     });
   });

@@ -68,6 +68,8 @@ export interface TournamentDetail {
   deckNote?: DeckNote | null;
   /** The viewer's Elo stakes. Older payloads (and tests) omit it. */
   stakes?: ViewerStakes | null;
+  /** The server can post to Discord (the bot is enabled). Absent or false hides the Announce button and the /event hint. */
+  discordEnabled?: boolean;
 }
 
 export interface StandingsRow {

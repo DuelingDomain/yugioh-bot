@@ -10,7 +10,9 @@ vi.mock("next/font/local", () => ({
   default: ({ variable }: { variable: string }) => ({ variable, className: "font-class" }),
 }));
 
-const { signInFlow, signUpFlow, ssoFlow, redirect, hardNavigate } = vi.hoisted(() => ({
+const { signInFlow, signUpFlow, ssoFlow, redirect, hardNavigate, authState, routerReplace } = vi.hoisted(() => ({
+  authState: { isLoaded: true, isSignedIn: false },
+  routerReplace: vi.fn(),
   signInFlow: vi.fn(),
   signUpFlow: vi.fn(),
   ssoFlow: vi.fn(),
@@ -20,7 +22,8 @@ const { signInFlow, signUpFlow, ssoFlow, redirect, hardNavigate } = vi.hoisted((
 vi.mock("@/hooks/use-sign-in-flow", () => ({ useSignInFlow: signInFlow }));
 vi.mock("@/hooks/use-sign-up-flow", () => ({ useSignUpFlow: signUpFlow }));
 vi.mock("@/hooks/use-sso-callback", () => ({ useSsoCallback: ssoFlow }));
-vi.mock("next/navigation", () => ({ redirect }));
+vi.mock("next/navigation", () => ({ redirect, useRouter: () => ({ replace: routerReplace }) }));
+vi.mock("@clerk/nextjs", () => ({ useAuth: () => authState }));
 vi.mock("@/components/auth/navigate", () => ({ hardNavigate }));
 
 import LoginPage from "../../../app/(auth)/login/page";
@@ -45,6 +48,8 @@ const signInActions = () => ({
 const signUpActions = () => ({ submitAccount: vi.fn(), continueWithDiscord: vi.fn(), submitCode: vi.fn(), resendCode: vi.fn() });
 
 beforeEach(() => {
+  authState.isLoaded = true;
+  authState.isSignedIn = false;
   vi.stubEnv("MARKETING_URL", MARKETING);
   vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
 });
@@ -382,5 +387,57 @@ describe("access page", () => {
       expect(source).not.toMatch(/from\s+["'][^"']*clerk|require\(["'][^"']*clerk/i);
       expect(source).not.toMatch(/["']use client["']/);
     }
+  });
+});
+
+describe("already signed in", () => {
+  it("sends a signed-in visitor of /sign-in to their return path and never shows the form", async () => {
+    authState.isSignedIn = true;
+    const { container } = await renderSignIn(state("signin"), { redirect_url: "/drafts/x?tab=1" });
+    expect(routerReplace).toHaveBeenCalledWith("/drafts/x?tab=1");
+    expect(screenOf(container)).toBe("signing");
+    expect(screen.queryByLabelText("Email address")).toBeNull();
+  });
+
+  it("falls back to the dashboard for an unsafe return path", async () => {
+    authState.isSignedIn = true;
+    await renderSignIn(state("signin"), { redirect_url: "https://evil.example" });
+    expect(routerReplace).toHaveBeenCalledWith("/dashboard");
+  });
+
+  it("sends a signed-in visitor of /sign-up to their return path", async () => {
+    authState.isSignedIn = true;
+    await renderSignUp(state("signin"), { redirect_url: "/cubes" });
+    expect(routerReplace).toHaveBeenCalledWith("/cubes");
+  });
+
+  it("waits for Clerk to load, and does nothing for a signed-out visitor", async () => {
+    authState.isLoaded = false;
+    authState.isSignedIn = true;
+    await renderSignIn(state("signin"));
+    expect(routerReplace).not.toHaveBeenCalled();
+    cleanup();
+    authState.isLoaded = true;
+    authState.isSignedIn = false;
+    const { container } = await renderSignIn(state("signin"));
+    expect(routerReplace).not.toHaveBeenCalled();
+    expect(screenOf(container)).toBe("signin");
+  });
+
+  it("does not redirect someone who signs in on the page itself", async () => {
+    const actions = signInActions();
+    signInFlow.mockReturnValue({ state: state("signin"), actions });
+    const view = render(await SignInPage({ searchParams: Promise.resolve({}) }));
+    authState.isSignedIn = true;
+    signInFlow.mockReturnValue({ state: state("success"), actions });
+    view.rerender(await SignInPage({ searchParams: Promise.resolve({}) }));
+    expect(routerReplace).not.toHaveBeenCalled();
+    expect(screenOf(view.container)).toBe("success");
+  });
+
+  it("leaves /sso-callback alone", async () => {
+    authState.isSignedIn = true;
+    await renderCallback(state("signing"));
+    expect(routerReplace).not.toHaveBeenCalled();
   });
 });

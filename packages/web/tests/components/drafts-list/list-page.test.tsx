@@ -57,10 +57,11 @@ describe("DraftsPage", () => {
     return id;
   }
 
-  it("shows the empty state naming /draft create", async () => {
+  it("shows the empty state without a Discord command", async () => {
     render(await DraftsPage());
     expect(screen.getByRole("heading", { name: "No drafts yet" })).toBeTruthy();
-    expect(screen.getByText("/draft create")).toBeTruthy();
+    expect(screen.queryByText("/draft create")).toBeNull();
+    expect(screen.getByText(/Start one and share the link/)).toBeTruthy();
     expect(screen.getAllByRole("link", { name: /new draft/i }).map((a) => a.getAttribute("href"))).toEqual(["/drafts/new", "/drafts/new"]);
   });
 

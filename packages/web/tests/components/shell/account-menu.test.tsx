@@ -5,7 +5,7 @@ import { LinkStub, ready, noProfile } from "./helpers";
 
 vi.mock("next/link", () => ({ default: LinkStub }));
 const { signOut } = vi.hoisted(() => ({ signOut: vi.fn() }));
-vi.mock("@/lib/actions", () => ({ handleSignOut: signOut }));
+vi.mock("@/components/account/sign-out", () => ({ useSignOut: () => signOut }));
 
 import { AccountMenu } from "../../../src/components/layout/account-menu";
 
@@ -43,16 +43,22 @@ describe("AccountMenu", () => {
     const menu = screen.getByRole("menu");
     const profile = screen.getByRole("menuitem", { name: "Your profile" });
     const out = screen.getByRole("menuitem", { name: "Sign out" });
+    const terms = screen.getByRole("menuitem", { name: "Terms" });
+    const privacy = screen.getByRole("menuitem", { name: "Privacy" });
     fireEvent.keyDown(menu, { key: "ArrowDown" });
     expect(document.activeElement).toBe(out);
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(terms);
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(privacy);
     fireEvent.keyDown(menu, { key: "ArrowDown" });
     expect(document.activeElement).toBe(profile);
     fireEvent.keyDown(menu, { key: "ArrowUp" });
-    expect(document.activeElement).toBe(out);
+    expect(document.activeElement).toBe(privacy);
     fireEvent.keyDown(menu, { key: "Home" });
     expect(document.activeElement).toBe(profile);
     fireEvent.keyDown(menu, { key: "End" });
-    expect(document.activeElement).toBe(out);
+    expect(document.activeElement).toBe(privacy);
   });
 
   it("Escape closes and returns focus to the trigger", async () => {
@@ -94,6 +100,19 @@ describe("AccountMenu", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
     expect(signOut).toHaveBeenCalledWith();
     await expectClosed();
+  });
+
+  it("shows the email as the subtitle, or Signed in without one, and the legal links", () => {
+    open();
+    const menu = screen.getByRole("menu");
+    expect(menu).toHaveTextContent("imran@example.com");
+    expect(screen.getByRole("menuitem", { name: "Terms" })).toHaveAttribute("target", "_blank");
+    expect(screen.getByRole("menuitem", { name: "Privacy" })).toHaveAttribute("rel", "noopener noreferrer");
+  });
+
+  it("falls back to Signed in when there is no email", () => {
+    open({ ...ready, email: null });
+    expect(screen.getByRole("menu")).toHaveTextContent("Signed in");
   });
 
   it("without a profile, Your profile is disabled and explained", () => {

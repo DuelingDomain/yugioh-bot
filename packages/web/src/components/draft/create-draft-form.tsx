@@ -23,7 +23,7 @@ import {
 
 type Channel = { id: string; name: string };
 
-export function CreateDraftForm() {
+export function CreateDraftForm({ discordEnabled = false }: { discordEnabled?: boolean }) {
   const router = useRouter();
   const [name, setName] = React.useState("");
   const [channelId, setChannelId] = React.useState("");
@@ -41,6 +41,11 @@ export function CreateDraftForm() {
   const pool = usePoolEditor({ variant: "create" });
 
   React.useEffect(() => {
+    // The channel list only exists when the server can post to Discord.
+    if (!discordEnabled) {
+      setChannelsLoading(false);
+      return;
+    }
     let cancelled = false;
     setChannelsLoading(true);
     fetch("/api/discord/channels")
@@ -49,7 +54,7 @@ export function CreateDraftForm() {
       .catch(() => {})
       .finally(() => { if (!cancelled) setChannelsLoading(false); });
     return () => { cancelled = true; };
-  }, []);
+  }, [discordEnabled]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -75,7 +80,7 @@ export function CreateDraftForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: name.trim(),
-          channelId: channelId || undefined,
+          channelId: discordEnabled ? channelId || undefined : undefined,
           config: { ...configFromFields(fields), ...pool.config(), includeNames: [], excludeNames: [] },
         }),
       });
@@ -115,7 +120,7 @@ export function CreateDraftForm() {
           <section className={styles.sec} aria-labelledby="dc-d">
             <div className={styles.secSide}>
               <h2 id="dc-d">Draft</h2>
-              <p>Players see this name in Discord and on the web.</p>
+              <p>{discordEnabled ? "Players see this name in Discord and on the web." : "Players see this name in the lobby and on the invite link."}</p>
             </div>
             <div className="fields">
               <div className="wide">
@@ -136,6 +141,7 @@ export function CreateDraftForm() {
                   aria-invalid={nameError ? true : undefined}
                 />
               </div>
+              {discordEnabled ? (
               <div className="wide">
                 <label className="label" htmlFor="draft-channel">
                   Channel
@@ -157,6 +163,7 @@ export function CreateDraftForm() {
                 </select>
                 <p className="hint">The bot posts the draft here so people can join from Discord.</p>
               </div>
+              ) : null}
             </div>
           </section>
 
@@ -210,7 +217,7 @@ export function CreateDraftForm() {
         <RailSection title="What happens next">
           <ol className={styles.steps} aria-label="What happens next">
             <li><span>You get a lobby with an invite link. You&apos;re in it as a player.</span></li>
-            <li><span>Players join from the link or with <code className="cmd">/draft join</code>.</span></li>
+            <li><span>{discordEnabled ? <>Players join from the link or with <code className="cmd">/draft join</code>.</> : "Players join from the invite link."}</span></li>
             <li><span>You press Start. Seats are shuffled and the first packs are dealt.</span></li>
           </ol>
         </RailSection>

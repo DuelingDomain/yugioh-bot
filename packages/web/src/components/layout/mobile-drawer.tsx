@@ -7,6 +7,7 @@ import { LightRule, SheetPortal } from "@/components/sheet";
 import { DURATION, usePresence } from "@/lib/motion";
 import { AccountMenu } from "./account-menu";
 import { BrandMark } from "./brand-mark";
+import { LegalLinks } from "./legal-links";
 import { NavList, SettingsLink } from "./nav-list";
 import { activeNavHref, type LiveNow } from "./shell-model";
 import type { ShellAccount } from "./use-shell-account";
@@ -82,6 +83,9 @@ function DrawerDialog({ onClose, account, live, onReportBug, state }: Omit<Mobil
         <div className={styles.foot}>
           <SettingsLink activeHref={activeHref} size="phone" onNavigate={onClose} />
           <AccountMenu account={account} pathname={pathname} variant="side" onNavigate={onClose} onReportBug={onReportBug} />
+          <div className={styles.footLegal}>
+            <LegalLinks />
+          </div>
         </div>
       </div>
     </div>
