@@ -73,6 +73,12 @@ const onlyOn = (seat: number) => (engine: NonNullable<TableFixtureState["room"][
   engine.prompt = { ...source, options: source.options.filter((option) => option.controller === seat) } as typeof engine.prompt;
 };
 
+/** Legal keys only on the viewer's own field: what the idle and battle commands of the viewer's turn are. */
+const ownFieldOnly = (engine: NonNullable<TableFixtureState["room"]["engine"]>) => {
+  const source = structuredClone(FFA3_FIXTURES.states["target-pick"].room.engine!.prompt!);
+  engine.prompt = { ...source, options: source.options.slice(0, 2).map((option, at) => ({ ...option, controller: REN, location: 4, sequence: at })) } as typeof engine.prompt;
+};
+
 describe("the focused field only changes when the viewer asks", () => {
   it("a rival that is focused stays focused through an attack, a chain, a destroy and a new turn", () => {
     const focused = { mode: "focus", focusSeat: RYO } as const;
@@ -195,10 +201,17 @@ describe("3-way: a click on a field enlarges it, and nothing else does", () => {
     expect(chip(container)).toBe("Focus · Ryo Sato");
   });
 
-  it("a zone click never enlarges while the viewer has a prompt with legal choices", () => {
-    const { container } = render(<Table state={variant(() => {})} />);
+  it("a zone click never enlarges a field that holds a legal choice of the prompt", () => {
+    const { container } = render(<Table state={variant(onlyOn(RYO))} />);
     fireEvent.click(plainZone(container, RYO));
     expect(chip(container)).toBe("Home");
+  });
+
+  it("legal keys only on the own field (the idle commands of the viewer's turn) do not stop a rival field from enlarging", () => {
+    const { container } = render(<Table state={variant(ownFieldOnly)} />);
+    expect(seatBox(container, REN).querySelector("[data-legal='true']")).not.toBeNull();
+    fireEvent.click(plainZone(container, RYO));
+    expect(chip(container)).toBe("Focus · Ryo Sato");
   });
 
   it("Esc cancels a locked aim first and leaves the enlarged field alone", () => {
