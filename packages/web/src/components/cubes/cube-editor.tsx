@@ -8,7 +8,11 @@ import { ConfirmPanel, Segmented, StatusLine, SvButton, svButtonClass, Zone } fr
 import type { CardSummary } from "@/lib/card-types";
 import { putCards } from "@/lib/cards-cache";
 import { isExtraDeckCardClient, poolToGridCards, type CubeCardDto, type CubePoolsDto } from "@/lib/cube-pools";
-import { AddCardsBody, type ImportOutcome } from "./cube-add-rail";
+import { ListImportError, listImportErrorFrom } from "@/lib/card-list-import";
+import { parseCustomCardIds } from "@/lib/custom-card-pool";
+import { importLine, pasteLabel } from "@/components/draft/pool/pool-model";
+import { AddCardsBody, type CubeImportEntry, type ImportKind, type ImportOutcome } from "./cube-add-rail";
+import { gainMap, gainsBetween, planRemoval, type CubeGain, type RemovalOp } from "./cube-import-model";
 import { CubeCardGrid } from "./cube-card-grid";
 import {
   DEFAULT_VIEW,
@@ -51,6 +55,13 @@ interface UndoInfo {
   copies: number;
 }
 
+/** A removal that changes more main cards than this goes as one replaceMain call instead of one request per card. */
+const BULK_REMOVE_FROM = 30;
+
+interface ImportRecord extends CubeImportEntry {
+  gains: CubeGain[];
+}
+
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -86,6 +97,12 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
   const [selectedId, setSelectedId] = React.useState<number | null>(null);
   const [undo, setUndo] = React.useState<UndoInfo | null>(null);
   const removalSequence = React.useRef(0);
+  const [imports, setImports] = React.useState<ImportRecord[]>([]);
+  const importSequence = React.useRef(0);
+  const poolsRef = React.useRef(pools);
+  poolsRef.current = pools;
+  const importsRef = React.useRef(imports);
+  importsRef.current = imports;
   const [addSheetOpen, setAddSheetOpen] = React.useState(false);
   const [railHidden, setRailHidden] = React.useState(false);
   const layoutRef = React.useRef<HTMLDivElement>(null);
@@ -156,6 +173,77 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
       // The request itself failed (network down): say so instead of leaving an unhandled rejection.
       report(op.op === "setArtwork" ? "Could not change the art." : "Update failed.");
       return null;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** One write to the cube's cards. Throws an Error (a `ListImportError` for a refusal with Retry-After) fit to show. */
+  const writeCards = async (op: Record<string, unknown>, fallback: string) => {
+    let res: Response;
+    try {
+      res = await fetch(`/api/cubes/${cubeId}/cards`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(op),
+      });
+    } catch {
+      throw new ListImportError("Couldn't reach the server. Check your connection and try again.");
+    }
+    if (!res.ok) throw await listImportErrorFrom(res, fallback);
+    const data = (await res.json().catch(() => ({}))) as { pools?: CubePoolsDto; cards?: CardSummary[] } & ImportOutcome;
+    if (!data.pools || !data.cards) throw new ListImportError(fallback);
+    applyDetail({ pools: data.pools, cards: data.cards });
+    return { ...data, pools: data.pools };
+  };
+
+  /** Adds pasted text or a loaded file at once and keeps an entry that can take exactly those copies out again. */
+  const importText = async (kind: ImportKind, text: string, fileName: string | null) => {
+    let op: Record<string, unknown>;
+    if (kind === "passcodes") {
+      const parsed = parseCustomCardIds(text);
+      if (parsed.errors.length > 0) {
+        throw new Error(`Remove invalid passcodes: ${parsed.errors.slice(0, 3).join(", ")}`);
+      }
+      if (parsed.cardIds.length === 0) throw new Error("Paste at least one passcode to import.");
+      op = { op: "import", codes: parsed.cardIds };
+    } else {
+      op = { op: kind === "ydk" ? "importYdk" : "importList", text };
+    }
+    const before = poolsRef.current;
+    setBusy(true);
+    setError(null);
+    try {
+      const data = await writeCards(op, "Couldn't add the list. Try again.");
+      const unknown = (data.unknown ?? []).map(String);
+      const corrected = data.corrected ?? [];
+      const gains = gainsBetween(before, data.pools);
+      if (gains.length === 0) return { nothing: true as const, report: { unknown, corrected } };
+      const label = fileName ?? pasteLabel(importsRef.current.map((entry) => entry.label));
+      const report = { unknown, corrected };
+      const line = importLine({ label, main: gainMap(gains, "main"), extra: gainMap(gains, "extra"), corrected, unknown });
+      setImports((prev) => [...prev, { key: ++importSequence.current, kind, label, line, report, gains }]);
+      return undefined;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeImport = async (key: number | string) => {
+    const entry = importsRef.current.find((e) => e.key === key);
+    if (!entry) return;
+    const plan = planRemoval(poolsRef.current, entry.gains);
+    setBusy(true);
+    setError(null);
+    try {
+      const run = (op: RemovalOp) => writeCards(op, "Couldn't remove that list.");
+      if (plan.main.length > BULK_REMOVE_FROM) {
+        await writeCards({ op: "replaceMain", cards: plan.mainTarget }, "Couldn't remove that list.");
+      } else {
+        for (const op of plan.main) await run(op);
+      }
+      for (const op of plan.extra) await run(op);
+      setImports((prev) => prev.filter((e) => e.key !== key));
     } finally {
       setBusy(false);
     }
@@ -350,9 +438,9 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
     copiesInCube,
     onAddCard: addCard,
     onSeedArchetype: (archetype: string) => mutate({ op: "seedArchetype", archetype }),
-    onImportCodes: (codes: number[]) => mutate({ op: "import", codes }),
-    onImportYdk: (text: string) => mutate({ op: "importYdk", text }),
-    onImportList: (text: string) => mutate({ op: "importList", text }),
+    imports,
+    onImport: importText,
+    onRemoveImport: removeImport,
   };
 
   const inspector = selected ? (

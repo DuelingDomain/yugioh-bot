@@ -43,6 +43,10 @@ let resolves: Array<Record<string, unknown>>;
 let resolveGate: Promise<void> | null;
 /** When true, card searches answer 502 like an unreachable card database. */
 let resolveFails: boolean;
+/** When set, the next write to the cube's cards is refused like this. */
+let importFailure: { status: number; error: string; retryAfter?: string } | null;
+/** When true, importList adds 40 different main cards. */
+let bulk: boolean;
 
 function detail() {
   return { pools: { main: [...main], extra: [...extra] }, cards: CARDS };
@@ -59,13 +63,33 @@ beforeEach(() => {
   resolves = [];
   resolveGate = null;
   resolveFails = false;
+  importFailure = null;
+  bulk = false;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: unknown, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith("/api/cubes/5/cards")) {
         const body = JSON.parse(String(init?.body)) as Record<string, any>;
+        if (importFailure) {
+          const failure = importFailure;
+          importFailure = null;
+          return {
+            ok: false,
+            status: failure.status,
+            headers: new Headers(failure.retryAfter ? { "Retry-After": failure.retryAfter } : {}),
+            json: async () => ({ error: failure.error }),
+          } as Response;
+        }
         posts.push(body);
+        if (bulk && body.op === "importList") {
+          main = Array.from({ length: 40 }, (_, i) => ({ catalogCardId: 100 + i, pool: "main" as const, maxCopies: 1 }));
+          return { ok: true, json: async () => ({ ...detail(), added: 40, copies: 40, unknown: [], corrected: [] }) } as Response;
+        }
+        if (body.op === "replaceMain") {
+          main = (body.cards as Array<{ id: number; copies: number }>).map((c) => ({ catalogCardId: c.id, pool: "main" as const, maxCopies: c.copies }));
+          return { ok: true, json: async () => detail() } as Response;
+        }
         if (body.op === "import") {
           main = [{ catalogCardId: 1, pool: "main", maxCopies: 1 }];
           extra = [{ catalogCardId: 2, pool: "extra", maxCopies: 1 }];
@@ -82,6 +106,10 @@ beforeEach(() => {
         if (body.op === "importList") {
           if (String(body.text).includes("NOPE")) {
             return { ok: true, json: async () => ({ ...detail(), added: 0, copies: 0, unknown: ["NOPE"], corrected: [] }) } as Response;
+          }
+          if (String(body.text).includes("MORE")) {
+            main = main.map((e) => (e.catalogCardId === 1 ? { ...e, maxCopies: e.maxCopies + 2 } : e));
+            return { ok: true, json: async () => ({ ...detail(), added: 0, copies: 2, unknown: [], corrected: [] }) } as Response;
           }
           main = [{ catalogCardId: 1, pool: "main", maxCopies: 3 }];
           extra = [{ catalogCardId: 2, pool: "extra", maxCopies: 1 }];
@@ -100,6 +128,7 @@ beforeEach(() => {
           main = main.map((e) => (e.catalogCardId === body.catalogCardId ? { ...e, maxCopies: body.maxCopies } : e));
         } else if (body.op === "remove") {
           main = main.filter((e) => e.catalogCardId !== body.catalogCardId);
+          extra = extra.filter((e) => e.catalogCardId !== body.catalogCardId);
         } else if (body.op === "add") {
           main = [...main, { catalogCardId: body.catalogCardId, pool: "main", maxCopies: body.maxCopies ?? 3 }];
         }
@@ -255,85 +284,169 @@ describe("CubeEditor", () => {
     expectFacts(lines[1]!, ["Main 1 card, 3 copies", "Extra 1 card, 1 copy"]);
   });
 
-  it("imports passcodes and updates the pool counts", async () => {
+  const pasteInto = (label: string, text: string) =>
+    fireEvent.paste(screen.getByLabelText(label), { clipboardData: { getData: () => text } });
+
+  it("adds pasted passcodes at once, with no Add button, and updates the pool counts", async () => {
     await open();
 
     fireEvent.click(screen.getByRole("button", { name: "Passcodes" }));
-    fireEvent.change(screen.getByLabelText("Passcodes, one per line"), { target: { value: "1\n2" } });
-    fireEvent.click(screen.getByRole("button", { name: /add passcodes/i }));
+    expect(screen.queryByRole("button", { name: /add passcodes/i })).toBeNull();
+    pasteInto("Passcodes, one per line", "1\n2");
 
+    await screen.findByText("Pasted list - 2 cards (1 Main, 1 Extra)");
+    expect(posts).toHaveLength(1);
     expect(posts[0]).toMatchObject({ op: "import", codes: [1, 2] });
-    await screen.findByText(/Added 2 cards/);
+    expect(screen.getByLabelText("Passcodes, one per line")).toHaveValue("");
     expect(screen.getByRole("button", { name: /Main\s*1/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Extra\s*1/ })).toBeInTheDocument();
   });
 
-  it("imports a YDK list from the YDK tab and reports cards, copies and unknown passcodes", async () => {
+  it("does not post half-typed passcodes and shows a message for a bad one", async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Passcodes" }));
+    pasteInto("Passcodes, one per line", "1\nabc");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Remove invalid passcodes: abc");
+    expect(posts).toEqual([]);
+    expect(screen.getByLabelText("Passcodes, one per line")).toHaveValue("1\nabc");
+  });
+
+  it("adds a pasted YDK at once and reports the cards, and the passcodes it skipped", async () => {
     await open();
 
     fireEvent.click(screen.getByRole("button", { name: "YDK" }));
-    fireEvent.click(screen.getByRole("button", { name: "Add deck list" }));
-    expect(posts).toEqual([]);
-    expect(screen.getByText(/Load a \.ydk file or paste/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add deck list" })).toBeNull();
+    const text = "#main\n1\n1\n1\n#extra\n2\n";
+    pasteInto("Deck list (.ydk)", text);
 
-    fireEvent.change(screen.getByLabelText("Deck list (.ydk)"), { target: { value: "#main\n1\n1\n1\n#extra\n2\n" } });
-    fireEvent.click(screen.getByRole("button", { name: "Add deck list" }));
-
-    await screen.findByText(/Added 2 cards, 4 copies/);
-    expect(posts[0]).toEqual({ op: "importYdk", text: "#main\n1\n1\n1\n#extra\n2\n" });
-    expect(screen.getByText(/Not found/)).toHaveTextContent("777, 888");
+    await screen.findByText("Pasted list - 4 cards (3 Main, 1 Extra) - 2 lines skipped");
+    expect(posts).toEqual([{ op: "importYdk", text }]);
     expect(screen.getByRole("button", { name: /Main\s*1/ })).toBeInTheDocument();
   });
 
-  it("imports a card list by name and reports copies, corrected names and skipped lines", async () => {
+  it("adds a pasted card list at once, with the report collapsed", async () => {
     await open();
 
     fireEvent.click(screen.getByRole("button", { name: "Card list" }));
-    fireEvent.click(screen.getByRole("button", { name: "Add list" }));
-    expect(posts).toEqual([]);
-    expect(screen.getByText("Load a file or paste a card list first.")).toBeInTheDocument();
-
+    expect(screen.queryByRole("button", { name: "Add list" })).toBeNull();
     const text = "Engines\n3 Dark Hole\n1 Artifact Moraltech\nGlue";
-    fireEvent.change(screen.getByLabelText("Card list"), { target: { value: text } });
-    fireEvent.click(screen.getByRole("button", { name: "Add list" }));
+    pasteInto("Card list", text);
 
-    await screen.findByText("Added 2 cards, 4 copies.");
-    expect(posts[0]).toEqual({ op: "importList", text });
+    await screen.findByText("Pasted list - 4 cards (3 Main, 1 Extra) - 1 name corrected - 2 lines skipped");
+    expect(posts).toEqual([{ op: "importList", text }]);
     const report = screen.getByTestId("list-import-report");
-    expect(within(report).getByRole("list", { name: "Corrected names" })).toHaveTextContent("Artifact Moraltech");
-    expect(within(report).getByRole("list", { name: "Corrected names" })).toHaveTextContent("Artifact Moralltach");
-    expect(within(report).getByText("Skipped 2 lines that are not card names")).toBeInTheDocument();
+    expect(within(report).getByRole("list", { name: "Corrected names", hidden: true })).toHaveTextContent("Artifact Moralltach");
     expect(within(report).getByRole("list", { name: "Skipped lines", hidden: true })).toHaveTextContent("Engines");
     expect(screen.getByLabelText("Card list")).toHaveValue("");
     expect(screen.getByRole("button", { name: /Main\s*1/ })).toBeInTheDocument();
   });
 
-  it("loads a .txt file into the card list box and adds it only on the next click", async () => {
+  it("adds typed text after a pause, and on Enter at once, never twice", async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Card list" }));
+    const box = screen.getByLabelText("Card list");
+    fireEvent.change(box, { target: { value: "3 Dark Ho" } });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(posts).toEqual([]);
+    fireEvent.keyDown(box, { key: "Enter" });
+    await screen.findByText(/^Pasted list - 4 cards/);
+    await new Promise((r) => setTimeout(r, 1000));
+    expect(posts).toHaveLength(1);
+  });
+
+  it("adds a loaded .txt file at once and names the entry after the file", async () => {
     await open();
     fireEvent.click(screen.getByRole("button", { name: "Card list" }));
     const file = new File(["3 Dark Hole\nGlue\n"], "Flip.txt", { type: "text/plain" });
     fireEvent.change(screen.getByLabelText("Upload card list file"), { target: { files: [file] } });
-    await waitFor(() => expect(screen.getByLabelText("Card list")).toHaveValue("3 Dark Hole\nGlue\n"));
-    expect(screen.getByText("Loaded Flip.txt, 2 lines. Check it, then add it.")).toBeInTheDocument();
-    expect(posts).toEqual([]);
+    await screen.findByText(/^Flip\.txt - 4 cards \(3 Main, 1 Extra\)/);
+    expect(posts[0]).toMatchObject({ op: "importList", text: "3 Dark Hole\nGlue\n" });
+    expect(screen.getByLabelText("Card list")).toHaveValue("");
   });
 
   it("says no cards were found when the list imports nothing, and keeps the text", async () => {
     await open();
     fireEvent.click(screen.getByRole("button", { name: "Card list" }));
-    fireEvent.change(screen.getByLabelText("Card list"), { target: { value: "NOPE" } });
-    fireEvent.click(screen.getByRole("button", { name: "Add list" }));
+    pasteInto("Card list", "NOPE");
     await screen.findByText("No cards found in that list.");
     expect(screen.getByText("Skipped 1 line that is not a card name")).toBeInTheDocument();
     expect(screen.getByLabelText("Card list")).toHaveValue("NOPE");
+    expect(screen.queryByRole("list", { name: "Added lists" })).toBeNull();
   });
 
-  it("loads a .ydk file into the YDK box", async () => {
+  it("shows the wait time when the card database is busy (503 Retry-After)", async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Card list" }));
+    importFailure = { status: 503, error: "The card database is busy.", retryAfter: "7" };
+    pasteInto("Card list", "3 Dark Hole");
+    expect(await screen.findByRole("alert")).toHaveTextContent("The card database is busy. Wait 7 seconds, then try again.");
+    expect(screen.getByLabelText("Card list")).toHaveValue("3 Dark Hole");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeDisabled();
+  });
+
+  it("loads a .ydk file and adds it at once", async () => {
     await open();
     fireEvent.click(screen.getByRole("button", { name: "YDK" }));
     const file = new File(["#main\n1\n"], "deck.ydk", { type: "" });
-    fireEvent.change(screen.getByLabelText("Upload YDK file"), { target: { files: [file] } });
-    await waitFor(() => expect(screen.getByLabelText("Deck list (.ydk)")).toHaveValue("#main\n1\n"));
+    fireEvent.change(screen.getByLabelText("Upload card list file"), { target: { files: [file] } });
+    await screen.findByText(/^deck\.ydk - 4 cards/);
+    expect(posts[0]).toEqual({ op: "importYdk", text: "#main\n1\n" });
+  });
+
+  describe("Remove on an import entry", () => {
+    it("takes out only the copies the import added and keeps the ones the cube had", async () => {
+      main = [{ catalogCardId: 1, pool: "main", maxCopies: 2 }];
+      await open();
+      fireEvent.click(screen.getByRole("button", { name: "Card list" }));
+      pasteInto("Card list", "3 Dark Hole");
+      await screen.findByText(/^Pasted list - 2 cards \(1 Main, 1 Extra\)/);
+      posts.length = 0;
+
+      fireEvent.click(screen.getByRole("button", { name: "Remove Pasted list" }));
+      await waitFor(() => expect(screen.queryByRole("list", { name: "Added lists" })).toBeNull());
+      expect(posts).toEqual([
+        { op: "setMaxCopies", catalogCardId: 1, maxCopies: 2 },
+        { op: "remove", catalogCardId: 2 },
+      ]);
+      expect(main).toEqual([{ catalogCardId: 1, pool: "main", maxCopies: 2 }]);
+      expect(extra).toEqual([]);
+    });
+
+    it("stacks entries, and removing one leaves the other in the list", async () => {
+      await open();
+      fireEvent.click(screen.getByRole("button", { name: "Card list" }));
+      pasteInto("Card list", "3 Dark Hole");
+      await screen.findByText(/^Pasted list - /);
+      pasteInto("Card list", "MORE");
+      await screen.findByText(/^Pasted list 2 - 2 cards \(2 Main, 0 Extra\)/);
+      expect(within(screen.getByRole("list", { name: "Added lists" })).getAllByRole("button", { name: /^Remove / })).toHaveLength(2);
+      fireEvent.click(screen.getByRole("button", { name: "Remove Pasted list 2" }));
+      await waitFor(() => expect(within(screen.getByRole("list", { name: "Added lists" })).getAllByRole("button", { name: /^Remove / })).toHaveLength(1));
+      expect(screen.getByText(/^Pasted list - /)).toBeInTheDocument();
+    });
+
+    it("shows a message when the cube refuses the removal, and keeps the entry", async () => {
+      await open();
+      fireEvent.click(screen.getByRole("button", { name: "Card list" }));
+      pasteInto("Card list", "3 Dark Hole");
+      await screen.findByText(/^Pasted list - /);
+      importFailure = { status: 409, error: "This cube is in a running draft." };
+      fireEvent.click(screen.getByRole("button", { name: "Remove Pasted list" }));
+      expect(await screen.findByText("This cube is in a running draft.")).toBeInTheDocument();
+      expect(screen.getByText(/^Pasted list - /)).toBeInTheDocument();
+    });
+
+    it("uses one replaceMain request when an import added many main cards", async () => {
+      bulk = true;
+      await open();
+      fireEvent.click(screen.getByRole("button", { name: "Card list" }));
+      pasteInto("Card list", "many");
+      await screen.findByText(/^Pasted list - 40 cards \(40 Main, 0 Extra\)/);
+      posts.length = 0;
+      fireEvent.click(screen.getByRole("button", { name: "Remove Pasted list" }));
+      await waitFor(() => expect(posts).toHaveLength(1));
+      expect(posts[0]).toEqual({ op: "replaceMain", cards: [] });
+    });
   });
 
   it("offers the cube as a .ydk download", async () => {

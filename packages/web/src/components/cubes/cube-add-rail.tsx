@@ -2,13 +2,11 @@
 
 import { cardImageUrl } from "@/lib/card-image-url";
 import * as React from "react";
-import { Check, Plus, TriangleAlert, Upload } from "lucide-react";
-import { ListFileButton } from "@/components/card-list-import/list-file-button";
-import { ListImportReport } from "@/components/card-list-import/list-import-report";
-import { listAddedLine, loadedFileLine, type ListCorrection } from "@/lib/card-list-import";
+import { Check, Plus, TriangleAlert } from "lucide-react";
+import { AutoImportBox, type ImportEntryView, type NothingFound } from "@/components/card-list-import/auto-import-box";
+import type { ListCorrection } from "@/lib/card-list-import";
 import type { CardSummary } from "@/lib/card-types";
 import { putCards } from "@/lib/cards-cache";
-import { parseCustomCardIds } from "@/lib/custom-card-pool";
 import { isExtraDeckCardClient } from "@/lib/cube-pools";
 import { useResultNav } from "@/lib/hooks/use-result-nav";
 import type { AddTab } from "./library-model";
@@ -39,9 +37,18 @@ export interface AddRailProps {
   onAddCard: (card: CardSummary) => void;
   /** Resolves null when the server refused (the editor shows the error). */
   onSeedArchetype: (archetype: string) => Promise<ImportOutcome | null>;
-  onImportCodes: (codes: number[]) => Promise<ImportOutcome | null>;
-  onImportYdk: (text: string) => Promise<ImportOutcome | null>;
-  onImportList: (text: string) => Promise<ImportOutcome | null>;
+  /** What each text import added, newest last. Each can be taken out again. */
+  imports: CubeImportEntry[];
+  /** Adds a list, a passcode list or a YDK text. Throws a `ListImportError` (or Error) with a message when it is refused. */
+  onImport: (kind: ImportKind, text: string, fileName: string | null) => Promise<void | NothingFound>;
+  /** Takes out exactly the copies one import added. Throws with a message when it could not. */
+  onRemoveImport: (key: number | string) => Promise<void>;
+}
+
+export type ImportKind = "list" | "passcodes" | "ydk";
+
+export interface CubeImportEntry extends ImportEntryView {
+  kind: ImportKind;
 }
 
 const TABS: Array<{ value: AddTab; label: string }> = [
@@ -325,259 +332,46 @@ function ArchetypeTab({
   );
 }
 
-/**
- * Card list: names, passcodes, YDK text or a ydke link, typed, pasted or loaded from a file.
- * A file only fills the box; the owner reads it and adds it with one more click, because copies add to the cube.
- */
-function ListTab({ busy, onImportList }: Pick<AddRailProps, "busy" | "onImportList">) {
-  const areaId = React.useId();
-  const [text, setText] = React.useState("");
-  const [fileLine, setFileLine] = React.useState<string | null>(null);
-  const [note, setNote] = React.useState<AddNote | null>(null);
+const AREA_STYLE: React.CSSProperties = {
+  height: "auto",
+  padding: "10px 12px",
+  fontFamily: "ui-monospace, Menlo, Consolas, monospace",
+  fontSize: 13,
+};
 
-  const submit = async () => {
-    setNote(null);
-    if (text.trim() === "") {
-      setNote({ tone: "warn", text: "Load a file or paste a card list first." });
-      return;
-    }
-    const result = await onImportList(text);
-    if (!result) return;
-    const unknown = (result.unknown ?? []).map(String);
-    const corrected = result.corrected ?? [];
-    const detail = <ListImportReport unknown={unknown} corrected={corrected} />;
-    if ((result.added ?? 0) === 0) {
-      setNote({ tone: "warn", text: "No cards found in that list.", detail });
-      return;
-    }
-    setText("");
-    setFileLine(null);
-    setNote({ tone: "ok", text: listAddedLine(result.added ?? 0, result.copies ?? 0), detail });
-  };
-
+/** The three tabs that take text share one box: it adds a paste or a file at once and lists what it added. */
+function ImportTab({
+  kind,
+  label,
+  placeholder,
+  hint,
+  fileLabel,
+  busy,
+  imports,
+  onImport,
+  onRemoveImport,
+}: Pick<AddRailProps, "busy" | "imports" | "onImport" | "onRemoveImport"> & {
+  kind: ImportKind;
+  label: string;
+  placeholder: string;
+  hint: React.ReactNode;
+  fileLabel?: string;
+}) {
+  const entries = React.useMemo(() => imports.filter((entry) => entry.kind === kind), [imports, kind]);
   return (
-    <>
-      <div>
-        <label className="label" htmlFor={areaId}>
-          Card list
-        </label>
-        <textarea
-          id={areaId}
-          className="input"
-          rows={6}
-          value={text}
-          onChange={(event) => {
-            setText(event.target.value);
-            setFileLine(null);
-          }}
-          placeholder={"3 Dark Hole\nShooting Star Dragon\n46986414\n\nOr paste a whole .ydk file"}
-          style={{ height: "auto", padding: "10px 12px", fontFamily: "ui-monospace, Menlo, Consolas, monospace", fontSize: 13 }}
-        />
-        <p className="hint">
-          Card names or passcodes, one per line. A number before a name is its copies, like 3 Dark Hole. Without one, a card
-          gets 1 copy. Copies add to the ones already in the cube. Extra Deck monsters go to the Extra pool.
-        </p>
-      </div>
-      <div className="ce-file">
-        <ListFileButton
-          buttonClassName="btn btn-quiet btn-sm"
-          inputClassName={styles.fileInput}
-          disabled={busy}
-          onLoaded={(loaded, name) => {
-            setText(loaded);
-            setFileLine(loadedFileLine(name, loaded));
-            setNote(null);
-          }}
-          onError={(message) => setNote({ tone: "warn", text: message })}
-        />
-        <button className="btn btn-primary" type="button" disabled={busy} onClick={() => void submit()}>
-          Add list
-        </button>
-      </div>
-      {fileLine && <p className="hint">Loaded {fileLine}. Check it, then add it.</p>}
-      <Note note={note} />
-    </>
-  );
-}
-
-function PasscodesTab({ busy, onImportCodes }: Pick<AddRailProps, "busy" | "onImportCodes">) {
-  const areaId = React.useId();
-  const fileRef = React.useRef<HTMLInputElement>(null);
-  const [text, setText] = React.useState("");
-  const [note, setNote] = React.useState<AddNote | null>(null);
-
-  const readFile = (file: File | null) => {
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setText(String(reader.result ?? ""));
-    reader.readAsText(file);
-  };
-
-  const submit = async () => {
-    setNote(null);
-    const parsed = parseCustomCardIds(text);
-    if (parsed.errors.length > 0) {
-      setNote({ tone: "warn", text: `Remove invalid passcodes: ${parsed.errors.slice(0, 3).join(", ")}` });
-      return;
-    }
-    if (parsed.cardIds.length === 0) {
-      setNote({ tone: "warn", text: "Paste at least one passcode to import." });
-      return;
-    }
-    const result = await onImportCodes(parsed.cardIds);
-    if (!result) return;
-    setText("");
-    const unknown = result.unknown ?? [];
-    const added = result.added;
-    const head =
-      typeof added === "number"
-        ? `Added ${added} card${added === 1 ? "" : "s"}.`
-        : `Imported ${parsed.cardIds.length} passcode${parsed.cardIds.length === 1 ? "" : "s"}.`;
-    if (unknown.length > 0) {
-      setNote({
-        tone: "warn",
-        text: (
-          <>
-            {head} Not found: <code>{unknown.slice(0, 5).join(", ")}</code>
-            {unknown.length > 5 ? ` and ${unknown.length - 5} more` : ""}. Check the passcode and try it again.
-          </>
-        ),
-      });
-    } else {
-      setNote({ tone: "ok", text: head });
-    }
-  };
-
-  return (
-    <>
-      <div>
-        <label className="label" htmlFor={areaId}>
-          Passcodes, one per line
-        </label>
-        <textarea
-          id={areaId}
-          className="input"
-          rows={6}
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          placeholder={"46986414\n83764718, 12345678"}
-          style={{ height: "auto", padding: "10px 12px", fontFamily: "ui-monospace, Menlo, Consolas, monospace", fontSize: 13 }}
-        />
-        <p className="hint">
-          List a card as many times as you want copies, up to 99. A card already in the cube takes the new count, so one line
-          sets it to ×1.
-        </p>
-      </div>
-      <div className="ce-file">
-        <input
-          ref={fileRef}
-          type="file"
-          accept=".txt,text/plain"
-          className={styles.fileInput}
-          aria-label="Upload text file"
-          tabIndex={-1}
-          onChange={(event) => {
-            readFile(event.target.files?.[0] ?? null);
-            event.target.value = "";
-          }}
-        />
-        <button className="btn btn-quiet btn-sm" type="button" onClick={() => fileRef.current?.click()}>
-          <Upload className="ic sm" aria-hidden="true" />
-          Load a .txt file
-        </button>
-        <button className="btn btn-primary" type="button" disabled={busy} onClick={() => void submit()}>
-          Add passcodes
-        </button>
-      </div>
-      <Note note={note} />
-    </>
-  );
-}
-
-function YdkTab({ busy, onImportYdk }: Pick<AddRailProps, "busy" | "onImportYdk">) {
-  const areaId = React.useId();
-  const fileRef = React.useRef<HTMLInputElement>(null);
-  const [text, setText] = React.useState("");
-  const [note, setNote] = React.useState<AddNote | null>(null);
-
-  const readFile = (file: File | null) => {
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setText(String(reader.result ?? ""));
-    reader.readAsText(file);
-  };
-
-  const submit = async () => {
-    setNote(null);
-    if (text.trim() === "") {
-      setNote({ tone: "warn", text: "Load a .ydk file or paste a deck list first." });
-      return;
-    }
-    const result = await onImportYdk(text);
-    if (!result) return;
-    setText("");
-    const added = result.added ?? 0;
-    const copies = result.copies ?? 0;
-    const unknown = result.unknown ?? [];
-    const head = `Added ${added} card${added === 1 ? "" : "s"}, ${copies} cop${copies === 1 ? "y" : "ies"}.`;
-    if (unknown.length > 0) {
-      setNote({
-        tone: "warn",
-        text: (
-          <>
-            {head} Not found: <code>{unknown.slice(0, 5).join(", ")}</code>
-            {unknown.length > 5 ? ` and ${unknown.length - 5} more` : ""}.
-          </>
-        ),
-      });
-    } else {
-      setNote({ tone: "ok", text: head });
-    }
-  };
-
-  return (
-    <>
-      <div>
-        <label className="label" htmlFor={areaId}>
-          Deck list (.ydk)
-        </label>
-        <textarea
-          id={areaId}
-          className="input"
-          rows={6}
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          placeholder={"#main\n46986414\n46986414\n#extra\n23995346\n!side"}
-          style={{ height: "auto", padding: "10px 12px", fontFamily: "ui-monospace, Menlo, Consolas, monospace", fontSize: 13 }}
-        />
-        <p className="hint">
-          Each line is one copy, up to 99. Copies add to the ones already in the cube. Extra Deck monsters and the #extra
-          section go to the Extra pool; main and side cards go to Main.
-        </p>
-      </div>
-      <div className="ce-file">
-        <input
-          ref={fileRef}
-          type="file"
-          accept=".ydk,.txt,text/plain"
-          className={styles.fileInput}
-          aria-label="Upload YDK file"
-          tabIndex={-1}
-          onChange={(event) => {
-            readFile(event.target.files?.[0] ?? null);
-            event.target.value = "";
-          }}
-        />
-        <button className="btn btn-quiet btn-sm" type="button" onClick={() => fileRef.current?.click()}>
-          <Upload className="ic sm" aria-hidden="true" />
-          Load a .ydk file
-        </button>
-        <button className="btn btn-primary" type="button" disabled={busy} onClick={() => void submit()}>
-          Add deck list
-        </button>
-      </div>
-      <Note note={note} />
-    </>
+    <AutoImportBox
+      label={label}
+      placeholder={placeholder}
+      hint={hint}
+      fileLabel={fileLabel}
+      disabled={busy}
+      run={(text, fileName) => onImport(kind, text, fileName)}
+      entries={entries}
+      onRemove={onRemoveImport}
+      textareaStyle={AREA_STYLE}
+      fileButtonClassName="btn btn-quiet btn-sm"
+      fileInputClassName={styles.fileInput}
+    />
   );
 }
 
@@ -595,9 +389,51 @@ export function AddCardsBody(props: AddRailProps) {
       </div>
       {tab === "card" && <CardTab busy={props.busy} copiesInCube={props.copiesInCube} onAddCard={props.onAddCard} />}
       {tab === "archetype" && <ArchetypeTab busy={props.busy} onSeedArchetype={props.onSeedArchetype} />}
-      {tab === "list" && <ListTab busy={props.busy} onImportList={props.onImportList} />}
-      {tab === "passcodes" && <PasscodesTab busy={props.busy} onImportCodes={props.onImportCodes} />}
-      {tab === "ydk" && <YdkTab busy={props.busy} onImportYdk={props.onImportYdk} />}
+      {tab === "list" && (
+        <ImportTab
+          {...props}
+          kind="list"
+          label="Card list"
+          placeholder={"3 Dark Hole\nShooting Star Dragon\n46986414\n\nOr paste a whole .ydk file"}
+          hint={
+            <>
+              Card names or passcodes, one per line. A number before a name is its copies, like 3 Dark Hole. Without one, a card
+              gets 1 copy. A paste or a loaded file is added at once and copies add to the ones already in the cube. Extra Deck
+              monsters go to the Extra pool. Typed text is added when you stop typing, or press Enter.
+            </>
+          }
+        />
+      )}
+      {tab === "passcodes" && (
+        <ImportTab
+          {...props}
+          kind="passcodes"
+          label="Passcodes, one per line"
+          placeholder={"46986414\n83764718, 12345678"}
+          fileLabel="Load a .txt file"
+          hint={
+            <>
+              List a card as many times as you want copies, up to 99. A card already in the cube takes the new count, so one line
+              sets it to ×1. A paste or a loaded file is added at once. Typed text is added when you stop typing, or press Enter.
+            </>
+          }
+        />
+      )}
+      {tab === "ydk" && (
+        <ImportTab
+          {...props}
+          kind="ydk"
+          label="Deck list (.ydk)"
+          placeholder={"#main\n46986414\n46986414\n#extra\n23995346\n!side"}
+          fileLabel="Load a .ydk file"
+          hint={
+            <>
+              Each line is one copy, up to 99. Copies add to the ones already in the cube. Extra Deck monsters and the #extra
+              section go to the Extra pool; main and side cards go to Main. A paste or a loaded file is added at once.
+            </>
+          }
+        />
+      )}
     </>
   );
 }
