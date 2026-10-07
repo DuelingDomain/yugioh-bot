@@ -237,6 +237,21 @@ describe("the hover preview of the Tag Rooftop", () => {
   });
 });
 
+describe("the hover preview of the Tag Rooftop while a card menu is open", () => {
+  it("keeps the card of the menu in the panel once the pointer has left it", () => {
+    media(false);
+    const { container } = render(<Shell />);
+    const card = container.querySelector("[data-hand-seat='0'] [data-zones]") as HTMLElement;
+    fireEvent.mouseEnter(card);
+    fireEvent.click(card);
+    expect(screen.queryByRole("menu")).not.toBeNull();
+    fireEvent.mouseLeave(card);
+    expect(screen.getByTestId("hover-preview").getAttribute("data-open")).toBe("true");
+    expect(screen.getByTestId("hover-preview").textContent).toContain("Dark Hole");
+    expect(isOpen()).toBe(false);
+  });
+});
+
 describe("the Tag HUD with a prompt", () => {
   /** The prompt can be declined (Pass), and every answer goes to `onAnswer`. */
   const answering = (onAnswer: (answer: DuelAnswer) => void) => (controller: TableController): TableController => {

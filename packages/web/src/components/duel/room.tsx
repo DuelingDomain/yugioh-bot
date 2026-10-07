@@ -60,6 +60,7 @@ import { engineFormat, focusOpponentSeat, foeSeats, formatLabel, isMultiSeat, is
 import { resolveEquipLinks } from "./equip-links";
 import styles from "./room.module.css";
 import hudStyles from "./table/grid-hud.module.css";
+import { hudPreview } from "./table/hud-preview";
 import { HudLayer, RowPreviewBoundary, useHudEscape, useHudPane, useRowPreview } from "./table/hud-layer";
 import { hudClock, hudMasterProps, stationTrackProps } from "./table/hud-shared";
 import { SEAT_TONE_HEX } from "./table/types";
@@ -679,6 +680,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         setMenu({
           anchor,
           title: card?.name ?? "Card",
+          card,
           options,
           promptId: prompt.id,
           revision: data.engine.revision,
@@ -1494,8 +1496,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           master={domain ? hudMaster(engine.seats.find((seat) => seat.seat === localSeat), !spectator, spectator ? `${playerName(localSeat)}'s Master` : "Your Master") : null}
           otherMaster={domain && top ? hudMaster(top, false, `${playerName(top.seat)}'s Master`) : null}
           onInspect={setInspect}
-          preview={hover ? { card: hover.card, owner: { name: playerName(hover.card.controller), ...(hudSeatTones.get(hover.card.controller) ?? SEAT_TONE_HEX.ice) } } : rowPreview.card ? { card: rowPreview.card, owner: null } : null}
-          previewHidden={Boolean(activeMenu) || pickHintShown || Boolean(pile?.open)}
+          preview={hudPreview(hover?.card ?? null, activeMenu?.card, rowPreview.card, (card) => ({ name: playerName(card.controller), ...(hudSeatTones.get(card.controller) ?? SEAT_TONE_HEX.ice) }))}
+          previewHidden={pickHintShown || Boolean(pile?.open)}
           reducedMotion={preferences.reducedMotion}
         />
       ) : null}
