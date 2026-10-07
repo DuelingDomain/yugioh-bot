@@ -19,7 +19,7 @@ import {
   startText,
   waitChooseText,
 } from "./opening-model";
-import { useSecondsUntil } from "./series-next";
+import { secondsUntil } from "./series-model";
 
 /** Simple original line icons, drawn with the current text color. */
 export function MoveIcon({ move, size = 56 }: { move: DuelRpsMove; size?: number }) {
@@ -50,8 +50,8 @@ export function MoveIcon({ move, size = 56 }: { move: DuelRpsMove; size?: number
   );
 }
 
-function Countdown({ iso, label }: { iso: string; label: string }) {
-  const seconds = useSecondsUntil(iso);
+function Countdown({ iso, label, now }: { iso: string; label: string; now: number }) {
+  const seconds = secondsUntil(iso, now);
   if (seconds == null) return null;
   return (
     <p className={styles.countdown} data-testid="opening-countdown">
@@ -60,17 +60,22 @@ function Countdown({ iso, label }: { iso: string; label: string }) {
   );
 }
 
-/** Re-renders when the reveal ends, so the screen moves on without waiting for a poll. */
+/** Server time plus monotonic elapsed time; ticks countdowns and ends reveals without a poll. */
 function useNow(opening: DuelOpeningView): number {
   const received = useRef({ opening, at: performance.now() });
   if (received.current.opening !== opening) received.current = { opening, at: performance.now() };
   const [, tick] = useState(0);
   useEffect(() => {
+    if (opening.phase === "start") return undefined;
+    const update = () => tick((value) => value + 1);
+    const interval = window.setInterval(update, 500);
     const end = revealEndsAt(opening);
     const wait = end - opening.serverNow - (performance.now() - received.current.at);
-    if (wait <= 0) return undefined;
-    const timer = window.setTimeout(() => tick((value) => value + 1), wait + 20);
-    return () => window.clearTimeout(timer);
+    const timer = wait > 0 ? window.setTimeout(update, wait + 20) : undefined;
+    return () => {
+      window.clearInterval(interval);
+      if (timer != null) window.clearTimeout(timer);
+    };
   }, [opening]);
   return opening.serverNow + (performance.now() - received.current.at);
 }
@@ -144,7 +149,7 @@ export function OpeningScreen({ opening, mySeat, names, busy = false, error = nu
               {mine ? <span className={styles.chip} data-done={mine.done ? "true" : "false"}>{mine.text}</span> : null}
               <span className={styles.chip} data-done={theirs.done ? "true" : "false"} data-testid="opening-opponent">{theirs.text}</span>
             </div>
-            <Countdown iso={opening.deadlineAt} label="A random move is made in" />
+            <Countdown iso={opening.deadlineAt} label="A random move is made in" now={now} />
           </>
         ) : null}
 
@@ -158,14 +163,14 @@ export function OpeningScreen({ opening, mySeat, names, busy = false, error = nu
                 <b>Go second</b><span>The opponent takes the first turn</span>
               </button>
             </div>
-            <Countdown iso={opening.deadlineAt} label="You go first in" />
+            <Countdown iso={opening.deadlineAt} label="You go first in" now={now} />
           </>
         ) : null}
 
         {stage === "wait-choose" ? (
           <>
             <p className={styles.chips}><span className={styles.chip} data-done="false">{waitChooseText(opening, mySeat, names)}</span></p>
-            <Countdown iso={opening.deadlineAt} label="Time left" />
+            <Countdown iso={opening.deadlineAt} label="Time left" now={now} />
           </>
         ) : null}
 

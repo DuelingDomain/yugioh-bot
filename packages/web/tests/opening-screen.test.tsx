@@ -115,6 +115,48 @@ describe("OpeningScreen", () => {
     expect(onPick).toHaveBeenCalledWith("paper");
   });
 
+  const countdownCases = ["pick", "choose", "wait-choose"] as const;
+  it.each(countdownCases.flatMap((stage) => [-60_000, 60_000].map((clockOffset) => ({ stage, clockOffset }))))(
+    "counts down from server time in $stage with clock offset $clockOffset",
+    ({ stage, clockOffset }) => {
+      const serverNow = 1_000_000;
+      vi.useFakeTimers();
+      vi.setSystemTime(serverNow + clockOffset);
+      const opening = labOpeningView({ stage }, serverNow);
+      const draw = () => <OpeningScreen opening={opening} mySeat={0} names={NAMES} onPick={() => undefined} onChoose={() => undefined} />;
+      const { rerender } = render(draw());
+      const seconds = () => screen.getByTestId("opening-countdown").querySelector("b")?.textContent;
+
+      expect(seconds()).toBe("30");
+      act(() => vi.advanceTimersByTime(5_000));
+      expect(seconds()).toBe("25");
+      vi.setSystemTime(Date.now() + 120_000);
+      rerender(draw());
+      expect(seconds()).toBe("25");
+      act(() => vi.advanceTimersByTime(25_000));
+      expect(seconds()).toBe("0");
+      act(() => vi.advanceTimersByTime(5_000));
+      expect(seconds()).toBe("0");
+    },
+  );
+
+  it("updates the countdown from a new server snapshot without reusing elapsed time", () => {
+    const serverNow = 1_000_000;
+    vi.useFakeTimers();
+    vi.setSystemTime(serverNow - 60_000);
+    let opening = labOpeningView({ stage: "pick" }, serverNow);
+    const draw = () => <OpeningScreen opening={opening} mySeat={0} names={NAMES} onPick={() => undefined} onChoose={() => undefined} />;
+    const { rerender } = render(draw());
+    const seconds = () => screen.getByTestId("opening-countdown").querySelector("b")?.textContent;
+    act(() => vi.advanceTimersByTime(5_000));
+    expect(seconds()).toBe("25");
+    opening = { ...opening, serverNow: serverNow + 10_000 };
+    rerender(draw());
+    expect(seconds()).toBe("20");
+    act(() => vi.advanceTimersByTime(1_000));
+    expect(seconds()).toBe("19");
+  });
+
   it("locks the moves after a pick and shows the opponent state", () => {
     open("rps-waiting");
     expect((screen.getByTestId("opening-move-rock") as HTMLButtonElement).disabled).toBe(true);
