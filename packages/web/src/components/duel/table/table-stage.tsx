@@ -9,7 +9,7 @@ import { ChainRoomContext, type ChainStripSize } from "./chain-room";
 import { AttackLine } from "./attack-line";
 import { FlyCity } from "./fly-city";
 import { watchMeasure } from "./measure-watch";
-import { BAR_HUD, dockBarRoom, freeDockRoom, PICK_BAR, pickBarRoom, promptUnit } from "./grid-stage";
+import { BAR_HUD, clearBarRoom, dockBarRoom, freeDockRoom, PICK_BAR, pickBarRoom, promptUnit } from "./grid-stage";
 import { aliveLayout, boardBounds, chainBandRooms, chainStripInset, flyWorld, holoAnchor, hubPose, normalizeAngle, ringAngles, CAMERA_HINT, HUD_CORNER, portraitTable, promptRooms, ringPose, type HoloAnchor, type PromptRoom, seatPoses, slotPlan, stageFit, stageSpread, STAGE, wideHoloAnchors } from "./geometry";
 import { holoStatus, HoloLp } from "./holo-lp";
 import { lastSeatDamage } from "./seat-state";
@@ -238,6 +238,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
     : undefined;
   const [targets, setTargets] = useState<readonly Rect[]>([]);
   const [zones, setZones] = useState<readonly Rect[]>([]);
+  const [cards, setCards] = useState<readonly Rect[]>([]);
   const [hudRects, setHudRects] = useState<readonly Rect[]>([]);
   const legalKey = [...legalKeys].sort().join(",");
   useEffect(() => {
@@ -256,6 +257,9 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
       const hud = occluderRects(root, `${BAR_HUD}, [data-holo]`).map((r) => ({ x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) }));
       setTargets((current) => (sameRects(current, next) ? current : next));
       setZones((current) => (sameRects(current, rest) ? current : rest));
+      // Zones that hold a card or a pile: the last place for the bar keeps off them.
+      const held = boxes('[data-zones][data-occupied="true"]:not([data-legal="true"])');
+      setCards((current) => (sameRects(current, held) ? current : held));
       setHudRects((current) => (sameRects(current, hud) ? current : hud));
     };
     // Once the seats stand still (a regroup, the FINAL DUEL board, glides them to new places); watched while a pick is open.
@@ -286,8 +290,13 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
     if (bar && bar.x >= HUD_LEFT_COLUMN && free(bar.x, bar.y, bar.width, bar.height)) {
       return `${bar.x},${bar.y},${bar.width},${bar.height}`;
     }
-    return freeDockRoom(box, [...targets, ...zones, ...hudRects]) ?? found;
-  }, [floating, zoom.zoomed, nearBox, targets, zones, hudRects, rooms?.bar, box]);
+    const dock = freeDockRoom(box, [...targets, ...zones, ...hudRects]);
+    if (dock) return dock;
+    // Nothing is clear anywhere (a small window at a big text size): a narrower bar on your own field, over empty zones
+    // only, never over one of your cards or the targets.
+    const pair = { x: nearBox.x - edge, y: nearBox.y - edge, width: nearBox.width + 2 * edge, height: nearBox.height + 2 * edge };
+    return clearBarRoom(pair, [...targets, ...cards], zones) ?? found;
+  }, [floating, zoom.zoomed, nearBox, targets, zones, cards, hudRects, rooms?.bar, box]);
 
   // A prompt that opens, closes or moves changes the HUD insets: the view eases into the new clamps (no gap stays).
   const hudKey = `${controller.prompt?.id ?? ""}|${promptCenter ? 1 : 0}|${overlay ? 1 : 0}|${controller.seatPick ? 1 : 0}|${barRoom ?? ""}|${rooms?.panel ? `${rooms.panel.x},${rooms.panel.y}` : ""}`;

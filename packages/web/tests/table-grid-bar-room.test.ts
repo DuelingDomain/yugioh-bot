@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { dockBarRoom, freeDockRoom, pickBarRoom, promptUnit, restBarRoom } from "../src/components/duel/table/grid-stage";
+import { clearBarRoom, dockBarRoom, freeDockRoom, pickBarRoom, promptUnit, restBarRoom } from "../src/components/duel/table/grid-stage";
 
 const rect = (x: number, y: number, width: number, height: number) => ({ x, y, width, height });
 const room = (value: string | undefined) => value?.split(",").map(Number);
@@ -142,5 +142,27 @@ describe("dockBarRoom", () => {
     // A narrow box: the bar is half the box wide and stacks.
     expect(room(dockBarRoom({ width: 760, height: 600 }))).toEqual([190, 452, 380, 136]);
     expect(dockBarRoom({ width: 300, height: 600 })).toBeUndefined();
+  });
+});
+
+// The last place for the pick bar when the dock and the free room are taken: a narrower bar on your own field, over empty zones only.
+describe("clearBarRoom", () => {
+  // A field 590 wide with a card column at each end of a 350 px gap, like your field at 1366 x 768 and Extra large.
+  const pair = rect(0, 0, 590, 270);
+  const cards = [rect(100, 0, 80, 270), rect(0, 0, 90, 270)];
+  it("takes a narrower bar when the widest would cover a card, and covers none", () => {
+    const found = room(clearBarRoom(pair, cards))!;
+    expect(found).toBeDefined();
+    expect(found[2]).toBeLessThan(420);
+    for (const card of cards) expect(hits(found, card)).toBe(false);
+  });
+  it("may cover empty zones", () => {
+    const empty = [rect(190, 0, 400, 270)];
+    const found = room(clearBarRoom(pair, cards, empty))!;
+    expect(found).toBeDefined();
+    for (const card of cards) expect(hits(found, card)).toBe(false);
+  });
+  it("is undefined when no width keeps off the cards", () => {
+    expect(clearBarRoom(rect(0, 0, 590, 270), [rect(0, 0, 590, 270)])).toBeUndefined();
   });
 });
