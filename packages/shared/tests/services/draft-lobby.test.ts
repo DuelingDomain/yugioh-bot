@@ -572,6 +572,35 @@ describe("manual and automatic deadlines", () => {
     expect(app.read().lobby).toMatchObject({ start: null, lastStartError: "Injected deal failure", autoStart: { held: true } });
   });
 
+  it.each(["manual", "auto"] as const)("isolates a bad config in a %s lobby and starts a later valid lobby", (kind) => {
+    const app = setup({ lobbySeats: 2 });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    if (kind === "manual") {
+      app.lobby.scheduleStart(app.draft.id, fixtureUserId("host"), { revision: app.read().lobby.revision, force: true }, now);
+    } else {
+      app.db.prepare("update drafts set lobby_auto_start = 1 where id = ?").run(app.draft.id);
+    }
+    const other = app.drafts.create("g", "c", "Valid Lobby", app.draft.config, fixtureUserId("host"), app.ids[0]);
+    app.drafts.join(other.id, app.ids[1]);
+    app.lobby.scheduleStart(other.id, fixtureUserId("host"), {
+      revision: app.lobby.read(other.id, fixtureUserId("host"), now).lobby.revision, force: true,
+    }, now);
+    app.db.prepare("update drafts set config_json = '{' where id = ?").run(app.draft.id);
+
+    expect(app.lobby.tick(later(5000))).toMatchObject({
+      started: [{ id: other.id, status: "active" }], changedSlugs: [app.draft.webSlug, other.webSlug],
+    });
+    expect(warn).toHaveBeenCalledExactlyOnceWith("[draft-lobby] tick failed", app.draft.id, expect.any(SyntaxError));
+    expect(app.db.prepare("select status, lobby_start_token, lobby_auto_held, lobby_start_error from drafts where id = ?")
+      .get(app.draft.id)).toEqual({
+        status: "pending", lobby_start_token: null, lobby_auto_held: kind === "auto" ? 1 : 0,
+        lobby_start_error: expect.any(String),
+      });
+    expect(app.db.prepare("select count(*) as n from draft_cards where draft_id = ?").get(app.draft.id)).toEqual({ n: 0 });
+    expect(app.lobby.tick(later(60000))).toEqual({ started: [], changedSlugs: [] });
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
   it("returns only the requested slug from a GET fallback sweep", () => {
     const app = setup();
     app.ready();

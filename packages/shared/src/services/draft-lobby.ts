@@ -338,66 +338,85 @@ export function createDraftLobbyService(db: Database.Database) {
       const result: DraftLobbyTickResult = { started: [], changedSlugs: [] };
       for (const candidate of candidates) {
         const { id } = candidate;
-        const scheduledAt = candidate.lobby_start_at ? Date.parse(candidate.lobby_start_at) : NaN;
-        if (candidate.lobby_start_token && candidate.lobby_start_revision === candidate.lobby_revision
-          && now.getTime() < scheduledAt) continue;
-        const transition = db.transaction((): { started?: Draft; changed?: string } => {
-          // Another connection may Stop/Hold/start after the candidate read.
-          const current = db.prepare("select status, lobby_start_token, lobby_auto_start, lobby_auto_held from drafts where id = ?")
-            .get(id) as LobbyRow | undefined;
-          if (current?.status !== "pending" || (!current.lobby_start_token
-            && !(current.lobby_auto_start === 1 && current.lobby_auto_held === 0))) return {};
-          const { draft, row } = pending(id);
-          const changed = draft.webSlug;
-          const fail = (message: string) => {
-            clearDraftLobbyStart(db, id);
-            db.prepare(`update drafts set lobby_revision = lobby_revision + 1, lobby_auto_held = lobby_auto_start,
-              lobby_start_error = ? where id = ?`).run(message, id);
-            return { changed };
-          };
-          if (!row.lobby_start_token) {
-            const players = roster(id);
-            if (draft.config.lobbySeats === undefined || players.length !== draft.config.lobbySeats
-              || players.length < MIN_DRAFT_START_PLAYERS) return {};
-            const setup = setupHash(draft);
-            if (!players.every((player) => isReady(draft, player, setup))) return {};
-            const state = project(id, draft.createdByUserId, now);
-            if (state.lobby.autoStart.eligible) {
-              arm(id, "auto", false, now);
+        try {
+          const scheduledAt = candidate.lobby_start_at ? Date.parse(candidate.lobby_start_at) : NaN;
+          if (candidate.lobby_start_token && candidate.lobby_start_revision === candidate.lobby_revision
+            && now.getTime() < scheduledAt) continue;
+          const transition = db.transaction((): { started?: Draft; changed?: string } => {
+            // Another connection may Stop/Hold/start after the candidate read.
+            const current = db.prepare("select status, lobby_start_token, lobby_auto_start, lobby_auto_held from drafts where id = ?")
+              .get(id) as LobbyRow | undefined;
+            if (current?.status !== "pending" || (!current.lobby_start_token
+              && !(current.lobby_auto_start === 1 && current.lobby_auto_held === 0))) return {};
+            const { draft, row } = pending(id);
+            const changed = draft.webSlug;
+            const fail = (message: string) => {
+              clearDraftLobbyStart(db, id);
+              db.prepare(`update drafts set lobby_revision = lobby_revision + 1, lobby_auto_held = lobby_auto_start,
+                lobby_start_error = ? where id = ?`).run(message, id);
               return { changed };
+            };
+            if (!row.lobby_start_token) {
+              const players = roster(id);
+              if (draft.config.lobbySeats === undefined || players.length !== draft.config.lobbySeats
+                || players.length < MIN_DRAFT_START_PLAYERS) return {};
+              const setup = setupHash(draft);
+              if (!players.every((player) => isReady(draft, player, setup))) return {};
+              const state = project(id, draft.createdByUserId, now);
+              if (state.lobby.autoStart.eligible) {
+                arm(id, "auto", false, now);
+                return { changed };
+              }
+              if (state.lobby.errors.length) return fail(state.lobby.errors.join(" "));
+              return {};
             }
+            if (row.lobby_start_revision !== row.lobby_revision) {
+              return fail("Lobby setup changed during the countdown; review it before starting again");
+            }
+            const deadline = row.lobby_start_at ? Date.parse(row.lobby_start_at) : NaN;
+            if (!Number.isFinite(deadline)) return fail("Lobby start deadline is invalid");
+            if (now.getTime() < deadline) return {};
+            const players = roster(id);
+            if (row.lobby_start_setup_hash !== scheduleHash(draft, players, setupHash(draft))) {
+              return fail("Lobby setup changed during the countdown; review it before starting again");
+            }
+            const state = project(id, draft.createdByUserId, now);
             if (state.lobby.errors.length) return fail(state.lobby.errors.join(" "));
-            return {};
-          }
-          if (row.lobby_start_revision !== row.lobby_revision) {
-            return fail("Lobby setup changed during the countdown; review it before starting again");
-          }
-          const deadline = row.lobby_start_at ? Date.parse(row.lobby_start_at) : NaN;
-          if (!Number.isFinite(deadline)) return fail("Lobby start deadline is invalid");
-          if (now.getTime() < deadline) return {};
-          const players = roster(id);
-          if (row.lobby_start_setup_hash !== scheduleHash(draft, players, setupHash(draft))) {
-            return fail("Lobby setup changed during the countdown; review it before starting again");
-          }
-          const state = project(id, draft.createdByUserId, now);
-          if (state.lobby.errors.length) return fail(state.lobby.errors.join(" "));
-          if (!row.lobby_start_force && (!state.players.every((p) => isReadyToStart(p, row.lobby_start_kind))
-            || (draft.config.mode === "theme" && draft.config.themeSelection === "player_pick" && players.some((p) => isUnclaimedHuman(draft, p))))) {
-            return fail("Players are no longer Ready for this setup");
-          }
-          if (row.lobby_start_kind === "auto" && (!row.lobby_auto_start || row.lobby_auto_held || !state.lobby.autoStart.eligible)) {
-            return fail("Lobby is no longer eligible for auto-start");
-          }
+            if (!row.lobby_start_force && (!state.players.every((p) => isReadyToStart(p, row.lobby_start_kind))
+              || (draft.config.mode === "theme" && draft.config.themeSelection === "player_pick" && players.some((p) => isUnclaimedHuman(draft, p))))) {
+              return fail("Players are no longer Ready for this setup");
+            }
+            if (row.lobby_start_kind === "auto" && (!row.lobby_auto_start || row.lobby_auto_held || !state.lobby.autoStart.eligible)) {
+              return fail("Lobby is no longer eligible for auto-start");
+            }
+            try {
+              // start uses a nested savepoint: a kernel failure rolls its partial
+              // assignment/deal back before the failure and Hold are committed.
+              return { started: drafts.start(id, now, { scheduleToken: row.lobby_start_token }), changed };
+            } catch (error) {
+              console.warn("[draft-lobby] start failed", id, error);
+              return fail(error instanceof Error ? error.message : "Draft start failed");
+            }
+          }).immediate();
+          if (transition.started) result.started.push(transition.started);
+          if (transition.changed) result.changedSlugs.push(transition.changed);
+        } catch (error) {
+          console.warn("[draft-lobby] tick failed", id, error);
           try {
-            // start uses a nested savepoint: a kernel failure rolls its partial
-            // assignment/deal back before the failure and Hold are committed.
-            return { started: drafts.start(id, now, { scheduleToken: row.lobby_start_token }), changed };
-          } catch (error) {
-            return fail(error instanceof Error ? error.message : "Draft start failed");
+            const changed = db.transaction(() => {
+              const current = db.prepare("select web_slug from drafts where id = ? and status = 'pending'")
+                .get(id) as { web_slug: string | null } | undefined;
+              if (!current) return null;
+              clearDraftLobbyStart(db, id);
+              db.prepare(`update drafts set lobby_revision = lobby_revision + 1, lobby_auto_held = lobby_auto_start,
+                lobby_start_error = ? where id = ?`).run(error instanceof Error ? error.message : "Lobby tick failed", id);
+              return current.web_slug;
+            }).immediate();
+            if (changed) result.changedSlugs.push(changed);
+          } catch (recoveryError) {
+            console.warn("[draft-lobby] failed to record tick error", id, recoveryError);
           }
-        }).immediate();
-        if (transition.started) result.started.push(transition.started);
-        if (transition.changed) result.changedSlugs.push(transition.changed);
+        }
       }
       return result;
     },
