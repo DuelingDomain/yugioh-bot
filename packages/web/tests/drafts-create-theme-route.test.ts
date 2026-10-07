@@ -66,6 +66,26 @@ describe("POST /api/drafts (theme mode)", () => {
     },
   );
 
+  it.each([
+    null, [], "invalid", true,
+    { "player": 1 }, { "player": null }, { "0": 1 }, { "-1": 1 }, { "1.5": 1 },
+    { "1": 0 }, { "1": -1 }, { "1": 1.5 }, { "1": "1" }, { "1": true }, { "1": {} },
+  ])("rejects malformed host assignment input (%j)", async (themeAssignments) => {
+    const db = await setupHostCreation();
+    const { POST } = await import("../app/api/drafts/route");
+    const response = await POST(new Request("http://localhost/api/drafts", {
+      method: "POST",
+      body: JSON.stringify({
+        name: "Theme Night",
+        config: { mode: "theme", allowedCubeIds: [1, 2], themeSelection: "host_assigned", themeAssignments },
+      }),
+    }) as NextRequest);
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toBe("themeAssignments must map player IDs to positive cube IDs");
+    expect(db.prepare("select count(*) as n from drafts").get()).toEqual({ n: 0 });
+  });
+
   it("accepts host assignment when the creator has an allowed theme", async () => {
     const db = await setupHostCreation();
 

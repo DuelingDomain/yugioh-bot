@@ -108,7 +108,11 @@ create table drafts_identity_new (
   current_wave_number integer not null default 0, current_pick_step integer not null default 0,
   pick_deadline_at text, status_message_id text,
   created_at text not null default current_timestamp, started_at text, ended_at text,
-  web_slug text, tournament_id integer references tournaments(id), complete_message_id text
+  web_slug text, tournament_id integer references tournaments(id), complete_message_id text,
+  lobby_revision integer not null default 0, lobby_auto_start integer not null default 0,
+  lobby_auto_held integer not null default 0, lobby_start_at text, lobby_start_kind text,
+  lobby_start_token text, lobby_start_revision integer, lobby_start_setup_hash text,
+  lobby_start_force integer not null default 0, lobby_start_error text, lobby_nudged_at text
 );
 create table seasons_identity_new (
   id integer primary key autoincrement,
@@ -144,7 +148,10 @@ insert into drafts_identity_new
   select id, guild_id, channel_id, name, status,
     (select user_id from identity_key_map where legacy_key = d.created_by_user_id),
     config_json, current_wave_number, current_pick_step, pick_deadline_at, status_message_id,
-    created_at, started_at, ended_at, web_slug, tournament_id, complete_message_id from drafts d;
+    created_at, started_at, ended_at, web_slug, tournament_id, complete_message_id,
+    lobby_revision, lobby_auto_start, lobby_auto_held, lobby_start_at, lobby_start_kind,
+    lobby_start_token, lobby_start_revision, lobby_start_setup_hash, lobby_start_force,
+    lobby_start_error, lobby_nudged_at from drafts d;
 insert into seasons_identity_new
   select id, guild_id, number, name, status, started_at, ended_at,
     (select user_id from identity_key_map where legacy_key = s.created_by_user_id) from seasons s;
@@ -221,7 +228,7 @@ function assertIdentitySourceShape(db: Database.Database): void {
     players: ["id","guild_id","discord_user_id","display_name","created_at"],
     tournaments: ["id","guild_id","name","format","status","created_by_user_id","created_at","started_at","ended_at","web_slug","completed_announced_at","deadline_at","report_confirm_window_hours","best_of","duel_rules_json"],
     cubes: ["id","guild_id","name","archetype","banlist","config_json","created_by_user_id","created_at","updated_at"],
-    drafts: ["id","guild_id","channel_id","name","status","created_by_user_id","config_json","current_wave_number","current_pick_step","pick_deadline_at","status_message_id","created_at","started_at","ended_at","web_slug","tournament_id","complete_message_id"],
+    drafts: ["id","guild_id","channel_id","name","status","created_by_user_id","config_json","current_wave_number","current_pick_step","pick_deadline_at","status_message_id","created_at","started_at","ended_at","web_slug","tournament_id","complete_message_id","lobby_revision","lobby_auto_start","lobby_auto_held","lobby_start_at","lobby_start_kind","lobby_start_token","lobby_start_revision","lobby_start_setup_hash","lobby_start_force","lobby_start_error","lobby_nudged_at"],
     seasons: ["id","guild_id","number","name","status","started_at","ended_at","created_by_user_id"],
     saved_decks: ["id","guild_id","owner_user_id","name","mode","deck_json","created_at","updated_at","draft_id"],
   };
@@ -583,6 +590,21 @@ export function migrate(db: Database.Database) {
   addColumnIfMissing(db, "draft_players", "seat_index", "integer");
   // Set when the player's draft deck was saved. A player who deletes that deck does not get it back.
   addColumnIfMissing(db, "draft_players", "deck_saved_at", "text");
+  // Pending lobby acknowledgements and server-owned start deadlines. Keep old
+  // records unready/unscheduled; a seat target remains optional in config_json.
+  addColumnIfMissing(db, "draft_players", "ready_at", "text");
+  addColumnIfMissing(db, "draft_players", "ready_setup_hash", "text");
+  addColumnIfMissing(db, "drafts", "lobby_revision", "integer not null default 0");
+  addColumnIfMissing(db, "drafts", "lobby_auto_start", "integer not null default 0");
+  addColumnIfMissing(db, "drafts", "lobby_auto_held", "integer not null default 0");
+  addColumnIfMissing(db, "drafts", "lobby_start_at", "text");
+  addColumnIfMissing(db, "drafts", "lobby_start_kind", "text");
+  addColumnIfMissing(db, "drafts", "lobby_start_token", "text");
+  addColumnIfMissing(db, "drafts", "lobby_start_revision", "integer");
+  addColumnIfMissing(db, "drafts", "lobby_start_setup_hash", "text");
+  addColumnIfMissing(db, "drafts", "lobby_start_force", "integer not null default 0");
+  addColumnIfMissing(db, "drafts", "lobby_start_error", "text");
+  addColumnIfMissing(db, "drafts", "lobby_nudged_at", "text");
   addColumnIfMissing(db, "draft_cards", "draft_pack_id", "integer references draft_packs(id)");
   addColumnIfMissing(db, "draft_cards", "position", "integer");
   addColumnIfMissing(db, "draft_picks", "pick_method", "text not null default 'manual'");

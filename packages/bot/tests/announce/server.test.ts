@@ -12,7 +12,7 @@ describe("announce server", () => {
     const handler = vi.fn();
     const app = createAnnounceServer({
       secret,
-      handlers: { onDraftStatus: handler, onDraftCreated: handler, onDraftStarted: handler, onDraftCompleted: handler, onTournamentCreated: handler, onTournamentStarted: handler, onMatchReportPending: handler, onMatchResolved: handler, onTournamentCompleted: handler, onDuelInvite: handler },
+      handlers: { onDraftStatus: handler, onDraftCreated: handler, onDraftNudge: handler, onDraftStarted: handler, onDraftCompleted: handler, onTournamentCreated: handler, onTournamentStarted: handler, onMatchReportPending: handler, onMatchResolved: handler, onTournamentCompleted: handler, onDuelInvite: handler },
     });
     const res = await app.handle(new Request("http://x/internal/announce/draft-created", {
       method: "POST",
@@ -30,6 +30,7 @@ describe("announce server", () => {
       handlers: {
         onDraftStatus: vi.fn(),
         onDraftCreated,
+        onDraftNudge: vi.fn(),
         onDraftStarted: vi.fn(),
         onDraftCompleted: vi.fn(),
         onTournamentCreated: vi.fn(),
@@ -53,7 +54,7 @@ describe("announce server", () => {
 
 it("dispatches signed draft-status", async () => {
   const handler=vi.fn(async () => {});
-  const app=createAnnounceServer({secret,handlers:{onDraftCreated:handler,onDraftStarted:handler,onDraftCompleted:handler,
+  const app=createAnnounceServer({secret,handlers:{onDraftNudge:handler,onDraftCreated:handler,onDraftStarted:handler,onDraftCompleted:handler,
     onDraftStatus:handler,onTournamentCreated:handler,onTournamentStarted:handler,onMatchReportPending:handler,
     onMatchResolved:handler,onTournamentCompleted:handler,onDuelInvite:handler}});
   const body=JSON.stringify({draftId:13});

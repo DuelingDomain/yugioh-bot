@@ -25,6 +25,7 @@ import {
   createCardCatalogService,
   createCubeService,
   createDraftImageService,
+  createDraftLobbyService,
   createDraftService,
   createGuildSettingsService,
 } from "@yugidraft/shared/services";
@@ -143,7 +144,7 @@ function buildDraftStatus(draft: Draft) {
 const guildSettings = createGuildSettingsService(db);
 
 const broadcaster = createBroadcaster(
-  httpTransport({ url: process.env.WS_INTERNAL_URL ?? "", secret: process.env.WS_INTERNAL_SECRET ?? "" }),
+  httpTransport({ url: process.env.WS_INTERNAL_URL ?? "", secret: process.env.WS_INTERNAL_SECRET ?? "", timeoutMs: 5_000 }),
 );
 
 const notifyDuelChange = createHttpNotifyDuelChange({
@@ -157,6 +158,7 @@ const deps = {
   players: createPlayerRepository(db),
   tournaments: createTournamentService(db),
   drafts: createDraftService(db),
+  lobby: createDraftLobbyService(db),
   cards: createCardCatalogService(db),
   deleteNotifyMessage: (matchId: number) => deleteNotifyMessage(client, db, matchId),
   announceTournamentCompleted: (tournamentId: number) => announceTournamentCompleted(client, db, guildSettings, tournamentId),
@@ -341,7 +343,7 @@ client.once("ready", () => {
   if (announceSecret) {
     const announceServer = createAnnounceServer({
       secret: announceSecret,
-      handlers: createAnnounceHandlers({ client, db, drafts: deps.drafts, messenger: deps.messenger, guildSettings: deps.guildSettings }),
+      handlers: createAnnounceHandlers({ client, db, drafts: deps.drafts, messenger: deps.messenger, guildSettings: deps.guildSettings, lobby: deps.lobby }),
     });
     announceServer.listen(announcePort);
   } else {

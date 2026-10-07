@@ -1,4 +1,4 @@
-import { createUserService } from "@yugidraft/shared/services";
+import type { DraftLobbyResponse, DraftStartRequest } from "@yugidraft/shared/types";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handleButton, type ButtonInteractionLike } from "../../src/interactions/buttons.js";
@@ -6,7 +6,7 @@ import { migrate } from "../../src/db/schema.js";
 import { createPlayerRepository } from "../../src/repositories/players.js";
 import { createCardCatalogService } from "../../src/services/card-catalog.js";
 import { createDraftService } from "../../src/services/drafts.js";
-import { createMatchService } from "@yugidraft/shared/services";
+import { createDraftLobbyService, createUserService, createMatchService } from "@yugidraft/shared/services";
 import { createDuelSeriesService, createTournamentService } from "@yugidraft/shared/services";
 import { recordingTransport, createBroadcaster } from "@yugidraft/shared/notify";
 
@@ -43,8 +43,20 @@ function seedDraftCatalog(app: ReturnType<typeof setup>, count: number) {
 function setup() {
   const db = new Database(":memory:");
   migrate(db);
+  const state: DraftLobbyResponse = {
+    lobby: { revision: 7, serverNow: "2026-10-07T15:00:00.000Z", targetSeats: null,
+      joined: 2, ready: 2, allReady: true, autoStart: { enabled: false, held: false, eligible: false },
+      start: null, errors: [], warnings: [], lastStartError: null }, players: [],
+  };
+  const lobby = {
+    read: vi.fn(() => state),
+    scheduleStart: vi.fn((_draftId: number, _userId: number, _request: DraftStartRequest): DraftLobbyResponse => ({
+      ...state, lobby: { ...state.lobby, start: { token: "start-token", kind: "manual", startsAt: "2026-10-07T15:00:05.000Z" } },
+    })),
+  };
   const rec = recordingTransport();
   return {
+    lobby,
     db,
     matches: createMatchService(db),
     players: createPlayerRepository(db),
@@ -260,7 +272,7 @@ describe("button interactions", () => {
     expect(replies[0]).toEqual({ content: "You have already joined this draft.", ephemeral: true });
   });
 
-  it("starts a draft from the dashboard and links to the web", async () => {
+  it("schedules a draft from the dashboard and links to the lobby without dealing", async () => {
     const app = setup();
     const yugi = app.players.upsert("guild-1", "900000000000000116", "Yugi");
     const kaiba = app.players.upsert("guild-1", "900000000000000117", "Kaiba");
@@ -275,13 +287,41 @@ describe("button interactions", () => {
     await handleButton(interaction, app);
 
     expect(app.drafts.findById(draft.id)).toMatchObject({
-      status: "active",
-      currentPackRound: 1,
-      currentPickStep: 1,
+      status: "pending",
+      currentPackRound: 0,
+      currentPickStep: 0,
     });
-    expect(replies[0].content).toContain("Started draft: cube night.");
-    expect(replies[0].content).toContain("Pick cards here:");
+    expect(replies[0].content).toContain("Start scheduled for cube night.");
+    expect(replies[0].content).toContain(`/draft/${draft.webSlug}`);
     expect(replies[0].ephemeral).toBe(true);
+    expect(app.lobby.scheduleStart).toHaveBeenCalledWith(draft.id, app.players.ensureUser("900000000000000116", "Yugi").id, { revision: 7, force: false });
+    expect(app.broadcasterCalls.map(c => c.path)).toEqual(["/internal/draft/seats"]);
+  });
+
+  it.each([true, false])("Start button uses persisted readiness (all ready: %s)", async allReady => {
+    const app = setup();
+    try {
+      const host = app.players.upsert("guild-1", "900000000000000116", "Yugi");
+      const guest = app.players.upsert("guild-1", "900000000000000117", "Kaiba");
+      seedDraftCatalog(app, 24);
+      const draft = app.drafts.create("guild-1", "channel-1", "Night", {
+        packSize: 3, packsPerPlayer: 2, cardsPerPlayer: 6, lobbySeats: 4,
+        cubeCardIds: Array.from({ length: 24 }, (_, index) => index + 1),
+      }, host.userId, host.id);
+      app.drafts.join(draft.id, guest.id);
+      const lobby = createDraftLobbyService(app.db);
+      lobby.setReady(draft.id, app.players.ensureUser("900000000000000116", "Player").id, true);
+      if (allReady) lobby.setReady(draft.id, app.players.ensureUser("900000000000000117", "Player").id, true);
+      const { interaction, replies } = fakeButton({ customId: `draft_start:${draft.id}`,
+        user: { id: "900000000000000116", username: "Yugi" } });
+      await handleButton(interaction, { ...app, lobby });
+      expect(replies[0].content).toContain(allReady ? "Start scheduled for Night" : "confirm Start anyway");
+      expect(replies[0].ephemeral).toBe(true);
+      expect(lobby.read(draft.id).lobby.start).toEqual(allReady ? expect.objectContaining({ kind: "manual" }) : null);
+      expect(app.drafts.findById(draft.id).status).toBe("pending");
+      expect(app.db.prepare("select count(*) as count from draft_cards where draft_id = ?").get(draft.id)).toEqual({ count: 0 });
+      expect(app.broadcasterCalls).toHaveLength(allReady ? 1 : 0);
+    } finally { app.db.close(); }
   });
 
   it.each(["foreign-guild", "duplicate"])("surfaces an error for %s host assignments from the Start button and leaves the draft pending", async (invalidAssignment) => {
@@ -307,6 +347,9 @@ describe("button interactions", () => {
     });
     vi.spyOn(app.cards, "syncDraftPool").mockResolvedValue([]);
 
+    app.lobby.scheduleStart.mockImplementation(() => { throw new Error(
+      invalidAssignment === "foreign-guild" ? "Cube must exist in the draft guild" : "Cubes must be distinct when uniqueThemes is enabled",
+    ); });
     await expect(handleButton(interaction, app)).rejects.toThrow(
       invalidAssignment === "foreign-guild" ? /exist.*draft.*guild/i : /distinct.*uniqueThemes/i,
     );
@@ -760,4 +803,19 @@ describe("button interactions", () => {
     expect(reply.files).toBeDefined();
     expect((reply.files![0] as { name: string }).name).toBe("cube-night.ydk");
   });
+  it("directs unready hosts to web Start anyway confirmation without forcing", async () => {
+    const app = setup();
+    const host = app.players.upsert("guild-1", "900000000000000116", "Yugi");
+    const draft = app.drafts.create("guild-1", "channel-1", "Night", {}, host.userId, host.id);
+    vi.spyOn(app.cards, "syncDraftPool").mockResolvedValue([]);
+    app.lobby.scheduleStart.mockImplementation(() => { throw Object.assign(new Error("Not Ready"), { code: "NOT_READY" }); });
+    const { interaction, replies } = fakeButton({ customId: `draft_start:${draft.id}`, user: { id: "900000000000000116", username: "Yugi" } });
+    await handleButton(interaction, app);
+    expect(replies[0]).toMatchObject({ ephemeral: true, content: expect.stringContaining("Start anyway") });
+    expect(replies[0].content).toContain(`/draft/${draft.webSlug}`);
+    expect(app.drafts.findById(draft.id).status).toBe("pending");
+    expect(app.lobby.scheduleStart).toHaveBeenCalledWith(draft.id, app.players.ensureUser("900000000000000116", "Yugi").id, { revision: 7, force: false });
+    expect(app.broadcasterCalls).toEqual([]);
+  });
+
 });

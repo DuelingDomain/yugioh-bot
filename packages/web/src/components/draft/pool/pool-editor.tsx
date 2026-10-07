@@ -56,6 +56,7 @@ export function PoolEditor({ ctl, extraRound = false }: { ctl: PoolEditorState; 
           userId={ctl.userId}
           selectedId={cubeId}
           hasEdits={ctl.edited}
+          replaces={ctl.replacedByPick}
           picking={ctl.picking}
           error={ctl.pickError}
           keepName={cubeId !== null ? ctl.meta?.name ?? null : null}

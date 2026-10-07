@@ -1,16 +1,24 @@
 import { NextResponse } from "next/server";
+import { cubeReferenceAccess } from "@/lib/cube-access";
+import { ensureCatalogCards } from "@/lib/cube-pool";
+import { cardFetchErrorResponse } from "@/lib/card-fetch-errors";
+import { createDraftLobbyApi } from "@/lib/draft-lobby-api";
+import { DRAFT_LOBBY_ERROR_STATUS, type DraftAllowedCube, type DraftConfig, type DraftLobbyErrorCode, type DraftLobbyResponse, type DraftLobbyTickResult } from "@yugidraft/shared/types";
+import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import {
   createCardCatalogService,
+  createCardLookupBudget,
   createDraftService,
+  DraftLobbyServiceError,
   createSavedDeckService,
   MAX_COPIES_PER_PLAYER,
   boosterDraftPhase,
   boosterExtraSize,
 } from "@yugidraft/shared/services";
 import { toUtcIso } from "@/lib/utils";
-import { broadcaster } from "@/lib/notify";
+import { announcer, broadcaster } from "@/lib/notify";
 import { lookupDraftCardTypes, type EngineCardTypes } from "@/lib/draft-engine-types";
 import { draftTestBotsEnabled } from "@/lib/draft-test-bots";
 import { cardImageUrl } from "@/lib/card-image-url";
@@ -91,15 +99,24 @@ export async function buildDraftResponse(slug: string, actor: { userId: number; 
   const guildId = env.discordGuildId;
 
   const draftIdRow = db
-    .prepare("select id, status from drafts where web_slug = ? and guild_id = ?")
-    .get(slug, guildId) as { id: number; status: string } | undefined;
+    .prepare("select id, status, lobby_start_token, lobby_auto_start, lobby_auto_held from drafts where web_slug = ? and guild_id = ?")
+    .get(slug, guildId) as { id: number; status: string; lobby_start_token: string | null;
+      lobby_auto_start: number; lobby_auto_held: number } | undefined;
 
   if (!draftIdRow) {
     return null;
   }
 
-  if (draftIdRow.status === "active") {
-    // The timeout sweep also runs in the worker timer. If it fails here, the page still loads the draft as it is.
+  if (draftIdRow.status === "pending" && (draftIdRow.lobby_start_token !== null
+    || (draftIdRow.lobby_auto_start === 1 && draftIdRow.lobby_auto_held === 0))) {
+    // GET is a start entry point even without a background timer. The shared
+    // tick commits the winning transition before its notifications are sent.
+    const transitions = createDraftLobbyApi(db).tick(Date.now(), draftIdRow.id);
+    await notifyDraftLobbyTick(transitions);
+  }
+
+  if (drafts.findById(draftIdRow.id).status === "active") {
+    // The timeout sweep also runs in the worker. If it fails here, the page still loads the draft as it is.
     const { autoPickedPlayerIds } = degrade(slug, "pick expiry", { autoPickedPlayerIds: [] as number[] }, () =>
       drafts.expireCurrentPickStep(draftIdRow.id),
     );
@@ -152,7 +169,11 @@ export async function buildDraftResponse(slug: string, actor: { userId: number; 
     delete config.themeAssignments;
   }
 
-  const players = db
+  const pendingLobby = draft.status === "pending"
+    ? projectDraftLobbyResponse(createDraftLobbyApi(db).read(draft.id, userId))
+    : undefined;
+
+  const players = pendingLobby?.players ?? db
     .prepare(
       `
         select p.id as player_id, p.display_name, dp.seat_index, dp.pick_count, dp.finished_at, dp.joined_at
@@ -279,9 +300,7 @@ export async function buildDraftResponse(slug: string, actor: { userId: number; 
     boosterProgress = { main: counts?.main ?? 0, mainTotal: mainSize, extra: counts?.extra ?? 0, extraTotal: extraSize };
   }
 
-  let allowedCubes:
-    | Array<{ id: number; name: string; archetype: string | null; mainCount: number; extraCount: number; sampleImages: string[] }>
-    | undefined;
+  let allowedCubes: DraftAllowedCube[] | undefined;
   let themeProgress: { main: number; mainTotal: number; extra: number; extraTotal: number } | undefined;
   if (isTheme) {
     const ids = draftModel.config.allowedCubeIds ?? [];
@@ -291,12 +310,12 @@ export async function buildDraftResponse(slug: string, actor: { userId: number; 
       const rows = db
         .prepare(`select id, name, archetype from cubes where guild_id = ? and id in (${placeholders})`)
         .all(draft.guild_id, ...ids) as Array<{ id: number; name: string; archetype: string | null }>;
-      const countStmt = db.prepare("select pool, count(*) as n from cube_cards where cube_id = ? group by pool");
+      const countStmt = db.prepare("select pool, count(*) as n, sum(max_copies) as copies from cube_cards where cube_id = ? group by pool");
       const sampleStmt = db.prepare(
         "select catalog_card_id as id from cube_cards where cube_id = ? limit 4",
       );
       allowedCubes = rows.map((r) => {
-        const counts = countStmt.all(r.id) as Array<{ pool: string; n: number }>;
+        const counts = countStmt.all(r.id) as Array<{ pool: string; n: number; copies: number }>;
         const samples = (sampleStmt.all(r.id) as Array<{ id: number }>).map((s) => cardImageUrl(s.id, "small"));
         return {
           id: r.id,
@@ -304,6 +323,10 @@ export async function buildDraftResponse(slug: string, actor: { userId: number; 
           archetype: r.archetype,
           mainCount: counts.find((c) => c.pool === "main")?.n ?? 0,
           extraCount: counts.find((c) => c.pool === "extra")?.n ?? 0,
+          mainDistinct: counts.find((c) => c.pool === "main")?.n ?? 0,
+          extraDistinct: counts.find((c) => c.pool === "extra")?.n ?? 0,
+          mainCopies: counts.find((c) => c.pool === "main")?.copies ?? 0,
+          extraCopies: counts.find((c) => c.pool === "extra")?.copies ?? 0,
           sampleImages: samples,
         };
       });
@@ -369,6 +392,7 @@ export async function buildDraftResponse(slug: string, actor: { userId: number; 
     tournamentSlug: tournament?.webSlug ?? null,
     canCreateTournament,
     players,
+    ...(pendingLobby ? { lobby: pendingLobby.lobby } : {}),
     participantPickCount,
     myDeckId,
     isParticipant,
@@ -389,5 +413,231 @@ export async function buildDraftResponse(slug: string, actor: { userId: number; 
     themeProgress,
     allowedCubes,
     botsEnabled: draftTestBotsEnabled(),
+    discordEnabled: env.discordBotEnabled,
   };
+}
+
+
+export class DraftLobbyApiError extends Error {
+  constructor(message: string, readonly code: DraftLobbyErrorCode) { super(message); }
+}
+
+export function draftLobbyErrorResponse(error: unknown): Response {
+  const fetchFailure = cardFetchErrorResponse(error);
+  if (fetchFailure) return fetchFailure;
+  if (error instanceof DraftLobbyServiceError) {
+    return NextResponse.json({ error: error.message, code: error.code, ...error.details }, { status: error.status });
+  }
+  const failure = error as { message?: string; code?: string; details?: Record<string, unknown> } | null;
+  if (failure?.code && Object.hasOwn(DRAFT_LOBBY_ERROR_STATUS, failure.code)) {
+    const code = failure.code as DraftLobbyErrorCode;
+    const details = failure.details ?? failure;
+    const body: Record<string, unknown> = { error: failure.message ?? "Lobby action failed", code };
+    for (const key of ["notReadyPlayerIds", "unclaimedPlayerIds", "errors", "warnings"] as const) {
+      if (key in details) body[key] = (details as Record<string, unknown>)[key];
+    }
+    return NextResponse.json(body, { status: DRAFT_LOBBY_ERROR_STATUS[code] });
+  }
+  console.error("[draft lobby] action failed:", error);
+  return NextResponse.json({ error: "Failed to update draft lobby" }, { status: 500 });
+}
+
+export type DraftLobbyContext = {
+  db: ReturnType<typeof getDb>; draftId: number; slug: string; userId: number; hostOnly: boolean;
+};
+
+/** Also reusable by Nudge: resolve configured guild and ownership before writes. */
+export function assertDraftLobbyAccess(context: DraftLobbyContext) {
+  const draft = context.db.prepare(
+    "select id, created_by_user_id, status, lobby_revision from drafts where id = ? and web_slug = ? and guild_id = ?",
+  ).get(context.draftId, context.slug, env.discordGuildId) as
+    { id: number; created_by_user_id: number; status: string; lobby_revision: number } | undefined;
+  if (!draft) throw new DraftLobbyApiError("Draft not found", "DRAFT_NOT_FOUND");
+  if (context.hostOnly && draft.created_by_user_id !== context.userId) {
+    throw new DraftLobbyApiError("Only the draft host can manage this lobby", "HOST_REQUIRED");
+  }
+  if (draft.status !== "pending") throw new DraftLobbyApiError("Draft is no longer pending", "DRAFT_NOT_PENDING");
+  return draft;
+}
+
+export async function runDraftLobbyRoute(
+  params: Promise<{ slug: string }>, hostOnly: boolean,
+  action: (context: DraftLobbyContext) => Response | Promise<Response>,
+): Promise<Response> {
+  try {
+    const actor = await requireWebAccess();
+    if (!actor.ok) return actor.response;
+    const { slug } = await params;
+    const db = getDb();
+    const draft = db.prepare("select id from drafts where web_slug = ? and guild_id = ?")
+      .get(slug, env.discordGuildId) as { id: number } | undefined;
+    if (!draft) throw new DraftLobbyApiError("Draft not found", "DRAFT_NOT_FOUND");
+    const context = { db, draftId: draft.id, slug, userId: actor.userId, hostOnly };
+    assertDraftLobbyAccess(context);
+    return await action(context);
+  } catch (error) { return draftLobbyErrorResponse(error); }
+}
+
+export function projectDraftLobbyResponse(response: DraftLobbyResponse): DraftLobbyResponse {
+  return {
+    lobby: response.lobby,
+    players: response.players.map((p) => ({
+      playerId: p.playerId, displayName: p.displayName, seatIndex: p.seatIndex,
+      pickCount: p.pickCount, finishedAt: p.finishedAt, joinedAt: p.joinedAt,
+      isHost: p.isHost, isYou: p.isYou, isBot: p.isBot, ready: p.ready,
+      readyAt: p.readyAt, cubeId: p.cubeId,
+    })),
+  };
+}
+
+export function commitDraftLobbyMutation(
+  context: DraftLobbyContext,
+  mutate: (service: ReturnType<typeof createDraftLobbyApi>) => DraftLobbyResponse,
+  status = 200,
+): Response {
+  const response = context.db.transaction(() => {
+    assertDraftLobbyAccess(context);
+    return projectDraftLobbyResponse(mutate(createDraftLobbyApi(context.db)));
+  }).immediate();
+  void notifyDraftLobbySeats(context.slug);
+  return NextResponse.json(response, { status });
+}
+
+export async function readLobbyBody(request: Request, optional = false): Promise<Record<string, unknown>> {
+  let body: unknown;
+  try {
+    const text = await request.text();
+    body = optional && !text.trim() ? {} : JSON.parse(text);
+  } catch { throw new DraftLobbyApiError("Invalid JSON body", "INVALID_BODY"); }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new DraftLobbyApiError("Expected an object body", "INVALID_BODY");
+  }
+  return body as Record<string, unknown>;
+}
+
+export function validLobbyRevision(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+export async function notifyDraftLobbySeats(slug: string) {
+  const results = await Promise.allSettled([broadcaster.draft({ kind: "seats", slug })]);
+  for (const result of results) if (result.status === "rejected") console.error("[draft lobby] seats notification failed:", result.reason);
+}
+
+export async function notifyDraftLobbyTick(result: DraftLobbyTickResult) {
+  const startedSlugs = new Set(result.started.map((d) => d.webSlug));
+  const deliveries: Promise<unknown>[] = result.changedSlugs.filter((slug) => !startedSlugs.has(slug))
+    .map((slug) => broadcaster.draft({ kind: "seats", slug }));
+  for (const draft of result.started) {
+    if (draft.webSlug) deliveries.push(broadcaster.draft({ kind: "status", slug: draft.webSlug, status: "active" }));
+    if (env.discordBotEnabled && draft.channelId) deliveries.push(announcer.announce({
+      kind: "draft-started", draftId: draft.id, channelId: draft.channelId,
+      name: draft.name, webSlug: draft.webSlug ?? "",
+    }));
+  }
+  const results = await Promise.allSettled(deliveries);
+  for (const delivery of results) if (delivery.status === "rejected") console.error("[draft lobby] transition notification failed:", delivery.reason);
+}
+
+
+/** Rules/pools affect all seats; an assignment edit affects only changed seats. */
+export function draftConfigInvalidation(before: DraftConfig, after: DraftConfig, playerIds: number[]) {
+  const canonical = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(canonical).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+    if (value && typeof value === "object") {
+      return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined)
+        .sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => [k, canonical(v)]));
+    }
+    return value;
+  };
+  const rules = (config: DraftConfig) => {
+    const { themeAssignments: _assignments, draftType: _metadata, poolSource, ...rules } = config;
+    return JSON.stringify(canonical({ ...rules, ...(poolSource ? { poolSource: { cubeId: poolSource.cubeId } } : {}) }));
+  };
+  if (rules(before) !== rules(after)) return { clearReady: true };
+  const changedSeats = playerIds.filter((id) => before.themeAssignments?.[String(id)] !== after.themeAssignments?.[String(id)]);
+  return { clearReady: false, ...(changedSeats.length ? { playerIds: changedSeats } : {}) };
+}
+
+
+/** Reject collection shapes that catalog hydration and lobby hashing cannot read. */
+export function assertDraftConfigShape(config: Partial<DraftConfig>) {
+  for (const key of ["customCardIds", "customExtraCardIds", "cubeCardIds", "poolCardIds", "allowedCubeIds"] as const) {
+    const ids = config[key];
+    if (ids !== undefined && (!Array.isArray(ids) || ids.some((id) => !Number.isSafeInteger(id) || id <= 0))) {
+      throw new DraftLobbyApiError(`${key} must be a list of positive IDs`, "INVALID_CONFIG");
+    }
+  }
+  for (const key of ["setNames", "includeNames", "excludeNames"] as const) {
+    const names = config[key];
+    if (names !== undefined && (!Array.isArray(names) || names.some((name) => typeof name !== "string"))) {
+      throw new DraftLobbyApiError(`${key} must be a list of names`, "INVALID_CONFIG");
+    }
+  }
+  const assignments = config.themeAssignments;
+  // A null cube ID is an unassigned seat; hostThemeAssignmentError checks roster completeness.
+  if (assignments !== undefined && (!assignments || typeof assignments !== "object" || Array.isArray(assignments)
+    || Object.entries(assignments).some(([playerId, cubeId]) => !/^\d+$/.test(playerId)
+      || !Number.isSafeInteger(Number(playerId)) || Number(playerId) <= 0
+      || (cubeId !== null && (!Number.isSafeInteger(cubeId) || cubeId <= 0))))) {
+    throw new DraftLobbyApiError("themeAssignments must map player IDs to positive cube IDs", "INVALID_CONFIG");
+  }
+  if (config.mode !== undefined && config.mode !== "booster" && config.mode !== "theme") {
+    throw new DraftLobbyApiError("Invalid draft mode", "INVALID_CONFIG");
+  }
+  if (config.themeSelection !== undefined && !["player_pick", "random", "host_assigned"].includes(config.themeSelection)) {
+    throw new DraftLobbyApiError("Invalid theme selection", "INVALID_CONFIG");
+  }
+}
+
+function assertStartCubeGuilds(context: DraftLobbyContext) {
+  const draft = createDraftService(context.db).findById(context.draftId);
+  const findCube = context.db.prepare("select guild_id from cubes where id = ?");
+  for (const cubeId of draft.config.allowedCubeIds ?? []) {
+    const row = findCube.get(cubeId) as { guild_id: string } | undefined;
+    if (row && row.guild_id !== draft.guildId) throw new DraftLobbyApiError("Cube not found", "CUBE_NOT_FOUND");
+  }
+  if (draft.config.mode === "theme" && (draft.config.themeSelection ?? "player_pick") === "player_pick") {
+    const claims = context.db.prepare("select cube_id from draft_player_cube where draft_id = ?")
+      .all(draft.id) as Array<{ cube_id: number }>;
+    for (const claim of claims) {
+      const cube = findCube.get(claim.cube_id) as { guild_id: string } | undefined;
+      if (!cube || cube.guild_id !== draft.guildId) throw new DraftLobbyApiError("Cube not found", "CUBE_NOT_FOUND");
+      if (!(draft.config.allowedCubeIds ?? []).includes(claim.cube_id)) {
+        throw new DraftLobbyApiError("Claimed cube is not allowed in this draft", "CUBE_NOT_ALLOWED");
+      }
+    }
+  }
+}
+
+/** Root POST uses the same handler; its empty body captures the current revision. */
+export async function handleDraftStart(request: Request, params: Promise<{ slug: string }>, compatibility = false) {
+  return runDraftLobbyRoute(params, true, async (context) => {
+    const capturedRevision = assertDraftLobbyAccess(context).lobby_revision;
+    const body = await readLobbyBody(request, compatibility);
+    const revision = compatibility && body.revision === undefined ? capturedRevision : body.revision;
+    if (!validLobbyRevision(revision) || (body.force !== undefined && typeof body.force !== "boolean")) {
+      throw new DraftLobbyApiError("revision and optional force are invalid", "INVALID_BODY");
+    }
+    const draft = createDraftService(context.db).findById(context.draftId);
+    const denied = cubeReferenceAccess(context.db, draft.config.allowedCubeIds, { allowMissing: true });
+    if (denied) return denied;
+    assertStartCubeGuilds(context);
+    const cards = createCardCatalogService(context.db);
+    const lookupBudget = createCardLookupBudget();
+    if (!draft.config.cubeCardIds?.length && !draft.config.poolCardIds?.length) {
+      await cards.syncDraftPool({
+        setNames: draft.config.setNames ?? [], customCardIds: draft.config.customCardIds ?? [],
+        includeNames: draft.config.includeNames ?? [], excludeNames: draft.config.excludeNames ?? [],
+      }, { lookupBudget });
+    }
+    if (draft.config.mode !== "theme") await ensureCatalogCards(cards, draft.config.customExtraCardIds ?? [], lookupBudget);
+    return commitDraftLobbyMutation(context, (service) => {
+      assertDraftLobbyAccess(context);
+      // scheduleStart compares the submitted/captured revision and recognizes
+      // an identical existing schedule without extending its deadline.
+      assertStartCubeGuilds(context);
+      return service.scheduleStart(context.draftId, context.userId, { revision, force: body.force === true });
+    }, 202);
+  });
 }

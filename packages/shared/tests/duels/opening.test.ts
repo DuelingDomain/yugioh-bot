@@ -50,7 +50,7 @@ describe("opening state", () => {
     expect(() => submitOpeningPick(state, 0, "rock", 13)).toThrow(/over/);
   });
 
-  it("replays a tie with a new round and a fresh deadline", () => {
+  it("replays a tie after two seconds with a full pick window", () => {
     let state = newOpening(7, 0);
     state = submitOpeningPick(state, 0, "rock", 100);
     state = submitOpeningPick(state, 1, "rock", 200);
@@ -58,7 +58,10 @@ describe("opening state", () => {
     expect(state.round).toBe(2);
     expect(state.picks).toEqual([null, null]);
     expect(state.reveal).toEqual({ round: 1, picks: ["rock", "rock"], winnerSeat: null });
-    expect(state.deadline).toBe(200 + DUEL_OPENING_REVEAL_MS + DUEL_OPENING_PICK_MS);
+    expect(state.deadline).toBe(200 + 2_000 + 30_000);
+    const picked = submitOpeningPick(state, 0, "paper", 200 + 2_000);
+    expect(picked.picks).toEqual(["paper", null]);
+    expect(picked.deadline).toBe(state.deadline);
   });
 
   it("opens the choice for the winner, and only the winner may choose", () => {
@@ -67,6 +70,8 @@ describe("opening state", () => {
     state = submitOpeningPick(state, 1, "scissors", 200);
     expect(state.phase).toBe("choose");
     expect(state.winnerSeat).toBe(0);
+    expect(DUEL_OPENING_REVEAL_MS).toBe(3_000);
+    expect(state.deadline).toBe(200 + DUEL_OPENING_REVEAL_MS + 30_000);
     expect(() => submitOpeningChoice(state, 1, "first", 300)).toThrow(/Only the winner/);
     const done = submitOpeningChoice(state, 0, "second", 300);
     expect(done.phase).toBe("start");
@@ -120,6 +125,11 @@ describe("opening timeouts", () => {
     const settled = settleOpening(state, DUEL_OPENING_PICK_MS, () => 0);
     expect(settled.round).toBe(2);
     expect(settled.reveal?.winnerSeat).toBeNull();
+    expect(settled.deadline).toBe(DUEL_OPENING_PICK_MS + 2_000 + 30_000);
+    expect(settleOpening(settled, settled.deadline - 1, () => 0)).toBe(settled);
+    const repeatedTie = settleOpening(settled, settled.deadline, () => 0);
+    expect(repeatedTie.round).toBe(3);
+    expect(repeatedTie.deadline).toBe(settled.deadline + 2_000 + 30_000);
   });
 
   it("makes a winner who does not choose go first", () => {

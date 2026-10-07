@@ -1,0 +1,241 @@
+/* The Theme Table: an oval with the seats, the box of theme cubes, and the table card. Match Sheet tokens only.
+   Gold marks you, purple marks what is active, green marks ready. Nothing zooms or lifts on hover, and motion stops for
+   people who ask for less of it. The seat list carries every control; the oval beside it is a picture of the same seats. */
+/* The page is the size container of the layout rules below: the breakpoints follow the room the page really has (the
+   side rail takes 236 px of the screen), not the screen width. */
+.page { display: grid; gap: 16px; align-content: start; min-width: 0; container: tt / inline-size; }
+.page > * { min-width: 0; }
+.feedback { display: grid; gap: 8px; }
+
+.layout {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr) 320px;
+  grid-template-areas: "box table card";
+  gap: 24px;
+  align-items: start;
+}
+.layout > * { min-width: 0; }
+.tableCol { grid-area: table; display: grid; gap: 20px; container-type: inline-size; }
+.box { grid-area: box; }
+.card { grid-area: card; }
+
+.eyebrow { margin: 0; color: var(--ink-3); font: 600 12px/1 var(--f-ui); letter-spacing: 0.16em; text-transform: uppercase; }
+
+/* ---- the oval ---- */
+.tableWrap {
+  --tw: min(100cqw, 760px);
+  --seat: clamp(34px, calc(var(--tw) * 0.07), 56px);
+  position: relative;
+  width: var(--tw);
+  aspect-ratio: 1.72;
+  margin: 0 auto;
+  min-height: 260px;
+}
+.oval {
+  position: absolute;
+  inset: 12% 8%;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  background:
+    radial-gradient(56% 60% at 50% 40%, rgb(255 196 128 / 0.1), transparent 72%) padding-box,
+    linear-gradient(180deg, #0c1530, #080e20) padding-box,
+    radial-gradient(70% 90% at 50% 100%, #4a3121, transparent 75%) border-box,
+    linear-gradient(180deg, #1b120c, #2e1e14) border-box;
+  box-shadow: 0 30px 60px -20px rgb(0 0 0 / 0.7), 0 0 0 7px rgb(46 30 20 / 0.55), 0 0 0 8px var(--rule-lo), inset 0 0 70px rgb(0 0 0 / 0.55);
+}
+.oval::after { content: ""; position: absolute; inset: 7%; border-radius: 50%; border: 1px solid var(--rule-lo); }
+.mat { position: absolute; inset: 26% 20%; z-index: 1; display: grid; place-items: center; align-content: center; gap: 6px; text-align: center; }
+.matLine { color: var(--ink-2); font-size: clamp(11px, calc(var(--tw) * 0.0175), 14px); line-height: 1.3; }
+.mat .discTheme { max-width: none; color: var(--ink); font: 700 clamp(18px, calc(var(--tw) * 0.04), 30px)/1 var(--f-num); letter-spacing: 0.02em; }
+
+.disc {
+  position: absolute;
+  z-index: 3;
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  width: calc(var(--seat) * 2.4);
+  translate: -50% -50%;
+  text-align: center;
+}
+.disc[data-you] > :first-child { box-shadow: 0 0 0 2px var(--gold), 0 0 18px rgb(228 182 79 / 0.3); }
+.disc[data-ready] > :first-child { box-shadow: 0 0 0 2px var(--ok); }
+.discName { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-3); font: 600 11.5px/1.1 var(--f-ui); letter-spacing: 0.04em; }
+.disc[data-you] .discName { color: var(--gold); }
+.discTheme {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 2px 8px;
+  border: 1px solid var(--rule-lo);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--ink-2);
+  font: 600 11px/1.3 var(--f-ui);
+}
+
+/* ---- the seats ---- */
+.seats { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 12px; margin: 0; padding: 0; list-style: none; }
+.seat {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--rule-lo);
+  border-radius: 14px;
+  background: var(--panel);
+}
+.seat[data-you] { border-color: rgb(228 182 79 / 0.5); }
+.seat[data-ready] { box-shadow: 0 0 0 1px rgb(134 207 161 / 0.35); }
+.seat[data-open] { border-style: dashed; background: transparent; }
+.seatHead { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.seatWho { display: grid; gap: 2px; min-width: 0; }
+.seatName { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--ink); font-size: 16px; font-weight: 600; }
+.seatNameText { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.seat[data-open] .seatNameText { color: var(--ink-2); font-weight: 500; }
+.seatSub { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; color: var(--ink-3); font-size: 13.5px; }
+.seatState { display: inline-flex; align-items: center; gap: 4px; }
+.seatState[data-ready] { color: var(--ok); }
+.openActs { display: flex; flex-wrap: wrap; gap: 8px; }
+.smallBtn { min-height: 34px; padding-inline: 12px; font-size: 14px; }
+
+.seatTheme { display: grid; gap: 6px; margin: 0; min-width: 0; color: var(--ink-2); font-size: 14px; }
+.seatTheme b { color: var(--ink); font-weight: 600; overflow-wrap: anywhere; }
+.seatTheme[data-empty] { color: var(--ink-3); }
+.themeLabel { color: var(--ink-3); font: 600 12px/1.2 var(--f-ui); letter-spacing: 0.08em; text-transform: uppercase; }
+.themePick { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.themeSelect { flex: 1 1 auto; min-width: 0; }
+
+/* ---- the box ---- */
+.box { display: grid; min-width: 0; }
+.boxLid {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px 12px;
+  border: 1px solid var(--rule);
+  border-bottom: 0;
+  border-radius: 12px 12px 0 0;
+  background: linear-gradient(180deg, #4a3121, #2e1e14 60%, #1b120c);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.07);
+}
+.boxT { margin: 0; color: var(--ink); font: 700 18px/1.2 var(--f-display); }
+.boxSub { margin: 0; color: var(--ink-2); font-size: 13px; line-height: 1.4; }
+.boxBody { display: grid; gap: 14px; padding: 14px; border: 1px solid var(--rule); border-radius: 0 0 12px 12px; background: var(--panel); min-width: 0; }
+.boxEmpty { margin: 0; padding: 14px; border: 1.5px dashed var(--rule); border-radius: 10px; color: var(--ink-2); font-size: 14px; text-align: center; }
+.cubes { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.cube {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas: "fan text" "acts acts";
+  gap: 10px 12px;
+  align-items: start;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--rule-lo);
+  border-radius: 10px;
+  background: rgb(255 255 255 / 0.015);
+}
+.cube[data-mine] { border-color: var(--gold); }
+.cube[data-taken] { opacity: 0.6; }
+.fan { grid-area: fan; display: flex; }
+.fan img { width: 38px; aspect-ratio: 421 / 614; object-fit: cover; border: 1px solid var(--rule); border-radius: 3px; background: var(--floor); }
+.fan img + img { margin-left: -22px; }
+.cubeText { grid-area: text; display: grid; gap: 3px; min-width: 0; }
+.cubeName { color: var(--ink); font-weight: 600; font-size: 15.5px; overflow-wrap: anywhere; }
+.cubeSub { color: var(--ink-3); font-size: 13px; }
+.cubeCounts { display: grid; gap: 1px; color: var(--ink-2); font-size: 13px; }
+.cubeCounts b { color: var(--ink-3); font-weight: 600; }
+.cubeHolder { color: var(--ink-3); font-size: 13px; font-weight: 600; }
+.cubeHolder[data-mine] { color: var(--gold); }
+.cubeActs { grid-area: acts; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+/* Edit and the menu (or Remove) move as one unit, so the menu never sits alone on a line of its own. */
+.cubeHostActs { display: inline-flex; flex-wrap: nowrap; align-items: center; gap: 8px; }
+
+.tools { display: grid; gap: 12px; padding-top: 14px; border-top: 1px solid var(--rule-lo); min-width: 0; }
+.toolsT { margin: 0; color: var(--ink); font: 600 15px/1.2 var(--f-ui); }
+.toolsT small { margin-left: 6px; color: var(--ink-3); font-weight: 400; font-size: 12.5px; }
+.toolsInfo { margin: 0; color: var(--ink-2); font-size: 13.5px; line-height: 1.4; }
+.toolsNote { margin: 0; color: var(--ink-3); font-size: 13px; line-height: 1.45; }
+.recovery { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--rule-hi); border-radius: 10px; }
+.recoveryActs { display: flex; flex-wrap: wrap; gap: 8px; }
+.toolRow { display: grid; gap: 6px; min-width: 0; }
+.toolIn { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.toolIn > :global(.input), .toolIn > :global(select) { flex: 1 1 auto; min-width: 0; }
+.search { position: relative; display: flex; align-items: center; flex: 1 1 auto; min-width: 0; }
+.search > svg { position: absolute; left: 10px; color: var(--ink-3); pointer-events: none; }
+.search > :global(.input) { padding-left: 34px; }
+.suggest {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 5;
+  display: grid;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--panel-2);
+  box-shadow: 0 12px 30px rgb(0 0 0 / 0.5);
+}
+.suggest button { padding: 9px 12px; border: 0; background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.suggest button:hover, .suggest button:focus-visible { background: rgb(155 126 255 / 0.15); }
+
+/* ---- the table card ---- */
+.card { display: grid; gap: 14px; align-content: start; min-width: 0; padding: 16px; border: 1px solid var(--rule); border-radius: 14px; background: var(--panel); }
+.cardHead { display: grid; gap: 4px; }
+.cardT { margin: 0; color: var(--ink); font: 700 20px/1.2 var(--f-display); overflow-wrap: anywhere; }
+.cardLine { margin: 0; color: var(--ink-2); font-size: 14px; line-height: 1.4; }
+.sum { display: grid; gap: 0; margin: 0; }
+.sumRow { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--rule-lo); font-size: 14px; }
+.sumRow:last-child { border-bottom: 0; }
+.sumRow dt { color: var(--ink-3); }
+.sumRow dd { margin: 0; color: var(--ink); text-align: right; }
+.problems { display: grid; gap: 8px; }
+.cardActs { display: grid; gap: 12px; }
+
+.rules { display: grid; gap: 12px; padding: 12px; border: 1px solid var(--rule-lo); border-radius: 10px; }
+.fld { display: grid; gap: 6px; min-width: 0; }
+.fieldRow { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.rulesNote { margin: 0; color: var(--ink-2); font-size: 13.5px; line-height: 1.4; }
+.rulesActs { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.smallBtn:focus-visible, .suggest button:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 2px; }
+
+/* ---- tablet: the table on top, the box and the card side by side ----
+   Three columns need 668 px for the box, the card and the gaps, and the oval needs about 560 px beside them for 8 seats. */
+@container tt (max-width: 1229px) {
+  .layout { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "table table" "box card"; }
+}
+
+/* ---- phone: one column; a small oval, no names on it ---- */
+@container tt (max-width: 719px) {
+  .layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "table" "box" "card"; gap: 20px; }
+  .tableWrap { --tw: 100cqw; --seat: 38px; aspect-ratio: 1 / 0.9; min-height: 0; }
+  .oval { inset: 14% 12%; }
+  .oval::after { display: none; }
+  .mat { inset: 30% 24%; }
+  .matLine, .discName, .tableWrap .discTheme:not(.mat .discTheme) { display: none; }
+  .disc { width: var(--seat); }
+  .fieldRow { grid-template-columns: minmax(0, 1fr); }
+  .smallBtn { min-height: 44px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page * { transition-duration: 0.01ms !important; animation: none !important; }
+}
+
+/* ---- short creation form ---- */
+.advanced { margin-top: 8px; }
+.advanced > summary { display: inline-flex; align-items: center; min-height: 40px; padding: 0 4px; color: var(--ink-2); font: 600 15px/1 var(--f-ui); cursor: pointer; }
+.advanced > summary:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 2px; border-radius: 6px; }
+.advanced[open] > summary { color: var(--ink); }
+.stepper { display: inline-flex; align-items: stretch; width: fit-content; overflow: hidden; border: 1px solid var(--rule); border-radius: 8px; background: var(--floor); }
+.stepper button { width: 40px; border: 0; background: none; color: var(--ink-2); font-size: 20px; line-height: 1; cursor: pointer; }
+.stepper button:hover:not(:disabled) { background: rgb(239 231 213 / 0.08); color: var(--ink); }
+.stepper button:disabled { opacity: 0.35; cursor: default; }
+.stepper button:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: -2px; }
+.stepper > :global(.input) { width: 64px; border: 0; border-inline: 1px solid var(--rule-lo); border-radius: 0; text-align: center; font-variant-numeric: tabular-nums; }
+@media (max-width: 719px) { .stepper button { width: 48px; min-height: 44px; } }

@@ -10,8 +10,11 @@ import { useDraftStore } from "../../src/lib/stores/draft-store";
 // useCallback from recreating on every render (router is in its dep array).
 // ---------------------------------------------------------------------------
 const mockRouter = { push: vi.fn(), refresh: vi.fn() };
+const mockParams = vi.hoisted(() => ({ slug: "test-draft" }));
+// Every render of the mocked booster lobby, as "slug:name", to see what a render showed before any effect ran.
+const manageRenders = vi.hoisted(() => [] as string[]);
 vi.mock("next/navigation", () => ({
-  useParams: () => ({ slug: "test-draft" }),
+  useParams: () => ({ slug: mockParams.slug }),
   useRouter: () => mockRouter,
 }));
 
@@ -34,7 +37,46 @@ vi.mock("../../src/lib/hooks/use-draft-expiry-resync", () => ({
 // view is shown without needing full component trees.
 // ---------------------------------------------------------------------------
 vi.mock("../../src/components/draft/draft-manage-view", () => ({
-  DraftManageView: ({ isCreator }: { isCreator: boolean }) => <div data-testid="draft-manage-view" data-is-creator={String(isCreator)}>Manage</div>,
+  DraftManageView: function DraftManageView(props: {
+    discordEnabled?: boolean;
+    botsEnabled?: boolean;
+    slug?: string;
+    draft: { name: string; lobby?: { revision: number } };
+    onUpdate: (data: { name?: string; config?: unknown; revision?: number }) => Promise<void>;
+    onChanged?: () => void;
+  }) {
+    const [message, setMessage] = React.useState("");
+    manageRenders.push(`${props.slug}:${props.draft.name}`);
+    return (
+      <div
+        data-testid="draft-manage-view"
+        data-discord={String(props.discordEnabled)}
+        data-bots={String(props.botsEnabled)}
+        data-name={props.draft.name}
+        data-revision={String(props.draft.lobby?.revision)}
+      >
+        Manage
+        <button type="button" onClick={() => void props.onUpdate({ name: "Renamed" }).catch((e: Error) => setMessage(e.message))}>save</button>
+        <button type="button" onClick={() => void props.onUpdate({ name: "Renamed", revision: 9 }).catch((e: Error) => setMessage(e.message))}>save newer</button>
+        <button type="button" onClick={() => void props.onUpdate({ name: "Renamed", revision: 3 }).catch((e: Error) => setMessage(e.message))}>save older</button>
+        <button type="button" onClick={() => props.onChanged?.()}>changed</button>
+        {message && <p role="alert">{message}</p>}
+      </div>
+    );
+  },
+}));
+vi.mock("../../src/components/draft/theme/theme-table-lobby", () => ({
+  ThemeTableLobby: (props: { discordEnabled?: boolean; isCreator: boolean; botsEnabled?: boolean; draft: { lobby?: { revision: number } } }) => (
+    <div
+      data-testid="theme-table"
+      data-discord={String(props.discordEnabled)}
+      data-host={String(props.isCreator)}
+      data-bots={String(props.botsEnabled)}
+      data-revision={String(props.draft.lobby?.revision)}
+    >
+      Table
+    </div>
+  ),
 }));
 vi.mock("../../src/components/draft/draft-summary-view", () => ({
   DraftSummaryView: () => <div data-testid="draft-summary-view">Summary</div>,
@@ -515,12 +557,287 @@ describe("DraftDetailPage — load failures", () => {
   });
 });
 
-const FIXTURE_KEYS = ["user-1", "user-2", "admin-9"] as const;
+// ---------------------------------------------------------------------------
+// Pending lobby wiring: which screen, what it is told, and how reads settle.
+// ---------------------------------------------------------------------------
+describe("DraftDetailPage — pending lobby wiring", () => {
+  const NOW = Date.parse("2026-10-07T12:00:00.000Z");
+  const lobby = (revision: number, over: Record<string, unknown> = {}) => ({
+    revision,
+    serverNow: new Date(NOW).toISOString(),
+    targetSeats: 4,
+    joined: 2,
+    ready: 1,
+    allReady: false,
+    autoStart: { enabled: true, held: false, eligible: false },
+    start: null,
+    errors: [],
+    warnings: [],
+    lastStartError: null,
+    ...over,
+  });
+  const pending = (over: Record<string, unknown> = {}) => ({
+    ...activeDraftResponse,
+    status: "pending",
+    name: "Lobby draft",
+    config: { packSize: 5, packsPerPlayer: 3, pickSeconds: 60 },
+    currentPack: [],
+    myPool: [],
+    seats: [],
+    lobby: lobby(5),
+    ...over,
+  });
+  const theme = (over: Record<string, unknown> = {}) =>
+    pending({ name: "Theme night", config: { mode: "theme", themeSelection: "player_pick", cardsPerPlayer: 40, pickSeconds: 45 }, ...over });
 
-it.each([[101, true], [102, false]] as const)("session 101 owns the pending draft only for API creator %i", async (creator, controls) => {
-  vi.stubGlobal("fetch", vi.fn(async (url: string) => Response.json(url === "/api/auth/session"
-    ? { user: { id: "101", discordUserId: "900000000000000101" } }
-    : { ...activeDraftResponse, status: "pending", createdByUserId: creator })));
-  render(<DraftDetailPage />);
-  await waitFor(() => expect(screen.getByTestId("draft-manage-view")).toHaveAttribute("data-is-creator", String(controls)));
+  const json = (body: unknown, status = 200) =>
+    Promise.resolve({ ok: status < 400, status, json: () => Promise.resolve(body) } as Response);
+
+  /** A fetch that answers the session and the draft GET from `next`, and records every call. */
+  function serve(next: (call: number, slug: string) => unknown | Promise<unknown>, userId = "user-1") {
+    const calls: Array<{ url: string; method: string; body?: Record<string, unknown> }> = [];
+    let reads = 0;
+    global.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      const method = (init?.method ?? "GET").toUpperCase();
+      calls.push({ url, method, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+      if (url === "/api/auth/session") return json({ user: { id: String(fixtureUserId(userId)) } });
+      const read = /^\/api\/drafts\/([^/]+)$/.exec(url);
+      if (read && method === "GET") {
+        reads += 1;
+        return Promise.resolve(next(reads, read[1])).then((body) => json(body));
+      }
+      return json({});
+    });
+    return { calls, reads: () => reads, drafts: (method = "GET") => calls.filter((c) => c.url.startsWith("/api/drafts/") && c.method === method) };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockParams.slug = "test-draft";
+    manageRenders.length = 0;
+    useDraftStore.setState(baseStoreState);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    mockParams.slug = "test-draft";
+  });
+
+  it.each([
+    [true, "true"],
+    [false, "false"],
+    [undefined, "false"],
+  ])("tells the booster lobby the Discord flag from the draft GET (%s)", async (flag, expected) => {
+    serve(() => pending({ discordEnabled: flag, botsEnabled: true }));
+    render(<DraftDetailPage />);
+    const view = await screen.findByTestId("draft-manage-view");
+    expect(view.getAttribute("data-discord")).toBe(expected);
+    expect(view.getAttribute("data-bots")).toBe("true");
+    expect(screen.queryByTestId("theme-table")).toBeNull();
+  });
+
+  it("shows a pending theme draft on the Theme Table with the Discord flag, not on the booster lobby", async () => {
+    serve(() => theme({ discordEnabled: true, botsEnabled: true }));
+    render(<DraftDetailPage />);
+    const table = await screen.findByTestId("theme-table");
+    expect(table.getAttribute("data-discord")).toBe("true");
+    expect(table.getAttribute("data-bots")).toBe("true");
+    expect(table.getAttribute("data-host")).toBe("true");
+    expect(screen.queryByTestId("draft-manage-view")).toBeNull();
+    expect(screen.getByRole("heading", { level: 1, name: "Theme Table" })).toBeTruthy();
+  });
+
+  it("lets only the host cancel a theme draft, after a confirm", async () => {
+    const server = serve(() => theme());
+    render(<DraftDetailPage />);
+    await screen.findByTestId("theme-table");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel draft" }));
+    expect(screen.getByRole("dialog", { name: "Cancel this draft?" })).toBeTruthy();
+    expect(server.drafts("DELETE")).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Go back" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel draft" }));
+    fireEvent.click(screen.getByRole("button", { name: "Yes, cancel" }));
+    await waitFor(() => expect(server.drafts("DELETE")).toHaveLength(1));
+  });
+
+  it("gives a guest on the Theme Table no Cancel draft", async () => {
+    serve(() => theme({ createdByUserId: fixtureUserId("someone-else") }), "user-9");
+    render(<DraftDetailPage />);
+    const table = await screen.findByTestId("theme-table");
+    await waitFor(() => expect(table.getAttribute("data-host")).toBe("false"));
+    expect(screen.queryByRole("button", { name: "Cancel draft" })).toBeNull();
+  });
+
+  it("keeps the newer lobby when an older read comes back later", async () => {
+    const revisions = [5, 4, 6];
+    serve((call) => pending({ name: `read ${call}`, lobby: lobby(revisions[call - 1] ?? 6) }));
+    render(<DraftDetailPage />);
+    const view = await screen.findByTestId("draft-manage-view");
+    expect(view.getAttribute("data-revision")).toBe("5");
+    await act(async () => { vi.mocked(useDraftWebsocket).mock.calls.at(-1)?.[1]?.onResync?.(); });
+    await waitFor(() => expect(vi.mocked(global.fetch).mock.calls.filter(([url]) => url === "/api/drafts/test-draft")).toHaveLength(2));
+    expect(screen.getByTestId("draft-manage-view").getAttribute("data-revision")).toBe("5");
+    expect(screen.getByTestId("draft-manage-view").getAttribute("data-name")).toBe("read 1");
+    await act(async () => { vi.mocked(useDraftWebsocket).mock.calls.at(-1)?.[1]?.onResync?.(); });
+    await waitFor(() => expect(screen.getByTestId("draft-manage-view").getAttribute("data-revision")).toBe("6"));
+  });
+
+  it("makes at most two reads for a burst of events and shows the newest answer", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const server = serve(async (call) => {
+      if (call === 2) await gate;
+      return pending({ name: `read ${call}`, lobby: lobby(5 + call) });
+    });
+    render(<DraftDetailPage />);
+    await screen.findByTestId("draft-manage-view");
+    const options = vi.mocked(useDraftWebsocket).mock.calls.at(-1)![1]!;
+    act(() => {
+      options.onResync?.();
+      options.onSeatsChange?.();
+      options.onStatusChange?.("active");
+      options.onResync?.();
+      options.onSeatsChange?.();
+    });
+    expect(server.reads()).toBe(2);
+    await act(async () => { release(); });
+    await waitFor(() => expect(server.reads()).toBe(3));
+    await waitFor(() => expect(screen.getByTestId("draft-manage-view").getAttribute("data-name")).toBe("read 3"));
+    expect(server.reads()).toBe(3);
+  });
+
+  it("drops the old draft's answer and clears its state when the address changes", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    serve(async (call, slug) => {
+      if (slug === "draft-a" && call > 1) await gate;
+      return slug === "draft-a" && call === 1 ? activeDraftResponse : pending({ name: `Draft ${slug}` });
+    });
+    mockParams.slug = "draft-a";
+    const { rerender } = render(<DraftDetailPage />);
+    await screen.findByTestId("draft-room");
+    act(() => {
+      useDraftStore.setState({ myPool: [{ id: 1, passcode: 1, name: "A", type: "Effect Monster", frameType: "effect", effectText: "", imageUrl: "", imageUrlSmall: "" }] });
+    });
+    // A read of draft A is still in flight when the viewer moves to draft B.
+    await act(async () => { vi.mocked(useDraftWebsocket).mock.calls.at(-1)?.[1]?.onResync?.(); });
+    mockParams.slug = "draft-b";
+    rerender(<DraftDetailPage />);
+    await waitFor(() => expect(screen.getByTestId("draft-manage-view").getAttribute("data-name")).toBe("Draft draft-b"));
+    expect(screen.queryByTestId("draft-room")).toBeNull();
+    expect(useDraftStore.getState().myPool).toEqual([]);
+    expect(useDraftStore.getState().slug).toBe("draft-b");
+    await act(async () => { release(); });
+    expect(screen.getByTestId("draft-manage-view").getAttribute("data-name")).toBe("Draft draft-b");
+  });
+
+  it("never renders the old draft under the new address, not even for the first render", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    serve(async (_call, slug) => {
+      if (slug === "draft-b") await gate;
+      return pending({ name: `Draft ${slug}` });
+    });
+    mockParams.slug = "draft-a";
+    const { rerender } = render(<DraftDetailPage />);
+    await screen.findByTestId("draft-manage-view");
+    manageRenders.length = 0;
+    mockParams.slug = "draft-b";
+    rerender(<DraftDetailPage />);
+    expect(screen.queryByTestId("draft-manage-view")).toBeNull();
+    await act(async () => { release(); });
+    await waitFor(() => expect(screen.getByTestId("draft-manage-view").getAttribute("data-name")).toBe("Draft draft-b"));
+    expect(manageRenders.filter((r) => r.startsWith("draft-b:") && r !== "draft-b:Draft draft-b")).toEqual([]);
+    expect(manageRenders).not.toContain("draft-b:Draft draft-a");
+  });
+
+  it("sends the newest revision it knows: the answer the lobby saw, or its own read", async () => {
+    const base = serve(() => pending({ lobby: lobby(5) }));
+    const original = global.fetch as unknown as (url: string, init?: RequestInit) => Promise<Response>;
+    global.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/drafts/test-draft" && init?.method === "PUT") {
+        base.calls.push({ url, method: "PUT", body: JSON.parse(String(init.body)) });
+        return json({});
+      }
+      return original(url, init);
+    });
+    render(<DraftDetailPage />);
+    await screen.findByTestId("draft-manage-view");
+    fireEvent.click(screen.getByRole("button", { name: "save newer" }));
+    await waitFor(() => expect(base.drafts("PUT")).toHaveLength(1));
+    expect(base.drafts("PUT")[0].body).toEqual({ name: "Renamed", revision: 9 });
+    fireEvent.click(screen.getByRole("button", { name: "save older" }));
+    await waitFor(() => expect(base.drafts("PUT")).toHaveLength(2));
+    expect(base.drafts("PUT")[1].body).toEqual({ name: "Renamed", revision: 5 });
+  });
+
+  it("does not show the last draft's finale under another draft", async () => {
+    const card = { id: 1, passcode: 1, name: "A", type: "Effect Monster", frameType: "effect", effectText: "", imageUrl: "", imageUrlSmall: "" };
+    let finished = false;
+    serve((_call, slug) => (slug === "draft-b" ? pending({ name: "Draft draft-b" }) : finished ? { ...completedDraftResponse, myPool: [card] } : { ...activeDraftResponse, myPool: [card] }));
+    mockParams.slug = "draft-a";
+    const { rerender } = render(<DraftDetailPage />);
+    await screen.findByTestId("draft-room");
+    finished = true;
+    act(() => { vi.mocked(useDraftWebsocket).mock.calls.at(-1)?.[1]?.onResync?.(); });
+    await screen.findByTestId("draft-finale");
+    mockParams.slug = "draft-b";
+    rerender(<DraftDetailPage />);
+    await screen.findByTestId("draft-manage-view");
+    expect(screen.queryByTestId("draft-finale")).toBeNull();
+  });
+
+  it("sends the lobby revision with an edit and explains a stale one after reading the new lobby", async () => {
+    let stale = false;
+    const base = serve((call) => pending({ lobby: lobby(call === 1 ? 5 : 6) }));
+    const original = global.fetch as unknown as (url: string, init?: RequestInit) => Promise<Response>;
+    global.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/drafts/test-draft" && init?.method === "PUT") {
+        base.calls.push({ url, method: "PUT", body: JSON.parse(String(init.body)) });
+        return stale ? json({ code: "STALE_LOBBY", error: "Lobby changed; refresh before editing" }, 409) : json({});
+      }
+      return original(url, init);
+    });
+    render(<DraftDetailPage />);
+    await screen.findByTestId("draft-manage-view");
+    fireEvent.click(screen.getByRole("button", { name: "save" }));
+    await waitFor(() => expect(base.drafts("PUT")).toHaveLength(1));
+    expect(base.drafts("PUT")[0].body).toEqual({ name: "Renamed", revision: 5 });
+
+    stale = true;
+    fireEvent.click(screen.getByRole("button", { name: "save" }));
+    expect((await screen.findByRole("alert")).textContent).toMatch(/lobby changed while you edited/i);
+    await waitFor(() => expect(screen.getByTestId("draft-manage-view").getAttribute("data-revision")).toBe("6"));
+    expect(base.drafts("PUT")[1].body).toEqual({ name: "Renamed", revision: 6 });
+  });
+
+  it("reads a pending lobby again on the idle poll and never starts the draft itself", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    // The scheduled start is already past on the server clock, but the server still says pending.
+    const start = { token: "t", kind: "auto", startsAt: new Date(NOW - 3_000).toISOString() };
+    const server = serve((call) => (call < 4 ? pending({ lobby: lobby(5, { start }) }) : { ...activeDraftResponse }));
+    render(<DraftDetailPage />);
+    await screen.findByTestId("draft-manage-view");
+    expect(server.reads()).toBe(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_100); });
+    expect(server.reads()).toBeGreaterThanOrEqual(2);
+    // Past the deadline the page stays on the lobby until a read says active.
+    expect(screen.getByTestId("draft-manage-view")).toBeTruthy();
+    expect(screen.queryByTestId("draft-room")).toBeNull();
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+    await waitFor(() => expect(screen.getByTestId("draft-room")).toBeTruthy());
+    expect(server.drafts("POST")).toHaveLength(0);
+    expect(server.calls.some((c) => c.url.endsWith("/start"))).toBe(false);
+  });
+
+  it("stops polling once the draft is active", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const server = serve(() => activeDraftResponse);
+    render(<DraftDetailPage />);
+    await screen.findByTestId("draft-room");
+    const before = server.reads();
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    // The room's own resync mock is a no-op here, so no lobby clock read may appear.
+    expect(server.reads()).toBe(before);
+  });
 });
