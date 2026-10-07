@@ -30,6 +30,11 @@ function writeBundle(dir: string, options: { tag: string; multi?: string; legacy
   writeFileSync(join(dir, "ocgcore.domain.wasm"), "domain");
   writeFileSync(join(dir, "ocgcore.standard.wasm"), `standard-${options.tag}`);
   writeFileSync(join(dir, "card-scripts", "domain.lua"), "-- domain");
+  const patched = "-- stock\n-- BEGIN HOST CARD SCRIPT PATCH\n-- patched\n";
+  const stockPath = "official/c3743515.lua";
+  mkdirSync(join(dir, "card-scripts/official"), { recursive: true });
+  writeFileSync(join(dir, "card-scripts", stockPath), patched);
+  writeFileSync(join(dir, "card-scripts/.host-card-script-patches.json"), JSON.stringify([{ stockPath }]));
   if (options.legacy !== false) {
     writeFileSync(join(dir, "ocgcore.domain.legacy.wasm"), "legacy domain");
     writeFileSync(join(dir, "card-scripts", "domain.legacy.lua"), "-- legacy domain");
@@ -39,6 +44,7 @@ function writeBundle(dir: string, options: { tag: string; multi?: string; legacy
     tag: options.tag,
     integrity: {
       multiScripts: multiScriptsHash(overlay),
+      cardScriptPatches: sha(`${stockPath}\0${sha(patched)}\n`),
       domainLegacyWasm: sha(options.legacy === "bad-hash" ? "other" : "legacy domain"),
       domainLegacyLua: sha("-- legacy domain"),
     },
@@ -271,6 +277,45 @@ describe("install-engine-bundle.sh install", () => {
     expect(run(f, false).status).toBe(0);
     expect(readFileSync(join(f.dst, "ocgcore.multi.wasm"), "utf8")).toBe("m2");
     expect(readFileSync(join(f.dst, "ocgcore.standard.wasm"), "utf8")).toBe(standardBefore);
+  });
+});
+
+describe("install-engine-bundle.sh patched card scripts", () => {
+  it.each(["stock", "missing script", "missing receipt", "empty receipt", "invalid receipt", "unsafe path"])("refuses %s in the incoming bundle before writing", kind => {
+    const f = fixture({ tag: "old" }, { tag: "new" }, []);
+    const script = join(f.src, "card-scripts/official/c3743515.lua");
+    const receipt = join(f.src, "card-scripts/.host-card-script-patches.json");
+    if (kind === "stock") writeFileSync(script, "-- stock\n");
+    if (kind === "missing script") rmSync(script);
+    if (kind === "missing receipt") rmSync(receipt);
+    if (kind === "empty receipt") writeFileSync(receipt, "[]");
+    if (kind === "invalid receipt") writeFileSync(receipt, "{}");
+    if (kind === "unsafe path") writeFileSync(receipt, JSON.stringify([{ stockPath: "../manifest.json" }]));
+    const before = snapshot(f.dst);
+    for (const preflight of [true, false]) {
+      const result = run(f, preflight);
+      expect(result.status).toBe(1);
+      expect(result.out).toContain("cardScriptPatches");
+      expect(snapshot(f.dst)).toEqual(before);
+    }
+  });
+
+  it("repairs an installed stock script even when the manifest is identical", () => {
+    const f = fixture({ tag: "same" }, { tag: "same" }, []);
+    const path = "card-scripts/official/c3743515.lua";
+    writeFileSync(join(f.dst, path), "-- stock\n");
+    expect(run(f, false).status).toBe(0);
+    expect(readFileSync(join(f.dst, path), "utf8")).toBe(readFileSync(join(f.src, path), "utf8"));
+  });
+
+  it("refuses repair of an installed stock script while a duel is active", () => {
+    const f = fixture({ tag: "same" }, { tag: "same" }, [{ format: "1v1", status: "active" }]);
+    const path = join(f.dst, "card-scripts/official/c3743515.lua");
+    writeFileSync(path, "-- stock\n");
+    for (const preflight of [true, false]) {
+      expect(run(f, preflight).status).toBe(1);
+      expect(readFileSync(path, "utf8")).toBe("-- stock\n");
+    }
   });
 });
 

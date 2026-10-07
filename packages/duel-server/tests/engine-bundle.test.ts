@@ -32,6 +32,35 @@ afterEach(() => {
 });
 
 describe("verifyEngineBundle", () => {
+  const stockPath = "official/c3743515.lua";
+  const patched = "-- stock\n-- BEGIN HOST CARD SCRIPT PATCH\n-- patched\n";
+  const patchIntegrity = sha(`${stockPath}\0${sha(patched)}\n`);
+  function patchedBundle() {
+    const result = bundle({ integrity: { cardScriptPatches: patchIntegrity } });
+    mkdirSync(join(result.directory, "card-scripts/official"));
+    writeFileSync(join(result.directory, "card-scripts", stockPath), patched);
+    writeFileSync(join(result.directory, "card-scripts/.host-card-script-patches.json"), JSON.stringify([{ stockPath }]));
+    return result;
+  }
+
+  it("accepts matching patched card-script bytes", () => {
+    const { directory, wrapperPath } = patchedBundle();
+    expect(verifyEngineBundle(directory, { wrapperPath, engine: "pinned" }).bundleVersion).toBe("v1");
+  });
+
+  it.each(["stock", "missing script", "missing receipt", "empty receipt", "invalid receipt", "unsafe path"])("rejects patched scripts with %s", kind => {
+    const { directory, wrapperPath } = patchedBundle();
+    const script = join(directory, "card-scripts", stockPath);
+    const receipt = join(directory, "card-scripts/.host-card-script-patches.json");
+    if (kind === "stock") writeFileSync(script, "-- stock\n");
+    if (kind === "missing script") rmSync(script);
+    if (kind === "missing receipt") rmSync(receipt);
+    if (kind === "empty receipt") writeFileSync(receipt, "[]");
+    if (kind === "invalid receipt") writeFileSync(receipt, "{}");
+    if (kind === "unsafe path") writeFileSync(receipt, JSON.stringify([{ stockPath: "../wrapper" }]));
+    expect(() => verifyEngineBundle(directory, { wrapperPath, engine: "pinned" })).toThrow(/cardScriptPatches.*duel:prepare/);
+  });
+
   it("accepts a complete bundle without integrity entries", () => {
     const { directory, wrapperPath } = bundle();
     expect(verifyEngineBundle(directory, { wrapperPath, engine: "pinned" })).toEqual({ bundleVersion: "v1" });
