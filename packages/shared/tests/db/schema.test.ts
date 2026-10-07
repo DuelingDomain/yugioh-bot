@@ -58,6 +58,8 @@ describe("shared database schema", () => {
       "started_at",
       "ended_at",
       "web_slug",
+      "tournament_id",
+      "complete_message_id",
       "lobby_revision",
       "lobby_auto_start",
       "lobby_auto_held",
@@ -69,8 +71,6 @@ describe("shared database schema", () => {
       "lobby_start_force",
       "lobby_start_error",
       "lobby_nudged_at",
-      "tournament_id",
-      "complete_message_id",
     ]);
     expect(getTableInfo(db, "draft_players").map((column) => column.name)).toEqual([
       "draft_id",

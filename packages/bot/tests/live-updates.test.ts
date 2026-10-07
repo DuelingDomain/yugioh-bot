@@ -83,7 +83,7 @@ describe("state change broadcasts", () => {
     await handleCommand(interaction, deps as unknown as Parameters<typeof handleCommand>[1]);
     expect(deps.broadcaster[room]).toHaveBeenCalledExactlyOnceWith(payload);
     if (name === "draft" && subcommand === "start") {
-      expect(deps.lobby.scheduleStart).toHaveBeenCalledExactlyOnceWith(1, "creator", { revision: 5, force: false });
+      expect(deps.lobby.scheduleStart).toHaveBeenCalledExactlyOnceWith(1, 101, { revision: 5, force: false });
       expect(deps.drafts.start).not.toHaveBeenCalled();
       expect(interaction.reply).toHaveBeenCalledWith(expect.stringContaining("Start scheduled"));
     }
@@ -100,7 +100,7 @@ describe("state change broadcasts", () => {
     await handleButton(interaction, deps as unknown as Parameters<typeof handleButton>[1]);
     expect(deps.broadcaster[room]).toHaveBeenCalledExactlyOnceWith(payload);
     if (customId === "draft_start:1") {
-      expect(deps.lobby.scheduleStart).toHaveBeenCalledExactlyOnceWith(1, "creator", { revision: 5, force: false });
+      expect(deps.lobby.scheduleStart).toHaveBeenCalledExactlyOnceWith(1, 101, { revision: 5, force: false });
       expect(deps.drafts.start).not.toHaveBeenCalled();
       expect(interaction.reply).toHaveBeenCalledWith({ content: expect.stringContaining("Start scheduled"), ephemeral: true });
     }
