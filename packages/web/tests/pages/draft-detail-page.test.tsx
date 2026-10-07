@@ -741,7 +741,7 @@ describe("DraftDetailPage — pending lobby wiring", () => {
   it("sends the lobby revision with an edit and explains a stale one after reading the new lobby", async () => {
     let stale = false;
     const base = serve((call) => pending({ lobby: lobby(call === 1 ? 5 : 6) }));
-    const original = global.fetch as ReturnType<typeof vi.fn>;
+    const original = global.fetch as unknown as (url: string, init?: RequestInit) => Promise<Response>;
     global.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
       if (url === "/api/drafts/test-draft" && init?.method === "PUT") {
         base.calls.push({ url, method: "PUT", body: JSON.parse(String(init.body)) });
