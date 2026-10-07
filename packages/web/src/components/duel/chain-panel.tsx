@@ -7,7 +7,7 @@
  *  - "sheet": the wide shape at the width of a phone, opened from the strip.
  * The strip is the one-line form for phones, tables and a column a prompt would cover; it is a real button.
  */
-import type { CSSProperties, Ref } from "react";
+import { useEffect, useId, useState, type CSSProperties, type Ref } from "react";
 import { Check, ChevronDown, ChevronUp, Circle, Play, X } from "lucide-react";
 import { cardArtUrl } from "./constants";
 import type { HeroView, PanelTone, PanelView, RowView, StripView } from "./chain-narrate";
@@ -80,8 +80,41 @@ function Hero({ hero }: { hero: HeroView }) {
   );
 }
 
-function Row({ row, seatTones }: { row: RowView; seatTones: SeatTones }) {
+function Row({ row, seatTones, expand }: { row: RowView; seatTones: SeatTones; expand?: { open: boolean; controls: string; onToggle: () => void } }) {
   const line = row.result ?? (row.tone === "wait" ? row.effect : null);
+  const body = (
+    <>
+      <b className={styles.rowNum}>{row.index}</b>
+      <span className={styles.thumb} style={artStyle(row.code)} />
+      <span className={styles.rowText}>
+        <span className={styles.rowName}>{row.name}</span>
+        {line && !row.isHero && !expand?.open ? <span className={styles.rowLine} data-chain-row-line="true">{line}</span> : null}
+      </span>
+      <span className={styles.rowState}>{expand ? (expand.open ? <ChevronUp size={15} strokeWidth={2.4} aria-hidden="true" /> : <ChevronDown size={15} strokeWidth={2.4} aria-hidden="true" />) : <StateIcon tone={row.tone} />}</span>
+    </>
+  );
+  if (expand) {
+    return (
+      <button
+        type="button"
+        className={`${styles.row} ${styles.rowBtn}`}
+        data-tone={row.tone}
+        data-status={row.status}
+        data-negated={row.negated ? "true" : "false"}
+        data-focus={row.isHero ? "true" : "false"}
+        data-mine={row.mine ? "true" : "false"}
+        data-chain-row={row.index}
+        data-toned={seatTones?.has(row.seat) ? "true" : undefined}
+        aria-expanded={expand.open}
+        aria-controls={expand.controls}
+        aria-label={`Chain Link ${row.index}, ${row.name}, ${row.owner}. ${expand.open ? "Hide" : "Show"} details`}
+        style={toneVars(seatTones, row.seat)}
+        onClick={expand.onToggle}
+      >
+        {body}
+      </button>
+    );
+  }
   return (
     <li
       className={styles.row}
@@ -94,13 +127,7 @@ function Row({ row, seatTones }: { row: RowView; seatTones: SeatTones }) {
       data-toned={seatTones?.has(row.seat) ? "true" : undefined}
       style={toneVars(seatTones, row.seat)}
     >
-      <b className={styles.rowNum}>{row.index}</b>
-      <span className={styles.thumb} style={artStyle(row.code)} />
-      <span className={styles.rowText}>
-        <span className={styles.rowName}>{row.name}</span>
-        {line && !row.isHero ? <span className={styles.rowLine} data-chain-row-line="true">{line}</span> : null}
-      </span>
-      <span className={styles.rowState}><StateIcon tone={row.tone} /></span>
+      {body}
     </li>
   );
 }
@@ -118,6 +145,19 @@ export type ChainPanelProps = {
 /** The panel: header, hero and stack. A chain of one has no header and no stack. */
 export function ChainPanel({ view, shape, seatTones, priority, mySeat, nameOf, panelRef }: ChainPanelProps) {
   const many = view.total > 1;
+  const accordion = many && shape === "sheet";
+  const base = useId();
+  // The sheet lists every link; each one opens to its full detail. The link being resolved starts open, and a link that
+  // becomes the focus opens too. Nothing closes by itself.
+  const [open, setOpen] = useState<ReadonlySet<number>>(() => new Set([view.hero.index]));
+  useEffect(() => {
+    setOpen((prev) => (prev.has(view.hero.index) ? prev : new Set(prev).add(view.hero.index)));
+  }, [view.hero.index]);
+  const toggle = (index: number) => setOpen((prev) => {
+    const next = new Set(prev);
+    if (!next.delete(index)) next.add(index);
+    return next;
+  });
   return (
     <section ref={panelRef} className={styles.cr} data-shape={shape} data-chain-panel="true" data-priority={priority?.length ? "true" : undefined}>
       {many ? (
@@ -134,12 +174,29 @@ export function ChainPanel({ view, shape, seatTones, priority, mySeat, nameOf, p
           <PriorityChips order={priority} mySeat={mySeat} nameOf={nameOf} seatTones={seatTones} compact />
         </div>
       ) : null}
-      <Hero hero={view.hero} />
-      {many ? (
-        <ol className={styles.stack}>
-          {view.rows.map((row) => <Row key={row.index} row={row} seatTones={seatTones} />)}
+      {accordion ? (
+        <ol className={styles.stack} data-accordion="true">
+          {view.rows.map((row, at) => {
+            const isOpen = open.has(row.index);
+            const id = `${base}-${row.index}`;
+            return (
+              <li key={row.index} className={styles.item} data-open={isOpen ? "true" : "false"}>
+                <Row row={row} seatTones={seatTones} expand={{ open: isOpen, controls: id, onToggle: () => toggle(row.index) }} />
+                {isOpen ? <div id={id} className={styles.detail}><Hero hero={view.details[at]} /></div> : null}
+              </li>
+            );
+          })}
         </ol>
-      ) : null}
+      ) : (
+        <>
+          <Hero hero={view.hero} />
+          {many ? (
+            <ol className={styles.stack}>
+              {view.rows.map((row) => <Row key={row.index} row={row} seatTones={seatTones} />)}
+            </ol>
+          ) : null}
+        </>
+      )}
     </section>
   );
 }
