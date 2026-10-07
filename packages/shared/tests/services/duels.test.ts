@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { migrate } from "../../src/db/index.js";
 import type { DuelCommand, DuelDeck, DuelEngineView } from "../../src/duels/index.js";
 import { createDuelService, DuelServiceError, DUEL_LIVE_IDLE_AFTER_MS } from "../../src/services/duels.js";
@@ -1140,6 +1140,22 @@ describe("rock-paper-scissors opening", () => {
     duels.setDeck(room.slug, "g1", p2, validDeck(500));
     return { db, duels, p1, p2, slug: room.slug };
   }
+
+  it("includes a fresh server timestamp in each opening room view", () => {
+    const { db, duels, p1, p2, slug } = lobby();
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    try {
+      duels.startOpening(slug, "g1", p1, Date.now());
+      duels.submitOpeningPick(slug, "g1", 0, "rock", Date.now());
+      duels.submitOpeningPick(slug, "g1", 1, "rock", Date.now());
+      expect(duels.room(slug, "g1", p1).opening).toMatchObject({ round: 2, serverNow: 1_000_000 });
+      now.mockReturnValue(1_001_000);
+      expect(duels.room(slug, "g1", p2).opening).toMatchObject({ round: 2, serverNow: 1_001_000 });
+    } finally {
+      now.mockRestore();
+      db.close();
+    }
+  });
 
   it("starts only for the organizer with two ready seats", () => {
     const { duels, p1, p2, slug } = lobby();
