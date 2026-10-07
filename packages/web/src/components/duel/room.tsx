@@ -1,5 +1,6 @@
 "use client";
 
+import { useTableTextScale } from "./card-text-size";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -146,6 +147,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
 }) {
   // Every live surface (1v1, FFA tables, Tag, spectating) renders under this component.
   useBlockBrowserContextMenu();
+  useTableTextScale();
   const router = useRouter();
   const admitted = useRef<{ slug: string; inviteCode: string } | null>(null);
   const { data, error, isLoading, mutate } = useSWR(

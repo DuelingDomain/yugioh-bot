@@ -46,7 +46,7 @@ export function seatTransform(pose: Pick<SeatPose, "x" | "y" | "rotateDeg" | "ti
 export function RivalField({ pose, field, render, angleOffsetDeg = 0, placement, glide = false }: RivalFieldProps) {
   const style: CSSProperties & Record<string, string | number> = placement
     ? { "--sf-z": `${pose.z}px`, "--sf-ts": textScale(pose.scale).toFixed(2), ...(placement.lh != null ? { "--sf-lh": `${placement.lh}px` } : {}), ...(placement.boxX != null ? { "--sf-box-x": `${placement.boxX}px` } : {}), ...(placement.handShift != null ? { "--hand-shift": placement.handShift } : {}), ...(placement.handWidth != null ? { "--hand-w": placement.handWidth } : {}), left: placement.left, top: placement.top, rotate: pose.rotateDeg ? `${pose.rotateDeg}deg` : "none", zIndex: placement.zIndex }
-    : { "--sf-z": `${pose.z}px`, transform: seatTransform(pose), zIndex: slotZIndex(pose.slot, pose.scale) };
+    : { "--sf-z": `${pose.z}px`, "--sk": `calc(var(--stage-k, 1) * ${pose.scale})`, transform: seatTransform(pose), zIndex: slotZIndex(pose.slot, pose.scale) };
   return (
     <div
       className={styles.seat}

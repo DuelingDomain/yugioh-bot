@@ -67,10 +67,10 @@
   --duel-f-ink: var(--font-duel-ink), "Newsreader", Georgia, serif;
 
   /* Type scale: the prototype's sizes, about 10% larger at 1440x900. */
-  --duel-t-xs: max(11px, calc(11 * var(--duel-unit)));
-  --duel-t-sm: max(12px, calc(12 * var(--duel-unit)));
-  --duel-t-body: max(13px, calc(13 * var(--duel-unit)));
-  --duel-t-head: max(14px, calc(15 * var(--duel-unit)));
+  --duel-t-xs: calc(max(12px, calc(11 * var(--duel-unit))) * var(--tt, 1));
+  --duel-t-sm: calc(max(12px, calc(12 * var(--duel-unit))) * var(--tt, 1));
+  --duel-t-body: calc(max(14px, calc(13 * var(--duel-unit))) * var(--tt, 1));
+  --duel-t-head: calc(max(15px, calc(15 * var(--duel-unit))) * var(--tt, 1));
   --duel-t-name: max(18px, calc(20 * var(--duel-unit)));
   --duel-t-num: max(20px, calc(22 * var(--duel-unit)));
 }
@@ -201,7 +201,7 @@
   border-radius: 999px;
   background: rgb(255 84 72 / 0.06);
   color: #ff8a80;
-  font-size: 12px;
+  font-size: calc(12px * var(--tt, 1));
   font-weight: 500;
   line-height: 1;
   letter-spacing: 0.01em;
@@ -794,13 +794,13 @@
 
   .identity .format, .connectionStatus svg, .pref, .whoPill { display: none; }
   .identity:has(.viewerRole) { flex-direction: column; align-items: flex-start; gap: 2px; }
-  .identity a { max-width: 100%; font-size: 15px; } /* Keep "Dueling Domain" compact so the turn and phase remain readable beside it. */
-  .viewerRole { padding: 0; border: 0; background: transparent; font-size: 10px; line-height: 12px; }
+  .identity a { max-width: 100%; font-size: calc(15px * var(--tt, 1)); } /* Keep "Dueling Domain" compact so the turn and phase remain readable beside it. */
+  .viewerRole { padding: 0; border: 0; background: transparent; font-size: calc(12px * var(--tt, 1)); line-height: 12px; }
   .viewerRole svg { width: 12px; height: 12px; }
   .turn { justify-content: flex-start; overflow: hidden; }
-  .turn strong, .turn > span { font-size: 13px; }
+  .turn strong, .turn > span { font-size: calc(14px * var(--tt, 1)); }
   .turn > .phaseName { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  .connectionStatus { padding: 0 4px; font-size: 11px; }
+  .connectionStatus { padding: 0 4px; font-size: calc(12px * var(--tt, 1)); }
   .track { padding-bottom: 0; }
   .mobileBar {
     display: block;
@@ -812,7 +812,7 @@
   .mobileBar .tabs { max-width: 32rem; margin-inline: auto; padding: 0 6px; border-bottom: 0; }
   .mobileBar .tabs button { height: 40px; margin: 0; border: 0; border-top: 2px solid transparent; color: var(--duel-ink-2); }
   .cardTooltip { display: none; }
-  .log li { font-size: 13px; }
+  .log li { font-size: calc(14px * var(--tt, 1)); }
 }
 
 /* Log tab: the history list takes the whole column; the text log folds into a drawer under it. */
@@ -857,5 +857,5 @@
   border-bottom: 1px solid rgb(var(--duel-rule-rgb) / 0.6);
   background: var(--duel-sheet, #15151d);
   color: var(--duel-text, #eee);
-  font-size: 14px;
+  font-size: calc(14px * var(--tt, 1));
 }

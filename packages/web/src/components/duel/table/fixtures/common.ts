@@ -44,7 +44,9 @@ export const TABLE_CARDS = {
   jinzo: {
     code: 77585513,
     name: "Jinzo",
-    description: "Trap Cards, and their effects on the field, are negated.",
+    // A long, realistic effect text, so the preview shows the card panel at a normal long card length (about 650 characters).
+    description:
+      "Cannot be Normal Summoned/Set. Must first be Special Summoned (from your hand) by banishing 1 LIGHT and 1 DARK monster from your GY. You can only Special Summon \"Jinzo\" once per turn. (1) Once per turn: You can target 1 monster your opponent controls; banish it. (2) If this card attacks a monster, it can make a second attack during each Battle Phase, but only against a monster. (3) If this card is banished: You can send 1 card from your hand to the GY; return this card to the field, and if you do, you can add 1 banished card of yours to your hand. (4) While this card is face-up on the field, your opponent cannot activate the effects of banished cards, and each time a card is banished, you gain 300 LP. These effects are not negated while this card is in your Monster Zone.",
     type: TYPE_MONSTER | TYPE_EFFECT,
     attack: 2400,
     defense: 1500,

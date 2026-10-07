@@ -47,7 +47,7 @@
 
 .title {
   font-family: var(--duel-f-ui, var(--font-duel-ui), "Arial Narrow", sans-serif);
-  font-size: 15px;
+  font-size: calc(15px * var(--tt, 1));
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -55,7 +55,7 @@
 
 .source {
   font-family: var(--duel-f-ui, var(--font-duel-ui), "Arial Narrow", sans-serif);
-  font-size: 12px;
+  font-size: calc(12px * var(--tt, 1));
   letter-spacing: 0.04em;
   color: var(--duel-ink-2, #c3bba8);
 }

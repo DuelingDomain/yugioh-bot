@@ -14,7 +14,7 @@
   --loss-ink: #ff9489;
   --ink-3: #958f81;
   --ink-4: #6e6a62;
-  /* Size of the contents: 1 is the natural size. A grid band that is short or narrow sets a smaller one (never under 9px text). */
+  /* Size of the contents: 1 is the natural size. A grid band that is short or narrow sets a smaller one (never under 12px text). */
   --lpk: 1;
   /* --glide / --glide-ease: the shell shortens the glide while a drawer reflows the table (table-shell.module.css). */
   transition: opacity 0.35s, translate var(--glide, 0.7s) var(--glide-ease, cubic-bezier(0.2, 0.7, 0.2, 1));
@@ -94,7 +94,7 @@
 .top b {
   overflow: hidden;
   color: var(--tink);
-  font-size: max(9px, calc(13px * var(--lpk)));
+  font-size: max(calc(14px * var(--tt, 1) / min(1, var(--stage-k, 1))), calc(max(14px, calc(13px * var(--lpk))) * var(--tt, 1)));
   font-weight: 600;
   line-height: 1;
   text-overflow: ellipsis;
@@ -106,7 +106,7 @@
   border-radius: 3px;
   background: rgb(var(--t) / 0.3);
   color: #efe7d5;
-  font-size: max(9px, calc(9.5px * var(--lpk)));
+  font-size: max(calc(13px * var(--tt, 1) / min(1, var(--stage-k, 1))), calc(max(13px, calc(12px * var(--lpk))) * var(--tt, 1)));
   font-weight: 700;
   letter-spacing: 0.12em;
   line-height: 1;
@@ -143,7 +143,7 @@
 
 .hit s {
   color: var(--ink-4);
-  font-size: max(8px, calc(11px * var(--lpk)));
+  font-size: max(calc(13px * var(--tt, 1) / min(1, var(--stage-k, 1))), calc(max(13px, calc(12px * var(--lpk))) * var(--tt, 1)));
   font-weight: 600;
   text-decoration-color: var(--loss);
 }
@@ -156,7 +156,7 @@
   border-radius: 999px;
   background: rgb(228 90 77 / 0.16);
   color: var(--loss-ink);
-  font-size: max(8px, calc(12px * var(--lpk)));
+  font-size: max(calc(13px * var(--tt, 1) / min(1, var(--stage-k, 1))), calc(max(13px, calc(12px * var(--lpk))) * var(--tt, 1)));
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 700;
@@ -171,7 +171,7 @@
   margin-top: calc(6px * var(--lpk));
   color: var(--ink-3);
   font-family: var(--font-duel-num, "Arial Narrow"), "Arial Narrow", sans-serif;
-  font-size: max(9px, calc(12px * var(--lpk)));
+  font-size: max(calc(13px * var(--tt, 1) / min(1, var(--stage-k, 1))), calc(max(13px, calc(12px * var(--lpk))) * var(--tt, 1)));
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   line-height: 1;
@@ -199,7 +199,7 @@
 .state {
   margin-top: calc(5px * var(--lpk));
   color: var(--ink-3);
-  font-size: 11px;
+  font-size: calc(12px * var(--tt, 1) / min(1, var(--stage-k, 1)));
   font-weight: 700;
   letter-spacing: 0.16em;
   line-height: 1;
@@ -214,7 +214,7 @@
 .think {
   margin-top: calc(5px * var(--lpk));
   color: var(--tink);
-  font-size: 12px;
+  font-size: calc(12px * var(--tt, 1) / min(1, var(--stage-k, 1)));
   font-style: italic;
   line-height: 1;
 }
@@ -285,7 +285,7 @@
   border-radius: 50%;
   background: #5733d1;
   font-family: var(--font-duel-num, "Arial Narrow"), "Arial Narrow", sans-serif;
-  font-size: 12px;
+  font-size: calc(12px * var(--tt, 1) / min(1, var(--stage-k, 1)));
   font-weight: 700;
   line-height: 1;
 }
@@ -408,7 +408,7 @@
   border-radius: 999px;
   background: rgb(7 11 21 / 0.94);
   color: var(--loss-ink);
-  font-size: 11px;
+  font-size: calc(12px * var(--tt, 1) / min(1, var(--stage-k, 1)));
   font-weight: 700;
   letter-spacing: 0.14em;
   line-height: 1;

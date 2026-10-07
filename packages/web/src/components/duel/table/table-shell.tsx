@@ -1,5 +1,6 @@
 "use client";
 
+import { useTableTextScale } from "../card-text-size";
 import { eliminationOrder } from "@/lib/duel/elimination-order";
 import { connectionLabel as labelForConnection } from "../connection-label";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
@@ -143,6 +144,7 @@ function useLatch(on: boolean): boolean {
  * look (room.module.css). The room itself stays the owner of the live engine: it passes a controller.
  */
 export function TableShell(props: TableShellProps) {
+  useTableTextScale();
   return props.preferences ? <TableShellBody {...props} preferences={props.preferences} /> : <TableShellOwnPreferences {...props} />;
 }
 

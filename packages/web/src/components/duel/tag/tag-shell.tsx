@@ -1,5 +1,6 @@
 "use client";
 
+import { useTableTextScale } from "../card-text-size";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { teamOfSeat } from "@yugidraft/shared/duels";
 import { AttackConfirm, CardActionMenu, CardHoverInfo, confirmSide, targetName } from "../card-interactions";
@@ -68,6 +69,7 @@ const NO_KEYS = new Set<string>();
  * (table UI, aim flow, reveal gate, pick continuation), and keeps the engine in the room: it only gets a controller.
  */
 export function TagShell(props: TagShellProps) {
+  useTableTextScale();
   return props.preferences ? <TagShellBody {...props} preferences={props.preferences} /> : <TagShellOwnPreferences {...props} />;
 }
 

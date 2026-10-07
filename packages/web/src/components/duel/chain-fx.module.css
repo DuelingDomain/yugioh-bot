@@ -80,7 +80,7 @@
   border-radius: 3px;
   background: #241a38;
   color: var(--duel-pen-ink, #c6b6ff);
-  font: 700 10px/1.2 var(--duel-f-ui, "Arial Narrow"), sans-serif;
+  font: 700 calc(12px * var(--tt, 1))/1.2 var(--duel-f-ui, "Arial Narrow"), sans-serif;
   white-space: nowrap;
   box-shadow: 0 0 0 1px var(--duel-pen-ink, #c6b6ff);
 }

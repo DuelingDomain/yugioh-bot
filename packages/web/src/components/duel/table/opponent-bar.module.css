@@ -17,7 +17,7 @@
   box-shadow: 0 0 24px -8px rgb(228 182 79 / 0.55);
   color: #c3bba8;
   font-family: var(--font-duel-ui, "Arial Narrow"), "Arial Narrow", sans-serif;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--tt, 1));
   line-height: 1;
   pointer-events: auto;
 }
@@ -80,7 +80,7 @@
   border-radius: 3px;
   color: #efe7d5;
   font: inherit;
-  font-size: 10.5px;
+  font-size: calc(12px * var(--tt, 1));
   font-weight: 700;
 }
 

@@ -40,7 +40,7 @@
   border-top: 1px solid var(--rule);
   color: var(--ink);
   font-family: var(--font-duel-ui), "Arial Narrow", sans-serif;
-  font-size: 14px;
+  font-size: calc(14px * var(--tt, 1));
   line-height: 1.25;
   font-variant-numeric: tabular-nums lining-nums;
   transition: border-color 0.5s var(--ease);
@@ -102,7 +102,7 @@
 }
 .seatTurn {
   color: var(--ink-3);
-  font-size: 13px;
+  font-size: calc(14px * var(--tt, 1));
   white-space: nowrap;
 }
 
@@ -124,7 +124,7 @@
 }
 .root .clockSlot small {
   font-family: var(--font-duel-ui), "Arial Narrow", sans-serif;
-  font-size: 11px;
+  font-size: calc(12px * var(--tt, 1));
   color: var(--ink-3);
 }
 .root .clockSlot span[data-active="false"] {
@@ -242,12 +242,12 @@ button.plate::after {
   inset: -6px -3px;
 }
 .code {
-  font-size: 15px;
+  font-size: calc(15px * var(--tt, 1));
   font-weight: 600;
   letter-spacing: 0.05em;
 }
 .name {
-  font-size: 11.5px;
+  font-size: calc(12px * var(--tt, 1));
 }
 
 .plate[data-state="done"] {
@@ -316,7 +316,7 @@ button.plate[data-next="true"]:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--ink-2);
-  font-size: 13.5px;
+  font-size: calc(14px * var(--tt, 1));
 }
 .capAt {
   font-weight: 500;
@@ -361,7 +361,7 @@ button.plate[data-next="true"]:hover {
   border: 1px solid var(--rule-lo);
   border-radius: 999px;
   color: var(--ink-3);
-  font-size: 11.5px;
+  font-size: calc(12px * var(--tt, 1));
   letter-spacing: 0.02em;
   line-height: 1;
   white-space: nowrap;
@@ -417,7 +417,7 @@ button.plate[data-next="true"]:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--ink-2);
-  font-size: 13px;
+  font-size: calc(14px * var(--tt, 1));
 }
 .stepNow {
   font-weight: 500;
@@ -460,7 +460,7 @@ button.plate[data-next="true"]:hover {
   border: 1px solid rgb(255 255 255 / 0.16);
   background: var(--pen-fill);
   color: #fff;
-  font-size: 16px;
+  font-size: calc(16px * var(--tt, 1));
   font-weight: 500;
   box-shadow: 0 10px 22px -10px rgb(87 51 209);
 }
@@ -497,7 +497,7 @@ button.plate[data-next="true"]:hover {
   border: 1px solid var(--rule);
   background: transparent;
   color: var(--ink-2);
-  font-size: 14px;
+  font-size: calc(14px * var(--tt, 1));
 }
 .secondary:hover {
   border-color: var(--rule-hi);
@@ -566,13 +566,13 @@ button.plate[data-next="true"]:hover {
 
 @media (min-width: 1800px) {
   .code {
-    font-size: 16px;
+    font-size: calc(16px * var(--tt, 1));
   }
   .name {
-    font-size: 12px;
+    font-size: calc(12px * var(--tt, 1));
   }
   .caption {
-    font-size: 14px;
+    font-size: calc(14px * var(--tt, 1));
   }
 }
 
@@ -589,7 +589,7 @@ button.plate[data-next="true"]:hover {
   border-radius: 999px;
   background: rgb(var(--ember-rgb) / 0.09);
   color: rgb(var(--ember-rgb));
-  font-size: 12px;
+  font-size: calc(12px * var(--tt, 1));
   line-height: 1;
   white-space: nowrap;
 }
@@ -620,7 +620,7 @@ button.plate[data-next="true"]:hover {
   border-radius: 999px;
   background: rgb(14 23 41 / 0.7);
   color: var(--ink-3);
-  font-size: 13px;
+  font-size: calc(14px * var(--tt, 1));
   line-height: 1;
 }
 .chipDot {
@@ -644,7 +644,7 @@ button.plate[data-next="true"]:hover {
 }
 /* The status word under the name: choosing, turn, next, waits, leaving, out. */
 .chipWord {
-  font-size: 9px;
+  font-size: calc(12px * var(--tt, 1));
   font-weight: 600;
   letter-spacing: 0.08em;
   line-height: 1;
@@ -713,7 +713,7 @@ button.plate[data-next="true"]:hover {
 .root[data-seats="true"] .primary {
   padding: 0 12px 0 14px;
   gap: 8px;
-  font-size: 15px;
+  font-size: calc(15px * var(--tt, 1));
 }
 
 /* ---------- phone / narrow: two rows ---------- */
@@ -761,21 +761,21 @@ button.plate[data-next="true"]:hover {
     gap: 6px;
   }
   .seatName {
-    font-size: 13px;
+    font-size: calc(14px * var(--tt, 1));
     flex: 0 1 auto;
     min-width: 0;
     max-width: 30vw;
   }
   .seatTurn {
     flex: none;
-    font-size: 12px;
+    font-size: calc(12px * var(--tt, 1));
   }
   .clockSlot {
     margin-left: 2px;
-    font-size: 14px;
+    font-size: calc(14px * var(--tt, 1));
   }
   .root .clockSlot small {
-    font-size: 9px;
+    font-size: calc(12px * var(--tt, 1));
   }
   .root .clockSlot > * {
     gap: 6px;
@@ -785,7 +785,7 @@ button.plate[data-next="true"]:hover {
     grid-area: cap;
     justify-self: end;
     min-width: 0;
-    font-size: 12px;
+    font-size: calc(12px * var(--tt, 1));
     text-align: right;
   }
   /* Row 1 keeps only the station and what comes next; the long hint stays on desktop. */
@@ -818,7 +818,7 @@ button.plate[data-next="true"]:hover {
     display: none;
   }
   .stepHint {
-    font-size: 12px;
+    font-size: calc(12px * var(--tt, 1));
   }
 
   .stack {
@@ -833,7 +833,7 @@ button.plate[data-next="true"]:hover {
     border-radius: 6px;
   }
   .code {
-    font-size: 12px;
+    font-size: calc(12px * var(--tt, 1));
     letter-spacing: 0.02em;
   }
   .name {
@@ -866,7 +866,7 @@ button.plate[data-next="true"]:hover {
   .primary {
     gap: 6px;
     padding: 0 10px 0 12px;
-    font-size: 14px;
+    font-size: calc(14px * var(--tt, 1));
   }
   .primary svg {
     width: 15px;
@@ -877,7 +877,7 @@ button.plate[data-next="true"]:hover {
   }
   .secondary {
     padding: 0 8px;
-    font-size: 13px;
+    font-size: calc(14px * var(--tt, 1));
   }
   .onlyWide {
     display: none;
@@ -1109,7 +1109,7 @@ button.plate[data-next="true"]:hover {
   .root[data-phases="hub"][data-compact="true"] .primary {
     gap: 6px;
     padding: 0 8px;
-    font-size: 14px;
+    font-size: calc(14px * var(--tt, 1));
   }
   .root[data-phases="hub"][data-compact="true"] .primary svg {
     width: 16px;

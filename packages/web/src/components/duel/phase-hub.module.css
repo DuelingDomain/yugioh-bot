@@ -272,7 +272,7 @@ button.chip:focus-visible {
   --hub-z: var(--z);
   /* The 4-way grid gives its own chip size (--hub-hc, see bandHubFit): its cells are narrower than the 1v1 ones. */
   --hc: var(--hub-hc, clamp(26px, calc(var(--hub-z) * 0.28), 38px));
-  --hfs: clamp(11px, calc(var(--hc) * 0.42), 15.5px);
+  --hfs: calc(clamp(13px, calc(var(--hc) * 0.42), 15.5px) * var(--tt, 1));
   --cw: calc(var(--hc) * 1.3);
   --pair-gap: calc(var(--hc) * 0.42);
   --line: rgb(var(--rule-rgb) / 0.45);
@@ -356,7 +356,7 @@ button.chip:focus-visible {
   display: flex;
   min-width: 0;
   max-width: calc(50cqw + 50% - 6px);
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--tt, 1));
 }
 .root[data-variant="band"] .who {
   font-size: inherit;
@@ -382,7 +382,7 @@ button.chip:focus-visible {
   overflow: hidden;
   margin-top: 5px;
   color: var(--lit-ink);
-  font: 600 12px / 1 var(--f-ui);
+  font: 600 calc(12px * var(--tt, 1)) / 1 var(--f-ui);
   letter-spacing: 0.02em;
   text-overflow: ellipsis;
   text-shadow: 0 1px 2px #000;
@@ -470,7 +470,7 @@ button.chip:focus-visible {
   overflow: hidden;
   padding-left: 6px;
   /* About 12.6px on screen at 1440 x 900, within the existing 16px caption row. */
-  font-size: 16px;
+  font-size: calc(16px * var(--tt, 1));
   font-weight: 500;
   line-height: 1;
 }

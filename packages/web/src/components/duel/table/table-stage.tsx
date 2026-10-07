@@ -351,6 +351,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
     height: canvasHeight,
     transform: `translate(${(box.width - STAGE.width * k) / 2}px, ${stageTop + (stageHeight - canvasHeight * k) / 2}px) scale(${k})`,
     "--ss": tiltSupersample(k),
+    "--stage-k": k,
     "--spread": `${spread}px`,
   };
   const attackerSeat = controller.aim?.from ? Number(controller.aim.from.split(":")[0]) : null;

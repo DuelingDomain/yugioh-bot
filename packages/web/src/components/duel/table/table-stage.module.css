@@ -289,7 +289,7 @@
 .board[data-room-snug][data-room-snug] .slot[data-slot="prompt"][data-seat-pick] :global([data-prompt-panel] > header h2) {
   grid-column: 1 / -1;
   grid-row: 2;
-  font-size: 15px;
+  font-size: calc(15px * var(--tt, 1));
 }
 .board[data-room-snug][data-room-snug] .slot[data-slot="prompt"][data-seat-pick] :global([data-prompt-panel] > header > div > :not(h2):not(p)) {
   grid-column: 1;
@@ -317,12 +317,12 @@
  */
 .board[data-prompt-center][data-prompt-center] .slot[data-slot="prompt"][data-prompt-dense] :global([data-prompt-panel]) {
   --duel-unit: var(--pr-unit, 1px);
-  --duel-t-xs: max(12px, calc(11 * var(--duel-unit)));
-  --duel-t-sm: max(12px, calc(12 * var(--duel-unit)));
-  --duel-t-body: max(12px, calc(13 * var(--duel-unit)));
-  --duel-t-head: max(13px, calc(15 * var(--duel-unit)));
-  --pc-title: clamp(14px, calc(17 * var(--duel-unit)), 20px);
-  --pc-sub: clamp(12px, calc(13.5 * var(--duel-unit)), 15px);
+  --duel-t-xs: calc(max(12px, calc(11 * var(--duel-unit))) * var(--tt, 1));
+  --duel-t-sm: calc(max(12px, calc(12 * var(--duel-unit))) * var(--tt, 1));
+  --duel-t-body: calc(max(14px, calc(13 * var(--duel-unit))) * var(--tt, 1));
+  --duel-t-head: calc(max(15px, calc(15 * var(--duel-unit))) * var(--tt, 1));
+  --pc-title: calc(clamp(16px, calc(17 * var(--duel-unit)), 20px) * var(--tt, 1));
+  --pc-sub: calc(clamp(14px, calc(13.5 * var(--duel-unit)), 15px) * var(--tt, 1));
 }
 .board[data-prompt-center][data-prompt-center] .slot[data-slot="prompt"] :global([data-prompt-panel][data-precheck]) {
   inset: var(--pr-cy) auto auto var(--pr-cx);
