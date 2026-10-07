@@ -7,7 +7,7 @@ import { ROOM_COLLAPSE_QUERY } from "../../../src/components/layout/shell-model"
 vi.mock("next/font/google", () => fontMock());
 vi.mock("next/navigation", () => ({ usePathname: vi.fn() }));
 vi.mock("next/link", () => ({ default: LinkStub }));
-vi.mock("next-auth/react", () => ({ signOut: vi.fn() }));
+vi.mock("@/lib/actions", () => ({ handleSignOut: vi.fn() }));
 
 import { usePathname } from "next/navigation";
 import { AppShell } from "../../../src/components/layout/app-shell";

@@ -6,7 +6,7 @@ import { LinkStub, fontMock, ready, stubFetch } from "./helpers";
 vi.mock("next/font/google", () => fontMock());
 vi.mock("next/navigation", () => ({ usePathname: vi.fn(() => "/leaderboard") }));
 vi.mock("next/link", () => ({ default: LinkStub }));
-vi.mock("next-auth/react", () => ({ signOut: vi.fn() }));
+vi.mock("@/lib/actions", () => ({ handleSignOut: vi.fn() }));
 
 import { AccountMenu } from "../../../src/components/layout/account-menu";
 import { AppShell } from "../../../src/components/layout/app-shell";

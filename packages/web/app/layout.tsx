@@ -1,3 +1,6 @@
+import { ClerkProvider } from "@clerk/nextjs";
+import { connection } from "next/server";
+import { isE2EAuthEnabled } from "@/lib/e2e-auth";
 import type { Metadata } from "next";
 import { Russo_One, Chakra_Petch } from "next/font/google";
 import { DuelNavigationGuard } from "@/lib/hooks/use-duel-leave-guard";
@@ -22,16 +25,17 @@ export const metadata: Metadata = {
   description: "Manage your Yu-Gi-Oh! tournaments with ease",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  await connection();
+  const content = <><DuelNavigationGuard />{children}</>;
   return (
     <html lang="en" className={`${russoOne.variable} ${chakraPetch.variable} dark`}>
       <body className="min-h-screen bg-bg-deep text-text-primary antialiased">
-        <DuelNavigationGuard />
-        {children}
+        {isE2EAuthEnabled() ? content : <ClerkProvider signInUrl="/sign-in" signUpUrl="/sign-up" waitlistUrl={`${process.env.MARKETING_URL?.replace(/\/+$/, "") || "https://duelingdomain.com"}/#join`} appearance={{ variables: { colorPrimary: "#9b7cff", colorBackground: "#16151c", colorForeground: "#f2f0f6", borderRadius: "0.75rem" } }}>{content}</ClerkProvider>}
       </body>
     </html>
   );

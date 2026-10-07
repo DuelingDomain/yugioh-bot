@@ -6,7 +6,6 @@ import { env } from "@/lib/env";
 import { createCardCatalogService, createCubeService } from "@yugidraft/shared/services";
 import type { DraftConfig } from "@yugidraft/shared/types";
 import { cubeDraftTypeOf, parseCubeDraftType, setCubeDraftType } from "@/lib/cube-type";
-import { checkDiscordWebAccess } from "@/lib/discord-web-access";
 import { ensureCatalogCards, parsePoolEntries } from "@/lib/cube-pool";
 
 export const runtime = "nodejs";
@@ -68,16 +67,6 @@ export async function GET() {
   // loaders in the cube-draft create form / settings (setNames + customCardIds). A cube
   // built in the editor keeps its cards in cube_cards, not in config, so mainCards
   // carries those passcodes and their copies for the loaders.
-  // The admin check runs once per request, and only when some cube is not the viewer's own.
-  let isAdmin = false;
-  if (rows.some((r) => r.created_by_user_id !== actor.userId)) {
-    try {
-      isAdmin = (await checkDiscordWebAccess(actor.discordUserId, "admin")).ok;
-    } catch {
-      isAdmin = false;
-    }
-  }
-
   const cubes = rows.map((row) => {
     const config = JSON.parse(row.config_json || "{}") as { setNames?: string[]; customCardIds?: number[] };
     const mainCards = mainByCube.get(row.id) ?? [];
@@ -89,7 +78,7 @@ export async function GET() {
       draftType: cubeDraftTypeOf(row.config_json),
       createdByUserId: row.created_by_user_id,
       createdByName: row.created_by_name ?? null,
-      canEdit: isAdmin || row.created_by_user_id === actor.userId,
+      canEdit: row.created_by_user_id === actor.userId,
       mainCount: mainCards.length,
       extraCount: extraCountByCube.get(row.id) ?? 0,
       setNames: Array.isArray(config.setNames) ? config.setNames : [],

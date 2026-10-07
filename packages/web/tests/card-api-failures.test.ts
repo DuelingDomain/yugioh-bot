@@ -6,7 +6,10 @@ import { NextRequest } from "next/server";
 
 const getDb = vi.fn();
 vi.mock("@/lib/db", () => ({ getDb }));
-vi.mock("@/lib/auth", () => ({ auth: async () => ({ user: { id: String(fixtureUserId("user")), discordUserId: fixtureDiscordId("user"), name: "Test" } }) }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture((() => ({ auth: async () => ({ user: { id: String(fixtureUserId("user")), discordUserId: fixtureDiscordId("user"), name: "Test" } }) }))().auth);
+});
 vi.mock("@/lib/notify", () => ({ announcer: { announce: async () => {} }, broadcaster: { draft: async () => {} } }));
 let db: Database.Database;
 beforeEach(() => {
@@ -112,5 +115,4 @@ describe.each([400, 401, 403, 404, 422])("permanent card API HTTP %s failures", 
 
 const FIXTURE_KEYS = ["user", "opponent"] as const;
 
-// Membership is a dependency of these routes; authorization still runs through the real web boundary.
-vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));
+// Session resolution is mocked; authorization still runs through the real web boundary.

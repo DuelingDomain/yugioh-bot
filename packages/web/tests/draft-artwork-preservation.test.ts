@@ -5,8 +5,10 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { seedDraftDeck } from "./helpers/draft-deck-fixture";
 import { fixtureUserId, fixtureDiscordId } from "./fixtures/identity";
 const { auth, callDuelHost } = vi.hoisted(() => ({ auth: vi.fn(), callDuelHost: vi.fn() }));
-vi.mock("@/lib/auth", () => ({ auth }));
-vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/duel-host", () => ({ callDuelHost }));
 const dirs: string[] = [];
 beforeEach(() => { vi.resetModules(); auth.mockResolvedValue({ user: { id: String(fixtureUserId("drafter")), discordUserId: fixtureDiscordId("drafter"), name: "Yugi" } }); });

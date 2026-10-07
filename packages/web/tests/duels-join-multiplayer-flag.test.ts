@@ -11,7 +11,10 @@ vi.mock("@/lib/duel-host", async (importOriginal) => ({
   requireDuelActor: actor,
   callDuelHost: host,
 }));
-vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture((() => ({ auth: vi.fn() }))().auth);
+});
 vi.mock("@/lib/notify-duel", () => ({ notifyDuelChange: notify }));
 
 import { POST } from "../app/api/duels/[slug]/seat/route";
@@ -243,5 +246,4 @@ describe("POST /api/duels/[slug]/seat with host capabilities", () => {
 
 const FIXTURE_KEYS = ["organizer", "joiner"] as const;
 
-// Membership is a dependency of these routes; authorization still runs through the real web boundary.
-vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));
+// Session resolution is mocked; authorization still runs through the real web boundary.

@@ -7,7 +7,10 @@ import { mainIds, passcodeOf, seedDraftDeck, type DraftDeckFixture } from "./hel
 const auth = vi.fn();
 const callDuelHost = vi.fn();
 const dirs: string[] = [];
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/duel-host", () => ({ callDuelHost }));
 
 // Pool: cards 1..45 once each, card 1 a second time, and Fusion Monster 2001 once.
@@ -85,8 +88,9 @@ describe("draft decks through /api/decks", () => {
       expect((await post(deckBody({ main: Array(4).fill(passcodeOf(1)) }, { draftId }))).status).toBe(201);
     });
 
-    it("saves a legal deck for the draft", async () => {
+    it.each([false, true])("saves a legal deck for the draft (email-only=%s)", async emailOnly => {
       const { draftId } = await seed();
+      if (emailOnly) auth.mockResolvedValue({ user: { id: String(fixtureUserId("drafter")), discordUserId: null, name: "Yugi" } });
       const res = await post(deckBody({ main: main(40) }, { draftId }));
       expect(res.status).toBe(201);
       const json = await res.json();
@@ -440,5 +444,4 @@ describe("draft decks through /api/decks", () => {
 
 const FIXTURE_KEYS = ["drafter", "outsider"] as const;
 
-// Membership is a dependency of these routes; authorization still runs through the real web boundary.
-vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));
+// Session resolution is mocked; authorization still runs through the real web boundary.

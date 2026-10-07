@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import Link from "next/link";
-import { signOut } from "next-auth/react";
+import { handleSignOut } from "@/lib/actions";
 import { Bug, LogOut, User } from "lucide-react";
 import { Mono, TierName } from "@/components/sheet";
 import { DURATION, usePresence } from "@/lib/motion";
@@ -232,7 +232,7 @@ export function AccountMenu({ account, pathname, variant, rail = false, onNaviga
             type="button"
             onClick={() => {
               setOpen(false);
-              void signOut({ redirectTo: "/login" });
+              void handleSignOut();
             }}
           >
             <LogOut className={styles.menuIcon} aria-hidden="true" />

@@ -9,7 +9,10 @@ const auth = vi.fn();
 const broadcaster = { draft: vi.fn(), tournament: vi.fn() };
 const tempDirs: string[] = [];
 
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/notify", () => ({ broadcaster, announcer: { announce: vi.fn() } }));
 
 // A draft page must open for a player who reconnects. One bad part (a catalog row with broken JSON,
@@ -150,5 +153,4 @@ describe("draft load resilience", () => {
 
 const FIXTURE_KEYS = ["host", "other", "outsider"] as const;
 
-// Membership is a dependency of these routes; authorization still runs through the real web boundary.
-vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));
+// Session resolution is mocked; authorization still runs through the real web boundary.
