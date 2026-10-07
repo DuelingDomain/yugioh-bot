@@ -24,15 +24,15 @@ export type OpeningStage =
   /** The order is settled; the duel is about to start. */
   | "start";
 
-/** Epoch ms when the reveal ends and the next step (pick or choice) starts. */
+/** Epoch ms when the tie reveal ends and the next pick starts. */
 export function revealEndsAt(opening: DuelOpeningView): number {
   return Date.parse(opening.deadlineAt) - DUEL_OPENING_PICK_MS;
 }
 
-/** The reveal belongs to the step it opened: the tie before this round, or the win before the choice. */
+/** The tie reveal belongs to the round before this pick. */
 function revealIsCurrent(opening: DuelOpeningView): boolean {
   if (!opening.reveal) return false;
-  return opening.phase === "choose" || (opening.phase === "rps" && opening.reveal.round === opening.round - 1);
+  return opening.phase === "rps" && opening.reveal.round === opening.round - 1;
 }
 
 export function openingStage(opening: DuelOpeningView, mySeat: number | null, now: number): OpeningStage {
@@ -45,7 +45,7 @@ export function openingStage(opening: DuelOpeningView, mySeat: number | null, no
 
 export type RevealOutcome = "win" | "lose" | "tie" | "decided";
 
-/** "You win", "You lose" or "Tie, again" for the viewer; spectators get "decided". */
+/** The reveal outcome for the viewer; spectators get "decided" for a winning round. */
 export function revealOutcome(opening: DuelOpeningView, mySeat: number | null): RevealOutcome | null {
   const reveal = opening.reveal;
   if (!reveal) return null;

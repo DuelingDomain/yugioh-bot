@@ -170,7 +170,7 @@ describe("OpeningScreen", () => {
     expect(screen.getByTestId("opening-opponent").textContent).toBe("Opponent chose");
   });
 
-  it("reveals a win, a loss and a tie", () => {
+  it("shows win and loss during order choice, and reveals a tie", () => {
     const { unmount } = open("rps-choose-order");
     expect(screen.getByTestId("opening-status").textContent).toBe("You win. Go first or second?");
     expect(screen.getByTestId("opening-reveal")).toHaveAttribute("data-outcome", "win");
