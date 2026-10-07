@@ -235,7 +235,8 @@ describe("rock-paper-scissors opening", () => {
     // The random pick was paper, which beats rock: seat 1 won and now chooses.
     const afterPicks = app.duels.openingState(slug, GUILD);
     expect(afterPicks?.phase).toBe("choose");
-    expect(afterPicks?.winnerSeat).toBe(1);
+    if (!afterPicks || !("winnerSeat" in afterPicks)) throw new Error("Expected RPS opening");
+    expect(afterPicks.winnerSeat).toBe(1);
 
     await vi.advanceTimersByTimeAsync(34_000);
     await settle();

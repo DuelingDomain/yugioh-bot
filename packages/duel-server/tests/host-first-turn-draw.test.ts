@@ -9,7 +9,8 @@ import { createDuelService } from "@yugidraft/shared/services";
 import { seatCountFor, type DuelEngineView, type DuelFormat, type DuelMasterRule, type DuelMode, type DuelReplay, type DuelRoom } from "@yugidraft/shared/duels";
 import { afterEach, expect, it, vi } from "vitest";
 import { createEngineGame, type EngineGame } from "../src/engine.js";
-import { createDuelHost, type DuelHost } from "../src/host.js";
+import type { DuelHost } from "../src/host.js";
+import { createTestDuelHost as createDuelHost, finishTestDiceOpening } from "./support/test-opening.js";
 import { activeMultiScriptsHash, pinnedEngineVersion } from "../src/multi-scripts.js";
 import { GameWorker } from "../src/worker-client.js";
 import { loadSource, replaySource } from "../scripts/lib/replay-source.js";
@@ -49,11 +50,12 @@ async function table(mode: DuelMode, format: DuelFormat, masterRule: DuelMasterR
     onChange: (slug, guildId) => { changes.push({ slug, guildId, status: duels.privateState(slug, guildId).session.status }); },
     pollIntervalMs: 60_000, createWorker: () => { const worker = new GameWorker(); workers.push(worker); return worker; } });
   resources.push({ host, db });
-  const post = async (op: string, seat = 0, extra: Record<string, unknown> = {}) => {
+  const post = async (op: string, seat = 0, extra: Record<string, unknown> = {}): Promise<{ status: number; data: DuelRoom & DuelReplay & { error?: string } }> => {
     const raw = JSON.stringify({ op, slug: session.slug, guildId: "g", playerId: players[seat], ...extra });
     const response = await host.handle(new Request("http://localhost/internal/duel", { method: "POST", body: raw,
       headers: { "x-announce-signature": "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex") } }));
-    return { status: response.status, data: await response.json() as DuelRoom & DuelReplay & { error?: string } };
+    return finishTestDiceOpening(host, { op, slug: session.slug },
+      { status: response.status, data: await response.json() as DuelRoom & DuelReplay & { error?: string } }, () => post("view", seat, extra));
   };
   const bundle = JSON.parse(readFileSync(join(DATA, "manifest.json"), "utf8")).bundleVersion as string;
   const pin = pinnedEngineVersion(bundle, count, count > 2 ? activeMultiScriptsHash(DATA) : null);

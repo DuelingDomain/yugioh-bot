@@ -45,6 +45,7 @@ const NEEDS_ENGINE = [
   "tests/hand-order-engine.test.ts",
   "tests/hand-order-random-duels.test.ts",
   "tests/host-opening.test.ts",
+  "tests/host-dice-opening-real.test.ts",
   "tests/host-spectator-view.test.ts",
   "tests/domain-extra-bridge-invariants.test.ts",
   "tests/domain-leave-tax.test.ts",

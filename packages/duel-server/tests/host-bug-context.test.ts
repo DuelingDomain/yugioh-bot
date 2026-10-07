@@ -4,7 +4,8 @@ import { afterEach, expect, it } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { createDuelService } from "@yugidraft/shared/services";
 import type { DuelEngineView, DuelFormat } from "@yugidraft/shared/duels";
-import { createDuelHost, type DuelHost } from "../src/host.js";
+import type { DuelHost } from "../src/host.js";
+import { createTestDuelHost as createDuelHost, finishTestDiceOpening } from "./support/test-opening.js";
 import { buildPracticeBotDeck } from "../src/practice-bot.js";
 import type { DuelGameWorker } from "../src/worker-client.js";
 import { engineDataDirectory as DATA } from "./engine-data-dir.js";
@@ -50,10 +51,11 @@ async function table(format: DuelFormat = "ffa3") {
   const host = createDuelHost({ db, secret: SECRET, dataDirectory: DATA, searchCards: () => [], pollIntervalMs: 60_000, debugReadTimeoutMs: 50, createWorker: () => worker });
   hosts.push(host);
   const actor = { slug: session.slug, guildId: "g", playerId: players[0] };
-  async function post(body: Record<string, unknown>) {
+  async function post(body: Record<string, unknown>): Promise<{ status: number; data: Record<string, any> }> {
     const raw = JSON.stringify({ ...actor, ...body });
     const response = await host.handle(new Request("http://localhost/internal/duel", { method: "POST", headers: { "x-announce-signature": "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex"), "content-type": "application/json" }, body: raw }));
-    return { status: response.status, data: await response.json() };
+    return finishTestDiceOpening(host, { slug: session.slug, ...body },
+      { status: response.status, data: await response.json() as Record<string, any> }, (next) => post(next));
   }
   expect((await post({ op: "start" })).status).toBe(200);
   reads.length = 0;
