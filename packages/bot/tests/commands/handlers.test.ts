@@ -257,6 +257,9 @@ describe("command handlers", () => {
       alternatePassDirection: true,
       randomizeSeats: true,
       copyLimit: true,
+      extraDeckEnabled: false,
+      extraDeckSize: 15,
+      picksPerStep: 1,
     });
   });
 
@@ -321,6 +324,9 @@ describe("command handlers", () => {
       alternatePassDirection: true,
       randomizeSeats: true,
       copyLimit: true,
+      extraDeckEnabled: false,
+      extraDeckSize: 15,
+      picksPerStep: 1,
     });
   });
 

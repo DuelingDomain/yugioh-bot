@@ -130,6 +130,11 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   const poolCount = pool.length;
   const tp = themeProgress(poolCount, sizes);
   const phase: "main" | "extra" = theme && tp.inExtra ? "extra" : "main";
+  /** Booster drafts: the one Extra Deck pack after the main rounds is smaller than the main packs. */
+  const boosterPackSize =
+    sizes.boosterExtraSize > 0 && rs.packRound > sizes.packsPerPlayer ? sizes.boosterExtraSize : sizes.packSize;
+  /** Pool size at which this round's packs stop passing: the last main pack is followed by a new Extra pack, not a pass. */
+  const passEnd = rs.packRound > sizes.packsPerPlayer ? sizes.total : sizes.cardsPerPlayer;
   const urgency = useDraftStore((s) => urgencyFor(s.timerSeconds, turn));
 
   /* ---------- the pack ribbon plays first, then the cards deal in ---------- */
@@ -565,7 +570,7 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   useEffect(() => {
     if (rs.settle === 0 || rs.settle === lastSettle.current) return;
     lastSettle.current = rs.settle;
-    if (theme || motionOff() || rs.cards.length === 0 || poolCount >= sizes.cardsPerPlayer) return;
+    if (theme || motionOff() || rs.cards.length === 0 || poolCount >= passEnd) return;
     const n = seatCount;
     const back = phase === "extra" ? "/duel/card-back-extra-hd.webp" : "/duel/card-back-main-hd.webp";
     for (let i = 1; i < n; i++) {
@@ -619,13 +624,13 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
             seat,
             state,
             packN: seatPackSize({
-              packSize: theme ? sizes.themePackSize : sizes.packSize,
+              packSize: theme ? sizes.themePackSize : boosterPackSize,
               pickStep: rs.pickStep,
               hasPicked: seat.hasPicked,
             }),
           };
         }),
-    [rs.tableSeats, passing, theme, sizes.themePackSize, sizes.packSize, rs.pickStep],
+    [rs.tableSeats, passing, theme, sizes.themePackSize, boosterPackSize, rs.pickStep],
   );
 
   const dial = dialModel(pool, sizes);
@@ -641,7 +646,7 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   let status: React.ReactNode = null;
   if (isParticipant) {
     if (turn === "settling") {
-      const willPass = !theme && rs.cards.length > 0 && poolCount < sizes.cardsPerPlayer;
+      const willPass = !theme && rs.cards.length > 0 && poolCount < passEnd;
       status = willPass
         ? `Everyone's in. Passing ${direction > 0 ? "left" : "right"}.`
         : theme
@@ -805,6 +810,7 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
             direction,
             phaseDone,
             phaseOf: tp.of,
+            boosterExtraSize: sizes.boosterExtraSize,
           }}
         />
         <SeatStrip friends={friends} heard={heard} canSay={canSay} sayOpen={sayOpen} onSay={toggleSay} />

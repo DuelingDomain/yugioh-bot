@@ -16,7 +16,7 @@ import styles from "./pool.module.css";
  * The pool of a cube draft. The create form and the lobby's edit setup both render this, each with its own
  * `usePoolEditor`. Create starts with a choice (a cube or scratch); the lobby opens straight on the draft's pool.
  */
-export function PoolEditor({ ctl }: { ctl: PoolEditorState }) {
+export function PoolEditor({ ctl, extraRound = false }: { ctl: PoolEditorState; extraRound?: boolean }) {
   const lobby = ctl.variant === "lobby";
   const cubeId = ctl.meta?.cubeId ?? null;
   // The cube the user opened the editor for (`undefined` = not open). A cube change or a switch to scratch
@@ -66,7 +66,7 @@ export function PoolEditor({ ctl }: { ctl: PoolEditorState }) {
           onKeep={ctl.closePicker}
         />
       )}
-      {(showCube || (lobby && !scratch)) && <CubeSummary ctl={ctl} lobby={lobby} onChange={ctl.openPicker} />}
+      {(showCube || (lobby && !scratch)) && <CubeSummary ctl={ctl} lobby={lobby} onChange={ctl.openPicker} extraRound={extraRound} />}
       {!showPicker && <StatusBar ctl={ctl} />}
       {!showPicker && !editorOpen && (
         <div className={styles.custom}>
@@ -81,7 +81,7 @@ export function PoolEditor({ ctl }: { ctl: PoolEditorState }) {
 }
 
 function Editor({ ctl, scratch, onHide }: { ctl: PoolEditorState; scratch: boolean; onHide: (() => void) | null }) {
-  const empty = ctl.pool.size === 0;
+  const empty = ctl.pool.size === 0 && ctl.extra.size === 0;
   return (
     <section className={styles.ed} aria-label={scratch ? "Build the pool" : "Customize for this draft"}>
       <div className={styles.edSec}>
@@ -92,7 +92,7 @@ function Editor({ ctl, scratch, onHide }: { ctl: PoolEditorState; scratch: boole
               Hide editor
             </button>
           )}
-          {!onHide && !empty && <span>{cardsText(ctl.total)} in the pool</span>}
+          {!onHide && !empty && <span>{cardsText(ctl.total + ctl.extraTotal)} in the pool</span>}
         </div>
         {empty && <p className={styles.edEmpty}>Add a set, an archetype or single cards.</p>}
         <AddCards ctl={ctl} initialTab={scratch ? "set" : "card"} />

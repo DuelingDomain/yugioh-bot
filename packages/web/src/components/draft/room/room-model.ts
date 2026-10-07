@@ -866,6 +866,8 @@ export interface RoomSizes {
   packsPerPlayer: number;
   cardsPerPlayer: number;
   extraSize: number;
+  /** Booster drafts: size of the one Extra Deck pack after the main rounds, 0 when there is none. */
+  boosterExtraSize: number;
   /** Cards you will end up with. */
   total: number;
   themePackSize: number;
@@ -875,13 +877,16 @@ export function roomSizes(config: RoomConfigLike): RoomSizes {
   const theme = config.mode === "theme";
   const cardsPerPlayer = config.cardsPerPlayer ?? 40;
   const extraSize = theme && (config.extraDeckEnabled ?? true) ? (config.extraDeckSize ?? 15) : 0;
+  // The same rule the draft service uses: a booster draft has an Extra Deck round only when it is switched on.
+  const boosterExtraSize = !theme && config.extraDeckEnabled === true ? (config.extraDeckSize ?? 15) : 0;
   return {
     theme,
     packSize: config.packSize ?? 8,
     packsPerPlayer: config.packsPerPlayer ?? 5,
     cardsPerPlayer,
     extraSize,
-    total: cardsPerPlayer + extraSize,
+    boosterExtraSize,
+    total: cardsPerPlayer + extraSize + boosterExtraSize,
     themePackSize: config.themePackSize ?? 3,
   };
 }

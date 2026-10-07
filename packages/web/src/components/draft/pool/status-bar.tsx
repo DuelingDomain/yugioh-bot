@@ -65,7 +65,7 @@ export function StatusBar({ ctl }: { ctl: PoolEditor }) {
       </p>
     );
   }
-  if (scratch && ctl.pool.size === 0) return null;
+  if (scratch && ctl.pool.size === 0 && ctl.extra.size === 0) return null;
   if (!scratch && !ctl.edited && panel === null) return null;
 
   const openNew = () => {
@@ -112,7 +112,7 @@ export function StatusBar({ ctl }: { ctl: PoolEditor }) {
           </>
         ) : (
           <>
-            <b>{editedHeadline(ctl.diff)}</b>
+            <b>{editedHeadline({ added: ctl.diff.added + ctl.extraDiff.added, removed: ctl.diff.removed + ctl.extraDiff.removed })}</b>
             <span>{untouchedNote(meta.name)}</span>
             {!meta.canEdit && <span>{notOwnerNote(meta.name)}</span>}
           </>
@@ -180,7 +180,7 @@ export function StatusBar({ ctl }: { ctl: PoolEditor }) {
       )}
       {panel === "replace" && meta && (
         <div className={styles.sform} role="group" aria-label="Save changes">
-          <p className={styles.ask}>{replaceQuestion(meta.name)}</p>
+          <p className={styles.ask}>{replaceQuestion(meta.name, ctl.extraDiff.any)}</p>
           <div className={styles.sformRow}>
             <button type="button" className={svButtonClass("ghost")} onClick={() => void replace()} disabled={busy} aria-busy={busy || undefined}>
               Replace

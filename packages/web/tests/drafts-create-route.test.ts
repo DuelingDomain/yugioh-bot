@@ -46,6 +46,9 @@ describe("POST /api/drafts", () => {
     const db = new Database(dbPath);
     migrate(db);
     seedFixtureUsers(db, FIXTURE_KEYS);
+    for (const id of [46986414, 83764718]) db.prepare(`insert into card_catalog
+      (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
+      values (?,?,'Effect Monster','effect','i','i','[]','t')`).run(id, `Card ${id}`);
     db.close();
 
     const { POST } = await import("../app/api/drafts/route");
@@ -86,7 +89,7 @@ describe("POST /api/drafts", () => {
       `insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
        values (?,?,?,?,?,?,?,?)`,
     );
-    const mainIds = Array.from({ length: 20 }, (_, i) => 1000 + i);
+    const mainIds = Array.from({ length: 40 }, (_, i) => 1000 + i);
     for (const id of mainIds) insCard.run(id, `Main ${id}`, "Effect Monster", "effect", "i", "i", "[]", "t");
     insCard.run(2000, "Extra 2000", "Fusion Monster", "fusion", "i", "i", "[]", "t");
     const cube = Number(
@@ -118,7 +121,7 @@ describe("POST /api/drafts", () => {
         method: "POST",
         body: JSON.stringify({
           name: "From Saved Pool",
-          config: { setNames: [], customCardIds: loaded, packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8 },
+          config: { setNames: [], customCardIds: loaded, packSize: 8, packsPerPlayer: 5, cardsPerPlayer: 40 },
         }),
       }) as NextRequest,
     );
@@ -143,7 +146,7 @@ describe("POST /api/drafts", () => {
     }>;
     // The creator is seated automatically, so two joiners make three players.
     expect(drafts.players(id)).toHaveLength(3);
-    expect(dealt).toHaveLength(3 * 4 * 2);
+    expect(dealt).toHaveLength(3 * 8 * 5);
     expect(dealt.every((r) => mainIds.includes(r.catalog_card_id))).toBe(true);
     verifyDb.close();
   });

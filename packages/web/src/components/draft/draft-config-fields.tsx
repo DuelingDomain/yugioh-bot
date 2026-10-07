@@ -3,17 +3,19 @@
 import * as React from "react";
 import type { DraftConfig } from "@yugidraft/shared/types";
 import { packsSentence } from "./create/format";
-import { SvCheck } from "@/components/sheet";
+import { Segmented, SvCheck } from "@/components/sheet";
 import styles from "./create/create.module.css";
 
 export const CARDS_PER_PLAYER_MIN = 40;
-export const CARDS_PER_PLAYER_MAX = 60;
+export const CARDS_PER_PLAYER_MAX = 120;
 export const CARDS_PER_PLAYER_DEFAULT = CARDS_PER_PLAYER_MIN;
 export const PACK_SIZE_MIN = 5;
 export const PACK_SIZE_DEFAULT = 15;
 export const PICK_SECONDS_MIN = 5;
 export const PICK_SECONDS_MAX = 300;
 export const PICK_SECONDS_DEFAULT = 45;
+export const EXTRA_DECK_SIZE_MAX = 15;
+export const EXTRA_DECK_SIZE_DEFAULT = 15;
 
 /** The pack fields as typed. The pool lives in the pool editor, not here. */
 export type DraftConfigFieldsValue = {
@@ -21,6 +23,11 @@ export type DraftConfigFieldsValue = {
   packSizeText: string;
   pickSecondsText: string;
   copyLimit?: boolean;
+  /** Draft one pack of Extra Deck monsters after the main rounds. Off unless set. */
+  extraDeckEnabled?: boolean;
+  extraDeckSizeText?: string;
+  /** Cards each player takes from a pack before it moves on. */
+  picksPerStep?: 1 | 2;
 };
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
@@ -37,6 +44,11 @@ function parsePickSeconds(text: string): number {
   return clamp(parseInt(text) || PICK_SECONDS_DEFAULT, PICK_SECONDS_MIN, PICK_SECONDS_MAX);
 }
 
+function parseExtraSize(text: string | undefined): number {
+  const n = parseInt(text ?? "");
+  return Number.isNaN(n) ? EXTRA_DECK_SIZE_DEFAULT : clamp(n, 0, EXTRA_DECK_SIZE_MAX);
+}
+
 function derivePacksPerPlayer(cardsPerPlayer: number, packSize: number): number {
   return Math.max(1, Math.ceil(cardsPerPlayer / packSize));
 }
@@ -50,6 +62,9 @@ export function configFromFields(fields: DraftConfigFieldsValue): {
   alternatePassDirection: boolean;
   randomizeSeats: boolean;
   copyLimit: boolean;
+  picksPerStep: 1 | 2;
+  extraDeckEnabled: boolean;
+  extraDeckSize: number;
 } {
   const cardsPerPlayer = parseCardsPerPlayer(fields.cardsPerPlayerText);
   const packSize = parsePackSize(fields.packSizeText, cardsPerPlayer);
@@ -62,6 +77,9 @@ export function configFromFields(fields: DraftConfigFieldsValue): {
     alternatePassDirection: true,
     randomizeSeats: true,
     copyLimit: fields.copyLimit ?? true,
+    picksPerStep: fields.picksPerStep ?? 1,
+    extraDeckEnabled: fields.extraDeckEnabled ?? false,
+    extraDeckSize: parseExtraSize(fields.extraDeckSizeText),
   };
 }
 
@@ -71,6 +89,9 @@ export function fieldsFromConfig(config: DraftConfig): DraftConfigFieldsValue {
     cardsPerPlayerText: String(config.cardsPerPlayer ?? CARDS_PER_PLAYER_DEFAULT),
     packSizeText: String(config.packSize ?? PACK_SIZE_DEFAULT),
     pickSecondsText: String(config.pickSeconds ?? PICK_SECONDS_DEFAULT),
+    picksPerStep: config.picksPerStep === 2 ? 2 : 1,
+    extraDeckEnabled: config.extraDeckEnabled === true,
+    extraDeckSizeText: String(config.extraDeckSize ?? EXTRA_DECK_SIZE_DEFAULT),
   };
 }
 
@@ -89,6 +110,12 @@ export function validateFields(fields: DraftConfigFieldsValue): string | null {
   const secs = parseInt(fields.pickSecondsText);
   if (!secs || secs < PICK_SECONDS_MIN || secs > PICK_SECONDS_MAX) {
     return `Pick duration must be between ${PICK_SECONDS_MIN} and ${PICK_SECONDS_MAX} seconds`;
+  }
+  if (fields.extraDeckEnabled) {
+    const extra = parseInt(fields.extraDeckSizeText ?? "");
+    if (Number.isNaN(extra) || extra < 0 || extra > EXTRA_DECK_SIZE_MAX) {
+      return `Extra pack size must be between 0 and ${EXTRA_DECK_SIZE_MAX}`;
+    }
   }
   return null;
 }
@@ -136,10 +163,12 @@ function NumberField({ id, label, value, onChange, min, max, unit }: NumberField
 interface PackFieldsProps {
   value: DraftConfigFieldsValue;
   onChange: (value: DraftConfigFieldsValue) => void;
+  /** Lines under the Extra Deck round fields, such as whether the Extra pool is big enough. */
+  children?: React.ReactNode;
 }
 
-/** Cards per player, pack size and pick duration, with the sentence that says what they add up to. */
-export function PackFields({ value, onChange }: PackFieldsProps) {
+/** Cards per player, pack size, picks per turn, pick duration and the Extra Deck round, with the sentence that says what they add up to. */
+export function PackFields({ value, onChange, children }: PackFieldsProps) {
   const cardsPerPlayer = parseCardsPerPlayer(value.cardsPerPlayerText);
   const packSize = parsePackSize(value.packSizeText, cardsPerPlayer);
   const packsPerPlayer = derivePacksPerPlayer(cardsPerPlayer, packSize);
@@ -170,6 +199,37 @@ export function PackFields({ value, onChange }: PackFieldsProps) {
         min={PICK_SECONDS_MIN}
         max={PICK_SECONDS_MAX}
       />
+      <div className="wide">
+        <span className="label" id="picks-per-step-label">Picks per turn</span>
+        <Segmented
+          label="Picks per turn"
+          value={value.picksPerStep === 2 ? "2" : "1"}
+          options={[
+            { value: "1", label: "1 pick" },
+            { value: "2", label: "2-Pick" },
+          ]}
+          onChange={(v) => onChange({ ...value, picksPerStep: v === "2" ? 2 : 1 })}
+        />
+        <p className="hint">{value.picksPerStep === 2 ? "Each player takes 2 cards from a pack, one after the other, before it moves on." : "Each player takes 1 card from a pack before it moves on."}</p>
+      </div>
+      <SvCheck
+        className="wide"
+        label="Draft an Extra Deck round"
+        hint="After the main rounds, each player gets one pack of Extra Deck monsters only."
+        checked={value.extraDeckEnabled ?? false}
+        onChange={(e) => onChange({ ...value, extraDeckEnabled: e.target.checked })}
+      />
+      {value.extraDeckEnabled && (
+        <NumberField
+          id="extra-deck-size"
+          label="Extra pack size"
+          value={value.extraDeckSizeText ?? String(EXTRA_DECK_SIZE_DEFAULT)}
+          onChange={(v) => onChange({ ...value, extraDeckSizeText: v })}
+          min={0}
+          max={EXTRA_DECK_SIZE_MAX}
+        />
+      )}
+      {children}
       <SvCheck
         className="wide"
         label="Limit 3 copies per card"

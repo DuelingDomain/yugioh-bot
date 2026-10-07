@@ -4,6 +4,8 @@ import { foldCardText } from "../duels/card-query.js";
 import { canonicalCardCode, type CardIdentityCatalog } from "../duels/pool.js";
 import { loadArtworkIdentityCatalog, mainArtworkId, type CardArtwork } from "./card-artworks.js";
 import { CardFetchError, fetchCardResource, isCardFetchError } from "./card-fetch.js";
+import { createCardLookupBudget, takeCardLookup, type CardLookupBudget } from "./card-lookup-budget.js";
+import { createImportedCardNameMatcher, normalizeImportedCardName, straightenCardQuotes } from "./card-name-match.js";
 
 type CardSet = {
   set_name: string;
@@ -56,6 +58,12 @@ type FetchLike = (
 ) => Promise<Pick<Response, "ok" | "json"> & Partial<Pick<Response, "status">>>;
 
 export type CardCatalogCard = Card;
+
+export interface CardNameResolution {
+  name: string;
+  card?: CardCatalogCard;
+  corrected?: { from: string; to: string };
+}
 
 export type SyncDraftPoolInput = {
   setNames: string[];
@@ -169,7 +177,8 @@ export function createCardCatalogService(
     return Math.min(card.id, ...card.card_images.map((art) => art.id ?? card.id));
   };
 
-  const fetchCardsWith = (params: Record<string, string>, ) => {
+  const fetchCardsWith = (params: Record<string, string>, lookupBudget?: CardLookupBudget): Promise<YgoprodeckCard[]> => {
+    if (lookupBudget && !takeCardLookup(lookupBudget)) return Promise.resolve([]);
     const url = new URL(YGOPRODECK_API_URL);
     for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
     return fetchCardResource(url, fetchImpl, async (response) => {
@@ -197,8 +206,8 @@ export function createCardCatalogService(
     }, [400]);
   };
 
-  const fetchCards = (searchParam: "cardset" | "id" | "name" | "fname", value: string) =>
-    fetchCardsWith({ [searchParam]: value });
+  const fetchCards = (searchParam: "cardset" | "id" | "name" | "fname", value: string, lookupBudget?: CardLookupBudget) =>
+    fetchCardsWith({ [searchParam]: value }, lookupBudget);
 
   // Passcode responses can contain only the requested image. Exact-name
   // responses include the released alternatives; retain both sets of images.
@@ -207,6 +216,7 @@ export function createCardCatalogService(
     for (const card of cards) {
       // Extra artwork discovery is optional. Keep the usable ID response if
       // the API is offline or rate limited; a later bulk sync can fill it.
+      // It must not spend the budget needed to resolve other cards.
       let named: YgoprodeckCard | undefined;
       try {
         named = (await fetchCardsWith({ name: card.name }))
@@ -226,13 +236,13 @@ export function createCardCatalogService(
     }
     return enriched;
   };
-  const fetchArtworkFamily = async (id: number) => {
-    const cards = await fetchCardsWith({ id: String(id) });
+  const fetchArtworkFamily = async (id: number, lookupBudget?: CardLookupBudget) => {
+    const cards = await fetchCardsWith({ id: String(id) }, lookupBudget);
     if (cards.length > 0) return enrichArtworkFamilies(cards);
     // Engine-only IDs can have images but no API ID result. Use their validated
     // original's printed name only after the ID endpoint reports no match.
     const engine = engineIdentity();
-    if (canonicalCardCode(id, engine) !== id) return fetchCardsWith({ name: engine.get(id)!.name });
+    if (canonicalCardCode(id, engine) !== id) return fetchCardsWith({ name: engine.get(id)!.name }, lookupBudget);
     return [];
   };
 
@@ -459,7 +469,7 @@ export function createCardCatalogService(
       return { synced, unmatched };
     },
 
-    async syncDraftPool(input: SyncDraftPoolInput) {
+    async syncDraftPool(input: SyncDraftPoolInput, options: { lookupBudget?: CardLookupBudget } = {}) {
       const distinctCustomIds = [...new Set(input.customCardIds ?? [])];
       for (const id of distinctCustomIds) ensureLegacyEngineArtwork(id);
       const cachedIds: number[] = [];
@@ -476,17 +486,17 @@ export function createCardCatalogService(
       };
       // Existing rows need no artwork fetch. Bulk set sync fills legacy artwork rows later.
       const jobs = [
-        ...input.setNames.map((name) => () => load(() => fetchCards("cardset", name),
+        ...input.setNames.map((name) => () => load(() => fetchCards("cardset", name, options.lookupBudget),
           () => cachedCards((card) => card.cardSets.some((set) => set.set_name === name)),
           (cards) => {
             const set = db.prepare("select card_count from card_sets where set_name = ?").get(name) as { card_count: number | null } | undefined;
             return set?.card_count != null && set.card_count > 0 && cards.length >= set.card_count;
           })),
-        ...distinctCustomIds.filter((id) => !hasCatalogRow(id)).map((id) => () => load(() => fetchArtworkFamily(id), () => {
+        ...distinctCustomIds.filter((id) => !hasCatalogRow(id)).map((id) => () => load(() => fetchArtworkFamily(id, options.lookupBudget), () => {
           ensureEngineArtwork(id);
           return findByIds([id]);
         })),
-        ...input.includeNames.map((name) => () => load(() => fetchCards("name", name),
+        ...input.includeNames.map((name) => () => load(() => fetchCards("name", name, options.lookupBudget),
           () => cachedCards((card) => normalizeName(card.name) === normalizeName(name)))),
       ];
       // One import must not fill the process-wide queue. Keep at most four
@@ -538,14 +548,14 @@ export function createCardCatalogService(
       };
     },
 
-    async syncCardById(id: number): Promise<CardCatalogCard | undefined> {
+    async syncCardById(id: number, options: { lookupBudget?: CardLookupBudget } = {}): Promise<CardCatalogCard | undefined> {
       ensureLegacyEngineArtwork(id);
       if (hasCatalogRow(id)) {
         ensureEngineArtwork(id);
         return findByIds([id])[0];
       }
       let cards: YgoprodeckCard[];
-      try { cards = await fetchArtworkFamily(id); }
+      try { cards = await fetchArtworkFamily(id, options.lookupBudget); }
       catch (error) {
         if (!isTransientFetchFailure(error)) throw error;
         const cached = findByIds([id])[0];
@@ -562,6 +572,65 @@ export function createCardCatalogService(
       const savedIds = upsertCards([card]);
       ensureEngineArtwork(id);
       return findByIds([id])[0] ?? findByIds(savedIds)[0];
+    },
+
+    /** Exact normalized names first; only unique, high-similarity names may be corrected. Includes Extra Deck cards. */
+    async resolveCardNames(names: readonly string[], options: { cacheOnly?: boolean; lookupBudget?: CardLookupBudget } = {}): Promise<CardNameResolution[]> {
+      if (names.length === 0) return [];
+      // Read lightweight names once; load full metadata only for the chosen cards.
+      const rows = db.prepare(`select c.ygoprodeck_id as id, c.name, coalesce(a.card_id, c.ygoprodeck_id) as main_id
+        from card_catalog c left join card_artworks a on a.artwork_id = c.ygoprodeck_id
+        order by coalesce(a.is_main, 1) desc, c.ygoprodeck_id`).all() as Array<{ id: number; name: string; main_id: number }>;
+      const cached = new Map<string, { id: number; name: string }>();
+      for (const row of rows) {
+        const key = normalizeImportedCardName(row.name);
+        if (!cached.has(key)) cached.set(key, { id: row.main_id, name: row.name });
+      }
+      if (options.cacheOnly) {
+        return names.map((name) => {
+          const match = cached.get(normalizeImportedCardName(name));
+          return { name, card: match && findByIds([match.id])[0] };
+        });
+      }
+      const lookupBudget = options.lookupBudget ?? createCardLookupBudget();
+      const missing = [...new Map(names.filter((name) => !cached.has(normalizeImportedCardName(name)))
+        .map((name) => [normalizeImportedCardName(name), name])).values()];
+      const fetched = new Map<string, YgoprodeckCard>();
+      const remember = (cards: YgoprodeckCard[]) => {
+        for (const card of cards) fetched.set(normalizeImportedCardName(card.name), card);
+      };
+      const fetchable = missing.filter((name) => name.length <= 200 && normalizeImportedCardName(name));
+      // YGOPRODeck supports pipe-separated exact names. Small batches keep URLs bounded.
+      for (let offset = 0; offset < fetchable.length; offset += 20) {
+        remember(await fetchCards("name", fetchable.slice(offset, offset + 20).map(straightenCardQuotes).join("|"), lookupBudget));
+      }
+      const probes = new Map<string, YgoprodeckCard[]>();
+      for (const name of fetchable) {
+        const key = normalizeImportedCardName(name);
+        if (fetched.has(key)) continue;
+        // Search using unchanged words so a typo elsewhere in the name does not prevent discovery.
+        // Two probes also expose competing names; do not accept a suggestion just because it ranks first.
+        const words = [...new Set(key.split(" "))].filter((word) => word.length >= 3)
+          .sort((a, b) => b.length - a.length).slice(0, 2);
+        for (const word of words) {
+          if (!probes.has(word)) probes.set(word, await fetchCards("fname", word, lookupBudget));
+          remember(probes.get(word)!);
+        }
+      }
+      // Reuse the normalized keys already prepared above; preserve cached artwork precedence.
+      const candidates = new Map(cached);
+      for (const [key, card] of fetched) if (!candidates.has(key)) candidates.set(key, card);
+      const matchName = createImportedCardNameMatcher(candidates);
+      const matches = names.map(matchName);
+      // Finish all requests before warming the catalog. Use the normal artwork-aware cache writer.
+      const selected = new Set(matches.map((card) => card && normalizeImportedCardName(card.name)));
+      upsertCards([...fetched].filter(([key]) => selected.has(key)).map(([, card]) => card));
+      return names.map((name, i) => {
+        const match = matches[i];
+        const card = match && findByIds([canonicalId(match.id)])[0];
+        return { name, card, ...(card && normalizeImportedCardName(name) !== normalizeImportedCardName(card.name)
+          ? { corrected: { from: name, to: card.name } } : {}) };
+      });
     },
 
     async syncCardByName(name: string) {

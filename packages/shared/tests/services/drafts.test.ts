@@ -181,6 +181,9 @@ describe("shared draft service", () => {
       status: "pending",
       createdByUserId: seedUser(app.db, "user-1").userId,
       config: {
+        extraDeckEnabled: false,
+        extraDeckSize: 15,
+        picksPerStep: 1,
         setNames: ["Battle Pack 3"],
         includeNames: ["Dark Magician"],
         excludeNames: ["Pot of Greed"],
