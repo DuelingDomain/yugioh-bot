@@ -80,7 +80,9 @@ function Hero({ hero }: { hero: HeroView }) {
   );
 }
 
-function Row({ row, seatTones, expand }: { row: RowView; seatTones: SeatTones; expand?: { open: boolean; controls: string; onToggle: () => void } }) {
+type RowPick = { picked: boolean; onPick: () => void };
+
+function Row({ row, seatTones, expand, pick }: { row: RowView; seatTones: SeatTones; expand?: { open: boolean; controls: string; onToggle: () => void }; pick?: RowPick }) {
   const line = row.result ?? (row.tone === "wait" ? row.effect : null);
   const body = (
     <>
@@ -93,6 +95,29 @@ function Row({ row, seatTones, expand }: { row: RowView; seatTones: SeatTones; e
       <span className={styles.rowState}>{expand ? (expand.open ? <ChevronUp size={15} strokeWidth={2.4} aria-hidden="true" /> : <ChevronDown size={15} strokeWidth={2.4} aria-hidden="true" />) : <StateIcon tone={row.tone} />}</span>
     </>
   );
+  if (pick) {
+    // The column and the strip's panel: the hero shows one link; a row button shows another one in its place.
+    return (
+      <button
+        type="button"
+        className={`${styles.row} ${styles.rowBtn}`}
+        data-tone={row.tone}
+        data-status={row.status}
+        data-negated={row.negated ? "true" : "false"}
+        data-focus={row.isHero ? "true" : "false"}
+        data-picked={pick.picked ? "true" : "false"}
+        data-mine={row.mine ? "true" : "false"}
+        data-chain-row={row.index}
+        data-toned={seatTones?.has(row.seat) ? "true" : undefined}
+        aria-pressed={pick.picked}
+        aria-label={`Chain Link ${row.index}, ${row.name}, ${row.owner}. ${pick.picked ? "Showing its details" : "Show details"}`}
+        style={toneVars(seatTones, row.seat)}
+        onClick={pick.onPick}
+      >
+        {body}
+      </button>
+    );
+  }
   if (expand) {
     return (
       <button
@@ -158,6 +183,11 @@ export function ChainPanel({ view, shape, seatTones, priority, mySeat, nameOf, p
     if (!next.delete(index)) next.add(index);
     return next;
   });
+  // The column shows one link in the hero. A row button picks another one for it; the hero follows the live link again when it changes.
+  const [picked, setPicked] = useState<number | null>(null);
+  useEffect(() => { setPicked(null); }, [view.hero.index]);
+  const pickedAt = picked == null ? -1 : view.rows.findIndex((row) => row.index === picked);
+  const hero = pickedAt >= 0 && view.details[pickedAt] ? view.details[pickedAt] : view.hero;
   return (
     <section ref={panelRef} className={styles.cr} data-shape={shape} data-chain-panel="true" data-priority={priority?.length ? "true" : undefined}>
       {many ? (
@@ -189,10 +219,14 @@ export function ChainPanel({ view, shape, seatTones, priority, mySeat, nameOf, p
         </ol>
       ) : (
         <>
-          <Hero hero={view.hero} />
+          <Hero hero={hero} />
           {many ? (
             <ol className={styles.stack}>
-              {view.rows.map((row) => <Row key={row.index} row={row} seatTones={seatTones} />)}
+              {view.rows.map((row) => (
+                <li key={row.index} className={styles.item}>
+                  <Row row={row} seatTones={seatTones} pick={{ picked: pickedAt >= 0 && row.index === picked, onPick: () => setPicked((now) => (now === row.index ? null : row.index)) }} />
+                </li>
+              ))}
             </ol>
           ) : null}
         </>

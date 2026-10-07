@@ -238,6 +238,21 @@ describe("one effect", () => {
     expect(container.querySelectorAll("[data-chain-row]")).toHaveLength(2);
     expect(hero(container)?.textContent).toContain("Link 2 of 2");
   });
+
+  it("makes every row of the column a button that shows its link in the hero", () => {
+    const { container } = render(<ChainFx {...base} events={pair()} reducedMotion />);
+    flush(60);
+    const row = (n: number) => container.querySelector(`[data-chain-panel] button[data-chain-row="${n}"]`) as HTMLButtonElement;
+    expect(row(1).tagName).toBe("BUTTON");
+    expect(row(1).getAttribute("aria-pressed")).toBe("false");
+    act(() => { fireEvent.click(row(1)); });
+    expect(row(1).getAttribute("aria-pressed")).toBe("true");
+    expect(hero(container)?.textContent).toContain("Link 1 of 2");
+    // The same row again goes back to the live link.
+    act(() => { fireEvent.click(row(1)); });
+    expect(row(1).getAttribute("aria-pressed")).toBe("false");
+    expect(hero(container)?.textContent).toContain("Link 2 of 2");
+  });
 });
 
 describe("the recap after the chain", () => {

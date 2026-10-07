@@ -530,14 +530,30 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
         // A wide board: a dropdown as wide as a panel, under the strip. A phone: the whole width.
         const wide = origin.width >= SHEET_WIDE_FROM;
         const width = wide ? Math.min(SHEET_WIDTH, origin.width - SHEET_GAP * 2) : origin.width - SHEET_GAP * 2;
-        const left = wide ? Math.max(SHEET_GAP, Math.min(chips.left, origin.width - width - SHEET_GAP)) : SHEET_GAP;
-        // Under the strip when there is room for a full detail; otherwise above it, when that side has more room.
+        let left = wide ? Math.max(SHEET_GAP, Math.min(chips.left, origin.width - width - SHEET_GAP)) : SHEET_GAP;
+        let sheetWidth = width;
+        if (wide) {
+          // The chain column in the left gutter stays readable: the dropdown starts to the right of it.
+          for (const column of document.querySelectorAll<HTMLElement>("[data-chain-panel]")) {
+            if (column.closest("[data-chain-sheet]")) continue;
+            const rect = column.getBoundingClientRect();
+            const edge = rect.right - origin.left + SHEET_GAP;
+            if (rect.width > 4 && rect.height > 4 && edge > left && edge < origin.width / 2) left = edge;
+          }
+          sheetWidth = Math.min(width, origin.width - SHEET_GAP - left);
+        }
+        // Under the strip when there is room for a full detail; otherwise above it, when that side has more room. Above, the
+        // sheet ends on the strip, or on the top of an open prompt that stands over the same columns.
+        let bottom = chips.top - SHEET_GAP;
+        for (const box of prompts) {
+          if (box.left < left + sheetWidth && box.left + box.width > left && box.top < bottom && box.top + box.height > SHEET_GAP) bottom = Math.min(bottom, box.top - SHEET_GAP);
+        }
         const below = Math.max(SHEET_MIN, limit - top);
-        const above = Math.max(SHEET_MIN, chips.top - SHEET_GAP * 2);
+        const above = Math.max(SHEET_MIN, bottom - SHEET_GAP);
         const up = wide && below < SHEET_ROOMY && above > below;
         sheet = up
-          ? { top: Math.round(chips.top - SHEET_GAP), max: Math.round(above), left: Math.round(left), width: Math.round(width), up }
-          : { top: Math.round(top), max: Math.round(below), left: Math.round(left), width: Math.round(width), up };
+          ? { top: Math.round(bottom), max: Math.round(above), left: Math.round(left), width: Math.round(sheetWidth), up }
+          : { top: Math.round(top), max: Math.round(below), left: Math.round(left), width: Math.round(sheetWidth), up };
       }
       const stacked = new Map<HTMLElement, number>();
       const piles = new Map<string, HTMLElement | null>();
