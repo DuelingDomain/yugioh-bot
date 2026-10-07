@@ -23,6 +23,10 @@ interface LibraryCube {
   mainCount: number;
   extraCount: number;
   draftType?: CubeDraftType;
+  /** From the library answer: the viewer made this cube or is an admin, which is what Delete needs. */
+  canEdit?: boolean;
+  createdByUserId?: string;
+  createdByName?: string | null;
 }
 
 export interface ThemeBoxProps {
@@ -38,13 +42,16 @@ export interface ThemeBoxProps {
   onPreview: (cubeId: number) => void;
   /** After a library change that the draft page does not see. */
   onChanged: () => void;
+  /** The viewer's user id, to tell their own cube from another member's one in the Delete text. */
+  viewerUserId?: string | null;
 }
+
 
 const different = (n: number) => `${n} different`;
 const copies = (n: number) => `${n} ${n === 1 ? "copy" : "copies"}`;
 
 /** One cube in the box: pictures, name, the distinct and copy counts, who holds it, and what you can do with it. */
-function BoxCube({ cube, table, controller, isHost, canTake, yourCubeId, slug, onPreview, onChanged }: { cube: DraftAllowedCube } & Omit<ThemeBoxProps, "cubes">) {
+function BoxCube({ cube, table, controller, isHost, canTake, yourCubeId, slug, onPreview, onChanged, library, viewerUserId }: { cube: DraftAllowedCube; library: LibraryCube[] } & Omit<ThemeBoxProps, "cubes">) {
   const holder = table.holderOf(cube.id);
   const mine = yourCubeId === cube.id;
   const busy = controller.pending !== null;
@@ -52,11 +59,20 @@ function BoxCube({ cube, table, controller, isHost, canTake, yourCubeId, slug, o
   const taken = holder !== null && !mine && table.unique;
   const showHolder = table.selection === "player_pick" && holder !== null;
 
+  // Delete needs the cube's owner or an admin. Until the library says so, the host can only take the cube out of the draft.
+  const entry = library.find((c) => c.id === cube.id);
+  const canDelete = entry?.canEdit === true;
+
   const remove = async () => {
-    if (typeof window !== "undefined" && !window.confirm(`Delete "${cube.name}" from your library for good? This can't be undone.`)) return;
+    // An admin may delete another member's cube; the text names whose library it leaves.
+    const others = entry?.createdByUserId && viewerUserId && entry.createdByUserId !== viewerUserId;
+    const where = others ? `${entry?.createdByName ? `${entry.createdByName}'s` : "another member's"} library` : "your library";
+    if (typeof window !== "undefined" && !window.confirm(`Delete "${cube.name}" from ${where} for good? This can't be undone.`)) return;
+    // Library first: a refused delete leaves the cube in the draft. A cube that is gone from the library may still be
+    // detached, so the second step cannot fail the way the first can.
     await controller.run("detach", async () => {
-      await themeRequest(`/api/drafts/${encodeURIComponent(slug)}/cubes`, "DELETE", { cubeId: cube.id });
       await themeRequest(`/api/cubes/${cube.id}`, "DELETE");
+      await themeRequest(`/api/drafts/${encodeURIComponent(slug)}/cubes`, "DELETE", { cubeId: cube.id });
       onChanged();
     }, "Couldn't delete that theme.");
   };
@@ -97,7 +113,7 @@ function BoxCube({ cube, table, controller, isHost, canTake, yourCubeId, slug, o
           </button>
         )}
         {isHost && (
-          <>
+          <span className={styles.cubeHostActs}>
             <Link
               className={cn(svButtonClass("quiet"), styles.smallBtn)}
               href={`/cubes/${cube.id}?from=${encodeURIComponent(`/draft/${slug}`)}`}
@@ -105,8 +121,20 @@ function BoxCube({ cube, table, controller, isHost, canTake, yourCubeId, slug, o
             >
               Edit
             </Link>
-            <ThemeMenu name={cube.name} busy={busy} onDetach={() => void table.detach(cube.id)} onDelete={() => void remove()} />
-          </>
+            {canDelete ? (
+              <ThemeMenu name={cube.name} busy={busy} onDetach={() => void table.detach(cube.id)} onDelete={() => void remove()} />
+            ) : (
+              <button
+                type="button"
+                className={cn(svButtonClass("quiet"), styles.smallBtn)}
+                aria-label={`Remove ${cube.name} from the draft`}
+                disabled={busy}
+                onClick={() => void table.detach(cube.id)}
+              >
+                Remove
+              </button>
+            )}
+          </span>
         )}
       </span>
     </li>
@@ -114,14 +142,13 @@ function BoxCube({ cube, table, controller, isHost, canTake, yourCubeId, slug, o
 }
 
 /** The host's tools: find an archetype, use a saved cube, start a blank one, import a list. Only the host sees them. */
-function BoxTools({ cubes, table, controller, onChanged }: Pick<ThemeBoxProps, "cubes" | "table" | "controller" | "onChanged">) {
+function BoxTools({ cubes, table, controller, library, loadLibrary }: Pick<ThemeBoxProps, "cubes" | "table" | "controller"> & { library: LibraryCube[]; loadLibrary: () => void }) {
   const ids = React.useId();
   const [query, setQuery] = React.useState("");
   const [suggestions, setSuggestions] = React.useState<string[]>([]);
   const [blankName, setBlankName] = React.useState("");
   const [showBlank, setShowBlank] = React.useState(false);
   const [attachId, setAttachId] = React.useState("");
-  const [library, setLibrary] = React.useState<LibraryCube[]>([]);
   const [importing, setImporting] = React.useState(false);
   const [imported, setImported] = React.useState<ImportedCube | null>(null);
   const [info, setInfo] = React.useState<string | null>(null);
@@ -130,14 +157,6 @@ function BoxTools({ cubes, table, controller, onChanged }: Pick<ThemeBoxProps, "
 
   const attachedIds = React.useMemo(() => new Set(cubes.map((c) => c.id)), [cubes]);
   const attachable = library.filter((c) => !attachedIds.has(c.id) && c.draftType !== "booster");
-
-  const loadLibrary = React.useCallback(() => {
-    fetch("/api/cubes")
-      .then((res) => (res.ok ? res.json() : { cubes: [] }))
-      .then((data: { cubes?: LibraryCube[] }) => setLibrary(data.cubes ?? []))
-      .catch(() => {});
-  }, []);
-  React.useEffect(() => loadLibrary(), [loadLibrary]);
 
   React.useEffect(() => {
     const q = query.trim();
@@ -294,6 +313,15 @@ function BoxTools({ cubes, table, controller, onChanged }: Pick<ThemeBoxProps, "
  */
 export function ThemeBox(props: ThemeBoxProps) {
   const { cubes, isHost } = props;
+  // The library answers who made each cube and whether the viewer may delete it. Only the host acts on cubes.
+  const [library, setLibrary] = React.useState<LibraryCube[]>([]);
+  const loadLibrary = React.useCallback(() => {
+    fetch("/api/cubes")
+      .then((res) => (res.ok ? res.json() : { cubes: [] }))
+      .then((data: { cubes?: LibraryCube[] }) => setLibrary(data.cubes ?? []))
+      .catch(() => {});
+  }, []);
+  React.useEffect(() => { if (isHost) loadLibrary(); }, [isHost, loadLibrary]);
   return (
     <section className={styles.box} aria-labelledby="theme-box-h">
       <header className={styles.boxLid}>
@@ -306,10 +334,10 @@ export function ThemeBox(props: ThemeBoxProps) {
           <p className={styles.boxEmpty}>{isHost ? "Search an archetype or add a blank cube to start." : "The host has not added a theme yet."}</p>
         ) : (
           <ul className={styles.cubes}>
-            {cubes.map((cube) => <BoxCube key={cube.id} cube={cube} {...props} />)}
+            {cubes.map((cube) => <BoxCube key={cube.id} cube={cube} library={library} {...props} />)}
           </ul>
         )}
-        {isHost && <BoxTools cubes={cubes} table={props.table} controller={props.controller} onChanged={props.onChanged} />}
+        {isHost && <BoxTools cubes={cubes} table={props.table} controller={props.controller} library={library} loadLibrary={loadLibrary} />}
       </div>
     </section>
   );

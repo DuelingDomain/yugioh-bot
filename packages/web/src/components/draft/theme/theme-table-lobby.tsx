@@ -43,6 +43,8 @@ export interface ThemeTableLobbyProps {
   botsEnabled?: boolean;
   /** The Discord bot is on (the draft API's `discordEnabled`). When false there is no Nudge, no Post to Discord and no Discord text. */
   discordEnabled?: boolean;
+  /** The viewer's user id. The box uses it to say whose library a Delete leaves. */
+  viewerUserId?: string | null;
   /** The page refetches the draft. Called after a join, a leave, a claim, an attach or a stale answer. */
   onChanged?: () => void;
 }
@@ -52,7 +54,7 @@ export interface ThemeTableLobbyProps {
  * After Start the normal theme draft runs, each player alone from their own pool. The component renders the body only;
  * the page puts it in its frame.
  */
-export function ThemeTableLobby({ slug, draft, isCreator, isParticipant, onJoin, onAddBot, botsEnabled, discordEnabled = false, onChanged }: ThemeTableLobbyProps) {
+export function ThemeTableLobby({ slug, draft, isCreator, isParticipant, onJoin, onAddBot, botsEnabled, discordEnabled = false, viewerUserId, onChanged }: ThemeTableLobbyProps) {
   const youIds = React.useMemo(
     () => new Set((draft.seats ?? []).filter((s) => s.isCurrentPlayer).map((s) => s.playerId)),
     [draft.seats],
@@ -139,6 +141,7 @@ export function ThemeTableLobby({ slug, draft, isCreator, isParticipant, onJoin,
           yourCubeId={me ? table.cubeOf(me.playerId) : null}
           onPreview={openPreview}
           onChanged={refetch}
+          viewerUserId={viewerUserId}
         />
         <ThemeTableCard
           slug={slug}
