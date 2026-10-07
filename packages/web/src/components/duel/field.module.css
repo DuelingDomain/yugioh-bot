@@ -515,7 +515,7 @@
   right: 2px;
   bottom: 2px;
   left: 2px;
-  font-size: max(clamp(8px, calc(var(--cardw) * 0.185), 17px), var(--fl));
+  font-size: max(clamp(8px, calc(var(--cardw) * 0.185), 17px), var(--fl, 0px));
 }
 
 .handCard .zoneHit {
