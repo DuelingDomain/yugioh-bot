@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { parseSandboxBoard, type DuelEngineView, type SandboxBoard, type SandboxRun } from "@yugidraft/shared/duels";
-import { OcgLocation as L, OcgPosition as P, type OcgCardQueryInfo } from "ocgcore-wasm";
-import { buildSandboxSnapshot, type SandboxEngineSnapshot } from "../src/sandbox-snapshot.js";
+import { OcgLocation as L, OcgPosition as P, OcgQueryFlags as Q, OcgType, type OcgCoreSync, type OcgDuelHandle, type OcgCardQueryInfo } from "ocgcore-wasm";
+import { readSandboxEngineSnapshot, buildSandboxSnapshot, type SandboxEngineSnapshot } from "../src/sandbox-snapshot.js";
 
 const run: SandboxRun = { bots: { "1": "manual", "2": "pass", "3": "practice" }, seed: ["1", "2", "3", "4"] };
 const card = (code: number, position: number = P.FACEUP_ATTACK, more: Partial<OcgCardQueryInfo> = {}) =>
@@ -16,6 +16,27 @@ function state(count = 2): SandboxEngineSnapshot {
   };
 }
 const take = (raw: SandboxEngineSnapshot, board: SandboxBoard = {}) => buildSandboxSnapshot(raw, board, run);
+
+describe("sandbox query compatibility", () => {
+  it("uses supported query flags and retains Token rejection from card data", () => {
+    const raw = state();
+    const query = vi.fn((_handle, request) => {
+      expect(request.flags & Q.TYPE).toBe(0);
+      return request.controller === 0 && request.location === L.HAND ? [card(123)] : [];
+    });
+    const lib = { duelQueryLocation: query } as unknown as OcgCoreSync;
+    const capture = readSandboxEngineSnapshot(lib, {} as OcgDuelHandle, raw.view, false,
+      () => OcgType.TOKEN | OcgType.MONSTER);
+    expect(capture.locations[0][L.HAND][0]?.type).toBe(OcgType.TOKEN | OcgType.MONSTER);
+    expect(() => take(capture)).toThrow("Tokens cannot be restored");
+    expect(query).toHaveBeenCalledTimes(14);
+  });
+  it("rejects a card whose type is unavailable instead of dropping Token checks", () => {
+    const lib = { duelQueryLocation: () => [card(123)] } as unknown as OcgCoreSync;
+    expect(() => readSandboxEngineSnapshot(lib, {} as OcgDuelHandle, state().view, false, () => undefined))
+      .toThrow("card type is unavailable");
+  });
+});
 
 describe("sandbox snapshot conversion", () => {
   it("captures live hidden cards, Deck top order, positions, materials and current run", () => {

@@ -35,12 +35,19 @@ Read-only review also found two sandbox UI faults: handing the acting seat back 
 kept an invalid acting-seat query, and FFA pile drops used the selected seat instead of the
 destination seat. Each fix has a regression test that failed before the change.
 
+The local engine manifest requires the owner's installed JavaScript wrapper. This worktree
+uses a copy of that exact wrapper in its untracked `node_modules`; no manifest, bundleVersion,
+core pin or engine file changed. That wrapper cannot read TYPE query payloads. Sandbox
+snapshots now use supported query flags and obtain static card types from the duel's card
+database. Token rejection and missing-type rejection have regression tests. Type-changing
+effects remain part of the snapshot's reported restore losses.
+
 ## Verification
 
 All commands use Node 22.23.3 and `prlimit --core=0`; only selected test files were run.
 
 - Shared contracts/services, regular duels, dice/RPS and bot sandbox cleanup: 333 tests passed.
-- Duel host/compiler/snapshot/real sandbox, presets and dice/RPS: 300 tests passed, none skipped.
+- Duel host/compiler/snapshot/real sandbox, presets and dice/RPS: 302 tests passed, none skipped.
   `DUEL_REQUIRE_CORES=1`, `NSEAT_LIVE=1` and the existing local core paths were supplied.
 - Web sandbox, Admin navigation, card-info route, room API and dice/RPS: 621 tests passed.
 - Shared, duel-server and web type checks passed.
@@ -53,6 +60,11 @@ The duel unit uses this worktree's `packages/duel-server/dist/server.js` on 127.
 Both use Node 22 and `LimitCORE=0`, with the existing environment files, database and engine data.
 The developer ID is supplied only with `systemd-run -E`; no ID is stored in source or env files.
 The bot and websocket containers are unchanged.
+
+Both units are active. `/` and `/sandbox` return the authentication redirect on port 3000.
+Signed requests through the live duel host validated and started 1v1, FFA3, FFA4 and Tag
+boards, reached Main 1 without dice/RPS, captured snapshots and closed idempotently.
+FFA4 seat elimination also passed. The four temporary cancelled duel rows were removed.
 
 The sandbox schema migration creates `sandbox_scenarios`, its guild/update index and the
 `duels.sandbox` column. It is idempotent and runs on the local database at service startup. The local database

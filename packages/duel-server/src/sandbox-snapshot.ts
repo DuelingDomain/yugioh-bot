@@ -32,13 +32,20 @@ class SnapshotError extends Error {
 
 /** Query every physical zone, with no viewer filter. Overlays belong to their parent query. */
 export function readSandboxEngineSnapshot(lib: OcgCoreSync, handle: OcgDuelHandle,
-  view: DuelEngineView, domain: boolean): SandboxEngineSnapshot {
-  const flags = (Q.CODE | Q.POSITION | Q.TYPE | Q.OVERLAY_CARD | Q.COUNTERS | Q.EQUIP_CARD
+  view: DuelEngineView, domain: boolean, cardType: (code: number) => number | undefined): SandboxEngineSnapshot {
+  const flags = (Q.CODE | Q.POSITION | Q.OVERLAY_CARD | Q.COUNTERS | Q.EQUIP_CARD
     | Q.OWNER | Q.STATUS | Q.IS_PUBLIC | Q.IS_HIDDEN | Q.TARGET_CARD) as Q;
   const zones: number[] = [L.DECK, L.HAND, L.MZONE, L.SZONE, L.GRAVE, L.REMOVED, L.EXTRA];
   if (domain) zones.push(DECK_MASTER);
   return { view, locations: view.seats.map(({ seat }) => Object.fromEntries(zones.map((location) => [location,
-    lib.duelQueryLocation(handle, { flags, controller: seat as 0 | 1, location: location as L }),
+    // The installed wrapper cannot skip TYPE queries. Read static types from the same card
+    // database as the duel; ongoing type-changing effects are part of the reported restore losses.
+    lib.duelQueryLocation(handle, { flags, controller: seat as 0 | 1, location: location as L }).map((card) => {
+      if (!card) return null;
+      const type = cardType(card.code!);
+      if (type === undefined) throw new SnapshotError(`Cannot capture card ${card.code}: card type is unavailable`);
+      return { ...card, type: type as OcgType };
+    }),
   ]))) };
 }
 

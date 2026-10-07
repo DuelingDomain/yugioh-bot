@@ -1258,7 +1258,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     },
     sandboxSnapshot() {
       if (closed) throw new Error("Engine is closed");
-      return readSandboxEngineSnapshot(lib, handle, game.view(0), options.mode === "domain");
+      return readSandboxEngineSnapshot(lib, handle, game.view(0), options.mode === "domain", (code) => cards.cardData(code)?.type);
     },
     diagnostics() {
       return diagnostics.map((entry) => ({ ...entry }));

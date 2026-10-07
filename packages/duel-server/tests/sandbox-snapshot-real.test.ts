@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import type { OcgCoreSync, OcgDuelHandle } from "ocgcore-wasm";
 import { parseSandboxBoard, type SandboxBoard, type SandboxRun } from "@yugidraft/shared/duels";
+import { loadCardDatabase } from "../src/cards.js";
 import { createEngineGame, type EngineGame } from "../src/engine.js";
 import { readCoreCapabilities } from "../src/core-capabilities.js";
 import { compileBoard } from "../src/presets/board.js";
@@ -31,7 +32,7 @@ async function start(board: SandboxBoard) {
 }
 function capture(game: EngineGame, board: SandboxBoard) {
   const { lib, handle } = cores[games.indexOf(game)];
-  return buildSandboxSnapshot(readSandboxEngineSnapshot(lib, handle, game.view(0), board.mode === "domain"), board, run);
+  return buildSandboxSnapshot(readSandboxEngineSnapshot(lib, handle, game.view(0), board.mode === "domain", (code) => loadCardDatabase(DATA).cardData(code)?.type), board, run);
 }
 function field(game: EngineGame) {
   return game.view(0).seats.map((seat) => ({ lp: seat.lp, eliminated: seat.eliminated,
