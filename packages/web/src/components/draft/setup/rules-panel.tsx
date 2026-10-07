@@ -39,6 +39,8 @@ export interface RulesPanelProps {
   actionSlot?: React.ReactNode;
   /** Called after Fit to pool, with what changed or the deficit. The host can show it as a toast. */
   onFit?: (result: FitResult) => void;
+  /** The Discord bot is on. When false the seats hint has no Discord text. Default on. */
+  discordEnabled?: boolean;
   className?: string;
 }
 
@@ -206,7 +208,7 @@ function Section({ title, summary, open, onToggle, children }: {
  * The right pane of the Workbench. It edits the same strings `configFromFields` reads, and shows
  * rounds x players x cards per pile against the pool. Name, channel and the Create button come in as slots.
  */
-export function RulesPanel({ value, onChange, pool, metaSlot, actionSlot, onFit, className }: RulesPanelProps) {
+export function RulesPanel({ value, onChange, pool, metaSlot, actionSlot, onFit, discordEnabled = true, className }: RulesPanelProps) {
   const analysis = useRulesAnalysis(value, pool);
   const { rules } = analysis;
   const preset = matchPreset(value);
@@ -249,7 +251,7 @@ export function RulesPanel({ value, onChange, pool, metaSlot, actionSlot, onFit,
         </div>
 
         <Section title="Rounds & piles" summary={rulesSummary(value)} open={open.rules} onToggle={(v) => setOpen((o) => ({ ...o, rules: v }))}>
-          <Stepper id="rules-seats" label="Players" text={seats} limitKey="seats" onType={type("seats")} onStep={step("seats")} onSettle={settle("seats")} hint="Seats fill from the Discord lobby. The host can start early with 2 or more." />
+          <Stepper id="rules-seats" label="Players" text={seats} limitKey="seats" onType={type("seats")} onStep={step("seats")} onSettle={settle("seats")} hint={discordEnabled ? "Seats fill from the Discord lobby. The host can start early with 2 or more." : "Seats fill from the invite link. The host can start early with 2 or more."} />
           <Stepper id="rules-rounds" label="Rounds" text={rounds} limitKey="rounds" onType={type("rounds")} onStep={step("rounds")} onSettle={settle("rounds")} />
           <Stepper id="rules-pile" label="Cards per pile" text={value.packSizeText} limitKey="pile" onType={type("pile")} onStep={step("pile")} onSettle={settle("pile")} hint="Each player holds one pile per turn and passes it on." />
           {picksBelowDeal && (
@@ -300,7 +302,7 @@ export function RulesPanel({ value, onChange, pool, metaSlot, actionSlot, onFit,
         </Section>
 
         {metaSlot && (
-          <Section title="Name & channel" summary="" open={open.meta} onToggle={(v) => setOpen((o) => ({ ...o, meta: v }))}>
+          <Section title={discordEnabled ? "Name & channel" : "Name"} summary="" open={open.meta} onToggle={(v) => setOpen((o) => ({ ...o, meta: v }))}>
             {metaSlot}
           </Section>
         )}
@@ -325,16 +327,19 @@ export interface RulesMetaFieldsProps {
   onChannelChange: (id: string) => void;
   channels: ReadonlyArray<{ id: string; name: string }>;
   channelHint?: string;
+  /** The Discord bot is on. When false the channel picker and its hint are hidden. Default on. */
+  discordEnabled?: boolean;
 }
 
 /** Draft name and Discord channel, for the panel's `metaSlot`. */
-export function RulesMetaFields({ name, onNameChange, namePlaceholder, channelId, onChannelChange, channels, channelHint }: RulesMetaFieldsProps) {
+export function RulesMetaFields({ name, onNameChange, namePlaceholder, channelId, onChannelChange, channels, channelHint, discordEnabled = true }: RulesMetaFieldsProps) {
   return (
     <>
       <div className={`${styles.fld} ${styles.stack}`}>
         <label htmlFor="rules-name">Draft name</label>
         <input id="rules-name" className={styles.text} autoComplete="off" value={name} placeholder={namePlaceholder} onChange={(e) => onNameChange(e.target.value)} />
       </div>
+      {discordEnabled && (
       <div className={`${styles.fld} ${styles.stack}`}>
         <label htmlFor="rules-channel">Discord channel</label>
         <select id="rules-channel" className={styles.text} value={channelId} onChange={(e) => onChannelChange(e.target.value)}>
@@ -342,6 +347,7 @@ export function RulesMetaFields({ name, onNameChange, namePlaceholder, channelId
         </select>
         <p className={styles.hh}>{channelHint ?? "The bot posts the lobby here. Players join from Discord."}</p>
       </div>
+      )}
     </>
   );
 }

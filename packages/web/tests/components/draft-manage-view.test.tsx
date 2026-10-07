@@ -812,6 +812,36 @@ describe("DraftManageView — Seats First lobby", () => {
     await waitFor(() => expect(onCancel).toHaveBeenCalledTimes(1));
   });
 
+  it("shows Nudge and the Discord invite text by default, and none of it when the bot is off", async () => {
+    stubFetch();
+    const { unmount } = render(view());
+    expect(screen.getByRole("button", { name: "Nudge Ana" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Invite players" }));
+    let dialog = await screen.findByRole("dialog", { name: /invite players/i });
+    expect(within(dialog).getByRole("button", { name: /post to discord/i })).toBeInTheDocument();
+    unmount();
+    cleanup();
+
+    render(view({ discordEnabled: false }));
+    expect(screen.getByRole("button", { name: "Remove Ana" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /nudge/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Invite players" }));
+    dialog = await screen.findByRole("dialog", { name: /invite players/i });
+    expect((within(dialog).getByLabelText("Invite link") as HTMLInputElement).value).toMatch(/\/draft\/s$/);
+    expect(within(dialog).queryByRole("button", { name: /post to discord/i })).not.toBeInTheDocument();
+    expect(dialog).not.toHaveTextContent(/discord/i);
+  });
+
+  it("hides the legacy Discord join command when the bot is off", () => {
+    stubFetch();
+    const legacy = { ...baseDraft, players: [{ playerId: 1, displayName: "Imran", pickCount: 0, joinedAt: "2026-05-06T19:02:00.000Z" }] };
+    const { unmount } = render(<DraftManageView {...baseProps} slug="s" draft={legacy} />);
+    expect(screen.getByText("/draft join")).toBeInTheDocument();
+    unmount();
+    render(<DraftManageView {...baseProps} slug="s" draft={legacy} discordEnabled={false} />);
+    expect(screen.queryByText("/draft join")).not.toBeInTheDocument();
+  });
+
   it("keeps a draft without a lobby on the legacy list and manual start", async () => {
     stubFetch();
     const onStart = vi.fn().mockResolvedValue(undefined);

@@ -94,6 +94,8 @@ interface DraftManageViewProps {
   onAddBot?: () => Promise<void>;
   /** Show Add bot. The server decides (see draftTestBotsEnabled); the view never reads the environment. */
   botsEnabled?: boolean;
+  /** The Discord bot is on (the draft API's `discordEnabled`). When false there is no Nudge, no Post to Discord and no Discord text. Default on. */
+  discordEnabled?: boolean;
   slug?: string;
   /** Called after a theme is added, detached, deleted or claimed, so the page can refetch the draft. */
   onChanged?: () => void;
@@ -115,6 +117,7 @@ export function DraftManageView({
   onJoin,
   onAddBot,
   botsEnabled,
+  discordEnabled = true,
   slug,
   onChanged,
 }: DraftManageViewProps) {
@@ -573,6 +576,7 @@ export function DraftManageView({
               isHost={isCreator}
               isMember={isCreator || isParticipant}
               botsEnabled={botsEnabled}
+              discordEnabled={discordEnabled}
               onAddBot={onAddBot}
               onInvite={() => setInviteOpen(true)}
               inviteRef={inviteButton}
@@ -634,7 +638,7 @@ export function DraftManageView({
           />
         )}
         {inviteOpen && slug && (
-          <InviteModal slug={slug} onClose={() => setInviteOpen(false)} controller={controller} canPost={isCreator} returnFocusRef={inviteButton} />
+          <InviteModal slug={slug} onClose={() => setInviteOpen(false)} controller={controller} canPost={isCreator} discordEnabled={discordEnabled} returnFocusRef={inviteButton} />
         )}
       </DraftFrame>
     );
@@ -727,7 +731,7 @@ export function DraftManageView({
             </StatusLine>
           )}
 
-          {(isCreator || isParticipant) && slug && <InvitePanel slug={slug} />}
+          {(isCreator || isParticipant) && slug && <InvitePanel slug={slug} discordEnabled={discordEnabled} />}
 
           <LobbySeats players={draft.players} youIds={youIds} isCreator={isCreator} aux={playersAux} />
 

@@ -11,12 +11,13 @@ afterEach(cleanup);
 const start = (): RulesFields => ({ cardsPerPlayerText: "40", packSizeText: "15", pickSecondsText: "45", lobbySeatsText: "4", roundsText: "3" });
 
 /** The panel the way a screen holds it: the fields live in the host. */
-function Host({ pool, initial = start(), onValue, onFit, withSlots = false }: {
+function Host({ pool, initial = start(), onValue, onFit, withSlots = false, discordEnabled = true }: {
   pool: PoolCounts;
   initial?: RulesFields;
   onValue?: (v: RulesFields) => void;
   onFit?: React.ComponentProps<typeof RulesPanel>["onFit"];
   withSlots?: boolean;
+  discordEnabled?: boolean;
 }) {
   const [value, setValue] = React.useState(initial);
   const [name, setName] = React.useState("");
@@ -29,7 +30,8 @@ function Host({ pool, initial = start(), onValue, onFit, withSlots = false }: {
       onChange={setValue}
       pool={pool}
       onFit={onFit}
-      metaSlot={withSlots ? <RulesMetaFields name={name} onNameChange={setName} channelId={channel} onChannelChange={setChannel} channels={[{ id: "c1", name: "draft-night" }, { id: "c2", name: "cube-drafts" }]} /> : undefined}
+      discordEnabled={discordEnabled}
+      metaSlot={withSlots ? <RulesMetaFields discordEnabled={discordEnabled} name={name} onNameChange={setName} channelId={channel} onChannelChange={setChannel} channels={[{ id: "c1", name: "draft-night" }, { id: "c2", name: "cube-drafts" }]} /> : undefined}
       actionSlot={<button type="button" disabled={!analysis.ok}>Create draft</button>}
     />
   );
@@ -151,6 +153,16 @@ describe("RulesPanel", () => {
     fireEvent.change(channel, { target: { value: "c2" } });
     expect(channel).toHaveValue("c2");
     expect(screen.getByRole("button", { name: "Create draft" })).toBeInTheDocument();
+  });
+
+  it("hides the Discord channel and the Discord seat hint when the bot is off", () => {
+    render(<Host pool={{ main: 500, extra: 0 }} withSlots discordEnabled={false} />);
+    expect(screen.queryByText("Name & channel")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Name"));
+    expect(screen.getByLabelText("Draft name")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Discord channel")).not.toBeInTheDocument();
+    expect(screen.queryByText(/discord/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/Seats fill from the invite link/)).toBeInTheDocument();
   });
 
   it("asks for a pool before anything else", () => {

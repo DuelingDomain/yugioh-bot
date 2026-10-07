@@ -46,7 +46,12 @@ const BASE_FIELDS: DraftConfigFieldsValue = {
 const COPY_LIMIT = 3;
 const fmt = (n: number) => n.toLocaleString("en-US");
 
-export function CreateDraftForm() {
+export interface CreateDraftFormProps {
+  /** The Discord bot is on. The server reads the flag; the form never reads the environment. When false there is no channel picker. Default on. */
+  discordEnabled?: boolean;
+}
+
+export function CreateDraftForm({ discordEnabled = true }: CreateDraftFormProps = {}) {
   const router = useRouter();
   const pool = usePoolEditor({ variant: "create" });
   const mode = useWorkbenchMode();
@@ -71,6 +76,7 @@ export function CreateDraftForm() {
   }, []);
 
   React.useEffect(() => {
+    if (!discordEnabled) return;
     let cancelled = false;
     fetch("/api/discord/channels")
       .then((res) => res.json())
@@ -81,7 +87,7 @@ export function CreateDraftForm() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [discordEnabled]);
 
   const counts = React.useMemo(() => {
     let reachable = 0;
@@ -128,7 +134,7 @@ export function CreateDraftForm() {
     try {
       const body = {
         name: name.trim() || autoName || "Cube draft",
-        channelId: channelId || undefined,
+        channelId: discordEnabled ? channelId || undefined : undefined,
         config: { ...configFromFields(fields), ...pool.config(), includeNames: [], excludeNames: [] },
       };
       const res = await fetch("/api/drafts", {
@@ -197,6 +203,7 @@ export function CreateDraftForm() {
       value={fields}
       onChange={setFields}
       pool={counts}
+      discordEnabled={discordEnabled}
       metaSlot={
         <RulesMetaFields
           name={name}
@@ -205,6 +212,7 @@ export function CreateDraftForm() {
           channelId={channelId}
           onChannelChange={setChannelId}
           channels={channels}
+          discordEnabled={discordEnabled}
           channelHint="The bot posts the lobby here. Players join from Discord. Default uses the server's channel."
         />
       }

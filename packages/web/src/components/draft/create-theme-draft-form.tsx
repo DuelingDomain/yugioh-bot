@@ -15,7 +15,12 @@ const SEATS_DEFAULT = 4;
 
 type Channel = { id: string; name: string };
 
-export function CreateThemeDraftForm() {
+export interface CreateThemeDraftFormProps {
+  /** The Discord bot is on. The server reads the flag; the form never reads the environment. When false there is no channel picker. Default on. */
+  discordEnabled?: boolean;
+}
+
+export function CreateThemeDraftForm({ discordEnabled = true }: CreateThemeDraftFormProps = {}) {
   const router = useRouter();
   const [name, setName] = React.useState("");
   const [channelId, setChannelId] = React.useState("");
@@ -36,11 +41,12 @@ export function CreateThemeDraftForm() {
   const nameRef = React.useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
+    if (!discordEnabled) return;
     fetch("/api/discord/channels")
       .then((res) => res.json())
       .then((data) => setChannels(data.channels ?? []))
       .catch(() => {});
-  }, []);
+  }, [discordEnabled]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,7 +80,7 @@ export function CreateThemeDraftForm() {
       const res = await fetch("/api/drafts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), channelId: channelId || undefined, config }),
+        body: JSON.stringify({ name: name.trim(), channelId: discordEnabled ? channelId || undefined : undefined, config }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -104,7 +110,7 @@ export function CreateThemeDraftForm() {
           <section className={styles.sec} aria-labelledby="dt-d">
             <div className={styles.secSide}>
               <h2 id="dt-d">Draft</h2>
-              <p>Players see this name in Discord and on the web.</p>
+              <p>{discordEnabled ? "Players see this name in Discord and on the web." : "Players see this name on the web."}</p>
             </div>
             <div className="fields">
               <div className="wide">
@@ -124,21 +130,23 @@ export function CreateThemeDraftForm() {
                   aria-invalid={nameError ? true : undefined}
                 />
               </div>
-              <div className="wide">
-                <label className="label" htmlFor="theme-draft-channel">
-                  Channel
-                </label>
-                <select
-                  className="input select"
-                  id="theme-draft-channel"
-                  value={channelId}
-                  onChange={(e) => setChannelId(e.target.value)}
-                >
-                  <option value="">Default channel</option>
-                  {channels.map((ch) => <option key={ch.id} value={ch.id}>#{ch.name}</option>)}
-                </select>
-                <p className="hint">The bot posts the draft here so people can join from Discord.</p>
-              </div>
+              {discordEnabled && (
+                <div className="wide">
+                  <label className="label" htmlFor="theme-draft-channel">
+                    Channel
+                  </label>
+                  <select
+                    className="input select"
+                    id="theme-draft-channel"
+                    value={channelId}
+                    onChange={(e) => setChannelId(e.target.value)}
+                  >
+                    <option value="">Default channel</option>
+                    {channels.map((ch) => <option key={ch.id} value={ch.id}>#{ch.name}</option>)}
+                  </select>
+                  <p className="hint">The bot posts the draft here so people can join from Discord.</p>
+                </div>
+              )}
               <div className="wide">
                 <label className="label" htmlFor="theme-draft-seats">Seats at the table</label>
                 <div className={tableStyles.stepper}>

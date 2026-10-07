@@ -127,6 +127,16 @@ describe("CreateDraftForm: the Workbench", () => {
     expect(await screen.findByRole("button", { name: /^Cipher Soldier,/ })).toBeInTheDocument();
   });
 
+  it("shows no channel picker, skips the channel request and sends no channel when the bot is off", async () => {
+    const stub = stubFetch({ extra: { "GET /api/discord/channels": () => Response.json({ channels: [{ id: "c1", name: "drafts" }] }) } });
+    render(<CreateDraftForm discordEnabled={false} />);
+    fireEvent.click(screen.getByText("Name"));
+    expect(screen.getByLabelText("Draft name")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Discord channel")).not.toBeInTheDocument();
+    expect(screen.queryByText(/discord/i)).not.toBeInTheDocument();
+    expect(stub.find("/api/discord/channels")).toHaveLength(0);
+  });
+
   it("names the draft from the date until a name is typed, and lists the channels with a default", async () => {
     const stub = stubFetch({ extra: { "GET /api/discord/channels": () => Response.json({ channels: [{ id: "c1", name: "drafts" }] }) } });
     render(<CreateDraftForm />);

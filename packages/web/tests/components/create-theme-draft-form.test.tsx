@@ -34,6 +34,16 @@ describe("CreateThemeDraftForm", () => {
     expect(screen.queryByRole("radio", { name: /host assigned/i })).toBeNull();
   });
 
+  it("shows no channel picker, no Discord text and no channel request when the bot is off", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ channels: [{ id: "channel-1", name: "drafts" }] }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<CreateThemeDraftForm discordEnabled={false} />);
+    expect(screen.getByLabelText(/draft name/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/channel/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/discord/i)).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("has a seat target of 4 that steps from 2 to 8 and is sent as lobbySeats", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (String(input) === "/api/discord/channels") return Response.json({ channels: [] });

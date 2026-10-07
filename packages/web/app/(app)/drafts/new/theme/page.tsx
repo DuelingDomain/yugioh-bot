@@ -2,7 +2,11 @@ import { DraftFrame } from "@/components/draft/draft-frame";
 import { NewDraftLead } from "@/components/draft/create/new-lead";
 import { CreateThemeDraftForm } from "@/components/draft/create-theme-draft-form";
 
+// The Discord flag is read per request on the server; the client forms only receive it.
+export const dynamic = "force-dynamic";
+
 export default function NewThemeDraftPage() {
+  const discordEnabled = process.env.DISCORD_BOT_ENABLED === "1";
   return (
     <DraftFrame
       back={{ href: "/drafts/new", label: "New draft" }}
@@ -13,7 +17,7 @@ export default function NewThemeDraftPage() {
         pieces={["Create", "Then add themes at the table"]}
         note="Each player drafts alone from their own theme. One cube per archetype."
       />
-      <CreateThemeDraftForm />
+      <CreateThemeDraftForm discordEnabled={discordEnabled} />
     </DraftFrame>
   );
 }

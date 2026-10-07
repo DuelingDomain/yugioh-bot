@@ -91,6 +91,8 @@ export interface SeatSlotsProps {
   /** Add bot. It shows only for the host and only with `botsEnabled`, which the server sets. */
   onAddBot?: () => Promise<void>;
   botsEnabled?: boolean;
+  /** The Discord bot is on. When false the seats have no Nudge. Default on. */
+  discordEnabled?: boolean;
   /** Receives the Invite button of the first open seat, so a dialog can give focus back to it. */
   inviteRef?: Ref<HTMLButtonElement>;
   className?: string;
@@ -101,7 +103,7 @@ export interface SeatSlotsProps {
  * dashed open seats up to the target. The first open seat carries Invite and, for the host with bots on, Add bot.
  * A legacy lobby (no target) shows its players and one open seat. Seat buttons come from `SeatControls`.
  */
-export function SeatSlots({ players, lobby, controller, isHost, isMember, onInvite, onAddBot, botsEnabled, inviteRef, className }: SeatSlotsProps) {
+export function SeatSlots({ players, lobby, controller, isHost, isMember, onInvite, onAddBot, botsEnabled, discordEnabled = true, inviteRef, className }: SeatSlotsProps) {
   const list = useRef<HTMLUListElement>(null);
   useFlipList(list, { enter: true });
   const slots = seatSlots(players, lobby.targetSeats);
@@ -140,7 +142,7 @@ export function SeatSlots({ players, lobby, controller, isHost, isMember, onInvi
                   </span>
                 </span>
               </span>
-              <SeatControls player={p} lobby={lobby} controller={controller} isHost={isHost} />
+              <SeatControls player={p} lobby={lobby} controller={controller} isHost={isHost} discordEnabled={discordEnabled} />
             </li>
           );
         }
