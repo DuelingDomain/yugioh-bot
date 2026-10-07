@@ -629,3 +629,15 @@ describe("duel bot seat migration", () => {
     ).toThrow();
   });
 });
+
+
+it("creates the engine remap completion table before bundle migration and preserves its history", () => {
+ const db=new Database(":memory:");
+ try {
+  migrate(db);
+  expect(getTableInfo(db,"engine_card_remap_runs").map(row=>row.name)).toEqual(["bundle_version","applied_at"]);
+  db.prepare("INSERT INTO engine_card_remap_runs(bundle_version) VALUES(?)").run("bundle-v1");
+  migrate(db);
+  expect(db.prepare("SELECT bundle_version,applied_at FROM engine_card_remap_runs").get()).toEqual({bundle_version:"bundle-v1",applied_at:expect.any(String)});
+ } finally {db.close();}
+});

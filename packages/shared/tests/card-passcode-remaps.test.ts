@@ -16,7 +16,7 @@ function bundle(remaps: Record<string,number> = {100000001:12}){
  const cdb=new Database(join(directory,"cards.cdb"));cdb.exec("CREATE TABLE datas(id INTEGER PRIMARY KEY,alias INTEGER DEFAULT 0); INSERT INTO datas(id) VALUES(12)");cdb.close();
  return directory;
 }
-it("rewrites user passcodes once with foreign keys and cube collisions, preserving picks and finished replays",()=>{
+it.each([[2,3,5],[60,70,99]])("rewrites user passcodes once with foreign keys and cube collisions (%i + %i = %i), preserving picks and finished replays",(oldCopies,officialCopies,total)=>{
  const dir=bundle(),db=sharedDb.openDatabase(":memory:");db.pragma("foreign_keys=ON");
  const oldDeck=JSON.stringify({main:[100000001,12,999],extra:[100000001],side:[],deckMaster:100000001});
  const migrated=JSON.stringify({main:[12,12,999],extra:[12],side:[],deckMaster:12});
@@ -25,7 +25,7 @@ it("rewrites user passcodes once with foreign keys and cube collisions, preservi
   db.exec(`
    INSERT INTO card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) VALUES(100000001,'Preview','Normal Monster','normal','old','old','[]','now'),(12,'Preview','Normal Monster','normal','new','new','[]','now');
    INSERT INTO cubes(id,guild_id,name,created_by_user_id) VALUES(1,'g','cube',1);
-   INSERT INTO cube_cards VALUES(1,100000001,'main',2,'old'),(1,12,'main',3,'new');
+   INSERT INTO cube_cards VALUES(1,100000001,'main',${oldCopies},'old'),(1,12,'main',${officialCopies},'new');
    INSERT INTO drafts(id,guild_id,channel_id,name,status,created_by_user_id) VALUES(1,'g','c','draft','completed',1);
    INSERT INTO draft_players(draft_id,player_id) VALUES(1,1);
    INSERT INTO draft_cards(id,draft_id,wave_number,catalog_card_id,picked_by_player_id) VALUES(1,1,1,100000001,1);
@@ -39,7 +39,7 @@ it("rewrites user passcodes once with foreign keys and cube collisions, preservi
   db.prepare("UPDATE cubes SET config_json=?").run(JSON.stringify({customCardIds:[100000001],customExtraCardIds:[100000001],cubeCardIds:[100000001],poolCardIds:[100000001],otherNumber:100000001}));
   expect(sharedDb.applyEngineCardRemaps(db,dir).skipped).toBe(false);
   expect(db.prepare("SELECT deck_json FROM saved_decks").get()).toEqual({deck_json:migrated});
-  expect(db.prepare("SELECT catalog_card_id,max_copies,source FROM cube_cards").all()).toEqual([{catalog_card_id:12,max_copies:5,source:"new"}]);
+  expect(db.prepare("SELECT catalog_card_id,max_copies,source FROM cube_cards").all()).toEqual([{catalog_card_id:12,max_copies:total,source:"new"}]);
   for(const table of ["draft_cards","draft_deal","draft_undealt"])expect(db.prepare(`SELECT catalog_card_id FROM ${table}`).get()).toEqual({catalog_card_id:12});
   expect(db.prepare("SELECT draft_card_id FROM draft_picks").get()).toEqual({draft_card_id:1});
   expect(db.prepare("SELECT deck_json FROM duel_seats WHERE duel_id=1").get()).toEqual({deck_json:oldDeck});
@@ -48,7 +48,7 @@ it("rewrites user passcodes once with foreign keys and cube collisions, preservi
   expect(JSON.parse((db.prepare("SELECT config_json FROM cubes").get() as {config_json:string}).config_json)).toEqual({customCardIds:[12],customExtraCardIds:[12],cubeCardIds:[12],poolCardIds:[12],otherNumber:100000001});
   expect(db.pragma("foreign_key_check")).toEqual([]);
   expect(sharedDb.applyEngineCardRemaps(db,dir).skipped).toBe(true);
-  expect(db.prepare("SELECT max_copies FROM cube_cards").get()).toEqual({max_copies:5});
+  expect(db.prepare("SELECT max_copies FROM cube_cards").get()).toEqual({max_copies:total});
  }finally{db.close();}
 });
 it("rejects corrupt remaps before changing saved data",()=>{
@@ -93,18 +93,26 @@ it("creates missing official catalog metadata and migrates registration, series 
  }finally{db.close();}
 });
 
-it("rolls back the whole migration and retries safely after invalid saved JSON is repaired",()=>{
+it.each(["bad json","null","[]",'"string"',"42","true"])("skips and logs invalid saved JSON %s while migrating valid rows",invalid=>{
  const dir=bundle(),db=sharedDb.openDatabase(":memory:");
+ const warning=vi.spyOn(console,"warn").mockImplementation(()=>{});
  try{
   seedIdentity(db,{userId:1,playerId:1,guildId:"g"});
   db.prepare("INSERT INTO saved_decks(guild_id,owner_user_id,name,mode,deck_json) VALUES('g',1,'a','normal',?)").run(JSON.stringify({main:[100000001],extra:[],side:[]}));
-  db.prepare("INSERT INTO saved_decks(guild_id,owner_user_id,name,mode,deck_json) VALUES('g',1,'b','normal','bad json')").run();
-  expect(()=>sharedDb.applyEngineCardRemaps(db,dir)).toThrow();
-  expect(db.prepare("SELECT deck_json FROM saved_decks WHERE name='a'").get()).toEqual({deck_json:'{"main":[100000001],"extra":[],"side":[]}'});
-  db.prepare("UPDATE saved_decks SET deck_json=? WHERE name='b'").run('{"main":[],"extra":[],"side":[]}');
+  db.prepare("INSERT INTO saved_decks(guild_id,owner_user_id,name,mode,deck_json) VALUES('g',1,'b','normal',?)").run(invalid);
+  db.prepare("INSERT INTO cubes(id,guild_id,name,created_by_user_id,config_json) VALUES(1,'g','bad',1,?)").run(invalid);
+  db.prepare("INSERT INTO cubes(id,guild_id,name,created_by_user_id,config_json) VALUES(2,'g','good',1,?)").run('{"customCardIds":[100000001]}');
   expect(sharedDb.applyEngineCardRemaps(db,dir).skipped).toBe(false);
   expect(db.prepare("SELECT deck_json FROM saved_decks WHERE name='a'").get()).toEqual({deck_json:'{"main":[12],"extra":[],"side":[]}'});
- }finally{db.close();}
+  expect(db.prepare("SELECT deck_json FROM saved_decks WHERE name='b'").get()).toEqual({deck_json:invalid});
+  expect(db.prepare("SELECT config_json FROM cubes WHERE id=1").get()).toEqual({config_json:invalid});
+  expect(db.prepare("SELECT config_json FROM cubes WHERE id=2").get()).toEqual({config_json:'{"customCardIds":[12]}'});
+  expect(warning).toHaveBeenCalledTimes(2);
+  expect(warning).toHaveBeenCalledWith(expect.stringContaining("saved_decks.deck_json row 2"));
+  expect(warning).toHaveBeenCalledWith(expect.stringContaining("cubes.config_json row 1"));
+  expect(db.prepare("SELECT bundle_version FROM engine_card_remap_runs").all()).toEqual([{bundle_version:"next"}]);
+  expect(sharedDb.applyEngineCardRemaps(db,dir).skipped).toBe(true);
+ }finally{warning.mockRestore();db.close();}
 });
 
 
