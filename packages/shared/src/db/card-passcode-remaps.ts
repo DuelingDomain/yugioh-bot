@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { MAX_CUBE_COPIES } from "../services/constants.js";
 
 const cache = new Map<string, { stamp: string; remaps: ReadonlyMap<number, number> }>();
 const codeIsValid = (code: unknown): code is number => typeof code === "number" && Number.isSafeInteger(code) && code > 0 && code <= 0xffffffff;
@@ -76,7 +77,6 @@ export function applyEngineCardRemaps(db: Database.Database, directory: string):
   } finally { engine.close(); }
   const remap = (code: number) => remaps.get(code) ?? code;
   return db.transaction(() => {
-    db.exec("CREATE TABLE IF NOT EXISTS engine_card_remap_runs (bundle_version TEXT PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)");
     if (db.prepare("SELECT 1 FROM engine_card_remap_runs WHERE bundle_version=?").get(manifest.bundleVersion)) return { skipped: true, remappedPasscodes: 0 };
     const columns = (db.prepare("PRAGMA table_info(card_catalog)").all() as { name: string }[]).map(row => row.name);
     const quoted = columns.map(column => `"${column}"`);
@@ -87,10 +87,10 @@ export function applyEngineCardRemaps(db: Database.Database, directory: string):
           `https://images.ygoprodeck.com/images/cards/${target}.jpg`,
           `https://images.ygoprodeck.com/images/cards_small/${target}.jpg`, target);
       }
-      // Both artwork IDs are one card now: retain total cube copies, prefer existing official metadata.
+      // Graduated main passcodes are one card now; retain copies up to the cube cap.
       db.prepare(`INSERT INTO cube_cards (cube_id,catalog_card_id,pool,max_copies,source)
         SELECT cube_id,?,pool,max_copies,source FROM cube_cards WHERE catalog_card_id=?
-        ON CONFLICT(cube_id,catalog_card_id) DO UPDATE SET max_copies=cube_cards.max_copies+excluded.max_copies`).run(target, old);
+        ON CONFLICT(cube_id,catalog_card_id) DO UPDATE SET max_copies=MIN(?,cube_cards.max_copies+excluded.max_copies)`).run(target, old, MAX_CUBE_COPIES);
       db.prepare("DELETE FROM cube_cards WHERE catalog_card_id=?").run(old);
       for (const table of ["draft_cards", "draft_deal", "draft_undealt"]) db.prepare(`UPDATE ${table} SET catalog_card_id=? WHERE catalog_card_id=?`).run(target,old);
       db.prepare("DELETE FROM card_artworks WHERE artwork_id=?").run(old);
@@ -104,8 +104,16 @@ export function applyEngineCardRemaps(db: Database.Database, directory: string):
     const rewriteJson = (table: string, column: string, transform: (value: Record<string, unknown>) => Record<string, unknown>, where = "1") => {
       const update = db.prepare(`UPDATE ${table} SET ${column}=? WHERE rowid=?`);
       for (const row of db.prepare(`SELECT rowid AS rid,${column} AS json FROM ${table} WHERE ${column} IS NOT NULL AND (${where})`).all() as { rid: number; json: string }[]) {
-        const value: unknown = JSON.parse(row.json);
-        if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`Invalid saved JSON in ${table}.${column} row ${row.rid}`);
+        let value: unknown;
+        try { value = JSON.parse(row.json); }
+        catch {
+          console.warn(`[card-remaps] Skipping invalid saved JSON in ${table}.${column} row ${row.rid}: cannot parse JSON`);
+          continue;
+        }
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          console.warn(`[card-remaps] Skipping invalid saved JSON in ${table}.${column} row ${row.rid}: expected a JSON object`);
+          continue;
+        }
         const next = transform(value as Record<string, unknown>);
         if (JSON.stringify(next) !== JSON.stringify(value)) update.run(JSON.stringify(next), row.rid);
       }
