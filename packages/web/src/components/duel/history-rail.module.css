@@ -56,9 +56,9 @@
   --h-sum-pendulum: linear-gradient(180deg, #e39a55 0 50%, #2fae8e 50% 100%);
   --h-f-ui: var(--font-duel-ui), "Sofia Sans Semi Condensed", "Arial Narrow", sans-serif;
   --h-f-num: var(--font-duel-num), "Sofia Sans Extra Condensed", "Arial Narrow", sans-serif;
-  --h-t-xs: max(12px, calc(12 * var(--h-unit)));
-  --h-t-sm: max(13px, calc(13 * var(--h-unit)));
-  --h-t-body: max(15px, calc(15 * var(--h-unit)));
+  --h-t-xs: calc(max(calc(12px + 1px * var(--ft, 0)), calc(12 * var(--h-unit))) * var(--tt, 1));
+  --h-t-sm: calc(max(calc(13px + 1px * var(--ft, 0)), calc(13 * var(--h-unit))) * var(--tt, 1));
+  --h-t-body: calc(max(15px, calc(15 * var(--h-unit))) * var(--tt, 1));
   --h-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 

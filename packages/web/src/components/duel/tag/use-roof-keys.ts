@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import type { CameraAction } from "../table/types";
+import type { CameraAction } from "./roof-camera";
 import { roofKeyAction } from "./roof-camera";
 
 export interface UseRoofKeysOptions {

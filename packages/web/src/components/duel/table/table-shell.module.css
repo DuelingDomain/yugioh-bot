@@ -46,7 +46,7 @@
   border-radius: 4px;
   background: rgb(10 17 34 / 0.86);
   color: #efe7d5;
-  font-size: 13px;
+  font-size: calc(14px * var(--tt, 1));
   line-height: 1.2;
 }
 
@@ -193,7 +193,7 @@
   box-shadow: 0 0 20px -6px rgb(155 126 255 / 0.55);
   color: #c6b6ff;
   font-family: var(--font-duel-ui, "Arial Narrow"), "Arial Narrow", sans-serif;
-  font-size: 12px;
+  font-size: calc(12px * var(--tt, 1));
   font-weight: 700;
   letter-spacing: 0.12em;
   line-height: 1;

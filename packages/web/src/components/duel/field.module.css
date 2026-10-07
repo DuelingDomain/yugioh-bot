@@ -81,7 +81,7 @@
   padding: 0;
   /* Visible: a hovered hand card grows outward (over the station track or the header), never over the board. */
   overflow: visible;
-  font-size: 13px;
+  font-size: calc((13px + 1px * var(--ft, 0)) * var(--tt, 1));
   /* The ground (obsidian navy) belongs to the shell; the field only adds soft lamp glows on top of it. */
   background:
     radial-gradient(70% 60% at 52% 46%, rgb(22 34 62 / 0.55), transparent 72%),
@@ -356,7 +356,7 @@
   border-radius: 3px;
   color: var(--chain-ink);
   background: rgb(228 182 79 / 0.08);
-  font-size: 10px;
+  font-size: calc((10px + 2px * var(--ft, 0)) * var(--tt, 1));
   line-height: 1.25;
 }
 
@@ -364,7 +364,7 @@
   flex: none;
   color: var(--pen-ink);
   font-family: var(--f-ui);
-  font-size: 10px;
+  font-size: calc((10px + 2px * var(--ft, 0)) * var(--tt, 1));
   font-weight: 600;
   line-height: 1.25;
   text-align: right;
@@ -515,7 +515,7 @@
   right: 2px;
   bottom: 2px;
   left: 2px;
-  font-size: clamp(8px, calc(var(--cardw) * 0.185), 17px);
+  font-size: max(clamp(8px, calc(var(--cardw) * 0.185), 17px), var(--fl, 0px));
 }
 
 .handCard .zoneHit {
@@ -1857,7 +1857,7 @@
   .tPriorityShort { display: inline; }
 
   .tTurn {
-    font-size: 9.5px;
+    font-size: calc((9.5px + 2.5px * var(--ft, 0)) * var(--tt, 1));
   }
 }
 
@@ -1924,7 +1924,7 @@
   }
 
   .masterTitle {
-    font-size: 13px;
+    font-size: calc((13px + 1px * var(--ft, 0)) * var(--tt, 1));
   }
 
   .masterHit {
@@ -1933,7 +1933,7 @@
   }
 
   .masterName {
-    font-size: 12.5px;
+    font-size: calc(12.5px * var(--tt, 1));
   }
 
   .masterDetails {
@@ -1942,11 +1942,11 @@
 
   .masterStats {
     margin-top: 3px;
-    font-size: 13px;
+    font-size: calc((13px + 1px * var(--ft, 0)) * var(--tt, 1));
   }
 
   .masterMeta {
-    font-size: 11px;
+    font-size: calc((11px + 1px * var(--ft, 0)) * var(--tt, 1));
   }
 
   .masterMeta > div {
@@ -1958,7 +1958,7 @@
   .masterAction,
   .masterInspect {
     min-height: 32px;
-    font-size: 12.5px;
+    font-size: calc(12.5px * var(--tt, 1));
   }
 }
 
@@ -1978,10 +1978,17 @@
   --pad: calc(var(--z) * 0.125);
   --ts: var(--sf-ts, 1);
   --lab: 0deg;
-  --fs-name: calc(var(--z) * 0.125 * var(--ts));
-  --fs-small: calc(var(--z) * 0.1 * var(--ts));
-  --n3: calc(var(--z) * 0.13 * var(--ts));
-  --n4: calc(var(--z) * 0.088 * var(--ts));
+  /* On-screen text floors, in this field's own px: 12px for labels and 14px for names and counts, times the Text size
+     setting (--tt). --sk is the whole scale from the field's px to the screen (stage fit times pose scale; 1 in the grid).
+     The floor fades out below 0.5 (--fk) and is capped by the zone size: a docked or overview field is a thumbnail, and floored
+     text there would collide in its slots. */
+  --fk: clamp(0, calc((var(--sk, 1) - 0.35) / 0.15), 1);
+  --fl: min(calc(12.6px * var(--tt, 1) / var(--sk, 1) * var(--fk)), calc(var(--z) * 0.2));
+  --fb: min(calc(14.4px * var(--tt, 1) / var(--sk, 1) * var(--fk)), calc(var(--z) * 0.23));
+  --fs-name: max(calc(var(--z) * 0.125 * var(--ts)), var(--fb));
+  --fs-small: max(calc(var(--z) * 0.1 * var(--ts)), var(--fl));
+  --n3: max(calc(var(--z) * 0.13 * var(--ts)), var(--fl));
+  --n4: max(calc(var(--z) * 0.088 * var(--ts)), var(--fl));
   /* The viewer's hand: cards 0.76 zone sizes tall, below the board. */
   --lh: var(--sf-lh, calc(var(--z) * 0.76));
   --lhcw: calc(var(--lh) * 0.686);
@@ -1994,7 +2001,7 @@
   box-sizing: border-box;
   width: calc(var(--z) * 5.83);
   height: calc(var(--z) * 3.393);
-  font-size: 13px;
+  font-size: calc((13px + 1px * var(--ft, 0)) * var(--tt, 1));
   --seat-line: rgb(var(--t, 155 126 255) / 0.45);
 }
 
@@ -2301,7 +2308,22 @@
 }
 
 .seatField .plate {
-  font-size: calc(var(--z) * 0.116 * var(--ts));
+  font-size: max(calc(var(--z) * 0.116 * var(--ts)), var(--fl));
+}
+
+/* A hand card is narrower than a zone: the text floor may lift the stats, but never past what "1400 / 1200" needs to fit in the card. */
+.seatField .handCard .plate {
+  font-size: min(max(calc(var(--z) * 0.116 * var(--ts)), var(--fl)), calc(var(--cardw) * 0.2));
+}
+
+/* At a big text size the hand card is too narrow for "1400 / 1200" at the text floor: the plate shows ATK only, like a quarter-turned field. */
+[data-text-big="true"] .seatField .handCard .plate {
+  font-size: max(calc(var(--z) * 0.116 * var(--ts)), var(--fl));
+}
+
+[data-text-big="true"] .seatField .handCard .plate .plateSep,
+[data-text-big="true"] .seatField .handCard .plate .plateDef {
+  display: none;
 }
 
 /* A field turned a quarter: the level plate has only a card's width to sit in, so it shows one stat (ATK, or DEF in defense) and sizes to it. */
@@ -2325,6 +2347,11 @@
   display: inline;
 }
 
+/* A docked rival is a thumbnail at about a third of its size: its pile counts would be 4px text lying over the next pile. */
+:global([data-docked="true"]) .seatField .pileLabel {
+  display: none;
+}
+
 .sfName {
   position: absolute;
   bottom: -2px;
@@ -2333,7 +2360,7 @@
   padding-top: 6px;
   color: var(--tink);
   font-family: var(--font-duel-display, var(--f-ui));
-  font-size: calc(var(--z) * 0.098 * var(--ts));
+  font-size: max(calc(var(--z) * 0.098 * var(--ts)), var(--fl));
   font-weight: 700;
   letter-spacing: 0.2em;
   opacity: 0.8;

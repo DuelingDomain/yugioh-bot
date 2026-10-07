@@ -1,5 +1,6 @@
 "use client";
 
+import { tableTextStyle, useCardTextSize, useTableTextScale } from "./card-text-size";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -146,6 +147,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
 }) {
   // Every live surface (1v1, FFA tables, Tag, spectating) renders under this component.
   useBlockBrowserContextMenu();
+  useTableTextScale();
+  const textSize = useCardTextSize();
   const router = useRouter();
   const admitted = useRef<{ slug: string; inviteCode: string } | null>(null);
   const { data, error, isLoading, mutate } = useSWR(
@@ -1419,7 +1422,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       data-duel-fx-speed-root data-domain={domain} data-fit="true" data-phase={battle ? "battle" : undefined}
       data-hud={hud ? "room" : undefined}
       data-turn={spectator ? "watch" : myTurn ? "you" : "opp"}
-      data-reduced={preferences.reducedMotion ? "true" : "false"}>
+      data-reduced={preferences.reducedMotion ? "true" : "false"} style={tableTextStyle(textSize)}>
       {hud ? (
         <header className={hudStyles.top} data-testid="hud-top">
           <div className={hudStyles.topLeft}>{headerIdentity}</div>

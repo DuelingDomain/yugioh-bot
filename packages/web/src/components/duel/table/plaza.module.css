@@ -181,3 +181,6 @@
   animation-delay: 0s;
 }
 
+
+/* The ARENA sign: never under 12px on screen (the plaza is drawn in stage px, scaled by --stage-k). */
+.sign { font-size: max(11px, calc(12px * var(--tt, 1) / var(--stage-k, 1))); }

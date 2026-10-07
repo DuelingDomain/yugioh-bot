@@ -15,9 +15,9 @@ import {
   roofTransform,
   seatPose,
   tweenProgress,
+  type CameraAction,
   type RoofCameraState,
 } from "@/components/duel/tag/roof-camera";
-import type { CameraAction } from "@/components/duel/table/types";
 
 function run(state: RoofCameraState, ...actions: CameraAction[]): RoofCameraState {
   return actions.reduce((s, a) => roofReducer(s, a), state);
