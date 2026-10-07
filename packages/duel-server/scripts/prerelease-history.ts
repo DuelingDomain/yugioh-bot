@@ -28,11 +28,11 @@ export async function prereleaseHistory(start: string, commit: string, directory
 
 /** Separate local reader also allows tests to use a real, isolated upstream history. */
 export async function readPrereleaseHistory(repo: string, start: string, commit: string, directory: string): Promise<CardIdentity[]> {
-  const git = (args: string[]) => execFileSync("git", ["-C", repo, ...args], { timeout: 120_000, maxBuffer: 32 * 1024 * 1024 });
+  const git = (args: string[], input?: string) => execFileSync("git", ["-C", repo, ...args], { input, timeout: 120_000, maxBuffer: 32 * 1024 * 1024 });
   try { git(["cat-file", "-e", `${commit}^{commit}`]); }
   catch { git(["fetch", "origin", commit]); }
   git(["merge-base", "--is-ancestor", start, commit]);
-  const commits = [start, ...git(["rev-list", "--reverse", `${start}..${commit}`, "--", "prerelease-*.cdb"]).toString("utf8").trim().split("\n").filter(Boolean)];
+  const commits = [start, ...git(["rev-list", "--full-history", "--reverse", `${start}..${commit}`, "--", "prerelease-*.cdb"]).toString("utf8").trim().split("\n").filter(Boolean)];
   const blobs = new Set<string>();
   for (const pin of commits) {
     for (const line of git(["ls-tree", pin]).toString("utf8").split("\n")) {
@@ -40,6 +40,13 @@ export async function readPrereleaseHistory(repo: string, start: string, commit:
       if (match && isPrereleaseDatabaseFile(match[2]!)) blobs.add(match[1]!);
     }
   }
+  // A filtered clone has every tree but no blobs. Fetch the distinct databases in
+  // one pack before cat-file can trigger a separate network request per snapshot.
+  // stdin avoids argument-size limits as the history grows; local/full clones need no fetch.
+  let partial = false;
+  try { partial = git(["config", "--get", "remote.origin.promisor"]).toString("utf8").trim() === "true"; }
+  catch { /* Local fixtures and complete clones may have no promisor remote. */ }
+  if (partial && blobs.size) git(["fetch", "--no-tags", "--no-write-fetch-head", "--stdin", "origin"], [...blobs].sort().join("\n") + "\n");
   await mkdir(directory, { recursive: true });
   const identities = new Map<string, CardIdentity>();
   for (const blob of [...blobs].sort()) {
