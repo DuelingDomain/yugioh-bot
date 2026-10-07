@@ -130,14 +130,19 @@
   padding-block: clamp(4px, 1vh, 12px) 2px;
   text-align: center;
 }
+/* The glow around the title. It is a soft pool of light, never a box: the box is taller than the title block so the
+   buttons sit inside it, and the mask fades every edge of the box to nothing, so no straight edge can show where
+   the gradients are cut off. */
 .light {
   position: absolute;
-  inset: -70% -20vw -40%;
+  inset: -90% -30vw -140%;
   z-index: -1;
   pointer-events: none;
+  -webkit-mask-image: radial-gradient(closest-side, #000 45%, transparent 100%);
+  mask-image: radial-gradient(closest-side, #000 45%, transparent 100%);
   background:
-    radial-gradient(ellipse 36vmin 28vmin at 50% 46%, rgb(var(--glow) / 0.24), transparent 100%),
-    radial-gradient(ellipse 70vmin 44vmin at 50% 56%, rgb(var(--glow) / 0.09), transparent 100%);
+    radial-gradient(ellipse 36vmin 28vmin at 50% 36%, rgb(var(--glow) / 0.24), transparent 100%),
+    radial-gradient(ellipse 70vmin 44vmin at 50% 43%, rgb(var(--glow) / 0.09), transparent 100%);
 }
 .root[data-title="calm"] .light {
   opacity: 0.6;
@@ -148,6 +153,13 @@
   width: 100%;
   font-size: inherit;
   font-weight: inherit;
+}
+/* The title is sized by measuring it: the fit sets --fs to 100px, reads the width, then sets the real size. Under
+   prefers-reduced-motion the global reset gives every element a 0.01ms transition, and a transition makes that
+   read return the OLD font size, so the fit worked from wrong widths and never settled. Nothing here transitions. */
+.title,
+.title * {
+  transition-property: none;
 }
 .reason {
   max-width: 30em;
@@ -549,6 +561,8 @@
 /* The solid primary of the strip ("Ready for next game", "Watch game N"). */
 .seriesBlock .btn[data-kind="primary"] {
   width: min(100%, 24em);
+  min-height: 54px;
+  font-size: 17.5px;
 }
 
 .root[data-phase="play"] .seriesBlock {
@@ -557,15 +571,15 @@
 
 /* ---- Buttons ----------------------------------------------------------- */
 
+/* One row of equal buttons, centred under the title: the lead button is the filled one, the rest are outlined. */
 .actions {
   position: relative;
   display: grid;
-  grid-template-columns: repeat(calc(var(--n, 2) + 1), 1fr);
-  gap: 10px;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 200px);
+  justify-content: center;
+  gap: 12px;
   margin-top: 4px;
-}
-.actions[data-lead="true"] {
-  grid-template-columns: 1.7fr repeat(var(--n, 2), 1fr);
 }
 .root[data-phase="play"] .actions {
   pointer-events: none;
@@ -574,7 +588,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 50px;
+  min-height: 52px;
   padding: 0 14px;
   font-family: var(--font-ui);
   font-size: 16.5px;
@@ -602,8 +616,6 @@
   cursor: default;
 }
 .btn[data-kind="primary"] {
-  min-height: 54px;
-  font-size: 17.5px;
   background: linear-gradient(180deg, var(--pen-hi), var(--pen-fill));
   border-color: var(--pen);
   color: #fff;
@@ -658,7 +670,7 @@
     top: var(--y-2);
   }
   .light {
-    inset: -40% -20vw -30%;
+    inset: -50% -20vw -90%;
   }
   .score {
     padding-inline: 14px;
@@ -675,19 +687,19 @@
   .seriesBlock {
     padding-inline: 16px;
   }
-  .actions,
-  .actions[data-lead="true"] {
-    grid-template-columns: repeat(var(--n, 2), 1fr);
+  /* A pair shares the row; with the replay link too, the lead button takes the first row and the other two share the second. */
+  .actions {
+    grid-auto-flow: row;
+    grid-auto-columns: auto;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    justify-content: stretch;
   }
-  .actions > :first-child {
+  .actions[data-count="3"] > :first-child {
     grid-column: 1 / -1;
   }
   .btn {
-    min-height: 48px;
+    min-height: 50px;
     font-size: 16px;
-  }
-  .btn[data-kind="primary"] {
-    min-height: 54px;
   }
 }
 /* A short phone (360 x 740 and the like): the match-won and spectator-won columns are the tallest and ran

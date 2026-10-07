@@ -41,24 +41,10 @@ export const SERIES_SCENARIOS: LabScenario[] = [
     build: () => openingScript({ stage: "pick", opponentChose: true }),
   },
   {
-    id: "rps-reveal-win",
-    category: "Match",
-    name: "Rock-paper-scissors: you win",
-    description: "Both moves show for a moment: your paper beats the opponent's rock. You win.",
-    build: () => openingScript({ stage: "reveal-win" }),
-  },
-  {
-    id: "rps-reveal-lose",
-    category: "Match",
-    name: "Rock-paper-scissors: you lose",
-    description: "Your rock loses to the opponent's paper. You lose.",
-    build: () => openingScript({ stage: "reveal-lose" }),
-  },
-  {
     id: "rps-reveal-tie",
     category: "Match",
     name: "Rock-paper-scissors: tie",
-    description: "Both played scissors. Tie, again: the next round starts at once.",
+    description: "Both played scissors. Tie, again: the moves show for 3 seconds, then the next round starts.",
     build: () => openingScript({ stage: "reveal-tie" }),
   },
   {
@@ -72,7 +58,7 @@ export const SERIES_SCENARIOS: LabScenario[] = [
     id: "rps-opponent-choosing",
     category: "Match",
     name: "Rock-paper-scissors: opponent chooses order",
-    description: "You lost the game. The opponent is choosing to go first or second.",
+    description: "You lost rock-paper-scissors. The opponent is choosing to go first or second.",
     build: () => openingScript({ stage: "wait-choose" }),
   },
   {

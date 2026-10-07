@@ -61,7 +61,7 @@ export function Plaza({ layout, poses, fly = false, hidden, exits = [], glide = 
           <path d={SKYLINE_PATH} fill="url(#plaza-sky)" stroke="rgb(181 153 99 / .18)" strokeWidth="1" />
           <g transform="translate(517 18)">
             <rect width="66" height="17" rx="1.5" fill="#140c04" stroke="#e4b64f" strokeOpacity=".6" />
-            <text x="33" y="12.5" textAnchor="middle" fontSize="11" fontWeight="700" letterSpacing="2" fill="#ffe2a8">
+            <text x="33" y="12.5" textAnchor="middle" className={styles.sign} fontSize="11" fontWeight="700" letterSpacing="2" fill="#ffe2a8">
               ARENA 07
             </text>
           </g>

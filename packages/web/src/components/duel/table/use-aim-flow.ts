@@ -17,7 +17,7 @@ import type { BattleAim, DuelActivateHandler, SeatPick, SeatTone, TableControlle
  * under the cursor (an opposing monster, or the whole board of a seat for a direct attack) lights up and the arrow
  * snaps to it. One click on it sends the answer at once. Esc or a right click cancels (the prompt panel does that).
  * Keyboard flow: hover or focus aims, Enter on a card or LP panel locks the aim, a second Enter, the Attack button
- * or the number keys send it; Esc lets go. While aimed or locked the camera does not move (`aiming`).
+ * or the number keys send it; Esc lets go. The camera never moves by itself.
  * A direct attack (a choice with a seat and no zone) works the same through a seat pick on the LP panels.
  * A room that owns its own aim state leaves this hook out and passes its controller to the stage as is.
  */

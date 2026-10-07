@@ -40,8 +40,8 @@
   --pc-radius: 14px;
   --pc-pad-y: 12px;
   --pc-pad-x: 14px;
-  --pc-title: clamp(17px, calc(17 * var(--duel-unit, 1px)), 20px);
-  --pc-sub: clamp(13px, calc(13.5 * var(--duel-unit, 1px)), 15px);
+  --pc-title: calc(clamp(17px, calc(17 * var(--duel-unit, 1px)), 20px) * var(--tt, 1));
+  --pc-sub: calc(clamp(calc(13px + 1px * var(--ft, 0)), calc(13.5 * var(--duel-unit, 1px)), 15px) * var(--tt, 1));
   --pc-btn-h: 32px;
   --pc-btn-radius: 8px;
 }

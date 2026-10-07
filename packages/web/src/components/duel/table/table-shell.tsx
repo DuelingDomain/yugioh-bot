@@ -1,5 +1,6 @@
 "use client";
 
+import { multiTableTextStyle, tableTextBig, useCardTextSize, useMultiTableTextFloor } from "../card-text-size";
 import { eliminationOrder } from "@/lib/duel/elimination-order";
 import { connectionLabel as labelForConnection } from "../connection-label";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
@@ -224,13 +225,15 @@ function TableShellBody({
   );
   const Stage = grid ? GridStage : TableStage;
   const rootRef = useRef<HTMLDivElement>(null);
+  const textSize = useCardTextSize();
+  useMultiTableTextFloor();
   const ownBoardRef = useRef<HTMLDivElement>(null);
   const boardRef = roomBoardRef ?? ownBoardRef;
   const [sheetOpen, setSheetOpen] = useState(false);
   const suspended = inputSuspended || ui.suspended || (narrow && sheetOpen);
   const flow = useAimFlow(base, layout, rootRef, { suspended });
   const controller = flow.controller;
-  const camera = useCamera({ controller, layout, initial: initialCamera, initialLock, aiming: flow.aiming, seatKeys: flow.seatKeys, suspended, uprightOnly: grid });
+  const camera = useCamera({ controller, layout, initial: initialCamera, initialLock, seatKeys: flow.seatKeys, suspended, uprightOnly: grid });
   // The 4-way grid starts with your own field in focus. The turn strip and the keys (1 to 4, O, Esc) move the focus.
   const gridSeats = useMemo(() => gridCells(layout), [layout]);
   const gridShown = useMemo(() => engine.seats.filter((view) => !view.eliminated).map((view) => view.seat), [engine.seats]);
@@ -299,6 +302,7 @@ function TableShellBody({
   // or the drawer their own keys close it and hand focus back to the button.
   const escRef = useRef({ open: false, owned: false, close: () => {} });
   const escOwned = suspended || flow.aiming || flow.seatKeys || centered || camera.state.mode === "fly" || (promptMine && (prompt?.cancelable === true || prompt?.finishable === true));
+  camera.escapeOwned.current = suspended || flow.aiming || flow.seatKeys || centered || (promptMine && (prompt?.cancelable === true || prompt?.finishable === true));
   escRef.current = { open: drawer.open, owned: escOwned, close: () => drawer.close(false) };
   useEffect(() => {
     if (narrow) return;
@@ -366,7 +370,7 @@ function TableShellBody({
     layout,
     camera: camera.state,
     locked: camera.locked,
-    cue: camera.cue,
+    hint: camera.hint,
     nameOf,
     dispatch: camera.dispatch,
     out: camera.out,
@@ -543,6 +547,8 @@ function TableShellBody({
       data-phase={battle ? "battle" : undefined}
       data-turn={spectator ? "watch" : myTurn ? "you" : "opp"}
       data-reduced={controller.reducedMotion ? "true" : "false"}
+      data-text-big={tableTextBig(textSize)}
+      style={multiTableTextStyle(textSize)}
     >
       {/* One live region that stays mounted: a region that appears with its text is not always read out. */}
       <p className={styles.liveNote} role="status" aria-live="polite" data-testid="table-live">
@@ -644,6 +650,7 @@ function TableShellBody({
                 wantMode={camera.state.mode}
                 locked={camera.locked}
                 out={camera.out}
+                targetSeat={camera.targetSeat}
                 placeLabels={placeLabels}
                 dispatchCamera={camera.dispatch}
                 grid={grid ? gridFocus : undefined}

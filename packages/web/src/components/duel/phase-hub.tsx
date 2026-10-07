@@ -105,7 +105,7 @@ export function PhaseHub({
   if (narrow) return null;
 
   const who = (
-    <span className={styles.who} title={noTurn ? undefined : owner}>
+    <span className={styles.who} title={noTurn ? undefined : owner} data-me={myTurn ? "true" : undefined}>
       <i className={styles.dot} aria-hidden="true" />
       <span className={styles.whoName}>{noTurn ? "No turn" : myTurn ? "You" : owner}</span>
       <span className={styles.turn}>{`Turn ${turn ?? "—"}`}</span>

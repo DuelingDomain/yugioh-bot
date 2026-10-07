@@ -3,9 +3,11 @@
 import { TAG_FIXTURES, TAG_TEAM_NAMES } from "@/components/duel/tag/fixtures";
 import { TagShell } from "@/components/duel/tag/tag-shell";
 import { PreviewHarness } from "@/components/duel/table/fixtures/preview-harness";
+import { useTableTextScale } from "@/components/duel/card-text-size";
 
 /** The 2v2 tag preview: the Rooftop shell on the fixtures, with the camera and lock the URL asks for. */
 export function TagPreview({ stateId, cam, lock }: { stateId: string | null; cam: string | null; lock: string | null }) {
+  useTableTextScale();
   return (
     <PreviewHarness
       set={TAG_FIXTURES}

@@ -53,8 +53,11 @@ export function seatStatus(engine: Pick<DuelEngineView, "seats" | "turnSeat">, s
   return "active";
 }
 
-/** Follow a field only when a prompt needs its targets. Eliminations alone leave the table view stable. */
-export function autoFollowSeat(
+/**
+ * The one field that holds all the targets of the prompt. The camera never goes there on its own: the table only
+ * marks that field (a hint with a Show button, and a glow on its seat button). Eliminations leave the view alone.
+ */
+export function targetHintSeat(
   choices: readonly TargetChoice[],
   engine: Pick<DuelEngineView, "seats">,
   viewerSeat: number | null,
