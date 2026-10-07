@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 import { NextResponse } from "next/server";
 import { DRAFT_LOBBY_ERROR_STATUS, type DraftConfig, type DraftLobbyErrorCode } from "@yugidraft/shared/types";
-import * as sharedServices from "@yugidraft/shared/services";
+import { createDraftLobbyService, DraftLobbyServiceError, type DraftLobbyInvalidationOptions } from "@yugidraft/shared/services";
 
 export class ThemeDraftMutationError extends Error {
   constructor(public readonly code: DraftLobbyErrorCode, message: string, public readonly savedCubeId?: number) {
@@ -10,6 +10,9 @@ export class ThemeDraftMutationError extends Error {
 }
 
 export function themeDraftMutationResponse(error: unknown) {
+  if (error instanceof DraftLobbyServiceError) {
+    return NextResponse.json({ error: error.message, code: error.code, ...error.details }, { status: error.status });
+  }
   if (!(error instanceof ThemeDraftMutationError)) throw error;
   return NextResponse.json({
     error: error.message, code: error.code,
@@ -37,13 +40,13 @@ export function pendingThemeDraft(db: Database.Database, slug: string, guildId: 
   return { id: row.id, config };
 }
 
-/** T03 integration seam: keep signature adaptation confined to the final call. */
-export function invalidateThemeLobby(db: Database.Database, draftId: number, playerIds?: number[]) {
-  // T01 deliberately has no service declaration. Remove this local bridge once T03 is merged.
-  const services = sharedServices as typeof sharedServices & {
-    createDraftLobbyService(db: Database.Database): { invalidate(draftId: number, options: unknown): unknown };
-  };
-  services.createDraftLobbyService(db).invalidate(draftId, { clearReady: playerIds ?? true });
+/** Call inside the claim/config transaction; notify only after its commit. */
+export function invalidateThemeLobby(
+  db: Database.Database,
+  draftId: number,
+  options: DraftLobbyInvalidationOptions = { clearReady: true },
+) {
+  createDraftLobbyService(db).invalidate(draftId, options);
 }
 
 export function hostThemeAssignmentError(

@@ -91,10 +91,9 @@ export async function POST(request: Request, { params }: Context) {
     void broadcaster.draft({ kind: "seats", slug });
     return NextResponse.json(result, { status: 201 });
   } catch (error) {
-    if (error instanceof ThemeDraftMutationError) return themeDraftMutationResponse(error);
     // Library name validation remains a 400; unexpected DB/service errors propagate.
     if (error instanceof Error && error.name === "CubeNameTakenError") return NextResponse.json({ error: error.message }, { status: 400 });
-    throw error;
+    return themeDraftMutationResponse(error);
   }
 }
 

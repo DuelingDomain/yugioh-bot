@@ -56,7 +56,7 @@ async function mutateClaim(request: Request, { params }: Context, release: boole
         db.prepare(`insert into draft_player_cube (draft_id, player_id, cube_id) values (?, ?, ?)
           on conflict (draft_id, player_id) do update set cube_id = excluded.cube_id`).run(draft.id, player.id, cubeId);
       }
-      invalidateThemeLobby(db, draft.id, [player.id]);
+      invalidateThemeLobby(db, draft.id, { playerIds: [player.id] });
       return true;
     }).immediate();
     if (changed) void broadcaster.draft({ kind: "seats", slug });
