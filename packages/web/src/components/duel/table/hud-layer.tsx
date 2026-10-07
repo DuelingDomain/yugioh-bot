@@ -103,6 +103,7 @@ export function useHudPane({ camera = false, log = true }: {
       if (was.location === LOCATION_HAND) {
         // The hand closes up when a card leaves it: the pinned card keeps its place in the line, but its sequence moves. It is the copy
         // of the same code whose sequence moved by no more than the hand grew or shrank (another copy farther away is not the pinned one).
+        // When both cards have a handId, the id decides: a copy with another id is never the pinned card.
         const hand = seats.find((view) => view.seat === was.controller)?.hand ?? [];
         handSize = hand.length;
         const change = handSize - (current.handSize ?? handSize);
@@ -111,6 +112,7 @@ export function useHudPane({ camera = false, log = true }: {
         let best = Infinity;
         for (const card of hand) {
           if (!same(card)) continue;
+          if (was.handId && card.handId && card.handId !== was.handId) continue;
           const shift = card.sequence - was.sequence;
           if (shift < lo || shift > hi || Math.abs(shift) >= best) continue;
           best = Math.abs(shift);

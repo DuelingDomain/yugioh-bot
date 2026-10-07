@@ -41,6 +41,23 @@ describe("usePinSync", () => {
   const handOf = (...cards: DuelCard[]): DuelSeatView[] => [{ ...seatWith([])[0], hand: cards }] as unknown as DuelSeatView[];
 
   describe("a pinned hand card", () => {
+    it("lets the pin go when the pinned copy of two adjacent identical cards leaves and the other copy is left (by handId)", () => {
+      const withId = (sequence: number, handId: string) => ({ ...inHand(7, sequence), handId }) as DuelCard;
+      const view = renderHook(({ seats }) => useRig(true, seats), { initialProps: { seats: handOf(withId(0, "a"), withId(1, "b")) } });
+      act(() => view.result.current.pinCard(withId(1, "b")));
+      expect(view.result.current.pinned).toMatchObject({ handId: "b" });
+      view.rerender({ seats: handOf(withId(0, "a")) });
+      expect(view.result.current.pinned).toBeNull();
+    });
+
+    it("follows its handId when an earlier identical copy leaves", () => {
+      const withId = (sequence: number, handId: string) => ({ ...inHand(7, sequence), handId }) as DuelCard;
+      const view = renderHook(({ seats }) => useRig(true, seats), { initialProps: { seats: handOf(withId(0, "a"), withId(1, "b")) } });
+      act(() => view.result.current.pinCard(withId(1, "b")));
+      view.rerender({ seats: handOf(withId(0, "b")) });
+      expect(view.result.current.pinned).toMatchObject({ handId: "b", sequence: 0 });
+    });
+
     it("stays pinned when an earlier hand card is played and its sequence moves", () => {
       const view = renderHook(({ seats }) => useRig(true, seats), { initialProps: { seats: handOf(inHand(1, 0), inHand(2, 1), inHand(3, 2)) } });
       act(() => view.result.current.pinCard(inHand(3, 2)));
