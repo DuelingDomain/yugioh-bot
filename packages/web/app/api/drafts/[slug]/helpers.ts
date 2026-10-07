@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { cubeReferenceAccess } from "@/lib/cube-access";
 import { ensureCatalogCards } from "@/lib/cube-pool";
-import { auth } from "@/lib/auth";
 import { cardFetchErrorResponse } from "@/lib/card-fetch-errors";
 import { createDraftLobbyApi, draftDiscordEnabled } from "@/lib/draft-lobby-api";
 import { DRAFT_LOBBY_ERROR_STATUS, type DraftAllowedCube, type DraftConfig, type DraftLobbyErrorCode, type DraftLobbyResponse, type DraftLobbyTickResult } from "@yugidraft/shared/types";
@@ -477,6 +476,7 @@ export async function runDraftLobbyRoute(
   action: (context: DraftLobbyContext) => Response | Promise<Response>,
 ): Promise<Response> {
   try {
+    const { auth } = await import("@/lib/auth");
     const session = await auth();
     if (!session?.user?.id) throw new DraftLobbyApiError("Unauthorized", "UNAUTHORIZED");
     const { slug } = await params;
