@@ -12,6 +12,7 @@
     "test": "vitest run --exclude '.next/**'"
   },
   "dependencies": {
+    "@clerk/nextjs": "7.9.11",
     "@tanstack/react-virtual": "^3.13.24",
     "@yugidraft/shared": "*",
     "class-variance-authority": "^0.7.1",
