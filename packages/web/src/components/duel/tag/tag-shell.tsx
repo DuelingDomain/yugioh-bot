@@ -15,6 +15,7 @@ import { usePickContinuation } from "../pick-continuation";
 import { useDuelPreferences, type DuelPreferences } from "../preferences";
 import { centerKind, PromptCenter } from "../prompt-center";
 import { fieldWaitsForReveal } from "../field-gate";
+import { PhaseHub } from "../phase-hub";
 import { optionZoneKeys, PromptTray, promptTrayVisible } from "../prompts";
 import { useResultGate } from "../result-reveal";
 import roomStyles from "../room.module.css";
@@ -357,6 +358,22 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
                 dispatchCamera={dispatchCamera}
                 renderSeatField={(fieldProps) => <SeatField {...fieldProps} />}
                 teamNames={teamNames}
+                hub={centered ? null : (
+                  <PhaseHub
+                    variant="table"
+                    phase={engine.phase}
+                    battleStep={battleStep}
+                    turn={engine.turn}
+                    turnSeat={engine.turnSeat}
+                    mySeat={viewerSeat}
+                    playerName={nameOf}
+                    tone={engine.turnSeat != null ? toneOf(engine.turnSeat) : null}
+                    actionOptions={promptMine ? actionOptions : []}
+                    canAct={canAct}
+                    onChoose={(id) => controller.onAnswer({ choice: id })}
+                    reducedMotion={controller.reducedMotion}
+                  />
+                )}
                 fx={<TagFx controller={controller} preferences={preferences} fxActive={fxActive} passedSeats={passes} />}
                 promptCenter={
                   <RowPreviewBoundary row={rowPreview} enabled={hud}>
@@ -431,9 +448,10 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
       </div>
 
       {hud ? (
-        <div className={hudStyles.bottom} data-testid="hud-bottom" data-tag-track>
+        <div className={`${hudStyles.bottom} ${styles.tagBottom}`} data-testid="hud-bottom" data-tag-track>
           <StationTrack
             {...trackProps}
+            phases="hub"
             clock={null}
             attackLock={attackLockAt("tag", engine.seats.length || 4, engine.turn, prompt)}
             attackLockTestId="tag-attack-lock"
