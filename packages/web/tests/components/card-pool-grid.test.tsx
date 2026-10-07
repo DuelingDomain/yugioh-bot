@@ -121,11 +121,22 @@ describe("CardPoolGrid", () => {
     expect(within(placeholder.closest("[data-testid='card-pool-grid-unknown']") as HTMLElement).getByText(/not in catalog/i)).toBeTruthy();
   });
 
-  it("opens the preview popup on focus", () => {
+  it("does not open a popup on mouse hover or focus", () => {
     render(<CardPoolGrid cards={cards} />);
-    fireEvent.focus(screen.getByRole("button", { name: /preview mirror force/i }));
-    // CardHoverPopup renders the card name as a heading
-    expect(screen.getAllByText("Mirror Force").length).toBeGreaterThan(1);
+    const tile = screen.getByRole("button", { name: /preview mirror force/i });
+    fireEvent.mouseEnter(tile);
+    fireEvent.mouseOver(tile);
+    fireEvent.focus(tile);
+    expect(screen.queryByTestId("card-hover-popup")).toBeNull();
+    expect(screen.getAllByText("Mirror Force")).toHaveLength(1);
+  });
+
+  it("does not open a popup on hover in the sheet variant", () => {
+    render(<CardPoolGrid cards={cards} variant="sheet" />);
+    const tile = screen.getByRole("button", { name: /preview mirror force/i });
+    fireEvent.mouseEnter(tile);
+    fireEvent.focus(tile);
+    expect(screen.queryByTestId("card-hover-popup")).toBeNull();
   });
 
   it("opens the preview popup on click and dismisses on Escape", () => {
@@ -149,12 +160,13 @@ describe("CardPoolGrid", () => {
     expect(screen.getAllByText("Mirror Force")).toHaveLength(1);
   });
 
-  it("opens preview on hover in cube edit mode", () => {
+  it("does not open preview on hover in cube edit mode", () => {
     render(<CardPoolGrid cards={cards} cubeEditMode />);
 
     fireEvent.mouseEnter(screen.getByRole("button", { name: /preview mirror force/i }));
 
-    expect(screen.getAllByText("Mirror Force").length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByTestId("card-hover-popup")).toBeNull();
+    expect(screen.getAllByText("Mirror Force")).toHaveLength(1);
   });
 
   it("does not open preview on click in cube edit mode", () => {
@@ -474,9 +486,9 @@ describe('CardPoolGrid variant="sheet"', () => {
     expect(xs[1].classList.contains("lo")).toBe(false);
   });
 
-  it("opens the preview popup on hover through a portal outside the sheet", () => {
+  it("opens the preview popup on click through a portal outside the sheet", () => {
     const { container } = render(<CardPoolGrid cards={cards} variant="sheet" />);
-    fireEvent.mouseEnter(screen.getByRole("button", { name: /preview mirror force/i }));
+    fireEvent.click(screen.getByRole("button", { name: /preview mirror force/i }));
     const popupName = screen.getAllByText("Mirror Force").find((el) => !container.contains(el));
     expect(popupName).toBeTruthy();
     expect(popupName?.closest(".ms")?.parentElement).toBe(document.body);
