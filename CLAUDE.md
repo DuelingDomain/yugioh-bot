@@ -15,7 +15,7 @@ npm run duel:prepare
 npx tsx packages/duel-server/scripts/build-domain-core.ts
 
 # Development (run each in separate terminals)
-npm run dev:bot      # Discord bot with hot reload (DISCORD_BOT_ENABLED=1)
+# Optional shelved bot: npm run dev:bot (isolated credentials, DISCORD_BOT_ENABLED=1)
 npm run dev:worker   # Gameplay timers, set sync and image eviction
 npm run dev:ws       # WebSocket server with hot reload
 npm run dev:duel     # Private EDOPro engine host with hot reload
@@ -49,7 +49,7 @@ npx vitest run packages/bot/tests/services/drafts.test.ts
 npx vitest run packages/web/tests/cards-resolve-route.test.ts -c packages/web/vitest.config.ts
 
 # Docker (local dev with hot reload)
-docker compose up -d --build
+docker compose --env-file .env --env-file packages/web/.env.local up -d --build
 
 # Docker (production — start already built images without the override file)
 # For image updates, run the Deploy workflow on main; see docs/deployment/vm-runbook.md.
@@ -67,12 +67,12 @@ npm run commands:deploy --workspace=packages/bot  # dev (tsx)
 This is an npm workspaces + Turborepo monorepo with seven packages (see `docs/architecture.md` for the full map):
 
 - **`packages/shared`** (`@yugidraft/shared`) — The foundation. Contains the SQLite schema (`src/db/schema.ts`), shared business-logic services (drafts, cubes, matches, tournaments, players, guild settings, card catalog, duels), and WebSocket event types (`src/ws/`). All other packages depend on its built `dist`; rebuild after shared source changes before checking consumers.
-- **`packages/bot`** — Discord bot (discord.js), retained in PR 1 and shelved after cutover. Only literal `DISCORD_BOT_ENABLED=1` enables either startup or command deployment. When disabled, the long-running entrypoint logs `[bot] disabled` once and idles with only a keep-alive timer, without initializing the database, Discord client or HTTP server; SIGTERM/SIGINT exits 0 promptly. The one-off command deployment still exits 0 immediately. Compose uses `restart: unless-stopped` so enabled bots restart after a daemon or VM reboot. Handles Discord commands/interactions, signed announcements on port 4001, notification cleanup and reminders. Runs none of the four migrated schedulers.
+- **`packages/bot`** — Shelved Discord bot (discord.js), outside Compose and deploy service lists. Its Docker target, tests and typecheck remain. Only literal `DISCORD_BOT_ENABLED=1` enables startup or command deployment; disabled startup idles without DB, Discord or HTTP initialization, and command deployment exits 0. It owns none of the four migrated schedulers.
 - **`packages/ws`** — Socket.IO server for draft/tournament updates and duel invalidations/presence. Public browser port 3001 (`WS_PORT`); internal HTTP port 4002 (`WS_INTERNAL_PORT`) receives signed broadcasts from `bot`, `web`, `duel-server`, and `worker`.
-- **`packages/web`** — Next.js 16 App Router dashboard. Discord OAuth via NextAuth v5. Real-time draft UI uses Zustand (`src/lib/stores/draft-store.ts`) fed by the WebSocket connection.
+- **`packages/web`** — Next.js 16 App Router dashboard. Custom Clerk v7 email/password and Discord sign-in, invitation sign-up and password reset. Real-time draft UI uses Zustand (`src/lib/stores/draft-store.ts`) fed by the WebSocket connection.
 - **`packages/duel-server`** (`@yugidraft/duel-server`) — EDOPro engine host using `ocgcore-wasm` and engine workers. `build` compiles TypeScript; `dev` runs `tsx watch src/server.ts`; `start` runs `dist/server.js`. Only exposes private HTTP on `127.0.0.1:4003` by default (`DUEL_INTERNAL_HOST` / `DUEL_INTERNAL_PORT`). Web routes call it through `src/lib/duel-host.ts`.
 - **`packages/worker`** (`@yugidraft/worker`) — Draft expiry (1s), report approval and tournament deadline closure (60s), set metadata sync and image eviction. Exactly one worker per SQLite file; startup sweeps catch durable deadlines and SIGTERM drains in-flight work. No public port; `WORKER_HEALTH_PATH` holds its local heartbeat.
-- **`packages/e2e`** (`@yugidraft/e2e`) — Playwright duel tests on an isolated stack (web/ws/duel plus worker, 3300 port family, own SQLite file/cache/heartbeat, offline NextAuth credentials). `E2E_SLOT=0-9` gives concurrent stacks. See `packages/e2e/README.md`.
+- **`packages/e2e`** (`@yugidraft/e2e`) — Playwright duel tests on an isolated stack (web/ws/duel plus worker, 3300 port family, own SQLite file/cache/heartbeat, offline HMAC-signed E2E cookie). `E2E_SLOT=0-9` gives concurrent stacks. See `packages/e2e/README.md`.
 
 ### Duel resources and Docker
 
@@ -80,14 +80,14 @@ This is an npm workspaces + Turborepo monorepo with seven packages (see `docs/ar
 - `MULTIPLAYER_TABLES` gates Tag/FFA tables. The code default is off, but Compose defaults it to on (`1`); set it on both `duel` and `web`, and `0` closes new multi tables.
 - The multi cores and the legacy Domain core are separate builds (`build-domain-core.ts multi|multi-domain|legacy-domain`), not part of `duel:prepare` or the package TypeScript build.
 - `duel:prepare` downloads pinned card data, strings, and Lua scripts into `DUEL_DATA_DIR` (default root `data/duel-engine`). `scripts/build-domain-core.ts` in `packages/duel-server` separately builds the patched Domain Format WASM bundle with the pinned Emscripten Docker image; `DOMAIN_CORE_BUILD=local` uses a local `em++` toolchain. Neither step is part of the package's TypeScript build.
-- `Dockerfile` has `bot`, `ws`, `duel`, `web`, `worker`, and `web-dev` runtime targets. Compose mounts `./data` into bot/web/duel/worker/ws; duel startup runs `packages/duel-server/scripts/install-engine-bundle.sh` to validate the prepared bundle. The deploy workflow prepares/caches that bundle separately (`.github/workflows/deploy.yml`).
-- Compose binds duel to `0.0.0.0:4003` inside the Docker network and sets web's `DUEL_INTERNAL_URL=http://duel:4003`. On `SITE_DOMAIN` (the app), Caddy routes `/socket.io/*` to `ws:3001` and other HTTP to `web:3000`. Optional `MARKETING_DOMAIN` serves `site/public` read-only, proxies only `POST /api/waitlist`, and redirects `/login` to the app; `LEGACY_DOMAIN` redirects old paths to the app with 308. Empty extra domains use reserved `.localhost` defaults. Deploy recreates Caddy, refreshing its Caddyfile bind mount. See `docs/deployment/domain-cutover.md` for local preview and cutover. Internal ports 4001/4002/4003 are not published. The dev override adds a shared TypeScript watcher and exposes web/ws on 3000/3001.
+- `Dockerfile` has `bot`, `ws`, `duel`, `web`, `worker`, and `web-dev` runtime targets. Compose mounts `./data` into web/duel/worker/ws; duel startup runs `packages/duel-server/scripts/install-engine-bundle.sh` to validate the prepared bundle. The deploy workflow prepares/caches that bundle separately (`.github/workflows/deploy.yml`).
+- Compose binds duel to `0.0.0.0:4003` inside the Docker network and sets web's `DUEL_INTERNAL_URL=http://duel:4003`. On `SITE_DOMAIN` (the app), Caddy routes `/socket.io/*` to `ws:3001` and other HTTP to `web:3000`. Optional `MARKETING_DOMAIN` serves `site/public` read-only, proxies only `POST /api/waitlist`, and redirects `/login` to the app; `LEGACY_DOMAIN` redirects old paths to the app with 308. Empty extra domains use reserved `.localhost` defaults. Deploy recreates Caddy, refreshing its Caddyfile bind mount. See `docs/deployment/domains.md` for local preview and cutover. Internal ports 4001/4002/4003 are not published. The dev override adds a shared TypeScript watcher and exposes web/ws on 3000/3001.
 
 ### Database
 
-Single SQLite file (root `data/bot.sqlite`) shared between bot, web, WS, duel-server and worker. Every process must use the same absolute `DATABASE_PATH`; Compose sets `/app/data/bot.sqlite` explicitly. For native development, set an absolute path in your checkout before starting services. The worker also requires an absolute `CARD_IMAGE_CACHE_DIR`, shared with bot/web. `openDatabase` enables WAL, a 5000-ms busy timeout and foreign keys, then calls the idempotent `migrate(db)` in `packages/shared/src/db/schema.ts`. Identity releases migrate once offline before starting all updated consumers together; see the VM runbook for matched DB/code/env rollback.
+Single SQLite file (root `data/bot.sqlite`) shared between web, WS, duel-server and worker (and an explicitly run shelved bot). Every process must use the same absolute `DATABASE_PATH`; Compose sets `/app/data/bot.sqlite` explicitly. For native development, set an absolute path in your checkout before starting services. The worker also requires an absolute `CARD_IMAGE_CACHE_DIR`, shared with web. `openDatabase` enables WAL, a 5000-ms busy timeout and foreign keys, then calls the idempotent `migrate(db)` in `packages/shared/src/db/schema.ts`. Identity releases migrate once offline before starting all updated consumers together; see the VM runbook for matched DB/code/env rollback.
 
-`users.id` is application identity. `players.user_id` links a user to an unchanged gameplay player ID in a guild. Owners/creators store integer user IDs; `session.user.id` is their canonical decimal string. `session.user.discordUserId` supplies Discord membership/admin checks, mentions and DMs. NextAuth remains the sign-in provider, recording lowercased Discord email with verification only from the provider's explicit verified flag. Existing JWTs resolve through their Discord ID. Draft room tokens use the v2 application-ID domain; duel tokens still use player IDs.
+`users.id` is application identity. `players.user_id` links it to an unchanged gameplay player ID in the configured community. Owners/creators store integer user IDs; `session.user.id` is their canonical decimal string. Clerk sessions resolve through `session-identity.ts` to `users`, fetching the Backend API only for missing/stale (>5 minutes) or forced sync. Verified Discord linking runs transactionally and preserves gameplay history; email-only members work without Discord membership checks. `session.user.discordUserId` is nullable. Draft room tokens use application IDs; duel tokens still use player IDs.
 
 ### Service pattern
 
@@ -101,21 +101,30 @@ The bot wraps all discord.js interactions into framework-agnostic `*Like` types 
 
 - Internal HTTP uses `httpTransport` in `packages/shared/src/notify/signed-post.ts`: HMAC-SHA256 over the exact serialized JSON body, sent as `x-announce-signature: sha256=<hex>`. Receivers verify the raw body with the matching secret before parsing JSON.
 - **Bot/web/duel-server/worker → ws**: `createBroadcaster` posts draft/tournament events to `/internal/draft/*` and `/internal/tournament/*`; duel invalidations use `/internal/duel/changed`. Uses `WS_INTERNAL_URL` / `WS_INTERNAL_SECRET` on port 4002 (`packages/ws/src/internal-http.ts`).
-- **Web/worker → bot**: `packages/web/src/lib/notify.ts` creates the announcer; `/internal/announce/*` triggers Discord messages and duel invites; worker forwards draft status/completion and tournament effects after committed state is published to WS. Uses `BOT_ANNOUNCE_URL` / `BOT_ANNOUNCE_SECRET` on port 4001 (`BOT_ANNOUNCE_PORT`, `packages/bot/src/announce/server.ts`).
+- **Discord effects**: Compose fixes `DISCORD_BOT_ENABLED=0` on web and worker. Mutations commit and publish WS updates without bot HTTP or Discord REST. `/api/discord/channels` and `/api/tournaments/[slug]/announce` return 404 `{ "error": "discord_disabled" }`. Discord capability reaches UI through server-rendered props.
+
 - **Web → duel-server**: `packages/web/src/lib/duel-host.ts` posts operations to `/internal/duel` with `DUEL_INTERNAL_URL` / `DUEL_INTERNAL_SECRET` on port 4003. URL defaults to `http://127.0.0.1:4003`; Compose uses `http://duel:4003`. Browsers use authenticated web API routes.
 - **Browser → ws**: Socket.IO connects to `NEXT_PUBLIC_WS_URL` (falls back to the page origin). Draft/tournament joins use slugs. Duel joins require a 5-minute token from `/api/duels/[slug]/connection`, signed with `WS_INTERNAL_SECRET` over JSON claims (`slug`, `guildId`, `playerId`, `seat`, `expiresAt`); ws verifies it in `src/duel-events.ts`. See `packages/shared/src/ws/duel-token.ts`.
 
 ### Web access model
 
-- `packages/web/proxy.ts` runs NextAuth on every route except Next static/image assets and the favicon. `src/lib/auth.ts` allows login/auth endpoints, the exact `/api/waitlist` path, icons, and the enabled FX lab; protected pages and APIs require Discord sign-in and membership in `DISCORD_GUILD_ID`, checked with `DISCORD_TOKEN`.
-- `src/lib/discord-web-access.ts` is the shared entry point for member/admin checks, used by sign-in, proxy, and route guards. E2E/test login providers must go through it too. Duel guards in `src/lib/duel-host.ts` also use `requireWebAccess`. Membership/admin decisions cache for 60 seconds with in-flight deduplication and a 5-second request timeout; failures back off for at least 10 seconds and honor Discord's 429 retry deadline. APIs return 401 for no session, 403 for denied access, 503 when verification is unavailable.
-- Admin = guild owner or a member with Manage Server / Administrator. Season start/end and settings writes require admin; cubes are editable by their owner or admin. Every server-data read is scoped to the configured guild, including slug/id lookups and linked resources.
-- `/dev/fx-lab`, `/dev/table-preview`, `/dev/solid-preview` and their card-image routes are public with `DUEL_FX_LAB=1` or in `next dev`; the lab returns 404 otherwise (`src/lib/fx-lab.ts`).
-- Draft lobby test bots (Add bot button, `POST /api/drafts/[slug]/join-bot`, host only) are off in production unless the web server has `DRAFT_TEST_BOTS=1`; any non-production build allows them. The draft API returns `botsEnabled` so the page never reads the env (`src/lib/draft-test-bots.ts`). Bots pick through the pick route (they auto-pick after each human pick) and through pick-deadline expiry.
+- `packages/web/proxy.ts` uses `clerkMiddleware`; one server resolver maps sessions to `users.id`. Protected APIs return 401 JSON without a session; pages redirect to `/sign-in?redirect_url=...`. Sync failure returns 503. `auth()` and `requireWebAccess()` retain their session/guard shapes.
+- Public paths: `/sign-in(.*)`, `/sign-up(.*)`, `/sso-callback(.*)`, `/access`, legacy `/login` redirect, static assets/icons, exact `POST /api/waitlist` and `GET /api/auth/session`. `/api/waitlistx` stays protected. Existing FX-lab paths are public only when enabled. Anonymous session GET returns 200 `null`.
+- There is no web/shared admin role or Discord membership gate. Creators manage drafts, tournaments and cubes; seat, participant, invite-grant and saved-deck ownership checks still apply. All reads remain scoped to `DISCORD_GUILD_ID`. Season writes use the VM owner CLI only.
+- `/settings` redirects to `/settings/account`, the sole `<UserProfile/>` page. Focus/return calls `/api/account/refresh` for forced sync. Two accounts with history are not automatically merged; the owner handles conflicts.
+- Isolated E2E uses a one-hour HMAC-signed `dd_e2e_session` HttpOnly/SameSite cookie for seeded `users.id`. Only literal `E2E_AUTH=1` plus `E2E_AUTH_SECRET` of at least 32 characters enables `/api/test-auth/session` and `/api/test-auth/sign-out`; both 404 when disabled. Test mode skips Clerk middleware/provider initialization and shows offline account controls. Production/staging Compose forward neither E2E gate nor secret.
+- Legal links are `https://duelingdomain.com/privacy` and `https://duelingdomain.com/terms`; the app has no legal pages/public exceptions. Contact: `support@duelingdomain.com`.
+- `/dev/fx-lab`, `/dev/table-preview`, `/dev/solid-preview` and their card-image routes are public with `DUEL_FX_LAB=1` or in `next dev`; otherwise 404. Draft test bots require `DRAFT_TEST_BOTS=1` in production (allowed in non-production); APIs provide the UI capability.
+
+### Env and owner operations
+
+`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` is a web build arg (production repository variable). `CLERK_SECRET_KEY` is web runtime only; never supply it to a build. Dev keys live in ignored `packages/web/.env.local` and never reach staging/production. Staging has a separate instance/source. Web uses an explicit Compose environment list, never a broad env file. `WEB_URL` is required for WS CORS and app links; no NextAuth fallback exists. `MARKETING_URL` supplies external waitlist links.
+
+Owner tools ship in the worker image: `node packages/worker/dist/ops/cli.js season|merge-users|clerk-precreate-users|clerk-reconcile-waitlist`. Dry-run is default; `--apply` writes, `--report` chooses a private 0600 report. Pass Clerk secret explicitly for import/reconcile: `docker compose -f docker-compose.yml run --rm --no-deps -e CLERK_SECRET_KEY worker node packages/worker/dist/ops/cli.js ...`. Stop writers and revoke source Clerk sessions before merge apply. See the VM runbook for commands and rollback.
 
 ### Draft flow
 
-Drafts are started from either Discord or the web dashboard. The worker's draft timer (`packages/worker/src/draft-timer.ts`) polls active drafts every second and expires pick steps past their deadline, then notifies the ws server. The ws server broadcasts to all browser clients in the draft's Socket.IO room.
+Drafts are started from the web dashboard; the shelved bot retains its command implementation. The worker's draft timer (`packages/worker/src/draft-timer.ts`) polls active drafts every second and expires pick steps past their deadline, then notifies the ws server. The ws server broadcasts to all browser clients in the draft's Socket.IO room.
 
 ### Cubes and theme draft mode
 

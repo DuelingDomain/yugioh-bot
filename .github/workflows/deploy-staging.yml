@@ -10,7 +10,7 @@ on:
       ref:
         description: "Git branch to run in staging"
         required: true
-        default: n-player-ui-implementation
+        default: main
         type: string
       refresh_db:
         description: "Copy the production database again (staging games and sign-ins are lost)"
@@ -52,11 +52,14 @@ jobs:
       STAGING_DOMAIN: ${{ vars.STAGING_DOMAIN }}
       STAGING_HOST: ${{ vars.STAGING_HOST || secrets.VM_HOST }}
       STAGING_HTTP_PORT: ${{ vars.STAGING_HTTP_PORT }}
+      # Path only; staging Clerk secrets never travel through Actions or SSH.
+      STAGING_CLERK_ENV: ${{ vars.STAGING_CLERK_ENV || '/etc/yugidraft/staging-clerk.env' }}
 
     steps:
       - name: Check inputs and secrets
         run: |
           set -eu
+          printf '%s' "$STAGING_CLERK_ENV" | grep -Eq '^/[A-Za-z0-9_./-]+$' || { echo "Invalid STAGING_CLERK_ENV path" >&2; exit 1; }
           if [ -z "$VM_HOST" ] || [ -z "$VM_USER" ] || [ -z "$VM_SSH_PRIVATE_KEY" ]; then
             echo "The VM secrets (VM_HOST, VM_USER, VM_SSH_PRIVATE_KEY) are not set." >&2
             exit 1
@@ -224,5 +227,5 @@ jobs:
             scp -i ~/.ssh/vm_deploy_key -P "$VM_PORT" "$bundle_tar" "$VM_USER@$VM_HOST:$remote_bundle"
           fi
           ssh -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
-            "env STAGING_ACTION='$INPUT_ACTION' STAGING_REF='$INPUT_REF' STAGING_COMMIT='$DEPLOY_COMMIT' STAGING_REFRESH_DB='$INPUT_REFRESH_DB' STAGING_HOST='$STAGING_HOST' STAGING_DOMAIN='$STAGING_DOMAIN' STAGING_HTTP_PORT='$STAGING_HTTP_PORT' STAGING_BUNDLE='$remote_bundle' sh -s" \
+            "env STAGING_ACTION='$INPUT_ACTION' STAGING_REF='$INPUT_REF' STAGING_COMMIT='$DEPLOY_COMMIT' STAGING_REFRESH_DB='$INPUT_REFRESH_DB' STAGING_HOST='$STAGING_HOST' STAGING_DOMAIN='$STAGING_DOMAIN' STAGING_HTTP_PORT='$STAGING_HTTP_PORT' STAGING_BUNDLE='$remote_bundle' STAGING_CLERK_ENV='$STAGING_CLERK_ENV' sh -s" \
             < scripts/staging/remote-deploy.sh
