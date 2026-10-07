@@ -50,7 +50,7 @@ The application styles live in `packages/web/src/components/auth/sign-in-shell.m
 | `base.css` `.banner` | Same module rules for bad notices. The added `[data-tone="info"]` variant uses neutral surface, border and text tokens. `.code` retains the diagnostic label and small text line. |
 | `base.css` `.spinner`, `dd-spin` | Same module rules for the existing Discord pending state. |
 | `base.css` `.foot-links`, `.legal` | Same module rules, rendered by `SignInStep` and `SignInFootLinks`; marketing links are conditional. |
-| `base.css` fields, reveal, hints, field errors, locked inputs, generic links, dividers, identifier row, consent, CAPTCHA, OTP, resend, signing row, note box, screen-reader utility | Not ported: these belong to later email-auth steps. The Discord access panel has no email note box. |
+| `base.css` fields, reveal, hints, field errors, locked inputs, generic links, dividers, identifier row, consent, CAPTCHA, OTP, resend, signing row, note box, screen-reader utility | Ported for the step cards (PR 2, Task 3a). Field parts (`.field`, `.input-wrap`, `.reveal`, `.hint`, `.ferr`, locked input, `.idrow`, `.check`, `.captcha-slot`, `.otp`, `.resend`, `.signing`, `.note-box`) are in `steps.module.css`, rendered by `fields.tsx`. Generic `.sr`, `.link`, `.alt-links` and `.or` are in `sign-in-shell.module.css` next to the buttons. The framed CAPTCHA placeholder is preview-only; the live mount is an empty `#clerk-captcha` that Clerk fills. |
 | `base.css` mock strip and non-shot body padding | Not ported: workshop controls only. |
 | `base.css` reduced motion | Scoped blanket animation/transition stop at the end of the module, plus the static spinner. |
 | `pack.css` clip polygons, entry, bob, tilt layers, perspective, pack sizing/shadow | Same module rules. The client `PackTilt` supplies only pointer input; the pack markup remains server-rendered. |
@@ -61,7 +61,7 @@ The application styles live in `packages/web/src/components/auth/sign-in-shell.m
 | `a/style.css` wrap, nav, lockup, chip/pulse, back link | Same module rules and inline SVG geometry; the unset marketing URL produces an unlinked lockup. |
 | `a/style.css` grid, form column, step entrance, eyebrow, title/emphasis, lede, form/footer rhythm, alternate-button surface | Same module rules, consumed by `SignInShell`, `SignInStep` and `SignInErrorPanel`. |
 | `a/style.css` stage, hint, error shadow, success bob stop, final ray mask | Same module rules. Document-wide state selectors become shell `data-tone` and `data-pack-state` selectors. Open state swaps `.t1`/`.t2` and hides the hint icon. |
-| `a/style.css` signing tremble/charge and `.done-*` success content | Not ported: later auth-step content/motion. The required open-pack frame is included separately. |
+| `a/style.css` signing tremble/charge and `.done-*` success content | `.done-*` ported to `sign-in-shell.module.css` (used by `SuccessStep`); `packState="open"` plays the pack tear, burst, rays and card fan. Signing tremble/charge is not ported. |
 | `a/style.css` both 900px media blocks | Same module rules, including the final 22px stage margin and 64px page padding correction. |
 | `a/style.css` reduced-motion settled frame | Same module rules; pointer transforms are also reset when motion is reduced. |
 

@@ -47,7 +47,18 @@
 .banner[data-tone="info"] { border-color: var(--border); background: rgba(30, 36, 64, .8); color: var(--text); }
 .banner[data-tone="info"] svg { color: var(--text-3); }
 .code { display: block; margin-top: 4px; color: var(--text-3); font: 400 12.5px/1.3 var(--body); }
-.btn:disabled { cursor: wait; }
+.btn:disabled { cursor: wait; opacity: .72; }
+
+/* Email-auth additions ported from base.css: generic parts shared by the step cards (field parts live in steps.module.css). */
+.sr { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; padding: 0; }
+.link { padding: 8px 2px; min-height: 36px; border: 0; background: none; cursor: pointer; color: var(--purple-hi); font-size: 15px; font-weight: 500; text-decoration: underline; text-decoration-color: rgba(167, 139, 250, .5); text-underline-offset: 4px; }
+.link:hover { text-decoration-color: currentColor; }
+.link:disabled { cursor: wait; opacity: .6; }
+.alt-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px 18px; }
+.or { display: flex; align-items: center; gap: 14px; font-size: 13px; letter-spacing: .22em; text-transform: uppercase; color: var(--text-2); margin: 2px 0; }
+.or::before, .or::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, transparent, var(--border)); }
+.or::after { background: linear-gradient(270deg, transparent, var(--border)); }
+.foot-links .legal a + a { margin-left: 14px; }
 
 /* The brand pack, copied from the marketing site's style.css so the sign-in matches it. */
 .a-page {
@@ -211,6 +222,13 @@
 .pk-rays { -webkit-mask-image: linear-gradient(0deg, #000 10%, transparent 90%), radial-gradient(ellipse 50% 100% at 50% 100%, #000 40%, transparent 100%); -webkit-mask-composite: source-in; mask-image: linear-gradient(0deg, #000 10%, transparent 90%), radial-gradient(ellipse 50% 100% at 50% 100%, #000 40%, transparent 100%); mask-composite: intersect; }
 .a-page[data-pack-state="open"] .pack-hint i { display: none; }
 @media (max-width: 900px) { .a-stage { margin-top: 22px; } .a-page { padding-top: 64px; } }
+
+/* a/style.css success frame content. The pack itself is opened by packState="open" (tear, burst, rays, card fan). */
+.done-row { display: flex; align-items: center; gap: 16px; padding: 16px 18px; border-radius: 14px; background: linear-gradient(135deg, rgba(124, 58, 237, .16), rgba(20, 25, 41, .9) 55%); border: 1px solid rgba(201, 164, 92, .5); box-shadow: 0 0 40px -10px rgba(245, 158, 11, .25); }
+.done-gem { flex: none; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: radial-gradient(circle at 35% 30%, #F8E3A6, #C98A1B); color: #1b1203; }
+.done-gem svg { width: 22px; height: 22px; }
+.done-t { font-family: var(--display); font-size: 20px; line-height: 1.15; }
+.done-s { font-size: 15px; color: #BCC4DA; }
 
 /* base.css: stop every animation and transition, including application-wide defaults. */
 @media (prefers-reduced-motion: reduce) {
