@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "../../src/db/index.js";
 import { createDuelService } from "../../src/services/duels.js";
 import type { DuelFormat } from "../../src/duels/index.js";
+import { seedIdentity, seedUser } from "../helpers/identity.js";
 
 const databases: Database.Database[] = [];
 afterEach(() => databases.splice(0).forEach((db) => db.close()));
@@ -13,9 +14,9 @@ function table(format: DuelFormat = "ffa4", values = [3, 1, 6, 4], botSeat?: num
   databases.push(db);
   migrate(db);
   const count = format === "ffa3" ? 3 : 4;
-  const players = Array.from({ length: count + 1 }, (_, i) => Number(db.prepare(
-    "insert into players (guild_id, discord_user_id, display_name) values ('g', ?, ?)",
-  ).run(`u${i}`, `Player ${i}`).lastInsertRowid));
+  const players = Array.from({ length: count + 1 }, (_, i) => seedIdentity(db, {
+    guildId: "g", name: `Player ${i}`, ...seedUser(db, `u${i}`),
+  }).playerId);
   const rollDie = vi.fn(() => values.shift()!);
   const duels = createDuelService(db, { rollDie });
   const session = duels.create({ guildId: "g", organizerPlayerId: players[0]!, name: "Dice", mode: "normal", format });

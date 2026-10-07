@@ -50,11 +50,11 @@ const COPY_LIMIT = 3;
 const fmt = (n: number) => n.toLocaleString("en-US");
 
 export interface CreateDraftFormProps {
-  /** The Discord bot is on. The server reads the flag; the form never reads the environment. When false there is no channel picker. Default on. */
+  /** The Discord bot is on. The server reads the flag; the form never reads the environment. When false there is no channel picker. Default off. */
   discordEnabled?: boolean;
 }
 
-export function CreateDraftForm({ discordEnabled = true }: CreateDraftFormProps = {}) {
+export function CreateDraftForm({ discordEnabled = false }: CreateDraftFormProps = {}) {
   const router = useRouter();
   const pool = usePoolEditor({ variant: "create" });
   const mode = useWorkbenchMode();

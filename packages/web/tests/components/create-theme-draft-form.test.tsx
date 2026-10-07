@@ -15,7 +15,7 @@ describe("CreateThemeDraftForm", () => {
 
   it("offers player picking and random selection without host assignment", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ channels: [{ id: "channel-1", name: "drafts" }] })));
-    render(<CreateThemeDraftForm />);
+    render(<CreateThemeDraftForm discordEnabled />);
 
     await screen.findByRole("option", { name: "#drafts" });
     expect(screen.getByLabelText(/draft name/i)).toHaveAttribute("placeholder", "Theme night");
@@ -153,5 +153,14 @@ describe("CreateThemeDraftForm", () => {
       name: "Theme Night",
       config: { mode: "theme", themeSelection },
     });
+  });
+
+  it("hides the channel picker and skips the channels request when Discord is off", () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL) => Response.json({ channels: [{ id: "channel-1", name: "drafts" }] }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<CreateThemeDraftForm />);
+    expect(screen.queryByRole("combobox")).toBeNull();
+    expect(screen.queryByText(/discord/i)).toBeNull();
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes("discord"))).toBe(false);
   });
 });

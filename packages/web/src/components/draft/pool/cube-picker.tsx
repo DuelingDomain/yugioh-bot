@@ -9,7 +9,7 @@ import styles from "./pool.module.css";
 
 interface CubePickerProps {
   cubes: CubeOption[];
-  userId: string | null;
+  userId: number | null;
   selectedId: number | null;
   /** Picking another cube drops the edits made for this draft. */
   hasEdits: boolean;

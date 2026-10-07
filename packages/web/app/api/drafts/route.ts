@@ -1,7 +1,7 @@
 import { withCardFetchErrors } from "@/lib/card-fetch-errors";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
 import { normalizeBoosterDraftNumbers } from "@/lib/booster-draft-validation";
 import { cubeReferenceAccess } from "@/lib/cube-access";
 import { env } from "@/lib/env";
@@ -13,23 +13,20 @@ import { announcer } from "@/lib/notify";
 import { toUtcIso } from "@/lib/utils";
 import { ensureCatalogCards, sanitizePoolSource } from "@/lib/cube-pool";
 import { hostThemeAssignmentError } from "@/lib/theme-draft-validation";
-import { draftDiscordEnabled } from "@/lib/draft-lobby-api";
 
 export const runtime = "nodejs";
 
 export async function GET() {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const actor = await requireWebAccess();
+    if (!actor.ok) return actor.response;
 
-    const discordUserId = session.user.id;
+    const userId = actor.userId;
     const db = getDb();
 
     const playerRows = db
-      .prepare("select id from players where discord_user_id = ? and guild_id = ?")
-      .all(discordUserId, env.discordGuildId) as Array<{ id: number }>;
+      .prepare("select id from players where user_id = ? and guild_id = ?")
+      .all(userId, env.discordGuildId) as Array<{ id: number }>;
 
     const playerIds = playerRows.map((r) => r.id);
 
@@ -110,10 +107,8 @@ export async function GET() {
 }
 
 async function handlePOST(request: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const actor = await requireWebAccess();
+  if (!actor.ok) return actor.response;
 
   const body = await readLobbyBody(request);
   const { name, channelId, config: rawConfig } = body as {
@@ -121,7 +116,7 @@ async function handlePOST(request: NextRequest) {
     channelId?: string;
     config: DraftConfig;
   };
-  const discordEnabled = draftDiscordEnabled();
+  const discordEnabled = env.discordBotEnabled;
 
   if (typeof name !== "string" || !name.trim() || !rawConfig || typeof rawConfig !== "object" || Array.isArray(rawConfig)
     || (discordEnabled && channelId !== undefined && typeof channelId !== "string")) {
@@ -133,8 +128,8 @@ async function handlePOST(request: NextRequest) {
     return NextResponse.json({ error: "lobbySeats must be an integer from 2 to 8", code: "INVALID_LOBBY_SEATS" }, { status: 400 });
   }
   const guildId = env.discordGuildId;
-  // The non-null channel column accepts an empty value for browser-only drafts.
-  const resolvedChannelId = discordEnabled ? channelId || env.discordDefaultChannelId : "";
+  // Browser-only drafts have no Discord channel.
+  const resolvedChannelId = discordEnabled ? channelId || env.discordDefaultChannelId : null;
 
   if (!guildId || (discordEnabled && !resolvedChannelId)) {
     return NextResponse.json(
@@ -159,7 +154,7 @@ async function handlePOST(request: NextRequest) {
       return NextResponse.json({ error: "name is required" }, { status: 400 });
     }
     const players = createPlayerService(db);
-    const player = players.findOrCreate(guildId, session.user.id, session.user.name ?? "Unknown");
+    const player = players.findOrCreate(guildId, actor.userId, actor.userName);
     const assignmentError = hostThemeAssignmentError(db, guildId, config, [player.id]);
     if (assignmentError) {
       return NextResponse.json({ error: assignmentError }, { status: 400 });
@@ -170,11 +165,11 @@ async function handlePOST(request: NextRequest) {
       resolvedChannelId,
       name,
       { ...config, allowedCubeIds: config.allowedCubeIds ?? [] },
-      session.user.id,
+      actor.userId,
       player.id,
     );
 
-    if (discordEnabled) {
+    if (discordEnabled && draft.channelId) {
       void announcer.announce({
         kind: "draft-created",
         draftId: draft.id,
@@ -200,7 +195,7 @@ async function handlePOST(request: NextRequest) {
   if (numberError) return NextResponse.json({ error: numberError }, { status: 400 });
 
   const players = createPlayerService(db);
-  const player = players.findOrCreate(guildId, session.user.id, session.user.name ?? "Unknown");
+  const player = players.findOrCreate(guildId, actor.userId, actor.userName);
   const drafts = createDraftService(db);
 
   const cards = createCardCatalogService(db);
@@ -236,11 +231,11 @@ async function handlePOST(request: NextRequest) {
     resolvedChannelId,
     name,
     configWithPool,
-    session.user.id,
+    actor.userId,
     player.id,
   );
 
-  if (discordEnabled) {
+  if (discordEnabled && draft.channelId) {
     void announcer.announce(
       {
         kind: "draft-created",

@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "../helpers/identity.js";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
 import { migrate } from "../../src/db/index.js";
@@ -20,14 +21,15 @@ function setup(config: DraftConfig = {}, playerCount = 2) {
   const extra = Array.from({ length: 64 }, (_, i) => i + 1001);
   for (const id of main) insert.run(id, `Main ${id}`, "Effect Monster", "effect");
   for (const [i, id] of extra.entries()) insert.run(id, `Extra ${id}`, ["Fusion Monster", "Synchro Monster", "XYZ Monster", "Link Monster"][i % 4], ["fusion", "synchro", "xyz", "link"][i % 4]);
-  const players = Array.from({ length: playerCount }, (_, i) => Number(db.prepare(
-    "insert into players (guild_id, discord_user_id, display_name) values ('g', ?, ?)"
-  ).run(i ? `bot_player_dev_${i}` : "host", `Seat ${i}`).lastInsertRowid));
+  const host = seedUser(db, "host");
+  const players = Array.from({ length: playerCount }, (_, i) => seedIdentity(db, {
+    guildId: "g", name: `Seat ${i}`, ...(i === 0 ? { userId: host.userId, discordUserId: host.discordUserId } : {}),
+  }).playerId);
   let drafts = createDraftService(db, { seedSource: () => 7 });
   const draft = drafts.create("g", "c", "Cube extra", {
     customCardIds: main.slice(0, 16), packSize: 3, packsPerPlayer: 2, cardsPerPlayer: 6,
     pickSeconds: 30, customExtraCardIds: extra.slice(0, 8), ...config,
-  }, "host", players[0]);
+  }, host.userId, players[0]);
   for (const id of players.slice(1)) drafts.join(draft.id, id);
   const reload = () => { drafts = createDraftService(db, { seedSource: () => 7 }); return drafts; };
   return { db, drafts, draft, players, main, extra, reload };
@@ -102,7 +104,7 @@ describe("normal cube Extra Deck packs", () => {
   it("flattens saved cube extra copies into the normal config without counting them in main", () => {
     const ctx = setup();
     const cubes = createCubeService(ctx.db, createCardCatalogService(ctx.db));
-    const cube = cubes.createBlank("g", "Saved", "host");
+    const cube = cubes.createBlank("g", "Saved", seedUser(ctx.db, "host").userId);
     cubes.addCard(cube.id, 1, "main", 3);
     cubes.addCard(cube.id, 1001, "extra", 2);
     const config = cubes.applyCubeToConfig(cube.id);
@@ -114,7 +116,7 @@ describe("normal cube Extra Deck packs", () => {
   it("lets an explicit empty extra snapshot override a source cube", () => {
     const ctx = setup({ extraDeckEnabled: true, extraDeckSize: 2, customExtraCardIds: [] });
     const cubes = createCubeService(ctx.db, createCardCatalogService(ctx.db));
-    const cube = cubes.createBlank("g", "Saved", "host");
+    const cube = cubes.createBlank("g", "Saved", seedUser(ctx.db, "host").userId);
     cubes.addCard(cube.id, 1001, "extra", 4);
     const config = { ...ctx.draft.config, poolSource: { cubeId: cube.id, cubeName: cube.name } };
     expect(ctx.drafts.resolveExtraCardIds(config, "g")).toEqual([]);
@@ -136,7 +138,7 @@ describe("normal cube Extra Deck packs", () => {
   it("uses the source cube's authored extra copies and scopes it to the guild", () => {
     const ctx = setup({ extraDeckEnabled: true, extraDeckSize: 2, customExtraCardIds: undefined });
     const cubes = createCubeService(ctx.db, createCardCatalogService(ctx.db));
-    const cube = cubes.createBlank("g", "Source", "host");
+    const cube = cubes.createBlank("g", "Source", seedUser(ctx.db, "host").userId);
     cubes.addCard(cube.id, 1001, "extra", 2);
     cubes.addCard(cube.id, 1002, "extra", 2);
     const cfg = { ...ctx.draft.config, poolSource: { cubeId: cube.id, cubeName: cube.name } };

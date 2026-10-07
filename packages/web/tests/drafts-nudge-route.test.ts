@@ -1,18 +1,21 @@
+import { fixtureUserId, seedFixtureUsers } from "./fixtures/identity";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "../../shared/src/db/schema";
 
-const { auth, database, checkDiscordWebAccess, announce, read, createDraftLobbyService } = vi.hoisted(() => ({
+const { auth, database, announce, read, createDraftLobbyService } = vi.hoisted(() => ({
   auth: vi.fn(), database: { current: null as Database.Database | null },
-  checkDiscordWebAccess: vi.fn(), announce: vi.fn(), read: vi.fn(), createDraftLobbyService: vi.fn(),
+  announce: vi.fn(), read: vi.fn(), createDraftLobbyService: vi.fn(),
 }));
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/db", () => ({ getDb: () => database.current! }));
-vi.mock("@/lib/env", () => ({ env: { discordGuildId: "guild-1" } }));
-vi.mock("@/lib/discord-web-access", () => ({ checkDiscordWebAccess, webAccessError: () => "Membership unavailable" }));
+vi.mock("@/lib/env", () => ({ env: { discordGuildId: "guild-1", get discordBotEnabled() { return process.env.DISCORD_BOT_ENABLED === "1"; } } }));
 vi.mock("@/lib/notify", () => ({ announcer: { announce } }));
 vi.mock("@yugidraft/shared/services", () => ({
-  isTestBotDiscordId: (id: string) => id.startsWith("bot_player_dev_"), createDraftLobbyService,
+  isTestBotDiscordId: (id: string | null) => id?.startsWith("bot_player_dev_") ?? false, createDraftLobbyService,
 }));
 vi.mock("@yugidraft/shared/types", () => import("../../shared/src/types/index"));
 
@@ -33,14 +36,15 @@ describe("draft Nudge route", () => {
     vi.setSystemTime(new Date("2026-10-07T15:00:00Z"));
     database.current = new Database(":memory:");
     migrate(database.current);
+    seedFixtureUsers(database.current, ["host", "outsider"]);
     database.current.prepare(`insert into drafts (id, guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug)
-      values (1, 'guild-1', 'stored-channel', 'Night', 'pending', 'host', '{}', 'night')`).run();
+      values (1, 'guild-1', 'stored-channel', 'Night', 'pending', ${fixtureUserId("host")}, '{}', 'night')`).run();
     for (const [id, user] of [[1, "123456789012345678"], [2, "234567890123456789"], [3, "bot_player_dev_1"], [4, "not-a-snowflake"]] as const) {
-      database.current.prepare("insert into players (id, guild_id, discord_user_id, display_name) values (?, 'guild-1', ?, 'Player')").run(id, user);
+      database.current.prepare("insert into users (id, username, display_name, discord_user_id) values (?, ?, 'Player', ?)").run(100 + id, `member${id}`, id === 3 ? null : user);
+      database.current.prepare("insert into players (id, guild_id, user_id, discord_user_id, display_name) values (?, 'guild-1', ?, ?, 'Player')").run(id, 100 + id, user);
       database.current.prepare("insert into draft_players (draft_id, player_id, seat_index) values (1, ?, ?)").run(id, id - 1);
     }
-    auth.mockResolvedValue({ user: { id: "host" } });
-    checkDiscordWebAccess.mockResolvedValue({ ok: true });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("host")) } });
     announce.mockResolvedValue({ ok: true });
     createDraftLobbyService.mockReturnValue({ read });
     read.mockReturnValue({ players: [
@@ -63,7 +67,7 @@ describe("draft Nudge route", () => {
     const services = await vi.importActual<typeof import("@yugidraft/shared/services")>("@yugidraft/shared/services");
     createDraftLobbyService.mockImplementation(services.createDraftLobbyService);
     const lobby = services.createDraftLobbyService(database.current!);
-    lobby.setReady(1, "234567890123456789", true);
+    lobby.setReady(1, 102, true);
     const revision = lobby.read(1).lobby.revision;
     read.mockClear();
     expect((await nudge()).status).toBe(200);
@@ -102,12 +106,11 @@ describe("draft Nudge route", () => {
   it("rejects malformed JSON", async () => { expect((await nudge("{", true)).status).toBe(400); });
 
   it.each([
-    ["session", 401], ["member", 403], ["membership-outage", 503], ["other-host", 403], ["cross-guild", 404], ["missing", 404], ["active", 409],
+    ["session", 401], ["session-outage", 503], ["other-host", 403], ["cross-guild", 404], ["missing", 404], ["active", 409],
   ])("enforces %s boundary", async (boundary, status) => {
     if (boundary === "session") auth.mockResolvedValue(null);
-    if (boundary === "member") checkDiscordWebAccess.mockResolvedValue({ ok: false, status: 403 });
-    if (boundary === "membership-outage") checkDiscordWebAccess.mockResolvedValue({ ok: false, status: 503 });
-    if (boundary === "other-host") auth.mockResolvedValue({ user: { id: "outsider" } });
+    if (boundary === "session-outage") auth.mockRejectedValue(new Error("Clerk unavailable"));
+    if (boundary === "other-host") auth.mockResolvedValue({ user: { id: String(fixtureUserId("outsider")) } });
     if (boundary === "cross-guild") database.current!.prepare("update drafts set guild_id = 'guild-2' where id = 1").run();
     if (boundary === "active") database.current!.prepare("update drafts set status = 'active' where id = 1").run();
     expect((await nudge({}, false, boundary === "missing" ? "absent" : "night")).status).toBe(status);

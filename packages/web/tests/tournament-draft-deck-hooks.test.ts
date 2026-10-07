@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -11,7 +12,10 @@ const callDuelHost = vi.fn();
 const backfillDraftDecks = vi.fn();
 const linkDraftDeck = vi.fn();
 const draftDeckNoteFor = vi.fn();
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/duel-host", async (importActual) => ({
   ...(await importActual<typeof import("@/lib/duel-host")>()),
   callDuelHost,
@@ -33,22 +37,22 @@ function seed(opts: { draft: boolean; registered?: boolean; pending?: boolean })
   process.env.DATABASE_PATH = join(dir, "bot.sqlite");
   const db = new Database(process.env.DATABASE_PATH);
   migrate(db);
-  const alice = Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', 'u-a', 'Alice')").run().lastInsertRowid);
+  seedFixtureUsers(db, FIXTURE_KEYS);
+  const alice = Number(db.prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('g1', ${fixtureUserId("u-a")}, '${fixtureDiscordId("u-a")}', 'Alice')`).run().lastInsertRowid);
   const tournaments = createTournamentService(db);
-  const tour = tournaments.create("g1", "Cup", "round_robin", "u-org");
+  const tour = tournaments.create("g1", "Cup", "round_robin", fixtureUserId("u-org"));
   db.prepare("update tournaments set web_slug = 'cup' where id = ?").run(tour.id);
   let draftId: number | undefined;
   if (opts.draft) {
     draftId = Number(
       db.prepare(
-        `insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug, tournament_id)
-         values ('g1', 'c', 'Cube', 'completed', 'u-org', '{}', 'cube-1', ?)`,
+        `insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug, tournament_id) values ('g1', 'c', 'Cube', 'completed', ${fixtureUserId("u-org")}, '{}', 'cube-1', ?)`,
       ).run(tour.id).lastInsertRowid,
     );
   }
   tournaments.join(tour.id, alice);
   if (!opts.pending) db.prepare("update tournaments set status = 'active' where id = ?").run(tour.id);
-  const saved = createSavedDeckService(db).create("g1", "u-a", { name: "Cube draft, 2026-10-03", mode: "normal", deck: DECK, draftId });
+  const saved = createSavedDeckService(db).create("g1", fixtureUserId("u-a"), { name: "Cube draft, 2026-10-03", mode: "normal", deck: DECK, draftId });
   if (opts.registered) {
     db.prepare("update tournament_participants set saved_deck_id = ?, deck_json = ?, deck_registered_at = '2026-10-03 10:00:00' where tournament_id = ? and player_id = ?")
       .run(saved.id, JSON.stringify(DECK), tour.id, alice);
@@ -65,7 +69,7 @@ describe("draft deck hooks in the tournament routes", () => {
     vi.resetModules();
     vi.stubEnv("DISCORD_GUILD_ID", "g1");
     for (const mock of [auth, callDuelHost, backfillDraftDecks, linkDraftDeck, draftDeckNoteFor]) mock.mockReset();
-    auth.mockResolvedValue({ user: { id: "u-a", name: "Alice" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-a")), discordUserId: fixtureDiscordId("u-a"), name: "Alice" } });
     draftDeckNoteFor.mockReturnValue(NOTE);
     callDuelHost.mockResolvedValue({ ok: false, response: new Response(null, { status: 503 }) });
   });
@@ -83,7 +87,7 @@ describe("draft deck hooks in the tournament routes", () => {
     const { GET } = await import("../app/api/tournaments/[slug]/deck/route");
     const res = await GET(get(), ctx);
     expect(res.status).toBe(200);
-    expect(backfillDraftDecks).toHaveBeenCalledWith("g1", "u-a", expect.anything());
+    expect(backfillDraftDecks).toHaveBeenCalledWith("g1", fixtureUserId("u-a"), expect.anything());
     expect(linkDraftDeck).toHaveBeenCalledWith(s.tournamentId, s.alice, expect.anything());
     const body = (await res.json()) as { deckNote: unknown; savedDeckOptions: Array<{ id: number }> };
     expect(body.savedDeckOptions).toEqual([expect.objectContaining({ id: s.savedId })]);
@@ -113,12 +117,12 @@ describe("draft deck hooks in the tournament routes", () => {
 
   it("join links the player's draft deck right after the entry is made", async () => {
     const s = seed({ draft: true, pending: true });
-    auth.mockResolvedValue({ user: { id: "u-b", name: "Bob" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-b")), discordUserId: fixtureDiscordId("u-b"), name: "Bob" } });
     const { POST } = await import("../app/api/tournaments/[slug]/join/route");
     const res = await POST(post(), ctx);
     expect(res.status).toBe(200);
     const bob = (await res.json()) as { playerId: number };
-    expect(backfillDraftDecks).toHaveBeenCalledWith("g1", "u-b", expect.anything());
+    expect(backfillDraftDecks).toHaveBeenCalledWith("g1", fixtureUserId("u-b"), expect.anything());
     expect(linkDraftDeck).toHaveBeenCalledWith(s.tournamentId, bob.playerId, expect.anything());
   });
 
@@ -140,3 +144,7 @@ describe("draft deck hooks in the tournament routes", () => {
     expect(((await res.json()) as { deckNote: unknown }).deckNote).toBeNull();
   });
 });
+
+const FIXTURE_KEYS = ["u-a", "u-org", "u-b"] as const;
+
+// Session resolution is mocked; authorization still runs through the real web boundary.

@@ -38,6 +38,18 @@
 }
 
 .topLeft { flex: 0 1 auto; padding: 0 16px; }
+/* The clock block right of the identity pill. A little taller than the other pills (big digits); the band is centred, so
+   it spans y 4 to 48 (negative block margins keep the header 36px high, so the other pills stay put) and stays above the rail (y 56), the flyout (y 56) and the card preview (y 50). The auto margins
+   keep it next to the identity pill and leave the turn strip in the free space between it and the right pill. */
+.top > .topClocks { flex: 0 1 auto; height: 44px; padding: 0 4px; border-radius: 22px; margin: -4px auto -4px 0; }
+.topClocks ~ .topMid { margin-right: auto; }
+/* Three or four clocks, or a narrower screen, leave no room for the format line beside them: the wordmark stays. */
+.topLeft:has(+ .topClocks:not([data-count="2"])) [class*="format"],
+.topLeft:has(+ .topClocks:not([data-count="2"])) i { display: none; }
+@media (max-width: 1500px) {
+  .topLeft:has(+ .topClocks) [class*="format"],
+  .topLeft:has(+ .topClocks) i { display: none; }
+}
 .topMid { position: relative; flex: 0 1 auto; padding: 0 8px; }
 
 /* "FINAL DUEL" / "LAST TWO REMAINING": it takes the place of the turn strip for a moment, then the strip returns. */
@@ -85,6 +97,16 @@
   .topRight button[aria-label^="Sound"] span { display: none; }
 }
 
+/* Three or four clocks on a narrow screen: the right pill gives up the phase name (the track shows it) and the bug label
+   so the turn order keeps its room. */
+@media (max-width: 1500px) {
+  .top:has(.topClocks:not([data-count="2"])) { gap: 6px; }
+  .top:has(.topClocks:not([data-count="2"])) .topRight { gap: 6px; }
+  .top:has(.topClocks:not([data-count="2"])) .topRight [class*="phaseName"] { display: none; }
+  .top:has(.topClocks:not([data-count="2"])) .topRight button[data-bug-header-button] span { display: none; }
+  .top:has(.topClocks:not([data-count="2"])) .topRight button { white-space: nowrap; }
+}
+
 /* The turn order sits in one row inside its pill. */
 .topMid ol { flex-wrap: nowrap; }
 .topMid li { flex: 0 1 auto; min-width: 0; background: rgb(14 23 41 / 0.7); }
@@ -111,22 +133,6 @@
   pointer-events: auto;
 }
 
-/* The seat pill is narrow: its two clocks stack, one short name and time per line, so they never run into the seat name. */
-.bottom nav [data-pill] {
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
-}
-.bottom nav [data-pill] > span {
-  gap: 8px;
-  font-size: calc(15px * var(--tt, 1));
-  line-height: 1.1;
-}
-.bottom nav [data-pill] > span small {
-  max-width: 8ch;
-  font-size: calc(12px * var(--tt, 1));
-}
-
 /* ---------- bottom-right corner (the 1v1 room and the 4-way grid): the turn controls without a full-width bar ---------- */
 /* One column at the corner, right of the board: the prompt dock (when a prompt is open) above the clocks pill and the
    actions pill. It is a column, so the dock always sits right on top of the controls, whatever height they have. Only
@@ -150,21 +156,12 @@
 .corner > nav > div {
   pointer-events: auto;
 }
-/* The clocks pill: one line per player, the name at the left and the time at the right. */
-.corner nav [data-pill] {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 2px;
-}
-.corner nav [data-pill] > span {
-  justify-content: space-between;
-  gap: 8px;
+/* The clocks moved to the top-left header block, so the seat pill of this track is empty: no empty glass bar. */
+.corner > nav > div:empty { display: none; }
+/* The turn buttons took the room the clock pill left: a little larger to hit and to read. */
+.corner > nav button {
+  min-height: 42px;
   font-size: calc(15px * var(--tt, 1));
-  line-height: 1.1;
-}
-.corner nav [data-pill] > span small {
-  max-width: 10ch;
-  font-size: calc(12px * var(--tt, 1));
 }
 
 /* ---------- icon dock ---------- */
@@ -202,16 +199,15 @@
   box-shadow: inset 0 0 0 1px rgb(155 126 255 / 0.7);
 }
 
-.dockBadge,
-.tabBadge {
+.dockBadge {
   display: grid;
   place-items: center;
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
   border-radius: 8px;
-  background: var(--duel-chain);
-  color: #1b1203;
+  background: var(--duel-pen);
+  color: #0d0a1c;
   font-size: calc(12px * var(--tt, 1));
   font-weight: 700;
   line-height: 1;
@@ -220,10 +216,8 @@
   position: absolute;
   right: -2px;
   bottom: -1px;
-  box-shadow: 0 0 10px rgb(228 182 79 / 0.6);
+  box-shadow: 0 0 10px rgb(155 126 255 / 0.6);
 }
-.dockBadge[data-kind="log"] { background: var(--duel-pen); color: #0d0a1c; box-shadow: 0 0 10px rgb(155 126 255 / 0.6); }
-.tabBadge { display: inline-grid; margin-left: 6px; vertical-align: 1px; }
 
 /* ---------- flyout ---------- */
 .flyout {
@@ -233,9 +227,12 @@
   z-index: 32;
   display: flex;
   flex-direction: column;
-  width: min(380px, calc(100% - 82px));
+  /* The old 380px grown with the room's text scale (--duel-unit), so a log row keeps room for its names as the text
+     grows: 400px at 1366x768, 502px at 1920x1080, 665px at 2560x1440. The Card pane keeps its old 380px. */
+  --fly-w: clamp(400px, calc(380 * var(--duel-unit, 1px)), 680px);
+  width: min(var(--fly-w), calc(100% - 82px));
   /* Above the Deck Master plate in the margin below, so the two never meet. */
-  max-height: max(280px, calc(100% - 330px));
+  max-height: max(280px, calc(100% - 330px - var(--chain-shift, 0px)));
   border-radius: 14px;
   background: rgb(9 15 29 / 0.97);
   box-shadow: 0 24px 60px -12px rgb(0 0 0 / 0.8);
@@ -244,8 +241,20 @@
   color: var(--duel-ink);
 }
 .flyout[hidden] { display: none; }
-/* A live chain keeps its tower in view: the flyout opens to the right of it. */
-.flyout[data-chain="true"] { left: 170px; width: min(380px, calc(100% - 184px)); }
+.flyout[data-pane="card"] { --fly-w: 380px; }
+/*
+ * A live chain keeps its tower, its strip and its response prompt in view. The flyout opens right of the tower and
+ * below the strip (the strip sits at the top of the board and is the way to every link's details, so it gets the
+ * height of one strip plus a priority row: 117px at 1366x768, 133px at 1920x1080, 150px at 2560x1440). It also ends
+ * left of the prompt buttons, which sit at about 40vw: 329px wide at 1366x768 (never under 280px, so it passes the buttons below about 1240px), the full width from 1920 up. It starts
+ * at 190px, clear of the Deck Master plate under the tower.
+ */
+.flyout[data-chain="true"] {
+  --chain-shift: calc(80px + 40 * var(--duel-unit, 1px));
+  top: calc(56px + var(--chain-shift));
+  left: 190px;
+  width: max(280px, min(var(--fly-w), calc(38vw - 190px), calc(100% - 204px)));
+}
 
 .flyTabs {
   flex: none;
@@ -292,12 +301,13 @@
 .flyPanel:not([hidden]) { flex: 1 1 auto; min-height: 0; }
 /* The log list scrolls inside a pane of fixed height, as in the side column. */
 .flyout[data-pane="log"],
-.flyout[data-pane="card"] { height: min(600px, max(280px, calc(100% - 330px))); }
+.flyout[data-pane="card"] { height: min(600px, max(280px, calc(100% - 330px - var(--chain-shift, 0px)))); }
 .flyout[data-pane="log"] .flyPanel:not([hidden]) { overflow: hidden; }
+/* The log rows read at the 12px floor the tables use, one px up from the 1v1 room. */
+.flyout[data-pane="log"] { --ft: 1; }
 .flyPanel[hidden] { display: none; }
-.empty { margin: 0; padding: 18px 16px; color: var(--duel-ink-3); font-size: var(--duel-t-body); }
 
-/* ---------- chain: tower and pane ---------- */
+/* ---------- chain tower ---------- */
 .tower {
   position: absolute;
   left: 14px;
@@ -317,23 +327,15 @@
   gap: 6px;
   width: 100%;
   margin: 0 0 6px;
-  padding: 0;
-  border: 0;
-  background: none;
   color: var(--duel-chain-ink);
-  font: inherit;
   font-size: calc(12px * var(--tt, 1));
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   text-align: left;
-  cursor: pointer;
 }
-.towerHead:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: 2px; border-radius: 4px; }
 .towerMore { margin: 4px 0 0; color: var(--duel-ink-3); font-size: calc(12px * var(--tt, 1)); }
 
-.chainPane { padding: 12px 12px 14px; }
-.chainHead { margin: 0 0 10px; color: var(--duel-chain-ink); font-size: calc(12px * var(--tt, 1)); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
 .chainList { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .chainRow { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
 .chainArt {
@@ -363,16 +365,6 @@
 .chainText { display: grid; gap: 1px; min-width: 0; font-size: calc(14px * var(--tt, 1)); line-height: 1.25; }
 .chainText b { font-weight: 600; overflow-wrap: anywhere; }
 .chainText small { color: var(--seat-ink, var(--duel-ink-3)); font-size: calc(13px * var(--tt, 1)); }
-.chainText em {
-  display: -webkit-box;
-  margin-top: 3px;
-  overflow: hidden;
-  color: var(--duel-ink-2);
-  font-style: normal;
-  font-size: calc(14px * var(--tt, 1));
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-}
 
 @media (prefers-reduced-motion: reduce) {
   .dockButton { transition: none; }

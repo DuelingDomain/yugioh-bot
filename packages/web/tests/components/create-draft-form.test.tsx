@@ -139,7 +139,7 @@ describe("CreateDraftForm: the Workbench", () => {
 
   it("names the draft from the date until a name is typed, and lists the channels with a default", async () => {
     const stub = stubFetch({ extra: { "GET /api/discord/channels": () => Response.json({ channels: [{ id: "c1", name: "drafts" }] }) } });
-    render(<CreateDraftForm />);
+    render(<CreateDraftForm discordEnabled />);
     fireEvent.click(screen.getByText("Name & channel"));
     const name = screen.getByLabelText("Draft name");
     await waitFor(() => expect(name).toHaveAttribute("placeholder", expect.stringMatching(/^Cube draft · /)));
@@ -437,7 +437,7 @@ describe("CreateDraftForm: card list imports", () => {
 describe("CreateDraftForm: Create", () => {
   it("sends the real config: target seats, explicit rounds, and the custom Main and Extra pools", async () => {
     const stub = stubFetch();
-    render(<CreateDraftForm />);
+    render(<CreateDraftForm discordEnabled />);
     await pickGoat();
     fireEvent.click(sourceTab("List"));
     paste("99 Dragon Egg");
@@ -478,7 +478,7 @@ describe("CreateDraftForm: Create", () => {
 
   it("sends the chosen channel, and the auto name when no name is typed", async () => {
     const stub = stubFetch({ extra: { "GET /api/discord/channels": () => Response.json({ channels: [{ id: "c1", name: "drafts" }] }) } });
-    render(<CreateDraftForm />);
+    render(<CreateDraftForm discordEnabled />);
     fireEvent.click(sourceTab("List"));
     paste("99 Dragon Egg");
     await screen.findByText(/^Pasted list - 99 cards/);
@@ -511,7 +511,7 @@ describe("CreateDraftForm: Create", () => {
 
   it("creates from the Ctrl+Enter shortcut, even from the name field", async () => {
     const stub = stubFetch();
-    render(<CreateDraftForm />);
+    render(<CreateDraftForm discordEnabled />);
     fireEvent.click(sourceTab("List"));
     paste("99 Dragon Egg");
     await screen.findByText(/^Pasted list - 99 cards/);

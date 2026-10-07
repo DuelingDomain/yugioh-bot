@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
 import { createPlayerService } from "@yugidraft/shared/services";
 import { broadcaster } from "@/lib/notify";
 
@@ -22,17 +22,15 @@ export async function POST(
   }
 
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const actor = await requireWebAccess();
+    if (!actor.ok) return actor.response;
 
     const { slug } = await params;
     const db = getDb();
 
     const tournament = db
       .prepare("select id, guild_id, status, created_by_user_id from tournaments where web_slug = ? and guild_id = ?")
-      .get(slug, env.discordGuildId) as { id: number; guild_id: string; status: string; created_by_user_id: string } | undefined;
+      .get(slug, env.discordGuildId) as { id: number; guild_id: string; status: string; created_by_user_id: number } | undefined;
 
     if (!tournament) {
       return NextResponse.json({ error: "Tournament not found" }, { status: 404 });
@@ -42,14 +40,14 @@ export async function POST(
       return NextResponse.json({ error: "Tournament has already started" }, { status: 400 });
     }
 
-    if (tournament.created_by_user_id !== session.user.id) {
+    if (tournament.created_by_user_id !== actor.userId) {
       return NextResponse.json({ error: "Only the organizer can add bots" }, { status: 403 });
     }
 
     const players = createPlayerService(db);
 
     for (const botIdentity of TOURNAMENT_BOTS) {
-      const bot = players.findOrCreate(tournament.guild_id, botIdentity.discordUserId, botIdentity.displayName);
+      const bot = players.findOrCreateTestPlayer(tournament.guild_id, botIdentity.discordUserId, botIdentity.displayName);
       const existing = db
         .prepare("select 1 from tournament_participants where tournament_id = ? and player_id = ?")
         .get(tournament.id, bot.id);

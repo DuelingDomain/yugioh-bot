@@ -1,5 +1,7 @@
 "use client";
 
+import { parseUserId } from "@/lib/user-id";
+
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import type { DraftDetailResponse } from "@yugidraft/shared/types";
@@ -47,7 +49,7 @@ function DraftDetailBody({ slug }: { slug: string }) {
 
   const [draft, setDraft] = useState<DraftData | null>(null);
   const [error, setError] = useState<{ status: number | null } | null>(null);
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
 
   // The room is shown while the draft is active; finishing it from the room ends on the finale.
   const [wasInRoom, setWasInRoom] = useState(false);
@@ -196,7 +198,7 @@ function DraftDetailBody({ slug }: { slug: string }) {
     fetch("/api/auth/session")
       .then((r) => r.json())
       .then((s) => {
-        if (s?.user?.id) setCurrentUserId(s.user.id);
+        setCurrentUserId(parseUserId(s?.user?.id));
       })
       .catch(() => {});
   }, []);
@@ -423,7 +425,7 @@ function ThemeTablePage({
   slug: string;
   isCreator: boolean;
   isParticipant: boolean;
-  viewerUserId: string | null;
+  viewerUserId: number | null;
   discordEnabled: boolean;
   onJoin: () => Promise<void>;
   onAddBot: () => Promise<void>;

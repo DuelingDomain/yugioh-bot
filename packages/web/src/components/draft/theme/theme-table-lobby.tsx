@@ -44,7 +44,7 @@ export interface ThemeTableLobbyProps {
   /** The Discord bot is on (the draft API's `discordEnabled`). When false there is no Nudge, no Post to Discord and no Discord text. */
   discordEnabled?: boolean;
   /** The viewer's user id. The box uses it to say whose library a Delete leaves. */
-  viewerUserId?: string | null;
+  viewerUserId?: number | null;
   /** The page refetches the draft. Called after a join, a leave, a claim, an attach or a stale answer. */
   onChanged?: () => void;
 }

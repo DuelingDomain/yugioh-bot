@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import Link from "next/link";
-import { signOut } from "next-auth/react";
+import { useSignOut } from "@/components/account/sign-out";
 import { Bug, LogOut, User } from "lucide-react";
 import { Mono, TierName } from "@/components/sheet";
 import { DURATION, usePresence } from "@/lib/motion";
 import type { ShellAccount } from "./use-shell-account";
 import { isOwnProfile } from "./shell-model";
+import { LegalLinks } from "./legal-links";
 import styles from "./shell.module.css";
 
 interface AccountMenuProps {
@@ -35,6 +36,7 @@ export function AccountMenu({ account, pathname, variant, rail = false, onNaviga
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const displayName = account.name || "Account";
+  const signOut = useSignOut();
 
   const items = useCallback(
     () => Array.from(menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not([aria-disabled="true"])') ?? []),
@@ -182,7 +184,7 @@ export function AccountMenu({ account, pathname, variant, rail = false, onNaviga
             <Ring account={account} size="md" />
             <div>
               <p className={styles.menuName}>{displayName}</p>
-              <p className={styles.menuSub}>Signed in with Discord</p>
+              <p className={styles.menuSub}>{account.email || "Signed in"}</p>
             </div>
           </div>
           {hasProfile ? (
@@ -232,12 +234,16 @@ export function AccountMenu({ account, pathname, variant, rail = false, onNaviga
             type="button"
             onClick={() => {
               setOpen(false);
-              void signOut({ redirectTo: "/login" });
+              void signOut();
             }}
           >
             <LogOut className={styles.menuIcon} aria-hidden="true" />
             Sign out
           </button>
+          <div className={styles.menuSep} role="separator" />
+          <div className={styles.menuLegal} role="none">
+            <LegalLinks menu onNavigate={() => setOpen(false)} />
+          </div>
         </div>
       ) : null}
     </>

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { fixtureUserId, fixtureDiscordId } from "../fixtures/identity";
 import React from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -125,7 +126,7 @@ const activeDraftResponse = {
   id: 1,
   name: "Test Draft",
   status: DRAFT_STATUS.active,
-  createdByUserId: "user-1",
+  createdByUserId: fixtureUserId("user-1"),
   createdAt: "2026-05-06T12:00:00.000Z",
   config: { packSize: 5, packsPerPlayer: 3, pickSeconds: 60, setNames: [] },
   players: [],
@@ -165,7 +166,7 @@ describe("DraftDetailPage — completion transition", () => {
   it("renders the active draft view when status is active", async () => {
     global.fetch = vi.fn().mockImplementation((url: string) => {
       if (url === "/api/auth/session") {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ user: { id: "user-1" } }) } as Response);
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ user: { id: String(fixtureUserId("user-1")), discordUserId: fixtureDiscordId("user-1") } }) } as Response);
       }
       return Promise.resolve({
         ok: true,
@@ -187,7 +188,7 @@ describe("DraftDetailPage — completion transition", () => {
     let calls = 0;
     global.fetch = vi.fn().mockImplementation((url: string) => {
       if (url === "/api/auth/session") {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ user: { id: "user-1" } }) } as Response);
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ user: { id: String(fixtureUserId("user-1")), discordUserId: fixtureDiscordId("user-1") } }) } as Response);
       }
       calls += 1;
       const body = calls === 1 ? activeDraftResponse : completedDraftResponse;
@@ -215,13 +216,14 @@ describe("DraftDetailPage — completion transition", () => {
 
   it.each([
     ["the host when the server refuses", "user-1", false, "false"],
-    ["a guild admin who is not the host", "admin-9", true, "true"],
+    ["a former admin who is not the host", "admin-9", false, "false"],
+    ["the host when the server permits", "user-1", true, "true"],
   ])("gives the finale the server's canCreateTournament for %s", async (_label, userId, canCreateTournament, expected) => {
     const card = { id: 1, passcode: 100001, name: "A", type: "Effect Monster", frameType: "effect", effectText: "", imageUrl: "", imageUrlSmall: "" };
     let completed = false;
     global.fetch = vi.fn().mockImplementation((url: string) => {
       const body = url === "/api/auth/session"
-        ? { user: { id: userId } }
+        ? { user: { id: String(fixtureUserId(userId)), discordUserId: fixtureDiscordId(userId) } }
         : url === "/api/drafts/test-draft/pool"
           ? { cards: [] }
           : completed
@@ -245,7 +247,7 @@ describe("DraftDetailPage — completion transition", () => {
     let completed = false;
     global.fetch = vi.fn().mockImplementation((url: string) => {
       const body = url === "/api/auth/session"
-        ? { user: { id: "user-1" } }
+        ? { user: { id: String(fixtureUserId("user-1")), discordUserId: fixtureDiscordId("user-1") } }
         : url === "/api/drafts/test-draft/pool"
           ? { cards: [] }
           : completed
@@ -274,7 +276,7 @@ describe("DraftDetailPage — completion transition", () => {
       if (url === "/api/auth/session") {
         return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve({ user: { id: "user-1" } }),
+          json: () => Promise.resolve({ user: { id: String(fixtureUserId("user-1")), discordUserId: fixtureDiscordId("user-1") } }),
         } as Response);
       }
       // Pool image-prefetch endpoint (fires while active) — not the draft-detail
@@ -328,7 +330,7 @@ describe("DraftDetailPage — completion transition", () => {
 
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       if (url === "/api/auth/session") {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ user: { id: "user-1" } }) } as Response);
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ user: { id: String(fixtureUserId("user-1")), discordUserId: fixtureDiscordId("user-1") } }) } as Response);
       }
       return Promise.resolve({
         ok: true,
@@ -380,7 +382,7 @@ describe("DraftDetailPage — completion transition", () => {
 
     global.fetch = vi.fn().mockImplementation((url: string) => {
       if (url === "/api/auth/session") {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ user: { id: "user-1" } }) } as Response);
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ user: { id: String(fixtureUserId("user-1")), discordUserId: fixtureDiscordId("user-1") } }) } as Response);
       }
       return Promise.resolve({
         ok: true,
@@ -403,7 +405,7 @@ describe("DraftDetailPage — completion transition", () => {
 
     global.fetch = vi.fn().mockImplementation((url: string) => {
       if (url === "/api/auth/session") {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ user: { id: "user-1" } }) } as Response);
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ user: { id: String(fixtureUserId("user-1")), discordUserId: fixtureDiscordId("user-1") } }) } as Response);
       }
       if (url === "/api/drafts/test-draft") {
         draftApiCallCount += 1;
@@ -436,7 +438,7 @@ describe("DraftDetailPage — completion transition", () => {
 
     global.fetch = vi.fn().mockImplementation((url: string) => {
       if (url === "/api/auth/session") {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ user: { id: "user-1" } }) } as Response);
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ user: { id: String(fixtureUserId("user-1")), discordUserId: fixtureDiscordId("user-1") } }) } as Response);
       }
       if (url === "/api/drafts/test-draft") {
         draftApiCallCount += 1;
@@ -474,7 +476,7 @@ describe("DraftDetailPage — load failures", () => {
   const respondWith = (status: number, body: unknown) =>
     vi.fn().mockImplementation((url: string) => {
       if (url === "/api/auth/session") {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ user: { id: "user-2" } }) } as Response);
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ user: { id: String(fixtureUserId("user-2")), discordUserId: fixtureDiscordId("user-2") } }) } as Response);
       }
       return Promise.resolve({ ok: false, status, json: () => Promise.resolve(body) } as Response);
     });
@@ -532,7 +534,7 @@ describe("DraftDetailPage — load failures", () => {
     let draftCalls = 0;
     global.fetch = vi.fn().mockImplementation((url: string) => {
       if (url === "/api/auth/session") {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ user: { id: "user-1" } }) } as Response);
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ user: { id: String(fixtureUserId("user-1")), discordUserId: fixtureDiscordId("user-1") } }) } as Response);
       }
       draftCalls += 1;
       if (draftCalls === 1) {
@@ -598,7 +600,7 @@ describe("DraftDetailPage — pending lobby wiring", () => {
     global.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
       const method = (init?.method ?? "GET").toUpperCase();
       calls.push({ url, method, body: init?.body ? JSON.parse(String(init.body)) : undefined });
-      if (url === "/api/auth/session") return json({ user: { id: userId } });
+      if (url === "/api/auth/session") return json({ user: { id: String(fixtureUserId(userId)) } });
       const read = /^\/api\/drafts\/([^/]+)$/.exec(url);
       if (read && method === "GET") {
         reads += 1;
@@ -659,7 +661,7 @@ describe("DraftDetailPage — pending lobby wiring", () => {
   });
 
   it("gives a guest on the Theme Table no Cancel draft", async () => {
-    serve(() => theme({ createdByUserId: "someone-else" }), "user-9");
+    serve(() => theme({ createdByUserId: fixtureUserId("someone-else") }), "user-9");
     render(<DraftDetailPage />);
     const table = await screen.findByTestId("theme-table");
     await waitFor(() => expect(table.getAttribute("data-host")).toBe("false"));

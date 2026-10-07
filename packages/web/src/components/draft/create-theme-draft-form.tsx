@@ -16,11 +16,11 @@ const SEATS_DEFAULT = 4;
 type Channel = { id: string; name: string };
 
 export interface CreateThemeDraftFormProps {
-  /** The Discord bot is on. The server reads the flag; the form never reads the environment. When false there is no channel picker. Default on. */
+  /** The Discord bot is on. The server reads the flag; the form never reads the environment. When false there is no channel picker. Default off. */
   discordEnabled?: boolean;
 }
 
-export function CreateThemeDraftForm({ discordEnabled = true }: CreateThemeDraftFormProps = {}) {
+export function CreateThemeDraftForm({ discordEnabled = false }: CreateThemeDraftFormProps = {}) {
   const router = useRouter();
   const [name, setName] = React.useState("");
   const [channelId, setChannelId] = React.useState("");

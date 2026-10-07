@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { cubeReferenceAccess } from "@/lib/cube-access";
 import { ensureCatalogCards } from "@/lib/cube-pool";
 import { cardFetchErrorResponse } from "@/lib/card-fetch-errors";
-import { createDraftLobbyApi, draftDiscordEnabled } from "@/lib/draft-lobby-api";
+import { createDraftLobbyApi } from "@/lib/draft-lobby-api";
 import { DRAFT_LOBBY_ERROR_STATUS, type DraftAllowedCube, type DraftConfig, type DraftLobbyErrorCode, type DraftLobbyResponse, type DraftLobbyTickResult } from "@yugidraft/shared/types";
+import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import {
@@ -20,7 +21,6 @@ import { toUtcIso } from "@/lib/utils";
 import { announcer, broadcaster } from "@/lib/notify";
 import { lookupDraftCardTypes, type EngineCardTypes } from "@/lib/draft-engine-types";
 import { draftTestBotsEnabled } from "@/lib/draft-test-bots";
-import { checkDiscordWebAccess } from "@/lib/discord-web-access";
 import { cardImageUrl } from "@/lib/card-image-url";
 
 function getTimerSeconds(pickDeadlineAt: string | null | undefined): number {
@@ -92,7 +92,8 @@ function mapDraftCardDetails(
   });
 }
 
-export async function buildDraftResponse(slug: string, userId: string) {
+export async function buildDraftResponse(slug: string, actor: { userId: number; discordUserId: string | null }) {
+  const userId = actor.userId;
   const db = getDb();
   const drafts = createDraftService(db);
   const guildId = env.discordGuildId;
@@ -115,7 +116,7 @@ export async function buildDraftResponse(slug: string, userId: string) {
   }
 
   if (drafts.findById(draftIdRow.id).status === "active") {
-    // The timeout sweep also runs in the bot timer. If it fails here, the page still loads the draft as it is.
+    // The timeout sweep also runs in the worker. If it fails here, the page still loads the draft as it is.
     const { autoPickedPlayerIds } = degrade(slug, "pick expiry", { autoPickedPlayerIds: [] as number[] }, () =>
       drafts.expireCurrentPickStep(draftIdRow.id),
     );
@@ -193,7 +194,7 @@ export async function buildDraftResponse(slug: string, userId: string) {
     }));
 
   const currentPlayer = db
-    .prepare("select id from players where guild_id = ? and discord_user_id = ?")
+    .prepare("select id from players where guild_id = ? and user_id = ?")
     .get(draft.guild_id, userId) as { id: number } | undefined;
 
   const isParticipant = currentPlayer
@@ -367,19 +368,7 @@ export async function buildDraftResponse(slug: string, userId: string) {
       })
     : null;
 
-  let canCreateTournament = false;
-  if (draft.status === "completed" && draft.tournament_id == null) {
-    if (draft.created_by_user_id === userId) {
-      canCreateTournament = true;
-    } else {
-      try {
-        canCreateTournament = (await checkDiscordWebAccess(userId, "admin")).ok;
-      } catch {
-        // The draft remains readable when Discord verification is unavailable.
-        canCreateTournament = false;
-      }
-    }
-  }
+  const canCreateTournament = draft.status === "completed" && draft.tournament_id == null && draft.created_by_user_id === userId;
 
   return {
     id: draft.id,
@@ -424,7 +413,7 @@ export async function buildDraftResponse(slug: string, userId: string) {
     themeProgress,
     allowedCubes,
     botsEnabled: draftTestBotsEnabled(),
-    discordEnabled: draftDiscordEnabled(),
+    discordEnabled: env.discordBotEnabled,
   };
 }
 
@@ -454,7 +443,7 @@ export function draftLobbyErrorResponse(error: unknown): Response {
 }
 
 export type DraftLobbyContext = {
-  db: ReturnType<typeof getDb>; draftId: number; slug: string; userId: string; hostOnly: boolean;
+  db: ReturnType<typeof getDb>; draftId: number; slug: string; userId: number; hostOnly: boolean;
 };
 
 /** Also reusable by Nudge: resolve configured guild and ownership before writes. */
@@ -462,7 +451,7 @@ export function assertDraftLobbyAccess(context: DraftLobbyContext) {
   const draft = context.db.prepare(
     "select id, created_by_user_id, status, lobby_revision from drafts where id = ? and web_slug = ? and guild_id = ?",
   ).get(context.draftId, context.slug, env.discordGuildId) as
-    { id: number; created_by_user_id: string; status: string; lobby_revision: number } | undefined;
+    { id: number; created_by_user_id: number; status: string; lobby_revision: number } | undefined;
   if (!draft) throw new DraftLobbyApiError("Draft not found", "DRAFT_NOT_FOUND");
   if (context.hostOnly && draft.created_by_user_id !== context.userId) {
     throw new DraftLobbyApiError("Only the draft host can manage this lobby", "HOST_REQUIRED");
@@ -476,15 +465,14 @@ export async function runDraftLobbyRoute(
   action: (context: DraftLobbyContext) => Response | Promise<Response>,
 ): Promise<Response> {
   try {
-    const { auth } = await import("@/lib/auth");
-    const session = await auth();
-    if (!session?.user?.id) throw new DraftLobbyApiError("Unauthorized", "UNAUTHORIZED");
+    const actor = await requireWebAccess();
+    if (!actor.ok) return actor.response;
     const { slug } = await params;
     const db = getDb();
     const draft = db.prepare("select id from drafts where web_slug = ? and guild_id = ?")
       .get(slug, env.discordGuildId) as { id: number } | undefined;
     if (!draft) throw new DraftLobbyApiError("Draft not found", "DRAFT_NOT_FOUND");
-    const context = { db, draftId: draft.id, slug, userId: session.user.id, hostOnly };
+    const context = { db, draftId: draft.id, slug, userId: actor.userId, hostOnly };
     assertDraftLobbyAccess(context);
     return await action(context);
   } catch (error) { return draftLobbyErrorResponse(error); }
@@ -542,7 +530,7 @@ export async function notifyDraftLobbyTick(result: DraftLobbyTickResult) {
     .map((slug) => broadcaster.draft({ kind: "seats", slug }));
   for (const draft of result.started) {
     if (draft.webSlug) deliveries.push(broadcaster.draft({ kind: "status", slug: draft.webSlug, status: "active" }));
-    if (draftDiscordEnabled()) deliveries.push(announcer.announce({
+    if (env.discordBotEnabled && draft.channelId) deliveries.push(announcer.announce({
       kind: "draft-started", draftId: draft.id, channelId: draft.channelId,
       name: draft.name, webSlug: draft.webSlug ?? "",
     }));

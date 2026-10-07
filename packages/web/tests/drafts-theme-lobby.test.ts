@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { finishTestLobbyStart } from "./drafts-lobby-routes.test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -9,7 +10,10 @@ const auth = vi.fn();
 const syncDraftPool = vi.fn();
 const tempDirs: string[] = [];
 
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/notify", () => ({ announcer: { announce: vi.fn() }, broadcaster: { draft: vi.fn() } }));
 vi.mock("@yugidraft/shared/services", async (importOriginal) => {
   const original = await importOriginal<typeof import("@yugidraft/shared/services")>();
@@ -35,10 +39,11 @@ async function seedDraft(cubes: SeedCube[], configOverrides: Record<string, unkn
   const { migrate } = await import("@yugidraft/shared/db");
   const db = new Database(dbPath);
   migrate(db);
+  seedFixtureUsers(db, FIXTURE_KEYS);
   db.exec("begin");
 
-  const p1 = Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('guild-1','u1','P1')").run().lastInsertRowid);
-  const p2 = Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('guild-1','u2','P2')").run().lastInsertRowid);
+  const p1 = Number(db.prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('guild-1', ${fixtureUserId("u1")}, '${fixtureDiscordId("u1")}', 'P1')`).run().lastInsertRowid);
+  const p2 = Number(db.prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('guild-1', ${fixtureUserId("u2")}, '${fixtureDiscordId("u2")}', 'P2')`).run().lastInsertRowid);
 
   const insCard = db.prepare(
     "insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (?,?,?,?,?,?,?,?)",
@@ -46,7 +51,7 @@ async function seedDraft(cubes: SeedCube[], configOverrides: Record<string, unkn
   let cardId = 1;
   const cubeIds: number[] = [];
   for (const t of cubes) {
-    const cubeId = Number(db.prepare("insert into cubes (guild_id, name, created_by_user_id, created_at, updated_at) values ('guild-1', ?, 'u', 't', 't')").run(`Theme${cubeIds.length}`).lastInsertRowid);
+    const cubeId = Number(db.prepare(`insert into cubes (guild_id, name, created_by_user_id, created_at, updated_at) values ('guild-1', ?, ${fixtureUserId("u")}, 't', 't')`).run(`Theme${cubeIds.length}`).lastInsertRowid);
     for (let i = 0; i < t.main; i++) {
       insCard.run(cardId, `M${cardId}`, "Normal Monster", "normal", "i", "i", "[]", "t");
       db.prepare("insert into cube_cards (cube_id, catalog_card_id, pool, max_copies) values (?, ?, 'main', 1)").run(cubeId, cardId);
@@ -76,7 +81,7 @@ async function seedDraft(cubes: SeedCube[], configOverrides: Record<string, unkn
   const draftId = Number(
     db
       .prepare(
-        "insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug, current_wave_number, current_pick_step) values ('guild-1','c','Theme Night','pending','u1',?,?,0,0)",
+        `insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug, current_wave_number, current_pick_step) values ('guild-1', 'c', 'Theme Night', 'pending', ${fixtureUserId("u1")}, ?, ?, 0, 0)`,
       )
       .run(JSON.stringify(config), "theme-slug").lastInsertRowid,
   );
@@ -107,7 +112,7 @@ describe("theme lobby routes", () => {
 
   it.each([undefined, { "1": 1 }])("rejects switching to host assignment without every player's assignment (%j)", async (themeAssignments) => {
     const { dbPath } = await seedDraft([{ main: 42, extra: 0 }, { main: 42, extra: 0 }]);
-    auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1"), name: "P1" } });
     const { PUT } = await import("../app/api/drafts/[slug]/route");
     const response = await PUT(new Request("http://localhost/api/drafts/theme-slug", {
       method: "PUT",
@@ -125,7 +130,7 @@ describe("theme lobby routes", () => {
 
   it("allows switching to fully assigned themes and starting without a booster pool", async () => {
     const { cubeIds, p1, p2 } = await seedDraft([{ main: 42, extra: 0 }, { main: 42, extra: 0 }], { extraDeckEnabled: false });
-    auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1"), name: "P1" } });
     const { PUT, POST } = await import("../app/api/drafts/[slug]/route");
     const themeAssignments = { [p1]: cubeIds[1], [p2]: cubeIds[0] };
     const response = await PUT(new Request("http://localhost/api/drafts/theme-slug", {
@@ -148,9 +153,10 @@ describe("theme lobby routes", () => {
       themeSelection: "host_assigned", themeAssignments: { "1": 1, "2": 2 }, extraDeckEnabled: false,
       setNames: ["Metal Raiders"],
     });
-    auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1"), name: "P1" } });
     const { getDb } = await import("@/lib/db");
     const db = getDb();
+    seedFixtureUsers(db, FIXTURE_KEYS);
     let releaseCatalog!: (response: Response) => void;
     let catalogRequested!: () => void;
     const catalogResponse = new Promise<Response>((resolve) => { releaseCatalog = resolve; });
@@ -186,8 +192,9 @@ describe("theme lobby routes", () => {
       });
       const { getDb } = await import("@/lib/db");
       const db = getDb();
-      db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('guild-1', 'u3', 'P3')").run();
-      auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
+      seedFixtureUsers(db, FIXTURE_KEYS);
+      db.prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('guild-1', ${fixtureUserId("u3")}, '${fixtureDiscordId("u3")}', 'P3')`).run();
+      auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1"), name: "P1" } });
       const params = { params: Promise.resolve({ slug: "theme-slug" }) };
       if (staleAssignment === "detached") {
         const { DELETE } = await import("../app/api/drafts/[slug]/cubes/route");
@@ -228,9 +235,10 @@ describe("theme lobby routes", () => {
       });
       const { getDb } = await import("@/lib/db");
       const db = getDb();
+      seedFixtureUsers(db, FIXTURE_KEYS);
       db.prepare("update cubes set guild_id = 'guild-2' where id = ?").run(cubeIds[2]);
       const before = db.prepare("select name, status, config_json from drafts").get();
-      auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
+      auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1"), name: "P1" } });
       const params = { params: Promise.resolve({ slug: "theme-slug" }) };
 
       if (entryPoint === "preflight") {
@@ -259,8 +267,9 @@ describe("theme lobby routes", () => {
       });
       const { getDb } = await import("@/lib/db");
       const db = getDb();
+      seedFixtureUsers(db, FIXTURE_KEYS);
       db.prepare("delete from cubes where id = ?").run(cubeIds[2]);
-      auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
+      auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1"), name: "P1" } });
       const params = { params: Promise.resolve({ slug: "theme-slug" }) };
 
       if (entryPoint === "preflight") {
@@ -299,9 +308,10 @@ describe("theme lobby routes", () => {
       });
       const { getDb } = await import("@/lib/db");
       const db = getDb();
+      seedFixtureUsers(db, FIXTURE_KEYS);
       if (invalidCube === "foreign-guild") db.prepare("update cubes set guild_id = 'guild-2' where id = 2").run();
       if (invalidCube === "deleted") db.prepare("delete from cubes where id = 2").run();
-      auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
+      auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1"), name: "P1" } });
       const params = { params: Promise.resolve({ slug: "theme-slug" }) };
 
       if (entryPoint === "preflight") {
@@ -335,7 +345,7 @@ describe("theme lobby routes", () => {
       await seedDraft([{ main: 42, extra: 0 }, { main: 42, extra: 0 }], {
         themeSelection: "host_assigned", themeAssignments: { "1": 1, "2": 1 }, uniqueThemes, extraDeckEnabled: false,
       });
-      auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
+      auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1"), name: "P1" } });
       const params = { params: Promise.resolve({ slug: "theme-slug" }) };
 
       if (entryPoint === "preflight") {
@@ -372,8 +382,9 @@ describe("theme lobby routes", () => {
     });
     const { getDb } = await import("@/lib/db");
     const db = getDb();
-    db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('guild-1', 'u3', 'P3')").run();
-    auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
+    seedFixtureUsers(db, FIXTURE_KEYS);
+    db.prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('guild-1', ${fixtureUserId("u3")}, '${fixtureDiscordId("u3")}', 'P3')`).run();
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1"), name: "P1" } });
     const params = { params: Promise.resolve({ slug: "theme-slug" }) };
     const { GET } = await import("../app/api/drafts/[slug]/preflight/route");
     const response = await GET(new Request("http://localhost"), params);
@@ -392,7 +403,7 @@ describe("theme lobby routes", () => {
     await seedDraft([{ main: 42, extra: 0 }, { main: 42, extra: 0 }], {
       themeSelection: "host_assigned", themeAssignments: { "1": 1, "2": 1 }, uniqueThemes: false,
     });
-    auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1"), name: "P1" } });
     const { PUT } = await import("../app/api/drafts/[slug]/route");
     const response = await PUT(new Request("http://localhost", {
       method: "PUT", body: JSON.stringify({ config: { uniqueThemes: true } }),
@@ -411,7 +422,7 @@ describe("theme lobby routes", () => {
     });
     const { getDb } = await import("@/lib/db");
     getDb().prepare("delete from cubes where id = 2").run();
-    auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1"), name: "P1" } });
     const { PUT } = await import("../app/api/drafts/[slug]/route");
     const response = await PUT(new Request("http://localhost", {
       method: "PUT", body: JSON.stringify({ name: "Renamed Night" }),
@@ -428,7 +439,7 @@ describe("theme lobby routes", () => {
     });
     const { getDb } = await import("@/lib/db");
     getDb().prepare("delete from cubes where id = 3").run();
-    auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1"), name: "P1" } });
     const { POST } = await import("../app/api/drafts/[slug]/route");
     const response = await POST(new Request("http://localhost", { method: "POST", body: JSON.stringify({ force: true }) }), { params: Promise.resolve({ slug: "theme-slug" }) });
 
@@ -439,7 +450,7 @@ describe("theme lobby routes", () => {
 
   it("shows a preflight error for a legacy draft with missing host assignments and returns a clear start error", async () => {
     const { dbPath } = await seedDraft([{ main: 42, extra: 0 }, { main: 42, extra: 0 }], { themeSelection: "host_assigned", extraDeckEnabled: false });
-    auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1"), name: "P1" } });
     const { GET } = await import("../app/api/drafts/[slug]/preflight/route");
     const preflight = await GET(new Request("http://localhost"), { params: Promise.resolve({ slug: "theme-slug" }) });
     expect(preflight.status).toBe(200);
@@ -464,7 +475,7 @@ describe("theme lobby routes", () => {
 
   it("allows a legacy draft to switch back to random selection", async () => {
     await seedDraft([{ main: 42, extra: 0 }, { main: 42, extra: 0 }], { themeSelection: "host_assigned" });
-    auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1"), name: "P1" } });
     const { PUT } = await import("../app/api/drafts/[slug]/route");
     const response = await PUT(new Request("http://localhost/api/drafts/theme-slug", {
       method: "PUT",
@@ -478,11 +489,11 @@ describe("theme lobby routes", () => {
     const { cubeIds } = await seedDraft([{ main: 42, extra: 0 }, { main: 42, extra: 0 }]);
     const { POST } = await import("../app/api/drafts/[slug]/claim-cube/route");
 
-    auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1"), name: "P1" } });
     const res1 = await POST(new Request("http://localhost/api/drafts/theme-slug/claim-cube", { method: "POST", body: JSON.stringify({ cubeId: cubeIds[0] }) }) as any, { params: Promise.resolve({ slug: "theme-slug" }) });
     expect(res1.status).toBe(200);
 
-    auth.mockResolvedValue({ user: { id: "u2", name: "P2" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u2")), discordUserId: fixtureDiscordId("u2"), name: "P2" } });
     const res2 = await POST(new Request("http://localhost/api/drafts/theme-slug/claim-cube", { method: "POST", body: JSON.stringify({ cubeId: cubeIds[0] }) }) as any, { params: Promise.resolve({ slug: "theme-slug" }) });
     expect(res2.status).toBe(409);
   }, 30000);
@@ -499,13 +510,13 @@ describe("theme lobby routes", () => {
     const { GET } = await import("../app/api/drafts/[slug]/preflight/route");
     const params = { params: Promise.resolve({ slug: "theme-slug" }) };
     // u2 joined the draft and can read it, but cannot see host assignment warnings.
-    auth.mockResolvedValue({ user: { id: "u2" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u2")), discordUserId: fixtureDiscordId("u2") } });
     const participantResponse = await GET(new Request("http://localhost"), params);
     expect(participantResponse.status).toBe(200);
     expect(await participantResponse.json()).toEqual({ errors: [], warnings: [] });
-    auth.mockResolvedValue({ user: { id: "observer" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("observer")), discordUserId: fixtureDiscordId("observer") } });
     expect((await GET(new Request("http://localhost"), params)).status).toBe(status === "pending" ? 200 : 403);
-    auth.mockResolvedValue({ user: { id: "u1" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1") } });
     const response = await GET(new Request("http://localhost"), params);
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
@@ -515,7 +526,7 @@ describe("theme lobby routes", () => {
 
   it("preflight hides host assignment validation errors from a non-creator", async () => {
     await seedDraft([{ main: 42, extra: 0 }, { main: 42, extra: 0 }], { themeSelection: "host_assigned" });
-    auth.mockResolvedValue({ user: { id: "u2" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u2")), discordUserId: fixtureDiscordId("u2") } });
     const { GET } = await import("../app/api/drafts/[slug]/preflight/route");
     const response = await GET(new Request("http://localhost"), { params: Promise.resolve({ slug: "theme-slug" }) });
     expect(response.status).toBe(200);
@@ -524,7 +535,7 @@ describe("theme lobby routes", () => {
 
   it.each(["player_pick", "random"])("preflight still analyzes every allowed theme for a non-creator in %s mode", async (themeSelection) => {
     await seedDraft([{ main: 5, extra: 17 }, { main: 42, extra: 0 }], { themeSelection });
-    auth.mockResolvedValue({ user: { id: "u2" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u2")), discordUserId: fixtureDiscordId("u2") } });
     const { GET } = await import("../app/api/drafts/[slug]/preflight/route");
     const response = await GET(new Request("http://localhost"), { params: Promise.resolve({ slug: "theme-slug" }) });
     expect(response.status).toBe(200);
@@ -536,7 +547,7 @@ describe("theme lobby routes", () => {
 
   it("preflight reports an error for a main-short cube and a warning for a thin-extra cube", async () => {
     await seedDraft([{ main: 5, extra: 0 }, { main: 42, extra: 0 }]);
-    auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1"), name: "P1" } });
     const { GET } = await import("../app/api/drafts/[slug]/preflight/route");
     const res = await GET(new Request("http://x") as any, { params: Promise.resolve({ slug: "theme-slug" }) });
     const body = await res.json();
@@ -548,8 +559,8 @@ describe("theme lobby routes", () => {
   it("does not let a player who has not joined reserve a cube", async () => {
     const { cubeIds } = await seedDraft([{ main: 42, extra: 0 }]);
     const { getDb } = await import("../src/lib/db");
-    getDb().prepare("insert into players (guild_id, discord_user_id, display_name) values ('guild-1','outsider','Other')").run();
-    auth.mockResolvedValue({ user: { id: "outsider" } });
+    getDb().prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('guild-1', ${fixtureUserId("outsider")}, '${fixtureDiscordId("outsider")}', 'Other')`).run();
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("outsider")), discordUserId: fixtureDiscordId("outsider") } });
     const { POST } = await import("../app/api/drafts/[slug]/claim-cube/route");
     const res = await POST(new Request("http://x", { method: "POST", body: JSON.stringify({ cubeId: cubeIds[0] }) }), {
       params: Promise.resolve({ slug: "theme-slug" }),
@@ -566,8 +577,9 @@ describe("theme lobby routes", () => {
       const { getDb } = await import("../src/lib/db");
       const { createCubeService, createCardCatalogService } = await import("@yugidraft/shared/services");
       const db = getDb();
+      seedFixtureUsers(db, FIXTURE_KEYS);
       createCubeService(db, createCardCatalogService(db)).deleteCube(cubeIds[0]);
-      auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
+      auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1"), name: "P1" } });
       const { GET, PUT } = await import("../app/api/drafts/[slug]/route");
       const context = { params: Promise.resolve({ slug: "theme-slug" }) };
       const current = await (await GET(new Request("http://x"), context)).json();
@@ -600,8 +612,9 @@ describe("theme lobby routes", () => {
       const { getDb } = await import("../src/lib/db");
       const { createCubeService, createCardCatalogService } = await import("@yugidraft/shared/services");
       const db = getDb();
+      seedFixtureUsers(db, FIXTURE_KEYS);
       createCubeService(db, createCardCatalogService(db)).deleteCube(cubeIds[0]);
-      auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
+      auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1"), name: "P1" } });
       const { GET } = await import("../app/api/drafts/[slug]/preflight/route");
       const response = await GET(new Request("http://x"), { params: Promise.resolve({ slug: "theme-slug" }) });
       expect(response.status).toBe(200);
@@ -615,8 +628,9 @@ describe("theme lobby routes", () => {
       const { getDb } = await import("../src/lib/db");
       const { createCubeService, createCardCatalogService } = await import("@yugidraft/shared/services");
       const db = getDb();
+      seedFixtureUsers(db, FIXTURE_KEYS);
       createCubeService(db, createCardCatalogService(db)).deleteCube(cubeIds[0]);
-      auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
+      auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1"), name: "P1" } });
       const { POST } = await import("../app/api/drafts/[slug]/route");
       const response = await POST(new Request("http://x", { method: "POST", body: JSON.stringify({ force: true }) }), {
         params: Promise.resolve({ slug: "theme-slug" }),
@@ -636,9 +650,10 @@ describe("theme lobby routes", () => {
       });
       const { getDb } = await import("../src/lib/db");
       const db = getDb();
+      seedFixtureUsers(db, FIXTURE_KEYS);
       db.prepare("update cubes set guild_id = 'other-guild' where id = ?").run(cubeIds[0]);
       const before = db.prepare("select name, config_json from drafts where id = 1").get();
-      auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
+      auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1"), name: "P1" } });
       const { PUT } = await import("../app/api/drafts/[slug]/route");
       const response = await PUT(new Request("http://x", {
         method: "PUT", body: JSON.stringify({ name: "Renamed", config: {
@@ -656,8 +671,9 @@ describe("theme lobby routes", () => {
       });
       const { getDb } = await import("../src/lib/db");
       const db = getDb();
+      seedFixtureUsers(db, FIXTURE_KEYS);
       db.prepare("update cubes set guild_id = 'other-guild' where id = ?").run(cubeIds[0]);
-      auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
+      auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1"), name: "P1" } });
       const { POST } = await import("../app/api/drafts/[slug]/route");
       const response = await POST(new Request("http://x", { method: "POST", body: JSON.stringify({ force: true }) }), {
         params: Promise.resolve({ slug: "theme-slug" }),
@@ -673,8 +689,9 @@ describe("theme lobby routes", () => {
     const { getDb } = await import("../src/lib/db");
     const { createCubeService, createCardCatalogService } = await import("@yugidraft/shared/services");
     const db = getDb();
+    seedFixtureUsers(db, FIXTURE_KEYS);
     createCubeService(db, createCardCatalogService(db)).deleteCube(cubeIds[0]);
-    auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1"), name: "P1" } });
     const { POST } = await import("../app/api/drafts/[slug]/claim-cube/route");
     const context = { params: Promise.resolve({ slug: "theme-slug" }) };
     const claim = (cubeId: number) => POST(new Request("http://x", {
@@ -691,8 +708,9 @@ describe("theme lobby routes", () => {
     const { getDb } = await import("../src/lib/db");
     const { createCubeService, createCardCatalogService } = await import("@yugidraft/shared/services");
     const db = getDb();
+    seedFixtureUsers(db, FIXTURE_KEYS);
     createCubeService(db, createCardCatalogService(db)).deleteCube(cubeIds[0]);
-    auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1"), name: "P1" } });
     const { POST } = await import("../app/api/drafts/route");
     const response = await POST(new Request("http://x", {
       method: "POST", body: JSON.stringify({ name: "New Draft", channelId: "c", config: {
@@ -707,10 +725,11 @@ describe("theme lobby routes", () => {
     const { cubeIds, p1, p2 } = await seedDraft([{ main: 42, extra: 0 }, { main: 42, extra: 0 }], { extraDeckEnabled: false });
     const { getDb } = await import("../src/lib/db");
     const db = getDb();
-    const poisonedId = Number(db.prepare("insert into cubes (guild_id, name, created_by_user_id) values (?, 'Poisoned', 'u1')").run(kind === "foreign" ? "other-guild" : "guild-1").lastInsertRowid);
+    seedFixtureUsers(db, FIXTURE_KEYS);
+    const poisonedId = Number(db.prepare(`insert into cubes (guild_id, name, created_by_user_id) values (?, 'Poisoned', ${fixtureUserId("u1")})`).run(kind === "foreign" ? "other-guild" : "guild-1").lastInsertRowid);
     db.prepare("insert into cube_cards (cube_id, catalog_card_id, pool, max_copies) select ?, catalog_card_id, pool, max_copies from cube_cards where cube_id = ?").run(poisonedId, cubeIds[0]);
     db.prepare("insert into draft_player_cube (draft_id, player_id, cube_id) values (1, ?, ?), (1, ?, ?)").run(p1, poisonedId, p2, cubeIds[1]);
-    auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1"), name: "P1" } });
     const { POST } = await import("../app/api/drafts/[slug]/route");
     const response = await POST(new Request("http://x", { method: "POST", body: JSON.stringify({ force: true }) }), { params: Promise.resolve({ slug: "theme-slug" }) });
     expect(response.status).toBe(kind === "foreign" ? 404 : 400);
@@ -719,3 +738,7 @@ describe("theme lobby routes", () => {
   }, 30000);
 
 });
+
+const FIXTURE_KEYS = ["u1", "u2", "u", "u3", "observer", "outsider"] as const;
+
+// Session resolution is mocked; authorization still runs through the real web boundary.

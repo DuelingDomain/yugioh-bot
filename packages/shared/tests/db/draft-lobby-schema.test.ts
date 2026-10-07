@@ -91,22 +91,22 @@ function oldDatabase() {
     );
 
     insert into players (id, guild_id, discord_user_id, display_name, created_at)
-      values (10, 'guild', 'host', 'Host', '2026-10-01 12:00:00'),
-             (20, 'guild', 'guest', 'Guest', '2026-10-01 12:01:00');
+      values (10, 'guild', '900000000000000101', 'Host', '2026-10-01 12:00:00'),
+             (20, 'guild', '900000000000000102', 'Guest', '2026-10-01 12:01:00');
     insert into card_catalog values
       (100, 'Main card', 'Effect Monster', 'effect', 'main.png', 'main-small.png', '[]', '2026-10-01'),
       (200, 'Extra card', 'Fusion Monster', 'fusion', 'extra.png', 'extra-small.png', '[]', '2026-10-01');
     insert into cubes (id, guild_id, name, archetype, config_json, created_by_user_id)
-      values (30, 'guild', 'Existing cube', 'Dragons', '{"mode":"theme"}', 'host');
+      values (30, 'guild', 'Existing cube', 'Dragons', '{"mode":"theme"}', '900000000000000101');
     insert into cube_cards values (30, 100, 'main', 7, 'import'), (30, 200, 'extra', 2, 'manual');
     insert into drafts (id, guild_id, channel_id, name, status, created_by_user_id, config_json,
                         current_wave_number, current_pick_step, pick_deadline_at, web_slug, started_at)
-      values (40, 'guild', 'channel', 'Old lobby', 'pending', 'host',
+      values (40, 'guild', 'channel', 'Old lobby', 'pending', '900000000000000101',
               '{"mode":"theme","allowedCubeIds":[30],"themeSelection":"player_pick"}',
               0, 0, null, 'old-lobby', null),
-             (50, 'guild', 'channel', 'Active draft', 'active', 'host', '{"packSize":8}',
+             (50, 'guild', 'channel', 'Active draft', 'active', '900000000000000101', '{"packSize":8}',
               2, 3, '2026-10-07T12:00:45.000Z', 'active-draft', '2026-10-07T12:00:00.000Z'),
-             (60, 'guild', 'channel', 'Completed draft', 'completed', 'host', '{}',
+             (60, 'guild', 'channel', 'Completed draft', 'completed', '900000000000000101', '{}',
               5, 8, null, 'completed-draft', '2026-01-01T12:00:00.000Z');
     insert into draft_players (draft_id, player_id, pick_count, finished_at, seat_index, joined_at)
       values (40, 10, 0, null, null, '2026-10-01 12:00:00'),
@@ -138,7 +138,12 @@ function snapshot(db: Database.Database) {
 
 function expectPreserved(db: Database.Database, before: ReturnType<typeof snapshot>) {
   for (const { table, names, rows } of before) {
-    expect(db.prepare(`select ${names} from ${table} order by rowid`).all()).toEqual(rows);
+    const expected = rows.map((row: any) => {
+      if (!("created_by_user_id" in row) || typeof row.created_by_user_id !== "string") return row;
+      const user = db.prepare("select id from users where discord_user_id = ?").get(row.created_by_user_id) as { id: number };
+      return { ...row, created_by_user_id: user.id };
+    });
+    expect(db.prepare(`select ${names} from ${table} order by rowid`).all()).toEqual(expected);
   }
   expect(db.pragma("foreign_key_check")).toEqual([]);
   expect(db.pragma("foreign_keys", { simple: true })).toBe(1);
@@ -177,6 +182,43 @@ describe("draft lobby schema", () => {
       migrate(db);
       expectPreserved(db, before);
       expect(db.prepare("select * from drafts").all()).toEqual(drafts);
+    } finally { db.close(); }
+  });
+
+  it("carries an existing redesign lobby through the alpha identity table rebuild", () => {
+    const db = oldDatabase();
+    try {
+      db.exec(`
+        alter table drafts add column lobby_revision integer not null default 0;
+        alter table drafts add column lobby_auto_start integer not null default 0;
+        alter table drafts add column lobby_auto_held integer not null default 0;
+        alter table drafts add column lobby_start_at text;
+        alter table drafts add column lobby_start_kind text;
+        alter table drafts add column lobby_start_token text;
+        alter table drafts add column lobby_start_revision integer;
+        alter table drafts add column lobby_start_setup_hash text;
+        alter table drafts add column lobby_start_force integer not null default 0;
+        alter table drafts add column lobby_start_error text;
+        alter table drafts add column lobby_nudged_at text;
+        alter table draft_players add column ready_at text;
+        alter table draft_players add column ready_setup_hash text;
+        update drafts set lobby_revision = 12, lobby_auto_start = 1, lobby_auto_held = 1,
+          lobby_start_at = '2026-10-07T12:00:10.000Z', lobby_start_kind = 'auto',
+          lobby_start_token = 'persisted-token', lobby_start_revision = 12,
+          lobby_start_setup_hash = 'persisted-hash', lobby_start_force = 1,
+          lobby_start_error = 'Saved error', lobby_nudged_at = '2026-10-07T12:00:00.000Z'
+          where id = 40;
+        update draft_players set ready_at = '2026-10-07T11:59:00.000Z', ready_setup_hash = 'persisted-hash'
+          where draft_id = 40 and player_id = 10;
+      `);
+      const before = snapshot(db);
+      migrate(db);
+      migrate(db);
+      expectPreserved(db, before);
+      expect(db.prepare("select player_id, cube_id from draft_player_cube where draft_id = 40").get())
+        .toEqual({ player_id: 20, cube_id: 30 });
+      const user = db.prepare("select id from users where discord_user_id = '900000000000000101'").get() as { id: number };
+      expect(db.prepare("select user_id from players where id = 10").get()).toEqual({ user_id: user.id });
     } finally { db.close(); }
   });
 
@@ -230,9 +272,10 @@ describe("draft lobby schema", () => {
       migrate(db);
       migrate(db);
       db.exec(`
-        insert into players (guild_id, discord_user_id, display_name) values ('guild', 'host', 'Host');
+        insert into users(id,username,display_name) values (101,'host','Host');
+        insert into players (guild_id, user_id, display_name) values ('guild', 101, 'Host');
         insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json)
-          values ('guild', 'channel', 'New lobby', 'pending', 'host', '{"lobbySeats":4}');
+          values ('guild', 'channel', 'New lobby', 'pending', 101, '{"lobbySeats":4}');
         insert into draft_players (draft_id, player_id) values (1, 1);
       `);
       expect(db.prepare("select * from drafts").get()).toMatchObject(draftDefaults);

@@ -6,7 +6,7 @@ import { LinkStub, fontMock, ready, loading } from "./shell/helpers";
 vi.mock("next/font/google", () => fontMock());
 vi.mock("next/navigation", () => ({ usePathname: vi.fn() }));
 vi.mock("next/link", () => ({ default: LinkStub }));
-vi.mock("next-auth/react", () => ({ signOut: vi.fn() }));
+vi.mock("@/components/account/sign-out", () => ({ useSignOut: () => vi.fn() }));
 
 import { usePathname } from "next/navigation";
 import { Sidebar } from "../../src/components/layout/sidebar";
@@ -28,7 +28,8 @@ describe("Sidebar current page", () => {
     ["/drafts/123", "Drafts"],
     ["/draft/some-slug", "Drafts"],
     ["/leaderboard", "Leaderboard"],
-    ["/settings", "Settings"],
+    ["/settings", "Account"],
+    ["/settings/account", "Account"],
     ["/themes", "Cubes"],
     ["/player/9", "Leaderboard"],
   ])("%s lights %s and nothing else", (path, label) => {
@@ -71,7 +72,9 @@ describe("Sidebar structure", () => {
       "Decks",
       "Cubes",
     ]);
-    expect(screen.getByRole("link", { name: "Settings" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Account" })).toHaveAttribute("href", "/settings/account");
+    expect(screen.getByRole("link", { name: "Terms" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Privacy" })).toBeTruthy();
   });
 
   it("writes group labels in sentence case", () => {

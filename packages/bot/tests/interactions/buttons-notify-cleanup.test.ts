@@ -1,3 +1,4 @@
+import { createUserService } from "@yugidraft/shared/services";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handleButton, type ButtonInteractionLike } from "../../src/interactions/buttons.js";
@@ -29,9 +30,9 @@ describe("dashboard approve clears notify message", () => {
 
   it("calls deleteNotifyMessage with the resolved match id", async () => {
     const app = setup();
-    const a = app.players.upsert("guild-1", "u-a", "A");
-    const b = app.players.upsert("guild-1", "u-b", "B");
-    const tour = app.tournaments.create("guild-1", "RR", "round_robin", "u-creator");
+    const a = app.players.upsert("guild-1", "900000000000000108", "A");
+    const b = app.players.upsert("guild-1", "900000000000000109", "B");
+    const tour = app.tournaments.create("guild-1", "RR", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000120", displayName: "Host" }).id);
     app.tournaments.join(tour.id, a.id);
     app.tournaments.join(tour.id, b.id);
     app.tournaments.start(tour.id);
@@ -43,7 +44,7 @@ describe("dashboard approve clears notify message", () => {
     const interaction: ButtonInteractionLike = {
       customId: `dashboard_approve:${rep.id}`,
       channelId: "c", guildId: "guild-1",
-      user: { id: "u-b", username: "B" },
+      user: { id: "900000000000000109", username: "B" },
       reply: (m) => { replies.push(m); },
       showModal: () => {},
     };

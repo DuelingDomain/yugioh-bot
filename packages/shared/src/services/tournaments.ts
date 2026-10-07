@@ -27,7 +27,7 @@ type AutocompleteInput = {
   guildId: string;
   query: string;
   statuses?: TournamentStatus[];
-  createdByUserId?: string;
+  createdByUserId?: number;
   participantPlayerId?: number;
 };
 
@@ -352,7 +352,7 @@ export function createTournamentService(db: Database.Database) {
       guildId: string,
       name: string,
       format: TournamentFormat,
-      createdByUserId: string,
+      createdByUserId: number,
       options?: {
         deadlineAt?: string | null;
         reportConfirmWindowHours?: number | null;
@@ -483,7 +483,7 @@ export function createTournamentService(db: Database.Database) {
         .map(mapTournament);
     },
 
-    createdBy(guildId: string, createdByUserId: string, statuses: TournamentStatus[]): Tournament[] {
+    createdBy(guildId: string, createdByUserId: number, statuses: TournamentStatus[]): Tournament[] {
       if (statuses.length === 0) {
         return [];
       }
@@ -580,7 +580,7 @@ export function createTournamentService(db: Database.Database) {
       }
     },
 
-    kick(tournamentId: number, organizerUserId: string, playerId: number): void {
+    kick(tournamentId: number, organizerUserId: number, playerId: number): void {
       const tournament = findById(tournamentId);
 
       if (tournament.status !== "pending") {
@@ -762,7 +762,7 @@ export function createTournamentService(db: Database.Database) {
       return reportTournamentMatchTx(tournamentMatchId, reporterId, winnerId);
     },
 
-    reopenTournamentMatch(tournamentMatchId: number, requesterUserId: string): void {
+    reopenTournamentMatch(tournamentMatchId: number, requesterUserId: number): void {
       const tm = db
         .prepare("select * from tournament_matches where id = ?")
         .get(tournamentMatchId) as

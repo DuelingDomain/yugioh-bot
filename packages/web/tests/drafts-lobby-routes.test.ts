@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
 import * as sharedServices from "@yugidraft/shared/services";
@@ -40,7 +41,10 @@ if (expect.getState().testPath?.endsWith("/drafts-lobby-routes.test.ts")) descri
   });
   beforeEach(() => {
     vi.resetModules(); vi.clearAllMocks();
-vi.doMock("@/lib/auth", () => ({ auth }));
+vi.doMock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.doMock("@/lib/db", () => ({ getDb }));
 vi.doMock("@/lib/notify", () => notify);
 vi.doMock("@/lib/draft-engine-types", () => ({ lookupDraftCardTypes: async () => new Map() }));
@@ -52,13 +56,13 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
     vi.stubEnv("DISCORD_GUILD_ID", "guild");
     vi.stubEnv("DISCORD_BOT_ENABLED", "1");
     vi.stubEnv("DUEL_DATA_DIR", "/tmp/ds-t04-unused-engine");
-    db = new Database(":memory:"); migrate(db); getDb.mockReturnValue(db);
-    db.exec(`insert into players (guild_id, discord_user_id, display_name) values ('guild','host','Host');
+    db = new Database(":memory:"); migrate(db); seedFixtureUsers(db, FIXTURE_KEYS); getDb.mockReturnValue(db);
+    db.exec(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('guild', ${fixtureUserId("host")}, '${fixtureDiscordId("host")}', 'Host');
       insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug)
-      values ('guild','channel','Lobby','pending','host','{"mode":"theme","themeSelection":"random","allowedCubeIds":[]}', 'lobby');
+      values ('guild','channel','Lobby','pending',${fixtureUserId("host")},'{"mode":"theme","themeSelection":"random","allowedCubeIds":[]}', 'lobby');
       insert into draft_players (draft_id, player_id) values (1,1);`);
-    auth.mockResolvedValue({ user: { id: "host" } });
-    projection = sharedServices.createDraftLobbyService(db).read(1, "host");
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("host")) } });
+    projection = sharedServices.createDraftLobbyService(db).read(1, fixtureUserId("host"));
     for (const name of ["read", "setReady", "leave", "removePlayer", "scheduleStart", "stopStart", "setAutoStart"] as const) {
       service[name].mockReturnValue(projection);
     }
@@ -92,7 +96,7 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
     expect((await route(action, action === "auto" ? "PUT" : action === "leave" || action === "remove" ? "DELETE" : "POST")).status).toBe(409);
   });
   it.each(["remove", "start", "auto"])("requires host ownership at %s", async (action) => {
-    auth.mockResolvedValue({ user: { id: "viewer" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("viewer")) } });
     expect((await route(action, action === "auto" ? "PUT" : action === "remove" ? "DELETE" : "POST")).status).toBe(403);
   });
   it.each([{}, { ready: "true" }, { ready: 1 }, null, []])("rejects invalid Ready body %j", async (body) => {
@@ -102,20 +106,20 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
   it("sets Ready for the session identity and returns the shared projection", async () => {
     const response = await route("ready", "POST", { ready: true, playerId: 999 });
     expect(response.status).toBe(200); expect(await response.json()).toEqual(projection);
-    expect(service.setReady).toHaveBeenCalledWith(1, "host", true);
+    expect(service.setReady).toHaveBeenCalledWith(1, fixtureUserId("host"), true);
     expect(notify.broadcaster.draft).toHaveBeenCalledWith({ kind: "seats", slug: "lobby" });
   });
   it("allows the host to leave without losing ownership", async () => {
     expect((await route("leave", "DELETE")).status).toBe(200);
-    expect(service.leave).toHaveBeenCalledWith(1, "host");
-    expect(db.prepare("select created_by_user_id from drafts").get()).toEqual({ created_by_user_id: "host" });
+    expect(service.leave).toHaveBeenCalledWith(1, fixtureUserId("host"));
+    expect(db.prepare("select created_by_user_id from drafts").get()).toEqual({ created_by_user_id: fixtureUserId("host") });
   });
   it.each(["bad", "0", "-1", "1.5", "9007199254740992"])("validates player path %s", async (playerId) => {
     expect((await route("remove", "DELETE", undefined, { params: Promise.resolve({ slug: "lobby", playerId }) } as any)).status).toBe(400);
   });
   it("passes the scoped player ID to the host removal service", async () => {
     expect((await route("remove", "DELETE", undefined, { params: Promise.resolve({ slug: "lobby", playerId: "2" }) } as any)).status).toBe(200);
-    expect(service.removePlayer).toHaveBeenCalledWith(1, "host", 2);
+    expect(service.removePlayer).toHaveBeenCalledWith(1, fixtureUserId("host"), 2);
   });
   it.each([{}, { revision: -1 }, { revision: 0.5 }, { revision: "0" }, { revision: 0, force: "yes" }])("validates start body %j", async (body) => {
     expect((await route("start", "POST", body)).status).toBe(400);
@@ -123,7 +127,7 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
   it("schedules a 202 response without dealing or announcing a start", async () => {
     const response = await route("start", "POST", { revision: 0, force: true });
     expect(response.status).toBe(202); expect(await response.json()).toEqual(projection);
-    expect(service.scheduleStart).toHaveBeenCalledWith(1, "host", { revision: 0, force: true });
+    expect(service.scheduleStart).toHaveBeenCalledWith(1, fixtureUserId("host"), { revision: 0, force: true });
     expect(db.prepare("select count(*) as n from draft_cards").get()).toEqual({ n: 0 });
     expect(notify.announcer.announce).not.toHaveBeenCalled();
   });
@@ -142,9 +146,9 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
   });
   it("stops by token and forwards explicit Resume", async () => {
     expect((await route("start", "DELETE", { token: "schedule" })).status).toBe(200);
-    expect(service.stopStart).toHaveBeenCalledWith(1, "host", "schedule");
+    expect(service.stopStart).toHaveBeenCalledWith(1, fixtureUserId("host"), "schedule");
     expect((await route("auto", "PUT", { enabled: true, held: false, revision: 0 })).status).toBe(200);
-    expect(service.setAutoStart).toHaveBeenCalledWith(1, "host", { enabled: true, held: false, revision: 0 });
+    expect(service.setAutoStart).toHaveBeenCalledWith(1, fixtureUserId("host"), { enabled: true, held: false, revision: 0 });
   });
   it.each([{}, { enabled: 1, revision: 0 }, { enabled: true }, { enabled: true, held: "no", revision: 0 }])("validates auto-start body %j", async (body) => {
     expect((await route("auto", "PUT", body)).status).toBe(400);
@@ -196,7 +200,7 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
     expect(db.prepare("select count(*) as n from drafts").get()).toEqual({ n: 1 });
   });
   it("rejects a seat target below the current joined count", async () => {
-    db.exec(`insert into players (guild_id,discord_user_id,display_name) values ('guild','p2','Two'),('guild','p3','Three');
+    db.exec(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('guild', ${fixtureUserId("p2")}, '${fixtureDiscordId("p2")}', 'Two'), ('guild', ${fixtureUserId("p3")}, '${fixtureDiscordId("p3")}', 'Three');
       insert into draft_players (draft_id,player_id) values (1,2),(1,3);`);
     const { PUT } = await import("../app/api/drafts/[slug]/route");
     const response = await PUT(request("PUT", { revision: 0, config: { lobbySeats: 2 } }) as any, context);
@@ -218,13 +222,13 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
   it("projects authored distinct and copy counts and strips internal player fields", async () => {
     db.exec(`insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
       values (1,'Main','Monster','normal','','','[]','now'),(2,'Extra','Fusion Monster','fusion','','','[]','now');
-      insert into cubes (guild_id,name,created_by_user_id) values ('guild','Cube','host');
+      insert into cubes (guild_id, name, created_by_user_id) values ('guild', 'Cube', ${fixtureUserId("host")});
       insert into cube_cards (cube_id,catalog_card_id,pool,max_copies) values (1,1,'main',5),(1,2,'extra',3);
       update drafts set config_json = '{"mode":"theme","themeSelection":"player_pick","allowedCubeIds":[1]}';
       insert into draft_player_cube (draft_id,player_id,cube_id) values (1,1,1);`);
-    projection = sharedServices.createDraftLobbyService(db).read(1, "viewer");
+    projection = sharedServices.createDraftLobbyService(db).read(1, fixtureUserId("viewer"));
     service.read.mockReturnValue({ ...projection, players: projection.players.map((p) => ({ ...p, discordUserId: "secret", readySetupHash: "secret" })) });
-    auth.mockResolvedValue({ user: { id: "viewer" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("viewer")) } });
     const { GET } = await import("../app/api/drafts/[slug]/route");
     const response = await GET(request("GET"), context); expect(response.status).toBe(200);
     const body = await response.json();
@@ -237,18 +241,18 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
 
   it("keeps an observer out if the pending GET fallback commits a start", async () => {
     db.prepare("update drafts set lobby_start_token = 'schedule' where id = 1").run();
-    auth.mockResolvedValue({ user: { id: "observer" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("observer")) } });
     service.tick.mockImplementationOnce(() => { db.prepare("update drafts set status = 'active'").run(); return { started: [], changedSlugs: [] }; });
     const { GET } = await import("../app/api/drafts/[slug]/route");
     expect((await GET(request("GET"), context)).status).toBe(403);
   });
   it("rejects a roster join racing a whole host assignment map", async () => {
-    db.exec(`insert into cubes (guild_id,name,created_by_user_id) values ('guild','One','host'), ('guild','Two','host');
+    db.exec(`insert into cubes (guild_id, name, created_by_user_id) values ('guild', 'One', ${fixtureUserId("host")}), ('guild', 'Two', ${fixtureUserId("host")});
       update drafts set config_json = '{"mode":"theme","themeSelection":"host_assigned","allowedCubeIds":[1,2],"themeAssignments":{"1":1}}';`);
     const req = request("PUT", { name: "Lost edit", config: { themeAssignments: { "1": 1 } } });
     const text = req.text.bind(req);
     vi.spyOn(req, "text").mockImplementationOnce(async () => {
-      db.exec(`insert into players (guild_id,discord_user_id,display_name) values ('guild','joining','Two');
+      db.exec(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('guild', ${fixtureUserId("joining")}, '${fixtureDiscordId("joining")}', 'Two');
         insert into draft_players (draft_id,player_id) values (1,2);
         update drafts set lobby_revision = lobby_revision + 1;`);
       return text();
@@ -260,9 +264,9 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
   });
 
   it("clears acknowledgement only for the seat whose host assignment changes", async () => {
-    db.exec(`insert into players (guild_id,discord_user_id,display_name) values ('guild','second','Two');
+    db.exec(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('guild', ${fixtureUserId("second")}, '${fixtureDiscordId("second")}', 'Two');
       insert into draft_players (draft_id,player_id) values (1,2);
-      insert into cubes (guild_id,name,created_by_user_id) values ('guild','One','host'),('guild','Two','host'),('guild','Three','host');
+      insert into cubes (guild_id, name, created_by_user_id) values ('guild', 'One', ${fixtureUserId("host")}), ('guild', 'Two', ${fixtureUserId("host")}), ('guild', 'Three', ${fixtureUserId("host")});
       update drafts set config_json = '{"mode":"theme","themeSelection":"host_assigned","allowedCubeIds":[1,2,3],"themeAssignments":{"1":1,"2":2}}';`);
     const { PUT } = await import("../app/api/drafts/[slug]/route");
     const response = await PUT(request("PUT", { config: { themeAssignments: { "1": 3, "2": 2 } }, revision: 0 }) as any, context);
@@ -281,7 +285,7 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
     });
     const response = await route("start", "POST", { revision: 0 });
     expect(response.status).toBe(202);
-    expect(service.scheduleStart).toHaveBeenCalledWith(1, "host", { revision: 0, force: false });
+    expect(service.scheduleStart).toHaveBeenCalledWith(1, fixtureUserId("host"), { revision: 0, force: false });
     vi.doUnmock("@yugidraft/shared/services");
   });
 
@@ -302,13 +306,13 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
 
   async function useRealLobbyService() {
     vi.doUnmock("@/lib/draft-lobby-api");
-    db.exec(`insert into players (guild_id,discord_user_id,display_name) values ('guild','guest','Guest');
+    db.exec(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('guild', ${fixtureUserId("guest")}, '${fixtureDiscordId("guest")}', 'Guest');
       insert into draft_players (draft_id,player_id) values (1,2);
-      insert into cubes (guild_id,name,created_by_user_id) values ('guild','Theme','host');`);
+      insert into cubes (guild_id, name, created_by_user_id) values ('guild', 'Theme', ${fixtureUserId("host")});`);
     for (let id = 1; id <= 42; id++) {
       db.prepare(`insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
         values (?,?,'Normal Monster','normal','','','[]','now')`).run(id, `Card ${id}`);
-      db.prepare("insert into cube_cards (cube_id,catalog_card_id,pool,max_copies) values (1,?,'main',1)").run(id);
+      db.prepare(`insert into cube_cards (cube_id,catalog_card_id,pool,max_copies) values (1,?,'main',1)`).run(id);
     }
     db.prepare("update drafts set config_json = ?").run(JSON.stringify({
       mode: "theme", themeSelection: "random", allowedCubeIds: [1], uniqueThemes: false,
@@ -324,10 +328,10 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
     if (themeSelection === "player_pick") {
       const draft = createDraftService(db).findById(1);
       db.prepare("update drafts set config_json = ? where id = 1").run(JSON.stringify({ ...draft.config, themeSelection }));
-      db.exec("insert into draft_player_cube (draft_id,player_id,cube_id) values (1,1,1),(1,2,1)");
+      db.exec(`insert into draft_player_cube (draft_id,player_id,cube_id) values (1,1,1),(1,2,1)`);
     }
-    api.setReady(1, "guest", true);
-    const response = await route("start", "POST", { revision: api.read(1, "host").lobby.revision });
+    api.setReady(1, fixtureUserId("guest"), true);
+    const response = await route("start", "POST", { revision: api.read(1, fixtureUserId("host")).lobby.revision });
     expect(response.status).toBe(202);
     const state = await response.clone().json() as DraftLobbyResponse;
     expect(state.players.find((p) => p.isHost)).toMatchObject({ ready: false, readyAt: null });
@@ -339,10 +343,10 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
     const api = await useRealLobbyService();
     const draft = createDraftService(db).findById(1);
     db.prepare("update drafts set config_json = ? where id = 1").run(JSON.stringify({ ...draft.config, themeSelection: "player_pick" }));
-    const response = await route("start", "POST", { revision: api.read(1, "host").lobby.revision });
+    const response = await route("start", "POST", { revision: api.read(1, fixtureUserId("host")).lobby.revision });
     expect(response.status).toBe(409);
     expect(await response.json()).toMatchObject({ code: "NOT_READY", notReadyPlayerIds: [2], unclaimedPlayerIds: [1, 2] });
-    expect(api.read(1, "host").lobby.start).toBeNull();
+    expect(api.read(1, fixtureUserId("host")).lobby.start).toBeNull();
   });
 
   it.each(["manual", "auto"])("starts an unclaimed test bot with a random theme through the %s route", async (kind) => {
@@ -352,9 +356,9 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
     const draft = createDraftService(db).findById(1);
     db.prepare("update drafts set config_json = ? where id = 1").run(JSON.stringify({ ...draft.config, themeSelection: "player_pick" }));
     db.prepare("update players set discord_user_id = ? where id = 2").run(`${TEST_BOT_DISCORD_PREFIX}1`);
-    db.exec("insert into draft_player_cube (draft_id,player_id,cube_id) values (1,1,1)");
-    api.setReady(1, "host", true);
-    const state = api.read(1, "host");
+    db.exec(`insert into draft_player_cube (draft_id,player_id,cube_id) values (1,1,1)`);
+    api.setReady(1, fixtureUserId("host"), true);
+    const state = api.read(1, fixtureUserId("host"));
     expect(state.players[1]).toMatchObject({ isBot: true, ready: true, cubeId: null });
     expect(state.lobby.autoStart.eligible).toBe(true);
     const response = kind === "manual"
@@ -388,9 +392,9 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-07T12:00:00Z"));
     const api = await useRealLobbyService();
-    api.setReady(1, "host", true);
-    api.setReady(1, "guest", true);
-    const revision = api.read(1, "host").lobby.revision;
+    api.setReady(1, fixtureUserId("host"), true);
+    api.setReady(1, fixtureUserId("guest"), true);
+    const revision = api.read(1, fixtureUserId("host")).lobby.revision;
     const scheduled = kind === "manual"
       ? await route("start", "POST", { revision })
       : await route("auto", "PUT", { enabled: true, revision });
@@ -404,7 +408,7 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
       expect(db.prepare("select count(*) as n from draft_cards where draft_id = 1").get()).toEqual({ n: 6 });
       return Promise.resolve();
     });
-    auth.mockResolvedValue({ user: { id: viewer } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId(viewer)) } });
     const { GET } = await import("../app/api/drafts/[slug]/route");
     vi.setSystemTime(new Date(Date.parse(deadline) - 1));
     const pendingResponse = await GET(request("GET"), context);
@@ -433,9 +437,9 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-07T12:00:00Z"));
     const api = await useRealLobbyService();
-    const scheduled = api.scheduleStart(1, "host", { revision: api.read(1, "host").lobby.revision, force: true });
+    const scheduled = api.scheduleStart(1, fixtureUserId("host"), { revision: api.read(1, fixtureUserId("host")).lobby.revision, force: true });
     vi.setSystemTime(new Date(scheduled.lobby.start!.startsAt));
-    auth.mockResolvedValue({ user: { id: "member" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("member")) } });
     let entered!: () => void;
     let delivered!: () => void;
     const called = new Promise<void>((resolve) => { entered = resolve; });
@@ -464,19 +468,19 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
     expect(snapshot.players.every((p) => !p.isYou)).toBe(true);
     expect(() => api.invalidate(1, { expectedRevision: snapshot.lobby.revision + 1 }))
       .toThrow(expect.objectContaining({ code: "STALE_LOBBY", status: 409 }));
-    expect(api.read(1, "host", now).lobby.revision).toBe(snapshot.lobby.revision);
+    expect(api.read(1, fixtureUserId("host"), now).lobby.revision).toBe(snapshot.lobby.revision);
   });
   it("T03 runtime: Ready, manual retry/Stop, auto Hold/Resume and GET expiry", async () => {
     vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-10-07T12:00:00Z"));
     try {
       const api = await useRealLobbyService();
-      const unready = await route("start", "POST", { revision: api.read(1, "host").lobby.revision });
+      const unready = await route("start", "POST", { revision: api.read(1, fixtureUserId("host")).lobby.revision });
       expect(unready.status).toBe(409); expect((await unready.json()).code).toBe("NOT_READY");
       expect((await route("ready", "POST", { ready: true })).status).toBe(200);
-      auth.mockResolvedValue({ user: { id: "guest" } });
+      auth.mockResolvedValue({ user: { id: String(fixtureUserId("guest")) } });
       expect((await route("ready", "POST", { ready: true })).status).toBe(200);
-      auth.mockResolvedValue({ user: { id: "host" } });
-      const revision = api.read(1, "host").lobby.revision;
+      auth.mockResolvedValue({ user: { id: String(fixtureUserId("host")) } });
+      const revision = api.read(1, fixtureUserId("host")).lobby.revision;
       const scheduled = await route("start", "POST", { revision }); expect(scheduled.status).toBe(202);
       const first = await scheduled.json() as DraftLobbyResponse;
       expect(new Date(first.lobby.start!.startsAt).getTime() - Date.now()).toBe(5000);
@@ -486,7 +490,7 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
       expect(db.prepare("select count(*) as n from draft_cards").get()).toEqual({ n: 0 });
       expect((await route("start", "DELETE", { token: "wrong" })).status).toBe(409);
       expect((await route("start", "DELETE", { token: first.lobby.start!.token })).status).toBe(200);
-      const enabled = await route("auto", "PUT", { enabled: true, revision: api.read(1, "host").lobby.revision });
+      const enabled = await route("auto", "PUT", { enabled: true, revision: api.read(1, fixtureUserId("host")).lobby.revision });
       expect(enabled.status).toBe(200);
       const auto = (await enabled.json()).lobby;
       expect(new Date(auto.start.startsAt).getTime() - Date.now()).toBe(10000);
@@ -495,7 +499,7 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
       const { GET } = await import("../app/api/drafts/[slug]/route");
       const held = await GET(request("GET"), context); expect(held.status).toBe(200);
       expect((await held.json()).lobby).toMatchObject({ start: null, autoStart: { held: true } });
-      const resumed = await route("auto", "PUT", { enabled: true, held: false, revision: api.read(1, "host").lobby.revision });
+      const resumed = await route("auto", "PUT", { enabled: true, held: false, revision: api.read(1, fixtureUserId("host")).lobby.revision });
       const resumedLobby = (await resumed.json()).lobby;
       expect(new Date(resumedLobby.start.startsAt).getTime() - Date.now()).toBe(10000);
       vi.setSystemTime(new Date(resumedLobby.start.startsAt));
@@ -511,14 +515,16 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
     const api = await useRealLobbyService();
     expect((await route("leave", "DELETE")).status).toBe(200);
     expect((await route("leave", "DELETE")).status).toBe(200);
-    expect(api.read(1, "host").lobby.joined).toBe(1);
-    expect(db.prepare("select created_by_user_id from drafts").get()).toEqual({ created_by_user_id: "host" });
+    expect(api.read(1, fixtureUserId("host")).lobby.joined).toBe(1);
+    expect(db.prepare("select created_by_user_id from drafts").get()).toEqual({ created_by_user_id: fixtureUserId("host") });
     expect((await route("remove", "DELETE", undefined, { params: Promise.resolve({ slug: "lobby", playerId: "2" }) } as any)).status).toBe(200);
     expect((await route("remove", "DELETE", undefined, { params: Promise.resolve({ slug: "lobby", playerId: "2" }) } as any)).status).toBe(404);
     const { POST } = await import("../app/api/drafts/[slug]/join/route");
     expect((await POST(request("POST"), context)).status).toBe(200);
-    expect(api.read(1, "host").players[0]).toMatchObject({ isHost: true, ready: false, cubeId: null });
+    expect(api.read(1, fixtureUserId("host")).players[0]).toMatchObject({ isHost: true, ready: false, cubeId: null });
     expect((await route("remove", "DELETE", undefined, { params: Promise.resolve({ slug: "lobby", playerId: "1" }) } as any)).status).toBe(400);
   });
 
 });
+
+const FIXTURE_KEYS = ["bot_player_dev_table_1", "creator-user", "guest", "host", "joining", "member", "observer", "other", "p2", "p3", "second", "stranger", "viewer"] as const;

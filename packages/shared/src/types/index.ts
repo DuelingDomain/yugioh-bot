@@ -54,10 +54,10 @@ export interface DraftConfig {
 export interface Draft {
   id: number;
   guildId: string;
-  channelId: string;
+  channelId: string | null;
   name: string;
   status: "pending" | "active" | "cancelled" | "completed";
-  createdByUserId: string;
+  createdByUserId: number;
   config: DraftConfig;
   currentPackRound: number;
   currentPickStep: number;
@@ -112,7 +112,7 @@ export interface Tournament {
   name: string;
   format: "round_robin" | "single_elim";
   status: "pending" | "active" | "cancelled" | "completed";
-  createdByUserId: string;
+  createdByUserId: number;
   webSlug?: string;
   deadlineAt?: string; // ISO timestamp; undefined = no deadline
   reportConfirmWindowHours?: number; // undefined = use DEFAULT_REPORT_CONFIRM_HOURS
@@ -175,7 +175,7 @@ export interface Cube {
   banlist: string | null;
   /** Pack/mode defaults + set/passcode pool sources (bot templates & set draws). */
   config: DraftConfig;
-  createdByUserId: string;
+  createdByUserId: number;
 }
 
 export type {

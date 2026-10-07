@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
 import { env } from "@/lib/env";
 import { createDraftService, createPlayerService } from "@yugidraft/shared/services";
 import { commitDraftLobbyMutation, draftLobbyErrorResponse, runDraftLobbyRoute } from "../helpers";
@@ -13,10 +13,8 @@ export async function POST(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const actor = await requireWebAccess();
+    if (!actor.ok) return actor.response;
 
     const { slug } = await params;
     const db = getDb();
@@ -40,7 +38,7 @@ export async function POST(
     }
 
     const players = createPlayerService(db);
-    const player = players.findOrCreate(draftGuildId, session.user.id, session.user.name ?? "Unknown");
+    const player = players.findOrCreate(draftGuildId, actor.userId, actor.userName);
 
     const drafts = createDraftService(db);
     drafts.join(draft.id, player.id);

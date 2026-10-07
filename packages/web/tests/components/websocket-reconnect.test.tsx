@@ -138,7 +138,7 @@ describe("draft reconnect", () => {
     vi.clearAllMocks();
     sockets.length = 0;
     mockFetch.mockReset();
-    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ token: "first-token", userId: "user-1" }) });
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ token: "first-token", userId: 101 }) });
     vi.stubGlobal("fetch", mockFetch);
   });
 
@@ -154,13 +154,13 @@ describe("draft reconnect", () => {
     renderHook(() => useDraftWebsocket("cup"));
     connect();
     await waitFor(() => expect(sockets[0].emit).toHaveBeenCalledExactlyOnceWith("draft:join", {
-      slug: "cup", token: "first-token", userId: "user-1",
+      slug: "cup", token: "first-token", userId: 101,
     }, expect.any(Function)));
 
-    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ token: "reconnected-token", userId: "user-1" }) });
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ token: "reconnected-token", userId: 101 }) });
     connect();
     await waitFor(() => expect(sockets[0].emit).toHaveBeenNthCalledWith(2, "draft:join", {
-      slug: "cup", token: "reconnected-token", userId: "user-1",
+      slug: "cup", token: "reconnected-token", userId: 101,
     }, expect.any(Function)));
     expect(mockFetch).toHaveBeenCalledTimes(2);
     expect(mockFetch).toHaveBeenNthCalledWith(2, "/api/drafts/cup/connection", expect.objectContaining({ cache: "no-store" }));
@@ -202,7 +202,7 @@ describe("draft reconnect", () => {
     let resolveReconnect!: () => void;
     mockFetch.mockReturnValueOnce(new Promise((resolve) => {
       resolveReconnect = () => resolve({
-        ok: true, json: async () => ({ token: "reconnected-token", userId: "user-1" }),
+        ok: true, json: async () => ({ token: "reconnected-token", userId: 101 }),
       });
     }));
     connect();
@@ -250,18 +250,18 @@ describe("draft reconnect", () => {
     });
     connect();
     await waitFor(() => expect(sockets[0].emit).toHaveBeenCalledExactlyOnceWith("draft:join", {
-      slug: "old", token: "first-token", userId: "user-1",
+      slug: "old", token: "first-token", userId: 101,
     }, expect.any(Function)));
     act(() => sockets[0].emit.mock.calls[0][2]());
     expect(onResync).toHaveBeenCalledTimes(1);
 
-    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ token: "new-slug-token", userId: "user-1" }) });
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ token: "new-slug-token", userId: 101 }) });
     rerender({ slug: "new" });
     expect(sockets[0].disconnect).toHaveBeenCalledTimes(1);
     expect(io).toHaveBeenCalledTimes(2);
     connect(1);
     await waitFor(() => expect(sockets[1].emit).toHaveBeenCalledExactlyOnceWith("draft:join", {
-      slug: "new", token: "new-slug-token", userId: "user-1",
+      slug: "new", token: "new-slug-token", userId: 101,
     }, expect.any(Function)));
     expect(mockFetch).toHaveBeenNthCalledWith(2, "/api/drafts/new/connection", expect.objectContaining({ cache: "no-store" }));
     expect(onResync).toHaveBeenCalledTimes(1);
@@ -289,7 +289,7 @@ describe("draft reconnect", () => {
       await act(async () => { await vi.advanceTimersByTimeAsync(1); });
       expect(mockFetch).toHaveBeenCalledTimes(2);
       expect(sockets[0].emit).toHaveBeenCalledExactlyOnceWith("draft:join", {
-        slug: "cup", token: "first-token", userId: "user-1",
+        slug: "cup", token: "first-token", userId: 101,
       }, expect.any(Function));
       expect(onResync).not.toHaveBeenCalled();
 

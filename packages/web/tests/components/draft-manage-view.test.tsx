@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { fixtureUserId } from "../fixtures/identity";
 import React from "react";
 import { beforeEach, describe, expect, it, vi, afterEach } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -18,7 +19,7 @@ const baseDraft = {
   id: 1,
   name: "Legendary Draft",
   status: "pending",
-  createdByUserId: "creator-1",
+  createdByUserId: fixtureUserId("creator-1"),
   createdAt: "2026-05-06T12:00:00.000Z",
   config: {
     packSize: 5,
@@ -204,7 +205,7 @@ describe("DraftManageView — header, players, start", () => {
     await userEvent.click(screen.getByRole("button", { name: /copy link/i }));
     expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/draft/goat-night`);
     expect(await screen.findByRole("button", { name: /copied/i })).toBeInTheDocument();
-    expect(screen.getByText("/draft join")).toBeInTheDocument();
+    expect(screen.queryByText(/draft join/)).toBeNull();
   });
 
   it("shows a guest the Join card instead of the invite panel, and joins", async () => {
@@ -694,7 +695,7 @@ describe("DraftManageView — Seats First lobby", () => {
   it("gives a player Ready and no Start, and posts the mark", async () => {
     const me = row(2, "Ana", { isYou: true });
     const stub = stubFetch({ extra: { "POST /api/drafts/s/ready": answerWith({ revision: 6, ready: 2 }, [hostRow, { ...me, ready: true }, bob]) } });
-    render(view({ isCreator: false, draft: lobbyDraft({}, {}, [{ ...hostRow, isYou: false }, me, bob]) }));
+    render(view({ discordEnabled: true, isCreator: false, draft: lobbyDraft({}, {}, [{ ...hostRow, isYou: false }, me, bob]) }));
     expect(screen.queryByRole("button", { name: /^start draft/i })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /i'm ready/i }));
     await waitFor(() => expect(postsTo(stub, "/ready")[0]?.body).toEqual({ ready: true }));
@@ -789,7 +790,7 @@ describe("DraftManageView — Seats First lobby", () => {
   it("opens the pool drawer read-only for a player, with Edit pool only for the host", async () => {
     stubFetch({ draftPool: [{ ...CATALOG[0], qty: 2 }] });
     const me = row(2, "Ana", { isYou: true });
-    const { unmount } = render(view({ isCreator: false, draft: lobbyDraft({}, {}, [{ ...hostRow, isYou: false }, me, bob]) }));
+    const { unmount } = render(view({ discordEnabled: true, isCreator: false, draft: lobbyDraft({}, {}, [{ ...hostRow, isYou: false }, me, bob]) }));
     const open = screen.getByRole("button", { name: /view pool/i });
     open.focus();
     fireEvent.click(open);
@@ -816,14 +817,14 @@ describe("DraftManageView — Seats First lobby", () => {
   it("opens the invite modal and lets only the host post to Discord", async () => {
     const nextAllowedAt = new Date(Date.now() + 60_000).toISOString();
     const stub = stubFetch({ extra: { "POST /api/drafts/s/nudge": () => Response.json({ ok: true, channelId: "c", nextAllowedAt }) } });
-    const { unmount } = render(view());
+    const { unmount } = render(view({ discordEnabled: true }));
     fireEvent.click(screen.getByRole("button", { name: "Invite players" }));
     const dialog = await screen.findByRole("dialog", { name: /invite players/i });
     fireEvent.click(within(dialog).getByRole("button", { name: /post to discord/i }));
     await waitFor(() => expect(postsTo(stub, "/nudge")).toHaveLength(1));
     unmount();
     cleanup();
-    render(view({ isCreator: false, draft: lobbyDraft({}, {}, [{ ...hostRow, isYou: false }, { ...ana, isYou: true }, bob]) }));
+    render(view({ discordEnabled: true, isCreator: false, draft: lobbyDraft({}, {}, [{ ...hostRow, isYou: false }, { ...ana, isYou: true }, bob]) }));
     fireEvent.click(screen.getByRole("button", { name: "Invite players" }));
     const modal = await screen.findByRole("dialog", { name: /invite players/i });
     expect(within(modal).queryByRole("button", { name: /post to discord/i })).not.toBeInTheDocument();
@@ -839,9 +840,9 @@ describe("DraftManageView — Seats First lobby", () => {
     await waitFor(() => expect(onCancel).toHaveBeenCalledTimes(1));
   });
 
-  it("shows Nudge and the Discord invite text by default, and none of it when the bot is off", async () => {
+  it("shows Nudge and the Discord invite text when enabled, and none of it when the bot is off", async () => {
     stubFetch();
-    const { unmount } = render(view());
+    const { unmount } = render(view({ discordEnabled: true }));
     expect(screen.getByRole("button", { name: "Nudge Ana" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Invite players" }));
     let dialog = await screen.findByRole("dialog", { name: /invite players/i });
@@ -862,7 +863,7 @@ describe("DraftManageView — Seats First lobby", () => {
   it("hides the legacy Discord join command when the bot is off", () => {
     stubFetch();
     const legacy = { ...baseDraft, players: [{ playerId: 1, displayName: "Imran", pickCount: 0, joinedAt: "2026-05-06T19:02:00.000Z" }] };
-    const { unmount } = render(<DraftManageView {...baseProps} slug="s" draft={legacy} />);
+    const { unmount } = render(<DraftManageView {...baseProps} slug="s" draft={legacy} discordEnabled />);
     expect(screen.getByText("/draft join")).toBeInTheDocument();
     unmount();
     render(<DraftManageView {...baseProps} slug="s" draft={legacy} discordEnabled={false} />);

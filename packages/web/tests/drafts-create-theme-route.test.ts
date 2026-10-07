@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -7,14 +8,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const auth = vi.fn();
 const tempDirs: string[] = [];
 
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/notify", () => ({ announcer: { announce: vi.fn() } }));
 
 describe("POST /api/drafts (theme mode)", () => {
   beforeEach(() => {
     vi.resetModules();
     auth.mockReset();
-    auth.mockResolvedValue({ user: { id: "creator-user", name: "Yugi" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("creator-user")), discordUserId: fixtureDiscordId("creator-user"), name: "Yugi" } });
   });
 
   afterEach(() => {
@@ -36,8 +40,9 @@ describe("POST /api/drafts (theme mode)", () => {
 
     const { getDb } = await import("@/lib/db");
     const db = getDb();
-    db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1', 'Blue-Eyes', 'u')").run();
-    db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1', 'Dark Magician', 'u')").run();
+    seedFixtureUsers(db, FIXTURE_KEYS);
+    db.prepare(`insert into cubes (guild_id, name, created_by_user_id) values ('guild-1', 'Blue-Eyes', ${fixtureUserId("u")})`).run();
+    db.prepare(`insert into cubes (guild_id, name, created_by_user_id) values ('guild-1', 'Dark Magician', ${fixtureUserId("u")})`).run();
     return db;
   }
 
@@ -137,8 +142,8 @@ describe("POST /api/drafts (theme mode)", () => {
 
   it.each([true, false, undefined])("ignores unjoined players when checking uniqueness at creation (uniqueThemes=%s)", async (uniqueThemes) => {
     const db = await setupHostCreation();
-    db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('guild-1', 'creator-user', 'Yugi')").run();
-    db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('guild-1', 'other-user', 'Kaiba')").run();
+    db.prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('guild-1', ${fixtureUserId("creator-user")}, '${fixtureDiscordId("creator-user")}', 'Yugi')`).run();
+    db.prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('guild-1', ${fixtureUserId("other-user")}, '${fixtureDiscordId("other-user")}', 'Kaiba')`).run();
     const { POST } = await import("../app/api/drafts/route");
     const response = await POST(new Request("http://localhost/api/drafts", {
       method: "POST",
@@ -167,9 +172,10 @@ describe("POST /api/drafts (theme mode)", () => {
     const { migrate } = await import("@yugidraft/shared/db");
     const db = new Database(dbPath);
     migrate(db);
+    seedFixtureUsers(db, FIXTURE_KEYS);
     // two cubes to allow
-    db.prepare("insert into cubes (guild_id, name, created_by_user_id, created_at, updated_at) values ('guild-1','Blue-Eyes','u','t','t')").run();
-    db.prepare("insert into cubes (guild_id, name, created_by_user_id, created_at, updated_at) values ('guild-1','Dark Magician','u','t','t')").run();
+    db.prepare(`insert into cubes (guild_id, name, created_by_user_id, created_at, updated_at) values ('guild-1', 'Blue-Eyes', ${fixtureUserId("u")}, 't', 't')`).run();
+    db.prepare(`insert into cubes (guild_id, name, created_by_user_id, created_at, updated_at) values ('guild-1', 'Dark Magician', ${fixtureUserId("u")}, 't', 't')`).run();
     db.close();
 
     const { POST } = await import("../app/api/drafts/route");
@@ -193,3 +199,7 @@ describe("POST /api/drafts (theme mode)", () => {
     verifyDb.close();
   });
 });
+
+const FIXTURE_KEYS = ["creator-user", "u", "other-user"] as const;
+
+// Session resolution is mocked; authorization still runs through the real web boundary.

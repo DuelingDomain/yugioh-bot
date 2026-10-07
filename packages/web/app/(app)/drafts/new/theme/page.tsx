@@ -1,3 +1,4 @@
+import { env } from "@/lib/env";
 import { DraftFrame } from "@/components/draft/draft-frame";
 import { NewDraftLead } from "@/components/draft/create/new-lead";
 import { CreateThemeDraftForm } from "@/components/draft/create-theme-draft-form";
@@ -6,7 +7,7 @@ import { CreateThemeDraftForm } from "@/components/draft/create-theme-draft-form
 export const dynamic = "force-dynamic";
 
 export default function NewThemeDraftPage() {
-  const discordEnabled = process.env.DISCORD_BOT_ENABLED === "1";
+  const discordEnabled = env.discordBotEnabled;
   return (
     <DraftFrame
       back={{ href: "/drafts/new", label: "New draft" }}

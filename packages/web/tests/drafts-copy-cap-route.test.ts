@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -8,7 +9,10 @@ const auth = vi.fn();
 const broadcaster = { draft: vi.fn(), tournament: vi.fn() };
 const tempDirs: string[] = [];
 
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/notify", () => ({ broadcaster, announcer: { announce: vi.fn() } }));
 
 // One player may hold at most 3 copies of a card in a draft. The pick route refuses a fourth,
@@ -19,7 +23,7 @@ describe("per-player copy cap in the draft routes", () => {
     vi.resetModules();
     auth.mockReset();
     broadcaster.draft.mockReset();
-    auth.mockResolvedValue({ user: { id: "host", name: "Yugi" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("host")), discordUserId: fixtureDiscordId("host"), name: "Yugi" } });
     vi.stubEnv("DRAFT_TEST_BOTS", "1");
   });
 
@@ -46,26 +50,27 @@ describe("per-player copy cap in the draft routes", () => {
     const { createDraftService, createPlayerService } = await import("@yugidraft/shared/services");
     const db = new Database(dbPath);
     migrate(db);
+    seedFixtureUsers(db, FIXTURE_KEYS);
     const ins = db.prepare(
       "insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (?,?,?,?,?,?,?,?)",
     );
     const ids = Array.from({ length: 16 }, (_, i) => 500 + i);
     for (const id of ids) ins.run(id, `Card ${id}`, "Effect Monster", "effect", "i", "i", "[]", "t");
     const players = createPlayerService(db);
-    const host = players.findOrCreate("guild-1", "host", "Yugi");
+    const host = players.findOrCreate("guild-1", fixtureUserId("host"), "Yugi");
     const drafts = createDraftService(db);
     const draft = drafts.create(
       "guild-1", "channel-1", "cap night",
       { setNames: [], customCardIds: ids, cubeCardIds: ids, packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8 },
-      "host", host.id,
+      fixtureUserId("host"), host.id,
     );
     const others: number[] = [];
     if (opts.bots === 0) {
-      others.push(players.findOrCreate("guild-1", "other", "Kaiba").id);
+      others.push(players.findOrCreate("guild-1", fixtureUserId("other"), "Kaiba").id);
       drafts.join(draft.id, others[0]);
     } else {
       for (let i = 0; i < opts.bots; i += 1) {
-        const bot = players.findOrCreate("guild-1", `bot_${i}`, `Bot ${i}`);
+        const bot = players.findOrCreateTestPlayer("guild-1", `bot_player_dev_${i + 1}`, `Bot ${i}`);
         drafts.join(draft.id, bot.id);
         others.push(bot.id);
       }
@@ -120,7 +125,7 @@ describe("per-player copy cap in the draft routes", () => {
     grantCopies(db, draft.id, host, pack[1].catalogCardId, 2);
 
     const { buildDraftResponse } = await import("../app/api/drafts/[slug]/helpers");
-    const response = await buildDraftResponse(slug, "host");
+    const response = await buildDraftResponse(slug, { userId: fixtureUserId("host"), discordUserId: fixtureDiscordId("host") });
 
     expect(response?.currentPack.map((card) => [card.id, card.held, card.blocked])).toEqual([
       [pack[0].id, 3, true],
@@ -145,7 +150,7 @@ describe("per-player copy cap in the draft routes", () => {
     drafts.pickCard(draft.id, other, otherPack[0].id);
 
     const { buildDraftResponse } = await import("../app/api/drafts/[slug]/helpers");
-    const response = await buildDraftResponse(slug, "host");
+    const response = await buildDraftResponse(slug, { userId: fixtureUserId("host"), discordUserId: fixtureDiscordId("host") });
 
     expect(response?.pickStep).toBe(2);
     expect(response?.passed).toBe(false);
@@ -154,7 +159,7 @@ describe("per-player copy cap in the draft routes", () => {
     expect(response?.currentPack.every((card) => !card.blocked)).toBe(true);
     expect(response?.currentPack.every((card) => card.forced === true)).toBe(true);
     drafts.pickCard(draft.id, host, otherPack[1].id);
-    const after = await buildDraftResponse(slug, "host");
+    const after = await buildDraftResponse(slug, { userId: fixtureUserId("host"), discordUserId: fixtureDiscordId("host") });
     expect(after?.myPool.find((card) => card.id === otherPack[1].id)?.forced).toBe(true);
     const seats = response?.seats ?? [];
     expect(seats.find((seat) => seat.playerId === host)?.hasPicked).toBe(false);
@@ -168,7 +173,7 @@ describe("per-player copy cap in the draft routes", () => {
     const ins = db.prepare("insert into draft_cards (draft_id, wave_number, draft_pack_id, catalog_card_id, position) values (?, 1, ?, 500, ?)");
     for (let pos = 4; pos < 15; pos++) ins.run(draft.id, pack.id, pos);
     const { buildDraftResponse } = await import("../app/api/drafts/[slug]/helpers");
-    const response = await buildDraftResponse(slug, "host");
+    const response = await buildDraftResponse(slug, { userId: fixtureUserId("host"), discordUserId: fixtureDiscordId("host") });
     expect(response?.currentPack).toHaveLength(15);
     expect(new Set(response?.currentPack.map((card) => card.id)).size).toBe(15);
     expect(response?.currentPack.every((card) => !card.blocked)).toBe(true);
@@ -253,3 +258,7 @@ describe("per-player copy cap in the draft routes", () => {
     db.close();
   });
 });
+
+const FIXTURE_KEYS = ["host", "other"] as const;
+
+// Session resolution is mocked; authorization still runs through the real web boundary.

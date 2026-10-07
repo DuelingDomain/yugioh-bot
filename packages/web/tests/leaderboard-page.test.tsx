@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId } from "./fixtures/identity";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { referenceRows } from "./fixtures/leaderboard";
 
@@ -8,7 +9,10 @@ vi.mock("next/font/google", () => {
 });
 
 const { getActive } = vi.hoisted(() => ({ getActive: vi.fn() }));
-vi.mock("@/lib/auth", () => ({ auth: async () => ({ user: { id: "imran" } }) }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture((() => ({ auth: async () => ({ user: { id: String(fixtureUserId("imran")), discordUserId: fixtureDiscordId("imran") } }) }))().auth);
+});
 vi.mock("@/lib/env", () => ({ env: { discordGuildId: "guild-1" } }));
 vi.mock("@/lib/db", () => ({ getDb: () => ({ prepare: () => ({ get: () => ({ id: 5 }) }) }) }));
 vi.mock("@yugidraft/shared/services", () => ({
@@ -44,3 +48,7 @@ describe("leaderboard server composition", () => {
     expect(page.props.seasonStartedOn).toBeNull();
   });
 });
+
+const FIXTURE_KEYS = ["imran"] as const;
+
+// Session resolution is mocked; authorization still runs through the real web boundary.

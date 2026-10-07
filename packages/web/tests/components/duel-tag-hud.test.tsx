@@ -54,10 +54,10 @@ function withMasters(controller: TableController): TableController {
   } as TableController;
 }
 
-function Shell({ id = "main", domain = false, tweak }: { id?: StateId; domain?: boolean; tweak?: (controller: TableController) => TableController }) {
+function Shell({ id = "main", domain = false, fx = false, tweak }: { id?: StateId; domain?: boolean; fx?: boolean; tweak?: (controller: TableController) => TableController }) {
   const base = useFixtureController(TAG_FIXTURES.states[id], { reducedMotion: true });
   const shown = domain ? withMasters(base) : base;
-  return <TagShell controller={tweak ? tweak(shown) : shown} teamNames={[...TAG_TEAM_NAMES] as [string, string]} fxActive={false} />;
+  return <TagShell controller={tweak ? tweak(shown) : shown} teamNames={[...TAG_TEAM_NAMES] as [string, string]} fxActive={fx} />;
 }
 
 const flyout = () => screen.getByTestId("hud-flyout");
@@ -72,7 +72,8 @@ describe("the floating HUD of the Tag Rooftop", () => {
     expect(screen.getByTestId("hud-top").hasAttribute("data-tag-header")).toBe(true);
     expect(screen.getByTestId("hud-bottom")).toBeTruthy();
     expect(container.querySelector("[aria-label='Camera'][class*='right']")).toBeNull();
-    for (const id of ["log", "settings", "chain", "camera"]) expect(screen.getByTestId(`hud-dock-${id}`)).toBeTruthy();
+    for (const id of ["log", "settings", "camera"]) expect(screen.getByTestId(`hud-dock-${id}`)).toBeTruthy();
+    expect(screen.queryByTestId("hud-dock-chain")).toBeNull();
     expect(screen.queryByTestId("hud-dock-history")).toBeNull();
     expect(isOpen()).toBe(false);
   });
@@ -127,8 +128,17 @@ describe("the floating HUD of the Tag Rooftop", () => {
     media(false);
     render(<Shell id="chain-2" />);
     expect(screen.getByTestId("chain-tower").getAttribute("data-links")).toBe("2");
-    fireEvent.click(screen.getByTestId("hud-dock-chain"));
-    expect(within(flyout()).getAllByTestId("chain-row")).toHaveLength(2);
+    expect(screen.queryByTestId("hud-dock-chain")).toBeNull();
+  });
+
+  it("opens every link's details from the chain strip, as the tower has no Chain button", () => {
+    media(false);
+    render(<Shell id="chain-2" fx />);
+    expect(within(screen.getByTestId("chain-tower")).queryByRole("button", { name: /Chain/ })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Chain details" })).toBeNull();
+    fireEvent.click(document.querySelector("[data-chain-strip]") as HTMLElement);
+    const sheet = screen.getByRole("dialog", { name: "Chain details" });
+    expect(sheet.querySelectorAll("[data-chain-row]")).toHaveLength(2);
   });
 
   it("has no chain tower without a chain", () => {
@@ -237,6 +247,21 @@ describe("the hover preview of the Tag Rooftop", () => {
   });
 });
 
+describe("the hover preview of the Tag Rooftop while a card menu is open", () => {
+  it("keeps the card of the menu in the panel once the pointer has left it", () => {
+    media(false);
+    const { container } = render(<Shell />);
+    const card = container.querySelector("[data-hand-seat='0'] [data-zones]") as HTMLElement;
+    fireEvent.mouseEnter(card);
+    fireEvent.click(card);
+    expect(screen.queryByRole("menu")).not.toBeNull();
+    fireEvent.mouseLeave(card);
+    expect(screen.getByTestId("hover-preview").getAttribute("data-open")).toBe("true");
+    expect(screen.getByTestId("hover-preview").textContent).toContain("Dark Hole");
+    expect(isOpen()).toBe(false);
+  });
+});
+
 describe("the Tag HUD with a prompt", () => {
   /** The prompt can be declined (Pass), and every answer goes to `onAnswer`. */
   const answering = (onAnswer: (answer: DuelAnswer) => void) => (controller: TableController): TableController => {
@@ -266,18 +291,21 @@ describe("the Tag HUD with a prompt", () => {
   });
 });
 
-describe("the Tag clock in the bottom pill", () => {
-  it("shows the answering seat only, and nothing when no clock runs", () => {
+describe("the Tag clocks at the top left", () => {
+  it("shows all four clocks in the header with the answering seat marked, and none in the bottom pill", () => {
     media(false);
     const withClock = (activeSeat: number | null) => (controller: TableController): TableController => ({
       ...controller,
-      room: { ...controller.room, clock: { turn: 1, remainingMs: [180_000, 170_000, 160_000, 150_000], activeSeat, startedAt: null, serverNow: 0 } },
+      room: { ...controller.room, clock: { turn: 1, remainingMs: [180_000, 170_000, 160_000, 150_000], activeSeat, startedAt: activeSeat == null ? null : 0, serverNow: 0 } },
     });
     const { unmount } = render(<Shell tweak={withClock(1)} />);
-    const timer = within(screen.getByTestId("hud-bottom")).getByRole("timer");
-    expect(timer.querySelectorAll("[data-active]")).toHaveLength(1);
+    const timer = within(screen.getByTestId("hud-top")).getByRole("timer");
+    expect(timer.querySelectorAll('[data-testid="clock-cell"]')).toHaveLength(4);
+    expect(timer.querySelectorAll('[data-active="true"]')).toHaveLength(1);
+    expect(within(screen.getByTestId("hud-bottom")).queryByRole("timer")).toBeNull();
     unmount();
     render(<Shell tweak={withClock(null)} />);
-    expect(within(screen.getByTestId("hud-bottom")).queryByRole("timer")).toBeNull();
+    const idle = within(screen.getByTestId("hud-top")).getByRole("timer");
+    expect(idle.querySelectorAll('[data-active="true"]')).toHaveLength(0);
   });
 });

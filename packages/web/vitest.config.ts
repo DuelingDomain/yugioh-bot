@@ -14,8 +14,6 @@ export default defineConfig({
     environment: "node",
     globals: true,
     setupFiles: ["./tests/setup.ts"],
-    // Run the real NextAuth proxy in Vitest, resolving its Next.js imports with Vite.
-    server: { deps: { inline: ["next-auth"] } },
     exclude: [".next/**", "node_modules/**"],
   },
   resolve: {

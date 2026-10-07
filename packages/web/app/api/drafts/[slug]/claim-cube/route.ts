@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { broadcaster } from "@/lib/notify";
@@ -12,9 +12,9 @@ export const runtime = "nodejs";
 type Context = { params: Promise<{ slug: string }> };
 
 async function mutateClaim(request: Request, { params }: Context, release: boolean) {
-  const session = await auth();
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized", code: "UNAUTHORIZED" }, { status: 401 });
-  const userId = session.user.id;
+  const actor = await requireWebAccess();
+  if (!actor.ok) return actor.response;
+  const userId = actor.userId;
   const { slug } = await params;
   const db = getDb();
   const guildId = env.discordGuildId;
@@ -28,7 +28,7 @@ async function mutateClaim(request: Request, { params }: Context, release: boole
         throw new ThemeDraftMutationError("THEME_SELECTION_REQUIRED", "This draft does not allow player cube picks");
       }
       const player = db.prepare(`select p.id from players p join draft_players dp on dp.player_id = p.id
-        where p.guild_id = ? and p.discord_user_id = ? and dp.draft_id = ?`)
+        where p.guild_id = ? and p.user_id = ? and dp.draft_id = ?`)
         .get(guildId, userId, draft.id) as { id: number } | undefined;
       if (!player) throw new ThemeDraftMutationError("NOT_JOINED", "Join the draft first");
       if (!release) {

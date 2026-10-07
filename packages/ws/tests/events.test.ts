@@ -50,7 +50,7 @@ function waitForConnect(socket: TestClient): Promise<void> {
 }
 
 function emitJoin(client: TestClient, slug: string): Promise<unknown> {
-  const userId = "user-1";
+  const userId = 101;
   const token = createDraftRoomToken({ slug: slug || "draft-1", guildId: "guild-1", userId, expiresAt: Date.now() + 60_000 }, SECRET);
   return new Promise((resolve) => {
     client.emit("draft:join", { slug, userId, token }, resolve);

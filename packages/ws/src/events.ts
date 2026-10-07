@@ -7,7 +7,7 @@ export type DraftStatus = "active" | "cancelled" | "completed";
 export interface DraftJoinPayload {
   slug: string;
   token: string;
-  userId: string;
+  userId: number;
 }
 
 export type DuelJoinAck =
@@ -120,7 +120,7 @@ export function registerEventHandlers(
           return;
         }
         const userId = payload?.userId;
-        const claims = typeof userId === "string"
+        const claims = typeof userId === "number" && Number.isSafeInteger(userId) && userId > 0
           ? verifyDraftRoomToken(payload?.token, opts.secret, { slug, userId })
           : null;
         if (!claims || !hasAccess(claims)) {

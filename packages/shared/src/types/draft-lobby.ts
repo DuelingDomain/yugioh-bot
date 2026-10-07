@@ -154,10 +154,10 @@ export interface DraftResponseSeat {
 interface DraftDetailResponseBase {
   id: number;
   guildId: string;
-  channelId: string;
+  channelId: string | null;
   name: string;
   /** Ownership survives Leave; compare this with the viewer's session ID. */
-  createdByUserId: string;
+  createdByUserId: number;
   /** Retains existing filtering of assignment maps and any private seeds. */
   config: DraftConfig;
   currentPackRound: number;

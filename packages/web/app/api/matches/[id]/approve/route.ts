@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
 import { createMatchService, createPlayerService } from "@yugidraft/shared/services";
 import { broadcaster, announcer } from "@/lib/notify";
 
@@ -12,10 +12,8 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const actor = await requireWebAccess();
+    if (!actor.ok) return actor.response;
 
     const { id } = await params;
     const matchId = Number(id);
@@ -39,17 +37,17 @@ export async function POST(
     }
 
     const players = createPlayerService(db);
-    const player = players.findByGuildAndUser(match.guild_id, session.user.id);
+    const player = players.findByGuildAndUser(match.guild_id, actor.userId);
     if (!player) {
       return NextResponse.json({ error: "Player not found" }, { status: 404 });
     }
 
     const approved = matches.approve(matchId, player.id);
-    void announcer.announce(
+    if (env.discordBotEnabled) void announcer.announce(
       { kind: "match-resolved", matchId },
     );
-    if (approved.tournamentId && matches.claimTournamentCompletionAnnouncement(approved.tournamentId)) {
-      void announcer.announce({ kind: "tournament-completed", tournamentId: approved.tournamentId });
+    if (env.discordBotEnabled && approved.tournamentId && matches.claimTournamentCompletionAnnouncement(approved.tournamentId)) {
+      if (env.discordBotEnabled) void announcer.announce({ kind: "tournament-completed", tournamentId: approved.tournamentId });
     }
     if (match.tournament_slug) {
       void broadcaster.tournament(

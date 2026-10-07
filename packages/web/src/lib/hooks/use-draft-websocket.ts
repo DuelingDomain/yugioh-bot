@@ -61,7 +61,7 @@ export function useDraftWebsocket(slug: string, options: UseDraftWebsocketOption
           if (response.status !== 403 && response.status !== 404) scheduleJoinRetry(currentRequest);
           return;
         }
-        const data = await response.json();
+        const data = await response.json() as { token: string; userId: number };
         if (disposed || !socket.connected || currentRequest !== requestId) return;
         socket.emit("draft:join", { slug, token: data.token, userId: data.userId }, (result?: { error?: string }) => {
           if (disposed || !socket.connected || currentRequest !== requestId) return;

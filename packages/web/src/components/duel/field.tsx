@@ -941,7 +941,7 @@ export function DuelField(props: DuelFieldProps) {
             <PileColumn view={top} opponent side="right" callbacks={callbacks} ownerLabel={topLabel} masterRule={masterRule} />
           </div>
           <div className={styles.emzBand}>
-            {props.hub ? <div className={styles.emzHub}>{props.hub}</div> : null}
+            {props.hub ? <div className={styles.emzHub} data-emz-zones={showExtraZones && masterRule >= 4 ? "true" : "false"}>{props.hub}</div> : null}
             {showExtraZones && masterRule >= 4 ? (
               <div className={styles.emzRow}>
                 <div />

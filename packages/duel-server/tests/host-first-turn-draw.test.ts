@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { createHmac } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -35,9 +36,7 @@ async function table(mode: DuelMode, format: DuelFormat, masterRule: DuelMasterR
   migrate(db);
   const duels = createDuelService(db);
   const count = seatCountFor(format);
-  const players = Array.from({ length: count }, (_, seat) => Number(db.prepare(
-    "insert into players (guild_id, discord_user_id, display_name) values (?, ?, ?)",
-  ).run("g", `u${seat}`, `P${seat}`).lastInsertRowid));
+  const players = Array.from({ length: count }, (_, seat) => seedIdentity(db, { guildId: "g", name: `P${seat}`, userId: seedUser(db, `u${seat}`).userId, discordUserId: seedUser(db, `u${seat}`).discordUserId ?? `u${seat}` }).playerId);
   const session = duels.create({ guildId: "g", organizerPlayerId: players[0]!, name: "Draw rule pin", mode, format, masterRule,
     settings: { validateDeck: false, shuffleDeck: false, turnSeconds: 0 } });
   for (const player of players.slice(1)) duels.takeSeat(session.slug, "g", player);

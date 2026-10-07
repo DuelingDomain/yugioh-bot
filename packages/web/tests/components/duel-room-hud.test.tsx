@@ -44,6 +44,10 @@ vi.mock("@/components/duel/field", async (importOriginal) => {
           <button type="button" data-testid="field-card"
             onMouseEnter={(event) => props.onHoverCard?.(card, event.currentTarget)}
             onMouseLeave={() => props.onHoverCard?.(null, null)}>card</button>
+          {/* A second card, for the hover that switches the preview. */}
+          <button type="button" data-testid="field-other"
+            onMouseEnter={(event) => props.onHoverCard?.(props.engine.seats[1].monsters[3], event.currentTarget)}
+            onMouseLeave={() => props.onHoverCard?.(null, null)}>other</button>
           {/* The monster is the legal pick of a select prompt. */}
           <button type="button" data-testid="field-pick"
             onClick={(event) => card && props.onActivate([`${card.controller}:${card.location}:${card.sequence}`], card, event.currentTarget)}>pick</button>
@@ -63,9 +67,10 @@ vi.mock("@/components/duel/destroy-fx", () => ({ DestroyFx: () => null }));
 
 import { DuelRoomView } from "@/components/duel/room";
 
-function makeRoom(opts: { domain?: boolean; chain?: boolean; prompt?: DuelPrompt; clock?: DuelClock; spectator?: boolean } = {}): DuelRoom {
+function makeRoom(opts: { domain?: boolean; chain?: boolean; prompt?: DuelPrompt; clock?: DuelClock; spectator?: boolean; second?: boolean } = {}): DuelRoom {
   let board = newBoard();
   const edits = [edit.monster(1, 2, CARDS.battleOx)];
+  if (opts.second) edits.push(edit.monster(1, 3, CARDS.beaver));
   if (opts.domain) {
     edits.push(edit.deckMaster(0, CARDS.darkMagician, { inZone: true, returns: 0, nextCost: 0 }));
     edits.push(edit.deckMaster(1, CARDS.blueEyes, { inZone: true, returns: 1, nextCost: 500 }));
@@ -116,6 +121,15 @@ const pickPrompt: DuelPrompt = {
   id: "p2", seat: 0, kind: "cards", title: "Select 1 monster", min: 1, max: 1, cancelable: true,
   options: [{ id: "target", label: "Battle Ox", card: info(3, "Battle Ox"), controller: 1, location: 4, sequence: 2 }],
 };
+/** Two moves for the card on the rival's monster zone (field zone 1:4:2): its click opens the card action menu. */
+const menuPrompt: DuelPrompt = {
+  id: "p3", seat: 0, kind: "choice", title: "Select an action", cancelable: false,
+  context: { type: "action", phase: "main" },
+  options: [
+    { id: "activate:0", label: "Activate Battle Ox", card: info(3, "Battle Ox"), controller: 1, location: 4, sequence: 2 },
+    { id: "pos:0", label: "Change Battle Ox to Defense", card: info(3, "Battle Ox"), controller: 1, location: 4, sequence: 2 },
+  ],
+};
 const sent = () => sendDuelAction.mock.calls.map((call) => (call as unknown as [string, DuelCommand])[1]);
 
 const flyout = () => screen.getByTestId("hud-flyout");
@@ -145,7 +159,8 @@ describe("the floating HUD of the 1v1 room", () => {
     // back on for an open prompt dock there.
     expect(corner.hasAttribute("data-hud-corner")).toBe(true);
     expect(screen.queryByRole("complementary", { name: "Duel panels" })).toBeNull();
-    for (const id of ["log", "settings", "chain"]) expect(screen.getByTestId(`hud-dock-${id}`)).toBeTruthy();
+    for (const id of ["log", "settings"]) expect(screen.getByTestId(`hud-dock-${id}`)).toBeTruthy();
+    expect(screen.queryByTestId("hud-dock-chain")).toBeNull();
     expect(screen.queryByTestId("hud-dock-history")).toBeNull();
     expect(isOpen()).toBe(false);
   });
@@ -210,8 +225,9 @@ describe("the floating HUD of the 1v1 room", () => {
     expect(screen.getByTestId("chain-tower").getAttribute("data-links")).toBe("1");
     fireEvent.click(screen.getByTestId("hud-dock-log"));
     expect(screen.getByTestId("chain-tower")).toBeTruthy();
-    fireEvent.click(screen.getByTestId("hud-dock-chain"));
-    expect(within(flyout()).getAllByTestId("chain-row")).toHaveLength(1);
+    expect(screen.queryByTestId("hud-dock-chain")).toBeNull();
+    expect(within(flyout()).queryByTestId("hud-tab-chain")).toBeNull();
+    expect(within(screen.getByTestId("chain-tower")).queryByRole("button", { name: /Chain/ })).toBeNull();
   });
 
   it("has no chain tower when no chain is open", () => {
@@ -279,6 +295,66 @@ describe("the hover preview of the 1v1 room", () => {
     fireEvent.click(screen.getByTestId("hud-dock-log"));
     fireEvent.mouseEnter(screen.getByTestId("field-card"));
     expect(screen.queryByTestId("hover-preview")).toBeNull();
+  });
+});
+
+describe("the hover preview while a card action menu is open", () => {
+  const openMenu = () => {
+    mount({ prompt: menuPrompt, second: true });
+    fireEvent.mouseEnter(screen.getByTestId("field-card"));
+    fireEvent.click(screen.getByTestId("field-pick"));
+    expect(screen.getByRole("menu")).toBeTruthy();
+  };
+
+  it("keeps the card of the menu in the panel, also after the pointer leaves the card for the menu", () => {
+    vi.useFakeTimers();
+    openMenu();
+    expect(screen.getByTestId("hover-preview").getAttribute("data-open")).toBe("true");
+    expect(screen.getByTestId("hover-preview")).toHaveTextContent("Battle Ox");
+    fireEvent.mouseLeave(screen.getByTestId("field-card"));
+    fireEvent.mouseEnter(within(screen.getByRole("menu")).getAllByRole("menuitem")[0]);
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS + 20); });
+    expect(screen.getByTestId("hover-preview").getAttribute("data-open")).toBe("true");
+    expect(screen.getByTestId("hover-preview")).toHaveTextContent("Battle Ox");
+    expect(isOpen()).toBe(false);
+  });
+
+  it("shows a tapped card with no hover at all (touch)", () => {
+    mount({ prompt: menuPrompt });
+    fireEvent.click(screen.getByTestId("field-pick"));
+    expect(screen.getByRole("menu")).toBeTruthy();
+    expect(screen.getByTestId("hover-preview").getAttribute("data-open")).toBe("true");
+    expect(screen.getByTestId("hover-preview")).toHaveTextContent("Battle Ox");
+  });
+
+  it("switches to another hovered card, and goes back to the menu's card when that hover ends", () => {
+    openMenu();
+    fireEvent.mouseLeave(screen.getByTestId("field-card"));
+    fireEvent.mouseEnter(screen.getByTestId("field-other"));
+    expect(screen.getByTestId("hover-preview")).toHaveTextContent("Beaver Warrior");
+    fireEvent.mouseLeave(screen.getByTestId("field-other"));
+    expect(screen.getByTestId("hover-preview")).toHaveTextContent("Battle Ox");
+  });
+
+  it("keeps the preview closed for a menu on a card with no code", () => {
+    const room = makeRoom({ prompt: menuPrompt });
+    const seat = room.engine!.seats[1] as unknown as { monsters: ({ code: number | null } | null)[] };
+    seat.monsters[2] = { ...seat.monsters[2]!, code: null };
+    swr.data = room;
+    render(<DuelRoomView slug="abc" windowed />);
+    fireEvent.click(screen.getByTestId("field-pick"));
+    expect(screen.getByRole("menu")).toBeTruthy();
+    expect(screen.queryByTestId("hover-preview")).toBeNull();
+  });
+
+  it("closes with the menu when nothing is hovered", () => {
+    vi.useFakeTimers();
+    openMenu();
+    fireEvent.mouseLeave(screen.getByTestId("field-card"));
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS + 20); });
+    expect(screen.getByTestId("hover-preview").getAttribute("data-open")).toBe("false");
   });
 });
 

@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "../helpers/identity.js";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
 import { migrate } from "../../src/db/index.js";
@@ -20,15 +21,11 @@ function setup() {
   const duels = createTournamentDuelService(db);
   const savedDecks = createSavedDeckService(db);
   const insertPlayer = (userId: string, name: string) =>
-    Number(
-      db
-        .prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', ?, ?)")
-        .run(userId, name).lastInsertRowid,
-    );
+    seedIdentity(db, { guildId: "g1", name: name, userId: seedUser(db, userId).userId, discordUserId: seedUser(db, userId).discordUserId ?? userId }).playerId;
   const alice = insertPlayer("u-alice", "Alice");
   const bob = insertPlayer("u-bob", "Bob");
   const carol = insertPlayer("u-carol", "Carol");
-  const tournament = tournaments.create("g1", "Cup", "single_elim", "u-alice");
+  const tournament = tournaments.create("g1", "Cup", "single_elim", seedUser(db, "u-alice").userId);
   tournaments.join(tournament.id, alice);
   tournaments.join(tournament.id, bob);
   return { db, tournaments, duels, savedDecks, alice, bob, carol, tournament };
@@ -47,12 +44,7 @@ function expectStatus(work: () => unknown, status: number) {
 
 function attachDraft(db: Database.Database, tournamentId: number) {
   const draftId = Number(
-    db
-      .prepare(
-        `insert into drafts (guild_id, channel_id, name, status, created_by_user_id, tournament_id)
-         values ('g1', 'ch', 'D', 'completed', 'u-alice', ?)`,
-      )
-      .run(tournamentId).lastInsertRowid,
+    db.prepare("insert into drafts (guild_id, channel_id, name, status, created_by_user_id, tournament_id)\n         values ('g1', 'ch', 'D', 'completed', ?, ?)").run(seedUser(db, "u-alice").userId, tournamentId).lastInsertRowid,
   );
   return draftId;
 }
@@ -70,7 +62,7 @@ describe("tournament duel rules", () => {
 
   it("stores bestOf and duel rules given at create and update", () => {
     const { db, tournaments, duels } = setup();
-    const created = tournaments.create("g1", "Bo1 Cup", "round_robin", "u-alice", {
+    const created = tournaments.create("g1", "Bo1 Cup", "round_robin", seedUser(db, "u-alice").userId, {
       bestOf: 1,
       duelRules: { mode: "domain", masterRule: 4 },
     });
@@ -80,27 +72,27 @@ describe("tournament duel rules", () => {
     expect(rules.mode).toBe("domain");
     expect(rules.masterRule).toBe(4);
 
-    const updated = duels.setRules(created.id, "u-alice", { bestOf: 3 });
+    const updated = duels.setRules(created.id, seedUser(db, "u-alice").userId, { bestOf: 3 });
     expect(updated.bestOf).toBe(3);
-    expectStatus(() => duels.setRules(created.id, "u-alice", { bestOf: 2 as never }), 400);
-    expect(() => tournaments.create("g1", "Bad", "round_robin", "u-alice", { bestOf: 5 as never })).toThrow(/Best of/);
+    expectStatus(() => duels.setRules(created.id, seedUser(db, "u-alice").userId, { bestOf: 2 as never }), 400);
+    expect(() => tournaments.create("g1", "Bad", "round_robin", seedUser(db, "u-alice").userId, { bestOf: 5 as never })).toThrow(/Best of/);
     expect(() =>
-      tournaments.create("g1", "Bad2", "round_robin", "u-alice", { duelRules: { settings: { nope: 1 } } }),
+      tournaments.create("g1", "Bad2", "round_robin", seedUser(db, "u-alice").userId, { duelRules: { settings: { nope: 1 } } }),
     ).toThrow(/Unknown duel setting/);
     expect(db.prepare("select count(*) as c from tournaments where name like 'Bad%'").get()).toEqual({ c: 0 });
   });
 
   it("lets only the organizer change the rules", () => {
-    const { duels, tournament } = setup();
-    expectStatus(() => duels.setRules(tournament.id, "u-bob", { bestOf: 1 }), 403);
-    expect(duels.setRules(tournament.id, "u-alice", { bestOf: 1 }).bestOf).toBe(1);
-    expectStatus(() => duels.setRules(999, "u-alice", { bestOf: 1 }), 404);
-    expectStatus(() => duels.setRules(tournament.id, "u-alice", { bestOf: 2 as never }), 400);
+    const { db, duels, tournament } = setup();
+    expectStatus(() => duels.setRules(tournament.id, seedUser(db, "u-bob").userId, { bestOf: 1 }), 403);
+    expect(duels.setRules(tournament.id, seedUser(db, "u-alice").userId, { bestOf: 1 }).bestOf).toBe(1);
+    expectStatus(() => duels.setRules(999, seedUser(db, "u-alice").userId, { bestOf: 1 }), 404);
+    expectStatus(() => duels.setRules(tournament.id, seedUser(db, "u-alice").userId, { bestOf: 2 as never }), 400);
   });
 
   it("normalizes mode, master rule and settings", () => {
-    const { duels, tournament } = setup();
-    const rules = duels.setRules(tournament.id, "u-alice", {
+    const { db, duels, tournament } = setup();
+    const rules = duels.setRules(tournament.id, seedUser(db, "u-alice").userId, {
       mode: "domain",
       masterRule: 3,
       settings: { startingLP: 4000 },
@@ -111,12 +103,12 @@ describe("tournament duel rules", () => {
     expect(rules.bestOf).toBe(3);
 
     // Only bestOf: the stored rules stay.
-    const again = duels.setRules(tournament.id, "u-alice", { bestOf: 1 });
+    const again = duels.setRules(tournament.id, seedUser(db, "u-alice").userId, { bestOf: 1 });
     expect(again.mode).toBe("domain");
     expect(again.settings.startingLP).toBe(4000);
 
-    expectStatus(() => duels.setRules(tournament.id, "u-alice", { settings: { bogus: true } }), 400);
-    expectStatus(() => duels.setRules(tournament.id, "u-alice", { masterRule: 9 as never }), 400);
+    expectStatus(() => duels.setRules(tournament.id, seedUser(db, "u-alice").userId, { settings: { bogus: true } }), 400);
+    expectStatus(() => duels.setRules(tournament.id, seedUser(db, "u-alice").userId, { masterRule: 9 as never }), 400);
     expect(duels.rules(tournament.id).settings.startingLP).toBe(4000);
   });
 
@@ -124,14 +116,14 @@ describe("tournament duel rules", () => {
     const { db, tournaments, duels, tournament, alice, bob } = setup();
     tournaments.start(tournament.id);
     // Before any game, the rules still change on an active tournament.
-    expect(duels.setRules(tournament.id, "u-alice", { bestOf: 1 }).bestOf).toBe(1);
+    expect(duels.setRules(tournament.id, seedUser(db, "u-alice").userId, { bestOf: 1 }).bestOf).toBe(1);
 
     const slot = tournaments.openMatches(tournament.id)[0]!;
     db.prepare(
       `insert into duel_series (guild_id, best_of, player0_id, player1_id, tournament_match_id, mode, settings_json, created_by_player_id)
        values ('g1', 3, ?, ?, ?, 'normal', '{}', ?)`,
     ).run(alice, bob, slot.id, alice);
-    expectStatus(() => duels.setRules(tournament.id, "u-alice", { bestOf: 3 }), 409);
+    expectStatus(() => duels.setRules(tournament.id, seedUser(db, "u-alice").userId, { bestOf: 3 }), 409);
   });
 
   it("rulesLocked follows the same rule setRules uses to refuse a change", () => {
@@ -143,7 +135,7 @@ describe("tournament duel rules", () => {
     // A locked deck (a game started) locks the rules, even with no series row.
     db.prepare("update tournament_participants set deck_locked_at = datetime('now') where tournament_id = ? and player_id = ?").run(tournament.id, alice);
     expect(duels.rulesLocked(tournament.id)).toBe(true);
-    expectStatus(() => duels.setRules(tournament.id, "u-alice", { bestOf: 1 }), 409);
+    expectStatus(() => duels.setRules(tournament.id, seedUser(db, "u-alice").userId, { bestOf: 1 }), 409);
     db.prepare("update tournament_participants set deck_locked_at = null where tournament_id = ?").run(tournament.id);
     expect(duels.rulesLocked(tournament.id)).toBe(false);
 
@@ -157,10 +149,10 @@ describe("tournament duel rules", () => {
   });
 
   it("rulesLocked is true for a closed tournament", () => {
-    const { tournaments, duels, tournament } = setup();
+    const { db, tournaments, duels, tournament } = setup();
     tournaments.cancel(tournament.id);
     expect(duels.rulesLocked(tournament.id)).toBe(true);
-    expectStatus(() => duels.setRules(tournament.id, "u-alice", { bestOf: 1 }), 409);
+    expectStatus(() => duels.setRules(tournament.id, seedUser(db, "u-alice").userId, { bestOf: 1 }), 409);
   });
 
   it("updateSettings cannot change the rules after a tournament game has started", () => {
@@ -183,24 +175,24 @@ describe("tournament duel rules", () => {
   });
 
   it("refuses rule changes once a deck is locked", () => {
-    const { duels, tournament, alice } = setup();
+    const { db, duels, tournament, alice } = setup();
     duels.registerDeck({ tournamentId: tournament.id, playerId: alice, savedDeckId: null, deck });
     duels.lockDeck(tournament.id, alice);
-    expectStatus(() => duels.setRules(tournament.id, "u-alice", { bestOf: 1 }), 409);
+    expectStatus(() => duels.setRules(tournament.id, seedUser(db, "u-alice").userId, { bestOf: 1 }), 409);
   });
 
   it("refuses rule changes on a finished tournament", () => {
-    const { tournaments, duels, tournament } = setup();
+    const { db, tournaments, duels, tournament } = setup();
     tournaments.cancel(tournament.id);
-    expectStatus(() => duels.setRules(tournament.id, "u-alice", { bestOf: 1 }), 409);
+    expectStatus(() => duels.setRules(tournament.id, seedUser(db, "u-alice").userId, { bestOf: 1 }), 409);
   });
 
   it("keeps fixed rules for a draft tournament and accepts only bestOf", () => {
     const { db, duels, tournament } = setup();
     const draftId = attachDraft(db, tournament.id);
-    expectStatus(() => duels.setRules(tournament.id, "u-alice", { mode: "domain" }), 400);
-    expectStatus(() => duels.setRules(tournament.id, "u-alice", { settings: {} }), 400);
-    const rules = duels.setRules(tournament.id, "u-alice", { bestOf: 1 });
+    expectStatus(() => duels.setRules(tournament.id, seedUser(db, "u-alice").userId, { mode: "domain" }), 400);
+    expectStatus(() => duels.setRules(tournament.id, seedUser(db, "u-alice").userId, { settings: {} }), 400);
+    const rules = duels.setRules(tournament.id, seedUser(db, "u-alice").userId, { bestOf: 1 });
     expect(rules.bestOf).toBe(1);
     expect(rules.draftId).toBe(draftId);
     expect(rules.mode).toBe("normal");
@@ -214,14 +206,14 @@ describe("tournament duel rules", () => {
 
 describe("tournament deck registration", () => {
   it("registers, replaces and reads a deck", () => {
-    const { duels, savedDecks, tournament, alice, bob } = setup();
+    const { db, duels, savedDecks, tournament, alice, bob } = setup();
     expect(duels.registration(tournament.id, alice)).toBeNull();
     expect(duels.registrations(tournament.id)).toEqual([
       { playerId: alice, registered: false, lockedAt: null },
       { playerId: bob, registered: false, lockedAt: null },
     ]);
 
-    const saved = savedDecks.create("g1", "u-alice", { name: "Mine", mode: "normal", deck });
+    const saved = savedDecks.create("g1", seedUser(db, "u-alice").userId, { name: "Mine", mode: "normal", deck });
     const first = duels.registerDeck({ tournamentId: tournament.id, playerId: alice, savedDeckId: saved.id, deck });
     expect(first.savedDeckId).toBe(saved.id);
     expect(first.deck).toEqual(deck);
@@ -249,7 +241,7 @@ describe("tournament deck registration", () => {
       () => duels.registerDeck({ tournamentId: tournament.id, playerId: carol, savedDeckId: null, deck }),
       403,
     );
-    const bobsDeck = savedDecks.create("g1", "u-bob", { name: "Bob", mode: "normal", deck });
+    const bobsDeck = savedDecks.create("g1", seedUser(db, "u-bob").userId, { name: "Bob", mode: "normal", deck });
     expectStatus(
       () => duels.registerDeck({ tournamentId: tournament.id, playerId: alice, savedDeckId: bobsDeck.id, deck }),
       403,
@@ -293,17 +285,12 @@ describe("tournament deck registration", () => {
     const { db, duels, savedDecks, tournament, alice, bob } = setup();
     const draftId = attachDraft(db, tournament.id);
     const otherDraftId = Number(
-      db
-        .prepare(
-          `insert into drafts (guild_id, channel_id, name, status, created_by_user_id)
-           values ('g1', 'ch', 'Other', 'completed', 'u-alice')`,
-        )
-        .run().lastInsertRowid,
+      db.prepare("insert into drafts (guild_id, channel_id, name, status, created_by_user_id)\n           values ('g1', 'ch', 'Other', 'completed', ?)").run(seedUser(db, "u-alice").userId).lastInsertRowid,
     );
-    const plain = savedDecks.create("g1", "u-alice", { name: "Plain", mode: "normal", deck });
-    const otherDraft = savedDecks.create("g1", "u-alice", { name: "Old", mode: "normal", deck, draftId: otherDraftId });
-    const draftDeck = savedDecks.create("g1", "u-alice", { name: "Draft", mode: "normal", deck, draftId });
-    const bobsDraftDeck = savedDecks.create("g1", "u-bob", { name: "BobD", mode: "normal", deck, draftId });
+    const plain = savedDecks.create("g1", seedUser(db, "u-alice").userId, { name: "Plain", mode: "normal", deck });
+    const otherDraft = savedDecks.create("g1", seedUser(db, "u-alice").userId, { name: "Old", mode: "normal", deck, draftId: otherDraftId });
+    const draftDeck = savedDecks.create("g1", seedUser(db, "u-alice").userId, { name: "Draft", mode: "normal", deck, draftId });
+    const bobsDraftDeck = savedDecks.create("g1", seedUser(db, "u-bob").userId, { name: "BobD", mode: "normal", deck, draftId });
 
     expectStatus(() => duels.registerDeck({ tournamentId: tournament.id, playerId: alice, savedDeckId: null, deck }), 400);
     expectStatus(() => duels.registerDeck({ tournamentId: tournament.id, playerId: alice, savedDeckId: plain.id, deck }), 400);
@@ -331,14 +318,14 @@ describe("setResultByOrganizer", () => {
 
   it("checks the organizer, slot state and winner before it writes", () => {
     const { db, duels, slot, alice, bob, carol } = startedSetup();
-    const call = (input: Partial<{ organizerUserId: string; winnerPlayerId: number; tournamentMatchId: number }>) =>
+    const call = (input: Partial<{ organizerUserId: number; winnerPlayerId: number; tournamentMatchId: number }>) =>
       duels.setResultByOrganizer({
         tournamentMatchId: slot.id,
-        organizerUserId: "u-alice",
+        organizerUserId: seedUser(db, "u-alice").userId,
         winnerPlayerId: alice,
         ...input,
       });
-    expectStatus(() => call({ organizerUserId: "u-bob" }), 403);
+    expectStatus(() => call({ organizerUserId: seedUser(db, "u-bob").userId }), 403);
     expectStatus(() => call({ winnerPlayerId: carol }), 400);
     expectStatus(() => call({ tournamentMatchId: 9999 }), 404);
     db.prepare("update tournament_matches set status = 'completed' where id = ?").run(slot.id);
@@ -349,7 +336,7 @@ describe("setResultByOrganizer", () => {
     const { tournaments, duels, slot, alice, tournament, db } = startedSetup();
     const result = duels.setResultByOrganizer({
       tournamentMatchId: slot.id,
-      organizerUserId: "u-alice",
+      organizerUserId: seedUser(db, "u-alice").userId,
       winnerPlayerId: alice,
     });
     expect(result.tournamentId).toBe(tournament.id);
@@ -373,7 +360,7 @@ describe("setResultByOrganizer", () => {
        values ('g1', 3, ?, ?, ?, 'normal', '{}', ?)`,
     ).run(alice, bob, slot.id, alice);
 
-    duels.setResultByOrganizer({ tournamentMatchId: slot.id, organizerUserId: "u-alice", winnerPlayerId: alice });
+    duels.setResultByOrganizer({ tournamentMatchId: slot.id, organizerUserId: seedUser(db, "u-alice").userId, winnerPlayerId: alice });
 
     expect(db.prepare("select status from duel_series where tournament_match_id = ?").get(slot.id)).toEqual({
       status: "cancelled",

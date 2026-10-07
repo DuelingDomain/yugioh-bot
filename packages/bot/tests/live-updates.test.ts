@@ -12,16 +12,16 @@ vi.mock("@yugidraft/shared/services", () => ({
 function setup() {
   const draft = {
     id: 1, guildId: "guild", channelId: "channel", name: "Draft", webSlug: "draft-cup",
-    createdByUserId: "creator", status: "pending", config: {}, currentPackRound: 1, currentPickStep: 1,
+    createdByUserId: 101, status: "pending", config: {}, currentPackRound: 1, currentPickStep: 1,
   };
   const tournament = {
-    id: 2, guildId: "guild", name: "Cup", webSlug: "cup", createdByUserId: "creator", status: "pending",
+    id: 2, guildId: "guild", name: "Cup", webSlug: "cup", createdByUserId: 101, status: "pending",
   };
   const match = { id: 3, tournamentId: 2 };
   return {
     draft, tournament,
     deps: {
-      players: { upsert: vi.fn(() => ({ id: 7, displayName: "Yugi" })) },
+      players: { ensureUser: vi.fn(() => ({ id: 101 })), upsert: vi.fn(() => ({ id: 7, userId: 101, displayName: "Yugi" })) },
       drafts: {
         findByName: vi.fn(() => draft), findById: vi.fn(() => draft), join: vi.fn(),
         start: vi.fn(() => ({ ...draft, status: "active" })), cancel: vi.fn(),
@@ -47,7 +47,7 @@ function setup() {
       cards: { syncDraftPool: vi.fn(), findByIds: vi.fn(() => [{ name: "Card" }]) },
       messenger: { postStatus: vi.fn(), updateStatus: vi.fn() },
       broadcaster: { draft: vi.fn().mockResolvedValue(undefined), tournament: vi.fn().mockResolvedValue(undefined) },
-      db: { prepare: vi.fn(() => ({ get: vi.fn(() => ({ id: 1, created_by_user_id: "creator", status: "completed" })) })) },
+      db: { prepare: vi.fn(() => ({ get: vi.fn(() => ({ id: 1, created_by_user_id: 101, status: "completed" })) })) },
       announceTournamentCompleted: vi.fn(),
     },
   };
@@ -55,11 +55,11 @@ function setup() {
 
 function command(commandName: string, subcommand: string): CommandInteractionLike {
   return {
-    commandName, guildId: "guild", channelId: "channel", user: { id: "creator", username: "Yugi" },
+    commandName, guildId: "guild", channelId: "channel", user: { id: "900000000000000103", username: "Yugi" },
     options: {
       getSubcommand: () => subcommand, getSubcommandGroup: () => null,
       getString: (name) => name === "result" ? "win" : "Cup",
-      getUser: () => ({ id: "opponent", username: "Kaiba" }), getInteger: () => null, getRole: () => null,
+      getUser: () => ({ id: "900000000000000106", username: "Kaiba" }), getInteger: () => null, getRole: () => null,
     },
     reply: vi.fn(),
   };

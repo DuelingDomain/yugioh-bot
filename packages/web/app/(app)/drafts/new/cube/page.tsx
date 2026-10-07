@@ -1,3 +1,4 @@
+import { env } from "@/lib/env";
 import { CreateDraftForm } from "@/components/draft/create-draft-form";
 import { WorkbenchFrame } from "@/components/draft/setup/workbench";
 
@@ -5,7 +6,7 @@ import { WorkbenchFrame } from "@/components/draft/setup/workbench";
 export const dynamic = "force-dynamic";
 
 export default function NewCubeDraftPage() {
-  const discordEnabled = process.env.DISCORD_BOT_ENABLED === "1";
+  const discordEnabled = env.discordBotEnabled;
   return (
     <WorkbenchFrame
       back={{ href: "/drafts/new", label: "New draft" }}

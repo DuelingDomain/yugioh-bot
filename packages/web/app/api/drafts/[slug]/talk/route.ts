@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { broadcaster } from "@/lib/notify";
@@ -13,10 +13,8 @@ export const runtime = "nodejs";
  * is refused. The line is relayed to everyone in the draft room and says nothing about picks.
  */
 export async function POST(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const actor = await requireWebAccess();
+  if (!actor.ok) return actor.response;
 
   const body = (await request.json().catch(() => null)) as { line?: unknown } | null;
   const line = body?.line;
@@ -38,9 +36,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     .prepare(
       `select p.id from players p
        join draft_players dp on dp.player_id = p.id
-       where dp.draft_id = ? and p.guild_id = ? and p.discord_user_id = ?`,
+       where dp.draft_id = ? and p.guild_id = ? and p.user_id = ?`,
     )
-    .get(draft.id, draft.guild_id, session.user.id) as { id: number } | undefined;
+    .get(draft.id, draft.guild_id, actor.userId) as { id: number } | undefined;
   if (!player) {
     return NextResponse.json({ error: "Only players in this draft can talk" }, { status: 403 });
   }

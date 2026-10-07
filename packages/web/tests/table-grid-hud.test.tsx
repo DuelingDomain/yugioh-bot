@@ -70,7 +70,9 @@ describe("the floating HUD of the 4-way grid", () => {
     // No full-width bottom bar: the turn controls sit in the corner cluster.
     expect(screen.queryByTestId("hud-bottom")).toBeNull();
     expect(screen.getByTestId("hud-corner")).toBeTruthy();
-    for (const id of ["log", "settings", "chain"]) expect(screen.getByTestId(`hud-dock-${id}`)).toBeTruthy();
+    for (const id of ["log", "settings"]) expect(screen.getByTestId(`hud-dock-${id}`)).toBeTruthy();
+    // The chain shows by itself (tower, strip and its sheet), so the dock has no Chain icon and the flyout no Chain tab.
+    expect(screen.queryByTestId("hud-dock-chain")).toBeNull();
     // The old History pane only repeated the Log pane, so the dock has no History icon.
     expect(screen.queryByTestId("hud-dock-history")).toBeNull();
     expect(isOpen()).toBe(false);
@@ -116,9 +118,18 @@ describe("the floating HUD of the 4-way grid", () => {
     expect(isOpen()).toBe(true);
     expect(flyout().getAttribute("data-chain")).toBe("true");
     expect(screen.getByTestId("chain-tower")).toBeTruthy();
-    fireEvent.click(screen.getByTestId("hud-dock-chain"));
-    expect(within(flyout()).getAllByTestId("chain-row")).toHaveLength(2);
-    expect(screen.getByTestId("chain-tower")).toBeTruthy();
+    expect(within(flyout()).queryByTestId("hud-tab-chain")).toBeNull();
+    expect(within(flyout()).queryByTestId("chain-row")).toBeNull();
+  });
+
+
+  it("opens every link's details from the chain strip, as the tower has no Chain button", () => {
+    render(<Shell state={stateOf("chain-2")} />);
+    expect(within(screen.getByTestId("chain-tower")).queryByRole("button", { name: /Chain/ })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Chain details" })).toBeNull();
+    fireEvent.click(document.querySelector("[data-chain-strip]") as HTMLElement);
+    const sheet = screen.getByRole("dialog", { name: "Chain details" });
+    expect(sheet.querySelectorAll("[data-chain-row]")).toHaveLength(2);
   });
 
   it("has no chain tower when no chain is open", () => {
@@ -292,17 +303,37 @@ describe("the HUD of the 4-way grid with a prompt", () => {
   });
 });
 
-describe("the clock in the corner of the 4-way grid", () => {
-  it("shows the answering seat's clock only, and nothing when no clock runs", () => {
+describe("the clocks at the top left of the 4-way grid", () => {
+  it("shows every seat's clock in the header, marks the answering seat, and keeps the corner free", () => {
     const running = structuredClone(stateOf("main"));
-    running.room.clock = { ...running.room.clock!, activeSeat: 1 };
+    running.room.clock = { ...running.room.clock!, activeSeat: 1, startedAt: running.room.clock!.serverNow };
     const { unmount } = render(<Shell state={running} />);
-    const timer = within(screen.getByTestId("hud-corner")).getByRole("timer");
-    expect(timer.querySelectorAll("[data-active]")).toHaveLength(1);
+    const timer = within(screen.getByTestId("hud-top")).getByRole("timer");
+    const cells = timer.querySelectorAll('[data-testid="clock-cell"]');
+    expect(cells).toHaveLength(running.room.clock!.remainingMs.length);
+    expect(timer.querySelectorAll('[data-active="true"]')).toHaveLength(1);
+    expect(cells[1]?.getAttribute("data-active")).toBe("true");
+    expect(within(screen.getByTestId("hud-corner")).queryByRole("timer")).toBeNull();
     unmount();
     const idle = structuredClone(stateOf("main"));
     idle.room.clock = { ...idle.room.clock!, activeSeat: null };
     render(<Shell state={idle} />);
-    expect(within(screen.getByTestId("hud-corner")).queryByRole("timer")).toBeNull();
+    const idleTimer = within(screen.getByTestId("hud-top")).getByRole("timer");
+    expect(idleTimer.querySelectorAll('[data-active="true"]')).toHaveLength(0);
+  });
+});
+
+describe("the hover card preview while its action menu is open", () => {
+  it("keeps the card of the menu in the panel once the pointer has left it", () => {
+    const { container } = render(<Shell state={stateOf("main")} />);
+    const card = container.querySelector<HTMLElement>('[data-hand-seat="0"] button[aria-label="Raigeki"]')!;
+    fireEvent.mouseEnter(card);
+    fireEvent.click(card);
+    expect(screen.queryByRole("menu")).not.toBeNull();
+    fireEvent.mouseLeave(card);
+    const preview = screen.getByTestId("hover-preview");
+    expect(preview.getAttribute("data-open")).toBe("true");
+    expect(within(preview).getByText("Raigeki")).toBeTruthy();
+    expect(isOpen()).toBe(false);
   });
 });

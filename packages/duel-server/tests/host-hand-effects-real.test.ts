@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { createHmac } from "node:crypto";
 import Database from "better-sqlite3";
 import { expect, it } from "vitest";
@@ -41,7 +42,7 @@ describeWithCores("host routes real hand/GY destruction triggers", [needs.cards(
     it(entry.scenario.id, async () => {
       const db = new Database(":memory:"); migrate(db);
       const count = entry.scenario.setup.format === "1v1" ? 2 : entry.scenario.setup.format === "ffa3" ? 3 : 4;
-      const players = Array.from({ length: count }, (_, seat) => Number(db.prepare("INSERT INTO players (guild_id, discord_user_id, display_name) VALUES ('fixture', ?, ?)").run(`p${seat}`, `P${seat}`).lastInsertRowid));
+      const players = Array.from({ length: count }, (_, seat) => seedIdentity(db, { guildId: "fixture", name: `P${seat}`, userId: seedUser(db, `p${seat}`).userId, discordUserId: seedUser(db, `p${seat}`).discordUserId ?? `p${seat}` }).playerId);
       const service = createDuelService(db);
       const room = service.create({ guildId: "fixture", organizerPlayerId: players[0]!, name: "Jet fixture", mode: entry.scenario.setup.mode!, format: entry.scenario.setup.format!, settings: { validateDeck: false } });
       for (const player of players.slice(1)) service.takeSeat(room.slug, "fixture", player);

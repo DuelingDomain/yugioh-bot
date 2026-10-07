@@ -1,3 +1,5 @@
+import { seedIdentity, seedUser } from "../helpers/identity.js";
+import { readFileSync } from "node:fs";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import { migrate } from "../../src/db/schema.js";
@@ -162,8 +164,8 @@ describe("shared database schema", () => {
     const db = new Database(":memory:");
     migrate(db);
     db.prepare(
-      "insert into cubes (guild_id, name, created_by_user_id, created_at, updated_at) values ('g','Blue-Eyes','u','t','t')",
-    ).run();
+      "insert into cubes (guild_id, name, created_by_user_id, created_at, updated_at) values ('g','Blue-Eyes',?,'t','t')",
+    ).run(seedUser(db, "u").userId);
     db.prepare(
       "insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (1,'a','t','normal','i','i','[]','t')",
     ).run();
@@ -371,6 +373,8 @@ describe("shared database schema", () => {
   it("migrates a legacy draft_cube table to draft_deal, preserving rows", () => {
     const db = new Database(":memory:");
     // minimal legacy shape
+    db.exec(readFileSync(new URL("./fixtures/pre-identity.sql", import.meta.url), "utf8"));
+    db.exec("insert into drafts(id,guild_id,channel_id,name,status,created_by_user_id) values(1,'g','c','Legacy','pending','900000000000000101'); insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values(1001,'A','Spell Card','spell','','','[]','t'),(1002,'B','Spell Card','spell','','','[]','t')");
     db.exec(`
       create table draft_cube (draft_id integer not null, position integer not null,
         catalog_card_id integer not null, primary key (draft_id, position));
@@ -418,7 +422,7 @@ describe("shared database schema", () => {
     `);
     db.prepare(
       "insert into tournaments (guild_id, name, format, status, created_by_user_id) values (?, ?, ?, ?, ?)",
-    ).run("g1", "old-event", "round_robin", "completed", "u1");
+    ).run("g1", "old-event", "round_robin", "completed", "900000000000000101");
 
     migrate(db);
 
@@ -438,10 +442,10 @@ describe("migrate backfills match-win tournament_id", () => {
       db.prepare("insert into seasons (guild_id, number, status) values (?, 1, 'active')").run(guild).lastInsertRowid,
     );
     const p1 = Number(
-      db.prepare("insert into players (guild_id, discord_user_id, display_name) values (?, 'u1', 'A')").run(guild).lastInsertRowid,
+      seedIdentity(db, { guildId: guild, userId: 101, playerId: 1, discordUserId: "900000000000000101", name: "A" }).playerId,
     );
     const p2 = Number(
-      db.prepare("insert into players (guild_id, discord_user_id, display_name) values (?, 'u2', 'B')").run(guild).lastInsertRowid,
+      seedIdentity(db, { guildId: guild, userId: 102, playerId: 2, discordUserId: "900000000000000102", name: "B" }).playerId,
     );
     const matchId = Number(
       db
@@ -452,8 +456,8 @@ describe("migrate backfills match-win tournament_id", () => {
     );
     const tournamentId = Number(
       db
-        .prepare("insert into tournaments (guild_id, name, format, status, created_by_user_id) values (?, 'Cup', 'round_robin', 'completed', 'host')")
-        .run(guild).lastInsertRowid,
+        .prepare("insert into tournaments (guild_id, name, format, status, created_by_user_id) values (?, 'Cup', 'round_robin', 'completed', ?)")
+        .run(guild, seedUser(db, "host").userId).lastInsertRowid,
     );
     db.prepare(
       "insert into tournament_matches (tournament_id, match_id, player_one_id, player_two_id, round_number, status) values (?, ?, ?, ?, 1, 'completed')",
@@ -520,11 +524,11 @@ describe("duel bot seat migration", () => {
     `);
 
     const p1 = Number(
-      db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', 'u1', 'Yugi')").run()
+      db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', '900000000000000101', 'Yugi')").run()
         .lastInsertRowid,
     );
     const p2 = Number(
-      db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', 'u2', 'Kaiba')").run()
+      db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', '900000000000000102', 'Kaiba')").run()
         .lastInsertRowid,
     );
     const duelId = Number(

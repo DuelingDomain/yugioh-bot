@@ -29,9 +29,9 @@ export async function themeDraftMutationBody(request: Request): Promise<Record<s
 }
 
 /** Call again under the mutation's immediate transaction after any async work. */
-export function pendingThemeDraft(db: Database.Database, slug: string, guildId: string, userId: string, hostOnly = false) {
+export function pendingThemeDraft(db: Database.Database, slug: string, guildId: string, userId: number, hostOnly = false) {
   const row = db.prepare("select id, status, created_by_user_id, config_json from drafts where web_slug = ? and guild_id = ?")
-    .get(slug, guildId) as { id: number; status: string; created_by_user_id: string; config_json: string } | undefined;
+    .get(slug, guildId) as { id: number; status: string; created_by_user_id: number; config_json: string } | undefined;
   if (!row) throw new ThemeDraftMutationError("DRAFT_NOT_FOUND", "Draft not found");
   if (hostOnly && row.created_by_user_id !== userId) throw new ThemeDraftMutationError("HOST_REQUIRED", "Only the host can edit cubes");
   if (row.status !== "pending") throw new ThemeDraftMutationError("DRAFT_NOT_PENDING", "Cubes can only be changed before the draft starts");

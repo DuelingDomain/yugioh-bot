@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { createHmac } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
@@ -93,10 +94,7 @@ afterEach(async () => {
 });
 
 function insertPlayer(db: Database.Database, discordUserId: string, displayName: string) {
-  return Number(
-    db.prepare("insert into players (guild_id, discord_user_id, display_name) values (?, ?, ?)").run(GUILD, discordUserId, displayName)
-      .lastInsertRowid,
-  );
+  return seedIdentity(db, { guildId: GUILD, name: displayName, userId: seedUser(db, discordUserId).userId, discordUserId: seedUser(db, discordUserId).discordUserId ?? discordUserId }).playerId;
 }
 
 function setup() {
@@ -211,7 +209,7 @@ function seatPlayer(app: App, slug: string, seat: number): number {
 }
 
 function tournamentMatch(app: App, bestOf: 1 | 3, registeredDeck = deckWithSide()) {
-  const tournament = app.tournaments.create(GUILD, "Cup", "single_elim", "u3", { bestOf });
+  const tournament = app.tournaments.create(GUILD, "Cup", "single_elim", seedUser(app.db, "u3").userId, { bestOf });
   app.tournaments.join(tournament.id, app.p1);
   app.tournaments.join(tournament.id, app.p2);
   app.tournaments.start(tournament.id);

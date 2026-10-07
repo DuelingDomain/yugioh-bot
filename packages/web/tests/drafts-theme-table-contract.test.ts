@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import Database from "better-sqlite3";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -10,7 +11,10 @@ const broadcast = vi.fn();
 const connections: Database.Database[] = [];
 const directories: string[] = [];
 
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/notify", () => ({ broadcaster: { draft: broadcast } }));
 
 const context = { params: Promise.resolve({ slug: "table" }) };
@@ -26,15 +30,16 @@ async function seed(overrides: Partial<DraftConfig> = {}) {
   const { getDb } = await import("@/lib/db");
   const db = getDb();
   connections.push(db);
-  db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('guild', 'host', 'Host'), ('guild', 'guest', 'Guest'), ('guild', 'bot_player_dev_table_1', 'Bot')").run();
-  db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild', 'First', 'host'), ('guild', 'Second', 'host'), ('other', 'Foreign', 'other')").run();
+  seedFixtureUsers(db, FIXTURE_KEYS);
+  db.prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('guild', ${fixtureUserId("host")}, '${fixtureDiscordId("host")}', 'Host'), ('guild', ${fixtureUserId("guest")}, '${fixtureDiscordId("guest")}', 'Guest'), ('guild', ${fixtureUserId("bot_player_dev_table_1")}, '${fixtureDiscordId("bot_player_dev_table_1")}', 'Bot')`).run();
+  db.prepare(`insert into cubes (guild_id, name, created_by_user_id) values ('guild', 'First', ${fixtureUserId("host")}), ('guild', 'Second', ${fixtureUserId("host")}), ('other', 'Foreign', ${fixtureUserId("other")})`).run();
   const config: DraftConfig = {
     mode: "theme", themeSelection: "player_pick", uniqueThemes: true,
     allowedCubeIds: [1, 2], cardsPerPlayer: 40, themePackSize: 3,
     extraDeckEnabled: false, pickSeconds: 45, ...overrides,
   };
-  db.prepare("insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug) values ('guild', 'channel', 'Table', 'pending', 'host', ?, 'table')").run(JSON.stringify(config));
-  db.prepare("insert into draft_players (draft_id, player_id, ready_at, ready_setup_hash) values (1, 1, 'ready', 'hash'), (1, 2, 'ready', 'hash')").run();
+  db.prepare(`insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug) values ('guild', 'channel', 'Table', 'pending', ${fixtureUserId("host")}, ?, 'table')`).run(JSON.stringify(config));
+  db.prepare(`insert into draft_players (draft_id, player_id, ready_at, ready_setup_hash) values (1, 1, 'ready', 'hash'), (1, 2, 'ready', 'hash')`).run();
   db.prepare("update drafts set lobby_start_at = 'deadline', lobby_start_kind = 'manual', lobby_start_token = 'token', lobby_start_revision = 0, lobby_start_setup_hash = 'hash', lobby_start_force = 1").run();
   return db;
 }
@@ -80,7 +85,7 @@ function seedGate() {
 
 beforeEach(() => {
   vi.resetModules();
-  auth.mockReset().mockResolvedValue({ user: { id: "host" } });
+  auth.mockReset().mockResolvedValue({ user: { id: String(fixtureUserId("host")) } });
   broadcast.mockReset().mockResolvedValue(undefined);
 });
 
@@ -122,7 +127,7 @@ describe("self claim and release", () => {
         vi.spyOn(statement, "run").mockImplementation((...params: unknown[]) => {
           try {
             other.transaction(() => {
-              other.prepare("insert into draft_player_cube (draft_id, player_id, cube_id) values (1, 2, 1)").run();
+              other.prepare(`insert into draft_player_cube (draft_id, player_id, cube_id) values (1, 2, 1)`).run();
             }).immediate();
           } catch (error) {
             if ((error as { code?: string }).code !== "SQLITE_BUSY") throw error;
@@ -136,7 +141,7 @@ describe("self claim and release", () => {
     const { POST } = await import("../app/api/drafts/[slug]/claim-cube/route");
     const first = await POST(request("POST", { cubeId: 1 }), context);
     vi.restoreAllMocks();
-    auth.mockResolvedValue({ user: { id: "guest" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("guest")) } });
     const second = await POST(request("POST", { cubeId: 1 }), context);
     expect(locked).toBe(true);
     expect([first.status, second.status]).toEqual([200, 409]);
@@ -147,14 +152,14 @@ describe("self claim and release", () => {
     const db = await seed({ uniqueThemes: false });
     const { POST } = await import("../app/api/drafts/[slug]/claim-cube/route");
     expect((await POST(request("POST", { cubeId: 1 }), context)).status).toBe(200);
-    auth.mockResolvedValue({ user: { id: "guest" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("guest")) } });
     expect((await POST(request("POST", { cubeId: 1 }), context)).status).toBe(200);
     expect(db.prepare("select count(*) as count from draft_player_cube").get()).toEqual({ count: 2 });
   });
 
   it("releases only self, ignoring a supplied target player", async () => {
     const db = await seed();
-    db.prepare("insert into draft_player_cube (draft_id, player_id, cube_id) values (1, 1, 1), (1, 2, 2)").run();
+    db.prepare(`insert into draft_player_cube (draft_id, player_id, cube_id) values (1, 1, 1), (1, 2, 2)`).run();
     const { DELETE } = await import("../app/api/drafts/[slug]/claim-cube/route");
     expect(typeof DELETE).toBe("function");
     const response = await DELETE(request("DELETE", { playerId: 2 }), context);
@@ -167,11 +172,11 @@ describe("self claim and release", () => {
 
   it("keeps Ready and revision unchanged when retrying the same claim or an empty release", async () => {
     const db = await seed();
-    db.prepare("insert into draft_player_cube (draft_id, player_id, cube_id) values (1, 1, 1)").run();
+    db.prepare(`insert into draft_player_cube (draft_id, player_id, cube_id) values (1, 1, 1)`).run();
     const before = state(db);
     const { POST, DELETE } = await import("../app/api/drafts/[slug]/claim-cube/route");
     expect((await POST(request("POST", { cubeId: 1 }), context)).status).toBe(200);
-    auth.mockResolvedValue({ user: { id: "guest" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("guest")) } });
     expect((await DELETE(request("DELETE"), context)).status).toBe(200);
     expect(state(db)).toEqual(before);
     expect(broadcast).not.toHaveBeenCalled();
@@ -205,7 +210,7 @@ describe("self claim and release", () => {
 
   it("rolls back release when invalidation fails", async () => {
     const db = await seed();
-    db.prepare("insert into draft_player_cube (draft_id, player_id, cube_id) values (1, 1, 1)").run();
+    db.prepare(`insert into draft_player_cube (draft_id, player_id, cube_id) values (1, 1, 1)`).run();
     const before = state(db);
     failLobbyInvalidation(db);
     const { DELETE } = await import("../app/api/drafts/[slug]/claim-cube/route");
@@ -227,7 +232,7 @@ describe("self claim and release", () => {
 describe("attach/detach", () => {
   it("detaches claims and all matching host assignments together, keeping the cube in the library", async () => {
     const db = await seed({ themeSelection: "host_assigned", themeAssignments: { "1": 1, "2": 2, "99": 1 } });
-    db.prepare("insert into draft_player_cube (draft_id, player_id, cube_id) values (1, 1, 1), (1, 2, 2)").run();
+    db.prepare(`insert into draft_player_cube (draft_id, player_id, cube_id) values (1, 1, 1), (1, 2, 2)`).run();
     const { DELETE } = await import("../app/api/drafts/[slug]/cubes/route");
     const response = await DELETE(request("DELETE", { cubeId: 1 }), context);
     expect(response.status).toBe(200);
@@ -241,7 +246,7 @@ describe("attach/detach", () => {
 
   it("rolls back config and claim cleanup when invalidation fails", async () => {
     const db = await seed({ themeSelection: "host_assigned", themeAssignments: { "1": 1, "2": 2 } });
-    db.prepare("insert into draft_player_cube (draft_id, player_id, cube_id) values (1, 1, 1)").run();
+    db.prepare(`insert into draft_player_cube (draft_id, player_id, cube_id) values (1, 1, 1)`).run();
     const before = state(db);
     failLobbyInvalidation(db);
     const { DELETE } = await import("../app/api/drafts/[slug]/cubes/route");
@@ -275,8 +280,8 @@ describe("attach/detach", () => {
   it("attaches an existing cube with distinct counts and clears Ready without releasing sticky Hold", async () => {
     const db = await seed({ allowedCubeIds: [1] });
     db.prepare("update drafts set lobby_auto_start = 1, lobby_auto_held = 1").run();
-    db.prepare("insert into card_catalog (ygoprodeck_id, name, type, frame_type, image_url, image_url_small, card_sets_json, cached_at) values (100, 'Main', 'Normal Monster', 'normal', 'i', 'i', '[]', 't'), (101, 'Extra', 'Fusion Monster', 'fusion', 'i', 'i', '[]', 't')").run();
-    db.prepare("insert into cube_cards (cube_id, catalog_card_id, pool, max_copies) values (2, 100, 'main', 10), (2, 101, 'extra', 5)").run();
+    db.prepare(`insert into card_catalog (ygoprodeck_id, name, type, frame_type, image_url, image_url_small, card_sets_json, cached_at) values (100, 'Main', 'Normal Monster', 'normal', 'i', 'i', '[]', 't'), (101, 'Extra', 'Fusion Monster', 'fusion', 'i', 'i', '[]', 't')`).run();
+    db.prepare(`insert into cube_cards (cube_id, catalog_card_id, pool, max_copies) values (2, 100, 'main', 10), (2, 101, 'extra', 5)`).run();
     const { POST } = await import("../app/api/drafts/[slug]/cubes/route");
     const response = await POST(request("POST", { kind: "existing", cubeId: 2 }), context);
     expect(response.status).toBe(201);
@@ -378,9 +383,9 @@ describe("body, role and guild boundaries", () => {
     const body = operation === "attach" ? { kind: "blank", name: "Denied" } : { cubeId: 1 };
     auth.mockResolvedValue(null);
     expect((await route(request("POST", body), context)).status).toBe(401);
-    auth.mockResolvedValue({ user: { id: "stranger" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("stranger")) } });
     expect((await route(request("POST", body), context)).status).toBe(403);
-    auth.mockResolvedValue({ user: { id: "host" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("host")) } });
     db.prepare("update drafts set guild_id = 'other' where id = 1").run();
     expect((await route(request("POST", body), context)).status).toBe(404);
     expect(db.prepare("select lobby_revision from drafts").get()).toEqual({ lobby_revision: 0 });
@@ -395,16 +400,16 @@ describe("shared lobby integration", () => {
       db.prepare(`insert into card_catalog
         (ygoprodeck_id, name, type, frame_type, image_url, image_url_small, card_sets_json, cached_at)
         values (?, ?, 'Normal Monster', 'normal', 'i', 'i', '[]', 't')`).run(id, `Card ${id}`);
-      db.prepare("insert into cube_cards (cube_id, catalog_card_id, pool, max_copies) values (1, ?, 'main', 1), (2, ?, 'main', 1)").run(id, id);
+      db.prepare(`insert into cube_cards (cube_id, catalog_card_id, pool, max_copies) values (1, ?, 'main', 1), (2, ?, 'main', 1)`).run(id, id);
     }
-    db.prepare("insert into draft_player_cube (draft_id, player_id, cube_id) values (1, 1, 1), (1, 2, 2)").run();
+    db.prepare(`insert into draft_player_cube (draft_id, player_id, cube_id) values (1, 1, 1), (1, 2, 2)`).run();
     const { createDraftLobbyService } = await import("@yugidraft/shared/services");
     const lobby = createDraftLobbyService(db);
     const now = new Date("2026-10-07T12:00:00.000Z");
-    lobby.setReady(1, "host", true, now);
-    const ready = lobby.setReady(1, "guest", true, now);
+    lobby.setReady(1, fixtureUserId("host"), true, now);
+    const ready = lobby.setReady(1, fixtureUserId("guest"), true, now);
     expect(ready.lobby.allReady).toBe(true);
-    const scheduled = lobby.scheduleStart(1, "host", { revision: ready.lobby.revision }, now);
+    const scheduled = lobby.scheduleStart(1, fixtureUserId("host"), { revision: ready.lobby.revision }, now);
     expect(scheduled.lobby.start).not.toBeNull();
     const { POST, DELETE } = await import("../app/api/drafts/[slug]/claim-cube/route");
 
@@ -413,7 +418,7 @@ describe("shared lobby integration", () => {
       : await DELETE(request("DELETE"), context);
 
     expect(response.status).toBe(200);
-    const refreshed = lobby.read(1, "guest", now);
+    const refreshed = lobby.read(1, fixtureUserId("guest"), now);
     expect(refreshed.players.map((player) => ({ playerId: player.playerId, cubeId: player.cubeId, ready: player.ready })))
       .toEqual([{ playerId: 1, cubeId: operation === "claim" ? 2 : null, ready: false }, { playerId: 2, cubeId: 2, ready: true }]);
     expect(refreshed.lobby).toMatchObject({ revision: scheduled.lobby.revision + 1, start: null, ready: 1 });
@@ -424,7 +429,7 @@ describe("shared lobby integration", () => {
   it.each(["claim", "release", "attach", "detach"])("%s broadcasts only after the mutation and invalidation commit", async (operation) => {
     const db = await seed({ allowedCubeIds: operation === "attach" ? [1] : [1, 2] });
     if (operation === "release" || operation === "detach") {
-      db.prepare("insert into draft_player_cube (draft_id, player_id, cube_id) values (1, 1, 1)").run();
+      db.prepare(`insert into draft_player_cube (draft_id, player_id, cube_id) values (1, 1, 1)`).run();
     }
     const observer = new Database(process.env.DATABASE_PATH!);
     connections.push(observer);
@@ -448,9 +453,9 @@ describe("shared lobby integration", () => {
 
   it.each(["claim", "release", "attach", "detach"])("%s rolls back and maps real lobby-service validation errors", async (operation) => {
     const db = await seed({ lobbySeats: 2 });
-    db.prepare("insert into draft_players (draft_id, player_id) values (1, 3)").run();
+    db.prepare(`insert into draft_players (draft_id, player_id) values (1, 3)`).run();
     if (operation === "release" || operation === "detach") {
-      db.prepare("insert into draft_player_cube (draft_id, player_id, cube_id) values (1, 1, 1)").run();
+      db.prepare(`insert into draft_player_cube (draft_id, player_id, cube_id) values (1, 1, 1)`).run();
     }
     const before = state(db);
     const claims = await import("../app/api/drafts/[slug]/claim-cube/route");
@@ -474,7 +479,7 @@ describe("shared lobby integration", () => {
     let failure: unknown;
     try {
       db.transaction(() => {
-        db.prepare("insert into draft_player_cube (draft_id, player_id, cube_id) values (1, 1, 1)").run();
+        db.prepare(`insert into draft_player_cube (draft_id, player_id, cube_id) values (1, 1, 1)`).run();
         invalidateThemeLobby(db, 1, { clearReady: false, playerIds: [1], expectedRevision: 1 });
       }).immediate();
     } catch (error) {
@@ -501,7 +506,7 @@ describe("shared lobby integration", () => {
 describe("whole-map host assignments and private preflight", () => {
   it("accepts a complete assignment map including a joined bot", async () => {
     const db = await seed({ themeSelection: "host_assigned", uniqueThemes: false });
-    db.prepare("insert into draft_players (draft_id, player_id) values (1, 3)").run();
+    db.prepare(`insert into draft_players (draft_id, player_id) values (1, 3)`).run();
     const { hostThemeAssignmentError } = await import("@/lib/theme-draft-validation");
     expect(hostThemeAssignmentError(db, "guild", { ...config(db), themeAssignments: { "1": 1, "2": 2, "3": 1 } }, [1, 2, 3])).toBeUndefined();
     expect(hostThemeAssignmentError(db, "guild", { ...config(db), themeAssignments: { "1": 1, "2": 2 } }, [1, 2, 3])).toMatch(/every player/i);
@@ -516,9 +521,11 @@ describe("whole-map host assignments and private preflight", () => {
   it("keeps host-assigned preflight private for other joined viewers", async () => {
     await seed({ themeSelection: "host_assigned", themeAssignments: { "1": 1 } });
     const { GET } = await import("../app/api/drafts/[slug]/preflight/route");
-    auth.mockResolvedValue({ user: { id: "guest" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("guest")) } });
     expect(await (await GET(request("GET"), context)).json()).toEqual({ errors: [], warnings: [] });
-    auth.mockResolvedValue({ user: { id: "host" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("host")) } });
     expect((await (await GET(request("GET"), context)).json()).errors).toEqual([expect.stringMatching(/every player/i)]);
   });
 });
+
+const FIXTURE_KEYS = ["bot_player_dev_table_1", "creator-user", "guest", "host", "joining", "member", "observer", "other", "p2", "p3", "second", "stranger", "viewer"] as const;

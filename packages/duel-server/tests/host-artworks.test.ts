@@ -10,6 +10,7 @@ import type { DuelEngineView } from "@yugidraft/shared/duels";
 import { loadCardDatabase } from "../src/cards.js";
 import { createDuelHost } from "../src/host.js";
 import type { DuelGameWorker, GameOptions } from "../src/worker-client.js";
+import { seedIdentity, seedUser } from "./helpers/identity.js";
 
 it("serves signed artwork families and preserves chosen passcodes through deck submission and worker startup", async () => {
   const dir = mkdtempSync(join(tmpdir(), "host-artworks-"));
@@ -22,7 +23,10 @@ it("serves signed artwork families and preserves chosen passcodes through deck s
     insert into datas values (10,3,0,0,17,1000,1000,4,1,1),(30,3,10,0,17,1000,1000,4,1,1),(50,3,30,0,17,1000,1000,4,1,1);
     insert into texts values (10,'Dragon',''),(30,'Dragon',''),(50,'Dragon','');`); cdb.close();
   const db = new Database(":memory:"); migrate(db);
-  const players = ["a", "b"].map(user => Number(db.prepare("insert into players (guild_id,discord_user_id,display_name) values ('g',?,?)").run(user, user).lastInsertRowid));
+  const players = ["a", "b"].map(key => {
+    const user = seedUser(db, key);
+    return seedIdentity(db, { guildId: "g", userId: user.userId, discordUserId: user.discordUserId, name: key }).playerId;
+  });
   const service = createDuelService(db);
   const room = service.create({ guildId: "g", organizerPlayerId: players[0], name: "Art", mode: "normal",
     settings: { validateDeck: false, banlist: "none", startingHand: 1, turnSeconds: 0 } });

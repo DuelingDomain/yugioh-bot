@@ -7,6 +7,7 @@ export type { AnnouncePayload };
 type OmitKind<T extends { kind: string }> = Omit<T, "kind">;
 
 export interface AnnounceHandlers {
+  onDraftStatus(payload: { draftId: number }): Promise<void>;
   onDraftCreated(payload: OmitKind<Extract<AnnouncePayload, { kind: "draft-created" }>>): Promise<void>;
   onDraftStarted(payload: OmitKind<Extract<AnnouncePayload, { kind: "draft-started" }>>): Promise<void>;
   onDraftNudge(payload: OmitKind<Extract<AnnouncePayload, { kind: "draft-nudge" }>>): Promise<void>;
@@ -24,6 +25,7 @@ export function createAnnounceServer(opts: {
   handlers: AnnounceHandlers;
 }) {
   const routes: Record<string, (data: any) => Promise<void>> = {
+    "/internal/announce/draft-status": (d) => opts.handlers.onDraftStatus(d),
     "/internal/announce/draft-created": (d) => opts.handlers.onDraftCreated(d),
     "/internal/announce/draft-started": (d) => opts.handlers.onDraftStarted(d),
     "/internal/announce/draft-nudge": (d) => opts.handlers.onDraftNudge(d),

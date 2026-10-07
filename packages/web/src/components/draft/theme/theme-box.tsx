@@ -25,7 +25,7 @@ interface LibraryCube {
   draftType?: CubeDraftType;
   /** From the library answer: the viewer made this cube or is an admin, which is what Delete needs. */
   canEdit?: boolean;
-  createdByUserId?: string;
+  createdByUserId?: number;
   createdByName?: string | null;
 }
 
@@ -43,7 +43,7 @@ export interface ThemeBoxProps {
   /** After a library change that the draft page does not see. */
   onChanged: () => void;
   /** The viewer's user id, to tell their own cube from another member's one in the Delete text. */
-  viewerUserId?: string | null;
+  viewerUserId?: number | null;
 }
 
 

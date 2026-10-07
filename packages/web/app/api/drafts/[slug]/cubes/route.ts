@@ -1,6 +1,6 @@
 import { cardFetchErrorResponse } from "@/lib/card-fetch-errors";
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { createCardCatalogService, createCubeService } from "@yugidraft/shared/services";
@@ -16,9 +16,9 @@ export const runtime = "nodejs";
 type Context = { params: Promise<{ slug: string }> };
 
 export async function POST(request: Request, { params }: Context) {
-  const session = await auth();
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized", code: "UNAUTHORIZED" }, { status: 401 });
-  const userId = session.user.id;
+  const actor = await requireWebAccess();
+  if (!actor.ok) return actor.response;
+  const userId = actor.userId;
   const { slug } = await params;
   const db = getDb();
   const guildId = env.discordGuildId;
@@ -98,9 +98,9 @@ export async function POST(request: Request, { params }: Context) {
 }
 
 export async function DELETE(request: Request, { params }: Context) {
-  const session = await auth();
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized", code: "UNAUTHORIZED" }, { status: 401 });
-  const userId = session.user.id;
+  const actor = await requireWebAccess();
+  if (!actor.ok) return actor.response;
+  const userId = actor.userId;
   const { slug } = await params;
   const db = getDb();
   const guildId = env.discordGuildId;

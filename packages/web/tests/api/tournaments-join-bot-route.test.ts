@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "../fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -7,7 +8,10 @@ const auth = vi.fn();
 const broadcaster = { draft: vi.fn(), tournament: vi.fn() };
 const tempDirs: string[] = [];
 
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("../fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/notify", () => ({ broadcaster, announcer: { announce: vi.fn() } }));
 
 async function createPendingTournamentDb() {
@@ -24,14 +28,15 @@ async function createPendingTournamentDb() {
   const { createPlayerService } = await import("@yugidraft/shared/services");
   const db = new Database(dbPath);
   migrate(db);
+  seedFixtureUsers(db, FIXTURE_KEYS);
 
   const players = createPlayerService(db);
-  const organizer = players.findOrCreate("g1", "u-org", "Organizer");
-  const outsider = players.findOrCreate("g1", "u-out", "Outsider");
+  const organizer = players.findOrCreate("g1", fixtureUserId("u-org"), "Organizer");
+  const outsider = players.findOrCreate("g1", fixtureUserId("u-out"), "Outsider");
 
   const result = db
     .prepare("insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug) values (?, ?, ?, 'pending', ?, ?)")
-    .run("g1", "Test Cup", "single_elim", "u-org", "slug-1");
+    .run("g1", "Test Cup", "single_elim", fixtureUserId("u-org"), "slug-1");
 
   const tournamentId = Number(result.lastInsertRowid);
   db.prepare("insert into tournament_participants (tournament_id, player_id) values (?, ?)").run(tournamentId, organizer.id);
@@ -46,7 +51,7 @@ describe("POST /api/tournaments/[slug]/join-bot", () => {
     vi.stubEnv("DISCORD_GUILD_ID", "g1");
     auth.mockReset();
     broadcaster.tournament.mockReset();
-    auth.mockResolvedValue({ user: { id: "u-org", name: "Organizer" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-org")), discordUserId: fixtureDiscordId("u-org"), name: "Organizer" } });
     vi.stubEnv("NODE_ENV", "development");
   });
 
@@ -93,7 +98,7 @@ describe("POST /api/tournaments/[slug]/join-bot", () => {
 
   it("rejects non-organizers", async () => {
     await createPendingTournamentDb();
-    auth.mockResolvedValue({ user: { id: "u-out", name: "Outsider" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-out")), discordUserId: fixtureDiscordId("u-out"), name: "Outsider" } });
     const { POST } = await import("../../app/api/tournaments/[slug]/join-bot/route");
 
     const response = await POST(new Request("http://localhost/api/tournaments/slug-1/join-bot", { method: "POST" }), {
@@ -103,3 +108,7 @@ describe("POST /api/tournaments/[slug]/join-bot", () => {
     expect(response.status).toBe(403);
   });
 });
+
+const FIXTURE_KEYS = ["u-org", "u-out"] as const;
+
+// Session resolution is mocked; authorization still runs through the real web boundary.

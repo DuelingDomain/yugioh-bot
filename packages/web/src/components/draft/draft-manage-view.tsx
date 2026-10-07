@@ -48,7 +48,7 @@ interface DraftManageViewProps {
     id: number;
     name: string;
     status: string;
-    createdByUserId: string;
+    createdByUserId: number;
     createdAt: string;
     config: {
       packSize?: number;
@@ -94,7 +94,7 @@ interface DraftManageViewProps {
   onAddBot?: () => Promise<void>;
   /** Show Add bot. The server decides (see draftTestBotsEnabled); the view never reads the environment. */
   botsEnabled?: boolean;
-  /** The Discord bot is on (the draft API's `discordEnabled`). When false there is no Nudge, no Post to Discord and no Discord text. Default on. */
+  /** The Discord bot is on (the draft API's `discordEnabled`). When false there is no Nudge, no Post to Discord and no Discord text. Default off. */
   discordEnabled?: boolean;
   slug?: string;
   /** Called after a theme is added, detached, deleted or claimed, so the page can refetch the draft. */
@@ -117,7 +117,7 @@ export function DraftManageView({
   onJoin,
   onAddBot,
   botsEnabled,
-  discordEnabled = true,
+  discordEnabled = false,
   slug,
   onChanged,
 }: DraftManageViewProps) {

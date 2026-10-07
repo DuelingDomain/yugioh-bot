@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
 import { createTournamentService } from "@yugidraft/shared/services";
 import { broadcaster } from "@/lib/notify";
 
@@ -12,10 +12,8 @@ export async function POST(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const actor = await requireWebAccess();
+    if (!actor.ok) return actor.response;
 
     const { slug } = await params;
     const body = await request.json();
@@ -27,18 +25,18 @@ export async function POST(
     const db = getDb();
     const tournament = db
       .prepare("select id, created_by_user_id, status from tournaments where web_slug = ? and guild_id = ?")
-      .get(slug, env.discordGuildId) as { id: number; created_by_user_id: string; status: string } | undefined;
+      .get(slug, env.discordGuildId) as { id: number; created_by_user_id: number; status: string } | undefined;
 
     if (!tournament) {
       return NextResponse.json({ error: "Tournament not found" }, { status: 404 });
     }
 
-    if (tournament.created_by_user_id !== session.user.id) {
+    if (tournament.created_by_user_id !== actor.userId) {
       return NextResponse.json({ error: "Only the organizer can kick participants" }, { status: 403 });
     }
 
     const tournaments = createTournamentService(db);
-    tournaments.kick(tournament.id, session.user.id, playerId);
+    tournaments.kick(tournament.id, actor.userId, playerId);
 
     void broadcaster.tournament(
       { kind: "participant-left", slug, playerId },

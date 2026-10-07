@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -8,18 +9,23 @@ import { createTournamentService } from "@yugidraft/shared/services";
 
 const auth = vi.fn();
 const announcer = { announce: vi.fn(async (..._args: unknown[]) => ({ ok: true as const })) };
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/notify", () => ({ announcer, broadcaster: { draft: vi.fn(), tournament: vi.fn() } }));
 const tempDirs: string[] = [];
 
 describe("report route notifies opponent", () => {
   beforeEach(() => {
     vi.resetModules();
+    vi.stubEnv("DISCORD_BOT_ENABLED", "1");
     auth.mockReset();
     announcer.announce.mockClear();
-    auth.mockResolvedValue({ user: { id: "u-a", name: "Alice" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-a")), discordUserId: fixtureDiscordId("u-a"), name: "Alice" } });
   });
   afterEach(() => {
+    vi.unstubAllEnvs();
     delete process.env.DATABASE_PATH;
     delete process.env.DISCORD_GUILD_ID;
     while (tempDirs.length) {
@@ -35,10 +41,11 @@ describe("report route notifies opponent", () => {
     process.env.DISCORD_GUILD_ID = "g1";
     const db = new Database(process.env.DATABASE_PATH);
     migrate(db);
-    const aId = Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1','u-a','Alice')").run().lastInsertRowid);
-    const bId = Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1','u-b','Bob')").run().lastInsertRowid);
+    seedFixtureUsers(db, FIXTURE_KEYS);
+    const aId = Number(db.prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('g1', ${fixtureUserId("u-a")}, '${fixtureDiscordId("u-a")}', 'Alice')`).run().lastInsertRowid);
+    const bId = Number(db.prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('g1', ${fixtureUserId("u-b")}, '${fixtureDiscordId("u-b")}', 'Bob')`).run().lastInsertRowid);
     const t = createTournamentService(db);
-    const tour = t.create("g1", "RR", "round_robin", "u-creator");
+    const tour = t.create("g1", "RR", "round_robin", fixtureUserId("u-creator"));
     db.prepare("update tournaments set web_slug = 'slug1' where id = ?").run(tour.id);
     t.join(tour.id, aId);
     t.join(tour.id, bId);
@@ -59,8 +66,8 @@ describe("report route notifies opponent", () => {
     expect(payload).toMatchObject({
       kind: "match-report-pending",
       slug: "slug1",
-      reporterDiscordId: "u-a",
-      opponentDiscordId: "u-b",
+      reporterDiscordId: fixtureDiscordId("u-a"),
+      opponentDiscordId: fixtureDiscordId("u-b"),
       reporterName: "Alice",
       opponentName: "Bob",
       roundNumber: 1,
@@ -68,3 +75,7 @@ describe("report route notifies opponent", () => {
     });
   });
 });
+
+const FIXTURE_KEYS = ["u-a", "u-b", "u-creator"] as const;
+
+// Session resolution is mocked; authorization still runs through the real web boundary.

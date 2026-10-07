@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import Database from "better-sqlite3";
 import type { NextRequest } from "next/server";
 import { migrate } from "@yugidraft/shared/db";
@@ -9,7 +10,10 @@ const { auth, getDb, announce } = vi.hoisted(() => ({
   announce: vi.fn(),
 }));
 
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/db", () => ({ getDb }));
 vi.mock("@/lib/notify", () => ({
   announcer: { announce },
@@ -26,10 +30,10 @@ describe.each(["theme", "booster"] as const)("POST /api/drafts (%s Discord setti
     vi.stubEnv("DISCORD_DEFAULT_CHANNEL_ID", "default-channel");
     vi.stubEnv("DISCORD_REMINDER_CHANNEL_ID", undefined);
     vi.stubEnv("DISCORD_BOT_ENABLED", "0");
-    auth.mockResolvedValue({ user: { id: "creator-user", name: "Yugi" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("creator-user")), name: "Yugi" } });
     announce.mockResolvedValue({ ok: true });
     db = new Database(":memory:");
-    migrate(db);
+    migrate(db); seedFixtureUsers(db, FIXTURE_KEYS);
     getDb.mockReturnValue(db);
     const insert = db.prepare(`insert into card_catalog
       (ygoprodeck_id, name, type, frame_type, image_url, image_url_small, card_sets_json, cached_at)
@@ -61,7 +65,7 @@ describe.each(["theme", "booster"] as const)("POST /api/drafts (%s Discord setti
 
     expect(response.status).toBe(201);
     expect(db.prepare("select count(*) as count from drafts").get()).toEqual({ count: 1 });
-    expect(db.prepare("select channel_id from drafts").get()).toEqual({ channel_id: "" });
+    expect(db.prepare("select channel_id from drafts").get()).toEqual({ channel_id: null });
     expect(announce).not.toHaveBeenCalled();
   });
 
@@ -93,7 +97,7 @@ describe.each(["theme", "booster"] as const)("POST /api/drafts (%s Discord setti
 
       expect(response.status).toBe(201);
       expect(db.prepare("select channel_id from drafts where id = ?").get(body.id))
-        .toEqual({ channel_id: "" });
+        .toEqual({ channel_id: null });
       expect(db.prepare("select count(*) as count from draft_players where draft_id = ?").get(body.id))
         .toEqual({ count: 1 });
       expect(announce).not.toHaveBeenCalled();
@@ -168,3 +172,5 @@ describe.each(["theme", "booster"] as const)("POST /api/drafts (%s Discord setti
     expect(announce).not.toHaveBeenCalled();
   });
 });
+
+const FIXTURE_KEYS = ["bot_player_dev_table_1", "creator-user", "guest", "host", "joining", "member", "observer", "other", "p2", "p3", "second", "stranger", "viewer"] as const;

@@ -13,6 +13,7 @@ describe("announce server new routes", () => {
     const server = createAnnounceServer({
       secret: "s",
       handlers: {
+        onDraftStatus: vi.fn(),
         onDraftCreated: vi.fn(),
         onDraftNudge: vi.fn(),
         onDraftStarted: vi.fn(),
@@ -56,6 +57,7 @@ describe("announce server new routes", () => {
     const server = createAnnounceServer({
       secret: "s",
       handlers: {
+        onDraftStatus: vi.fn(),
         onDraftCreated: vi.fn(),
         onDraftNudge: vi.fn(),
         onDraftStarted: vi.fn(),
@@ -86,6 +88,7 @@ describe("announce server new routes", () => {
     const server = createAnnounceServer({
       secret: "s",
       handlers: {
+        onDraftStatus: vi.fn(),
         onDraftCreated: vi.fn(),
         onDraftNudge: vi.fn(),
         onDraftStarted: vi.fn(),
@@ -100,7 +103,7 @@ describe("announce server new routes", () => {
     });
     const payload = {
       guildId: "g",
-      opponentDiscordUserId: "u2",
+      opponentDiscordUserId: "900000000000000111",
       challengerName: "Yugi",
       duelName: "Yugi vs Kaiba",
       bestOf: 3,
@@ -126,7 +129,7 @@ it("dispatches signed Nudge requests and reports delivery failure", async () => 
   const onDraftNudge = vi.fn().mockResolvedValue(undefined);
   const handler = vi.fn();
   const server = createAnnounceServer({ secret: "s", handlers: {
-    onDraftCreated: handler, onDraftStarted: handler, onDraftNudge, onDraftCompleted: handler,
+    onDraftStatus: handler, onDraftCreated: handler, onDraftStarted: handler, onDraftNudge, onDraftCompleted: handler,
     onTournamentCreated: handler, onTournamentStarted: handler, onTournamentCompleted: handler,
     onDuelInvite: handler, onMatchReportPending: handler, onMatchResolved: handler,
   } });

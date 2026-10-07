@@ -20,7 +20,7 @@ export type { DraftLobbyInvalidationOptions } from "./draft-lobby-mutations.js";
 
 type LobbyRow = DraftLobbyColumns & { status: string };
 type PlayerRow = DraftPlayerReadyColumns & {
-  player_id: number; display_name: string; discord_user_id: string; guild_id: string;
+  player_id: number; display_name: string; user_id: number; discord_user_id: string | null; guild_id: string;
   seat_index: number | null; pick_count: number; finished_at: string | null; joined_at: string;
   cube_id: number | null;
 };
@@ -37,7 +37,7 @@ const hash = (value: unknown) => createHash("sha256").update(stable(value)).dige
 /**
  * Synchronous, cached-only SQLite authority. Hydrate catalog data before calling
  * scheduleStart; notifications belong to the caller after this service commits.
- * Actor/viewer strings are Discord user IDs, scoped through the draft's guild.
+ * Actors/viewers are application users.id; seats and claims retain players.id.
  */
 export function createDraftLobbyService(db: Database.Database) {
   const drafts = createDraftService(db);
@@ -49,11 +49,11 @@ export function createDraftLobbyService(db: Database.Database) {
     if (row.status !== "pending") throw new DraftLobbyServiceError("Draft must be pending", "DRAFT_NOT_PENDING");
     return { draft: drafts.findById(draftId), row };
   };
-  const host = (draft: Draft, actorUserId: string) => {
+  const host = (draft: Draft, actorUserId: number) => {
     if (draft.createdByUserId !== actorUserId) throw new DraftLobbyServiceError("Only the host can manage this lobby", "HOST_REQUIRED");
   };
   const roster = (draftId: number): PlayerRow[] => db.prepare(`select dp.*, p.display_name,
-    p.discord_user_id, p.guild_id, pc.cube_id from draft_players dp join players p on p.id = dp.player_id
+    p.user_id, p.discord_user_id, p.guild_id, pc.cube_id from draft_players dp join players p on p.id = dp.player_id
     left join draft_player_cube pc on pc.draft_id = dp.draft_id and pc.player_id = dp.player_id
     where dp.draft_id = ? order by dp.seat_index, dp.joined_at, dp.rowid`).all(draftId) as PlayerRow[];
 
@@ -160,7 +160,7 @@ export function createDraftLobbyService(db: Database.Database) {
     return { errors, warnings };
   };
 
-  const project = (draftId: number, viewerUserId: string | undefined, now: Date): DraftLobbyResponse => {
+  const project = (draftId: number, viewerUserId: number | undefined, now: Date): DraftLobbyResponse => {
     const { draft, row } = pending(draftId);
     const rows = roster(draftId), setup = setupHash(draft);
     const players: LobbyPlayer[] = rows.map((player) => {
@@ -169,7 +169,7 @@ export function createDraftLobbyService(db: Database.Database) {
       return { playerId: player.player_id, displayName: player.display_name,
         ...(player.seat_index === null ? {} : { seatIndex: player.seat_index }), pickCount: player.pick_count,
         ...(player.finished_at === null ? {} : { finishedAt: player.finished_at }), joinedAt: player.joined_at,
-        isHost: player.discord_user_id === draft.createdByUserId, isYou: player.discord_user_id === viewerUserId,
+        isHost: player.user_id === draft.createdByUserId, isYou: player.user_id === viewerUserId,
         isBot, ready, readyAt: ready && !isBot ? player.ready_at : null,
         cubeId: draft.config.mode !== "theme" ? null : draft.config.themeSelection === "player_pick" ? player.cube_id
           : draft.config.themeSelection === "host_assigned" && viewerUserId === draft.createdByUserId
@@ -225,16 +225,16 @@ export function createDraftLobbyService(db: Database.Database) {
   };
 
   return {
-    read(draftId: number, viewerUserId?: string, now = new Date()): DraftLobbyResponse {
+    read(draftId: number, viewerUserId?: number, now = new Date()): DraftLobbyResponse {
       return db.transaction(() => project(draftId, viewerUserId, now))();
     },
-    setReady(draftId: number, actorUserId: string, ready: boolean, now = new Date()): DraftLobbyResponse {
+    setReady(draftId: number, actorUserId: number, ready: boolean, now = new Date()): DraftLobbyResponse {
       return db.transaction(() => {
         if (typeof ready !== "boolean") throw new DraftLobbyServiceError("Ready must be a boolean", "INVALID_BODY");
         const { draft } = pending(draftId);
-        const player = roster(draftId).find((p) => p.discord_user_id === actorUserId && p.guild_id === draft.guildId);
+        const player = roster(draftId).find((p) => p.user_id === actorUserId && p.guild_id === draft.guildId);
         if (!player) throw new DraftLobbyServiceError("Player has not joined this draft", "NOT_JOINED");
-        if (isTestBotDiscordId(actorUserId)) return project(draftId, actorUserId, now);
+        if (isTestBotDiscordId(player.discord_user_id)) return project(draftId, actorUserId, now);
         if (ready && draft.config.mode === "theme" && draft.config.themeSelection === "player_pick" && !validClaim(draft, player)) {
           throw new DraftLobbyServiceError("Claim an allowed cube before becoming Ready", "CLAIM_REQUIRED");
         }
@@ -248,26 +248,26 @@ export function createDraftLobbyService(db: Database.Database) {
         return project(draftId, actorUserId, now);
       }).immediate();
     },
-    removePlayer(draftId: number, actorUserId: string, playerId: number, now = new Date()): DraftLobbyResponse {
+    removePlayer(draftId: number, actorUserId: number, playerId: number, now = new Date()): DraftLobbyResponse {
       return db.transaction(() => {
         const { draft } = pending(draftId);
         host(draft, actorUserId);
         const player = roster(draftId).find((p) => p.player_id === playerId);
         if (!player) throw new DraftLobbyServiceError("Player not found in this draft", "PLAYER_NOT_FOUND");
-        if (player.discord_user_id === actorUserId) throw new DraftLobbyServiceError("Use Leave to remove your own seat", "SELF_REMOVAL");
+        if (player.user_id === actorUserId) throw new DraftLobbyServiceError("Use Leave to remove your own seat", "SELF_REMOVAL");
         removeSeat(draft, playerId);
         return project(draftId, actorUserId, now);
       }).immediate();
     },
-    leave(draftId: number, actorUserId: string, now = new Date()): DraftLobbyResponse {
+    leave(draftId: number, actorUserId: number, now = new Date()): DraftLobbyResponse {
       return db.transaction(() => {
         const { draft } = pending(draftId);
-        const player = roster(draftId).find((p) => p.discord_user_id === actorUserId && p.guild_id === draft.guildId);
+        const player = roster(draftId).find((p) => p.user_id === actorUserId && p.guild_id === draft.guildId);
         if (player) removeSeat(draft, player.player_id);
         return project(draftId, actorUserId, now);
       }).immediate();
     },
-    scheduleStart(draftId: number, actorUserId: string, request: DraftStartRequest, now = new Date()): DraftLobbyResponse {
+    scheduleStart(draftId: number, actorUserId: number, request: DraftStartRequest, now = new Date()): DraftLobbyResponse {
       return db.transaction(() => {
         const { draft, row } = pending(draftId);
         host(draft, actorUserId);
@@ -293,7 +293,7 @@ export function createDraftLobbyService(db: Database.Database) {
         return project(draftId, actorUserId, now);
       }).immediate();
     },
-    stopStart(draftId: number, actorUserId: string, token: string, now = new Date()): DraftLobbyResponse {
+    stopStart(draftId: number, actorUserId: number, token: string, now = new Date()): DraftLobbyResponse {
       return db.transaction(() => {
         const { draft, row } = pending(draftId);
         host(draft, actorUserId);
@@ -304,7 +304,7 @@ export function createDraftLobbyService(db: Database.Database) {
         return project(draftId, actorUserId, now);
       }).immediate();
     },
-    setAutoStart(draftId: number, actorUserId: string, request: DraftAutoStartRequest, now = new Date()): DraftLobbyResponse {
+    setAutoStart(draftId: number, actorUserId: number, request: DraftAutoStartRequest, now = new Date()): DraftLobbyResponse {
       return db.transaction(() => {
         const { draft, row } = pending(draftId);
         host(draft, actorUserId);

@@ -7,7 +7,7 @@ vi.mock("next/font/google", () => fontMock());
 const nav = vi.hoisted(() => ({ path: "/leaderboard" }));
 vi.mock("next/navigation", () => ({ usePathname: () => nav.path }));
 vi.mock("next/link", () => ({ default: LinkStub }));
-vi.mock("next-auth/react", () => ({ signOut: vi.fn() }));
+vi.mock("@/components/account/sign-out", () => ({ useSignOut: () => vi.fn() }));
 
 import { AppShell } from "../../../src/components/layout/app-shell";
 

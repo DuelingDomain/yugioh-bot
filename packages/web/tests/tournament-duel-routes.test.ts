@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -9,7 +10,10 @@ import { createTournamentService } from "@yugidraft/shared/services";
 const auth = vi.fn();
 const announcer = { announce: vi.fn(async (..._args: unknown[]) => ({ ok: true as const })) };
 const broadcaster = { draft: vi.fn(), tournament: vi.fn() };
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/notify", () => ({ announcer, broadcaster }));
 const notifyDuelChange = vi.fn(async (_slug: string, _guildId: string) => {});
 vi.mock("@/lib/notify-duel", () => ({ notifyDuelChange }));
@@ -21,15 +25,16 @@ function seed() {
   process.env.DATABASE_PATH = join(dir, "bot.sqlite");
   process.env.DISCORD_GUILD_ID = "g1";
   process.env.DISCORD_TOKEN = "bot-token";
-  process.env.NEXTAUTH_URL = "https://duel.example.com/";
+  process.env.WEB_URL = "https://duel.example.com/";
   const db = new Database(process.env.DATABASE_PATH);
   migrate(db);
-  const insert = db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', ?, ?)");
-  const organizer = Number(insert.run("u-org", "Organizer").lastInsertRowid);
-  const a = Number(insert.run("u-a", "Alice").lastInsertRowid);
-  const b = Number(insert.run("u-b", "Bob").lastInsertRowid);
+  seedFixtureUsers(db, FIXTURE_KEYS);
+  const insert = db.prepare("insert into players (guild_id, user_id, discord_user_id, display_name) values ('g1', ?, ?, ?)");
+  const organizer = Number(insert.run(fixtureUserId("u-org"), fixtureDiscordId("u-org"), "Organizer").lastInsertRowid);
+  const a = Number(insert.run(fixtureUserId("u-a"), fixtureDiscordId("u-a"), "Alice").lastInsertRowid);
+  const b = Number(insert.run(fixtureUserId("u-b"), fixtureDiscordId("u-b"), "Bob").lastInsertRowid);
   const tournaments = createTournamentService(db);
-  const tour = tournaments.create("g1", "Online Cup", "round_robin", "u-org");
+  const tour = tournaments.create("g1", "Online Cup", "round_robin", fixtureUserId("u-org"));
   db.prepare("update tournaments set web_slug = 'cup' where id = ?").run(tour.id);
   tournaments.join(tour.id, a);
   tournaments.join(tour.id, b);
@@ -48,6 +53,7 @@ const post = (body: unknown) =>
 describe("tournament match duel and result routes", () => {
   beforeEach(() => {
     vi.resetModules();
+    vi.stubEnv("DISCORD_BOT_ENABLED", "1");
     auth.mockReset();
     announcer.announce.mockClear();
     broadcaster.tournament.mockClear();
@@ -55,7 +61,8 @@ describe("tournament match duel and result routes", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
   });
   afterEach(() => {
-    for (const key of ["DATABASE_PATH", "DISCORD_GUILD_ID", "DISCORD_TOKEN", "NEXTAUTH_URL"]) delete process.env[key];
+    vi.unstubAllEnvs();
+    for (const key of ["DATABASE_PATH", "DISCORD_GUILD_ID", "DISCORD_TOKEN", "WEB_URL"]) delete process.env[key];
     vi.unstubAllGlobals();
     while (tempDirs.length) {
       const d = tempDirs.pop();
@@ -68,7 +75,7 @@ describe("tournament match duel and result routes", () => {
     const { POST } = await import("../app/api/tournaments/[slug]/matches/[tmId]/result/route");
     auth.mockResolvedValue(null);
     expect((await POST(post({ winnerPlayerId: s.a }), ctx(s.tmId))).status).toBe(401);
-    auth.mockResolvedValue({ user: { id: "u-org", name: "Organizer" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-org")), discordUserId: fixtureDiscordId("u-org"), name: "Organizer" } });
     expect((await POST(post({}), ctx(s.tmId))).status).toBe(400);
     expect((await POST(post({ winnerPlayerId: s.a }), ctx(s.tmId + 999))).status).toBe(404);
   });
@@ -76,7 +83,7 @@ describe("tournament match duel and result routes", () => {
   it("result: only the organizer can set it", async () => {
     const s = seed();
     const { POST } = await import("../app/api/tournaments/[slug]/matches/[tmId]/result/route");
-    auth.mockResolvedValue({ user: { id: "u-a", name: "Alice" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-a")), discordUserId: fixtureDiscordId("u-a"), name: "Alice" } });
     const res = await POST(post({ winnerPlayerId: s.a }), ctx(s.tmId));
     expect(res.status).toBe(403);
     expect(broadcaster.tournament).not.toHaveBeenCalled();
@@ -85,7 +92,7 @@ describe("tournament match duel and result routes", () => {
   it("result: the organizer sets a winner and the web is told", async () => {
     const s = seed();
     const { POST } = await import("../app/api/tournaments/[slug]/matches/[tmId]/result/route");
-    auth.mockResolvedValue({ user: { id: "u-org", name: "Organizer" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-org")), discordUserId: fixtureDiscordId("u-org"), name: "Organizer" } });
     const res = await POST(post({ winnerPlayerId: s.a }), ctx(s.tmId));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ success: true });
@@ -101,7 +108,7 @@ describe("tournament match duel and result routes", () => {
   it("duel: starts a series, DMs the other player once and returns the existing one after", async () => {
     const s = seed();
     const { POST } = await import("../app/api/tournaments/[slug]/matches/[tmId]/duel/route");
-    auth.mockResolvedValue({ user: { id: "u-a", name: "Alice" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-a")), discordUserId: fixtureDiscordId("u-a"), name: "Alice" } });
     const first = await POST(post({}), ctx(s.tmId));
     expect(first.status).toBe(201);
     const body = (await first.json()) as { series: { bestOf: number }; duel: { slug: string }; created: boolean };
@@ -110,7 +117,7 @@ describe("tournament match duel and result routes", () => {
     expect(announcer.announce.mock.calls[0][0]).toMatchObject({
       kind: "duel-invite",
       guildId: "g1",
-      opponentDiscordUserId: "u-b",
+      opponentDiscordUserId: fixtureDiscordId("u-b"),
       challengerName: "Alice",
       tournamentName: "Online Cup",
       url: `https://duel.example.com/duels/${body.duel.slug}`,
@@ -128,7 +135,7 @@ describe("tournament match duel and result routes", () => {
     const mapDraftTournamentDecks = vi.fn(async (..._args: unknown[]) => ({ ok: true as const }));
     vi.doMock("@/lib/draft-deck-codes", () => ({ mapDraftTournamentDecks }));
     const { POST } = await import("../app/api/tournaments/[slug]/matches/[tmId]/duel/route");
-    auth.mockResolvedValue({ user: { id: "u-a", name: "Alice" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-a")), discordUserId: fixtureDiscordId("u-a"), name: "Alice" } });
     const res = await POST(post({}), ctx(s.tmId));
     vi.doUnmock("@/lib/draft-deck-codes");
     expect(res.status).toBe(201);
@@ -141,7 +148,7 @@ describe("tournament match duel and result routes", () => {
   it("duel: an outsider cannot start the series", async () => {
     const s = seed();
     const { POST } = await import("../app/api/tournaments/[slug]/matches/[tmId]/duel/route");
-    auth.mockResolvedValue({ user: { id: "u-x", name: "Outsider" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-x")), discordUserId: fixtureDiscordId("u-x"), name: "Outsider" } });
     const res = await POST(post({}), ctx(s.tmId));
     expect(res.status).toBeGreaterThanOrEqual(400);
     expect(res.status).toBeLessThan(500);
@@ -149,7 +156,7 @@ describe("tournament match duel and result routes", () => {
   });
   async function startSeries(s: ReturnType<typeof seed>) {
     const { POST } = await import("../app/api/tournaments/[slug]/matches/[tmId]/duel/route");
-    auth.mockResolvedValue({ user: { id: "u-a", name: "Alice" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-a")), discordUserId: fixtureDiscordId("u-a"), name: "Alice" } });
     const res = await POST(post({}), ctx(s.tmId));
     expect(res.status).toBe(201);
     const body = (await res.json()) as { series: { id: number }; duel: { slug: string } };
@@ -165,7 +172,7 @@ describe("tournament match duel and result routes", () => {
     const s = seed();
     const started = await startSeries(s);
     const { DELETE } = await import("../app/api/tournaments/[slug]/route");
-    auth.mockResolvedValue({ user: { id: "u-org", name: "Organizer" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-org")), discordUserId: fixtureDiscordId("u-org"), name: "Organizer" } });
     const res = await DELETE(new Request("http://localhost/x", { method: "DELETE" }), { params: Promise.resolve({ slug: "cup" }) });
     expect(res.status).toBe(200);
     expect(((await res.json()) as { status: string }).status).toBe("cancelled");
@@ -182,10 +189,10 @@ describe("tournament match duel and result routes", () => {
     const started = await startSeries(s);
     const { DELETE } = await import("../app/api/tournaments/[slug]/route");
     const del = () => DELETE(new Request("http://localhost/x", { method: "DELETE" }), { params: Promise.resolve({ slug: "cup" }) });
-    auth.mockResolvedValue({ user: { id: "u-a", name: "Alice" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-a")), discordUserId: fixtureDiscordId("u-a"), name: "Alice" } });
     expect((await del()).status).toBe(403);
     expect(seriesStatus(s, started.series.id)).not.toBe("cancelled");
-    auth.mockResolvedValue({ user: { id: "u-org", name: "Organizer" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-org")), discordUserId: fixtureDiscordId("u-org"), name: "Organizer" } });
     expect((await del()).status).toBe(200);
     notifyDuelChange.mockClear();
     expect((await del()).status).toBe(400);
@@ -196,7 +203,7 @@ describe("tournament match duel and result routes", () => {
     const s = seed();
     const started = await startSeries(s);
     const { POST } = await import("../app/api/tournaments/[slug]/complete/route");
-    auth.mockResolvedValue({ user: { id: "u-org", name: "Organizer" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-org")), discordUserId: fixtureDiscordId("u-org"), name: "Organizer" } });
     const res = await POST(new Request("http://localhost/x", { method: "POST" }), { params: Promise.resolve({ slug: "cup" }) });
     expect(res.status).toBe(200);
     expect(((await res.json()) as { status: string }).status).toBe("completed");
@@ -207,6 +214,7 @@ describe("tournament match duel and result routes", () => {
 
   it("GET: rulesLocked turns true once a series exists", async () => {
     const s = seed();
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-org")), discordUserId: fixtureDiscordId("u-org"), name: "Organizer" } });
     const { GET } = await import("../app/api/tournaments/[slug]/route");
     const get = async () =>
       ((await (await GET(new Request("http://localhost/x"), { params: Promise.resolve({ slug: "cup" }) })).json()) as { rulesLocked: boolean }).rulesLocked;
@@ -215,3 +223,7 @@ describe("tournament match duel and result routes", () => {
     expect(await get()).toBe(true);
   });
 });
+
+const FIXTURE_KEYS = ["u-org", "u-a", "u-b", "u-x"] as const;
+
+// Session resolution is mocked; authorization still runs through the real web boundary.

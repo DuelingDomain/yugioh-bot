@@ -1,3 +1,4 @@
+import { parseUserId } from "@/lib/user-id";
 /**
  * The requests the pool editor makes. Each one returns plain data or throws an Error whose message is fit to show.
  * Kept apart from the hook so the hook reads as state, and so tests can stub `fetch` once.
@@ -12,7 +13,7 @@ import { clampCopies, poolFromEntries, poolToIds, type Pool, type PoolSource } f
 export interface CubeOption {
   id: number;
   name: string;
-  createdByUserId: string;
+  createdByUserId: number;
   createdByName: string | null;
   canEdit: boolean;
   draftType: string | null;
@@ -32,7 +33,7 @@ interface CubeListRow {
   id: number;
   name: string;
   draftType?: string | null;
-  createdByUserId?: string;
+  createdByUserId: number;
   createdByName?: string | null;
   canEdit?: boolean;
   extraCount?: number;
@@ -55,7 +56,7 @@ export async function fetchCubeOptions(): Promise<CubeOption[]> {
     return {
       id: c.id,
       name: c.name,
-      createdByUserId: c.createdByUserId ?? "",
+      createdByUserId: c.createdByUserId,
       createdByName: c.createdByName ?? null,
       canEdit: c.canEdit ?? false,
       draftType: c.draftType ?? null,
@@ -69,12 +70,12 @@ export async function fetchCubeOptions(): Promise<CubeOption[]> {
   });
 }
 
-export async function fetchSessionUserId(): Promise<string | null> {
+export async function fetchSessionUserId(): Promise<number | null> {
   try {
     const res = await fetch("/api/auth/session");
     if (!res.ok) return null;
     const data = (await res.json()) as { user?: { id?: string } } | null;
-    return data?.user?.id ?? null;
+    return parseUserId(data?.user?.id);
   } catch {
     return null;
   }
@@ -189,6 +190,7 @@ export async function fetchDraftPools(slug: string): Promise<{ main: Pool; extra
 export interface SavedCube {
   id: number;
   name: string;
+  createdByUserId: number;
 }
 
 export class NameTakenError extends Error {}
@@ -214,9 +216,9 @@ export async function createPoolCube(args: {
   });
   if (res.status === 409) throw new NameTakenError(await readError(res, "That name is taken."));
   if (!res.ok) throw new Error(await readError(res, "Couldn't save the cube."));
-  const data = (await res.json()) as { cube?: { id: number; name: string } };
+  const data = (await res.json()) as { cube?: SavedCube };
   if (!data.cube) throw new Error("Couldn't save the cube.");
-  return { id: data.cube.id, name: data.cube.name };
+  return { id: data.cube.id, name: data.cube.name, createdByUserId: data.cube.createdByUserId };
 }
 
 export async function replaceCubeMain(cubeId: number, cards: Array<{ id: number; copies: number }>): Promise<void> {
@@ -225,7 +227,7 @@ export async function replaceCubeMain(cubeId: number, cards: Array<{ id: number;
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ op: "replaceMain", cards }),
   });
-  if (res.status === 403) throw new Error("Only the cube's owner or an admin can change it.");
+  if (res.status === 403) throw new Error("Only the cube's owner can change it.");
   if (!res.ok) throw new Error(await readError(res, "Couldn't save the changes."));
 }
 

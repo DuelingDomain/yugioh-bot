@@ -326,9 +326,9 @@ describe("ThemeTableLobby the box", () => {
 
 describe("ThemeTableLobby deleting a theme", () => {
   const libraryRoute = (cubes: object[]) => ({ "GET /api/cubes": () => ({ cubes }) });
-  const mine = { id: 10, name: "Blue-Eyes", canEdit: true, createdByUserId: "u1", createdByName: "Imran" };
-  const theirs = { id: 11, name: "Mermail", canEdit: false, createdByUserId: "u9", createdByName: "Ana" };
-  const host = (extra: Partial<ThemeTableLobbyProps> = {}) => table({ isCreator: true, viewerUserId: "u1", ...extra });
+  const mine = { id: 10, name: "Blue-Eyes", canEdit: true, createdByUserId: 101, createdByName: "Imran" };
+  const theirs = { id: 11, name: "Mermail", canEdit: false, createdByUserId: 102, createdByName: "Ana" };
+  const host = (extra: Partial<ThemeTableLobbyProps> = {}) => table({ isCreator: true, viewerUserId: 101, ...extra });
 
   it("offers Delete only for a cube the viewer may delete, and only Remove for another cube", async () => {
     mockFetch(libraryRoute([mine, theirs]));
