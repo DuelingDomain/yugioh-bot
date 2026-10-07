@@ -64,6 +64,58 @@ The merged database also makes Bingo Card, Red-Eyes Black Dragon Exceed, Swiftwi
 
 Re-record `scripts/native/golden.tsv` with `packages/duel-server/scripts/run-nduel.sh --record`, then verify it with `--check`, after changing the merged database or release filtering even when the three source pins stay the same. The native driver samples the effective card pool, so the merge changes seeded duels and their recorded hashes. Overlay edits also require an explicitly recorded fingerprint. At this update, all 80 golden duels are re-recorded against the merged bundle; final-link elimination coverage uses a fixed real-duel fixture rather than relying on the old seeded deck.
 
+## Shared card-script bug fixes: Steamed Sabersaurus (3743515)
+
+`domain-core/multi-scripts` appends/replaces scripts only for tables with more than two seats;
+`domain-core/lua/domain.lua` and its legacy counterpart apply Domain rules only. Neither
+alone covers every engine. `card-script-patches/MANIFEST.json` now describes shared suffix
+overlays installed directly into `card-scripts/` by `scripts/card-script-patches.ts` during
+both fresh and cached `prepare-data.ts` runs. All Standard/Domain, legacy/pinned 1v1 and
+multiplayer readers (including native) therefore load the same corrected card script.
+
+The first patch overrides only `atkcon` and `atktg` in upstream
+[`official/c3743515.lua` at CardScripts `37f270dc813a12d123707ae255f2bda7922999c4`](https://github.com/ProjectIgnis/CardScripts/blob/37f270dc813a12d123707ae255f2bda7922999c4/official/c3743515.lua).
+The stock condition swaps attacker/target and dereferences nil on an opponent's direct
+attack. Both callbacks now use `Duel.GetBattleMonster(tp)`; no own battling monster means
+false/no target. The face-up Dinosaur/other-monster checks, destruction, 2000 ATK boost,
+count limit and Battle Phase reset remain intact. The reviewed stock SHA-256 is
+`0efda8bf0727ede4a05fc10dd06479b227664670d45d50b36de382d465af80d3`;
+preparation fails if upstream changes it. Cached preparation replaces the marked suffix,
+so it is idempotent and needs no download at unchanged data pins. The prepared
+`card-scripts/.host-card-script-patches.json` tracks installed entries so retiring a
+patch also restores cached stock bytes. Fresh and cached installs use the same bundle
+hash ordering, including bundles with optional built-core metadata.
+
+`integrity.cardScriptPatches` hashes bytewise-sorted `<stockPath>\0<patched-file SHA-256>\n`
+records and participates in `bundleVersion`. `scripts` still identifies the upstream
+archive; `domainLua`, `domainLegacyLua`, `multiScripts`, core pins and WASM bytes do not
+change. Deployment must re-prepare the bundle and ship its patched script **and manifest**.
+Existing cores can be reused; no WASM rebuild is necessary. CI/production/staging bundle
+cache keys include the patch recipe and suffix files. Drain active duels first; the new
+bundle version has the same recovery/replay consequences described below. Native golden
+metadata now also records `card-script-patches-sha256` using the folder-hash algorithm;
+re-record and check all 80 rows when this overlay changes, rather than editing its header.
+
+Host error policy is unchanged. Legacy Standard/Domain 1v1 queues `OcgLogType.ERROR` (0) and
+`UNDEFINED` (3) at `src/legacy/engine.ts:227-230` and throws after processing messages at
+`:565-568`. Pinned Standard/Domain 1v1 and all multiplayer paths use the same policy at
+`src/engine.ts:377-380` and `:920-923`. FROM_SCRIPT (1) and FOR_DEBUG (2) are ignored except internal notes.
+`src/domain-core.ts:38` forwards the same handler. `src/worker.ts:79-81` returns errors to
+the client; `src/worker-client.ts:99-101` rejects the request. For a player response,
+`src/host.ts:2483-2486` converts it to HTTP 400 before journaling; this does not itself
+record a duel loss. `engine-throw` is the fuzz harness invariant, not a core WIN reason.
+
+In contrast, [EDOPro's `Game::MessageHandler`](https://github.com/edo9300/edopro/blob/c250b6ab9bebb6eca9fdd07ee0c5bd2278426e81/gframe/game.cpp#L3932)
+adds debug messages and returns. The pinned [core interpreter](https://github.com/edo9300/ygopro-core/blob/efc21aa433b88cd35b7c37db4072a35c58d9d435/interpreter.cpp#L389)
+already catches Lua failures: `call_function` returns false, `check_condition` returns
+false, and a failed operation coroutine is cleaned up and returns `COROUTINE_ERROR`.
+A host-only tolerant mode is therefore feasible without rebuilding the core. Recommend
+an owner-approved opt-in policy that logs/deduplicates callback errors while retaining
+fatal resource/setup failures and native traps. The log API has no dedicated script-error
+type: ERROR also covers initialization, missing/null callbacks and Lua API checks, so
+blanket suppression cannot safely distinguish them. Operations can retain actions done
+before the error; tolerance provides no rollback. No tolerant mode is added here.
+
 ## Run by hand
 
 Use **Actions → Engine data update → Run workflow**, or:
@@ -93,7 +145,7 @@ The first line is `Needs review: N conflicts, M risks, K shared-script changes, 
 - **New multiplayer risks:** new/changed official scripts and loaded release scripts (including retained pre-release scripts) flagged F or ambiguous O and absent from both multiplayer lists need a rule, tested overlay or format-specific ban decision. Releases are scanned even when their scripts did not change.
 - **Changed listed cards:** changed scripts already in `MULTIPLAYER_CARD_RULES` or `MULTIPLAYER_FORBIDDEN` without an overlay need renewed review. This section also includes `formatGap` cards, including unchanged cards whose scan finds Tag coverage missing.
 - **Core probe status:** uses the installed **npm `ocgcore-wasm@0.1.2`**, the oldest live/default Standard 1v1 core, without an optional build cache. It loads candidate `constant.lua`, `utility.lua`, changed scripts and loaded release scripts, asserts availability of referenced `Duel.`, `Card.`, `Effect.`, `Group.` names and uppercase globals, and inserts each selected official or retained pre-release card into a deck to exercise `initial_effect`. Findings come through the core error handler and host setup checks. A separate process limits hangs to 60 seconds. Errors and timeouts appear in the report without failing the job. The lexical scan is best effort; it does not prove dynamic symbol usage or play out effect callbacks. Investigate incompatibilities separately; the updater never changes core pins.
-- **Golden hashes — required in the data-update PR:** after reconciling the candidate, run `run-nduel.sh --record` against its prepared bundle, review and commit the golden diff, then run `run-nduel.sh --check`. `golden.tsv` records a SHA-256 fingerprint of the three data pins (canonical compact JSON in scripts/database/strings order). It is historical metadata, never synchronized automatically. Changed or missing metadata makes `--check` fail before a build with `data pins changed: re-record with run-nduel.sh --record`. The header also records `multi-scripts-sha256` and `patches-sha256`: SHA-256 over bytewise-sorted `<relative path>\0<file SHA-256>\n` records for every regular overlay file, matching `multiScriptsFolderHash`, and only `*.patch` files in the patch folder, matching the core cache keys’ input selection (README edits do not invalidate golden). Changed or missing folder metadata fails before a build with `overlay/patches changed: re-record with run-nduel.sh --record`. The native CI job checks all committed golden rows only when core patches/pins, overlays, native tooling or data pins change, and on manual dispatch. It compiles the nduel driver against the ASan/UBSan library already built by `test:native`, then uses `NDUEL_SKIP_BUILD=1` to avoid a second core build. Both `--record` and `--check` require `NDUEL_PATCHES` and `NDUEL_PATCH_LIMIT` to be unset, since their headers describe the complete repository patch series. Disabling nightly for the automated dispatch does not waive this review step.
+- **Golden hashes — required in the data-update PR:** after reconciling the candidate, run `run-nduel.sh --record` against its prepared bundle, review and commit the golden diff, then run `run-nduel.sh --check`. `golden.tsv` records a SHA-256 fingerprint of the three data pins (canonical compact JSON in scripts/database/strings order). It is historical metadata, never synchronized automatically. Changed or missing metadata makes `--check` fail before a build with `data pins changed: re-record with run-nduel.sh --record`. The header also records `multi-scripts-sha256`, `patches-sha256` and `card-script-patches-sha256`: SHA-256 over bytewise-sorted `<relative path>\0<file SHA-256>\n` records for every regular multiplayer/shared overlay file, matching `multiScriptsFolderHash`, and only `*.patch` files in the patch folder, matching the core cache keys’ input selection (README edits do not invalidate golden). Changed or missing folder metadata fails before a build with `overlay/patches changed: re-record with run-nduel.sh --record`. The native CI job checks all committed golden rows only when core patches/pins, overlays, native tooling or data pins change, and on manual dispatch. It compiles the nduel driver against the ASan/UBSan library already built by `test:native`, then uses `NDUEL_SKIP_BUILD=1` to avoid a second core build. Both `--record` and `--check` require `NDUEL_PATCHES` and `NDUEL_PATCH_LIMIT` to be unset, since their headers describe the complete repository patch series. Disabling nightly for the automated dispatch does not waive this review step.
 - **Validation:** bundle preparation must succeed. Review probe findings, resolve stock conflicts, rerun the overlay check, re-record golden hashes in the PR, and review CI before merging.
 
 **Live-duel warning:** a merged data bump changes `bundleVersion`. Active duels with a different bundle version are interrupted on recovery. Drain active duels and **merge at a quiet time**; deploy preflight can refuse while duels remain active. **Replay-loss warning:** each bump also makes replays of all earlier duels with a different bundle version unavailable, because the host refuses replay on a `bundleVersion` mismatch. The owner must account for both effects when deciding cadence. Host behavior is unchanged; see the [VM runbook](vm-runbook.md).
@@ -119,4 +171,4 @@ rm -rf "$NDUEL_DIR"
 unset NDUEL_DIR
 ```
 
-Review the row changes and all three fingerprint headers, verify 80 rows were recorded/checked with no skips or mismatches, and commit `packages/duel-server/scripts/native/golden.tsv` in the data-update PR. Merge only after its CI passes. Never refresh the headers alone to bypass a failed check.
+Review the row changes and all four fingerprint headers, verify 80 rows were recorded/checked with no skips or mismatches, and commit `packages/duel-server/scripts/native/golden.tsv` in the data-update PR. Merge only after its CI passes. Never refresh the headers alone to bypass a failed check.

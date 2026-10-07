@@ -7,6 +7,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { installMultiScripts } from "../src/multi-scripts.js";
 import { downloadReleasedCardData, restrictPrereleaseScripts } from "./released-card-data.js";
+import { installCardScriptPatches } from "./card-script-patches.js";
 
 export const sources = {
   corePackage: "ocgcore-wasm@0.1.2",
@@ -78,9 +79,19 @@ export async function prepareData(
   // (this script replaces that folder), and it changes with the repo, so it is installed on every run.
   const multiScriptsHash = installMultiScripts(directory);
   if (previous && await catalogIsCurrent(directory, previous)) {
-    const integrity = { ...previous.integrity, multiScripts: multiScriptsHash };
+    const cardScriptPatches = installCardScriptPatches(join(directory, "card-scripts"));
+    const { cardScriptPatches: _oldPatches, ...baseIntegrity } = previous.integrity;
+    const integrity: Record<string, string> = {};
+    // Match fresh preparation (and builders that append core entries afterward):
+    // JSON insertion order is part of the existing bundleVersion format.
+    for (const [key, value] of Object.entries(baseIntegrity)) {
+      integrity[key] = value;
+      if (key === "wrapper") integrity.cardScriptPatches = cardScriptPatches;
+    }
+    integrity.cardScriptPatches ??= cardScriptPatches;
+    integrity.multiScripts = multiScriptsHash;
     const bundleVersion = bundleVersionOf(previous.sources, integrity);
-    if (previous.integrity.multiScripts !== multiScriptsHash || previous.bundleVersion !== bundleVersion) {
+    if (previous.integrity.multiScripts !== multiScriptsHash || previous.integrity.cardScriptPatches !== cardScriptPatches || previous.bundleVersion !== bundleVersion) {
       previous.integrity = integrity;
       previous.bundleVersion = bundleVersion;
       await writeFile(join(directory, "manifest.json"), JSON.stringify(previous, null, 2) + "\n");
@@ -107,6 +118,7 @@ export async function prepareData(
     await mkdir(scriptStaging, { recursive: true });
     execFileSync("tar", ["-xzf", archive, "--strip-components=1", "-C", scriptStaging]);
     restrictPrereleaseScripts(scriptStaging, database.releaseCodes);
+    const cardScriptPatches = installCardScriptPatches(scriptStaging);
     if (savedLua) await writeFile(join(scriptStaging, "domain.lua"), savedLua);
     if (savedLegacyLua) await writeFile(join(scriptStaging, "domain.legacy.lua"), savedLegacyLua);
     const scriptDirectory = join(directory, "card-scripts");
@@ -126,6 +138,7 @@ export async function prepareData(
       wasm: hash(wasm),
       wrapper: hash(wrapper),
       multiScripts: multiScriptsHash,
+      cardScriptPatches,
     };
     const mergedSources: Record<string, unknown> = { ...sources, databaseFiles: database.files };
     const domainWasmPath = join(directory, "ocgcore.domain.wasm");
