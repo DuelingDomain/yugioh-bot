@@ -192,3 +192,46 @@ describe("create cube from list", () => {
     expect(db.prepare("select count(*) n from cubes").get()).toEqual({ n: 1 });
   });
 });
+
+
+describe("cube subtract op", () => {
+  it("returns the complete editor payload after subtracting duplicates and deleting exhausted rows", async () => {
+    db.exec("insert into cube_cards (cube_id,catalog_card_id,pool,max_copies) values (1,1,'main',5),(1,2,'extra',2),(1,3,'main',3)");
+    const response = await mutate({ op: "subtract", entries: [
+      { id: 1, copies: 1, pool: "main" }, { id: 1, copies: 2, pool: "main" },
+      { id: 2, copies: 99, pool: "extra" }, { id: 3, copies: 99, pool: "extra" },
+      { id: 999, copies: 1, pool: "main" },
+    ] });
+    expect(response.status).toBe(200);
+    const result = await response.json();
+    expect(Object.keys(result).sort()).toEqual(["cards", "pools"]);
+    expect(result.pools).toMatchObject({ main: [{ catalogCardId: 1, maxCopies: 2 }, { catalogCardId: 3, maxCopies: 3 }], extra: [] });
+    expect(result.cards.map((c: { id: number }) => c.id)).toEqual([1, 3]);
+    expect(upstream).not.toHaveBeenCalled();
+    expect((await mutate({ op: "subtract", entries: [] })).status).toBe(200);
+  });
+
+  it.each([null, {}, [null], [{ id: 0, copies: 1, pool: "main" }],
+    [{ id: 1.5, copies: 1, pool: "main" }], [{ id: 1, copies: 0, pool: "main" }],
+    [{ id: 1, copies: 100, pool: "main" }], [{ id: 1, copies: 1.5, pool: "main" }],
+    [{ id: 1, copies: 1 }], [{ id: 1, copies: 1, pool: "side" }],
+    Array.from({ length: 1001 }, () => ({ id: 1, copies: 1, pool: "main" }))])("rejects malformed entries without writes: %#", async (entries) => {
+    db.exec("insert into cube_cards (cube_id,catalog_card_id,pool,max_copies) values (1,1,'main',5)");
+    expect((await mutate({ op: "subtract", entries })).status).toBe(400);
+    expect(rows()).toEqual([{ id: 1, pool: "main", copies: 5 }]);
+  });
+
+  it("accepts exactly 1000 entries and retains the existing access checks", async () => {
+    const body = { op: "subtract", entries: Array.from({ length: 1000 }, () => ({ id: 1, copies: 1, pool: "main" })) };
+    auth.mockResolvedValue(null);
+    expect((await mutate(body)).status).toBe(401);
+    auth.mockResolvedValue({ user: { id: "stranger", name: "Stranger" } });
+    expect((await mutate(body)).status).toBe(403);
+    db.exec("update cubes set guild_id = 'other' where id = 1");
+    expect((await mutate(body)).status).toBe(404);
+    db.exec("update cubes set guild_id = 'guild-1' where id = 1");
+    discord.permissions = "32"; vi.resetModules();
+    expect((await mutate(body)).status).toBe(200);
+    expect(upstream).not.toHaveBeenCalled();
+  });
+});

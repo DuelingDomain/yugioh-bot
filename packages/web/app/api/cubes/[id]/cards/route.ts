@@ -19,6 +19,7 @@ type Op =
   | { op: "setArtwork"; catalogCardId: number; artworkPasscode: number }
   | { op: "add"; catalogCardId: number; pool: "main" | "extra"; maxCopies?: number }
   | { op: "remove"; catalogCardId: number }
+  | { op: "subtract"; entries: Array<{ id: number; copies: number; pool: "main" | "extra" }> }
   | { op: "setMaxCopies"; catalogCardId: number; maxCopies: number }
   | { op: "import"; codes: number[]; pool?: "main" | "extra" }
   | { op: "replaceMain"; cards: Array<{ id: number; copies: number }> }
@@ -63,6 +64,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       }
       case "add":
         cubes.addCard(cubeId, body.catalogCardId, body.pool, body.maxCopies);
+        break;
+      case "subtract":
+        cubes.subtractCards(cubeId, body.entries);
         break;
       case "remove":
         cubes.removeCard(cubeId, body.catalogCardId);

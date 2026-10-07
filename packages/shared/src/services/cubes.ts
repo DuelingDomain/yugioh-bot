@@ -238,6 +238,31 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
       })();
     },
 
+    /** Subtract authored copies from the requested pools in one transaction. Missing rows are harmless. */
+    subtractCards(cubeId: number, entries: readonly (CubeImportEntry & { pool: CubePool })[]): void {
+      if (!Array.isArray(entries)) throw new Error("entries must be a list");
+      if (entries.length > 1000) throw new Error("Subtract at most 1000 entries at a time");
+      for (const entry of entries) {
+        if (!entry || !Number.isSafeInteger(entry.id) || entry.id <= 0) throw new Error("Each entry needs a valid id");
+        assertCubeCopies(entry.copies);
+        if (entry.pool !== "main" && entry.pool !== "extra") throw new Error("Each entry needs a main or extra pool");
+      }
+      db.transaction(() => {
+        findCube(cubeId);
+        const find = db.prepare("select max_copies from cube_cards where cube_id = ? and catalog_card_id = ? and pool = ?");
+        const remove = db.prepare("delete from cube_cards where cube_id = ? and catalog_card_id = ? and pool = ?");
+        const update = db.prepare("update cube_cards set max_copies = ? where cube_id = ? and catalog_card_id = ? and pool = ?");
+        for (const { id, copies, pool } of entries) {
+          const row = find.get(cubeId, id, pool) as { max_copies: number } | undefined;
+          if (!row) continue;
+          const remaining = Math.max(0, row.max_copies - copies);
+          if (remaining === 0) remove.run(cubeId, id, pool);
+          else update.run(remaining, cubeId, id, pool);
+        }
+        if (entries.length > 0) bump(cubeId);
+      })();
+    },
+
     createBlank(guildId: string, name: string, createdByUserId: string): Cube {
       return findCube(insertCubeRow(guildId, name, createdByUserId, null, null));
     },

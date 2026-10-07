@@ -71,3 +71,28 @@ describe("transactional resolved list writes", () => {
     expect(db.prepare("select updated_at from cubes where id = ?").get(cubeId)).toEqual(before);
   });
 });
+
+
+describe("atomic pool subtraction", () => {
+  it("subtracts only from matching pools, removes zero rows and ignores missing ids", () => {
+    cubes.addCard(cubeId, 1, "main", 5, "kept");
+    cubes.addCard(cubeId, 2, "extra", 2);
+    cubes.addCard(cubeId, 3, "main", 3);
+    cubes.subtractCards(cubeId, [{ id: 1, copies: 2, pool: "main" }, { id: 2, copies: 99, pool: "extra" },
+      { id: 3, copies: 2, pool: "extra" }, { id: 999, copies: 1, pool: "main" }]);
+    expect(cubes.getCubePools(cubeId)).toEqual({ main: [
+      { catalogCardId: 1, pool: "main", maxCopies: 3, source: "kept" },
+      { catalogCardId: 3, pool: "main", maxCopies: 3, source: undefined },
+    ], extra: [] });
+  });
+
+  it("rolls back earlier subtractions if a later row fails", () => {
+    cubes.addCard(cubeId, 1, "main", 5);
+    cubes.addCard(cubeId, 2, "extra", 2);
+    const before = db.prepare("select * from cubes").all();
+    db.exec("create trigger fail_remove before delete on cube_cards when OLD.catalog_card_id = 2 begin select raise(ABORT, 'write failed'); end;");
+    expect(() => cubes.subtractCards(cubeId, [{ id: 1, copies: 2, pool: "main" }, { id: 2, copies: 2, pool: "extra" }])).toThrow("write failed");
+    expect(cubes.getCubePools(cubeId).main[0].maxCopies).toBe(5);
+    expect(db.prepare("select * from cubes").all()).toEqual(before);
+  });
+});

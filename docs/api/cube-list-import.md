@@ -157,6 +157,18 @@ Omitting `listText` selects the existing resolve behavior. This mode reuses the 
 
 `pools` and `cards` have the existing editor payload shape and describe the entire updated cube. Pool entries may also carry `source`. Card summaries optionally include `attribute`, `level`, `atk`, and `def` when present in the catalog.
 
+## Subtract from an existing cube
+
+`POST /api/cubes/:id/cards`, `Content-Type: application/json`:
+
+```json
+{"op":"subtract","entries":[{"id":53129443,"copies":2,"pool":"main"},{"id":44508094,"copies":1,"pool":"extra"}]}
+```
+
+All entries are applied in one transaction. Each subtracts up to `copies` from the matching ID **in that pool**; a row is deleted at zero. Missing IDs and IDs currently in another pool are ignored. Duplicate entries subtract sequentially. An empty array is valid. IDs must be positive safe integers, copies integers 1–99, and pool exactly `"main"` or `"extra"`. At most **1000 entries** (including duplicates) are allowed; malformed or oversized requests return `400 {error}` before any cube write.
+
+Success is `200 {pools,cards}`, describing the entire updated cube with the same editor payload as add/remove/setMaxCopies. Subtract performs no remote card lookup. The existing guild membership, guild scoping, and cube owner/admin authorization apply (401/403/404/500/503 as described below).
+
 ## Create and fill a cube
 
 `POST /api/cubes`, `Content-Type: application/json`:
