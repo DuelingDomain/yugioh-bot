@@ -437,6 +437,79 @@ describe("CreateDraftForm pool: customizing a cube", () => {
     expect(within(poolRow("Cipher Soldier")).getByLabelText("2 copies")).toBeInTheDocument();
   });
 
+  it("says some cards were not looked up, and that cards listed under Extra went to Main", async () => {
+    await openList();
+    const inner = globalThis.fetch;
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const res = await inner(input, init);
+      if (String(input) !== "/api/cards/resolve" || !String(init?.body ?? "").includes("listText")) return res;
+      return Response.json({ ...(await res.json()), lookupLimited: true, movedToMain: 2 });
+    });
+    paste("3 Dragon Egg\nGlue");
+
+    expect(await screen.findByText("Pasted list - 3 cards (3 Main, 0 Extra) - 1 line skipped")).toBeInTheDocument();
+    const report = screen.getByTestId("list-import-report");
+    expect(within(report).getByText("Some cards were not looked up this time. Add the list again to look up the rest.")).toBeInTheDocument();
+    expect(within(report).getByText("2 cards listed under Extra are not Extra Deck monsters - added to Main")).toBeInTheDocument();
+  });
+
+  it("says the lookup was limited, not that the cards are unknown, when nothing was found", async () => {
+    await openList();
+    const inner = globalThis.fetch;
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) !== "/api/cards/resolve" || !String(init?.body ?? "").includes("listText")) return inner(input, init);
+      return Response.json({ cards: [], entries: [], unknown: [], corrected: [], lookupLimited: true });
+    });
+    paste("Some Card\nOther Card");
+
+    expect(await screen.findByText("No cards found in that list.")).toBeInTheDocument();
+    expect(screen.getByText("Some cards were not looked up this time. Add the list again to look up the rest.")).toBeInTheDocument();
+    expect(screen.queryByText(/lines? that (is|are) not a card name/)).toBeNull();
+    expect(screen.getByLabelText("Card list")).toHaveValue("Some Card\nOther Card");
+  });
+
+  it("keeps typed text when a dropped list goes in, and when it fails", async () => {
+    await openList();
+    const box = screen.getByLabelText("Card list");
+    const drop = (text: string) => fireEvent.drop(box, { dataTransfer: { getData: () => text } });
+    fireEvent.change(box, { target: { value: "Dragon Egg" } });
+    drop("2 Cipher Soldier");
+    expect(await screen.findByText("Pasted list - 2 cards (2 Main, 0 Extra)")).toBeInTheDocument();
+    expect(box).toHaveValue("Dragon Egg");
+
+    const inner = globalThis.fetch;
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) =>
+      String(input) === "/api/cards/resolve" && String(init?.body ?? "").includes("listText")
+        ? Response.json({ error: "List is too long." }, { status: 400 })
+        : inner(input, init),
+    );
+    drop("5 Dark Hole");
+    expect(await screen.findByText("List is too long.")).toBeInTheDocument();
+    expect(box).toHaveValue("Dragon Egg");
+  });
+
+  it("puts a queued list back into the box when it fails", async () => {
+    await openList();
+    const box = screen.getByLabelText("Card list");
+    const inner = globalThis.fetch;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let held = 0;
+    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
+      const isList = String(input) === "/api/cards/resolve" && String(init?.body ?? "").includes("listText");
+      if (!isList) return inner(input, init);
+      return held++ === 0 ? gate.then(() => inner(input, init)) : Promise.resolve(Response.json({ error: "List is too long." }, { status: 400 }));
+    });
+    paste("3 Dragon Egg");
+    expect(await screen.findByText("Adding the list.")).toBeInTheDocument();
+    paste("2 Cipher Soldier");
+    expect(await screen.findByText("1 more list is waiting.")).toBeInTheDocument();
+    release();
+    expect(await screen.findByText("List is too long.")).toBeInTheDocument();
+    expect(screen.getByText("Pasted list - 3 cards (3 Main, 0 Extra)")).toBeInTheDocument();
+    expect(box).toHaveValue("2 Cipher Soldier");
+  });
+
   it("does not import twice when a paste follows typed text", async () => {
     const stub = await openList();
     const box = screen.getByLabelText("Card list");

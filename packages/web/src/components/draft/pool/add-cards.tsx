@@ -17,6 +17,7 @@ import {
   addedLine,
   importLine,
   kindText,
+  reportOf,
 } from "./pool-model";
 import type { PoolEditor } from "./use-pool-editor";
 import styles from "./pool.module.css";
@@ -447,7 +448,7 @@ function ListTab({ ctl }: { ctl: PoolEditor }) {
     const result = await resolveCardList(text);
     // A Reset, a cube change or a save since the request left means the pool is not the one the list was meant for.
     if (ctlRef.current.session() !== started) throw new Error("The pool changed while the list was loading. Add the list again.");
-    const report = { unknown: result.unknown, corrected: result.corrected };
+    const report = reportOf(result);
     if (result.entries.length === 0) return { nothing: true, report };
     ctlRef.current.importList(result.entries, { fileName, ...report });
   }, []);
@@ -458,7 +459,7 @@ function ListTab({ ctl }: { ctl: PoolEditor }) {
         key: record.key,
         label: record.label,
         line: importLine(record),
-        report: { unknown: record.unknown, corrected: record.corrected },
+        report: reportOf(record),
       })),
     [ctl.imports],
   );

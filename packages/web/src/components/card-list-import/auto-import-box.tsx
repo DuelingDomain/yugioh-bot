@@ -53,6 +53,11 @@ interface Props {
   hintClassName?: string;
 }
 
+/** After a list went in: empties the box only when it still holds that list. */
+const clearIfSame = (value: string) => (now: string) => (now === value ? "" : now);
+/** After a list failed: puts it back only into an empty box, so text typed meanwhile is not lost. */
+const keepOrRestore = (value: string) => (now: string) => (now === "" ? value : now);
+
 /** One list that waits for the import in front of it. */
 interface Queued {
   value: string;
@@ -117,17 +122,18 @@ export function AutoImportBox({
         const result = await runRef.current(value, fileName);
         if (!mounted.current) return;
         if (result && result.nothing) {
-          setText(value);
+          // Text typed meanwhile stays; the list comes back only into an empty box.
+          setText(keepOrRestore(value));
           setProblem({ tone: "warn", message: NOTHING_FOUND, report: result.report });
         } else {
-          // Text typed since is not the list that went in.
-          setText((now) => (now === value || !fromQueue ? "" : now));
+          // Text typed since is not the list that went in (a dropped list was never in the box).
+          setText(clearIfSame(value));
         }
       } catch (error) {
         if (!mounted.current) return;
         const message = error instanceof Error && error.message ? error.message : "Couldn't add the list. Try again.";
         const waitSeconds = error instanceof ListImportError && error.retryAfter ? Math.ceil(error.retryAfter) : 0;
-        setText(value);
+        setText(keepOrRestore(value));
         setProblem({ tone: "bad", message, retry: { text: value, fileName, waitSeconds } });
         if (waitSeconds > 0) {
           setWaiting(true);

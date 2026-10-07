@@ -125,7 +125,14 @@ export async function resolveCardList(listText: string): Promise<ResolvedList> {
   const data = (await res.json()) as Partial<ResolvedList>;
   const cards = data.cards ?? [];
   putCards(cards);
-  return { cards, entries: data.entries ?? [], unknown: data.unknown ?? [], corrected: data.corrected ?? [] };
+  return {
+    cards,
+    entries: data.entries ?? [],
+    unknown: data.unknown ?? [],
+    corrected: data.corrected ?? [],
+    ...(data.lookupLimited ? { lookupLimited: true as const } : {}),
+    ...(data.movedToMain ? { movedToMain: data.movedToMain } : {}),
+  };
 }
 
 export interface CubeDetail {

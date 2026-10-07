@@ -65,7 +65,7 @@ export function CubeListImportPanel({
       if (!res.ok || !data.cube) {
         setError(data.error ?? "Couldn't create the cube.");
         // A list with no cards still says which lines it skipped.
-        if (data.unknown || data.corrected) setReport({ unknown: data.unknown, corrected: data.corrected });
+        if (data.unknown || data.corrected || data.lookupLimited) setReport({ unknown: data.unknown, corrected: data.corrected, lookupLimited: data.lookupLimited });
         return;
       }
       await onCreated({
@@ -74,6 +74,8 @@ export function CubeListImportPanel({
         copies: data.copies ?? 0,
         unknown: data.unknown ?? [],
         corrected: data.corrected ?? [],
+        ...(data.lookupLimited ? { lookupLimited: true as const } : {}),
+        ...(data.movedToMain ? { movedToMain: data.movedToMain } : {}),
       });
     } catch {
       setError("Couldn't create the cube. Check your connection and try again.");

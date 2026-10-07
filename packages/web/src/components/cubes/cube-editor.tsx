@@ -220,9 +220,14 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
       const unknown = (data.unknown ?? []).map(String);
       const corrected = data.corrected ?? [];
       const gains = gainsBetween(before, data.pools);
-      if (gains.length === 0) return { nothing: true as const, report: { unknown, corrected } };
+      const report = {
+        unknown,
+        corrected,
+        ...(data.lookupLimited ? { lookupLimited: true as const } : {}),
+        ...(data.movedToMain ? { movedToMain: data.movedToMain } : {}),
+      };
+      if (gains.length === 0) return { nothing: true as const, report };
       const label = fileName ?? pasteLabel(importsRef.current.map((entry) => entry.label));
-      const report = { unknown, corrected };
       const line = importLine({ label, main: gainMap(gains, "main"), extra: gainMap(gains, "extra"), corrected, unknown });
       const key = ++importSequence.current;
       ledgerRef.current = recordInLedger(ledgerRef.current, key, gainKeys(gains), poolCounts(data.pools));

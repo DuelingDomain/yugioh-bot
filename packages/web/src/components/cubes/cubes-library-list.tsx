@@ -267,7 +267,7 @@ export function CubesLibraryList() {
           <p>
             Created <b>{imported.cube.name}</b>. {listAddedLine(imported.added, imported.copies)}
           </p>
-          <ListImportReport unknown={imported.unknown} corrected={imported.corrected} />
+          <ListImportReport {...imported} />
           <div className={styles.newActs}>
             <SvButton as="a" variant="primary" href={`/cubes/${imported.cube.id}`}>
               Open cube

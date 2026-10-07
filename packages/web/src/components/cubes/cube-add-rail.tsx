@@ -27,6 +27,10 @@ export interface ImportOutcome {
   copies?: number;
   /** List import: names matched to the closest card. */
   corrected?: ListCorrection[];
+  /** The server ran out of lookups before the end of the list. */
+  lookupLimited?: true;
+  /** Saved-cube list import: main cards listed under Extra that went to Main. */
+  movedToMain?: number;
 }
 
 export interface AddRailProps {

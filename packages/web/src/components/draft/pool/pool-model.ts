@@ -172,6 +172,18 @@ export interface ImportRecord {
   extra: ReadonlyMap<number, number>;
   corrected: ListCorrection[];
   unknown: string[];
+  lookupLimited?: true;
+  movedToMain?: number;
+}
+
+/** What an import left over, as the report shows it. */
+export function reportOf(from: Pick<ImportRecord, "corrected" | "unknown" | "lookupLimited" | "movedToMain">): Pick<ImportRecord, "corrected" | "unknown" | "lookupLimited" | "movedToMain"> {
+  return {
+    unknown: from.unknown,
+    corrected: from.corrected,
+    ...(from.lookupLimited ? { lookupLimited: true as const } : {}),
+    ...(from.movedToMain ? { movedToMain: from.movedToMain } : {}),
+  };
 }
 
 export interface ImportOutcome {

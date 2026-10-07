@@ -290,7 +290,7 @@ export function CubeDraftBuilder({
             <p className="small">
               Added <b>{imported.cube.name}</b> to this draft. {listAddedLine(imported.added, imported.copies)}
             </p>
-            <ListImportReport unknown={imported.unknown} corrected={imported.corrected} />
+            <ListImportReport {...imported} />
           </div>
         )}
 

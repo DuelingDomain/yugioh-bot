@@ -105,7 +105,8 @@ beforeEach(() => {
         }
         if (body.op === "importList") {
           if (String(body.text).includes("NOPE")) {
-            return { ok: true, json: async () => ({ ...detail(), added: 0, copies: 0, unknown: ["NOPE"], corrected: [] }) } as Response;
+            const limited = String(body.text).includes("LIMITED") ? { lookupLimited: true } : {};
+            return { ok: true, json: async () => ({ ...detail(), added: 0, copies: 0, unknown: ["NOPE"], corrected: [], ...limited }) } as Response;
           }
           if (String(body.text).includes("MORE")) {
             main = main.map((e) => (e.catalogCardId === 1 ? { ...e, maxCopies: e.maxCopies + 2 } : e));
@@ -121,6 +122,7 @@ beforeEach(() => {
               copies: 4,
               unknown: ["Engines", "Glue"],
               corrected: [{ from: "Artifact Moraltech", to: "Artifact Moralltach" }],
+              ...(String(body.text).includes("LIMITED") ? { lookupLimited: true, movedToMain: 2 } : {}),
             }),
           } as Response;
         }
@@ -339,6 +341,26 @@ describe("CubeEditor", () => {
     expect(within(report).getByRole("list", { name: "Skipped lines", hidden: true })).toHaveTextContent("Engines");
     expect(screen.getByLabelText("Card list")).toHaveValue("");
     expect(screen.getByRole("button", { name: /Main\s*1/ })).toBeInTheDocument();
+  });
+
+  it("tells when some cards were not looked up and when Extra cards went to Main", async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Card list" }));
+    pasteInto("Card list", "3 Dark Hole\nLIMITED");
+
+    await screen.findByText(/^Pasted list - 4 cards/);
+    const report = screen.getByTestId("list-import-report");
+    expect(within(report).getByText("Some cards were not looked up this time. Add the list again to look up the rest.")).toBeInTheDocument();
+    expect(within(report).getByText("2 cards listed under Extra are not Extra Deck monsters - added to Main")).toBeInTheDocument();
+  });
+
+  it("says the lookup was limited when nothing was added", async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Card list" }));
+    pasteInto("Card list", "NOPE LIMITED");
+
+    expect(await screen.findByText("No cards found in that list.")).toBeInTheDocument();
+    expect(screen.getByText("Some cards were not looked up this time. Add the list again to look up the rest.")).toBeInTheDocument();
   });
 
   it("never adds typed text by itself, and adds it on Enter once", async () => {
