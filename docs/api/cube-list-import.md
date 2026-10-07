@@ -358,3 +358,8 @@ prlimit --core=0:0 npm run typecheck --workspace=packages/bot
 Total selected checks: **375 tests passed, 0 failed** (206 shared, 149 web, 20 bot). The initial shared extra tests had 13 failures / 1 pass; initial route tests had 18 failures / 1 pass. Four pool-helper cases and the config-backed cube save failed before their implementations. The Discord regression failed before its quota fix. Independent review identified a legacy mixed-pool swap regression while OFF; its new test failed before restoring the legacy remainder behavior. Existing format expectations were updated to assert retained explicit pack counts and the corresponding insufficiency errors.
 
 Shared `dist` and web incremental typecheck output were removed after final verification. No push was performed. Rebuild shared before the UI agent runs consumers.
+
+
+### Backend review name-resolution measurement (2026-10-06)
+
+`packages/shared/tests/services/card-name-resolution-performance.test.ts` seeds 13,000 synthetic catalog names and resolves 1000 distinct cached names through `resolveCardNames` (Node v22.23.3, one worker, no network). The same workload measured **8481.69 ms before / 52.40 ms after**, about **162× faster**. Timing covers resolution, excluding fixture creation; it is informational, with correctness asserted for all 1000 IDs. Set `CARD_NAME_BENCHMARK_RESULT` to a temporary JSON path to capture the timing. Catalog keys are normalized once per resolution call and reused; typo matching visits only length groups within three characters while retaining the unique-match/ambiguity rules.

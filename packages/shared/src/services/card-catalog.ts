@@ -5,7 +5,7 @@ import { canonicalCardCode, type CardIdentityCatalog } from "../duels/pool.js";
 import { loadArtworkIdentityCatalog, mainArtworkId, type CardArtwork } from "./card-artworks.js";
 import { CardFetchError, fetchCardResource, isCardFetchError } from "./card-fetch.js";
 import { createCardLookupBudget, takeCardLookup, type CardLookupBudget } from "./card-lookup-budget.js";
-import { matchImportedCardName, normalizeImportedCardName, straightenCardQuotes } from "./card-name-match.js";
+import { createImportedCardNameMatcher, normalizeImportedCardName, straightenCardQuotes } from "./card-name-match.js";
 
 type CardSet = {
   set_name: string;
@@ -615,8 +615,11 @@ export function createCardCatalogService(
           remember(probes.get(word)!);
         }
       }
-      const candidates = [...cached.values(), ...fetched.values()];
-      const matches = names.map((name) => matchImportedCardName(candidates, name));
+      // Reuse the normalized keys already prepared above; preserve cached artwork precedence.
+      const candidates = new Map(cached);
+      for (const [key, card] of fetched) if (!candidates.has(key)) candidates.set(key, card);
+      const matchName = createImportedCardNameMatcher(candidates);
+      const matches = names.map(matchName);
       // Finish all requests before warming the catalog. Use the normal artwork-aware cache writer.
       const selected = new Set(matches.map((card) => card && normalizeImportedCardName(card.name)));
       upsertCards([...fetched].filter(([key]) => selected.has(key)).map(([, card]) => card));

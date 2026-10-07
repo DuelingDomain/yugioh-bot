@@ -21,19 +21,42 @@ function closeName(a: string, b: string): boolean {
   return previous[b.length] <= limit;
 }
 
-/** Artwork duplicates share a printed name. A second plausible printed name makes correction unsafe. */
+/** Prepare normalized, distinct names once; only nearby lengths can pass the three-edit bound. */
+export function createImportedCardNameMatcher<T>(distinct: ReadonlyMap<string, T>): (name: string) => T | undefined {
+  const byLength = new Map<number, Array<[string, T]>>();
+  for (const entry of distinct) {
+    const length = entry[0].length;
+    const group = byLength.get(length) ?? [];
+    group.push(entry);
+    byLength.set(length, group);
+  }
+  return (name) => {
+    const query = normalizeImportedCardName(name);
+    if (!query) return;
+    const exact = distinct.get(query);
+    if (exact) return exact;
+    if (query.length < 8) return;
+    let match: T | undefined;
+    for (let length = query.length - 3; length <= query.length + 3; length++) {
+      for (const [folded, card] of byLength.get(length) ?? []) {
+        if (!closeName(query, folded)) continue;
+        // A second plausible printed name makes correction unsafe.
+        if (match !== undefined) return;
+        match = card;
+      }
+    }
+    return match;
+  };
+}
+
+/** Artwork duplicates share a printed name. Convenience wrapper for one-off matching. */
 export function matchImportedCardName<T extends { name: string }>(cards: readonly T[], name: string): T | undefined {
-  const query = normalizeImportedCardName(name);
-  if (!query) return;
   const distinct = new Map<string, T>();
   for (const card of cards) {
     const folded = normalizeImportedCardName(card.name);
     if (!distinct.has(folded)) distinct.set(folded, card);
   }
-  const exact = distinct.get(query);
-  if (exact) return exact;
-  const close = [...distinct].filter(([folded]) => closeName(query, folded));
-  return close.length === 1 ? close[0][1] : undefined;
+  return createImportedCardNameMatcher(distinct)(name);
 }
 
 /** Edits between two words (a swap of two neighbours counts as one), or `limit + 1` when more than `limit`. */
