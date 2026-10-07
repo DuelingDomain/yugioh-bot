@@ -3,14 +3,14 @@ import { releasedDatabaseFiles } from "../src/released-database-files.js";
 
 const tree = (paths: string[]) => ({ truncated: false, tree: paths.map(path => ({ path, type: "blob" })) });
 
-it("selects only root released database blobs in EDOPro order", () => {
+it("selects root base, prerelease and release database blobs in EDOPro order", () => {
   const input = tree([
-    "release-z.cdb", "release-a.cdb", "cards.cdb", "prerelease-test.cdb", "cards-rush.cdb",
+    "release-z.cdb", "release-a.cdb", "cards.cdb", "prerelease-test.cdb", "cards-rush.cdb", "prerelease-cards-rush.cdb", "prerelease-rush-en.cdb",
     "nested/release-x.cdb", "release-nested/x.cdb", "release-nested\\x.cdb", "Cards.cdb",
     "Release-x.cdb", "release-x.CDB",
   ]);
   input.tree.push({ path: "release-folder.cdb", type: "tree" }, { path: "release-submodule.cdb", type: "commit" });
-  expect(releasedDatabaseFiles(input)).toEqual(["cards.cdb", "release-a.cdb", "release-z.cdb"]);
+  expect(releasedDatabaseFiles(input)).toEqual(["cards.cdb", "prerelease-test.cdb", "release-a.cdb", "release-z.cdb"]);
 });
 
 it("sorts filenames case-insensitively with a case-sensitive tie breaker", () => {

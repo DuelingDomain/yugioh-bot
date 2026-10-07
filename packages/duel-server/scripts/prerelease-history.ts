@@ -1,0 +1,49 @@
+import { execFileSync } from "node:child_process";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import Database from "better-sqlite3";
+import { isPrereleaseDatabaseFile } from "../src/released-database-files.js";
+
+export interface CardIdentity { code: number; name: string; type: number }
+
+export function cardIdentities(path: string): CardIdentity[] {
+  const db = new Database(path, { readonly: true, fileMustExist: true });
+  try {
+    return db.prepare("SELECT d.id AS code, t.name, d.type FROM datas d JOIN texts t USING(id) WHERE (d.ot & 1536)=0 ORDER BY d.id").all() as CardIdentity[];
+  } finally { db.close(); }
+}
+
+/** All prerelease identities since support began, including files later deleted.
+ * A fresh CI/deploy preparation must yield the same remaps as an incremental one.
+ * Read distinct pinned Git blobs, never HEAD's databases. Fail closed on incomplete history.
+ */
+export async function prereleaseHistory(start: string, commit: string, directory: string): Promise<CardIdentity[]> {
+  if (!/^[a-f0-9]{12,40}$/.test(start) || !/^[a-f0-9]{40}$/.test(commit)) throw new Error("Invalid prerelease history pin");
+  const repo = join(directory, "prerelease-history");
+  execFileSync("git", ["clone", "--filter=blob:none", "--no-checkout", "--single-branch", "https://github.com/ProjectIgnis/BabelCDB.git", repo], { timeout: 120_000, stdio: "pipe" });
+  return readPrereleaseHistory(repo, start, commit, join(directory, "historical-cdbs"));
+}
+
+/** Separate local reader also allows tests to use a real, isolated upstream history. */
+export async function readPrereleaseHistory(repo: string, start: string, commit: string, directory: string): Promise<CardIdentity[]> {
+  const git = (args: string[]) => execFileSync("git", ["-C", repo, ...args], { timeout: 120_000, maxBuffer: 32 * 1024 * 1024 });
+  try { git(["cat-file", "-e", `${commit}^{commit}`]); }
+  catch { git(["fetch", "origin", commit]); }
+  git(["merge-base", "--is-ancestor", start, commit]);
+  const commits = [start, ...git(["rev-list", "--reverse", `${start}..${commit}`, "--", "prerelease-*.cdb"]).toString("utf8").trim().split("\n").filter(Boolean)];
+  const blobs = new Set<string>();
+  for (const pin of commits) {
+    for (const line of git(["ls-tree", pin]).toString("utf8").split("\n")) {
+      const match = /^\d+ blob ([a-f0-9]+)\t(.+)$/.exec(line);
+      if (match && isPrereleaseDatabaseFile(match[2]!)) blobs.add(match[1]!);
+    }
+  }
+  await mkdir(directory, { recursive: true });
+  const identities = new Map<string, CardIdentity>();
+  for (const blob of [...blobs].sort()) {
+    const path = join(directory, `${blob}.cdb`);
+    await writeFile(path, git(["cat-file", "blob", blob]));
+    for (const row of cardIdentities(path)) identities.set(JSON.stringify(row), row);
+  }
+  return [...identities.values()].sort((a, b) => a.code - b.code || a.name.localeCompare(b.name) || a.type - b.type);
+}

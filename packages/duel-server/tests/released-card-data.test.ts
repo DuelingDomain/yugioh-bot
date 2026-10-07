@@ -45,7 +45,7 @@ function fixture() {
   const archive = execFileSync("tar", ["-czf", "-", "-C", dir, "stock"]);
   const request = vi.fn(async (input: string | URL | Request) => {
     const url = String(input);
-    if (url.includes("/git/trees/")) return Response.json(tree(["release-z.cdb", "prerelease-hidden.cdb", "cards-rush.cdb", "release-a.cdb", "cards.cdb", "cards-skills.cdb", "cards-unofficial.cdb", "goat-entries.cdb"]));
+    if (url.includes("/git/trees/")) return Response.json(tree(["release-z.cdb", "cards-rush.cdb", "release-a.cdb", "cards.cdb", "cards-skills.cdb", "cards-unofficial.cdb", "goat-entries.cdb"]));
     if (url.endsWith("strings.conf")) return new Response("!system 1 Test\n");
     if (url.includes("codeload.github.com")) return new Response(new Uint8Array(archive));
     const bytes = databases.get(url.split("/").pop()!);
@@ -136,7 +136,7 @@ it("drops obsolete release files and rebuilds from the base after Ignis merges a
   await downloadReleasedCardData(sources.database, directory, request);
   const base = cdb(root(), "upstream.cdb", [[1, 0, "Base"], [17242022, 0, "Merged upstream"]]);
   const nextRequest = vi.fn(async (input: string | URL | Request) => {
-    if (String(input).includes("/git/trees/")) return Response.json(tree(["cards.cdb", "prerelease-next.cdb"]));
+    if (String(input).includes("/git/trees/")) return Response.json(tree(["cards.cdb", "cards-rush.cdb"]));
     if (String(input).endsWith("/cards.cdb")) return new Response(new Uint8Array(base));
     throw new Error(`Obsolete release download: ${input}`);
   });
@@ -270,4 +270,82 @@ it("rebuilds merged-byte manifests and corrupt output, but changes version only 
   databases.set("release-z.cdb", cdb(root(), "changed.cdb", [[2, 1, "Changed upstream"]]));
   rmSync(join(directory, "manifest.json"));
   expect((await prepareData(directory, request)).bundleVersion).not.toBe(first.bundleVersion);
+});
+
+
+it("deduplicates prereleases by name/type, gives released rows precedence, and excludes Rush/Legend rows", async () => {
+  const dir = root();
+  const databases = new Map([
+    ["cards.cdb", cdb(dir, "base.cdb", [[12,0,"Graduated"], [13,0,"Same name"]])],
+    ["prerelease-a.cdb", cdb(dir, "a.cdb", [[100000001,0,"Graduated"], [100000002,0,"Preview"], [100000003,0,"Same name"], [100000004,0,"Rush"], [100000005,0,"Legend"]])],
+    ["prerelease-a-en.cdb", cdb(dir, "en.cdb", [[22,0,"Preview"]])],
+    ["release-z.cdb", cdb(dir, "release.cdb", [[13,0,"Latest released text"]])],
+  ]);
+  const a = new Database(join(dir,"a.cdb"));
+  a.exec("UPDATE datas SET ot=513 WHERE id=100000004; UPDATE datas SET ot=1025 WHERE id=100000005; UPDATE datas SET type=2 WHERE id=100000003");
+  a.close(); databases.set("prerelease-a.cdb",readFileSync(join(dir,"a.cdb")));
+  const request = async (url: string) => url.includes("/git/trees/") ? Response.json(tree([...databases.keys(),"prerelease-cards-rush.cdb"])) : new Response(new Uint8Array(databases.get(url.split("/").pop()!)!));
+  const result = await downloadReleasedCardData(sources.database, join(dir,"bundle"), request);
+  const db = new Database(result.path);
+  try {
+    expect(db.prepare("SELECT id FROM datas ORDER BY id").all()).toEqual([{id:12},{id:13},{id:22},{id:100000003}]);
+    expect(db.prepare("SELECT name FROM texts WHERE id=13").get()).toEqual({name:"Latest released text"});
+    expect(db.prepare("SELECT ot FROM datas WHERE id=22").get()).toEqual({ot:259});
+    expect(db.prepare("SELECT setcode FROM datas WHERE id=22").safeIntegers().get()).toEqual({setcode:9223372036854775807n});
+  } finally {db.close();}
+  expect(result.remaps).toEqual({100000001:12,100000002:22});
+  expect(result.drops).toEqual(expect.arrayContaining([
+    expect.objectContaining({code:100000001,keptCode:12,reason:"released"}),
+    expect.objectContaining({code:100000002,keptCode:22,reason:"duplicate"}),
+    expect.objectContaining({code:100000004,reason:"rush"}),
+    expect.objectContaining({code:100000005,reason:"rush"}),
+  ]));
+  expect([...result.prereleaseCodes]).toEqual([22,100000003]);
+});
+
+it("records graduated historical identities even when Ignis deleted their prerelease file", async () => {
+  const {request,directory} = fixture();
+  const result = await downloadReleasedCardData(sources.database,directory,request,{historicalCards:[
+    {code:100001234,name:"Red-Eyes Black Dragon Exceed",type:33},
+    {code:100001235,name:"Withdrawn preview",type:33},
+    {code:100001236,name:"Red-Eyes Black Dragon Exceed",type:2},
+  ]});
+  expect(result.remaps).toEqual({100001234:17242022});
+  expect(JSON.parse(readFileSync(join(directory,"card-remaps.json"),"utf8")).remaps).toEqual(result.remaps);
+});
+
+it("includes the remap artifact in bundle identity and repairs a corrupt cached artifact", async () => {
+  const {request,directory} = fixture();
+  const first=await prepareData(directory,request);
+  expect(first.sources.databaseFormat).toBe("official-releases-prerelease-v1");
+  expect(first.integrity.cardRemaps).toBe(hash(readFileSync(join(directory,"card-remaps.json"))));
+  writeFileSync(join(directory,"card-remaps.json"),"corrupt");
+  request.mockClear();
+  const next=await prepareData(directory,request);
+  expect(next.skipped).toBe(false);
+  expect(next.bundleVersion).toBe(first.bundleVersion);
+  expect(request).toHaveBeenCalled();
+});
+
+it.each([true,false])("refuses contradictory passcode identities instead of corrupting a saved remap (retained=%s)",async retained=>{
+ const dir=root();
+ const databases=new Map([
+  ["cards.cdb",cdb(dir,"base.cdb",[[12,0,"A"],[13,0,"B"]])],
+  ["prerelease-a.cdb",cdb(dir,"a.cdb",[[100000001,0,"A"]])],
+  ["prerelease-b.cdb",cdb(dir,"b.cdb",[[100000001,0,retained?"Preview B":"B"]])],
+ ]);
+ const request=async(url:string)=>url.includes("/git/trees/")?Response.json(tree([...databases.keys()])):new Response(new Uint8Array(databases.get(url.split("/").pop()!)!));
+ await expect(downloadReleasedCardData(sources.database,join(dir,"bundle"),request)).rejects.toThrow(/Ambiguous.*passcode/);
+});
+
+it("refuses historical graduation when a different current preview reuses the old passcode",async()=>{
+ const dir=root();
+ const databases=new Map([
+  ["cards.cdb",cdb(dir,"base.cdb",[[12,0,"Graduated A"]])],
+  ["prerelease-b.cdb",cdb(dir,"b.cdb",[[100000001,0,"New preview B"]])],
+ ]);
+ const request=async(url:string)=>url.includes("/git/trees/")?Response.json(tree([...databases.keys()])):new Response(new Uint8Array(databases.get(url.split("/").pop()!)!));
+ await expect(downloadReleasedCardData(sources.database,join(dir,"bundle"),request,{historicalCards:[
+  {code:100000001,name:"Graduated A",type:33},
+ ]})).rejects.toThrow(/Ambiguous.*passcode/);
 });

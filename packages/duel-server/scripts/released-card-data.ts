@@ -3,7 +3,8 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync, unlinkSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { releasedDatabaseFiles, type ReleasedDatabaseTree } from "../src/released-database-files.js";
+import { isPrereleaseDatabaseFile, releasedDatabaseFiles, type ReleasedDatabaseTree } from "../src/released-database-files.js";
+import { prereleaseHistory, type CardIdentity } from "./prerelease-history.js";
 export { releasedDatabaseFiles } from "../src/released-database-files.js";
 
 type Download = (url: string, init?: RequestInit) => Promise<Response>;
@@ -34,58 +35,142 @@ export async function discoverReleasedDatabases(commit: string, request: Downloa
   return releasedDatabaseFiles(await response.json() as ReleasedDatabaseTree);
 }
 
-/** Copy the pinned base byte-for-byte, then merge complete data/text pairs in sorted order.
- * INSERT ... SELECT keeps SQLite's signed 64-bit fields out of JavaScript numbers.
- * Ordered input hashes identify the data independently of SQLite's output/version header.
+export interface PrereleaseDrop extends CardIdentity {
+  file: string;
+  reason: "released" | "duplicate" | "rush";
+  keptCode?: number;
+}
+interface Row extends CardIdentity { ot: number; alias: number; file: string }
+const identity = (card: CardIdentity) => `${card.name.trim().toLowerCase()}\0${card.type}`;
+const preferred = (a: Row, b: Row) =>
+  Number(a.code >= 100_000_000) - Number(b.code >= 100_000_000) ||
+  Number(!/-en\.cdb$/i.test(a.file)) - Number(!/-en\.cdb$/i.test(b.file)) ||
+  Number(a.alias !== 0) - Number(b.alias !== 0) || a.code - b.code;
+
+/** Rebuild from pinned inputs. Identity decisions use only small integer fields;
+ * INSERT ... SELECT preserves SQLite's 64-bit setcodes/races without JS rounding.
  */
-export async function downloadReleasedCardData(commit: string, directory: string, request: Download = fetch) {
+export async function downloadReleasedCardData(commit: string, directory: string, request: Download = fetch,
+  options: { historyStart?: string; historicalCards?: CardIdentity[] } = {}) {
   const files = await discoverReleasedDatabases(commit, request);
   await mkdir(directory, { recursive: true });
+  const inputs = join(directory, "cdb-inputs");
+  await mkdir(inputs, { recursive: true });
+  const inputHashes: string[] = [];
+  const rows: Row[] = [];
+  for (const file of files) {
+    const response = await download(`https://raw.githubusercontent.com/ProjectIgnis/BabelCDB/${commit}/${encodeURIComponent(file)}`, request);
+    const bytes = Buffer.from(await response.arrayBuffer());
+    inputHashes.push(`${file}:${createHash("sha256").update(bytes).digest("hex")}`);
+    const path = join(inputs, file);
+    await writeFile(path, bytes);
+    const db = new Database(path, { readonly: true });
+    try {
+      rows.push(...(db.prepare("SELECT d.id AS code, d.ot, d.alias, d.type, t.name FROM datas d JOIN texts t USING(id) ORDER BY d.id").all() as Omit<Row, "file">[]).map(row => ({ ...row, file })));
+    } finally { db.close(); }
+  }
+  const released = new Map<number, Row>();
+  for (const row of rows) if (!isPrereleaseDatabaseFile(row.file) && (row.ot & 0x600) === 0) released.set(row.code, row);
+  const releasedNames = new Map<string, Row[]>();
+  for (const row of released.values()) {
+    if (!row.name.trim()) continue;
+    const group = releasedNames.get(identity(row)) ?? [];
+    group.push(row); releasedNames.set(identity(row), group);
+  }
+  for (const group of releasedNames.values()) group.sort(preferred);
+  const previews = rows.filter(row => isPrereleaseDatabaseFile(row.file));
+  const kept = new Map<string, Row>();
+  const keptIds = new Map<number, Row>();
+  const drops: PrereleaseDrop[] = [];
+  const remaps: Record<string, number> = {};
+  const addRemap = (old: number, target: number) => {
+    if (old === target) return;
+    if (remaps[old] !== undefined && remaps[old] !== target) throw new Error(`Ambiguous prerelease passcode ${old}`);
+    remaps[old] = target;
+  };
+  for (const row of [...previews].sort(preferred)) {
+    const drop = (reason: PrereleaseDrop["reason"], winner?: Row) => {
+      drops.push({ code: row.code, name: row.name, type: row.type, file: row.file, reason, ...(winner ? { keptCode: winner.code } : {}) });
+      if (winner && row.code !== winner.code && !released.has(row.code)) addRemap(row.code, winner.code);
+    };
+    if (row.ot & 0x600) { drop("rush"); continue; }
+    const official = released.get(row.code) ?? releasedNames.get(identity(row))?.[0];
+    if (official) { drop("released", official); continue; }
+    const winner = keptIds.get(row.code) ?? kept.get(identity(row));
+    if (winner) { drop("duplicate", winner); continue; }
+    kept.set(identity(row), row);
+    keptIds.set(row.code, row);
+  }
   const path = join(directory, "cards.cdb");
-  const base = await download(`https://raw.githubusercontent.com/ProjectIgnis/BabelCDB/${commit}/cards.cdb`, request);
-  const baseBytes = Buffer.from(await base.arrayBuffer());
-  const inputRecord = (file: string, bytes: Uint8Array) => `${file}:${createHash("sha256").update(bytes).digest("hex")}`;
-  const inputHashes = [inputRecord("cards.cdb", baseBytes)];
-  await writeFile(path, baseBytes);
-  const releaseCodes = new Set<number>();
+  await writeFile(path, await readFile(join(inputs, "cards.cdb")));
   const db = new Database(path);
+  const releaseCodes = new Set<number>(), prereleaseCodes = new Set<number>();
+  const scriptCodes = new Set<number>();
   try {
     const columns = (table: string) => (db.prepare(`PRAGMA main.table_info(${table})`).all() as Array<{ name: string }>)
       .map(column => `"${column.name.replaceAll('"', '""')}"`).join(", ");
     const dataColumns = columns("datas"), textColumns = columns("texts");
+    db.exec("CREATE TEMP TABLE accepted (id INTEGER PRIMARY KEY)");
     for (const file of files.slice(1)) {
-      const response = await download(`https://raw.githubusercontent.com/ProjectIgnis/BabelCDB/${commit}/${encodeURIComponent(file)}`, request);
-      const releasePath = join(directory, file);
-      const bytes = Buffer.from(await response.arrayBuffer());
-      inputHashes.push(inputRecord(file, bytes));
-      await writeFile(releasePath, bytes);
-      db.prepare("ATTACH DATABASE ? AS released").run(releasePath);
+      const preview = isPrereleaseDatabaseFile(file);
+      const accepted = preview ? [...kept.values()].filter(row => row.file === file) : rows.filter(row => row.file === file && (row.ot & 0x600) === 0);
+      const insert = db.prepare("INSERT INTO accepted VALUES (?)");
+      db.exec("DELETE FROM accepted");
+      for (const row of accepted) insert.run(row.code);
+      db.prepare("ATTACH DATABASE ? AS incoming").run(join(inputs, file));
       try {
         db.transaction(() => {
           db.exec(`INSERT OR REPLACE INTO main.datas (${dataColumns}) SELECT ${dataColumns.split(", ").map(column => `d.${column}`).join(", ")}
-            FROM released.datas d JOIN released.texts t USING (id) ORDER BY d.id;
+            FROM incoming.datas d JOIN accepted a ON a.id=d.id ORDER BY d.id;
             INSERT OR REPLACE INTO main.texts (${textColumns}) SELECT ${textColumns.split(", ").map(column => `t.${column}`).join(", ")}
-            FROM released.texts t JOIN released.datas d USING (id) ORDER BY t.id;`);
+            FROM incoming.texts t JOIN accepted a ON a.id=t.id ORDER BY t.id;`);
+          if (preview) db.exec("UPDATE main.datas SET ot=ot|256 WHERE id IN (SELECT id FROM accepted)");
         })();
-        for (const row of db.prepare("SELECT id FROM released.datas JOIN released.texts USING (id) ORDER BY id").all() as Array<{ id: number }>) releaseCodes.add(row.id);
-      } finally {
-        db.exec("DETACH DATABASE released");
-        await rm(releasePath);
-      }
+        for (const row of accepted) (preview ? prereleaseCodes : releaseCodes).add(row.code);
+      } finally { db.exec("DETACH DATABASE incoming"); }
     }
+    db.exec("DELETE FROM texts WHERE id IN (SELECT id FROM datas WHERE (ot & 1536)!=0); DELETE FROM datas WHERE (ot & 1536)!=0");
+    for (const row of db.prepare("SELECT id FROM datas ORDER BY id").all() as { id: number }[]) scriptCodes.add(row.id);
+    // A source still present under another identity must never redirect a saved card.
+    for (const old of Object.keys(remaps)) if (scriptCodes.has(Number(old))) throw new Error(`Ambiguous retained prerelease passcode ${old}`);
+    // Resolve references to artwork variants removed by identity deduplication.
+    for (const [old, code] of Object.entries(remaps)) db.prepare("UPDATE datas SET alias=? WHERE alias=?").run(code, Number(old));
   } finally { db.close(); }
-  return { path, files, inputHashes, releaseCodes, bytes: await readFile(path) };
+  const historical = options.historicalCards ?? (options.historyStart && !commit.startsWith(options.historyStart)
+    ? await prereleaseHistory(options.historyStart, commit, directory) : []);
+  for (const row of historical) {
+    const winner = releasedNames.get(identity(row))?.[0] ?? kept.get(identity(row));
+    if (scriptCodes.has(row.code)) {
+      const current = released.get(row.code) ?? keptIds.get(row.code);
+      if (winner && winner.code !== row.code && current && identity(current) !== identity(row)) {
+        throw new Error(`Ambiguous retained historical prerelease passcode ${row.code}`);
+      }
+      continue;
+    }
+    if (winner) {
+      const existing = remaps[row.code];
+      if (existing !== undefined && existing !== winner.code) throw new Error(`Ambiguous historical prerelease passcode ${row.code}`);
+      addRemap(row.code, winner.code);
+    }
+  }
+  const prerelease = [...kept.values()].sort((a,b) => a.code-b.code).map(({code,name,type,file}) => ({code,name,type,file}));
+  drops.sort((a,b) => a.file.localeCompare(b.file) || a.code-b.code);
+  const remapBytes = JSON.stringify({ version: 1, remaps, prerelease, drops }, null, 2) + "\n";
+  await writeFile(join(directory, "card-remaps.json"), remapBytes);
+  await rm(inputs, { recursive: true });
+  return { path, files, inputHashes, releaseCodes, prereleaseCodes: new Set([...prereleaseCodes].sort((a,b)=>a-b)), scriptCodes,
+    remaps, remapBytes, prerelease, released: [...released.values()], drops, bytes: await readFile(path) };
 }
 
-/** A released expansion can still have scripts in pre-release/. Keep just its codes;
+/** Both released and preview cards can have scripts in pre-release/. Keep loaded codes;
  * an official copy takes precedence. Root/shared Lua helpers remain available.
  */
-export function restrictPrereleaseScripts(scriptRoot: string, releaseCodes: ReadonlySet<number>): void {
+export function restrictPrereleaseScripts(scriptRoot: string, loadedCodes: ReadonlySet<number>): void {
   const directory = join(scriptRoot, "pre-release");
   if (!existsSync(directory)) return;
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     const match = /^c(\d+)\.lua$/.exec(entry.name);
-    if (entry.isFile() && match && (!releaseCodes.has(Number(match[1])) || existsSync(join(scriptRoot, "official", entry.name)))) {
+    if (entry.isFile() && match && (!loadedCodes.has(Number(match[1])) || existsSync(join(scriptRoot, "official", entry.name)))) {
       unlinkSync(join(directory, entry.name));
     }
   }
