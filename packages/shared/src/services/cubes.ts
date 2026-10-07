@@ -503,10 +503,15 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
       const flat = pools.main.filter((card) => !listed.has(card.catalogCardId))
         .flatMap((card) => Array<number>(card.maxCopies).fill(card.catalogCardId));
       const customCardIds = [...listedIds, ...flat];
+      const listedExtraIds = [...(base.customExtraCardIds ?? []), ...(cube.config.customExtraCardIds ?? [])];
+      const listedExtra = new Set(listedExtraIds);
+      const customExtraCardIds = [...listedExtraIds, ...pools.extra.filter((card) => !listedExtra.has(card.catalogCardId))
+        .flatMap((card) => Array<number>(card.maxCopies).fill(card.catalogCardId))];
       return {
         ...base,
         ...cube.config,
         customCardIds,
+        customExtraCardIds,
         preservePoolCopies: true,
         setNames: cube.config.setNames ?? base.setNames,
       };

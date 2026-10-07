@@ -187,6 +187,9 @@ describe("shared draft service", () => {
       status: "pending",
       createdByUserId: "user-1",
       config: {
+        extraDeckEnabled: false,
+        extraDeckSize: 15,
+        picksPerStep: 1,
         setNames: ["Battle Pack 3"],
         includeNames: ["Dark Magician"],
         excludeNames: ["Pot of Greed"],
