@@ -3,10 +3,13 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2 } from "lucide-react";
+import { FileText, Plus, Trash2 } from "lucide-react";
 import { FloorList, FloorRow, Segmented, StatusLine, SvButton, Zone } from "@/components/sheet";
 import { CUBE_DRAFT_TYPES, CUBE_TYPE_HINTS, CUBE_TYPE_LABELS, type CubeDraftType } from "@/lib/cube-type";
 import { PageFrame } from "@/components/decks/page-frame";
+import { ListImportReport } from "@/components/card-list-import/list-import-report";
+import { listAddedLine } from "@/lib/card-list-import";
+import { CubeListImportPanel, type ImportedCube } from "./cube-list-import-panel";
 import { isDraftTemplate, nextCubeName, type AddTab, type CubeSummary } from "./library-model";
 import styles from "./cubes.module.css";
 
@@ -129,6 +132,9 @@ export function CubesLibraryList() {
   // The "what is this cube for" step that comes before a cube is made.
   const [chooser, setChooser] = React.useState<{ tab?: AddTab } | null>(null);
   const [newType, setNewType] = React.useState<CubeDraftType>("any");
+  // "Import a list": the form, then what the import did (the cube stays here so its diagnostics can be read).
+  const [importing, setImporting] = React.useState(false);
+  const [imported, setImported] = React.useState<ImportedCube | null>(null);
 
   const load = React.useCallback(() => {
     setLoading(true);
@@ -186,7 +192,20 @@ export function CubesLibraryList() {
 
   // New cube: ask what it is for first, then create a blank, auto-named one (no name
   // collisions) and jump into its editor, where the user names it and builds the pool.
-  const askType = (tab?: AddTab) => setChooser({ tab });
+  const askType = (tab?: AddTab) => {
+    setImporting(false);
+    setChooser({ tab });
+  };
+  const askImport = () => {
+    setChooser(null);
+    setImported(null);
+    setImporting(true);
+  };
+  const importDone = async (result: ImportedCube) => {
+    setImporting(false);
+    setImported(result);
+    load();
+  };
   const createChosen = () => {
     const tab = chooser?.tab;
     void create({ kind: "blank", name: nextCubeName(cubes.map((c) => c.name)), draftType: newType }, tab);
@@ -197,10 +216,16 @@ export function CubesLibraryList() {
       title="Cubes"
       sub={!loading && !loadFailed && cubes.length > 0 ? `${cubes.length} ${cubes.length === 1 ? "cube" : "cubes"}` : undefined}
       actions={
-        <SvButton variant="primary" disabled={busy || loading} onClick={() => askType()}>
-          <Plus size={16} aria-hidden="true" />
-          New cube
-        </SvButton>
+        <>
+          <SvButton variant="ghost" disabled={busy || loading} onClick={askImport}>
+            <FileText size={16} aria-hidden="true" />
+            Import a list
+          </SvButton>
+          <SvButton variant="primary" disabled={busy || loading} onClick={() => askType()}>
+            <Plus size={16} aria-hidden="true" />
+            New cube
+          </SvButton>
+        </>
       }
     >
       <p className={styles.lede}>
@@ -224,6 +249,31 @@ export function CubesLibraryList() {
             </SvButton>
             <SvButton variant="quiet" disabled={busy} onClick={() => setChooser(null)}>
               Cancel
+            </SvButton>
+          </div>
+        </section>
+      )}
+
+      {importing && (
+        <CubeListImportPanel
+          defaultName={nextCubeName(cubes.map((c) => c.name))}
+          onCreated={importDone}
+          onCancel={() => setImporting(false)}
+        />
+      )}
+
+      {imported && (
+        <section className={styles.importResult} aria-label="Imported cube" role="status">
+          <p>
+            Created <b>{imported.cube.name}</b>. {listAddedLine(imported.added, imported.copies)}
+          </p>
+          <ListImportReport unknown={imported.unknown} corrected={imported.corrected} />
+          <div className={styles.newActs}>
+            <SvButton as="a" variant="primary" href={`/cubes/${imported.cube.id}`}>
+              Open cube
+            </SvButton>
+            <SvButton variant="quiet" onClick={() => setImported(null)}>
+              Dismiss
             </SvButton>
           </div>
         </section>
@@ -263,15 +313,15 @@ export function CubesLibraryList() {
           <div>
             <h2>No cubes yet</h2>
             <p>
-              A cube is a pool you draft from. Start from an archetype, paste a list of passcodes, or pick cards one at a
-              time.
+              A cube is a pool you draft from. Start from an archetype, import a list of card names or passcodes, or pick cards
+              one at a time.
             </p>
             <div className={styles.emptyActs}>
               <SvButton variant="ghost" disabled={busy} onClick={() => askType("archetype")}>
                 From an archetype
               </SvButton>
-              <SvButton variant="ghost" disabled={busy} onClick={() => askType("passcodes")}>
-                From passcodes
+              <SvButton variant="ghost" disabled={busy} onClick={askImport}>
+                From a card list
               </SvButton>
               <SvButton variant="quiet" disabled={busy} onClick={() => askType()}>
                 Blank cube
