@@ -3,11 +3,12 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
-import { createCardCatalogService, createCubeService } from "@yugidraft/shared/services";
+import { boosterDraftConfigError, createCardLookupBudget, createCardCatalogService, createCubeService, CubeNameTakenError } from "@yugidraft/shared/services";
 import type { DraftConfig } from "@yugidraft/shared/types";
 import { cubeDraftTypeOf, parseCubeDraftType, setCubeDraftType } from "@/lib/cube-type";
 import { checkDiscordWebAccess } from "@/lib/discord-web-access";
 import { ensureCatalogCards, parsePoolEntries } from "@/lib/cube-pool";
+import { prepareCubeListImport } from "@/lib/cube-list-import";
 
 export const runtime = "nodejs";
 
@@ -114,8 +115,10 @@ export async function POST(request: Request) {
   }
 
   const body = (await request.json().catch(() => ({}))) as {
-    kind?: "blank" | "archetype" | "pool";
+    kind?: "blank" | "archetype" | "pool" | "list";
+    importText?: unknown;
     cards?: unknown;
+    extraCards?: unknown;
     copyExtraFromCubeId?: unknown;
     name?: string;
     archetype?: string;
@@ -132,8 +135,32 @@ export async function POST(request: Request) {
   const catalog = createCardCatalogService(db);
   const cubes = createCubeService(db, catalog);
   const guildId = env.discordGuildId;
+  const isListImport = body.importText !== undefined || body.kind === "list";
 
   try {
+    if (isListImport) {
+      if ((body.kind !== undefined && body.kind !== "list" && body.kind !== "blank")
+        || body.config !== undefined || body.cards !== undefined || body.extraCards !== undefined || body.copyExtraFromCubeId !== undefined
+        || body.archetype !== undefined || body.banlist !== undefined) {
+        return NextResponse.json({ error: "importText cannot be combined with another cube source." }, { status: 400 });
+      }
+      const name = typeof body.name === "string" ? body.name.trim() : "";
+      if (!name) return NextResponse.json({ error: "name is required" }, { status: 400 });
+      if (db.prepare("select 1 from cubes where guild_id = ? and lower(name) = lower(?)").get(guildId, name)) {
+        throw new CubeNameTakenError(name);
+      }
+      const { entries, unknown, corrected, lookupLimited } = await prepareCubeListImport(catalog, body.importText);
+      if (entries.length === 0) {
+        return NextResponse.json({ error: "No cards found in that list.", added: 0, copies: 0, unknown, corrected, ...(lookupLimited ? { lookupLimited } : {}) }, { status: 400 });
+      }
+      const result = db.transaction(() => {
+        const created = cubes.createWithCards(guildId, name, session.user!.id!, []);
+        const result = cubes.importResolvedCards(created.id, entries);
+        if (draftType) setCubeDraftType(db, created.id, draftType);
+        return { cube: withDraftType(db, created.id, cubes.findCube(created.id)), ...result };
+      })();
+      return NextResponse.json({ ...result, unknown, corrected, ...(lookupLimited ? { lookupLimited } : {}) }, { status: 201 });
+    }
     if (body.kind === "archetype") {
       const archetype = body.archetype?.trim();
       if (!archetype) {
@@ -155,27 +182,31 @@ export async function POST(request: Request) {
     if (body.kind === "pool") {
       const parsed = parsePoolEntries(body.cards);
       if ("error" in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 });
+      const extra = body.extraCards === undefined ? undefined : parsePoolEntries(body.extraCards);
+      if (extra && "error" in extra) return NextResponse.json({ error: extra.error }, { status: 400 });
+      const entries = [...parsed.entries, ...(extra?.entries ?? []).map((e) => ({ ...e, pool: "extra" as const }))];
       const taken = db
         .prepare("select id from cubes where guild_id = ? and lower(name) = lower(?)")
         .get(guildId, name);
       if (taken) {
         return NextResponse.json({ error: `A cube named "${name}" already exists` }, { status: 409 });
       }
-      const unknownIds = await ensureCatalogCards(catalog, parsed.entries.map((e) => e.id));
+      const lookupBudget = createCardLookupBudget();
+      const unknownIds = await ensureCatalogCards(catalog, entries.map((e) => e.id), lookupBudget);
       const unknown = new Set(unknownIds);
       const copyFrom =
-        typeof body.copyExtraFromCubeId === "number" && Number.isSafeInteger(body.copyExtraFromCubeId)
+        extra === undefined && typeof body.copyExtraFromCubeId === "number" && Number.isSafeInteger(body.copyExtraFromCubeId)
           ? body.copyExtraFromCubeId
           : undefined;
       const cube = cubes.createWithCards(
         guildId,
         name,
         session.user.id,
-        parsed.entries.filter((e) => !unknown.has(e.id)),
+        entries.filter((e) => !unknown.has(e.id)),
         { copyExtraFromCubeId: copyFrom },
       );
       if (draftType) setCubeDraftType(db, cube.id, draftType);
-      return NextResponse.json({ cube: withDraftType(db, cube.id, cube), unknownIds }, { status: 201 });
+      return NextResponse.json({ cube: withDraftType(db, cube.id, cube), unknownIds, ...(lookupBudget.lookupLimited ? { lookupLimited: true } : {}) }, { status: 201 });
     }
 
     // Saving a pool (setNames / customCardIds) from the cube-draft create form or
@@ -194,6 +225,27 @@ export async function POST(request: Request) {
       const customCardIds = Array.isArray(incoming.customCardIds)
         ? incoming.customCardIds.filter((n): n is number => Number.isInteger(n))
         : [];
+      if (body.config.customExtraCardIds !== undefined) {
+        const invalid = boosterDraftConfigError({ customExtraCardIds: body.config.customExtraCardIds });
+        if (invalid) return NextResponse.json({ error: invalid }, { status: 400 });
+        const counts = new Map<number, number>();
+        for (const id of body.config.customExtraCardIds) counts.set(id, (counts.get(id) ?? 0) + 1);
+        const parsed = parsePoolEntries([...counts].map(([id, copies]) => ({ id, copies })));
+        if ("error" in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 });
+        const lookupBudget = createCardLookupBudget();
+        const unknownIds = await ensureCatalogCards(catalog, parsed.entries.map((e) => e.id), lookupBudget);
+        const unknown = new Set(unknownIds);
+        const createdByUserId = session.user.id;
+        const cube = db.transaction(() => {
+          const created = cubes.createWithCards(guildId, name, createdByUserId,
+            parsed.entries.filter((e) => !unknown.has(e.id)).map((e) => ({ ...e, pool: "extra" })));
+          const config = { setNames, customCardIds };
+          db.prepare("update cubes set config_json = ? where id = ?").run(JSON.stringify(config), created.id);
+          if (draftType) setCubeDraftType(db, created.id, draftType);
+          return { ...created, config };
+        })();
+        return NextResponse.json({ cube: withDraftType(db, cube.id, cube), unknownIds, ...(lookupBudget.lookupLimited ? { lookupLimited: true } : {}) }, { status: 201 });
+      }
       const cube = cubes.save(guildId, name, { setNames, customCardIds }, session.user.id);
       if (draftType) setCubeDraftType(db, cube.id, draftType);
       return NextResponse.json({ cube: withDraftType(db, cube.id, cube) }, { status: 201 });
@@ -207,6 +259,6 @@ export async function POST(request: Request) {
     if (fetchFailure) return fetchFailure;
     // CubeNameTakenError: another save took the name after the early check above.
     const message = error instanceof Error ? error.message : "Failed to create cube";
-    return NextResponse.json({ error: message }, { status: 409 });
+    return NextResponse.json({ error: message }, { status: isListImport && !(error instanceof CubeNameTakenError) ? 400 : 409 });
   }
 }

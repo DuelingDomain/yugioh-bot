@@ -8,11 +8,12 @@ import { PoolPreview } from "./create/pool-preview";
 import { secondsText } from "./create/format";
 import styles from "./create/create.module.css";
 import { PoolEditor } from "./pool/pool-editor";
-import { PoolRailValue, SeatNote } from "./pool/pool-rail";
+import { ExtraNote, PoolRailValue, SeatNote } from "./pool/pool-rail";
 import { usePoolEditor } from "./pool/use-pool-editor";
 import type { CardSummary } from "@/lib/card-types";
 import {
   CARDS_PER_PLAYER_DEFAULT,
+  EXTRA_DECK_SIZE_DEFAULT,
   PACK_SIZE_DEFAULT,
   PICK_SECONDS_DEFAULT,
   PackFields,
@@ -35,6 +36,9 @@ export function CreateDraftForm() {
     cardsPerPlayerText: String(CARDS_PER_PLAYER_DEFAULT),
     packSizeText: String(PACK_SIZE_DEFAULT),
     pickSecondsText: String(PICK_SECONDS_DEFAULT),
+    picksPerStep: 1,
+    extraDeckEnabled: false,
+    extraDeckSizeText: String(EXTRA_DECK_SIZE_DEFAULT),
   });
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -61,7 +65,7 @@ export function CreateDraftForm() {
       return;
     }
     if (pool.loading) return;
-    if (pool.pool.size === 0) {
+    if (pool.pool.size === 0 && pool.extra.size === 0) {
       setError("Add cards to the pool first");
       return;
     }
@@ -167,7 +171,7 @@ export function CreateDraftForm() {
             </div>
             <div className="fields">
               <div className="wide">
-                <PoolEditor ctl={pool} />
+                <PoolEditor ctl={pool} extraRound={config.extraDeckEnabled} />
               </div>
             </div>
           </section>
@@ -177,7 +181,11 @@ export function CreateDraftForm() {
               <h2 id="dc-k">Packs</h2>
               <p>How many cards each player ends with, and how long each pick lasts.</p>
             </div>
-            <PackFields value={fields} onChange={setFields} />
+            <PackFields value={fields} onChange={setFields}>
+              {config.extraDeckEnabled && (
+                <ExtraNote className="wide" size={config.extraDeckSize} total={pool.extraTotal} />
+              )}
+            </PackFields>
           </section>
         </div>
       </DraftMain>
@@ -198,11 +206,17 @@ export function CreateDraftForm() {
               { label: "Pool", value: <PoolRailValue ctl={pool} /> },
               { label: "Each player", value: <><Num>{config.cardsPerPlayer}</Num> cards</> },
               { label: "Packs", value: <><Num>{config.packsPerPlayer}</Num> of <Num>{config.packSize}</Num></> },
+              ...(config.picksPerStep === 2 ? [{ label: "Picks per turn", value: <><Num>2</Num> picks</> }] : []),
+              {
+                label: "Extra Deck round",
+                value: config.extraDeckEnabled && config.extraDeckSize > 0 ? <><Num>{config.extraDeckSize}</Num> cards each</> : "Off",
+              },
               { label: "Pick duration", value: secondsText(config.pickSeconds ?? 0) },
               { label: "Seats", value: "Shuffled at the start" },
             ]}
           />
           <SeatNote total={pool.total} perPlayer={config.packsPerPlayer * config.packSize} />
+          {config.extraDeckEnabled && <ExtraNote size={config.extraDeckSize} total={pool.extraTotal} />}
         </RailSection>
         <RailSection>
           <PoolPreview cards={previewCards} unknownIds={[]} loading={!pool.ready} />

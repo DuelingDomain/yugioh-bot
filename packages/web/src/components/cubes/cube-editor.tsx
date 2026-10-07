@@ -8,7 +8,12 @@ import { ConfirmPanel, Segmented, StatusLine, SvButton, svButtonClass, Zone } fr
 import type { CardSummary } from "@/lib/card-types";
 import { putCards } from "@/lib/cards-cache";
 import { isExtraDeckCardClient, poolToGridCards, type CubeCardDto, type CubePoolsDto } from "@/lib/cube-pools";
-import { AddCardsBody, type ImportOutcome } from "./cube-add-rail";
+import { ListImportError, listImportErrorFrom } from "@/lib/card-list-import";
+import { parseCustomCardIds } from "@/lib/custom-card-pool";
+import { importLine, pasteLabel } from "@/components/draft/pool/pool-model";
+import { AddCardsBody, type CubeImportEntry, type ImportKind, type ImportOutcome } from "./cube-add-rail";
+import { EMPTY_LEDGER, record as recordInLedger, remaining, settle, withoutEntry, type Ledger } from "@/components/card-list-import/import-ledger";
+import { gainKeys, gainMap, gainsBetween, poolCounts, subtractEntries, type CubeGain } from "./cube-import-model";
 import { CubeCardGrid } from "./cube-card-grid";
 import {
   DEFAULT_VIEW,
@@ -51,6 +56,10 @@ interface UndoInfo {
   copies: number;
 }
 
+interface ImportRecord extends CubeImportEntry {
+  gains: CubeGain[];
+}
+
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -86,6 +95,15 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
   const [selectedId, setSelectedId] = React.useState<number | null>(null);
   const [undo, setUndo] = React.useState<UndoInfo | null>(null);
   const removalSequence = React.useRef(0);
+  const [imports, setImports] = React.useState<ImportRecord[]>([]);
+  const importSequence = React.useRef(0);
+  // Which copies still belong to each import. It looks at the pools after every response, so a card the owner lowered
+  // takes copies out of the newest import's gain, and Remove takes out only what is left.
+  const ledgerRef = React.useRef<Ledger>(EMPTY_LEDGER);
+  const poolsRef = React.useRef(pools);
+  poolsRef.current = pools;
+  const importsRef = React.useRef(imports);
+  importsRef.current = imports;
   const [addSheetOpen, setAddSheetOpen] = React.useState(false);
   const [railHidden, setRailHidden] = React.useState(false);
   const layoutRef = React.useRef<HTMLDivElement>(null);
@@ -93,6 +111,7 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
 
   const applyDetail = React.useCallback((data: { cube?: CubeDto; pools: CubePoolsDto; cards: CardSummary[] }) => {
     if (data.cube) setCube(data.cube);
+    ledgerRef.current = settle(ledgerRef.current, poolCounts(data.pools));
     setPools(data.pools);
     putCards(data.cards);
     setCardsById(new Map(data.cards.map((c) => [c.id, c])));
@@ -151,11 +170,91 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
         return null;
       }
       applyDetail({ pools: data.pools, cards: data.cards });
-      return { added: data.added, unknown: data.unknown, copies: data.copies };
+      return { added: data.added, unknown: data.unknown, copies: data.copies, corrected: data.corrected };
     } catch {
       // The request itself failed (network down): say so instead of leaving an unhandled rejection.
       report(op.op === "setArtwork" ? "Could not change the art." : "Update failed.");
       return null;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** One write to the cube's cards. Throws an Error (a `ListImportError` for a refusal with Retry-After) fit to show. */
+  const writeCards = async (op: Record<string, unknown>, fallback: string) => {
+    let res: Response;
+    try {
+      res = await fetch(`/api/cubes/${cubeId}/cards`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(op),
+      });
+    } catch {
+      throw new ListImportError("Couldn't reach the server. Check your connection and try again.");
+    }
+    if (!res.ok) throw await listImportErrorFrom(res, fallback);
+    const data = (await res.json().catch(() => ({}))) as { pools?: CubePoolsDto; cards?: CardSummary[] } & ImportOutcome;
+    if (!data.pools || !data.cards) throw new ListImportError(fallback);
+    applyDetail({ pools: data.pools, cards: data.cards });
+    return { ...data, pools: data.pools };
+  };
+
+  /** Adds pasted text or a loaded file at once and keeps an entry that can take exactly those copies out again. */
+  const importText = async (kind: ImportKind, text: string, fileName: string | null) => {
+    let op: Record<string, unknown>;
+    if (kind === "passcodes") {
+      const parsed = parseCustomCardIds(text);
+      if (parsed.errors.length > 0) {
+        throw new Error(`Remove invalid passcodes: ${parsed.errors.slice(0, 3).join(", ")}`);
+      }
+      if (parsed.cardIds.length === 0) throw new Error("Paste at least one passcode to import.");
+      op = { op: "import", codes: parsed.cardIds };
+    } else {
+      op = { op: kind === "ydk" ? "importYdk" : "importList", text };
+    }
+    const before = poolsRef.current;
+    setBusy(true);
+    setError(null);
+    try {
+      const data = await writeCards(op, "Couldn't add the list. Try again.");
+      const unknown = (data.unknown ?? []).map(String);
+      const corrected = data.corrected ?? [];
+      const gains = gainsBetween(before, data.pools);
+      const report = {
+        unknown,
+        corrected,
+        ...(data.lookupLimited ? { lookupLimited: true as const } : {}),
+        ...(data.movedToMain ? { movedToMain: data.movedToMain } : {}),
+      };
+      if (gains.length === 0) return { nothing: true as const, report };
+      const label = fileName ?? pasteLabel(importsRef.current.map((entry) => entry.label));
+      const line = importLine({ label, main: gainMap(gains, "main"), extra: gainMap(gains, "extra"), corrected, unknown });
+      const key = ++importSequence.current;
+      ledgerRef.current = recordInLedger(ledgerRef.current, key, gainKeys(gains), poolCounts(data.pools));
+      setImports((prev) => [...prev, { key, kind, label, line, report, gains }]);
+      return undefined;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeImport = async (key: number | string) => {
+    const entry = importsRef.current.find((e) => e.key === key);
+    if (!entry) return;
+    const before = ledgerRef.current;
+    const left = remaining(before, key, poolCounts(poolsRef.current));
+    setBusy(true);
+    setError(null);
+    // The ledger forgets the import before the request, so the response (which has fewer copies) is not read as the
+    // owner lowering other imports' cards. A failed request puts it back and leaves the entry as it was.
+    ledgerRef.current = withoutEntry(before, key);
+    try {
+      // One call, one transaction on the server: it all goes out or none of it does.
+      if (left.size > 0) await writeCards({ op: "subtract", entries: subtractEntries(left) }, "Couldn't remove that list.");
+      setImports((prev) => prev.filter((e) => e.key !== key));
+    } catch (error) {
+      ledgerRef.current = before;
+      throw error;
     } finally {
       setBusy(false);
     }
@@ -350,8 +449,9 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
     copiesInCube,
     onAddCard: addCard,
     onSeedArchetype: (archetype: string) => mutate({ op: "seedArchetype", archetype }),
-    onImportCodes: (codes: number[]) => mutate({ op: "import", codes }),
-    onImportYdk: (text: string) => mutate({ op: "importYdk", text }),
+    imports,
+    onImport: importText,
+    onRemoveImport: removeImport,
   };
 
   const inspector = selected ? (

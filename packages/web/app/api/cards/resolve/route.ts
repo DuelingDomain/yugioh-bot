@@ -2,9 +2,11 @@ import { withCardFetchErrors } from "@/lib/card-fetch-errors";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { createDraftService, createCardCatalogService } from "@yugidraft/shared/services";
+import { createDraftService, createCardCatalogService, isExtraDeckFrame, normalizeImportedCardName, rankCardsByTypo } from "@yugidraft/shared/services";
 import { toCardCounts } from "@/lib/custom-card-pool";
 import type { CardSummary } from "@/lib/card-types";
+import { CardListError } from "@/lib/card-list-parser";
+import { prepareCubeListImport } from "@/lib/cube-list-import";
 
 export const runtime = "nodejs";
 
@@ -53,6 +55,7 @@ async function handlePOST(request: Request) {
     fuzzyName?: string;
     includeExtra?: boolean;
     archetype?: string;
+    listText?: unknown;
   };
   const setNames = Array.isArray(body.setNames) ? body.setNames.filter((s): s is string => typeof s === "string") : [];
   const customCardIds = Array.isArray(body.customCardIds)
@@ -63,8 +66,31 @@ async function handlePOST(request: Request) {
   const archetype = typeof body.archetype === "string" ? body.archetype.trim() : "";
 
   const db = getDb();
-  const drafts = createDraftService(db);
   const catalog = createCardCatalogService(db);
+
+  if (body.listText !== undefined) {
+    if ([body.setNames, body.customCardIds, body.cardName, body.fuzzyName, body.archetype, body.includeExtra]
+      .some((option) => option !== undefined)) {
+      return NextResponse.json({ error: "listText cannot be combined with other resolve options." }, { status: 400 });
+    }
+    try {
+      // This preparation only resolves/warm-caches cards; it never opens a cube write transaction.
+      const resolved = await prepareCubeListImport(catalog, body.listText);
+      const cards = catalog.findByIds(resolved.entries.map((entry) => entry.id));
+      const byId = new Map(cards.map((card) => [card.ygoprodeckId, card]));
+      let movedToMain = 0;
+      const entries = resolved.entries.map((entry) => {
+        const extra = isExtraDeckFrame(byId.get(entry.id)!);
+        if (entry.pool === "extra" && !extra) movedToMain += 1;
+        return { id: entry.id, copies: entry.copies, pool: extra ? "extra" : "main" };
+      });
+      return NextResponse.json({ cards: cards.map(toCardSummary), entries, unknown: resolved.unknown, corrected: resolved.corrected,
+        ...(resolved.lookupLimited ? { lookupLimited: true } : {}), ...(movedToMain ? { movedToMain } : {}) });
+    } catch (error) {
+      if (!(error instanceof CardListError)) throw error;
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+  }
 
   if (archetype) {
     const { main, extra } = await catalog.syncByArchetype(archetype);
@@ -83,7 +109,17 @@ async function handlePOST(request: Request) {
 
   if (fuzzyName) {
     // Best match first. Extra Deck monsters only when the caller can hold them (a cube has an Extra pool).
-    const cards = await catalog.syncCardsByFuzzyName(fuzzyName, { includeExtra: body.includeExtra === true });
+    const includeExtra = body.includeExtra === true;
+    let cards = await catalog.syncCardsByFuzzyName(fuzzyName, { includeExtra });
+    if (cards.length === 0) {
+      // A typo ("drak hole") matches no name as written. Look up each long word on its own, then rank by near matches.
+      const words = [...new Set(normalizeImportedCardName(fuzzyName).split(" ").filter((word) => word.length >= 4))].slice(0, 3);
+      const found = new Map<number, Awaited<ReturnType<typeof catalog.syncCardsByFuzzyName>>[number]>();
+      for (const word of words) {
+        for (const card of await catalog.syncCardsByFuzzyName(word, { includeExtra, limit: 80 })) found.set(card.ygoprodeckId, card);
+      }
+      cards = rankCardsByTypo([...found.values()], fuzzyName).slice(0, 24);
+    }
     return NextResponse.json({ cards: cards.map(toCardSummary), unknownIds: [] });
   }
 
@@ -114,7 +150,7 @@ async function handlePOST(request: Request) {
     }
   }
 
-  const resolvedIds = drafts.resolvePoolCardIds({
+  const resolvedIds = createDraftService(db).resolvePoolCardIds({
     setNames,
     customCardIds,
   });

@@ -2,13 +2,14 @@ import { withCardFetchErrors } from "@/lib/card-fetch-errors";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { auth } from "@/lib/auth";
+import { normalizeBoosterDraftNumbers } from "@/lib/booster-draft-validation";
 import { cubeReferenceAccess } from "@/lib/cube-access";
 import { env } from "@/lib/env";
-import { analyzeCube, prepareBoosterPool, themeDraftNumberError, createCardCatalogService, createDraftService, createPlayerService } from "@yugidraft/shared/services";
+import { boosterDraftConfigError, themeDraftNumberError, createCardLookupBudget, createCardCatalogService, createDraftService, createPlayerService } from "@yugidraft/shared/services";
 import type { DraftConfig } from "@yugidraft/shared/types";
 import { announcer } from "@/lib/notify";
 import { toUtcIso } from "@/lib/utils";
-import { sanitizePoolSource } from "@/lib/cube-pool";
+import { ensureCatalogCards, sanitizePoolSource } from "@/lib/cube-pool";
 import { hostThemeAssignmentError } from "@/lib/theme-draft-validation";
 
 export const runtime = "nodejs";
@@ -136,6 +137,8 @@ async function handlePOST(request: NextRequest) {
   // Theme mode: no card-pool sync — the pool lives in the theme cubes, which the
   // host adds inside the draft after creation. So a theme draft starts blank.
   if (config?.mode === "theme") {
+    const extraIdsError = boosterDraftConfigError({ customExtraCardIds: config.customExtraCardIds });
+    if (extraIdsError) return NextResponse.json({ error: extraIdsError }, { status: 400 });
     const numberError = themeDraftNumberError(config);
     if (numberError) return NextResponse.json({ error: numberError }, { status: 400 });
     if (!name) {
@@ -177,22 +180,31 @@ async function handlePOST(request: NextRequest) {
       { status: 400 }
     );
   }
+  const numberError = boosterDraftConfigError(config) ?? normalizeBoosterDraftNumbers(config);
+  if (numberError) return NextResponse.json({ error: numberError }, { status: 400 });
 
   const players = createPlayerService(db);
   const player = players.findOrCreate(guildId, session.user.id, session.user.name ?? "Unknown");
   const drafts = createDraftService(db);
 
   const cards = createCardCatalogService(db);
+  const lookupBudget = createCardLookupBudget();
   await cards.syncDraftPool({
     setNames: config.setNames ?? [],
     customCardIds: config.customCardIds ?? [],
     includeNames: config.includeNames ?? [],
     excludeNames: config.excludeNames ?? [],
-  });
+  }, { lookupBudget });
+  const unknownExtraIds = await ensureCatalogCards(cards, config.customExtraCardIds ?? [], lookupBudget);
+  const unknownIds = [...new Set([...(config.customCardIds ?? []).filter((id) => !cards.hasCatalogRow(id)), ...unknownExtraIds])];
   const cubeCardIds = drafts.resolveCubeCardIds(config);
   if (cubeCardIds.length === 0) {
     return NextResponse.json(
-      { error: "No cards matched the selected sets / passcodes" },
+      {
+        error: "No cards matched the selected sets / passcodes",
+        ...(lookupBudget.lookupLimited ? { lookupLimited: true } : {}),
+        ...(unknownIds.length ? { unknownIds } : {}),
+      },
       { status: 400 }
     );
   }
@@ -201,13 +213,7 @@ async function handlePOST(request: NextRequest) {
   // assume the minimum start count of 2 players. Non-blocking: the cube can grow
   // before start, and startDraft is the authoritative gate.
   const expectedPlayers = 2;
-  const analysis = analyzeCube(
-    prepareBoosterPool(cubeCardIds, config, expectedPlayers * (config.packsPerPlayer ?? 5) * (config.packSize ?? 8)),
-    expectedPlayers,
-    config.packsPerPlayer ?? 5,
-    config.packSize ?? 8,
-    config.cardsPerPlayer ?? 40,
-  );
+  const analysis = drafts.analyzeBoosterDraft({ ...config, cubeCardIds }, expectedPlayers, guildId);
 
   const configWithPool: typeof config = { ...config, cubeCardIds };
 
@@ -236,8 +242,11 @@ async function handlePOST(request: NextRequest) {
       name: draft.name,
       status: draft.status,
       webSlug: draft.webSlug,
+      config: draft.config,
       warnings: analysis.warnings,
       errors: analysis.errors,
+      ...(lookupBudget.lookupLimited ? { lookupLimited: true } : {}),
+      ...(unknownIds.length ? { unknownIds } : {}),
     },
     { status: 201 }
   );

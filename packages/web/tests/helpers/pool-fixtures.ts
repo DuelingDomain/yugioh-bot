@@ -75,6 +75,8 @@ export interface StubOptions {
   /** Answer to POST /api/cubes/[id]/cards. */
   replaceMain?: () => Response;
   draftPool?: CardSummary[];
+  /** The draft's Extra pool, from GET /api/drafts/[slug]/pool. */
+  draftExtra?: CardSummary[];
   extra?: Record<string, (init?: RequestInit) => Response | Promise<Response>>;
 }
 
@@ -113,10 +115,33 @@ export function stubFetch(options: StubOptions = {}): Stub {
       return options.replaceMain ? options.replaceMain() : Response.json({ ok: true });
     }
     const draftPool = /^\/api\/drafts\/[^/]+\/pool$/.exec(url);
-    if (draftPool) return Response.json({ cards: options.draftPool ?? [] });
+    if (draftPool) return Response.json({ cards: options.draftPool ?? [], extraCards: options.draftExtra ?? [] });
     if (url.startsWith("/api/archetypes")) return Response.json({ archetypes: ["Blue-Eyes"] });
     if (url === "/api/sets") return Response.json({ sets: [{ setName: "Metal Raiders", setCode: "MRD", cardCount: 2 }] });
     if (url === "/api/cards/resolve" && method === "POST") {
+      if (typeof body.listText === "string") {
+        // A small stand-in for list mode: "N name" or "name" per line, case-insensitive, section titles unknown.
+        const byName = new Map(CATALOG.map((c) => [c.name.toLowerCase(), c]));
+        const entries: Array<{ id: number; copies: number; pool: "main" | "extra" }> = [];
+        const unknown: string[] = [];
+        const corrected: Array<{ from: string; to: string }> = [];
+        for (const line of String(body.listText).split(/\r?\n/).map((l) => l.trim()).filter(Boolean)) {
+          const m = /^(\d{1,2})\s+(.+)$/.exec(line);
+          const copies = m ? Number(m[1]) : 1;
+          const name = (m ? m[2] : line).toLowerCase();
+          const hit = /^\d{3,}$/.test(name) ? byId.get(Number(name)) : byName.get(name) ?? (name === "cipher soldeir" ? byName.get("cipher soldier") : undefined);
+          if (!hit) {
+            unknown.push(line);
+            continue;
+          }
+          if (name === "cipher soldeir") corrected.push({ from: "Cipher Soldeir", to: hit.name });
+          const pool = hit.type.includes("Fusion") ? "extra" : "main";
+          const existing = entries.find((e) => e.id === hit.id);
+          if (existing) existing.copies += copies;
+          else entries.push({ id: hit.id, copies, pool });
+        }
+        return Response.json({ cards: entries.map((e) => byId.get(e.id)), entries, unknown, corrected });
+      }
       if (body.archetype === "Blue-Eyes") {
         return Response.json({
           cards: CATALOG.filter((c) => c.name.startsWith("Blue-Eyes")).map((c) => ({ ...c, qty: 1 })),
@@ -128,7 +153,9 @@ export function stubFetch(options: StubOptions = {}): Stub {
       }
       if (body.fuzzyName) {
         const q = String(body.fuzzyName).toLowerCase();
-        return Response.json({ cards: CATALOG.filter((c) => c.name.toLowerCase().includes(q)), unknownIds: [] });
+        const typo = (c: CardSummary) => q === "blu eyez" && c.name.startsWith("Blue-Eyes");
+        const wanted = CATALOG.filter((c) => (c.name.toLowerCase().includes(q) || typo(c)) && (body.includeExtra === true || !c.type.includes("Fusion")));
+        return Response.json({ cards: wanted, unknownIds: [] });
       }
       if (body.customCardIds) {
         const known = (body.customCardIds as number[]).filter((id) => byId.has(id));

@@ -103,6 +103,9 @@ describe("levels", () => {
 
 describe("sizes and theme progress", () => {
   it("defaults and derives phases", () => {
+    const booster = roomSizes({ packSize: 8, packsPerPlayer: 5, cardsPerPlayer: 40, extraDeckEnabled: true, extraDeckSize: 6 });
+    expect(booster).toMatchObject({ boosterExtraSize: 6, extraSize: 0, total: 46 });
+    expect(roomSizes({ cardsPerPlayer: 40, extraDeckSize: 6 }).boosterExtraSize).toBe(0);
     const s = roomSizes({ mode: "theme", cardsPerPlayer: 10, extraDeckSize: 3 });
     expect(s.theme).toBe(true);
     expect(s.total).toBe(13);

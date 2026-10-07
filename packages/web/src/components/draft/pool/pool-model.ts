@@ -8,6 +8,7 @@
 
 import { cardImageUrl } from "@/lib/card-image-url";
 import { isExtraDeckMonster, isMonster, isSpell, isTrap, type CardSummary } from "@/lib/card-types";
+import type { ListCorrection } from "@/lib/card-list-import";
 
 export const MAX_COPIES = 99;
 /** Copies a whole archetype or a single searched card starts with. Same default as the cube editor. */
@@ -16,6 +17,8 @@ export const DEFAULT_COPIES = 3;
 export const TARGET_PLAYERS = 8;
 
 export type Pool = Map<number, number>;
+/** The two pools of a cube draft: the main packs, and the one Extra Deck pack each player gets after them. */
+export type Lane = "main" | "extra";
 export type CardInfo = Pick<CardSummary, "id" | "name" | "type" | "frameType" | "imageUrlSmall" | "imageUrl">;
 
 export type Kind = "monster" | "spell" | "trap";
@@ -106,37 +109,40 @@ export interface AddItem {
 
 export interface AddOutcome {
   pool: Pool;
-  /** Distinct cards that were new to the pool. */
+  /** The Extra pool, with any Extra Deck cards the batch brought. */
+  extra: Pool;
+  /** Distinct main-deck cards that were new to the pool. */
   added: number;
-  /** Cards that were already in the pool; their copies are left alone. */
+  /** Distinct Extra Deck cards that were new to the Extra pool. */
+  extraAdded: number;
+  /** Cards (main or Extra) that were already in their pool; their copies are left alone. */
   alreadyIn: number;
-  /** Extra Deck cards that were left out. */
-  extraSkipped: number;
 }
 
 /**
- * Adds a batch of resolved cards (a set, an archetype, passcodes). Extra Deck cards stay out because cube drafts deal
- * main-deck cards; cards already in the pool keep the copies they have.
+ * Adds a batch of resolved cards (a set, an archetype). Extra Deck monsters go to the Extra pool and the rest to the
+ * main pool; cards already in a pool keep the copies they have.
  */
-export function mergeAdd(pool: Pool, items: AddItem[]): AddOutcome {
+export function mergeAdd(pool: Pool, items: AddItem[], extra: Pool = new Map()): AddOutcome {
   const out: Pool = new Map(pool);
+  const outExtra: Pool = new Map(extra);
   let added = 0;
+  let extraAdded = 0;
   let alreadyIn = 0;
-  let extraSkipped = 0;
   const seen = new Set<number>();
   for (const { card, copies } of items) {
     if (seen.has(card.id)) continue;
     seen.add(card.id);
-    if (isExtraDeckMonster(card)) {
-      extraSkipped += 1;
-    } else if (out.has(card.id)) {
+    const lane = isExtraDeckMonster(card) ? outExtra : out;
+    if (lane.has(card.id)) {
       alreadyIn += 1;
     } else {
-      out.set(card.id, clampCopies(copies));
-      added += 1;
+      lane.set(card.id, clampCopies(copies));
+      if (lane === outExtra) extraAdded += 1;
+      else added += 1;
     }
   }
-  return { pool: out, added, alreadyIn, extraSkipped };
+  return { pool: out, extra: outExtra, added, extraAdded, alreadyIn };
 }
 
 /** Adds one copy of one card, up to 99. `changed` is false when the card is already at the cap. */
@@ -148,53 +154,98 @@ export function addOneCopy(pool: Pool, id: number): { pool: Pool; changed: boole
   return { pool: out, changed: true };
 }
 
-export interface PasscodesOutcome {
-  pool: Pool;
-  /** Different cards that gained copies. */
-  added: number;
-  /** Copies gained in all. */
+/* ---------- list imports ---------- */
+
+/** One entry of the resolved list, as `/api/cards/resolve` returns it. */
+export interface ListEntry {
+  id: number;
   copies: number;
-  /** Passcodes the card list does not have. */
-  unknown: number;
-  extraSkipped: number;
-  /** Cards that could not take every copy because they reached 99. */
-  atCap: number;
+  pool: Lane;
 }
 
-/**
- * Pasted passcodes: each time a passcode appears it is one more copy, whether or not the card is already in the pool.
- * `cards` are the passcodes the card list knew; the rest are `unknownIds`.
- */
-export function mergePasscodes(
-  pool: Pool,
-  occurrences: ReadonlyMap<number, number>,
-  cards: Array<Pick<CardSummary, "id" | "type" | "frameType">>,
-  unknownIds: number[],
-): PasscodesOutcome {
-  const out: Pool = new Map(pool);
-  let added = 0;
-  let copies = 0;
-  let extraSkipped = 0;
-  let atCap = 0;
-  for (const card of cards) {
-    const wanted = occurrences.get(card.id) ?? 0;
-    if (wanted <= 0) continue;
-    if (isExtraDeckMonster(card)) {
-      extraSkipped += 1;
-      continue;
-    }
-    const current = out.get(card.id) ?? 0;
-    const next = Math.min(MAX_COPIES, current + wanted);
-    if (next === current) {
-      atCap += 1;
-      continue;
-    }
-    out.set(card.id, next);
-    added += 1;
-    copies += next - current;
-    if (next - current < wanted) atCap += 1;
+/** What one import added, kept so "Remove" can take out exactly those copies. Gains are after the 99 cap. */
+export interface ImportRecord {
+  key: number;
+  /** The file name, or "Pasted list". */
+  label: string;
+  main: ReadonlyMap<number, number>;
+  extra: ReadonlyMap<number, number>;
+  corrected: ListCorrection[];
+  unknown: string[];
+  lookupLimited?: true;
+  movedToMain?: number;
+}
+
+/** What an import left over, as the report shows it. */
+export function reportOf(from: Pick<ImportRecord, "corrected" | "unknown" | "lookupLimited" | "movedToMain">): Pick<ImportRecord, "corrected" | "unknown" | "lookupLimited" | "movedToMain"> {
+  return {
+    unknown: from.unknown,
+    corrected: from.corrected,
+    ...(from.lookupLimited ? { lookupLimited: true as const } : {}),
+    ...(from.movedToMain ? { movedToMain: from.movedToMain } : {}),
+  };
+}
+
+export interface ImportOutcome {
+  main: Pool;
+  extra: Pool;
+  gainedMain: Map<number, number>;
+  gainedExtra: Map<number, number>;
+}
+
+/** Every copy of a list goes to the pool the server chose for it. A card keeps at most 99 copies. */
+export function applyListEntries(main: Pool, extra: Pool, entries: Iterable<ListEntry>): ImportOutcome {
+  const out = { main: new Map(main), extra: new Map(extra) };
+  const gained = { main: new Map<number, number>(), extra: new Map<number, number>() };
+  for (const { id, copies, pool } of entries) {
+    if (!Number.isInteger(id) || id <= 0 || !(copies >= 1)) continue;
+    const lane = pool === "extra" ? "extra" : "main";
+    const current = out[lane].get(id) ?? 0;
+    const next = Math.min(MAX_COPIES, current + Math.trunc(copies));
+    if (next === current) continue;
+    out[lane].set(id, next);
+    gained[lane].set(id, (gained[lane].get(id) ?? 0) + (next - current));
   }
-  return { pool: out, added, copies, unknown: new Set(unknownIds).size, extraSkipped, atCap };
+  return { main: out.main, extra: out.extra, gainedMain: gained.main, gainedExtra: gained.extra };
+}
+
+/** Takes copies out of a pool, never below 0. `gains` is what the import ledger says the import still owns. */
+export function subtractGains(pool: Pool, gains: ReadonlyMap<number, number>): Pool {
+  let out: Pool | null = null;
+  for (const [id, gain] of gains) {
+    const current = pool.get(id);
+    if (current === undefined) continue;
+    out ??= new Map(pool);
+    const next = current - Math.min(current, gain);
+    if (next <= 0) out.delete(id);
+    else out.set(id, next);
+  }
+  return out ?? pool;
+}
+
+export function sumGains(gains: ReadonlyMap<number, number>): number {
+  let total = 0;
+  for (const n of gains.values()) total += n;
+  return total;
+}
+
+/** "Fusions.txt - 120 cards (95 Main, 25 Extra) - 2 names corrected - 1 line skipped". Zero parts are left out. */
+export function importLine(entry: Pick<ImportRecord, "label" | "main" | "extra" | "corrected" | "unknown">): string {
+  const main = sumGains(entry.main);
+  const extra = sumGains(entry.extra);
+  const parts = [entry.label, `${plural(main + extra, "card")} (${main} Main, ${extra} Extra)`];
+  if (entry.corrected.length > 0) parts.push(`${plural(entry.corrected.length, "name")} corrected`);
+  if (entry.unknown.length > 0) parts.push(`${plural(entry.unknown.length, "line")} skipped`);
+  return parts.join(" - ");
+}
+
+/** The label of the next unnamed paste: "Pasted list", then "Pasted list 2" ... so stacked entries stay apart. */
+export function pasteLabel(existing: Iterable<string>): string {
+  const names = new Set(existing);
+  if (!names.has("Pasted list")) return "Pasted list";
+  let n = 2;
+  while (names.has(`Pasted list ${n}`)) n += 1;
+  return `Pasted list ${n}`;
 }
 
 /* ---------- comparing with the starting point ---------- */
@@ -304,50 +355,55 @@ export function listRows(
 
 /* ---------- copy ---------- */
 
-function stayOut(n: number): string {
-  return `${plural(n, "Extra Deck card")} ${n === 1 ? "stays" : "stay"} out.`;
-}
-
 export function cardsText(n: number): string {
   return plural(n, "card");
 }
 
-/** "Added 34 cards from Blue-Eyes. 6 Extra Deck cards stay out. 3 were already in the pool." */
-export function addedLine(source: string, o: Pick<AddOutcome, "added" | "alreadyIn" | "extraSkipped">): string {
+/** "Added 34 cards from Blue-Eyes. 6 Extra Deck cards went to the Extra pool. 3 were already in the pool." */
+export function addedLine(source: string, o: Pick<AddOutcome, "added" | "alreadyIn" | "extraAdded">): string {
   const parts = [`Added ${plural(o.added, "card")} from ${source}.`];
-  if (o.extraSkipped > 0) parts.push(stayOut(o.extraSkipped));
+  if (o.extraAdded > 0) parts.push(`${plural(o.extraAdded, "Extra Deck card")} went to the Extra pool.`);
   if (o.alreadyIn > 0) parts.push(`${o.alreadyIn} ${o.alreadyIn === 1 ? "was" : "were"} already in the pool.`);
   return parts.join(" ");
 }
 
-/** The line after pasting passcodes. */
-export function passcodesLine(o: {
-  added: number;
-  copies: number;
-  unknown: number;
-  extraSkipped: number;
-  atCap: number;
-  invalid?: number;
-}): string {
-  const parts = [
-    o.copies === o.added
-      ? `Added ${plural(o.added, "card")}.`
-      : `Added ${plural(o.copies, "copy", "copies")} of ${plural(o.added, "card")}.`,
-  ];
-  if (o.unknown > 0) parts.push(`${plural(o.unknown, "passcode")} ${o.unknown === 1 ? "isn't" : "aren't"} in the card list yet.`);
-  if (o.extraSkipped > 0) parts.push(stayOut(o.extraSkipped));
-  if (o.atCap > 0) parts.push(`${plural(o.atCap, "card")} already at ${MAX_COPIES} copies.`);
-  if (o.invalid) parts.push(`${plural(o.invalid, "entry", "entries")} ${o.invalid === 1 ? "isn't a passcode" : "aren't passcodes"}.`);
-  return parts.join(" ");
+export function addCopyLine(name: string, changed: boolean, lane: Lane = "main"): string {
+  if (!changed) return `${name} is already at ${MAX_COPIES} copies.`;
+  return lane === "extra" ? `Added 1 copy of ${name} to the Extra pool.` : `Added 1 copy of ${name}.`;
 }
 
-export function addCopyLine(name: string, changed: boolean): string {
-  return changed ? `Added 1 copy of ${name}.` : `${name} is already at ${MAX_COPIES} copies.`;
-}
-
+/** What a cube's Extra Deck does for the draft. Used when the Extra round is off. */
 export function extraNote(extraCount: number): string | null {
   if (extraCount <= 0) return null;
-  return `${stayOut(extraCount)} Cube drafts deal main-deck cards.`;
+  return `${plural(extraCount, "Extra Deck card")} ${extraCount === 1 ? "stays" : "stay"} out of the main packs. Turn on the Extra Deck round to draft ${extraCount === 1 ? "it" : "them"}.`;
+}
+
+/** Cards in the extra pool the round needs: one pack for every player. */
+export function extraNeed(players: number, size: number): number {
+  return Math.max(0, players) * Math.max(0, size);
+}
+
+/**
+ * Does the Extra pool cover the Extra Deck round? Every player gets one pack, so it needs players x size copies.
+ * Null when the round is off or its size is 0.
+ */
+export function extraCheck(args: {
+  on: boolean;
+  size: number;
+  total: number;
+  players: number;
+}): { enough: boolean; supported: number; text: string } | null {
+  if (!args.on || args.size <= 0) return null;
+  const supported = Math.floor(args.total / args.size);
+  const need = extraNeed(args.players, args.size);
+  if (args.total >= need) {
+    return { enough: true, supported, text: `Extra pool: enough for ${plural(supported, "player")} at ${args.size} cards each.` };
+  }
+  return {
+    enough: false,
+    supported,
+    text: `Extra pool is too small. ${plural(args.players, "player")} x ${args.size} needs ${need} Extra Deck cards, and the pool has ${args.total}${supported > 0 ? ` (enough for ${plural(supported, "player")})` : ""}. Add ${need - args.total} more.`,
+  };
 }
 
 /** "24 cards added, 3 removed" or "3 cards removed". */
@@ -374,8 +430,10 @@ export function notOwnerNote(cubeName: string): string {
   return `Only ${cubeName}'s owner or an admin can change it.`;
 }
 
-export function replaceQuestion(cubeName: string): string {
-  return `Replace ${cubeName}'s main pool with this one? Its Extra Deck cards and other settings stay.`;
+export function replaceQuestion(cubeName: string, extraEdited = false): string {
+  return extraEdited
+    ? `Replace ${cubeName}'s main pool with this one? Its Extra pool and other settings stay. Your Extra pool changes stay in this draft.`
+    : `Replace ${cubeName}'s main pool with this one? Its Extra pool and other settings stay.`;
 }
 
 export function nameTakenError(name: string): string {

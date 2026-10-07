@@ -1,12 +1,16 @@
 export interface DraftConfig {
   setNames?: string[];
   customCardIds?: number[];
+  /** Normal draft Extra pool: one ID per copy. An explicit [] overrides the source cube. */
+  customExtraCardIds?: number[];
   includeNames?: string[];
   excludeNames?: string[];
   packSize?: number;
   packsPerPlayer?: number;
   cardsPerPlayer?: number;
   pickSeconds?: number;
+  /** Normal drafts: sequential timed picks from each pack before passing; 1 (default) or 2. */
+  picksPerStep?: number;
   alternatePassDirection?: boolean;
   randomizeSeats?: boolean;
   /** Limit picks to three copies, with booster swaps or forced picks when needed. Default true. */
@@ -16,8 +20,13 @@ export interface DraftConfig {
   cubeCardIds?: number[];
   /** @deprecated legacy key, still read for drafts created before the rename */
   poolCardIds?: number[];
-  /** The saved cube a cube draft's pool started from (display and Reset only; the pool itself is customCardIds). */
+  /** Source cube for display/reset and the normal Extra pool when customExtraCardIds is absent. */
   poolSource?: { cubeId: number; cubeName: string };
+
+  /** Run an Extra Deck phase. Normal drafts default false; theme drafts default true. */
+  extraDeckEnabled?: boolean;
+  /** Extra cards per player (default 15). Normal drafts: integer 0–15, one extra pack per seat. */
+  extraDeckSize?: number;
 
   // ----- theme mode -----
   /** Draft mode. Absent or "booster" => existing behavior. */
@@ -32,10 +41,6 @@ export interface DraftConfig {
   uniqueThemes?: boolean;
   /** Number of choices shown per pick. Admin-set; default 3, any X >= 2. */
   themePackSize?: number;
-  /** Whether to run the Extra Deck draft phase at all. Default true. */
-  extraDeckEnabled?: boolean;
-  /** Extra Deck cards to draft in phase 2 (ignored when extraDeckEnabled is false). Default 15. */
-  extraDeckSize?: number;
   /** If true, the (themePackSize - 1) unpicked cards are discarded each round; if false (default) they return. */
   burnUnpicked?: boolean;
 

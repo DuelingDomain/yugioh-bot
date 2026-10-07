@@ -10,6 +10,7 @@ export interface YdkImportResult {
   copies: number;
   /** Passcodes the catalog does not know. */
   unknown: number[];
+  lookupLimited?: true;
 }
 
 const copiesById = (pools: CubePools): Map<number, number> =>
@@ -54,5 +55,6 @@ export async function importYdkIntoCube(cubes: CubeService, cubeId: number, text
     added: result.added,
     copies: totalCopies(cubes.getCubePools(cubeId)) - before,
     unknown: result.unknown,
+    ...(result.lookupLimited ? { lookupLimited: result.lookupLimited } : {}),
   };
 }

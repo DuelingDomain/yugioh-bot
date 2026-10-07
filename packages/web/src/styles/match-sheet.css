@@ -1505,7 +1505,8 @@
 .ms .ce-rail { position: sticky; top: 20px; display: grid; gap: 14px; padding: 18px; }
 .ms .ce-rail h2 { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 15px; font-weight: 450; }
 .ms .ce-rail .seg { width: 100%; }
-.ms .ce-rail .seg button { padding: 0 8px; }
+.ms .ce-rail .seg { grid-auto-columns: auto; }
+.ms .ce-rail .seg button { padding: 0 4px; font-size: 13px; }
 .ms .ce-res { display: grid; }
 .ms .ce-res li { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 11px; padding: 7px 0; border-top: 1px solid var(--rule-lo); }
 .ms .ce-res li:first-child { border-top: 0; }
