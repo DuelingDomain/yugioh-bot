@@ -4,6 +4,7 @@ import { foldCardText } from "../duels/card-query.js";
 import { canonicalCardCode, type CardIdentityCatalog } from "../duels/pool.js";
 import { loadArtworkIdentityCatalog, mainArtworkId, type CardArtwork } from "./card-artworks.js";
 import { CardFetchError, fetchCardResource, isCardFetchError } from "./card-fetch.js";
+import { matchImportedCardName, normalizeImportedCardName, straightenCardQuotes } from "./card-name-match.js";
 
 type CardSet = {
   set_name: string;
@@ -55,6 +56,12 @@ type FetchLike = (
 ) => Promise<Pick<Response, "ok" | "json"> & Partial<Pick<Response, "status">>>;
 
 export type CardCatalogCard = Card;
+
+export interface CardNameResolution {
+  name: string;
+  card?: CardCatalogCard;
+  corrected?: { from: string; to: string };
+}
 
 export type SyncDraftPoolInput = {
   setNames: string[];
@@ -561,6 +568,54 @@ export function createCardCatalogService(
       const savedIds = upsertCards([card]);
       ensureEngineArtwork(id);
       return findByIds([id])[0] ?? findByIds(savedIds)[0];
+    },
+
+    /** Exact normalized names first; only unique, high-similarity names may be corrected. Includes Extra Deck cards. */
+    async resolveCardNames(names: readonly string[]): Promise<CardNameResolution[]> {
+      // Read lightweight names once; load full metadata only for the chosen cards.
+      const rows = db.prepare(`select c.ygoprodeck_id as id, c.name, coalesce(a.card_id, c.ygoprodeck_id) as main_id
+        from card_catalog c left join card_artworks a on a.artwork_id = c.ygoprodeck_id
+        order by coalesce(a.is_main, 1) desc, c.ygoprodeck_id`).all() as Array<{ id: number; name: string; main_id: number }>;
+      const cached = new Map<string, { id: number; name: string }>();
+      for (const row of rows) {
+        const key = normalizeImportedCardName(row.name);
+        if (!cached.has(key)) cached.set(key, { id: row.main_id, name: row.name });
+      }
+      const missing = [...new Map(names.filter((name) => !cached.has(normalizeImportedCardName(name)))
+        .map((name) => [normalizeImportedCardName(name), name])).values()];
+      const fetched = new Map<string, YgoprodeckCard>();
+      const remember = (cards: YgoprodeckCard[]) => {
+        for (const card of cards) fetched.set(normalizeImportedCardName(card.name), card);
+      };
+      const fetchable = missing.filter((name) => name.length <= 200 && normalizeImportedCardName(name));
+      // YGOPRODeck supports pipe-separated exact names. Small batches keep URLs bounded.
+      for (let offset = 0; offset < fetchable.length; offset += 20) {
+        remember(await fetchCards("name", fetchable.slice(offset, offset + 20).map(straightenCardQuotes).join("|")));
+      }
+      const probes = new Map<string, YgoprodeckCard[]>();
+      for (const name of fetchable) {
+        const key = normalizeImportedCardName(name);
+        if (fetched.has(key)) continue;
+        // Search using unchanged words so a typo elsewhere in the name does not prevent discovery.
+        // Two probes also expose competing names; do not accept a suggestion just because it ranks first.
+        const words = [...new Set(key.split(" "))].filter((word) => word.length >= 3)
+          .sort((a, b) => b.length - a.length).slice(0, 2);
+        for (const word of words) {
+          if (!probes.has(word)) probes.set(word, await fetchCards("fname", word));
+          remember(probes.get(word)!);
+        }
+      }
+      const candidates = [...cached.values(), ...fetched.values()];
+      const matches = names.map((name) => matchImportedCardName(candidates, name));
+      // Finish all requests before warming the catalog. Use the normal artwork-aware cache writer.
+      const selected = new Set(matches.map((card) => card && normalizeImportedCardName(card.name)));
+      upsertCards([...fetched].filter(([key]) => selected.has(key)).map(([, card]) => card));
+      return names.map((name, i) => {
+        const match = matches[i];
+        const card = match && findByIds([canonicalId(match.id)])[0];
+        return { name, card, ...(card && normalizeImportedCardName(name) !== normalizeImportedCardName(card.name)
+          ? { corrected: { from: name, to: card.name } } : {}) };
+      });
     },
 
     async syncCardByName(name: string) {
