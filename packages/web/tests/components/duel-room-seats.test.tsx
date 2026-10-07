@@ -67,6 +67,26 @@ function open() {
 }
 
 describe("room seat transitions", () => {
+  it("matches dice names to seat numbers when session seats arrive out of order", async () => {
+    const data = room(0, true);
+    data.session.format = "ffa3";
+    const base = data.session.seats[0]!;
+    data.session.seats = [
+      { ...base, seat: 2, playerId: 3, displayName: "Joey" },
+      { ...base, seat: 0, playerId: 1, displayName: "Yugi" },
+      { ...base, seat: 1, playerId: 2, displayName: "Kaiba" },
+    ];
+    data.opening = { phase: "dice", round: 1, serverNow: 1000, deadlineAt: new Date(4000).toISOString(),
+      rounds: [{ round: 1, rolls: [1, 6, 3] }], order: [1, 2, 0], finalSeats: [2, 0, 1] };
+    server.room = data;
+    open();
+    const opening = await screen.findByTestId("opening-screen");
+    expect(opening).toHaveTextContent("Yugi: 1");
+    expect(opening).toHaveTextContent("Kaiba: 6");
+    expect(opening).toHaveTextContent("Joey: 3");
+    expect(opening).toHaveTextContent("Turn order: Kaiba → Joey → Yugi");
+  });
+
   it("enters watching, seats only on a click, and stays in the room after Watch instead", async () => {
     open();
     const take = await screen.findByRole("button", { name: "Take seat 2" });
