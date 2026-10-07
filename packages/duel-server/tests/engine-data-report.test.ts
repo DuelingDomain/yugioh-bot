@@ -67,3 +67,11 @@ it("lists disappeared codes without a remap, including renamed releases with mat
  const withExistingMatch=prereleaseUpdateReport(previous,next,[{code:12,name:"Official name",...stats}]);
  expect(withExistingMatch.split("Removed preview codes with no remap")[1]).not.toContain("12 Official name");
 });
+
+it("retains patch review details when the weekly failure summary is truncated", () => {
+  const report = "BLOCKING: 1 patch needs review\n" + "data\n".repeat(20000) + "\n## Card script patches\n\n**patch needs review**: official/c3743515.lua; pins unchanged.\n";
+  const summary = boundedReport(report, run, 60000);
+  expect(summary).toContain("official/c3743515.lua");
+  expect(summary).toContain("pins unchanged");
+  expect(Buffer.byteLength(summary)).toBeLessThanOrEqual(60000);
+});

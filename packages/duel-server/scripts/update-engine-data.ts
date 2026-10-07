@@ -213,6 +213,15 @@ export async function runUpdate(options: Options = {}) {
     const conflicts = detectOverlayConflicts(manifest.cards, stock);
     report.push("", `## Overlay conflicts (${conflicts.length})`, "", "Compared every MANIFEST stockSha256 against candidate stock scripts. A human/Codex must update affected overlay files and review their baseline hashes; this job does not regenerate them.", "",
       ...(conflicts.length ? conflicts.map((card) => `- \`${card.file}\` ${markdown(names.get(card.code) ?? card.name ?? "")} — stock \`${card.stockSha256 ?? "unrecorded"}\` → \`${card.actualSha256 ?? "removed"}\``) : ["None."]));
+    const patches = JSON.parse(await readFile(join(root, packagePath, "card-script-patches/MANIFEST.json"), "utf8")) as Array<{ stockPath: string; stockSha256: string }>;
+    const patchConflicts = detectOverlayConflicts(patches.map(patch => ({
+      ...patch, code: codeOf(patch.stockPath), file: patch.stockPath.split("/").pop()!,
+    })), stock);
+    report.push("", "## Card script patches", "",
+      ...(patchConflicts.length ? [
+        "**patch needs review**: candidate preparation and publication are blocked; all current data pins unchanged. The deployed stock files and reviewed patches remain in service until a human reviews the upstream change. No patch or baseline hash is changed automatically.", "",
+        ...patchConflicts.map(patch => `- \`${patch.stockPath}\` — **patch needs review**; expected \`${patch.stockSha256}\`; ${patch.actualSha256 ? `actual \`${patch.actualSha256}\`` : "removed"}`),
+      ] : ["All shared card-script patch stock hashes match the candidate."]));
     const risks = findNewRisks(stock, [...diff.added, ...diff.changed, ...releasePaths], undefined, loadedCodes);
     report.push("", `## New multiplayer risks (${risks.length})`, "", "scan-multiplayer-scripts: new/changed or released cards flagged F or ambiguous O, absent from MULTIPLAYER_FORBIDDEN / MULTIPLAYER_CARD_RULES.", "",
       ...(risks.length ? risks.map((card) => `- \`c${card.code}.lua\` ${markdown(names.get(card.code) ?? card.name)} — **${card.cls}**, ${card.rules.map((rule) => `\`${rule}\``).join(", ")}`) : ["None."]));
@@ -231,8 +240,15 @@ export async function runUpdate(options: Options = {}) {
     const allowed = (path: string) => !/^pre-release\/c\d+\.lua$/.test(path) ||
       (database.scriptCodes.has(codeOf(path)) && !stock.has(`official/c${codeOf(path)}.lua`));
     const changedPaths = [...new Set([...stock.keys()].filter(path => newTree.get(path) !== oldTree.get(path)).concat(releasePaths))].filter(allowed);
-    report[0] = `Needs review: ${conflicts.length} conflicts, ${risks.length} risks, ${shared.length} shared-script changes, probe errors not run, overlay check exit not run`;
+    report[0] = `Needs review: ${conflicts.length + patchConflicts.length} conflicts, ${risks.length} risks, ${shared.length} shared-script changes, probe errors not run, overlay check exit not run`;
     report.push("", "## Core compatibility", "", "Pending installed npm ocgcore-wasm@0.1.2 probe against candidate data.");
+    if (patchConflicts.length) {
+      report.unshift(`BLOCKING: ${patchConflicts.length} patch needs review; current pins and bundle retained.`, "");
+      await saveReport();
+      // The workflow publishes this report to its failure summary and artifact.
+      // Stop before rewriting pins, so duel:prepare cannot apply an unreviewed suffix.
+      throw new Error(`patch needs review: ${patchConflicts.map(patch => patch.stockPath).join(", ")}. Current pins unchanged. Report: ${reportPath}`);
+    }
     const files = await rewritePins(root, old, next, true);
     report.push("", "## Synchronized files", "", ...files.map((path) => `- \`${path}\``));
     report.push("", "## Deployment", "", "**Live-duel warning:** a data pin bump changes bundleVersion. On recovery after deploy, an active duel whose bundleVersion differs is interrupted. Drain active duels and merge at a quiet time. The deploy preflight may refuse until duels finish. **Replay-loss warning:** every data bump also makes replays of all earlier duels with a different bundleVersion unavailable; host replay recovery refuses the mismatch. The owner must account for this when deciding update cadence.");
