@@ -73,11 +73,6 @@ export function myPickText(opening: DuelRpsOpeningView, mySeat: number | null): 
   return { text: done ? "You chose" : "Choose your move", done };
 }
 
-export function waitChooseText(opening: DuelRpsOpeningView, mySeat: number | null, names: [string, string]): string {
-  if (mySeat == null) return `${opening.winnerSeat == null ? "The winner" : names[opening.winnerSeat]} is choosing to go first or second…`;
-  return "Opponent is choosing to go first or second…";
-}
-
 /** After the choice: who goes first, and how it was decided. */
 export function startText(opening: DuelRpsOpeningView, mySeat: number | null, names: [string, string]): string {
   const choice: DuelFirstChoice | null = opening.choice;

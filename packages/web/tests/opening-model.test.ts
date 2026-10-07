@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DUEL_OPENING_PICK_MS, type DuelRpsOpeningView } from "@yugidraft/shared/duels";
 import {
-  myPickText, openingStage, opponentPickText, revealEndsAt, revealOutcome, startText, waitChooseText,
+  myPickText, openingStage, opponentPickText, revealEndsAt, revealOutcome, startText,
 } from "../src/components/duel/opening-model";
 
 const NOW = 1_000_000;
@@ -79,11 +79,6 @@ describe("state chips", () => {
     expect(myPickText(view(), 0)).toEqual({ text: "Choose your move", done: false });
     expect(myPickText(view({ picked: [true, false] }), 0)).toEqual({ text: "You chose", done: true });
     expect(myPickText(view(), null)).toBeNull();
-  });
-
-  it("tells the loser that the opponent chooses first or second", () => {
-    expect(waitChooseText(view({ phase: "choose", winnerSeat: 1 }), 0, NAMES)).toBe("Opponent is choosing to go first or second…");
-    expect(waitChooseText(view({ phase: "choose", winnerSeat: 1 }), null, NAMES)).toBe("Kaiba is choosing to go first or second…");
   });
 
   it("tells who goes first, and when time ran out", () => {

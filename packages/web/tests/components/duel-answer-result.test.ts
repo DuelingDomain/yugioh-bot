@@ -1,10 +1,28 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DuelRoom } from "@yugidraft/shared/duels";
 import { applyAnswerResult } from "@/components/duel/answer-result";
 
 const room = (extra: Record<string, unknown> = {}) => ({ session: {}, engine: { revision: 4 }, ...extra }) as unknown as DuelRoom;
 
+afterEach(() => vi.restoreAllMocks());
+
 describe("applyAnswerResult", () => {
+  it("stores the receive time with an unstamped answer room", async () => {
+    vi.spyOn(performance, "now").mockReturnValue(1_500);
+    const mutate = vi.fn(async () => undefined);
+    const answer = room();
+    await applyAnswerResult(mutate, answer);
+    expect(mutate).toHaveBeenCalledWith({ ...answer, receivedAt: 1_500 }, { revalidate: false });
+  });
+
+  it.each([0, 1_000])("keeps the original receive time %s when caching a stamped room later", async (receivedAt) => {
+    vi.spyOn(performance, "now").mockReturnValue(5_000);
+    const mutate = vi.fn(async () => undefined);
+    const answer = room({ receivedAt });
+    await applyAnswerResult(mutate, answer);
+    expect(mutate).toHaveBeenCalledWith(answer, { revalidate: false });
+  });
+
   it("applies the answered room without asking for the room again, and does not wait for a second read", async () => {
     const mutate = vi.fn(async () => undefined);
     await applyAnswerResult(mutate, room());
