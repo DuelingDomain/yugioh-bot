@@ -553,15 +553,22 @@ describe("the pinned card peek of the 1v1 room", () => {
     type Box = { left: number; right: number; top: number; bottom: number };
     const spies: Array<{ mockRestore: () => void }> = [];
     /** jsdom has no layout: the clicked card gets `box`, and the panel gets the size and the place that its CSS gives it at 1280 x 720. */
-    function layout(box: Box) {
+    function layout(box: Box, fits: (panel: HTMLElement) => boolean = () => true) {
       const rect = (b: Box) => ({ ...b, x: b.left, y: b.top, width: b.right - b.left, height: b.bottom - b.top, toJSON: () => ({}) });
       const isPanel = (node: HTMLElement) => node.getAttribute("data-testid") === "hover-preview";
       const widthOf = (node: HTMLElement) => parseInt(node.style.getPropertyValue("--pin-w") || "700", 10);
       spies.push(
         vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+          if (this === document.body) return rect({ left: 0, right: 1280, top: 0, bottom: 720 }) as DOMRect;
           return rect(this.getAttribute("data-testid") === "field-pick" ? box : { left: 0, right: 0, top: 0, bottom: 0 }) as DOMRect;
         }),
         vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (this: HTMLElement) { return isPanel(this) ? widthOf(this) : 0; }),
+        // The effect text is 200 px tall when it fits, and 100 px more when `fits` says the place is too small for it.
+        vi.spyOn(Element.prototype, "clientHeight", "get").mockImplementation(function (this: Element) { return this.tagName === "P" ? 200 : 0; }),
+        vi.spyOn(Element.prototype, "scrollHeight", "get").mockImplementation(function (this: Element) {
+          const panel = this.closest<HTMLElement>('[data-testid="hover-preview"]');
+          return this.tagName === "P" ? 200 + (panel && !fits(panel) ? 100 : 0) : 0;
+        }),
         vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) { return isPanel(this) ? 300 : 0; }),
         vi.spyOn(HTMLElement.prototype, "offsetTop", "get").mockImplementation(function (this: HTMLElement) { return isPanel(this) ? 56 : 0; }),
         vi.spyOn(HTMLElement.prototype, "offsetLeft", "get").mockImplementation(function (this: HTMLElement) {
@@ -600,7 +607,8 @@ describe("the pinned card peek of the 1v1 room", () => {
       mount();
       pin();
       expect(peek().getAttribute("data-side")).toBe("left");
-      expect(peek().style.getPropertyValue("--pin-w")).toBe("600px");
+      // The widest panel that still ends before the card: 650 (card) - 12 (gap) - 72 (the left edge).
+      expect(peek().style.getPropertyValue("--pin-w")).toBe("566px");
       expect(peek().getAttribute("data-narrow")).toBeNull();
     });
 
@@ -611,6 +619,38 @@ describe("the pinned card peek of the 1v1 room", () => {
       expect(peek().getAttribute("data-side")).toBe("left");
       expect(peek().style.getPropertyValue("--pin-w")).toBe("430px");
       expect(peek().getAttribute("data-narrow")).toBe("true");
+    });
+
+    /** The pinned card of the stub field has a printed text, so the panel has a text to fit. */
+    function mountWithText() {
+      const room = makeRoom();
+      const seat = room.engine!.seats[1] as unknown as { monsters: Array<{ description?: string } | null> };
+      seat.monsters[2] = { ...seat.monsters[2]!, description: "A long printed text." };
+      swr.data = room;
+      render(<DuelRoomView slug="abc" windowed />);
+    }
+
+    it("makes the art smaller before the effect text scrolls", () => {
+      layout({ left: 900, right: 980, top: 300, bottom: 420 }, (panel) => panel.getAttribute("data-art") === "small");
+      mountWithText();
+      pin();
+      expect(peek().getAttribute("data-art")).toBe("small");
+      expect(peek().style.getPropertyValue("--pin-w")).toBe("700px");
+    });
+
+    it("makes the panel wider before the effect text scrolls", () => {
+      layout({ left: 1200, right: 1270, top: 300, bottom: 420 }, (panel) => parseInt(panel.style.getPropertyValue("--pin-w"), 10) >= 820);
+      mountWithText();
+      pin();
+      expect(peek().style.getPropertyValue("--pin-w")).toBe("820px");
+      expect(peek().getAttribute("data-art")).toBeNull();
+    });
+
+    it("drops the art only when nothing else makes the effect text fit", () => {
+      layout({ left: 900, right: 980, top: 300, bottom: 420 }, (panel) => panel.getAttribute("data-art") === "none");
+      mountWithText();
+      pin();
+      expect(peek().getAttribute("data-art")).toBe("none");
     });
 
     it("keeps the wide left panel for a card below it", () => {
