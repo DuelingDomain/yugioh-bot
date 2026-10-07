@@ -31,7 +31,7 @@ const TABS: Array<{ value: AddTab; label: string }> = [
   { value: "list", label: "Card list" },
 ];
 
-interface Note {
+export interface Note {
   tone: "ok" | "bad";
   text: string;
   /** What a list import left over: corrected names and skipped lines. */
@@ -40,7 +40,7 @@ interface Note {
 
 const NOT_REACHABLE = "The card database may be unreachable.";
 
-function NoteLine({ note }: { note: Note | null }) {
+export function NoteLine({ note }: { note: Note | null }) {
   // The live region stays in the page so a result is announced when it appears.
   return (
     <>
@@ -57,7 +57,7 @@ function NoteLine({ note }: { note: Note | null }) {
   );
 }
 
-function Hint({ children }: { children: React.ReactNode }) {
+export function Hint({ children }: { children: React.ReactNode }) {
   return (
     <p className={`${styles.note} ${styles.quiet}`}>
       <Info size={16} aria-hidden="true" />
@@ -71,7 +71,7 @@ function Hint({ children }: { children: React.ReactNode }) {
  * whether this tab is still showing and the editor is still in the same session (no Cancel, Change cube, Reset
  * or save since), so an answer from before never lands in a newer pool.
  */
-function useAddGuard(ctl: PoolEditor) {
+export function useAddGuard(ctl: PoolEditor) {
   const mounted = React.useRef(true);
   React.useEffect(() => {
     mounted.current = true;
@@ -115,9 +115,9 @@ export function AddCards({ ctl, initialTab }: { ctl: PoolEditor; initialTab: Add
   );
 }
 
-type TabProps = { ctl: PoolEditor; setNote: (note: Note | null) => void };
+export type TabProps = { ctl: PoolEditor; setNote: (note: Note | null) => void };
 
-function CardTab({ ctl, setNote }: TabProps) {
+export function CardTab({ ctl, setNote }: TabProps) {
   const inputId = React.useId();
   const [query, setQuery] = React.useState("");
   const [results, setResults] = React.useState<CardSummary[]>([]);
@@ -235,7 +235,7 @@ function CardTab({ ctl, setNote }: TabProps) {
   );
 }
 
-function ArchetypeTab({ ctl, setNote }: TabProps) {
+export function ArchetypeTab({ ctl, setNote }: TabProps) {
   const begin = useAddGuard(ctl);
   const inputId = React.useId();
   const [query, setQuery] = React.useState("");
@@ -335,7 +335,7 @@ function ArchetypeTab({ ctl, setNote }: TabProps) {
   );
 }
 
-function SetTab({ ctl, setNote }: TabProps) {
+export function SetTab({ ctl, setNote }: TabProps) {
   const begin = useAddGuard(ctl);
   const [sets, setSets] = React.useState<SetInfo[] | null>(null);
   const [failed, setFailed] = React.useState(false);
@@ -439,7 +439,7 @@ function SetTab({ ctl, setNote }: TabProps) {
 /**
  * Card list: names, passcodes, YDK text or a ydke link. A paste or a loaded file is added at once, typed text on Enter or Add. Every list that went in stays under the box with a Remove button that takes out only its copies.
  */
-function ListTab({ ctl }: { ctl: PoolEditor }) {
+export function ListTab({ ctl }: { ctl: PoolEditor }) {
   const ctlRef = React.useRef(ctl);
   ctlRef.current = ctl;
 
