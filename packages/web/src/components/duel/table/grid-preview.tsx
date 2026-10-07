@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { X } from "lucide-react";
 import type { DuelCard, DuelCardInfo } from "@yugidraft/shared/duels";
 import { cardTextStyle, useCardTextSize } from "../card-text-size";
@@ -19,10 +19,31 @@ const MIN_ART_PX = 90;
  */
 type Place = { side: "left" | "right"; width: number; art: "normal" | "small" | "none" };
 const SIDES = ["left", "right"] as const;
-const WIDE_PLACES: ReadonlyArray<Place> = [700, 820, 940].flatMap((width) => (["normal", "small"] as const).flatMap((art) => SIDES.map((side) => ({ side, width, art }))));
+/** The widths of the wide places: the standard ones up to `cap`, then `cap` itself (the panel stays under 60% of the layer, so it never hides the board). */
+const wideWidths = (cap: number) => [...[700, 820, 940].filter((width) => width < cap), Math.max(700, cap)];
+const widePlaces = (cap: number): Place[] => wideWidths(cap).flatMap((width) => (["normal", "small"] as const).flatMap((art) => SIDES.map((side) => ({ side, width, art }))));
 const NARROW_PLACES: ReadonlyArray<Place> = [600, 520, 430].flatMap((width) => SIDES.map((side) => ({ side, width, art: "small" as const })));
-const NO_ART_PLACES: ReadonlyArray<Place> = [940, 700, 520].flatMap((width) => SIDES.map((side) => ({ side, width, art: "none" as const })));
-const FIRST_PLACE = WIDE_PLACES[0];
+const noArtPlaces = (cap: number): Place[] => [...new Set([Math.max(700, cap), 700, 520])].flatMap((width) => SIDES.map((side) => ({ side, width, art: "none" as const })));
+const FIRST_PLACE: Place = { side: "left", width: 700, art: "normal" };
+/** The widest the panel gets, as a share of the layer: the board stays readable (but never under the standard width). */
+const MAX_WIDTH_SHARE = 0.6;
+/** The room kept between the panel and the controls at the bottom right. */
+const CONTROLS_GAP_PX = 10;
+/** How often a pinned panel looks at the clicked card and the controls: a camera move or a prompt can change them with no event. */
+const WATCH_MS = 250;
+/** The top of the bottom right controls (the turn buttons, with the prompt panel that opens above them), or `null`. */
+function controlsTop(): number | null {
+  const corner = document.querySelector<HTMLElement>('[data-testid="hud-corner"]');
+  if (!corner) return null;
+  const own = corner.getBoundingClientRect();
+  if (own.width <= 0 || own.height <= 0) return null;
+  let top = own.top;
+  for (const child of corner.querySelectorAll<HTMLElement>("*")) {
+    const rect = child.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0 && rect.top < top) top = rect.top;
+  }
+  return top;
+}
 /** The gap kept between the panel and the clicked card, and the offsets of the panel from the layer edges (grid-hud.module.css). */
 const CLEAR_GAP_PX = 12;
 const EDGE_LEFT_PX = 72;
@@ -110,12 +131,20 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
   // Where the pinned panel stands: the first of left, right, then both again narrower, that keeps clear of the clicked card.
   const [spot, setSpot] = useState<Place>(FIRST_PLACE);
   const [resizeTick, setResizeTick] = useState(0);
+  // What the placement saw last: the clicked card and the controls. A change (a camera move, a prompt that opens) places the panel again.
+  const watched = useRef("");
+  const watch = useCallback(() => {
+    const card = avoid?.isConnected ? avoid.getBoundingClientRect() : null;
+    const controls = controlsTop();
+    return `${card ? [card.left, card.top, card.width, card.height].map(Math.round).join(",") : ""}|${controls == null ? "" : Math.round(controls)}`;
+  }, [avoid]);
   useEffect(() => {
     if (!wide) return;
-    const onResize = () => setResizeTick((tick) => tick + 1);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, [wide]);
+    const again = () => setResizeTick((tick) => tick + 1);
+    const timer = window.setInterval(() => { if (watch() !== watched.current) again(); }, WATCH_MS);
+    window.addEventListener("resize", again);
+    return () => { window.clearInterval(timer); window.removeEventListener("resize", again); };
+  }, [wide, watch]);
   useLayoutEffect(() => {
     const aside = asideRef.current;
     if (!aside || !wide) return;
@@ -123,18 +152,23 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
     const hasTarget = target != null && target.width > 0 && target.height > 0;
     const parent = (aside.offsetParent ?? document.body).getBoundingClientRect();
     const text = textRef.current;
+    const cap = Math.round(parent.width * MAX_WIDTH_SHARE);
+    // The bottom right controls are the floor of a panel on the right: it grows down to just above them.
+    const controls = controlsTop();
+    if (controls != null) aside.style.setProperty("--pv-reserve-right", `${Math.max(0, Math.round(parent.bottom - controls + CONTROLS_GAP_PX))}px`);
+    else aside.style.removeProperty("--pv-reserve-right");
     // The widest panel that still stands clear of the card on each side, tried right after the standard widths.
     const clear = hasTarget
       ? (["left", "right"] as const).flatMap((side) => {
           const width = Math.floor(side === "left" ? target.left - CLEAR_GAP_PX - (parent.left + EDGE_LEFT_PX) : parent.right - EDGE_RIGHT_PX - (target.right + CLEAR_GAP_PX));
-          return width >= 430 && width < 940 ? (["normal", "small", "none"] as const).map((art) => ({ side, width, art })) : [];
+          return width >= 430 && width < Math.max(700, cap) ? (["normal", "small", "none"] as const).map((art) => ({ side, width, art })) : [];
         })
       : [];
     const candidates = [
-      ...WIDE_PLACES,
+      ...widePlaces(cap),
       ...clear.filter((candidate) => candidate.art !== "none"),
       ...NARROW_PLACES,
-      ...NO_ART_PLACES,
+      ...noArtPlaces(cap),
       ...clear.filter((candidate) => candidate.art === "none"),
     ];
     let chosen = candidates[0];
@@ -155,8 +189,9 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
       if (rank === 0) break;
     }
     place(aside, chosen);
+    watched.current = watch();
     setSpot((previous) => (previous.side === chosen.side && previous.width === chosen.width && previous.art === chosen.art ? previous : chosen));
-  }, [wide, avoid, current, textSize, resizeTick]);
+  }, [wide, avoid, current, textSize, resizeTick, watch]);
   if (!current) return null;
 
   const stats = cardStatsText(current);
