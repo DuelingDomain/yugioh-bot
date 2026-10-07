@@ -2,6 +2,9 @@ import { createClerkBackend, ClerkBackendError, profileFromClerkUser } from "@yu
 import { createUserService, type LinkOutcome } from "@yugidraft/shared/services";
 import { getDb } from "./db";
 const inFlight = new Map<string, Promise<LinkOutcome>>();
+export async function settleClerkSync(clerkUserId: string): Promise<void> {
+  try { await inFlight.get(clerkUserId); } catch {}
+}
 export function syncClerkUser(clerkUserId: string): Promise<LinkOutcome> {
   const pending = inFlight.get(clerkUserId);
   if (pending) return pending;
@@ -14,10 +17,12 @@ export function syncClerkUser(clerkUserId: string): Promise<LinkOutcome> {
     if (!json || json.id !== clerkUserId) throw new ClerkBackendError("Clerk user is unavailable", 0, "missing_user", null);
     const outcome = createUserService(getDb()).resolveClerkProfile(profileFromClerkUser(json));
     if (outcome.foldedUserId !== null || json.external_id !== String(outcome.user.id)) {
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try { await backend.updateUserExternalId(clerkUserId, String(outcome.user.id)); break; }
-        catch { if (attempt === 2) console.warn("[clerk-sync] External identity repair failed"); }
-      }
+      void (async () => {
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try { await backend.updateUserExternalId(clerkUserId, String(outcome.user.id)); break; }
+          catch { if (attempt === 2) console.warn("[clerk-sync] External identity repair failed"); }
+        }
+      })().catch(() => {});
     }
     return outcome;
   })();

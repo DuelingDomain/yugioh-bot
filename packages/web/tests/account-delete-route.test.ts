@@ -7,15 +7,18 @@ const s = vi.hoisted(() => ({
   db: null as Database.Database | null,
   access: vi.fn(),
   deleteUser: vi.fn(),
+  getUser: vi.fn(),
+  updateUserExternalId: vi.fn(),
   createBackend: vi.fn(),
 }));
 vi.mock("@/lib/db", () => ({ getDb: () => s.db! }));
 vi.mock("@/lib/web-access", () => ({ requireWebAccess: s.access }));
 vi.mock("@yugidraft/shared/clerk", async original => ({
   ...await original<typeof import("@yugidraft/shared/clerk")>(),
-  createClerkBackend: (...args: unknown[]) => { s.createBackend(...args); return { deleteUser: s.deleteUser }; },
+  createClerkBackend: (...args: unknown[]) => { s.createBackend(...args); return { deleteUser: s.deleteUser, getUser: s.getUser, updateUserExternalId: s.updateUserExternalId }; },
 }));
 import { POST } from "../app/api/account/delete/route";
+import { syncClerkUser } from "../src/lib/clerk-sync";
 
 const E2E_SECRET = "e".repeat(32);
 const req = (body: unknown, raw = false) =>
@@ -102,6 +105,29 @@ it("removes a user with no history entirely", async () => {
   const res = await POST(req({ confirm: "three" }));
   expect(res.status).toBe(200);
   expect(rowOf(3)).toBeUndefined();
+});
+
+it("settles a fetched profile sync before anonymising the account", async () => {
+  const profile = { id: "user_one", username: "Yugi_1", first_name: "Display", last_name: "Name", image_url: null, external_id: "1",
+    primary_email_address_id: "email_one", email_addresses: [{ id: "email_one", email_address: "one@example.com", verification: { status: "verified" } }],
+    external_accounts: [{ provider: "oauth_discord", provider_user_id: "111", verification: { status: "verified" } }] };
+  let finishGet!: (value: typeof profile) => void;
+  s.getUser.mockReturnValue(new Promise<typeof profile>(resolve => { finishGet = resolve; }));
+  let deleted!: () => void;
+  const clerkDeleted = new Promise<void>(resolve => { deleted = resolve; });
+  s.deleteUser.mockImplementation(async () => { deleted(); });
+  const sync = syncClerkUser("user_one");
+  const deletion = POST(req({ confirm: "Yugi_1" }));
+  await clerkDeleted;
+  await new Promise<void>(resolve => setImmediate(resolve));
+  finishGet(profile);
+  const res = await deletion;
+  const anonymised = rowOf(1);
+  await sync;
+  expect(res.status).toBe(200);
+  expect(s.db!.prepare("select count(*) n from users where email='one@example.com'").get()).toEqual({ n: 0 });
+  expect(rowOf(1)).toEqual(anonymised);
+  expect(rowOf(1)).toMatchObject({ clerk_user_id: null, email: null, username: "deleted-1", display_name: "Deleted player", discord_user_id: null });
 });
 
 it.each([

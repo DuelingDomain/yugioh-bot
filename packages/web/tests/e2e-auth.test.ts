@@ -32,4 +32,14 @@ describe("signed E2E cookie", () => {
     expect(isE2EAuthEnabled({ NODE_ENV: "test", ...env })).toBe(true); env.E2E_AUTH = "0";
     expect(isE2EAuthEnabled({ NODE_ENV: "test", ...env })).toBe(false);
   });
+  it.each([
+    { CLERK_SECRET_KEY: "sk_live_secret" },
+    { NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_live_publishable" },
+  ])("keeps the gate closed next to live Clerk keys: %j", keys => {
+    expect(isE2EAuthEnabled({ NODE_ENV: "test", E2E_AUTH: "1", E2E_AUTH_SECRET: secret, ...keys })).toBe(false);
+  });
+  it("allows test Clerk keys even in a production E2E build", () => {
+    expect(isE2EAuthEnabled({ NODE_ENV: "production", E2E_AUTH: "1", E2E_AUTH_SECRET: secret,
+      CLERK_SECRET_KEY: "sk_test_secret", NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_test_publishable" })).toBe(true);
+  });
 });

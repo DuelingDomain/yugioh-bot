@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { ClerkBackendError, createClerkBackend } from "@yugidraft/shared/clerk";
 import { createUserService, deleteUserAccount } from "@yugidraft/shared/services";
 import { readJsonBody } from "@/lib/bug-reports/read-body";
+import { settleClerkSync } from "@/lib/clerk-sync";
 import { getDb } from "@/lib/db";
 import { E2E_SESSION_COOKIE, isE2EAuthEnabled } from "@/lib/e2e-auth";
 import { requireWebAccess } from "@/lib/web-access";
@@ -13,8 +14,9 @@ const fail = (error: string, status: number) => Response.json({ error }, { statu
 
 /**
  * Self-serve account deletion. The person types their current username to confirm. The Clerk user is deleted
- * first (a 404 counts as gone) so no live session can re-create a row; only then does one database transaction
- * anonymise or remove the account. A Clerk failure changes nothing (503). A database failure after Clerk is
+ * first (a 404 counts as gone), then any in-flight profile sync settles before the database transaction
+ * anonymises or removes the account. Later syncs fail at Clerk's getUser (404), so none can re-create a row.
+ * A Clerk failure changes nothing (503). A database failure after Clerk is
  * logged with the user ID only (500); `npm run ops -- delete-user --apply` finishes it.
  */
 export async function POST(request: Request) {
@@ -39,6 +41,7 @@ export async function POST(request: Request) {
       console.error(`[account-delete] Clerk deletion failed for user ${access.userId} (status ${error instanceof ClerkBackendError ? error.status : 0})`);
       return fail("retry_later", 503);
     }
+    await settleClerkSync(user.clerkUserId);
   }
 
   try {

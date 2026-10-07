@@ -11,12 +11,22 @@ beforeEach(() => { s.db = new Database(":memory:"); migrate(s.db); vi.clearAllMo
 afterEach(() => { s.db?.close(); vi.unstubAllEnvs(); });
 it("fetches outside a transaction and retries external ID repair twice", async () => {
  s.get.mockImplementation(async () => { expect(s.db!.inTransaction).toBe(false); return json; }); s.update.mockRejectedValueOnce(new Error("transport")).mockRejectedValueOnce(new Error("transport"));
- const outcome = await syncClerkUser("user_sync"); expect(outcome.user.clerkUserId).toBe("user_sync"); expect(s.update).toHaveBeenCalledTimes(3); expect(s.update).toHaveBeenLastCalledWith("user_sync", String(outcome.user.id));
+ const outcome = await syncClerkUser("user_sync"); expect(outcome.user.clerkUserId).toBe("user_sync"); await vi.waitFor(() => expect(s.update).toHaveBeenCalledTimes(3)); expect(s.update).toHaveBeenLastCalledWith("user_sync", String(outcome.user.id));
 });
 it("does not fail a committed sync if external ID repair remains unavailable", async () => {
  s.update.mockRejectedValue(new Error("secret or identity must never be logged")); const log = vi.spyOn(console, "warn").mockImplementation(() => {});
- try { const result = await syncClerkUser("user_sync"); expect(createUserService(s.db!).findById(result.user.id)?.clerkUserId).toBe("user_sync"); expect(log.mock.calls.flat().join(" ")).not.toContain("secret or identity"); } finally { log.mockRestore(); }
+ try { const result = await syncClerkUser("user_sync"); expect(createUserService(s.db!).findById(result.user.id)?.clerkUserId).toBe("user_sync"); await vi.waitFor(() => expect(log).toHaveBeenCalledExactlyOnceWith("[clerk-sync] External identity repair failed")); expect(s.update).toHaveBeenCalledTimes(3); expect(log.mock.calls.flat().join(" ")).not.toContain("secret or identity"); } finally { log.mockRestore(); }
 });
 it("clears an unsuccessful in-flight request so a later request can retry", async () => {
  s.get.mockRejectedValueOnce(new Error("failed")); await expect(syncClerkUser("user_sync")).rejects.toThrow("failed"); expect((await syncClerkUser("user_sync")).user.clerkUserId).toBe("user_sync"); expect(s.get).toHaveBeenCalledTimes(2);
+});
+it("returns the committed outcome while external ID repair is still pending", async () => {
+ let finishRepair!: (value: typeof json) => void;
+ s.update.mockReturnValue(new Promise<typeof json>(resolve => { finishRepair = resolve; }));
+ const sync = syncClerkUser("user_sync");
+ try {
+  const result = await Promise.race([sync, new Promise<null>(resolve => setImmediate(() => resolve(null)))]);
+  expect(result).not.toBeNull();
+  expect(createUserService(s.db!).findById(result!.user.id)?.clerkUserId).toBe("user_sync");
+ } finally { finishRepair(json); await sync; }
 });

@@ -3,6 +3,8 @@ export const E2E_SESSION_COOKIE = "dd_e2e_session";
 export const E2E_SESSION_TTL_SECONDS = 3600;
 export const E2E_AUTH_SECRET_MIN_LENGTH = 32;
 export function isE2EAuthEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  // Production always has live keys, so E2E login must stay disabled alongside them.
+  if (env.CLERK_SECRET_KEY?.startsWith("sk_live_") || env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.startsWith("pk_live_")) return false;
   return env.E2E_AUTH === "1" && (env.E2E_AUTH_SECRET?.length ?? 0) >= E2E_AUTH_SECRET_MIN_LENGTH;
 }
 function signature(payload: string, secret: string): Buffer {
