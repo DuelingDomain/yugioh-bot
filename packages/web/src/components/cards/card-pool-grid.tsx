@@ -104,7 +104,6 @@ function CardPoolGridBase({
   const [activeFilter, setActiveFilter] = useState<PoolFilter>("all");
   const [activeSort, setActiveSort] = useState<PoolSort>("newest");
   const [activeTribute, setActiveTribute] = useState<PoolTribute>("any");
-  const [hoveredCard, setHoveredCard] = useState<CardSummary | null>(null);
   const [tapped, setTapped] = useState<CardSummary | null>(null);
   const [popupPosition, setPopupPosition] = useState<{ left: number; top: number } | null>(null);
   const [imageErrors, setImageErrors] = useState<Set<number>>(new Set());
@@ -120,11 +119,6 @@ function CardPoolGridBase({
   }, []);
 
   const handleImageError = useCallback((id: number) => setImageErrors((p) => new Set(p).add(id)), []);
-  const handleEnter = useCallback((card: CardSummary, rect: DOMRect) => {
-    setHoveredCard(card);
-    setPopupPosition(getPopupPosition(rect));
-  }, []);
-  const handleLeave = useCallback(() => { setHoveredCard(null); setPopupPosition(null); }, []);
 
   const { monsterCount, spellCount, trapCount } = useMemo(() => ({
     monsterCount: cards.filter((c) => isMonster(c.type)).length,
@@ -228,16 +222,6 @@ function CardPoolGridBase({
     const totalCards = cards.length;
     const popups = (
       <>
-        {hoveredCard && popupPosition && !tapped && (
-          <SheetPortal>
-            <CardHoverPopup
-              card={hoveredCard}
-              position={popupPosition}
-              imageError={imageErrors.has(hoveredCard.id)}
-              onImageError={() => handleImageError(hoveredCard.id)}
-            />
-          </SheetPortal>
-        )}
         {previewEnabled && tapped && popupPosition && (
           <SheetPortal>
             <CardHoverPopup
@@ -352,10 +336,6 @@ function CardPoolGridBase({
                               setTapped(entry.card);
                               setPopupPosition(getPopupPosition(e.currentTarget.getBoundingClientRect()));
                             }}
-                            onMouseEnter={(e) => handleEnter(entry.card, e.currentTarget.getBoundingClientRect())}
-                            onMouseLeave={handleLeave}
-                            onFocus={(e) => handleEnter(entry.card, e.currentTarget.getBoundingClientRect())}
-                            onBlur={handleLeave}
                           >
                             <span className="ct-art">
                               {imageErrors.has(entry.card.id) ? (
@@ -535,10 +515,6 @@ function CardPoolGridBase({
                           setTapped(entry.card);
                           setPopupPosition(getPopupPosition(e.currentTarget.getBoundingClientRect()));
                         }}
-                        onMouseEnter={(e) => handleEnter(entry.card, e.currentTarget.getBoundingClientRect())}
-                        onMouseLeave={handleLeave}
-                        onFocus={(e) => handleEnter(entry.card, e.currentTarget.getBoundingClientRect())}
-                        onBlur={handleLeave}
                       >
                         <div className="relative aspect-[421/614] w-full overflow-hidden rounded-md bg-bg-elevated">
                           {imageErrors.has(entry.card.id) ? (
@@ -604,14 +580,6 @@ function CardPoolGridBase({
         )}
       </div>
 
-      {hoveredCard && popupPosition && !tapped && (
-        <CardHoverPopup
-          card={hoveredCard}
-          position={popupPosition}
-          imageError={imageErrors.has(hoveredCard.id)}
-          onImageError={() => handleImageError(hoveredCard.id)}
-        />
-      )}
       {previewEnabled && tapped && popupPosition && (
         <CardHoverPopup
           card={tapped}
