@@ -112,7 +112,6 @@ export function useCamera({ controller, layout, initial, initialLock = null, sea
       if (keyRef.current.uprightOnly && event.key !== "s" && event.key !== "S") return;
       const target = event.target as HTMLElement | null;
       if (target?.closest?.('[role="dialog"][aria-modal="true"]') || document.querySelector('[aria-modal="true"]')) return;
-      if (event.key === "Tab" && target?.closest?.("[data-slot='prompt'], [role='dialog']")) return;
       // The rail and the drawer are ordinary controls: Tab walks through them, Space presses a button, and no key drives the camera from there.
       if (target?.closest?.("[data-table-chrome]")) return;
       if (/^[1-9]$/.test(event.key) && keyRef.current.seatKeys) return;
@@ -120,7 +119,7 @@ export function useCamera({ controller, layout, initial, initialLock = null, sea
       if (event.key === "Escape" && (event.defaultPrevented || escapeOwned.current || document.querySelector("[role='dialog']:not([hidden]), [role='menu']:not([hidden])"))) return;
       const action = cameraActionForKey(event, env.current.layout, keyRef.current.state, env.current.ctx);
       if (!action) return;
-      if (event.key === "Tab" || event.key === " " || event.key === "s" || event.key === "S") event.preventDefault();
+      if (event.key === " " || event.key === "s" || event.key === "S") event.preventDefault();
       dispatch(action);
     };
     window.addEventListener("keydown", onKey);

@@ -205,10 +205,13 @@ export function cameraActionForKey(
 ): CameraAction | null {
   const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
   const faceOff = isFaceOff(layout, ctx?.out ?? []);
-  if (faceOff && (key === "Tab" || key === "o" || key === "0" || key === "f" || key === "p" || key === "Escape")) return null;
+  if (faceOff && (key === "]" || key === "[" || key === "o" || key === "0" || key === "f" || key === "p" || key === "Escape")) return null;
   switch (key) {
-    case "Tab":
-      return { type: "focusStep", dir: event.shiftKey ? -1 : 1 };
+    // Tab is left to the browser: the seat boxes are keyboard stops. [ and ] walk the rivals.
+    case "]":
+      return { type: "focusStep", dir: 1 };
+    case "[":
+      return { type: "focusStep", dir: -1 };
     case "h":
       return { type: "home" };
     case "o":

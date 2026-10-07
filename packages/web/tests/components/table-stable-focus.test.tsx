@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import React from "react";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DuelEvent } from "@yugidraft/shared/duels";
 
@@ -216,11 +217,32 @@ describe("3-way: a click on a field enlarges it, and nothing else does", () => {
     const { container } = render(<Table state={variant(() => {})} />);
     const box = seatBox(container, RYO);
     expect(box.getAttribute("tabindex")).toBe("0");
+    expect(box.getAttribute("role")).toBe("button");
+    expect(box.getAttribute("aria-pressed")).toBe("false");
     expect(box.getAttribute("aria-label")).toContain("Ryo Sato");
     fireEvent.keyDown(box, { key: "Enter" });
     expect(chip(container)).toBe("Focus · Ryo Sato");
+    expect(seatBox(container, RYO).getAttribute("aria-pressed")).toBe("true");
     fireEvent.keyDown(seatBox(container, RYO), { key: " " });
     expect(chip(container)).toBe("Home");
+  });
+
+  it("Tab reaches a seat box and Enter enlarges it: the camera does not take Tab", async () => {
+    // user-event waits on timers, which the fake clock of this file would never fire.
+    vi.useRealTimers();
+    const user = userEvent.setup({ delay: null });
+    const { container } = render(<Table state={idle()} />);
+    let stops = 0;
+    while (!(document.activeElement as HTMLElement | null)?.hasAttribute("data-seat-slot") && stops < 80) {
+      await user.tab();
+      stops += 1;
+    }
+    expect(stops).toBeLessThan(80);
+    const keyDown = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    window.dispatchEvent(keyDown);
+    expect(keyDown.defaultPrevented).toBe(false);
+    await user.keyboard("{Enter}");
+    expect(chip(container)).toMatch(/^Focus · /);
   });
 
   it("an enlarged field stays enlarged through an attack, a chain and a new turn", () => {

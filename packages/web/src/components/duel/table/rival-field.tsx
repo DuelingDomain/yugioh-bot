@@ -66,9 +66,10 @@ export function RivalField({ pose, field, render, angleOffsetDeg = 0, placement,
       hidden={pose.hidden || undefined}
       {...(reach
         ? {
-            role: "group",
+            role: "button",
             tabIndex: 0,
-            "aria-label": `${reach.label}. ${enlarged ? "Enlarged. Press Enter to go back." : "Press Enter to enlarge."}`,
+            "aria-pressed": enlarged,
+            "aria-label": `${reach.label}. ${enlarged ? "Press Enter to go back." : "Press Enter to enlarge."}`,
             onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {
               // Keys of the controls inside the field stay theirs.
               if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;

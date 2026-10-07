@@ -285,9 +285,11 @@ describe("cameraActionForKey", () => {
   const key = (k: string, shiftKey = false, camera: CameraState = HOME, layout: TableLayout = L3) =>
     cameraActionForKey({ key: k, shiftKey }, layout, camera);
 
-  it("Tab and Shift+Tab step the focus", () => {
-    expect(key("Tab")).toEqual({ type: "focusStep", dir: 1 });
-    expect(key("Tab", true)).toEqual({ type: "focusStep", dir: -1 });
+  it("] and [ step the focus, and Tab is left to the browser", () => {
+    expect(key("]")).toEqual({ type: "focusStep", dir: 1 });
+    expect(key("[")).toEqual({ type: "focusStep", dir: -1 });
+    expect(key("Tab")).toBeNull();
+    expect(key("Tab", true)).toBeNull();
   });
 
   it("maps H, O, 0, F, S in both cases", () => {
@@ -349,7 +351,7 @@ describe("4-way camera", () => {
   const home4 = initialCamera(L4);
   const step = (state: CameraState, dir: 1 | -1) => run(state, { type: "focusStep", dir }, L4);
 
-  it("Tab walks the three rivals and comes back home", () => {
+  it("Stepping walks the three rivals and comes back home", () => {
     const first = step(home4, 1);
     expect([first.mode, first.focusSeat]).toEqual(["focus", 1]);
     const second = step(first, 1);
@@ -391,7 +393,7 @@ describe("the 3-way face-off has one view", () => {
   });
 
   it("turns the camera keys off, and keeps the others", () => {
-    for (const k of ["0", "o", "Tab", "p", "f", "Escape", "2", "3"]) expect(key(k)).toBeNull();
+    for (const k of ["0", "o", "]", "[", "p", "f", "Escape", "2", "3"]) expect(key(k)).toBeNull();
     expect(key("1")).toEqual({ type: "home" });
     expect(key("h")).toEqual({ type: "home" });
     expect(key("s")).toEqual({ type: "toggleUpright" });

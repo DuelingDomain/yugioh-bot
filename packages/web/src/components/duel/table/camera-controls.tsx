@@ -106,7 +106,7 @@ export function CameraControls({ layout, camera, locked, hint = null, nameOf, di
   const label = cameraLabel(camera, nameOf, layout.anchorSeat);
   const plaza = layout.format === "ffa3" && !faceOff;
   const enlarged = plaza && camera.mode === "focus";
-  const keysHint = faceOff ? "" : flyOn ? "Drag · wheel · 1-3 · Esc" : enlarged ? "Click the field again · Esc back" : plaza ? "Click a field to enlarge · E yours · P look · 0 overview" : "Tab focus · P look · 0 overview";
+  const keysHint = faceOff ? "" : flyOn ? "Drag · wheel · 1-3 · Esc" : enlarged ? "Click the field again · Esc back" : plaza ? "Click a field to enlarge · E yours · P look · 0 overview" : "[ ] focus · P look · 0 overview";
 
   const showPanel = variant !== "stage";
   const showStage = variant !== "panel";
@@ -148,7 +148,7 @@ export function CameraControls({ layout, camera, locked, hint = null, nameOf, di
                   onClick={() => dispatch({ type: "overview" })}
                 />
                 <div className={styles.sec}>
-                  Focus a rival <Key>Tab</Key>
+                  Focus a rival <Key>[ ]</Key>
                 </div>
                 {rivals.map((slot) => (
                   <ViewButton
