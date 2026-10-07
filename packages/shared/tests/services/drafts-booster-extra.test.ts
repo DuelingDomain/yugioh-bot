@@ -211,3 +211,21 @@ describe("normal cube Extra Deck packs", () => {
     for (const player of ctx.players) expect(ctx.drafts.pool(ctx.draft.id, player)).toHaveLength(129);
   });
 });
+
+
+it("lets a two-pick pack traverse finished seats before repairing a stuck table", () => {
+  const ctx = setup({ packSize: 2, packsPerPlayer: 1, cardsPerPlayer: 2, picksPerStep: 2, copyLimit: false }, 4);
+  ctx.drafts.start(ctx.draft.id);
+  const active = ctx.db.prepare("select player_id from draft_players where draft_id = ? and seat_index = 0").get(ctx.draft.id) as { player_id: number };
+  ctx.db.prepare("update draft_players set finished_at = 'finished', pick_count = 2 where draft_id = ? and player_id != ?").run(ctx.draft.id, active.player_id);
+  ctx.db.prepare("update draft_cards set picked_by_player_id = ? where draft_id = ?").run(active.player_id, ctx.draft.id);
+  ctx.db.prepare(`update draft_cards set picked_by_player_id = null where id = (
+    select c.id from draft_cards c join draft_packs p on p.id = c.draft_pack_id
+    where p.draft_id = ? and p.origin_seat_index = 1 limit 1
+  )`).run(ctx.draft.id);
+  ctx.db.prepare("update draft_packs set pass_direction = 1 where draft_id = ?").run(ctx.draft.id);
+  const started = ctx.drafts.findById(ctx.draft.id);
+  ctx.drafts.expireCurrentPickStep(ctx.draft.id, new Date(started.pickDeadlineAt!));
+  expect(ctx.drafts.findById(ctx.draft.id)).toMatchObject({ status: "active", currentPackRound: 1, currentPickStep: 7 });
+  expect(ctx.drafts.pickOptions(ctx.draft.id, active.player_id)).toHaveLength(1);
+});
