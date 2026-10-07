@@ -269,6 +269,56 @@ describe("the hover card preview", () => {
   });
 });
 
+describe("the pinned card peek of the 4-way grid", () => {
+  const myCard = (container: HTMLElement) =>
+    container.querySelector<HTMLElement>('[data-hand-seat="0"] button[aria-label="Celtic Guardian"]')!;
+
+  it("a click on a card pins the peek and opens no Card flyout", () => {
+    vi.useFakeTimers();
+    const { container } = render(<Shell state={stateOf("main")} />);
+    const card = myCard(container);
+    fireEvent.mouseEnter(card);
+    fireEvent.click(card);
+    fireEvent.mouseLeave(card);
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS * 4); });
+    const preview = screen.getByTestId("hover-preview");
+    expect(screen.getAllByTestId("hover-preview")).toHaveLength(1);
+    expect(preview.getAttribute("data-pinned")).toBe("true");
+    expect(preview.getAttribute("data-open")).toBe("true");
+    expect(within(preview).getByText("Celtic Guardian")).toBeTruthy();
+    expect(isOpen()).toBe(false);
+    // Esc lets it go; the X button too.
+    fireEvent.keyDown(window, { key: "Escape" });
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS + 20); });
+    expect(preview.getAttribute("data-open")).toBe("false");
+    fireEvent.click(card);
+    expect(preview.getAttribute("data-open")).toBe("true");
+    fireEvent.click(within(preview).getByRole("button", { name: "Close card preview" }));
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS + 20); });
+    expect(preview.getAttribute("data-open")).toBe("false");
+  });
+
+  it("Esc closes the pin and does not answer the prompt", () => {
+    const onAnswer = vi.fn();
+    const { container } = render(<Shell state={stateOf("chain-2")} onAnswer={onAnswer} />);
+    const card = container.querySelector<HTMLElement>('[data-hand-seat="0"] button[aria-label]')!;
+    expect(card).toBeTruthy();
+    fireEvent.click(card);
+    const pinned = screen.queryByTestId("hover-preview")?.getAttribute("data-pinned") === "true";
+    expect(pinned).toBe(true);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onAnswer).not.toHaveBeenCalled();
+  });
+
+  it("a click on a card that opens its action menu pins nothing", () => {
+    const { container } = render(<Shell state={stateOf("main")} />);
+    const card = container.querySelector<HTMLElement>('[data-hand-seat="0"] button[aria-label="Raigeki"]')!;
+    fireEvent.click(card);
+    expect(screen.queryByRole("menu")).not.toBeNull();
+    expect(screen.getByTestId("hover-preview").getAttribute("data-pinned")).toBeNull();
+  });
+});
+
 describe("the HUD of the 4-way grid with a prompt", () => {
   it("Esc closes an open flyout and does not answer the prompt", () => {
     const onAnswer = vi.fn();

@@ -217,7 +217,7 @@ export function TagSide({
           master={domain ? hudMasterProps(source, engine.seats.find((view) => view.seat === seat), viewerSeat != null, viewerSeat == null ? `${nameOf(seat)}'s Master` : "Your Master") : null}
           otherMaster={domain && partner != null ? hudMasterProps(source, engine.seats.find((view) => view.seat === partner), false, `${nameOf(partner)}'s Master`) : null}
           onInspect={ui.setInspect}
-          preview={hudPreview(hud.hover?.card ?? null, hud.menuCard, hud.rowCard, (card) => ({ name: nameOf(card.controller), ...(seatTones.get(card.controller) ?? SEAT_TONE_HEX.ice) }))}
+          preview={hudPreview(hud.hover?.card ?? null, hud.menuCard, hud.rowCard, (card) => ({ name: nameOf(card.controller), ...(seatTones.get(card.controller) ?? SEAT_TONE_HEX.ice) }), hud.state.pinned)}
           previewHidden={ui.pile?.open === true}
           reducedMotion={controller.reducedMotion}
         />

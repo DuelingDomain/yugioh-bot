@@ -122,7 +122,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
   // there: a hover must not fill it, only a click or Inspect does, so the list pane stays the starting one.
   const hud = !narrow;
   const hudState = useHudPane({ camera: true });
-  const ui = useTableUi(tracked, { initialPane: hud ? "log" : undefined, hud, onOpenCard: hudState.openCard });
+  const ui = useTableUi(tracked, { initialPane: hud ? "log" : undefined, hud, onOpenCard: hudState.openCard, onPinCard: hudState.pinCard });
   const rowPreview = useRowPreview(tracked.prompt?.id ?? null);
   const base = ui.controller;
   const { engine, room, viewerSeat, nameOf, prompt } = base;
@@ -141,7 +141,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
   // One flag for the aim flow and the camera keys. A seat pick or an aim does not suspend input: they need their keys.
   const suspended = tagInputSuspended({ inputSuspended, menu: ui.menu, pile: ui.pile, narrow, sheetOpen });
   useHudEscape(hudState, hud, suspended);
-  const hudOpen = hud && hudState.pane != null;
+  const hudOpen = hud && (hudState.pane != null || hudState.pinned != null);
   // A modal (Surrender) opened from the Settings flyout: the flyout closes so the modal owns Esc.
   const closeHud = hudState.close;
   useEffect(() => { if (inputSuspended) closeHud(); }, [inputSuspended, closeHud]);

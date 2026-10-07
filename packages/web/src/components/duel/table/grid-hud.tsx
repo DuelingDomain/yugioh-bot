@@ -40,14 +40,16 @@ type SeatTones = ReadonlyMap<number, { main: string; ink: string }>;
 const DOCK_ICON = { log: ScrollText, settings: SlidersHorizontal, camera: Video } as const;
 
 /**
- * Closes the open flyout with Esc or a press outside the parts marked `data-hud-keep`. A card menu or the pile viewer
+ * Closes the open flyout with Esc or a press outside the parts marked `data-hud-keep` (or a press `keepPress` accepts). A card menu or the pile viewer
  * (`suspended`) keeps Esc for itself, and so does an open modal dialog (Surrender). This listener does not run before
  * every other key handler: the prompt panel's capture listener on the window is older and runs first, so a shell passes
  * it "a flyout is open" as `escapeHeld` (it then ignores Esc only) instead of relying on `stopPropagation` here.
  */
-export function useHudDismiss(active: boolean, suspended: boolean, onClose: () => void): void {
+export function useHudDismiss(active: boolean, suspended: boolean, onClose: () => void, keepPress?: (target: Element | null) => boolean): void {
   const close = useRef(onClose);
   close.current = onClose;
+  const keep = useRef(keepPress);
+  keep.current = keepPress;
   useEffect(() => {
     if (!active) return;
     const onKey = (event: KeyboardEvent) => {
@@ -60,7 +62,7 @@ export function useHudDismiss(active: boolean, suspended: boolean, onClose: () =
     };
     const onDown = (event: Event) => {
       const target = event.target as Element | null;
-      if (target?.closest?.("[data-hud-keep]")) return;
+      if (target?.closest?.("[data-hud-keep]") || keep.current?.(target)) return;
       close.current();
     };
     window.addEventListener("keydown", onKey, true);
