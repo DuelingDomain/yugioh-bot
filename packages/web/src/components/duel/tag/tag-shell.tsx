@@ -22,8 +22,7 @@ import { SeriesBanner } from "../series-banner";
 import { useIsNarrow } from "../side-panel";
 import { resolveBattleStep, StationTrack } from "../station-track";
 import { RowPreviewBoundary, useHudEscape, useHudPane, useRowPreview } from "../table/hud-layer";
-import { DuelClockDisplay } from "../room-settings";
-import { stationTrackProps } from "../table/hud-shared";
+import { clockStrip, hudClockBank, stationTrackProps } from "../table/hud-shared";
 import { OpponentBar } from "../table/opponent-bar";
 import { attackLockAt, toneBySeat } from "../table/seat-state";
 import { tableLayout } from "../table/geometry";
@@ -312,8 +311,9 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
         headerTools={headerTools}
         onExit={hasResult && resultReady ? () => actions?.onExit?.() : undefined}
         onShowResult={hasResult && hideResult ? () => setHideResult(false) : undefined}
-        hud={hud ? { baton: <TagBaton engine={engine} nameOf={nameOf} toneOf={toneOf} /> } : undefined}
+        hud={hud ? { baton: <TagBaton engine={engine} nameOf={nameOf} toneOf={toneOf} />, clock: hudClockBank(room.clock, session, controller.reducedMotion) } : undefined}
       />
+      {hud ? null : clockStrip(room.clock, session, controller.reducedMotion)}
       {room.series && !showResult ? (
         <SeriesBanner
           room={room}
@@ -415,7 +415,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
         <div className={hudStyles.bottom} data-testid="hud-bottom" data-tag-track>
           <StationTrack
             {...trackProps}
-            clock={room.clock?.activeSeat != null ? <DuelClockDisplay key={room.clock.serverNow} clock={room.clock} session={session} reducedMotion={controller.reducedMotion} compact /> : null}
+            clock={null}
             attackLock={attackLockAt("tag", engine.seats.length || 4, engine.turn, prompt)}
             attackLockTestId="tag-attack-lock"
           />
@@ -424,7 +424,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
         <TagTrack
           session={session}
           engine={engine}
-          clock={room.clock?.activeSeat != null ? room.clock : null}
+          clock={null}
           nameOf={nameOf}
           prompt={prompt}
           toneOf={toneOf}

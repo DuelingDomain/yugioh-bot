@@ -38,6 +38,18 @@
 }
 
 .topLeft { flex: 0 1 auto; padding: 0 16px; }
+/* The clock block right of the identity pill. A little taller than the other pills (big digits); the band is centred, so
+   it spans y 4 to 48 (negative block margins keep the header 36px high, so the other pills stay put) and stays above the rail (y 56), the flyout (y 56) and the card preview (y 50). The auto margins
+   keep it next to the identity pill and leave the turn strip in the free space between it and the right pill. */
+.top > .topClocks { flex: 0 1 auto; height: 44px; padding: 0 4px; border-radius: 22px; margin: -4px auto -4px 0; }
+.topClocks ~ .topMid { margin-right: auto; }
+/* Three or four clocks, or a narrower screen, leave no room for the format line beside them: the wordmark stays. */
+.topLeft:has(+ .topClocks:not([data-count="2"])) [class*="format"],
+.topLeft:has(+ .topClocks:not([data-count="2"])) i { display: none; }
+@media (max-width: 1500px) {
+  .topLeft:has(+ .topClocks) [class*="format"],
+  .topLeft:has(+ .topClocks) i { display: none; }
+}
 .topMid { position: relative; flex: 0 1 auto; padding: 0 8px; }
 
 /* "FINAL DUEL" / "LAST TWO REMAINING": it takes the place of the turn strip for a moment, then the strip returns. */
@@ -85,6 +97,16 @@
   .topRight button[aria-label^="Sound"] span { display: none; }
 }
 
+/* Three or four clocks on a narrow screen: the right pill gives up the phase name (the track shows it) and the bug label
+   so the turn order keeps its room. */
+@media (max-width: 1500px) {
+  .top:has(.topClocks:not([data-count="2"])) { gap: 6px; }
+  .top:has(.topClocks:not([data-count="2"])) .topRight { gap: 6px; }
+  .top:has(.topClocks:not([data-count="2"])) .topRight [class*="phaseName"] { display: none; }
+  .top:has(.topClocks:not([data-count="2"])) .topRight button[data-bug-header-button] span { display: none; }
+  .top:has(.topClocks:not([data-count="2"])) .topRight button { white-space: nowrap; }
+}
+
 /* The turn order sits in one row inside its pill. */
 .topMid ol { flex-wrap: nowrap; }
 .topMid li { flex: 0 1 auto; min-width: 0; background: rgb(14 23 41 / 0.7); }
@@ -111,22 +133,6 @@
   pointer-events: auto;
 }
 
-/* The seat pill is narrow: its two clocks stack, one short name and time per line, so they never run into the seat name. */
-.bottom nav [data-pill] {
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
-}
-.bottom nav [data-pill] > span {
-  gap: 8px;
-  font-size: calc(15px * var(--tt, 1));
-  line-height: 1.1;
-}
-.bottom nav [data-pill] > span small {
-  max-width: 8ch;
-  font-size: calc(12px * var(--tt, 1));
-}
-
 /* ---------- bottom-right corner (the 1v1 room and the 4-way grid): the turn controls without a full-width bar ---------- */
 /* One column at the corner, right of the board: the prompt dock (when a prompt is open) above the clocks pill and the
    actions pill. It is a column, so the dock always sits right on top of the controls, whatever height they have. Only
@@ -150,21 +156,12 @@
 .corner > nav > div {
   pointer-events: auto;
 }
-/* The clocks pill: one line per player, the name at the left and the time at the right. */
-.corner nav [data-pill] {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 2px;
-}
-.corner nav [data-pill] > span {
-  justify-content: space-between;
-  gap: 8px;
+/* The clocks moved to the top-left header block, so the seat pill of this track is empty: no empty glass bar. */
+.corner > nav > div:empty { display: none; }
+/* The turn buttons took the room the clock pill left: a little larger to hit and to read. */
+.corner > nav button {
+  min-height: 42px;
   font-size: calc(15px * var(--tt, 1));
-  line-height: 1.1;
-}
-.corner nav [data-pill] > span small {
-  max-width: 10ch;
-  font-size: calc(12px * var(--tt, 1));
 }
 
 /* ---------- icon dock ---------- */
