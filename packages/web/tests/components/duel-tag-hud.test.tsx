@@ -54,10 +54,10 @@ function withMasters(controller: TableController): TableController {
   } as TableController;
 }
 
-function Shell({ id = "main", domain = false, tweak }: { id?: StateId; domain?: boolean; tweak?: (controller: TableController) => TableController }) {
+function Shell({ id = "main", domain = false, fx = false, tweak }: { id?: StateId; domain?: boolean; fx?: boolean; tweak?: (controller: TableController) => TableController }) {
   const base = useFixtureController(TAG_FIXTURES.states[id], { reducedMotion: true });
   const shown = domain ? withMasters(base) : base;
-  return <TagShell controller={tweak ? tweak(shown) : shown} teamNames={[...TAG_TEAM_NAMES] as [string, string]} fxActive={false} />;
+  return <TagShell controller={tweak ? tweak(shown) : shown} teamNames={[...TAG_TEAM_NAMES] as [string, string]} fxActive={fx} />;
 }
 
 const flyout = () => screen.getByTestId("hud-flyout");
@@ -72,7 +72,8 @@ describe("the floating HUD of the Tag Rooftop", () => {
     expect(screen.getByTestId("hud-top").hasAttribute("data-tag-header")).toBe(true);
     expect(screen.getByTestId("hud-bottom")).toBeTruthy();
     expect(container.querySelector("[aria-label='Camera'][class*='right']")).toBeNull();
-    for (const id of ["log", "settings", "chain", "camera"]) expect(screen.getByTestId(`hud-dock-${id}`)).toBeTruthy();
+    for (const id of ["log", "settings", "camera"]) expect(screen.getByTestId(`hud-dock-${id}`)).toBeTruthy();
+    expect(screen.queryByTestId("hud-dock-chain")).toBeNull();
     expect(screen.queryByTestId("hud-dock-history")).toBeNull();
     expect(isOpen()).toBe(false);
   });
@@ -127,8 +128,17 @@ describe("the floating HUD of the Tag Rooftop", () => {
     media(false);
     render(<Shell id="chain-2" />);
     expect(screen.getByTestId("chain-tower").getAttribute("data-links")).toBe("2");
-    fireEvent.click(screen.getByTestId("hud-dock-chain"));
-    expect(within(flyout()).getAllByTestId("chain-row")).toHaveLength(2);
+    expect(screen.queryByTestId("hud-dock-chain")).toBeNull();
+  });
+
+  it("opens every link's details from the chain strip, as the tower has no Chain button", () => {
+    media(false);
+    render(<Shell id="chain-2" fx />);
+    expect(within(screen.getByTestId("chain-tower")).queryByRole("button", { name: /Chain/ })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Chain details" })).toBeNull();
+    fireEvent.click(document.querySelector("[data-chain-strip]") as HTMLElement);
+    const sheet = screen.getByRole("dialog", { name: "Chain details" });
+    expect(sheet.querySelectorAll("[data-chain-row]")).toHaveLength(2);
   });
 
   it("has no chain tower without a chain", () => {
@@ -234,6 +244,21 @@ describe("the hover preview of the Tag Rooftop", () => {
     fireEvent.click(screen.getByTestId("hud-dock-log"));
     fireEvent.mouseEnter(container.querySelector("[data-hand-seat='0'] [data-zones]") as HTMLElement);
     expect(screen.queryByTestId("hover-preview")).toBeNull();
+  });
+});
+
+describe("the hover preview of the Tag Rooftop while a card menu is open", () => {
+  it("keeps the card of the menu in the panel once the pointer has left it", () => {
+    media(false);
+    const { container } = render(<Shell />);
+    const card = container.querySelector("[data-hand-seat='0'] [data-zones]") as HTMLElement;
+    fireEvent.mouseEnter(card);
+    fireEvent.click(card);
+    expect(screen.queryByRole("menu")).not.toBeNull();
+    fireEvent.mouseLeave(card);
+    expect(screen.getByTestId("hover-preview").getAttribute("data-open")).toBe("true");
+    expect(screen.getByTestId("hover-preview").textContent).toContain("Dark Hole");
+    expect(isOpen()).toBe(false);
   });
 });
 

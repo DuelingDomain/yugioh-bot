@@ -109,3 +109,18 @@ it("never shares seats across guilds, and rebuilds from joins after a server res
   join(restarted.connect(), 3);
   expect(join(observer, null, { observe: true })).toMatchObject({ onlineSeats: [3] });
 });
+
+it("updates presence in place when the same player renews with their moved FFA seat", () => {
+  const room = server();
+  const observer = room.connect();
+  join(observer, null, { observe: true });
+  const player = room.connect();
+  const token = (seat: number) => createDuelConnectionToken({ slug: "same", guildId: "g1", playerId: 77, seat,
+    expiresAt: Date.now() + 300_000 }, SECRET);
+  player.emit("duel:join", { token: token(2) }, () => {});
+  const updates: DuelPresencePayload[] = [];
+  observer.on("duel:presence", (value) => updates.push(value));
+  player.emit("duel:join", { token: token(0) }, () => {});
+  expect(player.data.duel).toMatchObject({ playerId: 77, seat: 0 });
+  expect(updates).toEqual([{ slug: "same", onlineSeats: [0], spectatorCount: 0 }]);
+});

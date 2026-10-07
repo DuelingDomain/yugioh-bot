@@ -225,7 +225,7 @@ describe("DuelRoomView panes (wide: the HUD flyout)", () => {
     const { flyout } = setup();
     expect(screen.queryByRole("complementary", { name: "Duel panels" })).toBeNull();
     expect(flyout()).toHaveAttribute("data-open", "false");
-    expect(within(screen.getByTestId("hud-dock")).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Log", "Settings", "Chain"]);
+    expect(within(screen.getByTestId("hud-dock")).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Log", "Settings"]);
     // The history list is mounted but hidden, so it keeps its rows.
     const log = flyout().querySelector("#hud-panel-log");
     expect(log).toHaveAttribute("hidden");

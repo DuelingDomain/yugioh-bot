@@ -1,0 +1,127 @@
+/* One die of the 3-way and 4-way opening: a CSS cube with nine-cell faces. Three original skins drawn with
+   gradients and inline SVG masks only. The size comes from `--d` on an ancestor. The skin is `data-skin` on `.slot`. */
+
+.slot {
+  --h: calc(var(--d, 64px) / 2);
+  position: relative; width: var(--d, 64px); height: var(--d, 64px); margin: calc(var(--d, 64px) * 0.12) 0;
+  perspective: calc(var(--d, 64px) * 6); flex: none;
+  /* sun disc: the pip glyph of the gold die */
+  --m-sun: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='8' fill='none' stroke='black' stroke-width='3'/%3E%3Ccircle cx='12' cy='12' r='2.8'/%3E%3C/svg%3E");
+  /* eye of Wdjat, drawn as simple strokes */
+  --m-eye: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 64' fill='none' stroke='black' stroke-width='4.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 32Q50 4 94 32Q50 58 6 32Z'/%3E%3Ccircle cx='50' cy='31' r='11.5'/%3E%3Ccircle cx='50' cy='31' r='4.6' fill='black'/%3E%3Cpath d='M12 15Q50 -3 92 15'/%3E%3Cpath d='M60 46L70 62M44 48Q38 61 22 59Q12 57 14 49'/%3E%3C/svg%3E");
+  /* crests: spark, snare, ward, fang, stride, summon */
+  --m-c1: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 1L14.6 9.4L23 12L14.6 14.6L12 23L9.4 14.6L1 12L9.4 9.4Z'/%3E%3C/svg%3E");
+  --m-c2: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill-rule='evenodd' d='M12 2L22.5 21H1.5ZM12 9.5L16.6 18H7.4Z'/%3E%3C/svg%3E");
+  --m-c3: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 1.5L21 5V12.5Q21 19 12 23Q3 19 3 12.5V5Z'/%3E%3C/svg%3E");
+  --m-c4: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 0.5L16.5 14L12 18.5L7.5 14ZM8 19.5H16V22H8Z'/%3E%3C/svg%3E");
+  --m-c5: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M2 8.5H13.5V2.5L23 12L13.5 21.5V15.5H2Z'/%3E%3C/svg%3E");
+  --m-c6: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill-rule='evenodd' d='M12 0.5L14.2 6.8L19.8 3.5L17.2 9.8L23.5 12L17.2 14.2L19.8 20.5L14.2 17.2L12 23.5L9.8 17.2L4.2 20.5L6.8 14.2L0.5 12L6.8 9.8L4.2 3.5L9.8 6.8ZM12 8.6A3.4 3.4 0 1 0 12 15.4A3.4 3.4 0 1 0 12 8.6Z'/%3E%3C/svg%3E");
+  --m-star: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 0L14.2 9.8L24 12L14.2 14.2L12 24L9.8 14.2L0 12L9.8 9.8Z'/%3E%3C/svg%3E");
+}
+.shadow { position: absolute; left: 6%; right: 6%; bottom: -14%; height: 20%; border-radius: 50%; background: radial-gradient(closest-side, rgb(0 0 0 / 0.75), transparent); opacity: 0.6; }
+.drop { position: absolute; inset: 0; transform-style: preserve-3d; }
+.tilt { position: absolute; inset: 0; transform-style: preserve-3d; transform: rotateX(-20deg) rotateY(24deg); }
+.cube { position: absolute; inset: 0; transform-style: preserve-3d; }
+.face {
+  position: absolute; inset: 0; display: grid; grid-template: repeat(3, 1fr) / repeat(3, 1fr); padding: 13%; border-radius: calc(var(--d, 64px) * 0.17);
+  backface-visibility: hidden; background: linear-gradient(145deg, #fcf6e6, #ddd3b8);
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.2), inset 0 -5px 9px rgb(0 0 0 / 0.1);
+}
+.pip { display: block; width: 78%; height: 78%; margin: auto; border-radius: 50%; visibility: hidden; }
+.pip[data-on="true"] { visibility: visible; background: radial-gradient(circle at 36% 30%, #4a3f66, #150f22 70%); box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.5); }
+.f1 { transform: translateZ(var(--h)); filter: brightness(1); }
+.f6 { transform: rotateY(180deg) translateZ(var(--h)); filter: brightness(0.8); }
+.f3 { transform: rotateY(90deg) translateZ(var(--h)); filter: brightness(0.86); }
+.f4 { transform: rotateY(-90deg) translateZ(var(--h)); filter: brightness(0.78); }
+.f2 { transform: rotateX(90deg) translateZ(var(--h)); filter: brightness(1.05); }
+.f5 { transform: rotateX(-90deg) translateZ(var(--h)); filter: brightness(0.7); }
+
+/* landing effects (every skin) */
+.flash { position: absolute; inset: -48%; border-radius: 50%; pointer-events: none; opacity: 0; mix-blend-mode: screen;
+  background: radial-gradient(circle, rgb(255 233 160 / 0.95) 0%, rgb(244 214 144 / 0.55) 30%, rgb(244 214 144 / 0) 66%); }
+.shock { position: absolute; inset: -12%; border-radius: 50%; pointer-events: none; opacity: 0; border: 2px solid #f4d690;
+  box-shadow: 0 0 14px rgb(244 214 144 / 0.8), inset 0 0 12px rgb(244 214 144 / 0.5); }
+.glint { position: absolute; inset: 8%; border-radius: calc(var(--d, 64px) * 0.17); pointer-events: none; opacity: 0; overflow: hidden; mix-blend-mode: screen;
+  background-size: 300% 100%; background-position: 100% 0; background-repeat: no-repeat;
+  background-image: linear-gradient(105deg, transparent 40%, rgb(255 244 200 / 0.85) 49%, rgb(255 226 140 / 0.35) 54%, transparent 62%); }
+
+/* gold pulse on a tied die: reads even without the label */
+.slot[data-tied="true"] { animation: diepulse 900ms ease-in-out 2; }
+@keyframes diepulse { 50% { filter: drop-shadow(0 0 10px rgb(244 214 144 / 0.9)); } }
+.slot[data-tied="true"][data-reduced="true"] { animation: none; filter: drop-shadow(0 0 8px rgb(244 214 144 / 0.7)); }
+@media (prefers-reduced-motion: reduce) { .slot[data-tied="true"] { animation: none; filter: drop-shadow(0 0 8px rgb(244 214 144 / 0.7)); } }
+
+/* masked pips (gold and crest): a shadow layer under a coloured layer */
+.slot:is([data-skin="gold"], [data-skin="crest"]) .pip[data-on="true"] { position: relative; z-index: 1; background: none; box-shadow: none; width: 92%; height: 92%; border-radius: 0; }
+.slot[data-skin="crest"] .pip[data-on="true"] { width: 118%; height: 118%; }
+.slot:is([data-skin="gold"], [data-skin="crest"]) .pip[data-on="true"]::before,
+.slot:is([data-skin="gold"], [data-skin="crest"]) .pip[data-on="true"]::after { content: ""; position: absolute; inset: 0;
+  -webkit-mask: var(--m) center / contain no-repeat; mask: var(--m) center / contain no-repeat; }
+
+/* ================= MILLENNIUM GOLD (default) ================= */
+.slot[data-skin="gold"] .face {
+  background:
+    repeating-linear-gradient(115deg, rgb(110 70 8 / 0.07) 0 1px, transparent 1px 4px),
+    linear-gradient(145deg, #f3d680 0%, #d9a93d 34%, #a97b22 68%, #e3bc5e 100%);
+  box-shadow: inset 0 0 0 1px rgb(78 46 4 / 0.6), inset 0 2px 3px rgb(255 242 190 / 0.65), inset 0 -7px 11px rgb(84 48 4 / 0.38);
+}
+.slot[data-skin="gold"] .face::before { content: ""; position: absolute; inset: 7.5%; z-index: 0; pointer-events: none;
+  border: 1.5px solid rgb(86 50 5 / 0.55); border-radius: calc(var(--d, 64px) * 0.1); box-shadow: 0 1px 0 rgb(255 236 160 / 0.55), inset 0 1px 0 rgb(255 236 160 / 0.4); }
+.slot[data-skin="gold"] .pip[data-on="true"] { --m: var(--m-sun); }
+.slot[data-skin="gold"] .pip[data-on="true"]::before { transform: translateY(1px); background: rgb(255 238 170 / 0.8); }
+.slot[data-skin="gold"] .pip[data-on="true"]::after { background: linear-gradient(160deg, #4a2a08, #1d0f02); }
+.slot[data-skin="gold"] .f1 .pip[data-on="true"] { width: 150%; height: 150%; }
+/* the 6 is the brightest face and carries the engraved eye */
+.slot[data-skin="gold"] .f6 { background:
+    repeating-linear-gradient(115deg, rgb(110 70 8 / 0.05) 0 1px, transparent 1px 4px),
+    linear-gradient(145deg, #fff0b0 0%, #f2cf62 36%, #d09a2a 70%, #f7da82 100%);
+  box-shadow: inset 0 0 0 1.5px rgb(120 78 6 / 0.7), inset 0 2px 4px rgb(255 250 214 / 0.85), inset 0 -6px 10px rgb(110 70 6 / 0.3), 0 0 18px rgb(255 214 110 / 0.35); }
+.slot[data-skin="gold"] .f6::after { content: ""; position: absolute; left: 6%; right: 6%; top: 30%; height: 40%; z-index: 0; pointer-events: none;
+  -webkit-mask: var(--m-eye) center / contain no-repeat; mask: var(--m-eye) center / contain no-repeat; background: rgb(86 50 4 / 0.5); }
+.slot[data-skin="gold"] .f6 .pip[data-on="true"]::after { background: linear-gradient(160deg, #3d2106, #140a01); }
+.slot[data-skin="gold"] .glint { background-image: linear-gradient(105deg, transparent 40%, rgb(255 246 205 / 0.9) 49%, rgb(255 224 130 / 0.4) 54%, transparent 62%); }
+
+/* ================= CREST DIE ================= */
+.slot[data-skin="crest"] .face {
+  background: radial-gradient(circle at 28% 20%, #4d63b8 0%, #26357d 48%, #121a47 100%);
+  box-shadow: inset 0 0 0 1px rgb(8 12 40 / 0.9), inset 0 0 0 2.5px rgb(150 170 255 / 0.28), inset 0 2px 4px rgb(210 220 255 / 0.5), inset 0 -7px 12px rgb(4 6 30 / 0.5);
+}
+.slot[data-skin="crest"] .face::before { content: ""; position: absolute; inset: 0; border-radius: inherit; z-index: 0; pointer-events: none;
+  background: linear-gradient(135deg, rgb(255 255 255 / 0.22), rgb(255 255 255 / 0) 42%); }
+.slot[data-skin="crest"] .pip[data-on="true"]::before { transform: translateY(1px); background: rgb(0 0 0 / 0.5); }
+.slot[data-skin="crest"] .f1 .pip[data-on="true"] { --m: var(--m-c1); width: 150%; height: 150%; }
+.slot[data-skin="crest"] .f1 .pip[data-on="true"]::after { background: linear-gradient(#bff1ff, #55c6ee); }
+.slot[data-skin="crest"] .f2 .pip[data-on="true"] { --m: var(--m-c2); }
+.slot[data-skin="crest"] .f2 .pip[data-on="true"]::after { background: linear-gradient(#e0c0ff, #a468f0); }
+.slot[data-skin="crest"] .f3 .pip[data-on="true"] { --m: var(--m-c3); }
+.slot[data-skin="crest"] .f3 .pip[data-on="true"]::after { background: linear-gradient(#b8f2cc, #4cc47c); }
+.slot[data-skin="crest"] .f4 .pip[data-on="true"] { --m: var(--m-c4); }
+.slot[data-skin="crest"] .f4 .pip[data-on="true"]::after { background: linear-gradient(#ffc2b6, #ee6a56); }
+.slot[data-skin="crest"] .f5 .pip[data-on="true"] { --m: var(--m-c5); }
+.slot[data-skin="crest"] .f5 .pip[data-on="true"]::after { background: linear-gradient(#ffe6a8, #f2b440); }
+/* 6 = the summon crest in gold on a deep violet face with a gold rim: the top face of the set */
+.slot[data-skin="crest"] .f6 { background: radial-gradient(circle at 28% 20%, #8a48b8 0%, #46207a 52%, #1f0b40 100%);
+  box-shadow: inset 0 0 0 2px #f4d690, inset 0 0 0 4px rgb(60 24 90 / 0.8), inset 0 2px 5px rgb(255 232 170 / 0.5), inset 0 -7px 12px rgb(20 4 40 / 0.5), 0 0 18px rgb(244 214 144 / 0.35); }
+.slot[data-skin="crest"] .f6 .pip[data-on="true"] { --m: var(--m-c6); }
+.slot[data-skin="crest"] .f6 .pip[data-on="true"]::after { background: linear-gradient(#fff6c8, #f0b83c); filter: drop-shadow(0 0 3px rgb(255 214 110 / 0.9)); }
+.slot[data-skin="crest"] .glint { background-image: linear-gradient(105deg, transparent 40%, rgb(210 230 255 / 0.8) 49%, rgb(150 190 255 / 0.3) 54%, transparent 62%); }
+
+/* ================= CARD-BACK DIE ================= */
+.slot[data-skin="cardback"] .face { padding: 21%;
+  background: radial-gradient(ellipse at 50% 38%, #44243c 0%, #2a1424 52%, #170a12 100%);
+  box-shadow: inset 0 0 0 1px rgb(10 4 8 / 0.9), inset 0 0 0 2px rgb(201 146 58 / 0.75), inset 0 0 0 3.5px rgb(10 4 8 / 0.55), inset 0 -7px 12px rgb(0 0 0 / 0.4); }
+/* the gold oval frame, like the oval on a card back */
+.slot[data-skin="cardback"] .face::before { content: ""; position: absolute; inset: 7% 10%; z-index: 0; pointer-events: none; border-radius: 50%;
+  border: 1.5px solid rgb(233 170 70 / 0.75); background: radial-gradient(ellipse, rgb(217 119 42 / 0.2), transparent 70%); }
+.slot[data-skin="cardback"] .pip[data-on="true"] { z-index: 1; position: relative; width: 82%; height: 82%;
+  background: radial-gradient(circle at 36% 30%, #ffe9b0, #d9a041 58%, #8a5a18); box-shadow: 0 0 5px rgb(233 162 63 / 0.55), inset 0 1px 1px rgb(255 245 210 / 0.6); }
+.slot[data-skin="cardback"] .f1 .pip[data-on="true"] { background: linear-gradient(#ffe9b0, #d9a041); box-shadow: none; width: 190%; height: 190%; border-radius: 0;
+  -webkit-mask: var(--m-star) center / contain no-repeat; mask: var(--m-star) center / contain no-repeat; filter: drop-shadow(0 0 4px rgb(233 162 63 / 0.7)); }
+/* 6: full-gold frame, amber filled oval, the four-point star between the pips */
+.slot[data-skin="cardback"] .f6 { background: radial-gradient(ellipse at 50% 38%, #5a2f3c 0%, #34172a 52%, #1b0a14 100%);
+  box-shadow: inset 0 0 0 1px rgb(10 4 8 / 0.9), inset 0 0 0 2.5px #f3c978, inset 0 0 0 4px rgb(10 4 8 / 0.55), inset 0 -7px 12px rgb(0 0 0 / 0.4), 0 0 18px rgb(243 201 120 / 0.35); }
+.slot[data-skin="cardback"] .f6::before { border-color: #f3c978; background: radial-gradient(ellipse, rgb(236 140 52 / 0.5), rgb(217 119 42 / 0.14) 68%, transparent 72%); box-shadow: 0 0 10px rgb(243 201 120 / 0.35); }
+.slot[data-skin="cardback"] .f6::after { content: ""; position: absolute; left: 36%; right: 36%; top: 33%; bottom: 33%; z-index: 0; pointer-events: none;
+  -webkit-mask: var(--m-star) center / contain no-repeat; mask: var(--m-star) center / contain no-repeat; background: rgb(255 226 150 / 0.35); }
+.slot[data-skin="cardback"] .f6 .pip[data-on="true"] { background: radial-gradient(circle at 36% 30%, #fffbe0, #ffd978 55%, #c88a24); box-shadow: 0 0 7px rgb(255 214 110 / 0.9), inset 0 1px 1px rgb(255 255 240 / 0.8); }
+.slot[data-skin="cardback"] .glint { background-image: linear-gradient(105deg, transparent 40%, rgb(255 226 150 / 0.7) 49%, rgb(240 170 70 / 0.3) 55%, transparent 62%); }

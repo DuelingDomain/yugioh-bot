@@ -7,7 +7,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { Circle, Diamond, ExternalLink, Eye, Radio, Volume2, VolumeX } from "lucide-react";
-import { isCustomDomain, type DuelAnswer, type DuelCard, type DuelCardInfo, type DuelDeck, type DuelPromptOption, type DuelRoom } from "@yugidraft/shared/duels";
+import { isCustomDomain, seatCountFor, type DuelAnswer, type DuelCard, type DuelCardInfo, type DuelDeck, type DuelPromptOption, type DuelRoom } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { SurrenderModal } from "./surrender-modal";
@@ -60,6 +60,7 @@ import { engineFormat, focusOpponentSeat, foeSeats, formatLabel, isMultiSeat, is
 import { resolveEquipLinks } from "./equip-links";
 import styles from "./room.module.css";
 import hudStyles from "./table/grid-hud.module.css";
+import { hudPreview } from "./table/hud-preview";
 import { HudLayer, RowPreviewBoundary, useHudEscape, useHudPane, useRowPreview } from "./table/hud-layer";
 import { hudClock, hudMasterProps, stationTrackProps } from "./table/hud-shared";
 import { SEAT_TONE_HEX } from "./table/types";
@@ -73,6 +74,7 @@ import { duelFontClasses } from "./fonts";
 import { DUEL_SHAKE_LABEL, DUEL_SHAKE_LEVELS, useDuelPreferences } from "./preferences";
 import { DuelAnimationSpeedControl, useDuelAnimationSpeed } from "./animation-speed-control";
 import { DuelCardTextSizeControl } from "./card-text-size-control";
+import { DuelDiceSkinControl } from "./dice-skin-control";
 import { CardInspector, type InspectTarget } from "./inspector";
 import {
   activatePromptFromField,
@@ -678,6 +680,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         setMenu({
           anchor,
           title: card?.name ?? "Card",
+          card,
           options,
           promptId: prompt.id,
           revision: data.engine.revision,
@@ -792,7 +795,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     return (
       <>
         {lobby}
-        <OpeningScreen opening={opening} receivedAt={data.receivedAt} mySeat={data.mySeat} names={[seatName(0), seatName(1)]} busy={busy} error={actionError}
+        <OpeningScreen opening={opening} receivedAt={data.receivedAt} mySeat={data.mySeat} names={Array.from({ length: seatCountFor(data.session.format) }, (_, seat) => seatName(seat))} busy={busy} error={actionError} reducedMotion={preferences.reducedMotion}
           onPick={(move) => void run(() => pickOpeningMove(slug, move))}
           onChoose={(choice) => void run(() => chooseOpeningOrder(slug, choice))} />
       </>
@@ -1044,6 +1047,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       <h2>Presentation</h2>
       <DuelAnimationSpeedControl />
       <DuelCardTextSizeControl />
+      <DuelDiceSkinControl />
       <DuelSoundControls enabled={preferences.soundEnabled} volume={preferences.soundVolume}
         onEnabledChange={preferences.setSoundEnabled} onVolumeChange={preferences.setSoundVolume} />
       <label className="flex flex-col gap-2">Motion
@@ -1492,8 +1496,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           master={domain ? hudMaster(engine.seats.find((seat) => seat.seat === localSeat), !spectator, spectator ? `${playerName(localSeat)}'s Master` : "Your Master") : null}
           otherMaster={domain && top ? hudMaster(top, false, `${playerName(top.seat)}'s Master`) : null}
           onInspect={setInspect}
-          preview={hover ? { card: hover.card, owner: { name: playerName(hover.card.controller), ...(hudSeatTones.get(hover.card.controller) ?? SEAT_TONE_HEX.ice) } } : rowPreview.card ? { card: rowPreview.card, owner: null } : null}
-          previewHidden={Boolean(activeMenu) || pickHintShown || Boolean(pile?.open)}
+          preview={hudPreview(hover?.card ?? null, activeMenu?.card, rowPreview.card, (card) => ({ name: playerName(card.controller), ...(hudSeatTones.get(card.controller) ?? SEAT_TONE_HEX.ice) }))}
+          previewHidden={pickHintShown || Boolean(pile?.open)}
           reducedMotion={preferences.reducedMotion}
         />
       ) : null}

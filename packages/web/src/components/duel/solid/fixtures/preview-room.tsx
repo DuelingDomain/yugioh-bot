@@ -8,6 +8,7 @@ import type { BattleAim } from "../../battle-fx";
 import { Sheet } from "@/components/ui/sheet";
 import { DuelAnimationSpeedControl, useDuelAnimationSpeed } from "../../animation-speed-control";
 import { DuelCardTextSizeControl } from "../../card-text-size-control";
+import { DuelDiceSkinControl } from "../../dice-skin-control";
 import type { BoardTilt, BoardView } from "../../board-view";
 import { AttackConfirm, CardActionMenu, confirmSide, targetName, zoneAnchor } from "../../card-interactions";
 import { isBattlePhase, LOCATION_HAND, phaseTitle, zoneKey } from "../../constants";
@@ -137,6 +138,7 @@ export function SolidPreviewRoom({ stateId, flat, reduced }: { stateId: SolidSta
       <h2>Presentation</h2>
       <DuelAnimationSpeedControl />
       <DuelCardTextSizeControl />
+      <DuelDiceSkinControl />
       <DuelSoundControls enabled={sound} volume={volume} onEnabledChange={setSound} onVolumeChange={setVolume} />
       <p>Preview only. Nothing here is sent to a duel.</p>
       <Link href="/dev/solid-preview">All states</Link>

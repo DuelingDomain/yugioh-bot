@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import type { DuelFirstChoice, DuelOpeningView, DuelRpsMove } from "@yugidraft/shared/duels";
+import type { DuelFirstChoice, DuelOpeningView, DuelRpsOpeningView, DuelRpsMove } from "@yugidraft/shared/duels";
 import { DUEL_RPS_MOVES } from "@yugidraft/shared/duels";
 import { duelFontClasses } from "./fonts";
 import { cx } from "./sheet-ui";
@@ -13,10 +12,11 @@ import {
   openingSeats,
   openingStage,
   opponentPickText,
-  revealEndsAt,
   revealOutcome,
   startText,
 } from "./opening-model";
+import { DiceOpeningScreen } from "./dice-opening";
+import { useNow } from "./opening-clock";
 import { secondsUntil } from "./series-model";
 
 /** Simple original line icons, drawn with the current text color. */
@@ -58,35 +58,12 @@ function Countdown({ iso, label, now }: { iso: string; label: string; now: numbe
   );
 }
 
-/** Server time plus monotonic elapsed time; ticks countdowns and ends reveals without a poll. */
-function useNow(opening: DuelOpeningView, receivedAt?: number): number | null {
-  const [clock, setClock] = useState({ opening, receivedAt, now: opening.serverNow });
-  useEffect(() => {
-    const serverNow = opening.serverNow ?? Date.now();
-    // Browser time already includes the cache age when an older host omits serverNow.
-    const at = opening.serverNow == null ? performance.now() : receivedAt ?? performance.now();
-    const sample = () => serverNow + (performance.now() - at);
-    const update = () => setClock({ opening, receivedAt, now: sample() });
-    update();
-    if (opening.phase === "start") return undefined;
-    const interval = window.setInterval(update, 500);
-    const end = revealEndsAt(opening);
-    const wait = end - sample();
-    const timer = wait > 0 ? window.setTimeout(update, wait + 20) : undefined;
-    return () => {
-      window.clearInterval(interval);
-      if (timer != null) window.clearTimeout(timer);
-    };
-  }, [opening, receivedAt]);
-  return (clock.opening === opening && clock.receivedAt === receivedAt ? clock.now : opening.serverNow) ?? null;
-}
-
 /**
  * The opening of a match: rock-paper-scissors, then the winner chooses to go first or second.
  * Picks stay hidden until both are in; the server decides the result and the timeouts.
  */
-export function OpeningScreen({ opening, receivedAt, mySeat, names, busy = false, error = null, onPick, onChoose }: {
-  opening: DuelOpeningView;
+function RpsOpeningScreen({ opening, receivedAt, mySeat, names, busy = false, error = null, onPick, onChoose }: {
+  opening: DuelRpsOpeningView;
   /** Monotonic client time when the room response arrived; retained with cached rooms. */
   receivedAt?: number;
   mySeat: number | null;
@@ -182,4 +159,24 @@ export function OpeningScreen({ opening, receivedAt, mySeat, names, busy = false
       </div>
     </div>
   );
+}
+
+
+/** The opening of a match: rock-paper-scissors for 1v1, a dice roll for the 3-way and 4-way. */
+export function OpeningScreen(props: {
+  opening: DuelOpeningView;
+  receivedAt?: number;
+  mySeat: number | null;
+  names: string[];
+  busy?: boolean;
+  error?: string | null;
+  /** The viewer's Motion setting; the dice opening plays short fades instead of tumbling. */
+  reducedMotion?: boolean;
+  onPick: (move: DuelRpsMove) => void;
+  onChoose: (choice: DuelFirstChoice) => void;
+}) {
+  if (!("rounds" in props.opening)) {
+    return <RpsOpeningScreen {...props} opening={props.opening} names={[props.names[0]!, props.names[1]!]} />;
+  }
+  return <DiceOpeningScreen opening={props.opening} receivedAt={props.receivedAt} mySeat={props.mySeat} names={props.names} error={props.error} reducedMotion={props.reducedMotion} />;
 }
