@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DeckValidationSkippedError, duelReplayKey, getDuelReplay, getDuelRoom, leaveDuel, listDuels, sendDuelAction, takeDuelSeat, validateDuelDeck } from "../src/components/duel/api";
+import { makeSeriesRoom } from "./helpers/duel-series";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe("duel answer errors", () => {
   const command = { promptId: "p1", revision: 0, answer: { choice: "opt:0" } };
@@ -28,6 +29,19 @@ describe("duel answer errors", () => {
 });
 
 describe("duel room authentication responses", () => {
+  it("records monotonic time when the room response arrives", async () => {
+    let now = 1_000;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    let respond!: (response: Response) => void;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => { respond = resolve; })));
+    const request = getDuelRoom("table");
+    now = 1_500;
+    const room = makeSeriesRoom();
+    respond(Response.json(room));
+
+    await expect(request).resolves.toEqual({ ...room, receivedAt: 1_500 });
+  });
+
   it("reports a skipped lobby check as a typed room-refresh signal", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ skipped: true })));
     await expect(validateDuelDeck("t", { main: [], extra: [], side: [] }, new AbortController().signal)).rejects.toBeInstanceOf(DeckValidationSkippedError);

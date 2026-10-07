@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { DuelFirstChoice, DuelOpeningView, DuelRpsMove } from "@yugidraft/shared/duels";
 import { DUEL_RPS_MOVES } from "@yugidraft/shared/duels";
 import { duelFontClasses } from "./fonts";
@@ -60,31 +60,34 @@ function Countdown({ iso, label, now }: { iso: string; label: string; now: numbe
 }
 
 /** Server time plus monotonic elapsed time; ticks countdowns and ends reveals without a poll. */
-function useNow(opening: DuelOpeningView): number {
-  const received = useRef({ opening, at: performance.now() });
-  if (received.current.opening !== opening) received.current = { opening, at: performance.now() };
-  const [, tick] = useState(0);
+function useNow(opening: DuelOpeningView, receivedAt?: number): number {
+  const [clock, setClock] = useState({ opening, receivedAt, now: opening.serverNow });
   useEffect(() => {
+    const at = receivedAt ?? performance.now();
+    const sample = () => opening.serverNow + (performance.now() - at);
+    const update = () => setClock({ opening, receivedAt, now: sample() });
+    update();
     if (opening.phase === "start") return undefined;
-    const update = () => tick((value) => value + 1);
     const interval = window.setInterval(update, 500);
     const end = revealEndsAt(opening);
-    const wait = end - opening.serverNow - (performance.now() - received.current.at);
+    const wait = end - sample();
     const timer = wait > 0 ? window.setTimeout(update, wait + 20) : undefined;
     return () => {
       window.clearInterval(interval);
       if (timer != null) window.clearTimeout(timer);
     };
-  }, [opening]);
-  return opening.serverNow + (performance.now() - received.current.at);
+  }, [opening, receivedAt]);
+  return clock.opening === opening && clock.receivedAt === receivedAt ? clock.now : opening.serverNow;
 }
 
 /**
  * The opening of a match: rock-paper-scissors, then the winner chooses to go first or second.
  * Picks stay hidden until both are in; the server decides the result and the timeouts.
  */
-export function OpeningScreen({ opening, mySeat, names, busy = false, error = null, onPick, onChoose }: {
+export function OpeningScreen({ opening, receivedAt, mySeat, names, busy = false, error = null, onPick, onChoose }: {
   opening: DuelOpeningView;
+  /** Monotonic client time when the room response arrived; retained with cached rooms. */
+  receivedAt?: number;
   mySeat: number | null;
   names: [string, string];
   busy?: boolean;
@@ -92,7 +95,7 @@ export function OpeningScreen({ opening, mySeat, names, busy = false, error = nu
   onPick: (move: DuelRpsMove) => void;
   onChoose: (choice: DuelFirstChoice) => void;
 }) {
-  const now = useNow(opening);
+  const now = useNow(opening, receivedAt);
   const stage = openingStage(opening, mySeat, now);
   const player = isOpeningPlayer(mySeat);
   const { me, them } = openingSeats(mySeat);

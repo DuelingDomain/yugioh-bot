@@ -15,8 +15,10 @@ vi.mock("next/font/google", () => {
 import { findScenario, scenariosIn } from "@/components/duel/fx-lab/scenarios";
 import { labOpeningView } from "@/components/duel/fx-lab/series-view";
 import { OpeningScreen } from "@/components/duel/opening";
+import { getDuelRoom } from "@/components/duel/api";
+import { makeSeriesRoom } from "./helpers/duel-series";
 
-afterEach(() => { cleanup(); vi.useRealTimers(); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 const NAMES: [string, string] = ["Sulman", "Imran"];
 
@@ -114,6 +116,33 @@ describe("OpeningScreen", () => {
     expect(screen.getByTestId("opening-move-paper")).toBeEnabled();
     fireEvent.click(screen.getByTestId("opening-move-paper"));
     expect(onPick).toHaveBeenCalledWith("paper");
+  });
+
+  it.each([1_000, 4_000])("does not extend a tie reveal when the cached room is %s ms old", async (age) => {
+    const serverNow = 1_000_000;
+    vi.useFakeTimers();
+    vi.setSystemTime(serverNow - 60_000);
+    const opening = labOpeningView({ stage: "reveal-tie" }, serverNow);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({
+      ...makeSeriesRoom({ series: null, status: "lobby" }), opening,
+    })));
+    const room = await getDuelRoom("table");
+    act(() => vi.advanceTimersByTime(age));
+    const draw = () => <OpeningScreen opening={room.opening!} receivedAt={room.receivedAt}
+      mySeat={0} names={NAMES} onPick={() => undefined} onChoose={() => undefined} />;
+    const { unmount } = render(draw());
+
+    if (age < 3_000) {
+      expect(screen.getByTestId("opening-screen")).toHaveAttribute("data-stage", "reveal");
+      act(() => vi.advanceTimersByTime(3_100 - age));
+    }
+    expect(screen.getByTestId("opening-screen")).toHaveAttribute("data-stage", "pick");
+    expect(screen.getByTestId("opening-move-paper")).toBeEnabled();
+    const seconds = screen.getByTestId("opening-countdown").querySelector("b")?.textContent;
+    unmount();
+    render(draw());
+    expect(screen.getByTestId("opening-screen")).toHaveAttribute("data-stage", "pick");
+    expect(screen.getByTestId("opening-countdown").querySelector("b")?.textContent).toBe(seconds);
   });
 
   const countdownCases = ["pick", "choose", "wait-choose"] as const;
