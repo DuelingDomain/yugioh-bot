@@ -17,9 +17,11 @@ interface TournamentLobbyProps {
   tournament: TournamentDetail;
   tournamentSlug: string;
   isCreator: boolean;
-  currentUserId: string | null;
+  currentUserId: number | null;
   onChanged: () => void;
   ratings?: PlayerRatings;
+  /** The server can post to Discord. Off, the Announce button and the /event command hint are hidden. */
+  discordEnabled?: boolean;
 }
 
 /** Matches a round robin makes: every pair once. Single elimination makes n - 1. */
@@ -45,11 +47,11 @@ export function firstRoundNote(players: number) {
   return `${byes.length ? `Seat ${byes[0]} gets a bye. ` : ""}Round 1 pairs ${list}.`;
 }
 
-export function TournamentLobby({ tournament, tournamentSlug, isCreator, onChanged, ratings }: TournamentLobbyProps) {
+export function TournamentLobby({ tournament, tournamentSlug, isCreator, onChanged, ratings, discordEnabled = false }: TournamentLobbyProps) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
-    const [announced, setAnnounced] = useState(false);
+  const [announced, setAnnounced] = useState(false);
 
   const isParticipant = tournament.isParticipant;
   const players = tournament.participants;
@@ -111,9 +113,9 @@ export function TournamentLobby({ tournament, tournamentSlug, isCreator, onChang
         )}
 
         <section aria-label={isCreator ? "Invite players" : "Invite link"} className={styles.invite}>
-          <SectionHead title={isCreator ? "Invite players" : "Invite link"} note={isCreator ? "Anyone in the server can join." : "Share it so others can join."} />
+          <SectionHead title={isCreator ? "Invite players" : "Invite link"} note={isCreator ? "Anyone with the link can join." : "Share it so others can join."} />
           <CopyLinkRow value={link} label="Invite link" />
-          {isCreator && (
+          {isCreator && discordEnabled && (
             <p className={styles.note}>Players can also join from Discord with <code className={styles.cmd}>/event join</code>.</p>
           )}
         </section>
@@ -188,9 +190,11 @@ export function TournamentLobby({ tournament, tournamentSlug, isCreator, onChang
               {process.env.NODE_ENV !== "production" && (
                 <SvButton variant="quiet" disabled={busy === "add-bot"} onClick={() => post("add-bot", "/join-bot", "Failed to add bot")}>Add a bot</SvButton>
               )}
-              <SvButton variant="quiet" disabled={busy === "announce"} onClick={() => post("announce", "/announce", "Failed to announce", () => { setAnnounced(true); setTimeout(() => setAnnounced(false), 2500); })}>
-                {announced ? "Announced" : "Announce in Discord"}
-              </SvButton>
+              {discordEnabled && (
+                <SvButton variant="quiet" disabled={busy === "announce"} onClick={() => post("announce", "/announce", "Failed to announce", () => { setAnnounced(true); setTimeout(() => setAnnounced(false), 2500); })}>
+                  {announced ? "Announced" : "Announce in Discord"}
+                </SvButton>
+              )}
             </div>
             <p className={styles.note}>
               {canStart

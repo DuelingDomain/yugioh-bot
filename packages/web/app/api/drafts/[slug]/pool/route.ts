@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { createDraftService, createCardCatalogService } from "@yugidraft/shared/services";
@@ -10,14 +10,12 @@ import { draftReadAccess } from "@/lib/draft-access";
 export const runtime = "nodejs";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ slug: string }> }) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const actor = await requireWebAccess();
+  if (!actor.ok) return actor.response;
 
   const { slug } = await params;
   const db = getDb();
-  const denied = draftReadAccess(db, slug, env.discordGuildId, session.user.id);
+  const denied = draftReadAccess(db, slug, env.discordGuildId, actor.userId);
   if (denied) return denied;
   const row = db
     .prepare("select config_json from drafts where web_slug = ? and guild_id = ?")

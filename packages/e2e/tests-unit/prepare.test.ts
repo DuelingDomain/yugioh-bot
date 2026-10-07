@@ -88,10 +88,10 @@ test("prepare refuses occupied ports even without a local supervisor pid", async
   }
 });
 
-for (const name of ["ws", "duel-server"]) {
+for (const [name, entry] of [["ws", "server.js"], ["duel-server", "server.js"], ["worker", "index.js"]]) {
   test(`parallel prepare rejects stale ${name} dist instead of rebuilding it`, () => {
     const fixture = stackFixture();
-    utimesSync(fixture.at(`packages/${name}/dist/server.js`), 0, 0);
+    utimesSync(fixture.at(`packages/${name}/dist/${entry}`), 0, 0);
     try {
       const result = spawnSync(process.execPath, [fixture.at("packages/e2e/stack/prepare.mjs")], {
         cwd: fixture.root, env: fixture.env, encoding: "utf8", timeout: 4000,
@@ -116,13 +116,44 @@ test("forced parallel prepare rebuilds only slot web output with webpack", () =>
       ["run", "package:standalone", "--workspace=packages/web"],
     ]);
     assert.equal(readFileSync(fixture.at("packages/web/tsconfig.json"), "utf8"), "original config");
+    assert.deepEqual(JSON.parse(readFileSync(fixture.at("web-build-env.json"), "utf8")), {
+      e2eAuth: "1", clerkPublishableKey: "pk_test_Y2xlcmsuZXhhbXBsZS5jb20k",
+    });
+    const stamp = JSON.parse(readFileSync(fixture.at("packages/web/.next-e2e-2/standalone/packages/web/.e2e-build.json"), "utf8"));
+    assert.equal(stamp.e2eAuth, true);
+    assert.equal(stamp.clerkPublishableKey, "pk_test_Y2xlcmsuZXhhbXBsZS5jb20k");
   } finally { fixture.cleanup(); }
 });
+
+for (const stamp of [
+  { wsUrl: "http://localhost:0", builtAt: Date.now() + 60000 },
+  { wsUrl: "http://localhost:0", builtAt: Date.now() + 60000, e2eAuth: false, clerkPublishableKey: "pk_test_Y2xlcmsuZXhhbXBsZS5jb20k" },
+  { wsUrl: "http://localhost:0", builtAt: Date.now() + 60000, e2eAuth: true, clerkPublishableKey: "another-key" },
+]) {
+  test(`prepare rebuilds a fresh web output with incompatible auth stamp: ${JSON.stringify(stamp)}`, () => {
+    const fixture = stackFixture();
+    const output = "packages/web/.next-e2e-2/standalone/packages/web";
+    mkdirSync(fixture.at(output), { recursive: true });
+    writeFileSync(fixture.at(`${output}/server.js`), "server");
+    writeFileSync(fixture.at(`${output}/.e2e-build.json`), JSON.stringify(stamp));
+    try {
+      const result = spawnSync(process.execPath, [fixture.at("packages/e2e/stack/prepare.mjs")], {
+        cwd: fixture.root, env: fixture.env, encoding: "utf8", timeout: 4000,
+      });
+      assert.equal(result.status, 0, result.stderr);
+      assert.ok(existsSync(fixture.at("web-build-env.json")), "incompatible auth build must be rebuilt even when all inputs are older");
+      const current = JSON.parse(readFileSync(fixture.at(`${output}/.e2e-build.json`), "utf8"));
+      assert.equal(current.e2eAuth, true);
+      assert.equal(current.clerkPublishableKey, "pk_test_Y2xlcmsuZXhhbXBsZS5jb20k");
+    } finally { fixture.cleanup(); }
+  });
+}
 
 test("unset prepare still builds stale services and uses the ordinary web build", () => {
   const fixture = stackFixture();
   utimesSync(fixture.at("packages/ws/dist/server.js"), 0, 0);
   utimesSync(fixture.at("packages/duel-server/dist/server.js"), 0, 0);
+  utimesSync(fixture.at("packages/worker/dist/index.js"), 0, 0);
   const { E2E_SLOT, ...env } = fixture.env;
   try {
     const result = spawnSync(process.execPath, [fixture.at("packages/e2e/stack/prepare.mjs")], {
@@ -133,6 +164,7 @@ test("unset prepare still builds stale services and uses the ordinary web build"
     assert.deepEqual(commands, [
       ["run", "build", "--workspace=packages/ws"],
       ["run", "build", "--workspace=packages/duel-server"],
+      ["run", "build", "--workspace=packages/worker"],
       ["run", "build", "--workspace=packages/web"],
     ]);
   } finally { fixture.cleanup(); }

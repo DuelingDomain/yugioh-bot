@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
 import { env } from "@/lib/env";
 import { createPlayerService, createTournamentService, TournamentDuelError } from "@yugidraft/shared/services";
 
@@ -55,10 +55,8 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const actor = await requireWebAccess();
+  if (!actor.ok) return actor.response;
 
   const body = await request.json();
   const { name, format } = body as { name: string; format: string };
@@ -122,14 +120,14 @@ export async function POST(request: NextRequest) {
   try {
     const db = getDb();
     const players = createPlayerService(db);
-    const organizerPlayer = players.findOrCreate(guildId, session.user.id, session.user.name ?? "Unknown");
+    const organizerPlayer = players.findOrCreate(guildId, actor.userId, actor.userName);
 
     const tournaments = createTournamentService(db);
     const tournament = tournaments.create(
       guildId,
       name,
       format as "round_robin" | "single_elim",
-      session.user.id,
+      actor.userId,
       {
         deadlineAt: deadlineAt ?? null,
         reportConfirmWindowHours: reportConfirmWindowHours ?? null,

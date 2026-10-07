@@ -15,6 +15,7 @@ services:
     ports:
       - "3000:3000"
     environment:
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:?NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY is required}
       WATCHPACK_POLLING: "true"
       CHOKIDAR_USEPOLLING: "true"
     volumes:
@@ -37,3 +38,22 @@ services:
     build:
       target: duel
       additional_contexts: !reset {}
+
+  worker:
+    build:
+      target: web-dev
+    working_dir: /app
+    command: ["node_modules/.bin/tsx", "watch", "packages/worker/src/index.ts"]
+    volumes:
+      - ./packages/worker/src:/app/packages/worker/src
+      - ./packages/shared/dist:/app/packages/shared/dist
+      - ./packages/shared/package.json:/app/packages/shared/package.json:ro
+    healthcheck:
+      test: ["CMD", "node", "--import", "tsx", "packages/worker/src/healthcheck.ts"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      - shared
+      - ws

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { fixtureUserId } from "../fixtures/identity";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
@@ -96,7 +97,7 @@ const baseDraft = {
   id: 1,
   name: "Legendary Draft",
   status: "completed",
-  createdByUserId: "creator-1",
+  createdByUserId: fixtureUserId("creator-1"),
   createdAt: "2026-05-06T12:00:00.000Z",
   endedAt: "2026-05-06T12:30:00.000Z",
   config: {
@@ -407,10 +408,10 @@ describe("DraftSummaryView", () => {
     expect(screen.queryByText(/will start the tournament/i)).toBeNull();
   });
 
-  it("offers Create tournament to a guild admin who is not the host", () => {
-    renderView({ ...baseDraft, participantPickCount: 15, myDeckId: 7, canCreateTournament: true }, { isCreator: false });
-    expect(screen.getByRole("button", { name: "Create tournament" })).toHaveClass("sv-btn", "primary");
-    expect(screen.queryByText(/will start the tournament/i)).toBeNull();
+  it("hides Create tournament from a former admin who is not the host", () => {
+    renderView({ ...baseDraft, participantPickCount: 15, myDeckId: 7, canCreateTournament: false }, { isCreator: false });
+    expect(screen.queryByRole("button", { name: "Create tournament" })).toBeNull();
+    expect(screen.getByText(/will start the tournament/i)).toBeTruthy();
   });
 
   it("offers no create button to the host when the server refuses", () => {
@@ -420,7 +421,7 @@ describe("DraftSummaryView", () => {
 
   it("tells other players the host starts the tournament, with no create button", () => {
     renderView({ ...baseDraft, participantPickCount: 15, myDeckId: 7 });
-    expect(screen.getByText("The host or a server admin will start the tournament.")).toBeTruthy();
+    expect(screen.getByText("The host will start the tournament.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Create tournament" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Go to tournament" })).toBeNull();
   });
@@ -579,3 +580,5 @@ describe("DraftSummaryView", () => {
     expect(container.textContent).not.toMatch(/\u00b7/);
   });
 });
+
+const FIXTURE_KEYS = ["creator-1"] as const;

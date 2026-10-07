@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { createHmac } from "node:crypto";
 import { join } from "node:path";
 import Database from "better-sqlite3";
@@ -34,7 +35,7 @@ describeWithCores("live Domain card restriction at every multiplayer seat", need
     const db = new Database(":memory:");
     migrate(db);
     const count = seatCountFor(format);
-    const players = Array.from({ length: count }, (_, index) => Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values (?, ?, ?)").run("g1", `u${index}`, `P${index}`).lastInsertRowid));
+    const players = Array.from({ length: count }, (_, index) => seedIdentity(db, { guildId: "g1", name: `P${index}`, userId: seedUser(db, `u${index}`).userId, discordUserId: seedUser(db, `u${index}`).discordUserId ?? `u${index}` }).playerId);
     const service = createDuelService(db);
     const room = service.create({ guildId: "g1", organizerPlayerId: players[0]!, name: "Domain restriction proof", mode: "domain", format, settings: { banlist: "none", validateDeck: true, shuffleDeck: false, turnSeconds: 0 } });
     for (const player of players.slice(1)) service.takeSeat(room.slug, "g1", player);

@@ -448,18 +448,23 @@ describe("the HUD of the 4-way grid with a prompt", () => {
   });
 });
 
-describe("the clock in the corner of the 4-way grid", () => {
-  it("shows the answering seat's clock only, and nothing when no clock runs", () => {
+describe("the clocks at the top left of the 4-way grid", () => {
+  it("shows every seat's clock in the header, marks the answering seat, and keeps the corner free", () => {
     const running = structuredClone(stateOf("main"));
-    running.room.clock = { ...running.room.clock!, activeSeat: 1 };
+    running.room.clock = { ...running.room.clock!, activeSeat: 1, startedAt: running.room.clock!.serverNow };
     const { unmount } = render(<Shell state={running} />);
-    const timer = within(screen.getByTestId("hud-corner")).getByRole("timer");
-    expect(timer.querySelectorAll("[data-active]")).toHaveLength(1);
+    const timer = within(screen.getByTestId("hud-top")).getByRole("timer");
+    const cells = timer.querySelectorAll('[data-testid="clock-cell"]');
+    expect(cells).toHaveLength(running.room.clock!.remainingMs.length);
+    expect(timer.querySelectorAll('[data-active="true"]')).toHaveLength(1);
+    expect(cells[1]?.getAttribute("data-active")).toBe("true");
+    expect(within(screen.getByTestId("hud-corner")).queryByRole("timer")).toBeNull();
     unmount();
     const idle = structuredClone(stateOf("main"));
     idle.room.clock = { ...idle.room.clock!, activeSeat: null };
     render(<Shell state={idle} />);
-    expect(within(screen.getByTestId("hud-corner")).queryByRole("timer")).toBeNull();
+    const idleTimer = within(screen.getByTestId("hud-top")).getByRole("timer");
+    expect(idleTimer.querySelectorAll('[data-active="true"]')).toHaveLength(0);
   });
 });
 

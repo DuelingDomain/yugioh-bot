@@ -17,3 +17,12 @@ vi.mock("next/font/google", () => {
     Barlow_Condensed: font,
   };
 });
+
+// Never initialize Clerk or perform Clerk I/O in unit/component tests.
+vi.mock("@clerk/nextjs", () => ({
+  ClerkProvider: ({ children }: { children: unknown }) => children,
+  useClerk: () => ({ signOut: vi.fn() }),
+}));
+vi.mock("@clerk/nextjs/server", () => ({
+  auth: vi.fn(async () => ({ userId: null })),
+}));

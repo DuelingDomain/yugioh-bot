@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
 import { broadcaster, announcer } from "@/lib/notify";
 
 export const runtime = "nodejs";
@@ -11,12 +11,10 @@ export async function POST(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const actor = await requireWebAccess();
+    if (!actor.ok) return actor.response;
 
-    const discordUserId = session.user.id;
+    const userId = actor.userId;
     const { slug } = await params;
     const db = getDb();
 
@@ -81,9 +79,9 @@ export async function POST(
     // Find the reporter's player record
     const reporter = db
       .prepare(
-        "select id from players where guild_id = ? and discord_user_id = ?"
+        "select id from players where guild_id = ? and user_id = ?"
       )
-      .get(tournament.guild_id, discordUserId) as { id: number } | undefined;
+      .get(tournament.guild_id, userId) as { id: number } | undefined;
 
     if (!reporter) {
       return NextResponse.json(
@@ -152,14 +150,16 @@ export async function POST(
         select
           t.name as tournament_name,
           tm.round_number as round_number,
-          rp.discord_user_id as reporter_discord_id,
+          ru.discord_user_id as reporter_discord_id,
           rp.display_name as reporter_name,
-          op.discord_user_id as opponent_discord_id,
+          ou.discord_user_id as opponent_discord_id,
           op.display_name as opponent_name
         from tournament_matches tm
         join tournaments t on t.id = tm.tournament_id
         join players rp on rp.id = ?
+        join users ru on ru.id = rp.user_id
         join players op on op.id = ?
+        join users ou on ou.id = op.user_id
         where tm.id = ?
       `,
       )
@@ -167,14 +167,14 @@ export async function POST(
       | {
           tournament_name: string;
           round_number: number;
-          reporter_discord_id: string;
+          reporter_discord_id: string | null;
           reporter_name: string;
-          opponent_discord_id: string;
+          opponent_discord_id: string | null;
           opponent_name: string;
         }
       | undefined;
 
-    if (meta) {
+    if (env.discordBotEnabled && meta?.reporter_discord_id && meta.opponent_discord_id) {
       void announcer.announce(
         {
           kind: "match-report-pending",

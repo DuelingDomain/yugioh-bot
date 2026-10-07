@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -10,7 +11,10 @@ import { mainIds, passcodeOf, seedDraftDeck } from "./helpers/draft-deck-fixture
 
 const auth = vi.fn();
 const callDuelHost = vi.fn();
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/duel-host", async (importActual) => ({
   ...(await importActual<typeof import("@/lib/duel-host")>()),
   callDuelHost,
@@ -25,15 +29,16 @@ function seed() {
   process.env.DATABASE_PATH = join(dir, "bot.sqlite");
   const db = new Database(process.env.DATABASE_PATH);
   migrate(db);
-  const insert = db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', ?, ?)");
-  const a = Number(insert.run("u-a", "Alice").lastInsertRowid);
-  const b = Number(insert.run("u-b", "Bob").lastInsertRowid);
+  seedFixtureUsers(db, FIXTURE_KEYS);
+  const insert = db.prepare("insert into players (guild_id, user_id, discord_user_id, display_name) values ('g1', ?, ?, ?)");
+  const a = Number(insert.run(fixtureUserId("u-a"), fixtureDiscordId("u-a"), "Alice").lastInsertRowid);
+  const b = Number(insert.run(fixtureUserId("u-b"), fixtureDiscordId("u-b"), "Bob").lastInsertRowid);
   const tournaments = createTournamentService(db);
-  const tour = tournaments.create("g1", "Cup", "round_robin", "u-org");
+  const tour = tournaments.create("g1", "Cup", "round_robin", fixtureUserId("u-org"));
   db.prepare("update tournaments set web_slug = 'cup' where id = ?").run(tour.id);
   tournaments.join(tour.id, a);
   tournaments.join(tour.id, b);
-  const saved = createSavedDeckService(db).create("g1", "u-a", { name: "Mine", mode: "normal", deck: DECK });
+  const saved = createSavedDeckService(db).create("g1", fixtureUserId("u-a"), { name: "Mine", mode: "normal", deck: DECK });
   return { db, a, tournamentId: tour.id, savedId: saved.id };
 }
 
@@ -45,12 +50,13 @@ describe("tournament deck route", () => {
   it.each([false, true])("registers forced fourth copies and refuses a fifth (%s)", async (fifth) => {
     const fixture = await seedDraftDeck({ picks: [...mainIds(40), 1, 1, 1, 1], forcedPicks: [42], tournamentUsers: ["drafter"] });
     tempDirs.push(fixture.dir);
-    auth.mockResolvedValue({ user: { id: "drafter", name: "Yugi" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("drafter")), discordUserId: fixtureDiscordId("drafter"), name: "Yugi" } });
     const { getDb } = await import("@/lib/db");
     const db = getDb();
+    seedFixtureUsers(db, FIXTURE_KEYS);
     db.prepare("update tournaments set web_slug = 'cup'").run();
     const deck = { main: mainIds(40).map(passcodeOf), extra: [], side: Array(fifth ? 4 : 3).fill(passcodeOf(1)) };
-    const saved = createSavedDeckService(db).create("guild-1", "drafter", { name: "Forced", mode: "normal", deck, draftId: fixture.draftId });
+    const saved = createSavedDeckService(db).create("guild-1", fixtureUserId("drafter"), { name: "Forced", mode: "normal", deck, draftId: fixture.draftId });
     callDuelHost.mockImplementation(async (input: { op: string; codes: number[] }) => input.op === "check-deck"
       ? { ok: true, data: { deck, report: { issues: [] } } }
       : { ok: true, data: { codes: Object.fromEntries(input.codes.map((id) => [id, id >= 100000 ? id : passcodeOf(id)])) } });
@@ -66,7 +72,7 @@ describe("tournament deck route", () => {
     vi.stubEnv("DISCORD_GUILD_ID", "g1");
     auth.mockReset();
     callDuelHost.mockReset();
-    auth.mockResolvedValue({ user: { id: "u-a", name: "Alice" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-a")), discordUserId: fixtureDiscordId("u-a"), name: "Alice" } });
   });
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -89,7 +95,7 @@ describe("tournament deck route", () => {
 
   it("rejects a caller who is not in the tournament", async () => {
     seed();
-    auth.mockResolvedValue({ user: { id: "u-x", name: "Outsider" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-x")), discordUserId: fixtureDiscordId("u-x"), name: "Outsider" } });
     const { GET, PUT } = await import("../app/api/tournaments/[slug]/deck/route");
     expect((await GET(get(), ctx)).status).toBe(403);
     expect((await PUT(put({ savedDeckId: 1 }), ctx)).status).toBe(403);
@@ -121,13 +127,14 @@ describe("tournament deck route", () => {
   it.each([false, true])("PUT checks artwork ids in both the draft pool and deck (extra copy: %s)", async (extraCopy) => {
     const fixture = await seedDraftDeck({ picks: [...mainIds(39), 81480461], tournamentUsers: ["drafter"] });
     tempDirs.push(fixture.dir);
-    auth.mockResolvedValue({ user: { id: "drafter", name: "Yugi" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("drafter")), discordUserId: fixtureDiscordId("drafter"), name: "Yugi" } });
     const { getDb } = await import("@/lib/db");
     const db = getDb();
+    seedFixtureUsers(db, FIXTURE_KEYS);
     db.prepare("update card_catalog set type = 'Effect Monster', frame_type = 'effect' where ygoprodeck_id = 81480461").run();
     db.prepare("update tournaments set web_slug = 'cup'").run();
     const deck = { main: [...mainIds(39).map(passcodeOf), 81480461], extra: [], side: extraCopy ? [81480460] : [] };
-    const saved = createSavedDeckService(db).create("guild-1", "drafter", { name: "Art", mode: "normal", deck, draftId: fixture.draftId });
+    const saved = createSavedDeckService(db).create("guild-1", fixtureUserId("drafter"), { name: "Art", mode: "normal", deck, draftId: fixture.draftId });
     callDuelHost.mockImplementation(async (input: { op: string; codes: number[] }) => input.op === "check-deck"
       ? { ok: true, data: { deck, report: { issues: [] } } }
       : { ok: true, data: { codes: Object.fromEntries(input.codes.map((id) => [id, id === 81480461 ? 81480460 : id >= 100000 ? id : passcodeOf(id)])) } });
@@ -167,3 +174,7 @@ describe("tournament deck route", () => {
     expect(callDuelHost).not.toHaveBeenCalled();
   });
 });
+
+const FIXTURE_KEYS = ["u-a", "u-b", "u-org", "drafter", "u-x"] as const;
+
+// Session resolution is mocked; authorization still runs through the real web boundary.

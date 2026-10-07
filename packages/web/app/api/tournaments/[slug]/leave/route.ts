@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
 import { createTournamentService } from "@yugidraft/shared/services";
 import { broadcaster } from "@/lib/notify";
 
@@ -12,10 +12,8 @@ export async function POST(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const actor = await requireWebAccess();
+    if (!actor.ok) return actor.response;
 
     const { slug } = await params;
     const db = getDb();
@@ -29,8 +27,8 @@ export async function POST(
     }
 
     const player = db
-      .prepare("select id from players where guild_id = ? and discord_user_id = ?")
-      .get(tournament.guild_id, session.user.id) as { id: number } | undefined;
+      .prepare("select id from players where guild_id = ? and user_id = ?")
+      .get(tournament.guild_id, actor.userId) as { id: number } | undefined;
 
     if (!player) {
       return NextResponse.json({ error: "You are not a participant in this tournament" }, { status: 400 });

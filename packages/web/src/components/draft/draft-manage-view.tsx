@@ -38,7 +38,7 @@ interface DraftManageViewProps {
     id: number;
     name: string;
     status: string;
-    createdByUserId: string;
+    createdByUserId: number;
     createdAt: string;
     config: {
       packSize?: number;

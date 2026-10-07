@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "../helpers/identity.js";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
@@ -16,9 +17,8 @@ function fixture() {
   const db = new Database(":memory:");
   databases.push(db);
   migrate(db);
-  const ins = db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', ?, ?)");
-  const a = Number(ins.run("a", "Alice").lastInsertRowid);
-  const b = Number(ins.run("b", "Bob").lastInsertRowid);
+  const a = seedIdentity(db, { guildId: "g1", name: "Alice", userId: seedUser(db, "a").userId, discordUserId: seedUser(db, "a").discordUserId ?? "a" }).playerId;
+  const b = seedIdentity(db, { guildId: "g1", name: "Bob", userId: seedUser(db, "b").userId, discordUserId: seedUser(db, "b").discordUserId ?? "b" }).playerId;
   const matches = createMatchService(db);
   const old = matches.recordConfirmedResult({ guildId: "g1", playerOneId: a, playerTwoId: b, winnerId: a, source: "casual" });
   db.prepare("update matches set status='denied' where id=?").run(old.id);
@@ -56,9 +56,7 @@ describe("repairRatings maintenance function", () => {
     repairRatings(db, { apply: true });
     const seasons = createSeasonService(db);
     const s2 = seasons.start("g1");
-    const tournamentId = Number(db.prepare(
-      "insert into tournaments (guild_id, name, format, status, created_by_user_id) values ('g1', 'Bracket', 'single_elim', 'completed', 'host')",
-    ).run().lastInsertRowid);
+    const tournamentId = Number(db.prepare("insert into tournaments (guild_id, name, format, status, created_by_user_id) values ('g1', 'Bracket', 'single_elim', 'completed', ?)").run(seedUser(db, "host").userId).lastInsertRowid);
     db.prepare("insert into tournament_participants (tournament_id, player_id) values (?, ?), (?, ?)").run(tournamentId, a, tournamentId, b);
     createScoringService(db).recordTournamentResult(tournamentId, { champion: a, top4: [] });
     const s1 = db.prepare("select id from seasons where status='ended'").get() as { id: number };
@@ -102,9 +100,7 @@ describe("repairRatings maintenance function", () => {
     ]);
 
     repairRatings(db, { apply: true });
-    const tournamentId = Number(db.prepare(
-      "insert into tournaments (guild_id, name, format, status, created_by_user_id) values ('g1', 'Cup', 'round_robin', 'completed', 'host')",
-    ).run().lastInsertRowid);
+    const tournamentId = Number(db.prepare("insert into tournaments (guild_id, name, format, status, created_by_user_id) values ('g1', 'Cup', 'round_robin', 'completed', ?)").run(seedUser(db, "host").userId).lastInsertRowid);
     db.prepare("insert into tournament_participants (tournament_id, player_id) values (?, ?), (?, ?)").run(tournamentId, a, tournamentId, b);
     const matchId = Number(db.prepare(
       "insert into matches (guild_id, player_one_id, player_two_id, winner_id, reporter_id, status, source, tournament_id) values ('g1', ?, ?, ?, ?, 'approved', 'tournament', ?)",

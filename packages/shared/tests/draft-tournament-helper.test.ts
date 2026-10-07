@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "./helpers/identity.js";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import { migrate } from "../src/db/index.js";
@@ -8,8 +9,8 @@ import { createTournamentDuelService } from "../src/services/tournament-duels.js
 import { createTournamentService } from "../src/services/tournaments.js";
 
 function seedDb(db: Database.Database) {
-  db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', 'u1', 'Alice')").run();
-  db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', 'u2', 'Bob')").run();
+  seedIdentity(db, { guildId: "g1", name: "Alice", userId: seedUser(db, "u1").userId, discordUserId: seedUser(db, "u1").discordUserId ?? "u1" });
+  seedIdentity(db, { guildId: "g1", name: "Bob", userId: seedUser(db, "u2").userId, discordUserId: seedUser(db, "u2").discordUserId ?? "u2" });
   for (let i = 1; i <= 40; i++) {
     db.prepare(
       `insert into card_catalog (ygoprodeck_id, name, type, frame_type, image_url, image_url_small, card_sets_json, cached_at)
@@ -21,12 +22,12 @@ function seedDb(db: Database.Database) {
 function completeDraft(db: Database.Database) {
   seedDb(db);
   const drafts = createDraftService(db);
-  const alice = db.prepare("select id from players where discord_user_id = 'u1'").get() as { id: number };
-  const bob = db.prepare("select id from players where discord_user_id = 'u2'").get() as { id: number };
+  const alice = db.prepare("select id from players where user_id = ?").get(seedUser(db, "u1").userId) as { id: number };
+  const bob = db.prepare("select id from players where user_id = ?").get(seedUser(db, "u2").userId) as { id: number };
   const cubeCardIds = drafts.resolveCubeCardIds({ setNames: ["Set A"] });
   const draft = drafts.create("g1", "ch1", "Test Draft", {
     setNames: ["Set A"], cubeCardIds, packsPerPlayer: 5, packSize: 8, pickSeconds: 45,
-  }, "u1", alice.id);
+  }, seedUser(db, "u1").userId, alice.id);
   drafts.join(draft.id, bob.id);
   db.prepare("update drafts set status = 'completed' where id = ?").run(draft.id);
   return { draft, aliceId: alice.id, bobId: bob.id };
@@ -60,14 +61,13 @@ describe("createTournamentFromDraft", () => {
     migrate(db);
     seedDb(db);
     for (let i = 3; i <= 5; i++) {
-      db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', ?, ?)")
-        .run(`u${i}`, `Player ${i}`);
+      seedIdentity(db, { guildId: "g1", name: `Player ${i}`, userId: seedUser(db, `u${i}`).userId, discordUserId: seedUser(db, `u${i}`).discordUserId ?? `u${i}` });
     }
     const drafts = createDraftService(db, { random: () => 0 });
     const config = {
       setNames: ["Set A"], packsPerPlayer: 1, packSize: 1, cardsPerPlayer: 1, randomizeSeats,
     };
-    const draft = drafts.create("g1", "ch1", "Five-player draft", config, "u1", joinOrder[0]);
+    const draft = drafts.create("g1", "ch1", "Five-player draft", config, seedUser(db, "u1").userId, joinOrder[0]);
     for (const playerId of joinOrder.slice(1)) drafts.join(draft.id, playerId);
     if (randomizeSeats === undefined) {
       // Older drafts can omit the key instead of storing the normalized default.
@@ -84,7 +84,7 @@ describe("createTournamentFromDraft", () => {
     expect(drafts.players(draft.id).map((player) => player.playerId)).toEqual(seatOrder);
 
     const result = createDraftTournamentService(db).createTournamentFromDraft({
-      draftId: draft.id, format: "single_elim", createdByUserId: "u1",
+      draftId: draft.id, format: "single_elim", createdByUserId: seedUser(db, "u1").userId,
     });
     const tournaments = createTournamentService(db);
     tournaments.start(result.tournamentId);
@@ -108,7 +108,7 @@ describe("createTournamentFromDraft", () => {
     const result = service.createTournamentFromDraft({
       draftId: draft.id,
       format: "round_robin",
-      createdByUserId: "u1",
+      createdByUserId: seedUser(db, "u1").userId,
     });
 
     expect(result.tournamentName).toBe("Test Draft");
@@ -124,53 +124,40 @@ describe("createTournamentFromDraft", () => {
     const { draft } = completeDraft(db);
     const service = createDraftTournamentService(db);
 
-    const r1 = service.createTournamentFromDraft({ draftId: draft.id, format: "round_robin", createdByUserId: "u1" });
-    const r2 = service.createTournamentFromDraft({ draftId: draft.id, format: "single_elim", createdByUserId: "u1" });
+    const r1 = service.createTournamentFromDraft({ draftId: draft.id, format: "round_robin", createdByUserId: seedUser(db, "u1").userId });
+    const r2 = service.createTournamentFromDraft({ draftId: draft.id, format: "single_elim", createdByUserId: seedUser(db, "u1").userId });
 
     expect(r1.tournamentId).toBe(r2.tournamentId);
   });
 
-  it.each([undefined, false])("rejects non-creator with actorIsAdmin=%s", (actorIsAdmin) => {
+  it("rejects a participant who is not the creator", () => {
     const db = new Database(":memory:");
     migrate(db);
     const { draft } = completeDraft(db);
-    const service = createDraftTournamentService(db);
-
-    expect(() =>
-      service.createTournamentFromDraft({ draftId: draft.id, format: "round_robin", createdByUserId: "u2", actorIsAdmin }),
-    ).toThrow("Only the draft creator");
+    expect(() => createDraftTournamentService(db).createTournamentFromDraft({
+      draftId: draft.id, format: "round_robin", createdByUserId: seedUser(db, "u2").userId,
+    })).toThrow("Only the draft creator can create a tournament");
     db.close();
   });
 
-  it("allows an admin who did not create or join the draft", () => {
+  it("rejects a former admin who did not create or join the draft", () => {
     const db = new Database(":memory:");
     migrate(db);
-    const { draft, aliceId, bobId } = completeDraft(db);
-    const service = createDraftTournamentService(db);
-
-    const result = service.createTournamentFromDraft({
-      draftId: draft.id, format: "round_robin", createdByUserId: "admin-user", actorIsAdmin: true,
-    });
-
-    expect(result.tournamentName).toBe("Test Draft");
-    expect(db.prepare("select created_by_user_id from tournaments where id = ?").get(result.tournamentId))
-      .toEqual({ created_by_user_id: "admin-user" });
-    expect(createTournamentService(db).participants(result.tournamentId)).toEqual([aliceId, bobId]);
-    expect(service.createTournamentFromDraft({
-      draftId: draft.id, format: "single_elim", createdByUserId: "admin-user", actorIsAdmin: true,
-    })).toEqual(result);
-    expect(db.prepare("select count(*) as count from tournaments").get()).toEqual({ count: 1 });
+    const { draft } = completeDraft(db);
+    expect(() => createDraftTournamentService(db).createTournamentFromDraft({
+      draftId: draft.id, format: "round_robin", createdByUserId: seedUser(db, "admin-user").userId,
+    })).toThrow("Only the draft creator can create a tournament");
+    expect(db.prepare("select count(*) as count from tournaments").get()).toEqual({ count: 0 });
     db.close();
   });
 
-  it.each(["pending", "active", "cancelled"])("rejects an admin for a %s draft", (status) => {
+  it.each(["pending", "active", "cancelled"])("rejects the creator for a %s draft", (status) => {
     const db = new Database(":memory:");
     migrate(db);
     const { draft } = completeDraft(db);
     db.prepare("update drafts set status = ? where id = ?").run(status, draft.id);
-
     expect(() => createDraftTournamentService(db).createTournamentFromDraft({
-      draftId: draft.id, format: "round_robin", createdByUserId: "admin-user", actorIsAdmin: true,
+      draftId: draft.id, format: "round_robin", createdByUserId: seedUser(db, "u1").userId,
     })).toThrow("must be completed");
     expect(db.prepare("select count(*) as count from tournaments").get()).toEqual({ count: 0 });
     db.close();
@@ -181,15 +168,15 @@ describe("createTournamentFromDraft", () => {
     migrate(db);
     seedDb(db);
     const drafts = createDraftService(db);
-    const alice = db.prepare("select id from players where discord_user_id = 'u1'").get() as { id: number };
+    const alice = db.prepare("select id from players where user_id = ?").get(seedUser(db, "u1").userId) as { id: number };
     const cubeCardIds = drafts.resolveCubeCardIds({ setNames: ["Set A"] });
     const draft = drafts.create("g1", "ch1", "Pending", {
       setNames: ["Set A"], cubeCardIds, packsPerPlayer: 5, packSize: 8, pickSeconds: 45,
-    }, "u1", alice.id);
+    }, seedUser(db, "u1").userId, alice.id);
 
     const service = createDraftTournamentService(db);
     expect(() =>
-      service.createTournamentFromDraft({ draftId: draft.id, format: "round_robin", createdByUserId: "u1" }),
+      service.createTournamentFromDraft({ draftId: draft.id, format: "round_robin", createdByUserId: seedUser(db, "u1").userId }),
     ).toThrow("must be completed");
   });
 
@@ -199,7 +186,7 @@ describe("createTournamentFromDraft", () => {
     const { draft } = completeDraft(db);
     const service = createDraftTournamentService(db);
 
-    const result = service.createTournamentFromDraft({ draftId: draft.id, format: "round_robin", createdByUserId: "u1" });
+    const result = service.createTournamentFromDraft({ draftId: draft.id, format: "round_robin", createdByUserId: seedUser(db, "u1").userId });
 
     const row = db.prepare("select tournament_id from drafts where id = ?").get(draft.id) as { tournament_id: number };
     expect(row.tournament_id).toBe(result.tournamentId);
@@ -212,7 +199,7 @@ describe("createTournamentFromDraft", () => {
     const service = createDraftTournamentService(db);
 
     const result = service.createTournamentFromDraft({
-      draftId: draft.id, format: "round_robin", createdByUserId: "u1", bestOf: 1,
+      draftId: draft.id, format: "round_robin", createdByUserId: seedUser(db, "u1").userId, bestOf: 1,
     });
     const row = db
       .prepare("select best_of, duel_rules_json from tournaments where id = ?")
@@ -223,13 +210,13 @@ describe("createTournamentFromDraft", () => {
     migrate(db2);
     const second = completeDraft(db2);
     const r2 = createDraftTournamentService(db2).createTournamentFromDraft({
-      draftId: second.draft.id, format: "round_robin", createdByUserId: "u1",
+      draftId: second.draft.id, format: "round_robin", createdByUserId: seedUser(db, "u1").userId,
     });
     expect((db2.prepare("select best_of from tournaments where id = ?").get(r2.tournamentId) as { best_of: number }).best_of).toBe(3);
 
     expect(() =>
       createDraftTournamentService(db2).createTournamentFromDraft({
-        draftId: second.draft.id, format: "round_robin", createdByUserId: "u1", bestOf: 2 as never,
+        draftId: second.draft.id, format: "round_robin", createdByUserId: seedUser(db, "u1").userId, bestOf: 2 as never,
       }),
     ).toThrow(/Best of/);
   });
@@ -240,12 +227,12 @@ describe("createTournamentFromDraft", () => {
     const { draft, aliceId, bobId } = completeDraft(db);
     const savedDecks = createSavedDeckService(db);
     const deck = { main: [1, 2, 3], extra: [], side: [] };
-    const aliceDeck = savedDecks.create("g1", "u1", { name: "Alice draft", mode: "normal", deck, draftId: draft.id });
+    const aliceDeck = savedDecks.create("g1", seedUser(db, "u1").userId, { name: "Alice draft", mode: "normal", deck, draftId: draft.id });
     // A deck without a draft id never counts.
-    savedDecks.create("g1", "u2", { name: "Bob plain", mode: "normal", deck });
+    savedDecks.create("g1", seedUser(db, "u2").userId, { name: "Bob plain", mode: "normal", deck });
 
     const result = createDraftTournamentService(db).createTournamentFromDraft({
-      draftId: draft.id, format: "round_robin", createdByUserId: "u1",
+      draftId: draft.id, format: "round_robin", createdByUserId: seedUser(db, "u1").userId,
     });
 
     const duels = createTournamentDuelService(db);

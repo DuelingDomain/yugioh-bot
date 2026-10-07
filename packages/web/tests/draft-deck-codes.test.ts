@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -21,15 +22,15 @@ function seed(opts: { draft: boolean }) {
   tempDirs.push(dir);
   const db = new Database(join(dir, "bot.sqlite"));
   migrate(db);
-  const insert = db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', ?, ?)");
-  const alice = Number(insert.run("u-a", "Alice").lastInsertRowid);
-  const bob = Number(insert.run("u-b", "Bob").lastInsertRowid);
+  seedFixtureUsers(db, FIXTURE_KEYS);
+  const insert = db.prepare("insert into players (guild_id, user_id, discord_user_id, display_name) values ('g1', ?, ?, ?)");
+  const alice = Number(insert.run(fixtureUserId("u-a"), fixtureDiscordId("u-a"), "Alice").lastInsertRowid);
+  const bob = Number(insert.run(fixtureUserId("u-b"), fixtureDiscordId("u-b"), "Bob").lastInsertRowid);
   const tournaments = createTournamentService(db);
-  const tour = tournaments.create("g1", "Cup", "round_robin", "u-org");
+  const tour = tournaments.create("g1", "Cup", "round_robin", fixtureUserId("u-org"));
   if (opts.draft) {
     db.prepare(
-      `insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug, tournament_id)
-       values ('g1', 'c', 'Cube', 'completed', 'u-org', '{}', 'cube-1', ?)`,
+      `insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug, tournament_id) values ('g1', 'c', 'Cube', 'completed', ${fixtureUserId("u-org")}, '{}', 'cube-1', ?)`,
     ).run(tour.id);
   }
   tournaments.join(tour.id, alice);
@@ -170,3 +171,5 @@ describe("mapDraftTournamentDecks", () => {
     expect(s.deckOf(s.alice)).toEqual(CATALOG);
   });
 });
+
+const FIXTURE_KEYS = ["u-a", "u-b", "u-org"] as const;

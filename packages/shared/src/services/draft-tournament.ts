@@ -8,9 +8,7 @@ import { TournamentDuelError } from "./tournament-duels.js";
 export type CreateTournamentFromDraftInput = {
   draftId: number;
   format: TournamentFormat;
-  createdByUserId: string;
-  /** The caller has verified that the actor is a guild admin. */
-  actorIsAdmin?: boolean;
+  createdByUserId: number;
   /** Games per pairing; default 3. */
   bestOf?: 1 | 3;
 };
@@ -44,18 +42,18 @@ export function createDraftTournamentService(db: Database.Database) {
         | {
             id: number;
             guild_id: string;
-            channel_id: string;
+            channel_id: string | null;
             name: string;
             status: string;
-            created_by_user_id: string;
+            created_by_user_id: number;
             tournament_id: number | null;
             config_json: string;
           }
         | undefined;
 
       if (!draft) throw new Error("Draft not found");
-      if (draft.created_by_user_id !== input.createdByUserId && input.actorIsAdmin !== true) {
-        throw new Error("Only the draft creator can create a tournament from this draft");
+      if (draft.created_by_user_id !== input.createdByUserId) {
+        throw new Error("Only the draft creator can create a tournament");
       }
       if (draft.status !== "completed") {
         throw new Error("Draft must be completed before creating a tournament");

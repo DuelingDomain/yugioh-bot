@@ -37,7 +37,7 @@ export function createSeasonService(db: Database.Database) {
     return row.n + 1;
   };
 
-  const start = (guildId: string, userId?: string, name?: string): Season => {
+  const start = (guildId: string, userId?: number, name?: string): Season => {
     if (getActive(guildId)) {
       throw new Error("A season is already active");
     }
@@ -55,11 +55,11 @@ export function createSeasonService(db: Database.Database) {
 
   return {
     getActive,
-    ensureActive(guildId: string, userId?: string): Season {
+    ensureActive(guildId: string, userId?: number): Season {
       return getActive(guildId) ?? start(guildId, userId);
     },
     start,
-    end(guildId: string, _userId?: string): Season | undefined {
+    end(guildId: string, _userId?: number): Season | undefined {
       const active = getActive(guildId);
       if (!active) return undefined;
       db.prepare(

@@ -732,7 +732,7 @@ describe("CreateDraftForm pool: saving", () => {
     await addCardByName("alpha", "Alpha Beast");
     expect(screen.queryByRole("button", { name: /Save changes to/ })).toBeNull();
     expect(screen.getByRole("button", { name: "Save as new cube" })).toBeInTheDocument();
-    expect(screen.getByText("Only Despia cube's owner or an admin can change it.")).toBeInTheDocument();
+    expect(screen.getByText("Only Despia cube's owner can change it.")).toBeInTheDocument();
   });
 });
 
@@ -912,7 +912,8 @@ describe("CreateDraftForm basics", () => {
     expect(screen.getByLabelText(/draft name/i)).toHaveAttribute("placeholder", "Friday cube night");
     expect(screen.getByLabelText(/draft name/i).closest("section")?.className).toMatch(/sec/);
     expect(screen.getByRole("list", { name: "What happens next" }).className).toMatch(/steps/);
-    expect(screen.getByText("/draft join")).toHaveClass("cmd");
+    expect(screen.queryByText("/draft join")).toBeNull();
+    expect(screen.getByText("Players join from the invite link.")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Pool" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Packs" })).toBeInTheDocument();
   });
@@ -1081,6 +1082,17 @@ describe("CreateDraftForm pool: loading and slow answers", () => {
     fireEvent.change(await screen.findByLabelText("Search sets"), { target: { value: "raid" } });
     expect(await screen.findByRole("button", { name: "Add Metal Raiders" })).toBeInTheDocument();
     await waitFor(() => expect(stub.find("/api/sets?q=raid")).toHaveLength(1));
+  });
+});
+
+describe("CreateDraftForm Discord off", () => {
+  it("has no channel picker and makes no channels request", async () => {
+    const stub = stubFetch();
+    render(<CreateDraftForm />);
+    await screen.findByRole("list", { name: "Cubes" });
+    expect(screen.queryByLabelText(/channel/i)).toBeNull();
+    expect(screen.queryByText(/discord/i)).toBeNull();
+    expect(stub.find("/api/discord/channels", "GET")).toHaveLength(0);
   });
 });
 

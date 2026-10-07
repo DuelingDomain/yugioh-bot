@@ -427,7 +427,7 @@ export function untouchedNote(cubeName: string): string {
 }
 
 export function notOwnerNote(cubeName: string): string {
-  return `Only ${cubeName}'s owner or an admin can change it.`;
+  return `Only ${cubeName}'s owner can change it.`;
 }
 
 export function replaceQuestion(cubeName: string, extraEdited = false): string {

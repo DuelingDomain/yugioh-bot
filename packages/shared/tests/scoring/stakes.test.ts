@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "../helpers/identity.js";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import { migrate } from "../../src/db/index.js";
@@ -11,14 +12,14 @@ function playTournamentMatch(eloA: number, eloB: number, winner: "a" | "b") {
   const db = new Database(":memory:");
   migrate(db);
   const player = (user: string) =>
-    Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g', ?, ?)").run(user, user).lastInsertRowid);
+    seedIdentity(db, { guildId: "g", name: user, userId: seedUser(db, user).userId, discordUserId: seedUser(db, user).discordUserId ?? user }).playerId;
   const a = player("a");
   const b = player("b");
   const setElo = db.prepare("insert into player_ratings (guild_id, player_id, elo) values ('g', ?, ?)");
   setElo.run(a, eloA);
   setElo.run(b, eloB);
   const tournaments = createTournamentService(db);
-  const t = tournaments.create("g", "Cup", "single_elim", "org");
+  const t = tournaments.create("g", "Cup", "single_elim", seedUser(db, "org").userId);
   tournaments.join(t.id, a);
   tournaments.join(t.id, b);
   tournaments.start(t.id);

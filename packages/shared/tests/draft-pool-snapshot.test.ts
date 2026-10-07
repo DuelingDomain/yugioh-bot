@@ -1,11 +1,12 @@
+import { seedIdentity, seedUser } from "./helpers/identity.js";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import { migrate } from "../src/db/index.js";
 import { createDraftService } from "../src/services/drafts.js";
 
 function seedDb(db: Database.Database, count = 20) {
-  db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', 'u1', 'Alice')").run();
-  db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', 'u2', 'Bob')").run();
+  seedIdentity(db, { guildId: "g1", name: "Alice", userId: seedUser(db, "u1").userId, discordUserId: seedUser(db, "u1").discordUserId ?? "u1" });
+  seedIdentity(db, { guildId: "g1", name: "Bob", userId: seedUser(db, "u2").userId, discordUserId: seedUser(db, "u2").discordUserId ?? "u2" });
   const insertCard = db.prepare(
     `insert into card_catalog (ygoprodeck_id, name, type, frame_type, image_url, image_url_small, card_sets_json, cached_at)
      values (?, ?, 'Effect Monster', 'effect', '', '', ?, current_timestamp)`,
@@ -29,7 +30,7 @@ describe("pool snapshot", () => {
   it("resolveCubeCardIds is deterministic regardless of catalog row insertion order", () => {
     const db = new Database(":memory:");
     migrate(db);
-    db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', 'u1', 'Alice')").run();
+    seedIdentity(db, { guildId: "g1", name: "Alice", userId: seedUser(db, "u1").userId, discordUserId: seedUser(db, "u1").discordUserId ?? "u1" });
     const insertCard = db.prepare(
       `insert into card_catalog (ygoprodeck_id, name, type, frame_type, image_url, image_url_small, card_sets_json, cached_at)
        values (?, ?, 'Effect Monster', 'effect', '', '', ?, current_timestamp)`,
@@ -51,8 +52,8 @@ describe("pool snapshot", () => {
     const drafts = createDraftService(db);
     const poolCardIds = drafts.resolveCubeCardIds({ setNames: ["Set A"] });
 
-    const alice = db.prepare("select id from players where discord_user_id = 'u1'").get() as { id: number };
-    const bob = db.prepare("select id from players where discord_user_id = 'u2'").get() as { id: number };
+    const alice = db.prepare("select id from players where user_id = ?").get(seedUser(db, "u1").userId) as { id: number };
+    const bob = db.prepare("select id from players where user_id = ?").get(seedUser(db, "u2").userId) as { id: number };
 
     const draft = drafts.create("g1", "ch1", "Test Draft", {
       setNames: ["Set A"],
@@ -60,7 +61,7 @@ describe("pool snapshot", () => {
       packsPerPlayer: 5,
       packSize: 8,
       pickSeconds: 45,
-    }, "u1", alice.id);
+    }, seedUser(db, "u1").userId, alice.id);
 
     drafts.join(draft.id, bob.id);
 
@@ -109,8 +110,8 @@ describe("pool snapshot", () => {
     seedDb(db, 80);
 
     const drafts = createDraftService(db);
-    const alice = db.prepare("select id from players where discord_user_id = 'u1'").get() as { id: number };
-    const bob = db.prepare("select id from players where discord_user_id = 'u2'").get() as { id: number };
+    const alice = db.prepare("select id from players where user_id = ?").get(seedUser(db, "u1").userId) as { id: number };
+    const bob = db.prepare("select id from players where user_id = ?").get(seedUser(db, "u2").userId) as { id: number };
 
     // Create draft WITHOUT poolCardIds (simulates old draft)
     const draft = drafts.create("g1", "ch1", "Old Draft", {
@@ -118,7 +119,7 @@ describe("pool snapshot", () => {
       packsPerPlayer: 5,
       packSize: 8,
       pickSeconds: 45,
-    }, "u1", alice.id);
+    }, seedUser(db, "u1").userId, alice.id);
 
     drafts.join(draft.id, bob.id);
     drafts.start(draft.id);

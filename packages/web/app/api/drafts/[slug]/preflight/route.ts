@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { hostThemeAssignmentError } from "@/lib/theme-draft-validation";
@@ -9,14 +9,12 @@ import { createCardCatalogService, createDraftService, createCubeService } from 
 export const runtime = "nodejs";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ slug: string }> }) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const actor = await requireWebAccess();
+  if (!actor.ok) return actor.response;
   const { slug } = await params;
   const db = getDb();
   const guildId = env.discordGuildId;
-  const denied = draftReadAccess(db, slug, guildId, session.user.id);
+  const denied = draftReadAccess(db, slug, guildId, actor.userId);
   if (denied) return denied;
 
   const draftRow = db
@@ -32,7 +30,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
     const analysis = drafts.analyzeBoosterDraft(draft.config, Math.max(2, drafts.players(draft.id).length), draft.guildId);
     return NextResponse.json({ errors: analysis.errors, warnings: analysis.warnings });
   }
-  if (draft.config.themeSelection === "host_assigned" && draft.createdByUserId !== session.user.id) {
+  if (draft.config.themeSelection === "host_assigned" && draft.createdByUserId !== actor.userId) {
     return NextResponse.json({ errors: [], warnings: [] });
   }
 

@@ -96,7 +96,7 @@ export async function createDuel(
   masterRule: DuelMasterRule,
   settings: DuelSettings,
   options: CreateDuelOptions = {},
-): Promise<{ session: DuelSession; series?: DuelSeriesSummary; notified?: boolean }> {
+): Promise<{ session: DuelSession; series?: DuelSeriesSummary; shareUrl: string }> {
   const { opponentPlayerId, bestOf, ranked, format } = options;
   return parseBody(
     await fetch("/api/duels", {

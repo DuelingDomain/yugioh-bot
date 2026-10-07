@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "../fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -6,7 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const auth = vi.fn();
 const tempDirs: string[] = [];
 
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("../fixtures/session");
+  return sessionFixture(auth);
+});
 
 describe("POST /api/tournaments/[slug]/leave", () => {
   beforeEach(() => {
@@ -25,7 +29,7 @@ describe("POST /api/tournaments/[slug]/leave", () => {
   });
 
   it("removes the caller from the participants list", async () => {
-    auth.mockResolvedValue({ user: { id: "user-leaver", name: "Leaver" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("user-leaver")), discordUserId: fixtureDiscordId("user-leaver"), name: "Leaver" } });
 
     const tempDir = mkdtempSync(join(tmpdir(), "tourney-leave-"));
     const dbPath = join(tempDir, "t.sqlite");
@@ -36,11 +40,12 @@ describe("POST /api/tournaments/[slug]/leave", () => {
     const { migrate } = await import("../../../shared/src/db/schema");
     const seedDb = new Database(dbPath);
     migrate(seedDb);
+    seedFixtureUsers(seedDb, FIXTURE_KEYS);
 
-    seedDb.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', 'user-leaver', 'Leaver')").run();
-    const playerId = (seedDb.prepare("select id from players where discord_user_id = ?").get("user-leaver") as any).id;
+    seedDb.prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('g1', ${fixtureUserId("user-leaver")}, '${fixtureDiscordId("user-leaver")}', 'Leaver')`).run();
+    const playerId = (seedDb.prepare("select id from players where user_id = ?").get(fixtureUserId("user-leaver")) as any).id;
     seedDb
-      .prepare("insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug) values ('g1', 'T', 'round_robin', 'pending', 'user-org', 'slug-1')")
+      .prepare(`insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug) values ('g1', 'T', 'round_robin', 'pending', ${fixtureUserId("user-org")}, 'slug-1')`)
       .run();
     const tId = (seedDb.prepare("select id from tournaments where web_slug = 'slug-1'").get() as any).id;
     seedDb.prepare("insert into tournament_participants (tournament_id, player_id) values (?, ?)").run(tId, playerId);
@@ -67,3 +72,7 @@ describe("POST /api/tournaments/[slug]/leave", () => {
     expect(res.status).toBe(401);
   });
 });
+
+const FIXTURE_KEYS = ["user-leaver", "user-org"] as const;
+
+// Session resolution is mocked; authorization still runs through the real web boundary.

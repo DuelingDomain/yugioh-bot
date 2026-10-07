@@ -26,3 +26,9 @@ describe("createAnnouncer", () => {
     expect(res).toEqual({ ok: false, error: "Bot responded 503: down" });
   });
 });
+
+it("encodes worker draft-status as the signed announce operation",async()=>{
+  const rec=recordingTransport();
+  expect(await createAnnouncer(rec.transport).announce({kind:"draft-status",draftId:13})).toEqual({ok:true});
+  expect(rec.calls).toEqual([{path:"/internal/announce/draft-status",body:'{"draftId":13}'}]);
+});

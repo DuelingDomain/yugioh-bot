@@ -1,9 +1,13 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 
 const { auth, getDb } = vi.hoisted(() => ({ auth: vi.fn(), getDb: vi.fn() }));
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/db", () => ({ getDb }));
 let db: Database.Database;
 let upstream: Mock<typeof globalThis.fetch>;
@@ -24,16 +28,17 @@ function seed(id: number, name: string, type = "Spell Card", frame = "spell") {
 
 beforeEach(() => {
   vi.resetModules();
+  vi.stubEnv("DISCORD_GUILD_ID", "guild-1");
   auth.mockReset(); getDb.mockReset();
-  auth.mockResolvedValue({ user: { id: "owner" } });
+  auth.mockResolvedValue({ user: { id: String(fixtureUserId("owner")), discordUserId: fixtureDiscordId("owner") } });
   upstream = vi.fn(async () => Response.json({ error: "No card matching your query was found" }, { status: 400 }));
   vi.stubGlobal("fetch", upstream);
-  db = new Database(":memory:"); migrate(db); getDb.mockReturnValue(db);
+  db = new Database(":memory:"); migrate(db); seedFixtureUsers(db, ["owner", "someone-else"]); getDb.mockReturnValue(db);
   seed(1, "Dark Hole");
   seed(2, "Shooting Star Dragon", "Synchro Monster", "synchro");
   seed(3, "Artifact Moralltach", "Effect Monster", "effect");
   db.exec(`insert into cubes (guild_id,name,created_by_user_id,config_json)
-    values ('guild-1','Existing','someone-else','{"customCardIds":[1,1],"draftType":"booster"}');
+    values ('guild-1','Existing',${fixtureUserId("someone-else")},'{"customCardIds":[1,1],"draftType":"booster"}');
     insert into cube_cards (cube_id,catalog_card_id,pool,max_copies) values (1,1,'main',7)`);
   before = cubeRows();
   // Every test guards all cube writes, including accidental no-op updates.
@@ -44,7 +49,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   try { expect(cubeRows()).toEqual(before); }
-  finally { db.close(); vi.unstubAllGlobals(); }
+  finally { db.close(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); }
 });
 
 describe("POST /api/cards/resolve listText", () => {
@@ -153,7 +158,7 @@ describe("POST /api/cards/resolve listText", () => {
     auth.mockResolvedValue(session);
     const response = await resolve({ listText: "Dark Hole" });
     expect(response.status).toBe(401);
-    expect(await response.json()).toEqual({ error: "Unauthorized" });
+    expect(await response.json()).toEqual({ error: "unauthorized" });
     expect(getDb).not.toHaveBeenCalled(); expect(upstream).not.toHaveBeenCalled();
   });
 

@@ -1,28 +1,21 @@
-# YuGiOh Draft Bot
+# Dueling Domain
 
-A Discord bot + web dashboard for tracking YuGiOh matches, running drafts, managing tournaments, and viewing stats.
+A web app for YuGiOh drafts, tournaments, automated duels and community stats, with a standalone scheduling worker.
 
 ## Features
 
-### Discord Bot
-- `/duel` reports a casual 1v1 match
-- `/approve` / `/deny` approves or rejects pending match reports
-- `/stats` shows lifetime wins, losses, and win rate (optionally scoped to a tournament)
-- `/rankings` shows the server leaderboard
-- `/help` shows available bot commands
-- `/event dashboard` opens a private tournament dashboard with buttons for open events, signup, match reporting, approvals, stats, creator tools, and help
-- `/event` creates, joins, starts, shows, reports, and cancels tournaments with direct creator-seeded participants
-- Tournament name autocomplete helps pick existing events in supported options
-- Daily reminders ping a configured channel for unplayed tournament matches
+### Shelved Discord bot
+
+The bot package and Docker target remain buildable, typechecked and tested. PR 2 removes its Compose service and deployment steps; web and worker run with `DISCORD_BOT_ENABLED=0`. Existing bot commands remain in source for an explicitly configured isolated run.
 
 ### Web Dashboard
-- Discord OAuth login (NextAuth.js v5)
+- Custom Clerk email/password and Discord sign-in; invitation sign-up and password reset
 - View active, pending, completed, and cancelled drafts
 - Create new drafts with set picker and config options
 - Create new tournaments with format selection
 - Draft detail pages: manage pending drafts (start, cancel, edit), participate in active drafts, view completed draft summaries and export YDK
 - Tournament detail pages: view participants, matches, standings; start/cancel tournaments (creator only); report match results
-- Guild announcement settings toggles
+- Account profile and linked Discord settings at `/settings/account`
 - Real-time draft updates via Socket.IO
 - Automated Normal/Domain duel tables with the approved Obsidian duel room: 1v1, Tag 2v2, and 3-player and 4-player free-for-all (rules in [ADR-0002](docs/adr/0002-multiplayer-duel-rules.md))
 
@@ -31,15 +24,21 @@ A Discord bot + web dashboard for tracking YuGiOh matches, running drafts, manag
 ```bash
 npm install
 cp .env.example .env
-npm run commands:deploy
-npm run dev
+npm run build --workspace=packages/shared
+# Fill .env with absolute DATABASE_PATH/CARD_IMAGE_CACHE_DIR and internal secrets.
+# Pull Clerk dev keys into ignored packages/web/.env.local (owner-approved instance).
+# Start each in a separate terminal:
+npm run dev:web
+npm run dev:ws
+npm run dev:duel
+npm run dev:worker
 ```
 
 SQLite data is stored in `./data/bot.sqlite` by default.
 
 ### Saved decks
 
-**Decks** in the sidebar opens your private library at `/decks`. **New deck** opens `/decks/new`; saved lists reopen at `/decks/:id`. Decks are stored in SQLite and scoped to the configured guild and signed-in Discord account. Other accounts cannot list, read, update, or delete them.
+**Decks** in the sidebar opens your private library at `/decks`. **New deck** opens `/decks/new`; saved lists reopen at `/decks/:id`. Decks are stored in SQLite and scoped to the configured guild and signed-in application user. Other accounts cannot list, read, update, or delete them.
 
 The editor lays out every copy in separate **Main**, **Extra**, and **Side** card grids, alongside a card inspector and engine-catalog search by name or passcode. Click a card to inspect it, add/remove a copy, or move a copy between sections. Search places Fusion/Synchro/Xyz/Link monsters in Extra by default and other cards in Main; **Side** adds an explicit Side copy. Domain decks have a searchable **Deck Master** slot; promoting a deck card moves one copy out, and changing/clearing that choice restores it during the editing session, including after saving.
 
@@ -49,7 +48,7 @@ Upload/drop **YDK**, paste YDK or **YDKE**, or build a deck from search. Imports
 
 ### Automated duel service
 
-Authenticated **Standard** tables use selectable EDOPro Master Rule presets **1–5**, defaulting to **Master Rule 5**. **Domain** is a separate mode using modern rules plus Domain mechanics. The selection is fixed when a table is created and retained for reconnect, replay, and history. These are native gameplay presets with the current card catalog, not historical card pools or banlists. Players choose; the private compiled engine enforces legality and resolves effects. An organizer can fill an empty opponent seat with **Add practice bot** for solo testing. The bot brings a format-valid generic EARTH Normal Monster deck, makes basic legal choices, summons, and attacks automatically; it is not a competitive AI. The table type is chosen at creation: 1v1 (default), Tag 2v2, FFA3 or FFA4, in both Standard and Domain; the rules are in [ADR-0002](docs/adr/0002-multiplayer-duel-rules.md). Tag, FFA3 and FFA4 tables need `MULTIPLAYER_TABLES` on (see Environment Variables). Casual `/duel` match reports and ranking are unchanged.
+Authenticated **Standard** tables use selectable EDOPro Master Rule presets **1–5**, defaulting to **Master Rule 5**. **Domain** is a separate mode using modern rules plus Domain mechanics. The selection is fixed when a table is created and retained for reconnect, replay, and history. These are native gameplay presets with the current card catalog, not historical card pools or banlists. Players choose; the private compiled engine enforces legality and resolves effects. An organizer can fill an empty opponent seat with **Add practice bot** for solo testing. The bot brings a format-valid generic EARTH Normal Monster deck, makes basic legal choices, summons, and attacks automatically; it is not a competitive AI. The table type is chosen at creation: 1v1 (default), Tag 2v2, FFA3 or FFA4, in both Standard and Domain; the rules are in [ADR-0002](docs/adr/0002-multiplayer-duel-rules.md). Tag, FFA3 and FFA4 tables need `MULTIPLAYER_TABLES` on (see Environment Variables). Community match history and ranking remain available.
 
 **Create game** opens the responsive `/duels/new` creator: visibility, Standard/Domain, automatic engine, Master Rules, versioned Forbidden & Limited list, TCG/OCG pool, turn timer, starting LP/hand, draw count, timeout behavior, deck validation, and opening shuffle. Settings are enforced server-side and retained in reconnect/replay/history; they cannot be changed after creation. Standard defaults to the pinned TCG September 2026 list; Domain defaults to no banlist and its official deck rules. Rules-changing overrides are labeled **Custom Domain**, never official Domain. The available lists are None, [TCG September 2026](https://www.yugioh-card.com/en/limited/list_2026-09-21/), and OCG July 2026, compiled from pinned [Project Ignis lists](https://github.com/ProjectIgnis/LFLists); they do not silently update existing rooms.
 
@@ -87,7 +86,7 @@ The Match Sheet room pass played real practice duels against the bot at 1440×90
 
 Summons, sets, activations, attacks, and chain resolution produce non-blocking feedback in engine order. Face-down identities stay private to their owner, including logs and presentation events. **Options** provides persisted sound and motion preferences: sound starts off and requires a browser interaction to unlock; motion follows the device setting unless overridden. Muting stops current voices. Reduced motion keeps informational cues without animated movement.
 
-**Room access and recovery:** signed-in Discord members of the configured guild may watch public tables. Private tables require an organizer's **Copy invite** link for first admission; the grant persists, so admitted viewers can return through the ordinary room URL. Private tables and history are omitted from unauthorized lists, and direct room/deck/action/Socket.IO-token requests are denied. Returning players recover their identity-bound seats, including during an active duel; spectators receive only the public board/events, never private hands, deck lists, or actionable prompts. Guild membership is checked through Discord using the web process's `DISCORD_TOKEN`; unavailable membership checks fail closed. Authenticated Socket.IO notifications trigger authoritative HTTP snapshots, including on reconnect. Tokens renew before expiry; HTTP polling remains available if realtime is unavailable. Presence reports occupied online seats and spectator count. A disconnect alone is not a defeat, but an enabled clock continues running.
+**Room access and recovery:** signed-in members of the configured community may watch public tables. Private tables require an organizer's **Copy invite** link for first admission; the grant persists, so admitted viewers can return through the ordinary room URL. Private tables and history are omitted from unauthorized lists, and direct room/deck/action/Socket.IO-token requests are denied. Returning players recover their identity-bound seats, including during an active duel; spectators receive only the public board/events, never private hands, deck lists, or actionable prompts. Clerk sessions resolve to `users.id`; Discord linking is optional and no guild membership REST check is made. Authenticated Socket.IO notifications trigger authoritative HTTP snapshots, including on reconnect. Tokens renew before expiry; HTTP polling remains available if realtime is unavailable. Presence reports occupied online seats and spectator count. A disconnect alone is not a defeat, but an enabled clock continues running.
 
 The room's left header identifies **Spectator** mode. **Live**, **Polling**, **Catching up…**, and **Reconnecting** show connection/recovery state; **Options → Catch up now** requests a fresh snapshot. Returning to a tab, restoring a connection, or re-entering the room catches up to the current authoritative board, without undoing moves or replaying old animation/audio cues. Refreshes are serialized; updates received during a refresh trigger a trailing snapshot. Game choices stay disabled until catch-up succeeds. Visible, online tabs poll every second without a live subscription and every ten seconds while live.
 
@@ -138,23 +137,22 @@ npm run build --workspace=@yugioh-discord-bot/web
 npm run package:standalone --workspace=@yugioh-discord-bot/web
 ```
 
-After loading `.env` into the process environment, launch from the worktree root:
+After loading local `.env` and Clerk dev keys from ignored `packages/web/.env.local` into the process environment (public key during build, secret during start), launch from the worktree root:
 
 ```bash
 HOSTNAME=127.0.0.1 PORT=3000 \
-AUTH_URL=http://localhost:3000 NEXTAUTH_URL=http://localhost:3000 \
+WEB_URL=http://localhost:3000 DISCORD_BOT_ENABLED=0 \
 DATABASE_PATH="$PWD/data/bot.sqlite" \
 DUEL_INTERNAL_URL=http://127.0.0.1:4003 \
 WS_INTERNAL_URL=http://127.0.0.1:4002 \
-BOT_ANNOUNCE_URL=http://127.0.0.1:4001 \
 systemd-run --user --scope --unit=yugidraft-web-local \
   -p MemoryMax=1536M -p MemorySwapMax=256M -p TasksMax=128 \
   npm run start --workspace=@yugioh-discord-bot/web
 ```
 
-`start` launches `packages/web/.next/standalone/packages/web/server.js`, not `next start`. The web process needs `DUEL_INTERNAL_SECRET` matching the engine or deck ready never reaches the host. Discord must register the exact callback `http://localhost:3000/api/auth/callback/discord`.
+`start` launches `packages/web/.next/standalone/packages/web/server.js`, not `next start`. The web process needs `DUEL_INTERNAL_SECRET` matching the engine or deck ready never reaches the host. Configure the Clerk instance for the local app origin and its `/sso-callback` flow.
 
-For host-run web with Docker bot/WebSocket services, Docker-only names such as `http://ws:4002` are not reachable from the web process. Publish the bot's `4001` and WebSocket internal `4002` ports on `127.0.0.1` only, retain matching signing secrets, and mount the same worktree `data` directory into the supporting containers. The current local override is `/tmp/yugioh-local-3000.override.yml`; it also publishes Socket.IO at `localhost:3002` and sets its browser origin to `http://localhost:3000`. Build the browser with `NEXT_PUBLIC_WS_URL=http://localhost:3002`. Leave the older Docker web container stopped to avoid a duplicate app.
+For host-run web with Docker WebSocket services, Docker-only names such as `http://ws:4002` are not reachable from the web process. Publish WebSocket internal `4002` on `127.0.0.1` only, retain matching signing secrets, and mount the same worktree `data` directory into the supporting containers. The current local override is `/tmp/yugioh-local-3000.override.yml`; it also publishes Socket.IO at `localhost:3002` and sets its browser origin to `http://localhost:3000`. Build the browser with `NEXT_PUBLIC_WS_URL=http://localhost:3002`. Leave the older Docker web container stopped to avoid a duplicate app.
 
 Set `WS_INTERNAL_URL=http://127.0.0.1:4002` for **both** host-run web and duel processes; Compose overrides it with `http://ws:4002` inside Docker. After changing either setting, restart that process. The WebSocket image must also include the current duel subscription and `/internal/duel/changed` handlers: an older draft-only image leaves the UI in **Polling** even if Socket.IO connects. Internal notifications are awaited, so a Docker-only hostname in a host process delays table creation and card responses while DNS fails.
 
@@ -164,21 +162,20 @@ Source attribution: [ocgcore-wasm](https://github.com/n1xx1/ocgcore-wasm), [EDOP
 
 | Variable | Required | Description |
 |---|---|---|
-| `DISCORD_TOKEN` | Yes (bot + web) | Discord bot token; web uses it to verify guild membership for duel access |
-| `DISCORD_CLIENT_ID` | Yes | Discord application client ID (shared between bot and web OAuth) |
-| `DISCORD_CLIENT_SECRET` | Yes | Discord OAuth2 client secret (for web auth) |
-| `DISCORD_GUILD_ID` | Yes | Discord server ID for guild-scoped commands |
-| `DISCORD_REMINDER_CHANNEL_ID` | No | Channel for daily tournament reminders |
-| `DISCORD_DEFAULT_CHANNEL_ID` | No | Default channel for web-created drafts/tournaments |
-| `NEXTAUTH_SECRET` | Yes (web) | Generate with `openssl rand -base64 32` |
-| `SITE_DOMAIN` | Yes (Compose) | Caddy hostname; see [production environment setup](docs/deployment/vm-runbook.md#create-env) |
-| `NEXTAUTH_URL` | Yes (web) | `http://localhost:3000` locally; see [production environment setup](docs/deployment/vm-runbook.md#create-env) |
-| `WEB_URL` | Yes (bot) | Public web URL used in bot announcement links. Same value as `NEXTAUTH_URL` in production |
-| `NEXT_PUBLIC_WS_URL` | No (dev only) | Separate WebSocket URL for local development, e.g. `http://localhost:3001` |
-| `WS_INTERNAL_SECRET` | Yes (web + bot + duel + ws) | Shared HMAC secret for internal broadcasts and short-lived duel subscription tokens. Generate with `openssl rand -hex 32` |
-| `WS_INTERNAL_URL` | Yes (web + bot + duel) | Internal URL of the ws server. In Docker Compose this is `http://ws:4002` |
-| `BOT_ANNOUNCE_SECRET` | Yes | Shared bearer secret for web → bot announce endpoint. Generate with `openssl rand -hex 32` |
-| `BOT_ANNOUNCE_URL` | Yes (web) | Internal URL where web reaches the bot announce server. In Docker Compose this is `http://bot:4001` |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Yes (web build/dev) | Web build arg; production repository variable. Dev keys belong in ignored `packages/web/.env.local` only |
+| `CLERK_SECRET_KEY` | Yes (web runtime) | Backend API key; explicitly passed to one-off owner CLI runs, never image builds |
+| `DISCORD_BOT_ENABLED` | Yes | Compose fixes web/worker to `0`; only literal `1` enables an explicitly run shelved bot |
+| `DISCORD_GUILD_ID` | Yes | Community scope for gameplay and owner season operations |
+| `SITE_DOMAIN` | Yes (Compose) | Caddy app hostname; see [production environment setup](docs/deployment/vm-runbook.md#create-env) |
+| `WEB_URL` | Yes | Canonical app origin and WS CORS origin; Compose fails if missing |
+| `MARKETING_URL` | No | Marketing origin for external waitlist links |
+| `NEXT_PUBLIC_WS_URL` | No (dev only) | Separate browser WebSocket URL, e.g. `http://localhost:3001`; production uses page origin |
+| `WS_INTERNAL_SECRET` | Yes (web + duel + worker + ws) | Shared HMAC secret for broadcasts and room tokens; generate with `openssl rand -hex 32` |
+| `WS_INTERNAL_URL` | Yes (web + duel + worker) | Internal WS URL; `http://ws:4002` in Compose |
+| `BUG_REPORT_GITHUB_TOKEN` | No (web runtime) | Server-side token for issue creation; empty keeps reports local |
+| `BUG_REPORT_GITHUB_REPO` | No | Defaults to `imran443/yugioh-bot` |
+| `DUEL_FX_LAB`, `DUEL_SCENARIOS`, `DRAFT_TEST_BOTS` | No | Server feature gates; staging enables scenarios only |
+| `E2E_AUTH`, `E2E_AUTH_SECRET` | Isolated E2E only | Literal `1` and ≥32-character secret enable signed-cookie test login; absent from production/staging Compose |
 | `DUEL_INTERNAL_SECRET` | Yes (web + duel) | Shared HMAC secret for web → private duel host (`x-announce-signature`). Generate with `openssl rand -hex 32`. Never expose port 4003 |
 | `DUEL_INTERNAL_URL` | Yes (web) | Internal URL of the duel host. Host: `http://127.0.0.1:4003`. Compose: `http://duel:4003` |
 | `DUEL_DATA_DIR` | No | Canonical engine bundle. Defaults to `./data/duel-engine`. Use an absolute path when the process cwd is not the worktree |
@@ -190,15 +187,13 @@ Source attribution: [ocgcore-wasm](https://github.com/n1xx1/ocgcore-wasm), [EDOP
 | `DUEL_IDLE_WORKER_MS` | No | Idle worker reclamation delay; default `300000` (5 minutes). Re-entry replays the game without forfeiting a seat |
 | `DUEL_BOT_STEP_MS` | No | Base pause in ms before each practice bot action, so players can follow its play (phase moves about 0.6x, summons/sets/activations 1x, attacks 1.5x, plus jitter). Defaults to `900`; `0` makes the bot answer instantly inside the player's request |
 | `DATABASE_PATH` | No | SQLite file path. Defaults to `./data/bot.sqlite`. Web and duel must open the same file |
-| `REMINDER_CRON` | No | Cron schedule for daily reminders. Defaults to `0 10 * * *` |
-| `REMINDER_TIMEZONE` | No | Timezone for reminders. Defaults to `America/New_York` |
 
 ## Docker
 
 ### Development (with hot reload)
 
 ```bash
-docker compose up -d --build
+docker compose --env-file .env --env-file packages/web/.env.local up -d --build
 ```
 
 The tracked `docker-compose.override.yml` is auto-merged for local dev. It switches the web service to the `web-dev` target, enables polling-based file watching, and bind-mounts the source directories needed for HMR.
@@ -223,7 +218,7 @@ docker compose -f docker-compose.yml up -d
 Production should always use the base file explicitly so local dev overrides are not loaded.
 
 The stack runs 5 services:
-- **bot** — Discord bot (deploys commands on startup)
+- **worker** — Draft expiry, report approval, tournament deadlines, set sync and image eviction
 - **ws** — Socket.IO WebSocket server for real-time draft updates
 - **duel** — Private automated engine (`packages/duel-server/dist/server.js`, loopback 4003)
 - **web** — Next.js 16 dashboard (standalone `packages/web/server.js`)
@@ -252,8 +247,8 @@ passwd
 2. Install Docker and Git on the VM
 3. Clone the repo to `/opt/yugioh-bot`
 4. Configure [DNS, firewall](docs/deployment/vm-runbook.md#create-the-server), and the [production environment](docs/deployment/vm-runbook.md#create-env)
-5. Set Discord OAuth redirect URI: `https://<SITE_DOMAIN>/api/auth/callback/discord` (see [runbook](docs/deployment/vm-runbook.md#discord-oauth-redirect))
-6. Add GitHub Actions secrets (`VM_HOST`, `VM_USER`, `VM_SSH_PRIVATE_KEY`, `VM_PORT`)
+5. Configure production Clerk for the final app origin, Discord callback, invitation/email templates and legal links (see [runbook](docs/deployment/vm-runbook.md#clerk-configuration))
+6. Add GitHub Actions secrets (`VM_HOST`, `VM_USER`, `VM_SSH_PRIVATE_KEY`, `VM_PORT`) and the public `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` repository variable
 7. Follow the runbook's [first production start](docs/deployment/vm-runbook.md#build--run): run the
    `Deploy` workflow on `main` to build images and install the engine bundle. Later starts of
    already built images use `docker compose -f docker-compose.yml up -d` (without `--build`).
@@ -286,10 +281,11 @@ See the [runbook's Backups section](docs/deployment/vm-runbook.md#backups) for a
 
 ```
 packages/
-  bot/          Discord bot (discord.js + better-sqlite3)
+  bot/          Shelved Discord bot (build/tests retained)
   web/          Next.js web dashboard (App Router, TailwindCSS v4)
   ws/           Socket.IO WebSocket server (draft real-time updates)
   shared/       Shared library (database schema, services, types)
   duel-server/  Private Normal/Domain engine host: 1v1, Tag and FFA (canonical data in `data/duel-engine`)
+  worker/       Scheduling worker and compiled owner ops CLI
   e2e/          Playwright duel tests on an isolated stack (ports 3300 family, `E2E_SLOT` for parallel runs; see packages/e2e/README.md)
 ```

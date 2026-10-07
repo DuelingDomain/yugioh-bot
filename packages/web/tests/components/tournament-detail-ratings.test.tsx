@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { fixtureUserId, fixtureDiscordId } from "../fixtures/identity";
 import React from "react";
 import { act, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -29,7 +30,7 @@ function deferred() {
 function setup(ratings: () => Response | Promise<Response>) {
   vi.stubGlobal("fetch", vi.fn(async (url: RequestInfo | URL) => {
     if (String(url) === LEADERBOARD) return ratings();
-    if (String(url) === "/api/auth/session") return Response.json({ user: { id: "host" } });
+    if (String(url) === "/api/auth/session") return Response.json({ user: { id: String(fixtureUserId("host")), discordUserId: fixtureDiscordId("host") } });
     if (String(url) === "/api/tournaments/friday-night-12") return Response.json(sheetTournament);
     throw new Error(`Unexpected request: ${String(url)}`);
   }));
@@ -80,3 +81,5 @@ describe("tournament live ratings", () => {
     expect(screen.queryByRole("status")).toBeNull();
   });
 });
+
+const FIXTURE_KEYS = ["host"] as const;

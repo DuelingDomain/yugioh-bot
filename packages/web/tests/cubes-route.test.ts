@@ -1,14 +1,16 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mockDiscordAccess } from "./fixtures/discord-access";
 
 const auth = vi.fn();
 const tempDirs: string[] = [];
-let discord: ReturnType<typeof mockDiscordAccess>;
 
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 
 async function setupDb() {
   const tempDir = mkdtempSync(join(tmpdir(), "yugioh-cubes-routes-"));
@@ -21,6 +23,7 @@ async function setupDb() {
   const { migrate } = await import("@yugidraft/shared/db");
   const db = new Database(dbPath);
   migrate(db);
+  seedFixtureUsers(db, FIXTURE_KEYS);
   const ins = db.prepare(
     `insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
      values (?,?,?,?,?,?,?,?)`,
@@ -42,9 +45,7 @@ describe("cube API routes", () => {
   beforeEach(() => {
     vi.resetModules();
     auth.mockReset();
-    auth.mockResolvedValue({ user: { id: "creator", name: "Yugi" } });
-    discord = mockDiscordAccess();
-    discord.permissions = "0";
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("creator")), discordUserId: fixtureDiscordId("creator"), name: "Yugi" } });
   });
 
   afterEach(() => {
@@ -58,7 +59,8 @@ describe("cube API routes", () => {
     }
   });
 
-  it("creates a blank cube then imports passcodes routed to main/extra", async () => {
+  it.each([false, true])("creates a blank cube then imports passcodes routed to main/extra (email-only=%s)", async emailOnly => {
+    if (emailOnly) auth.mockResolvedValue({ user: { id: String(fixtureUserId("creator")), discordUserId: null, name: "Yugi" } });
     await setupDb();
 
     const { POST: createCube } = await import("../app/api/cubes/route");
@@ -247,7 +249,7 @@ describe("cube API routes", () => {
     // A cube from another guild is not readable.
     const { getDb } = await import("../src/lib/db");
     const foreign = Number(
-      getDb().prepare("insert into cubes (guild_id, name, created_by_user_id) values ('other-guild','Foreign','x')").run()
+      getDb().prepare(`insert into cubes (guild_id, name, created_by_user_id) values ('other-guild', 'Foreign', ${fixtureUserId("x")})`).run()
         .lastInsertRowid,
     );
     const hidden = await exportYdk(new Request("http://x") as any, { params: Promise.resolve({ id: String(foreign) }) });
@@ -328,8 +330,9 @@ describe("cube API routes", () => {
     // A cube in another guild never shows up.
     const { getDb } = await import("../src/lib/db");
     const db = getDb();
+    seedFixtureUsers(db, FIXTURE_KEYS);
     const foreign = Number(
-      db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('other-guild','Foreign','x')").run()
+      db.prepare(`insert into cubes (guild_id, name, created_by_user_id) values ('other-guild', 'Foreign', ${fixtureUserId("x")})`).run()
         .lastInsertRowid,
     );
     db.prepare("insert into cube_cards (cube_id, catalog_card_id, pool, max_copies) values (?, 1, 'main', 3)").run(foreign);
@@ -513,7 +516,7 @@ describe("cube API routes", () => {
     const { POST } = await import("../app/api/cubes/route");
     const created = await POST(new Request("http://x", { method: "POST", body: JSON.stringify({ kind: "blank", name: "Owned" }) }));
     const { cube } = await created.json();
-    auth.mockResolvedValue({ user: { id: "other-member" } });
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("other-member")), discordUserId: fixtureDiscordId("other-member") } });
     const route = await import("../app/api/cubes/[id]/route");
     const { POST: cards } = await import("../app/api/cubes/[id]/cards/route");
     const handler = method === "cards" ? cards : method === "PUT" ? route.PUT : route.DELETE;
@@ -527,13 +530,12 @@ describe("cube API routes", () => {
     expect(getDb().prepare("select count(*) as n from cube_cards where cube_id = ?").get(cube.id)).toEqual({ n: 0 });
   });
 
-  it.each(["PUT", "DELETE", "cards"])("%s allows a guild admin who is not the owner", async (method) => {
+  it.each(["PUT", "DELETE", "cards"])("%s rejects a former admin who is not the owner", async (method) => {
     await setupDb();
     const { POST } = await import("../app/api/cubes/route");
     const created = await POST(new Request("http://x", { method: "POST", body: JSON.stringify({ kind: "blank", name: "Owned" }) }));
     const { cube } = await created.json();
-    auth.mockResolvedValue({ user: { id: "admin" } });
-    discord.permissions = "32";
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("admin")), discordUserId: fixtureDiscordId("admin") } });
     const route = await import("../app/api/cubes/[id]/route");
     const { POST: cards } = await import("../app/api/cubes/[id]/cards/route");
     const handler = method === "cards" ? cards : method === "PUT" ? route.PUT : route.DELETE;
@@ -541,14 +543,14 @@ describe("cube API routes", () => {
       method: method === "cards" ? "POST" : method,
       body: method === "DELETE" ? undefined : JSON.stringify({ name: "Admin edit", op: "add", catalogCardId: 1, pool: "main" }),
     }), { params: Promise.resolve({ id: String(cube.id) }) });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(403);
   });
 
-  it.each(["PUT", "DELETE", "cards"])("%s rejects even an owner who is no longer a member", async (method) => {
+  it.each(["PUT", "DELETE", "cards"])("%s rejects writes when the owner is signed out", async (method) => {
     await setupDb();
     const { getDb } = await import("../src/lib/db");
-    const cubeId = Number(getDb().prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1','Owned','creator')").run().lastInsertRowid);
-    discord.memberStatus = 404;
+    const cubeId = Number(getDb().prepare(`insert into cubes (guild_id, name, created_by_user_id) values ('guild-1', 'Owned', ${fixtureUserId("creator")})`).run().lastInsertRowid);
+    auth.mockResolvedValue(null);
     const route = await import("../app/api/cubes/[id]/route");
     const { POST: cards } = await import("../app/api/cubes/[id]/cards/route");
     const handler = method === "cards" ? cards : method === "PUT" ? route.PUT : route.DELETE;
@@ -556,13 +558,13 @@ describe("cube API routes", () => {
       method: method === "cards" ? "POST" : method,
       body: method === "DELETE" ? undefined : JSON.stringify({ name: "Stolen", op: "add", catalogCardId: 1, pool: "main" }),
     }), { params: Promise.resolve({ id: String(cubeId) }) });
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(401);
   });
 
   it.each(["PUT", "DELETE", "cards"])("%s cannot mutate a cube in another guild", async (method) => {
     await setupDb();
     const { getDb } = await import("../src/lib/db");
-    const cubeId = Number(getDb().prepare("insert into cubes (guild_id, name, created_by_user_id) values ('other-guild','Foreign','creator')").run().lastInsertRowid);
+    const cubeId = Number(getDb().prepare(`insert into cubes (guild_id, name, created_by_user_id) values ('other-guild', 'Foreign', ${fixtureUserId("creator")})`).run().lastInsertRowid);
     const route = await import("../app/api/cubes/[id]/route");
     const { POST: cards } = await import("../app/api/cubes/[id]/cards/route");
     const handler = method === "cards" ? cards : method === "PUT" ? route.PUT : route.DELETE;
@@ -573,3 +575,5 @@ describe("cube API routes", () => {
     expect(res.status).toBe(404);
   });
 });
+
+const FIXTURE_KEYS = ["creator", "x", "other-member", "admin"] as const;

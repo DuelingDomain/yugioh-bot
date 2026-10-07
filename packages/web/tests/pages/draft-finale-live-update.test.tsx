@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { fixtureUserId, fixtureDiscordId } from "../fixtures/identity";
 import React, { type ComponentPropsWithRef } from "react";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -31,7 +32,7 @@ const active = {
   id: 1,
   name: "Test Draft",
   status: "active",
-  createdByUserId: "host-1",
+  createdByUserId: fixtureUserId("host-1"),
   createdAt: "2026-05-06T12:00:00.000Z",
   config: { packSize: 5, packsPerPlayer: 3, pickSeconds: 60, setNames: [] },
   players: [],
@@ -52,7 +53,7 @@ describe("DraftDetailPage finale — live tournament update", () => {
     useDraftStore.setState({ slug: "test-draft", myPool: [], seats: [], completed: false });
     draftBody = active;
     global.fetch = vi.fn().mockImplementation((url: string) => {
-      const body = url === "/api/auth/session" ? { user: { id: "player-2" } } : url.endsWith("/pool") ? { cards: [] } : draftBody;
+      const body = url === "/api/auth/session" ? { user: { id: String(fixtureUserId("player-2")), discordUserId: fixtureDiscordId("player-2") } } : url.endsWith("/pool") ? { cards: [] } : draftBody;
       return Promise.resolve({ ok: true, json: async () => body } as Response);
     });
   });
@@ -67,7 +68,7 @@ describe("DraftDetailPage finale — live tournament update", () => {
 
     const deck = await screen.findByRole("link", { name: "View your deck" });
     await waitFor(() => expect(document.activeElement).toBe(deck));
-    expect(screen.getByText("The host or a server admin will start the tournament.")).toBeTruthy();
+    expect(screen.getByText("The host will start the tournament.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Create tournament" })).toBeNull();
 
     draftBody = { ...completed, tournamentId: 4, tournamentName: "Cup", tournamentSlug: "cup" };
@@ -79,3 +80,5 @@ describe("DraftDetailPage finale — live tournament update", () => {
     expect(document.activeElement).toBe(deck);
   });
 });
+
+const FIXTURE_KEYS = ["host-1", "player-2"] as const;

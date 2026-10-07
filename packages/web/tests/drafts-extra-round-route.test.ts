@@ -1,3 +1,4 @@
+import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { NextRequest } from "next/server";
@@ -6,7 +7,10 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const { realPoolSync } = vi.hoisted(() => ({ realPoolSync: { enabled: false } }));
 const auth = vi.fn();
 const broadcaster = { draft: vi.fn() };
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/notify", () => ({ announcer: { announce: vi.fn() }, broadcaster }));
 vi.mock("@/lib/draft-engine-types", () => ({ lookupDraftCardTypes: vi.fn().mockResolvedValue(new Map()) }));
 vi.mock("@yugidraft/shared/services", async (importOriginal) => {
@@ -21,7 +25,7 @@ let directory: string;
 beforeEach(async () => {
   vi.resetModules();
   realPoolSync.enabled = false;
-  auth.mockReset().mockResolvedValue({ user: { id: "host", name: "Host" } });
+  auth.mockReset().mockResolvedValue({ user: { id: String(fixtureUserId("host")), discordUserId: fixtureDiscordId("host"), name: "Host" } });
   broadcaster.draft.mockReset();
   directory = mkdtempSync(join(process.cwd(), ".extra-round-test-"));
   vi.stubEnv("DATABASE_PATH", join(directory, "test.sqlite"));
@@ -29,6 +33,7 @@ beforeEach(async () => {
   vi.stubEnv("DISCORD_DEFAULT_CHANNEL_ID", "c");
   const { getDb } = await import("../src/lib/db");
   const db = getDb();
+  seedFixtureUsers(db, ["host"]);
   const insert = db.prepare(`insert into card_catalog
     (ygoprodeck_id, name, type, frame_type, image_url, image_url_small, card_sets_json, cached_at)
     values (?, ?, ?, ?, 'i', 'i', '[]', 't')`);
@@ -60,7 +65,7 @@ async function joinBot(id: number) {
   const { createDraftService, createPlayerService } = await import("@yugidraft/shared/services");
   const db = getDb();
   const drafts = createDraftService(db);
-  const bot = createPlayerService(db).findOrCreate("g", "bot_player_dev_1", "Bot");
+  const bot = createPlayerService(db).findOrCreateTestPlayer("g", "bot_player_dev_1", "Bot");
   drafts.join(id, bot.id);
   return { db, drafts, bot };
 }
@@ -108,7 +113,7 @@ it("returns main and extra pool previews with authored quantities", async () => 
 it("uses source cube extras when no explicit extra array was sent, including with the toggle OFF", async () => {
   const { getDb } = await import("../src/lib/db");
   const db = getDb();
-  const cubeId = Number(db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('g', 'Source', 'host')").run().lastInsertRowid);
+  const cubeId = Number(db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('g', 'Source', ?)").run(fixtureUserId("host")).lastInsertRowid);
   db.prepare("insert into cube_cards (cube_id, catalog_card_id, pool, max_copies) values (?, 1001, 'extra', 6)").run(cubeId);
   const { customExtraCardIds: _, ...config } = baseConfig;
   const result = await create({ ...config, poolSource: { cubeId, cubeName: "wrong name" }, extraDeckEnabled: false });
@@ -190,7 +195,7 @@ it("runs test bots through two-pick main and odd-sized extra packs and broadcast
 it("saves scratch extras as cube extra rows and respects explicit quantities over source-copy quantities", async () => {
   const { getDb } = await import("../src/lib/db");
   const db = getDb();
-  const source = Number(db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('g', 'Source', 'host')").run().lastInsertRowid);
+  const source = Number(db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('g', 'Source', ?)").run(fixtureUserId("host")).lastInsertRowid);
   db.prepare("insert into cube_cards (cube_id, catalog_card_id, pool, max_copies) values (?, 1001, 'extra', 9)").run(source);
   db.prepare("insert into cube_cards (cube_id, catalog_card_id, pool, max_copies) values (?, 1002, 'extra', 4)").run(source);
   const { POST } = await import("../app/api/cubes/route");

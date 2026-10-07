@@ -1,3 +1,4 @@
+import { seedUser } from "../helpers/identity.js";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import { migrate } from "../../src/db/index.js";
@@ -14,11 +15,7 @@ function insertTournament(
   status: string,
   completedAnnouncedAt: string | null,
 ): number {
-  const r = db
-    .prepare(
-      "insert into tournaments (guild_id, name, format, status, created_by_user_id, completed_announced_at) values (?, ?, ?, ?, ?, ?)",
-    )
-    .run("g1", `tournament-${Math.random()}`, "round_robin", status, "u1", completedAnnouncedAt);
+  const r = db.prepare("insert into tournaments (guild_id, name, format, status, created_by_user_id, completed_announced_at) values (?, ?, ?, ?, ?, ?)").run("g1", `tournament-${Math.random()}`, "round_robin", status, seedUser(db, "u1").userId, completedAnnouncedAt);
   return Number(r.lastInsertRowid);
 }
 

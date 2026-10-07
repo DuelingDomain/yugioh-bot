@@ -1,3 +1,4 @@
+import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { createHash, createHmac } from "node:crypto";
 import { copyFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -161,7 +162,7 @@ async function table(format: DuelFormat, humans: number, botSeats: number[], clo
   migrate(db);
   const players: number[] = [];
   for (let index = 0; index < humans; index += 1) {
-    players.push(Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values (?, ?, ?)").run("g1", `u${index}`, `P${index}`).lastInsertRowid));
+    players.push(seedIdentity(db, { guildId: "g1", name: `P${index}`, userId: seedUser(db, `u${index}`).userId, discordUserId: seedUser(db, `u${index}`).discordUserId ?? `u${index}` }).playerId);
   }
   const duels = createDuelService(db);
   const session = duels.create({ guildId: "g1", organizerPlayerId: players[0]!, name: "Duel", mode: "normal", format });
@@ -485,7 +486,7 @@ describe("host hand scenarios (DUEL_SCENARIOS)", () => {
   function scenarioHost(extra: { queueBlockedMs?: number; stallMs?: number; botStepDelayMs?: number; debugReadTimeoutMs?: number; dataDirectory?: string; presetIssues?: (id: string) => Array<{ sig: string; title: string; owner: string }> } = {}) {
     const db = new Database(":memory:");
     migrate(db);
-    const player = Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values (?, ?, ?)").run("g1", "u0", "P0").lastInsertRowid);
+    const player = seedIdentity(db, { guildId: "g1", name: "P0", userId: seedUser(db, "u0").userId, discordUserId: seedUser(db, "u0").discordUserId ?? "u0" }).playerId;
     const worker = new NSeatWorker();
     const host = createDuelHost({ db, dataDirectory: DATA, secret: SECRET, searchCards: () => [], pollIntervalMs: 60_000, createWorker: () => worker, ...extra });
     hosts.push(host);

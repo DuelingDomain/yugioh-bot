@@ -1,20 +1,6 @@
 x-user: &user "${UID:-0}:${GID:-0}"  # Host UID/GID in dev; root by default.
 
 services:
-  bot:
-    build:
-      context: .
-      target: bot
-    restart: unless-stopped
-    user: *user
-    env_file:
-      - .env
-    environment:
-      - DUEL_DATA_DIR=/app/data/duel-engine
-    command: sh -c "node packages/bot/dist/deploy-commands.js && node packages/bot/dist/index.js"
-    volumes:
-      - ./data:/app/data
-
   ws:
     build:
       context: .
@@ -22,15 +8,20 @@ services:
     restart: unless-stopped
     user: *user
     environment:
-      - WEB_URL=${NEXTAUTH_URL:-http://localhost}
+      - DATABASE_PATH=/app/data/bot.sqlite
+      - WEB_URL=${WEB_URL:?WEB_URL is required}
       - WS_PORT=3001
       - WS_INTERNAL_PORT=4002
       - WS_INTERNAL_SECRET=${WS_INTERNAL_SECRET}
     command: node packages/ws/dist/server.js
     volumes:
       - ./data:/app/data
-    depends_on:
-      - bot
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/socket.io/?EIO=4&transport=polling').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   duel:
     build:
@@ -66,13 +57,25 @@ services:
     build:
       context: .
       target: web
+      args:
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:?NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY is required}
     restart: unless-stopped
     user: *user
-    env_file:
-      - .env
     environment:
       - DATABASE_PATH=/app/data/bot.sqlite
-      - DUEL_DATA_DIR=/app/data/duel-engine
+      - CARD_IMAGE_CACHE_DIR=/app/data/card-images
+      - DISCORD_BOT_ENABLED=0
+      - WEB_URL=${WEB_URL:?WEB_URL is required}
+      - MARKETING_URL=${MARKETING_URL:-}
+      - OWNER_USER_IDS=${OWNER_USER_IDS:-}
+      - DISCORD_GUILD_ID=${DISCORD_GUILD_ID}
+      - DISCORD_DEFAULT_CHANNEL_ID=${DISCORD_DEFAULT_CHANNEL_ID:-}
+      - DISCORD_REMINDER_CHANNEL_ID=${DISCORD_REMINDER_CHANNEL_ID:-}
+      - CLERK_SECRET_KEY=${CLERK_SECRET_KEY:?CLERK_SECRET_KEY is required at runtime}
+      - NEXT_PUBLIC_WS_URL=${NEXT_PUBLIC_WS_URL:-}
+      - DUEL_SCENARIOS=${DUEL_SCENARIOS:-0}
+      - DUEL_FX_LAB=${DUEL_FX_LAB:-0}
+      - DRAFT_TEST_BOTS=${DRAFT_TEST_BOTS:-0}
       - WS_INTERNAL_URL=http://ws:4002
       - WS_INTERNAL_SECRET=${WS_INTERNAL_SECRET}
       - DUEL_INTERNAL_URL=http://duel:4003
@@ -87,6 +90,31 @@ services:
     depends_on:
       - ws
       - duel
+
+  worker:
+    build:
+      context: .
+      target: worker
+    restart: unless-stopped
+    user: *user
+    stop_grace_period: 150s
+    environment:
+      - DATABASE_PATH=/app/data/bot.sqlite
+      - CARD_IMAGE_CACHE_DIR=/app/data/card-images
+      - CARD_IMAGE_CACHE_MAX_BYTES=${CARD_IMAGE_CACHE_MAX_BYTES:-16106127360}
+      - WORKER_HEALTH_PATH=/tmp/yugidraft-worker-health.json
+      - DISCORD_GUILD_ID=${DISCORD_GUILD_ID}
+      - DISCORD_BOT_ENABLED=0
+      - WS_INTERNAL_URL=http://ws:4002
+      - WS_INTERNAL_SECRET=${WS_INTERNAL_SECRET}
+      - SETS_SYNC_CRON=${SETS_SYNC_CRON:-0 6 * * *}
+      - SETS_SYNC_TIMEZONE=${SETS_SYNC_TIMEZONE:-UTC}
+      - IMAGE_CLEANUP_CRON=${IMAGE_CLEANUP_CRON:-0 4 * * *}
+      - IMAGE_CLEANUP_TIMEZONE=${IMAGE_CLEANUP_TIMEZONE:-UTC}
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - ws
 
   caddy:
     image: caddy:2-alpine

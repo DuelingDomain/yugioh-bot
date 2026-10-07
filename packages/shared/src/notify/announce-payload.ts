@@ -1,4 +1,5 @@
 export type AnnouncePayload =
+  | { kind: "draft-status"; draftId: number }
   | { kind: "draft-created"; draftId: number; channelId: string; name: string; webSlug: string }
   | { kind: "draft-started"; draftId: number; channelId: string; name: string; webSlug: string }
   | { kind: "draft-completed"; draftId: number; channelId: string; name: string; webSlug: string }

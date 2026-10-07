@@ -24,7 +24,7 @@ export default function AppError({ error, reset }: { error: Error & { digest?: s
         }
       >
         Nothing you did caused it, and nothing was saved or lost. Try again, and if it keeps happening, send the
-        reference below to whoever runs the bot.
+        reference below to support@duelingdomain.com.
       </EmptyField>
     </SheetRoot>
   );
