@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { openDatabase } from "@yugidraft/shared/db";
-import type { ClerkBackend, ClerkUserJson, ClerkWaitlistEntryJson } from "@yugidraft/shared/clerk";
+import { ClerkBackendError, type ClerkBackend, type ClerkUserJson, type ClerkWaitlistEntryJson } from "@yugidraft/shared/clerk";
 
 export function fixture() {
   const dir = mkdtempSync(join(tmpdir(), "worker-ops-"));
@@ -32,6 +32,7 @@ export function fakeClerk() {
   const calls: { method: string; input: unknown }[] = [];
   const users: ClerkUserJson[] = [];
   const entries: ClerkWaitlistEntryJson[] = [];
+  const failures = { deleteUser: null as ClerkBackendError | null };
   const backend: ClerkBackend = {
     async getUser(id) { const user = users.find(u => u.id === id); if (!user) throw new Error("Missing remote user"); return user; },
     async listUsers(query) {
@@ -43,7 +44,13 @@ export function fakeClerk() {
     async createUser(input) { calls.push({ method: "createUser", input }); const u = remoteUser(`clerk_${users.length + 1}`, input.externalId, input.emailAddress, input.username); users.push(u); return u; },
     async updateUserExternalId(id, externalId) { const user = await backend.getUser(id); user.external_id = externalId; return user; },
     async listWaitlistEntries(query) { calls.push({ method: "listWaitlistEntries", input: query }); const matches = entries.filter(e => e.email_address === query.query); return { data: matches.slice(query.offset ?? 0, (query.offset ?? 0) + (query.limit ?? 100)), totalCount: matches.length }; },
+    async deleteUser(id) {
+      calls.push({ method: "deleteUser", input: id });
+      if (failures.deleteUser) throw failures.deleteUser;
+      const index = users.findIndex(u => u.id === id);
+      if (index >= 0) users.splice(index, 1);
+    },
     async createWaitlistEntry(input) { calls.push({ method: "createWaitlistEntry", input }); const e = { id: `entry_${entries.length + 1}`, email_address: input.emailAddress, status: "pending" }; entries.push(e); return e; },
   };
-  return { backend, calls, users, entries };
+  return { backend, calls, users, entries, failures };
 }

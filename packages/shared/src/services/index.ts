@@ -11,6 +11,7 @@ export { createGuildSettingsService } from "./guild-settings.js";
 export type { GuildSettingsService, GuildSettings } from "./guild-settings.js";
 export * from "./users.js";
 export * from "./user-history.js";
+export * from "./account-deletion.js";
 export { createPlayerService } from "./players.js";
 export type { PlayerService, Player } from "./players.js";
 export { createMatchService } from "./matches.js";

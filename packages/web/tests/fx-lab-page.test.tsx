@@ -80,5 +80,7 @@ describe("fx lab public paths", () => {
     expect(isFxLabPublicPath("/duel/coin/x/89631139.webp")).toBe(false);
     expect(isFxLabPublicPath("/api/cards/resolve")).toBe(false);
     expect(isFxLabPublicPath("/dev/fx-lab/x")).toBe(false);
+    expect(isFxLabPublicPath("/dev/delete-account-preview")).toBe(true);
+    expect(isFxLabPublicPath("/dev/delete-account-preview/x")).toBe(false);
   });
 });

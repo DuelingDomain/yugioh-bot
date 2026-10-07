@@ -10,6 +10,7 @@ export interface OpsContext {
   backend?: ClerkBackend;
   checkRemote?: boolean;
   skipLegalChecks?: boolean;
+  skipClerk?: boolean;
   notify?: boolean;
   sleep?: (ms: number) => Promise<void>;
 }
