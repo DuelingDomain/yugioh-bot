@@ -568,7 +568,7 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   useEffect(() => {
     if (rs.settle === 0 || rs.settle === lastSettle.current) return;
     lastSettle.current = rs.settle;
-    if (theme || motionOff() || rs.cards.length === 0 || poolCount >= sizes.cardsPerPlayer) return;
+    if (theme || motionOff() || rs.cards.length === 0 || poolCount >= sizes.total) return;
     const n = seatCount;
     const back = phase === "extra" ? "/duel/card-back-extra-hd.webp" : "/duel/card-back-main-hd.webp";
     for (let i = 1; i < n; i++) {
@@ -644,7 +644,7 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   let status: React.ReactNode = null;
   if (isParticipant) {
     if (turn === "settling") {
-      const willPass = !theme && rs.cards.length > 0 && poolCount < sizes.cardsPerPlayer;
+      const willPass = !theme && rs.cards.length > 0 && poolCount < sizes.total;
       status = willPass
         ? `Everyone's in. Passing ${direction > 0 ? "left" : "right"}.`
         : theme
