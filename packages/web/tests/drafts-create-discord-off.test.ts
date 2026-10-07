@@ -61,6 +61,7 @@ describe.each(["theme", "booster"] as const)("POST /api/drafts (%s Discord setti
 
     expect(response.status).toBe(201);
     expect(db.prepare("select count(*) as count from drafts").get()).toEqual({ count: 1 });
+    expect(db.prepare("select channel_id from drafts").get()).toEqual({ channel_id: "" });
     expect(announce).not.toHaveBeenCalled();
   });
 
@@ -71,6 +72,8 @@ describe.each(["theme", "booster"] as const)("POST /api/drafts (%s Discord setti
     const body = await response.json();
 
     expect(response.status).toBe(201);
+    expect(db.prepare("select channel_id from drafts where id = ?").get(body.id))
+      .toEqual({ channel_id: "default-channel" });
     expect(announce).toHaveBeenCalledExactlyOnceWith({
       kind: "draft-created",
       draftId: body.id,
@@ -78,5 +81,90 @@ describe.each(["theme", "booster"] as const)("POST /api/drafts (%s Discord setti
       name: "Discord Settings Draft",
       webSlug: body.webSlug,
     });
+  });
+
+  it.each([undefined, "ignored-channel", null, 123])(
+    "creates without a configured channel and ignores request channelId=%j when Discord is off",
+    async (channelId) => {
+      vi.stubEnv("DISCORD_DEFAULT_CHANNEL_ID", undefined);
+
+      const response = await createDraft(channelId);
+      const body = await response.json();
+
+      expect(response.status).toBe(201);
+      expect(db.prepare("select channel_id from drafts where id = ?").get(body.id))
+        .toEqual({ channel_id: "" });
+      expect(db.prepare("select count(*) as count from draft_players where draft_id = ?").get(body.id))
+        .toEqual({ count: 1 });
+      expect(announce).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([undefined, "default-channel"])(
+    "uses the request channel when Discord is on and the default is %s",
+    async (defaultChannel) => {
+      vi.stubEnv("DISCORD_BOT_ENABLED", "1");
+      vi.stubEnv("DISCORD_DEFAULT_CHANNEL_ID", defaultChannel);
+
+      const response = await createDraft("request-channel");
+      const body = await response.json();
+
+      expect(response.status).toBe(201);
+      expect(db.prepare("select channel_id from drafts where id = ?").get(body.id))
+        .toEqual({ channel_id: "request-channel" });
+      expect(announce).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+        kind: "draft-created", draftId: body.id, channelId: "request-channel",
+      }));
+    },
+  );
+
+  it.each([undefined, ""])("still requires a channel when Discord is on (channelId=%j)", async (channelId) => {
+    vi.stubEnv("DISCORD_BOT_ENABLED", "1");
+    vi.stubEnv("DISCORD_DEFAULT_CHANNEL_ID", undefined);
+
+    const response = await createDraft(channelId);
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "Server not configured for draft creation" });
+    expect(db.prepare("select count(*) as count from drafts").get()).toEqual({ count: 0 });
+    expect(announce).not.toHaveBeenCalled();
+  });
+
+  it.each([null, 123])("still rejects invalid channelId=%j when Discord is on", async (channelId) => {
+    vi.stubEnv("DISCORD_BOT_ENABLED", "1");
+
+    const response = await createDraft(channelId);
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).code).toBe("INVALID_BODY");
+    expect(db.prepare("select count(*) as count from drafts").get()).toEqual({ count: 0 });
+    expect(announce).not.toHaveBeenCalled();
+  });
+
+  it("keeps the reminder channel fallback when Discord is on", async () => {
+    vi.stubEnv("DISCORD_BOT_ENABLED", "1");
+    vi.stubEnv("DISCORD_DEFAULT_CHANNEL_ID", undefined);
+    vi.stubEnv("DISCORD_REMINDER_CHANNEL_ID", "reminder-channel");
+
+    const response = await createDraft();
+    const body = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(db.prepare("select channel_id from drafts where id = ?").get(body.id))
+      .toEqual({ channel_id: "reminder-channel" });
+    expect(announce).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      kind: "draft-created", draftId: body.id, channelId: "reminder-channel",
+    }));
+  });
+
+  it.each(["0", "1"])("still requires a guild when DISCORD_BOT_ENABLED=%s", async (flag) => {
+    vi.stubEnv("DISCORD_BOT_ENABLED", flag);
+    vi.stubEnv("DISCORD_GUILD_ID", undefined);
+
+    const response = await createDraft();
+
+    expect(response.status).toBe(500);
+    expect(db.prepare("select count(*) as count from drafts").get()).toEqual({ count: 0 });
+    expect(announce).not.toHaveBeenCalled();
   });
 });

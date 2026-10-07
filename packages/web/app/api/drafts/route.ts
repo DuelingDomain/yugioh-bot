@@ -121,9 +121,10 @@ async function handlePOST(request: NextRequest) {
     channelId?: string;
     config: DraftConfig;
   };
+  const discordEnabled = draftDiscordEnabled();
 
   if (typeof name !== "string" || !name.trim() || !rawConfig || typeof rawConfig !== "object" || Array.isArray(rawConfig)
-    || (channelId !== undefined && typeof channelId !== "string")) {
+    || (discordEnabled && channelId !== undefined && typeof channelId !== "string")) {
     return NextResponse.json({ error: "name and config are required", code: "INVALID_BODY" }, { status: 400 });
   }
   assertDraftConfigShape(rawConfig);
@@ -132,9 +133,10 @@ async function handlePOST(request: NextRequest) {
     return NextResponse.json({ error: "lobbySeats must be an integer from 2 to 8", code: "INVALID_LOBBY_SEATS" }, { status: 400 });
   }
   const guildId = env.discordGuildId;
-  const resolvedChannelId = channelId || env.discordDefaultChannelId;
+  // The non-null channel column accepts an empty value for browser-only drafts.
+  const resolvedChannelId = discordEnabled ? channelId || env.discordDefaultChannelId : "";
 
-  if (!guildId || !resolvedChannelId) {
+  if (!guildId || (discordEnabled && !resolvedChannelId)) {
     return NextResponse.json(
       { error: "Server not configured for draft creation" },
       { status: 500 }
@@ -172,7 +174,7 @@ async function handlePOST(request: NextRequest) {
       player.id,
     );
 
-    if (draftDiscordEnabled()) {
+    if (discordEnabled) {
       void announcer.announce({
         kind: "draft-created",
         draftId: draft.id,
@@ -238,7 +240,7 @@ async function handlePOST(request: NextRequest) {
     player.id,
   );
 
-  if (draftDiscordEnabled()) {
+  if (discordEnabled) {
     void announcer.announce(
       {
         kind: "draft-created",
