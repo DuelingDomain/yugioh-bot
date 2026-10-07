@@ -3,9 +3,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { cubeReferenceAccess } from "@/lib/cube-access";
-import { sanitizePoolSource } from "@/lib/cube-pool";
+import { ensureCatalogCards, sanitizePoolSource } from "@/lib/cube-pool";
 import { env } from "@/lib/env";
-import { analyzeCube, prepareBoosterPool, themeDraftNumberError, createCardCatalogService, createDraftService } from "@yugidraft/shared/services";
+import { boosterDraftConfigError, themeDraftNumberError, createCardCatalogService, createDraftService } from "@yugidraft/shared/services";
 import { buildDraftResponse } from "./helpers";
 import { announcer, broadcaster } from "@/lib/notify";
 import { hostThemeAssignmentError } from "@/lib/theme-draft-validation";
@@ -163,6 +163,9 @@ export async function PUT(
     if (mergedConfig.mode === "theme") {
       const numberError = themeDraftNumberError(mergedConfig);
       if (numberError) return NextResponse.json({ error: numberError }, { status: 400 });
+    } else {
+      const numberError = boosterDraftConfigError(mergedConfig);
+      if (numberError) return NextResponse.json({ error: numberError }, { status: 400 });
     }
     // Edits can retain library cubes deleted since attachment, including in the request body.
     const denied = cubeReferenceAccess(db, mergedConfig.allowedCubeIds, { allowMissing: true });
@@ -188,7 +191,7 @@ export async function PUT(
       }
     }
 
-    let analysisWarnings: ReturnType<typeof analyzeCube> | undefined;
+    let analysisWarnings: ReturnType<typeof drafts.analyzeBoosterDraft> | undefined;
 
     if (config !== undefined && mergedConfig.mode !== "theme") {
       // The submitted config redefines the pool (sets + custom passcodes), so
@@ -198,17 +201,25 @@ export async function PUT(
       delete (mergedConfig as { cubeCardIds?: number[] }).cubeCardIds;
       delete (mergedConfig as { poolCardIds?: number[] }).poolCardIds;
 
-      const cardsPerPlayer = mergedConfig.cardsPerPlayer ?? 40;
-      const packSize = mergedConfig.packSize ?? 15;
-      if (!Number.isInteger(cardsPerPlayer) || cardsPerPlayer < 40 || cardsPerPlayer > 60) {
-        return NextResponse.json({ error: "Cards per player must be 40 to 60" }, { status: 400 });
+      const submitted = sanitized as typeof mergedConfig;
+      if (submitted.cardsPerPlayer !== undefined || submitted.packSize !== undefined || submitted.packsPerPlayer !== undefined) {
+        const cardsPerPlayer = mergedConfig.cardsPerPlayer ?? 40;
+        const packSize = mergedConfig.packSize ?? 8;
+        if (!Number.isInteger(cardsPerPlayer) || cardsPerPlayer < 40 || cardsPerPlayer > 120) {
+          return NextResponse.json({ error: "Cards per player must be 40 to 120" }, { status: 400 });
+        }
+        if (!Number.isInteger(packSize) || packSize < 5 || packSize > cardsPerPlayer) {
+          return NextResponse.json({ error: "Pack size must be 5 to cards per player" }, { status: 400 });
+        }
+        // Explicit rounds are independent of the pick quota (e.g. 5 piles of 24).
+        const packs = submitted.packsPerPlayer ?? Math.ceil(cardsPerPlayer / packSize);
+        if (!Number.isSafeInteger(packs) || packs < 1) {
+          return NextResponse.json({ error: "Packs per player must be a positive whole number" }, { status: 400 });
+        }
+        mergedConfig.packSize = packSize;
+        mergedConfig.cardsPerPlayer = cardsPerPlayer;
+        mergedConfig.packsPerPlayer = packs;
       }
-      if (!Number.isInteger(packSize) || packSize < 5 || packSize > cardsPerPlayer) {
-        return NextResponse.json({ error: "Pack size must be 5 to cards per player" }, { status: 400 });
-      }
-      mergedConfig.packSize = packSize;
-      mergedConfig.cardsPerPlayer = cardsPerPlayer;
-      mergedConfig.packsPerPlayer = Math.ceil(cardsPerPlayer / packSize);
 
       const hasPool =
         ((mergedConfig as any).setNames?.length ?? 0) > 0 ||
@@ -227,6 +238,7 @@ export async function PUT(
         includeNames: (mergedConfig as any).includeNames ?? [],
         excludeNames: (mergedConfig as any).excludeNames ?? [],
       });
+      await ensureCatalogCards(cards, mergedConfig.customExtraCardIds ?? []);
       const cubeCardIds = drafts.resolveCubeCardIds(mergedConfig as any);
       if (cubeCardIds.length === 0) {
         return NextResponse.json(
@@ -237,13 +249,7 @@ export async function PUT(
 
       // Advisory feasibility check at edit time (min start count = 2 players).
       // Non-blocking: startDraft is the authoritative gate.
-      analysisWarnings = analyzeCube(
-        prepareBoosterPool(cubeCardIds, mergedConfig, 2 * (mergedConfig.packsPerPlayer ?? 5) * (mergedConfig.packSize ?? 8)),
-        2,
-        (mergedConfig as any).packsPerPlayer ?? 5,
-        (mergedConfig as any).packSize ?? 8,
-        (mergedConfig as any).cardsPerPlayer ?? 40,
-      );
+      analysisWarnings = drafts.analyzeBoosterDraft({ ...mergedConfig, cubeCardIds }, 2, existing.guildId);
 
       (mergedConfig as any).cubeCardIds = cubeCardIds;
     }
@@ -341,6 +347,7 @@ export async function POST(
         excludeNames: draftModel.config.excludeNames ?? [],
       });
     }
+    if (draftModel.config.mode !== "theme") await ensureCatalogCards(cards, draftModel.config.customExtraCardIds ?? []);
 
     const started = drafts.start(draft.id);
 

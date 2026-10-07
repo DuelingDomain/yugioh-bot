@@ -4,11 +4,11 @@ import { getDb } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { cubeReferenceAccess } from "@/lib/cube-access";
 import { env } from "@/lib/env";
-import { analyzeCube, prepareBoosterPool, themeDraftNumberError, createCardCatalogService, createDraftService, createPlayerService } from "@yugidraft/shared/services";
+import { boosterDraftConfigError, themeDraftNumberError, createCardCatalogService, createDraftService, createPlayerService } from "@yugidraft/shared/services";
 import type { DraftConfig } from "@yugidraft/shared/types";
 import { announcer } from "@/lib/notify";
 import { toUtcIso } from "@/lib/utils";
-import { sanitizePoolSource } from "@/lib/cube-pool";
+import { ensureCatalogCards, sanitizePoolSource } from "@/lib/cube-pool";
 import { hostThemeAssignmentError } from "@/lib/theme-draft-validation";
 
 export const runtime = "nodejs";
@@ -177,6 +177,8 @@ async function handlePOST(request: NextRequest) {
       { status: 400 }
     );
   }
+  const numberError = boosterDraftConfigError(config);
+  if (numberError) return NextResponse.json({ error: numberError }, { status: 400 });
 
   const players = createPlayerService(db);
   const player = players.findOrCreate(guildId, session.user.id, session.user.name ?? "Unknown");
@@ -189,6 +191,7 @@ async function handlePOST(request: NextRequest) {
     includeNames: config.includeNames ?? [],
     excludeNames: config.excludeNames ?? [],
   });
+  await ensureCatalogCards(cards, config.customExtraCardIds ?? []);
   const cubeCardIds = drafts.resolveCubeCardIds(config);
   if (cubeCardIds.length === 0) {
     return NextResponse.json(
@@ -201,13 +204,7 @@ async function handlePOST(request: NextRequest) {
   // assume the minimum start count of 2 players. Non-blocking: the cube can grow
   // before start, and startDraft is the authoritative gate.
   const expectedPlayers = 2;
-  const analysis = analyzeCube(
-    prepareBoosterPool(cubeCardIds, config, expectedPlayers * (config.packsPerPlayer ?? 5) * (config.packSize ?? 8)),
-    expectedPlayers,
-    config.packsPerPlayer ?? 5,
-    config.packSize ?? 8,
-    config.cardsPerPlayer ?? 40,
-  );
+  const analysis = drafts.analyzeBoosterDraft({ ...config, cubeCardIds }, expectedPlayers, guildId);
 
   const configWithPool: typeof config = { ...config, cubeCardIds };
 
@@ -236,6 +233,7 @@ async function handlePOST(request: NextRequest) {
       name: draft.name,
       status: draft.status,
       webSlug: draft.webSlug,
+      config: draft.config,
       warnings: analysis.warnings,
       errors: analysis.errors,
     },

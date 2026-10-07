@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchCubeDetail, fetchSets, resolvePasscodes } from "../src/components/draft/pool/pool-api";
+import { configPool, createPoolCube, fetchCubeDetail, fetchDraftPools, fetchSets, resolvePasscodes } from "../src/components/draft/pool/pool-api";
 
 const card = (id: number, extra: Record<string, unknown> = {}) => ({
   id,
@@ -49,6 +49,13 @@ describe("resolvePasscodes", () => {
 });
 
 describe("fetchCubeDetail", () => {
+  it("keeps the actual extra pool with copies", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ pools: { main: [{ catalogCardId: 1, maxCopies: 3 }],
+      extra: [{ catalogCardId: 9, maxCopies: 5 }] }, cards: [card(9, { type: "Fusion Monster", frameType: "fusion" })] })));
+    const detail = await fetchCubeDetail({ id: 5, setNames: [], customCardIds: [] });
+    expect(Object.fromEntries(detail.extra)).toEqual({ 9: 5 });
+    expect(detail.extraCount).toBe(1);
+  });
   function stubCube(opts: { main: Array<[number, number]>; sets?: Array<[number, number, Record<string, unknown>?]>; custom?: number[] }) {
     vi.stubGlobal(
       "fetch",
@@ -82,6 +89,31 @@ describe("fetchCubeDetail", () => {
     stubCube({ main: [], sets: [[7, 1]] });
     const detail = await fetchCubeDetail({ id: 5, setNames: ["Set"], customCardIds: [8, 8] });
     expect(Object.fromEntries(detail.main)).toEqual({ 7: 1, 8: 2 });
+  });
+});
+
+describe("extra pool transport", () => {
+  it("sends main and extra copies in separate draft config fields", () => {
+    expect(configPool(new Map([[1, 2]]), null, new Map([[9, 3]]))).toEqual({
+      setNames: [], customCardIds: [1, 1], customExtraCardIds: [9, 9, 9], poolSource: null,
+    });
+  });
+
+  it("sends explicit extra entries when saving as a cube", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => Response.json({ cube: { id: 4, name: "New" } }, { status: 201 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await createPoolCube({ name: "New", cards: [{ id: 1, copies: 2 }], extraCards: [{ id: 9, copies: 3 }], copyExtraFromCubeId: 5 });
+    expect(JSON.parse(fetchMock.mock.calls[0][1]!.body as string)).toEqual({
+      kind: "pool", name: "New", cards: [{ id: 1, copies: 2 }], extraCards: [{ id: 9, copies: 3 }], copyExtraFromCubeId: 5,
+    });
+  });
+
+  it("loads both draft pools while retaining their authored quantities", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ cards: [card(1, { qty: 4 })],
+      extraCards: [card(9, { qty: 5, type: "Fusion Monster", frameType: "fusion" })] })));
+    const pools = await fetchDraftPools("a-b");
+    expect(Object.fromEntries(pools.main)).toEqual({ 1: 4 });
+    expect(Object.fromEntries(pools.extra)).toEqual({ 9: 5 });
   });
 });
 

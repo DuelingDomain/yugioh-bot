@@ -57,7 +57,8 @@ export async function ensureCatalogCards(catalog: CardCatalogService, ids: numbe
 
 /**
  * Validate `config.poolSource` against the cubes in this guild. A valid id is stored with the cube's name
- * from the database; anything else drops the key. Display only: it never reaches dealing.
+ * from the database; anything else drops the key. Normal extra rounds also use this cube's
+ * extra rows when customExtraCardIds is absent. Explicit pools stay self-contained.
  * A config without the key is returned unchanged.
  */
 export function sanitizePoolSource<T extends object>(
