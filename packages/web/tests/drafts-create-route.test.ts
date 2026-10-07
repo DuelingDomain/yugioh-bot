@@ -8,9 +8,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const auth = vi.fn();
 const tempDirs: string[] = [];
 
-vi.mock("@/lib/auth", () => ({
-  auth,
-}));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 
 describe("POST /api/drafts", () => {
   beforeEach(() => {
@@ -32,7 +33,8 @@ describe("POST /api/drafts", () => {
     }
   });
 
-  it("creates a draft from custom card ids without selected sets", async () => {
+  it.each([false, true])("creates a draft from custom card ids without selected sets (email-only=%s)", async emailOnly => {
+    if (emailOnly) auth.mockResolvedValue({ user: { id: String(fixtureUserId("creator-user")), discordUserId: null, name: "Yugi" } });
     const tempDir = mkdtempSync(join(tmpdir(), "yugioh-drafts-create-route-"));
     const dbPath = join(tempDir, "drafts-create-route.sqlite");
     tempDirs.push(tempDir);
@@ -46,6 +48,10 @@ describe("POST /api/drafts", () => {
     const db = new Database(dbPath);
     migrate(db);
     seedFixtureUsers(db, FIXTURE_KEYS);
+    // This test exercises draft creation with a known custom pool, entirely offline.
+    const card = db.prepare("insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values(?,?,'Normal Monster','normal','i','i','[]',?)");
+    for (const id of [46986414, 83764718]) card.run(id, `Card ${id}`, new Date().toISOString());
+    if (emailOnly) db.prepare("update users set discord_user_id=null where id=?").run(fixtureUserId("creator-user"));
     db.close();
 
     const { POST } = await import("../app/api/drafts/route");
@@ -151,5 +157,4 @@ describe("POST /api/drafts", () => {
 
 const FIXTURE_KEYS = ["creator-user", "u"] as const;
 
-// Membership is a dependency of these routes; authorization still runs through the real web boundary.
-vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));
+// Session resolution is mocked; authorization still runs through the real web boundary.

@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture((() => ({ auth: vi.fn() }))().auth);
+});
 
 const call = { op: "validate-deck" as const, slug: "abc", guildId: "guild-1", playerId: 1 };
 

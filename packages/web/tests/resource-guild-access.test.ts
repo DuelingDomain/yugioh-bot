@@ -6,7 +6,10 @@ import type { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const auth = vi.fn();
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/notify", () => ({ broadcaster: { tournament: vi.fn(), draft: vi.fn() }, announcer: { announce: vi.fn() } }));
 vi.mock("@/lib/notify-duel", () => ({ notifyDuelChange: vi.fn() }));
 vi.mock("@/lib/duel-host", () => ({
@@ -208,5 +211,4 @@ describe("mutations are limited to the configured guild", () => {
 
 const FIXTURE_KEYS = ["reporter", "host", "other-owner", "guest"] as const;
 
-// Membership is a dependency of these routes; authorization still runs through the real web boundary.
-vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));
+// Session resolution is mocked; authorization still runs through the real web boundary.

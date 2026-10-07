@@ -11,9 +11,10 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..")
 const tempDirs: string[] = [];
 const testTimeoutMs = 40000;
 
-vi.mock("@/lib/auth", () => ({
-  auth,
-}));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 
 describe("GET /api/drafts/[slug]", () => {
   beforeEach(() => {
@@ -421,5 +422,4 @@ describe("GET /api/drafts/[slug]", () => {
 
 const FIXTURE_KEYS = ["196382527131222016", "opponent-user", "196382772699332609", "111111111111111111", "987654321098765432", "u"] as const;
 
-// Membership is a dependency of these routes; authorization still runs through the real web boundary.
-vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));
+// Session resolution is mocked; authorization still runs through the real web boundary.

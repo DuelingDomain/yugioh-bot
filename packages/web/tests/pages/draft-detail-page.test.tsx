@@ -174,7 +174,8 @@ describe("DraftDetailPage — completion transition", () => {
 
   it.each([
     ["the host when the server refuses", "user-1", false, "false"],
-    ["a guild admin who is not the host", "admin-9", true, "true"],
+    ["a former admin who is not the host", "admin-9", false, "false"],
+    ["the host when the server permits", "user-1", true, "true"],
   ])("gives the finale the server's canCreateTournament for %s", async (_label, userId, canCreateTournament, expected) => {
     const card = { id: 1, passcode: 100001, name: "A", type: "Effect Monster", frameType: "effect", effectText: "", imageUrl: "", imageUrlSmall: "" };
     let completed = false;

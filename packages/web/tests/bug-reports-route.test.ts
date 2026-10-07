@@ -3,13 +3,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import { mockDiscordAccess } from "./fixtures/discord-access";
 
 const auth = vi.fn();
 const tempDirs: string[] = [];
-let discord: ReturnType<typeof mockDiscordAccess>;
 let github: Mock<(url: string, init?: RequestInit) => Promise<Response>>;
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/notify", () => ({ announcer: { announce: vi.fn() }, broadcaster: {} }));
 // The duel host's public view of the duel: only audience "all" lines, as the host reads them from the spectator view.
 const callDuelHost = vi.fn();
@@ -88,10 +89,8 @@ describe("POST /api/bug-reports", () => {
     auth.mockResolvedValue({ user: { id: String(fixtureUserId(DISCORD_ID)), discordUserId: fixtureDiscordId(DISCORD_ID), name: "Seraphina Quill" } });
     callDuelHost.mockReset();
     callDuelHost.mockResolvedValue(hostAnswer());
-    discord = mockDiscordAccess();
-    const discordFetch = globalThis.fetch;
     github = vi.fn(async (_url: string, _init?: RequestInit) => Response.json(created(77), { status: 201 }));
-    vi.stubGlobal("fetch", (url: string, init?: RequestInit) => (String(url).startsWith("https://api.github.com/") ? github(url, init) : discordFetch(url as never)));
+    vi.stubGlobal("fetch", (url: string, init?: RequestInit) => (String(url).startsWith("https://api.github.com/") ? github(url, init) : Promise.reject(new Error(`Unexpected fetch: ${url}`))));
     vi.stubEnv("BUG_REPORT_GITHUB_TOKEN", TOKEN);
     vi.stubEnv("BUG_REPORT_GITHUB_REPO", "");
     await seed();
@@ -103,19 +102,16 @@ describe("POST /api/bug-reports", () => {
     while (tempDirs.length) { const d = tempDirs.pop(); if (d) rmSync(d, { recursive: true, force: true }); }
   });
 
-  it("401 without a session, 403 for a non-member, 503 when Discord is down", async () => {
+  it("401 without a session, with no storage or outbound writes", async () => {
     const POST = await route();
     auth.mockResolvedValue(null);
     expect((await POST(post(body()))).status).toBe(401);
-    auth.mockResolvedValue({ user: { id: String(fixtureUserId(DISCORD_ID)), discordUserId: fixtureDiscordId(DISCORD_ID), name: "Seraphina Quill" } });
-    discord.memberStatus = 404;
-    expect((await POST(post(body()))).status).toBe(403);
     expect(github).not.toHaveBeenCalled();
     expect(await rows()).toHaveLength(0);
   });
 
-  it("503 when Discord cannot be asked", async () => {
-    discord.memberStatus = 500;
+  it("503 when the account cannot be resolved", async () => {
+    auth.mockRejectedValue(new Error("Session unavailable"));
     const POST = await route();
     expect((await POST(post(body()))).status).toBe(503);
   });
@@ -404,10 +400,8 @@ describe("POST /api/bug-reports with duplicateOf", () => {
     auth.mockResolvedValue({ user: { id: String(fixtureUserId(DISCORD_ID)), discordUserId: fixtureDiscordId(DISCORD_ID), name: "Seraphina Quill" } });
     callDuelHost.mockReset();
     callDuelHost.mockResolvedValue(hostAnswer());
-    discord = mockDiscordAccess();
-    const discordFetch = globalThis.fetch;
     github = vi.fn(async (_url: string, _init?: RequestInit) => Response.json({}));
-    vi.stubGlobal("fetch", (url: string, init?: RequestInit) => (String(url).startsWith("https://api.github.com/") ? github(url, init) : discordFetch(url as never)));
+    vi.stubGlobal("fetch", (url: string, init?: RequestInit) => (String(url).startsWith("https://api.github.com/") ? github(url, init) : Promise.reject(new Error(`Unexpected fetch: ${url}`))));
     vi.stubEnv("BUG_REPORT_GITHUB_TOKEN", TOKEN);
     vi.stubEnv("BUG_REPORT_GITHUB_REPO", "");
     await seed();

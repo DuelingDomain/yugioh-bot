@@ -3,14 +3,15 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import { mockDiscordAccess } from "./fixtures/discord-access";
 
 const auth = vi.fn();
 const tempDirs: string[] = [];
-let discord: ReturnType<typeof mockDiscordAccess>;
 let github: Mock<(url: string, init?: RequestInit) => Promise<Response>>;
 let openIssues: Array<Record<string, unknown>>;
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/notify", () => ({ announcer: { announce: vi.fn() }, broadcaster: {} }));
 
 const GUILD = "guild-1";
@@ -69,12 +70,10 @@ describe("POST /api/bug-reports/precheck", () => {
     vi.resetModules();
     auth.mockReset();
     auth.mockResolvedValue({ user: { id: String(fixtureUserId(DISCORD_ID)), discordUserId: fixtureDiscordId(DISCORD_ID), name: "Seraphina Quill" } });
-    discord = mockDiscordAccess();
     openIssues = [];
-    const discordFetch = globalThis.fetch;
     github = vi.fn(async (url: string, _init?: RequestInit) =>
       String(url).includes("/issues?") ? Response.json(openIssues) : Response.json({ number: 99, html_url: "https://github.com/x/y/issues/99" }, { status: 201 }));
-    vi.stubGlobal("fetch", (url: string, init?: RequestInit) => (String(url).startsWith("https://api.github.com/") ? github(url, init) : discordFetch(url as never)));
+    vi.stubGlobal("fetch", (url: string, init?: RequestInit) => (String(url).startsWith("https://api.github.com/") ? github(url, init) : Promise.reject(new Error(`Unexpected fetch: ${url}`))));
     vi.stubEnv("BUG_REPORT_GITHUB_TOKEN", TOKEN);
     vi.stubEnv("BUG_REPORT_GITHUB_REPO", "");
     await seed();
@@ -86,18 +85,15 @@ describe("POST /api/bug-reports/precheck", () => {
     while (tempDirs.length) { const d = tempDirs.pop(); if (d) rmSync(d, { recursive: true, force: true }); }
   });
 
-  it("401 without a session and 403 for a non-member", async () => {
+  it("401 without a session and no outbound writes", async () => {
     const POST = await route();
     auth.mockResolvedValue(null);
     expect((await POST(post(body()))).status).toBe(401);
-    auth.mockResolvedValue({ user: { id: String(fixtureUserId(DISCORD_ID)), discordUserId: fixtureDiscordId(DISCORD_ID), name: "Seraphina Quill" } });
-    discord.memberStatus = 404;
-    expect((await POST(post(body()))).status).toBe(403);
     expect(github).not.toHaveBeenCalled();
   });
 
-  it("503 when Discord cannot be asked", async () => {
-    discord.memberStatus = 500;
+  it("503 when the session is unavailable", async () => {
+    auth.mockRejectedValue(new Error("Session unavailable"));
     expect((await (await route())(post(body()))).status).toBe(503);
     expect(github).not.toHaveBeenCalled();
   });

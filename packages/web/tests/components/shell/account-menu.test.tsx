@@ -4,9 +4,9 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { LinkStub, ready, noProfile } from "./helpers";
 
 vi.mock("next/link", () => ({ default: LinkStub }));
-vi.mock("next-auth/react", () => ({ signOut: vi.fn() }));
+const { signOut } = vi.hoisted(() => ({ signOut: vi.fn() }));
+vi.mock("@/lib/actions", () => ({ handleSignOut: signOut }));
 
-import { signOut } from "next-auth/react";
 import { AccountMenu } from "../../../src/components/layout/account-menu";
 
 function open(account = ready, variant: "side" | "phone" = "side") {
@@ -89,10 +89,10 @@ describe("AccountMenu", () => {
     await expectClosed();
   });
 
-  it("Sign out calls signOut to /login", async () => {
+  it("Sign out returns to sign-in", async () => {
     open();
     fireEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
-    expect(signOut).toHaveBeenCalledWith({ redirectTo: "/login" });
+    expect(signOut).toHaveBeenCalledWith();
     await expectClosed();
   });
 

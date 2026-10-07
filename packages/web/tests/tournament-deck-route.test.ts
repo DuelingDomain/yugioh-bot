@@ -11,7 +11,10 @@ import { mainIds, passcodeOf, seedDraftDeck } from "./helpers/draft-deck-fixture
 
 const auth = vi.fn();
 const callDuelHost = vi.fn();
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/duel-host", async (importActual) => ({
   ...(await importActual<typeof import("@/lib/duel-host")>()),
   callDuelHost,
@@ -174,5 +177,4 @@ describe("tournament deck route", () => {
 
 const FIXTURE_KEYS = ["u-a", "u-b", "u-org", "drafter", "u-x"] as const;
 
-// Membership is a dependency of these routes; authorization still runs through the real web boundary.
-vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));
+// Session resolution is mocked; authorization still runs through the real web boundary.

@@ -9,9 +9,10 @@ const auth = vi.fn();
 const broadcaster = { draft: vi.fn(), tournament: vi.fn() };
 const tempDirs: string[] = [];
 
-vi.mock("@/lib/auth", () => ({
-  auth,
-}));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 
 vi.mock("@/lib/notify", () => ({
   broadcaster,
@@ -142,5 +143,4 @@ describe("POST /api/drafts/[slug]/pick websocket events", () => {
 
 const FIXTURE_KEYS = ["user-1", "user-2"] as const;
 
-// Membership is a dependency of these routes; authorization still runs through the real web boundary.
-vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));
+// Session resolution is mocked; authorization still runs through the real web boundary.

@@ -9,7 +9,10 @@ const auth = vi.fn();
 const syncDraftPool = vi.fn().mockResolvedValue([]);
 const tempDirs: string[] = [];
 
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 
 // Prevent syncDraftPool from making real network calls — the route calls it to
 // refresh the catalog but our test data is already in the DB.
@@ -308,5 +311,4 @@ describe("PUT /api/drafts/[slug]", () => {
 
 const FIXTURE_KEYS = ["creator-user", "other", "other-user", "x"] as const;
 
-// Membership is a dependency of these routes; authorization still runs through the real web boundary.
-vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));
+// Session resolution is mocked; authorization still runs through the real web boundary.

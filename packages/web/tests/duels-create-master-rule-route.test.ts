@@ -11,7 +11,10 @@ const { requireDuelActor, callDuelHost, notifyDuelChange } = vi.hoisted(() => ({
   notifyDuelChange: vi.fn(),
 }));
 
-vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture((() => ({ auth: vi.fn() }))().auth);
+});
 vi.mock("@/lib/duel-host", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/duel-host")>()),
   requireDuelActor,
@@ -91,5 +94,4 @@ describe("POST /api/duels Master Rule validation through the shared service", ()
 
 const FIXTURE_KEYS = ["u1"] as const;
 
-// Membership is a dependency of these routes; authorization still runs through the real web boundary.
-vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));
+// Session resolution is mocked; authorization still runs through the real web boundary.

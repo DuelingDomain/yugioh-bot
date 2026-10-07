@@ -1,7 +1,10 @@
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture((() => ({ auth: vi.fn() }))().auth);
+});
 vi.mock("@/lib/duel-host", async (importOriginal) => ({
   ...await importOriginal<typeof import("../src/lib/duel-host")>(),
   requireDuelActor: async () => ({

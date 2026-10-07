@@ -15,7 +15,7 @@ import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 
 export type SavedDeckActor =
-  | { ok: true; guildId: string; ownerUserId: number; discordUserId: string; decks: SavedDeckService }
+  | { ok: true; guildId: string; ownerUserId: number; discordUserId: string | null; decks: SavedDeckService }
   | { ok: false; response: NextResponse };
 
 export async function requireSavedDeckActor(): Promise<SavedDeckActor> {

@@ -8,7 +8,10 @@ import { migrate } from "@yugidraft/shared/db";
 
 const auth = vi.fn();
 const announcer = { announce: vi.fn(async (..._args: unknown[]) => ({ ok: true as const })) };
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/notify", () => ({ announcer, broadcaster: { draft: vi.fn(), tournament: vi.fn() } }));
 vi.mock("@/lib/notify-duel", () => ({ notifyDuelChange: vi.fn(async () => {}) }));
 const tempDirs: string[] = [];
@@ -49,7 +52,8 @@ describe("POST /api/duels challenges", () => {
     }
   });
 
-  it("creates a challenge series and DMs the opponent", async () => {
+  it.each([false, true])("creates a challenge series and DMs the opponent (email-only=%s)", async emailOnly => {
+    if (emailOnly) auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-me")), discordUserId: null, name: "Yugi" } });
     const s = seed();
     const { POST } = await import("../app/api/duels/route");
     const res = await POST(post({ mode: "normal", bestOf: 3, ranked: true, opponentPlayerId: s.opponent }) as never);
@@ -134,5 +138,4 @@ describe("POST /api/duels challenges", () => {
 
 const FIXTURE_KEYS = ["u-me", "u-opp"] as const;
 
-// Membership is a dependency of these routes; authorization still runs through the real web boundary.
-vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));
+// Session resolution is mocked; authorization still runs through the real web boundary.

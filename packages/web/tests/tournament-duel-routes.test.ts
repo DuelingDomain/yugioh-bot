@@ -10,7 +10,10 @@ import { createTournamentService } from "@yugidraft/shared/services";
 const auth = vi.fn();
 const announcer = { announce: vi.fn(async (..._args: unknown[]) => ({ ok: true as const })) };
 const broadcaster = { draft: vi.fn(), tournament: vi.fn() };
-vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
 vi.mock("@/lib/notify", () => ({ announcer, broadcaster }));
 const notifyDuelChange = vi.fn(async (_slug: string, _guildId: string) => {});
 vi.mock("@/lib/notify-duel", () => ({ notifyDuelChange }));
@@ -221,5 +224,4 @@ describe("tournament match duel and result routes", () => {
 
 const FIXTURE_KEYS = ["u-org", "u-a", "u-b", "u-x"] as const;
 
-// Membership is a dependency of these routes; authorization still runs through the real web boundary.
-vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: vi.fn(async () => ({ ok: true })) }));
+// Session resolution is mocked; authorization still runs through the real web boundary.
