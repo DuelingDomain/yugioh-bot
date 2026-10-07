@@ -2311,6 +2311,11 @@
   font-size: max(calc(var(--z) * 0.116 * var(--ts)), var(--fl));
 }
 
+/* A hand card is narrower than a zone: the text floor may lift the stats, but never past what "1400 / 1200" needs to fit in the card. */
+.seatField .handCard .plate {
+  font-size: min(max(calc(var(--z) * 0.116 * var(--ts)), var(--fl)), calc(var(--cardw) * 0.2));
+}
+
 /* A field turned a quarter: the level plate has only a card's width to sit in, so it shows one stat (ATK, or DEF in defense) and sizes to it. */
 .seatField[data-quarter="true"] .plate {
   right: auto;
