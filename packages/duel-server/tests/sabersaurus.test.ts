@@ -39,19 +39,22 @@ function prompt(game: EngineGame): DuelPrompt {
 
 function playBattle(game: EngineGame, targetSeat: number, activate: boolean) {
   let triggered = false;
+  let offered = false;
   let attacked = false;
   let attack = 0;
   for (let step = 0; step < 100; step++) {
     const p = prompt(game);
     const dinosaur = game.view(null).seats.flatMap(s => s.monsters).find(c => c?.code === DINO);
     attack = Math.max(attack, dinosaur?.attack ?? 0);
-    if (attacked && p.options.some(o => o.id === "to_m2")) return { triggered, attack };
+    if (attacked && p.options.some(o => o.id === "to_m2")) return { triggered, offered, attack };
     let answer: DuelAnswer;
     if (p.source?.code === SABER && p.options.some(o => o.id === "yes")) {
+      offered = true;
       answer = { choice: activate ? "yes" : "no" };
       triggered ||= activate;
     } else if (p.context?.type === "chain") {
       const saber = p.options.find(o => o.card?.code === SABER);
+      offered ||= saber !== undefined;
       if (activate && saber) { answer = { choice: saber.id }; triggered = true; }
       else if (p.cancelable) answer = { cancel: true };
       else throw new Error(`Unexpected forced chain: ${JSON.stringify(p)}`);
@@ -135,5 +138,53 @@ for (const engine of ["legacy", "pinned", "ffa4"] as const) {
         expect(view.seats[1]!.monsters[0]?.code).toBe(DINO);
       } finally { game.close(); }
     });
+
+    itWithCores(`${engine}/${mode}: Sabersaurus attacking does not offer its own boost`, required, async () => {
+      const game = await start({ p0: { monsters: [SABER] }, p1: { monsters: [DINO] } });
+      try {
+        const result = playBattle(game, 1, true);
+        expect(result.offered).toBe(false);
+        expect(result.triggered).toBe(false);
+        const view = game.view(null);
+        expect(view.seats[0]!.monsters[0]?.code).toBe(SABER);
+        expect(view.seats[0]!.monsters[0]?.attack).toBe(2000);
+        expect(view.seats[0]!.graveyard.some(c => c.code === SABER)).toBe(false);
+        expect(view.seats[1]!.lp).toBe(7900);
+        expect(view.seats[1]!.graveyard.some(c => c.code === DINO)).toBe(true);
+        expect(view.result).toBeNull();
+      } finally { game.close(); }
+    });
+
+    if (engine === "ffa4") {
+      itWithCores(`${engine}/${mode}: direct attack at the Sabersaurus seat continues without offering the boost`, required, async () => {
+        const game = await start({ p0: { monsters: [DIRECT] }, p1: { monsters: [SABER] } });
+        try {
+          const result = playBattle(game, 1, true);
+          expect(result.offered).toBe(false);
+          expect(result.triggered).toBe(false);
+          const view = game.view(null);
+          expect(view.seats.map(s => s.lp)).toEqual([8000, 7300, 8000, 8000]);
+          expect(view.seats[1]!.monsters[0]?.code).toBe(SABER);
+          expect(view.result).toBeNull();
+        } finally { game.close(); }
+      });
+
+      itWithCores(`${engine}/${mode}: battle between two other seats does not offer Sabersaurus's boost`, required, async () => {
+        const game = await start({ p0: { monsters: [89631139] }, p1: { monsters: [SABER] }, p2: { monsters: [DINO] } });
+        try {
+          const result = playBattle(game, 2, true);
+          expect(result.offered).toBe(false);
+          expect(result.triggered).toBe(false);
+          expect(result.attack).toBe(1900);
+          const view = game.view(null);
+          expect(view.seats.map(s => s.lp)).toEqual([8000, 8000, 6900, 8000]);
+          expect(view.seats[0]!.monsters[0]?.code).toBe(89631139);
+          expect(view.seats[1]!.monsters[0]?.code).toBe(SABER);
+          expect(view.seats[1]!.graveyard.some(c => c.code === SABER)).toBe(false);
+          expect(view.seats[2]!.graveyard.some(c => c.code === DINO)).toBe(true);
+          expect(view.result).toBeNull();
+        } finally { game.close(); }
+      });
+    }
   }
 }
