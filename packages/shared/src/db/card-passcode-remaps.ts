@@ -17,7 +17,7 @@ export function loadCardPasscodeRemaps(directory: string): ReadonlyMap<number, n
   const manifest = manifestStat ? JSON.parse(readFileSync(manifestPath, "utf8")) : {};
   const expected = manifest.integrity?.cardRemaps;
   if (!remapStat) {
-    if (expected || manifest.sources?.databaseFormat === "official-releases-prerelease-v1") throw new Error("Missing card-remaps.json (integrity.cardRemaps)");
+    if (expected || /^official-releases-prerelease-v\d+$/.test(manifest.sources?.databaseFormat ?? "")) throw new Error("Missing card-remaps.json (integrity.cardRemaps)");
     return new Map();
   }
   const bytes = readFileSync(path);
@@ -58,11 +58,19 @@ function remapDeck(value: Record<string, unknown>, remap: (code: number) => numb
  * commands, setup scripts, seeds and snapshots are historical and never rewritten.
  */
 export function applyEngineCardRemaps(db: Database.Database, directory: string): { skipped: boolean; remappedPasscodes: number } {
-  const remaps = loadCardPasscodeRemaps(directory);
+  const remaps = new Map(loadCardPasscodeRemaps(directory));
   const manifest = JSON.parse(readFileSync(join(directory, "manifest.json"), "utf8"));
   if (typeof manifest.bundleVersion !== "string" || !manifest.bundleVersion) throw new Error("Missing bundleVersion for passcode migration");
   const engine = new Database(join(directory, "cards.cdb"), { readonly: true, fileMustExist: true });
   try {
+    const alias = engine.prepare("SELECT alias FROM datas WHERE id=?");
+    const artwork = db.prepare("SELECT 1 FROM card_artworks WHERE artwork_id=? AND card_id<>artwork_id");
+    for (const old of remaps.keys()) {
+      if ((alias.get(old) as { alias: number } | undefined)?.alias || artwork.get(old)) {
+        console.warn(`[card-remaps] Skipping alternate artwork ${old}`);
+        remaps.delete(old);
+      }
+    }
     const find = engine.prepare("SELECT 1 FROM datas WHERE id=?");
     for (const target of new Set(remaps.values())) if (!find.get(target)) throw new Error(`Remap target ${target} is absent from engine database`);
   } finally { engine.close(); }

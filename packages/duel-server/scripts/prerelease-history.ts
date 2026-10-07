@@ -4,12 +4,14 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { isPrereleaseDatabaseFile } from "../src/released-database-files.js";
 
-export interface CardIdentity { code: number; name: string; type: number }
+export interface CardIdentity { code: number; name: string; type: number; alias?: number }
+
+export const hasDedupeIdentity = (card: CardIdentity) => !card.alias && (card.type & 0x4000) === 0 && !!card.name.trim();
 
 export function cardIdentities(path: string): CardIdentity[] {
   const db = new Database(path, { readonly: true, fileMustExist: true });
   try {
-    return db.prepare("SELECT d.id AS code, t.name, d.type FROM datas d JOIN texts t USING(id) WHERE (d.ot & 1536)=0 ORDER BY d.id").all() as CardIdentity[];
+    return db.prepare("SELECT d.id AS code, t.name, d.type FROM datas d JOIN texts t USING(id) WHERE (d.ot & 1536)=0 AND d.alias=0 AND (d.type & 16384)=0 ORDER BY d.id").all() as CardIdentity[];
   } finally { db.close(); }
 }
 

@@ -92,7 +92,10 @@ remap_file_ok() {
   root="$1"
   format=$(sed -n 's/.*"databaseFormat": *"\([^"]*\)".*/\1/p' "$root/manifest.json" | head -n 1)
   expected=$(sed -n 's/.*"cardRemaps": *"\([0-9a-f]*\)".*/\1/p' "$root/manifest.json" | head -n 1)
-  if [ "$format" != "official-releases-prerelease-v1" ] && [ -z "$expected" ]; then return 0; fi
+  case "$format" in
+    official-releases-prerelease-v*) ;;
+    *) if [ -z "$expected" ]; then return 0; fi ;;
+  esac
   [ -n "$expected" ] && [ -f "$root/card-remaps.json" ] || return 1
   [ "$(sha256sum "$root/card-remaps.json" | cut -d' ' -f1)" = "$expected" ]
 }

@@ -13,7 +13,7 @@ export const sources = {
   scripts: "37f270dc813a12d123707ae255f2bda7922999c4",
   database: "fdf92aea31033cd6c44afa89987c5e00665205e2",
   strings: "54a6e2395c532648ff762540e9615319fac4f51b",
-  databaseFormat: "official-releases-prerelease-v1",
+  databaseFormat: "official-releases-prerelease-v2",
   // Immutable support boundary; abbreviated so the weekly pin rewrite never advances it.
   prereleaseHistoryStart: "fdf92aea3103",
 };
