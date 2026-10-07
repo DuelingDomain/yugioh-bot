@@ -1,9 +1,16 @@
+import { finishTestLobbyStart } from "./drafts-lobby-routes.test";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { NextRequest } from "next/server";
 
 const getDb = vi.fn();
+vi.mock("@/lib/draft-lobby-api", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/draft-lobby-api")>();
+  const { createTestDraftLobbyApi } = await import("./drafts-lobby-routes.test");
+  return { ...original, createDraftLobbyApi: createTestDraftLobbyApi };
+});
+
 vi.mock("@/lib/db", () => ({ getDb }));
 vi.mock("@/lib/auth", () => ({ auth: async () => ({ user: { id: "user", name: "Test" } }) }));
 vi.mock("@/lib/notify", () => ({ announcer: { announce: async () => {} }, broadcaster: { draft: async () => {} } }));
@@ -71,8 +78,8 @@ describe.each(["network", "timeout", "429", "503", "json"])("card API %s failure
     const opponent = createPlayerService(db).findOrCreate("guild", "opponent", "Opponent");
     createDraftService(db).join(draft.id, opponent.id);
     const started = await (await import("../app/api/drafts/[slug]/route")).POST(new Request("http://localhost/start", { method: "POST" }), { params: Promise.resolve({ slug: draft.webSlug }) });
-    expect(started.status).toBe(200);
-    expect((await started.json()).status).toBe("active");
+    expect(started.status).toBe(202);
+    expect((await finishTestLobbyStart(started, db)).status).toBe("active");
     const missing = await create("Missing Set");
     expect(missing.status).toBe(503);
     expect((await missing.json()).error).toContain("Try again");

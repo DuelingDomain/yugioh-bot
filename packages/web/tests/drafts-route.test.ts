@@ -1,3 +1,4 @@
+import { finishTestLobbyStart } from "./drafts-lobby-routes.test";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -9,6 +10,12 @@ const auth = vi.fn();
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const tempDirs: string[] = [];
 const testTimeoutMs = 40000;
+
+vi.mock("@/lib/draft-lobby-api", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/draft-lobby-api")>();
+  const { createTestDraftLobbyApi } = await import("./drafts-lobby-routes.test");
+  return { ...original, createDraftLobbyApi: createTestDraftLobbyApi };
+});
 
 vi.mock("@/lib/auth", () => ({
   auth,
@@ -161,7 +168,8 @@ describe("GET /api/drafts/[slug]", () => {
       params: Promise.resolve({ slug: "legendary-draft" }),
     });
 
-    expect(startResponse.status).toBe(200);
+    expect(startResponse.status).toBe(202);
+    await finishTestLobbyStart(startResponse);
 
     const response = await GET(new Request("http://localhost/api/drafts/legendary-draft"), {
       params: Promise.resolve({ slug: "legendary-draft" }),
@@ -255,7 +263,8 @@ describe("GET /api/drafts/[slug]", () => {
       params: Promise.resolve({ slug: draft.webSlug ?? "" }),
     });
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(202);
+    await finishTestLobbyStart(response);
 
     const verifyDb = new Database(dbPath);
     expect(verifyDb.prepare("select count(*) as count from card_catalog").get()).toEqual({ count: 2 });
@@ -406,7 +415,8 @@ describe("GET /api/drafts/[slug]", () => {
       params: Promise.resolve({ slug: draft.webSlug ?? "" }),
     });
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(202);
+    await finishTestLobbyStart(response);
 
     const verifyDb = new Database(dbPath);
     expect(verifyDb.prepare("select count(*) as count from card_catalog").get()).toEqual({ count: 2 });
