@@ -1,5 +1,6 @@
 export const DUEL_DICE_REVEAL_MS = 3_000;
-const MAX_DICE_ROUNDS = 10;
+/** After this many tied rounds the server breaks the tie at random. */
+export const MAX_DICE_ROUNDS = 10;
 
 export interface DuelDiceRound {
   round: number;

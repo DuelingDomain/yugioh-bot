@@ -1,4 +1,4 @@
-import { DUEL_DICE_REVEAL_MS, type DuelDiceOpeningView, type DuelDiceRound } from "@yugidraft/shared/duels";
+import { DUEL_DICE_MAX_ROUNDS, DUEL_DICE_REVEAL_MS, type DuelDiceOpeningView, type DuelDiceRound } from "@yugidraft/shared/duels";
 
 /**
  * What the dice opening of a 3-way or 4-way duel shows, as plain data. The server rolls every die, reveals a
@@ -242,10 +242,31 @@ export function diceStatus(view: DuelDiceOpeningView, me: number | null, nameOf:
     const note = tiedGroups(view)
       .map((group) => `${nameList(group, me, nameOf)} tied on ${dieValue(view, group[0]!)}`)
       .join(" · ");
-    return { main: "Tie — roll again", note, kind: "tie" };
+    // A tie in the last round is not rolled again: the server breaks it at random.
+    return { main: round.round >= DUEL_DICE_MAX_ROUNDS ? RANDOM_BREAK_LINE : "Tie — roll again", note, kind: "tie" };
   }
   if (view.round > 1) return { main: "Rolling again…", note: "Only the tied players roll", kind: "plain" };
   return { main: "Rolling…", note: "Everyone rolls at once", kind: "plain" };
+}
+
+/** "Mira 4, Dax 6": who rolled what in the latest round, the viewer as "You". */
+export function rollSummary(view: DuelDiceOpeningView, me: number | null, nameOf: (seat: number) => string): string {
+  const round = currentRound(view);
+  if (!round) return "";
+  return round.rolls
+    .flatMap((roll, seat) => (roll == null ? [] : [`${seat === me ? "You" : nameOf(seat)} ${roll}`]))
+    .join(", ");
+}
+
+/**
+ * The text a screen reader hears at a beat. It holds the rolls and the turn order, never the seat line: the seat
+ * line is only on screen and changes on its own timer.
+ */
+export function diceLiveText(view: DuelDiceOpeningView, me: number | null, nameOf: (seat: number) => string, beat: DiceBeat): string {
+  const status = diceStatus(view, me, nameOf, beat, false);
+  const round = currentRound(view);
+  const rolls = beat !== "rolling" && round ? `Round ${round.round}: ${rollSummary(view, me, nameOf)}. ` : "";
+  return `${rolls}${status.main}. ${status.note}`;
 }
 
 /** Where the seats stand after the move: the 3-way follows the order; the 4-way pairs rank 1+2 and 3+4. */

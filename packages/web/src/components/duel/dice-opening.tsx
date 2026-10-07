@@ -7,6 +7,7 @@ import {
   DICE_TIMELINE,
   DICE_TIMELINE_REDUCED,
   diceBeat,
+  diceLiveText,
   dicePlan,
   diceStatus,
   diceSub,
@@ -56,6 +57,7 @@ export function DiceOpeningScreen({ opening, receivedAt, mySeat, names, error = 
   const beat = diceBeat(opening, elapsed, timeline);
   const moved = seatsMoved(opening, elapsed, timeline);
   const status = diceStatus(opening, me, nameOf, beat, moved);
+  const liveText = diceLiveText(opening, me, nameOf, beat);
   const round = currentRound(opening);
   const facing = moved && me != null ? facingSeat(opening, me) : null;
   const sampleElapsed = () => sampleServerNow(opening, receivedAt) - startsAt;
@@ -88,7 +90,9 @@ export function DiceOpeningScreen({ opening, receivedAt, mySeat, names, error = 
           <h2 id="opening-title" className={styles.title}>Who goes first?</h2>
           <p className={styles.sub} data-testid="dice-sub">{diceSub(opening, me, moved)}</p>
         </header>
-        <div className={styles.status} role="status" aria-live="polite" data-kind={status.kind} data-testid="dice-status">
+        {/* The screen reader hears the rolls and the turn order; the seat line below is for the eye only. */}
+        <p className={rootStyles.sr} role="status" aria-live="polite" data-testid="dice-live">{liveText}</p>
+        <div className={styles.status} data-kind={status.kind} data-testid="dice-status">
           <span key={status.main} className={styles.main}>{status.main}</span>
           <span key={status.note} className={styles.note}>{status.note}</span>
         </div>
