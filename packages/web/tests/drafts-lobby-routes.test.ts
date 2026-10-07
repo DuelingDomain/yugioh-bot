@@ -150,6 +150,7 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
     expect((await route("auto", "PUT", body)).status).toBe(400);
   });
   it("runs a scoped pending GET tick and notifies only committed starts", async () => {
+    db.prepare("update drafts set lobby_start_token = 'schedule' where id = 1").run();
     const draft = createDraftService(db).findById(1);
     service.tick.mockImplementationOnce(() => {
       db.prepare("update drafts set status = 'active'").run();
@@ -161,6 +162,23 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
     expect(service.tick).toHaveBeenCalledWith(expect.any(Number), 1);
     expect(notify.broadcaster.draft).toHaveBeenCalledWith({ kind: "status", slug: "lobby", status: "active" });
     expect(notify.announcer.announce).toHaveBeenCalledWith(expect.objectContaining({ kind: "draft-started", draftId: 1 }));
+  });
+  it.each([{ enabled: 0, held: 0 }, { enabled: 0, held: 1 }, { enabled: 1, held: 1 }])(
+    "skips the GET fallback tick for an idle or held lobby: %j", async ({ enabled, held }) => {
+      db.prepare("update drafts set lobby_auto_start = ?, lobby_auto_held = ? where id = 1").run(enabled, held);
+      const { GET } = await import("../app/api/drafts/[slug]/route");
+      const response = await GET(request("GET"), context);
+      expect(response.status).toBe(200);
+      expect((await response.json()).lobby).toEqual(projection.lobby);
+      expect(service.tick).not.toHaveBeenCalled();
+      expect(notify.broadcaster.draft).not.toHaveBeenCalled();
+    },
+  );
+  it("runs the GET fallback tick for auto-start eligibility without a countdown", async () => {
+    db.prepare("update drafts set lobby_auto_start = 1 where id = 1").run();
+    const { GET } = await import("../app/api/drafts/[slug]/route");
+    expect((await GET(request("GET"), context)).status).toBe(200);
+    expect(service.tick).toHaveBeenCalledExactlyOnceWith(expect.any(Number), 1);
   });
   it("defaults new web theme lobbies to four seats", async () => {
     vi.stubEnv("DISCORD_DEFAULT_CHANNEL_ID", "channel");
@@ -218,6 +236,7 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
   });
 
   it("keeps an observer out if the pending GET fallback commits a start", async () => {
+    db.prepare("update drafts set lobby_start_token = 'schedule' where id = 1").run();
     auth.mockResolvedValue({ user: { id: "observer" } });
     service.tick.mockImplementationOnce(() => { db.prepare("update drafts set status = 'active'").run(); return { started: [], changedSlugs: [] }; });
     const { GET } = await import("../app/api/drafts/[slug]/route");

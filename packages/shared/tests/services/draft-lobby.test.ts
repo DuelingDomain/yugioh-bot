@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import * as draftServices from "../../src/services/drafts.js";
 import { migrate } from "../../src/db/schema.js";
 import { createDraftService } from "../../src/services/drafts.js";
 import { createDraftLobbyService, DraftLobbyServiceError } from "../../src/services/draft-lobby.js";
@@ -9,7 +10,7 @@ import type { DraftConfig } from "../../src/types/index.js";
 const now = new Date("2026-10-07T12:00:00.000Z");
 const later = (ms: number) => new Date(now.getTime() + ms);
 const connections: Database.Database[] = [];
-afterEach(() => { for (const db of connections.splice(0)) db.close(); });
+afterEach(() => { vi.restoreAllMocks(); for (const db of connections.splice(0)) db.close(); });
 
 function setup(config: DraftConfig = {}, identities = ["host", "guest"]) {
   const db = new Database(":memory:");
@@ -211,6 +212,54 @@ describe("departure and capacity", () => {
 });
 
 describe("manual and automatic deadlines", () => {
+  it.each([
+    { auto: 0, held: 0, scoped: false }, { auto: 0, held: 0, scoped: true },
+    { auto: 0, held: 1, scoped: false }, { auto: 0, held: 1, scoped: true },
+    { auto: 1, held: 1, scoped: false }, { auto: 1, held: 1, scoped: true },
+  ])("skips idle or held lobbies without a write transaction or preflight: %j", ({ auto, held, scoped }) => {
+    const app = setup();
+    app.db.prepare("update drafts set lobby_auto_start = ?, lobby_auto_held = ? where id = ?")
+      .run(auto, held, app.draft.id);
+    const preflight = vi.fn(app.drafts.analyzeBoosterDraft);
+    vi.spyOn(draftServices, "createDraftService").mockReturnValue({ ...app.drafts, analyzeBoosterDraft: preflight });
+    const sweep = createDraftLobbyService(app.db);
+    const transaction = vi.spyOn(app.db, "transaction");
+    expect(sweep.tick(now, scoped ? app.draft.id : undefined)).toEqual({ started: [], changedSlugs: [] });
+    expect(preflight).not.toHaveBeenCalled();
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { lobbySeats: 2, ready: false }, { lobbySeats: 4, ready: true }, { lobbySeats: undefined, ready: true },
+  ])("skips preflight when auto-start cannot arm: %j", ({ lobbySeats, ready }) => {
+    const app = setup({ lobbySeats });
+    if (ready) app.ready();
+    app.db.prepare("update drafts set lobby_auto_start = 1 where id = ?").run(app.draft.id);
+    const preflight = vi.fn(app.drafts.analyzeBoosterDraft);
+    vi.spyOn(draftServices, "createDraftService").mockReturnValue({ ...app.drafts, analyzeBoosterDraft: preflight });
+    expect(createDraftLobbyService(app.db).tick(now)).toEqual({ started: [], changedSlugs: [] });
+    expect(preflight).not.toHaveBeenCalled();
+  });
+
+  it.each(["manual", "auto"] as const)("defers %s countdown preflight until the start deadline", (kind) => {
+    const app = setup({ lobbySeats: 2 });
+    app.ready();
+    const revision = app.read().lobby.revision;
+    const scheduled = kind === "manual"
+      ? app.lobby.scheduleStart(app.draft.id, "host", { revision }, now)
+      : app.lobby.setAutoStart(app.draft.id, "host", { enabled: true, revision }, now);
+    const preflight = vi.fn(app.drafts.analyzeBoosterDraft);
+    vi.spyOn(draftServices, "createDraftService").mockReturnValue({ ...app.drafts, analyzeBoosterDraft: preflight });
+    const sweep = createDraftLobbyService(app.db);
+    const deadline = new Date(scheduled.lobby.start!.startsAt);
+    const transaction = vi.spyOn(app.db, "transaction");
+    expect(sweep.tick(new Date(deadline.getTime() - 1))).toEqual({ started: [], changedSlugs: [] });
+    expect(preflight).not.toHaveBeenCalled();
+    expect(transaction).not.toHaveBeenCalled();
+    expect(sweep.tick(deadline).started).toHaveLength(1);
+    expect(preflight).toHaveBeenCalled();
+  });
+
   it("schedules 5 seconds, starts early with two seats, and retries without extending", () => {
     const app = setup();
     app.ready();

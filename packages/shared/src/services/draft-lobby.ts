@@ -89,6 +89,9 @@ export function createDraftLobbyService(db: Database.Database) {
       ? draft.config.themeAssignments?.[String(player.player_id)] ?? null
       : draft.config.themeSelection === "player_pick" ? player.cube_id : null,
   });
+  const isReady = (draft: Draft, player: PlayerRow, setup: string) => isTestBotDiscordId(player.discord_user_id)
+    || !!(player.ready_at && player.ready_setup_hash === acknowledgementHash(draft, player, setup)
+      && (draft.config.mode !== "theme" || draft.config.themeSelection !== "player_pick" || validClaim(draft, player)));
   const scheduleHash = (draft: Draft, players: PlayerRow[], setup: string) => hash({ setup,
     assignments: draft.config.themeSelection === "host_assigned" ? draft.config.themeAssignments : undefined,
     claims: draft.config.themeSelection === "player_pick" ? players.map((p) => [p.player_id, p.cube_id]) : undefined,
@@ -158,8 +161,7 @@ export function createDraftLobbyService(db: Database.Database) {
     const rows = roster(draftId), setup = setupHash(draft);
     const players: LobbyPlayer[] = rows.map((player) => {
       const isBot = isTestBotDiscordId(player.discord_user_id);
-      const ready = isBot || !!(player.ready_at && player.ready_setup_hash === acknowledgementHash(draft, player, setup)
-        && (draft.config.mode !== "theme" || draft.config.themeSelection !== "player_pick" || validClaim(draft, player)));
+      const ready = isReady(draft, player, setup);
       return { playerId: player.player_id, displayName: player.display_name,
         ...(player.seat_index === null ? {} : { seatIndex: player.seat_index }), pickCount: player.pick_count,
         ...(player.finished_at === null ? {} : { finishedAt: player.finished_at }), joinedAt: player.joined_at,
@@ -319,13 +321,27 @@ export function createDraftLobbyService(db: Database.Database) {
       db.transaction(() => invalidateDraftLobby(db, draftId, options)).immediate();
     },
     tick(now = new Date(), draftId?: number): DraftLobbyTickResult {
-      const ids = draftId === undefined ? db.prepare("select id from drafts where status = 'pending' order by id").all() as Array<{ id: number }>
-        : [{ id: draftId }];
+      // Idle and held lobbies need no write lock, catalog analysis or pool hash.
+      const candidates = db.prepare(`select id, lobby_start_token, lobby_start_at, lobby_start_revision, lobby_revision
+        from drafts where status = 'pending' and (lobby_start_token is not null
+          or (lobby_auto_start = 1 and lobby_auto_held = 0))
+        ${draftId === undefined ? "" : "and id = ?"} order by id`)
+        .all(...(draftId === undefined ? [] : [draftId])) as Array<{
+          id: number; lobby_start_token: string | null; lobby_start_at: string | null;
+          lobby_start_revision: number | null; lobby_revision: number;
+        }>;
       const result: DraftLobbyTickResult = { started: [], changedSlugs: [] };
-      for (const { id } of ids) {
+      for (const candidate of candidates) {
+        const { id } = candidate;
+        const scheduledAt = candidate.lobby_start_at ? Date.parse(candidate.lobby_start_at) : NaN;
+        if (candidate.lobby_start_token && candidate.lobby_start_revision === candidate.lobby_revision
+          && now.getTime() < scheduledAt) continue;
         const transition = db.transaction((): { started?: Draft; changed?: string } => {
-          const current = db.prepare("select status from drafts where id = ?").get(id) as { status: string } | undefined;
-          if (current?.status !== "pending") return {};
+          // Another connection may Stop/Hold/start after the candidate read.
+          const current = db.prepare("select status, lobby_start_token, lobby_auto_start, lobby_auto_held from drafts where id = ?")
+            .get(id) as LobbyRow | undefined;
+          if (current?.status !== "pending" || (!current.lobby_start_token
+            && !(current.lobby_auto_start === 1 && current.lobby_auto_held === 0))) return {};
           const { draft, row } = pending(id);
           const changed = draft.webSlug;
           const fail = (message: string) => {
@@ -334,20 +350,31 @@ export function createDraftLobbyService(db: Database.Database) {
               lobby_start_error = ? where id = ?`).run(message, id);
             return { changed };
           };
-          const players = roster(id);
-          const state = project(id, draft.createdByUserId, now);
           if (!row.lobby_start_token) {
-            if (row.lobby_auto_start && !row.lobby_auto_held && state.lobby.autoStart.eligible) {
+            const players = roster(id);
+            if (draft.config.lobbySeats === undefined || players.length !== draft.config.lobbySeats
+              || players.length < MIN_DRAFT_START_PLAYERS) return {};
+            const setup = setupHash(draft);
+            if (!players.every((player) => isReady(draft, player, setup))) return {};
+            const state = project(id, draft.createdByUserId, now);
+            if (state.lobby.autoStart.eligible) {
               arm(id, "auto", false, now);
               return { changed };
             }
-            if (row.lobby_auto_start && !row.lobby_auto_held && state.lobby.allReady
-              && state.lobby.targetSeats === players.length && state.lobby.errors.length) return fail(state.lobby.errors.join(" "));
+            if (state.lobby.errors.length) return fail(state.lobby.errors.join(" "));
             return {};
           }
-          if (row.lobby_start_revision !== row.lobby_revision || row.lobby_start_setup_hash !== scheduleHash(draft, players, setupHash(draft))) {
+          if (row.lobby_start_revision !== row.lobby_revision) {
             return fail("Lobby setup changed during the countdown; review it before starting again");
           }
+          const deadline = row.lobby_start_at ? Date.parse(row.lobby_start_at) : NaN;
+          if (!Number.isFinite(deadline)) return fail("Lobby start deadline is invalid");
+          if (now.getTime() < deadline) return {};
+          const players = roster(id);
+          if (row.lobby_start_setup_hash !== scheduleHash(draft, players, setupHash(draft))) {
+            return fail("Lobby setup changed during the countdown; review it before starting again");
+          }
+          const state = project(id, draft.createdByUserId, now);
           if (state.lobby.errors.length) return fail(state.lobby.errors.join(" "));
           if (!row.lobby_start_force && (!state.lobby.allReady || (draft.config.mode === "theme" && draft.config.themeSelection === "player_pick" && players.some((p) => !validClaim(draft, p))))) {
             return fail("Players are no longer Ready for this setup");
@@ -355,9 +382,6 @@ export function createDraftLobbyService(db: Database.Database) {
           if (row.lobby_start_kind === "auto" && (!row.lobby_auto_start || row.lobby_auto_held || !state.lobby.autoStart.eligible)) {
             return fail("Lobby is no longer eligible for auto-start");
           }
-          const deadline = row.lobby_start_at ? Date.parse(row.lobby_start_at) : NaN;
-          if (!Number.isFinite(deadline)) return fail("Lobby start deadline is invalid");
-          if (now.getTime() < deadline) return {};
           try {
             // start uses a nested savepoint: a kernel failure rolls its partial
             // assignment/deal back before the failure and Hold are committed.

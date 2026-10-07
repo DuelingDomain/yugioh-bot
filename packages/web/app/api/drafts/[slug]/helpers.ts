@@ -99,14 +99,16 @@ export async function buildDraftResponse(slug: string, userId: string) {
   const guildId = env.discordGuildId;
 
   const draftIdRow = db
-    .prepare("select id, status from drafts where web_slug = ? and guild_id = ?")
-    .get(slug, guildId) as { id: number; status: string } | undefined;
+    .prepare("select id, status, lobby_start_token, lobby_auto_start, lobby_auto_held from drafts where web_slug = ? and guild_id = ?")
+    .get(slug, guildId) as { id: number; status: string; lobby_start_token: string | null;
+      lobby_auto_start: number; lobby_auto_held: number } | undefined;
 
   if (!draftIdRow) {
     return null;
   }
 
-  if (draftIdRow.status === "pending") {
+  if (draftIdRow.status === "pending" && (draftIdRow.lobby_start_token !== null
+    || (draftIdRow.lobby_auto_start === 1 && draftIdRow.lobby_auto_held === 0))) {
     // GET is a start entry point even without a background timer. The shared
     // tick commits the winning transition before its notifications are sent.
     const transitions = createDraftLobbyApi(db).tick(Date.now(), draftIdRow.id);
