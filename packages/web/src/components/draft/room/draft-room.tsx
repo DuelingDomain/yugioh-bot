@@ -130,6 +130,9 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   const poolCount = pool.length;
   const tp = themeProgress(poolCount, sizes);
   const phase: "main" | "extra" = theme && tp.inExtra ? "extra" : "main";
+  /** Booster drafts: the one Extra Deck pack after the main rounds is smaller than the main packs. */
+  const boosterPackSize =
+    sizes.boosterExtraSize > 0 && rs.packRound > sizes.packsPerPlayer ? sizes.boosterExtraSize : sizes.packSize;
   const urgency = useDraftStore((s) => urgencyFor(s.timerSeconds, turn));
 
   /* ---------- the pack ribbon plays first, then the cards deal in ---------- */
@@ -619,13 +622,13 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
             seat,
             state,
             packN: seatPackSize({
-              packSize: theme ? sizes.themePackSize : sizes.packSize,
+              packSize: theme ? sizes.themePackSize : boosterPackSize,
               pickStep: rs.pickStep,
               hasPicked: seat.hasPicked,
             }),
           };
         }),
-    [rs.tableSeats, passing, theme, sizes.themePackSize, sizes.packSize, rs.pickStep],
+    [rs.tableSeats, passing, theme, sizes.themePackSize, boosterPackSize, rs.pickStep],
   );
 
   const dial = dialModel(pool, sizes);
@@ -805,6 +808,7 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
             direction,
             phaseDone,
             phaseOf: tp.of,
+            boosterExtraSize: sizes.boosterExtraSize,
           }}
         />
         <SeatStrip friends={friends} heard={heard} canSay={canSay} sayOpen={sayOpen} onSay={toggleSay} />

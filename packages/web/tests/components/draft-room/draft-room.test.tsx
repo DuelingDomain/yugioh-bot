@@ -106,6 +106,25 @@ describe("DraftRoom", () => {
     expect(document.body.querySelector(".dr")?.getAttribute("data-turn")).toBe("picking");
   });
 
+  it("names the Extra Deck round in the bar instead of Pack 3 of 2", async () => {
+    localStorage.setItem("yugidraft-room-motion", "off");
+    load({ packRound: 3, pickStep: 2 });
+    renderRoom({ ...config, extraDeckEnabled: true, extraDeckSize: 4 });
+    await waitFor(() => expect(card(1)).toBeTruthy());
+    const where = document.body.querySelector(".where")!;
+    expect(where.textContent).toContain("Extra Deck round");
+    expect(where.textContent).toContain("Pick 2 of 4");
+    expect(where.textContent).not.toContain("Pack 3");
+  });
+
+  it("keeps Pack N of M in the main rounds when the Extra Deck round is on", async () => {
+    localStorage.setItem("yugidraft-room-motion", "off");
+    load({ packRound: 2, pickStep: 1 });
+    renderRoom({ ...config, extraDeckEnabled: true, extraDeckSize: 4 });
+    await waitFor(() => expect(card(1)).toBeTruthy());
+    expect(document.body.querySelector(".where")!.textContent).toContain("Pack 2 of 2");
+  });
+
   it("holds the table empty while the pack ribbon plays, then deals the cards", async () => {
     localStorage.setItem("yugidraft-room-motion", "off");
     renderRoom();
