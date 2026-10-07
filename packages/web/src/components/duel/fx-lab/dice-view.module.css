@@ -1,0 +1,12 @@
+/* The skin picker over the dice opening in the FX lab. The room has this setting in Settings; the lab has no room. */
+.skins {
+  position: fixed; left: 50%; bottom: 12px; translate: -50% 0; z-index: calc(var(--duel-z-modal, 150) + 1);
+  display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px; max-width: calc(100vw - 24px);
+  padding: 6px 8px; border: 1px solid rgb(181 153 99 / 0.3); border-radius: 10px; background: rgb(7 11 21 / 0.9);
+  color: #958f81; font-size: 12.5px;
+}
+.skins button {
+  padding: 5px 10px; border: 1px solid rgb(181 153 99 / 0.2); border-radius: 6px; background: transparent; color: #c3bba8; font: inherit; cursor: pointer;
+}
+.skins button[aria-pressed="true"] { border-color: #9b7eff; background: rgb(155 126 255 / 0.2); color: #c6b6ff; }
+.skins button:focus-visible { outline: 2px solid #efe7d5; outline-offset: 2px; }

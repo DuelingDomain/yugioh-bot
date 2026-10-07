@@ -25,6 +25,7 @@ import {
 } from "./board";
 import { CARDS } from "./cards";
 import { SERIES_SCENARIOS } from "./series-scenarios";
+import { DICE_OPENING_SCENARIOS } from "./dice-scenarios";
 import { PRIORITY_SCENARIOS } from "./priority-scenarios";
 import { TURN_GLOW_SCENARIOS } from "./turn-glow-scenarios";
 import { OPENING_DEAL_SCENARIOS } from "./opening-deal-scenarios";
@@ -1719,7 +1720,7 @@ const STATES: LabScenario[] = [
 
 export const LAB_CATEGORIES: readonly LabCategory[] = ["Attacks", "Destroy", "Summons", "Card moves", "Chain", "LP", "Banners", "Board states", "Match"];
 
-export const LAB_SCENARIOS: readonly LabScenario[] = [...BATTLE_EFFECT_SCENARIOS, ...ATTACKS, ...DESTROY, ...SUMMONS, ...TRIBUTE_SCENARIOS, ...MOVES, ...OPENING_DEAL_SCENARIOS, ...CHAIN, ...PACE_SCENARIOS, ...LP, ...BANNERS, ...STATES, ...PRIORITY_SCENARIOS, ...TURN_GLOW_SCENARIOS, ...SERIES_SCENARIOS];
+export const LAB_SCENARIOS: readonly LabScenario[] = [...BATTLE_EFFECT_SCENARIOS, ...ATTACKS, ...DESTROY, ...SUMMONS, ...TRIBUTE_SCENARIOS, ...MOVES, ...OPENING_DEAL_SCENARIOS, ...CHAIN, ...PACE_SCENARIOS, ...LP, ...BANNERS, ...STATES, ...PRIORITY_SCENARIOS, ...TURN_GLOW_SCENARIOS, ...SERIES_SCENARIOS, ...DICE_OPENING_SCENARIOS];
 
 export function scenariosIn(category: LabCategory): LabScenario[] {
   return LAB_SCENARIOS.filter((scenario) => scenario.category === category);
