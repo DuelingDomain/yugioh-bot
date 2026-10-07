@@ -188,3 +188,12 @@ it.each([
   expect(callDuelHost).not.toHaveBeenCalled();
   expect(getDb).not.toHaveBeenCalled();
 });
+
+it("preserves prerelease metadata in search and detail API responses",async()=>{
+ const preview={...cards[0],prerelease:true};
+ callDuelHost.mockResolvedValue({ok:true,data:{cards:[preview],missing:[]}});
+ const {GET,POST}=await import("../app/api/duels/cards/route");
+ for(const response of [await GET(search(preview.name)),await POST(post([preview.code]))]){
+  expect((await response.json()).cards[0].prerelease).toBe(true);
+ }
+});

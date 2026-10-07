@@ -7,13 +7,16 @@ import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { installMultiScripts } from "../src/multi-scripts.js";
 import { downloadReleasedCardData, restrictPrereleaseScripts } from "./released-card-data.js";
+import { installCardScriptPatches } from "./card-script-patches.js";
 
 export const sources = {
   corePackage: "ocgcore-wasm@0.1.2",
   scripts: "37f270dc813a12d123707ae255f2bda7922999c4",
   database: "fdf92aea31033cd6c44afa89987c5e00665205e2",
   strings: "54a6e2395c532648ff762540e9615319fac4f51b",
-  databaseFormat: "official-releases-v1",
+  databaseFormat: "official-releases-prerelease-v2",
+  // Immutable support boundary; abbreviated so the weekly pin rewrite never advances it.
+  prereleaseHistoryStart: "fdf92aea3103",
 };
 const hash = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
 // integrity.multiScripts (the Lua overlay of duels with more than two seats) is not part of bundleVersion: the host pins
@@ -57,6 +60,7 @@ async function catalogIsCurrent(directory: string, manifest: Manifest | null): P
     const cards = await readFile(join(directory, "cards.cdb"));
     const stringsFile = await readFile(join(directory, "strings.conf"));
     if (hash(cards) !== manifest.integrity.cardsMerged) return false;
+    if (hash(await readFile(join(directory, "card-remaps.json"))) !== manifest.integrity.cardRemaps) return false;
     if (hash(stringsFile) !== manifest.integrity.strings) return false;
   } catch {
     return false;
@@ -78,9 +82,19 @@ export async function prepareData(
   // (this script replaces that folder), and it changes with the repo, so it is installed on every run.
   const multiScriptsHash = installMultiScripts(directory);
   if (previous && await catalogIsCurrent(directory, previous)) {
-    const integrity = { ...previous.integrity, multiScripts: multiScriptsHash };
+    const cardScriptPatches = installCardScriptPatches(join(directory, "card-scripts"));
+    const { cardScriptPatches: _oldPatches, ...baseIntegrity } = previous.integrity;
+    const integrity: Record<string, string> = {};
+    // Match fresh preparation (and builders that append core entries afterward):
+    // JSON insertion order is part of the existing bundleVersion format.
+    for (const [key, value] of Object.entries(baseIntegrity)) {
+      integrity[key] = value;
+      if (key === "wrapper") integrity.cardScriptPatches = cardScriptPatches;
+    }
+    integrity.cardScriptPatches ??= cardScriptPatches;
+    integrity.multiScripts = multiScriptsHash;
     const bundleVersion = bundleVersionOf(previous.sources, integrity);
-    if (previous.integrity.multiScripts !== multiScriptsHash || previous.bundleVersion !== bundleVersion) {
+    if (previous.integrity.multiScripts !== multiScriptsHash || previous.integrity.cardScriptPatches !== cardScriptPatches || previous.bundleVersion !== bundleVersion) {
       previous.integrity = integrity;
       previous.bundleVersion = bundleVersion;
       await writeFile(join(directory, "manifest.json"), JSON.stringify(previous, null, 2) + "\n");
@@ -96,7 +110,7 @@ export async function prepareData(
   const temporary = await mkdtemp(join(tmpdir(), "yugidraft-resources-"));
   try {
     const [database, strings, scripts] = await Promise.all([
-      downloadReleasedCardData(sources.database, temporary, request),
+      downloadReleasedCardData(sources.database, temporary, request, { historyStart: sources.prereleaseHistoryStart }),
       download(`https://raw.githubusercontent.com/ProjectIgnis/Distribution/${sources.strings}/config/strings.conf`, request),
       download(`https://codeload.github.com/ProjectIgnis/CardScripts/tar.gz/${sources.scripts}`, request),
     ]);
@@ -106,7 +120,9 @@ export async function prepareData(
     const scriptStaging = join(temporary, "card-scripts");
     await mkdir(scriptStaging, { recursive: true });
     execFileSync("tar", ["-xzf", archive, "--strip-components=1", "-C", scriptStaging]);
-    restrictPrereleaseScripts(scriptStaging, database.releaseCodes);
+    restrictPrereleaseScripts(scriptStaging, database.scriptCodes);
+    for (const drop of database.drops) console.log(`[prerelease] Drop ${drop.code} ${drop.name} (${drop.file}): ${drop.reason}${drop.keptCode ? ` → ${drop.keptCode}` : ""}`);
+    const cardScriptPatches = installCardScriptPatches(scriptStaging);
     if (savedLua) await writeFile(join(scriptStaging, "domain.lua"), savedLua);
     if (savedLegacyLua) await writeFile(join(scriptStaging, "domain.legacy.lua"), savedLegacyLua);
     const scriptDirectory = join(directory, "card-scripts");
@@ -114,6 +130,7 @@ export async function prepareData(
     await cp(scriptStaging, scriptDirectory, { recursive: true });
     await Promise.all([
       writeFile(join(directory, "cards.cdb"), cards),
+      writeFile(join(directory, "card-remaps.json"), database.remapBytes),
       writeFile(join(directory, "strings.conf"), strings),
     ]);
     const wasm = await readFile(fileURLToPath(import.meta.resolve("ocgcore-wasm/lib/ocgcore.sync.wasm")));
@@ -121,11 +138,13 @@ export async function prepareData(
     const integrity: Record<string, string> = {
       cards: hash(database.inputHashes.join("\n")),
       cardsMerged: hash(cards),
+      cardRemaps: hash(database.remapBytes),
       strings: hash(strings),
       scripts: hash(scripts),
       wasm: hash(wasm),
       wrapper: hash(wrapper),
       multiScripts: multiScriptsHash,
+      cardScriptPatches,
     };
     const mergedSources: Record<string, unknown> = { ...sources, databaseFiles: database.files };
     const domainWasmPath = join(directory, "ocgcore.domain.wasm");
