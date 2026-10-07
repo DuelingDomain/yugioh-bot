@@ -6,6 +6,7 @@ import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { checkDiscordWebAccess, webAccessError } from "@/lib/discord-web-access";
 import { announcer } from "@/lib/notify";
+import { draftDiscordEnabled } from "@/lib/draft-lobby-api";
 
 export const runtime = "nodejs";
 
@@ -22,6 +23,8 @@ function validDiscordId(id: string) {
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ slug: string }> }) {
+  // Nudge posts through the Discord bot; with the bot shelved the route does not exist.
+  if (!draftDiscordEnabled()) return NextResponse.json({ error: "Not found" }, { status: 404 });
   try {
     const session = await auth();
     if (!session?.user?.id) fail("Unauthorized", 401, "UNAUTHORIZED");

@@ -28,6 +28,7 @@ function nudgedAt() {
 
 describe("draft Nudge route", () => {
   beforeEach(() => {
+    vi.stubEnv("DISCORD_BOT_ENABLED", "1");
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-10-07T15:00:00Z"));
     database.current = new Database(":memory:");
@@ -47,7 +48,7 @@ describe("draft Nudge route", () => {
       { playerId: 3, ready: true, isBot: true }, { playerId: 4, ready: false, isBot: false },
     ] });
   });
-  afterEach(() => { database.current!.close(); vi.useRealTimers(); vi.resetAllMocks(); });
+  afterEach(() => { database.current!.close(); vi.useRealTimers(); vi.resetAllMocks(); vi.unstubAllEnvs(); });
 
   it("sends an invite with current unready humans through the signed announcer", async () => {
     const response = await nudge();
@@ -92,6 +93,12 @@ describe("draft Nudge route", () => {
     expect((await nudge(body)).status).toBe(400);
     expect(nudgedAt()).toBeNull();
   });
+  it("does not exist while the Discord bot is shelved", async () => {
+    vi.stubEnv("DISCORD_BOT_ENABLED", "");
+    expect((await nudge("{}", true)).status).toBe(404);
+    expect(announce).not.toHaveBeenCalled();
+  });
+
   it("rejects malformed JSON", async () => { expect((await nudge("{", true)).status).toBe(400); });
 
   it.each([
