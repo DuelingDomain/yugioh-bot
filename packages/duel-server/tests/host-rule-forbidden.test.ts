@@ -7,7 +7,7 @@ import { createDuelService } from "@yugidraft/shared/services";
 import { seatCountFor, type DuelDeck, type DuelFormat, type DuelMode } from "@yugidraft/shared/duels";
 import { MULTIPLAYER_FORBIDDEN } from "../src/banlists/multiplayer.js";
 import { createEngineGame, type EngineGame } from "../src/engine.js";
-import { createDuelHost } from "../src/host.js";
+import { createTestDuelHost as createDuelHost, finishTestDiceOpening } from "./support/test-opening.js";
 import type { DuelGameWorker } from "../src/worker-client.js";
 import { engineDataDirectory as DATA } from "./engine-data-dir.js";
 import { describeWithCores, needs } from "./support/cores.js";
@@ -63,13 +63,17 @@ describeWithCores("live host forbidden list (" + mode + ")",
     };
     const host = createDuelHost({ db, dataDirectory: DATA, secret: SECRET, searchCards: () => [], pollIntervalMs: 60_000,
       createWorker: () => worker });
-    const post = async (player: number, body: Record<string, unknown>) => {
+    const post = async (player: number, body: Record<string, unknown>): Promise<{ status: number; body: Record<string, any> }> => {
       const raw = JSON.stringify({ slug: room.slug, guildId: "g1", playerId: player, ...body });
       const signature = "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex");
       const response = await host.handle(new Request("http://localhost/internal/duel", {
         method: "POST", headers: { "content-type": "application/json", "x-announce-signature": signature }, body: raw,
       }));
-      return { status: response.status, body: await response.json() as Record<string, any> };
+      const finished = await finishTestDiceOpening(host, { slug: room.slug, ...body },
+        { status: response.status, data: await response.json() as Record<string, any> }, async (next) => {
+          const result = await post(player, next); return { status: result.status, data: result.body };
+        });
+      return { status: finished.status, body: finished.data };
     };
     try {
       const legal = legalDeck(mode);

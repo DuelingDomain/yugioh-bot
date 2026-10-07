@@ -1,7 +1,7 @@
 import {
   DUEL_OPENING_PICK_MS,
   type DuelFirstChoice,
-  type DuelOpeningView,
+  type DuelRpsOpeningView,
   type DuelRpsMove,
 } from "@yugidraft/shared/duels";
 
@@ -25,17 +25,17 @@ export type OpeningStage =
   | "start";
 
 /** Epoch ms when the tie reveal ends and the next pick starts. */
-export function revealEndsAt(opening: DuelOpeningView): number {
+export function revealEndsAt(opening: DuelRpsOpeningView): number {
   return Date.parse(opening.deadlineAt) - DUEL_OPENING_PICK_MS;
 }
 
 /** The tie reveal belongs to the round before this pick. */
-function revealIsCurrent(opening: DuelOpeningView): boolean {
+function revealIsCurrent(opening: DuelRpsOpeningView): boolean {
   if (!opening.reveal) return false;
   return opening.phase === "rps" && opening.reveal.round === opening.round - 1;
 }
 
-export function openingStage(opening: DuelOpeningView, mySeat: number | null, now: number): OpeningStage {
+export function openingStage(opening: DuelRpsOpeningView, mySeat: number | null, now: number): OpeningStage {
   if (opening.phase === "start") return "start";
   // The server already accepts the winner's choice. A browser clock must not hide it until the timeout.
   if (opening.phase === "choose") return mySeat != null && opening.winnerSeat === mySeat ? "choose" : "wait-choose";
@@ -46,7 +46,7 @@ export function openingStage(opening: DuelOpeningView, mySeat: number | null, no
 export type RevealOutcome = "win" | "lose" | "tie" | "decided";
 
 /** The reveal outcome for the viewer; spectators get "decided" for a winning round. */
-export function revealOutcome(opening: DuelOpeningView, mySeat: number | null): RevealOutcome | null {
+export function revealOutcome(opening: DuelRpsOpeningView, mySeat: number | null): RevealOutcome | null {
   const reveal = opening.reveal;
   if (!reveal) return null;
   if (reveal.winnerSeat === null) return "tie";
@@ -60,21 +60,21 @@ export function openingSeats(mySeat: number | null): { me: 0 | 1; them: 0 | 1 } 
 }
 
 /** The state of the other player's pick this round. */
-export function opponentPickText(opening: DuelOpeningView, mySeat: number | null, name: string): { text: string; done: boolean } {
+export function opponentPickText(opening: DuelRpsOpeningView, mySeat: number | null, name: string): { text: string; done: boolean } {
   const { them } = openingSeats(mySeat);
   const done = opening.picked[them];
   const who = mySeat == null ? name : "Opponent";
   return { text: done ? `${who} chose` : `${who} is choosing…`, done };
 }
 
-export function myPickText(opening: DuelOpeningView, mySeat: number | null): { text: string; done: boolean } | null {
+export function myPickText(opening: DuelRpsOpeningView, mySeat: number | null): { text: string; done: boolean } | null {
   if (mySeat == null) return null;
   const done = opening.picked[mySeat === 1 ? 1 : 0];
   return { text: done ? "You chose" : "Choose your move", done };
 }
 
 /** After the choice: who goes first, and how it was decided. */
-export function startText(opening: DuelOpeningView, mySeat: number | null, names: [string, string]): string {
+export function startText(opening: DuelRpsOpeningView, mySeat: number | null, names: [string, string]): string {
   const choice: DuelFirstChoice | null = opening.choice;
   const winner = opening.winnerSeat;
   if (choice == null || winner == null) return "Starting the duel…";

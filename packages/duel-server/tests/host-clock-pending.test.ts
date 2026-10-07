@@ -6,7 +6,8 @@ import { migrate } from "@yugidraft/shared/db";
 import type { DuelAnswer, DuelCardInfo, DuelEngineView, DuelFormat } from "@yugidraft/shared/duels";
 import { DUEL_CLOCK_INCREMENT_MS, DUEL_OPENING_GRACE_MS } from "@yugidraft/shared/duels";
 import { createDuelService } from "@yugidraft/shared/services";
-import { createDuelHost, type DuelHost } from "../src/host.js";
+import type { DuelHost } from "../src/host.js";
+import { createTestDuelHost as createDuelHost, finishTestDiceOpening } from "./support/test-opening.js";
 import { createEngineGame, type EngineGame } from "../src/engine.js";
 import { buildPracticeBotDeck } from "../src/practice-bot.js";
 import { compileBoard, type BoardSpec } from "../src/presets/board.js";
@@ -41,7 +42,7 @@ afterEach(async () => {
   while (hosts.length > 0) await hosts.pop()!.close();
 });
 
-async function post(host: DuelHost, body: Record<string, unknown>) {
+async function post(host: DuelHost, body: Record<string, unknown>): Promise<{ status: number; data: Record<string, any> }> {
   const raw = JSON.stringify(body);
   const signature = "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex");
   const response = await host.handle(new Request("http://localhost/internal/duel", {
@@ -49,7 +50,8 @@ async function post(host: DuelHost, body: Record<string, unknown>) {
     headers: { "content-type": "application/json", "x-announce-signature": signature },
     body: raw,
   }));
-  return { status: response.status, data: (await response.json()) as Record<string, any> };
+  return finishTestDiceOpening(host, body, { status: response.status, data: (await response.json()) as Record<string, any> },
+    (next) => post(host, next));
 }
 
 /** A table of humans only, with a clock the test moves by hand. */

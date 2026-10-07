@@ -302,9 +302,11 @@ export function createDuelHost(options: {
   openingRps?: boolean;
   /** Random source for the practice bot's moves and for timed-out picks. */
   random?: () => number;
+  /** Optional deterministic die source for tests. Production uses crypto.randomInt(1, 7). */
+  rollDie?: () => number;
 }): DuelHost {
   if (!options.secret) throw new Error("DUEL_INTERNAL_SECRET is required");
-  const service = createDuelService(options.db);
+  const service = createDuelService(options.db, { rollDie: options.rollDie });
   const series = createDuelSeriesService(options.db);
   const manifest = JSON.parse(readFileSync(join(options.dataDirectory, "manifest.json"), "utf8")) as EngineDataManifest;
   if (!manifest.bundleVersion) throw new Error("Engine resource manifest has no bundle version");
@@ -323,7 +325,7 @@ export function createDuelHost(options: {
   const now = options.now ?? Date.now;
   const botLoops = new Map<string, BotLoop>();
   const advanceTimers = new Map<number, ReturnType<typeof setTimeout>>();
-  /** One timer per duel with a running rock-paper-scissors opening: it fires at the phase deadline. */
+  /** One timer per duel with a running opening: it fires at the phase deadline. */
   const openingTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const random = options.random ?? Math.random;
   /** Series games whose last start failed: the tick sweep skips a slug until `retryAt`. */
@@ -2110,7 +2112,7 @@ export function createDuelHost(options: {
 
   /**
    * Starts a lobby duel with every seat ready. Game 1 of a 1v1 duel or match goes through the rock-paper-scissors
-   * opening first (when enabled); other games start at once. Returns the live game, or null while the opening runs.
+   * opening first (when enabled). Every FFA3/FFA4 game rolls dice; Tag starts at once. Returns the live game, or null while the opening runs.
    */
   async function beginGame(slug: string, guildId: string, actor: number | null): Promise<DuelGameWorker | null> {
     const existing = service.openingState(slug, guildId);
@@ -2120,7 +2122,9 @@ export function createDuelHost(options: {
       return games.get(slug)?.game ?? null;
     }
     const { session } = await assertStartable(slug, guildId);
-    if (!options.openingRps || session.format !== "1v1" || (session.gameNumber ?? 1) > 1) return startGame(slug, guildId, actor);
+    const dice = session.format === "ffa3" || session.format === "ffa4";
+    const rps = options.openingRps && session.format === "1v1" && (session.gameNumber ?? 1) === 1;
+    if (!dice && !rps) return startGame(slug, guildId, actor);
     service.startOpening(slug, guildId, actor ?? session.organizerPlayerId, now());
     await driveOpening(slug, guildId);
     return games.get(slug)?.game ?? null;

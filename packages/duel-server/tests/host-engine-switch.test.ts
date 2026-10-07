@@ -6,7 +6,8 @@ import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
 import { seatCountFor, type DuelAnswer, type DuelCardInfo, type DuelDeck, type DuelEngineView, type DuelFormat, type DuelMasterRule, type DuelMode } from "@yugidraft/shared/duels";
 import { createDuelService } from "@yugidraft/shared/services";
-import { createDuelHost, type DuelHost } from "../src/host.js";
+import type { DuelHost } from "../src/host.js";
+import { createTestDuelHost as createDuelHost, finishTestDiceOpening } from "./support/test-opening.js";
 import { buildPracticeBotDeck } from "../src/practice-bot.js";
 import type { DuelGameWorker, GameOptions } from "../src/worker-client.js";
 import { engineDataDirectory as DATA } from "./engine-data-dir.js";
@@ -51,7 +52,7 @@ afterEach(async () => {
   }
 });
 
-async function post(host: DuelHost, body: Record<string, unknown>) {
+async function post(host: DuelHost, body: Record<string, unknown>): Promise<{ status: number; data: Record<string, any> }> {
   const raw = JSON.stringify(body);
   const signature = "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex");
   const response = await host.handle(new Request("http://localhost/internal/duel", {
@@ -59,7 +60,8 @@ async function post(host: DuelHost, body: Record<string, unknown>) {
     headers: { "content-type": "application/json", "x-announce-signature": signature },
     body: raw,
   }));
-  return { status: response.status, data: (await response.json()) as Record<string, any> };
+  return finishTestDiceOpening(host, body, { status: response.status, data: (await response.json()) as Record<string, any> },
+    (next) => post(host, next));
 }
 
 function rotated(deck: DuelDeck, by: number): DuelDeck {

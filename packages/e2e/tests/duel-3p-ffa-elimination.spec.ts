@@ -1,3 +1,4 @@
+import { installOrderedDiceOpening } from "../helpers/dice-opening";
 import { test, expect } from "../helpers/fixtures";
 import { handCard, pickLegalZone, useCard } from "../helpers/board";
 import { createTable, enterDuelRoom, importDeckUploadAndReady, uniqueTableName } from "../helpers/duel";
@@ -369,6 +370,7 @@ test.describe("FFA3 elimination, Domain and UI rule gaps", () => {
       await expect.poll(async () => (await readTable(page, slug)).session.seats.length).toBe(count);
     }
     await expect(page.getByRole("button", { name: /^Start duel/ })).toBeEnabled();
+    await installOrderedDiceOpening(page, slug);
     await page.getByRole("button", { name: /^Start duel/ }).click();
     await enterDuelRoom(page);
     await expectDomainCore(page, slug, info);
