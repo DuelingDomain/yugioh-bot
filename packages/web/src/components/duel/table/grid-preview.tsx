@@ -6,60 +6,39 @@ import type { DuelCard, DuelCardInfo } from "@yugidraft/shared/duels";
 import { cardTextStyle, useCardTextSize } from "../card-text-size";
 import { cardArtUrl, cardDetailsText, cardStatsText, isDefenseAt, isHiddenCard } from "../constants";
 import styles from "./grid-hud.module.css";
+import { ROW_PX, coveredArea, hoverPlaces, measureObstacles, obstaclesKey, pinnedPlaces, type Box, type Place } from "./peek-layout";
 
 /** The preview lingers this long after the pointer leaves, so a move between two cards does not flicker. */
 export const PREVIEW_HIDE_MS = 220;
 /** The art is dropped when a long text squeezes it under this height. */
 const MIN_ART_PX = 90;
-/**
- * The places of the pinned panel, in the order tried: the left edge before the right one, the normal art before a small one, and
- * the normal width before a wider one (a long text gets the room by a smaller art or a wider panel, so it does not scroll), then
- * the narrower ones (they only serve to keep clear of the clicked card). Last of all comes a panel with no art: the art gives way
- * before the text scrolls, as in the hover panel.
- */
-type Place = { side: "left" | "right"; width: number; art: "normal" | "small" | "none" };
-const SIDES = ["left", "right"] as const;
-/** The widths of the wide places: the standard ones up to `cap`, then `cap` itself (the panel stays under 60% of the layer, so it never hides the board). */
-const wideWidths = (cap: number) => [...[700, 820, 940].filter((width) => width < cap), Math.max(700, cap)];
-const widePlaces = (cap: number): Place[] => wideWidths(cap).flatMap((width) => (["normal", "small"] as const).flatMap((art) => SIDES.map((side) => ({ side, width, art }))));
-const NARROW_PLACES: ReadonlyArray<Place> = [600, 520, 430].flatMap((width) => SIDES.map((side) => ({ side, width, art: "small" as const })));
-const noArtPlaces = (cap: number): Place[] => [...new Set([Math.max(700, cap), 700, 520])].flatMap((width) => SIDES.map((side) => ({ side, width, art: "none" as const })));
-const FIRST_PLACE: Place = { side: "left", width: 700, art: "normal" };
 /** The widest the panel gets, as a share of the layer: the board stays readable (but never under the standard width). */
 const MAX_WIDTH_SHARE = 0.6;
-/** The room kept between the panel and the controls at the bottom right. */
-const CONTROLS_GAP_PX = 10;
-/** How often a pinned panel looks at the clicked card and the controls: a camera move or a prompt can change them with no event. */
-const WATCH_MS = 250;
-/** Whether a control can be seen and clicked: not collapsed, not invisible. */
-function isShown(node: HTMLElement, rect: DOMRect): boolean {
-  if (rect.width <= 0 || rect.height <= 0) return false;
-  const style = getComputedStyle(node);
-  return style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity) > 0;
-}
-/** The top of the bottom right controls (the turn buttons, with the prompt panel that opens above them), or `null`.
- * Only the direct children count, and only those that show: a hidden item still takes room in the column but is no control. */
-function controlsTop(): number | null {
-  const corner = document.querySelector<HTMLElement>('[data-testid="hud-corner"]');
-  if (!corner) return null;
-  let top: number | null = null;
-  for (const child of Array.from(corner.children) as HTMLElement[]) {
-    const rect = child.getBoundingClientRect();
-    if (!isShown(child, rect)) continue;
-    if (top == null || rect.top < top) top = rect.top;
-  }
-  return top;
-}
-/** The gap kept between the panel and the clicked card, and the offsets of the panel from the layer edges (grid-hud.module.css). */
-const CLEAR_GAP_PX = 12;
-const EDGE_LEFT_PX = 72;
-const EDGE_RIGHT_PX = 16;
+/** How often an open panel looks at the clicked card, the board and the parts it stays clear of: a camera move or a prompt can change them with no event. */
+const WATCH_MS = 150;
 /** Under this width the panel counts as narrow (the compact layout of the earlier fixes). */
 const COMPACT_PX = 560;
-const place = (aside: HTMLElement, spot: Place) => {
+/** A hover panel placed narrower than this has its width set (its CSS gives 270 to 284 px). */
+const HOVER_MIN_FULL_PX = 270;
+const FIRST_PLACE: Place = { side: "left", width: 700, art: "normal", top: 0, maxH: 0 };
+const place = (aside: HTMLElement, spot: Place, pinned: boolean, layerTop: number | null) => {
+  // `layerTop` is null when the layer cannot be measured (no layout): the CSS places the panel then.
+  if (layerTop != null && spot.maxH > 0) {
+    aside.style.setProperty("--pv-top", `${Math.round(spot.top - layerTop)}px`);
+    aside.style.setProperty("--pv-max-h", `${Math.round(spot.maxH)}px`);
+  } else {
+    aside.style.removeProperty("--pv-top");
+    aside.style.removeProperty("--pv-max-h");
+  }
   aside.setAttribute("data-side", spot.side);
+  if (!pinned) {
+    // The hover panel keeps its own width, unless the room beside the board is less than that.
+    if (spot.width < HOVER_MIN_FULL_PX) aside.style.setProperty("--pv-w", `${spot.width}px`); else aside.style.removeProperty("--pv-w");
+    return;
+  }
   aside.style.setProperty("--pin-w", `${spot.width}px`);
   if (spot.width < COMPACT_PX) aside.setAttribute("data-narrow", "true"); else aside.removeAttribute("data-narrow");
+  if (spot.width < ROW_PX) aside.setAttribute("data-stack", "true"); else aside.removeAttribute("data-stack");
   if (spot.art !== "normal") aside.setAttribute("data-art", spot.art); else aside.removeAttribute("data-art");
 };
 
@@ -73,8 +52,10 @@ const place = (aside: HTMLElement, spot: Place) => {
  * A click on a board card pins the panel (`pinned`): it stays when the pointer leaves, until `onClose` (the X button, Esc,
  * a press outside, or a click on another card, which pins that one). The pinned panel is wide: the art stands beside the
  * text, so the whole effect text shows without a scroll. Its body lets the pointer through to the board (only the X button and a
- * scrolling text take it). It stays on the left unless that would touch the clicked card: then it moves to the right, or gets
- * narrower (the widest place that clears the card), so the card stays in view and clickable.
+ * scrolling text take it). Both panels stand in the free side area beside the board (peek-layout.ts measures it): below the chain tower and
+ * above the Deck Master plate, clear of the dock, the chain panel and the controls. The pinned one stays on the left unless that would touch
+ * the clicked card or the board: then it moves to the right, or gets narrower (a tall panel with the art on top of the text), so the card
+ * stays in view and clickable. When no place is free (a narrow screen), the place that covers least wins, and the text scrolls last.
  */
 export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, extras = [], avoid = null, onClose }: {
   /** A board card, or the card of a prompt row (`DuelCardInfo`: no position, no owner). */
@@ -134,70 +115,70 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
     return () => observer.disconnect();
   }, [current, textSize, artKey]);
   const wide = showable ? pinned : shownPinned;
-  // Where the pinned panel stands: the first of left, right, then both again narrower, that keeps clear of the clicked card.
+  // Where the panel stands. Pinned: the first of left, right, wide and narrow places that keeps clear of the clicked card, the board, the chain
+  // tower, the Deck Master plates, the dock and the controls. Hover: the left edge, in the first free band (below the chain tower).
   const [spot, setSpot] = useState<Place>(FIRST_PLACE);
   const [resizeTick, setResizeTick] = useState(0);
-  // What the placement saw last: the clicked card and the controls. A change (a camera move, a prompt that opens) places the panel again.
+  // What the placement saw last: the clicked card, the board and the parts kept clear. A change (a camera move, a chain that opens, a prompt)
+  // places the panel again.
   const watched = useRef("");
   const watch = useCallback(() => {
     const card = avoid?.isConnected ? avoid.getBoundingClientRect() : null;
-    const controls = controlsTop();
-    return `${card ? [card.left, card.top, card.width, card.height].map(Math.round).join(",") : ""}|${controls == null ? "" : Math.round(controls)}`;
+    return `${card ? [card.left, card.top, card.width, card.height].map(Math.round).join(",") : ""}|${obstaclesKey(measureObstacles(asideRef.current, avoid))}`;
   }, [avoid]);
+  const placing = open && current != null;
   useEffect(() => {
-    if (!wide) return;
+    if (!placing) return;
     const again = () => setResizeTick((tick) => tick + 1);
     const timer = window.setInterval(() => { if (watch() !== watched.current) again(); }, WATCH_MS);
     window.addEventListener("resize", again);
     return () => { window.clearInterval(timer); window.removeEventListener("resize", again); };
-  }, [wide, watch]);
+  }, [placing, watch]);
   useLayoutEffect(() => {
     const aside = asideRef.current;
-    if (!aside || !wide) return;
-    const target = avoid?.isConnected ? avoid.getBoundingClientRect() : null;
+    if (!aside || !placing) return;
+    const target = wide && avoid?.isConnected ? avoid.getBoundingClientRect() : null;
     const hasTarget = target != null && target.width > 0 && target.height > 0;
     const parent = (aside.offsetParent ?? document.body).getBoundingClientRect();
+    const layer: Box = { left: parent.left, top: parent.top, right: parent.right, bottom: parent.bottom };
+    const measured = parent.height > 0;
+    const obstacles = measureObstacles(aside, wide ? avoid : null);
     const text = textRef.current;
     const cap = Math.round(parent.width * MAX_WIDTH_SHARE);
-    // The bottom right controls are the floor of a panel on the right: it grows down to just above them.
-    const controls = controlsTop();
-    if (controls != null) aside.style.setProperty("--pv-reserve-right", `${Math.max(0, Math.round(parent.bottom - controls + CONTROLS_GAP_PX))}px`);
-    else aside.style.removeProperty("--pv-reserve-right");
-    // The widest panel that still stands clear of the card on each side, tried right after the standard widths.
-    const clear = hasTarget
-      ? (["left", "right"] as const).flatMap((side) => {
-          const width = Math.floor(side === "left" ? target.left - CLEAR_GAP_PX - (parent.left + EDGE_LEFT_PX) : parent.right - EDGE_RIGHT_PX - (target.right + CLEAR_GAP_PX));
-          return width >= 430 && width < Math.max(700, cap) ? (["normal", "small", "none"] as const).map((art) => ({ side, width, art })) : [];
-        })
-      : [];
-    const candidates = [
-      ...widePlaces(cap),
-      ...clear.filter((candidate) => candidate.art !== "none"),
-      ...NARROW_PLACES,
-      ...noArtPlaces(cap),
-      ...clear.filter((candidate) => candidate.art === "none"),
-    ];
-    let chosen = candidates[0];
-    let best = Infinity;
-    for (const candidate of candidates) {
-      place(aside, candidate);
-      let overlap = 0;
-      if (hasTarget) {
-        const left = parent.left + aside.offsetLeft;
-        const top = parent.top + aside.offsetTop;
-        overlap = Math.max(0, Math.min(left + aside.offsetWidth, target.right) - Math.max(left, target.left))
-          * Math.max(0, Math.min(top + aside.offsetHeight, target.bottom) - Math.max(top, target.top));
-      }
-      const hidden = text ? Math.max(0, text.scrollHeight - text.clientHeight - 1) : 0;
-      // A place that covers the card always ranks after one that does not; then the one that cuts the least text wins.
-      const rank = overlap > 0 ? 1e9 + overlap : hidden;
-      if (rank < best) { best = rank; chosen = candidate; }
-      if (rank === 0) break;
+    const candidates: Place[] = wide
+      ? pinnedPlaces(layer, obstacles, hasTarget ? target : null, cap)
+      : hoverPlaces(layer, obstacles);
+    if (candidates.length === 0) {
+      // Nothing to measure (no layout yet): the CSS places the panel.
+      place(aside, FIRST_PLACE, wide, null);
+      watched.current = watch();
+      setSpot((previous) => (previous === FIRST_PLACE ? previous : FIRST_PLACE));
+      return;
     }
-    place(aside, chosen);
+    let chosen = candidates[0];
+    let best: [number, number, number] | null = null;
+    for (const candidate of candidates) {
+      place(aside, candidate, wide, measured ? parent.top : null);
+      const rect: Box = {
+        left: parent.left + aside.offsetLeft,
+        top: parent.top + aside.offsetTop,
+        right: parent.left + aside.offsetLeft + aside.offsetWidth,
+        bottom: parent.top + aside.offsetTop + aside.offsetHeight,
+      };
+      // 1. The clicked card and the parts kept clear (the card first), 2. the board, 3. the effect text that is cut off.
+      const hard = (hasTarget ? coveredArea(rect, [{ left: target.left, top: target.top, right: target.right, bottom: target.bottom }]) * 1e3 : 0) + coveredArea(rect, obstacles.keep);
+      const board = coveredArea(rect, obstacles.board);
+      const hidden = text ? Math.max(0, text.scrollHeight - text.clientHeight - 1) : 0;
+      if (best == null || hard < best[0] || (hard === best[0] && (board < best[1] || (board === best[1] && hidden < best[2])))) {
+        best = [hard, board, hidden];
+        chosen = candidate;
+      }
+      if (hard === 0 && board === 0 && hidden === 0) break;
+    }
+    place(aside, chosen, wide, measured ? parent.top : null);
     watched.current = watch();
-    setSpot((previous) => (previous.side === chosen.side && previous.width === chosen.width && previous.art === chosen.art ? previous : chosen));
-  }, [wide, avoid, current, textSize, resizeTick, watch]);
+    setSpot((previous) => (previous.side === chosen.side && previous.width === chosen.width && previous.art === chosen.art && previous.top === chosen.top && previous.maxH === chosen.maxH ? previous : chosen));
+  }, [placing, wide, avoid, current, textSize, resizeTick, watch]);
   if (!current) return null;
 
   const stats = cardStatsText(current);
@@ -212,8 +193,9 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
       data-motion={reducedMotion ? "none" : "slide"}
       aria-hidden={open ? undefined : "true"}
       data-pinned={wide ? "true" : undefined}
-      data-side={wide ? spot.side : undefined}
+      data-side={spot.side}
       data-narrow={wide && spot.width < COMPACT_PX ? "true" : undefined}
+      data-stack={wide && spot.width < ROW_PX ? "true" : undefined}
       data-art={wide && spot.art !== "normal" ? spot.art : undefined}
       data-hud-keep={wide ? "" : undefined}
       aria-label={wide ? "Pinned card" : undefined}
