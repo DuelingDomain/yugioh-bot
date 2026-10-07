@@ -59,10 +59,14 @@ export function useSignInFlow(opts: { returnTo: string; marketingUrl: string | n
     for (const error of [...errors.raw ?? [], ...errors.global ?? []]) { fail(error, context); found = true; }
     return found;
   };
-  const call = async (request: () => Promise<{ error: unknown }>, context: Parameters<typeof mapClerkError>[1]) => {
-    const { error } = await request();
+  const call = async (request: () => Promise<{ error: unknown }>, context: Parameters<typeof mapClerkError>[1], progressed = () => true) => {
+    const result = await request();
+    const error = result?.error;
     if (error) { fail(error, context); return false; }
-    return mounted.current && !signalError(context);
+    if (!mounted.current || signalError(context)) return false;
+    // Clerk can swallow an offline fetch and return { result: undefined, error: null }.
+    if (!result || !("error" in result) || !progressed()) { fail({ code: "network_error" }, context); return false; }
+    return true;
   };
   const run = async (context: Parameters<typeof mapClerkError>[1], work: () => Promise<void>) => {
     if (busy.current || state.pending || latest.current.fetchStatus === "fetching" || !latest.current.signIn || state.step === "success") return;
@@ -100,7 +104,7 @@ export function useSignInFlow(opts: { returnTo: string; marketingUrl: string | n
         if (state.step !== "signin") return;
         await run("identifier", async () => {
           dispatch({ type: "identified", identifier });
-          if (await call(() => latest.current.signIn!.create({ identifier }), "identifier")) await advance();
+          if (await call(() => latest.current.signIn!.create({ identifier }), "identifier", () => latest.current.signIn!.status !== "needs_identifier")) await advance();
         });
       },
       continueWithDiscord: async () => {
@@ -112,7 +116,7 @@ export function useSignInFlow(opts: { returnTo: string; marketingUrl: string | n
       },
       submitPassword: async (password) => {
         if (state.step !== "password") return;
-        await run("password", async () => { if (await call(() => latest.current.signIn!.password({ password }), "password")) await advance(); });
+        await run("password", async () => { if (await call(() => latest.current.signIn!.password({ password }), "password", () => latest.current.signIn!.status !== "needs_first_factor")) await advance(); });
       },
       forgotPassword: async () => {
         if (state.step !== "password") return;
@@ -125,7 +129,7 @@ export function useSignInFlow(opts: { returnTo: string; marketingUrl: string | n
         await run("code", async () => {
           const signIn = latest.current.signIn!;
           const verify = state.codePurpose === "reset" ? () => signIn.resetPasswordEmailCode.verifyCode({ code }) : () => signIn.mfa.verifyEmailCode({ code });
-          if (await call(verify, "code")) await advance();
+          if (await call(verify, "code", () => ["complete", "needs_new_password"].includes(latest.current.signIn!.status))) await advance();
         });
       },
       resendCode: async () => {
@@ -136,7 +140,7 @@ export function useSignInFlow(opts: { returnTo: string; marketingUrl: string | n
         if (state.step !== "newpw") return;
         await run("newpw", async () => {
           if (password !== confirm) { dispatch({ type: "error", view: { kind: "field", field: "confirm", message: "Passwords don't match." } }); return; }
-          if (await call(() => latest.current.signIn!.resetPasswordEmailCode.submitPassword({ password }), "newpw")) await advance();
+          if (await call(() => latest.current.signIn!.resetPasswordEmailCode.submitPassword({ password }), "newpw", () => latest.current.signIn!.status !== "needs_new_password")) await advance();
         });
       },
       back: () => {

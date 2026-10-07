@@ -25,7 +25,7 @@ interface SignInBannerProps {
 
 export function SignInBanner({ tone, children, code }: SignInBannerProps) {
   return (
-    <div className={styles.banner} data-tone={tone} role={tone === "bad" ? "alert" : "status"}>
+    <div className={styles.banner} data-tone={tone} data-code={code} role={tone === "bad" ? "alert" : "status"}>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
         {tone === "info" ? <>
           <circle cx="12" cy="12" r="9.5" />
@@ -35,7 +35,7 @@ export function SignInBanner({ tone, children, code }: SignInBannerProps) {
           <path d="M12 10v4.5M12 17.4v.1" />
         </>}
       </svg>
-      <span>{children}{code && <span className={styles.code}>Error: {code}</span>}</span>
+      <span>{children}</span>
     </div>
   );
 }

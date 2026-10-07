@@ -23,6 +23,62 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 describe("invited sign-up flow", () => {
+  it.each(["ticket_invalid_code", "ticket_expired", "ticket_expired_code", "sign_up_restricted_waitlist", "form_identifier_not_found"])("rejects the ticket for %s", async (code) => {
+    mock.signal.signUp.ticket.mockResolvedValue({ error: { cause: { errors: [{ code }] } } });
+    const { result } = await mount();
+    expect(result.current.state).toMatchObject({ step: "err-signup", banner: null });
+  });
+  it.each(["service_unavailable", "network_error", "fetch_timeout"])("shows service trouble rather than rejecting the invitation for %s", async (code) => {
+    mock.signal.signUp.ticket.mockResolvedValue({ error: { cause: { errors: [{ code }] } } });
+    const { result } = await mount();
+    expect(result.current.state).toMatchObject({ step: "invite", pending: false, banner: { tone: "bad", code } });
+    expect(result.current.state.lockedEmail).toBeNull();
+  });
+  it.each(["ticket_invalid_code", "form_identifier_not_found", "network_error"])("maps ticket signal errors for %s", async (code) => {
+    mock.signal.signUp.ticket.mockImplementation(async () => {
+      mock.signal.errors = { fields: {}, raw: [], global: [{ code }] };
+      return { result: undefined, error: null };
+    });
+    const { result } = await mount();
+    if (code === "network_error") expect(result.current.state).toMatchObject({ step: "invite", banner: { tone: "bad", code } });
+    else expect(result.current.state).toMatchObject({ step: "err-signup", banner: null });
+  });
+  it("keeps banned ticket errors on the unavailable step", async () => {
+    mock.signal.signUp.ticket.mockResolvedValue({ error: { errors: [{ code: "user_banned" }] } });
+    const { result } = await mount();
+    expect(result.current.state.step).toBe("err-banned");
+  });
+  it.each([undefined, {}, { result: undefined, error: null }])("shows service trouble when the ticket makes no progress (%j)", async (response) => {
+    mock.signal.signUp.emailAddress = null;
+    mock.signal.signUp.ticket.mockResolvedValue(response);
+    const { result } = await mount();
+    expect(result.current.state).toMatchObject({ step: "invite", pending: false, banner: { tone: "bad", code: "network_error" } });
+  });
+  it.each(["result", "global"])("shows service trouble for Clerk's ticket network Error in %s", async (source) => {
+    const network = Object.assign(new Error('Clerk: Network error at "https://example.clerk.accounts.dev/v1/client/sign_ups" - TypeError: Failed to fetch. Please try again.'), { isClerkAPIResponseError: () => false, isClerkRuntimeError: () => false });
+    mock.signal.signUp.ticket.mockImplementation(async () => {
+      if (source === "result") return { error: network };
+      mock.signal.errors = { fields: { firstName: null, lastName: null, emailAddress: null, phoneNumber: null, password: null, username: null, code: null, captcha: null, legalAccepted: null }, raw: [network], global: [network] };
+      return { result: undefined, error: null };
+    });
+    const { result } = await mount();
+    expect(result.current.state).toMatchObject({ step: "invite", pending: false, banner: { tone: "bad" } });
+  });
+  it("shows service trouble when a sign-up password makes no progress", async () => {
+    const { result } = await mount();
+    mock.signal.signUp.password.mockResolvedValue({ result: undefined, error: null });
+    await act(() => result.current.actions.submitAccount(account));
+    expect(result.current.state).toMatchObject({ step: "invite", pending: false, banner: { tone: "bad", code: "network_error" } });
+  });
+  it("shows service trouble when sign-up code verification makes no progress", async () => {
+    mock.signal.signUp.password.mockImplementation(async () => {
+      mock.signal.signUp.missingFields = []; mock.signal.signUp.unverifiedFields = ["email_address"]; return { error: null };
+    });
+    const { result } = await mount();
+    await act(() => result.current.actions.submitAccount(account));
+    await act(() => result.current.actions.submitCode("123456"));
+    expect(result.current.state).toMatchObject({ step: "code", pending: false, banner: { tone: "bad", code: "network_error" }, resendAvailableAt: 31000 });
+  });
   it("consumes the ticket once and locks the Clerk email", async () => {
     const { result } = await mount();
     expect(mock.signal.signUp.ticket).toHaveBeenCalledExactlyOnceWith({ ticket: "invitation" });
@@ -41,7 +97,7 @@ describe("invited sign-up flow", () => {
     expect(mock.signal.signUp.update).not.toHaveBeenCalled();
   });
   it("rejects a failed ticket and never requests a password", async () => {
-    mock.signal.signUp.ticket.mockResolvedValue({ error: { errors: [{ code: "ticket_invalid" }] } });
+    mock.signal.signUp.ticket.mockResolvedValue({ error: { errors: [{ code: "ticket_invalid_code" }] } });
     const { result } = await mount();
     expect(result.current.state.step).toBe("err-signup");
     await act(() => result.current.actions.submitAccount(account));

@@ -27,6 +27,51 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 describe("sign-in flow", () => {
+  it.each([undefined, {}, { result: undefined, error: null }])("shows service trouble when identifying makes no progress (%j)", async (response) => {
+    mock.signal.signIn.create.mockResolvedValue(response);
+    const { result } = setup();
+    await act(() => result.current.actions.submitIdentifier("a@test.dev"));
+    expect(result.current.state).toMatchObject({ step: "signin", identifier: "a@test.dev", pending: false, banner: { tone: "bad", code: "network_error" } });
+  });
+  it("shows service trouble when Clerk swallows an offline password failure", async () => {
+    const { result } = setup();
+    await act(() => result.current.actions.submitIdentifier("a@test.dev"));
+    mock.signal.signIn.password.mockResolvedValue({ result: undefined, error: null });
+    await act(() => result.current.actions.submitPassword("secret"));
+    expect(result.current.state).toMatchObject({ step: "password", pending: false, banner: { tone: "bad", code: "network_error" } });
+  });
+  it.each(["client-trust", "reset"])("shows service trouble when %s code verification makes no progress", async (purpose) => {
+    const { result } = setup();
+    await act(() => result.current.actions.submitIdentifier("a@test.dev"));
+    if (purpose === "reset") await act(() => result.current.actions.forgotPassword());
+    else {
+      mock.signal.signIn.password.mockImplementation(async () => { mock.signal.signIn.status = "needs_second_factor"; return { error: null }; });
+      await act(() => result.current.actions.submitPassword("secret"));
+    }
+    await act(() => result.current.actions.submitCode("123456"));
+    expect(result.current.state).toMatchObject({ step: "code", pending: false, banner: { tone: "bad", code: "network_error" }, resendAvailableAt: 31000 });
+  });
+  it("shows service trouble when the new password makes no progress", async () => {
+    const { result } = setup();
+    await act(() => result.current.actions.submitIdentifier("a@test.dev"));
+    await act(() => result.current.actions.forgotPassword());
+    mock.signal.signIn.resetPasswordEmailCode.verifyCode.mockImplementation(async () => { mock.signal.signIn.status = "needs_new_password"; return { error: null }; });
+    await act(() => result.current.actions.submitCode("123456"));
+    await act(() => result.current.actions.submitNewPassword("secret", "secret"));
+    expect(result.current.state).toMatchObject({ step: "newpw", pending: false, banner: { tone: "bad", code: "network_error" } });
+  });
+  it.each(["result", "global"])("shows service trouble for Clerk's network Error in %s", async (source) => {
+    const network = Object.assign(new Error('Clerk: Network error at "https://example.clerk.accounts.dev/v1/client/sign_ins" - TypeError: Failed to fetch. Please try again.'), { isClerkAPIResponseError: () => false, isClerkRuntimeError: () => false });
+    const { result, rerender } = setup();
+    if (source === "result") {
+      mock.signal.signIn.create.mockResolvedValue({ error: network });
+      await act(() => result.current.actions.submitIdentifier("a@test.dev"));
+    } else {
+      mock.signal.errors = { fields: { identifier: null, password: null, code: null }, raw: [network], global: [network] };
+      rerender();
+    }
+    expect(result.current.state).toMatchObject({ step: "signin", pending: false, banner: { tone: "bad", body: "Sign-in is having trouble. Try again in a moment." } });
+  });
   it("identifies the email then requests the password", async () => {
     const { result } = setup();
     await act(() => result.current.actions.submitIdentifier("a@test.dev"));

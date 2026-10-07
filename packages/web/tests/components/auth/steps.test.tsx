@@ -134,6 +134,29 @@ describe("CodeStep", () => {
     expect(onSubmit).toHaveBeenCalledExactlyOnceWith("482913");
   });
 
+  it.each(["signup", "client-trust", "reset"] as const)("clears every digit and focuses the first cell after a successful %s resend", async (purpose) => {
+    const props = { ...base, purpose, resendAvailableAt: Date.now() - 1000 };
+    const { container, rerender } = render(<CodeStep {...props} />);
+    await userEvent.type(screen.getByLabelText("6-digit code"), "123456");
+    await userEvent.click(screen.getByRole("button", { name: "Resend code" }));
+    rerender(<CodeStep {...props} pending />);
+    expect(screen.getByLabelText("6-digit code")).toHaveValue("123456");
+    rerender(<CodeStep {...props} resendAvailableAt={Date.now() + 30000} />);
+    expect(screen.getByLabelText("6-digit code")).toHaveValue("");
+    expect(screen.getByLabelText("6-digit code")).toHaveFocus();
+    const cells = Array.from(container.querySelectorAll("[class*=cell]"));
+    expect(cells.map(cell => cell.textContent)).toEqual(["", "", "", "", "", ""]);
+    expect(cells[0].className).toMatch(/on/);
+  });
+  it("keeps code digits when a resend fails", async () => {
+    const props = { ...base, resendAvailableAt: Date.now() - 1000 };
+    const { rerender } = render(<CodeStep {...props} />);
+    await userEvent.type(screen.getByLabelText("6-digit code"), "123456");
+    await userEvent.click(screen.getByRole("button", { name: "Resend code" }));
+    rerender(<CodeStep {...props} pending />);
+    rerender(<CodeStep {...props} banner={{ tone: "bad", body: "Sign-in is having trouble." }} />);
+    expect(screen.getByLabelText("6-digit code")).toHaveValue("123456");
+  });
   it("counts down to a resend link", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-10-06T12:00:00Z"));
@@ -217,13 +240,14 @@ describe("CreateAccountStep", () => {
     const onSubmit = vi.fn();
     const onDiscord = vi.fn();
     render(<CreateAccountStep {...base} onSubmit={onSubmit} onDiscord={onDiscord} />);
-    await userEvent.type(screen.getByLabelText("Username"), " cardshark ");
+    expect(screen.getByLabelText("Username")).toHaveAccessibleDescription("Other players see this. Letters, numbers, underscores and hyphens.");
+    await userEvent.type(screen.getByLabelText("Username"), " card-shark ");
     await userEvent.type(screen.getByLabelText("Create password"), "correct-horse");
     await userEvent.click(screen.getByRole("button", { name: "Continue with Discord" }));
-    expect(onDiscord).toHaveBeenCalledExactlyOnceWith({ username: "cardshark", legalAccepted: false });
+    expect(onDiscord).toHaveBeenCalledExactlyOnceWith({ username: "card-shark", legalAccepted: false });
     await userEvent.click(screen.getByRole("checkbox"));
     await userEvent.click(screen.getByRole("button", { name: "Create account" }));
-    expect(onSubmit).toHaveBeenCalledExactlyOnceWith({ username: "cardshark", password: "correct-horse", legalAccepted: true });
+    expect(onSubmit).toHaveBeenCalledExactlyOnceWith({ username: "card-shark", password: "correct-horse", legalAccepted: true });
   });
 
   it("marks each errored field invalid and wires its alert", () => {
@@ -331,7 +355,8 @@ describe("banners and the locked-email code step", () => {
     const { rerender } = render(<PasswordStep identifier="a@b.co" banner={banner} pending={false} onSubmit={noop} onForgot={noop} onBack={noop} />);
     expect(screen.getByRole("alert")).toHaveTextContent("Sign-in is having trouble.");
     rerender(<CodeStep purpose="reset" identifier="a@b.co" banner={banner} pending={false} resendAvailableAt={null} onSubmit={noop} onResend={noop} onBack={noop} />);
-    expect(screen.getByRole("alert")).toHaveTextContent("Error: network");
+    expect(screen.getByRole("alert")).toHaveAttribute("data-code", "network");
+    expect(screen.getByRole("alert").textContent).toBe(banner.body);
     rerender(<NewPasswordStep errors={{}} banner={banner} pending={false} onSubmit={noop} />);
     expect(screen.getByRole("alert")).toHaveTextContent("Sign-in is having trouble.");
   });

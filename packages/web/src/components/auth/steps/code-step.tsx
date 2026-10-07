@@ -50,6 +50,7 @@ export function CodeStep({ purpose, identifier, error, banner, pending, resendAv
         {banner && <SignInBanner tone={banner.tone} code={banner.code}>{banner.body}</SignInBanner>}
         <div className={styles["otp-group"]}>
           <OtpInput
+            key={resendAvailableAt}
             id="f-code"
             name="code"
             describedBy={error ? "f-code-err code-help" : "code-help"}

@@ -41,7 +41,8 @@ describe("SignInBanner", () => {
     const banner = screen.getByRole("alert");
     expect(banner).toHaveAttribute("data-tone", "bad");
     expect(banner).toHaveTextContent("Try later. Service unavailable.");
-    expect(banner).toHaveTextContent("Error: SERVICE");
+    expect(banner).toHaveAttribute("data-code", "SERVICE");
+    expect(banner.textContent).toBe("Try later. Service unavailable.");
   });
 
   it("announces info politely and omits the code when absent", () => {
