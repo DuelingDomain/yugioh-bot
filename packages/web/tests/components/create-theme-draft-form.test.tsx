@@ -63,14 +63,14 @@ describe("CreateThemeDraftForm", () => {
   });
 
   it("refuses a seat count outside 2 to 8 and sends nothing", async () => {
-    const fetchMock = vi.fn(async () => Response.json({ channels: [] }));
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => Response.json({ channels: [] }));
     vi.stubGlobal("fetch", fetchMock);
     render(<CreateThemeDraftForm />);
     fireEvent.change(screen.getByLabelText(/draft name/i), { target: { value: "Theme Night" } });
     fireEvent.change(screen.getByLabelText(/seats at the table/i), { target: { value: "12" } });
     fireEvent.submit(screen.getByLabelText(/draft name/i).closest("form")!);
     expect(await screen.findByRole("alert")).toHaveTextContent(/seats must be a number from 2 to 8/i);
-    expect(fetchMock.mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === "POST")).toBe(false);
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
   });
 
   it("keeps the advanced rules in a collapsible and shows Extra as an up-to number", () => {

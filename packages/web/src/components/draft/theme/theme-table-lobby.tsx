@@ -3,7 +3,7 @@
 import * as React from "react";
 import type { DraftAllowedCube, DraftLobbyResponse, LobbySnapshot } from "@yugidraft/shared/types";
 import { InviteModal } from "../lobby/invite-modal";
-import { LobbyFeedback, useLobbyController } from "../lobby/lobby-actions";
+import { useLobbyController } from "../lobby/lobby-actions";
 import {
   fallbackLobby,
   newerLobby,
@@ -50,7 +50,7 @@ export interface ThemeTableLobbyProps {
 /**
  * The Theme Table: where each player picks, or sees, the theme pool they will draft from. It is only the lobby step.
  * After Start the normal theme draft runs, each player alone from their own pool. The component renders the body only;
- * the page puts it in its frame and keeps the active DraftRoom out of it.
+ * the page puts it in its frame.
  */
 export function ThemeTableLobby({ slug, draft, isCreator, isParticipant, onJoin, onAddBot, botsEnabled, discordEnabled = false, onChanged }: ThemeTableLobbyProps) {
   const youIds = React.useMemo(
@@ -101,7 +101,6 @@ export function ThemeTableLobby({ slug, draft, isCreator, isParticipant, onJoin,
 
   return (
     <div className={styles.page} data-seats={slots.length}>
-      <LobbyFeedback controller={controller} className={styles.feedback} />
       <div className={styles.layout}>
         <div className={styles.tableCol}>
           <ThemeOval
