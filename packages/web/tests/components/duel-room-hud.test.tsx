@@ -36,6 +36,7 @@ vi.mock("@/components/duel/field", async (importOriginal) => {
     DuelField: (props: {
       onHoverCard?: (card: DuelCard | null, anchor: HTMLElement | null) => void;
       onActivate: (keys: string[], card: DuelCard | null, anchor: HTMLElement) => void;
+      onInspect: (target: { type: "pile"; title: string; cards: DuelCard[] }) => void;
       engine: DuelEngineView;
     }) => {
       const card = props.engine.seats[1].monsters.find((slot) => slot != null) ?? null;
@@ -45,7 +46,7 @@ vi.mock("@/components/duel/field", async (importOriginal) => {
             onMouseEnter={(event) => props.onHoverCard?.(card, event.currentTarget)}
             onMouseLeave={() => props.onHoverCard?.(null, null)}>card</button>
           {/* A second card, for the hover that switches the preview. */}
-          <button type="button" data-testid="field-other"
+          <button type="button" data-testid="field-other" data-zones="1:4:3"
             onClick={(event) => {
               const other = props.engine.seats[1].monsters[3];
               if (other) props.onActivate([`${other.controller}:${other.location}:${other.sequence}`], other, event.currentTarget);
@@ -53,8 +54,11 @@ vi.mock("@/components/duel/field", async (importOriginal) => {
             onMouseEnter={(event) => props.onHoverCard?.(props.engine.seats[1].monsters[3], event.currentTarget)}
             onMouseLeave={() => props.onHoverCard?.(null, null)}>other</button>
           {/* The monster is the legal pick of a select prompt. */}
-          <button type="button" data-testid="field-pick"
+          <button type="button" data-testid="field-pick" data-zones="1:4:2"
             onClick={(event) => card && props.onActivate([`${card.controller}:${card.location}:${card.sequence}`], card, event.currentTarget)}>pick</button>
+          {/* A board zone with no click handler (an empty zone of the rival), and a pile. */}
+          <button type="button" data-testid="field-dead" data-zones="1:4:4">dead</button>
+          <button type="button" data-testid="field-pile" onClick={() => props.onInspect({ type: "pile", title: "Graveyard", cards: [] })}>pile</button>
         </div>
       );
     },
@@ -71,18 +75,38 @@ vi.mock("@/components/duel/destroy-fx", () => ({ DestroyFx: () => null }));
 
 import { DuelRoomView } from "@/components/duel/room";
 
-function makeRoom(opts: { domain?: boolean; chain?: boolean; prompt?: DuelPrompt; clock?: DuelClock; spectator?: boolean; second?: boolean } = {}): DuelRoom {
+function makeRoom(opts: {
+  domain?: boolean; chain?: boolean; prompt?: DuelPrompt; clock?: DuelClock; spectator?: boolean; second?: boolean;
+  /** The rival's second monster is face-down. */
+  hiddenSecond?: boolean;
+  /** Battle Ox has a counter and Xyz materials. */
+  extras?: boolean;
+  /** Battle Ox has this ATK. */
+  atk?: number;
+  /** No monster on the board. */
+  empty?: boolean;
+  revision?: number;
+} = {}): DuelRoom {
   let board = newBoard();
-  const edits = [edit.monster(1, 2, CARDS.battleOx)];
+  const edits = opts.empty ? [] : [edit.monster(1, 2, CARDS.battleOx)];
   if (opts.second) edits.push(edit.monster(1, 3, CARDS.beaver));
+  if (opts.hiddenSecond) edits.push(edit.hiddenMonster(1, 3));
   if (opts.domain) {
     edits.push(edit.deckMaster(0, CARDS.darkMagician, { inZone: true, returns: 0, nextCost: 0 }));
     edits.push(edit.deckMaster(1, CARDS.blueEyes, { inZone: true, returns: 1, nextCost: 500 }));
   }
   board = applyEdits(board, edits);
+  const ox = board.seats[1].monsters[2];
+  if (ox && (opts.extras || opts.atk != null)) {
+    board.seats[1].monsters[2] = {
+      ...ox,
+      ...(opts.atk != null ? { attack: opts.atk } : null),
+      ...(opts.extras ? { counters: [{ type: 4, count: 2 }], materials: [{ ...ox, code: 111, name: "Material A" }, { ...ox, code: null, name: undefined }] } : null),
+    } as DuelCard;
+  }
   if (opts.chain) board = { ...board, chain: [link(1, 1, CARDS.bookOfMoon)] } as typeof board;
   const engine = {
-    revision: 2, turn: 1, turnSeat: 0, phase: "main1", seats: board.seats, prioritySeat: null, prompt: opts.prompt ?? null,
+    revision: opts.revision ?? 2, turn: 1, turnSeat: 0, phase: "main1", seats: board.seats, prioritySeat: null, prompt: opts.prompt ?? null,
     chain: board.chain, events: [], log: [], result: null,
   } as unknown as DuelEngineView;
   return {
@@ -319,7 +343,7 @@ describe("the pinned card peek of the 1v1 room", () => {
     expect(peek()).toHaveTextContent("Battle Ox");
     expect(isOpen()).toBe(false);
     expect(screen.queryByRole("tab", { name: "Card", selected: true })).toBeNull();
-    expect(within(peek()).getByRole("button", { name: "Close card preview" })).toBeTruthy();
+    expect(within(peek()).getByRole("button", { name: "Close Battle Ox preview" })).toBeTruthy();
   });
 
   it("stays when the pointer leaves, and a hover on another card does not swap it or add a panel", () => {
@@ -376,19 +400,226 @@ describe("the pinned card peek of the 1v1 room", () => {
     mount({ second: true });
     pin();
     const other = screen.getByTestId("field-other");
-    // The press lands on a board zone; the stub has no zone wrapper, so the press goes through the zone marker only in the real field.
-    const zone = document.createElement("div");
-    zone.setAttribute("data-zones", "1:4:3");
-    zone.appendChild(other.cloneNode());
-    fireEvent.pointerDown(document.body.appendChild(zone).firstChild!);
+    // The press lands on a board zone (the stub carries the zone marker, as the real field does).
+    fireEvent.pointerDown(other);
     act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS * 2); });
     expect(peek().getAttribute("data-open")).toBe("true");
-    zone.remove();
     fireEvent.click(other);
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS * 2); });
     expect(peeks()).toHaveLength(1);
     expect(peek()).toHaveTextContent("Beaver Warrior");
     expect(peek().getAttribute("data-pinned")).toBe("true");
+    expect(peek().getAttribute("data-open")).toBe("true");
     expect(isOpen()).toBe(false);
+  });
+
+  it("a press on a zone with no click handler lets the pin go after its click", () => {
+    vi.useFakeTimers();
+    mount();
+    pin();
+    const dead = screen.getByTestId("field-dead");
+    fireEvent.pointerDown(dead);
+    expect(peek().getAttribute("data-open")).toBe("true");
+    fireEvent.click(dead);
+    // The pin goes in a timer after the click; the panel then hides after its own delay.
+    act(() => { vi.advanceTimersByTime(1); });
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS + 20); });
+    expect(peek().getAttribute("data-open")).toBe("false");
+  });
+
+  it("a click on a face-down card opens the Card flyout and pins nothing", () => {
+    mount({ hiddenSecond: true });
+    fireEvent.click(screen.getByTestId("field-other"));
+    expect(isOpen()).toBe(true);
+    expect(flyout().getAttribute("data-pane")).toBe("card");
+    expect(peeks().filter((node) => node.getAttribute("data-pinned") === "true")).toHaveLength(0);
+  });
+
+  it("a pile lets the pin go, and it does not come back when the pile closes", () => {
+    vi.useFakeTimers();
+    mount();
+    pin();
+    fireEvent.click(screen.getByTestId("field-pile"));
+    fireEvent.keyDown(window, { key: "Escape" });
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS + 20); });
+    expect(peek().getAttribute("data-open")).toBe("false");
+  });
+
+  it("shows the same extra lines as the Card flyout: counters and materials", () => {
+    mount({ extras: true });
+    pin();
+    const lines = within(screen.getByTestId("hover-preview-extras")).getAllByRole("listitem").map((item) => item.textContent);
+    expect(lines).toEqual(["Counter 4: 2", "Materials: Material A, face-down"]);
+  });
+
+  it("shows no extras list for a card with no extra lines", () => {
+    mount();
+    pin();
+    expect(screen.queryByTestId("hover-preview-extras")).toBeNull();
+  });
+
+  it("is a labelled aside, not a dialog, and the X button is named after the card", () => {
+    mount();
+    pin();
+    expect(screen.getByRole("complementary", { name: "Pinned card" })).toBe(peek());
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(within(peek()).getByRole("button", { name: "Close Battle Ox preview" })).toBeTruthy();
+  });
+
+  it("the X button by keyboard returns focus to the card; by mouse it does not (the hover peek would come back)", () => {
+    vi.useFakeTimers();
+    mount();
+    pin();
+    const card = screen.getByTestId("field-pick");
+    fireEvent.click(screen.getByTestId("hover-preview-close"), { detail: 1 });
+    expect(document.activeElement).not.toBe(card);
+    pin();
+    fireEvent.click(screen.getByTestId("hover-preview-close"), { detail: 0 });
+    expect(document.activeElement).toBe(card);
+  });
+
+  it("a press on a prompt button lets the pin go, and the button still works", () => {
+    vi.useFakeTimers();
+    mount({ prompt: chainPrompt });
+    pin();
+    const yes = screen.getByRole("button", { name: "Yes" });
+    fireEvent.pointerDown(yes);
+    fireEvent.click(yes);
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS + 20); });
+    // The panel now shows the card of the first response row (focus), not the pin.
+    expect(peek().getAttribute("data-pinned")).toBeNull();
+    expect(peek()).not.toHaveTextContent("Battle Ox");
+    expect(screen.getAllByRole("button", { name: /^\d\. / })).toHaveLength(2);
+  });
+
+  it("the card of a hovered prompt row shows over the pin, and the pin returns when the pointer leaves the row", () => {
+    mount({ prompt: chainPrompt });
+    pin();
+    fireEvent.click(screen.getByRole("button", { name: "Yes" }));
+    const rows = screen.getAllByRole("button", { name: /^\d\. / });
+    fireEvent.mouseEnter(rows[1]);
+    expect(peeks()).toHaveLength(1);
+    expect(peek()).toHaveTextContent("Blue-Eyes Spirit Dragon");
+    expect(peek().getAttribute("data-pinned")).toBeNull();
+    fireEvent.mouseOut(rows[1], { relatedTarget: document.body });
+    expect(peek()).toHaveTextContent("Battle Ox");
+    expect(peek().getAttribute("data-pinned")).toBe("true");
+  });
+
+  it("a new prompt for this seat lets the pin go: it must not cover the cards that the prompt asks for", () => {
+    vi.useFakeTimers();
+    const view = mount();
+    pin();
+    expect(peek().getAttribute("data-pinned")).toBe("true");
+    swr.data = makeRoom({ prompt: pickPrompt });
+    view.rerender(<DuelRoomView slug="abc" windowed />);
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS + 20); });
+    expect(peek().getAttribute("data-open")).toBe("false");
+  });
+
+  it("takes the fresh copy of the card at each revision, and goes when the card is gone", () => {
+    vi.useFakeTimers();
+    const view = mount();
+    pin();
+    expect(peek()).toHaveTextContent("1700 / 1000");
+    swr.data = makeRoom({ atk: 2400, revision: 3 });
+    view.rerender(<DuelRoomView slug="abc" windowed />);
+    expect(peek()).toHaveTextContent("2400 / 1000");
+    expect(peek().getAttribute("data-pinned")).toBe("true");
+    swr.data = makeRoom({ empty: true, revision: 4 });
+    view.rerender(<DuelRoomView slug="abc" windowed />);
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS + 20); });
+    expect(peek().getAttribute("data-open")).toBe("false");
+  });
+
+  it("goes when the HUD goes (a narrow window), and does not come back when the window is wide again", () => {
+    let narrow = false;
+    const listeners = new Set<() => void>();
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: narrow && query.includes("max-width"), media: query,
+      addEventListener: (_: string, fn: () => void) => listeners.add(fn),
+      removeEventListener: (_: string, fn: () => void) => listeners.delete(fn),
+    }));
+    mount();
+    pin();
+    expect(peek().getAttribute("data-pinned")).toBe("true");
+    act(() => { narrow = true; listeners.forEach((fn) => fn()); });
+    expect(peeks()).toHaveLength(0);
+    act(() => { narrow = false; listeners.forEach((fn) => fn()); });
+    expect(peeks().filter((node) => node.getAttribute("data-pinned") === "true")).toHaveLength(0);
+  });
+
+  describe("placement", () => {
+    type Box = { left: number; right: number; top: number; bottom: number };
+    const spies: Array<{ mockRestore: () => void }> = [];
+    /** jsdom has no layout: the clicked card gets `box`, and the panel gets the size and the place that its CSS gives it at 1280 x 720. */
+    function layout(box: Box) {
+      const rect = (b: Box) => ({ ...b, x: b.left, y: b.top, width: b.right - b.left, height: b.bottom - b.top, toJSON: () => ({}) });
+      const isPanel = (node: HTMLElement) => node.getAttribute("data-testid") === "hover-preview";
+      const widthOf = (node: HTMLElement) => parseInt(node.style.getPropertyValue("--pin-w") || "700", 10);
+      spies.push(
+        vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+          return rect(this.getAttribute("data-testid") === "field-pick" ? box : { left: 0, right: 0, top: 0, bottom: 0 }) as DOMRect;
+        }),
+        vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (this: HTMLElement) { return isPanel(this) ? widthOf(this) : 0; }),
+        vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) { return isPanel(this) ? 300 : 0; }),
+        vi.spyOn(HTMLElement.prototype, "offsetTop", "get").mockImplementation(function (this: HTMLElement) { return isPanel(this) ? 56 : 0; }),
+        vi.spyOn(HTMLElement.prototype, "offsetLeft", "get").mockImplementation(function (this: HTMLElement) {
+          if (!isPanel(this)) return 0;
+          return this.getAttribute("data-side") === "right" ? 1280 - 16 - widthOf(this) : 16;
+        }),
+      );
+    }
+    afterEach(() => { while (spies.length) spies.pop()!.mockRestore(); });
+
+    it("stays on the left when the clicked card is away from it", () => {
+      layout({ left: 900, right: 980, top: 300, bottom: 420 });
+      mount();
+      pin();
+      expect(peek().getAttribute("data-side")).toBe("left");
+      expect(peek().getAttribute("data-narrow")).toBeNull();
+    });
+
+    it("moves to the right when the clicked card is under the left panel (a card of the left seat, or Jinzo in the EMZ)", () => {
+      layout({ left: 300, right: 380, top: 120, bottom: 240 });
+      mount();
+      pin();
+      expect(peek().getAttribute("data-side")).toBe("right");
+      expect(peek().getAttribute("data-narrow")).toBeNull();
+    });
+
+    it("keeps the left when the clicked card is under the right edge", () => {
+      layout({ left: 1000, right: 1080, top: 120, bottom: 240 });
+      mount();
+      pin();
+      expect(peek().getAttribute("data-side")).toBe("left");
+    });
+
+    it("takes the widest place that clears the card: a narrower panel before a covered card", () => {
+      layout({ left: 650, right: 730, top: 120, bottom: 240 });
+      mount();
+      pin();
+      expect(peek().getAttribute("data-side")).toBe("left");
+      expect(peek().style.getPropertyValue("--pin-w")).toBe("600px");
+      expect(peek().getAttribute("data-narrow")).toBeNull();
+    });
+
+    it("takes the compact panel when only that one clears the card", () => {
+      layout({ left: 450, right: 830, top: 120, bottom: 240 });
+      mount();
+      pin();
+      expect(peek().getAttribute("data-side")).toBe("left");
+      expect(peek().style.getPropertyValue("--pin-w")).toBe("430px");
+      expect(peek().getAttribute("data-narrow")).toBe("true");
+    });
+
+    it("keeps the wide left panel for a card below it", () => {
+      layout({ left: 300, right: 380, top: 500, bottom: 620 });
+      mount();
+      pin();
+      expect(peek().getAttribute("data-side")).toBe("left");
+      expect(peek().style.getPropertyValue("--pin-w")).toBe("700px");
+    });
   });
 
   it("a dock icon swaps the pin for the flyout: only one of them shows, and the pin does not come back", () => {
