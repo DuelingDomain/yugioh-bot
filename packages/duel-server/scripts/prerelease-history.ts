@@ -14,7 +14,7 @@ export const hasDedupeIdentity = (card: CardIdentity) => !card.alias && (card.ty
 export function cardIdentities(path: string): CardIdentity[] {
   const db = new Database(path, { readonly: true, fileMustExist: true });
   try {
-    return db.prepare("SELECT d.id AS code, t.name, d.type FROM datas d JOIN texts t USING(id) WHERE (d.ot & 1536)=0 AND d.alias=0 AND (d.type & 16384)=0 ORDER BY d.id").all() as CardIdentity[];
+    return db.prepare("SELECT d.id AS code, t.name, d.type, d.alias FROM datas d JOIN texts t USING(id) WHERE (d.ot & 1536)=0 AND (d.type & 16384)=0 ORDER BY d.id").all() as CardIdentity[];
   } finally { db.close(); }
 }
 
