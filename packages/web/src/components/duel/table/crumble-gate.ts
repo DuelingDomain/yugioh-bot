@@ -95,7 +95,7 @@ type AnimationRoot = { getAnimations(options?: { subtree?: boolean }): Animation
 const isCssTransition = (animation: unknown): boolean => (animation as { constructor?: { name?: string } }).constructor?.name === "CSSTransition";
 
 /** What glides after the crumble and its beat (rival-field, holo-lp, plaza, table-stage CSS): the seats, their panels, the strip and the turn ring. */
-export const REGROUP_TARGETS = '[data-glide="true"], [data-glide="true"] *, [data-regroup="true"] .hub, [data-regroup="true"] [data-turn-ring]';
+export const REGROUP_TARGETS = '[data-glide="true"], [data-glide="true"] *, [data-regroup="true"] [data-hub-slot], [data-regroup="true"] [data-turn-ring]';
 
 const regroupTarget = (animation: AnimationLike): boolean => {
   const target = (animation.effect as { target?: { matches?: (selector: string) => boolean } | null } | null | undefined)?.target;

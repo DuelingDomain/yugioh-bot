@@ -158,7 +158,7 @@ describe("pauseRegroup", () => {
     const strip = document.createElement("div");
     strip.setAttribute("data-regroup", "true");
     const hub = document.createElement("div");
-    hub.className = "hub";
+    hub.setAttribute("data-hub-slot", "true");
     const plain = document.createElement("div");
     strip.append(hub, plain);
     document.body.append(strip);
