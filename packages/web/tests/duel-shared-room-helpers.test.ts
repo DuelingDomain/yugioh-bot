@@ -37,6 +37,9 @@ describe("helpers the room and the table shell share", () => {
   it("sorts log lines and names up to four players", () => {
     expect(logKind("Turn 3")).toBe("turn");
     expect(logKind("main1")).toBe("phase");
+    expect(logKind("A chain link was negated")).toBe("chain");
+    expect(logKind("Player 3's chain link was negated")).toBe("chain");
+    expect(logKind("Player 2's Raigeki is activating")).toBe("chain");
     expect(logText("Player 3 takes 800 damage", "loss", (seat) => `P${seat}`)).toBe("P2 takes 800 damage");
     expect(logText("main1", "phase", () => "")).toBe(phaseTitle("main1"));
   });
