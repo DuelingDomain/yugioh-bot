@@ -1,5 +1,6 @@
 "use client";
 
+import { waitlistHref } from "@/components/auth/marketing-links";
 import { AccountUnavailableStep } from "@/components/auth/steps/account-unavailable-step";
 import { CodeStep } from "@/components/auth/steps/code-step";
 import { CreateAccountStep } from "@/components/auth/steps/create-account-step";
@@ -14,7 +15,7 @@ import { SuccessStep } from "@/components/auth/steps/success-step";
 import type { PreviewStep } from "./steps";
 
 const EMAIL = "sam@example.com";
-const WAITLIST = "https://duelingdomain.com/#join";
+const WAITLIST = waitlistHref(undefined);
 const noop = () => {};
 
 /** One step card with static props and no-op handlers. Handlers cannot cross the server boundary, so this is a client file. */

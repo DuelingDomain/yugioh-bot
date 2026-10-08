@@ -2,6 +2,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { signInFontClasses } from "./fonts";
 import { PackTilt } from "./pack-tilt";
 import { SignInSymbols } from "./sign-in-symbols";
+import { marketingHomeHref } from "./marketing-links";
 import styles from "./sign-in-shell.module.css";
 
 interface SignInShellProps {
@@ -61,7 +62,7 @@ export function SignInShell({ children, marketingUrl, packState = "sealed", tone
       <header className={styles["nav"]}>
         <div className={`${styles["wrap"]} ${styles["nav-in"]}`}>
           {marketingUrl ? (
-            <a className={styles["brand"]} href={marketingUrl} aria-label="Dueling Domain, home">
+            <a className={styles["brand"]} href={marketingHomeHref(marketingUrl)} aria-label="Dueling Domain, home">
               <svg className={styles["lockup"]} aria-hidden="true" focusable="false">
                 <use href="#dd-lockup" />
               </svg>
@@ -77,7 +78,7 @@ export function SignInShell({ children, marketingUrl, packState = "sealed", tone
             <span className={styles["chip"]}>
               <i />Closed alpha
             </span>
-            {marketingUrl && <a className={styles["back"]} href={marketingUrl}>Back to site</a>}
+            {marketingUrl && <a className={styles["back"]} href={marketingHomeHref(marketingUrl)}>Back to site</a>}
           </div>
         </div>
       </header>

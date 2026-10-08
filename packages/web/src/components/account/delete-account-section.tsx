@@ -3,7 +3,8 @@
 import * as React from "react";
 import { useClerk } from "@clerk/nextjs";
 import { hardNavigate } from "@/components/auth/navigate";
-import { DEFAULT_MARKETING_URL } from "@/components/auth/marketing-links";
+import { DEFAULT_MARKETING_URL, marketingHomeHref } from "@/components/auth/marketing-links";
+import { clearMarketingSessionHint } from "@/components/auth/marketing-session-hint";
 import { StatusLine, SvButton } from "@/components/sheet";
 import styles from "./delete-account-section.module.css";
 
@@ -133,10 +134,13 @@ function Controller({ username, onDeleted }: { username: string; onDeleted: () =
 function ClerkController({ username, marketingUrl }: { username: string; marketingUrl: string }) {
   const { signOut } = useClerk();
   const onDeleted = async () => {
+    const redirectUrl = marketingHomeHref(marketingUrl);
+    clearMarketingSessionHint();
     try {
-      await signOut({ redirectUrl: marketingUrl });
+      await signOut({ redirectUrl });
     } catch {
-      hardNavigate(marketingUrl);
+      clearMarketingSessionHint();
+      hardNavigate(redirectUrl);
     }
   };
   return <Controller username={username} onDeleted={onDeleted} />;

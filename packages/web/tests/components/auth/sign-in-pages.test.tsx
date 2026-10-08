@@ -147,7 +147,7 @@ describe("sign-in page", () => {
   it("sends the not-invited card to the waitlist and back through the hook", async () => {
     const user = userEvent.setup();
     const { actions } = await renderSignIn(state("err-invite"));
-    expect(screen.getByRole("link", { name: "Join the waitlist" })).toHaveAttribute("href", `${MARKETING}/#join`);
+    expect(screen.getByRole("link", { name: "Join the waitlist" })).toHaveAttribute("href", `${MARKETING}/?home=1#join`);
     await user.click(screen.getByRole("button", { name: "Try a different email" }));
     expect(actions.back).toHaveBeenCalledOnce();
   });
@@ -366,7 +366,7 @@ describe("access page", () => {
   it("explains the invite-only alpha with the waitlist, sign-in and legal links", async () => {
     const { container } = render(await AccessPage());
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(/invite-only/i);
-    expect(screen.getByRole("link", { name: "Join the waitlist" })).toHaveAttribute("href", `${MARKETING}/#join`);
+    expect(screen.getByRole("link", { name: "Join the waitlist" })).toHaveAttribute("href", `${MARKETING}/?home=1#join`);
     expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/sign-in");
     expect(container).toHaveTextContent("Invited? Use the link in your email.");
     const foot = container.querySelector('[data-slot="foot"]') as HTMLElement;
@@ -378,7 +378,7 @@ describe("access page", () => {
   it("falls back to the public marketing site when MARKETING_URL is unset", async () => {
     vi.stubEnv("MARKETING_URL", "");
     render(await AccessPage());
-    expect(screen.getByRole("link", { name: "Join the waitlist" })).toHaveAttribute("href", "https://duelingdomain.com/#join");
+    expect(screen.getByRole("link", { name: "Join the waitlist" })).toHaveAttribute("href", "https://duelingdomain.com/?home=1#join");
   });
 
   it("imports nothing from Clerk and has no client code", () => {

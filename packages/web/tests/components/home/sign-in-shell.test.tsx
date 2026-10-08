@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -25,6 +25,13 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe("SignInShell", () => {
+  it("keeps the brand and back links on marketing even with a stale hint", () => {
+    render(<SignInShell marketingUrl="https://duelingdomain.com/?from=app#intro"><h1>Sign in</h1></SignInShell>);
+    for (const name of ["Dueling Domain, home", "Back to site"]) {
+      expect(screen.getByRole("link", { name })).toHaveAttribute("href", "https://duelingdomain.com/?from=app&home=1#intro");
+    }
+  });
+
   it("renders deterministic decoration on the server with local card backs and inline definitions", () => {
     const shell = <SignInShell><h1>Sign in</h1></SignInShell>;
     const first = renderToString(shell);
