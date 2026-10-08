@@ -52,14 +52,21 @@ describe("Xyz materials in a pick", () => {
     ]);
   });
 
-  it("add the zone when two Xyz share a name, and the seat when they have different controllers", () => {
-    const twin = [material(0, 0, "Celtic Guardian", 0), material(1, 0, "Axe Raider", 2)];
+  it("tell two Xyz of one name apart by order, with no zone numbers", () => {
+    const twin = [material(0, 0, "Celtic Guardian", 0), material(1, 0, "Axe Raider", 2), material(2, 1, "Mystical Elf", 2)];
     expect(materialHostNotes(twin).map((note) => note?.detail)).toEqual([
-      "Under Ryzeal Duo Drive (Zone 1)", "Under Ryzeal Duo Drive (Zone 3)",
+      "Under Ryzeal Duo Drive (1 of 2)", "Under Ryzeal Duo Drive (2 of 2)", "Under Ryzeal Duo Drive (2 of 2)",
     ]);
+  });
+
+  it("name the owner when the Xyz have different controllers: your / opponent's in 1v1, the player's name on a big table", () => {
     const split = [material(0, 0, "Celtic Guardian", 0, "Ryzeal Duo Drive", 0), material(1, 0, "Axe Raider", 0, "Ryzeal Duo Drive", 1)];
-    expect(materialHostNotes(split).map((note) => note?.detail)).toEqual([
-      "Under Ryzeal Duo Drive (P1 Zone 1)", "Under Ryzeal Duo Drive (P2 Zone 1)",
+    expect(materialHostNotes(split, { mySeat: 0 }).map((note) => note?.detail)).toEqual([
+      "Under your Ryzeal Duo Drive", "Under opponent's Ryzeal Duo Drive",
+    ]);
+    const names = ["Ann", "Bo", "Cy"];
+    expect(materialHostNotes(split, { mySeat: 1, nameOf: (seat) => names[seat] }).map((note) => note?.detail)).toEqual([
+      "Under Ann's Ryzeal Duo Drive", "Under your Ryzeal Duo Drive",
     ]);
   });
 
