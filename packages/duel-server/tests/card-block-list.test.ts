@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { cardBlockIndex, loadCardBlockList } from "../src/card-block-list.js";
+import { cardBlockIndex, mergeCardBlockEntries, loadCardBlockList } from "../src/card-block-list.js";
 
 const dirs: string[] = [];
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
@@ -46,4 +46,20 @@ describe("repository card block list", () => {
     expect(blocked.get(10)).toEqual({ code: 12, reason: "Broken" });
     expect(cardBlockIndex(catalog, [])).toEqual(new Map());
   });
+});
+
+it("reuses indexes across alternating admission lists", () => {
+  const catalog = new Map([[10, { alias: 0 }], [11, { alias: 10 }]]);
+  const first = [{ code: 10, reason: "first" }], second = [{ code: 11, reason: "second" }];
+  const index = cardBlockIndex(catalog, first);
+  cardBlockIndex(catalog, second);
+  expect(cardBlockIndex(catalog, first)).toBe(index);
+});
+
+it("memoizes merged manual/automatic entries until one source changes", () => {
+  const manual = [{ code: 10, reason: "manual" }], automatic = [{ code: 20, reason: "auto" }];
+  const merged = mergeCardBlockEntries(manual, automatic);
+  expect(mergeCardBlockEntries(manual, automatic)).toBe(merged);
+  expect(mergeCardBlockEntries(manual, [...automatic])).not.toBe(merged);
+  expect(mergeCardBlockEntries(manual, [])).toBe(manual);
 });

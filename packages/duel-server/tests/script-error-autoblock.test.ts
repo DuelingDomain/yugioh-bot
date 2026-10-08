@@ -27,7 +27,7 @@ function setup(singleAccount = false) {
     remaps: new Map([[400000010, 10]]), now: () => time });
   const record = createScriptErrorRecorder(db, () => {}, policy);
   return { db, policy, record, advance: (days: number) => { time += days * 86400000; },
-    changeScript: () => { hash = "b".repeat(64); }, now: () => time };
+    changeScript: (refresh = true) => { hash = "b".repeat(64); if (refresh) policy.refresh(); }, now: () => time };
 }
 
 describe("script error automatic admission blocks", () => {
@@ -109,6 +109,25 @@ describe("script error automatic admission blocks", () => {
     expect(autoBlockConfigFromEnv().windowDays).toBe(7);
     expect(warn).toHaveBeenLastCalledWith(expect.stringContaining("DUEL_SCRIPT_ERROR_BLOCK_WINDOW_DAYS"));
     warn.mockRestore();
+  });
+  it("keeps admission arrays stable and performs no writes or revision work on reads", () => {
+    const t = setup(); [1, 2, 3].forEach(id => t.record(id, error));
+    const first = t.policy.entries("pinned-normal");
+    t.db.pragma("query_only = ON");
+    expect(t.policy.entries("pinned-normal")).toBe(first);
+    t.changeScript(false);
+    expect(t.policy.entries("pinned-normal")).toBe(first);
+    t.db.pragma("query_only = OFF");
+    t.policy.refresh();
+    expect(t.policy.entries("pinned-normal")).toEqual([]);
+    expect(t.policy.entries("pinned-normal")).toBe(t.policy.entries("pinned-normal"));
+  });
+  it("observes an external operator clear without rebuilding unchanged admission arrays", () => {
+    const t = setup(); [1, 2, 3].forEach(id => t.record(id, error));
+    const first = t.policy.entries("pinned-normal");
+    clearAutoBlock(t.db, 10, t.now());
+    expect(t.policy.entries("pinned-normal")).not.toBe(first);
+    expect(t.policy.entries("pinned-normal")).toEqual([]);
   });
   it("one account cannot trigger a block with three practice-bot duels", () => {
     const t = setup(true);

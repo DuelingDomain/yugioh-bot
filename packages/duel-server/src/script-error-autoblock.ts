@@ -49,8 +49,21 @@ export function createAutoBlockPolicy(db: Database.Database, options: {
     ON CONFLICT(code, engine_kind) DO UPDATE SET reason = excluded.reason, blocked_at = excluded.blocked_at,
       distinct_duels = excluded.distinct_duels, error_count = excluded.error_count, threshold = excluded.threshold,
       window_days = excluded.window_days, bundle_version = excluded.bundle_version, script_hash = excluded.script_hash, cleared_at = NULL`);
+  const empty: readonly CardBlockEntry[] = [];
+  let signature: string | undefined;
+  const cachedEntries = new Map<ScriptEngineKind | undefined, readonly CardBlockEntry[]>();
+  const refresh = () => {
+    if (!enabled) return;
+    for (const row of rows.all() as AutoBlockRow[]) {
+      if (options.scriptHash(resolveCode(row.code), row.engine_kind) !== row.script_hash) {
+        db.prepare("UPDATE card_script_auto_blocks SET cleared_at = ? WHERE code = ? AND engine_kind = ?")
+          .run(new Date(now()).toISOString(), row.code, row.engine_kind);
+      }
+    }
+  };
+  refresh(); // Startup revision checks; admission reads never hash scripts or write.
   return {
-    now,
+    now, refresh,
     revision(rawCode: number, error?: DuelScriptError) {
       const code = resolveCode(rawCode);
       const engineKind = error ? scriptEngineKind(error.mode, error.format, error.engine) : "all";
@@ -59,10 +72,11 @@ export function createAutoBlockPolicy(db: Database.Database, options: {
     /** Called inside the recorder's immediate transaction, after an accepted new sample. */
     consider(code: number, hash: string | null, kind: ScriptEngineKind = "all") {
       if (!enabled || hash === null) return;
+      refresh();
       const codes = relatedCodes(code), placeholders = codes.map(() => "?").join(",");
       const previous = db.prepare(`SELECT * FROM card_script_auto_blocks WHERE code IN (${placeholders}) AND engine_kind = ?`).all(...codes, kind) as AutoBlockRow[];
       if (previous.some(row => row.cleared_at === null && row.script_hash === hash)) return;
-      const clearedAt = previous.map(row => row.cleared_at).filter((at): at is string => at !== null).sort().at(-1) ?? null;
+      const clearedAt = previous.filter(row => row.script_hash === hash).map(row => row.cleared_at).filter((at): at is string => at !== null).sort().at(-1) ?? null;
       const time = now(), at = new Date(time).toISOString();
       const result = db.prepare(`WITH eligible AS (SELECT duel_id FROM card_script_error_occurrences WHERE resolved_code IN (${placeholders}) AND script_hash = ? AND script_error_mode = 'tolerant' AND engine_kind = ?
           AND julianday(created_at) >= julianday(?) AND julianday(created_at) <= julianday(?)
@@ -76,13 +90,17 @@ export function createAutoBlockPolicy(db: Database.Database, options: {
       block.run(code, AUTO_BLOCK_REASON, at, result.duels, result.errors, config.threshold, config.windowDays, options.bundleVersion, hash, kind);
     },
     entries(kind?: ScriptEngineKind): readonly CardBlockEntry[] {
-      if (!enabled) return [];
-      const entries: CardBlockEntry[] = [];
-      for (const row of rows.all() as AutoBlockRow[]) {
-        const code = resolveCode(row.code);
-        if (options.scriptHash(code, row.engine_kind) !== row.script_hash) { db.prepare("UPDATE card_script_auto_blocks SET cleared_at = ? WHERE code = ? AND engine_kind = ?").run(new Date(now()).toISOString(), row.code, row.engine_kind); continue; }
-        if (!kind || row.engine_kind === "all" || row.engine_kind === kind) entries.push({ code, reason: AUTO_BLOCK_REASON });
-      }
+      if (!enabled) return empty;
+      // External operator clears remain visible. Only the small active-row signature
+      // changes admission array identity, allowing catalog indexes to stay cached.
+      const active = rows.all() as AutoBlockRow[];
+      const current = JSON.stringify(active.map(row => [row.code, row.engine_kind, row.script_hash]));
+      if (signature !== current) { signature = current; cachedEntries.clear(); }
+      const cached = cachedEntries.get(kind);
+      if (cached) return cached;
+      const entries = active.filter(row => !kind || row.engine_kind === "all" || row.engine_kind === kind)
+        .map(row => ({ code: resolveCode(row.code), reason: AUTO_BLOCK_REASON }));
+      cachedEntries.set(kind, entries);
       return entries;
     },
   };

@@ -1,5 +1,5 @@
 import { SANDBOX_OPS } from "@yugidraft/shared/duels";
-import { cardBlockIndex, loadCardBlockList } from "./card-block-list.js";
+import { cardBlockIndex, loadCardBlockList, mergeCardBlockEntries } from "./card-block-list.js";
 import { createAutoBlockPolicy } from "./script-error-autoblock.js";
 import { cardScriptHash, scriptEngineKind, type ScriptEngineKind } from "./card-script-hash.js";
 import { loadCardPasscodeRemaps } from "@yugidraft/shared/db";
@@ -345,9 +345,8 @@ export function createDuelHost(options: {
       }
       return hashes.get(key)!;
     }, now: options.now });
-  autoBlocks.entries(); // Lift stale revision blocks at startup, before the first admission request.
   const admissionEntries = (mode: DuelMode = "normal", format: DuelFormat = "1v1") =>
-    [...loadCardBlockList(undefined, options.dataDirectory), ...autoBlocks.entries(scriptEngineKind(mode, format, duel1v1Engine()))];
+    mergeCardBlockEntries(loadCardBlockList(undefined, options.dataDirectory), autoBlocks.entries(scriptEngineKind(mode, format, duel1v1Engine())));
   const recordScriptError = createScriptErrorRecorder(options.db, console.error, autoBlocks);
   const spawn = (duelId?: number): DuelGameWorker => options.createWorker?.() ?? new GameWorker(
     duelId === undefined ? undefined : (error) => recordScriptError(duelId, error),
