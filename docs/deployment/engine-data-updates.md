@@ -386,10 +386,16 @@ for candidate comparison are exported; hashes never appear in the PR section.
 Set **`VM_SSH_KNOWN_HOSTS`** to the independently verified VM host-key entry in
 OpenSSH known_hosts format (`[host]:port` for a nondefault port). This workflow
 requires strict host verification and does not bootstrap trust with `ssh-keyscan`.
-Optionally set **`ENGINE_DATA_PROD_SSH_PRIVATE_KEY`** to a dedicated key on the same
-VM/user instead of the deploy key. Restrict its authorized_keys entry with
-`restrict,command="sh /opt/yugioh-bot/scripts/prod-script-errors.sh"`; install the key
-and host pin through the existing operator process. No VM configuration is changed
+Set **`ENGINE_DATA_PROD_SSH_PRIVATE_KEY`** to a dedicated export key on the same
+VM/user. The job never receives the unrestricted deploy key. Install this full
+line in that user's `authorized_keys`, replacing the public-key placeholder:
+
+```text
+restrict,command="sh /opt/yugioh-bot/scripts/prod-script-errors.sh" ssh-ed25519 <dedicated-export-public-key> engine-data-prod-export
+```
+
+Install the key and host pin through the existing operator process. Without the
+dedicated secret, the section says **prod error data unavailable**. No VM configuration is changed
 by the weekly workflow. Temporary runner key files are removed after the SSH step.
 
 SSH has a 40-second deadline, five-second database lock timeout and 64-KiB output

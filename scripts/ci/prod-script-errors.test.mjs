@@ -20,7 +20,13 @@ test("prod credentials are isolated from checkout/install and optional failures 
   assert.match(workflow.jobs.publish.if, /always\(\).*needs\.prepare\.result == 'success'/);
 });
 
-function runCapture({ configured = true, failure = false, oversized = false } = {}) {
+test("production export requires its dedicated forced-command key", () => {
+  assert.doesNotMatch(JSON.stringify(capture.env), /VM_SSH_PRIVATE_KEY/);
+  assert.equal(capture.env.ENGINE_DATA_PROD_SSH_PRIVATE_KEY, "${{ secrets.ENGINE_DATA_PROD_SSH_PRIVATE_KEY }}");
+  assert.deepEqual(runCapture({ dedicatedKey: false }).snapshot, { available: false });
+});
+
+function runCapture({ configured = true, failure = false, oversized = false, dedicatedKey = true } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "prod-export-test-"));
   try {
     const response = join(dir, "response.json"), calls = join(dir, "calls.txt");
@@ -28,7 +34,7 @@ function runCapture({ configured = true, failure = false, oversized = false } = 
     writeFileSync(join(dir, "ssh"), '#!/bin/sh\nprintf "%s\\n" "$@" > "$FAKE_CALLS"\nif [ "$FAKE_FAIL" = 1 ]; then echo "private diagnostic" >&2; exit 1; fi\ncat "$FAKE_RESPONSE"\n', { mode: 0o700 });
     const result = spawnSync("bash", ["-e", "-o", "pipefail", "-c", capture.run], { encoding: "utf8", timeout: 10000,
       env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, RUNNER_TEMP: dir, VM_HOST: "vm.example.com", VM_USER: "root", VM_PORT: "22",
-        VM_SSH_PRIVATE_KEY: "fake test key", VM_SSH_KNOWN_HOSTS: configured ? "fake pinned host" : "",
+        VM_SSH_PRIVATE_KEY: "unrestricted deploy key", ENGINE_DATA_PROD_SSH_PRIVATE_KEY: dedicatedKey ? "fake test key" : "", VM_SSH_KNOWN_HOSTS: configured ? "fake pinned host" : "",
         FAKE_RESPONSE: response, FAKE_CALLS: calls, FAKE_FAIL: failure ? "1" : "0" } });
     assert.equal(result.status, 0, result.stderr); assert.equal(result.stderr, "");
     assert.ok(!readdirSync(dir).some(name => name.startsWith("prod-error-ssh.")), "temporary credentials removed");
