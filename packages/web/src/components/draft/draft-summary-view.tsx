@@ -30,7 +30,7 @@ import { getPopupPosition } from "@/lib/card-popup-position";
 import { DangerConfirm } from "./danger-confirm";
 import { DraftFrame, DraftLayout, DraftMain, DraftRail, Gem, Pieces, RailNote, RailSection, Rules } from "./draft-frame";
 import { useInlineConfirm } from "./use-inline-confirm";
-import { useDraftTournament, type DraftTournament } from "./use-draft-tournament";
+import { inheritedVisibilityNote, useDraftTournament, type DraftTournament } from "./use-draft-tournament";
 
 interface DraftSummaryViewProps {
   draft: {
@@ -72,6 +72,8 @@ interface DraftSummaryViewProps {
     myDeckId?: number | null;
     /** Server-checked: completed, no tournament yet, and the viewer is the draft host. */
     canCreateTournament?: boolean;
+    /** Who can see the draft. A tournament made from it keeps this setting. */
+    visibility?: "open" | "private";
   };
   slug: string;
   isParticipant: boolean;
@@ -518,6 +520,7 @@ export function DraftSummaryView({
           {showMakeTournament && (
             <RailSection title="Make it a tournament" id="df-tour-t">
               <RailNote>The {draft.playerCount} drafters become its players, in seat order.</RailNote>
+              {inheritedVisibilityNote(draft.visibility) && <RailNote>{inheritedVisibilityNote(draft.visibility)}</RailNote>}
               {tournament.error && (
                 <div role="alert" className={styles.tourErr}>
                   <StatusLine tone="block">{tournament.error}</StatusLine>

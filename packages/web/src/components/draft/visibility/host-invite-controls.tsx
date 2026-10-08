@@ -2,9 +2,8 @@
 
 import * as React from "react";
 import { Check, Link2 } from "lucide-react";
-import type { DraftVisibility } from "@yugidraft/shared/types";
 import { Segmented, StatusLine, SvButton, svButtonClass } from "@/components/sheet";
-import { fetchInviteUrl, patchVisibility, resetInviteUrl, VISIBILITY_HELP, VISIBILITY_LABEL } from "@/lib/draft-invite";
+import { draftInviteApi, VISIBILITY_HELP, VISIBILITY_LABEL, type InviteApi, type Visibility } from "@/lib/invite-link";
 import { useInlineConfirm } from "../use-inline-confirm";
 import styles from "./visibility.module.css";
 
@@ -25,21 +24,25 @@ async function writeClipboard(text: string): Promise<boolean> {
 
 export interface HostInviteControlsProps {
   slug: string;
-  visibility: DraftVisibility;
-  /** The draft is still in its lobby. The switch is locked once it is not. */
+  visibility: Visibility;
+  /** The event is still in its lobby. The switch is locked once it is not. */
   pending: boolean;
-  /** Called after the visibility changed, so the page can read the draft again. */
+  /** Called after the visibility changed, so the page can read the event again. */
   onChanged?: () => void;
+  /** Which endpoints to call. Drafts by default; pass `tournamentInviteApi` for a tournament. */
+  api?: InviteApi;
+  /** Said under the locked switch. */
+  lockedNote?: string;
 }
 
 /**
- * What only the host sees in the lobby: the Private/Open switch, Copy invite link and Reset link. Copy asks the server
+ * What only the host sees in a draft or tournament lobby: the Private/Open switch, Copy invite link and Reset link. Copy asks the server
  * for the link each time (the first call makes the code), then copies it. If the browser refuses the clipboard, the
  * link shows in a field to copy by hand. Reset has an inline confirm step, not a browser dialog.
  */
-export function HostInviteControls({ slug, visibility, pending, onChanged }: HostInviteControlsProps) {
+export function HostInviteControls({ slug, visibility, pending, onChanged, api = draftInviteApi, lockedNote = "This is locked once the draft starts." }: HostInviteControlsProps) {
   const [busy, setBusy] = React.useState<Busy>(null);
-  const [target, setTarget] = React.useState<DraftVisibility | null>(null);
+  const [target, setTarget] = React.useState<Visibility | null>(null);
   const [copied, setCopied] = React.useState<"copy" | "reset" | null>(null);
   const [fallback, setFallback] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -76,7 +79,7 @@ export function HostInviteControls({ slug, visibility, pending, onChanged }: Hos
     setBusy("copy");
     setError(null);
     try {
-      await deliver(await fetchInviteUrl(slug), "copy");
+      await deliver(await api.fetchUrl(slug), "copy");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't get the invite link.");
     } finally {
@@ -89,7 +92,7 @@ export function HostInviteControls({ slug, visibility, pending, onChanged }: Hos
     setBusy("reset");
     setError(null);
     try {
-      const url = await resetInviteUrl(slug);
+      const url = await api.resetUrl(slug);
       confirm.setOpen(false);
       await deliver(url, "reset");
     } catch (err) {
@@ -99,13 +102,13 @@ export function HostInviteControls({ slug, visibility, pending, onChanged }: Hos
     }
   };
 
-  const choose = async (next: DraftVisibility) => {
+  const choose = async (next: Visibility) => {
     if (busy || next === visibility || !pending) return;
     setBusy("visibility");
     setTarget(next);
     setError(null);
     try {
-      await patchVisibility(slug, next);
+      await api.patchVisibility(slug, next);
       onChanged?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't change who can join.");
@@ -124,7 +127,7 @@ export function HostInviteControls({ slug, visibility, pending, onChanged }: Hos
         </div>
       </div>
       <p className={styles.note}>{VISIBILITY_HELP[shown]}.</p>
-      {!pending && <p className={styles.locked}>This is locked once the draft starts.</p>}
+      {!pending && <p className={styles.locked}>{lockedNote}</p>}
 
       {confirm.open ? (
         <div className={styles.confirm} role="group" aria-label="Reset invite link" onKeyDown={confirm.onKeyDown}>

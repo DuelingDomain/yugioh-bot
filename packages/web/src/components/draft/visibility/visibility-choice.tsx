@@ -1,11 +1,10 @@
 "use client";
 
 import * as React from "react";
-import type { DraftVisibility } from "@yugidraft/shared/types";
-import { VISIBILITY_HELP, VISIBILITY_LABEL } from "@/lib/draft-invite";
+import { VISIBILITY_HELP, VISIBILITY_LABEL, type Visibility } from "@/lib/invite-link";
 import styles from "./visibility.module.css";
 
-const ORDER: DraftVisibility[] = ["private", "open"];
+const ORDER: Visibility[] = ["private", "open"];
 
 /**
  * The create forms' choice of who can join. Private is the default the forms start with. `compact` is the narrow
@@ -17,8 +16,8 @@ export function VisibilityChoice({
   compact = false,
   className,
 }: {
-  value: DraftVisibility;
-  onChange: (value: DraftVisibility) => void;
+  value: Visibility;
+  onChange: (value: Visibility) => void;
   compact?: boolean;
   className?: string;
 }) {

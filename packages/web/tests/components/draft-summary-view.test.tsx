@@ -458,6 +458,11 @@ describe("DraftSummaryView", () => {
     vi.unstubAllGlobals();
   });
 
+  it("tells the creator the tournament keeps the draft's visibility", () => {
+    renderView({ ...baseDraft, participantPickCount: 15, canCreateTournament: true, visibility: "private" }, { isCreator: true });
+    expect(screen.getByText("It is private, like this draft. Only the drafters and people you invite to the tournament can see it.")).toBeInTheDocument();
+  });
+
   it("keeps the focused Create tournament button enabled while creating and ignores a repeat click", () => {
     const create = vi.fn(async () => {});
     const tournament = { linked: null, format: "round_robin", setFormat() {}, bestOf: 3, setBestOf() {}, creating: false, error: null, create };

@@ -4,6 +4,7 @@ import { SlidersHorizontal } from "lucide-react";
 import { PageBar } from "@/components/sheet";
 import { OwnsPageBar, ShellMenuButton } from "@/components/layout/shell-bar";
 import { pageRound, tournamentEnding, totalRounds } from "../floor/floor-model";
+import { LobbyBarSub } from "@/components/draft/visibility/visibility-badge";
 import { AnimationsControl } from "../fx/animations-control";
 import type { Motion } from "../fx/use-animations";
 import { formatLabel, hostToolsAvailable } from "../sheet-rules";
@@ -49,7 +50,7 @@ export function TournamentBar({ tournament, isHost, hostOpen, onHostToggle, moti
     <PageBar
       back={{ href: "/tournaments", label: "All tournaments" }}
       title={tournament.name}
-      sub={barSub(tournament)}
+      sub={<LobbyBarSub name={barSub(tournament)} visibility={tournament.visibility} />}
       className={fx.bar}
       actions={
         <>

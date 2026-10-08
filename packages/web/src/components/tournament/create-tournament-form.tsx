@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { CircleAlert } from "lucide-react";
 import { DUEL_BANLIST_OPTIONS } from "@yugidraft/shared/duels";
 import { FieldOutline, StatusLine, SvButton, Zone } from "@/components/sheet";
+import { VisibilityChoice } from "@/components/draft/visibility/visibility-choice";
+import { VISIBILITY_LABEL, type Visibility } from "@/lib/invite-link";
 import { DuelRulesFields } from "./duel-rules-fields";
 import { DeadlinePicker } from "./deadline-picker";
 import { buildRulesPayload, defaultDuelRulesValue } from "./duel-rules";
@@ -32,6 +34,8 @@ export function CreateTournamentForm() {
   const router = useRouter();
   const [name, setName] = React.useState("");
   const [format, setFormat] = React.useState<TournamentFormat>("round_robin");
+  // Private is the default: only people with the host's invite link can see and join.
+  const [visibility, setVisibility] = React.useState<Visibility>("private");
   const [deadline, setDeadline] = React.useState<Date | null>(null);
   const [confirmHours, setConfirmHours] = React.useState("");
   const [rules, setRules] = React.useState(defaultDuelRulesValue);
@@ -59,6 +63,7 @@ export function CreateTournamentForm() {
         body: JSON.stringify({
           name: name.trim(),
           format,
+          visibility,
           deadlineAt: deadline ? deadline.toISOString() : null,
           reportConfirmWindowHours: confirmHours.trim() ? Number(confirmHours) : null,
           ...buildRulesPayload(rules),
@@ -178,6 +183,7 @@ export function CreateTournamentForm() {
                   </p>
                 )}
               </fieldset>
+              <VisibilityChoice className="wide" value={visibility} onChange={setVisibility} />
             </div>
           </section>
 
@@ -233,6 +239,10 @@ export function CreateTournamentForm() {
             </p>
             <p className={`sum-name${name.trim() ? "" : ` ${styles.unnamed}`}`}>{name.trim() || "Untitled tournament"}</p>
             <dl className="rows">
+              <div>
+                <dt>Who can join</dt>
+                <dd>{VISIBILITY_LABEL[visibility]}</dd>
+              </div>
               <div>
                 <dt>Duel mode</dt>
                 <dd>{rules.mode === "domain" ? "Domain" : "Normal"}</dd>

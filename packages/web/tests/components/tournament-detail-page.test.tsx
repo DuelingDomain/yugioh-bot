@@ -11,11 +11,12 @@ vi.mock("next/font/google", () => {
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
 });
 const push = vi.fn();
+const router = { push, replace: vi.fn() };
 let handlers: NonNullable<Parameters<typeof useTournamentWebsocket>[1]>;
 let searchParams = new URLSearchParams();
 let routeSlug = "friday-night-12";
 vi.mock("next/navigation", () => ({
-  useParams: () => ({ slug: routeSlug }), useRouter: () => ({ push, replace: vi.fn() }), useSearchParams: () => searchParams,
+  useParams: () => ({ slug: routeSlug }), useRouter: () => router, useSearchParams: () => searchParams,
 }));
 vi.mock("@/lib/hooks/use-tournament-websocket", () => ({
   useTournamentWebsocket: (_slug: string, options: typeof handlers) => { handlers = options; },
@@ -284,7 +285,7 @@ describe("TournamentDetailPage one sheet", () => {
     expect(screen.queryByRole("status")).toBeNull();
   });
 
-  it("shows the missing tournament address and recovery links after an initial 404", async () => {
+  it("shows one generic Tournament not found state after an initial 404, with nothing about the address", async () => {
     routeSlug = "no-such-event";
     const fetchMock = setup();
     const original = fetchMock.getMockImplementation()!;
@@ -292,12 +293,10 @@ describe("TournamentDetailPage one sheet", () => {
       ? Promise.resolve(Response.json({}, { status: 404 }))
       : original(url, init));
     render(<TournamentDetailPage />);
-    const title = await screen.findByRole("heading", { name: "No tournament at this address" });
+    const title = await screen.findByRole("heading", { name: "Tournament not found" });
     expect(title.closest(".ms")).not.toBeNull();
     expect(screen.getByText("404")).toBeInTheDocument();
-    const address = screen.getByText("/tournament/no-such-event");
-    expect(address.tagName).toBe("CODE");
-    expect(address.parentElement).toHaveTextContent("Nothing on this server matches /tournament/no-such-event. It may have been deleted, or the link has a typo.");
+    expect(screen.queryByText(/no-such-event/)).toBeNull();
     expect(screen.getByRole("link", { name: "All tournaments" })).toHaveAttribute("href", "/tournaments");
     expect(screen.getByRole("link", { name: "Dashboard" })).toHaveAttribute("href", "/dashboard");
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
@@ -340,7 +339,7 @@ describe("TournamentDetailPage one sheet", () => {
     render(<TournamentDetailPage />);
     expect(await screen.findByRole("heading", { name: "This tournament didn't load" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
-    expect(screen.queryByRole("heading", { name: "No tournament at this address" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Tournament not found" })).toBeNull();
   });
 
   it("lets the viewer try again after a retry also fails", async () => {

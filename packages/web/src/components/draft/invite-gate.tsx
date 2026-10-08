@@ -1,82 +1,32 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
 import { RotateCw } from "lucide-react";
 import { SvButton } from "@/components/sheet";
-import { readInviteParam, redeemDraftInvite, signInHref, stripInviteParam, type RedeemResult } from "@/lib/draft-invite";
+import { useInviteRedeem, waitLine } from "@/lib/hooks/use-invite-redeem";
+import { draftInviteApi } from "@/lib/invite-link";
 import { DraftFrame } from "./draft-frame";
 import styles from "./draft-state.module.css";
 
-type Phase =
-  | { step: "checking" }
-  | { step: "redeeming" }
-  | { step: "ready" }
-  | { step: "failed"; result: Exclude<RedeemResult, { kind: "ok" } | { kind: "unauthorized" } | { kind: "not-found" }> };
-
 /**
- * The `?invite=` landing of /draft/[slug]. It runs before anything protected loads:
- *
- * 1. Capture the `invite` value. (A signed-out visitor never gets here: the proxy sends them to sign-in and back to
- *    this same address, query included.)
- * 2. Redeem it with POST /invite. No draft detail and no connection token are requested until it answers.
- * 3. On success, remove only the `invite` parameter from the address, without a new history entry.
- * 4. Mount the page, which reads the draft and shows the lobby. Redeeming does not take a seat; the lobby offers Join
- *    when the server says `canJoin`.
- *
- * A wrong, reset or unknown code is removed too, then the page fetch checks existing access and gives its own
- * generic 404 when needed. Too many tries (429) stops and offers a manual retry: nothing here retries by itself. An address without `invite` mounts the page on the next tick.
+ * The `?invite=` landing of /draft/[slug]. It redeems the link before anything protected loads (see
+ * `useInviteRedeem` for the order) and mounts the page once that is done. A too-many-tries answer (429) stops and offers
+ * a manual retry.
  */
 export function DraftInviteGate({ slug, children }: { slug: string; children: React.ReactNode }) {
-  const router = useRouter();
-  // The redeem effect reads the router through a ref, so a router that changes identity never runs it again.
-  const routerRef = React.useRef(router);
-  routerRef.current = router;
-  const [phase, setPhase] = React.useState<Phase>({ step: "checking" });
-  // Bumped by Try again to run the redeem once more. The code is read from the address each time.
-  const [attempt, setAttempt] = React.useState(0);
-
-  React.useEffect(() => {
-    const code = readInviteParam();
-    if (code === null) {
-      setPhase((current) => (current.step === "ready" ? current : { step: "ready" }));
-      return;
-    }
-    let live = true;
-    setPhase({ step: "redeeming" });
-    void redeemDraftInvite(slug, code).then((result) => {
-      if (!live) return;
-      if (result.kind === "ok" || result.kind === "not-found") {
-        stripInviteParam();
-        setPhase({ step: "ready" });
-      } else if (result.kind === "unauthorized") {
-        // The session ended: sign in again and come back to this exact address, invite included.
-        routerRef.current.push(signInHref());
-      } else {
-        setPhase({ step: "failed", result });
-      }
-    });
-    return () => {
-      live = false;
-    };
-  }, [slug, attempt]);
+  const { phase, retry } = useInviteRedeem(draftInviteApi, slug);
 
   if (phase.step === "ready") return <>{children}</>;
   if (phase.step === "failed") {
     const limited = phase.result.kind === "rate-limited";
-    const wait = phase.result.kind === "rate-limited" ? phase.result.retryAfter : null;
     return (
       <DraftFrame title="Draft">
         <div className={styles.state}>
           <p className={styles.code}>{limited ? "Slow down" : "Error"}</p>
           <h2 className={styles.title}>{limited ? "Try again in a moment" : "This invite didn't open"}</h2>
-          <p className={styles.text}>
-            {limited
-              ? `Too many invite links were tried just now.${wait ? ` Wait about ${wait} ${wait === 1 ? "second" : "seconds"}, then try again.` : " Wait a few seconds, then try again."}`
-              : "Nothing was changed. Check your connection and try again."}
-          </p>
+          <p className={styles.text}>{limited ? waitLine(phase.result) : "Nothing was changed. Check your connection and try again."}</p>
           <div className={styles.acts}>
-            <SvButton variant="primary" onClick={() => setAttempt((n) => n + 1)}>
+            <SvButton variant="primary" onClick={retry}>
               <RotateCw size={16} aria-hidden="true" />Try again
             </SvButton>
             <SvButton as="a" href="/drafts" variant="ghost">Drafts</SvButton>

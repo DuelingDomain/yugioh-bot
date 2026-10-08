@@ -24,6 +24,16 @@ export interface DraftTournament {
 }
 
 /**
+ * Who can see the tournament made from a draft. It keeps the draft's setting; the draft's own invite link does not carry
+ * over, so the host shares the tournament's link. Null when the draft sent no setting.
+ */
+export function inheritedVisibilityNote(visibility: "open" | "private" | undefined): string | null {
+  if (visibility === "private") return "It is private, like this draft. Only the drafters and people you invite to the tournament can see it.";
+  if (visibility === "open") return "It is open, like this draft. Anyone can see it and join while entries are open.";
+  return null;
+}
+
+/**
  * The "make a tournament from this draft" state, shared by the finale and the results page so
  * a tournament made in one shows up in the other.
  */

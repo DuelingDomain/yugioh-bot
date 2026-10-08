@@ -423,6 +423,7 @@ function DraftDetailBody({ slug }: { slug: string }) {
           theme={isThemeDraft}
           extraCount={finaleExtra}
           canCreateTournament={draft.canCreateTournament === true}
+          visibility={draft.visibility}
           tournament={tournament}
           exporting={finaleExporting}
           exportError={finaleExportError}
