@@ -7,6 +7,7 @@ import { cardBlockIndex } from "../src/card-block-list.js";
 import type { DuelScriptError } from "../src/script-errors.js";
 import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { clearRemappedAutoBlock } from "../src/clear-script-auto-block.js";
+import { cardScriptHash } from "../src/card-script-hash.js";
 
 const error: DuelScriptError = { code: 10, scriptFile: "c10.lua", line: 1, message: "private Lua text",
   index: 1, mode: "normal", format: "1v1", engine: "pinned", scriptErrorMode: "tolerant" };
@@ -28,6 +29,18 @@ function setup(singleAccount = false) {
   const record = createScriptErrorRecorder(db, () => {}, policy);
   return { db, policy, record, advance: (days: number) => { time += days * 86400000; },
     changeScript: (refresh = true) => { hash = "b".repeat(64); if (refresh) policy.refresh(); }, now: () => time };
+}
+
+function setupWithHelpers() {
+  const t = setup();
+  const scripts = new Map([["c10.lua", "card"], ["proc_x.lua", "helper x"],
+    ["proc_y.lua", "helper y"], ["proc_z.lua", "helper z"]]);
+  const cards = { deckCard: () => ({ name: "Test", alias: 0 }),
+    readScript: (name: string) => scripts.get(name) ?? null };
+  const makePolicy = () => createAutoBlockPolicy(t.db, { bundleVersion: "bundle-1", now: t.now,
+    scriptHash: (code, kind, helpers) => cardScriptHash(cards, code, kind, undefined, helpers) });
+  const policy = makePolicy();
+  return { ...t, scripts, cards, makePolicy, policy, record: createScriptErrorRecorder(t.db, () => {}, policy) };
 }
 
 describe("script error automatic admission blocks", () => {
@@ -61,6 +74,79 @@ describe("script error automatic admission blocks", () => {
       code: 10, distinct_duels: 3, error_count: 22, threshold: 3, window_days: 7,
       script_hash: "a".repeat(64), bundle_version: "bundle-1", cleared_at: null });
     expect(JSON.stringify(policy.entries())).not.toContain("private Lua text");
+  });
+  it("blocks after three duels from two accounts with different named helpers across a restart", () => {
+    const t = setupWithHelpers();
+    expect(t.record(1, { ...error, scriptFile: "scripts/proc_y.lua", helperScripts: ["proc_x.lua", "c10.lua"] })).toBe(true);
+    expect(t.record(2, { ...error, scriptFile: "proc_z.lua", helperScripts: ["proc_y.lua"] })).toBe(true);
+    expect(t.policy.entries()).toEqual([]);
+    const restarted = t.makePolicy();
+    const record = createScriptErrorRecorder(t.db, () => {}, restarted);
+    expect(record(3, { ...error, helperScripts: ["proc_x.lua"] })).toBe(true);
+    expect(restarted.entries("pinned-normal")).toHaveLength(1);
+    expect(t.db.prepare("SELECT * FROM card_script_auto_blocks").get()).toMatchObject({
+      code: 10, engine_kind: "pinned-normal", distinct_duels: 3, error_count: 3,
+      helper_scripts: '["proc_x.lua","proc_y.lua","proc_z.lua"]',
+      script_hash: cardScriptHash(t.cards, 10, "pinned-normal", undefined, ["proc_x.lua", "proc_y.lua", "proc_z.lua"]) });
+    expect(t.db.prepare("SELECT DISTINCT script_hash FROM card_script_error_occurrences").all()).toEqual([
+      { script_hash: cardScriptHash(t.cards, 10, "pinned-normal") }]);
+    t.scripts.set("proc_y.lua", "fixed helper y");
+    expect(t.makePolicy().entries()).toEqual([]);
+    t.advance(0.001);
+    record(4, { ...error, helperScripts: ["proc_x.lua"] });
+    record(5, { ...error, helperScripts: ["proc_x.lua"] });
+    expect(restarted.entries()).toEqual([]);
+    record(6, { ...error, helperScripts: ["proc_x.lua"] });
+    expect(restarted.entries()).toHaveLength(1);
+    expect(t.db.prepare("SELECT helper_scripts, distinct_duels FROM card_script_auto_blocks").get())
+      .toEqual({ helper_scripts: '["proc_x.lua"]', distinct_duels: 3 });
+  });
+  it("keeps counting the card revision when helpers change before the threshold", () => {
+    const t = setupWithHelpers();
+    const failure = { ...error, helperScripts: ["proc_x.lua"] };
+    t.record(1, failure);
+    t.scripts.set("proc_x.lua", "new helper x");
+    t.record(2, failure);
+    expect(t.policy.entries()).toEqual([]);
+    t.record(3, failure);
+    expect(t.policy.entries()).toHaveLength(1);
+  });
+  it("excludes failures from an older card revision before the threshold", () => {
+    const t = setupWithHelpers();
+    t.record(1, { ...error, helperScripts: ["proc_y.lua"] });
+    t.record(2, { ...error, helperScripts: ["proc_z.lua"] });
+    t.scripts.set("c10.lua", "new card");
+    t.record(3, { ...error, helperScripts: ["proc_x.lua"] });
+    t.record(4, { ...error, helperScripts: ["proc_x.lua"] });
+    expect(t.policy.entries()).toEqual([]);
+    t.record(5, { ...error, helperScripts: ["proc_x.lua"] });
+    expect(t.policy.entries()).toHaveLength(1);
+    expect(t.db.prepare("SELECT helper_scripts, distinct_duels FROM card_script_auto_blocks").get())
+      .toEqual({ helper_scripts: '["proc_x.lua"]', distinct_duels: 3 });
+  });
+  it("counts the first failure of a new card revision when refreshing an existing block", () => {
+    const t = setupWithHelpers();
+    const failure = { ...error, helperScripts: ["proc_x.lua"] };
+    [1, 2, 3].forEach(id => t.record(id, failure));
+    t.scripts.set("c10.lua", "fixed card");
+    t.advance(0.001);
+    t.record(4, failure); t.record(5, failure);
+    expect(t.policy.entries()).toEqual([]);
+    t.record(6, failure);
+    expect(t.policy.entries()).toHaveLength(1);
+    expect(t.db.prepare("SELECT distinct_duels FROM card_script_auto_blocks").get()).toEqual({ distinct_duels: 3 });
+  });
+  it("operator clear starts a fresh count when the lift hash includes helpers", () => {
+    const t = setupWithHelpers();
+    const failure = { ...error, helperScripts: ["proc_x.lua"] };
+    [1, 2, 3].forEach(id => t.record(id, failure));
+    expect(clearAutoBlock(t.db, 10, t.now())).toBe(true);
+    t.advance(0.001);
+    t.record(4, failure); t.record(5, failure);
+    expect(t.policy.entries()).toEqual([]);
+    t.record(6, failure);
+    expect(t.policy.entries()).toHaveLength(1);
+    expect(t.db.prepare("SELECT distinct_duels FROM card_script_auto_blocks").get()).toEqual({ distinct_duels: 3 });
   });
   it("excludes old errors, includes the exact window boundary, and excludes future errors", () => {
     const { policy, record, advance } = setup();

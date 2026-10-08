@@ -20,7 +20,7 @@ export function autoBlockConfigFromEnv() {
 
 export interface AutoBlockRow {
   code: number; reason: string; blocked_at: string; distinct_duels: number; error_count: number;
-  threshold: number; window_days: number; bundle_version: string; script_hash: string; cleared_at: string | null; engine_kind: ScriptEngineKind; helper_scripts: string;
+  threshold: number; window_days: number; bundle_version: string; script_hash: string; card_script_hash: string | null; cleared_at: string | null; engine_kind: ScriptEngineKind; helper_scripts: string;
 }
 
 /** Clears admission policy only; keeps telemetry and establishes a fresh counting baseline. */
@@ -45,12 +45,12 @@ export function createAutoBlockPolicy(db: Database.Database, options: {
   const relatedCodes = (code: number) => [code, ...[...options.remaps ?? []].filter(([, target]) => target === code).map(([old]) => old)];
   const rows = db.prepare("SELECT * FROM card_script_auto_blocks WHERE cleared_at IS NULL ORDER BY code");
   const block = db.prepare(`INSERT INTO card_script_auto_blocks
-    (code, reason, blocked_at, distinct_duels, error_count, threshold, window_days, bundle_version, script_hash, engine_kind, helper_scripts, cleared_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+    (code, reason, blocked_at, distinct_duels, error_count, threshold, window_days, bundle_version, script_hash, card_script_hash, engine_kind, helper_scripts, cleared_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
     ON CONFLICT(code, engine_kind) DO UPDATE SET reason = excluded.reason, blocked_at = excluded.blocked_at,
       distinct_duels = excluded.distinct_duels, error_count = excluded.error_count, threshold = excluded.threshold,
       window_days = excluded.window_days, bundle_version = excluded.bundle_version, script_hash = excluded.script_hash,
-      helper_scripts = excluded.helper_scripts, cleared_at = NULL`);
+      card_script_hash = excluded.card_script_hash, helper_scripts = excluded.helper_scripts, cleared_at = NULL`);
   const empty: readonly CardBlockEntry[] = [];
   let signature: string | undefined;
   const cachedEntries = new Map<ScriptEngineKind | undefined, readonly CardBlockEntry[]>();
@@ -76,27 +76,36 @@ export function createAutoBlockPolicy(db: Database.Database, options: {
       const code = resolveCode(rawCode);
       const engineKind = error ? scriptEngineKind(error.mode, error.format, error.engine) : "all";
       const helperScripts = scriptHelperNames([error?.scriptFile ?? "", ...error?.helperScripts ?? []]);
-      return { code, engineKind, helperScripts, scriptHash: options.scriptHash(code, engineKind, helperScripts) };
+      // Counting follows the card revision, independent of which helpers an error names.
+      return { code, engineKind, helperScripts, scriptHash: options.scriptHash(code, engineKind, []) };
     },
     /** Called inside the recorder's immediate transaction, after an accepted new sample. */
-    consider(code: number, hash: string | null, kind: ScriptEngineKind = "all", helperScripts: readonly string[] = []) {
+    consider(code: number, hash: string | null, kind: ScriptEngineKind = "all") {
       if (!enabled || hash === null) return;
       refresh();
       const codes = relatedCodes(code), placeholders = codes.map(() => "?").join(",");
       const previous = db.prepare(`SELECT * FROM card_script_auto_blocks WHERE code IN (${placeholders}) AND engine_kind = ?`).all(...codes, kind) as AutoBlockRow[];
-      if (previous.some(row => row.cleared_at === null && row.script_hash === hash)) return;
-      const clearedAt = previous.filter(row => row.script_hash === hash).map(row => row.cleared_at).filter((at): at is string => at !== null).sort().at(-1) ?? null;
+      if (previous.some(row => row.cleared_at === null)) return;
+      // Lift hashes include helpers. Clears reset the count for the same card revision;
+      // legacy blocks with an unknown card revision also establish a fresh baseline.
+      const clearedAt = previous.filter(row => row.card_script_hash === null || row.card_script_hash === hash)
+        .map(row => row.cleared_at).filter((at): at is string => at !== null).sort().at(-1) ?? null;
       const time = now(), at = new Date(time).toISOString();
-      const result = db.prepare(`WITH eligible AS (SELECT duel_id FROM card_script_error_occurrences WHERE resolved_code IN (${placeholders}) AND script_hash = ? AND script_error_mode = 'tolerant' AND engine_kind = ?
+      const result = db.prepare(`WITH eligible AS (SELECT duel_id, helper_scripts FROM card_script_error_occurrences WHERE resolved_code IN (${placeholders}) AND script_hash = ? AND script_error_mode = 'tolerant' AND engine_kind = ?
           AND julianday(created_at) >= julianday(?) AND julianday(created_at) <= julianday(?)
           AND (? IS NULL OR julianday(created_at) > julianday(?)))
         SELECT count(DISTINCT duel_id) AS duels, count(*) AS errors,
           (SELECT count(DISTINCT p.user_id) FROM (SELECT DISTINCT duel_id FROM eligible) e
             JOIN duel_seats s ON s.duel_id = e.duel_id AND s.is_bot = 0
-            JOIN players p ON p.id = s.player_id) AS humans FROM eligible`)
-        .get(...codes, hash, kind, new Date(time - config.windowDays * 86400000).toISOString(), at, clearedAt, clearedAt) as { duels: number; errors: number; humans: number };
+            JOIN players p ON p.id = s.player_id) AS humans,
+          (SELECT json_group_array(DISTINCT helper.value) FROM eligible e
+            JOIN json_each(e.helper_scripts) helper) AS helper_scripts FROM eligible`)
+        .get(...codes, hash, kind, new Date(time - config.windowDays * 86400000).toISOString(), at, clearedAt, clearedAt) as { duels: number; errors: number; humans: number; helper_scripts: string };
       if (result.duels < config.threshold || result.humans < 2) return;
-      block.run(code, AUTO_BLOCK_REASON, at, result.duels, result.errors, config.threshold, config.windowDays, options.bundleVersion, hash, kind, JSON.stringify(scriptHelperNames(helperScripts)));
+      const helperScripts = scriptHelperNames(JSON.parse(result.helper_scripts));
+      const liftHash = options.scriptHash(code, kind, helperScripts);
+      if (liftHash === null) return;
+      block.run(code, AUTO_BLOCK_REASON, at, result.duels, result.errors, config.threshold, config.windowDays, options.bundleVersion, liftHash, hash, kind, JSON.stringify(helperScripts));
     },
     entries(kind?: ScriptEngineKind): readonly CardBlockEntry[] {
       if (!enabled) return empty;
