@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { DuelEngineView, DuelFormat, DuelSeatView } from "@yugidraft/shared/duels";
 import {
   boardBounds,
+  CAMERA_HINT,
+  HUD_CORNER,
   chainStripInset,
   PLAZA_HUD_KEEP,
   SEAT_BOX_FULL_DEF,
@@ -12,6 +14,7 @@ import {
   holoAnchor,
   promptRoom,
   promptRooms,
+  seatObstacles,
   seatPoses,
   stageFit,
   stageSpread,
@@ -129,6 +132,33 @@ describe("the wide plaza", () => {
         for (const board of [...seatPoses(layout, camera(), box).values()].map(boardBounds)) {
           expect(board.l).toBeGreaterThanOrEqual(-spread);
           expect(board.r).toBeLessThanOrEqual(1100 + spread);
+        }
+      }
+    }
+  });
+
+  it("keeps every 3-way plate off your hand and your name label at the HUD screens, with and without the Deck Master chip", () => {
+    // The five HUD screens plus short ones (1280 x 609 puts your plate under your field, where the wide hand is).
+    const short = [[1280, 609], [1280, 650], [1030, 660], [1100, 620]].map(([w, h]) => {
+      const box = { width: w - 28, height: h - 57 };
+      return { name: `${w}x${h}`, fit: { ...box, height: (box.height * 860) / 956 } };
+    });
+    for (const { name, fit } of [...HUD_SCREENS, ...short]) {
+      const poses = seatPoses(three, camera(), fit);
+      const spread = stageSpread(fit);
+      const k = stageFit(fit);
+      const corner = { hint: { width: CAMERA_HINT.width / k, height: CAMERA_HINT.height / k }, hud: { width: HUD_CORNER.width / k, height: HUD_CORNER.height / k } };
+      const home = poses.get(0)!;
+      // The wide hand: 762 px, not the classic 605 (the stage reserves it, so a plate never lands on the end card).
+      expect(seatObstacles(home, true)[1].width, `${name}: wide hand`).toBe(762);
+      for (const meFooter of [true, false]) {
+        const anchors = wideHoloAnchors(three, camera(), poses, spread, meFooter, corner)!;
+        for (const [seat, a] of anchors) {
+          const size = a.me ? { width: meFooter ? 270 : 212, height: meFooter ? 113 + 58 : 113 } : { width: 196, height: 92 };
+          for (const r of seatObstacles(home, true).slice(1)) {
+            const apart = a.x + size.width <= r.x - r.width / 2 || r.x + r.width / 2 <= a.x || a.y + size.height <= r.y - r.height / 2 || r.y + r.height / 2 <= a.y;
+            expect(apart, `${name} footer ${meFooter}: plate ${seat} on your hand or label`).toBe(true);
+          }
         }
       }
     }
