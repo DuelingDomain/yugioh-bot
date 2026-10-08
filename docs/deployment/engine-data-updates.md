@@ -238,6 +238,17 @@ source bytes are embedded in `card-remaps.json`, covered by `integrity.cardRemap
 No extra publication path is added: weekly automation still changes only the three
 pin files. A human commits override edits as part of reviewed application code.
 
+History cost grows with preview-changing commits since the immutable support
+boundary. Each fresh scan needs Git history/network access, reads those commit
+trees and distinct non-Rush preview blobs, then reads base/release blobs on both
+sides of preview-removal edges. Passcode Sets make removal comparisons linear
+per edge. Blob downloads are batched and cached by immutable blob hash for that
+scan, as are extracted rows and released snapshots. Workflow bundle caches and
+the unchanged-pin prepare fast path reuse the completed extraction/check. A cold
+rebuild at new pins still scans the full interval; retaining that interval preserves
+graduations across skipped weekly updates. A durable extracted-transition cache
+would need a `(support start, commit, extraction recipe)` key and is deferred.
+
 The same bundle map feeds read/import/validation and the atomic startup migration.
 The migration refreshes target catalog metadata from the installed engine only for
 rows copied from previews in that transaction, or unsynced rows (`card_sets_json='[]'`)

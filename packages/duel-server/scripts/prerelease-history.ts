@@ -93,7 +93,8 @@ export async function readPrereleaseSnapshots(repo: string, start: string, commi
     previews.set(pin, snapshot);
     for (const row of snapshot) identities.set(JSON.stringify(row), row);
   }
-  const removals = edges.map(edge => ({ ...edge, removed: previews.get(edge.parent)!.filter(row => !previews.get(edge.pin)!.some(next => next.code === row.code)) })).filter(edge => edge.removed.length);
+  const previewCodes = new Map([...previews].map(([pin, cards]) => [pin, new Set(cards.map(card => card.code))]));
+  const removals = edges.map(edge => ({ ...edge, removed: previews.get(edge.parent)!.filter(row => !previewCodes.get(edge.pin)!.has(row.code)) })).filter(edge => edge.removed.length);
   const releaseFiles = (pin: string) => {
     const tree = trees.get(pin)!;
     if (!tree.has("cards.cdb")) return []; // Minimal isolated test histories.
