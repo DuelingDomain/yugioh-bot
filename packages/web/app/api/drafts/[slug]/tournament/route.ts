@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireWebAccess } from "@/lib/web-access";
 import { env } from "@/lib/env";
-import { createDraftTournamentService, TournamentDuelError } from "@yugidraft/shared/services";
+import { createDraftTournamentService, TournamentDuelError, findTournamentReadAccess } from "@yugidraft/shared/services";
 import { broadcaster } from "@/lib/notify";
 import { draftReadAccess } from "@/lib/draft-access";
 
@@ -39,12 +39,15 @@ export async function POST(
     if (draft.created_by_user_id !== userId) return NextResponse.json({ error: "Only the draft creator can create a tournament" }, { status: 403 });
 
     if (draft.tournament_id !== null) {
+      if (!findTournamentReadAccess(db, draft.tournament_id, guildId, userId)?.canRead) {
+        return NextResponse.json({ error: "Tournament not found" }, { status: 404 });
+      }
       const existing = db
-        .prepare("select id, name, web_slug, format from tournaments where id = ?")
-        .get(draft.tournament_id) as { id: number; name: string; web_slug: string | null; format: string } | undefined;
+        .prepare("select id, name, web_slug, format, visibility from tournaments where id = ?")
+        .get(draft.tournament_id) as { id: number; name: string; web_slug: string | null; format: string; visibility: "open" | "private" } | undefined;
       if (existing) {
         return NextResponse.json(
-          { id: existing.id, name: existing.name, webSlug: existing.web_slug, format: existing.format },
+          { id: existing.id, name: existing.name, webSlug: existing.web_slug, format: existing.format, visibility: existing.visibility },
           { status: 409 },
         );
       }
@@ -73,11 +76,11 @@ export async function POST(
     void broadcaster.draft({ kind: "seats", slug });
 
     const tournament = db
-      .prepare("select id, name, web_slug, format from tournaments where id = ?")
-      .get(result.tournamentId) as { id: number; name: string; web_slug: string | null; format: string };
+      .prepare("select id, name, web_slug, format, visibility from tournaments where id = ?")
+      .get(result.tournamentId) as { id: number; name: string; web_slug: string | null; format: string; visibility: "open" | "private" };
 
     return NextResponse.json(
-      { id: tournament.id, name: tournament.name, webSlug: tournament.web_slug, format: tournament.format },
+      { id: tournament.id, name: tournament.name, webSlug: tournament.web_slug, format: tournament.format, visibility: tournament.visibility },
       { status: 201 },
     );
   } catch (error) {

@@ -47,6 +47,15 @@ describe("DashboardPage", () => {
     vi.unstubAllEnvs();
   });
 
+  it("shows open, created and granted tournament summaries without a participant row, hiding private strangers", async () => {
+    const host=fixtureUserId("u2"),viewer=fixtureUserId("u1");
+    db.prepare("insert into tournaments(id,guild_id,name,format,status,created_by_user_id,web_slug,visibility) values(1,'g1','Open Cup','round_robin','pending',?,'open','open'),(2,'g1','Created Cup','round_robin','pending',?,'created','private'),(3,'g1','Granted Cup','round_robin','pending',?,'granted','private'),(4,'g1','Hidden Cup','round_robin','pending',?,'hidden','private')").run(host,viewer,host,host);
+    db.prepare("insert into tournament_invite_grants(tournament_id,user_id) values(3,?)").run(viewer);
+    render(await DashboardPage());
+    for (const name of ["Open Cup","Created Cup","Granted Cup"]) expect(screen.getByRole("link",{name})).toBeInTheDocument();
+    expect(screen.queryByText("Hidden Cup")).not.toBeInTheDocument();
+  });
+
   it("shows the new-player view with the starting standing when the user has no player yet", async () => {
     render(await DashboardPage());
     screen.getByRole("heading", { name: "Your first match puts you on the board" });

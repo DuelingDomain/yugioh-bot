@@ -35,7 +35,7 @@ async function createPendingTournamentDb() {
   const outsider = players.findOrCreate("g1", fixtureUserId("u-out"), "Outsider");
 
   const result = db
-    .prepare("insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug) values (?, ?, ?, 'pending', ?, ?)")
+    .prepare("insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug, visibility) values (?, ?, ?, 'pending', ?, ?, 'open')")
     .run("g1", "Test Cup", "single_elim", fixtureUserId("u-org"), "slug-1");
 
   const tournamentId = Number(result.lastInsertRowid);

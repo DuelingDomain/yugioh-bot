@@ -109,7 +109,10 @@ export interface DraftPick {
   pickedAt: string;
 }
 
+export type TournamentVisibility = "open" | "private";
+
 export interface Tournament {
+  visibility: TournamentVisibility;
   id: number;
   guildId: string;
   name: string;

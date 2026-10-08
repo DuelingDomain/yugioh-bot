@@ -22,7 +22,7 @@ export function createOpenNowService(db: Database.Database): OpenNowService {
       (select count(*) from tournament_participants p where p.tournament_id = t.id) as joinedCount,
       exists (select 1 from tournament_participants p where p.tournament_id = t.id and p.player_id = @viewer) as viewerJoined
     from tournaments t
-    where t.guild_id = @guild and t.status = 'pending' and t.web_slug is not null and t.web_slug != ''
+    where t.guild_id = @guild and t.status = 'pending' and t.visibility = 'open' and t.web_slug is not null and t.web_slug != ''
     order by julianday(t.created_at) desc, t.id desc
     limit 5
   `);

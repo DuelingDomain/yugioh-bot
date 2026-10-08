@@ -18,8 +18,8 @@ afterEach(() => db.close());
 
 function tournament(slug: string, status = "pending", guild = "g", created = "2026-01-01 00:00:00") {
   return Number(db.prepare(`insert into tournaments
-    (guild_id, name, format, status, created_by_user_id, web_slug, created_at)
-    values (?, ?, 'round_robin', ?, ?, ?, ?)`).run(guild, slug, status, host.userId, slug, created).lastInsertRowid);
+    (guild_id, name, format, status, created_by_user_id, web_slug, created_at, visibility)
+    values (?, ?, 'round_robin', ?, ?, ?, ?, 'open')`).run(guild, slug, status, host.userId, slug, created).lastInsertRowid);
 }
 
 function draft(slug: string, config: object = {}, status = "pending", guild = "g", created = "2026-01-01 00:00:00") {
@@ -188,4 +188,14 @@ describe("open now", () => {
       tournaments: [{ slug: "cup" }], drafts: [{ slug: "draft" }], duelsInProgress: 0,
     });
   });
+});
+
+it("excludes private tournaments before limiting open-now, including their hosts and grant holders", () => {
+  tournament("open");
+  for (let i=0;i<6;i++) {
+    const id = tournament(`private-${i}`, "pending", "g", "2026-01-09 00:00:00");
+    db.prepare("update tournaments set visibility='private' where id=?").run(id);
+    db.prepare("insert into tournament_invite_grants(tournament_id,user_id) values(?,?)").run(id,viewer.userId);
+  }
+  for (const user of [null,host.playerId,viewer.playerId]) expect(createOpenNowService(db).forPlayer("g",user).tournaments.map(t=>t.slug)).toEqual(["open"]);
 });

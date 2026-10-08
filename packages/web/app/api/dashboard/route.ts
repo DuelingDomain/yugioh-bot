@@ -1,3 +1,4 @@
+import { findTournamentDashboardSummaries } from "@yugidraft/shared/services";
 import { env } from "@/lib/env";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
@@ -20,47 +21,15 @@ export async function GET() {
 
     const playerIds = playerRows.map((r) => r.id);
 
+    const tournaments = findTournamentDashboardSummaries(db, env.discordGuildId, userId);
+
     if (playerIds.length === 0) {
       return NextResponse.json({
-        tournaments: [],
+        tournaments,
         drafts: [],
         stats: { wins: 0, losses: 0 },
       });
     }
-
-    // Dashboard summaries show at most 10 current entries; full lists live on their own pages.
-    // Active tournaments the user is in
-    const tournaments = db
-      .prepare(
-        `
-        select
-          t.id,
-          t.guild_id,
-          t.name,
-          t.format,
-          t.status,
-          t.web_slug,
-          count(tp2.player_id) as participant_count
-        from tournaments t
-        inner join tournament_participants tp on tp.tournament_id = t.id
-        left join tournament_participants tp2 on tp2.tournament_id = t.id
-        where t.guild_id = ? and tp.player_id in (${playerIds.map(() => "?").join(",")})
-          and t.status in ('pending', 'active')
-        group by t.id
-        order by case t.status when 'active' then 0 else 1 end, t.created_at desc, t.id desc
-        limit 10
-      `
-      )
-      .all(env.discordGuildId, ...playerIds)
-      .map((row: any) => ({
-        id: row.id,
-        guildId: row.guild_id,
-        name: row.name,
-        format: row.format,
-        status: row.status,
-        webSlug: row.web_slug ?? undefined,
-        participantCount: row.participant_count,
-      }));
 
     // Active/pending drafts the user is in
     const drafts = db

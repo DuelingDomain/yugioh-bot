@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createMatchService, createTournamentDuelService, TournamentDuelError } from "@yugidraft/shared/services";
+import { createMatchService, createTournamentDuelService, TournamentDuelError, findTournamentReadAccess } from "@yugidraft/shared/services";
 import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
@@ -17,6 +17,9 @@ export async function POST(
     const actor = await requireWebAccess();
     if (!actor.ok) return actor.response;
     const { slug, tmId } = await params;
+    const db = getDb();
+    const access = findTournamentReadAccess(db, slug, env.discordGuildId, actor.userId);
+    if (!access?.canRead) return NextResponse.json({ error: "Tournament not found" }, { status: 404 });
     const tournamentMatchId = Number(tmId);
 
     let body: { winnerPlayerId?: unknown };
@@ -30,7 +33,6 @@ export async function POST(
       return NextResponse.json({ error: "winnerPlayerId is required" }, { status: 400 });
     }
 
-    const db = getDb();
     const tournament = db
       .prepare("select id, guild_id from tournaments where web_slug = ? and guild_id = ?")
       .get(slug, env.discordGuildId) as { id: number; guild_id: string } | undefined;

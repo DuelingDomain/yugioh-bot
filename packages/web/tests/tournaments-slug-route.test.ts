@@ -31,7 +31,7 @@ async function setupDb(opts?: { status?: string }) {
   migrate(db);
   seedFixtureUsers(db, FIXTURE_KEYS);
   db.prepare(
-    "insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug) values (?, ?, ?, ?, ?, ?)",
+    "insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug, visibility) values (?, ?, ?, ?, ?, ?, 'open')",
   ).run("guild-1", "Cup", "round_robin", opts?.status ?? "active", fixtureUserId("host"), SLUG);
   db.close();
 }

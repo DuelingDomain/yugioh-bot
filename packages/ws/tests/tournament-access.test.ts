@@ -119,4 +119,24 @@ describe("tournament room admission and broadcasts", () => {
     clients[0].handlers.get("disconnecting")!();
     expect(clients[0].socket.rooms.has("tournament:test-cup")).toBe(false);
   });
+  it("denies private strangers, admits invite holders and prunes open readers after privacy changes", () => {
+    db.exec("insert into users(id,username,display_name) values(102,'guest','Guest')");
+    const token = createTournamentRoomToken({...claims(),userId:102},secret);
+    const ack=vi.fn();
+    clients[0].handlers.get("tournament:join")!({slug:"test-cup",userId:102,token},ack);
+    expect(ack).toHaveBeenCalledWith(denied);
+    db.exec("insert into tournament_invite_grants(tournament_id,user_id) values(1,102)");
+    ack.mockClear();
+    clients[0].handlers.get("tournament:join")!({slug:"test-cup",userId:102,token},ack);
+    expect(clients[0].socket.rooms.has("tournament:test-cup")).toBe(true);
+    guard.pruneTournamentRoom("test-cup");
+    expect(clients[0].socket.rooms.has("tournament:test-cup")).toBe(true);
+    db.exec("delete from tournament_invite_grants; update tournaments set visibility='open'");
+    guard.pruneTournamentRoom("test-cup");
+    expect(clients[0].socket.rooms.has("tournament:test-cup")).toBe(true);
+    db.exec("update tournaments set visibility='private'");
+    guard.pruneTournamentRoom("test-cup");
+    expect(clients[0].socket.rooms.has("tournament:test-cup")).toBe(false);
+    expect(clients[0].socket.emit).toHaveBeenCalledWith("tournament:subscription-expired",{slug:"test-cup"});
+  });
 });

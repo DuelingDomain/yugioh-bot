@@ -8,6 +8,7 @@ import {
   createTournamentDuelService,
   createTournamentService,
   findTournamentReadAccess,
+  findDraftReadAccess,
   TournamentDuelError,
 } from "@yugidraft/shared/services";
 import type { DuelBestOf, DuelSeriesSummary } from "@yugidraft/shared/duels";
@@ -153,7 +154,7 @@ export async function GET(
     const tournamentDuels = createTournamentDuelService(db);
     const duelRules = tournamentDuels.rules(tournamentId);
     const rulesLocked = tournamentDuels.rulesLocked(tournamentId);
-    const draftSlug = duelRules.draftId
+    const draftSlug = duelRules.draftId && findDraftReadAccess(db, duelRules.draftId, tournament.guild_id, actor.userId)?.canRead
       ? ((db.prepare("select web_slug from drafts where id = ? and guild_id = ?").get(duelRules.draftId, tournament.guild_id) as
           | { web_slug: string | null }
           | undefined)?.web_slug ?? null)
@@ -194,6 +195,9 @@ export async function GET(
       name: tournament.name,
       format: tournament.format,
       status: tournament.status,
+      visibility: access.visibility,
+      canJoin: access.canJoin,
+      ...(tournament.created_by_user_id === actor.userId ? { canManageInvite: true } : {}),
       createdByUserId: tournament.created_by_user_id,
       webSlug: tournament.web_slug ?? undefined,
       deadlineAt: tournament.deadline_at ?? undefined,
@@ -239,6 +243,8 @@ export async function DELETE(
     const { slug } = await params;
     const db = getDb();
 
+    const access = findTournamentReadAccess(db, slug, env.discordGuildId, actor.userId);
+    if (!access?.canRead) return NextResponse.json({ error: "Tournament not found" }, { status: 404 });
     const tournament = resolveTournamentBySlug(db, slug);
 
     if (!tournament) {
@@ -279,6 +285,8 @@ export async function PUT(
     const { slug } = await params;
     const db = getDb();
 
+    const access = findTournamentReadAccess(db, slug, env.discordGuildId, actor.userId);
+    if (!access?.canRead) return NextResponse.json({ error: "Tournament not found" }, { status: 404 });
     const tournament = resolveTournamentBySlug(db, slug);
 
     if (!tournament) {
@@ -414,6 +422,8 @@ export async function POST(
     const { slug } = await params;
     const db = getDb();
 
+    const access = findTournamentReadAccess(db, slug, env.discordGuildId, actor.userId);
+    if (!access?.canRead) return NextResponse.json({ error: "Tournament not found" }, { status: 404 });
     const tournament = resolveTournamentBySlug(db, slug);
 
     if (!tournament) {

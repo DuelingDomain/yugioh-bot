@@ -20,7 +20,7 @@ async function seedTournament(dbPath: string) {
   seedFixtureUsers(db, FIXTURE_KEYS);
   db.prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('g1', ${fixtureUserId("u-org")}, '${fixtureDiscordId("u-org")}', 'Org')`).run();
   const orgPlayerId = (db.prepare(`select id from players where user_id = ${fixtureUserId("u-org")}`).get() as any).id;
-  db.prepare(`insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug) values ('g1', 'My Tournament', 'round_robin', 'pending', ${fixtureUserId("u-org")}, 'slug-1')`).run();
+  db.prepare(`insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug, visibility) values ('g1', 'My Tournament', 'round_robin', 'pending', ${fixtureUserId("u-org")}, 'slug-1', 'open')`).run();
   const tId = (db.prepare("select id from tournaments where web_slug = 'slug-1'").get() as any).id;
   db.prepare("insert into tournament_participants (tournament_id, player_id) values (?, ?)").run(tId, orgPlayerId);
   db.close();

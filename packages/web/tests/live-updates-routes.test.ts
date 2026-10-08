@@ -232,6 +232,7 @@ describe("draft and tournament route broadcasts", () => {
 
   it("does not broadcast a failed start or an unauthorized edit", async () => {
     const { tournament } = fixture();
+    db.prepare("update tournaments set visibility = 'open' where id = ?").run(tournament.id);
     db.prepare("delete from tournament_participants where tournament_id = ?").run(tournament.id);
     const route = await import("../app/api/tournaments/[slug]/route");
     expect((await route.POST(request("POST"), tournamentCtx)).status).toBe(400);

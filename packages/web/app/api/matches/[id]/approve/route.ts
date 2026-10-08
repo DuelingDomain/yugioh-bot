@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { requireWebAccess } from "@/lib/web-access";
-import { createMatchService, createPlayerService } from "@yugidraft/shared/services";
+import { createMatchService, createPlayerService, findTournamentReadAccess } from "@yugidraft/shared/services";
 import { broadcaster, announcer } from "@/lib/notify";
 
 export const runtime = "nodejs";
@@ -34,6 +34,10 @@ export async function POST(
 
     if (!match) {
       return NextResponse.json({ error: "Match not found" }, { status: 404 });
+    }
+
+    if (match.tournament_id !== null && !findTournamentReadAccess(db, match.tournament_id, env.discordGuildId, actor.userId)?.canRead) {
+      return NextResponse.json({ error: "Tournament not found" }, { status: 404 });
     }
 
     const players = createPlayerService(db);

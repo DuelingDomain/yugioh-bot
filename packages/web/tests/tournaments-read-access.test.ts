@@ -46,7 +46,7 @@ describe("tournament read authorization", () => {
   it.each(["detail", "standings", "connection"] as const)("%s honors a denial from the shared access policy", async (kind) => {
     state.signedIn = true;
     const services = await import("@yugidraft/shared/services");
-    vi.spyOn(services, "findTournamentReadAccess").mockReturnValue({ id: 1, status: "pending", canRead: false });
+    vi.spyOn(services, "findTournamentReadAccess").mockReturnValue({ id: 1, status: "pending", visibility: "private", isParticipant: false, canRead: false, canJoin: false });
     expect((await get(kind, "cup")).status).toBe(404);
   });
   it("authenticates before touching an unavailable database", async () => {

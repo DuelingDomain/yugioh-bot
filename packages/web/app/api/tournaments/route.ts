@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireWebAccess } from "@/lib/web-access";
 import { env } from "@/lib/env";
-import { findTournamentListPage, InvalidListCursorError, createPlayerService, createTournamentService, TournamentDuelError } from "@yugidraft/shared/services";
+import { findTournamentListPage, InvalidListCursorError, createPlayerService, createTournamentService, TournamentDuelError, isTournamentVisibility } from "@yugidraft/shared/services";
 
 const VALID_FORMATS = ["round_robin", "single_elim"] as const;
 
@@ -27,6 +27,8 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json();
   const { name, format } = body as { name: string; format: string };
+  const visibility = body.visibility === undefined ? "private" : body.visibility;
+  if (!isTournamentVisibility(visibility)) return NextResponse.json({ error: "visibility must be open or private" }, { status: 400 });
 
   if (!name || !format) {
     return NextResponse.json(
@@ -96,6 +98,7 @@ export async function POST(request: NextRequest) {
       format as "round_robin" | "single_elim",
       actor.userId,
       {
+        visibility,
         deadlineAt: deadlineAt ?? null,
         reportConfirmWindowHours: reportConfirmWindowHours ?? null,
         bestOf: bestOf ?? undefined,
@@ -110,6 +113,7 @@ export async function POST(request: NextRequest) {
         name: tournament.name,
         format: tournament.format,
         status: tournament.status,
+        visibility: tournament.visibility,
         webSlug: tournament.webSlug,
       },
       { status: 201 }

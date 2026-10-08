@@ -6,14 +6,13 @@ import { RotateCw } from "lucide-react";
 import { SvButton } from "@/components/sheet";
 import { readInviteParam, redeemDraftInvite, signInHref, stripInviteParam, type RedeemResult } from "@/lib/draft-invite";
 import { DraftFrame } from "./draft-frame";
-import { DraftState } from "./draft-state";
 import styles from "./draft-state.module.css";
 
 type Phase =
   | { step: "checking" }
   | { step: "redeeming" }
   | { step: "ready" }
-  | { step: "failed"; result: Exclude<RedeemResult, { kind: "ok" } | { kind: "unauthorized" }> };
+  | { step: "failed"; result: Exclude<RedeemResult, { kind: "ok" } | { kind: "unauthorized" } | { kind: "not-found" }> };
 
 /**
  * The `?invite=` landing of /draft/[slug]. It runs before anything protected loads:
@@ -25,8 +24,8 @@ type Phase =
  * 4. Mount the page, which reads the draft and shows the lobby. Redeeming does not take a seat; the lobby offers Join
  *    when the server says `canJoin`.
  *
- * A wrong, reset or unknown code is the same "Draft not found" as a missing draft. Too many tries (429) stops and
- * offers a manual retry: nothing here retries by itself. An address without `invite` mounts the page on the next tick.
+ * A wrong, reset or unknown code is removed too, then the page fetch checks existing access and gives its own
+ * generic 404 when needed. Too many tries (429) stops and offers a manual retry: nothing here retries by itself. An address without `invite` mounts the page on the next tick.
  */
 export function DraftInviteGate({ slug, children }: { slug: string; children: React.ReactNode }) {
   const router = useRouter();
@@ -47,7 +46,7 @@ export function DraftInviteGate({ slug, children }: { slug: string; children: Re
     setPhase({ step: "redeeming" });
     void redeemDraftInvite(slug, code).then((result) => {
       if (!live) return;
-      if (result.kind === "ok") {
+      if (result.kind === "ok" || result.kind === "not-found") {
         stripInviteParam();
         setPhase({ step: "ready" });
       } else if (result.kind === "unauthorized") {
@@ -64,7 +63,6 @@ export function DraftInviteGate({ slug, children }: { slug: string; children: Re
 
   if (phase.step === "ready") return <>{children}</>;
   if (phase.step === "failed") {
-    if (phase.result.kind === "not-found") return <DraftState slug={slug} error={{ status: 404 }} onRetry={() => {}} />;
     const limited = phase.result.kind === "rate-limited";
     const wait = phase.result.kind === "rate-limited" ? phase.result.retryAfter : null;
     return (

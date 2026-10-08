@@ -12,7 +12,7 @@ import styles from "@/components/dashboard/dashboard.module.css";
 import { auth } from "@/lib/auth";
 import { parseUserId } from "@/lib/user-id";
 import { getDb } from "@/lib/db";
-import { createScoringService } from "@yugidraft/shared/services";
+import { createScoringService, findTournamentDashboardSummaries } from "@yugidraft/shared/services";
 import { rankForRating } from "@yugidraft/shared/scoring";
 import { RejoinDraftBanner } from "@/components/draft/rejoin-draft";
 import { findRejoinDrafts } from "@/lib/rejoin-drafts";
@@ -37,7 +37,7 @@ export default async function DashboardPage() {
     .all(userId, env.discordGuildId) as Array<{ id: number; guild_id: string }>;
   const playerIds = playerRows.map((r) => r.id);
 
-  let tournaments: DashboardTournament[] = [];
+  const tournaments: DashboardTournament[] = findTournamentDashboardSummaries(db, env.discordGuildId, userId);
   let drafts: DashboardDraft[] = [];
   let stats: Stats = { wins: 0, losses: 0 };
 
@@ -63,30 +63,6 @@ export default async function DashboardPage() {
     }
 
     const ph = playerIds.map(() => "?").join(",");
-
-    // Dashboard summaries show at most 10 current entries; full lists live on their own pages.
-    tournaments = db
-      .prepare(
-        `select t.id, t.guild_id, t.name, t.format, t.status, t.web_slug,
-           count(tp2.player_id) as participant_count
-         from tournaments t
-         inner join tournament_participants tp on tp.tournament_id = t.id
-         left join tournament_participants tp2 on tp2.tournament_id = t.id
-         where t.guild_id = ? and tp.player_id in (${ph}) and t.status in ('pending', 'active')
-         group by t.id
-         order by case t.status when 'active' then 0 else 1 end, t.created_at desc, t.id desc
-         limit 10`
-      )
-      .all(env.discordGuildId, ...playerIds)
-      .map((row: any) => ({
-        id: row.id,
-        guildId: row.guild_id,
-        name: row.name,
-        format: row.format,
-        status: row.status,
-        webSlug: row.web_slug ?? undefined,
-        participantCount: row.participant_count,
-      }));
 
     drafts = db
       .prepare(
@@ -141,7 +117,7 @@ export default async function DashboardPage() {
 
   const hasPlayer = playerIds.length > 0;
   // A new player: no player row yet, or a row (the sidebar's first poll creates one) with nothing played or joined.
-  const isNewPlayer = !hasPlayer || (tournaments.length === 0 && drafts.length === 0 && stats.wins + stats.losses === 0);
+  const isNewPlayer = tournaments.length === 0 && drafts.length === 0 && stats.wins + stats.losses === 0;
   const rounds = loadTournamentRounds(db, env.discordGuildId, tournaments);
   const viewerId = playerIds[0] ?? null;
   const rejoin = hasPlayer ? findRejoinDrafts(db, env.discordGuildId, userId) : [];

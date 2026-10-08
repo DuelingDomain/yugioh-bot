@@ -12,6 +12,7 @@ import {
   createCardLookupBudget,
   createDraftService,
   findDraftReadAccess,
+  findTournamentReadAccess,
   DraftLobbyServiceError,
   createSavedDeckService,
   MAX_COPIES_PER_PLAYER,
@@ -360,7 +361,7 @@ export async function buildDraftResponse(slug: string, actor: { userId: number; 
     : null;
 
   // The tournament made from this draft, so the finale and results can link straight to it.
-  const tournament = draft.tournament_id != null
+  const tournament = draft.tournament_id != null && findTournamentReadAccess(db, draft.tournament_id, draft.guild_id, userId)?.canRead
     ? degrade(slug, "tournament lookup", null as { name: string; webSlug: string | null } | null, () => {
         const row = db.prepare("select name, web_slug from tournaments where id = ? and guild_id = ?").get(draft.tournament_id, draft.guild_id) as
           | { name: string; web_slug: string | null }
@@ -391,7 +392,7 @@ export async function buildDraftResponse(slug: string, actor: { userId: number; 
     startedAt: toUtcIso(draft.started_at),
     endedAt: toUtcIso(draft.ended_at),
     playerCount: draft.player_count,
-    tournamentId: draft.tournament_id ?? null,
+    tournamentId: tournament ? draft.tournament_id : null,
     tournamentName: tournament?.name ?? null,
     tournamentSlug: tournament?.webSlug ?? null,
     canCreateTournament,

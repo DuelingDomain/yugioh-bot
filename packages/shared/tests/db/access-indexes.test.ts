@@ -15,6 +15,7 @@ describe("access and list indexes", () => {
     expect(indexes()).toEqual(expect.arrayContaining([
       "drafts_web_slug_unique", "draft_players_player_idx", "tournament_participants_player_idx",
       "drafts_guild_status_created_idx", "tournaments_guild_status_created_idx", "players_user_idx",
+      "tournaments_invite_code_unique", "sqlite_autoindex_tournament_invite_grants_1",
     ]));
     expect(() => addDraft("unique-slug", "Duplicate")).toThrow(/unique/i);
     const playerIndexes = db.pragma("index_list(players)") as { name: string; unique: number }[];

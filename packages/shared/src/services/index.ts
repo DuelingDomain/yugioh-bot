@@ -33,6 +33,7 @@ export * from "../scoring/rank.js";
 export * from "../scoring/achievements.js";
 export { createDuelService, DuelServiceError, DUEL_LIVE_IDLE_AFTER_MS } from "./duels.js";
 export type { DuelService, DuelPrivateState, DuelFinalSnapshots } from "./duels.js";
+export { redactDuelTournamentMetadata } from "./duel-tournament-metadata.js";
 export {
   buildDraftDeck,
   createDraftDeckService,
@@ -63,3 +64,5 @@ export type { WaitlistService, WaitlistMeta } from "./waitlist.js";
 export * from "./image-cache-cleanup.js";
 export * from "./tournament-access.js";
 export * from "./paged-lists.js";
+
+export { createTournamentVisibilityService, TournamentVisibilityServiceError, isTournamentVisibility } from "./tournament-visibility.js";

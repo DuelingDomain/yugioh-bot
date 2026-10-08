@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import type { DraftConfig } from "../types/index.js";
+import type { DraftConfig, TournamentVisibility } from "../types/index.js";
 import type { TournamentFormat } from "./tournaments.js";
 import { generateWebSlug } from "../util/web-slug.js";
 import { createDraftDeckService } from "./draft-decks.js";
@@ -36,7 +36,7 @@ export function createDraftTournamentService(db: Database.Database) {
 
       const draft = db
         .prepare(
-          "select id, guild_id, channel_id, name, status, created_by_user_id, tournament_id, config_json from drafts where id = ?",
+          "select id, guild_id, channel_id, name, status, created_by_user_id, tournament_id, config_json, visibility from drafts where id = ?",
         )
         .get(input.draftId) as
         | {
@@ -48,6 +48,7 @@ export function createDraftTournamentService(db: Database.Database) {
             created_by_user_id: number;
             tournament_id: number | null;
             config_json: string;
+            visibility: TournamentVisibility;
           }
         | undefined;
 
@@ -78,10 +79,10 @@ export function createDraftTournamentService(db: Database.Database) {
       const result = db.transaction(() => {
         const insertResult = db
           .prepare(
-            `insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug, best_of)
-             values (?, ?, ?, 'pending', ?, ?, ?)`,
+            `insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug, best_of, visibility)
+             values (?, ?, ?, 'pending', ?, ?, ?, ?)`,
           )
-          .run(draft.guild_id, draft.name, input.format, input.createdByUserId, generateWebSlug(), bestOf);
+          .run(draft.guild_id, draft.name, input.format, input.createdByUserId, generateWebSlug(), bestOf, draft.visibility);
 
         const tournamentId = Number(insertResult.lastInsertRowid);
 

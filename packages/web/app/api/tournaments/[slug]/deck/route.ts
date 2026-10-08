@@ -3,6 +3,8 @@ import { checkDeckAgainstPool } from "@yugidraft/shared/duels";
 import type { DuelDeck, DuelDeckValidation } from "@yugidraft/shared/duels";
 import {
   createPlayerService,
+  findTournamentReadAccess,
+  findDraftReadAccess,
   createSavedDeckService,
   createTournamentDuelService,
   SavedDeckServiceError,
@@ -33,6 +35,8 @@ async function loadCaller(slug: string) {
   const actor = await requireWebAccess();
   if (!actor.ok) return actor;
   const db = getDb();
+  const access = findTournamentReadAccess(db, slug, env.discordGuildId, actor.userId);
+  if (!access?.canRead) return { ok: false as const, response: NextResponse.json({ error: "Tournament not found" }, { status: 404 }) };
   const tournament = db.prepare("select id, guild_id from tournaments where web_slug = ? and guild_id = ?").get(slug, env.discordGuildId) as
     | TournamentRow
     | undefined;
@@ -81,7 +85,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
       const row = db.prepare("select web_slug from drafts where id = ? and guild_id = ?").get(rules.draftId, tournament.guild_id) as
         | { web_slug: string | null }
         | undefined;
-      draft = row?.web_slug ? { id: rules.draftId, slug: row.web_slug } : null;
+      draft = row?.web_slug && findDraftReadAccess(db, rules.draftId, tournament.guild_id, userId)?.canRead ? { id: rules.draftId, slug: row.web_slug } : null;
     }
 
     const deckNote =

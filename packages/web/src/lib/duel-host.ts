@@ -3,6 +3,7 @@ import { httpTransport } from "@yugidraft/shared/notify";
 import {
   createDuelService,
   createPlayerService,
+  redactDuelTournamentMetadata,
   DuelServiceError,
   SavedDeckServiceError,
   TournamentDuelError,
@@ -163,7 +164,8 @@ export async function callDuelHost(input: {
     return { ok: false, response: NextResponse.json({ error: "Empty engine response" }, { status: 502 }) };
   }
   try {
-    return { ok: true, data: JSON.parse(result.text) as unknown };
+    const data: unknown = JSON.parse(result.text);
+    return { ok: true, data: redactDuelTournamentMetadata(getDb, data, input.guildId, input.playerId) };
   } catch {
     return { ok: false, response: NextResponse.json({ error: "Invalid engine response" }, { status: 502 }) };
   }

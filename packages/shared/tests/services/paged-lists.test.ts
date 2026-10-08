@@ -1,7 +1,8 @@
+import { writeFileSync } from "node:fs";
 import Database from "better-sqlite3";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "../../src/db/schema.js";
-import { findDraftListPage, findTournamentListPage, findDraftListStatusCounts, findTournamentListStatusCounts, InvalidListCursorError } from "../../src/services/index.js";
+import { findDraftListPage, findTournamentDashboardSummaries, findTournamentListPage, findDraftListStatusCounts, findTournamentListStatusCounts, InvalidListCursorError } from "../../src/services/index.js";
 let db: Database.Database;
 beforeEach(() => {
   db = new Database(":memory:"); migrate(db);
@@ -85,13 +86,51 @@ describe("full-list status counts", () => {
   });
   it("counts all 39 listed tournaments without requiring a participant seat", () => {
     db.exec("insert into tournaments(guild_id,name,format,status,created_by_user_id) values('other-guild','Other guild','round_robin','active',101)");
-    expect(findTournamentListStatusCounts(db, "g")).toEqual({ active: 13, pending: 13, completed: 13, cancelled: 0 });
-    expect(findTournamentListStatusCounts(db, "other-guild")).toEqual({ active: 1, pending: 0, completed: 0, cancelled: 0 });
+    expect(findTournamentListStatusCounts(db, "g", 101)).toEqual({ active: 13, pending: 13, completed: 13, cancelled: 0 });
+    expect(findTournamentListStatusCounts(db, "other-guild", 101)).toEqual({ active: 1, pending: 0, completed: 0, cancelled: 0 });
   });
   it("returns zero counts when the viewer or guild has no visible rows", () => {
     const empty = { active: 0, pending: 0, completed: 0, cancelled: 0 };
     expect(findDraftListStatusCounts(db, "g", 102)).toEqual(empty);
     expect(findDraftListStatusCounts(db, "missing", 101)).toEqual(empty);
-    expect(findTournamentListStatusCounts(db, "missing")).toEqual(empty);
+    expect(findTournamentListStatusCounts(db, "missing", 101)).toEqual(empty);
   });
+});
+
+it("shares creator, participant, grant and open scope for tournament lists and counts", () => {
+  db.exec("update tournaments set created_by_user_id=102; insert into tournament_invite_grants(tournament_id,user_id) values(1,101); update tournaments set created_by_user_id=101 where id=2; update tournaments set visibility='open' where id=3");
+  expect(findTournamentListPage(db,"g",101).items.map(r=>r.id)).toEqual([13,3,2,1]);
+  expect(findTournamentListStatusCounts(db,"g",101)).toEqual({active:4,pending:0,completed:0,cancelled:0});
+  db.exec("insert into tournament_participants(tournament_id,player_id) values(4,2)");
+  expect(findTournamentListPage(db,"g",101).items.map(r=>r.id)).toEqual([13,3,2,1]);
+});
+
+it("scopes dashboard summaries before its limit, including users without player rows", () => {
+  db.exec("insert into users(id,username,display_name) values(103,'noplayer','No player'); update tournaments set created_by_user_id=102; update tournaments set visibility='open' where id=1; update tournaments set created_by_user_id=103 where id=2; insert into tournament_invite_grants(tournament_id,user_id) values(3,103)");
+  expect(findTournamentDashboardSummaries(db,"g",103).map(t=>t.id)).toEqual([3,2,1]);
+  expect(findTournamentDashboardSummaries(db,"other",103)).toEqual([]);
+});
+
+it("uses indexed guild, membership and grant searches for the real list and count SQL", () => {
+  const original = db.prepare.bind(db);
+  const queries: string[] = [];
+  const spy=vi.spyOn(db,"prepare").mockImplementation(sql => {
+    queries.push(sql);
+    return original(sql);
+  });
+  findTournamentListPage(db,"g",101);
+  findTournamentListStatusCounts(db,"g",101);
+  spy.mockRestore();
+  expect(queries).toHaveLength(2);
+  const plans: {kind:string;plan:{detail:string}[]}[]=[];
+  for (const sql of queries) {
+    expect(sql).toContain("from tournaments t");
+    const parameters=sql.includes("@rank") ? {guild:"g",user:101,rank:null,created:null,id:null,limit:26} : {guild:"g",user:101};
+    const plan=original("explain query plan "+sql).all(parameters) as {detail:string}[];
+    expect(plan.some(row=>row.detail.includes("SEARCH t USING INDEX tournaments_guild_status_created_idx"))).toBe(true);
+    expect(plan.some(row=>/SEARCH g USING COVERING INDEX/.test(row.detail))).toBe(true);
+    expect(plan.some(row=>/SCAN (t|tp|p|g)\b/.test(row.detail))).toBe(false);
+    plans.push({kind:sql.includes("@rank") ? "list" : "count",plan});
+  }
+  if (process.env.TOURNAMENT_EXPLAIN_PATH) writeFileSync(process.env.TOURNAMENT_EXPLAIN_PATH,JSON.stringify(plans,null,2));
 });

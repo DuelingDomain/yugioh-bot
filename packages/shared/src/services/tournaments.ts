@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import type { Tournament as BaseTournament, TournamentMatch, TournamentPlayer } from "../types/index.js";
+import type { Tournament as BaseTournament, TournamentMatch, TournamentPlayer, TournamentVisibility } from "../types/index.js";
 import type { DuelBestOf } from "../duels/index.js";
 import type { Match } from "./matches.js";
 import { createScoringService } from "./scoring.js";
@@ -38,6 +38,7 @@ function mapTournament(row: any): Tournament {
     name: row.name,
     format: row.format,
     status: row.status,
+    visibility: row.visibility,
     createdByUserId: row.created_by_user_id,
     webSlug: row.web_slug ?? undefined,
     deadlineAt: row.deadline_at ?? undefined,
@@ -354,6 +355,7 @@ export function createTournamentService(db: Database.Database) {
       format: TournamentFormat,
       createdByUserId: number,
       options?: {
+        visibility?: TournamentVisibility;
         deadlineAt?: string | null;
         reportConfirmWindowHours?: number | null;
         /** Games per pairing; default 3. */
@@ -363,6 +365,8 @@ export function createTournamentService(db: Database.Database) {
       },
     ): Tournament {
       assertFormat(format);
+      const visibility = options?.visibility ?? "private";
+      if (visibility !== "open" && visibility !== "private") throw new Error("visibility must be open or private");
       validateWindow(options?.reportConfirmWindowHours);
       const bestOf = options?.bestOf ?? 3;
       assertBestOf(bestOf);
@@ -386,8 +390,8 @@ export function createTournamentService(db: Database.Database) {
 
       const insert = db.prepare(
         `
-          insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug, deadline_at, report_confirm_window_hours, best_of, duel_rules_json)
-          values (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)
+          insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug, deadline_at, report_confirm_window_hours, best_of, duel_rules_json, visibility)
+          values (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)
         `,
       );
 
@@ -404,6 +408,7 @@ export function createTournamentService(db: Database.Database) {
             options?.reportConfirmWindowHours ?? null,
             bestOf,
             duelRulesJson,
+            visibility,
           );
           break;
         } catch (err: any) {

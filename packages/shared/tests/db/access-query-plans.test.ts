@@ -31,7 +31,7 @@ it("uses lookup indexes for the actual list, draft access and open-now queries",
     label = "draft list"; findDraftListPage(db,"g",101);
     label = "tournament list"; findTournamentListPage(db,"g",101);
     label = "draft counts"; findDraftListStatusCounts(db,"g",101);
-    label = "tournament counts"; findTournamentListStatusCounts(db,"g");
+    label = "tournament counts"; findTournamentListStatusCounts(db,"g",101);
     label = "draft access"; findDraftReadAccess(db,"draft","g",101);
     label = "open now"; createOpenNowService(db).forPlayer("g",1);
     spy.mockRestore();
