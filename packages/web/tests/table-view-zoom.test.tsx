@@ -574,7 +574,8 @@ describe("own field zoom: the counter-scaled hand", () => {
     act(() => api!.zoomTo(ZOOMED, 0));
     act(() => api!.zoomTo(VIEW_IDENTITY, 0));
     expect(getByTestId("layer").style.transform).toBe("");
-    expect(["", "none"]).toContain(getByTestId("hand").style.transform.replace(/translate\(0px, 0px\) scale\(1\)/, "") || "");
+    expect(getByTestId("hand").style.transform).toBe("");
+    expect(getByTestId("hand").style.transformOrigin).toBe("");
   });
 
   it("measures the hand again after a resize", () => {

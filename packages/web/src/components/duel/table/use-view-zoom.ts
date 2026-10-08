@@ -134,6 +134,15 @@ const sizeOf = (node: HTMLElement) => ({ width: node.clientWidth, height: node.c
  * only after it moves past the threshold, and the click that ends a pan is dropped, so one press never is both.
  * The layer transform is written to the DOM on every frame; React sees the view only when it comes to rest.
  */
+/** The fixed nodes stand at their own place again: no counter transform or origin stays on them, and no origin is kept. */
+function releaseFixed(state: { origins: Map<Element, Point> }) {
+  for (const node of state.origins.keys()) {
+    (node as HTMLElement).style.transform = "";
+    (node as HTMLElement).style.transformOrigin = "";
+  }
+  state.origins.clear();
+}
+
 export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKey, frame = FLAT_FRAME, occluders = VIEW_OCCLUDERS, fixed }: UseViewZoomOptions): UseViewZoom {
   const [rest, setRest] = useState<View>(VIEW_IDENTITY);
   // `held`: the box and the HUD insets a gesture (a drag, a pinch, a wheel run) reads at its start and keeps.
@@ -172,8 +181,7 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
     if (!layer) return;
     for (const node of Array.from(state.origins.keys())) if (!node.isConnected) state.origins.delete(node);
     if (!fixedSelector.current) {
-      for (const node of state.origins.keys()) (node as HTMLElement).style.transform = "";
-      state.origins.clear();
+      releaseFixed(state);
       return;
     }
     for (const node of Array.from(layer.querySelectorAll<HTMLElement>(fixedSelector.current))) {
@@ -232,7 +240,7 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
     state.anim = null;
     write(true);
     // At the identity view the nodes stand at their 1x places: the next move measures them again (a resize or a new hand moved them).
-    if (isIdentity(state.current)) state.origins.clear();
+    if (isIdentity(state.current)) releaseFixed(state);
     const at = state.current;
     setRest((prev) => (viewsClose(prev, at) ? prev : at));
   }, [write]);
