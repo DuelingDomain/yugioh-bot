@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DuelAnswer, DuelPromptOption } from "@yugidraft/shared/duels";
+import { zoneKey } from "../constants";
 import { targetName } from "../card-interactions";
 import { isAttackDuelistPrompt, isAttackTargetPrompt, optionsForKeys, optionZoneKeys, type PromptAim } from "../prompts";
 import type { AimArrowProps, AimPointerSpot } from "./aim-arrow";
+import { aimPromptFor, aimTargetOf } from "./attack-aim";
 import { isOutOrLeaving } from "../multi-seat";
 import { seatBehindBoard } from "./seat-at-point";
 import { targetChoices } from "./targets";
@@ -18,6 +20,9 @@ import type { BattleAim, DuelActivateHandler, SeatPick, SeatTone, TableControlle
  * snaps to it. One click on it sends the answer at once. Esc or a right click cancels (the prompt panel does that).
  * Keyboard flow: hover or focus aims, Enter on a card or LP panel locks the aim, a second Enter, the Attack button
  * or the number keys send it; Esc lets go. The camera never moves by itself.
+ * The same flow runs before an attack is sent (`base.attackAim`, see attack-aim.ts): the targets are then the rival
+ * monsters and (for a direct attack) the rival seats, a click on one sends the attack, and Esc or a right click drops it.
+ * The core is never left to pick the target: it skips its own step when only one rival can be hit directly.
  * A direct attack (a choice with a seat and no zone) works the same through a seat pick on the LP panels.
  * A room that owns its own aim state leaves this hook out and passes its controller to the stage as is.
  */
@@ -34,6 +39,8 @@ export interface AimBar {
   title: string;
   entries: AimBarEntry[];
   targetLabel?: string;
+  /** The bar shows Cancel even with no locked aim: the aim before the attack is sent has no other way out on touch. */
+  cancelable?: boolean;
 }
 
 interface Lock {
@@ -57,9 +64,13 @@ export interface AimFlow {
   pointed: { zoneKey: string | null; lpSeat: number | null; label: string; optionId: string } | null;
   /** Props of the pointer aim arrow, or null: no attack target is open, there is no mouse cursor, or an aim is locked. */
   arrow: AimArrowProps | null;
+  /** Seats of the legal targets of the attack being aimed (before it is sent, or at the core's own target step); empty when none. */
+  aimSeats: readonly number[];
   confirm: () => void;
   cancel: () => void;
 }
+
+const NO_SEATS: readonly number[] = [];
 
 const sameTo = (a: BattleAim["to"] | null, b: BattleAim["to"] | null): boolean =>
   a === b || (a != null && b != null && (a.zones ?? []).join(" ") === (b.zones ?? []).join(" ") && (a.lpSeat ?? null) === (b.lpSeat ?? null));
@@ -85,7 +96,10 @@ export interface AimFlowOptions {
 }
 
 export function useAimFlow(base: TableController, layout: TableLayout, root: { current: HTMLElement | null }, options: AimFlowOptions = {}): AimFlow {
-  const { prompt, engine, viewerSeat, canAct, nameOf, onAnswer } = base;
+  const { prompt: realPrompt, engine, viewerSeat, canAct, nameOf, onAnswer } = base;
+  const pre = base.attackAim ?? null;
+  // Before the attack is sent, the aim runs on a prompt made from the board: the same code aims, locks and sends.
+  const prompt = useMemo(() => (pre && realPrompt ? aimPromptFor(realPrompt, engine, viewerSeat, pre.direct, pre.targets) : realPrompt), [engine, pre, realPrompt, viewerSeat]);
   const promptId = prompt?.id ?? null;
   const attackerKey = base.aim?.from ?? null;
   const attackTarget = canAct && isAttackTargetPrompt(prompt, attackerKey != null);
@@ -122,6 +136,19 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
     (optionId: string): DuelAnswer => (prompt?.kind === "choice" ? { choice: optionId } : { selected: [optionId] }),
     [prompt?.kind],
   );
+  /** The target is chosen: send the answer, or (before the attack is sent) send the attack with that target. */
+  const submitPick = useCallback(
+    (optionId: string) => {
+      if (!pre) {
+        onAnswer(answerFor(optionId));
+        return;
+      }
+      const option = prompt?.options.find((entry) => entry.id === optionId);
+      const target = option ? aimTargetOf(option) : null;
+      if (target) pre.send(target);
+    },
+    [answerFor, onAnswer, pre, prompt?.options],
+  );
 
   // Direct attack: a choice that names a seat and no zone, with no opponent pick behind it.
   const direct = useMemo(() => {
@@ -151,6 +178,8 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
         const keys = target.closest("[data-zones]")?.getAttribute("data-zones")?.split(" ") ?? [];
         const key = keys.find((entry) => targets.has(entry));
         if (key) return { optionId: targets.get(key)!.id, to: { zones: [key] } };
+        // A monster that is not a legal target is never a direct attack on its seat, even when that seat may be hit directly.
+        if (pre && keys.some((entry) => engine.seats.some((view) => view.monsters.some((card) => card != null && zoneKey(card.controller, card.location, card.sequence) === entry)))) return null;
       }
       if (direct) {
         // Empty mat takes no pointer (field.module.css): the target is then the zoom layer, and the seat is found from the
@@ -165,7 +194,7 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
       }
       return null;
     },
-    [attackTarget, direct, root, targets],
+    [attackTarget, direct, engine.seats, pre, root, targets],
   );
   const resolveRef = useRef(resolve);
   resolveRef.current = resolve;
@@ -175,10 +204,8 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
   const confirm = useCallback(() => {
     if (!live) return;
     setLock(null);
-    onAnswer(answerFor(live.optionId));
-  }, [answerFor, live, onAnswer]);
-  const cancel = useCallback(() => setLock(null), []);
-
+    submitPick(live.optionId);
+  }, [live, submitPick]);
   const lockTo = useCallback(
     (optionId: string, to: NonNullable<BattleAim["to"]>, label: string) => {
       if (!promptId) return;
@@ -257,8 +284,10 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
   }, [attackTarget, live, root, targets]);
 
   // The mouse cursor drives the arrow: the board under it is the target, and one click on a legal target sends.
-  const answerRef = useRef({ answerFor, onAnswer, busy: base.busy });
-  answerRef.current = { answerFor, onAnswer, busy: base.busy };
+  const answerRef = useRef({ submitPick, busy: base.busy });
+  answerRef.current = { submitPick, busy: base.busy };
+  const preRef = useRef(pre);
+  preRef.current = pre;
   const suspendedNow = options.suspended === true;
   const suspendedFlag = useRef(suspendedNow);
   suspendedFlag.current = suspendedNow;
@@ -315,15 +344,24 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
       sentFor.current = promptId;
       setLock(null);
       setHover(null);
-      answerRef.current.onAnswer(answerRef.current.answerFor(hit.optionId));
+      answerRef.current.submitPick(hit.optionId);
+    };
+    // A right click drops the aim that came before the attack (the prompt panel does it for the core's own target step).
+    const onContext = (event: MouseEvent) => {
+      if (!preRef.current || suspendedFlag.current) return;
+      event.preventDefault();
+      if (liveRef.current) setLock(null);
+      else preRef.current.cancel();
     };
     window.addEventListener("pointerdown", onDown, { capture: true, passive: true });
     window.addEventListener("pointermove", onMove, { passive: true });
     window.addEventListener("click", onClick, true);
+    window.addEventListener("contextmenu", onContext, true);
     return () => {
       window.removeEventListener("pointerdown", onDown, true);
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("click", onClick, true);
+      window.removeEventListener("contextmenu", onContext, true);
     };
   }, [aimActive, promptId]);
 
@@ -341,6 +379,11 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
   pickRef.current = seatPick;
   orderRef.current = rivalOrder;
   liveRef.current = live;
+  // Cancel lets go of a locked aim first; with none locked it ends the aim that came before the attack (the Cancel button, for touch).
+  const cancel = useCallback(() => {
+    if (liveRef.current) setLock(null);
+    else preRef.current?.cancel();
+  }, []);
   suspendedRef.current = options.suspended === true;
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -358,6 +401,9 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
       if (event.key === "Escape" && liveRef.current) {
         event.preventDefault();
         setLock(null);
+      } else if (event.key === "Escape" && preRef.current) {
+        event.preventDefault();
+        preRef.current.cancel();
       } else if (event.key === "Enter" && liveRef.current && !(target?.closest && target.closest("button,a,summary"))) {
         event.preventDefault();
         confirm();
@@ -399,13 +445,15 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
     };
   }, [aimActive, attackerKey, hasMouse, hover, layout.slots, live, nameOf, targets]);
 
+  const aimHint = touchMode ? "Tap a target, then tap again to attack." : "Click a target to attack. Esc to cancel.";
   const bar = useMemo<AimBar | null>(() => {
     const toneOf = (seat: number) => layout.slots.find((slot) => slot.seat === seat)?.tone ?? "ice";
     if (attackTarget && live?.to.zones?.length) return { kind: "confirm", title: "Attack target", entries: [], targetLabel: `Attack ${live.label}?` };
     if (direct) {
       return {
         kind: "direct",
-        title: prompt?.title ?? "Select a duelist to attack",
+        title: pre ? aimHint : (prompt?.title ?? "Select a duelist to attack"),
+        ...(pre ? { cancelable: true } : {}),
         entries: rivalOrder.map((seat, index) => ({
           seat,
           name: nameOf(seat),
@@ -416,11 +464,13 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
       };
     }
     if (attackTarget && live) return { kind: "confirm", title: "Attack target", entries: [], targetLabel: `Attack ${live.label}?` };
+    if (pre) return { kind: "direct", title: aimHint, entries: [], cancelable: true };
     return null;
-  }, [attackTarget, direct, layout.slots, live, nameOf, prompt?.title, rivalOrder]);
+  }, [aimHint, attackTarget, direct, layout.slots, live, nameOf, pre, prompt?.title, rivalOrder]);
 
   const promptAim = useMemo<PromptAim | null>(() => {
-    if (!attackTarget) return null;
+    // Before the attack is sent there is no panel pick: the bar carries the words.
+    if (!attackTarget || pre) return null;
     return {
       // Esc only where the engine lets the pick be cancelled: a forced attack has no way back.
       hint: touchMode ? "Tap a target, then tap again to attack." : prompt?.cancelable ? "Click a target to attack. Esc to cancel." : "Click a target to attack.",
@@ -438,11 +488,19 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
         setHover(key ? { zones: [key] } : option?.controller != null && direct?.get(option.controller) === option.id ? { lpSeat: option.controller } : null);
       },
     };
-  }, [attackTarget, confirm, direct, live, lockTo, prompt?.cancelable, touchMode]);
+  }, [attackTarget, confirm, direct, live, lockTo, pre, prompt?.cancelable, touchMode]);
 
+  // Before the attack is sent, the rival monsters light up as the legal targets (the real prompt only knows the attacker).
+  const aimSeats = useMemo(() => {
+    if (!aimActive || !prompt) return NO_SEATS;
+    const seats = new Set<number>();
+    for (const option of prompt.options) if (option.controller != null && option.controller !== viewerSeat) seats.add(option.controller);
+    return [...seats].sort((a, b) => a - b);
+  }, [aimActive, prompt, viewerSeat]);
+  const preKeys = useMemo(() => (pre && attackTarget ? new Set(targets.keys()) : null), [attackTarget, pre, targets]);
   const controller = useMemo<TableController>(
-    () => ({ ...base, aim, seatPick, onActivate, onAim }),
-    [aim, base, onActivate, onAim, seatPick],
+    () => ({ ...base, aim, seatPick, onActivate, onAim, ...(preKeys ? { legalKeys: preKeys } : {}) }),
+    [aim, base, onActivate, onAim, preKeys, seatPick],
   );
 
   return {
@@ -453,6 +511,7 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
     promptAim,
     seatKeys: seatPick != null,
     arrow,
+    aimSeats,
     pointed: live ? { zoneKey: live.to.zones?.[0] ?? null, lpSeat: live.to.lpSeat ?? null, label: live.label, optionId: live.optionId } : null,
     confirm,
     cancel,

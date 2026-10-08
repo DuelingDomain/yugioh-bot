@@ -274,12 +274,14 @@ const DEFENSE_ROWS = [
   [C.redEyes, C.gaia, C.cyberDragon, C.sangan, C.blackChaos],
 ] as const;
 
-export type Ffa3PreviewPick = "def" | "cards" | "cards2";
+export type Ffa3PreviewPick = "def" | "cards" | "cards2" | "attack" | "attack-direct" | "attack-listed";
 
 /**
  * A preview variant of the 3-way fixtures: `out` sweeps those seats (as the engine does: no LP, an empty board, the
  * elimination order); `defense` lays Defense Position monsters on every field; `pick: "def"` asks you to pick one monster
  * on any field (yours included), so the turned cards are the targets; `pick: "cards"` asks for one of 14 Deck cards (`"cards2"`: one of 2).
+ * `pick: "attack"` is the battle action prompt (click your
+ * monster, aim, click a target); `"attack-direct"` is the same with the first living rival's monsters gone (a direct attack).
  */
 export function ffa3Variant(set: TableFixtureSet, opts: { out: readonly number[]; defense?: boolean; pick?: Ffa3PreviewPick | null }): TableFixtureSet {
   if (opts.out.length === 0 && !opts.defense && !opts.pick) return set;
@@ -303,6 +305,31 @@ export function ffa3Variant(set: TableFixtureSet, opts: { out: readonly number[]
         }
       }
       let prompt = engine.prompt;
+      if ((opts.pick === "attack" || opts.pick === "attack-direct" || opts.pick === "attack-listed") && state.room.mySeat === REN) {
+        const direct = opts.pick === "attack-direct";
+        const listed = opts.pick === "attack-listed";
+        // The engine's list: the first rival holds monsters and may still be hit directly; the other rival's monsters cannot be attacked.
+        const rivals = seats.filter((view) => view.seat !== REN && !view.eliminated);
+        const attackTargets = {
+          monsters: (rivals[0]?.monsters ?? []).flatMap((card) => (card ? [{ controller: card.controller, location: card.location, sequence: card.sequence }] : [])),
+          direct: rivals[0] ? [rivals[0].seat] : [],
+        };
+        if (direct) {
+          const open = seats.find((view) => view.seat !== REN && !view.eliminated);
+          if (open) open.monsters = open.monsters.map(() => null);
+        }
+        prompt = {
+          id: "attack-action",
+          seat: REN,
+          kind: "choice",
+          title: "Battle Phase",
+          context: { type: "action", phase: "battle" },
+          options: [
+            { id: "attack:0", label: direct || listed ? "Attack directly with Dark Magician" : "Attack with Dark Magician", controller: REN, location: LOCATION_MZONE, sequence: 0, ...(listed ? { attackTargets } : {}) },
+            { id: "to_ep", label: "End Phase" },
+          ],
+        };
+      }
       if (opts.pick === "def" && state.room.mySeat === REN) {
         const options = seats.flatMap((view) =>
           view.eliminated ? [] : view.monsters.flatMap((card, sequence) => (card && sequence < 5 ? [monsterOption(view.seat, sequence, card.name ?? "Monster")] : [])),
