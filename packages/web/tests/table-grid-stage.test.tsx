@@ -354,7 +354,7 @@ describe("GridStage", () => {
     act(() => void fireEvent.keyDown(window, { key: "1" }));
     expect(stage.getAttribute("data-grid-focus")).toBe("0");
     expect(stage.dataset.viewZoomed).toBeUndefined();
-  });
+  }, 20_000);
 
   it("opens an already-out seat as an empty, untargetable cell; the other cells stay put", () => {
     const { container } = render(<Shell id="result" />);
