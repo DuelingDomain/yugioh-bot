@@ -26,7 +26,6 @@ export function cardScriptHash(cards: CardScriptSource, code: number, kind: Scri
     if (kind === "legacy-normal") content = legacyNormalScript(name, content);
     hash.update("\0").update(name).update("\0").update(content ?? "missing");
   }
-  if (kind === "legacy-normal") hash.update("\0").update(legacyNormalScript.toString());
   if (kind.startsWith("multi-")) hash.update("\0").update(overlay?.utility ?? "missing overlay");
   return hash.digest("hex");
 }
