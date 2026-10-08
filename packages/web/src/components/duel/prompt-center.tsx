@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Check, EyeOff, Link2 } from "lucide-react";
 import type { DuelAnswer, DuelCardInfo, DuelChainLink, DuelPrompt, DuelPromptOption, DuelZoneRef } from "@yugidraft/shared/duels";
 import {
@@ -49,6 +49,7 @@ import { placeTributeDock, sameDock, type DockPlace } from "./tribute-dock-place
 import base from "./prompts.module.css";
 import baseStyles from "./prompt-center.module.css";
 import { useSkinExtra, useSkinStyles } from "./skin";
+import { useMedia } from "@/components/draft/room/use-media";
 
 /**
  * Prompts answered in the middle of the board.
@@ -422,18 +423,71 @@ function CardArt({ option, className }: { option: DuelPromptOption; className: s
   return <img src={cardArtUrl(option.card.code, "small")} alt="" className={className} draggable={false} />;
 }
 
-/** Printed card text: clamped to a few lines with a toggle when long, scrollable when open. */
+/**
+ * The window sizes where long card text is cut to a few lines with a toggle: a width of 900px or less (the bottom-sheet
+ * layout of prompt-center.module.css, which must use the same number) or a height of 640px or less. A host that sets
+ * `data-prompt-dense` on the prompt slot (the 4-way grid, and the 3-way and Tag tables while the prompt sits in one
+ * field box) is small at any window size, so `CardTextBlock` also looks for that attribute on its ancestors.
+ */
+export const COMPACT_TEXT_QUERY = "(max-width: 900px), (max-height: 640px)";
+
+/**
+ * Printed card text: full by default. It is clamped to a few lines with a toggle when it is long and the space is small
+ * (a small window, or a dense host). The CSS also lets the box shrink before the options do, so options never leave the
+ * panel.
+ */
 function CardTextBlock({ text, label = "Card text", open: forceOpen }: { text: string; label?: string; open?: boolean }) {
   const styles = useSkinStyles(baseStyles, "prompt");
+  const root = useRef<HTMLDivElement>(null);
+  const bodyId = useId();
+  const smallWindow = useMedia(COMPACT_TEXT_QUERY);
+  const [dense, setDense] = useState(false);
+  // The table can set or clear data-prompt-dense on the prompt slot while this prompt is open (the camera moves), so watch it.
+  useLayoutEffect(() => {
+    const host = root.current?.closest('[data-slot="prompt"], [data-prompt-dense]');
+    if (!host) return;
+    const read = () => setDense(host.hasAttribute("data-prompt-dense"));
+    read();
+    if (typeof MutationObserver === "undefined") return;
+    const observer = new MutationObserver(read);
+    observer.observe(host, { attributes: true, attributeFilter: ["data-prompt-dense"] });
+    return () => observer.disconnect();
+  }, []);
+  const compact = smallWindow || dense;
   const [open, setOpen] = useState(Boolean(forceOpen));
   const long = text.length > 200 || text.split(/\r?\n/).length > 3;
-  const shown = open || !long;
+  const clamped = compact && long && !open;
+  // When the box is too short for the text it scrolls: a fade at the bottom says there is more until the end is reached.
+  const body = useRef<HTMLParagraphElement>(null);
+  const [scroll, setScroll] = useState({ overflow: false, end: true });
+  const measure = useCallback(() => {
+    const el = body.current;
+    if (!el) return;
+    const overflow = !clamped && el.scrollHeight - el.clientHeight > 1;
+    const end = el.scrollTop + el.clientHeight >= el.scrollHeight - 1;
+    setScroll((prev) => (prev.overflow === overflow && prev.end === end ? prev : { overflow, end }));
+  }, [clamped]);
+  useLayoutEffect(() => {
+    measure();
+    const el = body.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [measure, text]);
   return (
-    <div className={styles.cardText} data-open={shown ? "true" : "false"}>
+    <div ref={root} className={styles.cardText} data-open={clamped ? "false" : "true"} data-long={long ? "true" : undefined} data-lead={forceOpen ? undefined : "true"}>
       <span className={styles.cardTextLabel}>{label}</span>
-      <p className={styles.cardTextBody} data-clamped={shown ? "false" : "true"}>{text}</p>
-      {long && !forceOpen ? (
-        <button type="button" className={styles.cardTextMore} aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+      {/* A box that scrolls is a region the keyboard can reach and scroll. */}
+      <p
+        ref={body} id={bodyId} className={styles.cardTextBody} data-clamped={clamped ? "true" : "false"}
+        data-overflow={scroll.overflow ? "true" : undefined} data-end={scroll.overflow ? (scroll.end ? "true" : "false") : undefined}
+        tabIndex={scroll.overflow ? 0 : undefined} role={scroll.overflow ? "region" : undefined}
+        aria-label={scroll.overflow ? `${label}, scrollable` : undefined}
+        onScroll={measure}
+      >{text}</p>
+      {compact && long && !forceOpen ? (
+        <button type="button" className={styles.cardTextMore} aria-expanded={open} aria-controls={bodyId} onClick={() => setOpen((value) => !value)}>
           {open ? "Show less" : "Show full text"}
         </button>
       ) : null}
@@ -883,7 +937,7 @@ function ResponseBody({
   return (
     <>
       {source?.text ? <CardTextBlock text={source.text} /> : null}
-      <div className={styles.rows}>
+      <div className={styles.rows} data-few={prompt.options.length <= 4 ? "true" : undefined}>
         {prompt.options.map((option, index) => {
           const { effectText: optionEffect } = optionTexts(option);
           // Seat-only choices use the same names as the LP panels, including duplicate-name seat numbers.
