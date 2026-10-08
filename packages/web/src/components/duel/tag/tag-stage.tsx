@@ -396,6 +396,8 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
   const focusFree = !camera.lock && !camera.aiming && controller.aim == null;
   const focusField = (seat: number) => {
     if (!focusFree) return;
+    // A tap on the field already in close-up is nothing: only the toggle button, Esc and Back to overview zoom out.
+    if (camera.mode === "focus" && camera.focusSeat === seat) return;
     dispatchCamera({ type: "focus", seat });
   };
   const onStageClick = (event: MouseEvent<HTMLDivElement>) => {
@@ -490,18 +492,22 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
         style={{ width: ROOF_FIELD.width, height: ROOF_FIELD.height, transform }}
       >
         {renderSeatField(props)}
-        {focused || !focusFree || isNarrow ? null : (
+        {!focusFree || isNarrow ? null : (
+          // One button per field is the zoom toggle: it zooms in from the overview, and in the close-up on this field it
+          // is the way back (same place, same button, the icon and the label change).
           <button
             type="button"
             className={cameraStyles.focusBtn}
             data-field-focus={seat}
+            data-focused={focused ? "true" : undefined}
             data-near={near ? "true" : "false"}
-            aria-label={`Focus ${nameOf(seat)}'s field`}
-            title={`Focus ${nameOf(seat)}'s field`}
-            onClick={() => focusField(seat)}
+            aria-label={focused ? "Back to overview" : `Focus ${nameOf(seat)}'s field`}
+            aria-pressed={focused}
+            title={focused ? "Back to overview (Esc)" : `Focus ${nameOf(seat)}'s field`}
+            onClick={() => (focused ? dispatchCamera({ type: "overview" }) : focusField(seat))}
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+              <path d={focused ? "M9 4v5H4M15 4v5h5M4 15h5v5M20 15h-5v5" : "M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"} />
             </svg>
           </button>
         )}
