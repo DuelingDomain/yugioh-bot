@@ -3,7 +3,7 @@ if not aux.MPColumnGeometry then return end
 local mp_activate=s.activate
 function s.activate(e,tp,...)
 	if not aux.MPColumnGeometry() or aux.MPGeometryShared() then return mp_activate(e,tp,...) end
-	local own=Duel.MPSeat(tp)
+	local own=aux.MPGeometrySeat(tp)
 	local peer=aux.MPColumnPeerSeat(own)
 	local register=Duel.RegisterEffect
 	Duel.RegisterEffect=function(effect,player,...)
@@ -27,7 +27,10 @@ function s.distg(e,c)
 		return c:IsSpellTrap() and seq==c:GetSequence() and c:GetFlagEffect(id)==0
 	end
 	local tp=e:GetHandlerPlayer()
-	if aux.MPColumnGeometry() and not c:IsControler(tp) and Duel.MPSeatOf(c)~=aux.MPColumnPeerSeat(Duel.MPSeat(tp)) then return false end
+	if aux.MPColumnGeometry() then
+		local own,seat=aux.MPGeometrySeat(tp),Duel.MPSeatOf(c)
+		if seat~=own and seat~=aux.MPColumnPeerSeat(own) then return false end
+	end
 	return mp_distg(e,c)
 end
 local mp_disop=s.disop

@@ -43,7 +43,7 @@ index 103f5d9..ee3fd2d 100644
  					if(handler == playerid)
  						zones |= value & 0x7f;
 -					else if(is_duelist(handler) && ((n_duelists == 4 && n_teams == n_duelists)
-+					else if(is_duelist(handler) && ((has_shared_zones())
++					else if(is_duelist(handler) && (has_shared_zones()
  						? zone_opponent(peff) : next_in_turn_order(handler)) == playerid)
  						zones |= (value >> 16) & 0x7f;
  				}
@@ -89,7 +89,7 @@ index 41bb4f9..f9c1ab8 100644
  		return;
  	const auto& f = *pduel->game_field;
 -	if(peffect->code == EFFECT_BECOME_LINKED_ZONE && (f.n_duelists != 4 || f.n_teams != f.n_duelists))
-+	if(peffect->code == EFFECT_BECOME_LINKED_ZONE && (!f.has_shared_zones()))
++	if(peffect->code == EFFECT_BECOME_LINKED_ZONE && !f.has_shared_zones())
  		return;
  	auto usable = [&](uint8_t q) { return f.is_duelist(q) && !f.same_team(handler_player, q); };
  	uint8_t opp = zone_prompt_slot(pduel);

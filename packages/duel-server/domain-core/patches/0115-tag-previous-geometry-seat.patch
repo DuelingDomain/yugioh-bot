@@ -1,7 +1,9 @@
-From a5de35f1fc728821a003901b2fe2716711d94fb9 Mon Sep 17 00:00:00 2001
-From: yugidraft <dev@yugidraft.local>
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
 Date: Tue, 25 Apr 2000 00:00:00 +0000
-Subject: [PATCH] Tag Link departure filters read exact previous seats
+Subject: [PATCH] core: read exact previous seats for Tag Link departures
+
+Tag previous-controller checks return a team key. Expose MPPreviousSeatOf so Link and column departure filters compare exact physical seats, including p2/p3 and partner material departures. Owner decision 2026-10-07; other player and resource reads retain their existing semantics.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_019EpX1AcvnigK9dTsxAa5W9
