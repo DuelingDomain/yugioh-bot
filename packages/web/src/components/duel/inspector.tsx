@@ -21,17 +21,15 @@ export type InspectTarget =
   | { type: "info"; card: DuelCardInfo }
   | { type: "pile"; title: string; cards: DuelCard[] };
 
-/**
- * The card with its static text filled in: a card that came without a name or an effect text (a pile card, a log
- * entry) is looked up by passcode, while the live fields (ATK/DEF, counters, position) stay as the engine sent them.
- * The card panel and the pile viewer both use it, so both always show the full effect text.
- */
-export function useFilledCard<T extends DuelCard | DuelCardInfo>(liveCard: T): T {
+function InfoBody({ card: liveCard }: { card: DuelCard | DuelCardInfo }) {
+  const styles = useSkinStyles(baseStyles, "inspector");
+  const textSize = useCardTextSize();
+  const textStyle = cardTextStyle(textSize);
   const code = liveCard.code;
   const hidden = isHiddenCard(liveCard) || code == null;
   const resolved = useDuelCardInfo(!hidden && (!hasCardName(liveCard) || !liveCard.description?.trim()) ? code : null);
-  if (!resolved) return liveCard;
-  return {
+  // Fill static text while retaining ATK/DEF, counters and other live fields.
+  const card = resolved ? {
     ...resolved, ...liveCard,
     canonicalPasscode: liveCard.canonicalPasscode ?? resolved.canonicalPasscode,
     type: liveCard.type ?? resolved.type,
@@ -42,16 +40,7 @@ export function useFilledCard<T extends DuelCard | DuelCardInfo>(liveCard: T): T
     race: liveCard.race ?? resolved.race,
     name: hasCardName(liveCard) ? liveCard.name : resolved.name,
     description: liveCard.description?.trim() ? liveCard.description : resolved.description,
-  } as T;
-}
-
-function InfoBody({ card: liveCard }: { card: DuelCard | DuelCardInfo }) {
-  const styles = useSkinStyles(baseStyles, "inspector");
-  const textSize = useCardTextSize();
-  const textStyle = cardTextStyle(textSize);
-  const code = liveCard.code;
-  const hidden = isHiddenCard(liveCard) || code == null;
-  const card = useFilledCard(liveCard);
+  } : liveCard;
   if (hidden) {
     return (
       <div className={styles.root} data-card-text={textSize} style={textStyle}>

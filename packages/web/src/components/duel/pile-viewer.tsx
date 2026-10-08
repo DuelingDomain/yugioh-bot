@@ -17,7 +17,8 @@ import {
   zoneKey,
 } from "./constants";
 import { duelFontClasses } from "./fonts";
-import { cardExtraLines, useFilledCard } from "./inspector";
+import { useFilledCard } from "./filled-card";
+import { cardExtraLines } from "./inspector";
 import { useSkinStyles } from "./skin";
 import baseStyles from "./pile-viewer.module.css";
 import { UsableGlow } from "./usable-glow";
@@ -73,8 +74,8 @@ function positionLine(index: number, total: number): string {
 
 /**
  * The detail of the card under the pointer, focus or last click: art, name, type lines and the FULL effect text.
- * The text comes from the same place as the card panel (`useFilledCard`: a pile card that came without its effect text
- * is looked up by passcode) and takes the viewer's card text size. It scrolls inside its own box, so it is never cut.
+ * The text comes from `useFilledCard` (a pile card that came without its effect text is looked up by passcode, as the
+ * card panel does) and takes the viewer's card text size. It scrolls inside its own box, so it is never cut.
  */
 function PileDetail({ entry, total, styles }: { entry: Entry; total: number; styles: Record<string, string> }) {
   const textSize = useCardTextSize();

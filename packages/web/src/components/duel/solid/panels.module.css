@@ -99,8 +99,7 @@
 }
 [data-look="solid"] .art {
   width: 100%;
-  /* 236px at most, and never more than 30% of the window height: a short screen keeps room for the effect text. */
-  max-width: min(236px, calc(30dvh * 421 / 614));
+  max-width: 236px;
   margin: 0 auto 12px;
   border-radius: 7px;
   background: var(--ink-0);
