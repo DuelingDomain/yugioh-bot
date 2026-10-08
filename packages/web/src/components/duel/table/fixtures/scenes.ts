@@ -1,13 +1,17 @@
 import type { DuelCardInfo, DuelEngineView, DuelEvent } from "@yugidraft/shared/duels";
-import { applyEdits, edit, ev, GY, HAND, link, MZ, SZ, withHandIds, type Edit, type EventSpec, type LabBoard, type LabStep } from "../../fx-lab/board";
+import { applyEdits, edit, ev, EXTRA, GY, HAND, link, MZ, SZ, withHandIds, type Edit, type EventSpec, type LabBoard, type LabStep } from "../../fx-lab/board";
 import { TABLE_CARDS as C } from "./common";
+import { POS_FACEDOWN_DEFENSE, POS_FACEUP_ATTACK } from "../../constants";
 
 /**
  * Timed event scripts for the table previews (`?scene=<id>`). A scene is the same kind of step the FX lab plays on the
  * 1v1 board: events and board edits arrive together, as one engine batch does. The preview harness feeds them into a
  * fixture state, so the real table layers (MoveFx, ChainFx, BattleFx, the crumble) play them on a grid seat.
  */
-export type SceneId = "smf" | "ko" | "mirror";
+export type SceneId = "smf" | "ko" | "mirror" | PlaySceneId;
+
+/** `<play>-<seat>`: that seat Normal Summons, Special Summons, Fusion Summons, Sets or Flip Summons a monster in its zone 4 (`?scene=normal-1`). */
+export type PlaySceneId = `${"normal" | "special" | "fusion" | "set" | "flip"}-${0 | 1 | 2}`;
 
 const STORMING_MIRROR_FORCE: DuelCardInfo = {
   code: 5650082,
@@ -107,11 +111,38 @@ function mirror(): LabStep[] {
   ];
 }
 
+const PLAY_SCENE = /^(normal|special|fusion|set|flip)-([012])$/;
+
+/**
+ * One seat plays a monster from its hand (or flips one up) into its zone 4: the card must face its controller from the
+ * first frame of the flight to the last. The play comes after a quiet first step, so the layers have drawn the board.
+ */
+function playMonster(play: "normal" | "special" | "fusion" | "set" | "flip", seat: number): LabStep[] {
+  const fusion = play === "fusion";
+  const info = C.celtic; // a light card: a heavy one takes the slam path, not the typed summon
+  const zone = MZ(seat, 4);
+  const handIndex = 0;
+  const events: EventSpec[] =
+    play === "set"
+      ? [ev.move(seat, null, HAND(seat, handIndex), zone, "set", { faceDown: true }), ev.set(seat, info, zone)]
+      : play === "flip"
+        ? [ev.position(seat, info, zone, POS_FACEDOWN_DEFENSE, POS_FACEUP_ATTACK, true), ev.summon(seat, info, zone, "flip")]
+        : [ev.move(seat, info, fusion ? EXTRA(seat, 0) : HAND(seat, handIndex), zone, "summon"), ev.summon(seat, info, zone, play)];
+  const edits: Edit[] = [play === "set" ? edit.hiddenMonster(seat, 4) : edit.monster(seat, 4, info)];
+  if (play !== "flip" && !fusion) edits.push(edit.removeHand(seat, handIndex));
+  return [
+    { at: 0, edits: play === "flip" ? [edit.hiddenMonster(seat, 4)] : [] },
+    { at: 600, events, edits: play === "flip" ? [edit.monster(seat, 4, info)] : edits },
+  ];
+}
+
 export function isSceneId(value: string | null | undefined): value is SceneId {
-  return value === "smf" || value === "ko" || value === "mirror";
+  return value === "smf" || value === "ko" || value === "mirror" || (value != null && PLAY_SCENE.test(value));
 }
 
 export function sceneSteps(id: SceneId): LabStep[] {
+  const play = PLAY_SCENE.exec(id);
+  if (play) return playMonster(play[1] as "normal" | "special" | "fusion" | "set" | "flip", Number(play[2]));
   return id === "smf" ? smf() : id === "ko" ? knockOut() : mirror();
 }
 
