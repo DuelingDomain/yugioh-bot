@@ -554,7 +554,7 @@ export function chainLinkLabel(
     if (link.status === "resolved") parts.push("resolved");
   }
   const targets = chainTargetLabel(link, mySeat, playerName, { named, partner });
-  const chose = detail && link.chosenOptions?.length ? `. Chose ${link.chosenOptions.map((option) => option.text).join(" and ")}` : "";
+  const chose = detail && link.name?.trim() && link.chosenOptions?.length ? `. Chose ${link.chosenOptions.map((option) => option.text).join(" and ")}` : "";
   const text = `Chain Link ${link.index}: ${parts.join(", ")}${targets ? `. ${targets}` : ""}${chose}`;
   const effect = detail ? chainEffectText(link) : null;
   return effect ? `${text}. ${effect.text}` : text;

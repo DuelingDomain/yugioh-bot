@@ -3,6 +3,7 @@ import type { DuelChainLink, DuelEvent } from "@yugidraft/shared/duels";
 
 import { cardTextLines, chainFullText, markChosenLines } from "@/components/duel/chain-effect-text";
 import { chainLinkLabel, chainStateKey, deriveChainState } from "@/components/duel/chain-state";
+import { buildPanelView, type Who } from "@/components/duel/chain-narrate";
 
 const PRAYERS = "Apply 1 of these effects.\r\n● Add 1 \"Mitsurugi\" monster from your Deck to your hand.\r\n● Take 800 damage.\r\nOnce per turn.";
 const lines = () => cardTextLines(PRAYERS);
@@ -88,5 +89,17 @@ describe("chain state with chosen options", () => {
     const state = deriveChainState([ev({ id: 1, card, chosenOptions: [{ text: "Take 800 damage" }] })]);
     expect(chainLinkLabel(state.links[0], 0, (seat) => `P${seat}`)).toContain("Chose Take 800 damage");
     expect(chainLinkLabel(state.links[0], 0, (seat) => `P${seat}`, false)).not.toContain("Chose");
+  });
+});
+
+describe("a link whose card is unknown", () => {
+  const who: Who = { mySeat: 0, playerName: (seat) => `P${seat}` };
+  const unknown = { code: 0, name: "", description: "", type: 0, attack: 0, defense: 0, level: 0, attribute: 0, race: "" };
+  const state = deriveChainState([ev({ id: 1, seat: 1, card: unknown, chosenOptions: [{ text: "Take 800 damage" }] })]);
+
+  it("shows no choice in the hero and none in the label", () => {
+    const view = buildPanelView({ state, focus: state.links[0], outcomes: new Map(), resultsReady: false, targets: new Map(), who });
+    expect(view.hero.chosen).toEqual([]);
+    expect(chainLinkLabel(state.links[0], 0, who.playerName)).not.toContain("Chose");
   });
 });
