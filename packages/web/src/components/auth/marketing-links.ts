@@ -1,9 +1,18 @@
-/** Used when `MARKETING_URL` is unset, so the waitlist button never disappears from a dead-end card. */
+/** Used when `MARKETING_URL` is unset or invalid. */
 export const DEFAULT_MARKETING_URL = "https://duelingdomain.com";
+
+export const normalizeMarketingUrl = (value: string | null | undefined): string => {
+  const trimmed = value?.trim();
+  if (!trimmed || !/^https?:\/\//i.test(trimmed)) return DEFAULT_MARKETING_URL;
+  try {
+    new URL(trimmed);
+    return trimmed.replace(/\/+$/, "");
+  } catch { return DEFAULT_MARKETING_URL; }
+};
 
 /** Explicit app-to-marketing navigation must bypass the signed-in routing hint. */
 export function marketingHomeHref(marketingUrl: string | null | undefined, hash?: string): string {
-  const url = new URL(marketingUrl || DEFAULT_MARKETING_URL);
+  const url = new URL(normalizeMarketingUrl(marketingUrl));
   url.searchParams.set("home", "1");
   if (hash !== undefined) url.hash = hash;
   return url.toString();

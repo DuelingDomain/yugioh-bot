@@ -66,8 +66,8 @@ const RAIL_ROW = 46;
 const FOCUS_BTN_PX = 36;
 /**
  * A click on one of these does its own job (play a card, pick a zone, press a button): it never moves the camera.
- * Everything else on a field (the mat, the name label) or on a seat chip focuses that field, and so does a zone that
- * offers no action (see `onStageClickCapture`).
+ * On a phone, everything else on a field (the mat, the name label) or on a seat chip focuses that field, and so does a
+ * zone that offers no action (see `onStageClickCapture`). On a wide screen no click focuses a field.
  */
 const ACTION_TARGET = "button, a, input, select, textarea, summary, [role='button'], [data-legal='true'], [data-pickable='true']";
 
@@ -452,7 +452,8 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     [layout.slots, slotsOf, toneOf],
   );
   // A close-up needs a free camera: not under an FX lock, and not while an attack is aimed (the aim wants every rival).
-  // A phone has no room for the corner buttons: a tap on the field, its name or a plate chip focuses it there.
+  // A click on a field never moves the camera on a wide screen (a misclick would zoom): the corner button, the rail, the dock and the
+  // keys do. A phone has no room for the corner buttons: a tap on the field, its name or a plate chip focuses it there.
   const focusFree = !camera.lock && !camera.aiming && controller.aim == null;
   const focusField = (seat: number) => {
     if (!focusFree) return;
@@ -465,6 +466,13 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     if (camera.mode === "focus") return;
     const node = event.target instanceof Element ? event.target : null;
     if (!node || node.closest(ACTION_TARGET)) return;
+    const seat = Number(node.closest<HTMLElement>("[data-field-hold]")?.dataset.fieldHold ?? node.closest<HTMLElement>("[data-member-seat]")?.dataset.memberSeat);
+    if (Number.isInteger(seat) && engine.seats.some((s) => s.seat === seat)) focusField(seat);
+  };
+  // A double click on a field (its mat, its name, a plate chip) focuses it on a wide screen; a card, a zone or a control keeps its own job.
+  const onStageDoubleClick = (event: MouseEvent<HTMLDivElement>) => {
+    const node = event.target instanceof Element ? event.target : null;
+    if (!node || node.closest(ACTION_TARGET) || node.closest("[data-uid], [data-zones], [data-pile], [data-hand-seat]")) return;
     const seat = Number(node.closest<HTMLElement>("[data-field-hold]")?.dataset.fieldHold ?? node.closest<HTMLElement>("[data-member-seat]")?.dataset.memberSeat);
     if (Number.isInteger(seat) && engine.seats.some((s) => s.seat === seat)) focusField(seat);
   };
@@ -645,8 +653,9 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
       data-reduced-motion={reducedMotion ? "true" : "false"}
       data-camera-mode={camera.mode}
       data-camera-seat={camera.mode === "focus" && camera.focusSeat != null ? camera.focusSeat : undefined}
-      onClick={onStageClick}
-      onClickCapture={onStageClickCapture}
+      onClick={isNarrow ? onStageClick : undefined}
+      onClickCapture={isNarrow ? onStageClickCapture : undefined}
+      onDoubleClick={isNarrow ? undefined : onStageDoubleClick}
       data-camera-locked={camera.lock ? camera.lock.reason : undefined}
     >
       {fx != null ? (

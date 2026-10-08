@@ -77,7 +77,7 @@ import { DUEL_SHAKE_LABEL, DUEL_SHAKE_LEVELS, useDuelPreferences } from "./prefe
 import { DuelAnimationSpeedControl, useDuelAnimationSpeed } from "./animation-speed-control";
 import { DuelCardTextSizeControl } from "./card-text-size-control";
 import { DuelDiceSkinControl } from "./dice-skin-control";
-import { CardInspector, type InspectTarget } from "./inspector";
+import { CardInspector, cardScrollerProps, type InspectTarget } from "./inspector";
 import {
   activatePromptFromField,
   isAttackTargetPrompt,
@@ -195,7 +195,10 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   // The change notice that an answer of this player causes is not a reason to shut the prompts (see duel-echo-window.ts).
   const echo = useMemo(() => createEchoWindow(), []);
   const realtime = useDuelWebsocket(slug, data?.mySeat, refreshRoom, spectate, echo.quiet);
-  const syncing = realtime.syncing || realtime.recovering;
+  // Only a recovering connection holds the buttons. A routine re-read (a change notice that is not the player's echo,
+  // a window focus, a clock tick) does not: it shut the button between the press and the release, and the click was lost.
+  // The server still refuses a stale answer by prompt id and revision.
+  const syncing = realtime.recovering;
   const liveFormat = engineFormat(data?.engine);
   // Live tables: FFA mounts TableShell, Tag 2v2 mounts the Rooftop (TagShell). ?stage=legacy keeps MultiSeatStage for both.
   const liveTagTable = isMultiSeat(data?.engine) && liveFormat === "tag" && !legacyStage;
@@ -602,9 +605,17 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         ? { key: zoneKey(attack.controller, attack.location, attack.sequence), direct: /directly/i.test(attack.label) }
         : null);
       // Only an opponent or direct-attack pick gets the general "pick again" notice on a 400 (a seat may have left).
-      void run(() => sendDuelAction(slug, command), isOpponentPick(prompt) || isAttackDuelistPrompt(prompt) ? "seat-pick" : undefined);
+      // A refused answer (a stale choice, a rejected move) is no cause for a follow-up: forget it, so the next prompt keeps its beat.
+      void run(async () => {
+        try {
+          return await sendDuelAction(slug, command);
+        } catch (err) {
+          pick.clearAnswer();
+          throw err;
+        }
+      }, isOpponentPick(prompt) || isAttackDuelistPrompt(prompt) ? "seat-pick" : undefined);
     },
-    [data, prompt, fieldHeld, error, catchingUp, run, slug, pick.noteAnswer, viewerOut],
+    [data, prompt, fieldHeld, error, catchingUp, run, slug, pick.noteAnswer, pick.clearAnswer, viewerOut],
   );
 
   /** A prompt tile or response row under the pointer: show the card in the inspector, as board cards do. */
@@ -1258,7 +1269,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const inspectorNode = (
     <>
       {tabs()}
-      <div className={styles.sideContent}>{sidePanes(true)}</div>
+      <div className={styles.sideContent} {...cardScrollerProps(desktopPane(pane) === "card")}>{sidePanes(true)}</div>
     </>
   );
   const promptDockNode = (
@@ -1284,6 +1295,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     <PhaseHub
       variant="band"
       phase={shownPhase}
+      revision={engine.revision}
       battleStep={battleStep}
       turn={engine.turn}
       turnSeat={engine.turnSeat}
@@ -1444,8 +1456,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           overlaysNode={overlaysNode}
           fieldProps={fieldProps}
           renderBoard={renderBoard}
-          headerClock={data.clock ? <DuelClockDisplay key={data.clock.serverNow} clock={data.clock} session={data.session} reducedMotion={preferences.reducedMotion} bank /> : null}
-          renderClock={(seat) => data.clock ? <DuelClockDisplay key={data.clock.serverNow} clock={data.clock} session={data.session} seats={[seat]} /> : null}
+          renderClock={(seat) => data.clock ? <DuelClockDisplay key={data.clock.serverNow} clock={data.clock} session={data.session} reducedMotion={preferences.reducedMotion} seats={[seat]} /> : null}
           inspect={inspect}
           pane={pane}
           setPane={setPane}

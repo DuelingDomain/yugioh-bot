@@ -233,6 +233,14 @@
   min-width: min(calc(300 * var(--duel-unit)), calc(var(--pr-w, 100%) - 24px));
   max-width: calc(var(--pr-w, 100%) - 24px);
 }
+/* A long card list scrolls inside the panel (card-strip.module.css), so the panel stays in the pair box and keeps off your hand.
+   A small window has a short box: the 300px floor never goes taller than the box minus 16px (the old cap). */
+@media (min-width: 901px) {
+  .slot[data-slot="prompt"][data-prompt-dense] :global([data-prompt-panel][data-strip="true"]:not([data-precheck], [data-tone="chain"])) {
+    --pr-strip-h: max(calc(var(--pr-h, 100%) - 40px), min(300px, calc(var(--pr-h, 100%) - 16px)));
+    max-height: min(var(--pr-strip-h), calc(100% - 24px));
+  }
+}
 
 /* Seat choices are narrow: the life plates (the targets) sit above and below the pairs, so the middle leaves them free. */
 .slot[data-slot="prompt"][data-seat-pick] :global([data-prompt-panel]:not([data-precheck])) {

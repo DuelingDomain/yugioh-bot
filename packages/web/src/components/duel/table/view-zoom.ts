@@ -282,3 +282,137 @@ export class PressSplit {
     this.dragging = false;
   }
 }
+
+/**
+ * One thing the camera fit must keep on screen, in board-box px at the camera pose (the identity view). A board item
+ * (the field) scales with the view. An item with an `anchor` (a life plate, the phase hub) follows the board at its own
+ * size: its anchor goes where the board takes that point (see followShift), the rest of its rect keeps its offset.
+ */
+export interface FitItem {
+  rect: Rect;
+  anchor?: Point;
+}
+
+/** The bounds of the fit items under a view of scale `s` (before the translation: the view's x and y are not in them). */
+function fitBounds(items: readonly FitItem[], s: number): { l: number; t: number; r: number; b: number } {
+  let l = Infinity;
+  let t = Infinity;
+  let r = -Infinity;
+  let b = -Infinity;
+  for (const { rect, anchor } of items) {
+    const x0 = anchor ? s * anchor.x + (rect.x - anchor.x) : s * rect.x;
+    const y0 = anchor ? s * anchor.y + (rect.y - anchor.y) : s * rect.y;
+    const w = anchor ? rect.width : s * rect.width;
+    const h = anchor ? rect.height : s * rect.height;
+    l = Math.min(l, x0);
+    t = Math.min(t, y0);
+    r = Math.max(r, x0 + w);
+    b = Math.max(b, y0 + h);
+  }
+  return { l, t, r, b };
+}
+
+/**
+ * The view of a camera zoom on a field: the largest scale (up to `maxScale`) at which all the fit items are inside the
+ * free box, and the translation that centres them in it. The box is the board box minus the HUD (board-box px). The
+ * scale never goes under 1: a free box too small for the items at the camera pose gets the identity scale, centred.
+ */
+export function fitView(items: readonly FitItem[], free: Rect, maxScale: number = VIEW_ZOOM.max): View {
+  if (items.length === 0 || !(free.width > 0 && free.height > 0)) return VIEW_IDENTITY;
+  const fits = (s: number) => {
+    const b = fitBounds(items, s);
+    return b.r - b.l <= free.width && b.b - b.t <= free.height;
+  };
+  const top = clamp(maxScale, VIEW_ZOOM.min, VIEW_ZOOM.max);
+  let s: number = VIEW_ZOOM.min;
+  if (fits(top)) {
+    s = top;
+  } else if (fits(VIEW_ZOOM.min)) {
+    let lo: number = VIEW_ZOOM.min;
+    let hi = top;
+    for (let i = 0; i < 32; i += 1) {
+      const mid = (lo + hi) / 2;
+      if (fits(mid)) lo = mid;
+      else hi = mid;
+    }
+    s = lo;
+  }
+  const b = fitBounds(items, s);
+  return { s, x: free.x + (free.width - (b.r - b.l)) / 2 - b.l, y: free.y + (free.height - (b.b - b.t)) / 2 - b.t };
+}
+
+/**
+ * The transform that keeps a node inside the board layer at its 1x place and size under a view (the hand of your own
+ * field: it is HUD, only the field zooms). `origin` is the top left of the node in the layer's parent px (canvas px) at
+ * the identity view; the layer maps p to u + s * p, so the node draws p = origin + translate, scaled by 1 / s about its top
+ * left, which the layer maps back onto itself. The node needs `transform-origin: 0 0`.
+ */
+export function counterTransform(view: View, origin: Point, frame: LayerFrame = FLAT_FRAME): string {
+  if (isIdentity(view)) return "";
+  const u = layerOffset(view, frame);
+  const s = view.s;
+  const tx = (-u.x + (1 - s) * origin.x) / s;
+  const ty = (-u.y + (1 - s) * origin.y) / s;
+  return `translate(${tx.toFixed(2)}px, ${ty.toFixed(2)}px) scale(${(1 / s).toFixed(5)})`;
+}
+
+/** Where a fit item stands on screen under a view (board-box px): a board item scales with it, a follower keeps its size and follows its anchor. */
+export function fitItemRect(item: FitItem, view: View): Rect {
+  const { rect, anchor } = item;
+  if (!anchor) return { x: view.x + view.s * rect.x, y: view.y + view.s * rect.y, width: view.s * rect.width, height: view.s * rect.height };
+  return { x: view.x + view.s * anchor.x + (rect.x - anchor.x), y: view.y + view.s * anchor.y + (rect.y - anchor.y), width: rect.width, height: rect.height };
+}
+
+const overlaps = (a: Rect, b: Rect) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+
+/** A rect moved inside the box (it keeps its size; a rect larger than the box starts at the box corner). */
+function inBox(r: Rect, box: Size): Rect {
+  const x = Math.max(0, Math.min(r.x, box.width - r.width));
+  const y = Math.max(0, Math.min(r.y, box.height - r.height));
+  return x === r.x && y === r.y ? r : { ...r, x, y };
+}
+
+/**
+ * A prompt room moved off the obstacles it covers (the zoomed field, the plates that follow it), inside the box. The room
+ * keeps its size and goes to the nearest place that touches no obstacle: beside an obstacle edge or an edge of the box.
+ * It stays where it is when it is clear, or when no place is clear. The result is always inside the box.
+ */
+export function clearRoom(room: Rect, obstacles: readonly Rect[], box: Size, margin: number = 8): Rect {
+  const hit = (r: Rect) => obstacles.some((o) => overlaps(r, o));
+  // The room goes inside the box first: the clear check and the search both start from the rect that is returned when it is clear.
+  const start = inBox(room, box);
+  if (!hit(start)) return start;
+  const xs = [start.x, margin, box.width - start.width - margin, ...obstacles.flatMap((o) => [o.x + o.width + margin, o.x - start.width - margin])];
+  const ys = [start.y, margin, box.height - start.height - margin, ...obstacles.flatMap((o) => [o.y + o.height + margin, o.y - start.height - margin])];
+  let best: Rect | null = null;
+  let bestCost = Infinity;
+  for (const x of xs) {
+    for (const y of ys) {
+      if (x < margin || y < margin || x + start.width > box.width - margin || y + start.height > box.height - margin) continue;
+      const candidate = { x: Math.round(x), y: Math.round(y), width: start.width, height: start.height };
+      if (hit(candidate)) continue;
+      const cost = Math.hypot(x - start.x, y - start.y);
+      if (cost < bestCost) {
+        best = candidate;
+        bestCost = cost;
+      }
+    }
+  }
+  return best ?? start;
+}
+
+/**
+ * A clear place for a prompt room: `clearRoom`, and when the full room has no clear place it gets shorter, then narrower (the panel sits at
+ * the bottom edge of its room and is lower than the room most of the time), down to `min`. Null when no size has a clear place.
+ */
+export function fitRoom(room: Rect, obstacles: readonly Rect[], box: Size, min: Size, margin: number = 8): Rect | null {
+  const hit = (r: Rect) => obstacles.some((o) => overlaps(r, o));
+  for (let width = room.width; ; width = Math.max(min.width, width - 40)) {
+    for (let height = room.height; ; height = Math.max(min.height, height - 40)) {
+      const moved = clearRoom({ ...room, width, y: room.y + room.height - height, height }, obstacles, box, margin);
+      if (!hit(moved)) return moved;
+      if (height <= min.height) break;
+    }
+    if (width <= min.width) return null;
+  }
+}

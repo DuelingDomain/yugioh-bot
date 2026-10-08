@@ -5,6 +5,7 @@ import type { PromptDraft } from "../prompts";
 import type { InspectTarget } from "../inspector";
 import type { DuelActivateHandler, DuelHoverHandler } from "../field";
 import type { SeatPick, SeatRelation } from "../multi-seat";
+import type { AttackAim } from "./attack-aim";
 export type { BattleAim, PromptDraft, InspectTarget, DuelActivateHandler, DuelHoverHandler, SeatPick, SeatRelation };
 
 /**
@@ -164,6 +165,8 @@ export interface TableController {
   onInspect: (target: InspectTarget) => void;
   onHoverCard?: DuelHoverHandler;
   onAim?: (to: BattleAim["to"] | null) => void; // hover/lock an attack target
+  /** An attacker was clicked and its target is not chosen yet: the aim step that comes before the attack is sent. */
+  attackAim?: AttackAim | null;
 }
 export interface TableStageProps {
   controller: TableController;
@@ -177,6 +180,8 @@ export interface TableStageProps {
   /** Phase hub card (3-way and 4-way tables): drawn flat on the canvas beside the turn ring, at `hubPose`. */
   hub?: ReactNode;
   masterChip?: ReactNode; // hangs under the viewer's own holo LP panel (the Deck Master chip of a domain duel)
+  /** Seats of the legal targets of the attack being aimed (before it is sent, or at the core's own target step). Empty when none. */
+  aimSeats?: readonly number[];
 }
 export type TagStageProps = TableStageProps;
 export type FxLockRule = (event: DuelEvent) => { reason: CameraLockReason; ms: number } | null;

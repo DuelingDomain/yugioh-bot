@@ -4,6 +4,7 @@ import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
 import { Link2, ScrollText, SlidersHorizontal, Video, X } from "lucide-react";
 import type { DuelChainLink } from "@yugidraft/shared/duels";
 import { cardArtUrl } from "../constants";
+import { cardScrollerProps } from "../inspector";
 import { unreadLabel } from "../side-panel";
 import styles from "./grid-hud.module.css";
 
@@ -137,7 +138,7 @@ export function GridFlyout({ pane, tabs, panels, keepMounted, onSelect, onClose,
           <X size={16} strokeWidth={1.75} aria-hidden />
         </button>
       </div>
-      <div className={styles.flyBody}>
+      <div className={styles.flyBody} {...cardScrollerProps(shown === "card")}>
         {tabs.map((id) => {
           const active = shown === id;
           if (!active && !keepMounted.includes(id)) return null;

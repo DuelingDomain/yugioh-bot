@@ -6,8 +6,6 @@ import { SvIcon, type SvIconName } from "./icons";
 export type SolidHeaderProps = {
   /** The wordmark and the spectator tag. */
   identity: ReactNode;
-  /** The clock block (every seat), beside the format. Hidden on a narrow screen, where the board shows its own clocks. */
-  clock?: ReactNode;
   /** "MR5 · Normal", "Domain · Normal" ... */
   format: string;
   turn: number | string;
@@ -31,7 +29,7 @@ export type SolidHeaderProps = {
  * `header.sv-hdr`: the wordmark and format, the turn and whose-turn pill, then the live dot, room tools, the
  * Tilt/Flat button and the gear. Presentational only: the room hands it every node (concept styles.css 134-142).
  */
-export function SolidHeader({ identity, clock, format, turn, phaseName, step, turnText, tone, spectator, live, tools, view, onTilt, onGear }: SolidHeaderProps) {
+export function SolidHeader({ identity, format, turn, phaseName, step, turnText, tone, spectator, live, tools, view, onTilt, onGear }: SolidHeaderProps) {
   const flat = view === "flat";
   const pillIcon: SvIconName = tone === "you" ? "user" : tone === "opp" ? "bot" : "eye";
   return (
@@ -40,7 +38,6 @@ export function SolidHeader({ identity, clock, format, turn, phaseName, step, tu
         <span className={header.wordmark}>{identity}</span>
         <span className={header.slash} aria-hidden="true">/</span>
         <span className={header.fmt}>{format}</span>
-        {clock ? <span className={header.clocks}>{clock}</span> : null}
       </div>
       <div className={header.turnbox}>
         <strong className={header.turnText}>

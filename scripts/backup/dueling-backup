@@ -11,21 +11,114 @@ import sqlite3
 import sys
 import tempfile
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 
 SRC = Path(os.environ.get("DUELING_BACKUP_SRC", "/opt/yugioh-bot/data/bot.sqlite"))
 DEST_DIR = Path(os.environ.get("DUELING_BACKUP_DIR", "/var/backups/yugioh-bot"))
 KEEP_ENV = "DUELING_BACKUP_KEEP"
+RELEASE_KEEP_ENV = "DUELING_RELEASE_KEEP_DAYS"
+MAX_BACKUP_DAYS = 14
+# The timer runs once a day, so expire copies a day early to keep the 14-day promise.
+RUN_INTERVAL = timedelta(days=1)
 SPACE_MULTIPLIER = 3
 CONNECT_TIMEOUT = 30
 UTC = timezone.utc
 AUTOMATIC_NAME = re.compile(r"^bot-(\d{8}-\d{6})Z\.sqlite$")
+RELEASE_NAME = re.compile(r"^pr2-([0-9]{8}-[0-9]{6})Z$")
+
+
+def safe_path(path, root=None):
+    absolute = Path(os.path.abspath(path))
+    resolved = absolute.resolve()
+    if absolute.is_symlink() or resolved != absolute:
+        raise ValueError("refusing symlink path: " + str(absolute))
+    if root is not None and root not in resolved.parents:
+        raise ValueError("path is outside backup root: " + str(absolute))
+    return resolved
+
+
+def release_tree(path, root):
+    # Validate the entire tree before deleting anything; never follow symlinks.
+    path = safe_path(path, root)
+    paths = [path]
+    if path.is_dir():
+        for child in path.iterdir():
+            paths.extend(release_tree(child, root))
+    return paths
+
+
+def remove_release_path(path, root):
+    path = safe_path(path, root)
+    if path.is_dir():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
+
+
+def warn_release_pruning(error):
+    message = " ".join(str(error).split()) or type(error).__name__
+    print("WARNING: dueling-backup: release pruning: " + message, file=sys.stderr)
+
+
+def prune_releases():
+    root = safe_path(DEST_DIR)
+    try:
+        keep_days = int(os.environ.get(RELEASE_KEEP_ENV, str(MAX_BACKUP_DAYS)))
+        if not 1 <= keep_days <= MAX_BACKUP_DAYS:
+            raise ValueError
+    except ValueError:
+        warn_release_pruning(RELEASE_KEEP_ENV + " must be an integer from 1 to 14; using 14 days")
+        keep_days = MAX_BACKUP_DAYS
+
+    releases = []
+    for path in root.iterdir():
+        match = RELEASE_NAME.fullmatch(path.name)
+        if not match:
+            continue
+        try:
+            stamp = datetime.strptime(match.group(1), "%Y%m%d-%H%M%S").replace(tzinfo=UTC)
+        except ValueError:
+            continue
+        try:
+            path = safe_path(path, root)
+            if path.is_dir():
+                releases.append((stamp, path))
+        except Exception as error:
+            warn_release_pruning(error)
+
+    releases.sort(key=lambda entry: entry[0], reverse=True)
+    now = datetime.now(UTC)
+    # Never shorter than one day, so a run during a deploy cannot delete the copy being written.
+    database_cutoff = now - max(timedelta(days=keep_days) - RUN_INTERVAL, RUN_INTERVAL)
+    directory_cutoff = now - timedelta(days=MAX_BACKUP_DAYS) + RUN_INTERVAL
+    for index, (stamp, path) in enumerate(releases):
+        if stamp >= database_cutoff:
+            continue
+        try:
+            paths = release_tree(path, root)
+            if index > 0 and stamp < directory_cutoff:
+                remove_release_path(path, root)
+                continue
+            # Preserve rollback metadata, including protected runtime.env, but no DB copies.
+            removed_dirs = []
+            for child in paths[1:]:
+                if any(parent in removed_dirs for parent in child.parents):
+                    continue
+                if child == path / "online" or child == path / "drained" or ".sqlite" in child.name:
+                    is_directory = child.is_dir()
+                    remove_release_path(child, root)
+                    if is_directory:
+                        removed_dirs.append(child)
+        except Exception as error:
+            warn_release_pruning(error)
 
 
 def prune_backups(keep):
+    root = safe_path(DEST_DIR)
+    cutoff = datetime.now(UTC) - timedelta(days=MAX_BACKUP_DAYS) + RUN_INTERVAL
     backups = []
-    for path in DEST_DIR.iterdir():
+    for path in root.iterdir():
         match = AUTOMATIC_NAME.fullmatch(path.name)
         if not match or path.is_symlink() or not path.is_file():
             continue
@@ -33,15 +126,24 @@ def prune_backups(keep):
             stamp = datetime.strptime(match.group(1), "%Y%m%d-%H%M%S").replace(tzinfo=UTC)
         except ValueError:
             continue
+        path = safe_path(path, root)
         backups.append((stamp, path))
     backups.sort(key=lambda entry: entry[0], reverse=True)
-    for _, path in backups[keep:]:
+    retained = []
+    for index, (stamp, path) in enumerate(backups):
+        # Always keep the newest snapshot, even when pruning stale files in isolation.
+        if index == 0 or (index < keep and stamp >= cutoff):
+            retained.append((stamp, path))
+            continue
+        path = safe_path(path, root)
         path.unlink()
+        sidecar = Path(str(path) + ".sha256")
+        if sidecar.is_symlink():
+            continue
         try:
-            Path(str(path) + ".sha256").unlink()
+            safe_path(sidecar, root).unlink()
         except FileNotFoundError:
             pass
-    retained = backups[:keep]
     return len(retained), sum(path.stat().st_size for _, path in retained)
 
 
@@ -53,7 +155,7 @@ def create_backup():
     except ValueError:
         raise ValueError(KEEP_ENV + " must be an integer >= 1") from None
 
-    destination = DEST_DIR.absolute()
+    destination = safe_path(DEST_DIR)
     destination.mkdir(mode=0o700, parents=True, exist_ok=True)
     temporary_paths = []
     directory_fd = os.open(str(destination), os.O_RDONLY | os.O_DIRECTORY)
@@ -72,6 +174,13 @@ def create_backup():
             wal_size = 0
         required = SPACE_MULTIPLIER * (source_size + wal_size)
         free = shutil.disk_usage(destination).free
+        if free < required:
+            # Expired release copies may be what filled the disk; free them before giving up.
+            try:
+                prune_releases()
+            except Exception as error:
+                warn_release_pruning(error)
+            free = shutil.disk_usage(destination).free
         if free < required:
             raise RuntimeError("insufficient free space: need {} bytes, have {} in {}".format(required, free, destination))
 
@@ -118,7 +227,14 @@ def create_backup():
         os.rename(temporary, final)
         os.rename(checksum_temporary, sidecar)
         os.fsync(directory_fd)
-        kept, total_bytes = prune_backups(keep)
+        try:
+            kept, total_bytes = prune_backups(keep)
+        finally:
+            # A failed daily prune must not keep expired release copies too.
+            try:
+                prune_releases()
+            except Exception as error:
+                warn_release_pruning(error)
         os.fsync(directory_fd)
         return final, size, checksum, kept, total_bytes
     finally:

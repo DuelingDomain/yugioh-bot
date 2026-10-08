@@ -8,6 +8,7 @@ import { livePileCards, shouldClosePileForPrompt, type PileView } from "../pile-
 import type { CardMenuState } from "../card-interactions";
 import { promptLegalKeys } from "../prompts";
 import { DEFAULT_SIDE_PANE, type SidePane } from "../side-panel";
+import { aimPromptFor, attackAimOf, isAttackStepPrompt, queuedAnswer, type AttackAim, type AttackAimTarget, type AttackTargets } from "./attack-aim";
 import type { BattleAim, DuelActivateHandler, InspectTarget, TableController } from "./types";
 
 /**
@@ -64,15 +65,23 @@ export function useTableUi(base: TableController, options: TableUiOptions = {}):
   const [pane, setPane] = useState<SidePane>(options.initialPane ?? DEFAULT_SIDE_PANE);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [pendingAttack, setPendingAttack] = useState<{ key: string; direct: boolean } | null>(null);
+  // The attacker the player clicked, before the attack is sent: the aim comes first, the target click sends (attack-aim.ts).
+  const [aimFirst, setAimFirst] = useState<{ promptId: string; revision: number; key: string; optionId: string; direct: boolean; targets: AttackTargets | null } | null>(null);
+  // The target the player clicked, until the core's own target step has taken it (or showed that it cannot).
+  // `revision` is the revision the next attack step must have: the sent one + 1, and one more after a "No" to "Attack directly?".
+  const [queued, setQueued] = useState<{ fromPrompt: string; target: AttackAimTarget; revision: number; directSeats: number[] | null } | null>(null);
+  const queuedSent = useRef<string | null>(null);
 
   const promptId = prompt?.id ?? null;
   const revision = engine.revision;
   const activeMenu = canAct && !busy && menu?.promptId === promptId && menu?.revision === revision ? menu : null;
+  const aimingFirst = canAct && !busy && aimFirst?.promptId === promptId && aimFirst.revision === revision ? aimFirst : null;
 
   // A new prompt or revision drops the menu and the hover card.
   useEffect(() => {
     setMenu(null);
     setHover(null);
+    setAimFirst(null);
   }, [promptId, revision]);
   // A new prompt for this seat lets the pinned peek go: it must not cover the cards the prompt asks for.
   const promptSeat = prompt?.seat ?? null;
@@ -85,6 +94,34 @@ export function useTableUi(base: TableController, options: TableUiOptions = {}):
   useEffect(() => {
     if (!prompt || !(isAttackTargetPrompt(prompt, true) || isAttackDuelistPrompt(prompt) || isDirectAttackPrompt(prompt))) setPendingAttack(null);
   }, [prompt]);
+
+  // The target the player clicked answers the core's own attack steps (duelist pick, "Attack directly?", target pick) when they
+  // offer it. A step that does not offer it, or any other prompt, drops it: the player then aims on the real prompt.
+  useEffect(() => {
+    if (!queued || !prompt || prompt.id === queued.fromPrompt) return;
+    // The step already answered stays as it is until the next prompt comes.
+    if (queuedSent.current === prompt.id) return;
+    // A prompt from any other revision (a replay, a later turn step) is not the step that follows the sent attack.
+    if (revision !== queued.revision) {
+      setQueued(null);
+      return;
+    }
+    if (viewerSeat == null || prompt.seat !== viewerSeat || !isAttackStepPrompt(prompt)) {
+      setQueued(null);
+      return;
+    }
+    if (!canAct || busy) return;
+    const answer = queuedAnswer(prompt, queued.target, queued.directSeats);
+    if (!answer) {
+      setQueued(null);
+      return;
+    }
+    queuedSent.current = prompt.id;
+    // "No" to "Attack directly?" still has the monster pick behind it, one revision later.
+    if (isDirectAttackPrompt(prompt) && answer.choice === "no") setQueued({ ...queued, revision: queued.revision + 1 });
+    else setQueued(null);
+    onAnswer(answer);
+  }, [busy, canAct, onAnswer, prompt, queued, revision, viewerSeat]);
 
   // Set when an answer is sent; the next prompt (or the wait for one) then decides whether an open pile viewer stays.
   const pileAnswered = useRef(false);
@@ -156,6 +193,13 @@ export function useTableUi(base: TableController, options: TableUiOptions = {}):
   const mine = prompt != null && viewerSeat != null && prompt.seat === viewerSeat;
   const submit = useCallback(
     (answer: DuelAnswer) => {
+      // A declared attack does not go out yet: the player aims first, and the target click sends it (attack-aim.ts).
+      const declared = attackAimOf(prompt, answer);
+      if (declared && prompt && canAct && !busy && aimPromptFor(prompt, engine, viewerSeat, declared.direct, declared.targets).options.length > 0) {
+        setMenu(null);
+        setAimFirst({ promptId: prompt.id, revision, ...declared });
+        return;
+      }
       // An answer from the pile viewer leaves it open until the next prompt shows whether it is still needed.
       if (canAct && !busy && prompt && pile?.open) pileAnswered.current = true;
       // Remember the declared attacker so the target step can draw the arrow from it.
@@ -174,7 +218,23 @@ export function useTableUi(base: TableController, options: TableUiOptions = {}):
       }
       onAnswer(answer);
     },
-    [busy, canAct, onAnswer, pile?.open, prompt],
+    [busy, canAct, engine, onAnswer, pile?.open, prompt, revision, viewerSeat],
+  );
+
+  const sendAim = useCallback(
+    (target: AttackAimTarget) => {
+      if (!aimingFirst) return;
+      setAimFirst(null);
+      setQueued({ fromPrompt: aimingFirst.promptId, target, revision: aimingFirst.revision + 1, directSeats: aimingFirst.targets?.direct ?? null });
+      setPendingAttack({ key: aimingFirst.key, direct: aimingFirst.direct });
+      onAnswer({ choice: aimingFirst.optionId });
+    },
+    [aimingFirst, onAnswer],
+  );
+  const cancelAim = useCallback(() => setAimFirst(null), []);
+  const attackAim = useMemo<AttackAim | null>(
+    () => (aimingFirst ? { key: aimingFirst.key, optionId: aimingFirst.optionId, direct: aimingFirst.direct, targets: aimingFirst.targets, send: sendAim, cancel: cancelAim } : null),
+    [aimingFirst, cancelAim, sendAim],
   );
 
   /** A click no prompt took, in the HUD: the card is pinned in the hover preview (the Card flyout stays shut). */
@@ -210,15 +270,9 @@ export function useTableUi(base: TableController, options: TableUiOptions = {}):
           submit({ choice: options[0].id });
           return;
         }
-        // A monster whose only move is to attack with a card pick to follow declares the attack at once: the arrow starts
-        // from it and the next click is the target. A direct attack never does: the engine may then start the hit with
-        // no further prompt, or ask a duelist pick that cannot be cancelled. Its menu stays, so the click is a choice.
-        if (
-          prompt.context?.type === "action" &&
-          options.length === 1 &&
-          options[0].id.startsWith("attack:") &&
-          !/directly/i.test(options[0].label)
-        ) {
+        // A monster whose only move is to attack starts the aim at once: the arrow runs from it and the next click is the
+        // target, which sends the attack (submit holds it back until then). Its menu would have one item.
+        if (prompt.context?.type === "action" && options.length === 1 && options[0].id.startsWith("attack:")) {
           setMenu(null);
           submit({ choice: options[0].id });
           return;
@@ -243,19 +297,20 @@ export function useTableUi(base: TableController, options: TableUiOptions = {}):
     [base, busy, canAct, draft, hud, mine, onPinCard, pinClicked, prompt, revision, showInspector, submit],
   );
 
-  const attackerKey = pendingAttack?.key ?? base.aim?.from ?? null;
+  const attackerKey = aimingFirst?.key ?? pendingAttack?.key ?? base.aim?.from ?? null;
 
   // The arrow the player is steering: only the declared attacker waiting for a target. A menu never draws one: the
   // arrow starts after the player clicks Attack, and the player picks the target.
   const aim = useMemo<BattleAim | null>(() => {
     if (base.aim) return base.aim;
+    if (aimingFirst) return { mode: "aim", from: aimingFirst.key, to: {} };
     if (pendingAttack) return { mode: "aim", from: pendingAttack.key, to: {} };
     return null;
-  }, [base.aim, pendingAttack]);
+  }, [aimingFirst, base.aim, pendingAttack]);
 
   const controller = useMemo<TableController>(
-    () => ({ ...base, aim, onAnswer: submit, onActivate, onInspect, onHoverCard }),
-    [aim, base, onActivate, onHoverCard, onInspect, submit],
+    () => ({ ...base, aim, attackAim, onAnswer: submit, onActivate, onInspect, onHoverCard }),
+    [aim, attackAim, base, onActivate, onHoverCard, onInspect, submit],
   );
 
   return {

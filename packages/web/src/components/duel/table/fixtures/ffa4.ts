@@ -3,11 +3,13 @@ import { ev, MZ, SZ } from "../../fx-lab/board";
 import { LOCATION_GRAVE, LOCATION_HAND, LOCATION_MZONE, LOCATION_SZONE, POS_FACEDOWN_DEFENSE, POS_FACEUP_ATTACK, POS_FACEUP_DEFENSE, zoneKey } from "../../constants";
 import {
   fixtureEngine,
+  fixtureLog,
   fixtureRoom,
   link,
   newSeat,
   putMonster,
   putSpell,
+  searchPrompt,
   TABLE_CARDS as C,
   withHiddenHands,
   type TableFixtureSet,
@@ -32,19 +34,38 @@ const FOES = [ROOK, JUNIPER, MIRELLE] as const;
 /** The last plays of turns 5 to 7, the rows of the history rail. Each carries the seat that did it. */
 function history(): DuelEvent[] {
   const specs = [
-    ev.phase("Turn 5"),
+    ev.phase("Main Phase 1"),
     ev.summon(ROOK, C.blueEyes, MZ(ROOK, 1), "tribute"),
     ev.set(ROOK, C.mirrorForce, SZ(ROOK, 1)),
-    ev.phase("Turn 6"),
+    ev.phase("Main Phase 1"),
     ev.summon(JUNIPER, C.redEyes, MZ(JUNIPER, 0)),
     ev.summon(JUNIPER, C.gaia, MZ(JUNIPER, 2)),
     ev.summon(MIRELLE, C.summonedSkull, MZ(MIRELLE, 0)),
     ev.attack(ROOK, MZ(ROOK, 1), MZ(JUNIPER, 0)),
     ev.damage(JUNIPER, 1200),
-    ev.phase("Turn 7"),
+    ev.phase("Main Phase 1"),
     ev.summon(ASTER, C.darkMagician, MZ(ASTER, 0)),
   ];
   return specs.map((spec, index) => ({ ...spec, id: index + 1 }) as DuelEvent);
+}
+
+/** The Text log of the same plays, as the engine words them. Aster is Player 1, Rook Player 2, Juniper Player 3, Mirelle Player 4. */
+function textLog(): DuelEngineView["log"] {
+  return fixtureLog(
+    "Turn 5 — Player 2", "main1",
+    "Player 2 Tribute Summons Blue-Eyes White Dragon",
+    "Player 2 Sets a card",
+    "Turn 6 — Player 3", "main1",
+    "Player 3 Normal Summons Red-Eyes Black Dragon",
+    "Player 3 Normal Summons Gaia The Fierce Knight",
+    "Player 4 Normal Summons Summoned Skull",
+    "battle", "Player 3 declares an attack",
+    "Player 3 takes 1200 damage",
+    "Turn 7 — Player 1", "draw",
+    "Player 1 drew 1 card(s)", "You drew Heavy Storm",
+    "main1",
+    "Player 1 Normal Summons Dark Magician",
+  );
 }
 
 const MASTERS = [
@@ -122,6 +143,7 @@ function make(id: TableStateId, label: string, spec: Spec = {}): TableFixtureSta
     prompt: spec.prompt?.(seats) ?? null,
     chain: spec.chain,
     events: history(),
+    log: textLog(),
     result: spec.result,
   });
   return { id, label, room: fixtureRoom({ format: "ffa4", names: NAMES, viewerSeat, engine, clockMs: CLOCK_MS, mode: "domain" }), ui: spec.ui };
@@ -265,9 +287,9 @@ function fillDefense(seats: DuelSeatView[]): void {
   }
 }
 
-export type Ffa4PreviewPick = "field" | "hand" | "emz" | "zone" | "yesno" | "option" | "cards" | "position" | "number";
+export type Ffa4PreviewPick = "field" | "hand" | "emz" | "zone" | "yesno" | "option" | "cards" | "search" | "search2" | "position" | "number";
 
-export const FFA4_PREVIEW_PICKS: readonly Ffa4PreviewPick[] = ["field", "hand", "emz", "zone", "yesno", "option", "cards", "position", "number"];
+export const FFA4_PREVIEW_PICKS: readonly Ffa4PreviewPick[] = ["field", "hand", "emz", "zone", "yesno", "option", "cards", "search", "search2", "position", "number"];
 
 /**
  * The prompt of a preview pick that is not a pick among your own cards: a zone of your field (`zone`), the "Activate its
@@ -289,6 +311,10 @@ function previewPrompt(pick: Ffa4PreviewPick, own: DuelSeatView): DuelPrompt | n
         id: "pick-option", seat: ASTER, kind: "choice", title: `Choose an effect of ${C.blueEyes.name}`, source,
         options: [{ id: "o1", label: "Draw 1 card" }, { id: "o2", label: "Gain 1000 LP" }, { id: "o3", label: "Destroy 1 Spell/Trap" }],
       };
+    case "search":
+      return searchPrompt(ASTER);
+    case "search2":
+      return searchPrompt(ASTER, 2);
     case "cards":
       return {
         id: "pick-cards", seat: ASTER, kind: "cards", title: "Select 1 monster in your GY", min: 1, max: 1, cancelable: true,

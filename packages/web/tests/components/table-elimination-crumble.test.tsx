@@ -21,6 +21,9 @@ import { OUT_HOLD_MS } from "@/components/duel/table/grid-layout";
 import { FINALE_BEAT_MS } from "@/components/duel/table/grid-finale";
 import { GLIDE_MS } from "@/components/duel/table/use-seat-exits";
 
+// Each test renders a full table; most take 0.5 to 1.5 s locally and CI runs several times slower than the 5 s default allows.
+vi.setConfig({ testTimeout: 20_000 });
+
 beforeAll(() => {
   class RO {
     constructor(private cb: () => void) {}
@@ -106,7 +109,7 @@ describe("the elimination crumble on a 4-way table", () => {
     settle(AFTER_BATTLE);
     expect(crumbles(container)).toBe(0);
     expect(places(container, [0, 1])).toEqual({ 0: before[0], 1: before[1] });
-  });
+  }, 20_000);
 
   it("keeps the panels of the seats that left, and notes them in the log with a place", () => {
     const { container, rerender } = render(<Shell state={main} />);
@@ -201,10 +204,11 @@ describe("the glide only runs when the table regroups", () => {
       expect(container.querySelector("[data-seat-exit='3']")).not.toBeNull();
       expect(glideNodes(container)).toBe(0);
       expect(container.querySelector("[data-plaza][data-glide]")).toBeNull();
-      settle(AFTER_BATTLE);
+      // Nothing is asserted after the crumble: one large step runs the fake gate interval and timers, then the table goes.
+      act(() => { vi.advanceTimersByTime(AFTER_BATTLE); });
       unmount();
     }
-  });
+  }, 20_000);
 
   it("sends it to the boards and panels of a 3-way table at 3 to 2", () => {
     const main = FFA3_FIXTURES.states.main;

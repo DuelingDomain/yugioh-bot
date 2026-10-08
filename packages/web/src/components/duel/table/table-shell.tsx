@@ -199,12 +199,12 @@ function TableShellBody({
   const gridFits = usesGridLayout(trackedFormat, tracked.engine.seats);
   const gridRefused = useLatch(trackedFormat === "ffa4" && !gridFits);
   const grid = gridFits && !gridRefused;
-  // The 3-way plaza on a wide screen keeps its stage and gets the same floating HUD (no Log: Settings, Chain and Camera).
+  // The 3-way plaza on a wide screen keeps its stage and gets the same floating HUD (Log, Settings and Camera).
   const plazaHud = !narrow && !grid && trackedFormat === "ffa3";
   // The 4-way grid on a wide screen swaps the bars and side columns for the floating HUD (grid-hud.tsx).
   const hud = !narrow && (grid || plazaHud);
   // The Card pane is a flyout in the HUD: a hover must not fill it, only a click or Inspect does.
-  const hudState = useHudPane({ camera: plazaHud, log: !plazaHud });
+  const hudState = useHudPane({ camera: plazaHud });
   const ui = useTableUi(tracked, { initialPane: grid && hud ? "log" : undefined, hud, onOpenCard: hudState.openCard, onPinCard: hudState.pinCard });
   useHudEscape(hudState, hud, ui.suspended);
   usePinSync(hudState, tracked.engine.seats);
@@ -409,7 +409,7 @@ function TableShellBody({
       />
       <details className={roomStyles.textLog}>
         <summary>Text log</summary>
-        <MatchSheetLog entries={engine.log} playerName={nameOf} players={playersText} />
+        <MatchSheetLog entries={engine.log} playerName={nameOf} players={playersText} seatTones={seatTones} />
       </details>
     </div>
   );
@@ -539,6 +539,7 @@ function TableShellBody({
       data-table-shell
       data-duel-fx-speed-root
       data-can-act={canAct ? "true" : "false"}
+      data-aim-seats={flow.aimSeats.length > 0 ? flow.aimSeats.join(" ") : undefined}
       data-viewport={fillViewport ? "true" : undefined}
       data-domain={domain}
       data-fit="true"
@@ -644,7 +645,7 @@ function TableShellBody({
         )}
         {hud ? null : promptDockNode}
         <section className={`${roomStyles.boardColumn} ${hud ? styles.hudBoard : ""}`} aria-label="Duel field">
-          <div className={roomStyles.board} ref={boardRef}>
+          <div className={roomStyles.board} ref={boardRef} data-duel-board>
             <MoveSourceBoundary events={engine.events} duelKey={session.slug} root={boardRef}>
               <Stage
                 controller={controller}
@@ -654,6 +655,7 @@ function TableShellBody({
                 locked={camera.locked}
                 out={camera.out}
                 targetSeat={camera.targetSeat}
+                aimSeats={flow.aimSeats}
                 placeLabels={placeLabels}
                 dispatchCamera={camera.dispatch}
                 grid={grid ? gridFocus : undefined}
@@ -663,6 +665,7 @@ function TableShellBody({
                   <PhaseHub
                     variant={place === "band" ? "band" : "table"}
                     phase={engine.phase}
+                    revision={engine.revision}
                     battleStep={battleStep}
                     turn={engine.turn}
                     turnSeat={engine.turnSeat}
@@ -682,6 +685,7 @@ function TableShellBody({
                   <PhaseHub
                     variant="table"
                     phase={engine.phase}
+                    revision={engine.revision}
                     battleStep={battleStep}
                     turn={engine.turn}
                     turnSeat={engine.turnSeat}
@@ -746,6 +750,7 @@ function TableShellBody({
                         onPick={(seat) => controller.seatPick?.onPick(seat)}
                         onConfirm={flow.confirm}
                         onCancel={flow.cancel}
+                        cancelable={flow.bar.cancelable}
                       />
                     ) : null}
                     {out.length > 0 ? (
@@ -818,7 +823,7 @@ function TableShellBody({
           hud={hudState}
           panels={{
             card: cardPanel,
-            log: plazaHud ? undefined : logPanel,
+            log: logPanel,
             settings: <TableSettings controller={controller} preferences={preferences} connection={connection} tools={settingsTools} />,
             camera: plazaHud ? <CameraControls {...cameraProps} variant="panel" view={{ open: true }} /> : undefined,
           }}
@@ -827,12 +832,15 @@ function TableShellBody({
           nameOf={nameOf}
           seatTones={seatTones}
           logUnread={logUnread}
-          master={domain ? hudMasterProps(
-            { legalKeys: controller.legalKeys, selectedKeys: controller.selectedKeys, canAct, prompt, onAnswer: controller.onAnswer, onActivate: controller.onActivate, onHoverCard: controller.onHoverCard },
-            engine.seats.find((seat) => seat.seat === (viewerSeat ?? layout.anchorSeat)),
-            !spectator,
-            spectator ? `${nameOf(layout.anchorSeat)}'s Master` : "Your Master",
-          ) : null}
+          master={domain ? {
+            ...hudMasterProps(
+              { legalKeys: controller.legalKeys, selectedKeys: controller.selectedKeys, canAct, prompt, onAnswer: controller.onAnswer, onActivate: controller.onActivate, onHoverCard: controller.onHoverCard },
+              engine.seats.find((seat) => seat.seat === (viewerSeat ?? layout.anchorSeat)),
+              !spectator,
+              spectator ? `${nameOf(layout.anchorSeat)}'s Master` : "Your Master",
+            ),
+            wide: plazaHud,
+          } : null}
           onInspect={ui.setInspect}
           preview={hudPreview(ui.hover?.card ?? null, ui.menu?.card, rowPreview.card, (card) => ({ name: nameOf(card.controller), ...toneOf(card.controller) }), hudState.pinned)}
           equipLinks={resolveEquipLinks(engine.seats)}

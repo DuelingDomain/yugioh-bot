@@ -270,8 +270,9 @@ describe("the pinned card peek of the Tag Rooftop", () => {
     const card = zone.querySelector("button") as HTMLElement;
     fireEvent.mouseEnter(card);
     fireEvent.click(card);
-    expect(container.querySelector("[data-camera-mode]")?.getAttribute("data-camera-mode")).toBe("focus");
-    expect(container.querySelector("[data-camera-seat]")?.getAttribute("data-camera-seat")).toBe("0");
+    // The click pins the peek and never moves the camera.
+    expect(container.querySelector("[data-camera-mode]")?.getAttribute("data-camera-mode")).toBe("overview");
+    expect(container.querySelector("[data-camera-seat]")).toBeNull();
     fireEvent.mouseLeave(card);
     act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS * 4); });
     expect(screen.getAllByTestId("hover-preview")).toHaveLength(1);

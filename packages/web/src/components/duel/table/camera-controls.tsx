@@ -105,8 +105,9 @@ export function CameraControls({ layout, camera, locked, hint = null, nameOf, di
   const flyReady = camera.flyIn !== false;
   const label = cameraLabel(camera, nameOf, layout.anchorSeat);
   const plaza = layout.format === "ffa3" && !faceOff;
-  const enlarged = plaza && camera.mode === "focus";
-  const keysHint = faceOff ? "" : flyOn ? "Drag · wheel · 1-3 · Esc" : enlarged ? "Esc or Back to leave" : plaza ? "Click a field to enlarge · E yours · P look · 0 overview" : "[ ] focus · P look · 0 overview";
+  // In a face-off the one view that can be on is your own field enlarged (an elimination does not end it).
+  const enlarged = layout.format === "ffa3" && camera.mode === "focus";
+  const keysHint = faceOff && !enlarged ? "" : flyOn ? "Drag · wheel · 1-3 · Esc" : enlarged ? "Esc or Back to leave" : plaza ? "E zoom my field · P look · 0 overview" : "[ ] focus · P look · 0 overview";
 
   const showPanel = variant !== "stage";
   const showStage = variant !== "panel";
@@ -209,6 +210,11 @@ export function CameraControls({ layout, camera, locked, hint = null, nameOf, di
         <Focus size={13} aria-hidden="true" />
         <b role="status">{label}</b>
         {keysHint ? <span className={styles.hint}>{keysHint}</span> : null}
+        {layout.format === "ffa3" && !flyOn && camera.mode === "home" && !out.includes(layout.anchorSeat) ? (
+          <button type="button" className={styles.back} data-camera-zoom disabled={locked} onClick={() => dispatch({ type: "enlarge", seat: layout.anchorSeat })}>
+            Zoom my field <Key>E</Key>
+          </button>
+        ) : null}
         {enlarged ? (
           <button type="button" className={styles.back} data-camera-back disabled={locked} onClick={() => dispatch({ type: "home" })}>
             Back <Key>Esc</Key>

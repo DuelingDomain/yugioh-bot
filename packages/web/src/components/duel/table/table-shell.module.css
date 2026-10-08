@@ -86,8 +86,9 @@
   --hud-top: 52px;
   /* No bar below: your hand is the last thing at the bottom, and the turn controls sit in the corner (grid-hud.module.css). */
   --hud-bottom: 5px;
-  /* The Deck Master plate (14px + 168px wide) sits at the bottom left: the board starts right of it. */
-  --hud-left: 196px;
+  /* The card peek always stands in the left column, right of the dock (72px, then 14vw wide, 220 to 284px; grid-hud.module.css --pv-col-w):
+     the board starts right of it. The Deck Master plate (14px + 168px wide) stands under the peek in the same column. */
+  --hud-left: calc(72px + clamp(220px, 14vw, 284px) + 12px);
   --hud-corner-w: 168px;
   /* The board runs to the right edge: the stack lies over its empty bottom right corner only (the grid layout keeps
      every field clear of it, HUD_CORNER in grid-layout.ts). */
@@ -100,11 +101,19 @@
    of the Deck Master plate, not under it. */
 .shell.shell[data-hud="true"][data-plaza-hud="true"] {
   --hud-left: 14px;
+  /* The wide Deck Master plate (grid-master.tsx, data-form="wide") at the bottom left: 14px from the edge, this wide. */
+  --hud-master-w: clamp(208px, 16vw, 340px);
+  /* Its card and its ability box, at most this high. The dock flyouts (a sibling of the plate) read them to stop above it. */
+  --hud-master-art-h: clamp(120px, 18dvh, 250px);
+  --hud-master-ability-h: clamp(64px, 9dvh, 132px);
+}
+@media (max-height: 599px) {
+  .shell.shell[data-hud="true"][data-plaza-hud="true"] { --hud-master-art-h: 100px; }
 }
 
 .shell.shell[data-plaza-hud="true"] :global([data-camera-chip]),
 .shell.shell[data-plaza-hud="true"] :global([data-camera-cue]) {
-  left: 180px;
+  left: calc(14px + var(--hud-master-w) + 12px);
 }
 
 .shell.shell[data-hud="true"] .hudLayout {

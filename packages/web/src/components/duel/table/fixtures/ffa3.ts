@@ -3,12 +3,14 @@ import { ev, MZ, SZ } from "../../fx-lab/board";
 import { LOCATION_HAND, LOCATION_MZONE, POS_FACEDOWN_DEFENSE, POS_FACEUP_DEFENSE, zoneKey } from "../../constants";
 import {
   fixtureEngine,
+  fixtureLog,
   fixtureRoom,
   link,
   newSeat,
   putMonster,
   putSpell,
   TABLE_CARDS as C,
+  searchPrompt,
   withHiddenHands,
   type TableFixtureSet,
   type TableFixtureState,
@@ -29,20 +31,40 @@ const MIKA = 2;
 /** The last plays of turns 3 to 5, the rows of the history rail. Each carries the seat that did it. */
 function history(): DuelEvent[] {
   const specs = [
-    ev.phase("Turn 3"),
+    ev.phase("Main Phase 1"),
     ev.summon(RYO, C.blueEyes, MZ(RYO, 1), "tribute"),
     ev.set(RYO, C.mirrorForce, SZ(RYO, 1)),
-    ev.phase("Turn 4"),
+    ev.phase("Main Phase 1"),
     ev.summon(MIKA, C.redEyes, MZ(MIKA, 0)),
     ev.summon(MIKA, C.gaia, MZ(MIKA, 2)),
     ev.attack(MIKA, MZ(MIKA, 0), MZ(RYO, 1)),
     ev.damage(MIKA, 1200),
-    ev.phase("Turn 5"),
+    ev.phase("Main Phase 1"),
     ev.summon(REN, C.darkMagician, MZ(REN, 0)),
     ev.destroy(MIKA, C.gaia, MZ(MIKA, 2), { cause: "effect", sourceCode: C.raigeki.code, sourceKind: "spell", sourceSeat: REN }),
     ev.toGrave(MIKA, C.gaia, MZ(MIKA, 2), 0, { cause: "effect", sourceCode: C.raigeki.code, sourceKind: "spell", sourceSeat: REN }),
   ];
   return specs.map((spec, index) => ({ ...spec, id: index + 1 }) as DuelEvent);
+}
+
+/** The Text log of the same plays, as the engine words them. Ren is Player 1, Ryo Player 2, Mika Player 3. */
+function textLog(): DuelEngineView["log"] {
+  return fixtureLog(
+    "Turn 3 — Player 2", "main1",
+    "Player 2 Tribute Summons Blue-Eyes White Dragon",
+    "Player 2 Sets a card",
+    "Turn 4 — Player 3", "main1",
+    "Player 3 Normal Summons Red-Eyes Black Dragon",
+    "Player 3 Normal Summons Gaia The Fierce Knight",
+    "battle", "Player 3 declares an attack",
+    "Player 3 takes 1200 damage",
+    "Turn 5 — Player 1", "draw",
+    "Player 1 drew 1 card(s)", "You drew Heavy Storm",
+    "main1",
+    "Player 1 Normal Summons Dark Magician",
+    "Player 1's Raigeki is activating",
+    "Player 3's Gaia The Fierce Knight was destroyed",
+  );
 }
 
 const MASTERS = [
@@ -124,6 +146,7 @@ function make(id: TableStateId, label: string, spec: Spec = {}): TableFixtureSta
     prompt: spec.prompt?.(seats) ?? null,
     chain: spec.chain,
     events: history(),
+    log: textLog(),
     result: spec.result,
   });
   return { id, label, room: fixtureRoom({ format: "ffa3", names: NAMES, viewerSeat, engine, clockMs: CLOCK_MS, mode: "domain" }), ui: spec.ui };
@@ -251,12 +274,14 @@ const DEFENSE_ROWS = [
   [C.redEyes, C.gaia, C.cyberDragon, C.sangan, C.blackChaos],
 ] as const;
 
-export type Ffa3PreviewPick = "def";
+export type Ffa3PreviewPick = "def" | "cards" | "cards2" | "attack" | "attack-direct" | "attack-listed";
 
 /**
  * A preview variant of the 3-way fixtures: `out` sweeps those seats (as the engine does: no LP, an empty board, the
  * elimination order); `defense` lays Defense Position monsters on every field; `pick: "def"` asks you to pick one monster
- * on any field (yours included), so the turned cards are the targets.
+ * on any field (yours included), so the turned cards are the targets; `pick: "cards"` asks for one of 14 Deck cards (`"cards2"`: one of 2).
+ * `pick: "attack"` is the battle action prompt (click your
+ * monster, aim, click a target); `"attack-direct"` is the same with the first living rival's monsters gone (a direct attack).
  */
 export function ffa3Variant(set: TableFixtureSet, opts: { out: readonly number[]; defense?: boolean; pick?: Ffa3PreviewPick | null }): TableFixtureSet {
   if (opts.out.length === 0 && !opts.defense && !opts.pick) return set;
@@ -280,12 +305,38 @@ export function ffa3Variant(set: TableFixtureSet, opts: { out: readonly number[]
         }
       }
       let prompt = engine.prompt;
+      if ((opts.pick === "attack" || opts.pick === "attack-direct" || opts.pick === "attack-listed") && state.room.mySeat === REN) {
+        const direct = opts.pick === "attack-direct";
+        const listed = opts.pick === "attack-listed";
+        // The engine's list: the first rival holds monsters and may still be hit directly; the other rival's monsters cannot be attacked.
+        const rivals = seats.filter((view) => view.seat !== REN && !view.eliminated);
+        const attackTargets = {
+          monsters: (rivals[0]?.monsters ?? []).flatMap((card) => (card ? [{ controller: card.controller, location: card.location, sequence: card.sequence }] : [])),
+          direct: rivals[0] ? [rivals[0].seat] : [],
+        };
+        if (direct) {
+          const open = seats.find((view) => view.seat !== REN && !view.eliminated);
+          if (open) open.monsters = open.monsters.map(() => null);
+        }
+        prompt = {
+          id: "attack-action",
+          seat: REN,
+          kind: "choice",
+          title: "Battle Phase",
+          context: { type: "action", phase: "battle" },
+          options: [
+            { id: "attack:0", label: direct || listed ? "Attack directly with Dark Magician" : "Attack with Dark Magician", controller: REN, location: LOCATION_MZONE, sequence: 0, ...(listed ? { attackTargets } : {}) },
+            { id: "to_ep", label: "End Phase" },
+          ],
+        };
+      }
       if (opts.pick === "def" && state.room.mySeat === REN) {
         const options = seats.flatMap((view) =>
           view.eliminated ? [] : view.monsters.flatMap((card, sequence) => (card && sequence < 5 ? [monsterOption(view.seat, sequence, card.name ?? "Monster")] : [])),
         );
         prompt = { id: "pick-def", seat: REN, kind: "cards", title: "Select 1 monster to destroy", min: 1, max: 1, options };
       }
+      if ((opts.pick === "cards" || opts.pick === "cards2") && state.room.mySeat === REN) prompt = searchPrompt(REN, opts.pick === "cards2" ? 2 : undefined);
       const order = opts.out.map((seat) => [seat]);
       const room = { ...state.room, engine: { ...engine, seats, prompt, ...(order.length > 0 ? { eliminationOrder: order } : {}) } };
       const ui = order.length > 0 ? { ...state.ui, initialOutOrder: order } : state.ui;

@@ -1,14 +1,17 @@
 import type { DuelChainLink, DuelEngineView, DuelEvent, DuelPrompt, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
+import { ev, MZ } from "../fx-lab/board";
 import { LOCATION_HAND, LOCATION_MZONE, LOCATION_SZONE, zoneKey } from "../constants";
 import {
   cardAt,
   fixtureEngine,
+  fixtureLog,
   hiddenAt,
   fixtureRoom,
   link,
   newSeat,
   putMonster,
   putSpell,
+  searchPrompt,
   SZ,
   TABLE_CARDS as C,
   withHiddenHands,
@@ -33,6 +36,41 @@ const JUNIPER = 3;
 const RIVALS = [MIRELLE, JUNIPER] as const;
 
 const POS_SET = 0x0a;
+
+/** The last plays of turns 2 to 5, the rows of the Log. Each carries the seat that did it. Corvin's Set card stays face-down for his partner Aster: the rail treats a partner as a rival. */
+function history(): DuelEvent[] {
+  const specs = [
+    ev.phase("Main Phase 1"),
+    ev.summon(MIRELLE, C.summonedSkull, MZ(MIRELLE, 0)),
+    ev.phase("Main Phase 1"),
+    ev.set(CORVIN, C.torrential, SZ(CORVIN, 0)),
+    ev.phase("Main Phase 1"),
+    ev.summon(JUNIPER, C.gaia, MZ(JUNIPER, 2)),
+    ev.attack(JUNIPER, MZ(JUNIPER, 0), MZ(CORVIN, 0)),
+    { kind: "damage", seat: CORVIN, amount: 1_200, cause: "battle", text: `${TAG_NAMES[CORVIN]} took 1200 damage` } as const,
+    ev.phase("Main Phase 1"),
+    ev.summon(ASTER, C.darkMagician, MZ(ASTER, 0)),
+  ];
+  return specs.map((spec, index) => ({ ...spec, id: index + 1 }) as DuelEvent);
+}
+
+/** The Text log of the same plays, as the engine words them. Aster is Player 1, Mirelle Player 2, Corvin Player 3, Juniper Player 4. */
+function textLog(): DuelEngineView["log"] {
+  return fixtureLog(
+    "Turn 2 — Player 2", "main1",
+    "Player 2 Normal Summons Summoned Skull",
+    "Turn 3 — Player 3", "main1",
+    "Player 3 Sets a card",
+    "Turn 4 — Player 4", "main1",
+    "Player 4 Normal Summons Gaia The Fierce Knight",
+    "battle", "Player 4 declares an attack",
+    "Player 3 takes 1200 damage",
+    "Turn 5 — Player 1", "draw",
+    "Player 1 drew 1 card(s)", "You drew Pot of Greed",
+    "main1",
+    "Player 1 Normal Summons Dark Magician",
+  );
+}
 
 function board(): DuelSeatView[] {
   const aster = newSeat(ASTER, { lp: 11800, hand: [C.darkHole, C.featherDuster, C.celtic, C.solemn, C.potOfGreed], deck: 30, extra: [C.darkPaladin] });
@@ -98,6 +136,7 @@ interface Spec {
   prompt?: (seats: DuelSeatView[]) => DuelPrompt | null;
   chain?: DuelChainLink[];
   events?: DuelEvent[];
+  log?: DuelEngineView["log"];
   result?: DuelEngineView["result"];
   ui?: TableFixtureState["ui"];
 }
@@ -130,6 +169,7 @@ function make(id: TableFixtureState["id"], label: string, spec: Spec = {}): Tabl
     prompt: spec.prompt?.(seats) ?? null,
     chain: spec.chain,
     events: spec.events,
+    log: spec.log ?? textLog(),
     result: spec.result,
   });
   return { id, label, room: fixtureRoom({ format: "tag", names: TAG_NAMES, viewerSeat, engine, clockMs: CLOCK_MS }), ui: spec.ui };
@@ -139,8 +179,8 @@ const attackerKey = zoneKey(ASTER, LOCATION_MZONE, 0);
 
 const states = {
   main: make("main", "Main Phase: usable cards", {
-    // Last turn's battle damage: the red chip on the Starfall plate.
-    events: [{ id: 1, kind: "damage", seat: CORVIN, amount: 1_200, cause: "battle", text: `${TAG_NAMES[CORVIN]} took 1200 damage` }],
+    // The last plays of turns 3 and 4 (the Log), ending with last turn's battle damage: the red chip on the Starfall plate.
+    events: history(),
     prompt: () => ({
       id: "main-action",
       seat: ASTER,
@@ -283,3 +323,15 @@ const extra: Record<string, TableFixtureState> = {
 };
 
 export const TAG_FIXTURES: TableFixtureSet = { format: "tag", title: "2v2 tag duel", states, extra };
+
+/** The `?pick=cards` preview of the tag table: your prompt is a pick among 14 Deck cards, so the card strip has more cards than a window shows. */
+export function tagSearchVariant(set: TableFixtureSet): TableFixtureSet {
+  const states = Object.fromEntries(
+    Object.entries(set.states).map(([id, state]) => {
+      const engine = state.room.engine;
+      if (!engine || state.room.mySeat !== ASTER) return [id, state];
+      return [id, { ...state, room: { ...state.room, engine: { ...engine, prompt: searchPrompt(ASTER) } } }];
+    }),
+  ) as unknown as TableFixtureSet["states"];
+  return { ...set, states };
+}

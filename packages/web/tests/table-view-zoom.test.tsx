@@ -4,10 +4,16 @@ import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useViewZoom, VIEW_OCCLUDERS } from "@/components/duel/table/use-view-zoom";
 import { ViewReset } from "@/components/duel/table/view-reset";
+import { freeDockRoom } from "@/components/duel/table/grid-stage";
 import {
   clampView,
   DRAG_THRESHOLD_PX,
   edgeInsets,
+  clearRoom,
+  fitRoom,
+  counterTransform,
+  fitItemRect,
+  fitView,
   followCss,
   isZoomed,
   layerOffset,
@@ -228,6 +234,7 @@ describe("useViewZoom on a board", () => {
             zone
           </button>
           <div data-testid="floor" />
+          <div data-grid-cell="0" data-testid="cell" />
         </div>
         <div data-slot="prompt">
           <button type="button" data-testid="prompt">yes</button>
@@ -320,6 +327,24 @@ describe("useViewZoom on a board", () => {
     rerender(<Board onZone={() => undefined} onBoard={() => undefined} resetKey="b" />);
     expect(root.dataset.scale).toBe("1.00");
     expect(getByTestId("layer").style.transform).toBe("");
+  });
+
+  it("a double-click on a grid cell never resets the view; on empty board outside the cells it does", () => {
+    const { getByTestId } = render(<Board onZone={() => undefined} onBoard={() => undefined} />);
+    const root = getByTestId("root");
+    act(() => {
+      root.dispatchEvent(new WheelEvent("wheel", { deltaY: -500, clientX: 500, clientY: 300, bubbles: true, cancelable: true }));
+    });
+    const zoomed = root.dataset.scale;
+    expect(zoomed).not.toBe("1.00");
+    act(() => {
+      fireEvent.doubleClick(getByTestId("cell"));
+    });
+    expect(root.dataset.scale).toBe(zoomed);
+    act(() => {
+      fireEvent.doubleClick(getByTestId("floor"));
+    });
+    expect(root.dataset.scale).toBe("1.00");
   });
 
   it("eases a view that the HUD let past the new clamps back in when the HUD goes (refit)", () => {
@@ -457,5 +482,253 @@ describe("Reset view control", () => {
     });
     expect(queryByTestId("view-reset")).toBeNull();
     expect(document.activeElement).toBe(getByTestId("board"));
+  });
+});
+
+describe("camera fit of a field", () => {
+  const FREE = { x: 100, y: 50, width: 800, height: 400 };
+
+  it("fills the free box with the field and centres it", () => {
+    const view = fitView([{ rect: { x: 300, y: 200, width: 200, height: 100 } }], FREE);
+    // Width allows 4x, height allows 4x, so the cap of 2.5 is the limit.
+    expect(view.s).toBe(2.5);
+    const l = view.x + view.s * 300;
+    const t = view.y + view.s * 200;
+    expect(l + (view.s * 200) / 2).toBeCloseTo(FREE.x + FREE.width / 2);
+    expect(t + (view.s * 100) / 2).toBeCloseTo(FREE.y + FREE.height / 2);
+  });
+
+  it("takes the largest scale that fits both sides", () => {
+    const view = fitView([{ rect: { x: 0, y: 0, width: 400, height: 300 } }], FREE);
+    expect(view.s).toBeCloseTo(400 / 300, 3);
+    expect(view.s * 300).toBeLessThanOrEqual(FREE.height + 0.01);
+  });
+
+  it("keeps a following plate at its own size, so it does not grow the field's share", () => {
+    const field = { rect: { x: 0, y: 100, width: 300, height: 200 } };
+    const plate = { rect: { x: 0, y: 0, width: 100, height: 80 }, anchor: { x: 0, y: 100 } };
+    const view = fitView([field, plate], FREE);
+    const topOfPlate = view.y + view.s * 100 - 100;
+    expect(topOfPlate).toBeGreaterThanOrEqual(FREE.y - 0.01);
+    expect(view.y + view.s * 300).toBeLessThanOrEqual(FREE.y + FREE.height + 0.01);
+  });
+
+  it("never goes under the camera scale and returns identity with nothing to fit", () => {
+    expect(fitView([], FREE)).toEqual(VIEW_IDENTITY);
+    const big = fitView([{ rect: { x: 0, y: 0, width: 2000, height: 1000 } }], FREE);
+    expect(big.s).toBe(1);
+  });
+
+  it("draws a counter-scaled node at its 1x place", () => {
+    expect(counterTransform(VIEW_IDENTITY, { x: 10, y: 20 })).toBe("");
+    const view = { s: 2, x: -300, y: -100 };
+    const origin = { x: 40, y: 60 };
+    const css = counterTransform(view, origin);
+    const m = /translate\((-?[\d.]+)px, (-?[\d.]+)px\) scale\(([\d.]+)\)/.exec(css)!;
+    const [tx, ty, sc] = [Number(m[1]), Number(m[2]), Number(m[3])];
+    expect(sc).toBeCloseTo(0.5);
+    // The layer maps p to u + s * p: the node's top left lands back on its origin.
+    const u = layerOffset(view);
+    expect(u.x + view.s * (origin.x + tx)).toBeCloseTo(origin.x, 1);
+    expect(u.y + view.s * (origin.y + ty)).toBeCloseTo(origin.y, 1);
+  });
+});
+
+describe("own field zoom: the counter-scaled hand", () => {
+  let api: ReturnType<typeof useViewZoom> | null = null;
+  let bump: (() => void) | null = null;
+  beforeEach(() => {
+    api = null;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(BOX.width);
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(BOX.height);
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ left: 0, top: 0, right: 100, bottom: 80, width: 100, height: 80, x: 0, y: 0, toJSON: () => ({}) } as DOMRect);
+  });
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  function Host({ fixed = "[data-hand]", frameK = 1, reducedMotion = true }: { fixed?: string; frameK?: number; reducedMotion?: boolean }) {
+    const rootRef = useRef<HTMLDivElement>(null);
+    const layerRef = useRef<HTMLDivElement>(null);
+    const [n, setN] = React.useState(0);
+    bump = () => setN((v) => v + 1);
+    api = useViewZoom({ rootRef, layerRef, enabled: true, reducedMotion, resetKey: "a", fixed, frame: { x: 0, y: 0, k: frameK } });
+    return (
+      <div ref={rootRef} data-testid="root">
+        <div ref={layerRef} data-testid="layer">
+          {/* A new key per render: the hand is a new node, as when React rebuilds it. */}
+          <div key={n} data-hand="" data-testid="hand" />
+        </div>
+      </div>
+    );
+  }
+
+  const ZOOMED = { s: 1.6, x: -300, y: -120 };
+
+  it("moves the layer on entry and draws the hand at its 1x size", () => {
+    const { getByTestId } = render(<Host />);
+    act(() => api!.zoomTo(ZOOMED, 0));
+    expect(getByTestId("layer").style.transform).toContain("scale(1.6");
+    expect(getByTestId("hand").style.transform).toContain("scale(");
+  });
+
+  it("zoomTo returns the clamped view it aims at, the same one the layer shows", () => {
+    const { getByTestId } = render(<Host />);
+    let aimed: { s: number; x: number; y: number } | null = null;
+    act(() => { aimed = api!.zoomTo({ s: 1.6, x: -99999, y: 0 }, 0); });
+    expect(aimed!.x).toBeGreaterThan(-99999);
+    expect(getByTestId("layer").style.transform).toContain(`scale(${aimed!.s}`);
+    expect(api!.view.x).toBeCloseTo(aimed!.x, 1);
+  });
+
+  it("keeps the hand at 1x after it is re-rendered while the view stays", async () => {
+    const { getByTestId } = render(<Host />);
+    act(() => api!.zoomTo(ZOOMED, 0));
+    const old = getByTestId("hand");
+    await act(async () => {
+      bump!();
+      await Promise.resolve();
+    });
+    const hand = getByTestId("hand");
+    // A new node (the mock gives every node the same rect, so only the shape of the counter-transform is checked).
+    expect(hand).not.toBe(old);
+    expect(hand.style.transform).toMatch(/^translate\(.+\) scale\(0\.625/);
+  });
+
+  it("leaves with no jump: the layer and the hand are clear at the identity view", () => {
+    const { getByTestId } = render(<Host />);
+    act(() => api!.zoomTo(ZOOMED, 0));
+    act(() => api!.zoomTo(VIEW_IDENTITY, 0));
+    expect(getByTestId("layer").style.transform).toBe("");
+    expect(getByTestId("hand").style.transform).toBe("");
+    expect(getByTestId("hand").style.transformOrigin).toBe("");
+  });
+
+  it("measures the hand again after a resize", () => {
+    const { getByTestId, rerender } = render(<Host frameK={1} />);
+    act(() => api!.zoomTo(ZOOMED, 0));
+    const before = getByTestId("hand").style.transform;
+    rerender(<Host frameK={0.8} />);
+    expect(getByTestId("hand").style.transform).not.toBe("");
+    expect(getByTestId("hand").style.transform).not.toBe(before);
+  });
+
+  it("goes at once with reduced motion, and eases without it", () => {
+    const { getByTestId, unmount } = render(<Host reducedMotion />);
+    act(() => api!.zoomTo(ZOOMED, 360));
+    expect(getByTestId("layer").style.transform).toContain("scale(1.6");
+    unmount();
+    const eased = render(<Host reducedMotion={false} />);
+    act(() => api!.zoomTo(ZOOMED, 360));
+    expect(eased.getByTestId("layer").style.transform).not.toContain("scale(1.6");
+  });
+
+  it("goes back to the camera pose when the wheel returns to 1x", () => {
+    const { getByTestId } = render(<Host />);
+    const root = getByTestId("root");
+    act(() => {
+      root.dispatchEvent(new WheelEvent("wheel", { deltaY: -300, clientX: 500, clientY: 300, bubbles: true, cancelable: true, ctrlKey: true }));
+    });
+    expect(api!.zoomed).toBe(true);
+    act(() => {
+      root.dispatchEvent(new WheelEvent("wheel", { deltaY: 900, clientX: 500, clientY: 300, bubbles: true, cancelable: true, ctrlKey: true }));
+    });
+    expect(api!.zoomed).toBe(false);
+    expect(getByTestId("layer").style.transform).toBe("");
+  });
+
+  it("does not leave the zoom on a double-click inside a seat while the hand is fixed", () => {
+    function Seat() {
+      const rootRef = useRef<HTMLDivElement>(null);
+      const layerRef = useRef<HTMLDivElement>(null);
+      api = useViewZoom({ rootRef, layerRef, enabled: true, reducedMotion: true, resetKey: "a", fixed: "[data-hand]" });
+      return (
+        <div ref={rootRef} data-testid="root">
+          <div ref={layerRef}>
+            <div data-seat-slot="0" data-testid="slot" />
+          </div>
+        </div>
+      );
+    }
+    const { getByTestId } = render(<Seat />);
+    act(() => api!.zoomTo(ZOOMED, 0));
+    act(() => {
+      fireEvent.doubleClick(getByTestId("slot"));
+    });
+    expect(api!.zoomed).toBe(true);
+  });
+});
+
+describe("rooms in an own field zoom", () => {
+  const box = { width: 1000, height: 600 };
+
+  it("moves the pick bar off your hand: the bar keeps clear of a hand block at the bottom middle", () => {
+    const hand = { x: 500, y: 480, width: 400, height: 110 };
+    const room = freeDockRoom({ width: 1400, height: 600 }, [{ x: 500, y: 480, width: 400, height: 110 }]);
+    expect(room).toBeDefined();
+    const [x, y, w, h] = room!.split(",").map(Number);
+    const apart = x + w <= hand.x || x >= hand.x + hand.width || y + h <= hand.y || y >= hand.y + hand.height;
+    expect(apart).toBe(true);
+  });
+
+  it("maps a board item and a follower through a view", () => {
+    const view = { s: 2, x: -100, y: -50 };
+    expect(fitItemRect({ rect: { x: 100, y: 100, width: 50, height: 20 } }, view)).toEqual({ x: 100, y: 150, width: 100, height: 40 });
+    // A follower keeps its size and follows its anchor.
+    const follower = fitItemRect({ rect: { x: 90, y: 90, width: 40, height: 30 }, anchor: { x: 100, y: 100 } }, view);
+    expect(follower).toEqual({ x: -100 + 200 - 10, y: -50 + 200 - 10, width: 40, height: 30 });
+  });
+
+  it("moves a room off an obstacle and keeps a clear one where it is", () => {
+    const obstacle = { x: 300, y: 100, width: 400, height: 300 };
+    const clear = { x: 20, y: 20, width: 100, height: 60 };
+    expect(clearRoom(clear, [obstacle], box)).toEqual(clear);
+    const moved = clearRoom({ x: 400, y: 200, width: 200, height: 100 }, [obstacle], box);
+    const hit = moved.x < 700 && moved.x + moved.width > 300 && moved.y < 400 && moved.y + moved.height > 100;
+    expect(hit).toBe(false);
+    expect(moved.x).toBeGreaterThanOrEqual(0);
+    expect(moved.x + moved.width).toBeLessThanOrEqual(box.width);
+  });
+
+  it("makes a room shorter and then narrower to find a clear place, and gives null when none is clear", () => {
+    const hit = (r: { x: number; y: number; width: number; height: number }, o: { x: number; y: number; width: number; height: number }) => r.x < o.x + o.width && o.x < r.x + r.width && r.y < o.y + o.height && o.y < r.y + r.height;
+    // A wall across the box, 150 px of free height below it: the full room (300) has no place, the short one has.
+    const wall = { x: 0, y: 0, width: box.width, height: box.height - 160 };
+    const room = { x: 100, y: 100, width: 300, height: 300 };
+    const found = fitRoom(room, [wall], box, { width: 220, height: 140 });
+    expect(found).not.toBeNull();
+    expect(hit(found!, wall)).toBe(false);
+    expect(found!.height).toBeLessThan(300);
+    expect(found!.height).toBeGreaterThanOrEqual(140);
+    // Nothing is clear: null (the caller keeps its own room).
+    expect(fitRoom(room, [{ x: 0, y: 0, width: box.width, height: box.height }], box, { width: 220, height: 140 })).toBeNull();
+  });
+
+  it("keeps the room it returns inside the box (clearRoom and fitRoom)", () => {
+    const inside = (r: { x: number; y: number; width: number; height: number }) => r.x >= 0 && r.y >= 0 && r.x + r.width <= box.width && r.y + r.height <= box.height;
+    // A room that starts outside the box comes back inside it, clear or not.
+    const out = { x: box.width - 50, y: box.height - 40, width: 300, height: 200 };
+    expect(inside(clearRoom(out, [], box))).toBe(true);
+    // No place is clear: the room it gives back is still inside the box.
+    const wall = { x: 0, y: 0, width: box.width, height: box.height };
+    expect(inside(clearRoom(out, [wall], box))).toBe(true);
+    // A clear place found next to an obstacle edge is inside too.
+    const found = fitRoom(out, [{ x: 0, y: 0, width: box.width - 100, height: box.height }], box, { width: 220, height: 140 });
+    if (found) expect(inside(found)).toBe(true);
+  });
+
+  it("checks a room that starts outside the box where it lands inside the box, and searches from there", () => {
+    const hit = (r: { x: number; y: number; width: number; height: number }, o: { x: number; y: number; width: number; height: number }) => r.x < o.x + o.width && o.x < r.x + r.width && r.y < o.y + o.height && o.y < r.y + r.height;
+    const out = { x: box.width + 100, y: 100, width: 200, height: 100 };
+    // The room lands at the right edge of the box, on the obstacle: it moves off it. A clear landing place is the rect that comes back.
+    const lands = { x: box.width - 200, y: 100, width: 200, height: 100 };
+    expect(clearRoom(out, [], box)).toEqual(lands);
+    const obstacle = { x: box.width - 150, y: 90, width: 100, height: 120 };
+    const moved = clearRoom(out, [obstacle], box);
+    expect(hit(moved, obstacle)).toBe(false);
+    expect(moved.x + moved.width).toBeLessThanOrEqual(box.width);
   });
 });

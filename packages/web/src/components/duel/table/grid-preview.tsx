@@ -6,7 +6,7 @@ import type { DuelCard, DuelCardInfo } from "@yugidraft/shared/duels";
 import { cardTextStyle, useCardTextSize } from "../card-text-size";
 import { cardArtUrl, cardDetailsText, cardStatsText, isDefenseAt, isHiddenCard } from "../constants";
 import styles from "./grid-hud.module.css";
-import { EDGE_RIGHT_PX, coveredArea, measureObstacles, obstaclesKey, peekPlaces, type Box, type Place } from "./peek-layout";
+import { coveredArea, measureObstacles, obstaclesKey, peekPlaces, type Box, type Place } from "./peek-layout";
 
 /** The preview lingers this long after the pointer leaves, so a move between two cards does not flicker. */
 export const PREVIEW_HIDE_MS = 220;
@@ -16,26 +16,21 @@ const MIN_ART_PX = 90;
 const WATCH_MS = 150;
 /** A hover panel with no chain panel or chain tower on screen checks this many times less often (the pin keeps the fast check). */
 const IDLE_WATCH_EVERY = 4;
-const FIRST_PLACE: Place = { side: "left", width: 320, top: 0, maxH: 0 };
+const FIRST_PLACE: Place = { side: "left", width: 284, top: 0, maxH: 0 };
 /** Is rank `a` better than rank `b`: the first number that differs decides, the smaller wins. */
 const before = (a: readonly number[], b: readonly number[]) => {
   for (let i = 0; i < a.length; i += 1) if (a[i] !== b[i]) return a[i] < b[i];
   return false;
 };
-const place = (aside: HTMLElement, spot: Place, layer: Box | null, cut = 0) => {
+const place = (aside: HTMLElement, spot: Place, layer: Box | null) => {
   // `layer` is null when it cannot be measured (no layout): the CSS places the panel then.
   if (layer != null && spot.maxH > 0) {
     aside.style.setProperty("--pv-bottom", `${Math.round(layer.bottom - (spot.top + spot.maxH))}px`);
     aside.style.setProperty("--pv-max-h", `${Math.round(spot.maxH)}px`);
     aside.style.setProperty("--pv-w", `${spot.width}px`);
-    if (spot.left != null) aside.style.setProperty("--pv-left", `${Math.round(spot.left)}px`);
-    else aside.style.removeProperty("--pv-left");
-    // A layer wider than the window (a narrow screen) puts its right edge outside it: the right edge place keeps its gap to the window.
-    if (cut > 0) aside.style.setProperty("--pv-right", `${cut + EDGE_RIGHT_PX}px`);
-    else aside.style.removeProperty("--pv-right");
     aside.setAttribute("data-anchor", "bottom");
   } else {
-    for (const name of ["--pv-bottom", "--pv-max-h", "--pv-w", "--pv-left", "--pv-right"]) aside.style.removeProperty(name);
+    for (const name of ["--pv-bottom", "--pv-max-h", "--pv-w"]) aside.style.removeProperty(name);
     aside.removeAttribute("data-anchor");
   }
   aside.setAttribute("data-side", spot.side);
@@ -51,9 +46,10 @@ const place = (aside: HTMLElement, spot: Place, layer: Box | null, cut = 0) => {
  * A click on a board card pins the panel (`pinned`): the same window in the same place, with the same size and layout. It only freezes: it stays when
  * the pointer leaves, until `onClose` (the X button, Esc, a press outside, or a click on another card, which pins that one), and it adds the
  * X button, the extra lines of the card and the pointer (a click on the panel never reaches a card under it).
- * The window stands in the free side area beside the board (peek-layout.ts measures it), on the bottom of its band: below the chain tower and
- * above the Deck Master plate, clear of the dock, the chain panel and the controls. It keeps the left edge unless that would cover the clicked
- * card, the board or those parts: then it moves to the right. When no place is free (a narrow screen), the place that covers least wins.
+ * The window always stands in the same column at the left edge, right of the icon dock (the shells keep the board clear of it, `--pv-col-w` in
+ * grid-hud.module.css), on the bottom of a free band of that column: below the chain tower, above the Deck Master plate, clear of the dock, the chain
+ * panel and the controls. It never goes to the other side. When the column is cut into short bands, the best one wins (the clicked card, the parts
+ * kept clear and the board first).
  */
 export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, extras = [], avoid = null, onClose }: {
   /** A board card, or the card of a prompt row (`DuelCardInfo`: no position, no owner). */
@@ -117,6 +113,9 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
   // The first place of the left edge and the right edge that keeps clear of the clicked card, the chain tower, the Deck Master plates,
   // the dock, the controls and the board; with none, the one that covers least. It is placed again when the card or the window changes.
   const [spot, setSpot] = useState<Place>(FIRST_PLACE);
+  // A squeeze seen in a transient place (the CSS default before the first placement, a band that a camera move closes) must not hide the art for
+  // good: the art shows again in a new place, and it is measured again there.
+  useEffect(() => { setSqueezed(""); }, [spot.top, spot.maxH, spot.width]);
   const [resizeTick, setResizeTick] = useState(0);
   // What the placement saw last: the clicked card, the board and the parts kept clear. A change (a camera move, a chain that opens, a prompt)
   // places a pinned panel again (a hover panel is placed again by its next card).
@@ -125,8 +124,8 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
   const hoverSpot = useRef<{ key: string; place: Place } | null>(null);
   const watch = useCallback(() => {
     const card = avoid?.isConnected ? avoid.getBoundingClientRect() : null;
-    return `${card ? [card.left, card.top, card.width, card.height].map(Math.round).join(",") : ""}|${obstaclesKey(measureObstacles(asideRef.current))}`;
-  }, [avoid]);
+    return `${card ? [card.left, card.top, card.width, card.height].map(Math.round).join(",") : ""}|${obstaclesKey(measureObstacles(asideRef.current, frozen))}`;
+  }, [avoid, frozen]);
   const placing = open && current != null;
   // A hover panel watches too: a chain panel that folds or opens (a prompt comes and goes) must not leave it on the old room or under that panel.
   // The check reads many boxes, so a hover panel runs it at full speed only while a chain panel or tower is shown (the observer below covers
@@ -169,9 +168,8 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
     // The part of the layer inside the window (jsdom has no window width: the whole layer then).
     const windowRight = document.documentElement.clientWidth;
     const layer: Box = { left: parent.left, top: parent.top, right: windowRight > 0 ? Math.min(parent.right, windowRight) : parent.right, bottom: parent.bottom };
-    const cut = Math.max(0, Math.round(parent.right - layer.right));
     const measured = parent.height > 0 ? layer : null;
-    const obstacles = measureObstacles(aside);
+    const obstacles = measureObstacles(aside, frozen);
     const text = textRef.current;
     const candidates = peekPlaces(layer, obstacles);
     if (candidates.length === 0) {
@@ -193,33 +191,37 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
     });
     const clickedCover = (rect: Box) => (hasTarget ? coveredArea(rect, [{ left: target.left, top: target.top, right: target.right, bottom: target.bottom }]) : 0);
     const hovered = frozen && hoverSpot.current?.key === key
-      ? candidates.find((c) => c.side === hoverSpot.current?.place.side && c.top === hoverSpot.current.place.top && c.maxH === hoverSpot.current.place.maxH && c.width === hoverSpot.current.place.width && c.left === hoverSpot.current.place.left)
+      ? candidates.find((c) => c.side === hoverSpot.current?.place.side && c.top === hoverSpot.current.place.top && c.maxH === hoverSpot.current.place.maxH && c.width === hoverSpot.current.place.width)
       : undefined;
     if (frozen) hoverSpot.current = null;
-    // It stays only when it does not cover the clicked card (on a narrow screen the hover place may): then the places are ranked as before.
-    if (hovered) place(aside, hovered, measured, cut);
-    const kept = hovered && clickedCover(rectNow()) === 0 ? hovered : undefined;
+    // It stays only when it covers neither the clicked card (on a narrow screen the hover place may) nor a part that a pin keeps clear
+    // (a life-point plate): then the places are ranked as before.
+    if (hovered) place(aside, hovered, measured);
+    const kept = hovered && clickedCover(rectNow()) === 0 && coveredArea(rectNow(), obstacles.keep) === 0 ? hovered : undefined;
     if (kept) chosen = kept;
     for (const candidate of kept ? [] : candidates) {
-      place(aside, candidate, measured, cut);
+      place(aside, candidate, measured);
       const rect = rectNow();
-      // Ranked in this order: 1. the clicked card, 2. the parts kept clear, 3. the board, 4. the left edge before the right one (a long text
-      // does not move the panel to the other side), 5. the effect text that is cut off (it picks the band on one side).
+      // Ranked in this order: 1. the panel itself cut off (the name, type, stats, owner line and 3 lines of text must fit: a short band that
+      // clips them is used only when no band fits, and then the pin covers the clicked card), 2. the clicked card, 3. the parts kept clear,
+      // 4. the effect text that is cut off, 5. the board (a rival field that reaches into the column loses its outer edge under the panel:
+      // that is less bad than a panel that jumps down the column and cuts the text). The panel never goes to the other side.
+      const clipped = Math.max(0, aside.scrollHeight - aside.clientHeight - 1);
       const clicked = clickedCover(rect);
       const keep = coveredArea(rect, obstacles.keep);
       const board = coveredArea(rect, obstacles.board);
       const hidden = text ? Math.max(0, text.scrollHeight - text.clientHeight - 1) : 0;
-      const rank = [clicked, keep, board, candidate.side === "left" ? 0 : 1, hidden];
+      const rank = [clipped, clicked, keep, hidden, board];
       if (best == null || before(rank, best)) {
         best = rank;
         chosen = candidate;
       }
-      if (clicked === 0 && keep === 0 && board === 0 && hidden === 0) break;
+      if (clipped === 0 && clicked === 0 && keep === 0 && board === 0 && hidden === 0) break;
     }
-    place(aside, chosen, measured, cut);
+    place(aside, chosen, measured);
     if (!frozen) hoverSpot.current = { key, place: chosen };
     watched.current = watch();
-    setSpot((previous) => (previous.side === chosen.side && previous.width === chosen.width && previous.top === chosen.top && previous.maxH === chosen.maxH && previous.left === chosen.left ? previous : chosen));
+    setSpot((previous) => (previous.side === chosen.side && previous.width === chosen.width && previous.top === chosen.top && previous.maxH === chosen.maxH ? previous : chosen));
   }, [placing, frozen, avoid, current, textSize, resizeTick, watch]);
   if (!current) return null;
 

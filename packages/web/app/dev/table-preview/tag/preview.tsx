@@ -1,16 +1,19 @@
 "use client";
 
-import { TAG_FIXTURES, TAG_TEAM_NAMES } from "@/components/duel/tag/fixtures";
+import { useMemo } from "react";
+
+import { TAG_FIXTURES, TAG_TEAM_NAMES, tagSearchVariant } from "@/components/duel/tag/fixtures";
 import { TagShell } from "@/components/duel/tag/tag-shell";
 import { PreviewHarness } from "@/components/duel/table/fixtures/preview-harness";
 import { useTableTextScale } from "@/components/duel/card-text-size";
 
-/** The 2v2 tag preview: the Rooftop shell on the fixtures, with the camera and lock the URL asks for. */
-export function TagPreview({ stateId, cam, lock }: { stateId: string | null; cam: string | null; lock: string | null }) {
+/** The 2v2 tag preview: the Rooftop shell on the fixtures, with the camera and lock the URL asks for (`?pick=cards`: a 14-card Deck pick). */
+export function TagPreview({ stateId, cam, lock, pick = null }: { stateId: string | null; cam: string | null; lock: string | null; pick?: string | null }) {
   useTableTextScale();
+  const set = useMemo(() => (pick === "cards" ? tagSearchVariant(TAG_FIXTURES) : TAG_FIXTURES), [pick]);
   return (
     <PreviewHarness
-      set={TAG_FIXTURES}
+      set={set}
       stateId={stateId}
       cam={cam}
       lock={lock}

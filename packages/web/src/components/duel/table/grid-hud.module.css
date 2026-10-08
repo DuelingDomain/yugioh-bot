@@ -296,7 +296,7 @@
 }
 .flyClose:hover { color: var(--duel-ink); background: rgb(239 231 213 / 0.06); }
 
-.flyBody { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; }
+.flyBody { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgb(155 126 255 / 0.55) transparent; }
 .flyPanel { min-width: 0; }
 .flyPanel:not([hidden]) { flex: 1 1 auto; min-height: 0; }
 /* The log list scrolls inside a pane of fixed height, as in the side column. */
@@ -548,7 +548,8 @@
   box-shadow: inset 0 0 0 1px rgb(239 231 213 / 0.14), 0 6px 16px -6px rgb(0 0 0 / 0.8);
 }
 /* The details open inside the plate, over the card and the name, so they never reach past the plate. */
-.masterWrap[data-form="tall"] .masterFly {
+.masterWrap[data-form="tall"] .masterFly,
+.masterWrap[data-form="wide"] .masterFly {
   inset: 0;
   z-index: 1;
   display: flex;
@@ -562,15 +563,71 @@
   background: rgb(9 15 29);
   box-shadow: none;
 }
-.masterWrap[data-form="tall"] .masterFly::after { display: none; }
-.masterWrap[data-form="tall"] .masterFly > * { flex: none; }
+.masterWrap[data-form="tall"] .masterFly::after,
+.masterWrap[data-form="wide"] .masterFly::after { display: none; }
+.masterWrap[data-form="tall"] .masterFly > *,
+.masterWrap[data-form="wide"] .masterFly > * { flex: none; }
 /* One line per fact (the label left, the value right), so the facts and Card view fit in the plate. */
-.masterWrap[data-form="tall"] .masterFly dl div { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
-.masterWrap[data-form="tall"] .masterFly dd { text-align: right; white-space: nowrap; }
+.masterWrap[data-form="tall"] .masterFly dl div,
+.masterWrap[data-form="wide"] .masterFly dl div { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
+.masterWrap[data-form="tall"] .masterFly dd,
+.masterWrap[data-form="wide"] .masterFly dd { text-align: right; white-space: nowrap; }
 /* The tall plate is higher: the dock flyout (after the plate in the layer) ends above it. The flyout top (56px), a
    10px gap, the plate's bottom offset, its rest (132px) and its tallest card (222px). */
 .masterWrap[data-form="tall"] ~ .flyout {
   max-height: max(200px, calc(100% - 66px - var(--hud-master-bottom, calc(clamp(58px, 5.6dvh, 68px) + 20px)) - 354px));
+}
+
+/*
+ * The wide form (data-form="wide"; the 3-way plaza, which has free room in the left margin): the whole card beside the
+ * name and the facts, the ability text under them (it scrolls when long) and the actions at the bottom. The box is
+ * anchored bottom left (14px, `--hud-master-bottom`) and 208px to 340px wide (16vw). The card is `--hud-master-art-h`
+ * high (120px to 250px, 18% of the window height) and the ability box `--hud-master-ability-h` at most; both vars are
+ * set on the shell (table-shell.module.css) so the dock flyouts can reserve the plate's height. On a window under
+ * 600px high the ability text is hidden (Inspect still shows it). Phones do not use the HUD at all.
+ */
+.masterWrap[data-form="wide"] {
+  width: var(--hud-master-w, clamp(208px, 16vw, 340px));
+}
+.masterWrap[data-form="wide"] .master { gap: 8px; padding: 10px; }
+.masterWrap[data-form="wide"] .masterFace { position: relative; gap: 8px; }
+.masterWrap[data-form="wide"] .masterToken { align-items: flex-start; gap: 10px; width: 100%; }
+.masterWrap[data-form="wide"] .masterArt {
+  width: auto;
+  height: var(--hud-master-art-h);
+  background-position: center;
+  background-size: contain;
+  box-shadow: inset 0 0 0 1px rgb(239 231 213 / 0.14), 0 6px 16px -6px rgb(0 0 0 / 0.8);
+}
+.masterWrap[data-form="wide"] .masterId { gap: 4px; }
+.masterWrap[data-form="wide"] .masterId b { -webkit-line-clamp: 3; line-clamp: 3; font-size: calc(14px * var(--tt, 1)); line-height: 1.2; }
+.masterFacts { display: grid; gap: 2px; margin-top: 2px; color: var(--duel-ink-2); font-size: calc(12px * var(--tt, 1)); line-height: 1.3; }
+.masterFacts span { min-width: 0; overflow-wrap: anywhere; }
+.masterFacts span[data-status="away"] { color: var(--duel-pen-ink); }
+.masterAbility {
+  max-height: var(--hud-master-ability-h, 112px);
+  padding: 6px 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  border-radius: 8px;
+  background: rgb(239 231 213 / 0.05);
+  color: var(--duel-ink-2);
+  font-size: calc(12px * var(--tt, 1));
+  line-height: 1.4;
+  white-space: pre-line;
+}
+.masterAbility:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: 2px; }
+.masterAbilityNone { color: var(--duel-ink-3); }
+.masterWrap[data-form="wide"] .masterActions button { height: 32px; }
+.masterWrap[data-form="wide"] .masterActions .masterInspect { width: auto; padding: 0 12px; }
+.masterWrap[data-form="wide"] .masterInspectText { display: inline; }
+/* The dock flyout (after the plate in the layer) ends above the wide plate: its card, ability text and actions. */
+.masterWrap[data-form="wide"] ~ .flyout {
+  max-height: max(200px, calc(100% - 66px - var(--hud-master-bottom, calc(clamp(58px, 5.6dvh, 68px) + 20px)) - var(--hud-master-art-h, 222px) - var(--hud-master-ability-h, 112px) - 72px));
+}
+@media (max-height: 599px) {
+  .masterWrap[data-form="wide"] .masterAbility { display: none; }
 }
 
 /* ---------- hover preview: slides out from the left edge, beside the dock (never over its icons) ---------- */
@@ -584,15 +641,18 @@
  */
 .preview {
   --pv-ct: var(--ct, 15.5px);
+  /* The peek column at the left edge (peek-layout.ts peekWidth says the same in JS): 14% of the window, 220 to 284 px. The shells keep the board
+     right of 72px + this width + 12px (their --hud-left), so the preview never covers a field. */
+  --pv-col-w: clamp(220px, 14vw, 284px);
   --pv-reserve: 270px;
   position: absolute;
-  left: var(--pv-left, 72px);
-  /* --pv-bottom, --pv-max-h, --pv-w and --pv-left (lined up with the chain panel) come from grid-preview.tsx: the free band of the real layout (below the chain tower, above the Deck Master plate). */
+  left: 72px;
+  /* --pv-bottom, --pv-max-h and --pv-w come from grid-preview.tsx: the free band of the real layout (below the chain tower, above the Deck Master plate). */
   top: 50px;
   z-index: 34;
   display: flex;
   flex-direction: column;
-  width: var(--pv-w, clamp(270px, calc(var(--pv-ct) * 18), 284px));
+  width: var(--pv-w, var(--pv-col-w));
   max-height: var(--pv-max-h, max(300px, calc(100% - 50px - var(--pv-reserve))));
   padding: 12px 12px 14px;
   overflow: hidden;
@@ -603,7 +663,7 @@
   font-family: var(--duel-f-ui);
   color: var(--duel-ink);
   pointer-events: none;
-  transform: translateX(calc(-100% - var(--pv-left, 72px)));
+  transform: translateX(calc(-100% - 72px));
   transition: transform 0.18s ease-out, visibility 0s linear 0.18s;
   visibility: hidden;
 }
@@ -612,20 +672,20 @@
 }
 /* grid-preview.tsx stands the panel on the bottom of its free band. */
 .preview[data-anchor="bottom"] { top: auto; bottom: var(--pv-bottom, 8px); }
-/* The right edge (grid-preview.tsx puts the panel there when the left side is full): it slides in from that edge. */
-.preview[data-side="right"] { left: auto; right: var(--pv-right, 16px); transform: translateX(calc(100% + 32px)); }
-.preview[data-open="true"], .preview[data-side="right"][data-open="true"] { transform: none; visibility: visible; transition: transform 0.18s ease-out, visibility 0s; }
+.preview[data-open="true"] { transform: none; visibility: visible; transition: transform 0.18s ease-out, visibility 0s; }
 .preview[data-motion="none"] { transition: none; }
-/* The art gives way first: its shrink weight dwarfs the text's, down to a small card. It stays centered and blends in. */
+/* The art gives way first: its shrink weight dwarfs the text's, down to a small card. It stays centered and blends in.
+   In a band over about 420px (--pv-max-h, from grid-preview.tsx) it keeps a floor of up to 180px, so a very long text scrolls instead of taking the art to 0. */
 .preview[data-squeezed="true"] .previewArt { display: none; }
-.previewArt { display: block; flex: 0 1000 auto; width: 100%; min-height: 0; aspect-ratio: 59 / 86; margin: 0 0 10px; border-radius: 4px; object-fit: contain; background: transparent; }
+.previewArt { display: block; flex: 0 1000 auto; width: 100%; min-height: clamp(0px, calc(var(--pv-max-h, 0px) - 330px), 180px); aspect-ratio: 59 / 86; margin: 0 0 10px; border-radius: 4px; object-fit: contain; background: transparent; }
 .preview h3 { flex: none; margin: 0; padding-right: 22px; font-size: calc(var(--pv-ct) * 1.35); font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
 .previewType { flex: none; margin: 3px 0 0; color: var(--duel-ink-2); font-size: calc(var(--pv-ct) * 0.95); }
 .previewStats { flex: none; margin: 6px 0 0; font-size: calc(var(--pv-ct) * 1.35); font-weight: 500; letter-spacing: 0.02em; }
 /* No line clamp: the whole effect shows while it fits. After the art is at its minimum, the rest fades out. */
 .previewText {
   flex: 0 1 auto;
-  min-height: 6em;
+  /* A short band of the column (under the chain tower, above a life-point plate) makes the text scroll, it never clips the owner line under it. */
+  min-height: 3em;
   margin: 8px 0 0;
   overflow-y: auto;
   overscroll-behavior: contain;

@@ -441,6 +441,7 @@ function buildPrompt(message: OcgMessage, cards: CardDatabase, id: string, selec
         options.push(cardOption(cards, `attack:${index}`, card.code, card, {
           label: card.can_direct ? `Attack directly with ${cardInfoLabel(cards, card.code)}` : `Attack with ${cardInfoLabel(cards, card.code)}`,
           values: [index],
+          attackTargets: null,
         }));
       });
       if (message.to_m2) options.push({ id: "to_m2", label: "Enter Main Phase 2" });

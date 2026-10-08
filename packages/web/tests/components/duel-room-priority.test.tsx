@@ -175,7 +175,14 @@ describe("room priority gate", () => {
     expect(screen.getByTestId("panel").getAttribute("data-revealed")).toBe("true");
   });
 
-  it.each(["recovering", "syncing", "beats", "error"] as const)("clears priority while %s", (reason) => {
+  it("keeps priority during a routine re-read (syncing), so a click is not lost", () => {
+    const { rerender } = render(<DuelRoomView slug="game-1" windowed />);
+    state.syncing = true;
+    rerender(<DuelRoomView slug="game-1" windowed />);
+    expect(live()).toBe("true");
+  });
+
+  it.each(["recovering", "beats", "error"] as const)("clears priority while %s", (reason) => {
     const { rerender } = render(<DuelRoomView slug="game-1" windowed />);
     expect(live()).toBe("true");
     if (reason === "error") state.error = new Error("Connection lost");
