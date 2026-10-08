@@ -93,7 +93,18 @@
   top: 410px;
   width: 0;
   height: 0;
+}
+
+/* The fly-in moves the world every frame: it keeps its own layer. A flat view does not: a permanent layer is rastered at
+   the camera pose and then scaled, which blurs the text and the card art of a zoomed field. The view hook sets will-change
+   on the layer only while it moves. */
+.board[data-fly="true"] .world {
   will-change: transform;
+}
+
+/* The same for the seats of a flat view (their glide is a plain transition). */
+.board[data-fly="false"] .world :global([data-seat-slot]) {
+  will-change: auto;
 }
 
 .board[data-fly="true"] .world,
@@ -404,4 +415,61 @@
   max-width: none;
   max-height: min(180px, 35%);
   overflow-y: auto;
+}
+
+/* A chip at the edge of the board while your own field is zoomed and the targets are on a field off the screen: it points there. */
+.rivalHint {
+  position: absolute;
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  max-width: 152px;
+  padding: 0 10px 0 8px;
+  border: 1px solid rgb(232 190 96 / 0.7);
+  border-radius: 6px;
+  background: rgb(7 11 21 / 0.9);
+  color: #f1dca6;
+  cursor: pointer;
+  font: inherit;
+  font-size: calc(12px * var(--tt, 1));
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  pointer-events: auto;
+  transform: translate(-50%, -50%);
+  animation: rivalHint 1.4s ease-in-out infinite;
+}
+
+.rivalName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rivalHint:hover,
+.rivalHint:focus-visible {
+  border-color: #f1dca6;
+  color: #fff;
+}
+
+.rivalHint[data-reduced="true"] {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rivalHint {
+    animation: none;
+  }
+}
+
+@keyframes rivalHint {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgb(232 190 96 / 0.5);
+  }
+  50% {
+    box-shadow: 0 0 0 7px rgb(232 190 96 / 0);
+  }
 }
