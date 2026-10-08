@@ -308,6 +308,17 @@
   animation: outlineIn 0.8s 1s both;
 }
 
+/* The board of a seat that left is held whole until the battle is over (crumble-gate.ts): no label over it, no seam yet. */
+.cell:has([data-exit-held]) .outline {
+  animation: none;
+  opacity: 0;
+}
+
+:global([data-grid-stage]):has([data-exit-held]) .seam::before {
+  animation: none;
+  opacity: 0;
+}
+
 @keyframes outlineIn {
   from {
     opacity: 0;

@@ -19,6 +19,7 @@ import { FFA4_FIXTURES, ffa4Variant } from "@/components/duel/table/fixtures/ffa
 import { useFixtureController } from "@/components/duel/table/fixtures/use-fixture-controller";
 import { OUT_HOLD_MS } from "@/components/duel/table/grid-layout";
 import { FINALE_BEAT_MS, FINALE_GLIDE_MS } from "@/components/duel/table/grid-finale";
+import { CRUMBLE_GATE_CAP_MS as GATE_CAP, CRUMBLE_GATE_TICK_MS } from "@/components/duel/table/crumble-gate";
 import { EXIT_CRUMBLE_MS } from "@/components/duel/table/rival-field";
 import { pairFrameRect, useCellStates } from "@/components/duel/table/grid-stage";
 import { TableShell } from "@/components/duel/table/table-shell";
@@ -306,7 +307,18 @@ describe("GridStage", () => {
     rerender(<Shell id="elimination" />);
     expect(cellOf(container, 2).getAttribute("data-cell-state")).toBe("out");
     expect(stage.getAttribute("data-grid-focus")).toBe("2");
-    act(() => void vi.advanceTimersByTime(OUT_HOLD_MS + 200));
+    // The crumble waits for the LP roll of the seat that went out (crumble-gate.ts); the cell is out for OUT_HOLD_MS from its start.
+    const tick = () => act(() => void vi.advanceTimersByTime(CRUMBLE_GATE_TICK_MS));
+    let held = 0;
+    while (container.querySelector("[data-seat-exit][data-exit-held]") && held < GATE_CAP) {
+      tick();
+      held += CRUMBLE_GATE_TICK_MS;
+    }
+    expect(container.querySelector("[data-seat-exit][data-exit-held]")).toBeNull();
+    expect(cellOf(container, 2).getAttribute("data-cell-state")).toBe("out");
+    for (let at = 0; at < OUT_HOLD_MS - CRUMBLE_GATE_TICK_MS; at += CRUMBLE_GATE_TICK_MS) tick();
+    expect(cellOf(container, 2).getAttribute("data-cell-state")).toBe("out");
+    for (let at = 0; at < CRUMBLE_GATE_TICK_MS * 3; at += CRUMBLE_GATE_TICK_MS) tick();
     expect(cellOf(container, 2).getAttribute("data-cell-state")).toBe("empty");
     expect(stage.getAttribute("data-grid-focus")).toBe("all");
   });
@@ -408,7 +420,10 @@ describe("a field that turns on its way to the finale board", () => {
       const view = render(<MotionShell out={[1]} />);
       expect(Math.abs(angleOf(view.container, 3))).toBe(0);
       view.rerender(<MotionShell out={[1, 2]} />);
-      act(() => void vi.advanceTimersByTime(EXIT_CRUMBLE_MS + FINALE_BEAT_MS));
+      // The crumble waits for the LP roll of the seat that went out (crumble-gate.ts); the finale counts from the crumble start.
+      for (let at = 0; at < GATE_CAP + EXIT_CRUMBLE_MS + FINALE_BEAT_MS && view.container.querySelector("[data-grid-stage]")!.getAttribute("data-grid-finale") == null; at += CRUMBLE_GATE_TICK_MS) {
+        act(() => void vi.advanceTimersByTime(CRUMBLE_GATE_TICK_MS));
+      }
       expect(view.container.querySelector("[data-grid-stage]")!.getAttribute("data-grid-finale")).toBe("cross");
       expect(slotOf(view.container, 3)).toMatch(/rotate: 180deg/);
       expect(Math.abs(angleOf(view.container, 3))).toBe(0);

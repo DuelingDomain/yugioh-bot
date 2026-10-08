@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { DuelSeatView } from "@yugidraft/shared/duels";
+import { onCrumbleStart } from "./crumble-gate";
 import type { SeatPose } from "./types";
 
 /** A seat that left the duel while the table was open: what it looked like just before, for the crumble. */
@@ -81,12 +82,16 @@ export function useSeatExits({ out, seats, poses, faceUpHand, enabled, regroups 
   }
 
   const [glidingFor, setGlidingFor] = useState(0);
+  // A crumble that waited for the battle (crumble-gate.ts) starts late, and the glide waits with it: the glide time counts
+  // from the start of the crumble.
+  const [crumbleStarts, setCrumbleStarts] = useState(0);
+  useEffect(() => onCrumbleStart(() => setCrumbleStarts((count) => count + 1)), []);
   useEffect(() => {
     if (state.glideId === 0) return;
     setGlidingFor(state.glideId);
     const timer = setTimeout(() => setGlidingFor((now) => (now === state.glideId ? 0 : now)), GLIDE_MS);
     return () => clearTimeout(timer);
-  }, [state.glideId]);
+  }, [state.glideId, crumbleStarts]);
 
   const finish = useCallback((seat: number) => {
     setState((prev) => (prev.exits.some((exit) => exit.seat === seat) ? { ...prev, exits: prev.exits.filter((exit) => exit.seat !== seat) } : prev));
