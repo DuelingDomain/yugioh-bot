@@ -396,11 +396,13 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
   const focusFree = !camera.lock && !camera.aiming && controller.aim == null;
   const focusField = (seat: number) => {
     if (!focusFree) return;
-    // A tap on the field already in close-up is nothing: only the toggle button, Esc and Back to overview zoom out.
-    if (camera.mode === "focus" && camera.focusSeat === seat) return;
+    // In close-up a tap on a field never moves the camera, not on the field in view and not on a neighbour that
+    // shows at its edge: only the toggle button, the rail, the switcher and the keys do.
+    if (camera.mode === "focus") return;
     dispatchCamera({ type: "focus", seat });
   };
   const onStageClick = (event: MouseEvent<HTMLDivElement>) => {
+    if (camera.mode === "focus") return;
     const node = event.target instanceof Element ? event.target : null;
     if (!node || node.closest(ACTION_TARGET)) return;
     const seat = Number(node.closest<HTMLElement>("[data-field-hold]")?.dataset.fieldHold ?? node.closest<HTMLElement>("[data-member-seat]")?.dataset.memberSeat);
@@ -408,16 +410,17 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
   };
   // Every zone is a full-size button, so most taps on a field land on one. A zone that offers no action (not a legal
   // pick, not selected, no pile to open) hands the tap to the camera instead: the field comes into focus and the click
-  // does not also inspect a card. A zone with an action, and any zone of the field already in close-up, act as usual.
+  // does not also inspect a card. A zone with an action, and any zone while a field is in close-up, act as usual.
   const picking = prompt != null && promptSeat === viewerSeat && !(prompt.kind === "choice" && prompt.context?.type === "action");
   const onStageClickCapture = (event: MouseEvent<HTMLDivElement>) => {
+    if (camera.mode === "focus") return;
     const node = event.target instanceof Element ? event.target : null;
     const zone = node?.closest<HTMLElement>("[data-zones]");
     const hold = zone?.closest<HTMLElement>("[data-field-hold]");
     if (!zone || !hold || zone.dataset.legal === "true" || zone.dataset.selected === "true") return;
     if (zone.dataset.pile === "true" && zone.dataset.occupied === "true") return;
     const seat = Number(hold.dataset.fieldHold);
-    if (!Number.isInteger(seat) || (camera.mode === "focus" && camera.focusSeat === seat)) return;
+    if (!Number.isInteger(seat)) return;
     if (camera.lock || camera.aiming || controller.aim != null) return;
     // During a pick prompt (a target, a zone, a card to choose) every tap belongs to the prompt: a zone that is not a
     // target does nothing, it never moves the camera. The open action menu of a main phase is no pick.

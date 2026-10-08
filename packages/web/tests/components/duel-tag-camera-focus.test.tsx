@@ -314,7 +314,24 @@ describe("Tag close-up camera: a click on the field never zooms out", () => {
     expect(seen.camera).toBe(before);
   });
 
-  it("a click on the seat chip of the focused field does not zoom out", () => {
+  it("a click on a neighbour field that shows beside the close-up does not move the camera", () => {
+    const root = mount("main", "focus");
+    const before = seen.camera;
+    const outside = vi.fn();
+    root.addEventListener("click", outside);
+    for (const seat of [1, 2, 3]) {
+      const { idle } = zonesOf(root, seat);
+      fireEvent.click(idle[0].querySelector("button")!);
+      fireEvent.click(root.querySelector<HTMLElement>(`[data-field-hold="${seat}"] [data-seat-name]`)!);
+    }
+    fireEvent.click(root.querySelector<HTMLElement>('[data-team-plate="far"] [data-member-seat="3"]')!);
+    expect(modeOf(root)).toBe("focus:0");
+    expect(seen.camera).toBe(before);
+    // The click was not swallowed: it reached the zone and the page (an inspect listens up there).
+    expect(outside).toHaveBeenCalled();
+  });
+
+  it("a click on a seat chip of the focused field does not zoom out", () => {
     const root = mount("main", "focus");
     fireEvent.click(root.querySelector<HTMLElement>('[data-team-plate="near"] [data-member-seat="0"]')!);
     expect(modeOf(root)).toBe("focus:0");
