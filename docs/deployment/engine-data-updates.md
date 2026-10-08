@@ -378,9 +378,17 @@ The wrapper identifies the running production duel container by service and Comp
 working-directory labels, without loading Compose or environment files. It executes
 the deployed `dist/prod-script-errors.js` entrypoint. That command opens the existing
 SQLite database with `readonly: true`, `fileMustExist: true` and `query_only = ON`;
-it runs a fixed seven-day query inside a read transaction, never migrations, writes
-or caller-supplied SQL. The installed catalog supplies card names, validated remaps,
-core alias resolution and script hashes. Only aggregate card fields and hashes used
+it aggregates a fixed seven-day window in SQLite, returning the top 20 rows plus
+up to 100 active block scopes inside a read transaction. It never runs migrations,
+writes or caller-supplied SQL. Card names and aliases are fetched on demand; it
+never loads the full card catalog. SQLite page caches are capped at 1 MiB per DB.
+Node runs with `--max-old-space-size=32 --max-semi-space-size=2`. Validated remaps,
+core script lookup and script hashes follow the installed bundle.
+A local Node 22 measurement on 2026-10-07 (`/usr/bin/time -v`) used a read-only
+export from a 3.4-MiB database backup populated with 100 active block scopes:
+87,804 KiB peak RSS, 2.17 seconds, exit 0, valid 100-card output. The heap limit
+caps V8 allocations; RSS also includes Node, SQLite and native libraries. This is
+local evidence, not a production memory measurement. Only aggregate card fields and hashes used
 for candidate comparison are exported; hashes never appear in the PR section.
 
 Set **`VM_SSH_KNOWN_HOSTS`** to the independently verified VM host-key entry in

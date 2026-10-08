@@ -59,7 +59,7 @@ if [ "$1" = ps ]; then
   printf '%s\\n' "$@" > "$FAKE_CALLS"
   printf '%s\\n' "abc123"
 else
-  [ "$1" = exec ] && [ "$2" = abc123 ] && [ "$3" = node ] && [ "$4" = /app/packages/duel-server/dist/prod-script-errors.js ] || exit 1
+  [ "$1" = exec ] && [ "$2" = abc123 ] && [ "$3" = node ] && [ "$4" = --max-old-space-size=32 ] && [ "$5" = --max-semi-space-size=2 ] && [ "$6" = /app/packages/duel-server/dist/prod-script-errors.js ] || exit 1
   printf '%s\\n' '{"available":true,"cards":[]}'
 fi
 `, { mode: 0o700 });

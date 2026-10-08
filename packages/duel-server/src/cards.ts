@@ -1,6 +1,7 @@
+import { indexScripts } from "./card-script-source.js";
 import Database from "better-sqlite3";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { canonicalCardCode, type DeckCardInfo, type DuelCardInfo } from "@yugidraft/shared/duels";
 import type { ScriptOverlay } from "./multi-scripts.js";
 import {
@@ -104,30 +105,6 @@ export function isOptionalCardScript(name: string, cardData: (code: number) => O
   return (type & OcgType.NORMAL) !== 0;
 }
 
-function indexScripts(root: string): Map<string, string> {
-  const indexed = new Map<string, string>();
-  if (!existsSync(root)) return indexed;
-  const priority = (path: string) => {
-    const name = relative(root, path).replaceAll("\\", "/");
-    return name.startsWith("official/") ? 3 : name.startsWith("pre-release/") ? 2 : !name.includes("/") ? 1 : 0;
-  };
-  const visit = (directory: string) => {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const full = join(directory, entry.name);
-      if (entry.isDirectory()) {
-        visit(full);
-        continue;
-      }
-      if (!entry.name.endsWith(".lua")) continue;
-      const previous = indexed.get(entry.name);
-      if (!previous || priority(full) > priority(previous)) indexed.set(entry.name, full);
-      const path = relative(root, full).replaceAll("\\", "/");
-      if (path !== entry.name) indexed.set(path, full);
-    }
-  };
-  visit(root);
-  return indexed;
-}
 
 function parseConf(contents: string, prefix: string): Map<number, string> {
   const values = new Map<number, string>();
