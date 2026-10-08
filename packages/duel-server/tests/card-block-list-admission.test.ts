@@ -97,6 +97,15 @@ describe("repository card blocks at deck admission", () => {
 });
 
 describe("repository card blocks in deck-builder search", () => {
+  it("applies changing automatic policy to deck checks and cached search results", () => {
+    const cards = loadCardDatabase(dir);
+    const auto = [{ code: 30, reason: "Its effect script is being investigated" }];
+    const deck = { main: [30], extra: [], side: [] };
+    const settings = normalizeDuelSettings("normal", { validateDeck: false, startingHand: 1 });
+    expect(inspectDeck("normal", deck, dir, settings, { cardBlocks: auto }).issues[0]?.message).toContain("is unavailable");
+    expect(queryCards(cards, { ...emptyCardQuery(), text: "30" }, auto).cards[0]?.unavailableReason).toBe(auto[0]!.reason);
+    expect(queryCards(cards, { ...emptyCardQuery(), text: "30" }, []).cards[0]).not.toHaveProperty("unavailableReason");
+  });
   it("retains name matches with an unavailable reason, including a distinct-name alias", () => {
     const result = queryCards(loadCardDatabase(dir), { ...emptyCardQuery(), text: "Dragon" });
     expect(result.cards.find(card => card.code === 10)).toMatchObject({ unavailableReason: reason });

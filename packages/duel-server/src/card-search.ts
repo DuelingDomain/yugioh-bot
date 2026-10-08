@@ -21,7 +21,7 @@ import {
 } from "@yugidraft/shared/duels";
 import { BANLIST_NONE_ID, BANLIST_OCG_2026_07_ID, BANLIST_TCG_2026_09_ID, banlistLimitsFor } from "./banlists/index.js";
 import { cardArtworkFamily } from "./card-artworks.js";
-import { cardBlockIndex } from "./card-block-list.js";
+import { cardBlockIndex, type CardBlockEntry } from "./card-block-list.js";
 import type { CardDatabase } from "./cards.js";
 
 type Kind = "monster" | "spell" | "trap" | "other";
@@ -73,7 +73,6 @@ function trapType(type: number): TrapTypeKey {
 function buildIndex(cards: CardDatabase): Index {
   const entries: Entry[] = [];
   const byCode = new Map<number, Entry>();
-  const blocked = cardBlockIndex(new Map([...cards.all()].map(card => [card.code, card])), undefined, cards.dataDirectory);
   for (const card of cards.all()) {
     const kind = kindOf(card.type);
     // An alternate artwork repeats its original's name and card type. An alias with another name or
@@ -81,9 +80,8 @@ function buildIndex(cards: CardDatabase): Index {
     const family = cardArtworkFamily(cards, card.code)!;
     const altArt = family.passcode !== card.code;
     const data = cards.cardData(card.code);
-    const unavailableReason = blocked.get(card.code)?.reason;
     const entry: Entry = {
-      card: unavailableReason ? { ...card, unavailableReason } : card,
+      card,
       name: foldCardText(card.name),
       text: foldCardText(card.description),
       code: String(card.code),
@@ -118,8 +116,15 @@ function buildIndex(cards: CardDatabase): Index {
 }
 
 /** Shares the builder's admission flag with card-details (draft pools and cards already in a deck). */
-export function deckCardUnavailableReason(cards: CardDatabase, code: number): string | undefined {
-  return indexFor(cards).byCode.get(code)?.card.unavailableReason;
+export function deckCardUnavailableReason(cards: CardDatabase, code: number, entries?: readonly CardBlockEntry[]): string | undefined {
+  return blocksFor(cards, entries).get(code)?.reason;
+}
+
+const blockCatalogs = new WeakMap<CardDatabase, Map<number, { alias?: number }>>();
+function blocksFor(cards: CardDatabase, entries?: readonly CardBlockEntry[]) {
+  let catalog = blockCatalogs.get(cards);
+  if (!catalog) { catalog = new Map([...cards.all()].map(card => [card.code, card])); blockCatalogs.set(cards, catalog); }
+  return cardBlockIndex(catalog, entries, cards.dataDirectory);
 }
 
 function indexFor(cards: CardDatabase): Index {
@@ -284,8 +289,9 @@ function sortEntries(found: Entry[], query: CardQuery, member: Matcher | null): 
 }
 
 /** Runs a validated deck-editor query over the engine catalog. */
-export function queryCards(cards: CardDatabase, query: CardQuery): CardQueryResult {
+export function queryCards(cards: CardDatabase, query: CardQuery, entries?: readonly CardBlockEntry[]): CardQueryResult {
   const index = indexFor(cards);
+  const blocked = blocksFor(cards, entries);
   const checks = compile(query, index);
   const passes = (entry: Entry) => checks.every((check) => check(entry));
 
@@ -306,7 +312,9 @@ export function queryCards(cards: CardDatabase, query: CardQuery): CardQueryResu
   // An exact passcode leads, even for an alternate artwork that the list otherwise hides.
   if (exact && exactPasses) sorted.unshift(exact);
   return {
-    cards: sorted.slice(query.offset, query.offset + query.limit).map((entry) => ({ ...entry.card, altArtCount: cardArtworkFamily(cards, entry.card.code)!.artworks.length - 1 })),
+    cards: sorted.slice(query.offset, query.offset + query.limit).map((entry) => ({ ...entry.card,
+      ...(blocked.has(entry.card.code) ? { unavailableReason: blocked.get(entry.card.code)!.reason } : {}),
+      altArtCount: cardArtworkFamily(cards, entry.card.code)!.artworks.length - 1 })),
     total: sorted.length,
     offset: query.offset,
   };
