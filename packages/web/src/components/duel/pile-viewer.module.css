@@ -171,16 +171,20 @@
   outline-offset: 2px;
 }
 
-/* ---------- preview: the card under the pointer, large ---------- */
+/* ---------- preview: the card under the pointer or last click, with its full text ---------- */
 
+/* Row 1: the art and the name and type lines. Row 2: the effect text across the full width, scrolling inside its own box
+   (never cut). The block takes the room it needs up to 58% of the panel and the grid keeps a floor, so a long text scrolls. */
 .preview {
-  --pv-art-h: clamp(96px, 16vh, 150px);
+  --pv-art-h: clamp(84px, 14vh, 140px);
   display: grid;
-  flex: none;
+  flex: 0 1 auto;
   grid-template-columns: calc(var(--pv-art-h) * 59 / 86) minmax(0, 1fr);
-  gap: calc(12 * var(--pv-u));
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: calc(8 * var(--pv-u)) calc(12 * var(--pv-u));
   min-height: 0;
-  padding: calc(12 * var(--pv-u)) calc(14 * var(--pv-u)) calc(12 * var(--pv-u)) calc(16 * var(--pv-u));
+  max-height: 58%;
+  padding: calc(12 * var(--pv-u)) calc(14 * var(--pv-u)) calc(10 * var(--pv-u)) calc(16 * var(--pv-u));
   border-bottom: 1px solid var(--pv-rule);
   background: linear-gradient(180deg, rgb(9 15 29 / 0.6), transparent);
 }
@@ -206,7 +210,6 @@
   flex-direction: column;
   gap: calc(3 * var(--pv-u));
   min-width: 0;
-  max-height: var(--pv-art-h);
 }
 
 .previewPos {
@@ -245,22 +248,38 @@
 }
 
 .previewText {
-  flex: 1 1 auto;
+  grid-column: 1 / -1;
   min-height: 0;
-  margin-top: calc(5 * var(--pv-u));
   padding-top: calc(6 * var(--pv-u));
+  padding-right: calc(4 * var(--pv-u));
   overflow-y: auto;
   border-top: 1px solid var(--pv-rule-lo);
   color: var(--pv-ink-2);
-  font-size: var(--pv-t-sm);
-  line-height: 1.45;
+  font-size: var(--ct, var(--pv-t-sm));
+  line-height: 1.5;
   overscroll-behavior: contain;
   scrollbar-width: thin;
+  scrollbar-color: rgb(181 153 99 / 0.45) transparent;
+}
+
+.previewText:focus {
+  outline: none;
+}
+
+.previewText:focus-visible {
+  outline: 2px solid var(--pv-ink);
+  outline-offset: -2px;
 }
 
 .previewText p {
   margin: 0;
   white-space: pre-line;
+}
+
+.previewText .previewExtra {
+  margin-top: calc(4 * var(--pv-u));
+  color: var(--pv-ink-3);
+  font-size: calc(var(--ct, var(--pv-t-sm)) * 0.95);
 }
 
 .empty {
@@ -457,8 +476,9 @@
   }
 
   .preview {
-    --pv-art-h: clamp(120px, 24cqh, 170px);
-    gap: 10px;
+    --pv-art-h: clamp(72px, 11dvh, 100px);
+    max-height: 64%;
+    gap: 8px 10px;
     padding: 10px 14px;
   }
 

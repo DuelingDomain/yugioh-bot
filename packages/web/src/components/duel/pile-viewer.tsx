@@ -6,6 +6,7 @@ import type { DuelCard } from "@yugidraft/shared/duels";
 import { Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CardBack } from "./card-face";
+import { cardTextStyle, useCardTextSize } from "./card-text-size";
 import {
   cardArtUrl,
   cardCombatText,
@@ -16,6 +17,7 @@ import {
   zoneKey,
 } from "./constants";
 import { duelFontClasses } from "./fonts";
+import { cardExtraLines, useFilledCard } from "./inspector";
 import { useSkinStyles } from "./skin";
 import baseStyles from "./pile-viewer.module.css";
 import { UsableGlow } from "./usable-glow";
@@ -67,6 +69,46 @@ function positionLine(index: number, total: number): string {
   if (index === 0) return `Top of pile · 1 of ${total}`;
   if (index === total - 1) return `Bottom of pile · ${total} of ${total}`;
   return `${ordinal(index + 1)} from top · ${index + 1} of ${total}`;
+}
+
+/**
+ * The detail of the card under the pointer, focus or last click: art, name, type lines and the FULL effect text.
+ * The text comes from the same place as the card panel (`useFilledCard`: a pile card that came without its effect text
+ * is looked up by passcode) and takes the viewer's card text size. It scrolls inside its own box, so it is never cut.
+ */
+function PileDetail({ entry, total, styles }: { entry: Entry; total: number; styles: Record<string, string> }) {
+  const textSize = useCardTextSize();
+  const live = entry.card;
+  const hidden = isHiddenCard(live) || live.code == null;
+  const card = useFilledCard(live);
+  const sleeve = live.location === LOCATION_EXTRA ? "extra" : "deck";
+  const details = hidden ? "" : cardDetailsText(card);
+  const kind = hidden ? "" : cardKindText(card);
+  const combat = hidden ? null : cardCombatText(card);
+  const text = hidden ? "" : card.description?.trim() ?? "";
+  const extras = hidden ? [] : cardExtraLines(card);
+  return (
+    <div className={styles.preview} aria-live="polite" data-card-text={textSize} style={cardTextStyle(textSize)}>
+      <div className={`${styles.previewArt} card-frame`}>
+        {hidden ? (
+          <CardBack kind={sleeve} className={styles.previewBack} />
+        ) : (
+          <img src={cardArtUrl(live.code as number, "full")} alt="" draggable={false} />
+        )}
+      </div>
+      <div className={styles.previewBody}>
+        <span className={styles.previewPos}>{positionLine(entry.index, total)}</span>
+        <h3 className={styles.previewName}>{hidden ? "Face-down card" : card.name ?? `Card ${live.code}`}</h3>
+        {details ? <p className={styles.previewDetails}>{details}</p> : null}
+        {kind && kind !== details ? <p className={styles.previewDetails}>{kind}</p> : null}
+        {combat ? <p className={styles.previewCombat}>{combat}</p> : null}
+      </div>
+      <div className={styles.previewText} data-testid="pile-card-text" tabIndex={0} role="region" aria-label="Card text">
+        {hidden ? <p>Face-down card. Its identity is not public.</p> : text ? <p>{text}</p> : null}
+        {extras.map((line) => <p key={line} className={styles.previewExtra}>{line}</p>)}
+      </div>
+    </div>
+  );
 }
 
 /** Number of cards on the first row of the grid: how far an Up/Down arrow moves focus. */
@@ -200,20 +242,14 @@ export function PileViewer({
     focusEntry(next);
   }
 
-  function onCardClick(event: ReactMouseEvent<HTMLButtonElement>, card: DuelCard, legal: boolean) {
+  function onCardClick(event: ReactMouseEvent<HTMLButtonElement>, key: string, card: DuelCard, legal: boolean) {
+    // A click always selects the card into the detail (touch has no hover, and some browsers do not focus a tapped button).
+    setPreviewKey(key);
     if (legal && onActivateCard) onActivateCard(card, event.currentTarget);
     else onInspectCard(card);
   }
 
   const total = entries.length;
-  const previewCard = preview?.card ?? null;
-  const previewHidden = previewCard == null || isHiddenCard(previewCard) || previewCard.code == null;
-  const previewSleeve = previewCard?.location === LOCATION_EXTRA ? "extra" : "deck";
-  const details = previewCard && !previewHidden ? cardDetailsText(previewCard) : "";
-  const kind = previewCard && !previewHidden ? cardKindText(previewCard) : "";
-  const combat = previewCard && !previewHidden ? cardCombatText(previewCard) : null;
-  const text = previewCard && !previewHidden ? previewCard.description?.trim() ?? "" : "";
-
   return (
     <div className={cn(duelFontClasses, styles.root)} data-reduced={reducedMotion ? "true" : "false"} data-owner={owner} data-has-legal={anyLegal ? "true" : "false"}
       data-toned={ownerTag ? "true" : undefined}
@@ -244,31 +280,13 @@ export function PileViewer({
           </button>
         </header>
 
-        <div className={styles.preview} aria-live="polite">
-          {previewCard ? (
-            <>
-              <div className={`${styles.previewArt} card-frame`}>
-                {previewHidden ? (
-                  <CardBack kind={previewSleeve} className={styles.previewBack} />
-                ) : (
-                  <img src={cardArtUrl(previewCard.code as number, "full")} alt="" draggable={false} />
-                )}
-              </div>
-              <div className={styles.previewBody}>
-                <span className={styles.previewPos}>{positionLine(preview?.index ?? 0, total)}</span>
-                <h3 className={styles.previewName}>{cardName(previewCard)}</h3>
-                {details ? <p className={styles.previewDetails}>{details}</p> : null}
-                {kind && kind !== details ? <p className={styles.previewDetails}>{kind}</p> : null}
-                {combat ? <p className={styles.previewCombat}>{combat}</p> : null}
-                <div className={styles.previewText}>
-                  {previewHidden ? <p>Face-down card. Its identity is not public.</p> : text ? <p>{text}</p> : null}
-                </div>
-              </div>
-            </>
-          ) : (
+        {preview ? (
+          <PileDetail entry={preview} total={total} styles={styles} />
+        ) : (
+          <div className={styles.preview} aria-live="polite">
             <p className={styles.empty}>This pile is empty.</p>
-          )}
-        </div>
+          </div>
+        )}
 
         <ul ref={gridRef} className={styles.grid} role="list" aria-label={`${title}, newest first`}>
           {entries.map((entry) => {
@@ -298,7 +316,7 @@ export function PileViewer({
                     onHoverCard?.(card);
                   }}
                   onKeyDown={(event) => onCardKeyDown(event, index)}
-                  onClick={(event) => onCardClick(event, card, legal)}
+                  onClick={(event) => onCardClick(event, key, card, legal)}
                 >
                   <span className={styles.art}>
                     {hidden ? (
