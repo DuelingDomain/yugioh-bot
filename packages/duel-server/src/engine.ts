@@ -1,5 +1,5 @@
 import { scriptErrorCoreFactory } from "./script-load-scope.js";
-import { CARD_SCRIPT_ERROR_TEXT, CORE_PROCESS_CALL_LIMIT, createScriptErrorPolicy, type DuelScriptError } from "./script-errors.js";
+import { CARD_SCRIPT_ERROR_TEXT, CORE_PROCESS_CALL_LIMIT, createScriptErrorPolicy, type DuelScriptError, type DuelScriptFatalError } from "./script-errors.js";
 import type { DuelAnswer, DuelBattleStep, DuelChainMode, DuelCardInfo, DuelDeck, DuelEngineView, DuelFormat, DuelMasterRule, DuelMode, DuelSettings, DuelScriptErrorMode } from "@yugidraft/shared/duels";
 import { DUEL_SEAT_LEFT_ERROR_CODE, defaultChainMode, partnerSeatOf, seatCountFor, seatsOfTeam, startingLpFor, teamOfSeat } from "@yugidraft/shared/duels";
 import { createHash } from "node:crypto";
@@ -130,6 +130,8 @@ export interface EngineGameOptions {
   scriptErrorMode?: DuelScriptErrorMode;
   /** Private telemetry callback; omitted by standalone replay tools. */
   onScriptError?: (error: DuelScriptError) => void;
+  /** Private fatal diagnostics; never included in views or counted as telemetry. */
+  onFatalScriptError?: (error: DuelScriptFatalError) => void;
   mode: DuelMode;
   decks: DuelDeck[];
   seed: string[];

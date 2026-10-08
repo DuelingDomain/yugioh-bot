@@ -29,6 +29,33 @@ async function request(host: DuelHost, body: Record<string, unknown>, expectedSt
 }
 
 describeWithCores("script errors through host, worker and journal", [needs.standard(DATA), needs.domain(DATA), needs.installedMulti(DATA)], () => {
+  it.each(["legacy", "pinned"] as const)("%s: logs fatal Lua diagnostics only on the host and never counts them", async (engine) => {
+    const db = new Database(":memory:"); migrate(db);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const players = [0, 1].map(i => seedIdentity(db, { guildId: "g", name: `P${i}`, userId: seedUser(db, `fatal${i}`).userId }).playerId);
+    const duels = createDuelService(db);
+    const options = reproOptions();
+    const session = duels.create({ guildId: "g", organizerPlayerId: players[0]!, name: "Fatal diagnostics", mode: "normal", settings: options.settings });
+    duels.takeSeat(session.slug, "g", players[1]!);
+    players.forEach((player, seat) => duels.setDeck(session.slug, "g", player, options.decks[seat]!));
+    const version = JSON.parse(readFileSync(`${DATA}/manifest.json`, "utf8")).bundleVersion;
+    duels.activate(session.slug, "g", players[0]!, options.seed, pinnedEngineVersion(version, 2, null), null, {
+      engine, firstTurnDraw: false, startupScripts: [`local e=Effect.GlobalEffect()
+        e:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS) e:SetCode(EVENT_STARTUP)
+        e:SetOperation(function() error("stack overflow: private_lua_diagnostic") end) Duel.RegisterEffect(e,0)`],
+    });
+    const host = createDuelHost({ db, dataDirectory: DATA, secret: SECRET, searchCards: () => [], pollIntervalMs: 60_000 });
+    hosts.push(host);
+    try {
+      const result = await request(host, { op: "view", slug: session.slug, guildId: "g", playerId: players[0] }, 503);
+      expect(JSON.stringify(result)).toContain("Engine script error:");
+      expect(JSON.stringify(result)).not.toMatch(/stack overflow|private_lua_diagnostic/);
+      const lines = log.mock.calls.map(([line]) => JSON.parse(String(line)));
+      expect(lines).toContainEqual(expect.objectContaining({ event: "card_script_fatal", duelId: session.id, engine, message: expect.stringContaining("stack overflow: private_lua_diagnostic"), traceback: expect.any(String) }));
+      expect(topScriptErrors(db)).toEqual([]);
+      expect(db.prepare("SELECT * FROM card_script_error_occurrences").all()).toEqual([]);
+    } finally { await host.close(); hosts.splice(hosts.indexOf(host), 1); db.close(); }
+  });
   it.each([["legacy", "1v1"], ["pinned", "1v1"], ["pinned", "ffa4"]] as const)("%s %s: repeated view failures stay private across answers, recovery and replay", async (engine, format) => {
     const db = new Database(":memory:"); migrate(db);
     const log = vi.spyOn(console, "error").mockImplementation(() => {});

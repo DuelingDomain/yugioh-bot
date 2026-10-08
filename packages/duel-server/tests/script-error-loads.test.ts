@@ -39,7 +39,11 @@ describeWithCores("script loading remains fatal during processing", [needs.stand
     } finally { game.close(); }
   });
   it.each(["legacy", "pinned"] as const)("%s: refuses a syntax failure in a dynamically loaded card", async (engine) => {
+    const fatal = vi.fn();
+    const reported = vi.fn();
     fixture.cardScript = "local s,id=GetID() function s.initial_effect(c) if true then return end";
-    await expect((engine === "legacy" ? createLegacyEngineGame : createEngineGame)(options).then((game) => { game.close(); return game; })).rejects.toThrow(/Engine script error/);
+    await expect((engine === "legacy" ? createLegacyEngineGame : createEngineGame)({ ...options, onFatalScriptError: fatal, onScriptError: reported }).then((game) => { game.close(); return game; })).rejects.toThrow(/Engine script error/);
+    expect(fatal).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringMatching(/c3743515\.lua.*expected.*near/) }));
+    expect(reported).not.toHaveBeenCalled();
   });
 });

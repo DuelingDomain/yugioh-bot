@@ -325,6 +325,7 @@ export function createDuelHost(options: {
   const recordScriptError = createScriptErrorRecorder(options.db);
   const spawn = (duelId?: number): DuelGameWorker => options.createWorker?.() ?? new GameWorker(
     duelId === undefined ? undefined : (error) => recordScriptError(duelId, error),
+    (error) => console.error(JSON.stringify({ event: "card_script_fatal", duelId, ...error })),
   );
   const archiveAfterMs = options.archiveAfterMs ?? DEFAULT_ARCHIVE_AFTER_MS;
   const idleWorkerMs = options.idleWorkerMs ?? DEFAULT_IDLE_WORKER_MS;

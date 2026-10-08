@@ -45,6 +45,7 @@ export async function createLegacyEngineGame(options: EngineGameOptions): Promis
     mode: options.mode,
     scriptErrorMode: options.scriptErrorMode,
     onScriptError: options.onScriptError,
+    onFatalScriptError: options.onFatalScriptError,
     startupScripts: options.startupScripts,
     decks: options.decks,
     seed: options.seed,
