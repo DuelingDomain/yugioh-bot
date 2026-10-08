@@ -80,14 +80,18 @@
   animation: rise 0.16s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
-/* A soft dim only around the panel, so the rest of the board stays fully readable. */
+/*
+ * A soft dim, darkest in the middle of the panel. The box fills the panel and only its gradient is 48px larger on every
+ * side. A box with a negative inset sticks out of the scrolling panel and adds scroll area, so a mouse wheel
+ * pushed the title off the top.
+ */
 .panel::before {
   content: "";
   position: absolute;
-  inset: -48px;
+  inset: 0;
   z-index: -1;
   pointer-events: none;
-  background: radial-gradient(closest-side, rgb(4 7 14 / 0.5), transparent);
+  background: radial-gradient(closest-side, rgb(4 7 14 / 0.5), transparent) center / calc(100% + 96px) calc(100% + 96px) no-repeat;
 }
 
 .panel[data-tone="chain"] { border: var(--pc-border-chain); }
