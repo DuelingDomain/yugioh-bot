@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { ArrowUp } from "lucide-react";
 import { flushSync } from "react-dom";
 import { engineFormat } from "../multi-seat";
@@ -103,8 +103,6 @@ function clearHint(base: { x: number; y: number; angle: number }, box: { width: 
 const NO_ZOOM = 1.02;
 /** The size of a rival's LP plate on the stage, for the fit of a zoom (see holo-lp.module.css). */
 const RIVAL_PLATE = { width: 196, height: 100 } as const;
-/** What a click on a seat must leave alone: the controls and the legal targets inside a field. */
-const CLICK_PASS = "button, a, [data-legal='true'], [data-holo]";
 
 export interface TableStageViewProps extends TableStageProps {
   /** The stored camera mode, when the FX lock shows another one (a lock sends the view home). */
@@ -522,30 +520,8 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
 
   const plaza3 = layout.format === "ffa3" && layout.slots.length === 3;
 
-  const onSeatClick = (event: MouseEvent<HTMLDivElement>) => {
-    const target = event.target as Element | null;
-    const slot = target?.closest?.("[data-seat-slot]");
-    if (!slot) return;
-    // 3-way: a click on a field (an empty zone, the board, a seat) never moves the camera; a misclick would zoom. The camera
-    // zooms by the Zoom my field button and the keys (E, P, 0, Esc), and Enter on a field box (see `reach`). A card keeps its own click.
-    if (plaza3 && !fly) return;
-    // The fly-in view keeps its click: a plain card or empty zone (nothing to pick there; piles open their own list) is part of the field.
-    const zone = target?.closest?.("[data-zones]");
-    const plainZone = plaza3 && zone != null && zone.getAttribute("data-legal") !== "true" && zone.getAttribute("data-selected") !== "true" && !target?.closest?.("[data-duel-menu], [data-holo], a") && zone.getAttribute("data-pile") !== "true";
-    if (target?.closest?.(CLICK_PASS) && !plainZone) return;
-    const seat = Number(slot.getAttribute("data-seat-slot"));
-    if (!Number.isInteger(seat) || out.includes(seat)) return;
-    // A face-off has one view: a click on the rival's field (an inspect click) moves nothing, and never ends your own zoom.
-    if (seat !== layout.anchorSeat && isFaceOff(layout, out)) return;
-    // A zone click never moves the fly-in to a field that holds a legal choice of the open prompt. Legal keys on another field do not count.
-    const legalHere = plainZone && [...legalKeys].some((key) => key.startsWith(`${seat}:`));
-    if (plainZone && (legalHere || (viewCamera.mode === "focus" && viewCamera.focusSeat === seat))) return;
-    if (fly) {
-      dispatchCamera({ type: "flyTo", seat });
-    } else if (seat !== layout.anchorSeat && !(viewCamera.mode === "focus" && viewCamera.focusSeat === seat) && !(looking && camera.lookSeat === seat)) {
-      dispatchCamera({ type: "focus", seat });
-    }
-  };
+  // A click on a field never moves the camera, in any mode (a misclick would zoom or fly in): the seat buttons, the Zoom my field
+  // button and the keys do, and Enter or a screen reader's click on a field box (see `reach`). A card keeps its own click.
 
   const canvas: CSSProperties & Record<string, string | number> = {
     width: STAGE.width,
@@ -756,7 +732,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
         <div ref={perspRef} className={styles.persp} data-view-layer>
           <div ref={worldRef} className={styles.world} data-world>
             {threeWay && cityOn ? <FlyCity /> : null}
-            <div className={styles.wstage} onClick={onSeatClick}>
+            <div className={styles.wstage}>
               <Plaza
                 layout={play}
                 poses={poses}

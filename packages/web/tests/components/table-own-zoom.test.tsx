@@ -133,7 +133,7 @@ describe("FFA3 own field camera zoom", () => {
   it("a click on a field while zoomed does not move the camera", () => {
     const { container } = render(<Table state={idle()} camera={{ mode: "focus", focusSeat: REN }} />);
     advance(500);
-    fireEvent.click(seatBox(container, REN));
+    fireEvent.click(seatBox(container, REN), { detail: 1 });
     advance(500);
     expect(chip(container)).toBe("Focus · Ren Arata");
     expect(layer(container)).not.toBeNull();
