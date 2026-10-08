@@ -6,7 +6,7 @@ import { getDb } from "@/lib/db";
 import { FloorList, SectionHead, SvButton } from "@/components/sheet";
 import { PageFrame } from "@/components/dashboard/page-frame";
 import { loadTournamentRounds } from "@/components/dashboard/tournament-rounds";
-import styles from "./tournaments.module.css";
+import { EmptyTournaments } from "@/components/empty-states/empty-tournaments";
 import { TournamentRow } from "@/components/tournament/tournament-row";
 import { FinishedLedger } from "@/components/tournament/finished-ledger";
 import {
@@ -56,21 +56,14 @@ export default async function TournamentsPage() {
       title="Tournaments"
       sub={summary.length > 0 ? summary.join(", ") : undefined}
       actions={
-        <SvButton as="a" href="/tournaments/new" variant="primary">
+        // With nothing to list, the empty state below holds the page's one primary button.
+        <SvButton as="a" href="/tournaments/new" variant={tournaments.length === 0 ? "ghost" : "primary"}>
           New tournament
         </SvButton>
       }
     >
       {tournaments.length === 0 ? (
-        <section aria-labelledby="tl-none">
-          <SectionHead title="No tournaments yet" id="tl-none" />
-          <p className={styles.lede}>
-            Create one and it shows up on this page, ready to share by link.
-          </p>
-          <SvButton as="a" href="/tournaments/new" variant="primary">
-            New tournament
-          </SvButton>
-        </section>
+        <EmptyTournaments />
       ) : (
         <>
           {groups.running.length > 0 && (

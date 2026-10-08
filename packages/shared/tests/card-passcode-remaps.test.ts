@@ -163,3 +163,76 @@ it("refuses unsafe v1 remaps before touching legacy artworks with no family mapp
   expect(db.prepare("SELECT * FROM engine_card_remap_runs").all()).toEqual([]);
  }finally{db.close();}
 });
+
+it("replaces renamed/type-corrected preview metadata with official engine metadata in decks, cubes and drafts",()=>{
+ const dir=bundle({101402001:77482666}),db=sharedDb.openDatabase(":memory:");
+ const cdb=new Database(join(dir,"cards.cdb"));
+ cdb.exec(`CREATE TABLE texts(id INTEGER PRIMARY KEY,name TEXT,desc TEXT); INSERT INTO datas(id,type) VALUES(77482666,97);
+ INSERT INTO texts VALUES(77482666,'Swiftwind Panther Warrior','Official effect');`);cdb.close();
+ try {
+  seedIdentity(db,{userId:1,playerId:1,guildId:"g"});
+  db.exec(`INSERT INTO card_catalog(ygoprodeck_id,name,type,frame_type,effect_text,image_url,image_url_small,card_sets_json,cached_at)
+    VALUES(101402001,'Swift Panther Warrior','Effect Monster','effect','Old effect','old','old','[]','now');
+    INSERT INTO saved_decks(guild_id,owner_user_id,name,mode,deck_json) VALUES('g',1,'renamed','normal','{"main":[101402001]}');
+    INSERT INTO cubes(id,guild_id,name,created_by_user_id) VALUES(1,'g','cube',1);
+    INSERT INTO cube_cards VALUES(1,101402001,'main',1,'manual');
+    INSERT INTO drafts(id,guild_id,channel_id,name,status,created_by_user_id) VALUES(1,'g','c','draft','completed',1);
+    INSERT INTO draft_cards(id,draft_id,wave_number,catalog_card_id) VALUES(1,1,1,101402001);`);
+  sharedDb.applyEngineCardRemaps(db,dir);
+  expect(db.prepare("SELECT deck_json FROM saved_decks").get()).toEqual({deck_json:'{"main":[77482666]}'});
+  expect(db.prepare("SELECT catalog_card_id,pool FROM cube_cards").get()).toEqual({catalog_card_id:77482666,pool:"extra"});
+  expect(db.prepare("SELECT catalog_card_id FROM draft_cards").get()).toEqual({catalog_card_id:77482666});
+  expect(db.prepare("SELECT name,type,frame_type,effect_text FROM card_catalog").get()).toEqual({name:"Swiftwind Panther Warrior",type:"Fusion Effect Monster",frame_type:"fusion",effect_text:"Official effect"});
+  expect(sharedDb.applyEngineCardRemaps(db,dir).skipped).toBe(true);
+ } finally {db.close();}
+});
+it.each([[33,"extra","main"],[97,"main","extra"]] as const)("corrects cube pool using official type %i after collision",(type,oldPool,newPool)=>{
+ const dir=bundle({101402001:77482666}),db=sharedDb.openDatabase(":memory:");
+ const cdb=new Database(join(dir,"cards.cdb"));cdb.exec(`CREATE TABLE texts(id INTEGER PRIMARY KEY,name TEXT,desc TEXT);INSERT INTO datas(id,type) VALUES(77482666,${type});INSERT INTO texts VALUES(77482666,'Official','');`);cdb.close();
+ try{
+  seedIdentity(db,{userId:1,playerId:1,guildId:"g"});
+  db.exec(`INSERT INTO card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) VALUES(101402001,'Preview','Effect Monster','effect','old','old','[]','now'),(77482666,'Official','Effect Monster','effect','new','new','[]','now');INSERT INTO cubes(id,guild_id,name,created_by_user_id) VALUES(1,'g','cube',1);`);
+  db.prepare("INSERT INTO cube_cards VALUES(1,?,?,2,'old'),(1,?,?,3,'new')").run(101402001,oldPool,77482666,oldPool);
+  sharedDb.applyEngineCardRemaps(db,dir);
+  expect(db.prepare("SELECT catalog_card_id,pool,max_copies,source FROM cube_cards").all()).toEqual([{catalog_card_id:77482666,pool:newPool,max_copies:5,source:"new"}]);
+ }finally{db.close();}
+});
+
+it.each([
+ ['[{"set_name":"Official set"}]','Catalog translation'],
+ ['[]','Official'],
+ ['[]','OCG-only catalog translation'],
+])("preserves existing catalog metadata across weekly bundles (sets=%s, name=%s)",(sets,name)=>{
+ const dir=bundle(),db=sharedDb.openDatabase(":memory:");
+ const cdb=new Database(join(dir,"cards.cdb"));
+ cdb.exec("CREATE TABLE texts(id INTEGER PRIMARY KEY,name TEXT,desc TEXT);UPDATE datas SET type=97 WHERE id=12;INSERT INTO texts VALUES(12,'Official','Lossy engine effect');");cdb.close();
+ try{
+  db.prepare(`INSERT INTO card_catalog(ygoprodeck_id,name,type,frame_type,effect_text,image_url,image_url_small,card_sets_json,cached_at)
+   VALUES(12,?,'Fusion Monster','fusion','Synced effect','synced','synced',?,'synced date')`).run(name,sets);
+  const before=db.prepare("SELECT * FROM card_catalog WHERE ygoprodeck_id=12").get();
+  sharedDb.applyEngineCardRemaps(db,dir);
+  expect(db.prepare("SELECT * FROM card_catalog WHERE ygoprodeck_id=12").get()).toEqual(before);
+  const manifest=JSON.parse(readFileSync(join(dir,"manifest.json"),"utf8"));manifest.bundleVersion="next-week";
+  writeFileSync(join(dir,"manifest.json"),JSON.stringify(manifest));
+  sharedDb.applyEngineCardRemaps(db,dir);
+  expect(db.prepare("SELECT * FROM card_catalog WHERE ygoprodeck_id=12").get()).toEqual(before);
+ }finally{db.close();}
+});
+
+it("refreshes a copied preview only once, even if engine text changes next week",()=>{
+ const dir=bundle(),db=sharedDb.openDatabase(":memory:");
+ const cdb=new Database(join(dir,"cards.cdb"));
+ cdb.exec("CREATE TABLE texts(id INTEGER PRIMARY KEY,name TEXT,desc TEXT);UPDATE datas SET type=97 WHERE id=12;INSERT INTO texts VALUES(12,'Official','First effect');");cdb.close();
+ try{
+  db.exec(`INSERT INTO card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
+   VALUES(100000001,'Preview','Effect Monster','effect','preview','preview','[]','now');`);
+  sharedDb.applyEngineCardRemaps(db,dir);
+  expect(db.prepare("SELECT name,effect_text FROM card_catalog").get()).toEqual({name:"Official",effect_text:"First effect"});
+  const before=db.prepare("SELECT * FROM card_catalog").get();
+  const next=new Database(join(dir,"cards.cdb"));next.exec("UPDATE texts SET desc='Next week effect'");next.close();
+  const manifest=JSON.parse(readFileSync(join(dir,"manifest.json"),"utf8"));manifest.bundleVersion="next-week";
+  writeFileSync(join(dir,"manifest.json"),JSON.stringify(manifest));
+  sharedDb.applyEngineCardRemaps(db,dir);
+  expect(db.prepare("SELECT * FROM card_catalog").get()).toEqual(before);
+ }finally{db.close();}
+});

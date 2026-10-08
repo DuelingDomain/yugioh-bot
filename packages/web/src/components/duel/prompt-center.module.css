@@ -80,19 +80,39 @@
   animation: rise 0.16s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
-/* A soft dim only around the panel, so the rest of the board stays fully readable. */
+/*
+ * A soft dim, darkest in the middle of the panel. It is drawn inside the panel only: the panel's overflow cuts it at the
+ * panel edge. The box fills the panel, and the gradient is sized 48px larger on every side only to keep the old shape of
+ * the fade. A box with a negative inset sticks out of the scrolling panel and adds scroll area, so a mouse wheel
+ * pushed the title off the top.
+ */
 .panel::before {
   content: "";
   position: absolute;
-  inset: -48px;
+  inset: 0;
   z-index: -1;
   pointer-events: none;
-  background: radial-gradient(closest-side, rgb(4 7 14 / 0.5), transparent);
+  background: radial-gradient(closest-side, rgb(4 7 14 / 0.5), transparent) center / calc(100% + 96px) calc(100% + 96px) no-repeat;
 }
 
 .panel[data-tone="chain"] { border: var(--pc-border-chain); }
 
 .panel[data-wide="true"] { width: min(640px, calc(100% - 24px)); }
+/*
+ * Card text grows with the type, so the panel grows with it: the lines stay about as many as on a small screen.
+ * Only on a tall window: a short one (a laptop with browser bars) has no height to give, and these rules would
+ * squeeze the cut text and the options.
+ */
+@media (min-width: 901px) and (min-height: 641px) {
+  .panel:has(.cardText[data-lead="true"]):not([data-wide="true"]) { width: min(max(640px, calc(560 * var(--duel-unit, 1px))), calc(100% - 24px)); }
+  /*
+   * The panel is centred on the board, so it reaches the hand once it is taller than the board less two hands
+   * (about 115 units each, with the gap above). Long text then gives way (the box scrolls) before the panel covers
+   * the hand. Hosts with their own pair size (data-prompt-dense) set a smaller max-height. Only the leading text block
+ * counts (data-lead): the text of an opened chain row must not make the panel jump.
+   */
+  .panel:has(.cardText[data-lead="true"]) { max-height: min(calc(100% - 24px), calc(100% - 240 * var(--duel-unit, 1px))); }
+}
 /* A card strip is as wide as its cards need, up to about six large cards, and never wider than the board
    (the layer is the board box). A longer list scrolls inside the strip; the header stays whole above it. */
 .panel[data-strip="true"] {
@@ -383,12 +403,25 @@
   display: flex;
   flex-direction: column;
   gap: calc(3 * var(--duel-unit, 1px));
-  min-height: 0;
+  /* When the panel is full the text gives way first (it scrolls inside), so the options stay in view. A long text
+     never gives way below its label, padding and 3 lines (data-long, below): a percent min-height resolves to 0. */
+  flex-shrink: 10;
   padding: calc(6 * var(--duel-unit, 1px)) calc(10 * var(--duel-unit, 1px));
   border: 1px solid var(--duel-rule-lo, rgb(181 153 99 / 0.17));
   border-radius: 6px;
   background: rgb(7 11 21 / 0.5);
 }
+/* Only a long text has a floor: a short one ("Draw 2 cards.") ends under its own line. */
+.cardText[data-long="true"] {
+  min-height: calc(var(--duel-t-sm, 12px) * 4.35 + var(--duel-t-xs, 11px) * 1.4 + 20 * var(--duel-unit, 1px));
+}
+.cardText[data-long="true"] .cardTextBody { min-height: 3lh; }
+/* A text cut to a few lines (small window or dense host) is already short: it never gives up more. */
+.cardText[data-open="false"] { flex-shrink: 0; }
+/* A short list of options (4 or fewer) keeps its height: a flex shrink takes a few pixels off even a light item, which cut
+   the last option border. The text box (above) takes the squeeze. A longer list still shrinks and scrolls by itself,
+   so the title and the text stay in view. */
+.cardText[data-lead="true"] ~ .rows[data-few="true"] { flex-shrink: 0; }
 .cardTextLabel {
   color: var(--duel-ink-3, #958f81);
   font-size: var(--duel-t-xs, 11px);
@@ -397,13 +430,19 @@
 }
 .cardTextBody {
   margin: 0;
-  max-height: min(220px, 34dvh);
+  flex: 0 1 auto;
+  max-height: min(15lh, 34dvh);
   overflow-y: auto;
   color: var(--duel-ink-2, #c3bba8);
   font-size: var(--duel-t-sm, 12px);
   line-height: 1.45;
   white-space: pre-line;
   overflow-wrap: anywhere;
+}
+/* The box is too short for the text and there is more below: fade the last two lines. */
+.cardTextBody[data-overflow="true"][data-end="false"] {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 2lh), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 2lh), transparent);
 }
 .cardTextBody[data-clamped="true"] {
   display: -webkit-box;
@@ -424,6 +463,8 @@
 }
 .panel[data-tone="chain"] .cardTextMore { color: var(--duel-chain-ink, #f4d690); }
 .cardTextMore:hover { text-decoration: underline; }
+/* Inside the box: the fade mask would cut an outline drawn outside it. */
+.cardTextBody:focus-visible { outline: 2px solid var(--duel-ink, #efe7d5); outline-offset: -2px; border-radius: 3px; }
 .cardTextMore:focus-visible { outline: 2px solid var(--duel-ink, #efe7d5); outline-offset: 2px; border-radius: 3px; }
 
 /* ---------- battle step chip (which step the response is in) ---------- */

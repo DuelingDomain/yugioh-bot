@@ -1,0 +1,93 @@
+{
+  "databaseCommit": "85e7fd3e7c30002a8a2d4047eaf496206b442b85",
+  "scriptsCommit": "89b88935577b0b25d5b1484a0dff52077d54f1fb",
+  "examples": [
+    {
+      "before": {
+        "code": 101402001,
+        "alias": 0,
+        "type": 33,
+        "atk": 2000,
+        "def": 1600,
+        "level": 4,
+        "race": "32768",
+        "attribute": 1,
+        "name": "Swift Panther Warrior",
+        "description": "During the Main Phase (Quick Effect): You can Tribute 1 other monster from your hand or field, then activate 1 of these effects;\r\n\u25cf Special Summon 1 monster that mentions \"Dark Time Wizard\" from your hand or Deck, except \"Swift Panther Warrior\".\r\n\u25cf Send 1 Spell/Trap that mentions \"Dark Time Wizard\" from your Deck to the GY.\r\nYou can only use this effect of \"Swift Panther Warrior\" once per turn. Cannot declare an attack unless a monster(s) was Tributed this turn."
+      },
+      "after": {
+        "code": 77482666,
+        "alias": 0,
+        "type": 33,
+        "atk": 2000,
+        "def": 1600,
+        "level": 4,
+        "race": "32768",
+        "attribute": 1,
+        "name": "Swiftwind Panther Warrior",
+        "description": "During the Main Phase (Quick Effect): You can Tribute 1 other monster from your hand or field, then activate 1 of these effects;\r\n\u25cf Special Summon 1 monster that mentions \"Dark Time Wizard\" from your hand or Deck, except \"Swiftwind Panther Warrior\".\r\n\u25cf Send 1 Spell/Trap that mentions \"Dark Time Wizard\" from your Deck to the GY.\r\nYou can only use this effect of \"Swiftwind Panther Warrior\" once per turn. Cannot declare an attack unless a monster(s) was Tributed this turn."
+      },
+      "scriptBeforeSha256": "97ff12e25e91978a9aa14b381b116f7ddea8fcada8ee2219a2001d4c4f30c984",
+      "scriptAfterSha256": "97ff12e25e91978a9aa14b381b116f7ddea8fcada8ee2219a2001d4c4f30c984",
+      "scriptRenameSimilarity": 100
+    },
+    {
+      "before": {
+        "code": 101402002,
+        "alias": 0,
+        "type": 33,
+        "atk": 1700,
+        "def": 1500,
+        "level": 5,
+        "race": "8192",
+        "attribute": 8,
+        "name": "Alligator's Sword Dragon Knight",
+        "description": "Can attack directly. You can only use each of the following effects of \"Alligator's Sword Dragon Knight\" once per turn. If this card is in your hand: You can reveal 1 other card in your hand that mentions \"Dark Time Wizard\"; Special Summon this card. If this card is Normal or Special Summoned: You can add up to 2 Spells/Traps with different names from each other that mention \"Dark Time Wizard\" from your Deck to your hand, then discard 1 card."
+      },
+      "after": {
+        "code": 4881365,
+        "alias": 0,
+        "type": 33,
+        "atk": 1700,
+        "def": 1500,
+        "level": 5,
+        "race": "8192",
+        "attribute": 8,
+        "name": "Alligator's Dragon Knight",
+        "description": "Can attack directly. You can only use each of the following effects of \"Alligator's Dragon Knight\" once per turn. If this card is in your hand: You can reveal 1 other card in your hand that mentions \"Dark Time Wizard\"; Special Summon this card. If this card is Normal or Special Summoned: You can add up to 2 Spells/Traps with different names from each other that mention \"Dark Time Wizard\" from your Deck to your hand, then discard 1 card."
+      },
+      "scriptBeforeSha256": "45ba03f57acbbfb2034a16dfc343d99d75f5c818c7de7d8ebc54eb6578c29023",
+      "scriptAfterSha256": "45ba03f57acbbfb2034a16dfc343d99d75f5c818c7de7d8ebc54eb6578c29023",
+      "scriptRenameSimilarity": 100
+    },
+    {
+      "before": {
+        "code": 101402021,
+        "alias": 0,
+        "type": 33554465,
+        "atk": 3400,
+        "def": 2400,
+        "level": 8,
+        "race": "1",
+        "attribute": 32,
+        "name": "Destiny HERO - Death Dogma",
+        "description": "Cannot be Normal Summoned/Set. Must be Special Summoned (from your hand or GY) by banishing 3 Warrior and/or DARK monsters from your GY. You can only Special Summon \"Destiny HERO - Death Dogma\" once per turn this way. If Summoned this way: You can activate this effect; inflict 2000 damage to your opponent during the next Standby Phase. Once per turn, when your opponent activates a card or effect (Quick Effect): You can Fusion Summon 1 DARK or Warrior Fusion Monster from your Extra Deck, by shuffling its materials from your hand, field, and/or GY into the Deck."
+      },
+      "after": {
+        "code": 25158975,
+        "alias": 0,
+        "type": 33554465,
+        "atk": 3400,
+        "def": 2400,
+        "level": 8,
+        "race": "1",
+        "attribute": 32,
+        "name": "Destiny HERO - Destro-Dogma",
+        "description": "Cannot be Normal Summoned/Set. Must be Special Summoned (from your hand or GY) by banishing 3 Warrior and/or DARK monsters from your GY. You can only Special Summon \"Destiny HERO - Destro-Dogma\" once per turn this way. If Summoned this way: You can activate this effect; inflict 2000 damage to your opponent during the next Standby Phase. Once per turn, when your opponent activates a card or effect (Quick Effect): You can Fusion Summon 1 DARK or Warrior Fusion Monster from your Extra Deck, by shuffling its materials from your hand, field, and/or GY into the Deck."
+      },
+      "scriptBeforeSha256": "df0385d5a08072163f5c7f15dbf504ff0a5daacd75d085b2f445adbf256bc7c4",
+      "scriptAfterSha256": "df0385d5a08072163f5c7f15dbf504ff0a5daacd75d085b2f445adbf256bc7c4",
+      "scriptRenameSimilarity": 100
+    }
+  ]
+}

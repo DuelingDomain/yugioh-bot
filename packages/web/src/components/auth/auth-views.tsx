@@ -14,6 +14,7 @@ import { IdentifierStep } from "./steps/identifier-step";
 import { NewPasswordStep } from "./steps/new-password-step";
 import { NotInvitedStep } from "./steps/not-invited-step";
 import { PasswordStep } from "./steps/password-step";
+import { RecoveringStep } from "./steps/recovering-step";
 import { SignupClosedStep } from "./steps/signup-closed-step";
 import { SigningStep } from "./steps/signing-step";
 import { SuccessStep } from "./steps/success-step";
@@ -42,6 +43,8 @@ export function SignInView({ flow: { state, actions }, marketingUrl }: ViewProps
             return <NewPasswordStep identifier={state.identifier} errors={{ newPassword: fieldErrors.newPassword, confirm: fieldErrors.confirm }} banner={banner} pending={pending} onSubmit={actions.submitNewPassword} />;
           case "signing":
             return <SigningStep banner={banner} onRetry={restart} />;
+          case "recovering":
+            return <RecoveringStep />;
           case "success":
             return <SuccessStep />;
           case "err-invite":
@@ -84,6 +87,8 @@ export function AccountView({ flow: { state, actions }, marketingUrl, callback =
             return <CodeStep purpose={state.codePurpose ?? "signup"} identifier={state.lockedEmail ?? state.identifier} error={fieldErrors.code} banner={banner} pending={pending} resendAvailableAt={state.resendAvailableAt} onSubmit={actions.submitCode} onResend={actions.resendCode} />;
           case "signing":
             return <SigningStep banner={banner} onRetry={restart} />;
+          case "recovering":
+            return <RecoveringStep />;
           case "success":
             return <SuccessStep />;
           case "err-banned":

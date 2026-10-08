@@ -3,7 +3,7 @@
 import { useEffect, useReducer, useRef } from "react";
 import { useSignIn } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
-import { initialAuthState, reduceAuth, signInStatusEvent, type AuthFlowState } from "../lib/auth-flow";
+import { afterPaint, initialAuthState, reduceAuth, signInStatusEvent, successHoldMs, type AuthFlowState } from "../lib/auth-flow";
 import { isWaitlistRefusal, mapClerkError } from "../lib/auth-errors";
 import { hardNavigate } from "../components/auth/navigate";
 
@@ -45,10 +45,12 @@ export function useSignInFlow(opts: { returnTo: string; marketingUrl: string | n
   }, [pending]);
   useEffect(() => {
     if (state.step !== "success") return;
+    // Warm the destination while the pack opens so the switch after the hold is instant.
+    if (destination.current.startsWith("/")) router.prefetch(destination.current);
     const timer = setTimeout(() => {
       if (destination.current.startsWith("/")) router.push(destination.current);
       else window.location.assign(destination.current); // Clerk's Safari cookie-refresh decoration.
-    }, 900);
+    }, successHoldMs());
     return () => clearTimeout(timer);
   }, [state.step, router]);
 
@@ -61,7 +63,12 @@ export function useSignInFlow(opts: { returnTo: string; marketingUrl: string | n
 
   const fail = (error: unknown, context: Parameters<typeof mapClerkError>[1]) => {
     if (context === "sso" && isWaitlistRefusal(error)) {
-      if (!recovering.current) { recovering.current = true; hardNavigate("/api/auth/existing-player/start"); }
+      if (!recovering.current) {
+        recovering.current = true;
+        // Explain the second Discord trip before it starts; leave once the card has painted.
+        if (mounted.current) dispatch({ type: "recovering" });
+        afterPaint(() => hardNavigate("/api/auth/existing-player/start"));
+      }
       return;
     }
     if (mounted.current) dispatch({ type: "error", view: mapClerkError(error, context) });

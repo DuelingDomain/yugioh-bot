@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "../../fixtures/identity";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 import { migrate } from "../../../../shared/src/db/schema";
@@ -19,6 +19,7 @@ vi.mock("@/lib/env", () => ({ env: { discordGuildId: "g1" } }));
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
 
 import DraftsPage from "../../../app/(app)/drafts/page";
+import { OPEN_DRAFT, stubOpenNow } from "../../fixtures/open-now";
 
 describe("DraftsPage", () => {
   let db: Database.Database;
@@ -29,10 +30,12 @@ describe("DraftsPage", () => {
     seedFixtureUsers(db, FIXTURE_KEYS);
     getDb.mockReturnValue(db);
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1") } });
+    stubOpenNow();
     playerId = Number(db.prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('g1', ${fixtureUserId("u1")}, '${fixtureDiscordId("u1")}', 'Me')`).run().lastInsertRowid);
   });
   afterEach(() => {
     cleanup();
+    vi.unstubAllGlobals();
     db.close();
     vi.clearAllMocks();
   });
@@ -57,12 +60,35 @@ describe("DraftsPage", () => {
     return id;
   }
 
-  it("shows the empty state without a Discord command", async () => {
-    render(await DraftsPage());
+  it("shows the empty state without a Discord command, with one primary action over a faded preview", async () => {
+    const { container } = render(await DraftsPage());
     expect(screen.getByRole("heading", { name: "No drafts yet" })).toBeTruthy();
     expect(screen.queryByText("/draft create")).toBeNull();
     expect(screen.getByText(/Start one and share the link/)).toBeTruthy();
+    await waitFor(() => expect(screen.getAllByRole("link", { name: /new draft/i })).toHaveLength(2));
     expect(screen.getAllByRole("link", { name: /new draft/i }).map((a) => a.getAttribute("href"))).toEqual(["/drafts/new", "/drafts/new"]);
+    expect(container.querySelectorAll(".sv-btn.primary")).toHaveLength(1);
+    expect(container.querySelector(".sv-bar a.sv-btn")).not.toHaveClass("primary");
+    expect(container.querySelector("[aria-hidden='true']")).not.toBeNull();
+  });
+
+  it("leads with open draft lobbies, the top row holding the one primary and linking to its slug", async () => {
+    stubOpenNow({ tournaments: [], drafts: [OPEN_DRAFT, { ...OPEN_DRAFT, slug: "second", name: "Second cube" }], duelsInProgress: 0 });
+    const { container } = render(await DraftsPage());
+    await screen.findByRole("heading", { name: "Open right now" });
+    const joins = screen.getAllByRole("link", { name: "Join draft" });
+    expect(joins).toHaveLength(2);
+    expect(joins[0]).toHaveClass("primary");
+    expect(joins[1]).not.toHaveClass("primary");
+    expect(joins[0]).toHaveAttribute("href", "/draft/cube-night");
+    expect(container.querySelectorAll(".sv-btn.primary")).toHaveLength(1);
+  });
+
+  it("falls back to the plain empty state when the open list cannot be read", async () => {
+    stubOpenNow("throw");
+    const { container } = render(await DraftsPage());
+    await waitFor(() => expect(screen.getAllByRole("link", { name: /new draft/i })).toHaveLength(2));
+    expect(container.querySelectorAll(".sv-btn.primary")).toHaveLength(1);
   });
 
   it.each([false, true])("draws its own page bar with New draft and the menu button last: joined drafts %s", async (joined) => {
@@ -72,7 +98,7 @@ describe("DraftsPage", () => {
     const bar = screen.getByRole("heading", { level: 1, name: "Drafts" }).closest("header")!;
     expect(bar).toHaveClass("sv-bar");
     const action = within(bar).getByRole("link", { name: "New draft" });
-    expect(action).toHaveClass("sv-btn", "primary");
+    expect(action).toHaveClass("sv-btn", joined ? "primary" : "ghost");
     expect(action).toHaveAttribute("href", "/drafts/new");
     const actions = bar.querySelector(".sv-bar-actions")!;
     expect(actions.lastElementChild).toBe(within(bar).getByRole("button", { name: "Open menu" }));

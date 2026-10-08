@@ -96,4 +96,28 @@ describe("SavedDeckLibrary", () => {
     expect(within(list!).getByText("Blue Eyes")).toBeInTheDocument();
     expect(within(list!).getByRole("link", { name: "Master" })).toBeInTheDocument();
   });
+
+  it("with no decks: one primary, Import YDK files opens the import panel, bar buttons are secondary", async () => {
+    stubApi();
+    const { container } = render(<SavedDeckLibrary />);
+    await screen.findByText("No saved decks yet");
+    expect(container.querySelectorAll(".sv-btn.primary")).toHaveLength(1);
+    const primary = screen.getByRole("button", { name: "Import YDK files" });
+    expect(primary).toHaveClass("primary");
+    expect(screen.getByRole("link", { name: "Create a deck" })).toHaveAttribute("href", "/decks/new");
+    expect(screen.getAllByRole("link", { name: /^New deck$/ })[0]).not.toHaveClass("primary");
+    expect(container.querySelector("[aria-hidden='true']")).not.toBeNull();
+    fireEvent.click(primary);
+    expect(screen.getByLabelText("YDK files")).toBeInTheDocument();
+  });
+
+  it("keeps New deck primary once decks exist", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ decks: [{
+      id: 1, name: "One", mode: "normal", deck: { main: [89631139], extra: [], side: [] },
+      createdAt: "2026-09-30 12:00:00", updatedAt: "2026-09-30 12:00:00",
+    }] })));
+    render(<SavedDeckLibrary />);
+    await screen.findByRole("link", { name: "One" });
+    expect(screen.getByRole("link", { name: /^New deck$/ })).toHaveClass("primary");
+  });
 });

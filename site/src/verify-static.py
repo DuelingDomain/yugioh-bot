@@ -152,8 +152,8 @@ def main():
         assert not page.find('style') and not any('style' in e['attrs'] for e in page.elements), (name, 'inline style')
     index = pages['index.html']
     visible = ' '.join(index.text)
-    assert all(text in visible for text in ['Rip it', 'open.', 'Draft night', 'Domain format', 'No install', 'Tag & free-for-all', 'Season ladder', 'Behind glass, for now.', 'Join the list', 'Your wave opens', 'Your invite'])
-    assert len(index.find('p', **{'class': 'c-text'})) == 5
+    assert all(text in visible for text in ['Rip it', 'open.', 'Draft night', 'Domain format', 'No install', 'Tag duels', 'Free-for-all', 'Season ladder', 'Behind glass, for now.', 'Join the list', 'Your wave opens', 'Your invite'])
+    assert len(index.find('p', **{'class': 'c-text'})) == 6
     assert len(index.find('div', **{'class': 'face'})) == 3
     assert len(index.find('form', method='post', action='/api/waitlist')) == 2
     for key in ('hero', 'footer'):
@@ -163,7 +163,7 @@ def main():
     for key in ('heroPack', 'finalPack'):
         assert 'Dueling' in index.find(id=key)[0]['text']
     assert not index.find('template'), 'Core content should be present without template cloning'
-    print('PASS no-JS source: h1/intro, five feature descriptions, trailer, three steps, two forms, two packs')
+    print('PASS no-JS source: h1/intro, six feature descriptions, trailer, three steps, two forms, two packs')
     sitemap = ET.parse(PUBLIC / 'sitemap.xml')
     for url in sitemap.getroot():
         loc = url.find('{*}loc').text

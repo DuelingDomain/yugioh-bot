@@ -75,3 +75,27 @@ it("retains patch review details when the weekly failure summary is truncated", 
   expect(summary).toContain("pins unchanged");
   expect(Buffer.byteLength(summary)).toBeLessThanOrEqual(60000);
 });
+
+it("counts renamed/type-changed remaps as graduations and explicitly flags unresolved cases",async()=>{
+ const {prereleaseUpdateReport}=await import("../scripts/engine-data-report.js");
+ const old={code:101402001,name:"Swift Panther Warrior",type:33};
+ const unresolved={code:100000099,name:"Uncertain preview",type:33};
+ const next={prerelease:[],released:[{code:77482666,name:"Swiftwind Panther Warrior",type:17}],remaps:{101402001:77482666},drops:[],unmatched:[{...unresolved,commits:["abc"],candidates:[12,13]}]};
+ const report=prereleaseUpdateReport([old,unresolved],next);
+ expect(report).toContain("Graduated prerelease cards (1)");
+ expect(report).toContain("101402001 → 77482666");
+ expect(report).toContain("unmatched graduation, needs review");
+ expect(report).toContain("100000099");
+});
+
+it("reports prepare-time script exclusions and suppressed graduation targets in weekly output",async()=>{
+ const {prereleaseScriptReport}=await import("../scripts/engine-data-report.js");
+ const report=prereleaseScriptReport({checked:139,excluded:[{code:100000001,name:"Broken @everyone",file:"prerelease-a.cdb",errors:["initial_effect failed"]}],suppressedRemaps:[{old:100000002,target:100000001}]});
+ expect(report).toContain("excluded: script error");expect(report).toContain("139");expect(report).toContain("initial_effect failed");expect(report).toContain("100000002 → 100000001");expect(report).not.toContain("@everyone");
+});
+it("bounds a weekly smoke section with many long diagnostics while preserving its counts and artifact links",async()=>{
+ const {prereleaseScriptReport}=await import("../scripts/engine-data-report.js");
+ const smoke=prereleaseScriptReport({checked:139,excluded:Array.from({length:139},(_,i)=>({code:100000000+i,name:"Broken",file:"prerelease-a.cdb",errors:["漢".repeat(1000)]})),suppressedRemaps:[]});
+ const report="Needs review: 0\n"+"card data\n".repeat(10000)+"\n"+smoke;
+ const body=boundedReport(report,run,60000);expect(Buffer.byteLength(body)).toBeLessThanOrEqual(60000);expect(body).toContain("excluded 139");expect(body).toContain(`${run}#artifacts`);expect(body).not.toContain("�");
+});
