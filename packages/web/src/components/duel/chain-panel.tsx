@@ -257,6 +257,9 @@ export function ChainPanel({ view, shape, seatTones, priority, mySeat, nameOf, p
   useEffect(() => { setPicked(null); }, [view.hero.index]);
   const pickedAt = picked == null ? -1 : view.rows.findIndex((row) => row.index === picked);
   const hero = pickedAt >= 0 && view.details[pickedAt] ? view.details[pickedAt] : view.hero;
+  // A long chain on a short window: the rows give way first (never the outcome), then they scroll.
+  const stackRef = useRef<HTMLOListElement>(null);
+  const stackOver = useOverflow(stackRef, view.rows);
   return (
     <section ref={panelRef} className={styles.cr} data-shape={shape} data-chain-panel="true" data-priority={priority?.length ? "true" : undefined}>
       {many ? (
@@ -290,7 +293,14 @@ export function ChainPanel({ view, shape, seatTones, priority, mySeat, nameOf, p
         <>
           <Hero hero={hero} />
           {many ? (
-            <ol className={styles.stack}>
+            <ol
+              ref={stackRef}
+              className={styles.stack}
+              data-overflow={stackOver ? "true" : undefined}
+              role={stackOver ? "group" : undefined}
+              tabIndex={stackOver ? 0 : undefined}
+              aria-label={stackOver ? "Chain links, scrollable" : undefined}
+            >
               {view.rows.map((row) => (
                 <li key={row.index} className={styles.item}>
                   <Row row={row} seatTones={seatTones} pick={{ picked: pickedAt >= 0 && row.index === picked, onPick: () => setPicked((now) => (now === row.index ? null : row.index)) }} />

@@ -189,7 +189,18 @@
 .wait i { display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: var(--duel-pen, #9b7eff); vertical-align: 1px; animation: crPulse 1.1s ease-in-out infinite; }
 
 /* ----- the stack: every link, the top of the chain first ----- */
-.stack { flex: 0 1 auto; min-height: 0; margin: 0; padding: 0; overflow: hidden; list-style: none; }
+.stack { flex: 0 1000 auto; min-height: 0; margin: 0; padding: 0; overflow: hidden; list-style: none; }
+/* The rows give way first, down to about two rows; then they scroll. */
+.stack[data-overflow="true"] {
+  min-height: 76px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  pointer-events: auto;
+  scrollbar-width: thin;
+  -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 1.4em), transparent);
+  mask-image: linear-gradient(180deg, #000 calc(100% - 1.4em), transparent);
+}
+.stack[data-overflow="true"]:focus-visible { outline: 2px solid var(--duel-pen-ink, #c6b6ff); outline-offset: -2px; }
 .row {
   position: relative;
   display: flex;
