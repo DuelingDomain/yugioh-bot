@@ -55,14 +55,14 @@ function textLog(): DuelEngineView["log"] {
     "Turn 4 — Player 3", "main1",
     "Player 3 Normal Summons Red-Eyes Black Dragon",
     "Player 3 Normal Summons Gaia The Fierce Knight",
-    "battle", "A monster declares an attack",
+    "battle", "Player 3 declares an attack",
     "Player 3 takes 1200 damage",
     "Turn 5 — Player 1", "draw",
     "Player 1 drew 1 card(s)", "You drew Heavy Storm",
     "main1",
     "Player 1 Normal Summons Dark Magician",
-    "Raigeki is activating",
-    "Gaia The Fierce Knight was destroyed",
+    "Player 1's Raigeki is activating",
+    "Player 3's Gaia The Fierce Knight was destroyed",
   );
 }
 

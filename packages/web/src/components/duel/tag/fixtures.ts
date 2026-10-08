@@ -62,7 +62,7 @@ function textLog(): DuelEngineView["log"] {
     "Player 3 Sets a card",
     "Turn 4 — Player 4", "main1",
     "Player 4 Normal Summons Gaia The Fierce Knight",
-    "battle", "A monster declares an attack",
+    "battle", "Player 4 declares an attack",
     "Player 3 takes 1200 damage",
     "Turn 5 — Player 1", "draw",
     "Player 1 drew 1 card(s)", "You drew Pot of Greed",
