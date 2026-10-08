@@ -475,7 +475,7 @@ function CardTextBlock({ text, label = "Card text", open: forceOpen }: { text: s
     return () => observer.disconnect();
   }, [measure, text]);
   return (
-    <div ref={root} className={styles.cardText} data-open={clamped ? "false" : "true"}>
+    <div ref={root} className={styles.cardText} data-open={clamped ? "false" : "true"} data-lead={forceOpen ? undefined : "true"}>
       <span className={styles.cardTextLabel}>{label}</span>
       {/* A box that scrolls is a region the keyboard can reach and scroll. */}
       <p
