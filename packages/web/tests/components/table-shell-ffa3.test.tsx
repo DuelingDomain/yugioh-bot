@@ -64,16 +64,14 @@ describe("TableShell on the 3-way fixtures: the whole table", () => {
     expect(container.querySelector("[data-dim], [data-dimmed]")).toBeNull();
   });
 
-  it("shows the floating HUD of the 4-way grid: the dock with Settings and Camera, no Log, no Chain, no rail and no bottom bar", () => {
+  it("shows the floating HUD of the 4-way grid: the dock with Log, Settings and Camera, no Chain, no rail and no bottom bar", () => {
     const { container } = render(<Shell id="main" />);
     expect(container.querySelector("[data-hud='true'][data-plaza-hud='true']")).not.toBeNull();
     expect(container.querySelector("nav[aria-label='Duel phases']")).not.toBeNull();
     expect(container.querySelectorAll("[aria-label='Turn order'] li")).toHaveLength(3);
     expect(container.querySelector("[data-testid='seat-strip']")).not.toBeNull();
-    for (const id of ["settings", "camera"]) expect(container.querySelector(`[data-testid='hud-dock-${id}']`), id).not.toBeNull();
+    for (const id of ["log", "settings", "camera"]) expect(container.querySelector(`[data-testid='hud-dock-${id}']`), id).not.toBeNull();
     expect(container.querySelector("[data-testid='hud-dock-chain']")).toBeNull();
-    // The 3-way has no Log: the history strip and the Log pane are gone. The 4-way keeps its Log icon.
-    expect(container.querySelector("[data-testid='hud-dock-log']")).toBeNull();
     expect(container.querySelector("[data-testid='table-rail']")).toBeNull();
     expect(container.querySelector("[data-testid='table-drawer']")).toBeNull();
     // The turn controls sit in the bottom-right corner cluster, not in a full-width bottom bar.
@@ -102,10 +100,12 @@ describe("TableShell on the 3-way fixtures: the whole table", () => {
     expect(container.querySelector("[data-testid='card-tab-empty']")).toBeNull();
   });
 
-  it("has no history strip and no Log pane", () => {
+  it("has the Log pane of the 1v1 duel behind the dock, and no history strip", () => {
     const { container } = render(<Shell id="main" />);
     expect(container.querySelector("[data-testid='history-strip']")).toBeNull();
-    expect(container.querySelector("[data-testid='hud-tab-log']")).toBeNull();
+    fireEvent.click(screen.getByTestId("hud-dock-log"));
+    expect(container.querySelector("[data-testid='hud-tab-log']")).not.toBeNull();
+    expect(within(screen.getByTestId("hud-flyout")).getByRole("region", { name: "Duel history events" })).toBeTruthy();
   });
 
   it("lists who may answer an open chain, in order, on the chain panel; no chain, no list", () => {
