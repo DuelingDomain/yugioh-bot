@@ -844,6 +844,30 @@ describe("the pinned card peek of the 1v1 room", () => {
         expect(css("--pv-max-h")).toBe("352px");
       } finally { tower?.remove(); vi.useRealTimers(); }
     });
+    it("checks a hover panel slowly while no chain is shown, and a pinned panel at full speed", () => {
+      vi.useFakeTimers();
+      let dock: HTMLElement | null = null;
+      try {
+        layout({ left: 900, right: 980, top: 300, bottom: 420 });
+        mount();
+        hover();
+        expect(css("--pv-max-h")).toBe("662px");
+        // Not a chain part: the hover check runs on every fourth beat only (150 ms each).
+        dock = part({ "data-testid": "hud-other" }, TOWER);
+        act(() => { vi.advanceTimersByTime(450); });
+        expect(css("--pv-max-h")).toBe("662px");
+        act(() => { vi.advanceTimersByTime(150); });
+        expect(css("--pv-max-h")).toBe("352px");
+        dock.remove();
+        fireEvent.click(screen.getByTestId("field-pick"));
+        act(() => { vi.advanceTimersByTime(600); });
+        expect(css("--pv-max-h")).toBe("662px");
+        dock = part({ "data-testid": "hud-other" }, TOWER);
+        act(() => { vi.advanceTimersByTime(150); });
+        expect(css("--pv-max-h")).toBe("352px");
+      } finally { dock?.remove(); vi.useRealTimers(); }
+    });
+
     it("places a hover panel again when the chain panel changes its size, with no wait for the poll", () => {
       vi.useFakeTimers();
       const watchers: Array<(entries: unknown[]) => void> = [];

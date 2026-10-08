@@ -14,6 +14,8 @@ export const PREVIEW_HIDE_MS = 220;
 const MIN_ART_PX = 90;
 /** How often a pinned panel looks at the clicked card, the board and the parts it stays clear of: a camera move or a prompt can change them with no event. */
 const WATCH_MS = 150;
+/** A hover panel with no chain panel or chain tower on screen checks this many times less often (the pin keeps the fast check). */
+const IDLE_WATCH_EVERY = 4;
 const FIRST_PLACE: Place = { side: "left", width: 320, top: 0, maxH: 0 };
 /** Is rank `a` better than rank `b`: the first number that differs decides, the smaller wins. */
 const before = (a: readonly number[], b: readonly number[]) => {
@@ -124,13 +126,20 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
   }, [avoid]);
   const placing = open && current != null;
   // A hover panel watches too: a chain panel that folds or opens (a prompt comes and goes) must not leave it on the old room or under that panel.
+  // The check reads many boxes, so a hover panel runs it at full speed only while a chain panel or tower is shown (the observer below covers
+  // its fold) and slowly otherwise; a pinned panel always runs it at full speed.
   useEffect(() => {
     if (!placing) return;
     const again = () => setResizeTick((tick) => tick + 1);
-    const timer = window.setInterval(() => { if (watch() !== watched.current) again(); }, WATCH_MS);
+    let ticks = 0;
+    const timer = window.setInterval(() => {
+      ticks += 1;
+      if (!frozen && ticks % IDLE_WATCH_EVERY !== 0 && !document.querySelector('[data-chain-panel], [data-testid="chain-tower"]')) return;
+      if (watch() !== watched.current) again();
+    }, WATCH_MS);
     window.addEventListener("resize", again);
     return () => { window.clearInterval(timer); window.removeEventListener("resize", again); };
-  }, [placing, watch]);
+  }, [placing, frozen, watch]);
   // The chain panel changes its height while it folds (a transition): the panel is placed again on each step, not only when the fold is over.
   useEffect(() => {
     if (!placing || typeof ResizeObserver === "undefined") return;
