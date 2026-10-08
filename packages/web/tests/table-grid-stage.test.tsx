@@ -307,8 +307,18 @@ describe("GridStage", () => {
     rerender(<Shell id="elimination" />);
     expect(cellOf(container, 2).getAttribute("data-cell-state")).toBe("out");
     expect(stage.getAttribute("data-grid-focus")).toBe("2");
-    // Time passes in gate ticks: the crumble starts after the first tick (crumble-gate.ts), and its timers exist after that.
-    for (let at = 0; at < OUT_HOLD_MS + 200; at += CRUMBLE_GATE_TICK_MS) act(() => void vi.advanceTimersByTime(CRUMBLE_GATE_TICK_MS));
+    // The crumble waits for the LP roll of the seat that went out (crumble-gate.ts); the cell is out for OUT_HOLD_MS from its start.
+    const tick = () => act(() => void vi.advanceTimersByTime(CRUMBLE_GATE_TICK_MS));
+    let held = 0;
+    while (container.querySelector("[data-seat-exit][data-exit-held]") && held < GATE_CAP) {
+      tick();
+      held += CRUMBLE_GATE_TICK_MS;
+    }
+    expect(container.querySelector("[data-seat-exit][data-exit-held]")).toBeNull();
+    expect(cellOf(container, 2).getAttribute("data-cell-state")).toBe("out");
+    for (let at = 0; at < OUT_HOLD_MS - CRUMBLE_GATE_TICK_MS; at += CRUMBLE_GATE_TICK_MS) tick();
+    expect(cellOf(container, 2).getAttribute("data-cell-state")).toBe("out");
+    for (let at = 0; at < CRUMBLE_GATE_TICK_MS * 3; at += CRUMBLE_GATE_TICK_MS) tick();
     expect(cellOf(container, 2).getAttribute("data-cell-state")).toBe("empty");
     expect(stage.getAttribute("data-grid-focus")).toBe("all");
   });
