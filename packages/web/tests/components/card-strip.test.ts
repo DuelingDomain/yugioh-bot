@@ -6,7 +6,7 @@ vi.mock("next/font/google", () => {
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
 });
 
-import { stripOverflow, stripPageScroll, stripScrollLeft } from "@/components/duel/card-strip";
+import { stripOverflow, stripOverflowY, stripPageScroll, stripScrollLeft, stripScrollTop } from "@/components/duel/card-strip";
 import { choiceStripItems, isChainStripPrompt, isStripPrompt } from "@/components/duel/prompt-center";
 import { nextAnswerableId } from "@/components/duel/prompt-reveal";
 
@@ -107,6 +107,32 @@ describe("stripScrollLeft", () => {
 
   it("scrolls right to a card cut off at the right edge", () => {
     expect(stripScrollLeft(view, { left: 640, width: 124 })).toBe(276);
+  });
+});
+
+describe("stripScrollTop", () => {
+  const view = { scrollTop: 200, clientHeight: 300 };
+
+  it("keeps the scroll when the row is fully in view", () => {
+    expect(stripScrollTop(view, { top: 260, height: 180 })).toBe(200);
+  });
+
+  it("scrolls up to a row cut off at the top, and down to a row cut off at the bottom", () => {
+    expect(stripScrollTop(view, { top: 150, height: 180 })).toBe(138);
+    expect(stripScrollTop(view, { top: 4, height: 180 })).toBe(0);
+    expect(stripScrollTop(view, { top: 380, height: 180 })).toBe(272);
+  });
+});
+
+describe("stripOverflowY", () => {
+  it("shows no fade when every row fits", () => {
+    expect(stripOverflowY({ scrollTop: 0, clientHeight: 300, scrollHeight: 301 })).toEqual({ up: false, down: false });
+  });
+
+  it("shows only the side that has more rows beyond it", () => {
+    expect(stripOverflowY({ scrollTop: 0, clientHeight: 300, scrollHeight: 700 })).toEqual({ up: false, down: true });
+    expect(stripOverflowY({ scrollTop: 150, clientHeight: 300, scrollHeight: 700 })).toEqual({ up: true, down: true });
+    expect(stripOverflowY({ scrollTop: 400, clientHeight: 300, scrollHeight: 700 })).toEqual({ up: true, down: false });
   });
 });
 

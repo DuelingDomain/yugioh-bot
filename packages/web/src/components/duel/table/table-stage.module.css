@@ -353,6 +353,12 @@
   min-width: min(calc(300 * var(--duel-unit)), calc(var(--pr-w) - 24px));
   max-width: calc(var(--pr-w) - 24px);
 }
+/* A long card list scrolls inside the panel (card-strip.module.css), so the panel stays inside your field box: it never reaches your hand. */
+@media (min-width: 901px) {
+  .board[data-prompt-center][data-prompt-center] .slot[data-slot="prompt"] :global([data-prompt-panel][data-strip="true"]:not([data-precheck], [data-tone="chain"])) {
+    max-height: min(max(calc(var(--pr-h) - 40px), 300px), calc(100% - 24px));
+  }
+}
 /* A seat choice is narrow: the rival plates (the targets) stay clear above it. */
 .board[data-prompt-center][data-prompt-center] .slot[data-slot="prompt"][data-seat-pick] :global([data-prompt-panel]:not([data-precheck])) {
   width: clamp(220px, 34%, 320px);

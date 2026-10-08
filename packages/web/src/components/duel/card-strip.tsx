@@ -46,6 +46,21 @@ export function stripScrollLeft(
 }
 
 /**
+ * The scrollTop that brings an item fully into view with `pad` to spare, or the current one when it is already
+ * visible: `stripScrollLeft` for the wrapping list of a dense host, which scrolls up and down.
+ */
+export function stripScrollTop(
+  view: { scrollTop: number; clientHeight: number },
+  item: { top: number; height: number },
+  pad = 12,
+): number {
+  if (item.top - pad < view.scrollTop) return Math.max(0, item.top - pad);
+  const bottom = item.top + item.height + pad;
+  if (bottom > view.scrollTop + view.clientHeight) return Math.max(0, bottom - view.clientHeight);
+  return view.scrollTop;
+}
+
+/**
  * Whether more cards wait beyond each edge of the strip. When every card fits, both are false: no
  * arrows, no fade, and the row stays centred. `slack` absorbs sub-pixel rounding.
  */
@@ -56,6 +71,17 @@ export function stripOverflow(
   return {
     prev: view.scrollLeft > slack,
     next: view.scrollLeft + view.clientWidth < view.scrollWidth - slack,
+  };
+}
+
+/** Whether more cards wait above and below, in the wrapping list (a dense host). */
+export function stripOverflowY(
+  view: { scrollTop: number; clientHeight: number; scrollHeight: number },
+  slack = 2,
+): { up: boolean; down: boolean } {
+  return {
+    up: view.scrollTop > slack,
+    down: view.scrollTop + view.clientHeight < view.scrollHeight - slack,
   };
 }
 
@@ -106,7 +132,7 @@ export function CardStrip({
   onInspect?: (card: DuelCardInfo) => void;
 }) {
   const listRef = useRef<HTMLUListElement>(null);
-  const [more, setMore] = useState({ prev: false, next: false });
+  const [more, setMore] = useState({ prev: false, next: false, up: false, down: false });
 
   const scrollBehavior = useCallback((list: HTMLElement): ScrollBehavior => {
     const reduced = list.closest('[data-reduced="true"]') != null ||
@@ -118,8 +144,10 @@ export function CardStrip({
   const measure = useCallback(() => {
     const list = listRef.current;
     if (!list) return;
-    const next = stripOverflow(list);
-    setMore((current) => (current.prev === next.prev && current.next === next.next ? current : next));
+    const next = { ...stripOverflow(list), ...stripOverflowY(list) };
+    setMore((current) => (
+      current.prev === next.prev && current.next === next.next && current.up === next.up && current.down === next.down ? current : next
+    ));
   }, []);
 
   useEffect(() => {
@@ -139,7 +167,7 @@ export function CardStrip({
     const entries: PickEntry[] = [];
     list.querySelectorAll<HTMLElement>("[data-strip-code]").forEach((art) => {
       const r = art.getBoundingClientRect();
-      if (r.right < view.left || r.left > view.right) return;
+      if (r.right < view.left || r.left > view.right || r.bottom < view.top || r.top > view.bottom) return;
       entries.push({
         code: Number(art.dataset.stripCode) || 0,
         location: Number(art.dataset.stripLoc) || 0,
@@ -162,7 +190,15 @@ export function CardStrip({
     const list = listRef.current;
     const cell = list?.querySelector<HTMLElement>(`[data-index="${highlight}"]`)?.parentElement;
     if (!list || !cell) return;
-    const pad = parseFloat(getComputedStyle(list).scrollPaddingLeft) || 12;
+    const style = getComputedStyle(list);
+    // A dense host wraps the cards into rows that scroll up and down (card-strip.module.css): follow on that axis.
+    if (style.flexWrap === "wrap") {
+      const padY = parseFloat(style.scrollPaddingTop) || 12;
+      const top = stripScrollTop(list, { top: cell.offsetTop, height: cell.offsetHeight }, padY);
+      if (top !== list.scrollTop) list.scrollTo({ top, behavior: scrollBehavior(list) });
+      return;
+    }
+    const pad = parseFloat(style.scrollPaddingLeft) || 12;
     const next = stripScrollLeft(list, { left: cell.offsetLeft, width: cell.offsetWidth }, pad);
     if (next === list.scrollLeft) return;
     list.scrollTo({ left: next, behavior: scrollBehavior(list) });
@@ -192,7 +228,7 @@ export function CardStrip({
       <p className={styles.caption} data-busy={busy ? "true" : "false"} role="status">
         {busy ? (offline ? "Reconnecting…" : "Syncing…") : <span className={styles.hint}>{hint}</span>}
       </p>
-      <div className={styles.frame} data-prev={more.prev} data-next={more.next}>
+      <div className={styles.frame} data-prev={more.prev} data-next={more.next} data-up={more.up} data-down={more.down}>
         {more.prev ? (
           <button type="button" className={styles.arrow} data-side="prev" tabIndex={-1}
             aria-label="Show earlier cards" onClick={() => page(-1)}>
