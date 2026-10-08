@@ -377,6 +377,12 @@ function boardOf(layer: HTMLElement | null): HTMLElement | null {
   return parent;
 }
 
+/** The bar is in its entry animation (it scales and falls a few px): its box on screen is not where it settles. */
+function entering(node: HTMLElement): boolean {
+  if (typeof node.getAnimations !== "function") return false;
+  return node.getAnimations().some((animation) => animation.playState === "running" && /settle|fall/.test((animation as CSSAnimation).animationName ?? ""));
+}
+
 function allOptionsOnBoard(prompt: DuelPrompt, scope: ParentNode): boolean {
   return optionsOnBoard(prompt, (key) => scope.querySelector(`[data-zones~="${key}"]`) != null);
 }
@@ -1579,11 +1585,14 @@ export function PromptCenter(props: PromptCenterProps) {
   useLayoutEffect(() => {
     const node = barNode.current;
     const board = boardOf(layerRef.current);
-    if (kind !== "select" || onBoard !== true || !node || !board || tributeDock) {
+    // Only the floating table HUD plans its bar room (wide FFA3: `data-bar-clamp`); the other formats keep the place they have.
+    if (kind !== "select" || onBoard !== true || !node || !board || tributeDock || board.dataset.barClamp !== "true") {
       setBarShift((current) => (current.dx === 0 && current.dy === 0 ? current : { dx: 0, dy: 0 }));
       return;
     }
     const fit = () => {
+      // The entry animation scales and moves the bar: measured now, it is off by a few px. It is measured again when the animation ends.
+      if (entering(node)) return;
       const bar = node.getBoundingClientRect();
       const frame = board.getBoundingClientRect();
       if (bar.width < 2 || bar.height < 2 || frame.width < 2 || frame.height < 2) return;
@@ -1593,11 +1602,16 @@ export function PromptCenter(props: PromptCenterProps) {
       });
     };
     fit();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(fit);
-    observer.observe(node);
-    observer.observe(board);
-    return () => observer.disconnect();
+    node.addEventListener("animationend", fit);
+    node.addEventListener("animationcancel", fit);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(fit);
+    observer?.observe(node);
+    observer?.observe(board);
+    return () => {
+      node.removeEventListener("animationend", fit);
+      node.removeEventListener("animationcancel", fit);
+      observer?.disconnect();
+    };
   }, [kind, onBoard, tributeDock, barPlace, promptId, revision]);
 
   // Focus moves into the panel so Enter takes the primary answer.

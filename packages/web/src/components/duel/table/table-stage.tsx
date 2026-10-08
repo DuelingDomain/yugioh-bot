@@ -379,6 +379,8 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
       } as CSSProperties)
     : undefined;
   const [cards, setCards] = useState<readonly Rect[]>([]);
+  // A pan or zoom by hand moves every zone on screen: the targets are measured again when it comes to rest (the camera is not touched, only the bar room).
+  const restedView = zoom.zoomed && zoom.byHand() ? `${Math.round(zoom.view.x)},${Math.round(zoom.view.y)},${zoom.view.s.toFixed(3)}` : "";
   const legalKey = [...legalKeys].sort().join(",");
   useEffect(() => {
     const root = rootRef.current;
@@ -391,7 +393,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
         .map((r) => ({ x: Math.round(r.left - board.left), y: Math.round(r.top - board.top), width: Math.round(r.width), height: Math.round(r.height) }));
       const next = boxes('[data-legal="true"]');
       // The life-point plates are HUD too: the docked bar keeps off them.
-      const hud = occluderRects(root, `${BAR_HUD}, [data-holo], [data-camera-chip], [data-hub-slot], [data-turn-ring]`).map((r) => ({ x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) }));
+      const hud = occluderRects(root, `${BAR_HUD}, [data-holo], [data-camera-chip], [data-hub-slot], [data-turn-ring], [data-chain-panel], [data-testid="chain-tower"]`).map((r) => ({ x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) }));
       setTargets((current) => (sameRects(current, next) ? current : next));
       // Zones that hold a card or a pile: the bar keeps off them while a clear place exists.
       const held = boxes('[data-zones][data-occupied="true"]:not([data-legal="true"])');
@@ -408,7 +410,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
     };
     // Once the seats stand still (a regroup, the FINAL DUEL board, glides them to new places); watched while a pick is open.
     return watchMeasure(root, measure, { settleMs: reducedMotion ? 0 : regroup ? GLIDE_MS : SETTLE_MS, watch: legalKey !== "" });
-  }, [floating, nearBox, legalKey, reducedMotion, regroup, zoom.zoomed, ownZoom]);
+  }, [floating, nearBox, legalKey, reducedMotion, regroup, zoom.zoomed, ownZoom, restedView]);
   // The card-pick bar: the clear place nearest the middle of the box, always inside it, off the legal targets, your live hand (and a card
   // raised from it) and the HUD, and off the cards on the board while a clear place exists (see pick-bar-room.ts). The same plan holds at
   // home, in rival focus and in your own zoom: the camera never moves for it.
@@ -692,6 +694,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
       data-prompt-center={nearBox ? "true" : undefined}
       data-panel-room={rooms?.panel && !nearBox ? "true" : undefined}
       data-room-snug={rooms?.panel && !nearBox && (rooms.panel.width < 262 || rooms.panel.height < 300) ? "true" : undefined}
+      data-bar-clamp={barRoom ? "true" : undefined}
       data-bar-room={barRoom ?? (rooms?.bar ? `${rooms.bar.x},${rooms.bar.y},${rooms.bar.width},${rooms.bar.height}` : undefined)}
       style={rooms?.panel && !nearBox ? ({ "--room-x": `${rooms.panel.x}px`, "--room-y": `${rooms.panel.y}px`, "--room-w": `${rooms.panel.width}px`, "--room-h": `${rooms.panel.height}px` } as CSSProperties) : undefined}
     >
