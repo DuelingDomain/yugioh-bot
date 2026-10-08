@@ -563,12 +563,16 @@ it.each([1,null])("lets a reviewed override (%s) replace or veto an automatic gr
  const result=await downloadReleasedCardData(sources.database,directory,request,{historicalCards:[example.before],historicalGraduations:[{commit:"automatic",removed:[example.before],added:[after]}],overrideBytes});
  expect(result.remaps).toEqual(target===null?{}:{[example.before.code]:target});
  expect(JSON.parse(result.remapBytes).overrides).toEqual({[example.before.code]:target});
+ expect(result.unmatched).toEqual([]);
+ expect(JSON.parse(result.remapBytes).unmatched).toEqual([]);
 });
 
 it.each([1,null])("lets a reviewed override (%s) replace or veto a name/type remap",async target=>{
  const {request,directory}=fixture();
  const result=await downloadReleasedCardData(sources.database,directory,request,{historicalCards:[{code:101402001,name:"Red-Eyes Black Dragon Exceed",type:33}],overrideBytes:JSON.stringify({101402001:target})});
  expect(result.remaps).toEqual(target===null?{}:{101402001:target});
+ expect(result.unmatched).toEqual([]);
+ expect(JSON.parse(result.remapBytes).unmatched).toEqual([]);
 });
 
 it("does not follow an automatic chain through a vetoed intermediate code",async()=>{
@@ -577,6 +581,7 @@ it("does not follow an automatic chain through a vetoed intermediate code",async
  const intermediate={...example.after,code:100000010};
  const result=await downloadReleasedCardData(sources.database,directory,request,{historicalCards:[example.before,intermediate],historicalGraduations:[{commit:"first",removed:[example.before],added:[intermediate]},{commit:"second",removed:[intermediate],added:[{...example.after,code:17242022}]}],overrideBytes:'{"100000010":null}'});
  expect(result.remaps).toEqual({});
+ expect(result.unmatched.map(card=>card.code)).toEqual([example.before.code]);
 });
 
 it("smoke-checks unchanged prerelease scripts during preparation, removes failures, and caches the result",async()=>{

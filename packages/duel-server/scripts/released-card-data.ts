@@ -187,7 +187,7 @@ export async function downloadReleasedCardData(commit: string, directory: string
   }
   const unmatched: UnmatchedGraduation[] = [];
   for (const row of historical) {
-    if (!hasDedupeIdentity(row) || scriptCodes.has(row.code) || remaps[row.code] !== undefined || unmatched.some(card => card.code === row.code)) continue;
+    if (!hasDedupeIdentity(row) || scriptCodes.has(row.code) || overridden(row.code) || remaps[row.code] !== undefined || unmatched.some(card => card.code === row.code)) continue;
     unmatched.push(matched.unmatched.find(card => card.code === row.code) ?? { ...row, commits: [], candidates: [] });
   }
   unmatched.sort((a,b) => a.code-b.code);
