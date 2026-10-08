@@ -398,15 +398,19 @@
   display: flex;
   flex-direction: column;
   gap: calc(3 * var(--duel-unit, 1px));
-  /* When the panel is full the text gives way first (it scrolls inside), so the options stay in view. It never gives
-     way below its label, padding and 3 lines: a percent min-height on the box resolves to 0 here. */
+  /* When the panel is full the text gives way first (it scrolls inside), so the options stay in view. A long text
+     never gives way below its label, padding and 3 lines (data-long, below): a percent min-height resolves to 0. */
   flex-shrink: 10;
-  min-height: calc(var(--duel-t-sm, 12px) * 4.35 + var(--duel-t-xs, 11px) * 1.4 + 20 * var(--duel-unit, 1px));
   padding: calc(6 * var(--duel-unit, 1px)) calc(10 * var(--duel-unit, 1px));
   border: 1px solid var(--duel-rule-lo, rgb(181 153 99 / 0.17));
   border-radius: 6px;
   background: rgb(7 11 21 / 0.5);
 }
+/* Only a long text has a floor: a short one ("Draw 2 cards.") ends under its own line. */
+.cardText[data-long="true"] {
+  min-height: calc(var(--duel-t-sm, 12px) * 4.35 + var(--duel-t-xs, 11px) * 1.4 + 20 * var(--duel-unit, 1px));
+}
+.cardText[data-long="true"] .cardTextBody { min-height: 3lh; }
 /* A text cut to a few lines (small window or dense host) is already short: it never gives up more. */
 .cardText[data-open="false"] { flex-shrink: 0; }
 /* A short list of options (4 or fewer) keeps its height: a flex shrink takes a few pixels off even a light item, which cut
@@ -422,7 +426,6 @@
 .cardTextBody {
   margin: 0;
   flex: 0 1 auto;
-  min-height: 3lh;
   max-height: min(15lh, 34dvh);
   overflow-y: auto;
   color: var(--duel-ink-2, #c3bba8);
