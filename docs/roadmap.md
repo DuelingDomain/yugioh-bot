@@ -16,3 +16,11 @@ Open:
 Not re-checked (needs a visual check): clock name cut-off, lobby wording, small-screen card details, clock remount and blur cost.
 
 Done: confirm on "Cancel table" (`lobby.tsx`), the "Table full" message (`room-lobby.tsx`).
+
+## Parked: prod script errors in the weekly card update
+
+Parked by the owner on 2026-10-08. The code is on main (PR #273), but it stays off until the owner adds the keys. The weekly card update works without it.
+
+When it is on, the weekly card-data PR shows which cards had script errors in prod in the last 7 days. To turn it on:
+- Add the GitHub secrets `VM_SSH_KNOWN_HOSTS` and `ENGINE_DATA_PROD_SSH_PRIVATE_KEY` (a new key used only for this).
+- On the VM, add this line to `authorized_keys`: `restrict,command="sh /opt/yugioh-bot/scripts/prod-script-errors.sh" ssh-ed25519 <public-key> engine-data-prod-export`
