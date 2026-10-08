@@ -3,7 +3,7 @@
 // The 1v1 room and the table shell share the match sheet (text-log re-exports it).
 "use client";
 
-import { useEffect, useMemo, useRef, type Ref } from "react";
+import { Fragment, useEffect, useMemo, useRef, type CSSProperties, type ReactNode, type Ref } from "react";
 import { phaseTitle } from "./constants";
 import { categoriesForLog, categoryForLogText, summonMethodForLogText, type LogCategory } from "./log-category";
 import { LogCategoryGlyph } from "./log-category-glyph";
@@ -33,6 +33,30 @@ export function logText(text: string, kind: LogKind, playerName: (seat: number) 
   return text.replace(/\bPlayer ([1-4])\b/g, (_match, seat: string) => playerName(Number(seat) - 1));
 }
 
+/** The colour of each seat at a table (`main`), by seat. The 1v1 room has none: its lines stay plain. */
+export type LogSeatTones = ReadonlyMap<number, { main: string; ink: string }>;
+
+/**
+ * The line as nodes: each "Player N" becomes the seat's display name with the seat's colour and a dot, so a table of 3 or 4
+ * (or two teams) shows who did what. Without tones, or for a phase line, it is the plain text of `logText`.
+ */
+function logNodes(text: string, kind: LogKind, playerName: (seat: number) => string, tones: LogSeatTones | undefined, seatClass: string): ReactNode {
+  if (!tones || kind === "phase") return logText(text, kind, playerName);
+  const parts: ReactNode[] = [];
+  let last = 0;
+  for (const match of text.matchAll(/\bPlayer ([1-4])\b/g)) {
+    const seat = Number(match[1]) - 1;
+    const tone = tones.get(seat);
+    parts.push(text.slice(last, match.index));
+    parts.push(tone
+      ? <b key={match.index} className={seatClass} data-seat={seat} style={{ "--seat-main": tone.main } as CSSProperties}>{playerName(seat)}</b>
+      : playerName(seat));
+    last = match.index + match[0].length;
+  }
+  parts.push(text.slice(last));
+  return parts.map((part, index) => <Fragment key={index}>{part}</Fragment>);
+}
+
 /** The categories of a whole log (see categoriesForLog), recomputed only when the entries change. */
 export function useLogCategories(entries: ReadonlyArray<{ text: string }>): Array<LogCategory | null> {
   return useMemo(() => categoriesForLog(entries.map((entry) => entry.text)), [entries]);
@@ -42,6 +66,7 @@ export function DuelLogLine({
   text,
   category: given,
   playerName,
+  seatTones,
   className,
   ref,
 }: {
@@ -50,6 +75,8 @@ export function DuelLogLine({
   /** The line's category in context (useLogCategories); without it the line is classified on its own. */
   category?: LogCategory | null;
   playerName: (seat: number) => string;
+  /** A table's seat colours: the player names of the line wear them. */
+  seatTones?: LogSeatTones;
   className?: string;
   ref?: Ref<HTMLLIElement>;
 }) {
@@ -61,7 +88,7 @@ export function DuelLogLine({
   return (
     <li ref={ref} className={className} data-kind={kind} data-cat={category ?? undefined} data-summon={summon ?? undefined}>
       {category ? <LogCategoryGlyph category={category} className={styles.logGlyph} /> : null}
-      {logText(text, kind, playerName)}
+      {logNodes(text, kind, playerName, seatTones, styles.logSeat)}
     </li>
   );
 }
@@ -71,10 +98,13 @@ export function MatchSheetLog({
   entries: allEntries,
   playerName,
   players,
+  seatTones,
 }: {
   entries: ReadonlyArray<{ id: number; text: string; eventId?: number }>;
   playerName: (seat: number) => string;
   players: string;
+  /** A table's seat colours (see DuelLogLine). The 1v1 room passes none. */
+  seatTones?: LogSeatTones;
 }) {
   const styles = useSkinStyles(baseStyles, "history");
   const listRef = useRef<HTMLOListElement>(null);
@@ -98,7 +128,7 @@ export function MatchSheetLog({
       </div>
       <ol ref={listRef} className={styles.log} aria-label="Duel log">
         {entries.map((entry, i) => (
-          <DuelLogLine key={entry.id} text={entry.text} category={categories[i]} playerName={playerName} />
+          <DuelLogLine key={entry.id} text={entry.text} category={categories[i]} playerName={playerName} seatTones={seatTones} />
         ))}
       </ol>
     </div>
