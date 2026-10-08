@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { readFile, writeFile, appendFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { boundedReport, withValidation, withPrereleaseSmoke } from "./engine-data-report.js";
+import { withPreviewExclusions, withCardUpdate } from "./engine-data-card-report.js";
 import { probeEngineData } from "./probe-engine-data.js";
 
 const artifact = resolve(process.env.UPDATE_ARTIFACT_DIR!);
@@ -23,6 +24,8 @@ if (metadata.changed) {
     const artifact = JSON.parse(remapBytes.toString("utf8"));
     if (!artifact.scriptSmoke) throw new Error("Prepared prerelease script smoke results missing");
     report = withPrereleaseSmoke(report, artifact.scriptSmoke);
+    if (metadata.cardChanges) report = withCardUpdate(report,
+      withPreviewExclusions(metadata.cardChanges, artifact.scriptSmoke.excluded.map((card: { code: number }) => card.code)));
   }
   const probe = await probeEngineData(dataDirectory, metadata.changedPaths);
   const overlayExit = Number(await readFile(join(artifact, "overlay-exit.txt"), "utf8"));

@@ -11,6 +11,7 @@ import { smokePrereleaseScripts } from "./prerelease-script-smoke.js";
 import { applyPrereleaseSmokeResult } from "./prerelease-script-exclusions.js";
 import { probeEngineData } from "./probe-engine-data.js";
 import { withValidation, prereleaseUpdateReport, prereleaseScriptReport } from "./engine-data-report.js";
+import { cardUpdate, renderCardUpdate, withPreviewExclusions, withCardUpdate } from "./engine-data-card-report.js";
 import { listIndex, reconcile, scanText } from "./scan-multiplayer-scripts.js";
 import { discoverReleasedDatabases, downloadReleasedCardData, restrictPrereleaseScripts } from "./released-card-data.js";
 
@@ -142,12 +143,14 @@ export async function runUpdate(options: Options = {}) {
     await writeFile(reportPath, report.join("\n") + "\n");
   }
   if (!changed) {
+    const empty = { released: [], prerelease: [], remaps: {} };
+    report.push(renderCardUpdate(await cardUpdate(empty, empty)), "");
     report.push("no update: all three data pins already match the requested commits.");
     await saveReport();
     console.log("no update");
     return { changed, next, reportPath, files: [] as string[], changedPaths: [] as string[] };
   }
-  report.push("| Repository | Old → new | Commits ahead |", "| --- | --- | --- |");
+  report.push("## Upstream commits", "", "| Repository | Old → new | Commits ahead |", "| --- | --- | --- |");
   for (const key of keys) {
     const repo = repositories[key];
     const comparison = old[key] === next[key] ? null : await api<{ ahead_by: number; behind_by: number; status: string }>(`${repo}/compare/${old[key]}...${next[key]}?per_page=1`);
@@ -183,6 +186,8 @@ export async function runUpdate(options: Options = {}) {
         return null;
       }),
     ]);
+    let cardChanges = await cardUpdate(oldDatabase, database, request);
+    report.splice(6, 0, renderCardUpdate(cardChanges), "");
     const oldDatabases = oldDatabase?.files ?? await discoverReleasedDatabases(old.database, download);
     const releases = database.files.filter(path => path.startsWith("release-"));
     const loadedCodes = new Set([...database.releaseCodes, ...database.prereleaseCodes]);
@@ -255,8 +260,11 @@ export async function runUpdate(options: Options = {}) {
       await writeFile(join(temporary, "strings.conf"), Buffer.from(await (await download(`https://raw.githubusercontent.com/ProjectIgnis/Distribution/${next.strings}/config/strings.conf`)).arrayBuffer()));
       try {
         await applyPrereleaseSmokeResult(database, await smokePrereleaseScripts(temporary, [...database.prereleaseCodes]));
+        const smoke = JSON.parse(database.remapBytes).scriptSmoke;
+        cardChanges = withPreviewExclusions(cardChanges, smoke.excluded.map((card: { code: number }) => card.code));
+        report.splice(0, report.length, withCardUpdate(report.join("\n"), cardChanges));
         restrictPrereleaseScripts(extracted, database.scriptCodes);
-        report.push("", prereleaseScriptReport(JSON.parse(database.remapBytes).scriptSmoke));
+        report.push("", prereleaseScriptReport(smoke));
       } catch (error) {
         report.push("", "## Prerelease script safety", "", `BLOCKING: ${markdown(String(error))}. Current pins retained.`);
         await saveReport(); throw error;
@@ -283,7 +291,7 @@ export async function runUpdate(options: Options = {}) {
     await saveReport();
     if (!options.dryRun) await rewritePins(root, old, next, false);
     console.log(`${options.dryRun ? "dry run" : "update"}: ${diff.added.length} new, ${diff.changed.length} changed, ${diff.removed.length} removed official scripts; ${conflicts.length} overlay conflicts; ${risks.length} new multiplayer risks. Report: ${reportPath}`);
-    return { changed, next, reportPath, files, changedPaths };
+    return { changed, next, reportPath, files, changedPaths, cardChanges };
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }
