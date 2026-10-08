@@ -18,6 +18,7 @@ export class ChainOptions {
   private activating: Link | undefined;
   private deferred: Choice[] = [];
   private selected: Choice | undefined;
+  private descriptions = new WeakMap<Link, bigint>();
   private slots = new WeakMap<Link, Map<string, number>>();
   private responseSeq = 0;
   private undoResponse: (() => void) | undefined;
@@ -117,7 +118,10 @@ export class ChainOptions {
         break;
       case OcgMessageType.CHAINING: {
         this.activating = chain.find((link) => link.index === message.chain_size);
+        if (this.activating) this.descriptions.set(this.activating, message.description);
         if (this.activating) for (const choice of this.deferred) {
+          // A cost/target script can announce the activated effect before CHAINING arrives.
+          if (choice.key.startsWith("hint:") && choice.description === message.description) continue;
           if (choice.code ? this.sameCard(choice.code, this.activating.code) : choice.seat === this.activating.seat) this.add(this.activating, choice);
         }
         this.deferred = [];
@@ -146,6 +150,8 @@ export class ChainOptions {
       case OcgMessageType.HINT: {
         if (message.hint_type !== OcgHintType.OPSELECTED || seatChoice(message.hint)) break;
         const selected = this.selected?.description === message.hint ? this.selected : undefined;
+        // Scripts also use OPSELECTED to announce the activated effect, without making a choice.
+        if (!selected && chain.some((link) => this.descriptions.get(link) === message.hint)) break;
         const code = stringCode(message.hint);
         const source = code ?? this.resolving?.code ?? this.activating?.code;
         const text = selected?.text ?? fillPlaceholders(this.cards.resolveLabel(message.hint), [source ? cardInfoLabel(this.cards, source) : undefined]);

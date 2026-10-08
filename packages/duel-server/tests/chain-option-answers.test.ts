@@ -41,9 +41,9 @@ vi.mock("../src/cards.js", async (importOriginal) => ({
 
 const CODE = 10000001;
 const description = (index: number) => (BigInt(CODE) << 20n) | BigInt(index);
-const chain = (index = 1, code = CODE) => ({
+const chain = (index = 1, code = CODE, effectDescription = 0n) => ({
   type: OcgMessageType.CHAINING, chain_size: index, code, controller: 0,
-  location: OcgLocation.SZONE, sequence: index - 1, description: 0n,
+  location: OcgLocation.SZONE, sequence: index - 1, description: effectDescription,
 } as OcgMessage);
 const chained = (index = 1) => ({ type: OcgMessageType.CHAINED, chain_size: index } as OcgMessage);
 const solving = (index = 1) => ({ type: OcgMessageType.CHAIN_SOLVING, chain_size: index } as OcgMessage);
@@ -64,6 +64,30 @@ describe.each([["merged", createEngineGame], ["legacy", createLegacyEngineGame]]
   const open = () => create({
     mode: "normal", decks: [0, 1].map(() => ({ main: [], extra: [], side: [] })),
     dataDirectory: "/tmp/chain-options-no-bundle", seed: ["1", "2", "3", "4"], standardWasmBinary: new ArrayBuffer(0),
+  });
+
+  it.each(["before chaining", "activation", "resolution"])("ignores an effect-description hint with no option prompt during %s", async (window) => {
+    const activation = chain(1, CODE, description(1));
+    fake.batches = [window === "before chaining"
+      ? [hint(1), activation, chained(), followUp()]
+      : window === "activation"
+        ? [activation, hint(1), chained(), followUp()]
+        : [activation, chained(), solving(), hint(1), followUp()]];
+    const game = await open();
+    try {
+      expect(game.view(null).chain[0].chosenOptions).toBeUndefined();
+    } finally { game.close(); }
+  });
+
+  it("keeps a selected option that equals the effect description", async () => {
+    fake.batches = [[chain(1, CODE, description(1)), chained(), solving(), option()], [hint(1), followUp()]];
+    const game = await open();
+    try {
+      game.answer(1, game.view(1).prompt!.id, { choice: "opt:0" });
+      expect(game.view(null).chain[0].chosenOptions).toEqual([
+        { index: 0, text: 'Add 1 "Mitsurugi" monster from your Deck to your hand' },
+      ]);
+    } finally { game.close(); }
   });
 
   it("records the resolving link's opponent choice, with the exact button text", async () => {
