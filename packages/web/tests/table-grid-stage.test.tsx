@@ -46,6 +46,8 @@ function Shell({ id, out = [] }: { id: keyof typeof FFA4_FIXTURES.states; out?: 
   return <TableShell controller={controller} />;
 }
 
+/** The grid starts on the full table; a player action (key 1) zooms in on the own field. */
+const zoomOwn = () => act(() => void fireEvent.keyDown(window, { key: "1" }));
 const cellOf = (container: HTMLElement, seat: number) => container.querySelector<HTMLElement>(`[data-grid-cell="${seat}"]`)!;
 
 describe("GridStage", () => {
@@ -101,11 +103,14 @@ describe("GridStage", () => {
     expect(container.querySelector("[data-column-link]")).toBeNull();
   });
 
-  it("starts with my field in focus; keys 1-4 focus a field, O and Esc show all fields, a click on a field focuses it", () => {
+  it("starts on the full table, also on a remount; keys 1-4 focus a field, O and Esc show all fields, a click on a field focuses it", () => {
+    const first = render(<Shell id="main" />);
+    expect(first.container.querySelector("[data-grid-stage]")!.getAttribute("data-grid-focus")).toBe("all");
+    first.unmount();
     const { container } = render(<Shell id="main" />);
     const stage = container.querySelector("[data-grid-stage]")!;
     const press = (key: string) => act(() => void fireEvent.keyDown(window, { key }));
-    expect(stage.getAttribute("data-grid-focus")).toBe("0");
+    expect(stage.getAttribute("data-grid-focus")).toBe("all");
     press("3");
     expect(stage.getAttribute("data-grid-focus")).toBe("2");
     press("o");
@@ -141,15 +146,17 @@ describe("GridStage", () => {
   it("keeps the digit keys and Esc away from the focus during an attack aim", () => {
     const { container } = render(<Shell id="battle-aim" />);
     const stage = container.querySelector("[data-grid-stage]")!;
-    expect(stage.getAttribute("data-grid-focus")).toBe("0");
+    expect(stage.getAttribute("data-grid-focus")).toBe("all");
     for (const key of ["2", "3", "4"]) act(() => void fireEvent.keyDown(window, { key }));
     act(() => void fireEvent.keyDown(window, { key: "Escape" }));
-    expect(stage.getAttribute("data-grid-focus")).toBe("0");
+    expect(stage.getAttribute("data-grid-focus")).toBe("all");
   });
 
   it("sizes the fields from one layout: the focused pair is lifted as a pair, the other pair a little smaller, no transform at rest", () => {
     const { container } = render(<Shell id="main" />);
     const stage = container.querySelector("[data-grid-stage]")!;
+    expect(stage.getAttribute("data-grid-focus")).toBe("all");
+    zoomOwn();
     const z = (seat: number) => parseFloat(cellOf(container, seat).querySelector<HTMLElement>("[data-seat-slot]")!.style.getPropertyValue("--sf-z"));
     expect(z(0)).toBeGreaterThan(z(3));
     expect(z(1)).toBeCloseTo(z(0), 1);
@@ -178,6 +185,8 @@ describe("GridStage", () => {
     const { container } = render(<Shell id="main" />);
     const live = container.querySelector("[data-grid-live]")!;
     expect(live.getAttribute("aria-live")).toBe("polite");
+    expect(live.textContent).toBe("Focus: all fields");
+    zoomOwn();
     expect(live.textContent).toMatch(/^Focus: .+/);
     expect(live.textContent).not.toMatch(/all fields/);
     const pill = (seat: number) => container.querySelector(`[data-testid="seat-strip-${seat}"] button`) as HTMLElement;
@@ -221,6 +230,7 @@ describe("GridStage", () => {
   it("marks the small fields and fits the life panels into their boxes", () => {
     const { container } = render(<Shell id="main" />);
     const slot = (seat: number) => cellOf(container, seat).querySelector<HTMLElement>("[data-seat-slot]")!;
+    zoomOwn();
     expect(slot(0).getAttribute("data-small")).toBeNull();
     expect(slot(3).getAttribute("data-small")).toBe("true");
     const lp = container.querySelector<HTMLElement>('[data-grid-lp="0"]')!;
@@ -284,7 +294,7 @@ describe("GridStage", () => {
     const field = cellOf(container, 0).querySelector("[data-seat-field]")!;
     expect(field.getAttribute("data-emz")).toBe("pair");
     expect(field.hasAttribute("data-joined")).toBe(false);
-    expect(container.querySelector("[data-grid-stage]")!.getAttribute("data-grid-focus")).toBe("0");
+    expect(container.querySelector("[data-grid-stage]")!.getAttribute("data-grid-focus")).toBe("all");
   });
 
   it("keeps the focus on a seat that goes out while its field crumbles, then shows all fields", () => {
@@ -333,6 +343,7 @@ describe("pair frames and the finale board", () => {
   it("draws ONE frame round each facing pair (the fields drop their own mats) and marks the lifted pair", () => {
     const { container } = render(<Shell id="main" />);
     expect(container.querySelectorAll("[data-pair-frame]")).toHaveLength(2);
+    zoomOwn();
     expect(frameOf(container, 0).getAttribute("data-focus")).toBe("true");
     expect(frameOf(container, 1).hasAttribute("data-focus")).toBe(false);
     for (const seat of [0, 1, 2, 3]) expect(fieldOf(container, seat).getAttribute("data-framed")).toBe("true");

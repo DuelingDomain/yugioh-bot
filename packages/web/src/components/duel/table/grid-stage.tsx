@@ -328,7 +328,6 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
   const picks = controller.seatPick;
   const local = useGridFocus({
     enabled: grid == null,
-    home: homeCell?.seat ?? 0,
     shown,
     suspended: false,
     digitsFree: picks == null && controller.aim?.from == null,

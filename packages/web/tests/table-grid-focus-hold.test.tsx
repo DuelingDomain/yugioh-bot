@@ -5,10 +5,10 @@ import { useGridFocus, type UseGridFocusOptions } from "@/components/duel/table/
 
 afterEach(cleanup);
 
-const base: UseGridFocusOptions = { enabled: true, home: 0, shown: [0, 1, 2, 3], suspended: false, digitsFree: true, escapeFree: true };
+const base: UseGridFocusOptions = { enabled: true, shown: [0, 1, 2, 3], suspended: false, digitsFree: true, escapeFree: true };
 
 describe("useGridFocus when the focused seat goes out", () => {
-  it("shows all fields at once when the seat is not held (it never zooms in on the own field by itself)", () => {
+  it("shows all fields at once when the seat is not held (it never zooms in by itself)", () => {
     const { result, rerender } = renderHook((props: UseGridFocusOptions) => useGridFocus(props), { initialProps: base });
     act(() => result.current.focusSeat(2));
     expect(result.current.focus.seat).toBe(2);
@@ -28,7 +28,7 @@ describe("useGridFocus when the focused seat goes out", () => {
   });
 
   it("shows all fields when the home field is gone too", () => {
-    const { result, rerender } = renderHook((props: UseGridFocusOptions) => useGridFocus(props), { initialProps: { ...base, home: 0 } });
+    const { result, rerender } = renderHook((props: UseGridFocusOptions) => useGridFocus(props), { initialProps: base });
     act(() => result.current.focusSeat(2));
     rerender({ ...base, shown: [1, 3] });
     expect(result.current.focus.seat).toBeNull();
