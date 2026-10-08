@@ -202,6 +202,8 @@ describe("log categories: text log lines", () => {
     ["Player 3's chain link was negated", "chain"],
     ["Player 2 declares an attack", "battle"],
     ["Player 2 declares a direct attack", "battle"],
+    ["Player 2 attacks Player 3 directly", "battle"],
+    ["Player 3 is attacked directly", "battle"],
     ["Player 1's Mirror Force is activating", "chain"],
     ["Confirmed Player 2's Man-Eater Bug", "system"],
     ["Player 3's Raigeki was sent to the Graveyard", "graveyard"],
