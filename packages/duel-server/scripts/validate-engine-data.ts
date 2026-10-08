@@ -1,13 +1,18 @@
 /** Finalize the report after duel:prepare, using the exact prepared candidate bundle. */
 import { readFile, writeFile, appendFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { boundedReport, withValidation } from "./engine-data-report.js";
+import { boundedReport, withValidation, readProdScriptErrors, prodScriptErrorReport } from "./engine-data-report.js";
 import { probeEngineData } from "./probe-engine-data.js";
+import { loadCardDatabase } from "../src/cards.js";
+import { cardScriptHash } from "../src/card-script-hash.js";
+import { loadCardPasscodeRemaps } from "@yugidraft/shared/db";
 
 const artifact = resolve(process.env.UPDATE_ARTIFACT_DIR!);
 const metadata = JSON.parse(await readFile(join(artifact, "update.json"), "utf8"));
 const reportPath = join(artifact, "report.md");
 let report = await readFile(reportPath, "utf8");
+const prod = await readProdScriptErrors(join(artifact, "prod-script-errors.json"));
+let prodSection = prodScriptErrorReport(prod);
 if (process.env.DRY_RUN === "true") report = report.replace("Mode: update.", "Mode: workflow dry run (candidate applied only in the disposable checkout; no publication).");
 if (metadata.changed) {
   const dataDirectory = process.env.DUEL_DATA_DIR;
@@ -16,6 +21,8 @@ if (metadata.changed) {
   for (const key of ["scripts", "database", "strings"]) {
     if (manifest.sources[key] !== metadata.next[key]) throw new Error(`Prepared ${key} pin differs from candidate`);
   }
+  const cards = loadCardDatabase(dataDirectory), remaps = loadCardPasscodeRemaps(dataDirectory);
+  prodSection = prodScriptErrorReport(prod, code => cardScriptHash(cards, remaps.get(code) ?? code));
   const probe = await probeEngineData(dataDirectory, metadata.changedPaths);
   const overlayExit = Number(await readFile(join(artifact, "overlay-exit.txt"), "utf8"));
   if (!Number.isInteger(overlayExit) || overlayExit < 0) throw new Error("Invalid overlay check exit status");
@@ -26,6 +33,7 @@ if (metadata.changed) {
   report += "\n## Bundle validation\n\n`npm run duel:prepare` passed with the candidate pins in a temporary DUEL_DATA_DIR. The core probe above ran against this prepared bundle.\n";
   await writeFile(join(artifact, "probe.json"), JSON.stringify(probe, null, 2) + "\n");
 }
+report = report.replace(/## Script errors in prod \(last 7 days\)\n[\s\S]*?(?=\n## |$)/, prodSection);
 await writeFile(reportPath, report);
 const runUrl = `${process.env.GITHUB_SERVER_URL || "https://github.com"}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
 await writeFile(join(artifact, "pr-body.md"), boundedReport(report, runUrl, 60_000));

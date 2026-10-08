@@ -1,7 +1,52 @@
 import { describe, expect, it } from "vitest";
-import { boundedReport, withValidation } from "../scripts/engine-data-report.js";
+import { boundedReport, withValidation, prodScriptErrorReport, readProdScriptErrors } from "../scripts/engine-data-report.js";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const run = "https://github.com/example/repo/actions/runs/123";
+it("rejects missing, malformed and oversized prod snapshots without failing report generation", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "prod-report-")), path = join(dir, "snapshot.json");
+  try {
+    expect(await readProdScriptErrors(path)).toBeNull();
+    for (const content of ["not json", JSON.stringify({ available: false }), "x".repeat(65537),
+      JSON.stringify({ available: true, cards: [{ code: 1, name: "Card", distinctDuels: 2, errorCount: 1, autoBlocked: true, scriptHash: null }] })]) {
+      await writeFile(path, content); expect(await readProdScriptErrors(path)).toBeNull();
+    }
+    await writeFile(path, JSON.stringify({ available: true, cards: [{ code: 1, name: "Card", distinctDuels: 1, errorCount: 1,
+      autoBlocked: false, scriptHash: null, privateDiagnostic: "not retained" }] }));
+    expect(JSON.stringify(await readProdScriptErrors(path))).not.toContain("privateDiagnostic");
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+it("reports prod counts and script changes without publishing diagnostics or metadata", () => {
+  const report = prodScriptErrorReport({ available: true, cards: [
+    { code: 10, name: "Name | <tag> @someone #123\nNew", distinctDuels: 3, errorCount: 8, autoBlocked: true, scriptHash: "a".repeat(64) },
+    { code: 20, name: "Same", distinctDuels: 0, errorCount: 0, autoBlocked: true, scriptHash: "b".repeat(64) },
+  ] }, code => code === 10 ? "c".repeat(64) : "b".repeat(64));
+  expect(report).toContain("## Script errors in prod (last 7 days)");
+  expect(report).toContain("3 | 8 | Yes | Yes — auto block will lift");
+  expect(report).toContain("0 | 0 | Yes | No");
+  expect(report).not.toContain("<tag>"); expect(report).not.toContain("@someone"); expect(report).not.toContain("#123");
+  expect(report).not.toContain("a".repeat(64)); expect(report).toContain("\\|");
+});
+it("degrades to unavailable on missing prod data and bounds the protected section", () => {
+  expect(prodScriptErrorReport(null)).toContain("prod error data unavailable");
+  const section = prodScriptErrorReport({ available: true, cards: Array.from({ length: 100 }, (_, i) => ({
+    code: i + 1, name: "漢".repeat(200), distinctDuels: 3, errorCount: 5, autoBlocked: true, scriptHash: null,
+  })) });
+  expect(Buffer.byteLength(section)).toBeLessThanOrEqual(12000);
+  expect(section).toContain("truncated");
+  const report = "Needs review: 0\n" + "data\n".repeat(20000) + "\n" + section;
+  expect(boundedReport(report, run, 60000)).toContain("## Script errors in prod (last 7 days)");
+});
+it("retains active blocks ahead of top nonblocked errors when long names hit the byte cap", () => {
+  const cards = Array.from({ length: 99 }, (_, i) => ({ code: i + 1, name: "漢".repeat(200),
+    distinctDuels: 3, errorCount: 5, autoBlocked: false, scriptHash: null }));
+  cards.push({ code: 100, name: "Blocked card", distinctDuels: 0, errorCount: 0, autoBlocked: true, scriptHash: null });
+  const report = prodScriptErrorReport({ available: true, cards });
+  expect(report).toContain("Blocked card"); expect(report.indexOf("Blocked card")).toBeLessThan(report.indexOf("漢"));
+  expect(report).toContain("truncated"); expect(Buffer.byteLength(report)).toBeLessThanOrEqual(12000);
+});
 describe("engine update report publishing", () => {
   it("keeps the first line and review warnings within the PR body limit", () => {
     const report = "Needs review: 1 conflicts\n" + "card data\n".repeat(10_000) + "\n## Deployment\n\nLive-duel warning; replay loss.\n\n## Golden hashes\n\nRe-record hashes.\n";

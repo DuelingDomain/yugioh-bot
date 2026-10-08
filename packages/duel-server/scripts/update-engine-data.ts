@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import Database from "better-sqlite3";
 import { probeEngineData } from "./probe-engine-data.js";
-import { withValidation, prereleaseUpdateReport } from "./engine-data-report.js";
+import { withValidation, prereleaseUpdateReport, prodScriptErrorReport } from "./engine-data-report.js";
 import { listIndex, reconcile, scanText } from "./scan-multiplayer-scripts.js";
 import { discoverReleasedDatabases, downloadReleasedCardData, restrictPrereleaseScripts } from "./released-card-data.js";
 
@@ -137,7 +137,9 @@ export async function runUpdate(options: Options = {}) {
   const report = ["Needs review: 0 conflicts, 0 risks, 0 shared-script changes, probe errors not run, overlay check exit not run", "", "# Project Ignis engine data update", "", `Mode: ${options.dryRun ? "dry run (pins unchanged)" : "update"}. Rules core, ocgcore-wasm, Lua and Emscripten pins remain unchanged.`, ""];
   async function saveReport() {
     await mkdir(dirname(reportPath), { recursive: true });
-    await writeFile(reportPath, report.join("\n") + "\n");
+    // Append after the existing sections, including the unheaded repository comparison table.
+    // Final validation replaces this optional section using the exact prepared candidate bundle.
+    await writeFile(reportPath, report.join("\n") + "\n\n" + prodScriptErrorReport(null));
   }
   if (!changed) {
     report.push("no update: all three data pins already match the requested commits.");

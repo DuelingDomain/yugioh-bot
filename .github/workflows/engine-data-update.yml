@@ -30,7 +30,55 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  prod-errors:
+    # No checkout, dependencies, repository code or write token in this credential-bearing job.
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: Read fixed production script-error export
+        env:
+          VM_HOST: ${{ secrets.VM_HOST }}
+          VM_USER: ${{ secrets.VM_USER }}
+          VM_PORT: ${{ secrets.VM_PORT || '22' }}
+          VM_SSH_PRIVATE_KEY: ${{ secrets.ENGINE_DATA_PROD_SSH_PRIVATE_KEY || secrets.VM_SSH_PRIVATE_KEY }}
+          VM_SSH_KNOWN_HOSTS: ${{ secrets.VM_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          snapshot="$RUNNER_TEMP/prod-script-errors.json"
+          printf '%s\n' '{"available":false}' > "$snapshot"
+          if [ -z "$VM_HOST" ] || [ -z "$VM_USER" ] || [ -z "$VM_SSH_PRIVATE_KEY" ] || [ -z "$VM_SSH_KNOWN_HOSTS" ]; then
+            exit 0
+          fi
+          # Values are SSH arguments only, never interpolated into a remote command.
+          [[ "$VM_HOST" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]] || exit 0
+          [[ "$VM_USER" =~ ^[A-Za-z_][A-Za-z0-9_-]*$ ]] || exit 0
+          [[ "$VM_PORT" =~ ^[0-9]{1,5}$ ]] && ((10#$VM_PORT >= 1 && 10#$VM_PORT <= 65535)) || exit 0
+          umask 077
+          ssh_dir=$(mktemp -d "$RUNNER_TEMP/prod-error-ssh.XXXXXX")
+          trap 'rm -rf -- "$ssh_dir"' EXIT
+          printf '%s\n' "$VM_SSH_PRIVATE_KEY" > "$ssh_dir/key"
+          printf '%s\n' "$VM_SSH_KNOWN_HOSTS" > "$ssh_dir/known_hosts"
+          if timeout 40s ssh -F /dev/null -i "$ssh_dir/key" -p "$VM_PORT" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$ssh_dir/known_hosts" -o GlobalKnownHostsFile=/dev/null \
+            -o ConnectionAttempts=1 -o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=2 \
+            "$VM_USER@$VM_HOST" 'sh /opt/yugioh-bot/scripts/prod-script-errors.sh' 2>/dev/null \
+            | head -c 65537 > "$ssh_dir/result"; then
+            if [ "$(wc -c < "$ssh_dir/result")" -le 65536 ]; then cp "$ssh_dir/result" "$snapshot"; fi
+          fi
+
+      - name: Save optional production snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: prod-script-errors
+          path: ${{ runner.temp }}/prod-script-errors.json
+          retention-days: 1
+
   prepare:
+    needs: prod-errors
+    # An optional export or artifact failure must never prevent weekly preparation.
+    if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -53,6 +101,13 @@ jobs:
           echo "DUEL_DATA_DIR=$RUNNER_TEMP/engine-data-bundle" >> "$GITHUB_ENV"
           echo "base_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           mkdir -p "$UPDATE_ARTIFACT_DIR"
+
+      - name: Download optional production snapshot
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: prod-script-errors
+          path: .status/engine-data-update
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -141,7 +196,7 @@ jobs:
 
   publish:
     needs: prepare
-    if: needs.prepare.outputs.changed == 'true' && !inputs.dry_run
+    if: always() && needs.prepare.result == 'success' && needs.prepare.outputs.changed == 'true' && !inputs.dry_run
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

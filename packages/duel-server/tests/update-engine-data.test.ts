@@ -117,6 +117,7 @@ describe("engine data update", () => {
     expect(request).toHaveBeenCalledTimes(3);
     expect(await readPins(root)).toEqual(oldPins);
     expect(await readFile(join(root, ".status/report.md"), "utf8")).toContain("no update");
+    expect(await readFile(join(root, ".status/report.md"), "utf8")).toContain("prod error data unavailable");
   });
 
   it("accepts unchanged overrides offline and rejects malformed SHAs before any requests", async () => {
@@ -228,6 +229,9 @@ describe("engine data update", () => {
     const report = await readFile(result.reportPath, "utf8");
     expect(report).toContain("## Prerelease cards");
     expect(report).toContain("## Card script patches");
+    const finalized = report.replace(/## Script errors in prod \(last 7 days\)\n[\s\S]*?(?=\n## |$)/, "## Script errors in prod (last 7 days)\n\nNo errors.\n");
+    expect(finalized).toContain("| Repository | Old → new | Commits ahead |");
+    expect(finalized).toContain("## Golden hashes");
     expect(report).toContain("All shared card-script patch stock hashes match the candidate.");
     expect(report).toContain("release-new.cdb");
     expect(report).toContain("release-old.cdb");

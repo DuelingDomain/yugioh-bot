@@ -349,3 +349,54 @@ duels can block it again. There is no restart requirement for a clear.
 Auto blocks are host admission state only. They never enter worker options, saved
 setup, commands, journal identity, recovery or replay. A currently running duel is
 never changed or interrupted by a threshold being reached.
+
+### Production script errors in the weekly PR
+
+The weekly workflow adds **Script errors in prod (last 7 days)**. It includes the
+top 20 cards by sampled error count plus active auto-blocked cards, including blocks
+with zero recent samples. Columns are passcode, card name, distinct duels, sampled
+errors, auto-block status and whether the candidate changes the script. No player
+names, Discord IDs, duel IDs/slugs, reasons or Lua diagnostics enter this public
+section. Auto blocks appear first; the section is capped at 12,000 UTF-8 bytes and
+100 cards, escapes Markdown/HTML/mentions and survives PR-body truncation.
+
+Deployment already reaches `/opt/yugioh-bot` using the `VM_HOST`, `VM_USER`,
+`VM_SSH_PRIVATE_KEY` and optional `VM_PORT` secrets (default `22`). A separate
+`prod-errors` job reuses that SSH path with **no checkout, dependency installation
+or GitHub write permissions**. It invokes only the fixed deployed command:
+
+```sh
+sh /opt/yugioh-bot/scripts/prod-script-errors.sh
+```
+
+The wrapper identifies the running production duel container by service and Compose
+working-directory labels, without loading Compose or environment files. It executes
+the deployed `dist/prod-script-errors.js` entrypoint. That command opens the existing
+SQLite database with `readonly: true`, `fileMustExist: true` and `query_only = ON`;
+it runs a fixed seven-day query inside a read transaction, never migrations, writes
+or caller-supplied SQL. The installed catalog supplies card names, validated remaps,
+core alias resolution and script hashes. Only aggregate card fields and hashes used
+for candidate comparison are exported; hashes never appear in the PR section.
+
+Set **`VM_SSH_KNOWN_HOSTS`** to the independently verified VM host-key entry in
+OpenSSH known_hosts format (`[host]:port` for a nondefault port). This workflow
+requires strict host verification and does not bootstrap trust with `ssh-keyscan`.
+Optionally set **`ENGINE_DATA_PROD_SSH_PRIVATE_KEY`** to a dedicated key on the same
+VM/user instead of the deploy key. Restrict its authorized_keys entry with
+`restrict,command="sh /opt/yugioh-bot/scripts/prod-script-errors.sh"`; install the key
+and host pin through the existing operator process. No VM configuration is changed
+by the weekly workflow. Temporary runner key files are removed after the SSH step.
+
+SSH has a 40-second deadline, five-second database lock timeout and 64-KiB output
+cap. Missing secrets/host pin, connectivity or permission failures, a stopped duel
+container, a deployment predating this command/schema, invalid JSON and artifact
+download failures produce **prod error data unavailable**. They never fail the
+weekly preparation/publication path. The separate snapshot artifact expires after
+one day; the aggregate snapshot also accompanies the existing 14-day report artifact.
+
+After candidate preparation, final validation compares installed-prod hashes with
+the **exact prepared candidate bundle**, including shared card-script patches and
+passcode graduation. A changed or removed card script says **auto block will lift**;
+unchanged script bytes keep the block. Manual blocks still win. The snapshot is
+advisory and can become stale before deployment. Existing live-duel drain and replay
+loss warnings for bundle updates still apply; admission auto blocks do not alter them.
