@@ -1,6 +1,6 @@
 "use client";
 
-import type { CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { Check } from "lucide-react";
 import type { DuelPromptOption } from "@yugidraft/shared/duels";
 import { BATTLE, phaseStations, type StationView } from "./phase-hub-model";
@@ -39,7 +39,9 @@ export type PhaseHubProps = {
 };
 
 
-function Chip({ view, litName, onChoose }: { view: StationView; litName: string; onChoose: (optionId: string) => void }) {
+type ChipView = StationView & { pending?: boolean };
+
+function Chip({ view, litName, onChoose }: { view: ChipView; litName: string; onChoose: (optionId: string) => void }) {
   const { station, state, option } = view;
   const inner = (
     <>
@@ -52,6 +54,7 @@ function Chip({ view, litName, onChoose }: { view: StationView; litName: string;
     className: styles.chip,
     "data-state": state,
     "data-live": option ? "true" : "false",
+    "data-pending": view.pending ? "true" : undefined,
     "data-phase": station.code,
     "aria-current": state === "current" ? ("step" as const) : undefined,
     title: `${station.name}. ${station.hint}`,
@@ -73,6 +76,26 @@ function Chip({ view, litName, onChoose }: { view: StationView; litName: string;
   );
 }
 
+/**
+ * The phase move the player just clicked, shown as the lit phase until the engine answers. The click sends the move and the room
+ * goes busy in the same commit, so `canAct` drops with it. The pending phase is let go when the real phase changes (the move
+ * worked) or when the room is free again (the server refused it: the chip goes back). A click that was dropped before it was
+ * sent never made the room busy, so it is let go at once.
+ */
+function usePendingMove(phase: string | null | undefined, canAct: boolean, onChoose: (optionId: string) => void) {
+  const [move, setMove] = useState<{ index: number; phase: string | null | undefined } | null>(null);
+  useEffect(() => {
+    if (move && (move.phase !== phase || canAct)) setMove(null);
+  }, [move, phase, canAct]);
+  return {
+    pending: move && move.phase === phase && !canAct ? move.index : null,
+    choose: (index: number, optionId: string) => {
+      setMove({ index, phase });
+      onChoose(optionId);
+    },
+  };
+}
+
 /** The three cells of the Extra Monster Zone row that hold a pair of phases each (the zones take the two between them). */
 const PAIRS = [[0, 1], [2, 3], [4, 5]] as const;
 
@@ -88,13 +111,22 @@ export function PhaseHub({
 }: PhaseHubProps) {
   // On a phone the hub does not fit; the bar keeps the phases there (the station track makes the same call).
   const narrow = useIsNarrow();
-  const { current, stations } = phaseStations({ phase, actionOptions, canAct });
+  const base = phaseStations({ phase, actionOptions, canAct });
+  // The clicked phase lights at once and stays lit until the answer is back (see usePendingMove).
+  const { pending, choose } = usePendingMove(phase, canAct, onChoose);
+  const current = pending != null ? pending : base.current;
+  const stations: ChipView[] = pending == null ? base.stations : base.stations.map((view) => ({
+    ...view,
+    state: view.index < pending ? "done" : view.index === pending ? "current" : "ahead",
+    option: undefined,
+    pending: view.index === pending,
+  }));
   const spectator = mySeat == null;
   const myTurn = !spectator && turnSeat === mySeat;
   const noTurn = turnSeat == null;
   const owner = turnSeat != null ? playerName(turnSeat) : "";
   const litStation = stations[current]?.station;
-  const step = current === BATTLE ? battleStepInfo(resolveBattleStep(phase, battleStep)) : null;
+  const step = current === BATTLE && pending == null ? battleStepInfo(resolveBattleStep(phase, battleStep)) : null;
   // The opening step is itself called "Battle": say "Battle step" rather than "Battle, Battle".
   const litName = litStation ? (step ? (step.short === litStation.name ? `${litStation.name} step` : `${litStation.name}, ${step.short} step`) : litStation.name) : "";
   const style = (tone ? { "--seat": tone.main, "--seat-ink": tone.ink } : undefined) as CSSProperties | undefined;
@@ -113,7 +145,7 @@ export function PhaseHub({
   );
   const track = (
     <div className={styles.track}>
-      {stations.map((view) => <Chip key={view.station.code} view={view} litName={litName} onChoose={onChoose} />)}
+      {stations.map((view) => <Chip key={view.station.code} view={view} litName={litName} onChoose={(id) => choose(view.index, id)} />)}
     </div>
   );
 
@@ -135,7 +167,7 @@ export function PhaseHub({
             <div key={p} className={styles.cell} data-cell={p}>
               <div className={styles.pair}>
                 {p === 0 ? <div className={styles.owner} data-part="owner">{who}</div> : null}
-                {pair.map((i) => <Chip key={stations[i].station.code} view={stations[i]} litName={litName} onChoose={onChoose} />)}
+                {pair.map((i) => <Chip key={stations[i].station.code} view={stations[i]} litName={litName} onChoose={(id) => choose(i, id)} />)}
                 {litStation && (pair as readonly number[]).includes(current) ? <span className={styles.under} aria-hidden="true">{litName}</span> : null}
               </div>
             </div>
