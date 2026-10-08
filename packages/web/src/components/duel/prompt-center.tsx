@@ -41,6 +41,7 @@ import { isMaterialOption, materialHostNotes, type MaterialViewer } from "./mate
 import { optionNotes } from "./option-strip";
 import { battleStepLabel, type BattleStep } from "./station-track";
 import { PrecheckBar } from "./prompt-precheck";
+import { clampBarShift, sameShift, type BarShift } from "./bar-clamp";
 import { BAR_MAX_WIDTH, BAR_ROW_FIT, placeSelectBar, samePlace, type BarPlace, type BarRect } from "./select-bar-place";
 import { selectBarCopy, sumSelectionValues, synchroSelectionValues, type BarCopy } from "./select-bar-copy";
 import { backOutAnswer, backOutLabel } from "./pick-backout";
@@ -374,6 +375,12 @@ function boardOf(layer: HTMLElement | null): HTMLElement | null {
   let parent = layer?.parentElement ?? null;
   while (parent && parent.style.display === "contents" && parent.parentElement) parent = parent.parentElement;
   return parent;
+}
+
+/** The bar is in its entry animation (it scales and falls a few px): its box on screen is not where it settles. */
+function entering(node: HTMLElement): boolean {
+  if (typeof node.getAnimations !== "function") return false;
+  return node.getAnimations().some((animation) => animation.playState === "running" && /settle|fall/.test((animation as CSSAnimation).animationName ?? ""));
 }
 
 function allOptionsOnBoard(prompt: DuelPrompt, scope: ParentNode): boolean {
@@ -1428,6 +1435,9 @@ export function PromptCenter(props: PromptCenterProps) {
   // Prompt id whose full effect list is open. A prompt with a pre-check starts on the compact bar.
   const [listFor, setListFor] = useState<string | null>(null);
   const [barPlace, setBarPlace] = useState<BarPlace>({ mode: "mid", top: null, left: null, fit: null, stack: false });
+  // The bar as drawn is kept inside the board whatever its planned room says (a stacked bar is taller than a row): a move in px.
+  const [barShift, setBarShift] = useState<BarShift>({ dx: 0, dy: 0 });
+  const barNode = useRef<HTMLDivElement | null>(null);
   const [dockPlace, setDockPlace] = useState<DockPlace>({ mode: "center", left: null, top: null, bottom: 12, width: null });
 
   const promptRef = useRef(prompt);
@@ -1568,6 +1578,41 @@ export function PromptCenter(props: PromptCenterProps) {
       mutations?.disconnect();
     };
   }, [kind, onBoard, placeBar, revision, promptId]);
+
+  // The planned room is a guess at the bar's size: a stacked bar or a long title is taller than it. Measure the bar as drawn and move it
+  // inside the board, so no edge cuts it off. The camera is never touched.
+  const tributeDock = prompt?.kind === "tribute";
+  useLayoutEffect(() => {
+    const node = barNode.current;
+    const board = boardOf(layerRef.current);
+    // Only the floating table HUD plans its bar room (wide FFA3: `data-bar-clamp`); the other formats keep the place they have.
+    if (kind !== "select" || onBoard !== true || !node || !board || tributeDock || board.dataset.barClamp !== "true") {
+      setBarShift((current) => (current.dx === 0 && current.dy === 0 ? current : { dx: 0, dy: 0 }));
+      return;
+    }
+    const fit = () => {
+      // The entry animation scales and moves the bar: measured now, it is off by a few px. It is measured again when the animation ends.
+      if (entering(node)) return;
+      const bar = node.getBoundingClientRect();
+      const frame = board.getBoundingClientRect();
+      if (bar.width < 2 || bar.height < 2 || frame.width < 2 || frame.height < 2) return;
+      setBarShift((current) => {
+        const next = clampBarShift(bar, current, frame);
+        return sameShift(current, next) ? current : next;
+      });
+    };
+    fit();
+    node.addEventListener("animationend", fit);
+    node.addEventListener("animationcancel", fit);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(fit);
+    observer?.observe(node);
+    observer?.observe(board);
+    return () => {
+      node.removeEventListener("animationend", fit);
+      node.removeEventListener("animationcancel", fit);
+      observer?.disconnect();
+    };
+  }, [kind, onBoard, tributeDock, barPlace, promptId, revision]);
 
   // Focus moves into the panel so Enter takes the primary answer.
   useEffect(() => {
@@ -1733,10 +1778,12 @@ export function PromptCenter(props: PromptCenterProps) {
       : {
           top: barPlace.top ?? (barPlace.mode === "mid" ? "50%" : 8),
           left: barPlace.left ?? "50%",
+          ...(barShift.dx !== 0 || barShift.dy !== 0 ? { marginLeft: barShift.dx, marginTop: barShift.dy } : null),
           ...(barPlace.fit != null ? { "--bar-fit": `${barPlace.fit}px` } : null),
         }) as CSSProperties;
     body = (
       <div
+        ref={barNode}
         className={styles.bar}
         data-prompt-surface=""
         data-reduced={dataReduced}

@@ -11,7 +11,8 @@ import { AttackLine } from "./attack-line";
 import { FlyCity } from "./fly-city";
 import { onCrumbleStart } from "./crumble-gate";
 import { watchMeasure } from "./measure-watch";
-import { BAR_HUD, clearBarRoom, dockBarRoom, freeDockRoom, PICK_BAR, pickBarRoom, promptUnit } from "./grid-stage";
+import { BAR_HUD, promptUnit } from "./grid-stage";
+import { planPickBarRoom } from "./pick-bar-room";
 import { aliveLayout, boardBounds, chainBandRooms, chainStripInset, flyWorld, holoAnchor, hubPose, isOwnFocus, normalizeAngle, ringAngles, CAMERA_HINT, HUD_CORNER, portraitTable, promptRooms, ringPose, type HoloAnchor, type PromptRoom, seatPoses, slotPlan, stageFit, stageSpread, STAGE, wideHoloAnchors } from "./geometry";
 import { holoStatus, HoloLp } from "./holo-lp";
 import { lastSeatDamage } from "./seat-state";
@@ -47,8 +48,6 @@ const sameRects = (a: readonly Rect[], b: readonly Rect[]) =>
   a.length === b.length && a.every((r, i) => r.x === b[i].x && r.y === b[i].y && r.width === b[i].width && r.height === b[i].height);
 /** How long after a change the targets are measured again: the regroup glide and the crumble are over by then. */
 const SETTLE_MS = 1500;
-/** Box px from the left edge that the floating HUD's left column (the dock, the chain tower, the Deck Master plate) takes. */
-const HUD_LEFT_COLUMN = 196;
 
 /** Your hand: it stays at its 1x place and size under the zoom of your own field (the view hook counters the zoom on it). */
 const OWN_HAND = '[data-hand-seat][data-side="you"]';
@@ -377,8 +376,10 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
         ["--pr-unit" as string]: `${promptUnit(nearBox.height, false)}px`,
       } as CSSProperties)
     : undefined;
-  const [zones, setZones] = useState<readonly Rect[]>([]);
   const [cards, setCards] = useState<readonly Rect[]>([]);
+  // A pan or zoom by hand moves every zone on screen: the targets are measured again when it comes to rest (the camera is not touched, only the
+  // bar room). The count of the player's moves, not the view: the refit clamp that follows a new bar room moves the view and must not measure again.
+  const handMoves = zoom.zoomed ? zoom.handMoves() : 0;
   const legalKey = [...legalKeys].sort().join(",");
   useEffect(() => {
     const root = rootRef.current;
@@ -390,13 +391,10 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
         .filter((r) => r.width > 1 && r.height > 1)
         .map((r) => ({ x: Math.round(r.left - board.left), y: Math.round(r.top - board.top), width: Math.round(r.width), height: Math.round(r.height) }));
       const next = boxes('[data-legal="true"]');
-      // The seat name under a field counts as a zone: the docked bar keeps off it.
-      const rest = boxes('[data-zones]:not([data-legal="true"]), [data-seat-name]');
       // The life-point plates are HUD too: the docked bar keeps off them.
-      const hud = occluderRects(root, `${BAR_HUD}, [data-holo], [data-camera-chip], [data-hub-slot]`).map((r) => ({ x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) }));
+      const hud = occluderRects(root, `${BAR_HUD}, [data-holo], [data-camera-chip], [data-hub-slot], [data-turn-ring], [data-chain-panel], [data-testid="chain-tower"]`).map((r) => ({ x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) }));
       setTargets((current) => (sameRects(current, next) ? current : next));
-      setZones((current) => (sameRects(current, rest) ? current : rest));
-      // Zones that hold a card or a pile: the last place for the bar keeps off them.
+      // Zones that hold a card or a pile: the bar keeps off them while a clear place exists.
       const held = boxes('[data-zones][data-occupied="true"]:not([data-legal="true"])');
       setCards((current) => (sameRects(current, held) ? current : held));
       setHudRects((current) => (sameRects(current, hud) ? current : hud));
@@ -423,51 +421,15 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
       off();
       window.clearTimeout(again);
     };
-  }, [floating, nearBox, legalKey, reducedMotion, regroup, zoom.zoomed, ownZoom]);
+  }, [floating, nearBox, legalKey, reducedMotion, regroup, zoom.zoomed, ownZoom, handMoves]);
+  // The card-pick bar: the clear place nearest the middle of the box, always inside it, off the legal targets, your live hand (and a card
+  // raised from it) and the HUD, and off the cards on the board while a clear place exists (see pick-bar-room.ts). The same plan holds at
+  // home, in rival focus and in your own zoom: the camera never moves for it.
   const barRoom = useMemo(() => {
     if (!floating) return undefined;
-    // Zoomed: the bar docks at the bottom of the box, off the HUD (the timer, the responses, the master plate). The
-    // pan can take any card out from under it (it is in VIEW_OCCLUDERS).
-    if (zoom.zoomed) {
-      // Your own field zoomed: the bar keeps off your hand and off the targets as well (it is a strip at the bottom of the box).
-      if (ownZoom) {
-        const blocks = [...hudRects, ...(handRect ? [handRect] : [])];
-        const above = handRect && box.width >= 400 ? (() => {
-          const width = Math.min(PICK_BAR.max, box.width / 2);
-          const height = width < PICK_BAR.row ? PICK_BAR.stackHeight : PICK_BAR.rowHeight;
-          return `${Math.round((box.width - width) / 2)},${Math.max(0, Math.round(handRect.y - height - PICK_BAR.edge))},${Math.round(width)},${height}`;
-        })() : undefined;
-        return freeDockRoom(box, [...blocks, ...targets]) ?? freeDockRoom(box, blocks) ?? above ?? dockBarRoom(box);
-      }
-      return freeDockRoom(box, hudRects) ?? dockBarRoom(box);
-    }
-    if (!nearBox) return undefined;
-    // The bar may run to the edge of your field (the 4-way keeps 12 px inside a pair): a short field has one row band
-    // above and one below your monsters, and the bar fits in one of them.
-    const edge = PICK_BAR.edge;
-    // The other zones weigh far less than a target: the bar keeps off them too where your field has room.
-    const found = pickBarRoom({ x: nearBox.x - edge, y: nearBox.y - edge, width: nearBox.width + 2 * edge, height: nearBox.height + 2 * edge }, targets, zones);
-    const room = found?.split(",").map(Number);
-    const hits = (list: readonly Rect[], pad: number) => (x: number, y: number, width: number, height: number) =>
-      list.some((r) => r.x - pad < x + width && x < r.x + r.width + pad && r.y - pad < y + height && y < r.y + r.height + pad);
-    const covers = hits(targets, PICK_BAR.clear);
-    const coversZone = hits(zones, 0);
-    if (room && !covers(room[0], room[1], room[2], room[3]) && !coversZone(room[0], room[1], room[2], room[3])) return found;
-    // No clear place on your field: the free room off every board, unless that is under the HUD's left column; else a
-    // clear place at the bottom of the box, off the hand and the HUD.
-    const bar = rooms?.bar;
-    const free = (x: number, y: number, width: number, height: number) =>
-      !covers(x, y, width, height) && !coversZone(x, y, width, height) && !hits(hudRects, 0)(x, y, width, height);
-    if (bar && bar.x >= HUD_LEFT_COLUMN && free(bar.x, bar.y, bar.width, bar.height)) {
-      return `${bar.x},${bar.y},${bar.width},${bar.height}`;
-    }
-    const dock = freeDockRoom(box, [...targets, ...zones, ...hudRects]);
-    if (dock) return dock;
-    // Nothing is clear anywhere (a small window at a big text size): a narrower bar on your own field, over empty zones
-    // only, never over one of your cards or the targets.
-    const pair = { x: nearBox.x - edge, y: nearBox.y - edge, width: nearBox.width + 2 * edge, height: nearBox.height + 2 * edge };
-    return clearBarRoom(pair, [...targets, ...cards], zones) ?? found;
-  }, [floating, zoom.zoomed, ownZoom, handRect, nearBox, targets, zones, cards, hudRects, rooms?.bar, box]);
+    if (!zoom.zoomed && !nearBox) return undefined;
+    return planPickBarRoom({ box, targets, hand: handRect, hud: pinnedRect ? [...hudRects, pinnedRect] : hudRects, cards });
+  }, [floating, zoom.zoomed, handRect, nearBox, targets, cards, hudRects, pinnedRect, box]);
 
   // A prompt that opens, closes or moves changes the HUD insets: the view eases into the new clamps (no gap stays).
   const hudKey = `${controller.prompt?.id ?? ""}|${promptCenter ? 1 : 0}|${overlay ? 1 : 0}|${controller.seatPick ? 1 : 0}|${barRoom ?? ""}|${rooms?.panel ? `${rooms.panel.x},${rooms.panel.y}` : ""}|${rivalHints.map((h) => h.seat).join(",")}`;
@@ -718,6 +680,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
       data-prompt-center={nearBox ? "true" : undefined}
       data-panel-room={rooms?.panel && !nearBox ? "true" : undefined}
       data-room-snug={rooms?.panel && !nearBox && (rooms.panel.width < 262 || rooms.panel.height < 300) ? "true" : undefined}
+      data-bar-clamp={barRoom ? "true" : undefined}
       data-bar-room={barRoom ?? (rooms?.bar ? `${rooms.bar.x},${rooms.bar.y},${rooms.bar.width},${rooms.bar.height}` : undefined)}
       style={rooms?.panel && !nearBox ? ({ "--room-x": `${rooms.panel.x}px`, "--room-y": `${rooms.panel.y}px`, "--room-w": `${rooms.panel.width}px`, "--room-h": `${rooms.panel.height}px` } as CSSProperties) : undefined}
     >

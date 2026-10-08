@@ -265,7 +265,39 @@ const states = {
   }),
 } satisfies Record<TableStateId, TableFixtureState>;
 
-export const FFA3_FIXTURES: TableFixtureSet = { format: "ffa3", title: "3-way free-for-all", states };
+/** The Banish cost prompt: one card of your hand or your field. */
+const banishPrompt = (id: string) => (): DuelPrompt => ({
+  id,
+  seat: REN,
+  kind: "cards",
+  title: "Select a card",
+  description: "Banish",
+  min: 1,
+  max: 1,
+  options: [
+    ...[0, 1, 5].map((sequence) => monsterOption(REN, sequence, "Monster")),
+    ...[0, 1, 2, 3, 4].map((sequence) => ({ ...handOption(sequence, "Card"), label: "Card" })),
+  ],
+});
+
+/** States only the FFA3 preview shows (`?state=<id>`). */
+const extra = {
+  // A field-select bar over cards in your hand and on your field (the Banish cost of a summon).
+  "banish-pick": make("banish-pick" as TableStateId, "Banish: select a card", { prompt: banishPrompt("banish-pick") }),
+  // The same pick while a chain is open: the chain tower stands at the side of the board.
+  "chain-banish-pick": make("chain-banish-pick" as TableStateId, "Banish during a chain", {
+    phase: "battle",
+    battleStep: "battle",
+    edit: (seats) => {
+      putSpell(seats[RYO], 1, C.mirrorForce);
+      putSpell(seats[MIKA], 0, C.callOfTheHaunted);
+    },
+    chain: [link(1, RYO, C.mirrorForce), link(2, MIKA, C.callOfTheHaunted)],
+    prompt: banishPrompt("chain-banish-pick"),
+  }),
+};
+
+export const FFA3_FIXTURES: TableFixtureSet = { format: "ffa3", title: "3-way free-for-all", states, extra };
 
 /** Monsters in Defense Position on every field (the `?def=1` preview): face-up and set, side by side, so a turned card next to an upright one shows the zone it keeps. */
 const DEFENSE_ROWS = [

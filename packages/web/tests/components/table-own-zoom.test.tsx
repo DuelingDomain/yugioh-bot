@@ -468,6 +468,24 @@ describe("FFA3 own field camera zoom", () => {
     expect(at()).toBe(room);
   });
 
+  it("measures the legal targets again once after a pan by hand, and not again after the refit that follows", () => {
+    frames();
+    layout({ x: 300, y: 700, width: 500, height: 160 });
+    const { container } = render(<Table state={FFA3_FIXTURES.states["target-pick"]} camera={{ mode: "focus", focusSeat: REN }} />);
+    advance(2500);
+    const query = vi.spyOn(HTMLElement.prototype, "querySelectorAll");
+    const measures = () => query.mock.calls.filter(([selector]) => selector === '[data-legal="true"]').length;
+    fireEvent.wheel(board(container), { deltaY: -300, clientX: 300, clientY: 300 });
+    // In steps: React renders the state of the rest between them.
+    for (let t = 0; t < 4000; t += 250) advance(250);
+    // One measure run (the frame, the settle and the late timer) for the pan; more than that is a repeat.
+    const after = measures();
+    expect(after).toBeGreaterThan(0);
+    expect(after).toBeLessThanOrEqual(3);
+    for (let t = 0; t < 6000; t += 250) advance(250);
+    expect(measures()).toBe(after);
+  }, TEST_TIMEOUT_MS);
+
   it("the seat-choice panel keeps off the HUD that stays on screen (a plate, the chip)", async () => {
     const rect = (x: number, y: number, width: number, height: number) => ({ x, y, left: x, top: y, width, height, right: x + width, bottom: y + height, toJSON: () => ({}) }) as DOMRect;
     const roomOf = (root: HTMLElement) => {
