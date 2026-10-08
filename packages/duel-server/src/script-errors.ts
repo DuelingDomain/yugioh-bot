@@ -1,4 +1,5 @@
 import { OcgLogType } from "ocgcore-wasm";
+import { scriptHelperNames } from "./card-script-hash.js";
 import type { DuelEngineChoice, DuelFormat, DuelMode, DuelScriptErrorMode } from "@yugidraft/shared/duels";
 
 export interface CardScriptError {
@@ -6,6 +7,7 @@ export interface CardScriptError {
   scriptFile: string;
   line: number;
   message: string;
+  helperScripts?: readonly string[];
 }
 
 /** Private telemetry only. Never include these fields in a player view. */
@@ -69,7 +71,9 @@ export function classifyCardScriptError(type: number, text: string, processing: 
   const code = card ? Number(card[1]) : 0;
   const line = Number(match[3]);
   if (!Number.isSafeInteger(code) || code <= 0 || code > 0xffffffff || !Number.isSafeInteger(line) || line <= 0) return null;
-  return { code, scriptFile, line, message: text };
+  const helperScripts = scriptHelperNames([scriptFile, ...[...`${text}\n${traceback}`.matchAll(/(?:\[string "([^"\r\n]+)"\]|([^\s\r\n]+\.lua)):\d+:/g)]
+    .map(frame => frame[1] ?? frame[2]!)]);
+  return { code, scriptFile, line, message: text, ...(helperScripts.length ? { helperScripts } : {}) };
 }
 
 /** Keeps fatal diagnostics separate from recoverable runtime card errors on every engine path. */

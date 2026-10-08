@@ -34,6 +34,7 @@ describe("script error automatic admission blocks", () => {
   it("lifts only the row whose startup hash fails and logs the failure once", () => {
     const t = setup(); [1, 2, 3].forEach(id => t.record(id, error));
     t.db.exec(`INSERT INTO card_script_auto_blocks
+      (code, reason, blocked_at, distinct_duels, error_count, threshold, window_days, bundle_version, script_hash, cleared_at, engine_kind)
       SELECT 20, reason, blocked_at, distinct_duels, error_count, threshold, window_days,
         bundle_version, script_hash, cleared_at, engine_kind FROM card_script_auto_blocks WHERE code = 10`);
     const log = vi.spyOn(console, "error").mockImplementation(() => {});

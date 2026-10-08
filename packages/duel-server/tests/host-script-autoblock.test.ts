@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import { readFileSync, rmSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import Database from "better-sqlite3";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
@@ -43,6 +43,7 @@ vi.mock("../src/worker-client.js", () => ({
       expect(answer).toEqual({ choice: "continue" });
       this.step++;
       this.onScriptError?.({ code: 3743515, scriptFile: "c3743515.lua", line: 1,
+        helperScripts: ["proc_x.lua"],
         message: "fixture runtime failure", index: this.step, commandHash: `fixture-answer-${this.step}`,
         mode: this.options.mode, format: this.options.format ?? "1v1", engine: this.options.engine ?? "pinned",
         scriptErrorMode: this.options.scriptErrorMode ?? "tolerant" });
@@ -60,6 +61,7 @@ beforeAll(() => {
     { code: 3743615, name: "Far alias", type: 33, alias: 3743515 },
     { code: 15025844, name: "Mystical Elf" },
   ]);
+  writeFileSync(`${DATA}/card-scripts/proc_x.lua`, "-- fixture helper\n");
 });
 afterAll(() => { rmSync(DATA, { recursive: true, force: true }); });
 
@@ -93,8 +95,8 @@ describe("automatic blocks through host and replay", () => {
       { engine, scriptErrorMode: "tolerant", firstTurnDraw: false, startupScripts: options.startupScripts!.map(script => script.content) });
     const prior = duels.create({ guildId: "g", organizerPlayerId: players[0]!, name: "Earlier", mode: "normal", settings: options.settings });
     duels.takeSeat(prior.slug, "g", players[1]!);
-    const policy = createAutoBlockPolicy(db, { bundleVersion: version, scriptHash: (code, kind) => cardScriptHash(loadCardDatabase(DATA), code, kind) });
-    createScriptErrorRecorder(db, () => {}, policy)(prior.id, { code: 3743515, scriptFile: "c3743515.lua", line: 1, message: "earlier failure", index: 1, mode: "normal", format: "1v1", engine, scriptErrorMode: "tolerant" });
+    const policy = createAutoBlockPolicy(db, { bundleVersion: version, scriptHash: (code, kind, helpers) => cardScriptHash(loadCardDatabase(DATA), code, kind, undefined, helpers) });
+    createScriptErrorRecorder(db, () => {}, policy)(prior.id, { code: 3743515, scriptFile: "c3743515.lua", helperScripts: ["proc_x.lua"], line: 1, message: "earlier failure", index: 1, mode: "normal", format: "1v1", engine, scriptErrorMode: "tolerant" });
     const makeHost = () => createDuelHost({ db, dataDirectory: DATA, secret, searchCards: () => [], pollIntervalMs: 60000 });
     let host = makeHost();
     const base = { slug: session.slug, guildId: "g" };

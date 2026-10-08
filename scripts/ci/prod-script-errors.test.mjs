@@ -73,13 +73,16 @@ fi
 });
 
 test("public artifacts retain only validated fields from the bounded remote output", () => {
-  const card = { code: 10, name: "Card", distinctDuels: 2, errorCount: 3, autoBlocked: true, scriptHash: "a".repeat(64), engineKind: "multi-normal" };
+  const card = { code: 10, name: "Card", distinctDuels: 2, errorCount: 3, autoBlocked: true, scriptHash: "a".repeat(64), engineKind: "multi-normal", helperScripts: ["proc_x.lua", "utility.lua"] };
   const result = runCapture({ payload: JSON.stringify({ available: true, privatePlayer: "secret", cards: [{ ...card, privateDiagnostic: "Lua text" }] }) });
   assert.deepEqual(result.snapshot, { available: true, cards: [card] });
   for (const payload of ["not JSON", "null", JSON.stringify({ available: true, cards: [null] }),
     JSON.stringify({ available: true, cards: [{ ...card, errorCount: -1 }] }),
     JSON.stringify({ available: true, cards: [{ ...card, name: "x".repeat(201) }] }),
     JSON.stringify({ available: true, cards: [{ ...card, engineKind: "unknown" }] }),
+    JSON.stringify({ available: true, cards: [{ ...card, helperScripts: ["../private.lua"] }] }),
+    JSON.stringify({ available: true, cards: [{ ...card, helperScripts: ["c10.lua"] }] }),
+    JSON.stringify({ available: true, cards: [{ ...card, helperScripts: "utility.lua" }] }),
     JSON.stringify({ available: true, cards: Array(101).fill(card) })]) {
     assert.deepEqual(runCapture({ payload }).snapshot, { available: false });
   }

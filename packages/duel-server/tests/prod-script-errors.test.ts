@@ -62,9 +62,10 @@ it("the public CLI neither migrates an old database nor exposes its failure diag
 
 it("a helper-only fix lifts a block and the candidate report announces the lift", () => {
   const db = new Database(":memory:"); dbs.push(db); migrate(db);
-  let helper = "broken";
-  const source = { ...cards, scriptNames: () => ["c10.lua", "proc_x.lua"], readScript: (name: string) => name === "proc_x.lua" ? helper : "unchanged card" };
-  const policy = createAutoBlockPolicy(db, { bundleVersion: "b", scriptHash: (code, kind) => cardScriptHash(source, code, kind) });
+  let helper = "broken", unrelated = "unrelated";
+  const source = { ...cards, scriptNames: () => ["c10.lua", "proc_x.lua", "utility.lua"], readScript: (name: string) => name === "proc_x.lua" ? helper : name === "utility.lua" ? unrelated : "unchanged card" };
+  const scriptHash = (code: number, kind: import("../src/card-script-hash.js").ScriptEngineKind, helpers: readonly string[]) => cardScriptHash(source, code, kind, undefined, helpers);
+  const policy = createAutoBlockPolicy(db, { bundleVersion: "b", scriptHash });
   const record = createScriptErrorRecorder(db, () => {}, policy);
   for (const id of [1, 2, 3]) {
     const player = seedIdentity(db, { guildId: "g", name: `Human ${id}`, userId: seedUser(db, `helper-${id}`).userId }).playerId;
@@ -74,8 +75,17 @@ it("a helper-only fix lifts a block and the candidate report announces the lift"
   for (const id of [1, 2, 3]) record(id, { code: 10, scriptFile: "proc_x.lua", line: 1, message: "error", index: 1, mode: "normal", format: "1v1", engine: "pinned", scriptErrorMode: "tolerant" });
   expect(policy.entries("pinned-normal")).toHaveLength(1);
   const snapshot = prodScriptErrors(db, source, new Map());
+  expect(snapshot.cards[0]?.helperScripts).toEqual(["proc_x.lua"]);
+  expect(db.prepare("SELECT helper_scripts FROM card_script_auto_blocks").get()).toEqual({ helper_scripts: '["proc_x.lua"]' });
+  unrelated = "weekly helper update";
+  policy.refresh();
+  const restarted = createAutoBlockPolicy(db, { bundleVersion: "next", scriptHash });
+  expect(restarted.entries("pinned-normal")).toHaveLength(1);
+  expect(prodScriptErrors(db, source, new Map()).cards[0]?.autoBlocked).toBe(true);
+  const candidateHash = (code: number, kind?: import("../src/card-script-hash.js").ScriptEngineKind, helpers?: readonly string[]) => cardScriptHash(source, code, kind, undefined, helpers);
+  expect(prodScriptErrorReport(snapshot, candidateHash)).not.toContain("auto block will lift");
   helper = "fixed";
-  expect(prodScriptErrorReport(snapshot, (code, kind) => cardScriptHash(source, code, kind))).toContain("auto block will lift");
+  expect(prodScriptErrorReport(snapshot, candidateHash)).toContain("auto block will lift");
   policy.refresh();
   expect(policy.entries()).toEqual([]);
 });

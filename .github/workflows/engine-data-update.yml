@@ -82,6 +82,7 @@ jobs:
                   code, name = card.get('code'), card.get('name')
                   duels, errors = card.get('distinctDuels'), card.get('errorCount')
                   blocked, digest, kind = card.get('autoBlocked'), card.get('scriptHash'), card.get('engineKind')
+                  helpers = card.get('helperScripts')
                   integer = lambda n: type(n) is int and 0 <= n <= 9007199254740991
                   if not integer(code) or not 1 <= code <= 4294967295: raise ValueError()
                   if not isinstance(name, str) or len(name.encode('utf-16-le')) > 400: raise ValueError()
@@ -89,8 +90,10 @@ jobs:
                   if type(blocked) is not bool: raise ValueError()
                   if digest is not None and (not isinstance(digest, str) or not re.fullmatch('[a-f0-9]{64}', digest)): raise ValueError()
                   if kind is not None and (not isinstance(kind, str) or kind not in kinds): raise ValueError()
+                  if helpers is not None and (not isinstance(helpers, list) or len(helpers) > 64 or any(not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}\.lua', name) or re.fullmatch(r'c\d+\.lua', name) for name in helpers)): raise ValueError()
                   entry = dict(code=code, name=name, distinctDuels=duels, errorCount=errors, autoBlocked=blocked, scriptHash=digest)
                   if kind is not None: entry['engineKind'] = kind
+                  if helpers is not None: entry['helperScripts'] = helpers
                   clean.append(entry)
               result = dict(available=True, cards=clean)
               if value.get('truncated') is True: result['truncated'] = True

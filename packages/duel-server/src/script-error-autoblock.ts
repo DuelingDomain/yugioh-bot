@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import { scriptEngineKind, type ScriptEngineKind } from "./card-script-hash.js";
+import { scriptEngineKind, scriptHelperNames, type ScriptEngineKind } from "./card-script-hash.js";
 import type { DuelScriptError } from "./script-errors.js";
 import type { CardBlockEntry } from "./card-block-list.js";
 import { scriptErrorModeFromEnv } from "./script-errors.js";
@@ -20,7 +20,7 @@ export function autoBlockConfigFromEnv() {
 
 export interface AutoBlockRow {
   code: number; reason: string; blocked_at: string; distinct_duels: number; error_count: number;
-  threshold: number; window_days: number; bundle_version: string; script_hash: string; cleared_at: string | null; engine_kind: ScriptEngineKind;
+  threshold: number; window_days: number; bundle_version: string; script_hash: string; cleared_at: string | null; engine_kind: ScriptEngineKind; helper_scripts: string;
 }
 
 /** Clears admission policy only; keeps telemetry and establishes a fresh counting baseline. */
@@ -33,7 +33,7 @@ export function clearAutoBlock(db: Database.Database, code: number, now = Date.n
 /** Host-only mutable admission policy. Never passed into a worker or saved duel setup. */
 export function createAutoBlockPolicy(db: Database.Database, options: {
   bundleVersion: string;
-  scriptHash: (code: number, kind: ScriptEngineKind) => string | null;
+  scriptHash: (code: number, kind: ScriptEngineKind, helperScripts: readonly string[]) => string | null;
   remaps?: ReadonlyMap<number, number>;
   exactCodes?: (code: number) => readonly number[];
   now?: () => number;
@@ -45,11 +45,12 @@ export function createAutoBlockPolicy(db: Database.Database, options: {
   const relatedCodes = (code: number) => [code, ...[...options.remaps ?? []].filter(([, target]) => target === code).map(([old]) => old)];
   const rows = db.prepare("SELECT * FROM card_script_auto_blocks WHERE cleared_at IS NULL ORDER BY code");
   const block = db.prepare(`INSERT INTO card_script_auto_blocks
-    (code, reason, blocked_at, distinct_duels, error_count, threshold, window_days, bundle_version, script_hash, engine_kind, cleared_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+    (code, reason, blocked_at, distinct_duels, error_count, threshold, window_days, bundle_version, script_hash, engine_kind, helper_scripts, cleared_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
     ON CONFLICT(code, engine_kind) DO UPDATE SET reason = excluded.reason, blocked_at = excluded.blocked_at,
       distinct_duels = excluded.distinct_duels, error_count = excluded.error_count, threshold = excluded.threshold,
-      window_days = excluded.window_days, bundle_version = excluded.bundle_version, script_hash = excluded.script_hash, cleared_at = NULL`);
+      window_days = excluded.window_days, bundle_version = excluded.bundle_version, script_hash = excluded.script_hash,
+      helper_scripts = excluded.helper_scripts, cleared_at = NULL`);
   const empty: readonly CardBlockEntry[] = [];
   let signature: string | undefined;
   const cachedEntries = new Map<ScriptEngineKind | undefined, readonly CardBlockEntry[]>();
@@ -57,7 +58,7 @@ export function createAutoBlockPolicy(db: Database.Database, options: {
     if (!enabled) return;
     for (const row of rows.all() as AutoBlockRow[]) {
       let currentHash: string | null = null;
-      try { currentHash = options.scriptHash(resolveCode(row.code), row.engine_kind); }
+      try { currentHash = options.scriptHash(resolveCode(row.code), row.engine_kind, scriptHelperNames(JSON.parse(row.helper_scripts))); }
       catch (failure) {
         console.error(JSON.stringify({ event: "card_script_auto_block_hash_failed", code: row.code,
           engineKind: row.engine_kind, failure: failure instanceof Error ? failure.message : String(failure) }));
@@ -74,10 +75,11 @@ export function createAutoBlockPolicy(db: Database.Database, options: {
     revision(rawCode: number, error?: DuelScriptError) {
       const code = resolveCode(rawCode);
       const engineKind = error ? scriptEngineKind(error.mode, error.format, error.engine) : "all";
-      return { code, engineKind, scriptHash: options.scriptHash(code, engineKind) };
+      const helperScripts = scriptHelperNames([error?.scriptFile ?? "", ...error?.helperScripts ?? []]);
+      return { code, engineKind, helperScripts, scriptHash: options.scriptHash(code, engineKind, helperScripts) };
     },
     /** Called inside the recorder's immediate transaction, after an accepted new sample. */
-    consider(code: number, hash: string | null, kind: ScriptEngineKind = "all") {
+    consider(code: number, hash: string | null, kind: ScriptEngineKind = "all", helperScripts: readonly string[] = []) {
       if (!enabled || hash === null) return;
       refresh();
       const codes = relatedCodes(code), placeholders = codes.map(() => "?").join(",");
@@ -94,7 +96,7 @@ export function createAutoBlockPolicy(db: Database.Database, options: {
             JOIN players p ON p.id = s.player_id) AS humans FROM eligible`)
         .get(...codes, hash, kind, new Date(time - config.windowDays * 86400000).toISOString(), at, clearedAt, clearedAt) as { duels: number; errors: number; humans: number };
       if (result.duels < config.threshold || result.humans < 2) return;
-      block.run(code, AUTO_BLOCK_REASON, at, result.duels, result.errors, config.threshold, config.windowDays, options.bundleVersion, hash, kind);
+      block.run(code, AUTO_BLOCK_REASON, at, result.duels, result.errors, config.threshold, config.windowDays, options.bundleVersion, hash, kind, JSON.stringify(scriptHelperNames(helperScripts)));
     },
     entries(kind?: ScriptEngineKind): readonly CardBlockEntry[] {
       if (!enabled) return empty;

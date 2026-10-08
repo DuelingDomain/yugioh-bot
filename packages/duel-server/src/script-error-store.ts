@@ -48,7 +48,7 @@ export function createScriptErrorRecorder(db: Database.Database, log: (line: str
       new Date(autoBlocks?.now() ?? Date.now()).toISOString(), revision?.code ?? error.code,
       revision?.scriptHash ?? null, error.scriptErrorMode, revision?.engineKind ?? null).changes) return false;
     increment.run(error.code, error.message, error.scriptFile, error.line, error.mode, duelId);
-    if (error.scriptErrorMode === "tolerant" && revision) autoBlocks?.consider(revision.code, revision.scriptHash, revision.engineKind);
+    if (error.scriptErrorMode === "tolerant" && revision) autoBlocks?.consider(revision.code, revision.scriptHash, revision.engineKind, revision.helperScripts);
     return true;
   });
   return (duelId: number, error: DuelScriptError): boolean => {
