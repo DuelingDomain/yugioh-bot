@@ -58,6 +58,22 @@ describe("useGridFinale", () => {
     expect(hook.result.current.board).toEqual({ kind: "same", bottom: 0, top: 1 });
   });
 
+  it("counts the wait from the start of the last crumble when two seats wait, and from the drop of a crumble that goes", async () => {
+    const hook = run([2]);
+    const first = beginCrumbleWait();
+    const second = beginCrumbleWait();
+    hook.rerender({ out: [2, 3] });
+    act(() => first());
+    act(() => void vi.advanceTimersByTime(EXIT_CRUMBLE_MS + FINALE_BEAT_MS + 5000));
+    expect(hook.result.current.board).toBeNull();
+    // The second seat goes (an unmount) while it waits: the finale goes on from there.
+    await act(async () => second.drop());
+    act(() => void vi.advanceTimersByTime(EXIT_CRUMBLE_MS + FINALE_BEAT_MS - 1));
+    expect(hook.result.current.board).toBeNull();
+    act(() => void vi.advanceTimersByTime(1));
+    expect(hook.result.current.board).toEqual({ kind: "same", bottom: 0, top: 1 });
+  });
+
   it("shows the board after the crumble and a beat, with the FINAL DUEL caption, then drops the caption", () => {
     const hook = run([2]);
     hook.rerender({ out: [2, 3] });

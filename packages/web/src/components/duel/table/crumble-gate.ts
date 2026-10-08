@@ -37,25 +37,48 @@ export function crumbleMayStart(source: BoardSource = typeof document === "undef
 type Listener = () => void;
 const listeners = new Set<Listener>();
 let waiting = 0;
+let notifyQueued = false;
 
 /** A crumble that waits for the battle is on the board. */
 export function crumbleWaiting(): boolean {
   return waiting > 0;
 }
 
+const notify = () => {
+  for (const listener of [...listeners]) listener();
+};
+
+/** A crumble that waits is a function: call it when the crumble starts. `drop` is for a seat that goes while it waits. */
+export type CrumbleWait = (() => void) & { drop(): void };
+
 /**
- * A crumble starts to wait. The returned function says it starts (or that its seat is gone): whatever waited for it (the
- * regroup glide of the seats that stay, the finale board) may go on. It does its work once.
+ * A crumble starts to wait. Calling the returned function says the crumble starts: whatever waited for it (the regroup
+ * glide of the seats that stay, the finale board, the out clock of the cell) hears it when no other crumble waits any more.
+ * `drop` is for a seat that goes while it waits (an unmount, or the cleanup of a StrictMode double effect): it tells the
+ * listeners in a microtask, and only if no crumble waits by then, so a remount does not release the finale early.
+ * Each does its work once.
  */
-export function beginCrumbleWait(): () => void {
+export function beginCrumbleWait(): CrumbleWait {
   waiting += 1;
   let open = true;
-  return () => {
-    if (!open) return;
+  const leave = () => {
+    if (!open) return false;
     open = false;
     waiting -= 1;
-    for (const listener of [...listeners]) listener();
+    return true;
   };
+  const end = (() => {
+    if (leave() && waiting === 0) notify();
+  }) as CrumbleWait;
+  end.drop = () => {
+    if (!leave() || notifyQueued) return;
+    notifyQueued = true;
+    queueMicrotask(() => {
+      notifyQueued = false;
+      if (waiting === 0) notify();
+    });
+  };
+  return end;
 }
 
 /** Calls `listener` each time a crumble that waited starts. */
@@ -67,20 +90,30 @@ export function onCrumbleStart(listener: Listener): () => void {
 }
 
 type Pausable = AnimationLike & { pause(): void; play(): void; currentTime?: number | string | null };
+type AnimationRoot = { getAnimations(options?: { subtree?: boolean }): AnimationLike[] };
 
 const isCssTransition = (animation: unknown): boolean => (animation as { constructor?: { name?: string } }).constructor?.name === "CSSTransition";
+
+/** What glides after the crumble and its beat (rival-field, holo-lp, plaza, table-stage CSS): the seats, their panels, the strip and the turn ring. */
+export const REGROUP_TARGETS = '[data-glide="true"], [data-glide="true"] *, [data-regroup="true"] .hub, [data-regroup="true"] [data-turn-ring]';
+
+const regroupTarget = (animation: AnimationLike): boolean => {
+  const target = (animation.effect as { target?: { matches?: (selector: string) => boolean } | null } | null | undefined)?.target;
+  return target?.matches?.(REGROUP_TARGETS) === true;
+};
 
 /**
  * The seats that stay glide to their new places with a CSS transition whose delay is the crumble and the beat after it
  * (rival-field.module.css). That delay counts from the moment the seat left, so a crumble that waits for the battle would
- * run into the glide. While the crumble waits, the transitions that are still in their delay are paused; `resume`
- * lets them go on, so the glide starts a crumble and a beat after the crumble starts, as without the wait.
+ * run into the glide. While the crumble waits, the transitions of the regroup (`REGROUP_TARGETS`, inside `root`, the table
+ * stage) that are still in their delay are paused; other transitions (the red LP colour, the HUD, the chain slot) are not
+ * touched. `resume` lets them go on, so the glide starts a crumble and a beat after the crumble starts, as without the wait.
  */
-export function pauseRegroup(source: { getAnimations(options?: { subtree?: boolean }): AnimationLike[] } | null | undefined = typeof document === "undefined" ? null : document): () => void {
-  if (!source || typeof source.getAnimations !== "function") return () => undefined;
+export function pauseRegroup(root: AnimationRoot | null | undefined): () => void {
+  if (!root || typeof root.getAnimations !== "function") return () => undefined;
   const held: Pausable[] = [];
-  for (const animation of source.getAnimations({ subtree: true }) as Pausable[]) {
-    if (!isCssTransition(animation) || animation.playState === "finished" || animation.playState === "idle") continue;
+  for (const animation of root.getAnimations({ subtree: true }) as Pausable[]) {
+    if (!isCssTransition(animation) || animation.playState === "finished" || animation.playState === "idle" || !regroupTarget(animation)) continue;
     const timing = (animation.effect as { getTiming?: () => { delay?: number } } | null | undefined)?.getTiming?.();
     const delay = timing?.delay ?? 0;
     const at = typeof animation.currentTime === "number" ? animation.currentTime : 0;

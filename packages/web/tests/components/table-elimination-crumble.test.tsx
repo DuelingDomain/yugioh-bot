@@ -13,9 +13,12 @@ import { FFA4_FIXTURES } from "@/components/duel/table/fixtures/ffa4";
 import type { TableFixtureState } from "@/components/duel/table/fixtures/common";
 import { useFixtureController } from "@/components/duel/table/fixtures/use-fixture-controller";
 import { TableShell } from "@/components/duel/table/table-shell";
-import { LP_TIMING } from "@/components/duel/duel-timing";
+import { GATE_TIMING, LP_TIMING } from "@/components/duel/duel-timing";
 import { clearLpMotion, noteLpMotion } from "@/components/duel/lp-motion";
 import { CRUMBLE_GATE_CAP_MS, CRUMBLE_GATE_TICK_MS } from "@/components/duel/table/crumble-gate";
+import { EXIT_CRUMBLE_MS, EXIT_CRUMBLE_REDUCED_MS } from "@/components/duel/table/rival-field";
+import { OUT_HOLD_MS } from "@/components/duel/table/grid-layout";
+import { FINALE_BEAT_MS } from "@/components/duel/table/grid-finale";
 import { GLIDE_MS } from "@/components/duel/table/use-seat-exits";
 
 beforeAll(() => {
@@ -73,8 +76,8 @@ const ringTones = (container: HTMLElement) =>
   [...container.querySelectorAll("[data-lp-seat]")].map((node) => `${node.getAttribute("data-lp-seat")}:${(node as HTMLElement).style.getPropertyValue("--seat-main")}`);
 // Time passes in gate ticks, each flushed by React: a crumble starts after the board is quiet (crumble-gate.ts), and the
 // timers it sets then exist only after that update.
-/** The crumble waits for the LP roll of the seat that went out (to 0) and then plays: the longest roll plus the longest wait. */
-const AFTER_BATTLE = LP_TIMING.rollMaxMs + 2000;
+/** The crumble waits for the LP roll of the seat that went out (to 0) and then plays: the longest roll, the crumble and a tick. */
+const AFTER_BATTLE = LP_TIMING.rollMaxMs + EXIT_CRUMBLE_MS + CRUMBLE_GATE_TICK_MS;
 const settle = (ms: number) => {
   for (let left = ms; left > 0; left -= CRUMBLE_GATE_TICK_MS) act(() => { vi.advanceTimersByTime(Math.min(CRUMBLE_GATE_TICK_MS, left)); });
 };
@@ -130,9 +133,12 @@ describe("the elimination crumble on a 4-way table", () => {
     const { container, rerender } = render(<Shell state={main} reducedMotion />);
     rerender(<Shell state={withOut(main, [3])} reducedMotion />);
     expect(container.querySelector("[data-seat-exit='3']")?.getAttribute("data-exit-motion")).toBe("reduced");
+    // Reduced motion takes the short pause of the result gate, not the board (no FX to wait for).
+    settle(GATE_TIMING.resultReducedPauseMs - CRUMBLE_GATE_TICK_MS);
+    expect(container.querySelector("[data-seat-exit='3']")?.hasAttribute("data-exit-held")).toBe(true);
     settle(CRUMBLE_GATE_TICK_MS);
     expect(container.querySelector("[data-crumble='reduced']")).not.toBeNull();
-    settle(700);
+    settle(EXIT_CRUMBLE_REDUCED_MS + CRUMBLE_GATE_TICK_MS);
     expect(crumbles(container)).toBe(0);
   });
 
@@ -244,7 +250,7 @@ describe("the crumble ends and cleans up", () => {
     const main = FFA4_FIXTURES.states.main;
     const { container, rerender, unmount } = render(<Shell state={main} />);
     rerender(<Shell state={withOut(main, [3])} />);
-    settle(AFTER_BATTLE + 1000);
+    settle(AFTER_BATTLE);
     expect(crumbles(container)).toBe(0);
     unmount();
     expect(vi.getTimerCount()).toBe(0);
@@ -263,7 +269,7 @@ describe("two seats out close together, and the end of the duel", () => {
     settle(300);
     rerender(<Shell state={withOut(main, [2, 1])} />);
     expect(exitPose(container, 1)).toBe(homePose);
-    settle(AFTER_BATTLE + 1000);
+    settle(AFTER_BATTLE);
     expect(crumbles(container)).toBe(0);
     unmount();
     expect(vi.getTimerCount()).toBe(0);
@@ -274,7 +280,7 @@ describe("two seats out close together, and the end of the duel", () => {
     const done: TableFixtureState = { ...base, room: { ...base.room, engine: { ...base.room.engine!, result: { winnerSeat: 0, reason: "Last duelist standing" } } } };
     const { container, rerender, unmount } = render(<Shell state={main} />);
     expect(() => rerender(<Shell state={done} />)).not.toThrow();
-    settle(AFTER_BATTLE + 1000);
+    settle(AFTER_BATTLE);
     expect(crumbles(container)).toBe(0);
     unmount();
     expect(vi.getTimerCount()).toBe(0);
@@ -297,7 +303,7 @@ describe("the viewer is out on a 3-way table", () => {
     // The live region is the only status element that says it; the chip and the log note stay silent for readers.
     expect([...container.querySelectorAll("[role='status']")].filter((node) => /eliminated|spectating/i.test(node.textContent ?? "")).length).toBe(1);
     expect(container.querySelector("[data-testid='spectating-chip']")?.getAttribute("aria-hidden")).toBe("true");
-    settle(AFTER_BATTLE + 1000);
+    settle(AFTER_BATTLE);
     expect(crumbles(container)).toBe(0);
   });
 });
@@ -325,7 +331,7 @@ describe("the camera controls of a 3-way face-off", () => {
     expect(container.querySelector("[data-cam='overview']")).not.toBeNull();
     expect(container.querySelector("[data-seat-switch='overview']")).not.toBeNull();
     rerender(<Shell state={withOut(main, [2])} />);
-    settle(AFTER_BATTLE + 1000);
+    settle(AFTER_BATTLE);
     expect(container.querySelector("[data-cam='overview']")).toBeNull();
     expect(container.querySelector("[data-seat-switch='overview']")).toBeNull();
     expect(container.querySelectorAll("[data-seat-switch]").length).toBe(1);
@@ -400,20 +406,24 @@ describe("the crumble waits for the attack, the damage and the LP roll that put 
   // The battle layers draw with script animations (BattleFx) and the LP counter rolls on its own clock (lp-motion.ts).
   // The board animations are stubbed here: a running one stands for the attack and the damage hit.
   let battleRunning = false;
+  let strike: HTMLElement | null = null;
   beforeEach(() => {
     battleRunning = false;
-    const strike = document.createElement("div");
-    document.body.append(strike);
+    const target = document.createElement("div");
+    strike = target;
+    document.body.append(target);
     (document as unknown as { getAnimations: () => unknown[] }).getAnimations = () =>
-      battleRunning ? [{ finished: new Promise(() => {}), playState: "running", effect: { getTiming: () => ({ iterations: 1 }), target: strike } }] : [];
+      battleRunning ? [{ finished: new Promise(() => {}), playState: "running", effect: { getTiming: () => ({ iterations: 1 }), target } }] : [];
   });
   afterEach(() => {
     delete (document as unknown as { getAnimations?: unknown }).getAnimations;
+    strike?.remove();
+    strike = null;
   });
 
   const heldOf = (container: HTMLElement, seat: number) => container.querySelector(`[data-seat-exit='${seat}']`)?.hasAttribute("data-exit-held");
   const stateOf = (container: HTMLElement) => container.querySelector("[data-seat-exit] [data-crumble]")?.getAttribute("data-crumble") ?? null;
-  const CRUMBLE_MS = 1600;
+  const CRUMBLE_MS = EXIT_CRUMBLE_MS;
 
   for (const [name, fixtures, seat] of [
     ["3-way", FFA3_FIXTURES, 2],
@@ -490,5 +500,124 @@ describe("the crumble waits for the attack, the damage and the LP roll that put 
     // GLIDE_MS counts from the crumble start.
     settle(GLIDE_MS + 200);
     expect(container.querySelector("[data-seat-slot='1']")?.hasAttribute("data-glide")).toBe(false);
+  });
+
+  const finaleOf = (container: HTMLElement) => container.querySelector("[data-grid-stage]")?.getAttribute("data-grid-finale") ?? null;
+  const BEAT_AND_CRUMBLE = EXIT_CRUMBLE_MS + FINALE_BEAT_MS;
+  // Time to the release of the held crumble, in gate ticks.
+  const untilReleased = (container: HTMLElement, seat: number) => {
+    let waited = 0;
+    while (heldOf(container, seat) && waited <= CRUMBLE_GATE_CAP_MS) {
+      settle(CRUMBLE_GATE_TICK_MS);
+      waited += CRUMBLE_GATE_TICK_MS;
+    }
+    return waited;
+  };
+
+  it("shows the 4-way finale board only a crumble and a beat after the crumble started, not after the elimination", () => {
+    const main = FFA4_FIXTURES.states.main;
+    const { container, rerender } = render(<Shell state={main} />);
+    rerender(<Shell state={withOut(main, [3])} />);
+    settle(AFTER_BATTLE);
+    expect(crumbles(container)).toBe(0);
+    battleRunning = true;
+    rerender(<Shell state={withOut(main, [3, 2])} />);
+    // The battle outlasts the crumble and the beat, and the board still waits.
+    settle(BEAT_AND_CRUMBLE + 1000);
+    expect(heldOf(container, 2)).toBe(true);
+    expect(finaleOf(container)).toBeNull();
+    battleRunning = false;
+    untilReleased(container, 2);
+    expect(heldOf(container, 2)).toBe(false);
+    settle(BEAT_AND_CRUMBLE - CRUMBLE_GATE_TICK_MS);
+    expect(finaleOf(container)).toBeNull();
+    settle(CRUMBLE_GATE_TICK_MS * 2);
+    expect(finaleOf(container)).not.toBeNull();
+  });
+
+  it("holds the finale for two seats that go out together until both crumbles have started", () => {
+    const main = FFA4_FIXTURES.states.main;
+    const { container, rerender } = render(<Shell state={main} />);
+    battleRunning = true;
+    rerender(<Shell state={withOut(main, [2, 3])} />);
+    expect(crumbles(container)).toBe(2);
+    settle(BEAT_AND_CRUMBLE + 1000);
+    expect(heldOf(container, 2)).toBe(true);
+    expect(heldOf(container, 3)).toBe(true);
+    expect(finaleOf(container)).toBeNull();
+    battleRunning = false;
+    untilReleased(container, 2);
+    // They crumble together: the board is not held for one of them.
+    expect(heldOf(container, 3)).toBe(false);
+    settle(BEAT_AND_CRUMBLE - CRUMBLE_GATE_TICK_MS);
+    expect(finaleOf(container)).toBeNull();
+    settle(CRUMBLE_GATE_TICK_MS * 2);
+    expect(finaleOf(container)).not.toBeNull();
+  });
+
+  it("does not wait for the board under reduced motion, only for the short pause, however long the battle", () => {
+    const main = FFA3_FIXTURES.states.main;
+    const { container, rerender } = render(<Shell state={main} reducedMotion />);
+    battleRunning = true;
+    noteLpMotion(1500);
+    rerender(<Shell state={withOut(main, [2])} reducedMotion />);
+    settle(GATE_TIMING.resultReducedPauseMs - CRUMBLE_GATE_TICK_MS);
+    expect(heldOf(container, 2)).toBe(true);
+    settle(CRUMBLE_GATE_TICK_MS);
+    expect(heldOf(container, 2)).toBe(false);
+    expect(stateOf(container)).toBe("reduced");
+  });
+
+  it("pauses only the regroup transitions of its own table while it waits, and lets them go on when the crumble starts", () => {
+    const main = FFA3_FIXTURES.states.main;
+    const { container, rerender } = render(<Shell state={main} />);
+    const stage = container.querySelector<HTMLElement>("[data-table-stage]")!;
+    const other = document.createElement("div");
+    stage.append(other);
+    class CSSTransition {
+      playState = "running";
+      currentTime = 100;
+      pause = vi.fn(() => { this.playState = "paused"; });
+      play = vi.fn(() => { this.playState = "running"; });
+      finished = new Promise(() => {});
+      effect: { target: Element; getTiming: () => { delay: number } };
+      constructor(target: Element) {
+        this.effect = { target, getTiming: () => ({ delay: 2200 }) };
+      }
+    }
+    const regroup = { current: null as CSSTransition | null };
+    const unrelated = new CSSTransition(other);
+    (stage as unknown as { getAnimations: () => unknown[] }).getAnimations = () => [regroup.current, unrelated].filter(Boolean);
+    battleRunning = true;
+    rerender(<Shell state={withOut(main, [2])} />);
+    regroup.current = new CSSTransition(container.querySelector("[data-seat-slot='1']")!);
+    expect(regroup.current.effect.target.getAttribute("data-glide")).toBe("true");
+    // Two frames on, the regroup is paused; the rest of the table (the LP colour, the chain slot) runs on.
+    act(() => { vi.advanceTimersByTime(48); });
+    expect(regroup.current.pause).toHaveBeenCalledTimes(1);
+    expect(unrelated.pause).not.toHaveBeenCalled();
+    settle(1000);
+    expect(regroup.current.play).not.toHaveBeenCalled();
+    battleRunning = false;
+    untilReleased(container, 2);
+    expect(regroup.current.play).toHaveBeenCalledTimes(1);
+    expect(unrelated.play).not.toHaveBeenCalled();
+  });
+
+  it("keeps the 4-way cell of the seat out, and its outline hidden, for as long as the board is held, and counts the out hold from the crumble start", () => {
+    const main = FFA4_FIXTURES.states.main;
+    const { container, rerender } = render(<Shell state={main} />);
+    const cell = () => container.querySelector("[data-grid-cell='3']");
+    battleRunning = true;
+    rerender(<Shell state={withOut(main, [3])} />);
+    settle(OUT_HOLD_MS + 1000);
+    expect(heldOf(container, 3)).toBe(true);
+    expect(cell()?.getAttribute("data-cell-state")).toBe("out");
+    battleRunning = false;
+    untilReleased(container, 3);
+    settle(OUT_HOLD_MS - 2 * CRUMBLE_GATE_TICK_MS);
+    expect(cell()?.getAttribute("data-cell-state")).toBe("out");
+    settle(CRUMBLE_GATE_TICK_MS * 4);
+    expect(cell()?.getAttribute("data-cell-state")).toBe("empty");
   });
 });
