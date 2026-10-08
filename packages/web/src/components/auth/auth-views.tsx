@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { useSignInFlow } from "@/hooks/use-sign-in-flow";
 import type { useSignUpFlow } from "@/hooks/use-sign-up-flow";
 import type { AuthFlowState } from "@/lib/auth-flow";
@@ -34,6 +34,7 @@ export function SignInView({ flow: { state, actions }, marketingUrl }: ViewProps
   const restart = () => hardNavigate(signInHref(state.returnTo));
   // Joining the waitlist from the not-invited card settles the error, so the page stops tinting the pack red.
   const [waitlisted, setWaitlisted] = useState(false);
+  useEffect(() => { if (state.step !== "err-invite") setWaitlisted(false); }, [state.step]);
   return (
     <AuthFlowShell state={state} marketingUrl={marketingUrl} settled={waitlisted && state.step === "err-invite"}>
       {(() => {
@@ -51,7 +52,7 @@ export function SignInView({ flow: { state, actions }, marketingUrl }: ViewProps
           case "success":
             return <SuccessStep />;
           case "err-invite":
-            return <NotInvitedStep identifier={state.identifier ?? ""} waitlistUrl={waitlistHref(marketingUrl)} onRetry={() => { setWaitlisted(false); actions.back(); }} onJoined={() => setWaitlisted(true)} />;
+            return <NotInvitedStep identifier={state.identifier ?? ""} waitlistUrl={waitlistHref(marketingUrl)} onRetry={actions.back} onJoined={() => setWaitlisted(true)} />;
           case "err-signup":
             return <SignupClosedStep waitlistUrl={waitlistHref(marketingUrl)} onRetry={restart} />;
           case "err-banned":

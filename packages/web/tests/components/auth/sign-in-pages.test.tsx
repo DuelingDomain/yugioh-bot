@@ -155,12 +155,14 @@ describe("sign-in page", () => {
   it("drops the error tone once the not-invited email is on the waitlist, and restores it on retry", async () => {
     const user = userEvent.setup();
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ status: "joined" }), { status: 201 })));
-    const { container } = await renderSignIn(state("err-invite"));
+    const { container, actions } = await renderSignIn(state("err-invite"));
     expect(root(container)).toHaveAttribute("data-tone", "bad");
     await user.click(screen.getByRole("button", { name: "Join the waitlist" }));
-    await screen.findByRole("heading", { level: 1, name: "You’re on the list" });
+    const heading = await screen.findByRole("heading", { level: 1, name: "You’re on the list" });
+    expect(heading).toHaveFocus();
     expect(root(container)).toHaveAttribute("data-tone", "neutral");
     await user.click(screen.getByRole("button", { name: "Use a different email" }));
+    expect(actions.back).toHaveBeenCalledOnce();
   });
 
   it("restarts the page from the closed and unavailable cards", async () => {

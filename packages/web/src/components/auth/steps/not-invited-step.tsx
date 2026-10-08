@@ -32,11 +32,20 @@ export function NotInvitedStep({ identifier, waitlistUrl, onRetry, onJoined, pre
   const [phase, setPhase] = useState<WaitlistPhase>(previewPhase);
   // A ref, not state: two clicks in one tick both see the same render, so state alone would let both through.
   const inFlight = useRef(false);
+  // A failed try may still have saved the email (Clerk failed after the local row); a later "exists" is then this person's own join.
+  const failedOnce = useRef(false);
+  const confirmation = useRef<HTMLDivElement>(null);
 
   const joined = phase === "joined" || phase === "exists";
   const notify = useRef(onJoined);
   notify.current = onJoined;
-  useEffect(() => { if (joined) notify.current?.(); }, [joined]);
+  useEffect(() => {
+    if (!joined) return;
+    notify.current?.();
+    // The focused button is gone; move focus to the new heading so screen readers read the confirmation.
+    const heading = confirmation.current?.closest("section")?.querySelector("h1");
+    if (heading) { heading.tabIndex = -1; heading.focus(); }
+  }, [joined]);
 
   async function join() {
     if (inFlight.current) return;
@@ -50,11 +59,12 @@ export function NotInvitedStep({ identifier, waitlistUrl, onRetry, onJoined, pre
         body: JSON.stringify({ email, source: "app-not-invited" }),
       });
       if (response.status === 429) return setPhase("limited");
-      if (!response.ok) return setPhase("failed");
+      if (!response.ok) { failedOnce.current = true; return setPhase("failed"); }
       const body: unknown = await response.json().catch(() => null);
       const status = body && typeof body === "object" ? (body as { status?: unknown }).status : undefined;
-      setPhase(status === "joined" ? "joined" : status === "exists" ? "exists" : "failed");
+      setPhase(status === "joined" || (status === "exists" && failedOnce.current) ? "joined" : status === "exists" ? "exists" : "failed");
     } catch {
+      failedOnce.current = true;
       setPhase("failed");
     } finally {
       inFlight.current = false;
@@ -71,7 +81,7 @@ export function NotInvitedStep({ identifier, waitlistUrl, onRetry, onJoined, pre
         screen="waitlist-joined"
         foot={<SignInFootLinks waitlist={false} />}
       >
-        <div className={shell.form} data-clerk="waitlist-joined" data-status={phase}>
+        <div ref={confirmation} className={shell.form} data-clerk="waitlist-joined" data-status={phase}>
           <DoneRow title={already ? "Already on the waitlist" : "On the waitlist"} subtitle="Nothing else to do for now." />
           <button type="button" className={`${shell.btn} ${shell["btn-alt"]}`} onClick={onRetry}>Use a different email</button>
         </div>

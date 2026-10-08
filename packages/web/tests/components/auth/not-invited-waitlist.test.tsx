@@ -83,7 +83,8 @@ describe("NotInvitedStep waitlist join", () => {
     await waitFor(() => expect(join()).toBeEnabled());
     expect(screen.getByText("sam@example.com")).toBeInTheDocument();
     await userEvent.click(join());
-    await screen.findByRole("heading", { level: 1, name: "You’re already on the list" });
+    // The failed try may have saved the email, so "exists" on the retry is this person's own join.
+    await screen.findByRole("heading", { level: 1, name: "You’re on the list" });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
