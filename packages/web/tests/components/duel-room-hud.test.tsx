@@ -617,6 +617,26 @@ describe("the pinned card peek of the 1v1 room", () => {
       expect(peek().getAttribute("data-side")).toBe("right");
     });
 
+    it("keeps the right edge place inside the window when the layer is wider than the window", () => {
+      Object.defineProperty(document.documentElement, "clientWidth", { configurable: true, value: 1180 });
+      try {
+        layout({ left: 100, right: 180, top: 400, bottom: 560 });
+        mount();
+        pin();
+        expect(peek().getAttribute("data-side")).toBe("right");
+        // The layer ends at 1280, the window at 1180: the panel keeps its usual 16 px gap to the window edge.
+        expect(css("--pv-right")).toBe("116px");
+      } finally { delete (document.documentElement as { clientWidth?: number }).clientWidth; }
+    });
+
+    it("has no window offset when the layer fits the window", () => {
+      layout({ left: 100, right: 180, top: 400, bottom: 560 });
+      mount();
+      pin();
+      expect(peek().getAttribute("data-side")).toBe("right");
+      expect(css("--pv-right")).toBe("");
+    });
+
     it("keeps the left when the clicked card is under the right edge", () => {
       layout({ left: 1000, right: 1080, top: 400, bottom: 560 });
       mount();
