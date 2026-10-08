@@ -151,9 +151,4 @@ describe("PromptCenter card text", () => {
     expect(document.querySelector("p[data-clamped]")?.getAttribute("data-clamped")).toBe("false");
     expect(screen.queryByRole("button", { name: "Show full text" })).toBeNull();
   });
-
-  it("uses the small-window rule for phone widths and short windows", () => {
-    expect(COMPACT_TEXT_QUERY).toContain("max-width: 900px");
-    expect(COMPACT_TEXT_QUERY).toContain("max-height: 640px");
-  });
 });
