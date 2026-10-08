@@ -423,10 +423,10 @@ function CardArt({ option, className }: { option: DuelPromptOption; className: s
 }
 
 /**
- * Small windows: a phone or tablet width, or a short window. The prompt panel has little free height there, so long card
- * text is cut to a few lines with a toggle. Keep the width in step with the bottom-sheet breakpoint in
- * prompt-center.module.css. A host with `data-prompt-dense` (the 3-way and 4-way tables put the panel in one field pair)
- * is small at any window size, so it is checked on the element (see `CardTextBlock`).
+ * The window sizes where long card text is cut to a few lines with a toggle: a width of 900px or less (the bottom-sheet
+ * layout of prompt-center.module.css, which must use the same number) or a height of 640px or less. A host that sets
+ * `data-prompt-dense` on the prompt slot (the 4-way grid, and the 3-way and Tag tables while the prompt sits in one
+ * field box) is small at any window size, so `CardTextBlock` also looks for that attribute on its ancestors.
  */
 export const COMPACT_TEXT_QUERY = "(max-width: 900px), (max-height: 640px)";
 
