@@ -24,3 +24,10 @@ Parked by the owner on 2026-10-08. The code is on main (PR #273), but it stays o
 When it is on, the weekly card-data PR shows which cards had script errors in prod in the last 7 days. To turn it on:
 - Add the GitHub secrets `VM_SSH_KNOWN_HOSTS` and `ENGINE_DATA_PROD_SSH_PRIVATE_KEY` (a new key used only for this).
 - On the VM, add this line to `authorized_keys`: `restrict,command="sh /opt/yugioh-bot/scripts/prod-script-errors.sh" ssh-ed25519 <public-key> engine-data-prod-export`
+
+## Parked: faster card updates
+
+Parked by the owner on 2026-10-08. Today the card-data job runs each Monday and takes new cards and scripts from Project Ignis. Possible later steps:
+- Check for new cards each day, and make a PR only when Ignis or YGOPRODeck has new cards.
+- Add our own scripts (and card data) for new cards that Ignis does not have yet. Today `card-script-patches` can only change a script that Ignis already has.
+- A report of cards that YGOPRODeck has but Ignis does not have yet.
