@@ -480,6 +480,8 @@
 .log li[data-kind="result"] { font-weight: 600; border-top: 3px double var(--duel-rule-hi); }
 /* Category: a slim edge in the category colour and its icon before the text. */
 .log li[data-cat] { box-shadow: inset 2px 0 0 color-mix(in srgb, var(--duel-cat) 70%, transparent); }
+.logSeat { color: var(--seat-main); font-weight: 600; }
+.logSeat::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 4px; border-radius: 50%; background: var(--seat-main); vertical-align: 1px; }
 .logGlyph { display: inline-block; margin-right: 6px; vertical-align: -1px; color: var(--duel-cat); }
 .log li[data-cat="summon"] { --duel-cat: var(--duel-cat-summon); }
 .log li[data-cat="chain"] { --duel-cat: var(--duel-cat-chain); }

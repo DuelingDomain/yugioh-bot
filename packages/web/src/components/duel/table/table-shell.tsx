@@ -199,12 +199,12 @@ function TableShellBody({
   const gridFits = usesGridLayout(trackedFormat, tracked.engine.seats);
   const gridRefused = useLatch(trackedFormat === "ffa4" && !gridFits);
   const grid = gridFits && !gridRefused;
-  // The 3-way plaza on a wide screen keeps its stage and gets the same floating HUD (no Log: Settings, Chain and Camera).
+  // The 3-way plaza on a wide screen keeps its stage and gets the same floating HUD (Log, Settings and Camera).
   const plazaHud = !narrow && !grid && trackedFormat === "ffa3";
   // The 4-way grid on a wide screen swaps the bars and side columns for the floating HUD (grid-hud.tsx).
   const hud = !narrow && (grid || plazaHud);
   // The Card pane is a flyout in the HUD: a hover must not fill it, only a click or Inspect does.
-  const hudState = useHudPane({ camera: plazaHud, log: !plazaHud });
+  const hudState = useHudPane({ camera: plazaHud });
   const ui = useTableUi(tracked, { initialPane: grid && hud ? "log" : undefined, hud, onOpenCard: hudState.openCard, onPinCard: hudState.pinCard });
   useHudEscape(hudState, hud, ui.suspended);
   usePinSync(hudState, tracked.engine.seats);
@@ -409,7 +409,7 @@ function TableShellBody({
       />
       <details className={roomStyles.textLog}>
         <summary>Text log</summary>
-        <MatchSheetLog entries={engine.log} playerName={nameOf} players={playersText} />
+        <MatchSheetLog entries={engine.log} playerName={nameOf} players={playersText} seatTones={seatTones} />
       </details>
     </div>
   );
@@ -820,7 +820,7 @@ function TableShellBody({
           hud={hudState}
           panels={{
             card: cardPanel,
-            log: plazaHud ? undefined : logPanel,
+            log: logPanel,
             settings: <TableSettings controller={controller} preferences={preferences} connection={connection} tools={settingsTools} />,
             camera: plazaHud ? <CameraControls {...cameraProps} variant="panel" view={{ open: true }} /> : undefined,
           }}
