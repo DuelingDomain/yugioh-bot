@@ -128,10 +128,10 @@ describe("sign-in page", () => {
     expect(signInFlow).toHaveBeenCalledWith({ returnTo: "/dashboard", marketingUrl: MARKETING });
   });
 
-  it("uses the first value of a repeated redirect_url and null without MARKETING_URL", async () => {
+  it("uses the first value of a repeated redirect_url and the default marketing site when unset", async () => {
     vi.stubEnv("MARKETING_URL", "");
     await renderSignIn(state("signin"), { redirect_url: ["/cubes", "/other"] });
-    expect(signInFlow).toHaveBeenCalledWith({ returnTo: "/cubes", marketingUrl: null });
+    expect(signInFlow).toHaveBeenCalledWith({ returnTo: "/cubes", marketingUrl: "https://duelingdomain.com" });
   });
 
   it("wires the step handlers to the flow actions", async () => {

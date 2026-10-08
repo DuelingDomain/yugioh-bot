@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import { clerkClient } from "@clerk/nextjs/server";
 import type { NextRequest } from "next/server";
 import { createUserService } from "@yugidraft/shared/services";
@@ -37,8 +36,8 @@ export async function POST(request: NextRequest) {
     if (matches.data.length || matches.totalCount) return clearRecoveryCookies(recoveryError(SUPPORT, 409));
     const base = usernameFor(user.username, proof.discordUsername, user.id);
     let createdId: string | undefined;
-    for (let attempt = 0; attempt < 4; attempt++) {
-      const username = attempt === 0 ? base : `${base}_${randomBytes(4).toString("hex")}`;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const username = attempt === 0 ? base : `duelist_${user.id}`;
       try {
         const created = await client.users.createUser({ emailAddress: [proof.email], username, skipPasswordRequirement: true,
           legalAcceptedAt: new Date(), externalId: String(user.id), privateMetadata: { existingPlayerDiscordId: proof.discordId } });
@@ -46,10 +45,13 @@ export async function POST(request: NextRequest) {
       } catch (error) {
         const { code, param } = clerkError(error);
         const collision = code === "form_identifier_exists" || code === "form_username_exists";
-        if (!collision) throw error;
+        if (!collision && param !== "username" && !code?.startsWith("form_username_")) throw error;
         if (param && param !== "username") return clearRecoveryCookies(recoveryError(SUPPORT, 409));
         if (!param) { const matches = await byEmail(); if (matches.data.length || matches.totalCount) return clearRecoveryCookies(recoveryError(SUPPORT, 409)); }
-        if (attempt === 3) return clearRecoveryCookies(recoveryError(SUPPORT, 409));
+        if (attempt === 1) {
+          if (!collision) throw error;
+          return clearRecoveryCookies(recoveryError(SUPPORT, 409));
+        }
       }
     }
     if (!createdId) throw new Error("Clerk account unavailable");
