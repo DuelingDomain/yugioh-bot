@@ -37,7 +37,6 @@ import { priorityOrder } from "../priority-chips";
 import { usePickContinuation, type PickContinuation } from "../pick-continuation";
 import { useResultGate } from "../result-reveal";
 import { firstInspectCard } from "../tag/tag-logic";
-import { DuelClockDisplay } from "../room-settings";
 import { SeatStrip } from "../seat-strip";
 import { SeriesBanner } from "../series-banner";
 import { CardTabEmpty, useIsNarrow } from "../side-panel";
@@ -53,8 +52,9 @@ import { tableLayout } from "./geometry";
 import { GridStage } from "./grid-stage";
 import { CAPTION_TEXT, useGridFinale } from "./grid-finale";
 import { gridKeyGates, useGridFocus } from "./grid-focus";
+import { hudPreview } from "./hud-preview";
 import { HudLayer, RowPreviewBoundary, useHudEscape, useHudPane, useRowPreview } from "./hud-layer";
-import { hudMasterProps, stationTrackProps } from "./hud-shared";
+import { clockStrip, hudClockBank, hudMasterProps, stationTrackProps } from "./hud-shared";
 import { gridCells, usesGridLayout } from "./grid-layout";
 import { HistoryStrip } from "./history-strip";
 import { MasterChip } from "./master-chip";
@@ -557,6 +557,7 @@ function TableShellBody({
       {hud ? (
         <header className={hudStyles.top} data-testid="hud-top">
           <div className={hudStyles.topLeft}>{identityNode}</div>
+          {hudClockBank(room.clock, session, controller.reducedMotion)}
           <div className={hudStyles.topMid} data-caption={finale.caption ? "true" : undefined}>
             {seatStripNode}
             {finale.caption ? (
@@ -583,6 +584,7 @@ function TableShellBody({
           {statusNode}
         </header>
       )}
+      {hud ? null : clockStrip(room.clock, session, controller.reducedMotion)}
       {room.series && !showResult ? (
         <SeriesBanner
           room={room}
@@ -792,7 +794,7 @@ function TableShellBody({
             {...trackProps}
             phases="hub"
             compact
-            clock={room.clock?.activeSeat != null ? <DuelClockDisplay key={room.clock.serverNow} clock={room.clock} session={session} reducedMotion={controller.reducedMotion} compact /> : null}
+            clock={null}
             attackLock={attackLockAt(format, engine.seats.length, engine.turn, engine.prompt)}
           />
         </div>
@@ -804,7 +806,7 @@ function TableShellBody({
             seatSlot={narrow ? undefined : seatStripNode}
             seatSlotCount={engine.seats.length}
             phases={hubOn ? "hub" : "bar"}
-            clock={room.clock?.activeSeat != null ? <DuelClockDisplay key={room.clock.serverNow} clock={room.clock} session={session} reducedMotion={controller.reducedMotion} compact /> : null}
+            clock={null}
             attackLock={attackLockAt(format, engine.seats.length, engine.turn, engine.prompt)}
           />
         </div>
@@ -830,8 +832,8 @@ function TableShellBody({
             spectator ? `${nameOf(layout.anchorSeat)}'s Master` : "Your Master",
           ) : null}
           onInspect={ui.setInspect}
-          preview={ui.hover ? { card: ui.hover.card, owner: { name: nameOf(ui.hover.card.controller), ...toneOf(ui.hover.card.controller) } } : rowPreview.card ? { card: rowPreview.card, owner: null } : null}
-          previewHidden={ui.menu != null || ui.pile?.open === true}
+          preview={hudPreview(ui.hover?.card ?? null, ui.menu?.card, rowPreview.card, (card) => ({ name: nameOf(card.controller), ...toneOf(card.controller) }))}
+          previewHidden={ui.pile?.open === true}
           reducedMotion={controller.reducedMotion}
         />
       ) : null}

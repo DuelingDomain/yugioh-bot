@@ -13,6 +13,8 @@ interface CubePickerProps {
   selectedId: number | null;
   /** Picking another cube drops the edits made for this draft. */
   hasEdits: boolean;
+  /** Cards in your own pool that picking a cube replaces (they come back with "Start from scratch"). */
+  replaces?: number;
   picking: number | null;
   error: string | null;
   keepName: string | null;
@@ -21,7 +23,7 @@ interface CubePickerProps {
 }
 
 /** A searchable list of cubes: name, card count, who made it, and three thumbnails. Not a native select. */
-export function CubePicker({ cubes, userId, selectedId, hasEdits, picking, error, keepName, onPick, onKeep }: CubePickerProps) {
+export function CubePicker({ cubes, userId, selectedId, hasEdits, replaces = 0, picking, error, keepName, onPick, onKeep }: CubePickerProps) {
   const [query, setQuery] = React.useState("");
   const listId = React.useId();
   const q = query.trim().toLowerCase();
@@ -43,7 +45,13 @@ export function CubePicker({ cubes, userId, selectedId, hasEdits, picking, error
           autoComplete="off"
         />
       </div>
-      {hasEdits && <p className={styles.pkNote}>Your edits for this draft are dropped if you pick another cube.</p>}
+      {hasEdits ? (
+        <p className={styles.pkNote}>Your edits for this draft are dropped if you pick another cube.</p>
+      ) : replaces > 0 ? (
+        <p className={styles.pkNote}>
+          Picking a cube replaces your {replaces.toLocaleString("en-US")} {replaces === 1 ? "card" : "cards"}. Start from scratch brings them back.
+        </p>
+      ) : null}
       {error && (
         <p className={`${styles.note} ${styles.bad}`} role="alert">
           <span>{error}</span>

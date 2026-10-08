@@ -65,12 +65,16 @@ export type {
   DuelOpeningReveal,
   DuelOpeningState,
   DuelOpeningView,
+  DuelRpsOpeningState,
+  DuelRpsOpeningView,
   DuelRpsMove,
 } from "./opening.js";
 export {
   DUEL_OPENING_PICK_MS,
   DUEL_OPENING_REVEAL_MS,
+  DUEL_OPENING_TIE_REVEAL_MS,
   DUEL_RPS_MOVES,
+  isDiceOpening,
   isFirstChoice,
   isRpsMove,
   rpsWinner,
@@ -169,6 +173,8 @@ export interface DuelDeckValidation {
 }
 
 export interface DuelCardInfo {
+  /** Preview data from BabelCDB; available to search and card-info consumers. */
+  prerelease?: boolean;
   code: number;
   /** Engine artwork-family main; equals code for cards without an artwork alias. */
   canonicalPasscode?: number;
@@ -559,7 +565,7 @@ export interface DuelRoom {
   mySide?: DuelSeriesSideState | null;
   /** True when the duel host was busy and answered with the last view it built for this seat. The client asks again soon. */
   stale?: boolean;
-  /** Rock-paper-scissors before the game starts; null when there is none. */
+  /** Rock-paper-scissors or FFA dice rolls before the game starts; null when there is none. */
   opening?: DuelOpeningView | null;
 }
 
@@ -680,3 +686,6 @@ export {
 } from "./card-query.js";
 
 export type { CardArtworkFamily, SelectableCardArtwork, CardArtworksResponse, DeckArtworkSwapRequest } from "./artworks.js";
+
+export type { DuelDiceRound, DuelDiceOpeningState, DuelDiceOpeningView } from "./dice-opening.js";
+export { DUEL_DICE_REVEAL_MS, MAX_DICE_ROUNDS as DUEL_DICE_MAX_ROUNDS } from "./dice-opening.js";

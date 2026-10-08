@@ -11,7 +11,7 @@ import type { PlayerRepository } from "../repositories/players.js";
 import type { CardCatalogService } from "../services/card-catalog.js";
 import type { DraftImageService } from "../services/draft-images.js";
 import type { DraftService } from "../services/drafts.js";
-import { createDraftTournamentService, MAX_COPIES_PER_PLAYER } from "@yugidraft/shared/services";
+import { createDraftTournamentService, MAX_COPIES_PER_PLAYER, totalBoosterCards, totalThemeRounds } from "@yugidraft/shared/services";
 import type { TournamentService } from "@yugidraft/shared/services";
 import type { Broadcaster } from "@yugidraft/shared/notify";
 
@@ -81,7 +81,7 @@ export async function handleSelectMenu(
       ).get(draftId, player.id) as { pick_count: number; finished_at: string | null } | undefined;
       if (
         draft.status === "active" && progress &&
-        (progress.finished_at !== null || progress.pick_count >= (draft.config.cardsPerPlayer ?? 40))
+        (progress.finished_at !== null || progress.pick_count >= (draft.config.mode === "theme" ? totalThemeRounds(draft.config) : totalBoosterCards(draft.config)))
       ) {
         await interaction.reply({
           content: "You have finished drafting. Waiting for other players.",

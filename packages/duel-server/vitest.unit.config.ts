@@ -11,6 +11,7 @@ import { configDefaults, defineConfig } from "vitest/config";
 // tests there (for example tests/engine-nseat.test.ts and tests/engine.test.ts have pure projection and parsing tests),
 // so those tests do not run in the unit job. Every file not in the list passes.
 const NEEDS_ENGINE = [
+  "tests/prerelease-engine.test.ts",
   "tests/host-surrender-eot.test.ts",
   "tests/scenarios/multiplayer/leave-chains.test.ts",
   "tests/scenarios/multiplayer/leave-effects.test.ts",
@@ -45,6 +46,7 @@ const NEEDS_ENGINE = [
   "tests/hand-order-engine.test.ts",
   "tests/hand-order-random-duels.test.ts",
   "tests/host-opening.test.ts",
+  "tests/host-dice-opening-real.test.ts",
   "tests/host-spectator-view.test.ts",
   "tests/domain-extra-bridge-invariants.test.ts",
   "tests/domain-leave-tax.test.ts",

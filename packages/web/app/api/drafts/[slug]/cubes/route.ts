@@ -3,146 +3,137 @@ import { NextResponse } from "next/server";
 import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
-import { createCardCatalogService, createDraftService, createCubeService } from "@yugidraft/shared/services";
+import { createCardCatalogService, createCubeService } from "@yugidraft/shared/services";
+import type { Cube } from "@yugidraft/shared/types";
 import { broadcaster } from "@/lib/notify";
 import { setCubeDraftType } from "@/lib/cube-type";
+import {
+  invalidateThemeLobby, pendingThemeDraft, ThemeDraftMutationError,
+  themeDraftMutationBody, themeDraftMutationResponse,
+} from "@/lib/theme-draft-validation";
 
 export const runtime = "nodejs";
+type Context = { params: Promise<{ slug: string }> };
 
-async function loadDraft(slug: string) {
+export async function POST(request: Request, { params }: Context) {
+  const actor = await requireWebAccess();
+  if (!actor.ok) return actor.response;
+  const userId = actor.userId;
+  const { slug } = await params;
   const db = getDb();
   const guildId = env.discordGuildId;
-  const row = db
-    .prepare("select id, status, created_by_user_id from drafts where web_slug = ? and guild_id = ?")
-    .get(slug, guildId) as { id: number; status: string; created_by_user_id: number } | undefined;
-  return { db, guildId, row };
-}
-
-function persistAllowedCubeIds(db: ReturnType<typeof getDb>, draftId: number, allowedCubeIds: number[]) {
-  const drafts = createDraftService(db);
-  const draft = drafts.findById(draftId);
-  const nextConfig = { ...draft.config, allowedCubeIds };
-  db.prepare("update drafts set config_json = ? where id = ?").run(JSON.stringify(nextConfig), draftId);
-}
-
-export async function POST(request: Request, { params }: { params: Promise<{ slug: string }> }) {
-  const actor = await requireWebAccess();
-  if (!actor.ok) return actor.response;
-  const { slug } = await params;
-  const { db, row } = await loadDraft(slug);
-  if (!row) {
-    return NextResponse.json({ error: "Draft not found" }, { status: 404 });
-  }
-  if (row.created_by_user_id !== actor.userId) {
-    return NextResponse.json({ error: "Only the host can edit cubes" }, { status: 403 });
-  }
-  if (row.status !== "pending") {
-    return NextResponse.json({ error: "Cubes can only be edited before the draft starts" }, { status: 400 });
-  }
-
-  const guildId = env.discordGuildId!;
-  const drafts = createDraftService(db);
-  const draft = drafts.findById(row.id);
-  const catalog = createCardCatalogService(db);
-  const cubes = createCubeService(db, catalog);
-
-  const body = (await request.json().catch(() => ({}))) as {
-    kind?: "archetype" | "blank" | "existing";
-    archetype?: string;
-    name?: string;
-    cubeId?: number;
-  };
 
   try {
-    let cube;
-    if (body.kind === "archetype") {
-      const archetype = body.archetype?.trim();
-      if (!archetype) {
-        return NextResponse.json({ error: "archetype is required" }, { status: 400 });
-      }
-      cube = await cubes.createFromArchetype(guildId, archetype, actor.userId, {
-        name: archetype,
-      });
-    } else if (body.kind === "existing") {
-      // Attach an existing library cube to this draft (does not create a new one).
-      if (!Number.isInteger(body.cubeId)) {
-        return NextResponse.json({ error: "cubeId is required" }, { status: 400 });
-      }
-      const owned = db
-        .prepare("select id from cubes where id = ? and guild_id = ?")
-        .get(body.cubeId, guildId) as { id: number } | undefined;
-      if (!owned) {
-        return NextResponse.json({ error: "Cube not found" }, { status: 404 });
-      }
-      if ((draft.config.allowedCubeIds ?? []).includes(owned.id)) {
-        return NextResponse.json({ error: "That cube is already in this draft" }, { status: 409 });
-      }
-      cube = cubes.findCube(owned.id);
-    } else {
-      const name = body.name?.trim();
-      if (!name) {
-        return NextResponse.json({ error: "name is required" }, { status: 400 });
-      }
-      cube = cubes.createBlank(guildId, name, actor.userId);
+    const initial = pendingThemeDraft(db, slug, guildId, userId, true);
+    const body = await themeDraftMutationBody(request);
+    const kind = body.kind;
+    if (!["archetype", "blank", "existing"].includes(kind as string)) {
+      throw new ThemeDraftMutationError("INVALID_BODY", "kind must be archetype, blank or existing");
     }
-    // A cube made inside a theme draft is for theme drafts. An attached library cube keeps its type.
-    if (body.kind !== "existing") setCubeDraftType(db, cube.id, "theme");
+    if (kind === "existing" && (!Number.isSafeInteger(body.cubeId) || (body.cubeId as number) <= 0)) {
+      throw new ThemeDraftMutationError("INVALID_BODY", "cubeId must be a positive integer");
+    }
+    const label = kind === "archetype" ? body.archetype : body.name;
+    if (kind !== "existing" && (typeof label !== "string" || !label.trim())) {
+      throw new ThemeDraftMutationError("INVALID_BODY", `${kind === "archetype" ? "archetype" : "name"} is required`);
+    }
+    // Body parsing can yield too; avoid creating a cube for an already closed lobby.
+    pendingThemeDraft(db, slug, guildId, userId, true);
+    const cubes = createCubeService(db, createCardCatalogService(db));
+    let seeded: Cube | undefined;
+    if (kind === "archetype") {
+      try {
+        const archetype = (label as string).trim();
+        seeded = await cubes.createFromArchetype(guildId, archetype, userId, { name: archetype });
+        setCubeDraftType(db, seeded.id, "theme");
+      } catch (error) {
+        const failure = cardFetchErrorResponse(error);
+        if (failure) return failure;
+        return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to add cube" }, { status: 400 });
+      }
+    }
 
-    const allowedCubeIds = [...(draft.config.allowedCubeIds ?? []), cube.id];
-    persistAllowedCubeIds(db, row.id, allowedCubeIds);
-    void broadcaster.draft({ kind: "seats", slug });
-
-    const pools = cubes.getCubePools(cube.id);
-    return NextResponse.json(
-      {
-        cube: {
-          id: cube.id,
-          name: cube.name,
-          archetype: cube.archetype,
-          mainCount: pools.main.length,
-          extraCount: pools.extra.length,
-        },
+    const result = db.transaction(() => {
+      let draft;
+      try {
+        draft = pendingThemeDraft(db, slug, guildId, userId, true);
+        if (draft.id !== initial.id) throw new ThemeDraftMutationError("DRAFT_NOT_FOUND", "Draft not found");
+      } catch (error) {
+        if (seeded && error instanceof ThemeDraftMutationError) {
+          throw new ThemeDraftMutationError("CUBE_ATTACH_CONFLICT", "The cube was saved in your library, but the draft changed before it could be attached.", seeded.id);
+        }
+        throw error;
+      }
+      let cube: Cube;
+      if (seeded || kind === "existing") {
+        const cubeId = seeded?.id ?? body.cubeId;
+        if (!db.prepare("select id from cubes where id = ? and guild_id = ?").get(cubeId, guildId)) {
+          throw new ThemeDraftMutationError("CUBE_NOT_FOUND", "Cube not found");
+        }
+        cube = cubes.findCube(cubeId as number);
+      } else {
+        cube = cubes.createBlank(guildId, (label as string).trim(), userId);
+        setCubeDraftType(db, cube.id, "theme");
+      }
+      if ((draft.config.allowedCubeIds ?? []).includes(cube.id)) {
+        throw new ThemeDraftMutationError("CUBE_ALREADY_ATTACHED", "That cube is already in this draft");
+      }
+      const allowedCubeIds = [...(draft.config.allowedCubeIds ?? []), cube.id];
+      db.prepare("update drafts set config_json = ? where id = ?")
+        .run(JSON.stringify({ ...draft.config, allowedCubeIds }), draft.id);
+      invalidateThemeLobby(db, draft.id);
+      const pools = cubes.getCubePools(cube.id);
+      return {
+        cube: { id: cube.id, name: cube.name, archetype: cube.archetype, mainCount: pools.main.length, extraCount: pools.extra.length },
         allowedCubeIds,
-      },
-      { status: 201 },
-    );
+      };
+    }).immediate();
+    void broadcaster.draft({ kind: "seats", slug });
+    return NextResponse.json(result, { status: 201 });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to add cube";
-    const failure = cardFetchErrorResponse(error);
-    if (failure) return failure;
-    return NextResponse.json({ error: message }, { status: 400 });
+    // Library name validation remains a 400; unexpected DB/service errors propagate.
+    if (error instanceof Error && error.name === "CubeNameTakenError") return NextResponse.json({ error: error.message }, { status: 400 });
+    return themeDraftMutationResponse(error);
   }
 }
 
-export async function DELETE(request: Request, { params }: { params: Promise<{ slug: string }> }) {
+export async function DELETE(request: Request, { params }: Context) {
   const actor = await requireWebAccess();
   if (!actor.ok) return actor.response;
+  const userId = actor.userId;
   const { slug } = await params;
-  const { db, row } = await loadDraft(slug);
-  if (!row) {
-    return NextResponse.json({ error: "Draft not found" }, { status: 404 });
-  }
-  if (row.created_by_user_id !== actor.userId) {
-    return NextResponse.json({ error: "Only the host can edit cubes" }, { status: 403 });
-  }
-  if (row.status !== "pending") {
-    return NextResponse.json({ error: "Cubes can only be edited before the draft starts" }, { status: 400 });
-  }
+  const db = getDb();
+  const guildId = env.discordGuildId;
 
-  const body = (await request.json().catch(() => ({}))) as { cubeId?: number };
-  const cubeId = body.cubeId;
-  if (!Number.isInteger(cubeId)) {
-    return NextResponse.json({ error: "cubeId is required" }, { status: 400 });
+  try {
+    pendingThemeDraft(db, slug, guildId, userId, true);
+    const { cubeId } = await themeDraftMutationBody(request);
+    if (!Number.isSafeInteger(cubeId) || (cubeId as number) <= 0) {
+      throw new ThemeDraftMutationError("INVALID_BODY", "cubeId must be a positive integer");
+    }
+    const result = db.transaction(() => {
+      const draft = pendingThemeDraft(db, slug, guildId, userId, true);
+      // A deleted library cube may still be attached: allow detaching that stale reference.
+      const cube = db.prepare("select guild_id from cubes where id = ?").get(cubeId) as { guild_id: string } | undefined;
+      if (cube ? cube.guild_id !== guildId : !(draft.config.allowedCubeIds ?? []).includes(cubeId as number)) {
+        throw new ThemeDraftMutationError("CUBE_NOT_FOUND", "Cube not found");
+      }
+      const allowedCubeIds = (draft.config.allowedCubeIds ?? []).filter((id) => id !== cubeId);
+      const nextConfig = { ...draft.config, allowedCubeIds };
+      if (nextConfig.themeAssignments) {
+        nextConfig.themeAssignments = Object.fromEntries(Object.entries(nextConfig.themeAssignments).filter(([, id]) => id !== cubeId));
+      }
+      const claims = db.prepare("delete from draft_player_cube where draft_id = ? and cube_id = ?").run(draft.id, cubeId);
+      const changed = claims.changes > 0 || JSON.stringify(nextConfig) !== JSON.stringify(draft.config);
+      if (changed) {
+        db.prepare("update drafts set config_json = ? where id = ?").run(JSON.stringify(nextConfig), draft.id);
+        invalidateThemeLobby(db, draft.id);
+      }
+      return { allowedCubeIds, changed };
+    }).immediate();
+    if (result.changed) void broadcaster.draft({ kind: "seats", slug });
+    return NextResponse.json({ ok: true, allowedCubeIds: result.allowedCubeIds });
+  } catch (error) {
+    return themeDraftMutationResponse(error);
   }
-
-  const drafts = createDraftService(db);
-  const draft = drafts.findById(row.id);
-  const allowedCubeIds = (draft.config.allowedCubeIds ?? []).filter((id) => id !== cubeId);
-  persistAllowedCubeIds(db, row.id, allowedCubeIds);
-
-  // Detach only — the cube stays in the library (delete it from its editor instead).
-  db.prepare("delete from draft_player_cube where draft_id = ? and cube_id = ?").run(row.id, cubeId);
-  void broadcaster.draft({ kind: "seats", slug });
-
-  return NextResponse.json({ ok: true, allowedCubeIds });
 }

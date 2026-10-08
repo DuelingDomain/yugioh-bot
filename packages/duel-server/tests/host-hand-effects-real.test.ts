@@ -5,7 +5,7 @@ import { expect, it } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { createDuelService } from "@yugidraft/shared/services";
 import type { DuelAnswer, DuelCardInfo, DuelChainMode, DuelEngineView } from "@yugidraft/shared/duels";
-import { createDuelHost } from "../src/host.js";
+import { createTestDuelHost as createDuelHost, finishTestDiceOpening } from "./support/test-opening.js";
 import { createEngineGame, type EngineGame } from "../src/engine.js";
 import type { DuelGameWorker, GameOptions } from "../src/worker-client.js";
 import { engineDataDirectory as DATA } from "./engine-data-dir.js";
@@ -54,11 +54,12 @@ describeWithCores("host routes real hand/GY destruction triggers", [needs.cards(
       const worker = new JetWorker(entry);
       const secret = "local-hand-test";
       const host = createDuelHost({ db, dataDirectory: DATA, secret, searchCards: () => [], pollIntervalMs: 60_000, createWorker: () => worker });
-      const post = async (seat: number, body: Record<string, unknown>) => {
+      const post = async (seat: number, body: Record<string, unknown>): Promise<{ status: number; data: { engine: DuelEngineView } }> => {
         const raw = JSON.stringify({ slug: room.slug, guildId: "fixture", playerId: players[seat], ...body });
         const response = await host.handle(new Request("http://localhost/internal/duel", { method: "POST", body: raw,
           headers: { "content-type": "application/json", "x-announce-signature": "sha256=" + createHmac("sha256", secret).update(raw).digest("hex") } }));
-        return { status: response.status, data: await response.json() as { engine: DuelEngineView } };
+        return finishTestDiceOpening(host, { slug: room.slug, ...body },
+          { status: response.status, data: await response.json() as { engine: DuelEngineView } }, (next) => post(seat, next));
       };
       try {
         const started = await post(0, { op: "start" }); expect(started.status, JSON.stringify(started.data)).toBe(200);

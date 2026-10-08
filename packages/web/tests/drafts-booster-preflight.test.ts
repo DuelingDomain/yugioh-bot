@@ -44,6 +44,11 @@ it.each([
   const created = await POST(new Request("http://x/api/drafts", {
     method: "POST", body: JSON.stringify({ name: "Narrow", config }),
   }) as NextRequest);
+  if (packSize < 5 || cardsPerPlayer < 40) {
+    expect(created.status).toBe(400);
+    expect(db.prepare("select count(*) n from drafts").get()).toEqual({ n: 0 });
+    return;
+  }
   expect(created.status).toBe(201);
   const draft = await created.json();
   const context = { params: Promise.resolve({ slug: draft.webSlug }) };
@@ -53,8 +58,8 @@ it.each([
   const { PUT } = await import("../app/api/drafts/[slug]/route");
   const edited = await PUT(new Request("http://x", { method: "PUT", body: JSON.stringify({ config }) }) as NextRequest, context);
   expect(edited.status).toBe(packSize < 5 || cardsPerPlayer < 40 ? 400 : 200);
-  if (edited.status === 200) expect((await edited.json()).errors).toEqual([]);
-  const impossibleAtStart = impossible && edited.status !== 200;
+  if (edited.status === 200) expect((await edited.json()).errors).toEqual(expectedErrors);
+  const impossibleAtStart = impossible;
 
   const { GET } = await import("../app/api/drafts/[slug]/preflight/route");
   const preflight = await GET(new Request("http://x"), context);
@@ -79,15 +84,19 @@ it.each([3, 4, 8])("starts a web set draft with %i players and 100 cards", async
   seedFixtureUsers(db, FIXTURE_KEYS);
   for (let id = 1; id <= 100; id++) db.prepare(`insert into card_catalog (ygoprodeck_id, name, type, frame_type, image_url, image_url_small, card_sets_json, cached_at) values (?, ?, 'Normal Monster', 'normal', 'i', 'i', '[{"set_name":"Set A"}]', 't')`).run(id, `Card ${id}`);
   const { POST } = await import("../app/api/drafts/route");
-  const created = await POST(new Request("http://x/api/drafts", { method: "POST", body: JSON.stringify({ name: "Set night", config: { setNames: ["Set A"], packSize: 8, packsPerPlayer: 5, cardsPerPlayer: 40 } }) }) as NextRequest);
+  const created = await POST(new Request("http://x/api/drafts", { method: "POST", body: JSON.stringify({ name: "Set night", config: { setNames: ["Set A"], packSize: 8, packsPerPlayer: 5, cardsPerPlayer: 40, lobbySeats: count } }) }) as NextRequest);
   expect(created.status).toBe(201);
   const draft = await created.json();
   expect(draft.errors).toEqual([]);
+  expect(draft.config.lobbySeats).toBe(count);
   const { createDraftService, createPlayerService } = await import("@yugidraft/shared/services");
   const drafts = createDraftService(db);
   const players = createPlayerService(db);
-  seedFixtureUsers(db, Array.from({ length: count }, (_, i) => `u${i}`));
-  for (let i = 1; i < count; i++) drafts.join(draft.id, players.findOrCreate("g", fixtureUserId(`u${i}`), `P${i}`).id);
+  const guestKeys = Array.from({ length: count - 1 }, (_, i) => `u${i + 1}`);
+  seedFixtureUsers(db, [...guestKeys, "overflow"]);
+  for (const key of guestKeys) drafts.join(draft.id, players.findOrCreate("g", fixtureUserId(key), key).id);
+  const overflow = players.findOrCreate("g", fixtureUserId("overflow"), "Overflow");
+  expect(() => drafts.join(draft.id, overflow.id)).toThrow(/All lobby seats are occupied/);
   const { GET } = await import("../app/api/drafts/[slug]/preflight/route");
   expect((await (await GET(new Request("http://x"), { params: Promise.resolve({ slug: draft.webSlug }) })).json()).errors).toEqual([]);
   expect(drafts.start(draft.id).status).toBe("active");

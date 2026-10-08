@@ -7,7 +7,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { seatCountFor, teamOfSeat, type DuelEngineView, type DuelRoom } from "@yugidraft/shared/duels";
 import { createDuelService } from "@yugidraft/shared/services";
-import { createDuelHost } from "../src/host.js";
+import { createTestDuelHost as createDuelHost, finishTestDiceOpening } from "./support/test-opening.js";
 import { buildPracticeBotDeck, chooseSurrenderedAnswer } from "../src/practice-bot.js";
 import { getPreset } from "../src/presets/index.js";
 import { GameWorker } from "../src/worker-client.js";
@@ -44,11 +44,12 @@ function hostTable(count: number) {
   const workers: GameWorker[] = [];
   const host = createDuelHost({ db, dataDirectory: DATA, secret: SECRET, searchCards: () => [], pollIntervalMs: 60_000,
     createWorker: () => { const worker = new GameWorker(); workers.push(worker); return worker; } });
-  const post = async (op: string, extra: Record<string, unknown> = {}, seat = 0) => {
+  const post = async (op: string, extra: Record<string, unknown> = {}, seat = 0): Promise<{ status: number; data: DuelRoom & { slug: string; error?: string } }> => {
     const raw = JSON.stringify({ op, guildId: "g", playerId: players[seat], ...extra });
     const response = await host.handle(new Request("http://localhost/internal/duel", { method: "POST", body: raw,
       headers: { "x-announce-signature": "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex") } }));
-    return { status: response.status, data: await response.json() as DuelRoom & { slug: string; error?: string } };
+    return finishTestDiceOpening(host, { op, ...extra },
+      { status: response.status, data: await response.json() as DuelRoom & { slug: string; error?: string } }, () => post("view", extra, seat));
   };
   return { db, players, service, workers, post, close: async () => { await host.close(); db.close(); } };
 }

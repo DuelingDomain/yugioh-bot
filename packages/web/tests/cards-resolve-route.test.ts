@@ -297,6 +297,28 @@ describe("POST /api/cards/resolve", () => {
     expect(syncCardByName).not.toHaveBeenCalled();
   });
 
+  it("finds a card from a typo by looking up each long word and ranking near matches", async () => {
+    await setupDb();
+    const found = (ygoprodeckId: number, name: string) => ({
+      ygoprodeckId, name, type: "Spell Card", frameType: "spell", effectText: "", imageUrl: "u", imageUrlSmall: "s",
+    });
+    syncCardsByFuzzyName.mockReset();
+    syncCardsByFuzzyName.mockImplementation(async (text: string) =>
+      text === "drak hole" ? [] : text === "hole" ? [found(1, "Black Hole"), found(2, "Dark Hole")] : [],
+    );
+    const { POST } = await import("../app/api/cards/resolve/route");
+
+    const res = await POST(new Request("http://localhost/api/cards/resolve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fuzzyName: "drak hole", includeExtra: true }),
+    }));
+
+    const body = (await res.json()) as { cards: Array<{ name: string }> };
+    expect(body.cards.map((card) => card.name)).toEqual(["Dark Hole"]);
+    expect(syncCardsByFuzzyName).toHaveBeenCalledWith("hole", { includeExtra: true, limit: 80 });
+  });
+
   it("asks for Extra Deck monsters in a fuzzy search only when includeExtra is true, and keeps the best-match order", async () => {
     await setupDb();
     const found = (ygoprodeckId: number, name: string) => ({

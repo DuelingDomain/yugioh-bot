@@ -1,4 +1,5 @@
 import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
+import { finishTestLobbyStart } from "./drafts-lobby-routes.test";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -159,11 +160,12 @@ describe("GET /api/drafts/[slug]", () => {
     db.prepare("update drafts set config_json = json_set(config_json, '$.cardsPerPlayer', 15) where web_slug = 'legendary-draft'").run();
     const { POST: startDraft, GET } = await import("../app/api/drafts/[slug]/route");
 
-    const startResponse = await startDraft(new Request("http://localhost/api/drafts/legendary-draft", { method: "POST" }), {
+    const startResponse = await startDraft(new Request("http://localhost/api/drafts/legendary-draft", { method: "POST", body: JSON.stringify({ force: true }) }), {
       params: Promise.resolve({ slug: "legendary-draft" }),
     });
 
-    expect(startResponse.status).toBe(200);
+    expect(startResponse.status).toBe(202);
+    await finishTestLobbyStart(startResponse);
 
     const response = await GET(new Request("http://localhost/api/drafts/legendary-draft"), {
       params: Promise.resolve({ slug: "legendary-draft" }),
@@ -254,11 +256,12 @@ describe("GET /api/drafts/[slug]", () => {
     );
 
     const { POST: startDraft } = await import("../app/api/drafts/[slug]/route");
-    const response = await startDraft(new Request(`http://localhost/api/drafts/${draft.webSlug}`, { method: "POST" }), {
+    const response = await startDraft(new Request(`http://localhost/api/drafts/${draft.webSlug}`, { method: "POST", body: JSON.stringify({ force: true }) }), {
       params: Promise.resolve({ slug: draft.webSlug ?? "" }),
     });
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(202);
+    await finishTestLobbyStart(response);
 
     const verifyDb = new Database(dbPath);
     expect(verifyDb.prepare("select count(*) as count from card_catalog").get()).toEqual({ count: 2 });
@@ -277,10 +280,10 @@ describe("GET /api/drafts/[slug]", () => {
     vi.stubEnv("DISCORD_GUILD_ID", guildId);
     vi.stubEnv("DISCORD_DEFAULT_CHANNEL_ID", "channel-1");
 
-    // card 1 has 5 copies > 3 waves; plus cards 2..19 for 19 distinct total.
+    // card 1 has 5 copies > 3 waves; plus cards 2..59 so a 40-card deck is possible.
     const range = (start: number, end: number) =>
       Array.from({ length: end - start }, (_, i) => start + i);
-    const customCardIds = [1, 1, 1, 1, 1, ...range(2, 20)];
+    const customCardIds = [1, 1, 1, 1, 1, ...range(2, 60)];
     const distinctIds = [...new Set(customCardIds)];
 
     const Database = (await import("better-sqlite3")).default;
@@ -325,7 +328,7 @@ describe("GET /api/drafts/[slug]", () => {
         body: JSON.stringify({
           name: "warns draft",
           channelId: "channel-1",
-          config: { customCardIds, packSize: 4, packsPerPlayer: 3, cardsPerPlayer: 12 },
+          config: { customCardIds, packSize: 14, packsPerPlayer: 3, cardsPerPlayer: 40 },
         }),
       }) as any,
     );
@@ -407,11 +410,12 @@ describe("GET /api/drafts/[slug]", () => {
     );
 
     const { POST: startDraft } = await import("../app/api/drafts/[slug]/route");
-    const response = await startDraft(new Request(`http://localhost/api/drafts/${draft.webSlug}`, { method: "POST" }), {
+    const response = await startDraft(new Request(`http://localhost/api/drafts/${draft.webSlug}`, { method: "POST", body: JSON.stringify({ force: true }) }), {
       params: Promise.resolve({ slug: draft.webSlug ?? "" }),
     });
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(202);
+    await finishTestLobbyStart(response);
 
     const verifyDb = new Database(dbPath);
     expect(verifyDb.prepare("select count(*) as count from card_catalog").get()).toEqual({ count: 2 });

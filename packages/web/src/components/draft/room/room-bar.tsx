@@ -19,6 +19,8 @@ export interface WhereProps {
   /** Theme drafts: picks made in this phase, and the phase's size. */
   phaseDone: number;
   phaseOf: number;
+  /** Booster drafts: the Extra Deck round is on, and its pack size. */
+  boosterExtraSize?: number;
 }
 
 function Where(w: WhereProps) {
@@ -30,6 +32,20 @@ function Where(w: WhereProps) {
           Pick <b>{Math.min(w.phaseDone + 1, w.phaseOf)}</b> of {w.phaseOf}
         </span>
         <span className="pass">Private pack</span>
+      </div>
+    );
+  }
+  if ((w.boosterExtraSize ?? 0) > 0 && w.packRound > w.packsPerPlayer) {
+    return (
+      <div className="where">
+        <span className="w">Extra Deck round</span>
+        <span className="w">
+          Pick <b>{w.pickStep}</b> of {w.boosterExtraSize}
+        </span>
+        <span className="pass">
+          {ARROW}
+          {passLabel(w.direction)}
+        </span>
       </div>
     );
   }

@@ -1,5 +1,7 @@
+import { diceOpeningView, type DuelDiceOpeningState, type DuelDiceOpeningView } from "./dice-opening.js";
+
 /**
- * The opening of a match: before game 1, both players play rock-paper-scissors and the winner
+ * FFA games roll dice before each game; 1v1 game 1 uses rock-paper-scissors and the winner
  * chooses to go first or second. The engine always gives seat 0 the first turn, so the result only
  * decides the seat order. All rules live here as pure functions; the duel service stores the state
  * and the host drives the timers.
@@ -12,8 +14,10 @@ export const DUEL_RPS_MOVES: readonly DuelRpsMove[] = ["rock", "paper", "scissor
 
 /** Time a player has to pick a move, or (for the winner) to choose first or second. */
 export const DUEL_OPENING_PICK_MS = 30_000;
-/** Extra time after a decided round, so the reveal can play without eating into the next step. */
+/** Extra time after a winning round, so the reveal can play without eating into the choice window. */
 export const DUEL_OPENING_REVEAL_MS = 3_000;
+/** A tied round shows briefly before players can throw again, with a full pick window afterward. */
+export const DUEL_OPENING_TIE_REVEAL_MS = 2_000;
 
 export function isRpsMove(value: unknown): value is DuelRpsMove {
   return value === "rock" || value === "paper" || value === "scissors";
@@ -48,7 +52,7 @@ export interface DuelOpeningReveal {
  * - `choose`: the winner chooses to go first or second.
  * - `start`: the order is settled and the seats are in their final order; the host starts the duel.
  */
-export interface DuelOpeningState {
+export interface DuelRpsOpeningState {
   phase: "rps" | "choose" | "start";
   round: number;
   /** Epoch ms when the phase times out. */
@@ -65,7 +69,7 @@ export interface DuelOpeningState {
 }
 
 /** What a client may see. Picks of the other seat stay hidden. */
-export interface DuelOpeningView {
+export interface DuelRpsOpeningView {
   phase: "rps" | "choose" | "start";
   round: number;
   /** Server epoch ms when this view was built. */
@@ -82,6 +86,13 @@ export interface DuelOpeningView {
   choiceByTimeout: boolean;
 }
 
+export type DuelOpeningState = DuelRpsOpeningState | DuelDiceOpeningState;
+export type DuelOpeningView = DuelRpsOpeningView | DuelDiceOpeningView;
+
+export function isDiceOpening(state: DuelOpeningState | DuelOpeningView): state is DuelDiceOpeningState | DuelDiceOpeningView {
+  return "rounds" in state;
+}
+
 export class DuelOpeningError extends Error {
   constructor(message: string, readonly status: number) {
     super(message);
@@ -89,7 +100,7 @@ export class DuelOpeningError extends Error {
   }
 }
 
-export function newOpening(startedBy: number, at: number): DuelOpeningState {
+export function newOpening(startedBy: number, at: number): DuelRpsOpeningState {
   return {
     phase: "rps",
     round: 1,
@@ -109,7 +120,7 @@ function seatOf(value: number): 0 | 1 {
 }
 
 /** Both picks are in: decide the round. A tie opens the next round, a win opens the choice. */
-function decideRound(state: DuelOpeningState, at: number): DuelOpeningState {
+function decideRound(state: DuelRpsOpeningState, at: number): DuelRpsOpeningState {
   const [a, b] = state.picks;
   if (!a || !b) return state;
   const winnerSeat = rpsWinner([a, b]);
@@ -118,7 +129,7 @@ function decideRound(state: DuelOpeningState, at: number): DuelOpeningState {
     return {
       ...state,
       round: state.round + 1,
-      deadline: at + DUEL_OPENING_REVEAL_MS + DUEL_OPENING_PICK_MS,
+      deadline: at + DUEL_OPENING_TIE_REVEAL_MS + DUEL_OPENING_PICK_MS,
       picks: [null, null],
       reveal,
     };
@@ -134,7 +145,8 @@ function decideRound(state: DuelOpeningState, at: number): DuelOpeningState {
 }
 
 /** A pick is final. A second pick in the same round is refused. */
-export function submitOpeningPick(state: DuelOpeningState, seatValue: number, move: DuelRpsMove, at: number): DuelOpeningState {
+export function submitOpeningPick(state: DuelOpeningState, seatValue: number, move: DuelRpsMove, at: number): DuelRpsOpeningState {
+  if (isDiceOpening(state)) throw new DuelOpeningError("Dice rolls are automatic", 409);
   const seat = seatOf(seatValue);
   if (state.phase !== "rps") throw new DuelOpeningError("The rock-paper-scissors game is over", 409);
   if (state.picks[seat] !== null) throw new DuelOpeningError("You already picked this round", 409);
@@ -150,7 +162,8 @@ export function submitOpeningChoice(
   choice: DuelFirstChoice,
   at: number,
   byTimeout = false,
-): DuelOpeningState {
+): DuelRpsOpeningState {
+  if (isDiceOpening(state)) throw new DuelOpeningError("Dice rolls are automatic", 409);
   const seat = seatOf(seatValue);
   if (state.phase !== "choose") throw new DuelOpeningError("Nobody is choosing the turn order now", 409);
   if (state.winnerSeat !== seat) throw new DuelOpeningError("Only the winner chooses who goes first", 403);
@@ -159,12 +172,13 @@ export function submitOpeningChoice(
 
 /** True when the winner's choice needs the seats to swap (seat 0 goes first). */
 export function openingNeedsSwap(state: DuelOpeningState): boolean {
+  if (isDiceOpening(state)) return false;
   if (state.phase !== "start" || state.winnerSeat === null || state.choice === null) return false;
   return state.choice === "first" ? state.winnerSeat !== 0 : state.winnerSeat === 0;
 }
 
 /** Applies a seat swap to every seat-indexed field. */
-export function swapOpeningSeats(state: DuelOpeningState): DuelOpeningState {
+export function swapOpeningSeats(state: DuelRpsOpeningState): DuelRpsOpeningState {
   const flip = (seat: 0 | 1 | null): 0 | 1 | null => (seat === null ? null : seat === 0 ? 1 : 0);
   return {
     ...state,
@@ -180,7 +194,10 @@ export function swapOpeningSeats(state: DuelOpeningState): DuelOpeningState {
  * A timeout: a missing pick is made at random, a winner who does not choose goes first.
  * Returns the same state when nothing is due.
  */
+export function settleOpening(state: DuelRpsOpeningState, at: number, random?: () => number): DuelRpsOpeningState;
+export function settleOpening(state: DuelOpeningState, at: number, random?: () => number): DuelOpeningState;
 export function settleOpening(state: DuelOpeningState, at: number, random: () => number = Math.random): DuelOpeningState {
+  if (isDiceOpening(state)) throw new DuelOpeningError("Use settleDiceOpening with a server die source for dice openings", 409);
   if (state.phase === "start" || at < state.deadline) return state;
   if (state.phase === "choose") {
     return submitOpeningChoice(state, state.winnerSeat as number, "first", at, true);
@@ -190,7 +207,10 @@ export function settleOpening(state: DuelOpeningState, at: number, random: () =>
   return decideRound({ ...state, picks }, at);
 }
 
+export function openingView(state: DuelRpsOpeningState, mySeat: number | null, serverNow?: number): DuelRpsOpeningView;
+export function openingView(state: DuelOpeningState, mySeat: number | null, serverNow?: number): DuelOpeningView;
 export function openingView(state: DuelOpeningState, mySeat: number | null, serverNow = Date.now()): DuelOpeningView {
+  if (isDiceOpening(state)) return diceOpeningView(state, serverNow);
   // Once the round is decided both picks are public through `reveal`; the live picks stay hidden.
   const live = state.phase === "rps";
   return {
@@ -211,7 +231,9 @@ export function parseOpening(raw: string | null): DuelOpeningState | null {
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as DuelOpeningState;
-    if (parsed && (parsed.phase === "rps" || parsed.phase === "choose" || parsed.phase === "start")
+    if (parsed && isDiceOpening(parsed) && (parsed.phase === "dice" || parsed.phase === "start")
+      && Number.isFinite(parsed.deadline) && Array.isArray(parsed.rounds) && Array.isArray(parsed.groups)) return parsed;
+    if (parsed && !isDiceOpening(parsed) && (parsed.phase === "rps" || parsed.phase === "choose" || parsed.phase === "start")
       && Number.isFinite(parsed.deadline) && Array.isArray(parsed.picks)) return parsed;
   } catch {
     // A corrupt opening is treated as no opening: the duel can start normally.

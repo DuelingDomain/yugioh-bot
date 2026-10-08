@@ -170,7 +170,7 @@
     "geometry": {
       "horizontalOverflow": false,
       "strip": null,
-      "stripVisible": null,
+      "stripVisible": false,
       "collisions": []
     }
   },
@@ -205,7 +205,7 @@
     "geometry": {
       "horizontalOverflow": false,
       "strip": null,
-      "stripVisible": null,
+      "stripVisible": false,
       "collisions": []
     }
   },
@@ -240,7 +240,7 @@
     "geometry": {
       "horizontalOverflow": false,
       "strip": null,
-      "stripVisible": null,
+      "stripVisible": false,
       "collisions": []
     }
   },
@@ -251,68 +251,17 @@
     "drawer": "phone",
     "state": "chain-2",
     "file": "tag-chain-2-390x844-phone.png",
-    "errors": [
-      "Chain strip overlaps protected content"
-    ],
+    "errors": [],
     "geometry": {
       "horizontalOverflow": false,
       "strip": {
-        "x": 4,
-        "y": 140,
+        "x": 6,
+        "y": 66,
         "width": 300,
         "height": 100.6875
       },
       "stripVisible": true,
-      "collisions": [
-        {
-          "tag": "DIV",
-          "data": {
-            "seatField": "1",
-            "testid": "seat-field-1",
-            "seat": "1",
-            "side": "opp",
-            "seatAngle": "-180",
-            "tone": "rose",
-            "density": "rival",
-            "upright": "false",
-            "straight": "false",
-            "usable": "false",
-            "battle": "true",
-            "reducedMotion": "true",
-            "masterRule": "5"
-          },
-          "rect": {
-            "x": 61.04183578491211,
-            "y": 203.44326782226562,
-            "width": 128.6699676513672,
-            "height": 49.94537353515625
-          }
-        },
-        {
-          "tag": "DIV",
-          "data": {
-            "seatField": "3",
-            "testid": "seat-field-3",
-            "seat": "3",
-            "side": "opp",
-            "seatAngle": "-180",
-            "tone": "verdant",
-            "density": "rival",
-            "upright": "false",
-            "straight": "false",
-            "usable": "false",
-            "battle": "true",
-            "reducedMotion": "true",
-            "masterRule": "5"
-          },
-          "rect": {
-            "x": 200.29632568359375,
-            "y": 203.44326782226562,
-            "width": 128.6710205078125,
-            "height": 49.94537353515625
-          }
-        }
-      ]
+      "collisions": []
     }
   },
   {
@@ -326,7 +275,7 @@
     "geometry": {
       "horizontalOverflow": false,
       "strip": null,
-      "stripVisible": null,
+      "stripVisible": false,
       "collisions": []
     }
   },
@@ -337,14 +286,103 @@
     "drawer": "phone",
     "state": "chain-2",
     "file": "classic-chain-2-390x844-phone.png",
+    "errors": [],
+    "geometry": {
+      "horizontalOverflow": false,
+      "strip": {
+        "x": 169,
+        "y": 50,
+        "width": 186,
+        "height": 44
+      },
+      "stripVisible": true,
+      "collisions": []
+    }
+  },
+  {
+    "mode": "tag",
+    "width": 1440,
+    "height": 900,
+    "drawer": "desktop",
+    "state": "chain-2",
+    "file": "tag-chain-2-1440x900-desktop.png",
     "errors": [
-      "Chain strip is missing or hidden"
+      "Chain strip overlaps protected content"
     ],
     "geometry": {
       "horizontalOverflow": false,
-      "strip": null,
-      "stripVisible": null,
-      "collisions": []
+      "strip": {
+        "x": 556,
+        "y": 643,
+        "width": 300,
+        "height": 103.625
+      },
+      "stripVisible": true,
+      "collisions": [
+        {
+          "tag": "DIV",
+          "data": {
+            "seatField": "0",
+            "testid": "seat-field-0",
+            "seat": "0",
+            "side": "you",
+            "seatAngle": "0",
+            "tone": "violet",
+            "density": "full",
+            "upright": "false",
+            "straight": "false",
+            "turn": "true",
+            "usable": "true",
+            "battle": "true",
+            "reducedMotion": "true",
+            "masterRule": "5"
+          },
+          "rect": {
+            "x": 273.02490234375,
+            "y": 453.9459533691406,
+            "width": 435.3309326171875,
+            "height": 219.32589721679688
+          }
+        },
+        {
+          "tag": "DIV",
+          "data": {
+            "seatField": "2",
+            "testid": "seat-field-2",
+            "seat": "2",
+            "side": "partner",
+            "seatAngle": "0",
+            "tone": "ice",
+            "density": "full",
+            "upright": "false",
+            "straight": "false",
+            "usable": "false",
+            "battle": "true",
+            "reducedMotion": "true",
+            "masterRule": "5"
+          },
+          "rect": {
+            "x": 742.7115478515625,
+            "y": 453.9459533691406,
+            "width": 435.3262939453125,
+            "height": 219.32589721679688
+          }
+        },
+        {
+          "tag": "DIV",
+          "data": {
+            "handSeat": "0",
+            "side": "you",
+            "relation": "self"
+          },
+          "rect": {
+            "x": 553.109375,
+            "y": 711.234375,
+            "width": 345.28125,
+            "height": 92.96875
+          }
+        }
+      ]
     }
   }
 ]

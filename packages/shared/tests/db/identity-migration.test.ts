@@ -178,7 +178,11 @@ it("rejects a stranded replacement table before historical writes", () => {
 
 it.each([0, 1])("restores original FK pragma %s and source rows on copy failure", enabled => {
   const db = legacy(); mixed(db); db.pragma(`foreign_keys=${enabled}`);
-  const before = names.map(table => db.prepare(`select * from ${table} order by id`).all());
+  // Historical migrations add lobby columns before the identity transaction.
+  const columns = names.map(table => (db.pragma(`table_info(${table})`) as Array<{ name: string }>)
+    .map(column => column.name).join(", "));
+  const sourceRows = () => names.map((table, index) => db.prepare(`select ${columns[index]} from ${table} order by id`).all());
+  const before = sourceRows();
   const sequence = db.prepare("select * from sqlite_sequence order by name").all();
   const original = db.exec.bind(db);
   vi.spyOn(db, "exec").mockImplementation(sql => {
@@ -188,7 +192,7 @@ it.each([0, 1])("restores original FK pragma %s and source rows on copy failure"
   expect(() => migrate(db)).toThrow("injected copy failure");
   expect(db.inTransaction).toBe(false);
   expect(db.pragma("foreign_keys", { simple: true })).toBe(enabled);
-  expect(names.map(table => db.prepare(`select * from ${table} order by id`).all())).toEqual(before);
+  expect(sourceRows()).toEqual(before);
   expect(db.prepare("select * from sqlite_sequence order by name").all()).toEqual(sequence);
   expect(db.prepare("select name from sqlite_master where name='users' or name like '%_identity_new'").all()).toEqual([]);
 });

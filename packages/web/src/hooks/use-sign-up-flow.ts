@@ -4,7 +4,8 @@ import { useEffect, useReducer, useRef, useState } from "react";
 import { useSignIn, useSignUp } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import { initialAuthState, reduceAuth, signUpRequirementsEvent, type AuthFlowState } from "../lib/auth-flow";
-import { mapClerkError } from "../lib/auth-errors";
+import { isWaitlistRefusal, mapClerkError } from "../lib/auth-errors";
+import { hardNavigate } from "../components/auth/navigate";
 import { DEFAULT_RETURN, safeReturnPath } from "../lib/auth-return";
 
 type AccountInput = { username: string; password: string; legalAccepted: boolean };
@@ -36,6 +37,7 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
   const busy = useRef(false);
   const started = useRef(false);
   const mounted = useRef(true);
+  const recovering = useRef(false);
   const lockedEmail = useRef<string | null>(null);
   const destination = useRef(state.returnTo);
   const fetching = signUpSignal.fetchStatus === "fetching" || signInSignal?.fetchStatus === "fetching";
@@ -62,28 +64,41 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
   }, [state.step, router]);
 
   const activeErrors = opts.callback && (resumeKind === "sign-in" || signInSignal?.signIn.status === "complete") ? signInSignal?.errors : signUpSignal.errors;
-  const errorKey = JSON.stringify(activeErrors);
+  const errorKey = JSON.stringify(opts.callback ? [signUpSignal.errors, signInSignal?.errors] : activeErrors);
   useEffect(() => {
-    signalError(state.step === "code" ? "code" : "signup", activeErrors === signInSignal?.errors ? "sign-in" : "sign-up");
+    if (opts.callback) {
+      signalError("sso", "sign-in");
+      signalError("sso", "sign-up");
+      return;
+    }
+    signalError(state.step === "code" ? "code" : !opts.callback && !lockedEmail.current ? "ticket" : "signup", activeErrors === signInSignal?.errors ? "sign-in" : "sign-up");
   }, [errorKey]);
 
   const fail = (error: unknown, context: Parameters<typeof mapClerkError>[1]) => {
+    if (context === "sso" && isWaitlistRefusal(error)) { recover(); return; }
     if (mounted.current) dispatch({ type: "error", view: mapClerkError(error, context) });
+  };
+  const recover = () => {
+    if (!recovering.current) { recovering.current = true; hardNavigate("/api/auth/existing-player/start"); }
   };
   const signalError = (context: Parameters<typeof mapClerkError>[1], kind: Exclude<ResumeKind, null> = "sign-up") => {
     const errors = kind === "sign-in" ? latest.current.signInSignal?.errors : latest.current.signUpSignal.errors;
     if (!errors) return false;
     let found = false;
     for (const [name, error] of Object.entries(errors.fields)) {
-      if (error) { fail({ ...error, meta: { paramName: name === "legalAccepted" ? "legal_accepted" : name } }, name === "code" ? "code" : "signup"); found = true; }
+      if (error) { fail({ ...error, meta: { paramName: name === "legalAccepted" ? "legal_accepted" : name } }, !opts.callback && context === "sso" ? "sso" : name === "code" ? "code" : "signup"); found = true; }
     }
-    for (const error of [...errors.raw ?? [], ...errors.global ?? []]) { fail(error, context); found = true; }
+    for (const error of [...errors.raw ?? [], ...errors.global ?? []]) { fail(error, opts.callback ? isWaitlistRefusal(error) ? "sso" : state.step === "code" ? "code" : "signup" : context); found = true; }
     return found;
   };
-  const call = async (request: () => Promise<{ error: unknown }>, context: Parameters<typeof mapClerkError>[1], kind: Exclude<ResumeKind, null> = "sign-up") => {
-    const { error } = await request();
+  const call = async (request: () => Promise<{ error: unknown }>, context: Parameters<typeof mapClerkError>[1], kind: Exclude<ResumeKind, null> = "sign-up", progressed = () => true) => {
+    const result = await request();
+    const error = result?.error;
     if (error) { fail(error, context); return false; }
-    return mounted.current && !signalError(context, kind);
+    if (!mounted.current || signalError(context, kind)) return false;
+    // Clerk can swallow an offline fetch and return { result: undefined, error: null }.
+    if (!result || !("error" in result) || !progressed()) { fail({ code: "network_error" }, context); return false; }
+    return true;
   };
   const run = async (context: Parameters<typeof mapClerkError>[1], work: () => Promise<void>, initialize = false) => {
     if (busy.current || (!initialize && state.pending) || latest.current.signUpSignal.fetchStatus === "fetching" || latest.current.signInSignal?.fetchStatus === "fetching" || !latest.current.signUpSignal.signUp || state.step === "success") return;
@@ -113,7 +128,7 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
   };
 
   useEffect(() => {
-    if (started.current || fetching || loading) return;
+    if (started.current || recovering.current || fetching || loading) return;
     started.current = true;
     void run("signup", async () => {
       const signUp = latest.current.signUpSignal.signUp!;
@@ -123,20 +138,13 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
         if (signIn.status === "complete") { await finalize("sign-in"); return; }
         // A sign-in OAuth transfer is not an invitation. Never start a new signup.
         if (resume.kind === "sign-in" || signIn.isTransferable || (resume.attemptId && resume.attemptId !== signUp.id)) {
-          dispatch({ type: "error", view: { kind: "step", step: "err-signup" } }); return;
+          recover(); return;
         }
         setResumeKind("sign-up");
         await advanceSignup();
       } else {
         if (!opts.ticket) { dispatch({ type: "error", view: { kind: "step", step: "err-signup" } }); return; }
-        const { error } = await signUp.ticket({ ticket: opts.ticket });
-        if (!mounted.current) return;
-        if (error) {
-          const view = mapClerkError(error, "signup");
-          dispatch({ type: "error", view: view.kind === "step" && view.step === "err-banned" ? view : { kind: "step", step: "err-signup" } });
-          return;
-        }
-        if (signalError("signup")) return;
+        if (!await call(() => signUp.ticket({ ticket: opts.ticket! }), "ticket", "sign-up", () => Boolean(latest.current.signUpSignal.signUp!.emailAddress))) return;
         setResumeKind("sign-up");
         await advanceSignup();
       }
@@ -164,7 +172,7 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
           const signUp = latest.current.signUpSignal.signUp!;
           // OAuth callbacks already have an external account; collect only the
           // outstanding fields. A password is needed only when Clerk asks for it.
-          if ((!opts.callback || signUp.missingFields.includes("password")) && !await call(() => signUp.password({ password: input.password }), "signup")) return;
+          if ((!opts.callback || signUp.missingFields.includes("password")) && !await call(() => signUp.password({ password: input.password }), "signup", "sign-up", () => latest.current.signUpSignal.signUp!.status === "complete" || !latest.current.signUpSignal.signUp!.missingFields.includes("password"))) return;
           await advanceSignup();
         });
       },
@@ -179,7 +187,7 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
       },
       submitCode: async (code) => {
         if (state.step !== "code" || state.codePurpose !== "signup") return;
-        await run("code", async () => { if (await call(() => latest.current.signUpSignal.signUp!.verifications.verifyEmailCode({ code }), "code")) await advanceSignup(); });
+        await run("code", async () => { if (await call(() => latest.current.signUpSignal.signUp!.verifications.verifyEmailCode({ code }), "code", "sign-up", () => latest.current.signUpSignal.signUp!.status === "complete" || !latest.current.signUpSignal.signUp!.unverifiedFields.includes("email_address"))) await advanceSignup(); });
       },
       resendCode: async () => {
         if (state.step !== "code" || state.codePurpose !== "signup" || Date.now() < (state.resendAvailableAt ?? 0)) return;

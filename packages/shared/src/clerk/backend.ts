@@ -5,6 +5,7 @@ export interface ClerkUserJson {
   last_name: string | null;
   image_url: string | null;
   external_id: string | null;
+  private_metadata?: Record<string, unknown>;
   primary_email_address_id: string | null;
   email_addresses: { id: string; email_address: string; verification: { status: string } | null }[];
   external_accounts: { provider: string; provider_user_id: string; verification: { status: string } | null }[];
@@ -30,6 +31,7 @@ export interface ClerkBackend {
   listUsers(query: { externalId?: string; emailAddress?: string; username?: string }): Promise<ClerkUserJson[]>;
   createUser(input: { emailAddress: string; username: string; externalId: string; skipPasswordRequirement: true; skipLegalChecks?: boolean }): Promise<ClerkUserJson>;
   updateUserExternalId(clerkUserId: string, externalId: string): Promise<ClerkUserJson>;
+  updateUserMetadata(clerkUserId: string, input: { privateMetadata: Record<string, unknown> }): Promise<ClerkUserJson>;
   createWaitlistEntry(input: { emailAddress: string; notify: boolean }): Promise<ClerkWaitlistEntryJson>;
   listWaitlistEntries(query: { query?: string; status?: string; offset?: number; limit?: number }): Promise<{ data: ClerkWaitlistEntryJson[]; totalCount: number }>;
   /** DELETE /users/{id}. A 404 means the user is already gone and resolves like a success. */
@@ -108,6 +110,7 @@ export function createClerkBackend(opts: { secretKey: string; apiUrl?: string; f
       catch (error) { if (!(error instanceof ClerkBackendError) || error.status !== 404) throw error; }
     },
     updateUserExternalId(clerkUserId, externalId) { return request(`/users/${encodeURIComponent(clerkUserId)}`, "PATCH", { external_id: externalId }); },
+    updateUserMetadata(clerkUserId, input) { return request(`/users/${encodeURIComponent(clerkUserId)}/metadata`, "PATCH", { private_metadata: input.privateMetadata }); },
     createWaitlistEntry(input) { return request("/waitlist_entries", "POST", { email_address: input.emailAddress, notify: input.notify }); },
     async listWaitlistEntries(query) {
       const params = new URLSearchParams();

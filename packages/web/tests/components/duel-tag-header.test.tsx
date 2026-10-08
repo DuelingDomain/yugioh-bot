@@ -39,7 +39,7 @@ function header(room: DuelRoom, extra: Partial<React.ComponentProps<typeof TagHe
 
 function track(room: DuelRoom, extra: Partial<React.ComponentProps<typeof TagTrack>> = {}) {
   return render(
-    <TagTrack session={room.session} engine={room.engine!} clock={room.clock} nameOf={nameOf} {...extra} />,
+    <TagTrack engine={room.engine!} nameOf={nameOf} {...extra} />,
   );
 }
 
@@ -157,13 +157,8 @@ describe("TagTrack", () => {
     expect(now[0].getAttribute("aria-current")).toBe("step");
   });
 
-  it("renders the decision clock", () => {
+  it("does not render a clock: the clocks live in the top-left block", () => {
     track(baseRoom);
-    expect(screen.getByRole("timer", { name: "Decision clocks" })).toBeTruthy();
-  });
-
-  it("renders nothing for the clock when the duel has none", () => {
-    track(baseRoom, { clock: null });
     expect(screen.queryByRole("timer")).toBeNull();
   });
 

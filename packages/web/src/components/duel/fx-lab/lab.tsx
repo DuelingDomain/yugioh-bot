@@ -27,6 +27,7 @@ import fx from "./fx-lab.module.css";
 import { applyEdits, numberSteps, scriptDurationMs, withHandIds, type LabBoard, type LabScenario, type LabScript } from "./board";
 import { LAB_CATEGORIES, LAB_SCENARIOS, findScenario, scenariosIn } from "./scenarios";
 import { installTimeShim, type TimeShim } from "./time-shim";
+import { DiceLabScreen } from "./dice-view";
 import { labSeriesRoom, OpeningLabScreen, SeriesLabHeader, SeriesLabScreen } from "./series-view";
 import { withDestroyCards } from "../destroy-cards";
 
@@ -335,7 +336,7 @@ export function FxLab() {
   engine.prompt = script.prompt?.prompt ?? null;
   engine.result = result;
   // Between games and opening RPS are not live engine decisions.
-  if (script.opening || script.series?.screen) engine.turn = 0;
+  if (script.opening || script.diceOpening || script.series?.screen) engine.turn = 0;
   const duelKey = `lab-${live.runKey}`;
   // Your own deck opens the Surrender menu here too. The lab's confirm sends nothing.
   const deckSurrender: DeckSurrenderValue = {
@@ -499,6 +500,9 @@ export function FxLab() {
       ) : null}
       {script.opening && status !== "idle" ? (
         <OpeningLabScreen key={`${scenario.id}-${live.runKey}`} spec={script.opening} />
+      ) : null}
+      {script.diceOpening && status !== "idle" ? (
+        <DiceLabScreen key={`${scenario.id}-${live.runKey}`} spec={script.diceOpening} reduced={reduced} />
       ) : null}
       {result ? (
         <DuelResultScreen

@@ -12,9 +12,9 @@ vi.mock("next/link", () => ({
 }));
 
 import { findScenario, scenariosIn } from "@/components/duel/fx-lab/scenarios";
-import { labSeriesRoom, SeriesLabHeader, SeriesLabScreen } from "@/components/duel/fx-lab/series-view";
+import { labOpeningView, labSeriesRoom, OpeningLabScreen, SeriesLabHeader, SeriesLabScreen } from "@/components/duel/fx-lab/series-view";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 function open(id: string) {
   const script = findScenario(id)!.build();
@@ -22,9 +22,26 @@ function open(id: string) {
   return { spec, room: labSeriesRoom(script.initial, spec) };
 }
 
+describe("fx lab: tied opening", () => {
+  it("enables the next throw after two seconds with thirty seconds to pick", () => {
+    const now = 1_000_000;
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    const spec = findScenario("rps-reveal-tie")!.build().opening!;
+    expect(Date.parse(labOpeningView(spec, now).deadlineAt)).toBe(now + 2_000 + 30_000);
+    render(<OpeningLabScreen spec={spec} />);
+    expect(screen.getByTestId("opening-status")).toHaveTextContent("Tie — again");
+    act(() => vi.advanceTimersByTime(1_999));
+    expect(screen.queryByTestId("opening-move-rock")).toBeNull();
+    act(() => vi.advanceTimersByTime(1));
+    expect(screen.getByTestId("opening-move-rock")).toBeEnabled();
+    expect(screen.getByTestId("opening-countdown").querySelector("b")?.textContent).toBe("30");
+  });
+});
+
 describe("fx lab: Best of 3 scenarios", () => {
   it("lists the Match scenarios, each with a series", () => {
-    const ids = scenariosIn("Match").map((scenario) => scenario.id).filter((id) => !id.startsWith("rps-"));
+    const ids = scenariosIn("Match").map((scenario) => scenario.id).filter((id) => !id.startsWith("rps-") && !id.startsWith("dice-"));
     expect(ids).toEqual([
       "match-label-game-2",
       "match-label-game-3",

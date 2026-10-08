@@ -36,6 +36,25 @@ it("finds application users by ID and Discord ID without treating local users as
   expect(users.findByDiscordId(String(local.id))).toBeUndefined();
 });
 
+it("claims only the proven, still-unlinked Discord row without changing profile or allocating users", () => {
+  const user = users.ensureDiscord({ discordUserId: "900000000000000107", displayName: "Existing" });
+  expect(users.claimExistingDiscordUser(user.id, "wrong", "user_new")).toBe(false);
+  expect(users.claimExistingDiscordUser(99999, user.discordUserId!, "user_new")).toBe(false);
+  expect(users.claimExistingDiscordUser(user.id, user.discordUserId!, "user_new")).toBe(true);
+  expect(users.findById(user.id)).toMatchObject({ ...user, clerkUserId: "user_new", updatedAt: expect.any(String) });
+  expect(users.claimExistingDiscordUser(user.id, user.discordUserId!, "user_racer")).toBe(false);
+  expect(users.findByClerkId("user_new")?.id).toBe(user.id);
+  expect(db.prepare("select count(*) as n from users").get()).toEqual({ n: 1 });
+  expect(db.inTransaction).toBe(false);
+});
+it("rolls back a claim when its Clerk ID belongs to another application user", () => {
+  const first = users.ensureDiscord({ discordUserId: "900000000000000108", displayName: "First" });
+  const second = users.ensureDiscord({ discordUserId: "900000000000000109", displayName: "Second" });
+  users.claimExistingDiscordUser(first.id, first.discordUserId!, "user_taken");
+  expect(() => users.claimExistingDiscordUser(second.id, second.discordUserId!, "user_taken")).toThrow(/UNIQUE/);
+  expect(users.findById(second.id)).toEqual(second); expect(db.inTransaction).toBe(false);
+});
+
 it("preserves email and verification on lookup and requires fresh verification for replacement", () => {
   const user = users.ensureDiscord({ discordUserId: "900000000000000104", displayName: "A", email: "a@example.com", emailVerified: true });
   expect(users.ensureDiscord({ discordUserId: user.discordUserId!, displayName: "B", emailVerified: false })).toMatchObject({ email: "a@example.com", emailVerified: true });

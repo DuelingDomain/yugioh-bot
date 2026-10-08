@@ -106,6 +106,63 @@ describe("DraftRoom", () => {
     expect(document.body.querySelector(".dr")?.getAttribute("data-turn")).toBe("picking");
   });
 
+  it("names the Extra Deck round in the bar instead of Pack 3 of 2", async () => {
+    localStorage.setItem("yugidraft-room-motion", "off");
+    load({ packRound: 3, pickStep: 2 });
+    renderRoom({ ...config, extraDeckEnabled: true, extraDeckSize: 4 });
+    await waitFor(() => expect(card(1)).toBeTruthy());
+    const where = document.body.querySelector(".where")!;
+    expect(where.textContent).toContain("Extra Deck round");
+    expect(where.textContent).toContain("Pick 2 of 4");
+    expect(where.textContent).not.toContain("Pack 3");
+  });
+
+  it("says the pack passes in the Extra Deck round, even with the main cards all drafted", async () => {
+    localStorage.setItem("yugidraft-room-motion", "off");
+    // The 6th main card is already drafted (cardsPerPlayer 6) and the Extra Deck round (4 more cards) is not done.
+    const six = [1, 2, 3, 4, 5, 6].map((id) => mk(id + 50));
+    load({ packRound: 3, pickStep: 1, myPool: six.slice(0, 5) });
+    global.fetch = vi.fn().mockResolvedValue(
+      response({ packRound: 3, pickStep: 1, currentPack: [mk(2), mk(3)], myPool: six, isMyTurn: false, seats: seats.map((s) => ({ ...s, hasPicked: s.isCurrentPlayer })) }),
+    );
+    renderRoom({ ...config, extraDeckEnabled: true, extraDeckSize: 4 });
+    await waitFor(() => expect(card(1)).toBeTruthy());
+    fireEvent.click(card(1));
+    fireEvent.click(card(1));
+    await waitFor(() => expect(global.fetch).toHaveBeenCalled());
+    act(() => useDraftStore.setState({ seats: seats.map((s) => ({ ...s, hasPicked: true })) } as never));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Everyone's in"));
+    expect(screen.getByRole("status").textContent).toContain("Passing");
+    expect(screen.getByRole("status").textContent).not.toContain("Pack finished");
+  }, 15000);
+
+  it("does not say the last main pack passes: a new Extra pack comes next", async () => {
+    localStorage.setItem("yugidraft-room-motion", "off");
+    // The 6th main card (cardsPerPlayer 6) is the last pick of the last main pack. The Extra Deck round has not started.
+    const six = [1, 2, 3, 4, 5, 6].map((id) => mk(id + 50));
+    load({ packRound: 2, pickStep: 1, myPool: six.slice(0, 5) });
+    global.fetch = vi.fn().mockResolvedValue(
+      response({ packRound: 2, pickStep: 1, currentPack: [mk(2), mk(3)], myPool: six, isMyTurn: false, seats: seats.map((s) => ({ ...s, hasPicked: s.isCurrentPlayer })) }),
+    );
+    renderRoom({ ...config, extraDeckEnabled: true, extraDeckSize: 4 });
+    await waitFor(() => expect(card(1)).toBeTruthy());
+    fireEvent.click(card(1));
+    fireEvent.click(card(1));
+    await waitFor(() => expect(global.fetch).toHaveBeenCalled());
+    act(() => useDraftStore.setState({ seats: seats.map((s) => ({ ...s, hasPicked: true })) } as never));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Pack finished"));
+    expect(screen.getByRole("status").textContent).toContain("Pack finished");
+    expect(screen.getByRole("status").textContent).not.toContain("Passing");
+  }, 15000);
+
+  it("keeps Pack N of M in the main rounds when the Extra Deck round is on", async () => {
+    localStorage.setItem("yugidraft-room-motion", "off");
+    load({ packRound: 2, pickStep: 1 });
+    renderRoom({ ...config, extraDeckEnabled: true, extraDeckSize: 4 });
+    await waitFor(() => expect(card(1)).toBeTruthy());
+    expect(document.body.querySelector(".where")!.textContent).toContain("Pack 2 of 2");
+  });
+
   it("holds the table empty while the pack ribbon plays, then deals the cards", async () => {
     localStorage.setItem("yugidraft-room-motion", "off");
     renderRoom();

@@ -9,26 +9,42 @@ import {
   createPoolCube,
   fetchCubeDetail,
   fetchCubeOptions,
-  fetchDraftPool,
+  fetchDraftPools,
   fetchSessionUserId,
   replaceCubeMain,
   type CubeOption,
 } from "./pool-api";
+import { isExtraDeckMonster } from "@/lib/card-types";
+import type { ListCorrection } from "@/lib/card-list-import";
+import {
+  EMPTY_LEDGER,
+  cardKey,
+  countsOf,
+  record as recordInLedger,
+  remaining as ledgerRemaining,
+  settle as settleLedger,
+  withoutEntry,
+  type Ledger,
+} from "@/components/card-list-import/import-ledger";
 import {
   addOneCopy,
+  applyListEntries,
   diffPools,
   distinctCount,
   mergeAdd,
-  mergePasscodes,
   nameTakenError,
+  pasteLabel,
   poolToEntries,
   removeCard,
+  reportOf,
   stepCopies,
+  subtractGains,
   totalCopies,
   type AddItem,
   type AddOutcome,
-  type PasscodesOutcome,
-  type CardInfo,
+  type ImportRecord,
+  type Lane,
+  type ListEntry,
   type Pool,
   type PoolDiff,
   type PoolSource,
@@ -48,12 +64,45 @@ interface Slot {
   meta: BaseMeta | null;
   base: Pool;
   pool: Pool;
+  /** The Extra Deck pool, with the cube's Extra pool as its starting point. */
+  baseExtra: Pool;
+  extra: Pool;
   /** Cards added or restored this session; listed first. Captured on add and undo, not while stepping. */
   pinned: ReadonlySet<number>;
+  /** Pasted or loaded lists, oldest first. Each can be taken out again. */
+  imports: ImportRecord[];
+  /** Which copies in the pools still belong to each import, after the owner's own edits. */
+  ledger: Ledger;
 }
 
 const EMPTY_PINNED: ReadonlySet<number> = new Set();
-const emptySlot = (): Slot => ({ meta: null, base: new Map(), pool: new Map(), pinned: EMPTY_PINNED });
+const emptySlot = (): Slot => ({
+  meta: null,
+  base: new Map(),
+  pool: new Map(),
+  baseExtra: new Map(),
+  extra: new Map(),
+  pinned: EMPTY_PINNED,
+  imports: [],
+  ledger: EMPTY_LEDGER,
+});
+
+const slotCounts = (s: Pick<Slot, "pool" | "extra">) => countsOf(["main", s.pool], ["extra", s.extra]);
+
+/** Lets the ledger see how the pools stand now: a card the owner lowered takes copies out of the newest import's gain. */
+function settle(s: Slot): Slot {
+  const ledger = settleLedger(s.ledger, slotCounts(s));
+  return ledger === s.ledger ? s : { ...s, ledger };
+}
+
+const gainKeys = (pool: "main" | "extra", gains: ReadonlyMap<number, number>) =>
+  new Map([...gains].map(([id, copies]) => [cardKey(pool, id), copies] as const));
+
+/** The cards that differ from the starting point, in either pool, when there is one. */
+function repin(s: Slot): Slot {
+  if (s.meta === null) return s;
+  return { ...s, pinned: new Set([...diffPools(s.base, s.pool).changedIds, ...diffPools(s.baseExtra, s.extra).changedIds]) };
+}
 
 export type SaveResult = { ok: true } | { ok: false; error: string };
 export type Mode = "cube" | "scratch";
@@ -88,19 +137,35 @@ export interface PoolEditor {
   meta: BaseMeta | null;
   base: Pool;
   pool: Pool;
+  baseExtra: Pool;
+  /** The Extra Deck pool: one Extra pack per player is dealt from it when the Extra Deck round is on. */
+  extra: Pool;
   pinned: ReadonlySet<number>;
   diff: PoolDiff;
+  extraDiff: PoolDiff;
   edited: boolean;
+  /** Cards (copies, Main and Extra) a cube pick would hide: your own pool while no cube is open, else 0. */
+  replacedByPick: number;
   total: number;
   distinct: number;
+  extraTotal: number;
+  extraDistinct: number;
+  /** Lists pasted or loaded so far; each one can be removed. */
+  imports: ImportRecord[];
   poolSource: PoolSource | null;
   /** The cube the pool started from, or null for "built for this draft". */
   info: (id: number) => CardSummary | undefined;
   add: (items: AddItem[]) => AddOutcome;
-  addPasscodes: (occurrences: ReadonlyMap<number, number>, cards: CardSummary[], unknownIds: number[]) => PasscodesOutcome;
-  addCopy: (card: CardSummary) => boolean;
-  step: (id: number, delta: number) => void;
-  undo: (id: number) => void;
+  /**
+   * Puts a resolved list into the pool, each card in the pool the server chose, and keeps what was added so
+   * `removeImport` can take exactly that out again.
+   */
+  importList: (entries: ListEntry[], details: { fileName?: string | null } & Pick<ImportRecord, "corrected" | "unknown" | "lookupLimited" | "movedToMain">) => ImportRecord;
+  removeImport: (key: number) => void;
+  /** One more copy of one card, in the Extra pool for an Extra Deck monster. `changed` is false at the 99 cap. */
+  addCopy: (card: CardSummary) => { changed: boolean; lane: Lane };
+  step: (id: number, delta: number, lane?: Lane) => void;
+  undo: (id: number, lane?: Lane) => void;
   reset: () => void;
   saveAsNew: (name: string) => Promise<SaveResult>;
   replaceBase: () => Promise<SaveResult>;
@@ -109,7 +174,7 @@ export interface PoolEditor {
   /** The editing session: changes whenever the pool is replaced or the cube changes. Async adds compare it after their await. */
   session: () => number;
   /** The pool as the draft config stores it. */
-  config: () => { setNames: string[]; customCardIds: number[]; poolSource: PoolSource | null };
+  config: () => { setNames: string[]; customCardIds: number[]; customExtraCardIds: number[]; poolSource: PoolSource | null };
   /** Names already taken by cubes, for the default name of a new one. */
   takenNames: string[];
 }
@@ -140,6 +205,7 @@ export function usePoolEditor(options: PoolEditorOptions): PoolEditor {
   const savedTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const alive = React.useRef(true);
   const pickSeq = React.useRef(0);
+  const importSeq = React.useRef(0);
   // Bumped when the pool is replaced or the base cube changes (Change cube, Cancel, Reset, a save, a lobby load).
   // Anything that was started before and answers later checks it and drops its result.
   const sessionRef = React.useRef(0);
@@ -192,10 +258,10 @@ export function usePoolEditor(options: PoolEditorOptions): PoolEditor {
     const source = lobbySource;
     const option = source ? cubes.find((c) => c.id === source.cubeId) ?? null : null;
     void Promise.all([
-      fetchDraftPool(slug),
+      fetchDraftPools(slug),
       source ? fetchCubeDetail(option ?? { id: source.cubeId, setNames: [], customCardIds: [] }).catch(() => null) : Promise.resolve(null),
     ])
-      .then(([pool, detail]) => {
+      .then(([pools, detail]) => {
         if (cancelled) return;
         if (source && detail) {
           const meta: BaseMeta = {
@@ -206,10 +272,10 @@ export function usePoolEditor(options: PoolEditorOptions): PoolEditor {
             canEdit: option?.canEdit ?? false,
             extraCount: detail.extraCount,
           };
-          setCubeSlot({ meta, base: detail.main, pool, pinned: EMPTY_PINNED });
+          setCubeSlot(repin({ ...emptySlot(), meta, base: detail.main, baseExtra: detail.extra, pool: pools.main, extra: pools.extra }));
           setModeState("cube");
         } else {
-          setScratchSlot({ meta: null, base: new Map(), pool, pinned: EMPTY_PINNED });
+          setScratchSlot({ ...emptySlot(), pool: pools.main, extra: pools.extra });
           setModeState("scratch");
         }
         setLobbyReady(true);
@@ -234,14 +300,13 @@ export function usePoolEditor(options: PoolEditorOptions): PoolEditor {
   latest.current = { slot, editingCube };
 
   const patchSlot = React.useCallback((fn: (s: Slot) => Slot) => {
-    if (latest.current.editingCube) setCubeSlot((s) => (s ? fn(s) : s));
-    else setScratchSlot((s) => fn(s));
+    if (latest.current.editingCube) setCubeSlot((s) => (s ? settle(fn(s)) : s));
+    else setScratchSlot((s) => settle(fn(s)));
   }, []);
 
   const diff = React.useMemo(() => diffPools(slot.base, slot.pool), [slot.base, slot.pool]);
+  const extraDiff = React.useMemo(() => diffPools(slot.baseExtra, slot.extra), [slot.baseExtra, slot.extra]);
   const hasBase = slot.meta !== null;
-  const pinFor = (base: Pool, pool: Pool, hasBaseCube: boolean): ReadonlySet<number> =>
-    hasBaseCube ? new Set(diffPools(base, pool).changedIds) : EMPTY_PINNED;
 
   const setMode = React.useCallback(
     (next: Mode) => {
@@ -275,7 +340,14 @@ export function usePoolEditor(options: PoolEditorOptions): PoolEditor {
           canEdit: option.canEdit,
           extraCount: detail.extraCount,
         };
-        setCubeSlot({ meta, base: detail.main, pool: new Map(detail.main), pinned: EMPTY_PINNED });
+        setCubeSlot({
+          ...emptySlot(),
+          meta,
+          base: detail.main,
+          pool: new Map(detail.main),
+          baseExtra: detail.extra,
+          extra: new Map(detail.extra),
+        });
         setModeState("cube");
         setPickerOpen(false);
         setSavedTo(null);
@@ -289,53 +361,105 @@ export function usePoolEditor(options: PoolEditorOptions): PoolEditor {
     [cubes],
   );
 
-  const add = React.useCallback(
-    (items: AddItem[]): AddOutcome => {
-      const current = latest.current.slot;
-      const outcome = mergeAdd(current.pool, items);
-      patchSlot((s) => ({ ...s, pool: outcome.pool, pinned: pinFor(s.base, outcome.pool, s.meta !== null) }));
-      latest.current = { ...latest.current, slot: { ...current, pool: outcome.pool } };
-      return outcome;
+  // Every change goes through one `patchSlot`, and `latest` is moved ahead at once so a second change in the same
+  // tick (two imports back to back) builds on the first and not on the slot as it was rendered.
+  const change = React.useCallback(
+    (fn: (s: Slot) => Slot) => {
+      const next = settle(fn(latest.current.slot));
+      latest.current = { ...latest.current, slot: next };
+      patchSlot(fn);
+      return next;
     },
     [patchSlot],
   );
 
-  const addPasscodes = React.useCallback(
-    (occurrences: ReadonlyMap<number, number>, cards: CardSummary[], unknownIds: number[]): PasscodesOutcome => {
-      const current = latest.current.slot;
-      const outcome = mergePasscodes(current.pool, occurrences, cards, unknownIds);
-      patchSlot((s) => ({ ...s, pool: outcome.pool, pinned: pinFor(s.base, outcome.pool, s.meta !== null) }));
-      latest.current = { ...latest.current, slot: { ...current, pool: outcome.pool } };
+  const add = React.useCallback(
+    (items: AddItem[]): AddOutcome => {
+      const outcome = mergeAdd(latest.current.slot.pool, items, latest.current.slot.extra);
+      change((s) => repin({ ...s, pool: outcome.pool, extra: outcome.extra }));
       return outcome;
     },
-    [patchSlot],
+    [change],
+  );
+
+  const importList = React.useCallback(
+    (entries: ListEntry[], details: { fileName?: string | null } & Pick<ImportRecord, "corrected" | "unknown" | "lookupLimited" | "movedToMain">): ImportRecord => {
+      const current = latest.current.slot;
+      const out = applyListEntries(current.pool, current.extra, entries);
+      const fileName = details.fileName?.trim();
+      const key = ++importSeq.current;
+      const record: ImportRecord = {
+        key,
+        label: fileName || pasteLabel(current.imports.map((i) => i.label)),
+        main: out.gainedMain,
+        extra: out.gainedExtra,
+        ...reportOf(details),
+      };
+      change((s) => {
+        // Lowerings the owner made before this import are settled first, then the import is recorded on the new counts.
+        const settled = settle(s);
+        const gains = new Map([...gainKeys("main", out.gainedMain), ...gainKeys("extra", out.gainedExtra)]);
+        const ledger = recordInLedger(settled.ledger, key, gains, slotCounts({ pool: out.main, extra: out.extra }));
+        return repin({ ...settled, pool: out.main, extra: out.extra, imports: [...settled.imports, record], ledger });
+      });
+      return record;
+    },
+    [change],
+  );
+
+  const removeImport = React.useCallback(
+    (key: number) => {
+      if (!latest.current.slot.imports.some((i) => i.key === key)) return;
+      change((s) => {
+        // Only what is left of this import's gain comes out; stacked imports can go in any order.
+        const settled = settle(s);
+        const left = ledgerRemaining(settled.ledger, key, slotCounts(settled));
+        const take = (pool: "main" | "extra") =>
+          new Map([...left].filter(([k]) => k.startsWith(`${pool}:`)).map(([k, copies]) => [Number(k.slice(pool.length + 1)), copies] as const));
+        return repin({
+          ...settled,
+          pool: subtractGains(settled.pool, take("main")),
+          extra: subtractGains(settled.extra, take("extra")),
+          imports: settled.imports.filter((i) => i.key !== key),
+          ledger: withoutEntry(settled.ledger, key),
+        });
+      });
+    },
+    [change],
   );
 
   const addCopy = React.useCallback(
-    (card: CardSummary): boolean => {
+    (card: CardSummary): { changed: boolean; lane: Lane } => {
       putCards([card]);
-      const result = addOneCopy(latest.current.slot.pool, card.id);
+      const lane: Lane = isExtraDeckMonster(card) ? "extra" : "main";
+      const result = addOneCopy(lane === "extra" ? latest.current.slot.extra : latest.current.slot.pool, card.id);
       if (result.changed) {
-        patchSlot((s) => ({ ...s, pool: result.pool, pinned: pinFor(s.base, result.pool, s.meta !== null) }));
+        change((s) => repin(lane === "extra" ? { ...s, extra: result.pool } : { ...s, pool: result.pool }));
       }
-      return result.changed;
+      return { changed: result.changed, lane };
     },
-    [patchSlot],
+    [change],
   );
 
   const step = React.useCallback(
-    (id: number, delta: number) => {
-      patchSlot((s) => ({ ...s, pool: delta < 0 && (s.pool.get(id) ?? 0) <= 1 ? removeCard(s.pool, id) : stepCopies(s.pool, id, delta) }));
+    (id: number, delta: number, lane: Lane = "main") => {
+      const key = lane === "extra" ? "extra" : "pool";
+      patchSlot((s) => {
+        const pool = s[key];
+        return { ...s, [key]: delta < 0 && (pool.get(id) ?? 0) <= 1 ? removeCard(pool, id) : stepCopies(pool, id, delta) };
+      });
     },
     [patchSlot],
   );
 
   const undo = React.useCallback(
-    (id: number) => {
+    (id: number, lane: Lane = "main") => {
       patchSlot((s) => {
-        const pool = new Map(s.pool);
-        pool.set(id, s.base.get(id) ?? 1);
-        return { ...s, pool, pinned: pinFor(s.base, pool, s.meta !== null) };
+        const key = lane === "extra" ? "extra" : "pool";
+        const base = lane === "extra" ? s.baseExtra : s.base;
+        const pool = new Map(s[key]);
+        pool.set(id, base.get(id) ?? 1);
+        return repin({ ...s, [key]: pool });
       });
     },
     [patchSlot],
@@ -343,7 +467,7 @@ export function usePoolEditor(options: PoolEditorOptions): PoolEditor {
 
   const reset = React.useCallback(() => {
     sessionRef.current += 1;
-    patchSlot((s) => ({ ...s, pool: new Map(s.base), pinned: EMPTY_PINNED }));
+    patchSlot((s) => ({ ...s, pool: new Map(s.base), extra: new Map(s.baseExtra), pinned: EMPTY_PINNED, imports: [], ledger: EMPTY_LEDGER }));
   }, [patchSlot]);
 
   const flashSaved = React.useCallback((name: string) => {
@@ -363,12 +487,14 @@ export function usePoolEditor(options: PoolEditorOptions): PoolEditor {
       if (taken) return { ok: false, error: nameTakenError(name) };
       const from = latest.current.slot.meta;
       const savedPool = latest.current.slot.pool;
+      const savedExtra = latest.current.slot.extra;
       const startedIn = sessionRef.current;
       try {
         const saved = await createPoolCube({
           name,
           cards: poolToEntries(savedPool),
-          ...(from ? { copyExtraFromCubeId: from.cubeId } : {}),
+          // The cube's Extra pool is the one in the editor, including an empty one.
+          extraCards: poolToEntries(savedExtra),
         });
         if (!alive.current) return { ok: true };
         const meta: BaseMeta = {
@@ -377,9 +503,10 @@ export function usePoolEditor(options: PoolEditorOptions): PoolEditor {
           creatorId: saved.createdByUserId,
           creatorName: null,
           canEdit: true,
-          extraCount: from?.extraCount ?? 0,
+          extraCount: savedExtra.size,
         };
         const pool = new Map(savedPool);
+        const extra = new Map(savedExtra);
         const option: CubeOption = {
           id: saved.id,
           name: saved.name,
@@ -398,8 +525,8 @@ export function usePoolEditor(options: PoolEditorOptions): PoolEditor {
         // The cube exists either way. Only a session that is still the one that saved takes it as its base,
         // and it keeps whatever the pool holds now, not the pool as it was when the request left.
         if (sessionRef.current !== startedIn) return { ok: true };
-        const current = latest.current.slot.pool;
-        setCubeSlot({ meta, base: pool, pool: new Map(current), pinned: pinFor(pool, current, true) });
+        const now = latest.current.slot;
+        setCubeSlot(repin({ ...emptySlot(), meta, base: pool, baseExtra: extra, pool: new Map(now.pool), extra: new Map(now.extra), imports: now.imports, ledger: now.ledger }));
         setModeState("cube");
         setPickerOpen(false);
         if (!from) setScratchSlot(emptySlot());
@@ -424,9 +551,7 @@ export function usePoolEditor(options: PoolEditorOptions): PoolEditor {
       // The cube was saved either way. The editor takes the new base only if it is still on the same cube and session.
       const stillHere = sessionRef.current === startedIn && latest.current.slot.meta?.cubeId === from.cubeId;
       if (stillHere) {
-        setCubeSlot((s) =>
-          s && s.meta?.cubeId === from.cubeId ? { ...s, base: new Map(pool), pinned: pinFor(pool, s.pool, true) } : s,
-        );
+        setCubeSlot((s) => (s && s.meta?.cubeId === from.cubeId ? repin({ ...s, base: new Map(pool) }) : s));
       }
       setCubes((list) =>
         (list ?? []).map((c) =>
@@ -441,7 +566,7 @@ export function usePoolEditor(options: PoolEditorOptions): PoolEditor {
   }, [flashSaved]);
 
   const poolSource: PoolSource | null = slot.meta ? { cubeId: slot.meta.cubeId, cubeName: slot.meta.name } : null;
-  const config = React.useCallback(() => configPool(slot.pool, poolSource), [slot.pool, poolSource?.cubeId, poolSource?.cubeName]); // eslint-disable-line react-hooks/exhaustive-deps
+  const config = React.useCallback(() => configPool(slot.pool, poolSource, slot.extra), [slot.pool, slot.extra, poolSource?.cubeId, poolSource?.cubeName]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const ready = variant === "lobby" ? lobbyReady && cubes !== null : cubes !== null;
 
@@ -473,15 +598,23 @@ export function usePoolEditor(options: PoolEditorOptions): PoolEditor {
     meta: slot.meta,
     base: slot.base,
     pool: slot.pool,
+    baseExtra: slot.baseExtra,
+    extra: slot.extra,
     pinned: slot.pinned,
     diff,
-    edited: hasBase && diff.any,
+    extraDiff,
+    edited: hasBase && (diff.any || extraDiff.any),
+    replacedByPick: !editingCube ? totalCopies(scratchSlot.pool) + totalCopies(scratchSlot.extra) : 0,
     total: totalCopies(slot.pool),
     distinct: distinctCount(slot.pool),
+    extraTotal: totalCopies(slot.extra),
+    extraDistinct: distinctCount(slot.extra),
+    imports: slot.imports,
     poolSource,
     info: lookupCard,
     add,
-    addPasscodes,
+    importList,
+    removeImport,
     addCopy,
     step,
     undo,

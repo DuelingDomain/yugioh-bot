@@ -1,11 +1,14 @@
 export * from "./constants.js";
 export * from "./card-catalog.js";
+export * from "./card-lookup-budget.js";
+export { normalizeImportedCardName, rankCardsByTypo } from "./card-name-match.js";
 export * from "./card-artworks.js";
 export * from "./card-fetch.js";
 export * from "./cubes.js";
 export * from "./deal.js";
 export * from "./card-images.js";
 export * from "./drafts.js";
+export * from "./draft-lobby.js";
 export * from "./draft-access.js";
 export { createGuildSettingsService } from "./guild-settings.js";
 export type { GuildSettingsService, GuildSettings } from "./guild-settings.js";

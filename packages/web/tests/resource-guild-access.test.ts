@@ -1,4 +1,5 @@
 import { seedFixtureUsers, fixtureUserId, fixtureDiscordId } from "./fixtures/identity";
+import { finishTestLobbyStart } from "./drafts-lobby-routes.test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -131,7 +132,7 @@ describe("mutations are limited to the configured guild", () => {
 
   it.each([
     { label: "starting a legacy theme draft cannot consume a foreign cube", cubeId: 1, allowedCubeIds: [1], status: 404, draftStatus: "pending" },
-    { label: "starting a draft still drops deleted cube references", cubeId: 2, allowedCubeIds: [2, 99999], status: 200, draftStatus: "active" },
+    { label: "starting a draft still drops deleted cube references", cubeId: 2, allowedCubeIds: [2, 99999], status: 202, draftStatus: "active" },
   ])("$label", async ({ cubeId, allowedCubeIds, status, draftStatus }) => {
     const { getDb } = await import("../src/lib/db");
     const { createDraftService, createPlayerService } = await import("@yugidraft/shared/services");
@@ -154,8 +155,9 @@ describe("mutations are limited to the configured guild", () => {
     }, fixtureUserId("host"), host.id);
     drafts.join(draft.id, guest.id);
     const { POST } = await import("../app/api/drafts/[slug]/route");
-    const res = await POST(new Request("http://x", { method: "POST" }), { params: Promise.resolve({ slug: draft.webSlug! }) });
+    const res = await POST(new Request("http://x", { method: "POST", body: JSON.stringify({ force: true }) }), { params: Promise.resolve({ slug: draft.webSlug! }) });
     expect(res.status).toBe(status);
+    if (status === 202) await finishTestLobbyStart(res, db);
     expect(drafts.findById(draft.id).status).toBe(draftStatus);
   });
   it("booster creation rejects foreign cube references before caching its card pool", async () => {
@@ -191,7 +193,7 @@ describe("mutations are limited to the configured guild", () => {
     const response = await GET(new Request("http://x"), { params: Promise.resolve({ slug: "legacy" }) });
     expect(response.status).toBe(200);
     const body = await response.json();
-    expect(body.allowedCubes).toEqual([{ id: 2, name: "Library cube", archetype: null, mainCount: 0, extraCount: 0, sampleImages: [] }]);
+    expect(body.allowedCubes).toEqual([{ id: 2, name: "Library cube", archetype: null, mainCount: 0, extraCount: 0, mainDistinct: 0, extraDistinct: 0, mainCopies: 0, extraCopies: 0, sampleImages: [] }]);
     expect(JSON.stringify(body)).not.toContain("Foreign cube");
   });
 

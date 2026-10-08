@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import type { DraftService } from "@yugidraft/shared/services";
+import { createDraftLobbyService, type DraftService } from "@yugidraft/shared/services";
 import type { WorkerEffects } from "./effects.js";
 
 export function createDraftTimer({ db, drafts, effects, startedAt }: {
@@ -8,6 +8,7 @@ export function createDraftTimer({ db, drafts, effects, startedAt }: {
   effects: WorkerEffects;
   startedAt: Date;
 }) {
+  const lobby = createDraftLobbyService(db);
   let lastCompletionSweepAt: number | undefined;
   const safely = async (run: () => Promise<void>) => {
     try {
@@ -19,6 +20,31 @@ export function createDraftTimer({ db, drafts, effects, startedAt }: {
 
   return {
     async tick(now = new Date()) {
+      const pendingEffects: Array<() => Promise<void>> = [];
+      // SQLite owns lobby deadlines. tick's cheap candidate query skips idle and
+      // held drafts before acquiring a write lock or analyzing cached pools.
+      try {
+        const transitions = lobby.tick(now);
+        const startedSlugs = new Set(transitions.started.map(draft => draft.webSlug));
+        for (const slug of new Set(transitions.changedSlugs)) {
+          if (!startedSlugs.has(slug)) pendingEffects.push(() => effects.draft({ kind: "seats", slug }));
+        }
+        for (const draft of transitions.started) {
+          if (draft.webSlug) {
+            const slug = draft.webSlug;
+            pendingEffects.push(() => effects.draft({ kind: "resync", slug,
+              packRound: draft.currentPackRound, pickStep: draft.currentPickStep }));
+            pendingEffects.push(() => effects.draft({ kind: "status", slug, status: "active" }));
+          }
+          if (effects.discordEnabled && draft.channelId && draft.webSlug) {
+            pendingEffects.push(() => effects.discord({ kind: "draft-started", draftId: draft.id,
+              channelId: draft.channelId!, name: draft.name, webSlug: draft.webSlug! }));
+          }
+        }
+      } catch (error) {
+        console.warn("[draft-timer] pending lobby sweep failed", error);
+      }
+
       for (const candidate of drafts.listActive()) {
         if (!candidate.pickDeadlineAt || Date.parse(candidate.pickDeadlineAt) > now.getTime()) continue;
         try {
@@ -33,15 +59,20 @@ export function createDraftTimer({ db, drafts, effects, startedAt }: {
           // Publish committed state before attempting Discord delivery.
           if (after.webSlug) {
             const slug = after.webSlug;
-            await safely(() => effects.draft(after.status === "completed"
+            pendingEffects.push(() => effects.draft(after.status === "completed"
               ? { kind: "complete", slug }
               : { kind: "resync", slug, packRound: after.currentPackRound, pickStep: after.currentPickStep }));
           }
-          await safely(() => effects.discord({ kind: "draft-status", draftId: after.id }));
+          if (effects.discordEnabled && after.channelId) {
+            pendingEffects.push(() => effects.discord({ kind: "draft-status", draftId: after.id }));
+          }
         } catch (error) {
           console.warn("[draft-timer] expire failed", candidate.id, error);
         }
       }
+
+      // Commit every due transition before network delivery can stall the tick.
+      for (const effect of pendingEffects) await safely(effect);
 
       if (!effects.discordEnabled) return;
       if (lastCompletionSweepAt !== undefined && now.getTime() - lastCompletionSweepAt < 60_000) return;

@@ -5,9 +5,16 @@ export type AuthErrorView =
   | { kind: "field"; field: FieldName; message: string }
   | { kind: "banner"; banner: AuthBanner };
 
-type Context = "identifier" | "password" | "code" | "newpw" | "signup" | "sso";
+type Context = "identifier" | "password" | "code" | "newpw" | "signup" | "sso" | "ticket";
 function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" ? value as Record<string, unknown> : {};
+}
+
+export function isWaitlistRefusal(error: unknown): boolean {
+  const outer = record(error);
+  const cause = record(outer.cause);
+  const errors = Array.isArray(outer.errors) ? outer.errors : Array.isArray(cause.errors) ? cause.errors : [outer];
+  return errors.some(value => ["sign_up_restricted_waitlist", "not_allowed_access", "sign_up_mode_restricted"].includes(String(record(value).code)));
 }
 
 export function mapClerkError(error: unknown, context: Context): AuthErrorView {
@@ -23,11 +30,12 @@ export function mapClerkError(error: unknown, context: Context): AuthErrorView {
   const message = typeof longMessage === "string" && longMessage ? longMessage : "Check this field and try again.";
   const field = (name: FieldName, body: string): AuthErrorView => ({ kind: "field", field: name, message: body });
   if (["user_locked", "user_banned", "user_deactivated"].includes(code ?? "")) return { kind: "step", step: "err-banned" };
+  if (context === "ticket" && ["ticket_invalid_code", "ticket_expired", "ticket_expired_code", "form_identifier_not_found"].includes(code ?? "")) return { kind: "step", step: "err-signup" };
   if (context === "identifier") {
     if (code === "form_identifier_not_found") return { kind: "step", step: "err-invite" };
     if (code === "form_param_format_invalid" && ["email_address", "identifier"].includes(String(param))) return field("identifier", "Enter a valid email.");
   }
-  if ((context === "signup" || context === "sso") && ["sign_up_restricted_waitlist", "not_allowed_access", "sign_up_mode_restricted"].includes(code ?? "")) return { kind: "step", step: "err-signup" };
+  if ((context === "signup" || context === "sso" || context === "ticket") && ["sign_up_restricted_waitlist", "not_allowed_access", "sign_up_mode_restricted"].includes(code ?? "")) return { kind: "step", step: "err-signup" };
   if (context === "password" && code === "form_password_incorrect") return field("password", "That password doesn't match. Try again or reset it.");
   if (context === "signup") {
     if (code === "form_username_exists" || (code === "form_identifier_exists" && (param === "username" || param === undefined))) return field("username", "That username is taken.");

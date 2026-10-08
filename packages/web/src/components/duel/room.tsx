@@ -1,5 +1,7 @@
 "use client";
 
+import { ownClockSeat } from "./clock-beep";
+import { useLowClockBeep } from "./use-low-clock-beep";
 import { tableTextStyle, useCardTextSize, useTableTextScale } from "./card-text-size";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
@@ -7,7 +9,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { Circle, Diamond, ExternalLink, Eye, Radio, Volume2, VolumeX } from "lucide-react";
-import { isCustomDomain, type DuelAnswer, type DuelCard, type DuelCardInfo, type DuelDeck, type DuelPromptOption, type DuelRoom } from "@yugidraft/shared/duels";
+import { isCustomDomain, seatCountFor, type DuelAnswer, type DuelCard, type DuelCardInfo, type DuelDeck, type DuelPromptOption, type DuelRoom } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { SurrenderModal } from "./surrender-modal";
@@ -60,8 +62,9 @@ import { engineFormat, focusOpponentSeat, foeSeats, formatLabel, isMultiSeat, is
 import { resolveEquipLinks } from "./equip-links";
 import styles from "./room.module.css";
 import hudStyles from "./table/grid-hud.module.css";
+import { hudPreview } from "./table/hud-preview";
 import { HudLayer, RowPreviewBoundary, useHudEscape, useHudPane, useRowPreview } from "./table/hud-layer";
-import { hudClock, hudMasterProps, stationTrackProps } from "./table/hud-shared";
+import { clockStrip, hudClockBank, hudMasterProps, stationTrackProps } from "./table/hud-shared";
 import { SEAT_TONE_HEX } from "./table/types";
 import { AttackConfirm, CardActionMenu, CardHoverInfo, PickRefusalHint, shakeRefusedCard, confirmSide, targetName, zoneAnchor, type CardMenuState } from "./card-interactions";
 import { DestroyFx } from "./destroy-fx";
@@ -73,6 +76,7 @@ import { duelFontClasses } from "./fonts";
 import { DUEL_SHAKE_LABEL, DUEL_SHAKE_LEVELS, useDuelPreferences } from "./preferences";
 import { DuelAnimationSpeedControl, useDuelAnimationSpeed } from "./animation-speed-control";
 import { DuelCardTextSizeControl } from "./card-text-size-control";
+import { DuelDiceSkinControl } from "./dice-skin-control";
 import { CardInspector, type InspectTarget } from "./inspector";
 import {
   activatePromptFromField,
@@ -309,6 +313,16 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   // The card layers go while the connection recovers (their events are history when they return), except while
   // the opening deal plays: a focus or a socket retry in those seconds must not drop the cards still in flight.
   const fxUp = fxLayersUp(!error, realtime.recovering, startBeats.dealing);
+  // One minute left on the viewer's own clock beeps once (never for a spectator or a finished duel).
+  useLowClockBeep({
+    clock: data?.clock,
+    seat: ownClockSeat({
+      mySeat: data?.mySeat,
+      spectator: spectate || data?.role === "spectator",
+      replay: data?.session.status !== "active" || Boolean(data?.engine?.result) || viewerOut,
+    }),
+    soundEnabled: preferences.soundEnabled,
+  });
   const catchingUp = syncing || startBeats.active;
   // The engine drops its prompt when the duel ends; guard here too, so no answer path can open between the end and the result screen.
   const prompt = data?.engine?.result ? null : (data?.engine?.prompt ?? null);
@@ -678,6 +692,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         setMenu({
           anchor,
           title: card?.name ?? "Card",
+          card,
           options,
           promptId: prompt.id,
           revision: data.engine.revision,
@@ -792,7 +807,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     return (
       <>
         {lobby}
-        <OpeningScreen opening={opening} receivedAt={data.receivedAt} mySeat={data.mySeat} names={[seatName(0), seatName(1)]} busy={busy} error={actionError}
+        <OpeningScreen opening={opening} receivedAt={data.receivedAt} mySeat={data.mySeat} names={Array.from({ length: seatCountFor(data.session.format) }, (_, seat) => seatName(seat))} busy={busy} error={actionError} reducedMotion={preferences.reducedMotion}
           onPick={(move) => void run(() => pickOpeningMove(slug, move))}
           onChoose={(choice) => void run(() => chooseOpeningOrder(slug, choice))} />
       </>
@@ -1044,6 +1059,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       <h2>Presentation</h2>
       <DuelAnimationSpeedControl />
       <DuelCardTextSizeControl />
+      <DuelDiceSkinControl />
       <DuelSoundControls enabled={preferences.soundEnabled} volume={preferences.soundVolume}
         onEnabledChange={preferences.setSoundEnabled} onVolumeChange={preferences.setSoundVolume} />
       <label className="flex flex-col gap-2">Motion
@@ -1325,7 +1341,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         reducedMotion: preferences.reducedMotion,
         chainMode,
       })}
-      clock={solid || !data.clock ? null : hud ? hudClock(data.clock, data.session, preferences.reducedMotion) : <DuelClockDisplay key={data.clock.serverNow} clock={data.clock} session={data.session} />}
+      clock={null}
       phases={phaseHub ? "hub" : "bar"}
       compact={hud}
     />
@@ -1404,6 +1420,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           overlaysNode={overlaysNode}
           fieldProps={fieldProps}
           renderBoard={renderBoard}
+          headerClock={data.clock ? <DuelClockDisplay key={data.clock.serverNow} clock={data.clock} session={data.session} reducedMotion={preferences.reducedMotion} bank /> : null}
           renderClock={(seat) => data.clock ? <DuelClockDisplay key={data.clock.serverNow} clock={data.clock} session={data.session} seats={[seat]} /> : null}
           inspect={inspect}
           pane={pane}
@@ -1426,6 +1443,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       {hud ? (
         <header className={hudStyles.top} data-testid="hud-top">
           <div className={hudStyles.topLeft}>{headerIdentity}</div>
+          {hudClockBank(data.clock, data.session, preferences.reducedMotion)}
           <div className={hudStyles.topMid}>{headerTurn}</div>
           <div className={hudStyles.topRight}>
             <SeriesGameLabel room={data} />
@@ -1444,6 +1462,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           </div>
         </header>
       )}
+      {hud ? null : clockStrip(data.clock, data.session, preferences.reducedMotion)}
       {seriesBanner}
       <div className={styles.layout}>
         {/* Notices float over the top of the layout. In flow they would take height from the board
@@ -1492,8 +1511,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           master={domain ? hudMaster(engine.seats.find((seat) => seat.seat === localSeat), !spectator, spectator ? `${playerName(localSeat)}'s Master` : "Your Master") : null}
           otherMaster={domain && top ? hudMaster(top, false, `${playerName(top.seat)}'s Master`) : null}
           onInspect={setInspect}
-          preview={hover ? { card: hover.card, owner: { name: playerName(hover.card.controller), ...(hudSeatTones.get(hover.card.controller) ?? SEAT_TONE_HEX.ice) } } : rowPreview.card ? { card: rowPreview.card, owner: null } : null}
-          previewHidden={Boolean(activeMenu) || pickHintShown || Boolean(pile?.open)}
+          preview={hudPreview(hover?.card ?? null, activeMenu?.card, rowPreview.card, (card) => ({ name: playerName(card.controller), ...(hudSeatTones.get(card.controller) ?? SEAT_TONE_HEX.ice) }))}
+          previewHidden={pickHintShown || Boolean(pile?.open)}
           reducedMotion={preferences.reducedMotion}
         />
       ) : null}

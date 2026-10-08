@@ -47,3 +47,118 @@
 @media (prefers-reduced-motion: reduce) {
   .pop { animation-name: clockGainStill; animation-duration: 1200ms; }
 }
+
+/* ---------- the clock block at the top left (DuelClockDisplay `bank`) ---------- */
+/* One cell per seat: the name over big digits. The answering seat wears a purple edge, a lit dot and bright digits;
+   a clock at 1:00 or less turns red (the beep fires then, for the viewer's own clock). */
+.bank {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.cell {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto auto;
+  align-content: center;
+  justify-items: start;
+  gap: 1px;
+  min-width: 0;
+  padding: 2px 12px 2px 18px;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  color: var(--duel-ink-3);
+  white-space: nowrap;
+}
+.cell::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.35;
+  transform: translateY(-50%);
+}
+
+.name,
+.code {
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: calc(12px * var(--tt, 1));
+  line-height: 1.1;
+  letter-spacing: 0.02em;
+}
+/* The seat code (Tag: 1A, 2A, 1B, 2B) stays hidden until a narrow header swaps it in for the name. */
+.code { display: none; }
+/* A table of two has room: the name beside the digits, so the digits can be big. */
+.bank[data-count="2"] .cell { grid-template-rows: none; grid-auto-flow: column; align-items: center; justify-items: start; gap: 9px; }
+.bank[data-count="2"] .name { max-width: 14ch; }
+.bank:not([data-count="2"]) .name { max-width: 10ch; font-size: calc(11px * var(--tt, 1)); }
+
+.time {
+  font-family: var(--duel-f-num, inherit);
+  font-size: calc(36px * var(--tt, 1));
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums lining-nums;
+  letter-spacing: 0.01em;
+}
+.bank:not([data-count="2"]) .time { font-size: calc(24px * var(--tt, 1)); }
+
+.cell[data-active="true"] {
+  border-color: rgb(155 126 255 / 0.7);
+  background: var(--duel-pen-soft, rgb(155 126 255 / 0.13));
+  color: var(--duel-ink);
+}
+.cell[data-active="true"]::before {
+  background: var(--duel-pen, #9b7eff);
+  box-shadow: 0 0 8px var(--duel-pen, #9b7eff);
+  opacity: 1;
+}
+
+.cell[data-low="true"] { color: var(--duel-loss-ink, #ff9489); }
+.cell[data-low="true"][data-active="true"] {
+  border-color: rgb(255 148 137 / 0.75);
+  background: rgb(255 90 80 / 0.14);
+}
+.cell[data-low="true"]::before { background: var(--duel-loss-ink, #ff9489); box-shadow: 0 0 8px rgb(255 148 137 / 0.8); opacity: 1; }
+.cell[data-low="true"][data-active="true"][data-motion="on"] { animation: clockUrgent 1s ease-in-out infinite; }
+@keyframes clockUrgent {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(255 120 110 / 0); }
+  50% { box-shadow: 0 0 10px 0 rgb(255 120 110 / 0.45); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cell[data-low="true"][data-active="true"] { animation: none; }
+}
+
+/* The in-flow strip of a narrow room (no floating header): one row under the header, never wider than the screen. */
+.strip {
+  display: flex;
+  flex: none;
+  align-items: stretch;
+  min-width: 0;
+  padding: 4px 8px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--duel-rule-lo, rgb(181 153 99 / 0.16));
+  background: rgb(9 15 29 / 0.7);
+}
+.strip > .bank { flex: 1 1 auto; }
+.strip .cell { flex: 1 1 0; }
+.strip .name { max-width: 100%; }
+
+@media (max-width: 1500px) {
+  .bank:not([data-count="2"]) .name { max-width: 7ch; }
+  .bank:not([data-count="2"]) .time { font-size: calc(21px * var(--tt, 1)); }
+  .cell { padding: 2px 8px 2px 15px; }
+  .cell::before { left: 6px; }
+  .bank:not([data-count="2"]) .cell { padding: 2px 5px 2px 13px; }
+  .bank:not([data-count="2"]) .cell::before { left: 5px; }
+}

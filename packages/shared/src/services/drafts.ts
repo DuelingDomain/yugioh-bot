@@ -9,8 +9,10 @@ import { isExtraDeckFrame } from "./card-catalog.js";
 import { canonicalCardCode } from "../duels/pool.js";
 import { loadArtworkIdentityCatalog } from "./card-artworks.js";
 import { analyzeCube, buildDealWithRemainder, prepareBoosterPool, seededShuffle, type ShuffleSeed } from "./deal.js";
+import { assertLobbySeatTarget, clearDraftLobbyStart, invalidateDraftLobby, DraftLobbyServiceError } from "./draft-lobby-mutations.js";
 
 export type DraftStatus = "pending" | "active" | "cancelled" | "completed";
+export interface DraftStartOptions { scheduleToken?: string }
 export type { Draft, DraftCard, DraftConfig, DraftPick, DraftPlayer } from "../types/index.js";
 
 export type DraftPoolCard = {
@@ -111,7 +113,8 @@ function normalizeDraftConfig(config: DraftConfig): DraftConfig {
     copyLimit: config.copyLimit !== false,
   };
   if (config.mode !== "theme") {
-    return base;
+    return { ...base, extraDeckEnabled: config.extraDeckEnabled ?? false,
+      extraDeckSize: config.extraDeckSize ?? 15, picksPerStep: config.picksPerStep ?? 1 };
   }
   return {
     ...base,
@@ -143,6 +146,32 @@ export function totalThemeRounds(config: DraftConfig): number {
   return main + extra;
 }
 
+/** Normal drafts use one extra pack per player, after all main packs. */
+export function boosterExtraSize(config: DraftConfig): number {
+  return config.extraDeckEnabled === true ? config.extraDeckSize ?? 15 : 0;
+}
+
+export function totalBoosterCards(config: DraftConfig): number {
+  return (config.cardsPerPlayer ?? defaultDraftConfig.cardsPerPlayer) + boosterExtraSize(config);
+}
+
+export function boosterDraftPhase(config: DraftConfig, packRound: number): "main" | "extra" {
+  return boosterExtraSize(config) > 0 && packRound > (config.packsPerPlayer ?? defaultDraftConfig.packsPerPlayer) ? "extra" : "main";
+}
+
+/** Shared by normal start and create/edit routes. Theme validation stays independent. */
+export function boosterDraftConfigError(config: DraftConfig): string | null {
+  if (config.extraDeckEnabled !== undefined && typeof config.extraDeckEnabled !== "boolean") return "Extra deck enabled must be a boolean";
+  const extra = config.extraDeckSize === undefined ? 15 : config.extraDeckSize;
+  if (!Number.isInteger(extra) || extra < 0 || extra > 15) return "Extra deck size must be a whole number from 0 to 15";
+  const picks = config.picksPerStep === undefined ? 1 : config.picksPerStep;
+  if (picks !== 1 && picks !== 2) return "Picks per step must be 1 or 2";
+  if (config.customExtraCardIds !== undefined && (!Array.isArray(config.customExtraCardIds)
+    || config.customExtraCardIds.some((id) => !Number.isSafeInteger(id) || id <= 0))) return "customExtraCardIds must be a list of positive card IDs (one per copy)";
+  if (config.customExtraCardIds && new Set(config.customExtraCardIds).size > 1000) return "customExtraCardIds may contain at most 1000 distinct card IDs";
+  return null;
+}
+
 const pickOptionLimit = 8;
 
 function deadlineIso(now: Date, seconds: number) {
@@ -165,6 +194,7 @@ export function createDraftService(
   // player a saved deck of their picks. A failure must not undo the last pick; the decks are
   // saved later, when the player opens My decks or the tournament page.
   const completeDraft = (draftId: number, now: Date, waveNumber?: number) => {
+    clearDraftLobbyStart(db, draftId, true);
     if (waveNumber === undefined) {
       db.prepare("update drafts set status = 'completed', ended_at = ? where id = ?").run(now.toISOString(), draftId);
     } else {
@@ -210,6 +240,7 @@ export function createDraftService(
       createdByUserId: number,
       creatorPlayerId: number,
     ) => {
+      assertLobbySeatTarget(config);
       const result = db
         .prepare(
           `
@@ -286,6 +317,19 @@ export function createDraftService(
   const hasActedCurrentStep = (draftId: number, playerId: number, packRound: number, pickStep: number) =>
     hasPickedCurrentStep(draftId, playerId, packRound, pickStep) ||
     hasPassedStep(draftId, playerId, packRound, pickStep);
+
+  const boosterPhaseTarget = (draft: Draft): number => boosterDraftPhase(draft.config, draft.currentPackRound) === "extra"
+    ? totalBoosterCards(draft.config) : draft.config.cardsPerPlayer ?? defaultDraftConfig.cardsPerPlayer;
+
+  // Extra-enabled swaps may only draw from the current phase. Legacy mixed pools keep their swaps.
+  const boosterRemainder = (draft: Draft) => {
+    const extra = boosterDraftPhase(draft.config, draft.currentPackRound) === "extra";
+    const rows = db.prepare(`select u.position, u.catalog_card_id, c.type, c.frame_type from draft_undealt u
+      left join card_catalog c on c.ygoprodeck_id = u.catalog_card_id where u.draft_id = ? order by u.position`)
+      .all(draft.id) as Array<{ position: number; catalog_card_id: number; type: string | null; frame_type: string | null }>;
+    return boosterExtraSize(draft.config) === 0 ? rows : rows
+      .filter((row) => isExtraDeckFrame({ type: row.type ?? "", frameType: row.frame_type ?? "" }) === extra);
+  };
 
   // Combined copies by name and type, exposed under every artwork id (main and extra together).
   const heldCopies = (draftId: number, playerId: number): Map<number, number> => {
@@ -379,12 +423,11 @@ export function createDraftService(
       .all(pack.id) as Array<{ id: number; catalog_card_id: number }>;
     const held = heldCopies(draftId, playerId);
     if (cards.length === 0 || cards.some((card) => !isCapped(held, card.catalog_card_id))) return;
-    const remainder = db.prepare("select position, catalog_card_id from draft_undealt where draft_id = ? order by position")
-      .all(draftId) as Array<{ position: number; catalog_card_id: number }>;
+    const remainder = boosterRemainder(draft);
     const replacement = remainder.find((card) => !isCapped(held, card.catalog_card_id));
     if (!replacement) return; // Old drafts and exhausted piles use the forced-pick rule.
     const outgoing = cards[randomInt(cards.length)];
-    const tail = remainder[remainder.length - 1].position + 1;
+    const tail = (db.prepare("select max(position) as n from draft_undealt where draft_id = ?").get(draftId) as { n: number }).n + 1;
     db.prepare("delete from draft_undealt where draft_id = ? and position = ?").run(draftId, replacement.position);
     db.prepare("insert into draft_undealt (draft_id, position, catalog_card_id) values (?, ?, ?)").run(draftId, tail, outgoing.catalog_card_id);
     db.prepare("update draft_cards set catalog_card_id = ? where id = ?").run(replacement.catalog_card_id, outgoing.id);
@@ -424,7 +467,8 @@ export function createDraftService(
   const exportYdk = (draftId: number, playerId: number): string => {
     const draft = findById(draftId);
     assertJoinedPlayer(draftId, playerId);
-    if (draft.status !== "completed" && playerProgress(draftId, playerId).pick_count < (draft.config.cardsPerPlayer ?? defaultDraftConfig.cardsPerPlayer)) {
+    const target = draft.config.mode === "theme" ? totalThemeRounds(draft.config) : totalBoosterCards(draft.config);
+    if (draft.status !== "completed" && playerProgress(draftId, playerId).pick_count < target) {
       throw new Error("Deck is not complete yet");
     }
     const rows = db.prepare(`select dc.catalog_card_id, cc.name, cc.type, cc.frame_type, pk.forced
@@ -518,8 +562,48 @@ export function createDraftService(
       .all(draftId)
       .map((row: any) => row as DraftPlayerProgressRow);
 
-  const openWave = (draftId: number, waveNumber: number, playerCount: number, config: DraftConfig) => {
+  const resolveExtraCardIds = (config: DraftConfig, guildId: string): number[] => {
+    const ids = config.customExtraCardIds ?? (config.poolSource ?
+      (db.prepare(`select cc.catalog_card_id, cc.max_copies from cube_cards cc join cubes c on c.id = cc.cube_id
+        where cc.cube_id = ? and cc.pool = 'extra' and c.guild_id = ? order by cc.rowid`)
+        .all(config.poolSource.cubeId, guildId) as Array<{ catalog_card_id: number; max_copies: number }>)
+        .flatMap((row) => Array<number>(row.max_copies).fill(row.catalog_card_id)) : []);
+    const eligible = new Set((db.prepare("select ygoprodeck_id, type, frame_type from card_catalog").all() as CatalogRow[])
+      .filter(isExtraDeckCatalogRow).map((row) => row.ygoprodeck_id));
+    return ids.filter((id) => eligible.has(id));
+  };
+
+  const analyzeBoosterDraft = (config: DraftConfig, players: number, guildId: string) => {
     const packSize = config.packSize ?? defaultDraftConfig.packSize;
+    const waves = config.packsPerPlayer ?? defaultDraftConfig.packsPerPlayer;
+    const main = resolveMainCardIds(config);
+    const analysis = analyzeCube(prepareBoosterPool(main, config, players * waves * packSize), players, waves, packSize, config.cardsPerPlayer);
+    const numberError = boosterDraftConfigError(config);
+    if (numberError) analysis.errors.push(numberError);
+    const extraSize = boosterExtraSize(config);
+    if (!numberError && extraSize > 0) {
+      const extra = analyzeCube(resolveExtraCardIds(config, guildId), players, 1, extraSize, extraSize);
+      analysis.errors.push(...extra.errors.map((e) => `Extra pool: ${e}`));
+      analysis.warnings.push(...extra.warnings.map((w) => `Extra pool: ${w}`));
+    }
+    analysis.ok = analysis.errors.length === 0;
+    return analysis;
+  };
+
+  const resolveMainCardIds = (config: DraftConfig): number[] => {
+    const ids = config.cubeCardIds?.length ? config.cubeCardIds : config.poolCardIds?.length ? config.poolCardIds : catalogCardIdsForDraft(config);
+    // Existing snapshots retain their behavior. New extra-enabled deals cannot mix phases.
+    if (!boosterExtraSize(config)) return ids;
+    const extra = new Set((db.prepare("select ygoprodeck_id, type, frame_type from card_catalog").all() as CatalogRow[])
+      .filter(isExtraDeckCatalogRow).map((row) => row.ygoprodeck_id));
+    return ids.filter((id) => !extra.has(id));
+  };
+
+  const openWave = (draftId: number, waveNumber: number, playerCount: number, config: DraftConfig) => {
+    const mainPacks = config.packsPerPlayer ?? defaultDraftConfig.packsPerPlayer;
+    const mainPackSize = config.packSize ?? defaultDraftConfig.packSize;
+    const extra = boosterDraftPhase(config, waveNumber) === "extra";
+    const packSize = extra ? boosterExtraSize(config) : mainPackSize;
     const passDirection = waveNumber % 2 === 0 && config.alternatePassDirection ? -1 : 1;
     const insertPack = db.prepare(
       `
@@ -546,11 +630,12 @@ export function createDraftService(
         "select catalog_card_id from draft_deal where draft_id = ? and position >= ? and position < ? order by position",
       );
       for (let playerIndex = 0; playerIndex < playerCount; playerIndex += 1) {
-        const globalPack = (waveNumber - 1) * playerCount + playerIndex;
+        const start = extra ? mainPacks * playerCount * mainPackSize + playerIndex * packSize
+          : ((waveNumber - 1) * playerCount + playerIndex) * packSize;
         const sliceRows = selectSlice.all(
           draftId,
-          globalPack * packSize,
-          (globalPack + 1) * packSize,
+          start,
+          start + packSize,
         ) as Array<{ catalog_card_id: number }>;
         const packId = Number(
           insertPack.run(draftId, waveNumber, playerIndex, playerIndex, passDirection).lastInsertRowid,
@@ -699,12 +784,17 @@ export function createDraftService(
     ).run(round, deadlineIso(now, config.pickSeconds ?? defaultDraftConfig.pickSeconds), draftId);
   };
 
-  const assignThemes = (draftId: number, playerIds: number[], config: DraftConfig) => {
+  const assignThemes = (draftId: number, playerIds: number[], config: DraftConfig, guildId: string) => {
     const requested = config.allowedCubeIds ?? [];
-    // Drop any cubes that were deleted from the library after being attached.
+    // References are scoped to the draft's guild at the final write boundary.
+    // Legacy deleted, unused cubes are still dropped from the allowed list.
     const existing = new Set(
-      (db.prepare("select id from cubes").all() as Array<{ id: number }>).map((r) => r.id),
+      (db.prepare("select id from cubes where guild_id = ?").all(guildId) as Array<{ id: number }>).map((r) => r.id),
     );
+    const foreign = new Set((db.prepare("select id from cubes where guild_id != ?").all(guildId) as Array<{ id: number }>).map((r) => r.id));
+    if (requested.some((id) => foreign.has(id))) {
+      throw new Error("Allowed themes must belong to the draft's guild");
+    }
     const allowed = requested.filter((id) => existing.has(id));
     if (allowed.length === 0) {
       throw new Error("Theme draft requires at least one allowed theme");
@@ -729,7 +819,13 @@ export function createDraftService(
       for (const row of db
         .prepare("select player_id, cube_id from draft_player_cube where draft_id = ?")
         .all(draftId) as Array<{ player_id: number; cube_id: number }>) {
+        if (!playerIds.includes(row.player_id) || !allowed.includes(row.cube_id)) {
+          throw new Error("Player claims must reference allowed themes in the draft's guild");
+        }
         claims.set(row.player_id, row.cube_id);
+      }
+      if (uniqueThemes && new Set(claims.values()).size !== claims.size) {
+        throw new Error("Player claims must be distinct when uniqueThemes is enabled");
       }
     }
 
@@ -831,7 +927,7 @@ export function createDraftService(
       assignSeat.run(seatIndex, draftId, playerId);
     }
 
-    assignThemes(draftId, playerIds, draft.config);
+    assignThemes(draftId, playerIds, draft.config, draft.guildId);
     preflightThemes(draftId, draft.config);
 
     db.prepare(
@@ -844,16 +940,32 @@ export function createDraftService(
     return findById(draftId);
   };
 
-  const startDraft = db.transaction((draftId: number, now = new Date()) => {
+  const startDraft = db.transaction((draftId: number, now = new Date(), options: DraftStartOptions = {}) => {
     const draft = findById(draftId);
 
     if (draft.status !== "pending") {
       throw new Error("Draft must be pending to start");
     }
 
-    if (draft.config.mode === "theme") {
-      return startThemeDraft(draftId, draft, now);
+    const schedule = db.prepare("select lobby_start_token, lobby_start_revision, lobby_revision from drafts where id = ?")
+      .get(draftId) as { lobby_start_token: string | null; lobby_start_revision: number | null; lobby_revision: number };
+    if ((schedule.lobby_start_token || options.scheduleToken) && (schedule.lobby_start_token !== options.scheduleToken
+      || schedule.lobby_start_revision !== schedule.lobby_revision)) {
+      throw new DraftLobbyServiceError("Start token does not match the current countdown", "START_TOKEN_MISMATCH");
     }
+    const joined = db.prepare(`select p.id, p.guild_id from draft_players dp join players p on p.id = dp.player_id
+      where dp.draft_id = ?`).all(draftId) as Array<{ id: number; guild_id: string }>;
+    assertLobbySeatTarget(draft.config, joined.length);
+    for (const player of joined) assertPlayerGuild(player.id, draft.guildId);
+
+    if (draft.config.mode === "theme") {
+      const started = startThemeDraft(draftId, draft, now);
+      clearDraftLobbyStart(db, draftId, true);
+      db.prepare("update drafts set lobby_revision = lobby_revision + 1 where id = ?").run(draftId);
+      return started;
+    }
+    const numberError = boosterDraftConfigError(draft.config);
+    if (numberError) throw new Error(numberError);
 
     const playerIds = db
       .prepare(
@@ -885,27 +997,25 @@ export function createDraftService(
     const packSize = draft.config.packSize ?? defaultDraftConfig.packSize;
     const packsPerPlayer = draft.config.packsPerPlayer ?? defaultDraftConfig.packsPerPlayer;
 
-    const poolCardIds =
-      draft.config.cubeCardIds && draft.config.cubeCardIds.length > 0
-        ? draft.config.cubeCardIds
-        : draft.config.poolCardIds && draft.config.poolCardIds.length > 0
-          ? draft.config.poolCardIds
-          : catalogCardIdsForDraft(draft.config);
+    const poolCardIds = resolveMainCardIds(draft.config);
 
     const players = playerIds.length;
     const waves = packsPerPlayer;
     const cubeCardIds = prepareBoosterPool(poolCardIds, draft.config, players * waves * packSize);
-    const analysis = analyzeCube(cubeCardIds, players, waves, packSize, draft.config.cardsPerPlayer);
+    const analysis = analyzeBoosterDraft(draft.config, players, draft.guildId);
     if (!analysis.ok) {
       throw new Error(analysis.errors.join(" "));
     }
 
     const { packs, remainder } = buildDealWithRemainder(cubeCardIds, { players, waves, packSize, seed: seedSource() });
+    const extraSize = boosterExtraSize(draft.config);
+    const extraDeal = extraSize > 0 ? buildDealWithRemainder(resolveExtraCardIds(draft.config, draft.guildId),
+      { players, waves: 1, packSize: extraSize, seed: seedSource() }) : { packs: [], remainder: [] };
     const insertCube = db.prepare(
       "insert into draft_deal (draft_id, position, catalog_card_id) values (?, ?, ?)",
     );
     let position = 0;
-    for (const pack of packs) {
+    for (const pack of [...packs, ...extraDeal.packs]) {
       for (const cardId of pack) {
         insertCube.run(draftId, position, cardId);
         position += 1;
@@ -913,7 +1023,7 @@ export function createDraftService(
     }
 
     const insertUndealt = db.prepare("insert into draft_undealt (draft_id, position, catalog_card_id) values (?, ?, ?)");
-    for (const cardId of remainder) insertUndealt.run(draftId, position++, cardId);
+    for (const cardId of [...remainder, ...extraDeal.remainder]) insertUndealt.run(draftId, position++, cardId);
 
     openWave(draftId, 1, playerIds.length, draft.config);
 
@@ -929,6 +1039,8 @@ export function createDraftService(
       `,
     ).run(now.toISOString(), deadlineIso(now, draft.config.pickSeconds ?? defaultDraftConfig.pickSeconds), draftId);
 
+    clearDraftLobbyStart(db, draftId, true);
+    db.prepare("update drafts set lobby_revision = lobby_revision + 1 where id = ?").run(draftId);
     return findById(draftId);
   });
 
@@ -947,7 +1059,8 @@ export function createDraftService(
     const updatePackHolder = db.prepare("update draft_packs set current_holder_seat_index = ? where id = ?");
 
     // Steps in a row where nobody could pick. With packs on distinct seats, one full turn of the table
-    // shows every pack to every seat, so more idle steps than seats means packs are stacked on one seat
+    // shows every pack to every seat. A seat visit takes picksPerStep selections, so count full visits
+    // before deciding that packs are stacked on one seat
     // (drafts that started under the old rotation). Then each pack goes back to its origin seat once;
     // if the table is still stuck after that, the wave ends. This keeps the loop from running forever.
     let idleSteps = 0;
@@ -965,8 +1078,15 @@ export function createDraftService(
         repaired = false;
       }
 
-      const active = activePlayerRows(draftId);
+      const active = activePlayerRows(draftId).filter((row) => row.pick_count < boosterPhaseTarget(draft));
       if (active.length === 0) {
+        if (boosterDraftPhase(draft.config, draft.currentPackRound) === "main" && boosterExtraSize(draft.config) > 0) {
+          const extraRound = (draft.config.packsPerPlayer ?? defaultDraftConfig.packsPerPlayer) + 1;
+          openWave(draftId, extraRound, allSeatIndexes(draftId).length, draft.config);
+          db.prepare("update drafts set current_wave_number = ?, current_pick_step = 1, pick_deadline_at = ? where id = ?")
+            .run(extraRound, deadlineIso(now, draft.config.pickSeconds ?? defaultDraftConfig.pickSeconds), draftId);
+          continue;
+        }
         completeDraft(draftId, now);
         return;
       }
@@ -988,7 +1108,7 @@ export function createDraftService(
       // With all seats in rotation, every remaining pack can reach every active
       // player. End a wave only when no active player can take a remaining card.
       idleSteps += 1;
-      const stuck = idleSteps > allSeatIndexes(draftId).length + 1;
+      const stuck = idleSteps > (allSeatIndexes(draftId).length + 1) * (draft.config.picksPerStep ?? 1);
       if (stuck && !repaired) {
         db.prepare(
           "update draft_packs set current_holder_seat_index = origin_seat_index where draft_id = ? and wave_number = ?",
@@ -998,7 +1118,8 @@ export function createDraftService(
         continue;
       }
       if (stuck || !waveHasPickableCard(draftId, currentPackRound, active)) {
-        if (currentPackRound >= (draft.config.packsPerPlayer ?? defaultDraftConfig.packsPerPlayer)) {
+        const totalPacks = (draft.config.packsPerPlayer ?? defaultDraftConfig.packsPerPlayer) + (boosterExtraSize(draft.config) > 0 ? 1 : 0);
+        if (currentPackRound >= totalPacks) {
           completeDraft(draftId, now);
           return;
         }
@@ -1034,7 +1155,8 @@ export function createDraftService(
         pass_direction: number;
       }>;
 
-      for (const pack of currentPacks) {
+      // Each pick keeps its own persisted step/deadline; pass only after the configured group.
+      for (const pack of currentPickStep % (draft.config.picksPerStep ?? 1) === 0 ? currentPacks : []) {
         updatePackHolder.run(
           advanceSeatIndex(seatIndexes, pack.current_holder_seat_index, pack.pass_direction),
           pack.id,
@@ -1151,8 +1273,8 @@ export function createDraftService(
 
     const playerRow = playerProgress(draftId, playerId);
 
-    const cardsPerPlayer = draft.config.cardsPerPlayer ?? defaultDraftConfig.cardsPerPlayer;
-    if (playerRow.finished_at !== null || playerRow.pick_count >= cardsPerPlayer) {
+    const cardsPerPlayer = totalBoosterCards(draft.config);
+    if (playerRow.finished_at !== null || playerRow.pick_count >= boosterPhaseTarget(draft)) {
       throw new Error("Player has already finished drafting");
     }
 
@@ -1285,7 +1407,7 @@ export function createDraftService(
     const perPlayerTotal =
       draft.config.mode === "theme"
         ? totalThemeRounds(draft.config)
-        : draft.config.cardsPerPlayer ?? defaultDraftConfig.cardsPerPlayer;
+        : boosterPhaseTarget(draft);
     if (playerRow.finished_at !== null || playerRow.pick_count >= perPlayerTotal) {
       return [];
     }
@@ -1318,8 +1440,7 @@ export function createDraftService(
     let legal = cards.filter((card) => !isCapped(held, card.catalogCardId));
     if (draft.config.mode !== "theme" && cards.length > 0 && legal.length === 0) {
       if (!swapping) {
-        const remainder = db.prepare("select catalog_card_id from draft_undealt where draft_id = ? order by position")
-          .all(draftId) as Array<{ catalog_card_id: number }>;
+        const remainder = boosterRemainder(draft);
         // Only take the write lock if a swap is possible; recheck everything inside it.
         if (remainder.some((card) => !isCapped(held, card.catalog_card_id))) {
           return swapPackOptions(draftId, playerId, pickableOnly);
@@ -1421,26 +1542,30 @@ export function createDraftService(
     },
 
     join(draftId: number, playerId: number): void {
-      const draft = findById(draftId);
+      db.transaction(() => {
+        const draft = findById(draftId);
 
-      if (draft.status !== "pending") {
-        throw new Error("Draft is no longer accepting players");
-      }
+        if (draft.status !== "pending") {
+          throw new DraftLobbyServiceError("Draft is no longer accepting players", "DRAFT_NOT_PENDING");
+        }
 
-      assertPlayerGuild(playerId, draft.guildId);
+        assertPlayerGuild(playerId, draft.guildId);
 
-      const existing = db.prepare("select 1 from draft_players where draft_id = ? and player_id = ?").get(draftId, playerId);
+        const existing = db.prepare("select 1 from draft_players where draft_id = ? and player_id = ?").get(draftId, playerId);
 
-      if (existing) {
-        throw new Error("You have already joined this draft");
-      }
+        if (existing) {
+          throw new Error("You have already joined this draft");
+        }
 
-      db.prepare(
-        `
-        insert into draft_players (draft_id, player_id)
-        values (?, ?)
-      `,
-      ).run(draftId, playerId);
+        const count = (db.prepare("select count(*) as n from draft_players where draft_id = ?").get(draftId) as { n: number }).n;
+        assertLobbySeatTarget(draft.config, count);
+        if (draft.config.lobbySeats !== undefined && count >= draft.config.lobbySeats) {
+          throw new DraftLobbyServiceError("All lobby seats are occupied", "LOBBY_FULL");
+        }
+
+        db.prepare("insert into draft_players (draft_id, player_id) values (?, ?)").run(draftId, playerId);
+        invalidateDraftLobby(db, draftId);
+      }).immediate();
     },
 
     players(draftId: number): DraftPlayer[] {
@@ -1462,8 +1587,8 @@ export function createDraftService(
         }));
     },
 
-    start(draftId: number, now = new Date()): Draft {
-      return startDraft.immediate(draftId, now);
+    start(draftId: number, now = new Date(), options: DraftStartOptions = {}): Draft {
+      return startDraft.immediate(draftId, now, options);
     },
 
     currentPackOptions(draftId: number, playerId: number): DraftCard[] {
@@ -1554,32 +1679,31 @@ export function createDraftService(
     },
 
     cancel(draftId: number): Draft {
-      const draft = findById(draftId);
+      return db.transaction(() => {
+        const draft = findById(draftId);
 
-      if (draft.status === "completed" || draft.status === "cancelled") {
-        throw new Error("Draft is already finished");
-      }
+        if (draft.status === "completed" || draft.status === "cancelled") {
+          throw new Error("Draft is already finished");
+        }
 
-      db.prepare("update drafts set status = 'cancelled', ended_at = current_timestamp where id = ?").run(draftId);
+        db.prepare("update drafts set status = 'cancelled', ended_at = current_timestamp where id = ?").run(draftId);
+        clearDraftLobbyStart(db, draftId, true);
+        db.prepare("update drafts set lobby_revision = lobby_revision + 1 where id = ?").run(draftId);
 
-      return findById(draftId);
+        return findById(draftId);
+      }).immediate();
     },
 
     resolveCubeCardIds(config: DraftConfig): number[] {
-      return config.cubeCardIds && config.cubeCardIds.length > 0
-        ? config.cubeCardIds
-        : config.poolCardIds && config.poolCardIds.length > 0
-          ? config.poolCardIds
-          : catalogCardIdsForDraft(config);
+      return resolveMainCardIds(config);
     },
+
+    resolveExtraCardIds,
+    analyzeBoosterDraft,
 
     /** @deprecated use resolveCubeCardIds; retained for callers not yet migrated */
     resolvePoolCardIds(config: DraftConfig): number[] {
-      return config.cubeCardIds && config.cubeCardIds.length > 0
-        ? config.cubeCardIds
-        : config.poolCardIds && config.poolCardIds.length > 0
-          ? config.poolCardIds
-          : catalogCardIdsForDraft(config);
+      return resolveMainCardIds(config);
     },
 
     autocomplete(input: {

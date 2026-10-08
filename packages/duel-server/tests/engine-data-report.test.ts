@@ -36,3 +36,42 @@ it("retains blocking artwork findings in bounded reports", () => {
   const report = "BLOCKING: 1 artwork script fallback\n" + "data\n".repeat(20000) + "\n## Artwork script safety\n\nBLOCKING: c11.lua → c10.lua; GetID() differs.\n";
   expect(boundedReport(report, run, 60000)).toContain("c11.lua → c10.lua");
 });
+
+it("reports additions, withdrawals, graduations and every dropped preview row", async () => {
+  const { prereleaseUpdateReport } = await import("../scripts/engine-data-report.js");
+  const previous = [{code:100000001,name:"Graduating",type:33},{code:100000002,name:"Withdrawn",type:33}];
+  const next = {prerelease:[{code:100000003,name:"Added",type:33}],released:[{code:12,name:"Graduating",type:33}],
+    remaps:{100000001:12},drops:[{code:100000004,name:"Duplicate",type:33,file:"prerelease-en.cdb",reason:"duplicate" as const,keptCode:100000003}]};
+  const report=prereleaseUpdateReport(previous,next);
+  expect(report).toContain("Added prerelease cards (1)");
+  expect(report).toContain("Removed prerelease cards (1)");
+  expect(report).toContain("Graduated prerelease cards (1)");
+  expect(report).toContain("100000001 → 12");
+  expect(report).toContain("100000004 → 100000003");
+  expect(report).toContain("Withdrawn");
+});
+
+
+it("lists disappeared codes without a remap, including renamed releases with matching-stat suggestions", async () => {
+ const { prereleaseUpdateReport } = await import("../scripts/engine-data-report.js");
+ const stats={type:33,atk:2500,def:2000,level:7,attribute:32};
+ const previous=[{code:100000001,name:"Preview name",...stats},{code:100000002,name:"Withdrawn",type:33},{code:44,name:"Same code",type:33},{code:100000003,name:"Mapped",type:33}];
+ const next={prerelease:[],released:[{code:12,name:"Official name",...stats},{code:44,name:"Same code",type:33},{code:55,name:"Mapped",type:33}],remaps:{100000003:55},drops:[]};
+ const report=prereleaseUpdateReport(previous,next);
+ const missing=report.split("Removed preview codes with no remap (2)")[1]?.split("Dropped prerelease rows")[0];
+ expect(missing).toContain("100000001 Preview name");
+ expect(missing).toContain("12 Official name");
+ expect(missing).toContain("100000002 Withdrawn");
+ expect(missing).not.toContain("44 Same code");
+ expect(missing).not.toContain("100000003 Mapped");
+ const withExistingMatch=prereleaseUpdateReport(previous,next,[{code:12,name:"Official name",...stats}]);
+ expect(withExistingMatch.split("Removed preview codes with no remap")[1]).not.toContain("12 Official name");
+});
+
+it("retains patch review details when the weekly failure summary is truncated", () => {
+  const report = "BLOCKING: 1 patch needs review\n" + "data\n".repeat(20000) + "\n## Card script patches\n\n**patch needs review**: official/c3743515.lua; pins unchanged.\n";
+  const summary = boundedReport(report, run, 60000);
+  expect(summary).toContain("official/c3743515.lua");
+  expect(summary).toContain("pins unchanged");
+  expect(Buffer.byteLength(summary)).toBeLessThanOrEqual(60000);
+});
