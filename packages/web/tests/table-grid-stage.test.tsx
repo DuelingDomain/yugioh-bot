@@ -311,6 +311,38 @@ describe("GridStage", () => {
     expect(stage.getAttribute("data-grid-focus")).toBe("all");
   });
 
+  it("keeps the zoom and the pan of the player when a seat is eliminated, and resets them on a new focus", () => {
+    vi.useFakeTimers();
+    const { container, rerender } = render(<Shell id="main" />);
+    const stage = container.querySelector<HTMLElement>("[data-grid-stage]")!;
+    const layer = () => stage.querySelector<HTMLElement>("[data-view-layer]");
+    const wheel = (x: number, y: number) =>
+      act(() => {
+        stage.dispatchEvent(new WheelEvent("wheel", { deltaY: -400, clientX: x, clientY: y, bubbles: true, cancelable: true, ctrlKey: true }));
+      });
+    expect(stage.dataset.viewZoomed).toBeUndefined();
+    wheel(300, 200);
+    wheel(700, 500);
+    expect(stage.dataset.viewZoomed).toBe("true");
+    const transform = layer()!.style.transform;
+    expect(transform).toContain("scale(");
+
+    // seat 2 goes out: the crumble plays and the cell empties, the zoom and the pan stay as the player left them
+    rerender(<Shell id="elimination" />);
+    expect(cellOf(container, 2).getAttribute("data-cell-state")).toBe("out");
+    expect(stage.dataset.viewZoomed).toBe("true");
+    expect(layer()!.style.transform).toBe(transform);
+    act(() => void vi.advanceTimersByTime(OUT_HOLD_MS + 200));
+    expect(cellOf(container, 2).getAttribute("data-cell-state")).toBe("empty");
+    expect(stage.dataset.viewZoomed).toBe("true");
+    expect(layer()!.style.transform).toBe(transform);
+
+    // a new focus is the player's own choice and still starts from the camera pose
+    act(() => void fireEvent.keyDown(window, { key: "1" }));
+    expect(stage.getAttribute("data-grid-focus")).toBe("0");
+    expect(stage.dataset.viewZoomed).toBeUndefined();
+  });
+
   it("opens an already-out seat as an empty, untargetable cell; the other cells stay put", () => {
     const { container } = render(<Shell id="result" />);
     for (const seat of [1, 2, 3]) {

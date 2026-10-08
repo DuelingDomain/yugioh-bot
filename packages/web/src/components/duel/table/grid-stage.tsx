@@ -472,8 +472,9 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
   for (const seat of [...lateOutline.current.keys()]) if (!outSeats.includes(seat)) lateOutline.current.delete(seat);
 
   // Zoom and pan of the board (view-zoom.ts): the fields zoom, the life plates, the hub and the prompts stay. A new
-  // focus, a seat that goes out or the final duel resets it.
-  const zoom = useViewZoom({ rootRef, layerRef, enabled: placed != null, reducedMotion, resetKey: `${focus.seat ?? "all"}|${finaleKey ?? ""}|${outSeats.join(",")}` });
+  // focus or the final duel resets it. A seat that goes out does not: the camera never zooms by itself, and the clamps
+  // of the view follow the box of the board, not the cells.
+  const zoom = useViewZoom({ rootRef, layerRef, enabled: placed != null, reducedMotion, resetKey: `${focus.seat ?? "all"}|${finaleKey ?? ""}` });
 
   // A focused seat that goes out stays in focus while its field crumbles, then the focus goes home (grid-focus.ts).
   const crumbling = useMemo(() => exitState.exits.map((exit) => exit.seat), [exitState.exits]);
