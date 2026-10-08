@@ -148,6 +148,10 @@
 .options { margin: 0; padding: 0; list-style: none; }
 .options li { position: relative; padding-left: 13px; }
 .options li + li { margin-top: 3px; }
+/* The option the player chose: brighter text, a tinted bar and a check where the bullet was. Colour never works alone. */
+.options li[data-chosen="true"] { margin-left: -4px; padding: 1px 4px 1px 17px; border-radius: 3px; background: var(--tone-soft); box-shadow: inset 2px 0 0 var(--tone); color: var(--duel-ink, #efe7d5); font-weight: 600; }
+.options li[data-chosen="true"]::before { left: 5px; top: 0.3em; width: 4px; height: 8px; border-radius: 0; background: none; border: solid var(--tone-ink); border-width: 0 2px 2px 0; transform: rotate(40deg); }
+.srOnly { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .options li::before { content: ""; position: absolute; left: 2px; top: 0.58em; width: 5px; height: 5px; border-radius: 50%; background: var(--tone-ink); }
 .cardText[data-overflow="true"] {
   overflow-y: auto;
@@ -166,6 +170,14 @@
 .target { display: block; }
 .target b { color: var(--duel-ink, #efe7d5); font-weight: 600; }
 .target small { display: block; margin-left: 13px; color: var(--duel-ink-3, #958f81); font-size: var(--duel-t-xs, 11px); }
+
+/* What the player chose, in words: it stays when the text above has no bullet for it. */
+.chose { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; margin: 8px 0 0; color: var(--duel-ink, #efe7d5); font-size: var(--duel-t-body, 13px); font-weight: 600; line-height: 1.25; }
+.chose b { color: var(--tone-ink); font-size: var(--duel-t-xs, 11px); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.chose b::after { content: ":"; }
+.chose span + span::before { content: "+ "; color: var(--duel-ink-3, #958f81); }
+.cr[data-shape="narrow"] .chose { font-size: calc(13px * var(--tt, 1)); }
+.cr[data-shape="sheet"] .chose { font-size: calc(14px * var(--tt, 1)); }
 
 .out {
   display: flex;
