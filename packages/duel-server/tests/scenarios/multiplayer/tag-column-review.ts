@@ -48,7 +48,7 @@ function crown(actor: Seat, facing: boolean): Scenario {
     [...turnsWithTrap(actor, 1), activate(CROWN, actor), zone(actor, "m1", actor), pickOpponent(facing ? across(actor) : side(actor), actor), activate(proof, actor),
       expectPrompt({ by: actor, context: "action" }), everySeat("tag", { [actor]: { monsters: [MUSKET], spells: [CROWN], grave: [proof], zones: { m1: MUSKET }, hand: { count: 2 } } })]);
 }
-export const TAG_COLUMN_REVIEW_SCENARIOS = (["p2", "p3"] as const).flatMap(actor => [true, false].flatMap(facing => [
+const TAG_COLUMN_REVIEW_SCENARIOS = (["p2", "p3"] as const).flatMap(actor => [true, false].flatMap(facing => [
   impermanence(actor, facing), yajiro(actor, facing), scuffle(actor, facing), crown(actor, facing),
 ]));
 for (const actor of ["p2", "p3"] as const) TAG_COLUMN_REVIEW_SCENARIOS.push(defineScenario({
@@ -58,3 +58,9 @@ for (const actor of ["p2", "p3"] as const) TAG_COLUMN_REVIEW_SCENARIOS.push(defi
   steps: [...turnsBefore("tag", actor), activate(95200160, actor), expectPrompt({ by: actor, context: "action" }),
     everySeat("tag", { [actor]: { spells: ["Mountain"], grave: [95200160], zones: { f: "Mountain" }, hand: { count: 2 } } })],
 }));
+
+// The aggregate in df-shared-zones owns registration and the Standard/Domain
+// runner. Export a factory so coverage does not register this helper list again.
+export function tagColumnReviewScenarios(): Scenario[] {
+  return TAG_COLUMN_REVIEW_SCENARIOS;
+}
