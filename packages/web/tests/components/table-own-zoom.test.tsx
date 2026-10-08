@@ -37,6 +37,7 @@ import { duelFxClock } from "@/components/duel/fx-clock";
 import { FFA3_FIXTURES } from "@/components/duel/table/fixtures/ffa3";
 import type { TableFixtureState } from "@/components/duel/table/fixtures/common";
 import { useFixtureController } from "@/components/duel/table/fixtures/use-fixture-controller";
+import { CRUMBLE_GATE_CAP_MS } from "@/components/duel/table/crumble-gate";
 import { TableShell } from "@/components/duel/table/table-shell";
 import type { CameraState } from "@/components/duel/table/types";
 
@@ -56,7 +57,7 @@ beforeEach(() => {
   placed.calls = 0;
   placed.noPanel = false;
   window.localStorage.clear();
-  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date", "performance"] });
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date", "performance"] });
   setAnimationSpeed(1);
   duelFxClock.setReducedMotion(false);
   duelFxClock.resetReviewTimeline();
@@ -290,7 +291,8 @@ describe("FFA3 own field camera zoom", () => {
     const before = scale(container);
     expect(before).toBeGreaterThan(1.02);
     rerender(<Table state={withMikaOut()} camera={focus} />);
-    for (let t = 0; t < 4600; t += 100) {
+    // The regroup waits for the LP roll (crumble-gate.ts): the steps run through the gate as well.
+    for (let t = 0; t < 4600 + CRUMBLE_GATE_CAP_MS; t += 100) {
       advance(100);
       expect(scale(container)).toBeGreaterThan(1.02);
       expect(chip(container)).toBe("Focus · Ren Arata");
@@ -310,7 +312,7 @@ describe("FFA3 own field camera zoom", () => {
     // The fit waits for the seats to stand still: the view does not move while they glide.
     advance(2500);
     expect(layer(container).style.transform).toBe(during);
-    advance(2400);
+    advance(2400 + CRUMBLE_GATE_CAP_MS);
     expect(board(container).getAttribute("data-regroup")).toBeNull();
     expect(scale(container)).toBeGreaterThan(1.02);
   });
