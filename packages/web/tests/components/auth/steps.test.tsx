@@ -12,6 +12,7 @@ import { NewPasswordStep } from "@/components/auth/steps/new-password-step";
 import { NotInvitedStep } from "@/components/auth/steps/not-invited-step";
 import { PasswordStep } from "@/components/auth/steps/password-step";
 import { SignupClosedStep } from "@/components/auth/steps/signup-closed-step";
+import { RecoveringStep } from "@/components/auth/steps/recovering-step";
 import { SigningStep } from "@/components/auth/steps/signing-step";
 import { SuccessStep } from "@/components/auth/steps/success-step";
 
@@ -323,6 +324,16 @@ describe("signing and success", () => {
     expect(status).toHaveAttribute("aria-live", "polite");
     expect(status).toHaveTextContent("Opening Dueling Domain…");
     expect(container.querySelectorAll("button, a, input")).toHaveLength(0);
+  });
+
+  it("RecoveringStep explains the second Discord trip with no controls or waitlist links", () => {
+    const { container } = render(<RecoveringStep />);
+    screen.getByText("Existing player?");
+    expect(title("Checking your profile").querySelector("em")).toHaveTextContent("profile");
+    screen.getByText("Discord will confirm it’s you once more, then you’re back in.");
+    expect(screen.getByRole("status")).toHaveAttribute("aria-live", "polite");
+    expect(container.querySelectorAll("button, a, input")).toHaveLength(0);
+    expect(container.textContent).not.toContain("—");
   });
 
   it("SuccessStep is only a status region", () => {

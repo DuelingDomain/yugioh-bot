@@ -17,6 +17,14 @@ describe("auth reducer", () => {
     expect(reduceAuth(pending, { type: "error", view: { kind: "banner", banner: { tone: "bad", body: "Retry" } } })).toMatchObject({ step, pending: false, banner: { tone: "bad", body: "Retry" } });
     expect(reduceAuth(pending, { type: "error", view: { kind: "step", step: "err-banned" } })).toMatchObject({ step: "err-banned", pending: false, identifier: "a@test.dev" });
   });
+  it("recovering clears errors, ignores back, and falls back to the signing retry if the hand-off stalls", () => {
+    const base = { ...initialAuthState({ returnTo: "/drafts", step: "signing" }), pending: true, fieldErrors: { code: "x" }, banner: { tone: "bad" as const, body: "old" } };
+    const recovering = reduceAuth(base, { type: "recovering" });
+    expect(recovering).toMatchObject({ step: "recovering", pending: false, fieldErrors: {}, banner: null });
+    expect(reduceAuth(recovering, { type: "back" })).toBe(recovering);
+    const banner = { tone: "bad" as const, body: "Retry" };
+    expect(reduceAuth(recovering, { type: "error", view: { kind: "banner", banner } })).toMatchObject({ step: "signing", banner });
+  });
   it("identifies then requests a password", () => {
     const identified = reduceAuth(initialAuthState({ returnTo: "/" }), { type: "identified", identifier: "a@test.dev" });
     expect(reduceAuth(identified, { type: "needs-password" })).toMatchObject({ step: "password", identifier: "a@test.dev" });

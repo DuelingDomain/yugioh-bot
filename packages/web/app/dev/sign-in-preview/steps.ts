@@ -13,6 +13,7 @@ export const PREVIEW_STEPS = [
   "err-banned",
   "err-service",
   "signing",
+  "recovering",
   "success",
 ] as const;
 
