@@ -827,12 +827,15 @@ function TableShellBody({
           nameOf={nameOf}
           seatTones={seatTones}
           logUnread={logUnread}
-          master={domain ? hudMasterProps(
-            { legalKeys: controller.legalKeys, selectedKeys: controller.selectedKeys, canAct, prompt, onAnswer: controller.onAnswer, onActivate: controller.onActivate, onHoverCard: controller.onHoverCard },
-            engine.seats.find((seat) => seat.seat === (viewerSeat ?? layout.anchorSeat)),
-            !spectator,
-            spectator ? `${nameOf(layout.anchorSeat)}'s Master` : "Your Master",
-          ) : null}
+          master={domain ? {
+            ...hudMasterProps(
+              { legalKeys: controller.legalKeys, selectedKeys: controller.selectedKeys, canAct, prompt, onAnswer: controller.onAnswer, onActivate: controller.onActivate, onHoverCard: controller.onHoverCard },
+              engine.seats.find((seat) => seat.seat === (viewerSeat ?? layout.anchorSeat)),
+              !spectator,
+              spectator ? `${nameOf(layout.anchorSeat)}'s Master` : "Your Master",
+            ),
+            wide: plazaHud,
+          } : null}
           onInspect={ui.setInspect}
           preview={hudPreview(ui.hover?.card ?? null, ui.menu?.card, rowPreview.card, (card) => ({ name: nameOf(card.controller), ...toneOf(card.controller) }), hudState.pinned)}
           equipLinks={resolveEquipLinks(engine.seats)}

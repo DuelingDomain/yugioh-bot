@@ -124,6 +124,7 @@ export function GridMasterToken({
   open,
   title,
   slot = "own",
+  wide = false,
   onToggle,
   onClose,
   onChooseAction,
@@ -141,6 +142,12 @@ export function GridMasterToken({
   open: boolean;
   title: string;
   slot?: "own" | "other";
+  /**
+   * The wide form (the 3-way plaza): the whole card beside its name and facts, the ability text under them and the
+   * actions at the bottom. It does not measure the margin. It also stands in for the Deck Master Zone: the summon
+   * flies out of it and the return flies back into it (data-master-dock, data-master-source).
+   */
+  wide?: boolean;
   onToggle: () => void;
   onClose: () => void;
   onChooseAction: (option: DuelPromptOption) => void;
@@ -152,7 +159,7 @@ export function GridMasterToken({
   const master = view?.deckMaster;
   const wrapRef = useRef<HTMLDivElement>(null);
   const artRef = useRef<HTMLSpanElement>(null);
-  const form = useMasterForm(wrapRef, artRef, master != null);
+  const form = useMasterForm(wrapRef, artRef, master != null && !wide);
   if (!view || !master) return null;
   const card = masterCard(view);
   const keys = withExact(card, [zoneKey(view.seat, LOCATION_DMZONE, 0)]);
@@ -162,6 +169,9 @@ export function GridMasterToken({
   const status = masterStatus(view);
   const stats = cardStatsText(master.card);
   const details = masterDetailLines(master.card);
+  const ability = master.card.description?.trim() ?? "";
+  // The wide and the tall plate both show the whole card and open the details inside the plate.
+  const whole = wide || form.tall;
 
   // The second plate has its own test ids, so a table with two plates keeps them apart.
   const id = (name: string) => (slot === "other" ? name.replace("hud-master", "hud-other") : name);
@@ -193,9 +203,9 @@ export function GridMasterToken({
   ) : null;
 
   return (
-    <div ref={wrapRef} className={styles.masterWrap} data-hud-keep="" data-slot={slot} data-testid={id("hud-master")} data-form={form.tall ? "tall" : "compact"}
+    <div ref={wrapRef} className={styles.masterWrap} data-hud-keep="" data-slot={slot} data-testid={id("hud-master")} data-form={wide ? "wide" : form.tall ? "tall" : "compact"}
       style={form.tall ? ({ "--hud-master-art-h": `${form.art}px` } as CSSProperties) : undefined}>
-      {form.tall ? null : flyout}
+      {whole ? null : flyout}
       <section
         className={styles.master}
         aria-label={title}
@@ -217,16 +227,30 @@ export function GridMasterToken({
             onFocus={(event) => onHoverCard?.(card, event.currentTarget)}
             onBlur={() => onHoverCard?.(null, null)}
           >
-            <span ref={artRef} className={styles.masterArt} style={{ backgroundImage: form.tall
+            <span ref={artRef} className={styles.masterArt}
+              data-master-dock={wide ? view.seat : undefined} data-master-source={wide ? view.seat : undefined}
+              style={{ backgroundImage: whole
               // The small art sits under the full art, so the plate is never blank when the full image fails.
               ? `url(${cardArtUrl(master.card.code, "full")}), url(${cardArtUrl(master.card.code, "small")})`
               : `url(${cardArtUrl(master.card.code, "small")})` }} aria-hidden="true" />
             <span className={styles.masterId}>
               <small>{local ? "Your Master" : "Deck Master"}</small>
               <b title={master.card.name}>{master.card.name}</b>
+              {wide ? (
+                <span className={styles.masterFacts} data-testid={id("hud-master-facts")}>
+                  {details.map((line) => <span key={line}>{line}</span>)}
+                  {stats ? <span>{stats}</span> : null}
+                  <span data-status={status === "Elsewhere" ? "away" : "home"}>{status}</span>
+                </span>
+              ) : null}
             </span>
           </button>
-          {form.tall ? flyout : null}
+          {wide ? (
+            <div className={styles.masterAbility} role="region" tabIndex={0} aria-label={`${master.card.name} ability`} data-testid={id("hud-master-ability")}>
+              {ability ? ability : <span className={styles.masterAbilityNone}>This Deck Master has no effect text.</span>}
+            </div>
+          ) : null}
+          {whole ? flyout : null}
         </div>
         <div className={styles.masterActions}>
           {actions.map((option, index) => (
