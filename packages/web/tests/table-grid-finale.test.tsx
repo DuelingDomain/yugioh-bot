@@ -2,6 +2,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CAPTION_MS, CAPTION_TEXT, FINALE_BEAT_MS, finaleBoard, useGridFinale, type FinaleCell } from "@/components/duel/table/grid-finale";
+import { beginCrumbleWait } from "@/components/duel/table/crumble-gate";
 import { EXIT_CRUMBLE_MS } from "@/components/duel/table/rival-field";
 
 // Seat 0 is home (bottom left), 1 faces it (top left); 2 (top right) faces 3 (bottom right).
@@ -43,6 +44,19 @@ describe("useGridFinale", () => {
 
   const run = (initial: number[], reducedMotion = false) =>
     renderHook(({ out }) => useGridFinale({ seats: seatsOut(out), cells, reducedMotion }), { initialProps: { out: initial } });
+
+  it("counts the wait from the start of a crumble that waits for the battle", () => {
+    const hook = run([2]);
+    const startCrumble = beginCrumbleWait();
+    hook.rerender({ out: [2, 3] });
+    act(() => void vi.advanceTimersByTime(EXIT_CRUMBLE_MS + FINALE_BEAT_MS + 5000));
+    expect(hook.result.current.board).toBeNull();
+    act(() => startCrumble());
+    act(() => void vi.advanceTimersByTime(EXIT_CRUMBLE_MS + FINALE_BEAT_MS - 1));
+    expect(hook.result.current.board).toBeNull();
+    act(() => void vi.advanceTimersByTime(1));
+    expect(hook.result.current.board).toEqual({ kind: "same", bottom: 0, top: 1 });
+  });
 
   it("shows the board after the crumble and a beat, with the FINAL DUEL caption, then drops the caption", () => {
     const hook = run([2]);

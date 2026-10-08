@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { crumbleWaiting, onCrumbleStart } from "./crumble-gate";
 import { EXIT_CRUMBLE_MS } from "./rival-field";
 
 /**
@@ -110,12 +111,28 @@ export function useGridFinale({ seats, cells, reducedMotion }: UseGridFinaleArgs
     const todo = pending.current;
     if (!todo) return;
     const wait = reducedMotion ? 0 : EXIT_CRUMBLE_MS + FINALE_BEAT_MS;
-    const timer = window.setTimeout(() => {
-      pending.current = null;
-      setCaption({ kind: todo.kind, seats: [todo.bottom, todo.top], id: Date.now() });
-      setBoard(todo);
-    }, wait);
-    return () => window.clearTimeout(timer);
+    let timer: number | undefined;
+    const start = () => {
+      timer = window.setTimeout(() => {
+        pending.current = null;
+        setCaption({ kind: todo.kind, seats: [todo.bottom, todo.top], id: Date.now() });
+        setBoard(todo);
+      }, wait);
+    };
+    // A crumble that waits for the battle (crumble-gate.ts) starts late: the wait counts from its start.
+    let stop: () => void = () => undefined;
+    if (crumbleWaiting()) {
+      stop = onCrumbleStart(() => {
+        stop();
+        start();
+      });
+    } else {
+      start();
+    }
+    return () => {
+      stop();
+      window.clearTimeout(timer);
+    };
   }, [key, reducedMotion]);
   useEffect(() => {
     if (!caption) return;

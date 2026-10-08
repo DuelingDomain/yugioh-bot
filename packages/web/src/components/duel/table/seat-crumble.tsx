@@ -45,6 +45,8 @@ export interface SeatCrumbleProps {
   seed?: number;
   /** No pieces: the flat board fades and slides down 28 px. */
   reducedMotion?: boolean;
+  /** The board waits whole, with no motion, until the attack and the LP roll that put the seat out are over. */
+  held?: boolean;
   /** Called once every piece has landed. */
   onDone?: () => void;
 }
@@ -57,7 +59,7 @@ export interface SeatCrumbleProps {
  * `transform-style: preserve-3d` and has no opacity, filter or overflow above the leaf, or the depth is lost.
  * It draws nothing when the browser has no `animate`; the caller removes the layer on a timer as well.
  */
-export function SeatCrumble({ cards, tone, rotateDeg, scale = 1, width, seed = 1234, reducedMotion = false, onDone }: SeatCrumbleProps) {
+export function SeatCrumble({ cards, tone, rotateDeg, scale = 1, width, seed = 1234, reducedMotion = false, held = false, onDone }: SeatCrumbleProps) {
   const boxRef = useRef<HTMLDivElement>(null);
   const done = useRef(onDone);
   done.current = onDone;
@@ -71,7 +73,7 @@ export function SeatCrumble({ cards, tone, rotateDeg, scale = 1, width, seed = 1
 
   useLayoutEffect(() => {
     const box = boxRef.current;
-    if (reducedMotion || !box || typeof box.animate !== "function") return;
+    if (reducedMotion || held || !box || typeof box.animate !== "function") return;
     const anims: Animation[] = [];
     const run = (el: Element, frames: Keyframe[], options: KeyframeAnimationOptions) => {
       const anim = el.animate(frames, { fill: "both", ...options });
@@ -108,12 +110,12 @@ export function SeatCrumble({ cards, tone, rotateDeg, scale = 1, width, seed = 1
       live = false;
       anims.forEach((anim) => anim.cancel());
     };
-  }, [spec, reducedMotion]);
+  }, [spec, reducedMotion, held]);
 
   const box: CSSProperties = { width: spec.width, height: BOARD_H };
-  if (reducedMotion) {
+  if (reducedMotion || held) {
     return (
-      <div className={styles.flat} style={{ ...box, backgroundImage: face }} data-crumble="reduced" aria-hidden="true">
+      <div className={held ? `${styles.flat} ${styles.held}` : styles.flat} style={{ ...box, backgroundImage: face }} data-crumble={held ? "held" : "reduced"} aria-hidden="true">
         {cards.map((card, index) => (
           <div
             key={index}
