@@ -24,7 +24,7 @@ User's reviewed fixes are the implementation design; execute inline in the same 
 
 - [x] Merge origin/main (keep both documentation sections); no rebase or push.
 - [x] Isolate card callbacks in views and runtime FFA scripts; private query telemetry only; generic fatal text. Verify real-engine queries, three accepted answers, recovery and replay.
-- [ ] Coalesce process events per answer, cap per-duel/card telemetry at 20, remove centre banners, and guard 100,000 process calls without a prompt.
+- [x] Coalesce process events per answer, cap per-duel/card telemetry at 20, remove centre banners, and guard 100,000 process calls without a prompt.
 - [ ] Replace stock Sabersaurus crash dependencies with a synthetic test script, and remap block-list passcodes through the bundle remaps.
 - [ ] Key process telemetry by journal position plus request ordinal; bound old occurrence rows.
 - [ ] Run targeted Node 22 tests with prlimit --core=0 and --maxWorkers=1, typechecks and native golden --check; remove generated build output. Commit each review item with the requested trailer.

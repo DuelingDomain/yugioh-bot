@@ -437,12 +437,14 @@ export function collectFreshEvents(
  * "activate" and "chain-negated" keep theirs.
  */
 export function hasCentreBanner(kind: DuelEventKind): boolean {
+  if (kind === "script-error") return false;
   // An equip is drawn on the board as a line between the two cards (EquipFx), so it has no banner.
   return kind !== "toss" && kind !== "target" && kind !== "confirm" && kind !== "chain-resolving" && kind !== "chain-resolved" && kind !== "chain-end" && kind !== "equip";
 }
 
 /** How long a banner or toast stays: at least about 1.3 s for anything with words to read (a phase ribbon is shorter). */
 export function cueDuration(kind: DuelEventKind, reducedMotion: boolean): number {
+  if (kind === "script-error") return 0;
   if (kind === "toss" || kind === "target" || kind === "confirm") return 0;
   // A phase ribbon is one short beat: the phases of a turn start (Draw, Standby, Main 1) follow each other.
   if (kind === "phase") return reducedMotion ? PHASE_TIMING.reducedBeatMs : PHASE_TIMING.beatMs;

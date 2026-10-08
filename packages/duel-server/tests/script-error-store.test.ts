@@ -9,6 +9,21 @@ const error: DuelScriptError = { code: 3743515, scriptFile: "c3743515.lua", line
   mode: "normal", format: "1v1", engine: "pinned", scriptErrorMode: "tolerant" };
 
 describe("persistent script error counters", () => {
+  it("caps writes at 20 per duel/card across recorder restarts without limiting another card or duel", () => {
+    const db = new Database(":memory:"); migrate(db);
+    try {
+      const log = vi.fn();
+      const record = createScriptErrorRecorder(db, log);
+      for (let index = 1; index <= 40; index++) record(100, { ...error, index });
+      const recovered = createScriptErrorRecorder(db, log);
+      expect(recovered(100, { ...error, index: 41 })).toBe(false);
+      expect(recovered(100, { ...error, code: 123, index: 42 })).toBe(true);
+      expect(recovered(101, error)).toBe(true);
+      expect(topScriptErrors(db).map(row => [row.code, row.count])).toEqual([[3743515, 21], [123, 1]]);
+      expect(log).toHaveBeenCalledTimes(22);
+      expect(db.prepare("SELECT count(*) AS n FROM card_script_error_occurrences").get()).toEqual({ n: 22 });
+    } finally { db.close(); }
+  });
   it("migrates idempotently and counts deterministic occurrences once across recovery", () => {
     const db = new Database(":memory:");
     try {

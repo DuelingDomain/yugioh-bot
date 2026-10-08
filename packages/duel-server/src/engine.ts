@@ -1,7 +1,7 @@
 import { readSandboxEngineSnapshot, type SandboxEngineSnapshot } from "./sandbox-snapshot.js";
 import { ChainOptions } from "./chain-options.js";
 import { scriptErrorCoreFactory } from "./script-load-scope.js";
-import { CARD_SCRIPT_ERROR_TEXT, createScriptErrorPolicy, type DuelScriptError } from "./script-errors.js";
+import { CARD_SCRIPT_ERROR_TEXT, CORE_PROCESS_CALL_LIMIT, createScriptErrorPolicy, type DuelScriptError } from "./script-errors.js";
 import type { DuelAnswer, DuelBattleStep, DuelChainMode, DuelCardInfo, DuelDeck, DuelEngineView, DuelFormat, DuelMasterRule, DuelMode, DuelSettings, DuelScriptErrorMode } from "@yugidraft/shared/duels";
 import { DUEL_SEAT_LEFT_ERROR_CODE, defaultChainMode, partnerSeatOf, seatCountFor, seatsOfTeam, startingLpFor, teamOfSeat } from "@yugidraft/shared/duels";
 import { createHash } from "node:crypto";
@@ -372,6 +372,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   const overlay = multi ? loadMultiScriptsFor(options.dataDirectory, options.multiScriptsDirectory) : undefined;
   const scriptErrors = createScriptErrorPolicy({ ...options, engine: "pinned" });
   const errors = scriptErrors.errors;
+  let scriptErrorEventSent = false;
   const scopedCreateCore = scriptErrorCoreFactory(createCore, scriptErrors);
   const eventContext = createEventContext(format);
   const cardReader = (code: number) => {
@@ -921,7 +922,9 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     const continuingSummon = pending?.message.type === OcgMessageType.SELECT_POSITION || pending?.message.type === OcgMessageType.SELECT_PLACE;
     resetEventBatch(eventContext, continuingSummon);
     leftFieldLines.length = 0;
+    let processCalls = 0;
     while (!result) {
+      if (processCalls++ >= CORE_PROCESS_CALL_LIMIT) throw new Error(`Engine exceeded ${CORE_PROCESS_CALL_LIMIT} process calls without a player prompt`);
       scriptErrors.enterProcess();
       let status: ReturnType<typeof lib.duelProcess>;
       try { status = lib.duelProcess(handle); }
@@ -947,8 +950,9 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
         }
       }
       flushDeferredDestroys();
-      for (const error of scriptErrors.drain()) {
-        if (error.scriptErrorMode === "strict") continue;
+      const toleratedError = scriptErrors.drain().some(error => error.scriptErrorMode !== "strict");
+      if (toleratedError && !scriptErrorEventSent) {
+        scriptErrorEventSent = true;
         const event: StoredDuelEvent = { id: nextEventId, kind: "script-error", text: CARD_SCRIPT_ERROR_TEXT, publicText: CARD_SCRIPT_ERROR_TEXT, revealCardTo: "all" };
         pushEvent(event);
         appendLog(CARD_SCRIPT_ERROR_TEXT).eventId = event.id;
@@ -1122,6 +1126,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       return projected;
     },
     answer(seat, promptId, answer) {
+      scriptErrorEventSent = false;
       if (closed) throw new Error("Engine is closed");
       if (result) throw new EngineAnswerError("Duel is over");
       if (!pending) throw new EngineAnswerError("No prompt is waiting");
@@ -1191,6 +1196,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       revision += 1;
     },
     setChainMode(seat, mode) {
+      scriptErrorEventSent = false;
       if (closed) throw new Error("Engine is closed");
       if (result) throw new EngineAnswerError("Duel is over");
       if (!Number.isInteger(seat) || seat < 0 || seat >= seatCount) throw new Error("Invalid seat");
@@ -1214,6 +1220,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       return true;
     },
     eliminate(seat, reason, atTurnEnd = false) {
+      scriptErrorEventSent = false;
       if (closed) throw new Error("Engine is closed");
       if (result) throw new EngineAnswerError("Duel is over");
       if (!multi) throw new Error("Only duels with more than two seats can eliminate a duelist");
