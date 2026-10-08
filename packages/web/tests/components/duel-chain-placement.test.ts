@@ -123,6 +123,14 @@ describe("chain stack placement", () => {
     expect(rule(panelCss, '.stack[data-overflow="true"]')).not.toMatch(/(?:^|[\s;])(?:min-|max-)?(?:height|width)\s*:|padding|margin|border|gap|font/);
   });
 
+  it("puts the row owner under the card name in every shape, so a long name keeps the row width", () => {
+    const head = rule(panelCss, ".rowHead");
+    expect(head).toMatch(/flex-direction:\s*column/);
+    expect(head).not.toMatch(/gap:/);
+    expect(panelCss).not.toMatch(/\[data-shape="[a-z]+"\] \.rowHead/);
+    expect(rule(panelCss, ".rowOwner")).toMatch(/text-overflow:\s*ellipsis/);
+  });
+
   it("takes a pointer only on the strip, the sheet, its scrim and a box the layout really cuts", () => {
     const auto = [...panelCss.matchAll(/(^|\n)([^\n{}]+)\{[^}]*pointer-events:\s*auto/g)].map((m) => m[2].trim());
     expect(auto).toEqual(['.cardText[data-overflow="true"]', '.stack[data-overflow="true"]', ".strip", ".scrim", ".sheet"]);
