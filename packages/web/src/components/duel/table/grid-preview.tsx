@@ -26,9 +26,11 @@ const place = (aside: HTMLElement, spot: Place, layer: Box | null) => {
     aside.style.setProperty("--pv-bottom", `${Math.round(layer.bottom - (spot.top + spot.maxH))}px`);
     aside.style.setProperty("--pv-max-h", `${Math.round(spot.maxH)}px`);
     aside.style.setProperty("--pv-w", `${spot.width}px`);
+    if (spot.left != null) aside.style.setProperty("--pv-left", `${Math.round(spot.left)}px`);
+    else aside.style.removeProperty("--pv-left");
     aside.setAttribute("data-anchor", "bottom");
   } else {
-    for (const name of ["--pv-bottom", "--pv-max-h", "--pv-w"]) aside.style.removeProperty(name);
+    for (const name of ["--pv-bottom", "--pv-max-h", "--pv-w", "--pv-left"]) aside.style.removeProperty(name);
     aside.removeAttribute("data-anchor");
   }
   aside.setAttribute("data-side", spot.side);
@@ -159,7 +161,7 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
     });
     const clickedCover = (rect: Box) => (hasTarget ? coveredArea(rect, [{ left: target.left, top: target.top, right: target.right, bottom: target.bottom }]) : 0);
     const hovered = frozen && hoverSpot.current?.key === key
-      ? candidates.find((c) => c.side === hoverSpot.current?.place.side && c.top === hoverSpot.current.place.top && c.maxH === hoverSpot.current.place.maxH && c.width === hoverSpot.current.place.width)
+      ? candidates.find((c) => c.side === hoverSpot.current?.place.side && c.top === hoverSpot.current.place.top && c.maxH === hoverSpot.current.place.maxH && c.width === hoverSpot.current.place.width && c.left === hoverSpot.current.place.left)
       : undefined;
     if (frozen) hoverSpot.current = null;
     // It stays only when it does not cover the clicked card (on a narrow screen the hover place may): then the places are ranked as before.
@@ -185,7 +187,7 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
     place(aside, chosen, measured);
     if (!frozen) hoverSpot.current = { key, place: chosen };
     watched.current = frozen ? watch() : "";
-    setSpot((previous) => (previous.side === chosen.side && previous.width === chosen.width && previous.top === chosen.top && previous.maxH === chosen.maxH ? previous : chosen));
+    setSpot((previous) => (previous.side === chosen.side && previous.width === chosen.width && previous.top === chosen.top && previous.maxH === chosen.maxH && previous.left === chosen.left ? previous : chosen));
   }, [placing, frozen, avoid, current, textSize, resizeTick, watch]);
   if (!current) return null;
 

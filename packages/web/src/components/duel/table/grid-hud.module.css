@@ -581,8 +581,8 @@
   --pv-ct: var(--ct, 15.5px);
   --pv-reserve: 270px;
   position: absolute;
-  left: 72px;
-  /* --pv-bottom, --pv-max-h and --pv-w come from grid-preview.tsx: the free band of the real layout (below the chain tower, above the Deck Master plate). */
+  left: var(--pv-left, 72px);
+  /* --pv-bottom, --pv-max-h, --pv-w and --pv-left (lined up with the chain panel) come from grid-preview.tsx: the free band of the real layout (below the chain tower, above the Deck Master plate). */
   top: 50px;
   z-index: 34;
   display: flex;
@@ -598,7 +598,7 @@
   font-family: var(--duel-f-ui);
   color: var(--duel-ink);
   pointer-events: none;
-  transform: translateX(calc(-100% - 72px));
+  transform: translateX(calc(-100% - var(--pv-left, 72px)));
   transition: transform 0.18s ease-out, visibility 0s linear 0.18s;
   visibility: hidden;
 }
