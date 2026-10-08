@@ -443,6 +443,8 @@
 }
 .panel[data-tone="chain"] .cardTextMore { color: var(--duel-chain-ink, #f4d690); }
 .cardTextMore:hover { text-decoration: underline; }
+/* Inside the box: the fade mask would cut an outline drawn outside it. */
+.cardTextBody:focus-visible { outline: 2px solid var(--duel-ink, #efe7d5); outline-offset: -2px; border-radius: 3px; }
 .cardTextMore:focus-visible { outline: 2px solid var(--duel-ink, #efe7d5); outline-offset: 2px; border-radius: 3px; }
 
 /* ---------- battle step chip (which step the response is in) ---------- */
