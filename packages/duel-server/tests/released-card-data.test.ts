@@ -555,6 +555,30 @@ it("carries detected historical edges through reviewed overrides to the retained
  expect(result.unmatched).toEqual([]);
 });
 
+it.each([1,null])("lets a reviewed override (%s) replace or veto an automatic graduation",async target=>{
+ const {request,directory}=fixture();
+ const example=JSON.parse(readFileSync(new URL("./fixtures/prerelease-graduations.json",import.meta.url),"utf8")).examples[0];
+ const after={...example.after,code:17242022};
+ const overrideBytes=JSON.stringify({[example.before.code]:target});
+ const result=await downloadReleasedCardData(sources.database,directory,request,{historicalCards:[example.before],historicalGraduations:[{commit:"automatic",removed:[example.before],added:[after]}],overrideBytes});
+ expect(result.remaps).toEqual(target===null?{}:{[example.before.code]:target});
+ expect(JSON.parse(result.remapBytes).overrides).toEqual({[example.before.code]:target});
+});
+
+it.each([1,null])("lets a reviewed override (%s) replace or veto a name/type remap",async target=>{
+ const {request,directory}=fixture();
+ const result=await downloadReleasedCardData(sources.database,directory,request,{historicalCards:[{code:101402001,name:"Red-Eyes Black Dragon Exceed",type:33}],overrideBytes:JSON.stringify({101402001:target})});
+ expect(result.remaps).toEqual(target===null?{}:{101402001:target});
+});
+
+it("does not follow an automatic chain through a vetoed intermediate code",async()=>{
+ const {request,directory}=fixture();
+ const example=JSON.parse(readFileSync(new URL("./fixtures/prerelease-graduations.json",import.meta.url),"utf8")).examples[0];
+ const intermediate={...example.after,code:100000010};
+ const result=await downloadReleasedCardData(sources.database,directory,request,{historicalCards:[example.before,intermediate],historicalGraduations:[{commit:"first",removed:[example.before],added:[intermediate]},{commit:"second",removed:[intermediate],added:[{...example.after,code:17242022}]}],overrideBytes:'{"100000010":null}'});
+ expect(result.remaps).toEqual({});
+});
+
 it("smoke-checks unchanged prerelease scripts during preparation, removes failures, and caches the result",async()=>{
  const f=fixture(),dir=root();
  f.databases.set("prerelease-test.cdb",cdb(dir,"preview.cdb",[[100000001,0,"Healthy preview"],[100000002,0,"Broken preview"]]));

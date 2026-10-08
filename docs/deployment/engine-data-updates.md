@@ -197,7 +197,8 @@ main released row in the **same commit**. ATK, DEF, packed level/scales, attribu
 race must all match exactly; race is read as a SQLite decimal string to preserve 64-bit
 precision. Effect text must match exactly after replacing only each card's own name
 with a sentinel and collapsing whitespace, with at least 40 characters of evidence.
-Type is allowed to change. Both directions must be unique across all historical
+Type flags may change within the same card kind (`type & 7`), but Monster, Spell
+and Trap cannot match each other. Both directions must be unique across all historical
 snapshots. Same stats alone, approximate names, unrelated quoted-name substitutions,
 short/blank text and one-to-many pairs do not establish identity. Missing signals
 remain unknown and appear as **unmatched graduation, needs review**, including after
@@ -217,10 +218,12 @@ rows, commits and script hashes. These examples support the conservative text ru
 script similarity is measured evidence, not a fuzzy automatic remap rule.
 
 For reviewed exceptions, edit `packages/duel-server/card-remap-overrides.json`:
-`{"OLD_CODE": NEW_CODE}` (numeric target, decimal-string source). The default is `{}`.
+`{"OLD_CODE": NEW_CODE}` (numeric target, decimal-string source), or
+`{"OLD_CODE": null}` to veto any automatic remap for that source. The default is `{}`.
 The source must be a supported historical/dropped main preview and absent from the
 retained database; the destination must be a retained main card. Invalid codes,
-artwork/token sources or targets and conflicts with detected mappings stop preparation.
+artwork/token sources or targets stop preparation. Reviewed overrides win over all
+automatic mappings; a veto also prevents chains from following that source.
 Overrides do not extend the history boundary backwards. Their parsed map and exact
 source bytes are embedded in `card-remaps.json`, covered by `integrity.cardRemaps` and
 `bundleVersion`; changing even those source bytes invalidates the preparation cache.
