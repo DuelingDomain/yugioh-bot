@@ -56,9 +56,10 @@ class BackupTests(unittest.TestCase):
         self.writer.executemany("INSERT INTO messages VALUES (?, ?)", self.rows)
         self.writer.commit()
 
-    def environment(self, source=None, keep=None):
+    def environment(self, source=None, keep=None, release_keep_days=None):
         environment = os.environ.copy()
         environment.pop("DUELING_BACKUP_KEEP", None)
+        environment.pop("DUELING_RELEASE_KEEP_DAYS", None)
         environment.update(
             DUELING_BACKUP_SRC=str(source or self.source),
             DUELING_BACKUP_DIR=str(self.destination),
@@ -66,13 +67,36 @@ class BackupTests(unittest.TestCase):
         )
         if keep is not None:
             environment["DUELING_BACKUP_KEEP"] = str(keep)
+        if release_keep_days is not None:
+            environment["DUELING_RELEASE_KEEP_DAYS"] = str(release_keep_days)
         return environment
 
-    def run_backup(self, source=None, keep=None):
+    def run_backup(self, source=None, keep=None, release_keep_days=None):
         return subprocess.run(
             [sys.executable, str(BACKUP_SCRIPT)],
-            env=self.environment(source, keep), capture_output=True, text=True, timeout=30,
+            env=self.environment(source, keep, release_keep_days), capture_output=True, text=True, timeout=30,
         )
+
+    def namespace(self):
+        with mock.patch.dict(os.environ, self.environment()):
+            return runpy.run_path(str(BACKUP_SCRIPT))
+
+    def seed_release(self, name):
+        release = self.destination / name
+        release.mkdir(parents=True)
+        for name in ("checkout-commit", "deploy-commit", "images.jsonl", "runtime.env"):
+            (release / name).write_bytes(b"protected metadata fixture")
+        for name in ("online", "drained"):
+            directory = release / name
+            directory.mkdir()
+            write_pair(directory, "bot-20000101-000000Z.sqlite")
+        write_pair(release, "extra.sqlite")
+        (release / "extra.sqlite-wal").write_bytes(b"WAL fixture")
+        (release / "extra.sqlite-shm").write_bytes(b"SHM fixture")
+        nested = release / "nested"
+        nested.mkdir()
+        (nested / "history.sqlite.gz").write_bytes(b"compressed fixture")
+        return release
 
     def assert_success(self, result):
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -151,6 +175,226 @@ class BackupTests(unittest.TestCase):
             self.assert_pair_exists(name, age == 1)
         self.assert_protected(protected)
         self.assertIn(" kept=2 total_bytes=", result.stdout)
+
+    def test_daily_age_cap_removes_stale_pairs_even_below_count_limit(self):
+        names, protected = self.seed_retention((1, 13, 14, 30))
+        result = self.run_backup(keep=50)
+        self.assert_success(result)
+        for age, name in names.items():
+            self.assert_pair_exists(name, age < 14)
+        self.assert_protected(protected)
+        self.assertIn(" kept=3 total_bytes=", result.stdout)
+
+    def test_daily_age_cap_preserves_newest_one_when_every_snapshot_is_stale(self):
+        self.destination.mkdir()
+        newest = "bot-20000201-120000Z.sqlite"
+        oldest = "bot-20000101-120000Z.sqlite"
+        write_pair(self.destination, newest)
+        write_pair(self.destination, oldest)
+        namespace = self.namespace()
+        kept, total_bytes = namespace["prune_backups"](7)
+        self.assert_pair_exists(newest, True)
+        self.assert_pair_exists(oldest, False)
+        self.assertEqual(kept, 1)
+        self.assertEqual(total_bytes, len(b"retention fixture"))
+
+    def test_daily_age_cap_uses_exact_utc_boundary(self):
+        self.destination.mkdir()
+        newest = "bot-20261008-120000Z.sqlite"
+        boundary = "bot-20260924-120000Z.sqlite"
+        expired = "bot-20260924-115959Z.sqlite"
+        for name in (newest, boundary, expired):
+            write_pair(self.destination, name)
+
+        class FixedDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(2026, 10, 8, 12, tzinfo=UTC)
+
+        namespace = self.namespace()
+        with mock.patch.dict(namespace["prune_backups"].__globals__, {"datetime": FixedDateTime}):
+            kept, _ = namespace["prune_backups"](7)
+        self.assertEqual(kept, 2)
+        self.assert_pair_exists(newest, True)
+        self.assert_pair_exists(boundary, True)
+        self.assert_pair_exists(expired, False)
+
+    def test_backup_refuses_symlinked_destination_or_ancestor(self):
+        outside = self.root / "outside"
+        outside.mkdir()
+        link = self.root / "linked-backups"
+        link.symlink_to(outside, target_is_directory=True)
+        for destination in (link, link / "child"):
+            with self.subTest(destination=destination):
+                self.destination = destination
+                result = self.run_backup()
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("symlink", result.stderr.lower())
+                self.assertEqual(list(outside.iterdir()), [])
+
+    def test_daily_pruning_leaves_symlinked_database_and_sidecar_untouched(self):
+        self.destination.mkdir()
+        outside = self.root / "outside.sqlite"
+        outside.write_bytes(b"never remove")
+        database_link = self.destination / "bot-20000101-000000Z.sqlite"
+        database_link.symlink_to(outside)
+        name = "bot-20000102-000000Z.sqlite"
+        backup, sidecar = write_pair(self.destination, name)
+        sidecar.unlink()
+        sidecar.symlink_to(outside)
+        result = self.run_backup()
+        self.assert_success(result)
+        self.assertTrue(database_link.is_symlink())
+        self.assertTrue(sidecar.is_symlink())
+        self.assertFalse(backup.exists())
+        self.assertEqual(outside.read_bytes(), b"never remove")
+
+    def test_daily_run_prunes_expired_release_dirs_by_name_not_mtime(self):
+        expired = self.seed_release("pr2-20000101-000000Z")
+        stamp = datetime.now(UTC) - timedelta(days=3)
+        recent = self.seed_release(stamp.strftime("pr2-%Y%m%d-%H%M%SZ"))
+        os.utime(expired, (2000000000, 2000000000))
+        os.utime(recent, (0, 0))
+        result = self.run_backup()
+        self.assert_success(result)
+        self.assertFalse(expired.exists())
+        self.assertTrue((recent / "online" / "bot-20000101-000000Z.sqlite").exists())
+        self.assertTrue((recent / "drained" / "bot-20000101-000000Z.sqlite").exists())
+
+    def test_newest_expired_release_keeps_metadata_but_loses_all_database_copies(self):
+        older = self.seed_release("pr2-20000101-000000Z")
+        newest = self.seed_release("pr2-20000201-000000Z")
+        os.utime(older, (2000000000, 2000000000))
+        os.utime(newest, (0, 0))
+        result = self.run_backup()
+        self.assert_success(result)
+        self.assertFalse(older.exists())
+        for name in ("checkout-commit", "deploy-commit", "images.jsonl", "runtime.env"):
+            self.assertEqual((newest / name).read_bytes(), b"protected metadata fixture")
+        self.assertFalse((newest / "online").exists())
+        self.assertFalse((newest / "drained").exists())
+        self.assertEqual(list(newest.rglob("*.sqlite*")), [])
+        # Idempotent even when only empty non-database directories remain.
+        self.namespace()["prune_releases"]()
+        self.assertTrue((newest / "runtime.env").exists())
+
+    def test_release_retention_ignores_unmatched_names_and_top_level_archives(self):
+        self.seed_release("pr2-20000101-000000Z")
+        protected = [self.seed_release(name) for name in (
+            "pr2-20000101-000000", "pr2-20000101-000000Z-extra", "pr2-20001301-000000Z",
+            "pr2-20000101-240000Z", "pr2-2000011-000000Z", "manual-release",
+        )]
+        files = (
+            "pre-competitive-wipe-20261003-232821Z.sqlite", MANUAL_NAME,
+            "bot-20261002-140023-pre-reboot.sqlite", "bot-20261002-211806-pre-https.sqlite",
+            "wipe.sql", "run-wipe.py", "pr2-20000201-000000Z",
+        )
+        for name in files:
+            (self.destination / name).write_bytes(b"never remove")
+        result = self.run_backup()
+        self.assert_success(result)
+        for release in protected:
+            self.assertTrue((release / "online" / "bot-20000101-000000Z.sqlite").exists())
+        for name in files:
+            self.assertEqual((self.destination / name).read_bytes(), b"never remove")
+
+    def test_release_age_cap_uses_exact_utc_boundary(self):
+        newest = self.seed_release("pr2-20261008-120000Z")
+        boundary = self.seed_release("pr2-20260924-120000Z")
+        expired = self.seed_release("pr2-20260924-115959Z")
+
+        class FixedDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(2026, 10, 8, 12, tzinfo=UTC)
+
+        namespace = self.namespace()
+        self.assertTrue("prune_releases" in namespace, "release retention helper is missing")
+        with mock.patch.dict(namespace["prune_releases"].__globals__, {"datetime": FixedDateTime}):
+            namespace["prune_releases"]()
+        self.assertFalse(expired.exists())
+        self.assertTrue((boundary / "online").exists())
+        self.assertTrue((newest / "drained").exists())
+
+    def test_shorter_release_database_retention_leaves_metadata_until_fourteen_days(self):
+        self.seed_release("pr2-20000101-000000Z")
+        stamp = datetime.now(UTC) - timedelta(days=4)
+        expired_database = self.seed_release(stamp.strftime("pr2-%Y%m%d-%H%M%SZ"))
+        stamp = datetime.now(UTC) - timedelta(days=1)
+        newest = self.seed_release(stamp.strftime("pr2-%Y%m%d-%H%M%SZ"))
+        result = self.run_backup(release_keep_days=3)
+        self.assert_success(result)
+        self.assertTrue((expired_database / "runtime.env").exists())
+        self.assertFalse((expired_database / "online").exists())
+        self.assertEqual(list(expired_database.rglob("*.sqlite*")), [])
+        self.assertTrue((newest / "online").exists())
+
+    def test_invalid_release_retention_warns_and_enforces_default_without_failing_backup(self):
+        for index, keep_days in enumerate(("0", "-1", "invalid", "1.5", "", "15")):
+            with self.subTest(keep_days=keep_days):
+                self.destination = self.root / ("invalid-retention-" + str(index))
+                release = self.seed_release("pr2-20000101-000000Z")
+                output = io.StringIO()
+                success = io.StringIO()
+                namespace = self.namespace()
+                with mock.patch.dict(os.environ, {"DUELING_RELEASE_KEEP_DAYS": keep_days}):
+                    with contextlib.redirect_stderr(output), contextlib.redirect_stdout(success):
+                        status = namespace["main"]()
+                self.assertEqual(status, 0, output.getvalue())
+                self.assertIn("WARNING", output.getvalue())
+                self.assertIn("DUELING_RELEASE_KEEP_DAYS", output.getvalue())
+                self.assertFalse((release / "online").exists())
+                self.assertIn(" kept=", success.getvalue())
+
+    def test_release_pruning_refuses_symlinks_and_continues_with_safe_releases(self):
+        unsafe = self.seed_release("pr2-20000101-000000Z")
+        safe = self.seed_release("pr2-20000201-000000Z")
+        self.seed_release(datetime.now(UTC).strftime("pr2-%Y%m%d-%H%M%SZ"))
+        outside = self.root / "outside"
+        outside.mkdir()
+        (outside / "valuable.sqlite").write_bytes(b"never remove")
+        (unsafe / "online" / "linked").symlink_to(outside, target_is_directory=True)
+        release_link = self.destination / "pr2-20990101-000000Z"
+        release_link.symlink_to(outside, target_is_directory=True)
+        result = self.run_backup()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("WARNING", result.stderr)
+        self.assertIn("symlink", result.stderr.lower())
+        self.assertTrue(unsafe.exists())
+        self.assertFalse(safe.exists())
+        self.assertTrue(release_link.is_symlink())
+        self.assertEqual((outside / "valuable.sqlite").read_bytes(), b"never remove")
+
+    def test_newest_release_database_symlink_is_refused_without_deleting_metadata(self):
+        release = self.seed_release("pr2-20000101-000000Z")
+        outside = self.root / "outside.sqlite"
+        outside.write_bytes(b"never remove")
+        (release / "linked.sqlite-wal").symlink_to(outside)
+        result = self.run_backup()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("WARNING", result.stderr)
+        self.assertTrue((release / "linked.sqlite-wal").is_symlink())
+        self.assertTrue((release / "runtime.env").exists())
+        self.assertEqual(outside.read_bytes(), b"never remove")
+
+    def test_release_deletion_failure_warns_without_failing_verified_daily_backup(self):
+        expired = self.seed_release("pr2-20000101-000000Z")
+        self.seed_release(datetime.now(UTC).strftime("pr2-%Y%m%d-%H%M%SZ"))
+        namespace = self.namespace()
+        output = io.StringIO()
+        success = io.StringIO()
+        with mock.patch.object(namespace["shutil"], "rmtree", side_effect=OSError("simulated deletion\nfailure")):
+            with contextlib.redirect_stderr(output), contextlib.redirect_stdout(success):
+                status = namespace["main"]()
+        self.assertEqual(status, 0, output.getvalue())
+        self.assertIn("WARNING", output.getvalue())
+        self.assertIn("simulated deletion failure", output.getvalue())
+        self.assertEqual(len(output.getvalue().splitlines()), 1)
+        self.assertTrue(expired.exists())
+        self.assertIn(" kept=1 total_bytes=", success.getvalue())
+        backup = next(self.destination.glob("bot-*.sqlite"))
+        with contextlib.closing(sqlite3.connect(backup.as_uri() + "?mode=ro", uri=True)) as copy:
+            self.assertEqual(copy.execute("SELECT * FROM messages ORDER BY id").fetchall(), self.rows)
 
     def test_invalid_retention_fails_cleanly_before_backup_or_pruning(self):
         names, protected = self.seed_retention(range(1, 10))
