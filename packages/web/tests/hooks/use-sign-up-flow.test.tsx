@@ -4,7 +4,7 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useSignUpFlow } from "../../src/hooks/use-sign-up-flow";
 
-import { RECOVERY_PAINT_FALLBACK_MS, SUCCESS_HOLD_MS, SUCCESS_HOLD_REDUCED_MS } from "../../src/lib/auth-flow";
+import { SUCCESS_HOLD_MS } from "../../src/lib/auth-flow";
 const mock = vi.hoisted(() => ({ signal: {} as any, push: vi.fn(), prefetch: vi.fn() }));
 vi.mock("@clerk/nextjs", () => ({ useSignUp: () => mock.signal }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mock.push, prefetch: mock.prefetch }) }));

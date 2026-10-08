@@ -22,6 +22,9 @@ describe("auth reducer", () => {
     const recovering = reduceAuth(base, { type: "recovering" });
     expect(recovering).toMatchObject({ step: "recovering", pending: false, fieldErrors: {}, banner: null });
     expect(reduceAuth(recovering, { type: "back" })).toBe(recovering);
+    expect(reduceAuth(recovering, { type: "error", view: { kind: "step", step: "err-signup" } })).toBe(recovering);
+    expect(reduceAuth(recovering, { type: "error", view: { kind: "field", field: "code", message: "x" } })).toBe(recovering);
+    expect(reduceAuth(recovering, { type: "complete" })).toBe(recovering);
     const banner = { tone: "bad" as const, body: "Retry" };
     expect(reduceAuth(recovering, { type: "error", view: { kind: "banner", banner } })).toMatchObject({ step: "signing", banner });
   });

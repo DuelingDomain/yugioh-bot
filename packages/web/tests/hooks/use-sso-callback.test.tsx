@@ -5,7 +5,7 @@ import { useSsoCallback } from "../../src/hooks/use-sso-callback";
 import { useSignUpFlow } from "../../src/hooks/use-sign-up-flow";
 import { useSignInFlow } from "../../src/hooks/use-sign-in-flow";
 
-import { RECOVERY_PAINT_FALLBACK_MS, SUCCESS_HOLD_MS, SUCCESS_HOLD_REDUCED_MS } from "../../src/lib/auth-flow";
+import { RECOVERY_PAINT_FALLBACK_MS, SUCCESS_HOLD_MS } from "../../src/lib/auth-flow";
 const mock = vi.hoisted(() => ({ signInSignal: {} as any, signUpSignal: {} as any, push: vi.fn(), prefetch: vi.fn(), hardNavigate: vi.fn() }));
 vi.mock("@/components/auth/navigate", () => ({ hardNavigate: mock.hardNavigate }));
 vi.mock("@clerk/nextjs", () => ({ useSignIn: () => mock.signInSignal, useSignUp: () => mock.signUpSignal }));

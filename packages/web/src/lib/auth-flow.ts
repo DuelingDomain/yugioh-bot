@@ -52,6 +52,8 @@ export function initialAuthState(input: { returnTo: string; step?: AuthStep }): 
 }
 
 export function reduceAuth(state: AuthFlowState, event: AuthEvent): AuthFlowState {
+  // The page is already leaving for Discord: hold the card, except for a stalled hand-off (banner error) handled below.
+  if (state.step === "recovering" && !(event.type === "error" && event.view.kind === "banner")) return state;
   switch (event.type) {
     case "submit": return { ...state, pending: true, fieldErrors: {}, banner: null };
     case "settled": return { ...state, pending: false };
