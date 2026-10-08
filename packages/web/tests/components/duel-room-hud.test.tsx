@@ -746,6 +746,19 @@ describe("the pinned card peek of the 1v1 room", () => {
       } finally { bar.remove(); }
     });
 
+    it("does not keep the hover place when it covers the clicked card (the board is under the other side too): the places are ranked again", () => {
+      layout({ left: 100, right: 180, top: 400, bottom: 560 });
+      const board = part({ "data-zones": "" }, { left: 850, right: 1280, top: 0, bottom: 720 });
+      try {
+        mount();
+        hover();
+        expect(peek().getAttribute("data-side")).toBe("left");
+        fireEvent.click(screen.getByTestId("field-pick"));
+        expect(peek().getAttribute("data-pinned")).toBe("true");
+        expect(peek().getAttribute("data-side")).toBe("right");
+      } finally { board.remove(); }
+    });
+
     it("takes the right edge when the left one covers the board or a kept part, even for a short text", () => {
       layout({ left: 900, right: 980, top: 300, bottom: 420 });
       const master = part({ "data-testid": "hud-master" }, { left: 14, right: 400, top: 20, bottom: 712 });
