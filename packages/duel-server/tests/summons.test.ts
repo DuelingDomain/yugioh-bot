@@ -92,10 +92,10 @@ describe("proper effect summons", () => {
       for (const viewer of [0, 1, null]) {
         const lines = game.view(viewer).log.map((entry) => entry.text);
         expect(lines).toContain(`Player 1 ${method} Summons ${scenario.master}`);
-        for (const material of scenario.materials) expect(lines).toContain(`${material} was sent to the Graveyard`);
+        for (const material of scenario.materials) expect(lines).toContain(`Player 1's ${material} was sent to the Graveyard`);
         // The material lines sit directly above the summon line: the web Text log relies on that to colour them.
         const at = lines.indexOf(`Player 1 ${method} Summons ${scenario.master}`);
-        expect(lines.slice(at - scenario.materials.length, at).sort()).toEqual(scenario.materials.map((material) => `${material} was sent to the Graveyard`).sort());
+        expect(lines.slice(at - scenario.materials.length, at).sort()).toEqual(scenario.materials.map((material) => `Player 1's ${material} was sent to the Graveyard`).sort());
       }
     } finally {
       game.close();

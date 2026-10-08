@@ -80,7 +80,7 @@ describeWithCores("action seat proofs", liveNseat, () => {
       if (proof.confirm) {
         expect(game.view(0).log.filter(line => line.text.includes('SEAT_PROOF_CONFIRM_OK'))).toHaveLength(1);
         const opponents = scenario.setup.format === 'ffa3' ? [1,2] : scenario.setup.format === 'ffa4' ? [1,2,3] : [1,3];
-        for (const seat of opponents) expect(game.view(seat).log.filter(line => line.text === 'Confirmed Battle Ox')).toHaveLength(1);
+        for (const seat of opponents) expect(game.view(seat).log.filter(line => line.text === `Confirmed Player ${proof.target! + 1}'s Battle Ox`)).toHaveLength(1);
       }
       for (const seat of proof.banish ?? []) {
         expect(game.view(0).events.filter(e => e.kind === "move" && e.reason === "banish" && e.card?.code === 5053103 && e.seat === seat)).toHaveLength(1);

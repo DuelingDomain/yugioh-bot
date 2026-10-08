@@ -106,12 +106,12 @@ describe("Deck reveal diagnosis (stock core, real card scripts)", () => {
       const move = owner.events.find((event) => event.kind === "move" && event.zone?.location === OcgLocation.MZONE);
       expect(move).toMatchObject({ from: { controller: 0, location: OcgLocation.HAND }, zone: { controller: 1, location: OcgLocation.MZONE } });
       expect(owner.events.find((event) => event.kind === "confirm")).toMatchObject({ moveId: move!.id, card: { code: MIMIGHOUL_FAIRY } });
-      expect(game.view(0).log.some((entry) => entry.text === "Confirmed Mimighoul Fairy")).toBe(true);
+      expect(game.view(0).log.some((entry) => entry.text === "Confirmed Player 2's Mimighoul Fairy")).toBe(true);
       for (const viewer of [1, null]) {
         const view = game.view(viewer);
         expect(view.events.find((event) => event.kind === "confirm")).toMatchObject({ text: "A card was confirmed" });
         expect(view.events.find((event) => event.kind === "confirm")?.card).toBeUndefined();
-        expect(view.log.some((entry) => entry.text === "Confirmed Mimighoul Fairy")).toBe(false);
+        expect(view.log.some((entry) => entry.text === "Confirmed Player 2's Mimighoul Fairy")).toBe(false);
       }
     } finally { game.close(); }
   });
@@ -129,13 +129,13 @@ describe("Deck reveal diagnosis (stock core, real card scripts)", () => {
         type: OcgMessageType.CONFIRM_CARDS, player: 1,
         cards: expect.arrayContaining([expect.objectContaining({ code: KOJIKOCY, location: OcgLocation.HAND })]),
       }));
-      expect(game.view(1).log.some((entry) => entry.text === "Confirmed Kojikocy")).toBe(true);
+      expect(game.view(1).log.some((entry) => entry.text === "Confirmed Player 1's Kojikocy")).toBe(true);
       // The confirmation is lost to the structured history/animation stream today.
       const reveal = game.view(1).events.find((event) => event.zone?.location === OcgLocation.HAND && event.card?.code === KOJIKOCY);
       expect(reveal?.card?.code, "Confirmed search must expose the card in the opponent's history/animation event").toBe(KOJIKOCY);
       for (const viewer of [0, 1, null]) {
         expect(game.view(viewer).events.find((event) => event.kind === "confirm")?.card?.code).toBe(KOJIKOCY);
-        expect(game.view(viewer).log.some((entry) => entry.text === "Confirmed Kojikocy")).toBe(true);
+        expect(game.view(viewer).log.some((entry) => entry.text === "Confirmed Player 1's Kojikocy")).toBe(true);
       }
       for (const viewer of [1, null]) {
         expect(game.view(viewer).seats[0]!.hand.every((card) => card.code == null)).toBe(true);
@@ -173,7 +173,7 @@ describe("Deck reveal diagnosis (stock core, real card scripts)", () => {
         expect(game.view(viewer).events.find((event) => event.kind === "set")?.card).toBeUndefined();
         expect(game.view(viewer).seats[0]!.spells.filter(Boolean).every((card) => card?.code == null)).toBe(true);
         // The same-batch move from the controller's own Deck makes this confirmation public.
-        expect(game.view(viewer).log.some((entry) => entry.text.includes("Confirmed Majespecter Tempest"))).toBe(true);
+        expect(game.view(viewer).log.some((entry) => entry.text.includes("Confirmed Player 1's Majespecter Tempest"))).toBe(true);
         expect(game.view(viewer).events.find((event) => event.kind === "confirm")?.card?.code).toBe(TEMPEST);
       }
       // The move link makes this confirmation public even when player is 0.
