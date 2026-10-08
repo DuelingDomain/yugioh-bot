@@ -1340,6 +1340,9 @@
   max-height: var(--sr-h);
   overflow: hidden;
 }
+.viewport[data-strip-room][data-strip-room][data-strip-room] :global([data-prompt-panel][data-tone="chain"][data-strip="true"]:not([data-precheck])) > :global(:not([data-strip-wrap])) {
+  flex-shrink: 0;
+}
 .viewport[data-strip-room][data-strip-room][data-strip-room] :global([data-prompt-panel][data-tone="chain"][data-strip="true"]:not([data-precheck])) > :global([data-strip-wrap]) {
   flex: 1 1 auto;
   flex-shrink: 1;

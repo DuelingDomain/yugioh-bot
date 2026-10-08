@@ -107,9 +107,8 @@ function toneHex(tone: SeatTone | undefined): HubSeatTone {
   const hex = SEAT_TONE_HEX[tone ?? "violet"];
   return { rgb: hexToRgbTriplet(hex.main), ink: hex.ink };
 }
-
-/** The HUD the chain-response panel keeps off (strip-room.ts): the team plates and the camera rail. */
-const STRIP_KEY_HUD = "[data-team-plate], [data-camera-rail]";
+/** The HUD the chain-response panel keeps off (strip-room.ts): the team plates, the camera rail and the card pinned in the peek. */
+const STRIP_KEY_HUD = "[data-team-plate], [data-camera-rail], [data-testid='hover-preview'][data-pinned='true']";
 /** The HUD it avoids when it can: the helipad hub (its chain line is also in the panel), the chain banner, the lock chip and the partner's hand. */
 const STRIP_SOFT_HUD = "[data-hub], [data-chain-panel], [data-lock-chip], [data-partner-hand]";
 const STRIP_OWN_HAND = '[data-hand-seat][data-side="you"] [data-zones]';
