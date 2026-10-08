@@ -1624,6 +1624,16 @@ export function PromptCenter(props: PromptCenterProps) {
       ? (panel?.querySelector<HTMLElement>("[data-primary]:not(:disabled)") ?? panel?.querySelector<HTMLElement>("[data-index]:not(:disabled)"))
       : panel;
     target?.focus({ preventScroll: true });
+    // A chain-response panel waits hidden while its room is measured (data-strip-pending on the board): a hidden panel cannot take focus, so it does when it shows.
+    const waiting = target && panel ? panel.closest<HTMLElement>("[data-strip-pending]") : null;
+    if (!waiting || !target) return undefined;
+    const observer = new MutationObserver(() => {
+      if (waiting.hasAttribute("data-strip-pending")) return;
+      observer.disconnect();
+      if (target.isConnected) target.focus({ preventScroll: true });
+    });
+    observer.observe(waiting, { attributes: true, attributeFilter: ["data-strip-pending"] });
+    return () => observer.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [promptId, collapsed, kind, onBoard, revealed, checking]);
 

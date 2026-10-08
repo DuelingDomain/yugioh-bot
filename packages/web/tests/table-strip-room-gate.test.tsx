@@ -50,7 +50,7 @@ describe("the chain-response room is set up on purpose only", () => {
     const users = readdirSync(dir, { recursive: true, encoding: "utf8" })
       .filter((file) => /\.(tsx?|css)$/.test(file) && !/^(table|tag)[\\/]/.test(file))
       .filter((file) => /data-strip-room|data-strip-pending|use-strip-room/.test(readFileSync(join(dir, file), "utf8")));
-    // The card strip's own css reads the room the stage sets; no other file outside the multi-seat tables does.
-    expect(users).toEqual(["card-strip.module.css"]);
+    // The card strip's own css reads the room the stage sets, and the prompt's focus effect waits for the pending mark (it finds none on a 1v1 table); no other file outside the multi-seat tables does.
+    expect(users).toEqual(["card-strip.module.css", "prompt-center.tsx"]);
   });
 });
