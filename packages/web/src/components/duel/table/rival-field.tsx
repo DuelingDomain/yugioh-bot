@@ -52,6 +52,9 @@ export function seatTransform(pose: Pick<SeatPose, "x" | "y" | "rotateDeg" | "ti
  * draws the board at a fixed card size (`--sf-z`) and counter-rotates its own text when upright is on.
  * It serves the viewer's own seat too: that pose is simply upright at full size.
  */
+/** What a double click keeps for itself: a card, a zone, a pile, a hand, a control. Only the rest of the field (felt, name, plate) enlarges it. */
+const OWN_DOUBLE_CLICK = "[data-uid], [data-zones], [data-hand-seat], [data-pile], button, a, input, select, textarea, [role='button'], [data-legal='true'], [data-holo]";
+
 export function RivalField({ pose, field, render, angleOffsetDeg = 0, placement, glide = false, enlarged = false, reach, targeted = false }: RivalFieldProps) {
   const style: CSSProperties & Record<string, string | number> = placement
     ? { "--sf-z": `${pose.z}px`, "--sf-ts": textScale(pose.scale).toFixed(2), ...(placement.lh != null ? { "--sf-lh": `${placement.lh}px` } : {}), ...(placement.boxX != null ? { "--sf-box-x": `${placement.boxX}px` } : {}), ...(placement.handShift != null ? { "--hand-shift": placement.handShift } : {}), ...(placement.handWidth != null ? { "--hand-w": placement.handWidth } : {}), left: placement.left, top: placement.top, rotate: pose.rotateDeg ? `${pose.rotateDeg}deg` : "none", zIndex: placement.zIndex }
@@ -89,6 +92,13 @@ export function RivalField({ pose, field, render, angleOffsetDeg = 0, placement,
             // button. A mouse click (detail 1 or more) never moves the camera.
             onClick: (event: MouseEvent<HTMLDivElement>) => {
               if (event.detail !== 0 || event.target !== event.currentTarget) return;
+              reach.onToggle();
+            },
+            // A double click on the felt of the field enlarges it, as Enter does (the box is the closest control: nothing inside took it).
+            // The board's own double click (use-view-zoom) is a native listener on the board and runs first; it only eases the manual
+            // view back, and the camera change that follows resets that view anyway.
+            onDoubleClick: (event: MouseEvent<HTMLDivElement>) => {
+              if ((event.target as Element).closest(OWN_DOUBLE_CLICK) !== event.currentTarget) return;
               reach.onToggle();
             },
             onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {

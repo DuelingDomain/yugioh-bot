@@ -216,6 +216,32 @@ describe("3-way: a click on a field never moves the camera; the button, E and En
     expect(chip(container)).toBe("Focus · Ryo Sato");
   });
 
+  it("a double click on the felt of a field enlarges it, and the same again goes back", () => {
+    const { container } = render(<Table state={idle()} />);
+    fireEvent.doubleClick(seatBox(container, RYO));
+    expect(chip(container)).toBe("Focus · Ryo Sato");
+    fireEvent.doubleClick(seatBox(container, RYO));
+    expect(chip(container)).toBe("Home");
+    // your own field: the own zoom
+    fireEvent.doubleClick(seatBox(container, REN));
+    expect(chip(container)).toBe("Focus · Ren Arata");
+  });
+
+  it("a double click on a card, a zone or a hand never moves the camera", () => {
+    const { container } = render(<Table state={idle()} />);
+    fireEvent.doubleClick(plainZone(container, RYO));
+    fireEvent.doubleClick(seatBox(container, RYO).querySelector("[data-zones]")!);
+    fireEvent.doubleClick(container.querySelector("[data-hand-seat]")!);
+    expect(chip(container)).toBe("Home");
+  });
+
+  it("a double click on empty board does not enlarge a field", () => {
+    const { container } = render(<Table state={idle()} />);
+    fireEvent.doubleClick(felt(container));
+    fireEvent.doubleClick(container.querySelector("[data-view-layer]")!);
+    expect(chip(container)).toBe("Home");
+  });
+
   it("a virtual click (a screen reader, detail 0) on the field box acts as Enter does", () => {
     const { container } = render(<Table state={variant(() => {})} />);
     fireEvent.click(seatBox(container, RYO), { detail: 0 });
