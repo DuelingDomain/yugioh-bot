@@ -195,7 +195,10 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   // The change notice that an answer of this player causes is not a reason to shut the prompts (see duel-echo-window.ts).
   const echo = useMemo(() => createEchoWindow(), []);
   const realtime = useDuelWebsocket(slug, data?.mySeat, refreshRoom, spectate, echo.quiet);
-  const syncing = realtime.syncing || realtime.recovering;
+  // Only a recovering connection holds the buttons. A routine re-read (a change notice that is not the player's echo,
+  // a window focus, a clock tick) does not: it shut the button between the press and the release, and the click was lost.
+  // The server still refuses a stale answer by prompt id and revision.
+  const syncing = realtime.recovering;
   const liveFormat = engineFormat(data?.engine);
   // Live tables: FFA mounts TableShell, Tag 2v2 mounts the Rooftop (TagShell). ?stage=legacy keeps MultiSeatStage for both.
   const liveTagTable = isMultiSeat(data?.engine) && liveFormat === "tag" && !legacyStage;
