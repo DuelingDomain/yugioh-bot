@@ -111,13 +111,13 @@ export function applyEngineCardRemaps(db: Database.Database, directory: string):
           `https://images.ygoprodeck.com/images/cards_small/${target}.jpg`, target);
       }
       const official = metadata.get(target);
-      if (official) {
+      if (official && copiedPreview) {
         const fields = Object.keys(official);
-        // Engine metadata is an offline fallback for copied/unsynced previews.
-        // Once refreshed (or synced by YGOPRODeck), cumulative remaps must leave
-        // it alone on subsequent bundle changes.
-        db.prepare(`UPDATE card_catalog SET ${fields.map(field => `${field}=?`).join(",")} WHERE ygoprodeck_id=?
-          AND (? OR (card_sets_json='[]' AND name<>?))`).run(...Object.values(official), target, Number(copiedPreview), official.name);
+        // Engine metadata is an offline fallback only for previews copied by
+        // this run. Existing rows may have richer YGOPRODeck data even when
+        // they have no TCG sets and their name differs from the engine name.
+        db.prepare(`UPDATE card_catalog SET ${fields.map(field => `${field}=?`).join(",")} WHERE ygoprodeck_id=?`)
+          .run(...Object.values(official), target);
       }
       // Graduated main passcodes are one card now; retain copies up to the cube cap.
       db.prepare(`INSERT INTO cube_cards (cube_id,catalog_card_id,pool,max_copies,source)
