@@ -242,7 +242,6 @@
 .navItem {
   position: relative;
   isolation: isolate; /* keeps the active mark (z-index -1) above the row's hover fill and under its content */
-  flex: 1;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -370,6 +369,12 @@
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* The sidebar row fills its tip wrapper. (The phone row sits straight in the group's column, where flex: 1 would
+   collapse its height.) */
+.railTip > .navItem {
+  flex: 1;
 }
 
 .side .railTip.railTip[data-side="right"] > :global(.sv-tip) {

@@ -21,6 +21,11 @@ function decl(rule: Rule, prop: string): string | undefined {
 }
 
 describe("sidebar rail motion (shell.module.css)", () => {
+  it("lets only the sidebar row flex: a flex-basis of 0 would collapse the phone row's 48px in its column", () => {
+    expect(decl(rules(".navItem")[0], "flex")).toBeUndefined();
+    expect(decl(rules(".railTip > .navItem")[0], "flex")).toBe("1");
+  });
+
   it("keeps the icon on one x in both widths: same padding, same icon size", () => {
     const [item] = rules(".navItem");
     expect(decl(item, "padding")).toBe("0 12px");
