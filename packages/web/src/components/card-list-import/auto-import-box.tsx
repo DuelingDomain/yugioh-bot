@@ -53,6 +53,12 @@ interface Props {
   hintClassName?: string;
 }
 
+/**
+ * Hides the entry list under the box. A surface that shows the same entries somewhere else (the Workbench puts them
+ * above the pool) wraps the box in this with `true`, so each Remove button exists once.
+ */
+export const HideImportEntriesContext = React.createContext(false);
+
 /** After a list went in: empties the box only when it still holds that list. */
 const clearIfSame = (value: string) => (now: string) => (now === value ? "" : now);
 /** After a list failed: puts it back only into an empty box, so text typed meanwhile is not lost. */
@@ -87,6 +93,7 @@ export function AutoImportBox({
   fileInputClassName,
   hintClassName = "hint",
 }: Props) {
+  const entriesHidden = React.useContext(HideImportEntriesContext);
   const areaId = React.useId();
   const hintId = React.useId();
   const [text, setText] = React.useState("");
@@ -288,12 +295,13 @@ export function AutoImportBox({
           )}
         </div>
       )}
-      <ImportEntries entries={entries} onRemove={onRemove} />
+      {!entriesHidden && <ImportEntries entries={entries} onRemove={onRemove} />}
     </div>
   );
 }
 
-function ImportEntries({ entries, onRemove }: Pick<Props, "entries" | "onRemove">) {
+/** The added lists, each with a Remove button. `AutoImportBox` shows it under the box; a surface can show it elsewhere. */
+export function ImportEntries({ entries, onRemove }: Pick<Props, "entries" | "onRemove">) {
   const [removing, setRemoving] = React.useState<ReadonlySet<ImportEntryView["key"]>>(new Set());
   const [errors, setErrors] = React.useState<ReadonlyMap<ImportEntryView["key"], string>>(new Map());
   const mounted = React.useRef(true);

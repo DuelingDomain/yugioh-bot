@@ -2,7 +2,7 @@
 """Exercise the real Caddyfile with Docker + curl; no app, DNS, or site/ writes.
 
 Run from any directory: python3 scripts/deployment/verify-domain-routing.py
-Requires Docker daemon access, caddy:2-alpine (pulled if needed), curl, Python 3.
+Requires Docker daemon access, a cached caddy:2-alpine image, curl, Python 3.
 All containers/networks are temporary; output and adapted JSON stay in /tmp.
 """
 import json
@@ -76,7 +76,7 @@ def docker(*args):
 
 
 def start(name, config, env=None, upstream=False):
-    args = ["run", "--rm", "-d", "--name", name, "--network", NETWORK,
+    args = ["run", "--pull=never", "--rm", "-d", "--name", name, "--network", NETWORK,
             "-v", f"{config}:/etc/caddy/Caddyfile:ro"]
     if upstream:
         args += ["--network-alias", "web", "--network-alias", "ws"]
@@ -96,7 +96,9 @@ def ports(name):
 
 def request(port_map, host, path="/", scheme="https", method="GET", print_result=True, extra=None):
     port = port_map[443 if scheme == "https" else 80]
-    args = ["curl", "--noproxy", "*", "-ksS", "--max-time", "5", "-D", "-", "-X", method]
+    args = ["curl", "--noproxy", "*", "-ksS", "--max-time", "5", "-D", "-"]
+    # -X HEAD alone makes curl wait for the advertised body; --head knows there is none.
+    args += ["--head", "--output", "/dev/null"] if method == "HEAD" else ["-X", method]
     if scheme == "https":
         args += ["--resolve", f"{host}:{port}:127.0.0.1", f"https://{host}:{port}{path}"]
     else:
@@ -108,12 +110,21 @@ def request(port_map, host, path="/", scheme="https", method="GET", print_result
     headers, _, body = result.stdout.partition("\n\n")
     lines = headers.splitlines()
     status = int(lines[0].split()[1])
-    fields = {key.lower(): value for line in lines[1:] if ": " in line
-              for key, value in [line.split(": ", 1)]}
+    fields = {}
+    for line in lines[1:]:
+        if ": " in line:
+            key, value = line.split(": ", 1)
+            key = key.lower()
+            # Repeated fields (e.g. two Vary lines) combine as one comma-separated list.
+            fields[key] = f"{fields[key]}, {value}" if key in fields else value
     if print_result:
         print("$ " + shlex.join(args), flush=True)
         print(result.stdout, flush=True)
     return status, fields, body
+
+
+def varies_on_cookie(fields):
+    return "cookie" in {v.strip().lower() for v in fields.get("vary", "").split(",")}
 
 
 def ready(port_map, host):
@@ -140,7 +151,7 @@ def check(port_map, host, path="/", status=200, body=None, location=None, **kwar
 
 
 def validate(config, label, env):
-    args = ["run", "--rm", "-v", f"{config}:/etc/caddy/Caddyfile:ro"]
+    args = ["run", "--pull=never", "--rm", "-v", f"{config}:/etc/caddy/Caddyfile:ro"]
     for key, value in env.items():
         args += ["-e", f"{key}={value}"]
     print(f"{label}: " + docker(*args, IMAGE, "caddy", "validate", "--config", "/etc/caddy/Caddyfile"), flush=True)
@@ -182,11 +193,41 @@ def main():
     check(p, "app.localhost", "/socket.io/?EIO=4&transport=polling", body="ws GET /socket.io/?EIO=4&transport=polling")
     check(p, "www.app.localhost", "/draft/abc?x=1", status=308, location="https://app.localhost/draft/abc?x=1")
     _, headers, _ = check(p, "marketing.localhost", body="marketing index")
-    assert headers["cache-control"] == "public, max-age=300, must-revalidate"
+    assert headers["cache-control"] == "private, no-store"
+    assert varies_on_cookie(headers)
     assert headers["etag"] and headers["x-frame-options"] == "DENY"
     assert headers["x-content-type-options"] == "nosniff"
     assert headers["referrer-policy"] == "strict-origin-when-cross-origin"
-    check(p, "marketing.localhost", status=304, extra=["-H", "If-None-Match: " + headers["etag"]])
+    _, conditional, _ = check(p, "marketing.localhost", status=304, extra=["-H", "If-None-Match: " + headers["etag"]])
+    assert conditional["cache-control"] == "private, no-store" and varies_on_cookie(conditional)
+    signed_in = ["-H", "Cookie: dd_signed_in=1"]
+    # Exercise the real matcher, including exact cookie names, values and boundaries.
+    for path in ("/", "/index.html"):
+        for cookie, status in (
+            ("", 200), ("dd_signed_in=0", 200), ("dd_signed_in=", 200),
+            ("dd_signed_in=garbage", 200), ("dd_signed_in=10", 200),
+            ("prefix_dd_signed_in=1", 200), ("dd_signed_in_extra=1", 200),
+            ("other=dd_signed_in=1", 200), ("dd_signed_in=1", 302),
+            ("theme=dark; dd_signed_in=1; other=value", 302),
+        ):
+            _, home_headers, _ = check(p, "marketing.localhost", path, status=status,
+                body="marketing index" if status == 200 else None,
+                location="https://app.localhost/" if status == 302 else None,
+                extra=["-H", "Cookie: " + cookie])
+            assert home_headers["cache-control"] == "private, no-store", home_headers
+            assert varies_on_cookie(home_headers), home_headers
+        for query in ("?home=1", "?home=1&source=logo", "?home=0&home=1", "?home=%31"):
+            _, home_headers, _ = check(p, "marketing.localhost", path + query,
+                body="marketing index", extra=signed_in)
+            assert home_headers["cache-control"] == "private, no-store" and varies_on_cookie(home_headers)
+        for query in ("?home=0", "?home=10", "?homepage=1", "?source=logo"):
+            check(p, "marketing.localhost", path + query, status=302,
+                location="https://app.localhost/", extra=signed_in)
+        check(p, "marketing.localhost", path, method="HEAD", body="", extra=signed_in)
+        check(p, "marketing.localhost", path, method="POST", status=405, extra=signed_in)
+    # A conditional signed-in request must redirect before serving a cached HTML variant.
+    check(p, "marketing.localhost", status=302, location="https://app.localhost/",
+        extra=signed_in + ["-H", "If-None-Match: " + headers["etag"]])
     for page in ("privacy", "terms"):
         check(p, "marketing.localhost", f"/{page}", body=f"{page} clean URL")
         check(p, "marketing.localhost", f"/{page}.html", body=f"{page} clean URL")
@@ -215,6 +256,19 @@ def main():
     assert headers["cache-control"] == "public, max-age=86400"
     _, headers, _ = check(p, "marketing.localhost", "/style.css", body="body{}")
     assert headers["cache-control"] == "public, max-age=300, must-revalidate"
+    # The same hint must leave legal pages, assets, login and waitlist routing unchanged.
+    for path, body, cache in (
+        ("/privacy", "privacy clean URL", "public, max-age=300, must-revalidate"),
+        ("/terms", "terms clean URL", "public, max-age=300, must-revalidate"),
+        ("/logo.svg", "<svg/>", "public, max-age=86400"),
+        ("/style.css", "body{}", "public, max-age=300, must-revalidate"),
+    ):
+        _, unchanged, _ = check(p, "marketing.localhost", path, body=body, extra=signed_in)
+        assert unchanged["cache-control"] == cache and not varies_on_cookie(unchanged), unchanged
+    check(p, "marketing.localhost", "/login", status=302, location="https://app.localhost/login", extra=signed_in)
+    check(p, "marketing.localhost", "/api/waitlist", method="POST", body="web POST /api/waitlist", extra=signed_in)
+    for path in ("/missing", "/api/waitlist", "/api/waitlistx", "/socket.io/"):
+        check(p, "marketing.localhost", path, status=404, body="marketing custom 404", extra=signed_in)
     for scheme in ("http", "https"):
         for host in ("legacy.localhost", "www.legacy.localhost"):
             for path in ("/draft/abc?x=1", "/robots.txt"):

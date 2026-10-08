@@ -1,6 +1,7 @@
 // Domain membership and singleton rules follow DarknessCatt/Yugioh-Domain-Toolbox
 // (GPL-3.0): src/classes/domain.py, deckChecker.py, textParsers/archetypes.py.
 // Official format: https://www.domainformat.com/rules and /deckvalidator.
+import { loadCardPasscodeRemaps } from "@yugidraft/shared/db";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import Database from "better-sqlite3";
@@ -13,7 +14,7 @@ import type {
   DuelMode,
   DuelSettings,
 } from "@yugidraft/shared/duels";
-import { canonicalCardCode, checkDeckAgainstPool } from "@yugidraft/shared/duels";
+import { canonicalCardCode, checkDeckAgainstPool, mapDeckCodes } from "@yugidraft/shared/duels";
 import { banlistLimitsFor, type BanlistLimit } from "./banlists/index.js";
 import { MULTIPLAYER_TABLE_LABEL, multiplayerForbiddenFor, type MultiplayerTable } from "./banlists/multiplayer.js";
 import { cardBlockIndex, type CardBlockEntry } from "./card-block-list.js";
@@ -777,6 +778,8 @@ export function inspectDeck(
     return { issues: [{ message: "Deck must include main, extra, and side arrays", cards: [] }] };
   }
 
+  const remaps = loadCardPasscodeRemaps(dataDirectory);
+  deck = mapDeckCodes(deck, code => remaps.get(code) ?? code);
   const issues: DuelDeckIssue[] = [];
   const competitive = settings ? settings.validateDeck : true;
   let limits: Record<number, BanlistLimit> | null = null;
@@ -839,7 +842,7 @@ export function inspectDeck(
     collectEngineCards();
     collectMultiplayerIssues([...main, ...extra, ...side], table, undefined, issues);
     if (options.draftPool) {
-      const resolve = (code: number) => canonicalCardCode(code, catalog.cards);
+      const resolve = (code: number) => canonicalCardCode(remaps.get(code) ?? code, catalog.cards);
       for (const issue of checkDeckAgainstPool(deck, options.draftPool.counts, resolve, options.draftPool.forcedCopies)) {
         issues.push({
           message: `${readCard(catalog, issue.code)?.name ?? issue.code}: at most ${issue.available} copies allowed by your draft picks (${issue.used} used)`,

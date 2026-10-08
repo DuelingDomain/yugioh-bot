@@ -20,6 +20,21 @@ it("preserves path and query in the sign-in redirect", async () => {
   const res = await proxy(request("/settings?tab=one"), {} as never);
   expect(new URL(res!.headers.get("location")!).searchParams.get("redirect_url")).toBe("/settings?tab=one");
 });
+it("sends a stale marketing hint to the app sign-in page without a marketing redirect loop", async () => {
+  const root = request("/");
+  root.cookies.set("dd_signed_in", "1");
+  const res = await proxy(root, {} as never);
+  const location = new URL(res!.headers.get("location")!);
+  expect(res?.status).toBe(307);
+  expect(location.origin).toBe("https://example.com");
+  expect(location.pathname).toBe("/sign-in");
+  expect(location.searchParams.get("redirect_url")).toBe("/");
+  expect((await proxy(request(location.pathname + location.search), {} as never))?.status ?? 200).toBe(200);
+});
+it("lets an existing Clerk session reach the app root", async () => {
+  state.auth.mockResolvedValue({ userId: "user_example" });
+  expect((await proxy(request("/"), {} as never))?.status ?? 200).toBe(200);
+});
 it("404s disabled test-auth endpoints before Clerk middleware runs", async () => { expect((await proxy(request("/api/test-auth/session", "POST"), {} as never))?.status).toBe(404); expect(state.invoke).not.toHaveBeenCalled(); });
 it("preserves FX lab rules", async () => {
   expect((await proxy(request("/dev/fx-lab"), {} as never))?.status).toBe(404);

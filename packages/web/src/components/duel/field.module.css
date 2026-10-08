@@ -230,7 +230,11 @@
     --res-bot-px: 0px;
     --lift-k: 0;
     --mark-k: 0;
-    --ohk: 0.36;
+    /* The rival's backs are about 30% larger than before (0.36 to 0.47 of a zone). Less of each card hides above the
+       board (0.5 to 0.38), so the part that peeks up under the header pills stays as tall as it was
+       (0.47 x 0.38 = 0.18 zone) and the cards grow downward, into the strip the LP tally already holds open. */
+    --ohk: 0.47;
+    --top-hide: 0.38;
   }
 }
 
@@ -551,8 +555,8 @@
   transform: translateY(calc(var(--lh) * -0.12));
 }
 
-/* The card under the pointer grows so you can read it. Theirs grows up over the header, away from the
-   board. Yours grows up too (see below), so the station track never hides it. */
+/* The card under the pointer grows so you can read it. Theirs slides down and grows down over its own back
+   row. Yours grows up (see below), so the station track never hides it. */
 @media (hover: hover) {
   .hand:not(.handLocal) .handCard .zone .frame {
     transform-origin: 50% 0;

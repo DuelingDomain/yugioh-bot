@@ -48,6 +48,13 @@
   isolation: isolate;
 }
 
+/* Shrink the whole playable viewport below the phone chain band, including camera fitting and HUD. */
+.viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
 .stage button {
   font: inherit;
   color: inherit;
