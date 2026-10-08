@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import Database from "better-sqlite3";
 import { probeEngineData } from "./probe-engine-data.js";
-import { withValidation } from "./engine-data-report.js";
+import { withValidation, prereleaseUpdateReport } from "./engine-data-report.js";
 import { listIndex, reconcile, scanText } from "./scan-multiplayer-scripts.js";
 import { discoverReleasedDatabases, downloadReleasedCardData, restrictPrereleaseScripts } from "./released-card-data.js";
 
@@ -170,18 +170,29 @@ export async function runUpdate(options: Options = {}) {
     execFileSync("tar", ["-xzf", archive, "--strip-components=1", "-C", extracted]);
     const stock = new Map<string, string>();
     for (const path of newTree.keys()) if (path.endsWith(".lua")) stock.set(path, await readFile(join(extracted, path), "utf8"));
-    const [database, oldDatabases] = await Promise.all([
-      downloadReleasedCardData(next.database, temporary, download),
-      discoverReleasedDatabases(old.database, download),
+    const preparation = await readFile(join(root, preparePath), "utf8");
+    const historyStart = /prereleaseHistoryStart:\s*"([a-f0-9]{12,40})"/.exec(preparation)?.[1];
+    let oldDataError: string | undefined;
+    const [database, oldDatabase] = await Promise.all([
+      downloadReleasedCardData(next.database, temporary, download, { historyStart }),
+      downloadReleasedCardData(old.database, join(temporary,"old-data"), download).catch((error: unknown) => {
+        if (!(error instanceof Error) || !/^Ambiguous\b/.test(error.message)) throw error;
+        oldDataError = error.message;
+        return null;
+      }),
     ]);
-    const releases = database.files.slice(1);
+    const oldDatabases = oldDatabase?.files ?? await discoverReleasedDatabases(old.database, download);
+    const releases = database.files.filter(path => path.startsWith("release-"));
+    const loadedCodes = new Set([...database.releaseCodes, ...database.prereleaseCodes]);
     report.push("", "## Released databases", "", `Loaded in order: ${database.files.map(path => `\`${path}\``).join(", ")}.`,
       `Release rows: ${database.releaseCodes.size} passcodes (including alternate artwork).`,
       `Added release databases: ${releases.filter(path => !oldDatabases.includes(path)).map(path => `\`${path}\``).join(", ") || "None"}.`,
-      `Removed release databases: ${oldDatabases.slice(1).filter(path => !releases.includes(path)).map(path => `\`${path}\``).join(", ") || "None"}.`,
-      "The candidate is rebuilt from its base and release files; expansions merged upstream into cards.cdb are not carried forward.");
-    restrictPrereleaseScripts(extracted, database.releaseCodes);
-    const releasePaths = [...database.releaseCodes].flatMap(code => {
+      `Removed release databases: ${oldDatabases.filter(path => path.startsWith("release-") && !releases.includes(path)).map(path => `\`${path}\``).join(", ") || "None"}.`,
+      "The candidate is rebuilt from its base, prerelease and release files; expansions merged upstream into cards.cdb are not carried forward.");
+    if (oldDataError) report.push("", "## Previous card-data comparison", "", `Finding: ${markdown(oldDataError)}. The old snapshot could not be reconciled; this finding does not block the candidate update.`);
+    report.push("", prereleaseUpdateReport(oldDatabase?.prerelease ?? null, database, oldDatabase?.released));
+    restrictPrereleaseScripts(extracted, database.scriptCodes);
+    const releasePaths = [...loadedCodes].flatMap(code => {
       const officialPath = `official/c${code}.lua`;
       const prereleasePath = `pre-release/c${code}.lua`;
       return stock.has(officialPath) ? [officialPath] : stock.has(prereleasePath) ? [prereleasePath] : [];
@@ -202,7 +213,16 @@ export async function runUpdate(options: Options = {}) {
     const conflicts = detectOverlayConflicts(manifest.cards, stock);
     report.push("", `## Overlay conflicts (${conflicts.length})`, "", "Compared every MANIFEST stockSha256 against candidate stock scripts. A human/Codex must update affected overlay files and review their baseline hashes; this job does not regenerate them.", "",
       ...(conflicts.length ? conflicts.map((card) => `- \`${card.file}\` ${markdown(names.get(card.code) ?? card.name ?? "")} — stock \`${card.stockSha256 ?? "unrecorded"}\` → \`${card.actualSha256 ?? "removed"}\``) : ["None."]));
-    const risks = findNewRisks(stock, [...diff.added, ...diff.changed, ...releasePaths], undefined, database.releaseCodes);
+    const patches = JSON.parse(await readFile(join(root, packagePath, "card-script-patches/MANIFEST.json"), "utf8")) as Array<{ stockPath: string; stockSha256: string }>;
+    const patchConflicts = detectOverlayConflicts(patches.map(patch => ({
+      ...patch, code: codeOf(patch.stockPath), file: patch.stockPath.split("/").pop()!,
+    })), stock);
+    report.push("", "## Card script patches", "",
+      ...(patchConflicts.length ? [
+        "**patch needs review**: candidate preparation and publication are blocked; all current data pins unchanged. The deployed stock files and reviewed patches remain in service until a human reviews the upstream change. No patch or baseline hash is changed automatically.", "",
+        ...patchConflicts.map(patch => `- \`${patch.stockPath}\` — **patch needs review**; expected \`${patch.stockSha256}\`; ${patch.actualSha256 ? `actual \`${patch.actualSha256}\`` : "removed"}`),
+      ] : ["All shared card-script patch stock hashes match the candidate."]));
+    const risks = findNewRisks(stock, [...diff.added, ...diff.changed, ...releasePaths], undefined, loadedCodes);
     report.push("", `## New multiplayer risks (${risks.length})`, "", "scan-multiplayer-scripts: new/changed or released cards flagged F or ambiguous O, absent from MULTIPLAYER_FORBIDDEN / MULTIPLAYER_CARD_RULES.", "",
       ...(risks.length ? risks.map((card) => `- \`c${card.code}.lua\` ${markdown(names.get(card.code) ?? card.name)} — **${card.cls}**, ${card.rules.map((rule) => `\`${rule}\``).join(", ")}`) : ["None."]));
     const shared = [...new Set([...oldTree.keys(), ...newTree.keys()])]
@@ -218,10 +238,17 @@ export async function runUpdate(options: Options = {}) {
     // Database-only updates can release cards whose script already existed at the old scripts pin.
     // Probe those scripts too, and omit pre-release card scripts removed from the prepared bundle.
     const allowed = (path: string) => !/^pre-release\/c\d+\.lua$/.test(path) ||
-      (database.releaseCodes.has(codeOf(path)) && !stock.has(`official/c${codeOf(path)}.lua`));
+      (database.scriptCodes.has(codeOf(path)) && !stock.has(`official/c${codeOf(path)}.lua`));
     const changedPaths = [...new Set([...stock.keys()].filter(path => newTree.get(path) !== oldTree.get(path)).concat(releasePaths))].filter(allowed);
-    report[0] = `Needs review: ${conflicts.length} conflicts, ${risks.length} risks, ${shared.length} shared-script changes, probe errors not run, overlay check exit not run`;
+    report[0] = `Needs review: ${conflicts.length + patchConflicts.length} conflicts, ${risks.length} risks, ${shared.length} shared-script changes, probe errors not run, overlay check exit not run`;
     report.push("", "## Core compatibility", "", "Pending installed npm ocgcore-wasm@0.1.2 probe against candidate data.");
+    if (patchConflicts.length) {
+      report.unshift(`BLOCKING: ${patchConflicts.length} patch needs review; current pins and bundle retained.`, "");
+      await saveReport();
+      // The workflow publishes this report to its failure summary and artifact.
+      // Stop before rewriting pins, so duel:prepare cannot apply an unreviewed suffix.
+      throw new Error(`patch needs review: ${patchConflicts.map(patch => patch.stockPath).join(", ")}. Current pins unchanged. Report: ${reportPath}`);
+    }
     const files = await rewritePins(root, old, next, true);
     report.push("", "## Synchronized files", "", ...files.map((path) => `- \`${path}\``));
     report.push("", "## Deployment", "", "**Live-duel warning:** a data pin bump changes bundleVersion. On recovery after deploy, an active duel whose bundleVersion differs is interrupted. Drain active duels and merge at a quiet time. The deploy preflight may refuse until duels finish. **Replay-loss warning:** every data bump also makes replays of all earlier duels with a different bundleVersion unavailable; host replay recovery refuses the mismatch. The owner must account for this when deciding update cadence.");

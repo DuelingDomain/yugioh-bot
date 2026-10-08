@@ -77,3 +77,47 @@ npx vitest run tests/scenarios/multiplayer/tag-facing-rules.test.ts tests/scenar
 ```
 
 The full snapshot/rendering handoff is in [Tag shared EMZ UI contract](2026-10-07-tag-shared-emz-ui.md). Web rendering remains for the UI worker. No rule questions remain.
+
+## Main integration
+
+Merged `origin/main` at `04e2bf878c7fb56e48ff8286672f7e84a12ece5d` into the reviewed
+Tag branch at `a9672b0303edc3db3efe4ce2f8908add6bdc8ace` with a normal merge.
+Only `scripts/native/golden.tsv` conflicted. Main changed card preparation and
+added the shared Steamed Sabersaurus patch, but did not change the core patch
+series, multiplayer scripts (including `mp-utility.lua`), Domain transforms or
+core pins. The reviewed fixed-seed and deployment hashes in
+[staging.md](../deployment/staging.md) remain unchanged; no WASM rebuild or env
+path changes were needed.
+
+Fresh preparation under `~/.cache/dk-duel-engine-tagrules` produced 14,984 card
+passcodes and installed the shared Sabersaurus patch with its integrity receipt.
+The Sabersaurus suite now includes 18 Standard/Domain Tag cases: either opposing
+member's Sabersaurus blocks ordinary direct attacks at the empty partner;
+card-granted direct attacks safely reach either opposing member without offering
+Sabersaurus's boost; both opposing fields empty allow an ordinary Dinosaur to
+attack either member with the real boost. Attacking and defending conditions
+retain their checks, and Sabersaurus cannot boost itself.
+
+`--check` rejected the conflicted input fingerprints before building. Resolving
+the conflict required explicit `--record`, using the complete 103-patch native
+core rebuilt with ASan/UBSan and `YGO_N_TRAP`, and a fresh native card-data dump.
+Compared with main, all 60 1v1/FFA rows and Tag seed 15 retain their steps/hashes;
+the other 19 Tag rows change. Compared with the pre-merge Tag branch, all 80
+hashes and 77 step counts change with the prerelease data/script inputs. A fresh
+`--check` using that just-built binary passed 80 rows, zero skips/mismatches.
+
+| Targeted integration check | Result |
+| --- | --- |
+| Sabersaurus, Tag scenarios, shared-zone and Tag order suites | 779 passed across 20 files; Sabersaurus accounts for 46 |
+| Core capabilities, deploy packaging, shared script integrity, engine bundle/install, golden metadata and prerelease engine tests | 112 passed across 7 files |
+| Filtered multiplayer script table for Sabersaurus/Inaba and the Tag geometry cards, including Infinite Impermanence | 8 passed; other table rows excluded by name |
+| Duel-server TypeScript check | passed |
+
+The unrelated trap-only `tag-chooser-scope.test.ts` requires absent
+`TABLE_TRAP_WASM`/`TABLE_TRAP_DOMAIN_WASM` artifacts and is excluded from the
+targeted production-core scenario run. Sabersaurus/Inaba have no multiplayer
+overlay table rows; their real battle paths are covered by the dedicated suite.
+Logs and both parents' golden inputs are saved as `merge-main-*` in the task
+cache. Shared exports were rebuilt with Node 22.23.3 before the successful tests;
+core dumps were blocked throughout. No shared engine directory or service was
+modified. Worktree `domain-core/.build` and `.emcache` are removed after checks.

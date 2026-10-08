@@ -1,11 +1,12 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, expect, it, vi } from "vitest";
 import { prepareData, sources } from "../scripts/prepare-data.js";
+import { installCardScriptPatches } from "../scripts/card-script-patches.js";
 import { discoverReleasedDatabases, downloadReleasedCardData, restrictPrereleaseScripts } from "../scripts/released-card-data.js";
 import * as releasedCardData from "../scripts/released-card-data.js";
 import { loadCardDatabase } from "../src/cards.js";
@@ -20,14 +21,14 @@ const root = () => { const dir = mkdtempSync(join(tmpdir(), "released-data-test-
 afterEach(() => { roots.splice(0).forEach(dir => rmSync(dir, { recursive: true, force: true })); vi.unstubAllEnvs(); vi.useRealTimers(); vi.restoreAllMocks(); });
 const hash = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
 const tree = (paths: string[]) => ({ truncated: false, tree: paths.map(path => ({ path, type: "blob", sha: "unused" })) });
-function cdb(dir: string, name: string, rows: Array<[number, number, string]>) {
+function cdb(dir: string, name: string, rows: Array<[number, number, string, number?]>) {
   const path = join(dir, name);
   const db = new Database(path);
   db.exec(`CREATE TABLE datas (id INTEGER PRIMARY KEY, ot INTEGER, alias INTEGER, setcode INTEGER, type INTEGER,
     atk INTEGER, def INTEGER, level INTEGER, race INTEGER, attribute INTEGER, category INTEGER);
     CREATE TABLE texts (id INTEGER PRIMARY KEY, name TEXT, desc TEXT);`);
-  for (const [code, alias, label] of rows) {
-    db.prepare("INSERT INTO datas VALUES (?,3,?,9223372036854775807,33,2500,2000,7,1,32,0)").run(code, alias);
+  for (const [code, alias, label, type = 33] of rows) {
+    db.prepare("INSERT INTO datas VALUES (?,3,?,9223372036854775807,?,2500,2000,7,1,32,0)").run(code, alias, type);
     db.prepare("INSERT INTO texts VALUES (?,?,'release effect')").run(code, label);
   }
   db.close();
@@ -42,10 +43,11 @@ function fixture() {
   ]);
   const scripts = join(dir, "stock"); mkdirSync(join(scripts, "official"), { recursive: true }); mkdirSync(join(scripts, "pre-release"));
   for (const file of ["official/c1.lua", "official/c2.lua", "pre-release/c17242022.lua", "pre-release/c999.lua"]) writeFileSync(join(scripts, file), `-- ${file}\n`);
+  cpSync(new URL("./fixtures/card-scripts/c3743515.lua", import.meta.url), join(scripts, "official/c3743515.lua"));
   const archive = execFileSync("tar", ["-czf", "-", "-C", dir, "stock"]);
   const request = vi.fn(async (input: string | URL | Request) => {
     const url = String(input);
-    if (url.includes("/git/trees/")) return Response.json(tree(["release-z.cdb", "prerelease-hidden.cdb", "cards-rush.cdb", "release-a.cdb", "cards.cdb", "cards-skills.cdb", "cards-unofficial.cdb", "goat-entries.cdb"]));
+    if (url.includes("/git/trees/")) return Response.json(tree(["release-z.cdb", "cards-rush.cdb", "release-a.cdb", "cards.cdb", "cards-skills.cdb", "cards-unofficial.cdb", "goat-entries.cdb"]));
     if (url.endsWith("strings.conf")) return new Response("!system 1 Test\n");
     if (url.includes("codeload.github.com")) return new Response(new Uint8Array(archive));
     const bytes = databases.get(url.split("/").pop()!);
@@ -54,6 +56,83 @@ function fixture() {
   });
   return { request, databases, directory: join(dir, "bundle") };
 }
+
+it("prepares the Sabersaurus fix in the shared card scripts and versions its effective bytes", async () => {
+  const { request, directory } = fixture();
+  const result = await prepareData(directory, request);
+  const script = readFileSync(join(directory, "card-scripts/official/c3743515.lua"), "utf8");
+  expect(script).toContain("Duel.GetBattleMonster(tp)");
+  expect(result.integrity.cardScriptPatches).toMatch(/^[a-f0-9]{64}$/);
+  request.mockClear();
+  expect((await prepareData(directory, request)).bundleVersion).toBe(result.bundleVersion);
+  expect(readFileSync(join(directory, "card-scripts/official/c3743515.lua"), "utf8")).toBe(script);
+  expect(request).not.toHaveBeenCalled();
+});
+
+it("patches an unchanged cached bundle without downloads and changes its version", async () => {
+  const { request, directory } = fixture();
+  const first = await prepareData(directory, request);
+  const { cardScriptPatches: _patches, ...integrity } = first.integrity;
+  const { multiScripts: _multi, cardsMerged: _cards, ...engine } = integrity;
+  const bundleVersion = hash(JSON.stringify({ sources: first.sources, integrity: engine }));
+  writeFileSync(join(directory, "manifest.json"), JSON.stringify({ sources: first.sources, integrity, bundleVersion }));
+  cpSync(new URL("./fixtures/card-scripts/c3743515.lua", import.meta.url), join(directory, "card-scripts/official/c3743515.lua"));
+  request.mockClear();
+  const next = await prepareData(directory, request);
+  expect(next.skipped).toBe(true);
+  expect(next.bundleVersion).not.toBe(bundleVersion);
+  expect(next.integrity.cardScriptPatches).toMatch(/^[a-f0-9]{64}$/);
+  expect(readFileSync(join(directory, "card-scripts/official/c3743515.lua"), "utf8")).toContain("Duel.GetBattleMonster(tp)");
+  expect(request).not.toHaveBeenCalled();
+});
+
+it("refuses an unreviewed upstream Sabersaurus script before applying its patch", async () => {
+  const { request, directory } = fixture();
+  await prepareData(directory, request);
+  writeFileSync(join(directory, "card-scripts/official/c3743515.lua"), "-- changed upstream\n");
+  await expect(prepareData(directory, request)).rejects.toThrow(/Card script patch stock mismatch.*c3743515/);
+});
+
+it("gives fresh and cached patch installs the same version with optional built-core metadata", async () => {
+  const { request, directory } = fixture();
+  const first = await prepareData(directory, request);
+  writeFileSync(join(directory, "card-scripts/domain.lua"), "domain");
+  writeFileSync(join(directory, "card-scripts/domain.legacy.lua"), "legacy domain");
+  for (const name of ["domain", "domain.legacy", "standard"]) writeFileSync(join(directory, `ocgcore.${name}.wasm`), name);
+  // Force a fresh catalog preparation, preserving the optional core resources.
+  writeFileSync(join(directory, "manifest.json"), JSON.stringify({ ...first, sources: {
+    ...first.sources, databaseFormat: "old", domainCore: {}, domainCoreLegacy: {}, standardCore: {},
+  } }));
+  const fresh = await prepareData(directory, request);
+  const { cardScriptPatches: _patches, ...integrity } = fresh.integrity;
+  const { multiScripts: _multi, cardsMerged: _merged, ...engine } = integrity;
+  writeFileSync(join(directory, "manifest.json"), JSON.stringify({ sources: fresh.sources, integrity,
+    bundleVersion: hash(JSON.stringify({ sources: fresh.sources, integrity: engine })),
+  }));
+  cpSync(new URL("./fixtures/card-scripts/c3743515.lua", import.meta.url), join(directory, "card-scripts/official/c3743515.lua"));
+  request.mockClear();
+  const cached = await prepareData(directory, request);
+  expect(cached.skipped).toBe(true);
+  expect(cached.integrity).toEqual(fresh.integrity);
+  expect(cached.bundleVersion).toBe(fresh.bundleVersion);
+  expect(request).not.toHaveBeenCalled();
+});
+
+it("restores stock bytes when a shared patch is retired from a cached recipe", () => {
+  const directory = root();
+  const recipe = join(directory, "recipe");
+  cpSync(new URL("../card-script-patches/", import.meta.url), recipe, { recursive: true });
+  const scripts = join(directory, "scripts");
+  mkdirSync(join(scripts, "official"), { recursive: true });
+  const stock = readFileSync(new URL("./fixtures/card-scripts/c3743515.lua", import.meta.url), "utf8");
+  const path = join(scripts, "official/c3743515.lua");
+  writeFileSync(path, stock);
+  installCardScriptPatches(scripts, recipe);
+  expect(readFileSync(path, "utf8")).not.toBe(stock);
+  writeFileSync(join(recipe, "MANIFEST.json"), "[]\n");
+  expect(installCardScriptPatches(scripts, recipe)).toBe(hash(""));
+  expect(readFileSync(path, "utf8")).toBe(stock);
+});
 
 it.each([
   [403, { "Retry-After": "2" }, 2_000],
@@ -136,7 +215,7 @@ it("drops obsolete release files and rebuilds from the base after Ignis merges a
   await downloadReleasedCardData(sources.database, directory, request);
   const base = cdb(root(), "upstream.cdb", [[1, 0, "Base"], [17242022, 0, "Merged upstream"]]);
   const nextRequest = vi.fn(async (input: string | URL | Request) => {
-    if (String(input).includes("/git/trees/")) return Response.json(tree(["cards.cdb", "prerelease-next.cdb"]));
+    if (String(input).includes("/git/trees/")) return Response.json(tree(["cards.cdb", "cards-rush.cdb"]));
     if (String(input).endsWith("/cards.cdb")) return new Response(new Uint8Array(base));
     throw new Error(`Obsolete release download: ${input}`);
   });
@@ -270,4 +349,176 @@ it("rebuilds merged-byte manifests and corrupt output, but changes version only 
   databases.set("release-z.cdb", cdb(root(), "changed.cdb", [[2, 1, "Changed upstream"]]));
   rmSync(join(directory, "manifest.json"));
   expect((await prepareData(directory, request)).bundleVersion).not.toBe(first.bundleVersion);
+});
+
+
+it("deduplicates prereleases by name/type, gives released rows precedence, and excludes Rush/Legend rows", async () => {
+  const dir = root();
+  const databases = new Map([
+    ["cards.cdb", cdb(dir, "base.cdb", [[12,0,"Graduated"], [13,0,"Same name"]])],
+    ["prerelease-a.cdb", cdb(dir, "a.cdb", [[100000001,0,"Graduated"], [100000002,0,"Preview"], [100000003,0,"Same name"], [100000004,0,"Rush"], [100000005,0,"Legend"]])],
+    ["prerelease-a-en.cdb", cdb(dir, "en.cdb", [[22,0,"Preview"]])],
+    ["release-z.cdb", cdb(dir, "release.cdb", [[13,0,"Latest released text"]])],
+  ]);
+  const a = new Database(join(dir,"a.cdb"));
+  a.exec("UPDATE datas SET ot=513 WHERE id=100000004; UPDATE datas SET ot=1025 WHERE id=100000005; UPDATE datas SET type=2 WHERE id=100000003");
+  a.close(); databases.set("prerelease-a.cdb",readFileSync(join(dir,"a.cdb")));
+  const request = async (url: string) => url.includes("/git/trees/") ? Response.json(tree([...databases.keys(),"prerelease-cards-rush.cdb"])) : new Response(new Uint8Array(databases.get(url.split("/").pop()!)!));
+  const result = await downloadReleasedCardData(sources.database, join(dir,"bundle"), request);
+  const db = new Database(result.path);
+  try {
+    expect(db.prepare("SELECT id FROM datas ORDER BY id").all()).toEqual([{id:12},{id:13},{id:22},{id:100000003}]);
+    expect(db.prepare("SELECT name FROM texts WHERE id=13").get()).toEqual({name:"Latest released text"});
+    expect(db.prepare("SELECT ot FROM datas WHERE id=22").get()).toEqual({ot:259});
+    expect(db.prepare("SELECT setcode FROM datas WHERE id=22").safeIntegers().get()).toEqual({setcode:9223372036854775807n});
+  } finally {db.close();}
+  expect(result.remaps).toEqual({100000001:12,100000002:22});
+  expect(result.drops).toEqual(expect.arrayContaining([
+    expect.objectContaining({code:100000001,keptCode:12,reason:"released"}),
+    expect.objectContaining({code:100000002,keptCode:22,reason:"duplicate"}),
+    expect.objectContaining({code:100000004,reason:"rush"}),
+    expect.objectContaining({code:100000005,reason:"rush"}),
+  ]));
+  expect([...result.prereleaseCodes]).toEqual([22,100000003]);
+});
+
+it("records graduated historical identities even when Ignis deleted their prerelease file", async () => {
+  const {request,directory} = fixture();
+  const result = await downloadReleasedCardData(sources.database,directory,request,{historicalCards:[
+    {code:100001234,name:"Red-Eyes Black Dragon Exceed",type:33},
+    {code:100001235,name:"Withdrawn preview",type:33},
+    {code:100001236,name:"Red-Eyes Black Dragon Exceed",type:2},
+  ]});
+  expect(result.remaps).toEqual({100001234:17242022});
+  expect(JSON.parse(readFileSync(join(directory,"card-remaps.json"),"utf8")).remaps).toEqual(result.remaps);
+});
+
+it("includes the remap artifact in bundle identity and repairs a corrupt cached artifact", async () => {
+  const {request,directory} = fixture();
+  const first=await prepareData(directory,request);
+  expect(first.sources.databaseFormat).toBe("official-releases-prerelease-v2");
+  expect(first.integrity.cardRemaps).toBe(hash(readFileSync(join(directory,"card-remaps.json"))));
+  writeFileSync(join(directory,"card-remaps.json"),"corrupt");
+  request.mockClear();
+  const next=await prepareData(directory,request);
+  expect(next.skipped).toBe(false);
+  expect(next.bundleVersion).toBe(first.bundleVersion);
+  expect(request).toHaveBeenCalled();
+});
+
+it.each([true,false])("refuses contradictory passcode identities instead of corrupting a saved remap (retained=%s)",async retained=>{
+ const dir=root();
+ const databases=new Map([
+  ["cards.cdb",cdb(dir,"base.cdb",[[12,0,"A"],[13,0,"B"]])],
+  ["prerelease-a.cdb",cdb(dir,"a.cdb",[[100000001,0,"A"]])],
+  ["prerelease-b.cdb",cdb(dir,"b.cdb",[[100000001,0,retained?"Preview B":"B"]])],
+ ]);
+ const request=async(url:string)=>url.includes("/git/trees/")?Response.json(tree([...databases.keys()])):new Response(new Uint8Array(databases.get(url.split("/").pop()!)!));
+ await expect(downloadReleasedCardData(sources.database,join(dir,"bundle"),request)).rejects.toThrow(/Ambiguous.*passcode/);
+});
+
+it("refuses historical graduation when a different current preview reuses the old passcode",async()=>{
+ const dir=root();
+ const databases=new Map([
+  ["cards.cdb",cdb(dir,"base.cdb",[[12,0,"Graduated A"]])],
+  ["prerelease-b.cdb",cdb(dir,"b.cdb",[[100000001,0,"New preview B"]])],
+ ]);
+ const request=async(url:string)=>url.includes("/git/trees/")?Response.json(tree([...databases.keys()])):new Response(new Uint8Array(databases.get(url.split("/").pop()!)!));
+ await expect(downloadReleasedCardData(sources.database,join(dir,"bundle"),request,{historicalCards:[
+  {code:100000001,name:"Graduated A",type:33},
+ ]})).rejects.toThrow(/Ambiguous.*passcode/);
+});
+
+
+it("preserves Cynet Mining's real prerelease alternate artwork beside its released main art", async () => {
+  const dir = root();
+  const databases = new Map([
+    ["cards.cdb", cdb(dir, "base.cdb", [[57160136, 0, "Cynet Mining", 2]])],
+    ["prerelease-imph.cdb", cdb(dir, "preview.cdb", [[57160137, 57160136, "Cynet Mining", 2]])],
+  ]);
+  const request = async (url: string) => url.includes("/git/trees/") ? Response.json(tree([...databases.keys()]))
+    : new Response(new Uint8Array(databases.get(url.split("/").pop()!)!));
+  const result = await downloadReleasedCardData(sources.database, join(dir, "bundle"), request, {
+    historicalCards: [{ code: 57160137, alias: 57160136, name: "Cynet Mining", type: 2 }],
+  });
+  expect(result.drops).toEqual([]);
+  expect(result.remaps).toEqual({});
+  expect([...result.prereleaseCodes]).toEqual([57160137]);
+  expect(result.prerelease[0]).toMatchObject({atk:2500,def:2000,level:7,attribute:32});
+  const db = new Database(result.path, { readonly: true });
+  try { expect(db.prepare("SELECT alias FROM datas WHERE id=57160137").get()).toEqual({ alias: 57160136 }); }
+  finally { db.close(); }
+});
+
+it("only uses main artworks for identity matches between preview files and released rows", async () => {
+  const dir = root();
+  const databases = new Map([
+    ["cards.cdb", cdb(dir, "base.cdb", [[57160137, 57160136, "Cynet Mining", 2]])],
+    ["prerelease-a.cdb", cdb(dir, "preview.cdb", [[57160136, 0, "Cynet Mining", 2], [57160138, 57160136, "Cynet Mining", 2]])],
+  ]);
+  const request = async (url: string) => url.includes("/git/trees/") ? Response.json(tree([...databases.keys()]))
+    : new Response(new Uint8Array(databases.get(url.split("/").pop()!)!));
+  const result = await downloadReleasedCardData(sources.database, join(dir, "bundle"), request);
+  expect(result.drops).toEqual([]);
+  expect(result.remaps).toEqual({});
+  expect([...result.prereleaseCodes]).toEqual([57160136, 57160138]);
+});
+
+it("preserves distinct same-name tokens and never creates historical token remaps", async () => {
+  const dir = root();
+  const databases = new Map([
+    ["cards.cdb", cdb(dir, "base.cdb", [[23116809, 0, "Fireball Token"]])],
+    ["prerelease-tokens.cdb", cdb(dir, "tokens.cdb", [[98596597, 0, "Fireball Token"], [100000002, 0, "Fireball Token"]])],
+  ]);
+  for (const [file, path] of [["cards.cdb", "base.cdb"], ["prerelease-tokens.cdb", "tokens.cdb"]]) {
+    const db = new Database(join(dir, path!));
+    db.exec("UPDATE datas SET type=16401"); db.close();
+    databases.set(file!, readFileSync(join(dir, path!)));
+  }
+  const request = async (url: string) => url.includes("/git/trees/") ? Response.json(tree([...databases.keys()]))
+    : new Response(new Uint8Array(databases.get(url.split("/").pop()!)!));
+  const result = await downloadReleasedCardData(sources.database, join(dir, "bundle"), request, {
+    historicalCards: [{ code: 100000003, name: "Fireball Token", type: 16401 }],
+  });
+  expect(result.drops).toEqual([]);
+  expect(result.remaps).toEqual({});
+  expect([...result.prereleaseCodes]).toEqual([98596597, 100000002]);
+});
+
+
+it("remaps a missing historical alternate artwork to its graduated main card", async () => {
+  const dir = root();
+  const databases = new Map([
+    ["cards.cdb", cdb(dir, "base.cdb", [[10000080, 0, "The Winged Dragon of Ra"]])],
+  ]);
+  const request = async (url: string) => url.includes("/git/trees/") ? Response.json(tree([...databases.keys()]))
+    : new Response(new Uint8Array(databases.get(url.split("/").pop()!)!));
+  const result = await downloadReleasedCardData(sources.database, join(dir, "bundle"), request, {
+    historicalCards: [
+      { code: 101403130, alias: 101403030, name: "The Winged Dragon of Ra", type: 33 },
+      { code: 101403131, alias: 101403031, name: "The Winged Dragon of Ra", type: 33 },
+      { code: 101403132, alias: 101403030, name: "Ra Token", type: 16401 },
+      { code: 101403030, name: "The Winged Dragon of Ra", type: 33 },
+    ],
+  });
+  expect(result.remaps).toEqual({ 101403030: 10000080, 101403130: 10000080 });
+  expect(JSON.parse(readFileSync(join(dir, "bundle/card-remaps.json"), "utf8")).remaps).toEqual(result.remaps);
+  expect(result.scriptCodes.has(101403130)).toBe(false);
+});
+
+it("updates a surviving artwork alias after its main preview graduates through history", async () => {
+ const dir=root();
+ const databases=new Map([
+  ["cards.cdb",cdb(dir,"base.cdb",[[12,0,"Graduated"]])],
+  ["prerelease-art.cdb",cdb(dir,"art.cdb",[[100000002,100000001,"Graduated"]])],
+ ]);
+ const request=async(url:string)=>url.includes("/git/trees/")?Response.json(tree([...databases.keys()])):new Response(new Uint8Array(databases.get(url.split("/").pop()!)!));
+ const result=await downloadReleasedCardData(sources.database,join(dir,"bundle"),request,{historicalCards:[
+  {code:100000002,alias:100000001,name:"Graduated",type:33},
+  {code:100000001,name:"Graduated",type:33},
+ ]});
+ expect(result.remaps).toEqual({100000001:12});
+ expect([...result.prereleaseCodes]).toEqual([100000002]);
+ const db=new Database(result.path,{readonly:true});
+ try{expect(db.prepare("SELECT alias FROM datas WHERE id=100000002").get()).toEqual({alias:12});}finally{db.close();}
 });

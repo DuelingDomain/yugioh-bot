@@ -329,6 +329,11 @@ export function migrate(db: Database.Database) {
   `);
 
   db.exec(`
+    create table if not exists engine_card_remap_runs (
+      bundle_version text primary key,
+      applied_at text not null default current_timestamp
+    );
+
     create table if not exists players (
       id integer primary key autoincrement,
       guild_id text not null,

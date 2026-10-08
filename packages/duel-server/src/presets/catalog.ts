@@ -1,3 +1,4 @@
+import { loadCardPasscodeRemaps } from "@yugidraft/shared/db";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -62,6 +63,7 @@ function load(dir: string): Catalog {
 export function resolveCard(ref: CardRef, dir: string = defaultEngineDataDirectory()): number {
   const catalog = load(dir);
   if (typeof ref === "number") {
+    ref = loadCardPasscodeRemaps(dir).get(ref) ?? ref;
     if (!catalog.byCode.has(ref)) throw new Error(`Unknown card code ${ref} (not a main passcode in cards.cdb)`);
     return ref;
   }

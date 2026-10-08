@@ -43,6 +43,7 @@ export function fakeClerk() {
     },
     async createUser(input) { calls.push({ method: "createUser", input }); const u = remoteUser(`clerk_${users.length + 1}`, input.externalId, input.emailAddress, input.username); users.push(u); return u; },
     async updateUserExternalId(id, externalId) { const user = await backend.getUser(id); user.external_id = externalId; return user; },
+    async updateUserMetadata(id, input) { const user = await backend.getUser(id); user.private_metadata = { ...user.private_metadata, ...input.privateMetadata }; return user; },
     async listWaitlistEntries(query) { calls.push({ method: "listWaitlistEntries", input: query }); const matches = entries.filter(e => e.email_address === query.query); return { data: matches.slice(query.offset ?? 0, (query.offset ?? 0) + (query.limit ?? 100)), totalCount: matches.length }; },
     async deleteUser(id) {
       calls.push({ method: "deleteUser", input: id });

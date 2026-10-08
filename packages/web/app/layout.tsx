@@ -1,4 +1,5 @@
 import { ClerkProvider } from "@clerk/nextjs";
+import { MarketingSessionHint } from "@/components/auth/marketing-session-hint";
 import { connection } from "next/server";
 import { isE2EAuthEnabled } from "@/lib/e2e-auth";
 import type { Metadata } from "next";
@@ -35,7 +36,7 @@ export default async function RootLayout({
   return (
     <html lang="en" className={`${russoOne.variable} ${chakraPetch.variable} dark`}>
       <body className="min-h-screen bg-bg-deep text-text-primary antialiased">
-        {isE2EAuthEnabled() ? content : <ClerkProvider signInUrl="/sign-in" signUpUrl="/sign-up" waitlistUrl={`${process.env.MARKETING_URL?.replace(/\/+$/, "") || "https://duelingdomain.com"}/#join`} appearance={{ variables: { colorPrimary: "#9b7cff", colorBackground: "#16151c", colorForeground: "#f2f0f6", borderRadius: "0.75rem" } }}>{content}</ClerkProvider>}
+        {isE2EAuthEnabled() ? content : <ClerkProvider signInUrl="/sign-in" signUpUrl="/sign-up" waitlistUrl={`${process.env.MARKETING_URL?.replace(/\/+$/, "") || "https://duelingdomain.com"}/#join`} appearance={{ variables: { colorPrimary: "#9b7cff", colorBackground: "#16151c", colorForeground: "#f2f0f6", borderRadius: "0.75rem" } }}><MarketingSessionHint />{content}</ClerkProvider>}
       </body>
     </html>
   );
