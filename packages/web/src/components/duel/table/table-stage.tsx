@@ -526,7 +526,10 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
     const target = event.target as Element | null;
     const slot = target?.closest?.("[data-seat-slot]");
     if (!slot) return;
-    // 3-way: a plain card or empty zone (nothing to pick there; piles open their own list) is part of the field, so a click on it enlarges the field too. Its own handler still runs.
+    // 3-way: a click on a field (an empty zone, the board, a seat) never moves the camera; a misclick would zoom. The camera
+    // zooms by the Zoom my field button and the keys (E, P, 0, Esc), and Enter on a field box (see `reach`). A card keeps its own click.
+    if (plaza3 && !fly) return;
+    // The fly-in view keeps its click: a plain card or empty zone (nothing to pick there; piles open their own list) is part of the field.
     const zone = target?.closest?.("[data-zones]");
     const plainZone = plaza3 && zone != null && zone.getAttribute("data-legal") !== "true" && zone.getAttribute("data-selected") !== "true" && !target?.closest?.("[data-duel-menu], [data-holo], a") && zone.getAttribute("data-pile") !== "true";
     if (target?.closest?.(CLICK_PASS) && !plainZone) return;
@@ -534,19 +537,13 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
     if (!Number.isInteger(seat) || out.includes(seat)) return;
     // A face-off has one view: a click on the rival's field (an inspect click) moves nothing, and never ends your own zoom.
     if (seat !== layout.anchorSeat && isFaceOff(layout, out)) return;
-    // A click only enlarges: it never sends an enlarged field home, and a zone click never enlarges a field that
-    // holds a legal choice of the open prompt. Legal keys on another field do not count: on the viewer's own turn the idle
-    // and battle commands are legal keys of the own field only, and a click on a rival field still enlarges it.
+    // A zone click never moves the fly-in to a field that holds a legal choice of the open prompt. Legal keys on another field do not count.
     const legalHere = plainZone && [...legalKeys].some((key) => key.startsWith(`${seat}:`));
     if (plainZone && (legalHere || (viewCamera.mode === "focus" && viewCamera.focusSeat === seat))) return;
     if (fly) {
       dispatchCamera({ type: "flyTo", seat });
-    } else if (!plaza3) {
-      if (seat !== layout.anchorSeat && !(viewCamera.mode === "focus" && viewCamera.focusSeat === seat) && !(looking && camera.lookSeat === seat)) dispatchCamera({ type: "focus", seat });
-    } else if (!(looking && camera.lookSeat === seat) && !(viewCamera.mode === "focus" && viewCamera.focusSeat === seat)) {
-      // A click on a field enlarges it. A click on the enlarged field does nothing (same rule as the Tag roof): the way
-      // back is the Back button, Esc, and Enter on the field box (see `reach`).
-      dispatchCamera({ type: "enlarge", seat });
+    } else if (seat !== layout.anchorSeat && !(viewCamera.mode === "focus" && viewCamera.focusSeat === seat) && !(looking && camera.lookSeat === seat)) {
+      dispatchCamera({ type: "focus", seat });
     }
   };
 
