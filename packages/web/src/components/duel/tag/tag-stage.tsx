@@ -66,8 +66,8 @@ const RAIL_ROW = 46;
 const FOCUS_BTN_PX = 36;
 /**
  * A click on one of these does its own job (play a card, pick a zone, press a button): it never moves the camera.
- * Everything else on a field (the mat, the name label) or on a seat chip focuses that field, and so does a zone that
- * offers no action (see `onStageClickCapture`).
+ * On a phone, everything else on a field (the mat, the name label) or on a seat chip focuses that field, and so does a
+ * zone that offers no action (see `onStageClickCapture`). On a wide screen no click focuses a field.
  */
 const ACTION_TARGET = "button, a, input, select, textarea, summary, [role='button'], [data-legal='true'], [data-pickable='true']";
 
@@ -452,7 +452,8 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     [layout.slots, slotsOf, toneOf],
   );
   // A close-up needs a free camera: not under an FX lock, and not while an attack is aimed (the aim wants every rival).
-  // A phone has no room for the corner buttons: a tap on the field, its name or a plate chip focuses it there.
+  // A click on a field never moves the camera on a wide screen (a misclick would zoom): the corner button, the rail, the dock and the
+  // keys do. A phone has no room for the corner buttons: a tap on the field, its name or a plate chip focuses it there.
   const focusFree = !camera.lock && !camera.aiming && controller.aim == null;
   const focusField = (seat: number) => {
     if (!focusFree) return;
@@ -645,8 +646,8 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
       data-reduced-motion={reducedMotion ? "true" : "false"}
       data-camera-mode={camera.mode}
       data-camera-seat={camera.mode === "focus" && camera.focusSeat != null ? camera.focusSeat : undefined}
-      onClick={onStageClick}
-      onClickCapture={onStageClickCapture}
+      onClick={isNarrow ? onStageClick : undefined}
+      onClickCapture={isNarrow ? onStageClickCapture : undefined}
       data-camera-locked={camera.lock ? camera.lock.reason : undefined}
     >
       {fx != null ? (
