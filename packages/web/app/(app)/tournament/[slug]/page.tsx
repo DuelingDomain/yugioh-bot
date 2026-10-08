@@ -49,7 +49,8 @@ function TournamentDetailBody({ slug }: { slug: string }) {
     return () => { active = false; };
   }, []);
 
-  // Refetching never blanks the page: the last good tournament stays until a newer one arrives.
+  // Refetching never blanks the page for a server or network failure: the last good tournament stays until a newer one
+  // arrives. A 404 or 403 is different: the viewer can no longer see it (made private, removed), so drop it.
   const fetchTournament = useCallback(async () => {
     if (!slug) return;
     const request = ++tournamentRequest.current;
@@ -63,7 +64,10 @@ function TournamentDetailBody({ slug }: { slug: string }) {
           routerRef.current.push(signInHref());
           return;
         }
-        if (request === tournamentRequest.current) setError({ slug, status: response.status });
+        if (request === tournamentRequest.current) {
+          if (response.status === 404 || response.status === 403) setLoaded(null);
+          setError({ slug, status: response.status });
+        }
         return;
       }
       const data: TournamentDetail = await response.json();
@@ -111,7 +115,9 @@ function TournamentDetailBody({ slug }: { slug: string }) {
   }, [tournament, fetchRatings]);
 
   // Every event refetches the tournament (onInvalidate). A match update also reloads ratings, which move with results.
-  useTournamentWebsocket(slug, {
+  // Once the tournament is hidden from this viewer, an empty slug stops the socket from rejoining its room.
+  const hidden = error?.slug === slug && (error.status === 404 || error.status === 403);
+  useTournamentWebsocket(hidden ? "" : slug, {
     onInvalidate: () => { void fetchTournament(); },
     onMatchUpdated: () => { void fetchRatings(); },
   });
@@ -121,7 +127,7 @@ function TournamentDetailBody({ slug }: { slug: string }) {
     if (!initialError) return <TournamentGate kind="loading" />;
     return (
       <TournamentGate
-        kind={initialError.status === 404 ? "missing" : "error"}
+        kind={initialError.status === 404 || initialError.status === 403 ? "missing" : "error"}
         busy={loadingSlug === slug}
         onRetry={() => { if (!tournamentInFlight.current) void fetchTournament(); }}
       />

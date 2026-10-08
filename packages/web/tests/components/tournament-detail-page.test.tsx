@@ -13,13 +13,14 @@ vi.mock("next/font/google", () => {
 const push = vi.fn();
 const router = { push, replace: vi.fn() };
 let handlers: NonNullable<Parameters<typeof useTournamentWebsocket>[1]>;
+let socketSlug = "";
 let searchParams = new URLSearchParams();
 let routeSlug = "friday-night-12";
 vi.mock("next/navigation", () => ({
   useParams: () => ({ slug: routeSlug }), useRouter: () => router, useSearchParams: () => searchParams,
 }));
 vi.mock("@/lib/hooks/use-tournament-websocket", () => ({
-  useTournamentWebsocket: (_slug: string, options: typeof handlers) => { handlers = options; },
+  useTournamentWebsocket: (slug: string, options: typeof handlers) => { socketSlug = slug; handlers = options; },
 }));
 
 import TournamentDetailPage from "../../app/(app)/tournament/[slug]/page";
@@ -256,7 +257,7 @@ describe("TournamentDetailPage one sheet", () => {
     expect(screen.getByLabelText(/Deadline/)).toHaveValue("2099-01-01T12:30");
   });
 
-  it.each([404, 500])("keeps old data after a refresh fails with status %s and clears the quiet status on recovery", async (status) => {
+  it.each([500, 503])("keeps old data after a refresh fails with status %s and clears the quiet status on recovery", async (status) => {
     const fetchMock = setup();
     render(<TournamentDetailPage />);
     await ready();
@@ -266,6 +267,36 @@ describe("TournamentDetailPage one sheet", () => {
     expect(screen.getByRole("heading", { name: sheetTournament.name })).toBeInTheDocument();
     act(() => handlers.onInvalidate?.());
     await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
+  });
+
+  it("keeps old data after a network error on refresh, and the socket stays on the slug", async () => {
+    const fetchMock = setup();
+    render(<TournamentDetailPage />);
+    await ready();
+    fetchMock.mockRejectedValueOnce(new TypeError("offline"));
+    act(() => handlers.onInvalidate?.());
+    expect(await screen.findByRole("status")).toHaveTextContent("Couldn't refresh. Showing the last update.");
+    expect(screen.getByRole("heading", { name: sheetTournament.name })).toBeInTheDocument();
+    expect(socketSlug).toBe("friday-night-12");
+  });
+
+  it.each([404, 403])("drops the tournament when a refresh returns %s: generic not found, no name, players or bracket, and the socket stops", async (status) => {
+    const fetchMock = setup(threeMatchTournament);
+    render(<TournamentDetailPage />);
+    await ready();
+    expect(socketSlug).toBe("friday-night-12");
+    const names = threeMatchTournament.participants.map((p) => p.displayName);
+    expect(names.length).toBeGreaterThan(0);
+    fetchMock.mockResolvedValueOnce(Response.json({ error: "Tournament not found" }, { status }));
+    act(() => handlers.onInvalidate?.());
+    expect(await screen.findByRole("heading", { name: "Tournament not found" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: threeMatchTournament.name })).toBeNull();
+    expect(screen.queryByText(threeMatchTournament.name)).toBeNull();
+    for (const name of names) expect(screen.queryByText(name)).toBeNull();
+    expect(screen.queryByRole("region", { name: "Standings" })).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(socketSlug).toBe("");
   });
 
   it.each([200, 404, 500])("ignores an out-of-order tournament response with status %s", async (status) => {
