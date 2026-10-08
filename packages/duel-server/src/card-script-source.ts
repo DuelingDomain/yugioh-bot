@@ -71,8 +71,9 @@ export function readOnlyCardScriptSource(directory: string): CardScriptSource & 
             if (!row?.alias || !card(row.alias)) break;
             current = row.alias;
           }
-          resolvedName = `c${canonicalCardCode(code, metadata)}.lua`;
-          file = scripts.get(resolvedName);
+          const canonicalName = `c${canonicalCardCode(code, metadata)}.lua`;
+          file = scripts.get(canonicalName);
+          if (file) resolvedName = canonicalName;
         }
       }
       const original = file ? readFileSync(file, "utf8") : null;
