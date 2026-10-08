@@ -6,7 +6,7 @@ import { zoneKey } from "../constants";
 import { resolveEquipLinks } from "../equip-links";
 import { DeckMasterRail } from "../field";
 import { DuelHistoryRail } from "../history-rail";
-import { CardInspector } from "../inspector";
+import { CardInspector, cardScrollerProps } from "../inspector";
 import { livePileCards } from "../pile-focus";
 import { PileViewer } from "../pile-viewer";
 import { optionsForCard, PromptTray } from "../prompts";
@@ -239,7 +239,7 @@ export function TagSide({
             onOpenLog={() => ui.setPane("log")}
           />
           <SideTabs panes={DESKTOP_PANES} selected={selectedPane} unread={logUnread} onSelect={ui.setPane} />
-          <div className={styles.sideContent}>
+          <div className={styles.sideContent} {...cardScrollerProps(selectedPane === "card")}>
             <SidePanel pane="card" selected={selectedPane}>{cardPanel}</SidePanel>
             <SidePanel pane="log" selected={selectedPane} keepMounted>{logPanel}</SidePanel>
             <SidePanel pane="settings" selected={selectedPane}>{settingsPanel}</SidePanel>

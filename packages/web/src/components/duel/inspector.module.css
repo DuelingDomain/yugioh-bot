@@ -111,6 +111,8 @@
 .root[data-header="side"] {
   display: grid;
   grid-template-columns: minmax(0, min(calc(104 * var(--duel-unit, 1px)), 36%)) minmax(0, 1fr);
+  /* The art spans the first two rows: the facts row (1fr) takes any extra height, so the name never drifts from the stats. */
+  grid-template-rows: auto 1fr auto;
   align-content: start;
   align-items: start;
   column-gap: calc(14 * var(--duel-unit, 1px));
@@ -200,7 +202,6 @@
   }
 
   .art { width: min(100%, 11rem); }
-  .root[data-header="side"] > .art { width: 100%; }
   .pileGrid { grid-template-columns: repeat(auto-fill, minmax(3.1rem, 1fr)); }
 }
 

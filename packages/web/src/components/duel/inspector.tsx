@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type CSSProperties, type RefObject } from "react";
+import { useLayoutEffect, useRef, type CSSProperties, type HTMLAttributes, type RefObject } from "react";
 import type { DuelCard, DuelCardInfo } from "@yugidraft/shared/duels";
 import { CardBack } from "./card-face";
 import { hasCardName, useDuelCardInfo } from "./card-info";
@@ -21,51 +21,43 @@ export type InspectTarget =
   | { type: "info"; card: DuelCardInfo }
   | { type: "pile"; title: string; cards: DuelCard[] };
 
-const CUE_PX = 28;
-const CUE_MASK = `linear-gradient(to bottom, #000 calc(100% - ${CUE_PX}px), transparent)`;
-
-/** The nearest ancestor that scrolls (the Card flyout body, the left column, the phone sheet). */
-function scrollParent(node: HTMLElement): HTMLElement | null {
-  for (let el = node.parentElement; el; el = el.parentElement) {
-    const overflow = getComputedStyle(el).overflowY;
-    if (overflow === "auto" || overflow === "scroll") return el;
-  }
-  return null;
+/**
+ * Mark the scroller that holds the Card tab when it shows the card pane. Its bottom rows then fade while the text has more to read
+ * (see globals.css), and it takes the keyboard focus so Safari can scroll it with the arrow keys. A scroller without the mark (the phone
+ * Sheet, which paints its own background and edge) gets no fade. Pass `active` as "the card pane is the one shown".
+ */
+export function cardScrollerProps(active: boolean): HTMLAttributes<HTMLElement> & { "data-card-scroller"?: "" } {
+  return active ? { "data-card-scroller": "", tabIndex: 0, role: "region", "aria-label": "Card" } : {};
 }
 
 /**
- * The full effect text always reads: when the pane scrolls, a long text is cut at the bottom edge. The scroller then fades out its last
- * rows (a mask, so the fade follows any background) until it is scrolled to the end, and shows a thin scrollbar. Every table and the phone
- * sheet put the card pane in a scroller of their own, so the cue sits on that scroller instead of a copy in each layout.
+ * Keep `data-card-more` on the marked scroller up to date: "true" while the text runs past its bottom edge, "false" at the end or when
+ * it all fits. The fade itself is CSS. The layout effect runs before the first paint, so there is no frame without the fade.
  */
 function useScrollCue(root: RefObject<HTMLElement | null>, key: string | undefined) {
-  useEffect(() => {
+  useLayoutEffect(() => {
     const node = root.current;
-    const scroller = node ? scrollParent(node) : null;
+    const scroller = node?.closest<HTMLElement>("[data-card-scroller]") ?? null;
     if (!node || !scroller) return;
-    const before = { mask: scroller.style.maskImage, webkit: scroller.style.webkitMaskImage, width: scroller.style.scrollbarWidth };
+    let more: boolean | null = null;
     const update = () => {
-      const more = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight > 2;
-      scroller.style.maskImage = more ? CUE_MASK : before.mask;
-      scroller.style.webkitMaskImage = more ? CUE_MASK : before.webkit;
-      scroller.dataset.cardMore = more ? "true" : "false";
+      const next = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight > 2;
+      if (next === more) return;
+      more = next;
+      scroller.dataset.cardMore = next ? "true" : "false";
     };
-    scroller.style.scrollbarWidth = "thin";
     update();
     scroller.addEventListener("scroll", update, { passive: true });
-    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
-    observer?.observe(scroller);
-    observer?.observe(node);
-    // The text can grow inside a box of fixed size (a late card lookup), which no resize reports.
+    const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+    resize?.observe(scroller);
+    resize?.observe(node);
+    // A line that arrives late (the owner, the meta list, a card lookup) grows the text inside a box of fixed size, which no resize reports.
     const mutations = typeof MutationObserver === "undefined" ? null : new MutationObserver(update);
-    mutations?.observe(node, { childList: true, subtree: true, characterData: true });
+    mutations?.observe(scroller, { childList: true, subtree: true, characterData: true });
     return () => {
       scroller.removeEventListener("scroll", update);
-      observer?.disconnect();
+      resize?.disconnect();
       mutations?.disconnect();
-      scroller.style.maskImage = before.mask;
-      scroller.style.webkitMaskImage = before.webkit;
-      scroller.style.scrollbarWidth = before.width;
       delete scroller.dataset.cardMore;
     };
   }, [root, key]);
