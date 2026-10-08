@@ -344,7 +344,8 @@ describe("GridStage", () => {
     expect(cellOf(container, 2).getAttribute("data-cell-state")).toBe("out");
     expect(stage.dataset.viewZoomed).toBe("true");
     expect(layer()!.style.transform).toBe(transform);
-    act(() => void vi.advanceTimersByTime(OUT_HOLD_MS + 200));
+    // The crumble waits for the LP roll (crumble-gate.ts): wait out the gate, then the hold of the cell.
+    act(() => void vi.advanceTimersByTime(GATE_CAP + OUT_HOLD_MS + 200));
     expect(cellOf(container, 2).getAttribute("data-cell-state")).toBe("empty");
     expect(stage.dataset.viewZoomed).toBe("true");
     expect(layer()!.style.transform).toBe(transform);
