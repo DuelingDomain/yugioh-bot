@@ -35,6 +35,8 @@ export const STRIP_ROOM = {
   edge: 12,
   /** The air kept off the HUD. */
   air: 8,
+  /** The part of the hand's height (from its top edge) the room may cover: a bit, never more. A deeper cover is the last thing the room accepts. */
+  handCover: 0.28,
 } as const;
 
 const rowHeight = (card: number) => Math.round((card * 86) / 59) + STRIP_ROOM.rowExtra;
@@ -77,7 +79,7 @@ export interface StripRoomInput {
   hud?: readonly Rect[];
   /** The rest of the HUD (the corners, the chain stack, the Deck Master plate, the camera chip): the room keeps off it while a place exists. */
   soft?: readonly Rect[];
-  /** Your live hand: the room keeps off it (and off a card raised from it) while a place exists. */
+  /** Your live hand: the room may cover its top STRIP_ROOM.handCover only; a deeper cover is the last thing it accepts. */
   hand?: Rect | null;
 }
 
@@ -92,6 +94,16 @@ const HEIGHT_STEP = 64;
 const hits = (a: Rect, b: Rect) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
 const overlap = (a: Rect, b: Rect) =>
   Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
+/**
+ * The part of your hand a room must not cover: its reach (the sides and a card raised from it) below the line `handCover` of the
+ * hand's height down from its top edge. The room may sit over the band above that line.
+ */
+export function handKeepOut(hand: Rect): Rect {
+  const reach = handReach(hand);
+  const line = hand.y + hand.height * STRIP_ROOM.handCover;
+  return { x: reach.x, y: line, width: reach.width, height: Math.max(0, reach.y + reach.height - line) };
+}
+
 const grow = (r: Rect, pad: number): Rect => ({ x: r.x - pad, y: r.y - pad, width: r.width + 2 * pad, height: r.height + 2 * pad });
 
 /** The places along one axis (the last one always), nearest the target centre first. */
@@ -104,12 +116,13 @@ function along(low: number, high: number, size: number, centre: number): number[
 
 /**
  * The room of a chain-response panel (a rect for `--sr-*`): the place nearest the anchor that is wholly inside the box and clear of
- * the HUD and your hand. It may cover the field. The tiers, first that has a place wins; in each a size is tried at lower heights
- * down to one whole row (the strip scrolls):
- *   1. clear of the HUD and your hand;
- *   2. clear of the HUD (your hand is covered);
- *   3. clear of the key HUD (the life plates, the phase strip and ring, the Reset control; the rest of the HUD is covered);
- *   4. nothing is clear: the size and place that cover the least HUD (the key HUD weighs most, your hand least).
+ * the HUD and your hand. It may cover the field, and the top strip of your hand (STRIP_ROOM.handCover of its height, no more). The
+ * tiers, first that has a place wins; in each a size is tried at lower heights down to one whole row (the strip scrolls):
+ *   1. clear of the HUD and the keep-out of your hand (handKeepOut);
+ *   2. clear of the key HUD and your hand (the rest of the HUD is covered);
+ *   3. clear of your hand (the life plates, the phase strip and ring and the Reset control are covered too);
+ *   4. nothing is clear: the size and place that cover the least. A deep cover of your hand costs the most, then the key HUD,
+ *      then the rest of the HUD; the top strip of your hand costs little.
  * In a tier the wanted width is tried first, then narrower rooms (fewer tiles in a row, so the grid scrolls more), then the same with
  * smaller tiles (STRIP_ROOM.smaller): a smaller tile beats a room over the HUD.
  * Pure: the camera is never read or moved.
@@ -123,7 +136,9 @@ export function planStripRoom(input: StripRoomInput): StripRoom | undefined {
   const anchor = input.anchor ?? { x: box.width / 2, y: box.height / 2 };
   const hud = (input.hud ?? []).map((r) => grow(r, STRIP_ROOM.air));
   const soft = (input.soft ?? []).map((r) => grow(r, STRIP_ROOM.air));
-  const hand = input.hand ? [handReach(input.hand)] : [];
+  // The keep-out of your hand (its top strip may be covered), and the whole reach (the strip counts a little in the last-resort score).
+  const hand = input.hand ? [handKeepOut(input.hand)] : [];
+  const handTop = input.hand ? [handReach(input.hand)] : [];
   // The wanted tile and width first, then narrower rooms (fewer tiles in a row, one more row of scroll) down to the least width, then
   // the smaller tiles the same way.
   const sizes: StripRoomSize[] = [];
@@ -169,7 +184,7 @@ export function planStripRoom(input: StripRoomInput): StripRoom | undefined {
     }
     return null;
   };
-  const clear = search([...hud, ...soft, ...hand]) ?? search([...hud, ...soft]) ?? search(hud);
+  const clear = search([...hud, ...soft, ...hand]) ?? search([...hud, ...hand]) ?? search(hand);
   if (clear) return clear;
 
   // Nothing is clear: the size and place that cover the least (a narrow or short room covers less than the wanted one; a larger room wins a tie).
@@ -182,10 +197,12 @@ export function planStripRoom(input: StripRoomInput): StripRoom | undefined {
         for (const x of along(edge, box.width - width - edge, width, anchor.x)) {
           const room = { x, y, width, height };
           let score = 0;
-          // A HUD over the room hides what is under it, so every HUD counts; the key HUD a little more, your hand less.
+          // A HUD over the room hides what is under it, so every HUD counts; the key HUD a little more. Your hand costs the most when the
+          // room goes deep into it, and little when it only covers its top strip.
           for (const b of hud) score += 3 * overlap(room, b);
           for (const b of soft) score += 2 * overlap(room, b);
-          for (const b of hand) score += overlap(room, b);
+          for (const b of hand) score += 10 * overlap(room, b);
+          for (const b of handTop) score += 0.1 * overlap(room, b);
           // A tie goes to the larger room, then to the one nearer the anchor.
           score += (Math.hypot(x + width / 2 - anchor.x, y + height / 2 - anchor.y) - width * height * 0.01) * 0.0001;
           if (score < worstScore) {

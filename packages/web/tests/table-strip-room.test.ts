@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { planStripRoom, STRIP_ROOM, stripRoomSize } from "../src/components/duel/table/strip-room";
+import { handKeepOut, planStripRoom, STRIP_ROOM, stripRoomSize } from "../src/components/duel/table/strip-room";
 
 const rect = (x: number, y: number, width: number, height: number) => ({ x, y, width, height });
 const hits = (a: ReturnType<typeof rect>, b: ReturnType<typeof rect>) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
@@ -61,14 +61,14 @@ describe("planStripRoom: the panel shows in full, off the HUD", () => {
     }
   });
 
-  it("keeps the large tiles and clears the HUD and the hand where the box has room (1080p and 1440p)", () => {
+  it("keeps the large tiles and clears the HUD and the keep-out of the hand where the box has room (1080p and 1440p)", () => {
     for (const name of ["1920x1080", "2560x1440"] as const) {
       const box = BOXES[name];
       const { key, soft, hand } = hudAt(box);
       for (const count of [2, 5, 10, 14]) {
         const found = planStripRoom({ box, count, hud: key, soft, hand })!;
         expect(found.card, `${name} ${count}`).toBe(STRIP_ROOM.card);
-        for (const block of [...key, ...soft, hand]) expect(hits(found, block), `${name} ${count}`).toBe(false);
+        for (const block of [...key, ...soft, handKeepOut(hand)]) expect(hits(found, block), `${name} ${count}`).toBe(false);
       }
     }
   });
@@ -88,8 +88,8 @@ describe("planStripRoom: the panel shows in full, off the HUD", () => {
 
   it("falls back to smaller tiles before it covers the HUD", () => {
     const box = BOXES["1366x768"];
-    // A band of 420 px is clear between the plates above and the hand below: the wanted tiles need more.
-    const key = [rect(0, 0, box.width, 200)];
+    // A band of about 460 px is clear between the plates above and the top strip of the hand below: the wanted tiles need more.
+    const key = [rect(0, 0, box.width, 160)];
     const hand = rect(box.width / 2 - 170, box.height - 70, 340, 60);
     const found = planStripRoom({ box, count: 2, hud: key, hand })!;
     expect(hits(found, key[0])).toBe(false);
@@ -105,12 +105,46 @@ describe("planStripRoom: the panel shows in full, off the HUD", () => {
     expect(Math.abs(middle.x + middle.width / 2 - box.width / 2)).toBeLessThan(30);
   });
 
-  it("covers the hand before it covers the key HUD", () => {
+  it("covers a bit of the hand, never more than its top strip, while a place exists", () => {
     const box = BOXES["1366x768"];
-    const key = [rect(0, 0, box.width, 160)];
-    const hand = rect(100, 300, 1100, 200);
-    const found = planStripRoom({ box, count: 2, hud: key, hand })!;
-    expect(hits(found, key[0])).toBe(false);
+    const hand = rect(box.width / 2 - 170, box.height - 95, 340, 90);
+    // The field is clear above the hand only: the room would like to sit as low as it can, so it uses the top strip of the hand.
+    const found = planStripRoom({ box, count: 2, hand, anchor: { x: box.width / 2, y: box.height } })!;
+    const keep = handKeepOut(hand);
+    expect(hits(found, keep)).toBe(false);
+    expect(found.y + found.height).toBeLessThanOrEqual(hand.y + hand.height * STRIP_ROOM.handCover + 0.5);
+    // ... and it did reach into the hand strip (it is not held back by the whole hand).
+    expect(found.y + found.height).toBeGreaterThan(hand.y);
+  });
+
+  it("keeps the hand keep-out to the lower part of the hand, below the top strip", () => {
+    const hand = rect(400, 600, 340, 90);
+    const keep = handKeepOut(hand);
+    expect(keep.y).toBeCloseTo(hand.y + hand.height * STRIP_ROOM.handCover, 5);
+    expect(keep.y + keep.height).toBeGreaterThanOrEqual(hand.y + hand.height);
+    expect(STRIP_ROOM.handCover).toBeLessThanOrEqual(0.3);
+  });
+
+  it("covers the turn ring, the soft HUD or the field before it goes deep into the hand", () => {
+    for (const name of ["1366x768", "1280x720"] as const) {
+      const box = BOXES[name];
+      const hand = rect(box.width / 2 - 170, box.height - 95, 340, 90);
+      // The whole box above the hand is key HUD and soft HUD: nothing is clear, so the room must cover HUD, not the hand.
+      const key = [rect(0, 0, box.width, box.height - 120)];
+      const soft = [rect(0, box.height - 120, 120, 120)];
+      for (const count of [2, 10]) {
+        const found = planStripRoom({ box, count, hud: key, soft, hand })!;
+        expect(inside(found, box), `${name} ${count}`).toBe(true);
+        expect(hits(found, handKeepOut(hand)), `${name} ${count}`).toBe(false);
+      }
+    }
+  });
+
+  it("goes deep into the hand only when nothing else is left", () => {
+    const box = { width: 700, height: 500 };
+    const hand = rect(0, 20, 700, 470);
+    const found = planStripRoom({ box, count: 2, hand })!;
+    expect(inside(found, box)).toBe(true);
   });
 
   it("returns nothing for an empty box or no cards", () => {
