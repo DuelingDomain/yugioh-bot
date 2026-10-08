@@ -110,28 +110,28 @@ describe("DuelLogLine with seat colours", () => {
   const tones = new Map([[1, { main: "#33aaff", ink: "#001122" }], [2, { main: "#66dd66", ink: "#002200" }]]);
 
   it("replaces each Player N with a coloured name, also for two players in one line", () => {
-    const { container } = render(<DuelLogLine text="Player 2 attacks Player 3" kind="battle" playerName={names} seatTones={tones} />);
+    const { container } = render(<DuelLogLine text="Player 2 attacks Player 3" playerName={names} seatTones={tones} />);
     const marks = [...container.querySelectorAll("b[data-seat]")];
     expect(marks.map((node) => [node.getAttribute("data-seat"), node.textContent])).toEqual([["1", "Ryo"], ["2", "Mika"]]);
     expect((marks[0] as HTMLElement).style.getPropertyValue("--seat-main")).toBe("#33aaff");
   });
 
   it("keeps the old text without seat colours, as in 1v1", () => {
-    const { container } = render(<DuelLogLine text="Player 2 attacks Player 3" kind="battle" playerName={names} />);
+    const { container } = render(<DuelLogLine text="Player 2 attacks Player 3" playerName={names} />);
     expect(container.querySelector("b[data-seat]")).toBeNull();
     expect(container.textContent).toContain("Ryo");
     expect(container.textContent).toContain("Mika");
   });
 
   it("does not match Player 10 or a Player number above 4", () => {
-    const { container } = render(<DuelLogLine text="Player 10 and Player 5 wait" kind="battle" playerName={names} seatTones={tones} />);
+    const { container } = render(<DuelLogLine text="Player 10 and Player 5 wait" playerName={names} seatTones={tones} />);
     expect(container.querySelector("b[data-seat]")).toBeNull();
     expect(container.textContent).toContain("Player 10");
     expect(container.textContent).toContain("Player 5");
   });
 
   it("writes the plain name for a seat without a colour, and colours the others", () => {
-    const { container } = render(<DuelLogLine text="Player 1 attacks Player 2" kind="battle" playerName={names} seatTones={tones} />);
+    const { container } = render(<DuelLogLine text="Player 1 attacks Player 2" playerName={names} seatTones={tones} />);
     expect([...container.querySelectorAll("b[data-seat]")].map((node) => node.textContent)).toEqual(["Ryo"]);
     expect(container.textContent).toContain("Ren attacks Ryo");
   });
