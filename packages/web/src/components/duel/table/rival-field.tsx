@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { slotZIndex } from "./geometry";
 import { GATE_TIMING } from "../duel-timing";
 import { duelFxClock } from "../fx-clock";
@@ -131,7 +131,8 @@ export function ExitingSeat({ pose, tone, view, masterRule, faceUpHand, angleOff
   // The board waits whole until the attack, the damage and the LP roll that put the seat out are over (crumble-gate.ts).
   const [held, setHeld] = useState(true);
   const rootRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
+  // A layout effect: the wait is on the board before the first paint of the seat that left (the plate and the pair of the grid read it).
+  useLayoutEffect(() => {
     if (!held) return undefined;
     const startedAt = duelFxClock.dateNow();
     const wait = beginCrumbleWait();
