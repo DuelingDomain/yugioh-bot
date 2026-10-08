@@ -9,14 +9,14 @@ import { liveNseat } from "./support/live-nseat.js";
 import { engineDataDirectory } from "./engine-data-dir.js";
 
 const probe = vi.hoisted(() => ({ failure: null as "load" | "lua" | "logged" | "throw" | null }));
-// Keep the real core; fail only one optional display probe.
+// Keep the real core; fail only the requested attack-target query.
 vi.mock("ocgcore-wasm", async (importOriginal) => {
   const actual = await importOriginal<typeof import("ocgcore-wasm")>();
   return { ...actual, default: async (options: Parameters<typeof actual.default>[0]) => {
     const core = await actual.default({ ...options, sync: true });
     const loadScript = core.loadScript;
     core.loadScript = (handle, name, content) => {
-      if (name === "attack-target-query.lua" && probe.failure) {
+      if ((name === "attack-target-query.lua" || name === "ffa-attack-target-query.lua") && probe.failure) {
         const failure = probe.failure;
         probe.failure = null;
         if (failure === "throw") throw new Error("private-probe-error");
