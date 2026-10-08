@@ -12,7 +12,9 @@ import { DeckValidationSkippedError, validateDuelDeck } from "./api";
 import { DeckMasterPicker } from "./deck-master-picker";
 import { SavedDeckPicker, useSavedDecks } from "./saved-deck-picker";
 import { createSavedDeck, listSavedDecks } from "../decks/api";
-import { deckNameFromFile, findSavedDuplicate, pastedDeckName, uniqueDeckName } from "./import-save";
+import { deckNameFromFile } from "../decks/import";
+import { modeLabel } from "../decks/model";
+import { findSavedDuplicate, pastedDeckName, prepareImportSave, uniqueDeckName } from "./import-save";
 import { CardAddField } from "./card-add-field";
 
 type CardProblem = { name?: string; messages: string[] };
@@ -123,6 +125,8 @@ export function DeckEditor({
   const [fileName, setFileName] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const savedList = useSavedDecks();
+  const importSeq = useRef(0);
+  const saveQueue = useRef<Promise<void>>(Promise.resolve());
   const [saveNote, setSaveNote] = useState<{ text: string; error?: boolean } | null>(null);
   const [validation, setValidation] = useState<{
     slug: string;
@@ -194,28 +198,45 @@ export function DeckEditor({
   }
 
   /** Saves an import to the player's decks, as given. A failed save never blocks the import itself. */
-  async function saveImported(raw: DuelDeck, baseName: string) {
-    const cards = mode === "domain" ? raw : { main: raw.main, extra: raw.extra, side: raw.side };
-    if (cards.main.length + cards.extra.length + cards.side.length === 0 && cards.deckMaster === undefined) return;
+  async function saveImported(raw: DuelDeck, baseName: string, seq: number) {
+    // Only the newest import shows a note; an older save that ends later stays silent.
+    const note = (next: { text: string; error?: boolean }) => { if (seq === importSeq.current) setSaveNote(next); };
     try {
+      if (raw.main.length + raw.extra.length + raw.side.length === 0 && raw.deckMaster === undefined) return;
+      const prepared = prepareImportSave(raw, mode);
+      if (!prepared.ok) {
+        note({ text: "Not saved: this list does not fit Domain.", error: true });
+        return;
+      }
       const existing = savedList.latest.current ?? await listSavedDecks();
-      const duplicate = findSavedDuplicate(existing, mode, cards);
+      const duplicate = findSavedDuplicate(existing, prepared.mode, prepared.deck);
       if (duplicate) {
-        setSaveNote({ text: `Already in your decks: ${duplicate.name}` });
+        note({ text: `Already in your decks: ${duplicate.name}` });
         return;
       }
       const name = uniqueDeckName(baseName, existing.map((entry) => entry.name));
-      const created = await createSavedDeck({ name, mode, deck: cards });
+      const created = await createSavedDeck({ name, mode: prepared.mode, deck: prepared.deck });
       savedList.add(created);
-      setSaveNote({ text: `Saved to your decks as ${created.name}` });
+      note({
+        text: prepared.mode === mode
+          ? `Saved to your decks as ${created.name}`
+          : `Saved to your decks as ${created.name}, as a ${modeLabel(prepared.mode)} deck because it has a Deck Master.`,
+      });
     } catch (error) {
-      setSaveNote({ text: `Could not save to your decks: ${error instanceof Error ? error.message : "try again later."}`, error: true });
+      note({ text: `Could not save to your decks: ${error instanceof Error ? error.message : "try again later."}`, error: true });
     }
+  }
+
+  /** Saves run one after the other, so each one reads the list after the save before it. */
+  function queueSave(raw: DuelDeck, baseName: string) {
+    importSeq.current += 1;
+    const seq = importSeq.current;
+    saveQueue.current = saveQueue.current.then(() => saveImported(raw, baseName, seq));
   }
 
   function applyImported(raw: DuelDeck, baseName: string) {
     setSaveNote(null);
-    void saveImported(raw, baseName);
+    queueSave(raw, baseName);
     const imported = mode === "domain"
       ? settings.validateDeck && raw.side.length <= 1 ? applyDomainMaster(raw) : raw
       : { main: raw.main, extra: raw.extra, side: raw.side };

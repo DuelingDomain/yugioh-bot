@@ -1,6 +1,6 @@
 import type { DuelDeck, DuelMode } from "@yugidraft/shared/duels";
 import { parseDeckText } from "@/components/duel/ydk";
-import { DEFAULT_NAME, MAX_NAME_LENGTH, allCodes, importForLibrary } from "./model";
+import { DEFAULT_NAME, allCodes, cutName, importForLibrary } from "./model";
 
 /** A YDK is a short text list; a bigger file is not a deck. */
 export const MAX_IMPORT_FILE_BYTES = 256 * 1024;
@@ -17,7 +17,7 @@ export function deckNameFromFile(fileName: string): string {
     .replace(/_+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  return base.slice(0, MAX_NAME_LENGTH).trim() || DEFAULT_NAME;
+  return cutName(base) || DEFAULT_NAME;
 }
 
 /**
