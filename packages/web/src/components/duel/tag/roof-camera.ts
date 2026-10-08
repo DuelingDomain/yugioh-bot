@@ -1,15 +1,12 @@
 import type { CameraAction as TableCameraAction, CameraLockReason, CameraState as TableCameraState } from "../table/types";
 
-/** The Rooftop keeps its auto camera (the 3-way and 4-way table has none): these fields and actions are its own. */
-export type CameraState = TableCameraState & { auto: boolean; pinned: boolean; aiming: boolean; autoMoved?: boolean };
+/** The Rooftop adds one flag to the shared camera state. The duel never moves the camera in: only the viewer zooms in. */
+export type CameraState = TableCameraState & { aiming: boolean };
 export type CameraAction =
   | TableCameraAction
-  | { type: "toggleAuto" }
   /** A prompt needs these field seats on screen: a focus on any other field goes back to the overview. */
   | { type: "needSeats"; seats: readonly number[] }
-  | { type: "pin"; on: boolean }
-  | { type: "aiming"; on: boolean }
-  | { type: "autoFollow"; seat: number | null };
+  | { type: "aiming"; on: boolean };
 
 /**
  * Pure camera of the 2v2 Rooftop. It uses the shared table types (same reducer contract as the
@@ -187,8 +184,6 @@ export function initialRoofCamera(opts: { anchorSeat: number; camera?: Partial<C
     lookSeat,
     upright: c.upright ?? false,
     compact: c.compact ?? "auto",
-    auto: c.auto ?? true,
-    pinned: c.pinned ?? false,
     aiming: c.aiming ?? false,
     fly: mode === "fly" ? { yawDeg: pose.yaw, tiltDeg: pose.tilt, zoom: pose.zoom, targetSeat: fly.targetSeat } : fly,
     lock: null,
@@ -225,7 +220,6 @@ const INPUT_ACTIONS: ReadonlySet<CameraAction["type"]> = new Set([
   "flyTo",
   "orbit",
   "zoom",
-  "autoFollow",
 ]);
 
 function moved(state: RoofCameraState, patch: Partial<RoofCameraState>, dur: number): RoofCameraState {
@@ -299,10 +293,6 @@ export function roofReducer(state: RoofCameraState, action: CameraAction): RoofC
       return { ...state, upright: !state.upright };
     case "toggleCompact":
       return { ...state, compact: state.compact === "auto" ? "on" : state.compact === "on" ? "off" : "auto" };
-    case "toggleAuto":
-      return { ...state, auto: !state.auto };
-    case "pin":
-      return { ...state, pinned: action.on };
     case "aiming": {
       // An aim needs the rival field in view: a close-up on one field goes back to the overview first.
       if (action.on && (state.mode === "focus" || state.mode === "look") && !state.lock) return { ...goOverview(state), aiming: true };
@@ -321,12 +311,6 @@ export function roofReducer(state: RoofCameraState, action: CameraAction): RoofC
       }
       if (state.mode !== "focus") return state;
       return action.seats.some((seat) => seat !== state.focusSeat) ? goOverview(state) : state;
-    }
-    case "autoFollow": {
-      if (action.seat == null || !state.auto || state.pinned || state.aiming) return state;
-      if (state.mode !== "home" && state.mode !== "focus") return state;
-      if (state.mode === "focus" && state.focusSeat === action.seat) return state;
-      return focusOn(state, action.seat);
     }
     case "lock": {
       const untilMs = action.nowMs + action.ms;
@@ -386,7 +370,6 @@ export function roofTransform(pose: RoofPose, fit: number): string {
 
 export interface RoofKeyContext {
   anchorSeat: number;
-  pinned?: boolean;
   /** The camera mode now: Esc goes back to the overview from any other. */
   mode?: CameraState["mode"];
 }
@@ -430,10 +413,6 @@ export function roofKeyAction(key: string, ctx: RoofKeyContext, mods: RoofKeyMod
       return { type: "zoom", factor: 1 / 1.18 };
     case "s":
       return { type: "toggleUpright" };
-    case "a":
-      return { type: "toggleAuto" };
-    case "k":
-      return { type: "pin", on: !ctx.pinned };
     default:
       return null;
   }

@@ -188,7 +188,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
     dispatchCamera({ type: "lock", reason: lock.reason, nowMs: performance.now(), ms: lock.ms });
   }, [engine.events, fxActive, controller.reducedMotion]);
 
-  // An aim holds the camera where it is (auto follow reads it).
+  // An aim holds the camera where it is: a close-up goes back to the overview, and no click zooms in until the aim ends.
   useEffect(() => {
     dispatchCamera({ type: "aiming", on: flow.aiming });
   }, [flow.aiming]);
@@ -223,7 +223,6 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
     escapeFree: gates.escapeFree,
     dispatch: dispatchCamera,
     anchorSeat: layout.anchorSeat,
-    pinned: camera.pinned,
     // The result screen owns the keys while it is shown.
     suspended: suspended || showResult,
     yields: tagCameraYields({ aiming: flow.aiming, seatKeys: flow.seatKeys, centeredUnrevealed }),

@@ -8,7 +8,6 @@ export interface UseRoofKeysOptions {
   /** Receives each camera action a key maps to (the roof reducer's dispatch). */
   dispatch: (action: CameraAction) => void;
   anchorSeat: number;
-  pinned?: boolean;
   /**
    * Input is suspended (a menu, the pile viewer, a dialog, the narrow sheet): `tagInputSuspended(...)` from live-tag.ts.
    * The same flag gates the aim flow. The camera takes no key.
@@ -43,19 +42,18 @@ function typing(target: EventTarget | null): boolean {
 export function useRoofKeys({
   dispatch,
   anchorSeat,
-  pinned = false,
   suspended = false,
   yields = false,
   mode,
   escapeFree = false,
 }: UseRoofKeysOptions): void {
-  const ref = useRef({ dispatch, anchorSeat, pinned, suspended, yields, mode, escapeFree });
-  ref.current = { dispatch, anchorSeat, pinned, suspended, yields, mode, escapeFree };
+  const ref = useRef({ dispatch, anchorSeat, suspended, yields, mode, escapeFree });
+  ref.current = { dispatch, anchorSeat, suspended, yields, mode, escapeFree };
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       // A prompt (PromptCenter, capture phase) that took the key already called preventDefault: the camera stays out.
       if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || typing(event.target)) return;
-      const { dispatch: send, anchorSeat: anchor, pinned: pin, suspended: off, yields: yielded, mode: now, escapeFree: escFree } = ref.current;
+      const { dispatch: send, anchorSeat: anchor, suspended: off, yields: yielded, mode: now, escapeFree: escFree } = ref.current;
       // Esc is the one key that works while the camera yields (a focus can be left at any time), but only when
       // nothing else owns it.
       if (off) return;
@@ -64,7 +62,7 @@ export function useRoofKeys({
       const target = event.target as HTMLElement | null;
       if (target?.closest?.('[role="dialog"][aria-modal="true"]') || document.querySelector('[aria-modal="true"]')) return;
       if (event.key === "Tab" && target?.closest?.("[data-slot='prompt'], [role='dialog']")) return;
-      const action = roofKeyAction(event.key, { anchorSeat: anchor, pinned: pin, mode: now }, { shift: event.shiftKey });
+      const action = roofKeyAction(event.key, { anchorSeat: anchor, mode: now }, { shift: event.shiftKey });
       if (!action) return;
       event.preventDefault();
       send(action);

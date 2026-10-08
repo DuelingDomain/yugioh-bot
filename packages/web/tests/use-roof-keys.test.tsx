@@ -10,18 +10,16 @@ function Probe({
   suspended,
   yields,
   dispatch,
-  pinned = false,
   mode,
   escapeFree,
 }: {
   suspended?: boolean;
   yields?: boolean;
   dispatch: (action: unknown) => void;
-  pinned?: boolean;
   mode?: "overview" | "home" | "focus" | "look" | "fly";
   escapeFree?: boolean;
 }) {
-  useRoofKeys({ dispatch, anchorSeat: 0, pinned, suspended, yields, mode, escapeFree });
+  useRoofKeys({ dispatch, anchorSeat: 0, suspended, yields, mode, escapeFree });
   return (
     <div>
       <input aria-label="chat" />
@@ -181,9 +179,9 @@ describe("useRoofKeys", () => {
     expect(dispatch).not.toHaveBeenCalled();
     rerender(<Probe dispatch={dispatch} yields={false} />);
     press("4");
-    press("k");
+    press("o");
     expect(dispatch).toHaveBeenNthCalledWith(1, { type: "focus", seat: 3 });
-    expect(dispatch).toHaveBeenNthCalledWith(2, { type: "pin", on: true });
+    expect(dispatch).toHaveBeenNthCalledWith(2, { type: "overview" });
   });
 
   it("stops listening on unmount", () => {

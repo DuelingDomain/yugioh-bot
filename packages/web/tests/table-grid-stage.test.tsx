@@ -282,7 +282,7 @@ describe("GridStage", () => {
     expect(container.querySelector("[data-grid-stage]")!.getAttribute("data-grid-focus")).toBe("0");
   });
 
-  it("keeps the focus on a seat that goes out while its field crumbles, then moves it home", () => {
+  it("keeps the focus on a seat that goes out while its field crumbles, then shows all fields", () => {
     vi.useFakeTimers();
     const { container, rerender } = render(<Shell id="main" />);
     const stage = container.querySelector("[data-grid-stage]")!;
@@ -293,7 +293,7 @@ describe("GridStage", () => {
     expect(stage.getAttribute("data-grid-focus")).toBe("2");
     act(() => void vi.advanceTimersByTime(OUT_HOLD_MS + 200));
     expect(cellOf(container, 2).getAttribute("data-cell-state")).toBe("empty");
-    expect(stage.getAttribute("data-grid-focus")).toBe("0");
+    expect(stage.getAttribute("data-grid-focus")).toBe("all");
   });
 
   it("opens an already-out seat as an empty, untargetable cell; the other cells stay put", () => {

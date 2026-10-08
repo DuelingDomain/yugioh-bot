@@ -69,7 +69,7 @@ export interface UseGridFocusOptions {
   escapeFree: boolean;
   /**
    * Seats that are gone from `shown` but still play their exit (the crumble). A focus on one of them stays until it is
-   * not held any more, so the exit is seen at its full size before the focus goes home.
+   * not held any more, so the exit is seen at its full size before all fields show again.
    */
   holding?: readonly number[];
 }
@@ -97,15 +97,15 @@ export function useGridFocus({ enabled, home, shown, suspended, digitsFree, esca
   const live = useRef({ enabled, shown, suspended, digitsFree, escapeFree });
   live.current = { enabled, shown, suspended, digitsFree, escapeFree };
 
-  // A field whose cell goes empty cannot stay in focus: back to your own field, or to all fields when that is gone too.
+  // A field whose cell goes empty cannot stay in focus: all fields show again. The view never zooms in on a field by itself.
   const held = useRef<readonly number[]>([]);
   const [recheck, setRecheck] = useState(0);
   const gone = focus.seat != null && !shown.includes(focus.seat) && !holding?.includes(focus.seat);
   // A layout effect: the focus moves in the same frame the seat goes, so no frame shows a field that is not there.
   useLayoutEffect(() => {
     if (!gone || (focus.seat != null && held.current.includes(focus.seat))) return;
-    dispatch(shown.includes(home) ? { type: "focus", seat: home } : { type: "all" });
-  }, [gone, focus.seat, home, shown, recheck]);
+    dispatch({ type: "all" });
+  }, [gone, focus.seat, shown, recheck]);
   const hold = useCallback((seats: readonly number[]) => {
     const same = seats.length === held.current.length && seats.every((seat, index) => seat === held.current[index]);
     held.current = seats;
