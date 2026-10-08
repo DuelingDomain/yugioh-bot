@@ -41,13 +41,13 @@ jobs:
           VM_HOST: ${{ secrets.VM_HOST }}
           VM_USER: ${{ secrets.VM_USER }}
           VM_PORT: ${{ secrets.VM_PORT || '22' }}
-          VM_SSH_PRIVATE_KEY: ${{ secrets.ENGINE_DATA_PROD_SSH_PRIVATE_KEY || secrets.VM_SSH_PRIVATE_KEY }}
+          ENGINE_DATA_PROD_SSH_PRIVATE_KEY: ${{ secrets.ENGINE_DATA_PROD_SSH_PRIVATE_KEY }}
           VM_SSH_KNOWN_HOSTS: ${{ secrets.VM_SSH_KNOWN_HOSTS }}
         run: |
           set -euo pipefail
           snapshot="$RUNNER_TEMP/prod-script-errors.json"
           printf '%s\n' '{"available":false}' > "$snapshot"
-          if [ -z "$VM_HOST" ] || [ -z "$VM_USER" ] || [ -z "$VM_SSH_PRIVATE_KEY" ] || [ -z "$VM_SSH_KNOWN_HOSTS" ]; then
+          if [ -z "$VM_HOST" ] || [ -z "$VM_USER" ] || [ -z "$ENGINE_DATA_PROD_SSH_PRIVATE_KEY" ] || [ -z "$VM_SSH_KNOWN_HOSTS" ]; then
             exit 0
           fi
           # Values are SSH arguments only, never interpolated into a remote command.
@@ -57,7 +57,7 @@ jobs:
           umask 077
           ssh_dir=$(mktemp -d "$RUNNER_TEMP/prod-error-ssh.XXXXXX")
           trap 'rm -rf -- "$ssh_dir"' EXIT
-          printf '%s\n' "$VM_SSH_PRIVATE_KEY" > "$ssh_dir/key"
+          printf '%s\n' "$ENGINE_DATA_PROD_SSH_PRIVATE_KEY" > "$ssh_dir/key"
           printf '%s\n' "$VM_SSH_KNOWN_HOSTS" > "$ssh_dir/known_hosts"
           if timeout 40s ssh -F /dev/null -i "$ssh_dir/key" -p "$VM_PORT" \
             -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
