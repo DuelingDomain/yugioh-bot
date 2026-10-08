@@ -833,7 +833,7 @@ export function migrate(db: Database.Database) {
     );
     -- Operational admission state; it never participates in bundle or journal identity.
     create table if not exists card_script_auto_blocks (
-      code integer primary key,
+      code integer not null,
       reason text not null,
       blocked_at text not null,
       distinct_duels integer not null,
@@ -842,7 +842,9 @@ export function migrate(db: Database.Database) {
       window_days integer not null,
       bundle_version text not null,
       script_hash text not null,
-      cleared_at text
+      cleared_at text,
+      engine_kind text not null default 'all',
+      primary key (code, engine_kind)
     );
     -- Occurrence keys and revision metadata only; no private duel snapshot is stored here.
     create table if not exists card_script_error_occurrences (
@@ -1104,22 +1106,6 @@ export function migrate(db: Database.Database) {
     );
   `);
 
-  // A card can fail independently on several engine paths. Preserve old blocks as unscoped
-  // revisions; startup revision checks lift them when their dependency identity differs.
-  if (!hasColumn(db, "card_script_auto_blocks", "engine_kind")) {
-    db.transaction(() => {
-      db.exec(`alter table card_script_auto_blocks rename to card_script_auto_blocks_old;
-        create table card_script_auto_blocks (
-          code integer not null, reason text not null, blocked_at text not null,
-          distinct_duels integer not null, error_count integer not null, threshold integer not null,
-          window_days integer not null, bundle_version text not null, script_hash text not null,
-          cleared_at text, engine_kind text not null default 'all', primary key (code, engine_kind)
-        );
-        insert into card_script_auto_blocks
-          select *, 'all' from card_script_auto_blocks_old;
-        drop table card_script_auto_blocks_old;`);
-    })();
-  }
   addColumnIfMissing(db, "card_script_error_occurrences", "engine_kind", "text");
   addColumnIfMissing(db, "card_script_error_occurrences", "code", "integer not null default 0");
   // Historical samples have no reliable revision/policy; they cannot trigger automatic blocks.
