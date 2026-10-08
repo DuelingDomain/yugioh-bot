@@ -50,10 +50,30 @@ export function continuesPlacement(previous: DuelPrompt | null | undefined, next
   return false;
 }
 
+/** The phase moves of the action prompt (see phase-hub-model.ts). */
+const PHASE_MOVES = ["to_bp", "to_m2", "to_ep"];
+
+/** The answer to the action menu is a phase move: Battle Phase, Main Phase 2 or End Phase. */
+export function movesPhase(target: DuelPrompt, answer: DuelAnswer): boolean {
+  return !answer.cancel && target.context?.type === "action" && answer.choice != null && PHASE_MOVES.includes(answer.choice);
+}
+
+/**
+ * The Deck Master question that follows the player's own phase move ("Return this Deck Master to the Deck Master Zone?" at the
+ * Battle Phase): the player just chose to move on and no board effect is playing for it, so the panel must not wait for a reveal
+ * beat. Only that question counts. A chain window or an effect question (an own trigger after the End Phase, a trap in
+ * response) comes with an effect on screen and keeps its beat. Pure, so the rule can be tested.
+ */
+export function continuesPhaseMove(previous: DuelPrompt | null | undefined, next: DuelPrompt | null | undefined): boolean {
+  if (!previous || !next || previous.id === next.id || previous.seat !== next.seat) return false;
+  return next.kind === "choice" && next.context?.type === "deck-master-recall" && previous.context?.type === "action";
+}
+
 /**
  * A continuing prompt skips the "answerable" wait (it shows while the player's own answer is still in flight, buttons off)
- * but not while the room re-reads for a change notice that is not that echo (`catchingUp`): the bar would look ready and
- * every click would be refused until the read ends. Then it waits for the room to settle like any other prompt.
+ * but not while the connection recovers or a turn-start beat plays (`catchingUp`): the bar would look ready and every click
+ * would be refused until that ends. Then it waits for the room to settle like any other prompt. A routine re-read of the
+ * room (a change notice, a window focus) is not `catchingUp` and does not hold it.
  */
 export function skipsAnswerableWait(continuing: boolean, catchingUp: boolean): boolean {
   return continuing && !catchingUp;
@@ -95,6 +115,8 @@ export type PickContinuation = {
   waiting: DuelPrompt | null;
   /** Tell the hook that the player answered `prompt`. */
   noteAnswer: (prompt: DuelPrompt, answer: DuelAnswer) => void;
+  /** The answer was refused (a stale choice, a rejected move): forget it, so no later prompt counts as its follow-up. */
+  clearAnswer: () => void;
 };
 
 /**
@@ -103,7 +125,7 @@ export type PickContinuation = {
  */
 export function usePickContinuation(prompt: DuelPrompt | null | undefined, revision?: number | null): PickContinuation {
   const answered = useRef<DuelPrompt | null>(null);
-  const placing = useRef<{ prompt: DuelPrompt; revision: number | null | undefined } | null>(null);
+  const placing = useRef<{ prompt: DuelPrompt; revision: number | null | undefined; phase?: boolean } | null>(null);
   const latestRevision = useRef(revision);
   latestRevision.current = revision;
   const decided = useRef<{ id: string | null; continuing: boolean }>({ id: null, continuing: false });
@@ -117,7 +139,8 @@ export function usePickContinuation(prompt: DuelPrompt | null | undefined, revis
     placing.current = null;
   }
   if (prompt && decided.current.id !== prompt.id) {
-    decided.current = { id: prompt.id, continuing: continuesPick(answered.current, prompt) || continuesPlacement(placing.current?.prompt, prompt) };
+    decided.current = { id: prompt.id, continuing: continuesPick(answered.current, prompt) ||
+      (placing.current?.phase ? continuesPhaseMove(placing.current.prompt, prompt) : continuesPlacement(placing.current?.prompt, prompt)) };
     answered.current = null;
     placing.current = null;
   }
@@ -126,7 +149,9 @@ export function usePickContinuation(prompt: DuelPrompt | null | undefined, revis
     if (windowTimer.current) window.clearTimeout(windowTimer.current);
     if (holdTimer.current) duelFxClock.clearTimeout(holdTimer.current);
     // The answer to a summon, a set, a Spell/Trap activation or a tribute pick is followed by the zone prompt for that card.
-    placing.current = placesBeforeChain(target, answer) ? { prompt: target, revision: latestRevision.current } : null;
+    // A phase move is followed by a question of the same seat (see continuesPhaseMove).
+    placing.current = placesBeforeChain(target, answer) || movesPhase(target, answer)
+      ? { prompt: target, revision: latestRevision.current, phase: movesPhase(target, answer) } : null;
     if (!keepsPickOpen(target, answer)) {
       answered.current = null;
       setWaiting(null);
@@ -139,6 +164,14 @@ export function usePickContinuation(prompt: DuelPrompt | null | undefined, revis
       answered.current = null;
       placing.current = null;
     }, PICK_CONTINUATION.windowMs);
+  }, []);
+
+  const clearAnswer = useCallback(() => {
+    if (windowTimer.current) window.clearTimeout(windowTimer.current);
+    if (holdTimer.current) duelFxClock.clearTimeout(holdTimer.current);
+    answered.current = null;
+    placing.current = null;
+    setWaiting(null);
   }, []);
 
   // A newer prompt ends the hold.
@@ -159,5 +192,6 @@ export function usePickContinuation(prompt: DuelPrompt | null | undefined, revis
     continuing: prompt != null && decided.current.id === prompt.id && decided.current.continuing,
     waiting: prompt ? null : waiting,
     noteAnswer,
+    clearAnswer,
   };
 }

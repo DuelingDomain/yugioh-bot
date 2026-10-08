@@ -198,7 +198,11 @@ function dockArts(seat: number): HTMLElement[] {
 }
 
 function dockImages(arts: HTMLElement[]): HTMLElement[] {
-  return arts.flatMap((art) => Array.from(art.querySelectorAll<HTMLElement>("img")));
+  // The Deck Master plate of a floating HUD paints its card as a background: the art itself is the picture then.
+  return arts.flatMap((art) => {
+    const images = Array.from(art.querySelectorAll<HTMLElement>("img"));
+    return images.length > 0 ? images : [art];
+  });
 }
 
 function hideImages(images: HTMLElement[]): () => void {

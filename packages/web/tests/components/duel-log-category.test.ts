@@ -198,6 +198,18 @@ describe("log categories: text log lines", () => {
     ["Player 1 wins (LP reached 0)", null],
     ["Draw (Both players reached 0 LP)", null],
     ["Add 1 Spellcaster monster from your Deck to your hand", null],
+    // Newer engine text names the player: "Player N's <card> ..." and "Player N declares an attack".
+    ["Player 3's chain link was negated", "chain"],
+    ["Player 2 declares an attack", "battle"],
+    ["Player 2 declares a direct attack", "battle"],
+    ["Player 2 attacks Player 3 directly", "battle"],
+    ["Player 3 is attacked directly", "battle"],
+    ["Player 1's Mirror Force is activating", "chain"],
+    ["Confirmed Player 2's Man-Eater Bug", "system"],
+    ["Player 3's Raigeki was sent to the Graveyard", "graveyard"],
+    ["Player 3's Decode Talker was banished", "banish"],
+    ["Player 4's Stardust Dragon was destroyed", "destroy"],
+    ["Player 4's Stardust Dragon was destroyed and banished", "destroy"],
   ])("%s → %s", (text, category) => {
     expect(categoryForLogText(text)).toBe(category);
   });
@@ -212,6 +224,8 @@ describe("log categories: text log lines", () => {
     expect(categoryForLogText("Stardust Dragon was destroyed by Mirror Force")).toBeNull();
     expect(categoryForLogText("Pot of Greed was discarded by Card Destruction")).toBeNull();
     expect(categoryForLogText("Player 1 Summons Destroyer")).toBeNull();
+    expect(categoryForLogText("Player 1's Stardust Dragon was destroyed by Mirror Force")).toBeNull();
+    expect(categoryForLogText("Player 2 declares an attack on Kuriboh")).toBeNull();
   });
 
   it("names the card frame of a summon line", () => {
@@ -240,6 +254,10 @@ describe("log categories: a whole Text log", () => {
       "Cyber Dragon was sent to the Graveyard",
       "Player 1 Synchro Summons Stardust Dragon",
     ])).toEqual(["graveyard", "chain", "material", "material", "summon"]);
+    expect(categoriesForLog([
+      "Player 2's Fodder was sent to the Graveyard",
+      "Player 2 Tribute Summons Dark Magician",
+    ])).toEqual(["material", "summon"]);
     for (const method of ["Fusion", "Link", "Ritual"]) {
       expect(categoriesForLog(["A was sent to the Graveyard", `Player 1 ${method} Summons B`])[0]).toBe("material");
     }

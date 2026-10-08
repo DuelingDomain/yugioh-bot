@@ -297,6 +297,12 @@ export const SEAT_BOX = { width: 653, height: 380 } as const;
  * in field.module.css.
  */
 export const SEAT_BOX_FULL_DEF = 829;
+/**
+ * Your hand at a wide 3-way table, in seat units at scale 1 (see `--hand-w` / `--lh` under `[data-def-full]` in
+ * field.module.css): 6.8 zone sizes wide (112 px each), inside the 829 px field, and about 144 deep, hanging 15 px up over
+ * the field's bottom pad. The classic hand is 605 by 116.
+ */
+const OWN_HAND_WIDE = { width: 762, height: 144, rise: 15 } as const;
 /** The least spread (stage px beyond each side) that has room for the wide 3-way fields; every floating-HUD screen has it. */
 const FULL_DEF_SPREAD = 200;
 /** Most spread (stage px at each side) the plaza uses. A wider box keeps the extra room as empty floor. */
@@ -573,6 +579,13 @@ export function wideHoloAnchors(
   const taken: Bounds[] = [{ l: ringAt.x - ringHalf, r: ringAt.x + ringHalf, t: ringAt.y - 62, b: ringAt.y + 76 }];
   // Your hand fans along the bottom edge under your board: up to ten cards, about 660 stage px.
   taken.push({ l: ARENA_CENTER.x - 330, r: ARENA_CENTER.x + 330, t: STAGE.height - 4, b: 960 });
+  // The hand as drawn (at a wide 3-way table it is 762 px wide and rises over the field's bottom pad) and your name label
+  // stay clear too. Your seat's pose is upright, so its rectangles are exact.
+  const homeSlot = plan[0] === "home" ? layout.slots[0] : undefined;
+  const homePose = homeSlot ? poses.get(homeSlot.seat) : undefined;
+  if (homePose && !homePose.hidden) {
+    for (const r of seatObstacles(homePose, true).slice(1)) taken.push({ l: r.x - r.width / 2, r: r.x + r.width / 2, t: r.y - r.height / 2, b: r.y + r.height / 2 });
+  }
   // The camera hint pill lives in the bottom left corner of the table area.
   if (corner) taken.push({ l: left - 6, r: left + corner.hint.width, t: 952 - corner.hint.height, b: 952 });
   // The floating HUD's turn controls in the bottom right corner (a 3-way plaza).
@@ -1051,6 +1064,9 @@ export function stageRectsOverlap(a: StageRect, b: StageRect): boolean {
   return true;
 }
 
+/** Width of your hand's row under the stage at a wide table: the wide hand (762) with about 55 px of air. */
+export const HAND_ROW_WIDTH = OWN_HAND_WIDE.width + 55;
+
 /** What the strip must stay off at a wide table, as stage rectangles with their air already added. */
 export function hubObstacles(
   layout: TableLayout,
@@ -1082,7 +1098,7 @@ export function hubObstacles(
   out.push({ x: ARENA_SIGN.x + ARENA_SIGN.width / 2, y: ARENA_SIGN.y + ARENA_SIGN.height / 2, width: ARENA_SIGN.width, height: ARENA_SIGN.height, rotateDeg: 0 });
   // The turn ring, the same room the plates keep, and your hand's row under the stage and the camera hint.
   out.push({ x: ring.x, y: ring.y + 7, width: 124 * ring.scale + 16, height: 138 * ring.scale + 16, rotateDeg: 0 });
-  out.push({ x: ARENA_CENTER.x, y: (STAGE.height - 4 + 960) / 2, width: 660, height: 960 - (STAGE.height - 4), rotateDeg: 0 });
+  out.push({ x: ARENA_CENTER.x, y: (STAGE.height - 4 + 960) / 2, width: HAND_ROW_WIDTH, height: 960 - (STAGE.height - 4), rotateDeg: 0 });
   const left = -spread + 6;
   out.push({ x: left - 6 + (hint.width + 6) / 2, y: 952 - hint.height / 2, width: hint.width + 6, height: hint.height, rotateDeg: 0 });
   return out;
@@ -1183,7 +1199,8 @@ export interface StageRect {
 
 /**
  * Everything one seat draws, as rectangles on the stage: the 653 x 380 field, the hand hanging off its back edge
- * (your face-up hand is 605 wide and 116 deep, with room to grow; a rival's backs about 420 by 100 with their hover lift)
+ * (your face-up hand is 605 wide and 116 deep, with room to grow, or 762 by 144 at a wide 3-way table, `OWN_HAND_WIDE`; a
+ * rival's backs about 420 by 100 with their hover lift)
  * and the name label under the field's left side. The phase hub keeps clear of all three, so it never lands on cards.
  */
 export function seatObstacles(pose: Pick<SeatPose, "x" | "y" | "scale" | "rotateDeg" | "width">, own: boolean): StageRect[] {
@@ -1199,12 +1216,14 @@ export function seatObstacles(pose: Pick<SeatPose, "x" | "y" | "scale" | "rotate
     height: height * pose.scale,
     rotateDeg: pose.rotateDeg,
   });
-  const handW = own ? 605 : 420;
-  const handH = own ? 116 : 100;
+  const wide = own && pose.width != null;
+  const handW = wide ? OWN_HAND_WIDE.width : own ? 605 : 420;
+  const handH = wide ? OWN_HAND_WIDE.height : own ? 116 : 100;
   return [
     rect(0, 0, boxWidth, 380),
-    rect(0, 190 + handH / 2 - 2, handW, handH),
-    rect(-boxWidth / 2 + 0.17 * boxWidth, 190 + 14, 150, 28),
+    rect(0, 190 + handH / 2 - (wide ? OWN_HAND_WIDE.rise : 2), handW, handH),
+    // Your name label stands left of the field at a wide 3-way table (field.module.css), else under its left side.
+    wide ? rect(-boxWidth / 2 - 75, 190 + 14, 150, 28) : rect(-boxWidth / 2 + 0.17 * boxWidth, 190 + 14, 150, 28),
   ];
 }
 

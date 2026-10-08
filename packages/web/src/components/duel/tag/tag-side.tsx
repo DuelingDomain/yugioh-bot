@@ -153,7 +153,7 @@ export function TagSide({
       />
       <details className={roomStyles.textLog}>
         <summary>Text log</summary>
-        <MatchSheetLog entries={engine.log} playerName={nameOf} players={session.seats.map((seat) => seat.displayName).join(" v ")} />
+        <MatchSheetLog entries={engine.log} playerName={nameOf} players={session.seats.map((seat) => seat.displayName).join(" v ")} seatTones={seatTones} />
       </details>
     </div>
   );

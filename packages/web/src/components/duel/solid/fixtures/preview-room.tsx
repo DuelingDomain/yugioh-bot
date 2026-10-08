@@ -27,6 +27,7 @@ import { battleStepLabel, hasNoLegalMoves, resolveBattleStep, StationTrack } fro
 import { MatchSheetLog } from "../../text-log";
 import type { DuelPreferences } from "../../preferences";
 import { buildAttackPreview } from "../attack-preview";
+import { TABLE_CARDS } from "../../table/fixtures/common";
 import { SolidRoom } from "../solid-room";
 import { SOLID_CARDS } from "./cards";
 import { SOLID_STATE_IDS, SOLID_STATE_LABEL, solidFixture, type SolidStateId } from "./states";
@@ -47,7 +48,7 @@ type ConfirmState = { anchor: HTMLElement; name: string; prefer: "above" | "belo
  * The 3D mode board on fixture data (spec section 4, W8). It builds the same slot nodes `DuelRoomView` builds, with the
  * real components and none of the room's network, and hands them to the real `SolidRoom`. Nothing is sent anywhere.
  */
-export function SolidPreviewRoom({ stateId, flat, reduced }: { stateId: SolidStateId; flat: boolean; reduced: boolean }) {
+export function SolidPreviewRoom({ stateId, flat, reduced, card }: { stateId: SolidStateId; flat: boolean; reduced: boolean; card?: string | null }) {
   const fixture = useMemo(() => solidFixture(stateId), [stateId]);
   const { room, history, ui } = fixture;
   const engine = room.engine!;
@@ -117,7 +118,8 @@ export function SolidPreviewRoom({ stateId, flat, reduced }: { stateId: SolidSta
     return () => window.clearTimeout(timer);
   }, [stateId, ui, prompt, myHand]);
 
-  const inspectCard = SOLID_CARDS[ui.inspect.card];
+  // `?card=jinzo` shows a long effect text in the card panel (the text-fit check).
+  const inspectCard = card === "jinzo" ? TABLE_CARDS.jinzo : SOLID_CARDS[ui.inspect.card];
   const cardPanel = <CardInspector target={{ type: "info", card: inspectCard }} />;
   const masterRail = domain ? (
     <DeckMasterRail engine={engine} mySeat={mySeat} legalKeys={legalKeys} selectedKeys={NO_KEYS} canAct={canAct}
@@ -251,7 +253,7 @@ export function SolidPreviewRoom({ stateId, flat, reduced }: { stateId: SolidSta
           bottomName: playerName(mySeat ?? 0), topName: playerName(1 - (mySeat ?? 0)),
         }}
         renderBoard={renderBoard}
-        renderClock={(seat) => room.clock ? <DuelClockDisplay clock={room.clock} session={room.session} seats={[seat]} /> : null}
+        renderClock={(seat) => room.clock ? <DuelClockDisplay clock={room.clock} session={room.session} reducedMotion={reduced} seats={[seat]} /> : null}
         inspect={{ type: "info", card: inspectCard }}
         pane={pane}
         setPane={setPane}

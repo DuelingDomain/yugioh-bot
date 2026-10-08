@@ -219,8 +219,8 @@ describe("richer engine events", () => {
     const [thrasher, dragon, cowboy] = cardCodes("Photon Thrasher", "Alexandrite Dragon", "Gagaga Cowboy");
     const detaches: Array<{ message: Extract<OcgMessage, { type: OcgMessageType.MOVE }>; lines: duelLogLines.LogLine[] }> = [];
     const original = duelLogLines.moveLogLines;
-    const spy = vi.spyOn(duelLogLines, "moveLogLines").mockImplementation((message, cards) => {
-      const lines = original(message, cards);
+    const spy = vi.spyOn(duelLogLines, "moveLogLines").mockImplementation((message, cards, format) => {
+      const lines = original(message, cards, format);
       if (message.card === thrasher && message.from.overlay_sequence != null && message.to.location === OcgLocation.GRAVE) {
         detaches.push({ message: structuredClone(message), lines: structuredClone(lines) });
       }
@@ -253,10 +253,10 @@ describe("richer engine events", () => {
       expect(detaches[0].message.from).toMatchObject({ location: OcgLocation.MZONE, sequence: summoned.sequence, overlay_sequence: expect.any(Number) });
       for (const viewer of [0, 1, null]) {
         const lines = game.view(viewer).log.map((entry) => entry.text);
-        expect(lines).toContain("Photon Thrasher was sent to the Graveyard");
-        expect(lines).not.toContain("Photon Thrasher was destroyed");
+        expect(lines).toContain("Player 1's Photon Thrasher was sent to the Graveyard");
+        expect(lines).not.toContain("Player 1's Photon Thrasher was destroyed");
       }
-      expect(detaches[0].lines).toEqual([{ text: "Photon Thrasher was sent to the Graveyard", audience: "all" }]);
+      expect(detaches[0].lines).toEqual([{ text: "Player 1's Photon Thrasher was sent to the Graveyard", audience: "all" }]);
     } finally {
       game?.close();
       spy.mockRestore();
@@ -519,9 +519,9 @@ describe("richer engine events", () => {
       expect(game.view(0).seats[0].banished.map((card) => card.code)).toContain(weak[0]);
       for (const viewer of [0, 1, null]) {
         const log = game.view(viewer).log.map((entry) => entry.text);
-        expect(log).toContain(`${destroyed!.card!.name} was destroyed and banished`);
-        expect(log).not.toContain(`${destroyed!.card!.name} was banished`);
-        expect(log).not.toContain(`${destroyed!.card!.name} was sent to the Graveyard`);
+        expect(log).toContain(`Player ${destroyed!.seat! + 1}'s ${destroyed!.card!.name} was destroyed and banished`);
+        expect(log).not.toContain(`Player ${destroyed!.seat! + 1}'s ${destroyed!.card!.name} was banished`);
+        expect(log).not.toContain(`Player ${destroyed!.seat! + 1}'s ${destroyed!.card!.name} was sent to the Graveyard`);
       }
     } finally {
       game.close();
@@ -572,8 +572,8 @@ describe("richer engine events", () => {
       const log = game.view(null).log.map((entry) => entry.text);
       expect(log).toContain(`Player 1 Normal Summons ${summons[0]!.card!.name}`);
       expect(log).toContain(`Player 2 Normal Summons ${summons[1]!.card!.name}`);
-      expect(log).toContain(`${destroy!.card!.name} was destroyed`);
-      expect(log).not.toContain(`${destroy!.card!.name} was sent to the Graveyard`);
+      expect(log).toContain(`Player ${destroy!.seat! + 1}'s ${destroy!.card!.name} was destroyed`);
+      expect(log).not.toContain(`Player ${destroy!.seat! + 1}'s ${destroy!.card!.name} was sent to the Graveyard`);
       expect(game.view(0).seats[0].lp).toBe(8000 - damage!.amount!);
       const ids = events.map((event) => event.id);
       expect(ids.indexOf(attack!.id)).toBeLessThan(ids.indexOf(damage!.id));
@@ -642,10 +642,10 @@ describe("richer engine events", () => {
       expect(destroyed[0]).toMatchObject({ zone: { controller: 1, location: OcgLocation.MZONE, sequence: 0 }, card: { code: strong[0] } });
       // Destroyed by Raigeki vs. sent to the Graveyard after resolving.
       const log = game.view(1).log.map((entry) => entry.text);
-      expect(log).toContain(`${destroyed[0]!.card!.name} was destroyed`);
-      expect(log).toContain(`${activations[0]!.card!.name} was sent to the Graveyard`);
+      expect(log).toContain(`Player ${destroyed[0]!.seat! + 1}'s ${destroyed[0]!.card!.name} was destroyed`);
+      expect(log).toContain(`Player ${activations[0]!.seat! + 1}'s ${activations[0]!.card!.name} was sent to the Graveyard`);
       const raigeki = all.find((event) => event.kind === "activate" && event.card?.code === RAIGEKI);
-      expect(log).toContain(`${raigeki!.card!.name} was sent to the Graveyard`);
+      expect(log).toContain(`Player ${raigeki!.seat! + 1}'s ${raigeki!.card!.name} was sent to the Graveyard`);
     } finally {
       game.close();
     }
@@ -691,9 +691,9 @@ describe("richer engine events", () => {
         const log = game.view(viewer).log.map((entry) => entry.text);
         expect(log).toContain(`Player 2 Tribute Summons ${last.card!.name}`);
         expect(log).toContain("Player 2 Sets a card");
-        expect(log.filter((text) => text.includes(setName))).toEqual([`${setName} was sent to the Graveyard`]);
+        expect(log.filter((text) => text.includes(setName))).toEqual([`Player 2's ${setName} was sent to the Graveyard`]);
         // The Tribute's line sits directly above the summon line: the web Text log relies on that to colour it.
-        expect(log[log.indexOf(`Player 2 Tribute Summons ${last.card!.name}`) - 1]).toBe(`${setName} was sent to the Graveyard`);
+        expect(log[log.indexOf(`Player 2 Tribute Summons ${last.card!.name}`) - 1]).toBe(`Player 2's ${setName} was sent to the Graveyard`);
       }
       expect(last.zone).toMatchObject({ controller: 1, location: OcgLocation.MZONE });
     } finally {

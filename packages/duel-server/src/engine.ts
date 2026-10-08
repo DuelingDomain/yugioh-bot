@@ -2,7 +2,7 @@ import { ChainOptions } from "./chain-options.js";
 import { scriptErrorCoreFactory } from "./script-load-scope.js";
 import { EngineLoopError } from "./engine-loop-error.js";
 import { CARD_SCRIPT_ERROR_TEXT, CORE_PROCESS_CALL_LIMIT, createScriptErrorPolicy, type DuelScriptError, type DuelScriptFatalError } from "./script-errors.js";
-import type { DuelAnswer, DuelBattleStep, DuelChainMode, DuelCardInfo, DuelDeck, DuelEngineView, DuelFormat, DuelMasterRule, DuelMode, DuelSettings, DuelScriptErrorMode } from "@yugidraft/shared/duels";
+import type { DuelAnswer, DuelBattleStep, DuelChainMode, DuelCardInfo, DuelDeck, DuelEngineView, DuelFormat, DuelMasterRule, DuelMode, DuelSettings, DuelScriptErrorMode, DuelZoneRef } from "@yugidraft/shared/duels";
 import { DUEL_SEAT_LEFT_ERROR_CODE, defaultChainMode, partnerSeatOf, seatCountFor, seatsOfTeam, startingLpFor, teamOfSeat } from "@yugidraft/shared/duels";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -63,7 +63,7 @@ import { MSG_ATTACK_DUELIST, MSG_DUELIST_ELIMINATED, MSG_FIELD_DISABLED_N, MSG_S
 import { MP_UTILITY_FILE, loadMultiScriptsFor } from "./multi-scripts.js";
 import { fillPlaceholders } from "./text.js";
 import { firstTurnDrawFor } from "./first-turn-draw.js";
-import { ATTACK_TARGET_QUERY_SCRIPT, mergeAttackTargetPick, readAttackTargetQuery, type AttackTargetQuery } from "./attack-target-pick.js";
+import { attackTargetQueryScript, mergeAttackTargetPick, readAttackTargetQuery, type AttackTargetQuery } from "./attack-target-pick.js";
 import { destroyedAndBanishedLogText, destroyedLogText, moveLogLines, summonLogLines } from "./log-lines.js";
 
 /** A wasm the engine loaded: the bytes, the file name and the sha256 of the bytes (core identity for reports). */
@@ -178,7 +178,7 @@ export interface EngineStartupScript {
 export interface EngineDiagnostic {
   turn: number;
   phase: string;
-  /** `response` (a MSG_SELECT_CHAIN prompt), `msg200`, `msg201`, `msg202`, `win`, `win-ignored`, `eliminate`, `stderr` (a core log line), `chain-options` (display data error). */
+  /** `response` (a MSG_SELECT_CHAIN prompt), `msg200`, `msg201`, `msg202`, `win`, `win-ignored`, `eliminate`, `stderr` (a core log line), `chain-options` / `attack-target-query` (display data error). */
   kind: string;
   /** The seat the entry is about, or null. */
   seat: number | null;
@@ -619,8 +619,8 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     if (index < 0) return;
     const [line] = leftFieldLines.splice(index, 1);
     line!.entry.text = line!.destination === OcgLocation.REMOVED
-      ? destroyedAndBanishedLogText(cards, line!.code)
-      : destroyedLogText(cards, line!.code);
+      ? destroyedAndBanishedLogText(cards, line!.code, line!.zone.controller, format)
+      : destroyedLogText(cards, line!.code, line!.zone.controller, format);
   };
 
   const recordEvent = (message: OcgMessage) => {
@@ -703,7 +703,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       case OcgMessageType.CHAINING:
         startedChainLinks.delete(message.chain_size);
         liveChainSize = message.chain_size;
-        appendLog(`${cards.get(message.code)?.name ?? `Card ${message.code}`} is activating`);
+        appendLog(`${playerLabel(format, message.controller)}'s ${cards.get(message.code)?.name ?? `Card ${message.code}`} is activating`);
         return;
       case OcgMessageType.SPSUMMONED:
         synchroSummon = undefined;
@@ -780,15 +780,17 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       case OcgMessageType.SET:
         appendLog(`${playerLabel(format, message.controller)} Sets a card`);
         return;
-      case OcgMessageType.CHAIN_NEGATED:
-        appendLog("A chain link was negated");
+      case OcgMessageType.CHAIN_NEGATED: {
+        const link = chainMemory[message.chain_size - 1];
+        appendLog(link ? `${playerLabel(format, link.seat)}'s chain link was negated` : "A chain link was negated");
         return;
+      }
       case OcgMessageType.CHAIN_END:
         appendLog("Chain ended");
         return;
       case OcgMessageType.ATTACK:
         declaringAttack = false;
-        appendLog(message.target ? "A monster declares an attack" : "A monster declares a direct attack");
+        appendLog(`${playerLabel(format, message.card.controller)} declares ${message.target ? "an attack" : "a direct attack"}`);
         return;
       case OcgMessageType.SHUFFLE_DECK:
         appendLog(`Player ${message.player + 1} shuffled their deck`);
@@ -809,7 +811,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
           noteReveal(reveals, message.player, card.controller, card.location, card.sequence, card.code);
           const partner = partnerSeatOf(format, message.player);
           if (partner != null) noteReveal(reveals, partner, card.controller, card.location, card.sequence, card.code);
-          appendLog(`Confirmed ${cards.get(card.code)?.name ?? `Card ${card.code}`}`, confirmationAudience(card, message.player, eventContext));
+          appendLog(`Confirmed ${playerLabel(format, card.controller)}'s ${cards.get(card.code)?.name ?? `Card ${card.code}`}`, confirmationAudience(card, message.player, eventContext));
         }
         return;
       case OcgMessageType.CONFIRM_DECKTOP:
@@ -886,9 +888,10 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       // whose stock wrapper target is null and cannot identify the defender.
       const attack = events.at(-1);
       if (attack?.kind === "attack" && !attack.target) {
+        const declaration = attack.text;
         noteDirectAttackTarget(attack, raw.duelist, format);
         for (let i = log.length - 1; i >= 0; i--) {
-          if (log[i].text !== "A monster declares a direct attack") continue;
+          if (log[i].text !== declaration) continue;
           log[i].text = attack.text;
           break;
         }
@@ -906,6 +909,53 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     if (options.mode !== "domain") return undefined;
     if (!getDomainState) throw new Error("Domain core did not provide getDomainState");
     return getDomainState();
+  };
+
+  const queryAttackTargets = (attacker?: DuelZoneRef): AttackTargetQuery => {
+    const query: AttackTargetQuery = { targets: [], directSeats: [] };
+    const attackingSeat = attacker?.controller ?? turnSeat;
+    const rivals = Array.from({ length: seatCount }, (_, seat) => seat).filter(seat =>
+      !eliminated.has(seat) && !isLeaving(seat) && teamOfSeat(format, seat) !== teamOfSeat(format, attackingSeat));
+    // Keep the required FFA declaration query distinct from the optional battle display probe.
+    const scriptName = attacker ? "attack-target-query.lua" : "ffa-attack-target-query.lua";
+    attackTargetQuery = query;
+    try {
+      if (!scriptErrors.query(() => lib.loadScript(handle, scriptName, attackTargetQueryScript(attacker, rivals)), true)) {
+        throw new Error("Failed to query attack targets");
+      }
+    } finally { attackTargetQuery = null; }
+    return query;
+  };
+
+  const battleAttackTargets = (attacker: DuelZoneRef) => {
+    const errorCount = errors.length;
+    try {
+      const query = queryAttackTargets(attacker);
+      if (errors.length > errorCount) throw new Error("Failed to query battle attack targets");
+      return {
+        attackTargets: {
+          monsters: query.targets.filter(target => !eliminated.has(target.controller) && !isLeaving(target.controller))
+            .map(({ controller, location, sequence }) => ({ controller, location, sequence })),
+          direct: query.directSeats.filter(seat => !eliminated.has(seat) && !isLeaving(seat)),
+        },
+        attackerChoosesTarget: query.attackerChoosesTarget,
+      };
+    } catch {
+      // Display metadata is optional. Discard only this probe's queued errors so the
+      // next answer can proceed; the FFA declaration query still fails normally.
+      errors.length = errorCount;
+      diagnose("attack-target-query", attacker.controller, "Failed to query battle attack targets");
+      return { attackTargets: null, attackerChoosesTarget: undefined };
+    }
+  };
+
+  const withBattleAttackTargets = (current: PendingPrompt): PendingPrompt => {
+    if (current.message.type !== OcgMessageType.SELECT_BATTLECMD) return current;
+    const attacks = current.message.attacks;
+    // Surrender can remove a borrowed attacker from the surviving player's field. Query
+    // only retained options; the original native attack list still contains that removed card.
+    return { ...current, prompt: { ...current.prompt, options: current.prompt.options.map(option =>
+      option.id.startsWith("attack:") ? { ...option, ...battleAttackTargets(attacks[option.values![0]!]!) } : option) } };
   };
 
   // The native selection rechecks targets after a defender leaves. Answer its original indices
@@ -1007,13 +1057,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       const attackYesNo = (waiting.type === OcgMessageType.SELECT_YESNO || waiting.type === OcgMessageType.SELECT_EFFECTYN) && waiting.description === 31n;
       const directSeatPick = waiting.type === OcgMessageType.SELECT_OPTION && waiting.options.length > 0 && waiting.options.every(option => directAttackSeat(option) != null);
       if ((format === "ffa3" || format === "ffa4") && !completingAttackPick && (attackYesNo || directSeatPick)) {
-        const query: AttackTargetQuery = { targets: [], directSeats: [] };
-        attackTargetQuery = query;
-        try {
-          if (!scriptErrors.query(() => lib.loadScript(handle, "ffa-attack-target-query.lua", ATTACK_TARGET_QUERY_SCRIPT), true)) {
-            throw new Error("Failed to query FFA attack targets");
-          }
-        } finally { attackTargetQuery = null; }
+        const query = queryAttackTargets();
         next = filterPromptOptions(mergeAttackTargetPick(next, query, cards, declaringAttack), {
           eliminatedSeats: [...eliminated],
           livingSeats: Array.from({ length: seatCount }, (_, seat) => seat).filter(seat => !eliminated.has(seat) && !isLeaving(seat)),
@@ -1032,6 +1076,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
         respond(next, automated);
         continue;
       }
+      next = withBattleAttackTargets(next);
       promptSeq += 1;
       next.id = `p${revision}-${promptSeq}`;
       next.prompt.id = next.id;
@@ -1270,6 +1315,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
           eliminatedSeats: [...eliminated],
           removedCards: fresh.flatMap((message) => message.type === OcgMessageType.REMOVE_CARDS ? message.cards : []),
         });
+        pending = withBattleAttackTargets(pending);
         // answerForLeavingSeats consumes the core's close signal before advancing. An automatic
         // answer here would leave that signal armed for the next response of the same living seat.
         if (pending.prompt.options.length !== previous.prompt.options.length && !mustCloseResponseWindow()) {

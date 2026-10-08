@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 // ?view=3d: the room renders the Solid Vision table through the real field logic; classic stays the default.
 import React from "react";
-import { cleanup, render, screen } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DuelRoom } from "@yugidraft/shared/duels";
 
@@ -57,18 +59,66 @@ describe("3D mode room", () => {
     expect(container.querySelector("[data-sv-plane]")).not.toBeNull();
     expect(container.querySelector('[data-sv-clock="opp"]')).not.toBeNull();
     expect(container.querySelector('[data-sv-clock="you"]')).not.toBeNull();
-    // One clock per seat stays in the plane gaps, never on the phase bar; the header also shows the top-left block
-    // with every seat's clock (the answering seat marked).
+    // One clock per seat stays in the plane gaps, never on the phase bar and never in the header: the gaps hold the only clocks.
     expect(container.querySelectorAll('[data-sv-clock] [role=timer]')).toHaveLength(2);
-    const bank = container.querySelector('header [role=timer][data-count="2"]') as HTMLElement;
-    expect(bank.querySelectorAll('[data-testid="clock-cell"]')).toHaveLength(2);
-    expect(bank.querySelectorAll('[data-active="true"]')).toHaveLength(1);
-    expect(container.querySelectorAll('[role=timer]')).toHaveLength(3);
+    expect(container.querySelectorAll('[role=timer]')).toHaveLength(2);
+    expect(container.querySelector('header [role=timer]')).toBeNull();
+    // Each gap clock names its seat and shows its time; the answering seat (0, "you") is marked.
+    const you = container.querySelector('[data-sv-clock="you"]') as HTMLElement;
+    const opp = container.querySelector('[data-sv-clock="opp"]') as HTMLElement;
+    expect(you.textContent).toContain("2:00");
+    expect(opp.textContent).toContain("1:30");
+    expect(you.querySelector('[data-active="true"]')).not.toBeNull();
+    expect(opp.querySelector('[data-active="true"]')).toBeNull();
     expect(container.querySelectorAll("[data-hand-seat]").length).toBe(2);
     expect(container.querySelectorAll("[data-zones]").length).toBeGreaterThan(20);
     // Brand text: the 3D header says Dueling Domain, never Yugidraft.
     expect(screen.getByRole("link", { name: "Dueling Domain" }).getAttribute("href")).toBe("/duels");
     expect(container.textContent ?? "").not.toMatch(/yugidraft/i);
+  });
+
+  it("marks a gap clock at one minute or less as low", async () => {
+    state.room = solidRoom();
+    state.room.clock = { serverNow: 1000, turn: 3, remainingMs: [45000, 90000], activeSeat: 0, startedAt: 1000 };
+    const { container } = render(<DuelRoomView slug="solid" viewOverride="3d" />);
+    await screen.findByLabelText("Duel field");
+    expect(container.querySelector('[data-sv-clock="you"] [data-low="true"]')).not.toBeNull();
+    expect(container.querySelector('[data-sv-clock="opp"] [data-low]')).toBeNull();
+  });
+
+  it("turns red at exactly 60 seconds and not at 61", async () => {
+    state.room = solidRoom();
+    // Nobody is answering, so the digits do not move: seat 0 ("you") sits on the line, seat 1 ("opp") one second above it.
+    state.room.clock = { serverNow: 1000, turn: 3, remainingMs: [60000, 61000], activeSeat: null, startedAt: null };
+    const { container } = render(<DuelRoomView slug="solid" viewOverride="3d" />);
+    await screen.findByLabelText("Duel field");
+    const you = container.querySelector('[data-sv-clock="you"]') as HTMLElement;
+    const opp = container.querySelector('[data-sv-clock="opp"]') as HTMLElement;
+    expect(you.textContent).toContain("1:00");
+    expect(you.querySelector('[data-low="true"]')).not.toBeNull();
+    expect(opp.textContent).toContain("1:01");
+    expect(opp.querySelector('[data-low]')).toBeNull();
+  });
+
+  it("tells the gap clocks about reduced motion", async () => {
+    state.room = solidRoom();
+    state.room.clock = { serverNow: 1000, turn: 3, remainingMs: [45000, 90000], activeSeat: 0, startedAt: 1000 };
+    const { container, unmount } = render(<DuelRoomView slug="solid" viewOverride="3d" />);
+    await screen.findByLabelText("Duel field");
+    expect(container.querySelector('[data-sv-clock="you"] [data-low][data-motion="on"]')).not.toBeNull();
+    unmount();
+    window.localStorage.setItem("yugidraft.duelPreferences.v1", JSON.stringify({ v: 1, soundEnabled: false, motion: "reduced" }));
+    const reduced = render(<DuelRoomView slug="solid" viewOverride="3d" />);
+    await screen.findByLabelText("Duel field");
+    await waitFor(() => expect(reduced.container.querySelector('[data-sv-clock="you"] [data-low][data-motion="off"]')).not.toBeNull());
+  });
+
+  it("keeps both gap clocks the right way up", () => {
+    // jsdom does not apply CSS modules, so read the rule: the opponent's clock is not rotated.
+    const css = readFileSync(resolve(__dirname, "../src/components/duel/solid/table.module.css"), "utf8");
+    const rules = css.match(/\.clock\[data-sv-clock(?:="(?:opp|you)")?\]\s*\{[^}]*\}/g) ?? [];
+    expect(rules.length).toBeGreaterThanOrEqual(2);
+    for (const rule of rules) expect(rule).not.toMatch(/rotate|scale\(-|scaleY/);
   });
 
   it("reads the Flat setting from the store", async () => {

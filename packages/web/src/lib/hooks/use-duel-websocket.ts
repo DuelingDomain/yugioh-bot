@@ -38,13 +38,15 @@ function idle(slug: string, flags: Pick<Snapshot, "syncing" | "recovering">): Sn
  * Owns visible+online polling through that coalescer: 1s when not Live, 10s when Live.
  *
  * `quiet` (optional): when it returns true as a change notice arrives, the notice is the echo of the player's own answer.
- * The room is still read again (a trailing read is kept), but the `syncing` flag stays down, so prompts and zones stay
- * clickable. A failed read still raises `recovering`.
+ * The room is still read again (a trailing read is kept), but the `syncing` flag stays down, so the room shows no re-read
+ * for it. A failed read still raises `recovering`.
  *
  * Parent SWR: initial load and action mutate only. No `refreshInterval`.
  * `revalidateOnFocus: false`, `revalidateOnReconnect: false`.
- * Gate prompts with `syncing || recovering`. Hide/remount DuelFeedback only while `recovering`.
- * Routine polls do not raise either flag; only explicit refreshes and failures do.
+ * `syncing` marks a routine re-read (a change notice that is not the player's echo): the room shows it, but it does not
+ * gate prompts, because it shut a button between a press and its release. Gate prompts with `recovering` (a lost socket,
+ * a failed read, a first join). Hide/remount DuelFeedback only while `recovering`.
+ * Routine polls and a window focus on a live socket raise neither flag; other explicit refreshes and failures do.
  */
 export function useDuelWebsocket(
   slug: string,
@@ -284,7 +286,9 @@ export function useDuelWebsocket(
       }
     };
 
-    const onFocus = () => { void refresh({ recovery: true }).catch(() => {}); };
+    // A window focus is a catch-up read, not a lost connection: while the socket is live it stays quiet, so a click into
+    // the window is not lost to a disabled button. A failed read still raises `recovering` (see pump).
+    const onFocus = () => { void refresh(live ? { quiet: true } : { recovery: true }).catch(() => {}); };
     const onVisibility = () => {
       if (socket.connected && subscribed) socket.emit("duel:visibility", { visible: document.visibilityState === "visible" });
       if (document.visibilityState === "visible") recoverBoard(true);

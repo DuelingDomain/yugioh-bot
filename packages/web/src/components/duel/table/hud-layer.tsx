@@ -54,7 +54,7 @@ const PIN_ZONES = (seat: DuelSeatView): Array<DuelCard | null> => [...seat.hand,
 export function useHudPane({ camera = false, log = true }: {
   /** The table has a camera panel (the Tag Rooftop, the 3-way plaza): the dock gets a camera icon. */
   camera?: boolean;
-  /** The dock has the Log icon. The 3-way plaza has none: it keeps Settings and Camera only. */
+  /** The dock has the Log icon. Every table has it; only a HUD with no log panel turns it off. */
   log?: boolean;
 } = {}): HudPaneState {
   const [pane, setPaneState] = useState<HudPane | null>(null);
@@ -218,6 +218,8 @@ export interface HudMasterProps {
   /** A click on the token picks the card while a prompt asks for it. */
   onActivate?: DuelActivateHandler;
   onHoverCard?: DuelHoverHandler;
+  /** The wide plate of the 3-way plaza (grid-master.tsx): the ability text shows, and the plate is the Deck Master Zone anchor. */
+  wide?: boolean;
 }
 
 export interface HudLayerProps {

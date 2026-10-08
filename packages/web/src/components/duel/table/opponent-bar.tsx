@@ -26,6 +26,8 @@ export interface OpponentBarProps {
   confirmLabel?: string;
   /** Plain words for the locked target, when `kind` is "confirm". */
   targetLabel?: string;
+  /** Show Cancel with no locked aim (the aim before an attack is sent). */
+  cancelable?: boolean;
 }
 
 /**
@@ -33,7 +35,7 @@ export interface OpponentBarProps {
  * (click locks the aim, a second click, Enter or Attack sends it) and the locked card target of an attack.
  * One button per living rival with its number key.
  */
-export function OpponentBar({ kind, title, entries, onPick, onConfirm, onCancel, confirmLabel = "Attack", targetLabel }: OpponentBarProps) {
+export function OpponentBar({ kind, title, entries, onPick, onConfirm, onCancel, confirmLabel = "Attack", targetLabel, cancelable }: OpponentBarProps) {
   const locked = entries.find((entry) => entry.locked);
   return (
     <div className={styles.bar} data-opponent-bar={kind} role="group" aria-label={title}>
@@ -68,7 +70,7 @@ export function OpponentBar({ kind, title, entries, onPick, onConfirm, onCancel,
           <kbd>Enter</kbd>
         </button>
       ) : null}
-      {onCancel && (kind === "confirm" || locked) ? (
+      {onCancel && (kind === "confirm" || locked || cancelable) ? (
         <button type="button" className={styles.cancel} onClick={onCancel}>
           Cancel
           <kbd>Esc</kbd>

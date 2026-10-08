@@ -201,7 +201,7 @@ describe("choose the attacker, then the target, as one gesture", () => {
             options: [{ id: "attack:0", label: optionLabel, controller: 0, location: MZONE, sequence: 0 }],
           } as const)
         : base.room.engine!.prompt!;
-    const state = { ...base, ui: undefined, room: { ...base.room, engine: { ...base.room.engine!, prompt: { ...prompt } } } } as unknown as TableFixtureState;
+    const state = { ...base, ui: undefined, room: { ...base.room, engine: { ...base.room.engine!, revision: base.room.engine!.revision + step, prompt: { ...prompt } } } } as unknown as TableFixtureState;
     const controller = useFixtureController(state, { reducedMotion: true });
     return (
       <TableShell
@@ -221,54 +221,90 @@ describe("choose the attacker, then the target, as one gesture", () => {
     return monster.matches("button") ? monster : (monster.querySelector<HTMLElement>("button") ?? monster);
   };
 
+  /** The first option of the real target prompt: the card that the core would also offer. */
+  const realTarget = (set: TableFixtureSet) => {
+    const [option] = (set.states as Record<string, TableFixtureState>)["battle-aim"].room.engine!.prompt!.options;
+    return `${option.controller}:${option.location}:${option.sequence}`;
+  };
+  const zoneButton = (container: HTMLElement, key: string) => {
+    const node = container.querySelector<HTMLElement>(`[data-zones~="${key}"]`)!;
+    return node.matches("button") ? node : (node.querySelector<HTMLElement>("button") ?? node);
+  };
+
   it.each([
     ["3-way", FFA3_FIXTURES],
     ["4-way", FFA4_FIXTURES],
-  ] as const)("a click on a monster that can only attack a monster declares it, then the arrow aims from it (%s)", (_name, set) => {
+  ] as const)("a click on a monster that can only attack a monster starts the aim and sends nothing until a target is clicked (%s)", (_name, set) => {
     const onAnswer = vi.fn();
     const { container } = render(<TwoStep set={set} onAnswer={onAnswer} label="Attack with Blue-Eyes White Dragon" next="battle-aim" />);
     pointerClick(attackerButton(container));
-    expect(onAnswer).toHaveBeenCalledWith({ choice: "attack:0" });
+    expect(onAnswer).not.toHaveBeenCalled();
     expect(document.querySelector("[role='menu']")).toBeNull();
-    // The target pick came: the attacker stays declared, so the arrow runs from it to the cursor.
+    // The arrow runs from the attacker to the cursor.
     move(container.querySelector("[data-table-stage]")!);
     expect(arrow()?.getAttribute("data-aim-arrow")).toBe("free");
+    expect(onAnswer).not.toHaveBeenCalled();
     const target = foeMonster(container);
     move(target);
     expect(label()).toMatch(/^Attack: /);
-    pointerClick(target.matches("button") ? target : (target.querySelector("button") ?? target));
-    expect(onAnswer).toHaveBeenLastCalledWith(expect.objectContaining({ selected: expect.any(Array) }));
+    expect(onAnswer).not.toHaveBeenCalled();
+    // The click on a target sends the attack. The core's own target step is then answered with the same card.
+    pointerClick(zoneButton(container, realTarget(set)));
+    expect(onAnswer.mock.calls[0]).toEqual([{ choice: "attack:0" }]);
+    expect(onAnswer).toHaveBeenLastCalledWith({ selected: [expect.any(String)] });
+    expect(onAnswer).toHaveBeenCalledTimes(2);
   });
 
   it.each([
     ["3-way", FFA3_FIXTURES],
     ["4-way", FFA4_FIXTURES],
-  ] as const)("a click on a monster that can only attack directly opens the menu and sends nothing (%s)", (_name, set) => {
-    // The engine may start a direct attack with no prompt, or ask a duelist pick that cannot be cancelled: so the player confirms first.
+  ] as const)("a click on a monster that can only attack directly also starts the aim and sends nothing (%s)", (_name, set) => {
     const onAnswer = vi.fn();
     const { container } = render(<TwoStep set={set} onAnswer={onAnswer} label="Attack directly with Blue-Eyes White Dragon" next="direct-attack" />);
     pointerClick(attackerButton(container));
     expect(onAnswer).not.toHaveBeenCalled();
-    expect(document.querySelector("[role='menu']")).not.toBeNull();
+    expect(document.querySelector("[role='menu']")).toBeNull();
+    move(container.querySelector("[data-table-stage]")!);
+    expect(arrow()?.getAttribute("data-aim-arrow")).toBe("free");
+    expect(onAnswer).not.toHaveBeenCalled();
   });
 
   it.each([
     ["3-way", FFA3_FIXTURES],
     ["4-way", FFA4_FIXTURES],
-  ] as const)("after the menu sends the attack, the arrow and a board click work on the duelist step (%s)", (_name, set) => {
+  ] as const)("a click on the open rival sends the attack, then the duelist step is answered with that seat (%s)", (_name, set) => {
     const onAnswer = vi.fn();
     const { container } = render(<TwoStep set={set} onAnswer={onAnswer} label="Attack directly with Blue-Eyes White Dragon" next="direct-attack" />);
     pointerClick(attackerButton(container));
-    const item = document.querySelector<HTMLElement>("[role='menu'] [role='menuitem'], [role='menu'] button")!;
-    act(() => void fireEvent.click(item));
-    expect(onAnswer).toHaveBeenCalledWith({ choice: "attack:0" });
     move(container.querySelector("[data-table-stage]")!);
-    expect(arrow()?.getAttribute("data-aim-arrow")).toBe("free");
     const field = container.querySelector<HTMLElement>("[data-seat-field='1']")!;
     move(field);
     expect(label()).toMatch(/^Direct attack: /);
+    expect(onAnswer).not.toHaveBeenCalled();
     pointerClick(field);
+    expect(onAnswer.mock.calls[0]).toEqual([{ choice: "attack:0" }]);
     expect(onAnswer).toHaveBeenLastCalledWith({ choice: "direct-1" });
+  });
+
+  it.each([
+    ["3-way", FFA3_FIXTURES],
+    ["4-way", FFA4_FIXTURES],
+  ] as const)("Esc and a right click end the aim and send nothing (%s)", (_name, set) => {
+    const onAnswer = vi.fn();
+    const { container } = render(<TwoStep set={set} onAnswer={onAnswer} label="Attack with Blue-Eyes White Dragon" next="battle-aim" />);
+    pointerClick(attackerButton(container));
+    move(container.querySelector("[data-table-stage]")!);
+    expect(arrow()).not.toBeNull();
+    press("Escape");
+    expect(arrow()).toBeNull();
+    expect(onAnswer).not.toHaveBeenCalled();
+    // The attack can be declared again.
+    pointerClick(attackerButton(container));
+    move(container.querySelector("[data-table-stage]")!);
+    expect(arrow()).not.toBeNull();
+    act(() => void fireEvent.contextMenu(container.querySelector("[data-table-stage]")!));
+    expect(arrow()).toBeNull();
+    expect(onAnswer).not.toHaveBeenCalled();
   });
 });
 
@@ -295,7 +331,7 @@ describe("the card menu draws no aim: the arrow starts after Attack is clicked",
             ],
           } as const)
         : base.room.engine!.prompt!;
-    const state = { ...base, ui: undefined, room: { ...base.room, engine: { ...base.room.engine!, prompt: { ...prompt } } } } as unknown as TableFixtureState;
+    const state = { ...base, ui: undefined, room: { ...base.room, engine: { ...base.room.engine!, revision: base.room.engine!.revision + step, prompt: { ...prompt } } } } as unknown as TableFixtureState;
     const controller = useFixtureController(state, { reducedMotion: true });
     return (
       <TableShell
@@ -341,7 +377,7 @@ describe("the card menu draws no aim: the arrow starts after Attack is clicked",
     pointerClick(monster.matches("button") ? monster : (monster.querySelector<HTMLElement>("button") ?? monster));
     const attack = Array.from(document.querySelectorAll<HTMLElement>("[role='menu'] [role='menuitem']")).find((item) => /^Attack/.test(item.textContent?.trim() ?? ""))!;
     act(() => void fireEvent.click(attack));
-    expect(onAnswer).toHaveBeenCalledWith({ choice: "attack:0" });
+    expect(onAnswer).not.toHaveBeenCalled();
     expect(document.querySelector("[role='menu']")).toBeNull();
     // Declared, but nothing is aimed: no arrow before the mouse moves, then a free arrow with no label and no hot target.
     expect(arrow()).toBeNull();
@@ -356,6 +392,10 @@ describe("the card menu draws no aim: the arrow starts after Attack is clicked",
     expect(arrow()?.getAttribute("data-aim-arrow")).toBe("snapped");
     expect(label()).toMatch(/^Attack: /);
     expect(document.querySelector("[data-aim-hot='true']")).not.toBeNull();
+    // Nothing is sent until the target is clicked.
+    expect(onAnswer).not.toHaveBeenCalled();
+    pointerClick(target.matches("button") ? target : (target.querySelector("button") ?? target));
+    expect(onAnswer).toHaveBeenCalledWith({ choice: "attack:0" });
   });
 });
 
@@ -386,7 +426,7 @@ describe("the attacker stays declared through the Attack directly? question", ()
       },
       base.room.engine!.prompt!,
     ];
-    const state = { ...base, ui: undefined, room: { ...base.room, engine: { ...base.room.engine!, prompt: { ...prompts[step] } } } } as unknown as TableFixtureState;
+    const state = { ...base, ui: undefined, room: { ...base.room, engine: { ...base.room.engine!, revision: base.room.engine!.revision + step, prompt: { ...prompts[step] } } } } as unknown as TableFixtureState;
     const controller = useFixtureController(state, { reducedMotion: true });
     return (
       <TableShell
@@ -401,18 +441,21 @@ describe("the attacker stays declared through the Attack directly? question", ()
     );
   }
 
-  it("the card pick after a No has the arrow from the attacker", () => {
+  it("the target is picked once, before the attack: the core's Attack directly? and card steps are answered from it", () => {
     const onAnswer = vi.fn();
     const { container } = render(<Steps set={FFA3_FIXTURES} onAnswer={onAnswer} />);
     const monster = container.querySelector<HTMLElement>('[data-zones~="0:4:0"]')!;
     pointerClick(monster.matches("button") ? monster : (monster.querySelector<HTMLElement>("button") ?? monster));
-    expect(onAnswer).toHaveBeenLastCalledWith({ choice: "attack:0" });
-    // The yes/no question: answer it from the prompt.
-    const no = Array.from(container.querySelectorAll<HTMLElement>("button")).find((node) => node.textContent?.trim() === "No")!;
-    act(() => void fireEvent.click(no));
-    expect(onAnswer).toHaveBeenLastCalledWith({ choice: "no" });
+    // Nothing is sent by the click on the attacker: the arrow aims first.
+    expect(onAnswer).not.toHaveBeenCalled();
     move(container.querySelector("[data-table-stage]")!);
     expect(arrow()).not.toBeNull();
+    const [option] = FFA3_FIXTURES.states["battle-aim"].room.engine!.prompt!.options;
+    const key = `${option.controller}:${option.location}:${option.sequence}`;
+    const target = container.querySelector<HTMLElement>(`[data-zones~="${key}"]`)!;
+    pointerClick(target.matches("button") ? target : (target.querySelector("button") ?? target));
+    // A monster target says No to Attack directly?, and the card step gets the same monster.
+    expect(onAnswer.mock.calls.map(([answer]) => answer)).toEqual([{ choice: "attack:0" }, { choice: "no" }, { selected: [expect.any(String)] }]);
   });
 });
 

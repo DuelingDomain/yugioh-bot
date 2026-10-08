@@ -152,7 +152,7 @@ describe("TagShell seams for the room", () => {
   it("leaves pick timing to the room's continuation when it passes one", () => {
     vi.spyOn(console, "info").mockImplementation(() => {});
     const noteAnswer = vi.fn();
-    const { container } = render(<Shell pickContinuation={{ continuing: false, waiting: null, noteAnswer }} />);
+    const { container } = render(<Shell pickContinuation={{ continuing: false, waiting: null, noteAnswer, clearAnswer: vi.fn() }} />);
     const card = container.querySelector("[data-hand-seat='0'] [data-zones][data-usable='true']") as HTMLElement;
     act(() => void fireEvent.click(card.querySelector("button") ?? card));
     act(() => void fireEvent.click(document.body.querySelector("[role='menu'] [role='menuitem']") as HTMLElement));

@@ -116,7 +116,7 @@ export function cameraReducer(state: CameraState, action: CameraAction, layout: 
       return move(state, { mode: "focus", focusSeat: action.seat });
     }
     case "enlarge": {
-      // The one viewer action of the 3-way plaza: a click or Enter on a field. The same field again goes home.
+      // The one viewer action of the 3-way plaza: E, the Zoom my field button, or Enter on a field box (a click does not enlarge). The same field again goes home.
       if (layout.format !== "ffa3") return state;
       if (!known.has(action.seat) || out.has(action.seat)) return state;
       if (state.mode === "focus" && state.focusSeat === action.seat) return move(state, HOME_VIEW);

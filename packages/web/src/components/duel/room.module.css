@@ -480,6 +480,8 @@
 .log li[data-kind="result"] { font-weight: 600; border-top: 3px double var(--duel-rule-hi); }
 /* Category: a slim edge in the category colour and its icon before the text. */
 .log li[data-cat] { box-shadow: inset 2px 0 0 color-mix(in srgb, var(--duel-cat) 70%, transparent); }
+.logSeat { color: var(--seat-main); font-weight: 600; }
+.logSeat::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 4px; border-radius: 50%; background: var(--seat-main); vertical-align: 1px; }
 .logGlyph { display: inline-block; margin-right: 6px; vertical-align: -1px; color: var(--duel-cat); }
 .log li[data-cat="summon"] { --duel-cat: var(--duel-cat-summon); }
 .log li[data-cat="chain"] { --duel-cat: var(--duel-cat-chain); }
@@ -672,7 +674,8 @@
   --hud-top: calc(36px + 3dvh);
   /* Your hand is the last thing at the bottom, so the board's frame ends 5px above the screen edge. */
   --hud-bottom: 5px;
-  --hud-left: 156px;
+  /* The card peek always stands in the left column, right of the dock: the board starts right of it (see --pv-col-w in table/grid-hud.module.css). */
+  --hud-left: calc(72px + clamp(220px, 14vw, 284px) + 12px);
   /* The corner stack is a little narrower than the gutter right of the board at 1280px. */
   --hud-corner-w: 168px;
   /* The Deck Master plate sits at the bottom of the left margin, as no bar is under it. */
@@ -689,8 +692,11 @@
      (narrow or nearly square screens), its bottom-right corner would go under the corner stack and hide your Deck
      pile. The right padding grows just enough to keep the board left of the stack (up to the stack's width plus its
      gaps, where the board starts to get narrower). It never leaves the board less than 660px: below 641px the field
-     changes to its phone layout. On wide screens the term is negative and the minimum applies. */
-  --hud-right-need: calc(520px + 105.6dvh - 100vw);
+     changes to its phone layout. On wide screens the term is negative and the minimum applies.
+     The math: the board is W = 105.6dvh wide and centered between --hud-left and the right padding p, so its right edge is at
+     (100vw + --hud-left - p + W) / 2. Keeping that 182px (the stack's width plus its gap) left of the screen edge gives
+     p = --hud-left + 2 x 182px + W - 100vw. */
+  --hud-right-need: calc(var(--hud-left) + 364px + 105.6dvh - 100vw);
   --hud-right-max: min(calc(var(--hud-corner-w) + 28px), calc(100vw - var(--hud-left) - 660px));
   padding: var(--hud-top) clamp(14px, var(--hud-right-need), var(--hud-right-max)) var(--hud-bottom) var(--hud-left);
   border-left: 0;

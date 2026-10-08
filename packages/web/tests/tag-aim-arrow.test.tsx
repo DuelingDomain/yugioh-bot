@@ -223,20 +223,36 @@ describe("aim arrow on the Tag table: the card menu draws no aim", () => {
     expect(onAnswer).not.toHaveBeenCalled();
   });
 
-  it("Attack starts the aim with no target until the player aims", () => {
+  it("Attack starts the aim with no target until the player aims, and sends nothing until a target is clicked", () => {
     const onAnswer = vi.fn();
     const { container } = render(<Menu onAnswer={onAnswer} />);
     const attack = openMenu(container);
     act(() => void fireEvent.click(attack));
-    expect(onAnswer).toHaveBeenCalledWith({ choice: "attack:0" });
+    expect(onAnswer).not.toHaveBeenCalled();
     expect(arrow()).toBeNull();
     expect(document.querySelector("[data-aim-hot='true']")).toBeNull();
     move(container.querySelector("[data-table-stage]")!);
     expect(arrow()?.getAttribute("data-aim-arrow")).toBe("free");
     expect(label()).toBeNull();
     expect(document.querySelector("[data-aim-hot='true']")).toBeNull();
-    move(container.querySelector<HTMLElement>("[data-zones][data-legal='true']")!);
+    const target = container.querySelector<HTMLElement>("[data-zones][data-legal='true']")!;
+    move(target);
     expect(arrow()?.getAttribute("data-aim-arrow")).toBe("snapped");
     expect(label()).toMatch(/^Attack: /);
+    expect(onAnswer).not.toHaveBeenCalled();
+    pointerClick(target.matches("button") ? target : (target.querySelector("button") ?? target));
+    expect(onAnswer).toHaveBeenCalledWith({ choice: "attack:0" });
+  });
+
+  it("Esc ends the aim and sends nothing", () => {
+    const onAnswer = vi.fn();
+    const { container } = render(<Menu onAnswer={onAnswer} />);
+    const attack = openMenu(container);
+    act(() => void fireEvent.click(attack));
+    move(container.querySelector("[data-table-stage]")!);
+    expect(arrow()).not.toBeNull();
+    act(() => void fireEvent.keyDown(window, { key: "Escape" }));
+    expect(arrow()).toBeNull();
+    expect(onAnswer).not.toHaveBeenCalled();
   });
 });

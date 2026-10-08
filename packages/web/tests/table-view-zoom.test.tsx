@@ -234,6 +234,7 @@ describe("useViewZoom on a board", () => {
             zone
           </button>
           <div data-testid="floor" />
+          <div data-grid-cell="0" data-testid="cell" />
         </div>
         <div data-slot="prompt">
           <button type="button" data-testid="prompt">yes</button>
@@ -326,6 +327,24 @@ describe("useViewZoom on a board", () => {
     rerender(<Board onZone={() => undefined} onBoard={() => undefined} resetKey="b" />);
     expect(root.dataset.scale).toBe("1.00");
     expect(getByTestId("layer").style.transform).toBe("");
+  });
+
+  it("a double-click on a grid cell never resets the view; on empty board outside the cells it does", () => {
+    const { getByTestId } = render(<Board onZone={() => undefined} onBoard={() => undefined} />);
+    const root = getByTestId("root");
+    act(() => {
+      root.dispatchEvent(new WheelEvent("wheel", { deltaY: -500, clientX: 500, clientY: 300, bubbles: true, cancelable: true }));
+    });
+    const zoomed = root.dataset.scale;
+    expect(zoomed).not.toBe("1.00");
+    act(() => {
+      fireEvent.doubleClick(getByTestId("cell"));
+    });
+    expect(root.dataset.scale).toBe(zoomed);
+    act(() => {
+      fireEvent.doubleClick(getByTestId("floor"));
+    });
+    expect(root.dataset.scale).toBe("1.00");
   });
 
   it("eases a view that the HUD let past the new clamps back in when the HUD goes (refit)", () => {
