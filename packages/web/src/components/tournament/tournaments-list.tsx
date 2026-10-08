@@ -1,12 +1,14 @@
 "use client";
 
+import * as React from "react";
 import { FloorList, SectionHead } from "@/components/sheet";
 import { EmptyTournaments } from "@/components/empty-states/empty-tournaments";
+import styles from "./tournaments-list.module.css";
 import { TournamentRow } from "./tournament-row";
 import { FinishedLedger } from "./finished-ledger";
 import { LoadMore } from "@/components/paged-list/load-more";
 import { usePagedList } from "@/lib/hooks/use-paged-list";
-import { groupTournaments, tournamentFromApi, type TournamentApiItem, type TournamentListItem } from "./tournaments-list-model";
+import { FINISHED_PREVIEW, groupTournaments, tournamentFromApi, type TournamentApiItem, type TournamentListItem } from "./tournaments-list-model";
 import type { TournamentRounds } from "@/components/dashboard/tournament-rounds";
 
 export interface TournamentsListProps {
@@ -29,12 +31,16 @@ export function TournamentsList({ initialItems, nextCursor, rounds, viewerId }: 
   });
   const tournaments = list.items;
   const groups = groupTournaments(tournaments);
+  // One pagination control at a time: "Show all N" first, then "Load more".
+  const [expanded, setExpanded] = React.useState(false);
+  const previewOpen = expanded || list.appended;
+  const collapsed = !previewOpen && groups.finished.length > FINISHED_PREVIEW;
   return (
-    <>
+    <div className={styles.paged}>
       {tournaments.length === 0 ? (
         <EmptyTournaments />
       ) : (
-        <>
+        <div className={styles.sections}>
           {groups.running.length > 0 && (
             <section aria-labelledby="tl-run">
               <SectionHead title="In progress" id="tl-run" />
@@ -58,12 +64,12 @@ export function TournamentsList({ initialItems, nextCursor, rounds, viewerId }: 
           {groups.finished.length > 0 && (
             <section aria-labelledby="tl-fin">
               <SectionHead title="Finished" id="tl-fin" note="Newest first" />
-              <FinishedLedger items={groups.finished} showAll={list.appended} />
+              <FinishedLedger items={groups.finished} showAll={previewOpen} onShowAll={() => setExpanded(true)} />
             </section>
           )}
-        </>
+        </div>
       )}
-      <LoadMore list={list} noun="tournaments" />
-    </>
+      {!collapsed && <LoadMore list={list} noun="tournaments" />}
+    </div>
   );
 }

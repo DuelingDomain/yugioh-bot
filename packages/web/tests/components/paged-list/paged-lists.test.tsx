@@ -82,15 +82,26 @@ describe("DraftsList load more", () => {
     expect(screen.getAllByRole("link", { name: /Draft 1/ })).toHaveLength(1);
   });
 
-  it("shows every finished row after loading, not just the first ten", async () => {
+  it("holds back Load more while the finished preview is collapsed, then shows it after Show all", async () => {
     const first = Array.from({ length: 12 }, (_, i) => draft(i + 1));
     fetchMock.mockReturnValueOnce(json({ items: [apiDraft(13)], nextCursor: "more" }));
     renderList(first, "c1");
     expect(screen.queryByRole("link", { name: /Draft 12/ })).toBeNull();
-    fireEvent.click(loadMore());
-    expect(await screen.findByRole("link", { name: /Draft 13/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show all 12" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /load more/i })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show all 12" }));
     expect(screen.getByRole("link", { name: /Draft 12/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /show all/i })).toBeNull();
+    fireEvent.click(loadMore());
+    expect(await screen.findByRole("link", { name: /Draft 13/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Load more" })).toBeInTheDocument();
+  });
+
+  it("shows Load more at once when nothing is hidden behind Show all", () => {
+    renderList(Array.from({ length: 10 }, (_, i) => draft(i + 1)), "c1");
+    expect(screen.queryByRole("button", { name: /show all/i })).toBeNull();
+    expect(loadMore()).toBeInTheDocument();
   });
 
   it("disables the button with a spinner while loading, and a second click does not fetch again", async () => {
@@ -215,14 +226,17 @@ describe("TournamentsList load more", () => {
     expect(row.querySelector("[aria-label$='rounds']")).toBeNull();
   });
 
-  it("shows every finished tournament after loading, not just the first five", async () => {
+  it("holds back Load more while the finished preview is collapsed, then shows it after Show all", async () => {
     const first = Array.from({ length: 7 }, (_, i) => tournament(i + 1));
     fetchMock.mockReturnValueOnce(json({ items: [tournament(8)], nextCursor: "t3" }));
     renderList(first, "t2");
     expect(screen.queryByRole("link", { name: /Cup 7/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /load more/i })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show all 7" }));
+    expect(screen.getByRole("link", { name: /Cup 7/ })).toBeInTheDocument();
     fireEvent.click(loadMore());
     await screen.findByRole("link", { name: /Cup 8/ });
-    expect(screen.getByRole("link", { name: /Cup 7/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Load more" })).toBeInTheDocument();
   });
 
   it("prevents a double click, then shows an error and retries", async () => {

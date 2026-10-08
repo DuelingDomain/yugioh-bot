@@ -1,12 +1,13 @@
 "use client";
 
+import * as React from "react";
 import { FloorList, SectionHead } from "@/components/sheet";
 import { LiveDraftRow, WaitingDraftRow } from "./draft-rows";
 import { FinishedLedger } from "./finished-ledger";
 import { EmptyDrafts } from "@/components/empty-states/empty-drafts";
 import { LoadMore } from "@/components/paged-list/load-more";
 import { usePagedList } from "@/lib/hooks/use-paged-list";
-import { draftFromApi, groupDrafts, type DraftApiItem, type DraftListItem } from "./drafts-list-model";
+import { FINISHED_PREVIEW, draftFromApi, groupDrafts, type DraftApiItem, type DraftListItem } from "./drafts-list-model";
 import styles from "./drafts-list.module.css";
 
 export interface DraftsListProps {
@@ -27,8 +28,12 @@ export function DraftsList({ initialItems, nextCursor }: DraftsListProps) {
   });
   const drafts = list.items;
   const groups = groupDrafts(drafts);
+  // One pagination control at a time: "Show all N" first, then "Load more".
+  const [expanded, setExpanded] = React.useState(false);
+  const previewOpen = expanded || list.appended;
+  const collapsed = !previewOpen && groups.finished.length > FINISHED_PREVIEW;
   return (
-    <>
+    <div className={styles.paged}>
       {drafts.length === 0 ? (
         <EmptyDrafts />
       ) : (
@@ -56,12 +61,12 @@ export function DraftsList({ initialItems, nextCursor }: DraftsListProps) {
           {groups.finished.length > 0 && (
             <section aria-labelledby="dl-fin">
               <SectionHead id="dl-fin" title="Finished" note="Newest first" />
-              <FinishedLedger items={groups.finished} labelledBy="dl-fin" showAll={list.appended} />
+              <FinishedLedger items={groups.finished} labelledBy="dl-fin" showAll={previewOpen} onShowAll={() => setExpanded(true)} />
             </section>
           )}
         </div>
       )}
-      <LoadMore list={list} noun="drafts" />
-    </>
+      {!collapsed && <LoadMore list={list} noun="drafts" />}
+    </div>
   );
 }

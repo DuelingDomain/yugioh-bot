@@ -1,5 +1,5 @@
 /* The foot of a paged list. The button is the kit's ghost button; this only places it. */
-.foot { display: grid; justify-items: start; gap: 10px; margin-top: clamp(24px, 4cqi, 36px); min-width: 0; }
+.foot { display: grid; justify-items: start; gap: 10px; margin-top: 16px; min-width: 0; }
 .row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; max-width: 100%; }
 /* A fixed minimum keeps the button from changing width when the spinner appears. */
 .btn { min-width: 140px; }

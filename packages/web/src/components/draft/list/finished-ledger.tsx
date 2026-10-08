@@ -11,8 +11,10 @@ export interface FinishedLedgerProps {
   labelledBy?: string;
   /** Rows were loaded from further pages, so none stay hidden behind "Show all". */
   showAll?: boolean;
+  /** Called when "Show all N" is pressed, so the list can hold back "Load more" until then. */
+  onShowAll?: () => void;
 }
-export function FinishedLedger({ items, labelledBy, showAll = false }: FinishedLedgerProps) {
+export function FinishedLedger({ items, labelledBy, showAll = false, onShowAll }: FinishedLedgerProps) {
   const [all, setAll] = React.useState(false);
   const shown = all || showAll ? items : items.slice(0, FINISHED_PREVIEW);
   const hidden = items.length - shown.length;
@@ -42,7 +44,7 @@ export function FinishedLedger({ items, labelledBy, showAll = false }: FinishedL
         ))}
       </FloorList>
       {hidden > 0 && (
-        <button type="button" className={styles.more} onClick={() => setAll(true)}>
+        <button type="button" className={styles.more} onClick={() => { setAll(true); onShowAll?.(); }}>
           Show all {items.length}
         </button>
       )}
