@@ -12,6 +12,7 @@ export function graduationText(card: CardIdentity): string {
 function agrees(old: CardIdentity, next: CardIdentity): boolean {
   const text = graduationText(old);
   return hasDedupeIdentity(old) && hasDedupeIdentity(next) && text.length >= 40 && text === graduationText(next)
+    && (old.type & 7) === (next.type & 7)
     && stats.every(field => old[field] !== undefined && next[field] !== undefined && old[field] === next[field]);
 }
 
@@ -39,14 +40,14 @@ export function matchGraduations(transitions: GraduationTransition[]): { remaps:
   return { remaps, unmatched };
 }
 
-export function parseRemapOverrides(bytes: string): Record<string, number> {
+export function parseRemapOverrides(bytes: string): Record<string, number | null> {
   const value: unknown = JSON.parse(bytes);
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid card remap overrides: expected old-code -> new-code object");
   for (const [old, target] of Object.entries(value)) {
     if (!/^[1-9]\d*$/.test(old) || !Number.isSafeInteger(Number(old)) || Number(old) > 0xffffffff ||
-      typeof target !== "number" || !Number.isSafeInteger(target) || target <= 0 || target > 0xffffffff || Number(old) === target) {
+      (target !== null && (typeof target !== "number" || !Number.isSafeInteger(target) || target <= 0 || target > 0xffffffff || Number(old) === target))) {
       throw new Error(`Invalid card remap override ${old}`);
     }
   }
-  return value as Record<string, number>;
+  return value as Record<string, number | null>;
 }

@@ -54,6 +54,9 @@ const preferred = (a: Row, b: Row) =>
 export async function downloadReleasedCardData(commit: string, directory: string, request: Download = fetch,
   options: { historyStart?: string; historicalCards?: CardIdentity[]; historicalGraduations?: GraduationTransition[]; overrideBytes?: string } = {}) {
   const files = await discoverReleasedDatabases(commit, request);
+  const overrideSource = options.overrideBytes ?? await readFile(new URL("../card-remap-overrides.json", import.meta.url), "utf8");
+  const overrides = parseRemapOverrides(overrideSource);
+  const overridden = (code: string | number) => Object.hasOwn(overrides, code);
   await mkdir(directory, { recursive: true });
   const inputs = join(directory, "cdb-inputs");
   await mkdir(inputs, { recursive: true });
@@ -89,7 +92,7 @@ export async function downloadReleasedCardData(commit: string, directory: string
   const drops: PrereleaseDrop[] = [];
   const remaps: Record<string, number> = {};
   const addRemap = (old: number, target: number) => {
-    if (old === target) return;
+    if (old === target || overridden(old)) return;
     if (remaps[old] !== undefined && remaps[old] !== target) throw new Error(`Ambiguous prerelease passcode ${old}`);
     remaps[old] = target;
   };
@@ -153,7 +156,7 @@ export async function downloadReleasedCardData(commit: string, directory: string
       }
       continue;
     }
-    if (winner) {
+    if (winner && !overridden(row.code)) {
       const existing = remaps[row.code];
       if (existing !== undefined && existing !== winner.code) throw new Error(`Ambiguous historical prerelease passcode ${row.code}`);
       addRemap(row.code, winner.code);
@@ -165,22 +168,20 @@ export async function downloadReleasedCardData(commit: string, directory: string
     if (seen.has(code)) throw new Error(`Cyclic historical prerelease passcode ${code}`);
     if (scriptCodes.has(code)) return code;
     seen.add(code);
-    const target = remaps[code] ?? matched.remaps[code];
-    return target === undefined ? undefined : resolveTarget(target, seen);
+    const target = overridden(code) ? overrides[code] : remaps[code] ?? matched.remaps[code];
+    return target == null ? undefined : resolveTarget(target, seen);
   };
-  const overrideSource = options.overrideBytes ?? await readFile(new URL("../card-remap-overrides.json", import.meta.url), "utf8");
-  const overrides = parseRemapOverrides(overrideSource);
   for (const [old, target] of Object.entries(overrides)) {
     const sources = historical.concat(previews).filter(row => row.code === Number(old));
-    const current = released.get(target) ?? keptIds.get(target);
-    if (!sources.length || sources.some(row => !hasDedupeIdentity(row)) || scriptCodes.has(Number(old)) || !current || !hasDedupeIdentity(current)) {
+    const current = target === null ? undefined : released.get(target) ?? keptIds.get(target);
+    if (!sources.length || sources.some(row => !hasDedupeIdentity(row)) || scriptCodes.has(Number(old)) || (target !== null && (!current || !hasDedupeIdentity(current)))) {
       throw new Error(`Invalid card remap override ${old} -> ${target}: source must be a supported removed main card; target must be a retained main card`);
     }
-    if (remaps[old] !== undefined && remaps[old] !== target) throw new Error(`Conflicting card remap override ${old}`);
-    addRemap(Number(old), target);
+    if (target === null) delete remaps[old];
+    else remaps[old] = target;
   }
   for (const [old, target] of Object.entries(matched.remaps)) {
-    if (scriptCodes.has(Number(old))) continue;
+    if (scriptCodes.has(Number(old)) || overridden(old)) continue;
     const current = resolveTarget(target);
     if (current !== undefined) addRemap(Number(old), current);
   }

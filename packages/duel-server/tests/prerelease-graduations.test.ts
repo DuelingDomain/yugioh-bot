@@ -17,6 +17,10 @@ it("permits changed numeric card type when independent signals agree",()=>{
  const result=matchGraduations([{commit:"type-correction",removed:[pair.before],added:[{...pair.after,type:pair.after.type|0x100000}]}]);
  expect(result.remaps).toEqual({[pair.before.code]:pair.after.code});
 });
+it("requires the same monster, spell or trap kind even when all other evidence agrees",()=>{
+ const pair=fixture.examples[0]!;
+ for(const type of [2,4]) expect(matchGraduations([{commit:"different-kind",removed:[pair.before],added:[{...pair.after,type}]}]).remaps).toEqual({});
+});
 it("does not guess on equal stats alone or blank/short effect text",()=>{
  const pair=fixture.examples[0]!;
  for(const description of ["", "different effect", "Draw 1 card."]){
@@ -46,6 +50,7 @@ it("only matches rows from the same bump, never main-to-artwork or token",()=>{
 });
 it("parses a small old-code-to-new-code override file and rejects malformed/self maps",()=>{
  expect(parseRemapOverrides('{"101402001":77482666}\n')).toEqual({101402001:77482666});
+ expect(parseRemapOverrides('{"101402001":null}\n')).toEqual({101402001:null});
  for(const bytes of ['[]','null','{"old":12}','{"101402001":"77482666"}','{"12":12}','{"0":12}','{"12":4294967296}']) expect(()=>parseRemapOverrides(bytes)).toThrow(/override/i);
 });
 it("never substitutes a self-name substring inside another referenced card's name",()=>{
