@@ -167,7 +167,7 @@
     p.mount.classList.add('is-done');
     if (p === heroPack) {
       stage.classList.add('is-opened');
-      p.mount.setAttribute('aria-label', 'Pack opened. Your five cards are below.');
+      p.mount.setAttribute('aria-label', 'Pack opened. Your six cards are below.');
     }
   }
   function openAll(instant) { openPack(heroPack, instant); openPack(finalPack, instant); if (instant) deal(heroPack, true); }

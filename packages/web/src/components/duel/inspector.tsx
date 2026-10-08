@@ -77,6 +77,26 @@ function InfoBody({ card: liveCard }: { card: DuelCard | DuelCardInfo }) {
   );
 }
 
+/** The extra lines of a board card: its equip link, counters and Xyz materials. The Card flyout and the pinned peek both show them. */
+export function cardExtraLines(card: DuelCard, equipLinks?: EquipLinks): string[] {
+  const extras: string[] = [];
+  const equipText = equipLinks ? equipSentence(roleOfCard(equipLinks, card)) : null;
+  if (equipText) extras.push(equipText);
+  if (card.counters?.length) {
+    for (const counter of card.counters) {
+      extras.push(`Counter ${counter.type}: ${counter.count}`);
+    }
+  }
+  if (card.materials?.length) {
+    extras.push(
+      `Materials: ${card.materials
+        .map((material) => (material.code == null ? "face-down" : (material.name ?? `Card ${material.code}`)))
+        .join(", ")}`,
+    );
+  }
+  return extras;
+}
+
 /** The seat that owns a card, for tables of 3 or more seats: the inspector adds an "Owner" line in the seat colour. */
 export type InspectorOwner = { name: string; tone: { main: string; ink: string } };
 
@@ -143,21 +163,7 @@ export function CardInspector({
     return <InfoBody card={target.card} />;
   }
 
-  const extras: string[] = [];
-  const equipText = equipLinks ? equipSentence(roleOfCard(equipLinks, target.card)) : null;
-  if (equipText) extras.push(equipText);
-  if (target.card.counters?.length) {
-    for (const counter of target.card.counters) {
-      extras.push(`Counter ${counter.type}: ${counter.count}`);
-    }
-  }
-  if (target.card.materials?.length) {
-    extras.push(
-      `Materials: ${target.card.materials
-        .map((material) => (material.code == null ? "face-down" : (material.name ?? `Card ${material.code}`)))
-        .join(", ")}`,
-    );
-  }
+  const extras = cardExtraLines(target.card, equipLinks);
 
   const owner = ownerOf?.(target.card) ?? null;
   return (

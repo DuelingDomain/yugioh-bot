@@ -35,7 +35,8 @@ import {
 } from "lucide-react";
 import { TYPE_MONSTER } from "@/components/duel/constants";
 import { parseDeckText, selectDomainMaster, type DeckMasterSelection } from "@/components/duel/ydk";
-import { SheetRoot, StatusLine, SvButton, Zone } from "@/components/sheet";
+import { SheetRoot, StatusLine, SvButton, Zone, segmentSlide } from "@/components/sheet";
+import { useTabDirection } from "@/lib/tab-motion";
 import { cn } from "@/lib/utils";
 import { useNavigationLeaveGuard } from "@/lib/hooks/use-duel-leave-guard";
 import { DeckRequestError, createSavedDeck, deleteSavedDeck, getDeckCardFacets, getDeckCards, getSavedDeck, readRegistration, saveDraftDeck, swapDeckArtwork, updateSavedDeck, type DeckRegistrationMark, type SavedDeckView } from "./api";
@@ -118,6 +119,7 @@ const MODE_CHOICES = [
 ] as const;
 
 const HISTORY_LIMIT = 100;
+const PHONE_TAB_ORDER = ["deck", "cards"] as const;
 /** Passcodes per card-details request; the route takes at most 1000. */
 const POOL_CHUNK = 500;
 const HAND_SIZE = 5;
@@ -234,6 +236,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   const [poolRetry, setPoolRetry] = useState(0);
   const { editorRef, isPhone } = useEditorViewport(!!pool);
   const [phoneTab, setPhoneTab] = useState<"deck" | "cards">("deck");
+  const phoneDir = useTabDirection(phoneTab, PHONE_TAB_ORDER);
   const [cardSheetOpen, setCardSheetOpen] = useState(false);
   // The Deck Master slot was the last place a card was opened from, so a new art replaces the master.
   const [masterPick, setMasterPick] = useState(false);
@@ -1075,7 +1078,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   return (
     <SheetRoot className={styles.host} data-pool={pool ? "" : undefined} aria-hidden={isPhone && cardSheetOpen ? true : undefined}>
       {pool ? <OwnsPageBar room /> : null}
-      <div ref={editorRef} className={styles.de} data-tab={phoneTab}>
+      <div ref={editorRef} className={styles.de} data-tab={phoneTab} data-pane-dir={phoneDir}>
         <header className={styles["de-bar"]}>
           <Link href={backHref} className={styles["de-back"]} aria-label={pool ? "Back to the draft" : "Back to decks"}>
             <ChevronLeft size={18} strokeWidth={2} aria-hidden />
@@ -1171,7 +1174,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
           </div>
           {pool ? <span className={styles["de-menu"]}><ShellMenuButton /></span> : null}
         </header>
-        <div className={cn("seg", styles["de-tabs"])} role="tablist" aria-label="Editor" onKeyDown={(event) => {
+        <div className={cn("seg", styles["de-tabs"])} role="tablist" aria-label="Editor" {...segmentSlide(2, phoneTab === "deck" ? 0 : 1)} onKeyDown={(event) => {
           if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
           event.preventDefault();
           const next = event.key === "Home" ? "deck" : event.key === "End" ? "cards" : phoneTab === "deck" ? "cards" : "deck";

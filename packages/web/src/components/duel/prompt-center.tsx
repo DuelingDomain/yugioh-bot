@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Check, EyeOff, Link2 } from "lucide-react";
 import type { DuelAnswer, DuelCardInfo, DuelChainLink, DuelPrompt, DuelPromptOption, DuelZoneRef } from "@yugidraft/shared/duels";
 import {
@@ -37,6 +37,7 @@ import { chainCardName } from "./chain-state";
 import { PriorityChips, type PrioritySlot } from "./priority-chips";
 import { CardBack } from "./card-face";
 import { CardStrip, type StripCard } from "./card-strip";
+import { isMaterialOption, materialHostNotes, type MaterialViewer } from "./material-host";
 import { optionNotes } from "./option-strip";
 import { battleStepLabel, type BattleStep } from "./station-track";
 import { PrecheckBar } from "./prompt-precheck";
@@ -48,6 +49,7 @@ import { placeTributeDock, sameDock, type DockPlace } from "./tribute-dock-place
 import base from "./prompts.module.css";
 import baseStyles from "./prompt-center.module.css";
 import { useSkinExtra, useSkinStyles } from "./skin";
+import { useMedia } from "@/components/draft/room/use-media";
 
 /**
  * Prompts answered in the middle of the board.
@@ -421,18 +423,71 @@ function CardArt({ option, className }: { option: DuelPromptOption; className: s
   return <img src={cardArtUrl(option.card.code, "small")} alt="" className={className} draggable={false} />;
 }
 
-/** Printed card text: clamped to a few lines with a toggle when long, scrollable when open. */
+/**
+ * The window sizes where long card text is cut to a few lines with a toggle: a width of 900px or less (the bottom-sheet
+ * layout of prompt-center.module.css, which must use the same number) or a height of 640px or less. A host that sets
+ * `data-prompt-dense` on the prompt slot (the 4-way grid, and the 3-way and Tag tables while the prompt sits in one
+ * field box) is small at any window size, so `CardTextBlock` also looks for that attribute on its ancestors.
+ */
+export const COMPACT_TEXT_QUERY = "(max-width: 900px), (max-height: 640px)";
+
+/**
+ * Printed card text: full by default. It is clamped to a few lines with a toggle when it is long and the space is small
+ * (a small window, or a dense host). The CSS also lets the box shrink before the options do, so options never leave the
+ * panel.
+ */
 function CardTextBlock({ text, label = "Card text", open: forceOpen }: { text: string; label?: string; open?: boolean }) {
   const styles = useSkinStyles(baseStyles, "prompt");
+  const root = useRef<HTMLDivElement>(null);
+  const bodyId = useId();
+  const smallWindow = useMedia(COMPACT_TEXT_QUERY);
+  const [dense, setDense] = useState(false);
+  // The table can set or clear data-prompt-dense on the prompt slot while this prompt is open (the camera moves), so watch it.
+  useLayoutEffect(() => {
+    const host = root.current?.closest('[data-slot="prompt"], [data-prompt-dense]');
+    if (!host) return;
+    const read = () => setDense(host.hasAttribute("data-prompt-dense"));
+    read();
+    if (typeof MutationObserver === "undefined") return;
+    const observer = new MutationObserver(read);
+    observer.observe(host, { attributes: true, attributeFilter: ["data-prompt-dense"] });
+    return () => observer.disconnect();
+  }, []);
+  const compact = smallWindow || dense;
   const [open, setOpen] = useState(Boolean(forceOpen));
   const long = text.length > 200 || text.split(/\r?\n/).length > 3;
-  const shown = open || !long;
+  const clamped = compact && long && !open;
+  // When the box is too short for the text it scrolls: a fade at the bottom says there is more until the end is reached.
+  const body = useRef<HTMLParagraphElement>(null);
+  const [scroll, setScroll] = useState({ overflow: false, end: true });
+  const measure = useCallback(() => {
+    const el = body.current;
+    if (!el) return;
+    const overflow = !clamped && el.scrollHeight - el.clientHeight > 1;
+    const end = el.scrollTop + el.clientHeight >= el.scrollHeight - 1;
+    setScroll((prev) => (prev.overflow === overflow && prev.end === end ? prev : { overflow, end }));
+  }, [clamped]);
+  useLayoutEffect(() => {
+    measure();
+    const el = body.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [measure, text]);
   return (
-    <div className={styles.cardText} data-open={shown ? "true" : "false"}>
+    <div ref={root} className={styles.cardText} data-open={clamped ? "false" : "true"} data-long={long ? "true" : undefined} data-lead={forceOpen ? undefined : "true"}>
       <span className={styles.cardTextLabel}>{label}</span>
-      <p className={styles.cardTextBody} data-clamped={shown ? "false" : "true"}>{text}</p>
-      {long && !forceOpen ? (
-        <button type="button" className={styles.cardTextMore} aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+      {/* A box that scrolls is a region the keyboard can reach and scroll. */}
+      <p
+        ref={body} id={bodyId} className={styles.cardTextBody} data-clamped={clamped ? "true" : "false"}
+        data-overflow={scroll.overflow ? "true" : undefined} data-end={scroll.overflow ? (scroll.end ? "true" : "false") : undefined}
+        tabIndex={scroll.overflow ? 0 : undefined} role={scroll.overflow ? "region" : undefined}
+        aria-label={scroll.overflow ? `${label}, scrollable` : undefined}
+        onScroll={measure}
+      >{text}</p>
+      {compact && long && !forceOpen ? (
+        <button type="button" className={styles.cardTextMore} aria-expanded={open} aria-controls={bodyId} onClick={() => setOpen((value) => !value)}>
           {open ? "Show less" : "Show full text"}
         </button>
       ) : null}
@@ -827,7 +882,7 @@ function ResponseBody({
         <ChainStrip chain={chain} compact={cards} mySeat={mySeat} nameOf={seatTones ? nameOf : undefined} />
         {priority && nameOf ? <PriorityChips order={priority} mySeat={mySeat} nameOf={nameOf} seatTones={seatTones} compact={cards} /> : null}
         {cards ? (
-          <StripChoice prompt={prompt} draft={draft} busy={busy} choose={choose} onInspectCard={onInspectCard} />
+          <StripChoice prompt={prompt} draft={draft} busy={busy} choose={choose} onInspectCard={onInspectCard} who={{ mySeat, nameOf: seatTones ? nameOf : undefined }} />
         ) : (
           <ChainRows prompt={prompt} draft={draft} busy={busy} mySeat={mySeat} choose={choose} onInspectCard={onInspectCard} seatTones={seatTones} nameOf={nameOf} />
         )}
@@ -876,13 +931,13 @@ function ResponseBody({
   }
 
   // A pick among cards (unselect/select one at a time): a strip of large cards, not rows.
-  if (isStripPrompt(prompt)) return <StripChoice prompt={prompt} draft={draft} busy={busy} choose={choose} onInspectCard={onInspectCard} />;
+  if (isStripPrompt(prompt)) return <StripChoice prompt={prompt} draft={draft} busy={busy} choose={choose} onInspectCard={onInspectCard} who={{ mySeat, nameOf: seatTones ? nameOf : undefined }} />;
 
   // Any other list of options: numbered rows, with art when the option names a card.
   return (
     <>
       {source?.text ? <CardTextBlock text={source.text} /> : null}
-      <div className={styles.rows}>
+      <div className={styles.rows} data-few={prompt.options.length <= 4 ? "true" : undefined}>
         {prompt.options.map((option, index) => {
           const { effectText: optionEffect } = optionTexts(option);
           // Seat-only choices use the same names as the LP panels, including duplicate-name seat numbers.
@@ -1064,18 +1119,20 @@ export function isChainStripPrompt(prompt: DuelPrompt): boolean {
 }
 
 /** The strip items for a choice prompt: the card, its name, and a short line only where one card has many options. */
-export function choiceStripItems(prompt: DuelPrompt): StripCard[] {
+export function choiceStripItems(prompt: DuelPrompt, who?: MaterialViewer): StripCard[] {
+  // A material has no effect to tell apart; it says which Xyz it is under when there is more than one.
   const notes = optionNotes(
-    prompt.options.map((option) => ({ code: option.card?.code ?? null, effect: effectText(option).effect })),
+    prompt.options.map((option) => ({ code: isMaterialOption(option) ? null : (option.card?.code ?? null), effect: effectText(option).effect })),
   );
+  const hosts = materialHostNotes(prompt.options, who);
   return prompt.options.map((option, index) => ({
     id: option.id,
     card: option.card as DuelCardInfo,
     label: option.card?.name ?? humanizeLabel(option.label),
     selected: prompt.kind === "toggle" && Boolean(option.selected),
     order: null,
-    detail: notes[index]?.detail,
-    detailTitle: notes[index]?.title,
+    detail: hosts[index]?.detail ?? notes[index]?.detail,
+    detailTitle: hosts[index]?.title ?? notes[index]?.title,
     location: option.location,
   }));
 }
@@ -1087,17 +1144,19 @@ function StripChoice({
   busy,
   choose,
   onInspectCard,
+  who,
 }: {
   prompt: DuelPrompt;
   draft: PromptDraft;
   busy: boolean;
   choose: (id: string) => void;
   onInspectCard?: InspectCardHandler;
+  who?: MaterialViewer;
 }) {
   const chainResponse = prompt.context?.type === "chain";
   return (
     <CardStrip
-      items={choiceStripItems(prompt)}
+      items={choiceStripItems(prompt, who)}
       highlight={draft.highlight}
       busy={busy}
       multi={false}
@@ -1121,6 +1180,7 @@ function GridPicker({
   onSubmit,
   onCollapse,
   onInspectCard,
+  who,
 }: {
   prompt: DuelPrompt;
   draft: PromptDraft;
@@ -1129,6 +1189,7 @@ function GridPicker({
   onSubmit: (answer: DuelAnswer) => void;
   onCollapse: () => void;
   onInspectCard?: InspectCardHandler;
+  who?: MaterialViewer;
 }) {
   const styles = useSkinStyles(baseStyles, "prompt");
   const counters = prompt.kind === "counters";
@@ -1164,14 +1225,17 @@ function GridPicker({
 
   // Cards to pick: one wide strip of large cards. Zones, counters and the rest keep the tile grid.
   const strip = isStripPrompt(prompt);
+  const hostNotes = strip ? materialHostNotes(prompt.options, who) : [];
   const stripItems: StripCard[] = strip
-    ? prompt.options.map((option) => ({
+    ? prompt.options.map((option, index) => ({
         id: option.id,
         card: option.card as DuelCardInfo,
         label: option.card?.name ?? humanizeLabel(option.label),
         selected: aim ? aim.lockedId === option.id : draft.selected.includes(option.id),
         order: prompt.kind === "order" ? draft.selected.indexOf(option.id) + 1 || null : null,
         note: valueDetail && option.values?.length ? option.values.join(" / ") : undefined,
+        detail: hostNotes[index]?.detail,
+        detailTitle: hostNotes[index]?.title,
         location: option.location,
       }))
     : [];
@@ -1867,7 +1931,7 @@ export function PromptCenter(props: PromptCenterProps) {
       >
         {stepLine ? <div className={styles.stepRow}>{stepLine}</div> : null}
         <GridPicker prompt={prompt} draft={draft} busy={busy} aim={aim} onSubmit={onSubmit} onCollapse={() => setCollapsed(true)}
-          onInspectCard={onInspectCard} />
+          onInspectCard={onInspectCard} who={{ mySeat, nameOf: props.seatTones ? props.nameOf : undefined }} />
       </div>
     );
   }

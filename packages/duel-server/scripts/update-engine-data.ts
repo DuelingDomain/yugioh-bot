@@ -7,8 +7,12 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import Database from "better-sqlite3";
+import { smokePrereleaseScripts } from "./prerelease-script-smoke.js";
+import { applyPrereleaseSmokeResult } from "./prerelease-script-exclusions.js";
+import { installCardScriptPatches } from "./card-script-patches.js";
 import { probeEngineData } from "./probe-engine-data.js";
-import { withValidation, prereleaseUpdateReport, prodScriptErrorReport } from "./engine-data-report.js";
+import { withValidation, prereleaseUpdateReport, prereleaseScriptReport, prodScriptErrorReport } from "./engine-data-report.js";
+import { cardUpdate, renderCardUpdate, withPreviewExclusions, withCardUpdate } from "./engine-data-card-report.js";
 import { listIndex, reconcile, scanText } from "./scan-multiplayer-scripts.js";
 import { discoverReleasedDatabases, downloadReleasedCardData, restrictPrereleaseScripts } from "./released-card-data.js";
 
@@ -142,12 +146,14 @@ export async function runUpdate(options: Options = {}) {
     await writeFile(reportPath, report.join("\n") + "\n\n" + prodScriptErrorReport(null));
   }
   if (!changed) {
+    const empty = { released: [], prerelease: [], remaps: {} };
+    report.push(renderCardUpdate(await cardUpdate(empty, empty)), "");
     report.push("no update: all three data pins already match the requested commits.");
     await saveReport();
     console.log("no update");
     return { changed, next, reportPath, files: [] as string[], changedPaths: [] as string[] };
   }
-  report.push("| Repository | Old → new | Commits ahead |", "| --- | --- | --- |");
+  report.push("## Upstream commits", "", "| Repository | Old → new | Commits ahead |", "| --- | --- | --- |");
   for (const key of keys) {
     const repo = repositories[key];
     const comparison = old[key] === next[key] ? null : await api<{ ahead_by: number; behind_by: number; status: string }>(`${repo}/compare/${old[key]}...${next[key]}?per_page=1`);
@@ -177,12 +183,14 @@ export async function runUpdate(options: Options = {}) {
     let oldDataError: string | undefined;
     const [database, oldDatabase] = await Promise.all([
       downloadReleasedCardData(next.database, temporary, download, { historyStart }),
-      downloadReleasedCardData(old.database, join(temporary,"old-data"), download).catch((error: unknown) => {
+      downloadReleasedCardData(old.database, join(temporary,"old-data"), download, { overrideBytes: "{}\n" }).catch((error: unknown) => {
         if (!(error instanceof Error) || !/^Ambiguous\b/.test(error.message)) throw error;
         oldDataError = error.message;
         return null;
       }),
     ]);
+    let cardChanges = await cardUpdate(oldDatabase, database, request);
+    report.splice(report.indexOf("## Upstream commits"), 0, renderCardUpdate(cardChanges), "");
     const oldDatabases = oldDatabase?.files ?? await discoverReleasedDatabases(old.database, download);
     const releases = database.files.filter(path => path.startsWith("release-"));
     const loadedCodes = new Set([...database.releaseCodes, ...database.prereleaseCodes]);
@@ -251,12 +259,28 @@ export async function runUpdate(options: Options = {}) {
       // Stop before rewriting pins, so duel:prepare cannot apply an unreviewed suffix.
       throw new Error(`patch needs review: ${patchConflicts.map(patch => patch.stockPath).join(", ")}. Current pins unchanged. Report: ${reportPath}`);
     }
+    if (options.validate !== false) {
+      // Match prepare-data: reviewed shared patches are part of the effective
+      // scripts being gated, after stock conflicts have already blocked the run.
+      installCardScriptPatches(extracted, join(root, packagePath, "card-script-patches"));
+      await writeFile(join(temporary, "strings.conf"), Buffer.from(await (await download(`https://raw.githubusercontent.com/ProjectIgnis/Distribution/${next.strings}/config/strings.conf`)).arrayBuffer()));
+      try {
+        await applyPrereleaseSmokeResult(database, await smokePrereleaseScripts(temporary, [...database.prereleaseCodes]));
+        const smoke = JSON.parse(database.remapBytes).scriptSmoke;
+        cardChanges = withPreviewExclusions(cardChanges, smoke.excluded.map((card: { code: number }) => card.code));
+        report.splice(0, report.length, withCardUpdate(report.join("\n"), cardChanges));
+        restrictPrereleaseScripts(extracted, database.scriptCodes);
+        report.push("", prereleaseScriptReport(smoke));
+      } catch (error) {
+        report.push("", "## Prerelease script safety", "", `BLOCKING: ${markdown(String(error))}. Current pins retained.`);
+        await saveReport(); throw error;
+      }
+    } else report.push("", "## Prerelease script safety", "", "Pending required prepare-time smoke check of every prerelease card; final validation reads the prepared bundle's exclusions.");
     const files = await rewritePins(root, old, next, true);
     report.push("", "## Synchronized files", "", ...files.map((path) => `- \`${path}\``));
     report.push("", "## Deployment", "", "**Live-duel warning:** a data pin bump changes bundleVersion. On recovery after deploy, an active duel whose bundleVersion differs is interrupted. Drain active duels and merge at a quiet time. The deploy preflight may refuse until duels finish. **Replay-loss warning:** every data bump also makes replays of all earlier duels with a different bundleVersion unavailable; host replay recovery refuses the mismatch. The owner must account for this when deciding update cadence.");
     report.push("", "## Golden hashes", "", "**Reviewer action in this PR:** re-record golden hashes with `run-nduel.sh --record` against the candidate bundle, review the diff, then run `run-nduel.sh --check`. Data pins change the cards.cdb/scripts inputs. Automated CI dispatch uses `nightly=false`; this does not waive golden re-recording before merge.");
     if (options.validate !== false) {
-      await writeFile(join(temporary, "strings.conf"), Buffer.from(await (await download(`https://raw.githubusercontent.com/ProjectIgnis/Distribution/${next.strings}/config/strings.conf`)).arrayBuffer()));
       const probe = await probeEngineData(temporary, changedPaths);
       let overlayExit = 0;
       let overlayLog = "";
@@ -273,7 +297,7 @@ export async function runUpdate(options: Options = {}) {
     await saveReport();
     if (!options.dryRun) await rewritePins(root, old, next, false);
     console.log(`${options.dryRun ? "dry run" : "update"}: ${diff.added.length} new, ${diff.changed.length} changed, ${diff.removed.length} removed official scripts; ${conflicts.length} overlay conflicts; ${risks.length} new multiplayer risks. Report: ${reportPath}`);
-    return { changed, next, reportPath, files, changedPaths };
+    return { changed, next, reportPath, files, changedPaths, cardChanges };
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }

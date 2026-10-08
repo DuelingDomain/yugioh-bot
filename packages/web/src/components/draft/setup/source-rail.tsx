@@ -44,12 +44,14 @@ import { CubePicker } from "../pool/cube-picker";
 import { StatusBar } from "../pool/status-bar";
 import type { PoolEditor } from "../pool/use-pool-editor";
 import { cardsText } from "../pool/pool-model";
-import { svButtonClass } from "@/components/sheet";
+import { segmentSlide, svButtonClass } from "@/components/sheet";
+import { useTabDirection, type PaneDirection } from "@/lib/tab-motion";
 import poolStyles from "../pool/pool.module.css";
 import styles from "./source-rail.module.css";
 
 export type SourceTab = "cards" | "archetype" | "set" | "list" | "cubes";
 export type RailView = "sources" | "card";
+const RAIL_VIEWS: readonly RailView[] = ["sources", "card"];
 
 export const SOURCE_TABS: ReadonlyArray<{ value: SourceTab; label: string }> = [
   { value: "cards", label: "Cards" },
@@ -58,6 +60,7 @@ export const SOURCE_TABS: ReadonlyArray<{ value: SourceTab; label: string }> = [
   { value: "list", label: "List" },
   { value: "cubes", label: "Cubes" },
 ];
+const SOURCE_TAB_ORDER: readonly SourceTab[] = SOURCE_TABS.map((t) => t.value);
 
 export interface SourceRailProps {
   ctl: PoolEditor;
@@ -171,6 +174,21 @@ export function SourceRail({ ctl, inspector, tab: tabProp, defaultTab = "cards",
     }
   };
 
+  // Which way each switch travelled, for the panels' arrival (globals.css, data-pane).
+  // The view also flips by itself (a hovered or pinned card shows at once), and that stays instant: only the switch
+  // buttons set `byHand`, for the render their click causes.
+  const byHand = React.useRef(false);
+  const viewDir = useTabDirection(view, RAIL_VIEWS, byHand.current);
+  const tabDir = useTabDirection(tab, SOURCE_TAB_ORDER);
+
+  const pick = (next: RailView) => {
+    byHand.current = true;
+    setTimeout(() => {
+      byHand.current = false;
+    }, 50);
+    choose(next);
+  };
+
   const sourcesId = `${ids}-sources`;
   const cardId = `${ids}-card`;
   const pinnedAway = inspector.pinnedId !== null && view !== "card";
@@ -193,8 +211,8 @@ export function SourceRail({ ctl, inspector, tab: tabProp, defaultTab = "cards",
         {!split ? (
           <h2 className={styles.title}>Sources</h2>
         ) : (
-          <div className={styles.switch} role="tablist" aria-label="Left panel">
-            <button type="button" role="tab" id={`${ids}-t-sources`} aria-selected={view === "sources"} aria-controls={sourcesId} onClick={() => choose("sources")}>
+          <div className={styles.switch} role="tablist" aria-label="Left panel" data-hand={viewDir ? "" : undefined} {...segmentSlide(RAIL_VIEWS.length, RAIL_VIEWS.indexOf(view))}>
+            <button type="button" role="tab" id={`${ids}-t-sources`} aria-selected={view === "sources"} aria-controls={sourcesId} onClick={() => pick("sources")}>
               Sources
             </button>
             <button
@@ -204,7 +222,7 @@ export function SourceRail({ ctl, inspector, tab: tabProp, defaultTab = "cards",
               aria-selected={view === "card"}
               aria-controls={cardId}
               aria-describedby={pinnedAway ? dotId : undefined}
-              onClick={() => choose("card")}
+              onClick={() => pick("card")}
             >
               Card
               {pinnedAway && <i className={styles.pdot} aria-hidden="true" data-testid="pinned-dot" />}
@@ -227,8 +245,8 @@ export function SourceRail({ ctl, inspector, tab: tabProp, defaultTab = "cards",
         ) : null}
       </div>
 
-      <div className={styles.sources} id={sourcesId} role={split ? "tabpanel" : undefined} aria-labelledby={split ? `${ids}-t-sources` : undefined} hidden={view === "card"}>
-        <div className={styles.tabs} role="tablist" aria-label="Where cards come from" onKeyDown={tabKeys}>
+      <div className={styles.sources} id={sourcesId} data-pane="self" data-pane-dir={viewDir} role={split ? "tabpanel" : undefined} aria-labelledby={split ? `${ids}-t-sources` : undefined} hidden={view === "card"}>
+        <div className={styles.tabs} role="tablist" aria-label="Where cards come from" onKeyDown={tabKeys} {...segmentSlide(SOURCE_TABS.length, SOURCE_TAB_ORDER.indexOf(tab))}>
           {SOURCE_TABS.map((t) => (
             <button
               key={t.value}
@@ -247,30 +265,30 @@ export function SourceRail({ ctl, inspector, tab: tabProp, defaultTab = "cards",
         </div>
         <div className={styles.body}>
           {visited.has("cards") && (
-            <Pane ids={ids} value="cards" tab={tab}>
+            <Pane dir={tabDir} ids={ids} value="cards" tab={tab}>
               <CardTab ctl={ctl} setNote={setNote} />
               {tab === "cards" && <NoteLine note={note} />}
             </Pane>
           )}
           {visited.has("archetype") && (
-            <Pane ids={ids} value="archetype" tab={tab}>
+            <Pane dir={tabDir} ids={ids} value="archetype" tab={tab}>
               <ArchetypeTab ctl={ctl} setNote={setNote} />
               {tab === "archetype" && <NoteLine note={note} />}
             </Pane>
           )}
           {visited.has("set") && (
-            <Pane ids={ids} value="set" tab={tab}>
+            <Pane dir={tabDir} ids={ids} value="set" tab={tab}>
               <SetTab ctl={ctl} setNote={setNote} />
               {tab === "set" && <NoteLine note={note} />}
             </Pane>
           )}
           {visited.has("list") && (
-            <Pane ids={ids} value="list" tab={tab}>
+            <Pane dir={tabDir} ids={ids} value="list" tab={tab}>
               <ListTab ctl={ctl} />
             </Pane>
           )}
           {visited.has("cubes") && (
-            <Pane ids={ids} value="cubes" tab={tab}>
+            <Pane dir={tabDir} ids={ids} value="cubes" tab={tab}>
               <CubesSource ctl={ctl} cubeActions={cubeActions} />
             </Pane>
           )}
@@ -282,7 +300,7 @@ export function SourceRail({ ctl, inspector, tab: tabProp, defaultTab = "cards",
       ) : (
         split &&
         view === "card" && (
-          <div className={styles.cardPane} id={cardId} role="tabpanel" aria-labelledby={`${ids}-t-card`}>
+          <div className={styles.cardPane} id={cardId} data-pane="self" data-pane-dir={viewDir} role="tabpanel" aria-labelledby={`${ids}-t-card`}>
             <CardInspector controller={inspector} className={styles.insp} />
           </div>
         )
@@ -299,9 +317,9 @@ export function SourceRail({ ctl, inspector, tab: tabProp, defaultTab = "cards",
   );
 }
 
-function Pane({ ids, value, tab, children }: { ids: string; value: SourceTab; tab: SourceTab; children: React.ReactNode }) {
+function Pane({ ids, value, tab, dir, children }: { ids: string; value: SourceTab; tab: SourceTab; dir: PaneDirection | undefined; children: React.ReactNode }) {
   return (
-    <div className={styles.pane} id={`${ids}-p-${value}`} role="tabpanel" aria-labelledby={`${ids}-s-${value}`} hidden={tab !== value}>
+    <div className={styles.pane} data-pane="self" data-pane-dir={dir} id={`${ids}-p-${value}`} role="tabpanel" aria-labelledby={`${ids}-s-${value}`} hidden={tab !== value}>
       {children}
     </div>
   );

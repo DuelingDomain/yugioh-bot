@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "../../fixtures/identity";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 import { migrate } from "../../../../shared/src/db/schema";
@@ -19,6 +19,7 @@ vi.mock("@/lib/env", () => ({ env: { discordGuildId: "g1" } }));
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
 
 import TournamentsPage from "../../../app/(app)/tournaments/page";
+import { OPEN_DRAFT, stubOpenNow } from "../../fixtures/open-now";
 
 describe("TournamentsPage", () => {
   let db: Database.Database;
@@ -28,9 +29,11 @@ describe("TournamentsPage", () => {
     seedFixtureUsers(db, FIXTURE_KEYS);
     getDb.mockReturnValue(db);
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1") } });
+    stubOpenNow();
   });
   afterEach(() => {
     cleanup();
+    vi.unstubAllGlobals();
     db.close();
     vi.clearAllMocks();
   });
@@ -40,13 +43,43 @@ describe("TournamentsPage", () => {
       .prepare(`insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug, created_at) values (?, ?, ?, ?, ${fixtureUserId("u1")}, ?, ?)`)
       .run(guild, name, format, status, slug, createdAt);
 
-  it("shows the empty state without a Discord command", async () => {
-    render(await TournamentsPage());
+  it("shows the empty state without a Discord command, with one primary action over a faded preview", async () => {
+    const { container } = render(await TournamentsPage());
     expect(screen.getByRole("heading", { name: "No tournaments yet" })).toBeTruthy();
     expect(screen.queryByText("/event create")).toBeNull();
-    expect(screen.getByText(/ready to share by link/)).toBeTruthy();
-    expect(screen.getAllByRole("link", { name: /new tournament/i }).length).toBe(2);
+    expect(screen.getByText(/Create one and share the link/)).toBeTruthy();
+    await waitFor(() => expect(screen.getAllByRole("link", { name: /new tournament/i })).toHaveLength(2));
+    expect(screen.getAllByRole("link", { name: /new tournament/i }).map((a) => a.getAttribute("href"))).toEqual(["/tournaments/new", "/tournaments/new"]);
+    expect(container.querySelectorAll(".sv-btn.primary")).toHaveLength(1);
+    expect(container.querySelector(".sv-bar a.sv-btn")).not.toHaveClass("primary");
+    expect(container.querySelector("[aria-hidden='true']")).not.toBeNull();
     expect(document.querySelector(".sv-bar-sub")).toBeNull();
+  });
+
+  it("leads with open drafts and running duels when there are any, the top row holding the one primary", async () => {
+    stubOpenNow({ tournaments: [], drafts: [OPEN_DRAFT], duelsInProgress: 1 });
+    const { container } = render(await TournamentsPage());
+    await screen.findByRole("heading", { name: "Open right now" });
+    expect(screen.getByRole("link", { name: "Join draft" })).toHaveClass("primary");
+    expect(container.querySelectorAll(".sv-btn.primary")).toHaveLength(1);
+    expect(screen.getByRole("link", { name: "Cube night" })).toHaveAttribute("href", "/draft/cube-night");
+    expect(screen.getByText("1 duel in progress")).toBeTruthy();
+    expect(screen.getAllByRole("link", { name: /new tournament/i })).toHaveLength(1);
+  });
+
+  it("falls back to the plain empty state when the open list fails", async () => {
+    stubOpenNow(503);
+    const { container } = render(await TournamentsPage());
+    await screen.findAllByRole("link", { name: /new tournament/i });
+    expect(container.querySelectorAll(".sv-btn.primary")).toHaveLength(1);
+    expect(screen.queryByRole("heading", { name: "Open right now" })).toBeNull();
+  });
+
+  it("keeps the New tournament bar button primary once there are tournaments", async () => {
+    add("Open one", "pending", "2026-02-01 00:00:00", "open-one");
+    render(await TournamentsPage());
+    expect(document.querySelector(".sv-bar a.sv-btn")).toHaveClass("primary");
+    expect(screen.queryByText("No tournaments yet")).toBeNull();
   });
 
   it("orders running, then open, then finished, newest first, and skips cancelled and other guilds", async () => {

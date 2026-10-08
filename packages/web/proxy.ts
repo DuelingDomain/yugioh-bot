@@ -2,12 +2,14 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse, type NextRequest, type NextMiddleware, type NextFetchEvent } from "next/server";
 import { E2E_SESSION_COOKIE, isE2EAuthEnabled, verifyE2ESession } from "@/lib/e2e-auth";
 import { fxLabEnabled, isFxLabPublicPath } from "@/lib/fx-lab";
-const PUBLIC = ["/sign-in(.*)", "/sign-up(.*)", "/sso-callback(.*)", "/access", "/login", "/favicon.ico", "/icon.svg", "/apple-icon.png", "/icons/(.*)"];
+const PUBLIC = ["/sign-in(.*)", "/sign-up(.*)", "/sso-callback(.*)", "/welcome-back", "/access", "/login", "/favicon.ico", "/icon.svg", "/apple-icon.png", "/icons/(.*)"];
 const isPublic = createRouteMatcher(PUBLIC);
 function beforeAuth(request: NextRequest): Response | null {
   const path = request.nextUrl.pathname;
   if (path === "/dev/fx-lab" && !fxLabEnabled()) return new NextResponse(null, { status: 404 });
   if (path.startsWith("/api/test-auth/")) return isE2EAuthEnabled() ? NextResponse.next() : NextResponse.json({ error: "not_found" }, { status: 404 });
+  if ((request.method === "GET" && ["/api/auth/existing-player/start", "/api/auth/callback/discord"].includes(path))
+    || (request.method === "POST" && ["/api/auth/existing-player/complete", "/api/auth/existing-player/ticket"].includes(path))) return NextResponse.next();
   if (isPublic(request) || (path === "/api/waitlist" && request.method === "POST") || (path === "/api/auth/session" && request.method === "GET") || (fxLabEnabled() && isFxLabPublicPath(path))) return NextResponse.next();
   return null;
 }

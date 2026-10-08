@@ -248,7 +248,8 @@ button.de-flag:hover { text-decoration: underline; text-underline-offset: 3px; }
   .de-deck { padding-inline: 16px; }
 }
 @container de-editor (width < 960px) {
-  .de { grid-template-rows: auto auto minmax(0, 1fr); }
+  /* The arriving pane starts 8px to the side; clipping (not hidden, so nothing becomes a scroll container) keeps the page from widening. */
+  .de { grid-template-rows: auto auto minmax(0, 1fr); overflow-x: clip; }
   .de-bar, .host[data-pool] .de-bar { grid-template-columns: 34px minmax(0, 1fr) 34px auto; grid-template-rows: auto auto auto; gap: 0 6px; padding: 8px 12px 0 6px; border: 0; }
   :global(.ms) .de-back { grid-column: 1; grid-row: 1 / 3; width: 34px; height: 44px; padding: 0; }
   .de-back span { display: none; }
@@ -271,6 +272,9 @@ button.de-flag:hover { text-decoration: underline; text-underline-offset: 3px; }
   .de-deck { padding: 0 12px 64px; gap: 12px; }
   .de[data-tab="cards"] .de-deck { display: none; }
   .de[data-tab="deck"] .de-body > [id="deck-editor-cards"] { display: none; }
+  /* The pane that was just shown arrives from the side its tab is on (the other one is display: none, so it never plays). --pane-anim names the
+     keyframes from globals.css; a module cannot name a global keyframe directly. */
+  .de[data-pane-dir] :is(.de-deck, .de-body > [id="deck-editor-cards"]) { animation: var(--pane-anim) var(--d-pane-in) var(--ease-out) backwards; }
   .de-body > [id="deck-editor-cards"] { border: 0; margin: 0 12px; } /* the list's own 64px end padding already clears the Report bug button */
   .de-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 5px; }
   .de-hand-g { grid-template-columns: repeat(6, minmax(0, 72px)); }

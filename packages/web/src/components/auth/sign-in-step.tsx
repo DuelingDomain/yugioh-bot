@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { PRIVACY_URL, TERMS_URL } from "./legal-links";
+import { waitlistHref } from "./marketing-links";
 import styles from "./sign-in-shell.module.css";
 
 interface SignInStepProps {
@@ -34,7 +35,7 @@ interface SignInFootLinksProps {
 export function SignInFootLinks({ marketingUrl, waitlist = true, lead }: SignInFootLinksProps) {
   return (
     <>
-      {lead ?? (waitlist && marketingUrl ? <p>Not in the alpha yet? <a href={`${marketingUrl}/#join`}>Join the waitlist</a></p> : null)}
+      {lead ?? (waitlist && marketingUrl ? <p>Not in the alpha yet? <a href={waitlistHref(marketingUrl)}>Join the waitlist</a></p> : null)}
       <p className={styles.legal}>
         <a href={TERMS_URL}>Terms</a>
         <a href={PRIVACY_URL}>Privacy</a>

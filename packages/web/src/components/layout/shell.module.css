@@ -10,6 +10,13 @@
  * rules, the selector is doubled up on purpose.
  */
 
+/*
+ * Collapsing is one markup in two widths: the rail narrows and the text fades, and every icon keeps
+ * its x (icons sit 24px from the edge in both). The shell sets data-sidebar-moving on .frame only for
+ * the moment after a toggle (never on first paint or while the window is resized), and every
+ * transition below hangs off it. Text leaves first (100ms) and arrives after the rail is mostly open
+ * (110ms delay), so it never shows squeezed. The rail and the page column share --d-rail and --ease-out.
+ */
 .frame {
   position: relative;
   /* The cold floor (the sheet's --floor). The frame is outside the .ms root, so the value is repeated. */
@@ -29,6 +36,25 @@
 
 .side[data-collapsed="true"] {
   width: 68px;
+}
+
+/* The two fade timings. Text leaves at once and arrives late; the rail's own parts do the reverse.
+   The idle value is a zero-length transition, never `none`: these vars are also one item in the toggles'
+   comma lists, and `none` inside a list makes the whole declaration invalid at computed-value time. */
+.side {
+  --t-label: opacity 0s;
+  --t-rail: opacity 0s;
+}
+
+.frame[data-sidebar-moving] .side {
+  transition: width var(--d-rail) var(--ease-out);
+  --t-label: opacity var(--d-hover) var(--ease-out) 110ms, visibility var(--d-hover) var(--ease-out) 110ms;
+  --t-rail: opacity var(--d-pop-out) var(--ease-out), visibility var(--d-pop-out) var(--ease-out);
+}
+
+.frame[data-sidebar-moving] .side[data-collapsed="true"] {
+  --t-label: opacity var(--d-pop-out) var(--ease-out), visibility var(--d-pop-out) var(--ease-out);
+  --t-rail: opacity var(--d-hover) var(--ease-out) 110ms, visibility var(--d-hover) var(--ease-out) 110ms;
 }
 
 /* The beam hairline on the sidebar's edge, fading out toward the middle. */
@@ -60,12 +86,7 @@
   align-items: center;
   gap: 8px;
   height: 67px;
-  padding: 0 6px 0 12px;
-}
-
-.aside[data-rail="true"] .brand {
-  justify-content: center;
-  padding: 0;
+  padding: 0 6px 0 20px; /* the mark sits 20px in, centred on the 68px rail */
 }
 
 .mark {
@@ -83,7 +104,13 @@
   font: 600 16px/1 var(--f-display);
   letter-spacing: 0;
   white-space: nowrap;
-  text-overflow: ellipsis;
+  text-overflow: clip;
+  transition: var(--t-label);
+}
+
+.side[data-collapsed="true"] .word {
+  opacity: 0;
+  visibility: hidden;
 }
 
 .wordAccent {
@@ -111,16 +138,51 @@
   }
 }
 
+/* The brand-row toggle and the rail's toggle cross-fade; the inactive one is inert (see sidebar.tsx). */
+.toggle[data-for="side"] {
+  opacity: 1;
+  transition: background-color var(--d-hover) ease, color var(--d-hover) ease, scale var(--d-press) var(--ease-out), var(--t-label);
+}
+
+.side[data-collapsed="true"] .toggle[data-for="side"] {
+  opacity: 0;
+}
+
+/* The rail's toggle row opens with the rail: one grid row between 0fr and 1fr, like the Live now row. */
 .railToggle {
   flex: none;
+  display: grid;
+  grid-template-rows: 0fr;
+}
+
+.side[data-collapsed="true"] .railToggle {
+  grid-template-rows: 1fr;
+}
+
+.frame[data-sidebar-moving] .railToggle {
+  transition: grid-template-rows var(--d-rail) var(--ease-out);
+}
+
+.railToggleClip {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.railToggleRow {
   display: grid;
   place-items: center;
   padding: 8px 12px 0;
 }
 
-.railToggle .toggle {
+.railToggleRow .toggle {
   width: 44px;
   height: 44px;
+  opacity: 0;
+  transition: background-color var(--d-hover) ease, color var(--d-hover) ease, scale var(--d-press) var(--ease-out), var(--t-rail);
+}
+
+.side[data-collapsed="true"] .railToggleRow .toggle {
+  opacity: 1;
 }
 
 /* ---- Nav ---- */
@@ -138,24 +200,51 @@
   gap: 2px;
 }
 
+/* One header box in both widths (39px): the label and the rail's short line share it and cross-fade. */
+.groupHead {
+  position: relative;
+  height: 39px;
+}
+
 .groupLabel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
   margin: 0;
-  padding: 18px 12px 6px;
+  padding: 0 12px 6px;
+  overflow: hidden;
   color: var(--ink-3);
   font: 500 12.5px/1.2 var(--f-ui);
   letter-spacing: 0.01em;
+  white-space: nowrap;
+  transition: var(--t-label);
 }
 
 .groupLine {
-  display: block;
+  position: absolute;
+  top: 19px;
+  left: 10px;
   width: 24px;
   height: 0;
-  margin: 12px auto 10px;
   border-top: 1px solid var(--rule-lo);
+  opacity: 0;
+  transition: var(--t-rail);
+}
+
+.side[data-collapsed="true"] .groupLabel {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.side[data-collapsed="true"] .groupLine {
+  opacity: 1;
 }
 
 .navItem {
   position: relative;
+  isolation: isolate; /* keeps the active mark (z-index -1) above the row's hover fill and under its content */
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -173,13 +262,6 @@
   font-size: 16px;
 }
 
-.navItem[data-size="rail"] {
-  width: 44px;
-  height: 44px;
-  padding: 0;
-  justify-content: center;
-}
-
 @media (hover: hover) and (pointer: fine) {
   .navItem:hover {
     background: rgb(255 255 255 / 0.04);
@@ -190,7 +272,6 @@
 .navItem:focus-visible,
 .toggle:focus-visible,
 .liveRow:focus-visible,
-.liveTile:focus-visible,
 .seatBtn:focus-visible,
 .ringBtn:focus-visible,
 .menuButton:focus-visible,
@@ -199,13 +280,23 @@
   outline-offset: -2px;
 }
 
-/* Active: a 2px violet light-line bar on the left and a soft violet fill. */
+/* Active: a 2px violet light-line bar on the left and a soft violet fill. In the sidebar they are one
+   mark that glides from the old item to the new one (use-nav-glide.ts); the phone menu paints them on the row. */
 .navItem[data-active="true"] {
-  background: var(--pen-soft);
   color: var(--ink);
 }
 
-.navItem[data-active="true"]::before {
+.navMark {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: 8px;
+  background: var(--pen-soft);
+  pointer-events: none;
+}
+
+.navMark::before,
+.navItem[data-size="phone"][data-active="true"]::before {
   content: "";
   position: absolute;
   left: 0;
@@ -217,17 +308,16 @@
   box-shadow: 0 0 8px rgb(155 126 255 / 0.55);
 }
 
-.navItem[data-size="rail"][data-active="true"]::before {
-  left: -12px;
-  top: 10px;
-  bottom: 10px;
+.navItem[data-size="phone"][data-active="true"] {
+  background: var(--pen-soft);
 }
 
 .navIcon {
   flex: none;
-  width: 19px;
-  height: 19px;
+  width: 20px;
+  height: 20px;
   color: var(--ink-3);
+  transition: color var(--d-hover) ease;
 }
 
 .navItem[data-active="true"] .navIcon {
@@ -243,7 +333,13 @@
 .navLabel {
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
+  text-overflow: clip;
+  transition: var(--t-label);
+}
+
+.side[data-collapsed="true"] .navLabel {
+  opacity: 0;
+  visibility: hidden;
 }
 
 /* Press and hover (site motion, part 1). Hover rules above sit inside (hover: hover) and
@@ -252,7 +348,6 @@
 .toggle,
 .menuButton,
 .liveRow,
-.liveTile,
 .seatBtn,
 .menuItem {
   transition: background-color var(--d-hover) ease, border-color var(--d-hover) ease, color var(--d-hover) ease, scale var(--d-press) var(--ease-out);
@@ -262,7 +357,6 @@
 .toggle:active,
 .menuButton:active,
 .liveRow:active,
-.liveTile:active,
 .seatBtn:active {
   scale: var(--motion-press);
 }
@@ -279,12 +373,25 @@
   justify-content: center;
 }
 
+/* The sidebar row fills its tip wrapper. (The phone row sits straight in the group's column, where flex: 1 would
+   collapse its height.) */
+.railTip > .navItem {
+  flex: 1;
+}
+
 .side .railTip.railTip[data-side="right"] > :global(.sv-tip) {
   position: fixed;
   left: 76px;
   top: auto;
   bottom: auto;
   translate: none;
+}
+
+/* The wrapper is on every row so the markup never changes, but the tip is for the collapsed rail only:
+   not when the row already says it, and not while the rail is moving (a tip would flash over the glide). */
+.side:not([data-collapsed="true"]) .railTip.railTip > :global(.sv-tip),
+.frame[data-sidebar-moving] .side .railTip.railTip > :global(.sv-tip) {
+  display: none;
 }
 
 /* ---- Live now ---- */
@@ -300,15 +407,18 @@
   margin: 8px 0;
 }
 
-.liveWrap[data-size="rail"] {
-  align-items: center;
+/* The closing line is only for the expanded rail: the collapsed one's next group has its own divider. */
+.liveEnd {
+  transition: var(--t-rail);
 }
 
-.liveWrap[data-size="rail"] > :global(.sv-rule) {
-  width: 24px;
+.side[data-collapsed="true"] .liveEnd {
+  opacity: 0;
 }
 
 .liveRow {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -323,20 +433,16 @@
   min-height: 56px;
 }
 
-@media (hover: hover) and (pointer: fine) {
-  .liveRow:hover,
-  .liveTile:hover {
-    background: rgb(255 255 255 / 0.04);
-  }
+/* In the sidebar the dot sits on the icons' centre line (x 34) in both widths; the text lines up with the nav labels. */
+.liveRow[data-size="side"] {
+  gap: 18px;
+  padding-left: 18px;
 }
 
-.liveTile {
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 40px;
-  margin: 4px 0;
-  border-radius: 8px;
+@media (hover: hover) and (pointer: fine) {
+  .liveRow:hover {
+    background: rgb(255 255 255 / 0.04);
+  }
 }
 
 .liveDot {
@@ -349,6 +455,7 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+  transition: var(--t-label);
 }
 
 .liveTitle {
@@ -367,6 +474,13 @@
   flex: none;
   color: var(--pen-ink);
   font: 500 13px/1.2 var(--f-ui);
+  transition: var(--t-label);
+}
+
+.side[data-collapsed="true"] .liveText,
+.side[data-collapsed="true"] .liveAction {
+  opacity: 0;
+  visibility: hidden;
 }
 
 /* ---- Foot: Settings and your seat ---- */
@@ -383,24 +497,17 @@
 .seatBtn {
   display: flex;
   align-items: center;
-  gap: 11px;
+  gap: 12px;
   width: 100%;
   min-height: 56px;
-  padding: 8px 12px;
+  padding: 8px 4px; /* the 36px ring sits 16px in, centred on the rail's 68px and on the icons above */
+  overflow: hidden;
   border: 0;
   border-radius: 10px;
   background: none;
   color: inherit;
   text-align: left;
   cursor: pointer;
-}
-
-.seatBtn[data-rail="true"] {
-  width: 44px;
-  min-height: 52px;
-  margin: 0 auto;
-  padding: 0;
-  justify-content: center;
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -419,6 +526,12 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
+  transition: var(--t-label);
+}
+
+.side[data-collapsed="true"] .seatText {
+  opacity: 0;
+  visibility: hidden;
 }
 
 .seatName {
@@ -620,13 +733,18 @@
   border-radius: 2px;
 }
 
+/* Keeps its row when the rail is collapsed (hidden, not removed), so the seat above it stays put. */
 .footLegal {
   display: flex;
   padding: 6px 12px 0;
+  overflow: hidden;
+  white-space: nowrap;
+  transition: var(--t-label);
 }
 
-.aside[data-rail="true"] .footLegal {
-  display: none;
+.side[data-collapsed="true"] .footLegal {
+  opacity: 0;
+  visibility: hidden;
 }
 
 .menuLegal {
@@ -642,6 +760,11 @@
 
 .frame[data-sidebar-collapsed="true"] .main {
   margin-left: 68px;
+}
+
+/* The page column follows the rail's edge on the same clock. */
+.frame[data-sidebar-moving] .main {
+  transition: margin-left var(--d-rail) var(--ease-out);
 }
 
 /* A page that draws its own bar (see OwnsPageBar) runs edge to edge, so the bar's line sits
@@ -738,6 +861,10 @@
     margin-left: 0;
   }
 
+  .frame[data-sidebar-moving] .main {
+    transition: none;
+  }
+
   .topWrap {
     display: block;
     position: sticky;
@@ -797,3 +924,19 @@
 }
 .presenceDot { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ink-4); }
 .presenceDot[data-present="true"] { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+
+/* Reduced motion: the rail and its text switch at once (no travel, no waiting for a delay). */
+@media (prefers-reduced-motion: reduce) {
+  .side,
+  .frame[data-sidebar-moving] .side,
+  .frame[data-sidebar-moving] .side[data-collapsed="true"] {
+    --t-label: opacity 0s;
+    --t-rail: opacity 0s;
+    transition: none;
+  }
+
+  .frame[data-sidebar-moving] .main,
+  .frame[data-sidebar-moving] .railToggle {
+    transition: none;
+  }
+}

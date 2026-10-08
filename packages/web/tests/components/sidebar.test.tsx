@@ -100,20 +100,47 @@ describe("Sidebar structure", () => {
     expect(screen.getByRole("button", { name: "Expand sidebar" })).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("collapsed: marks the rail, keeps every link's name and drops the labels", () => {
+  it("collapsed: marks the rail and keeps every link's name", () => {
     const { container } = render(<Sidebar collapsed={true} onToggle={vi.fn()} account={ready} live={null} />);
     expect(container.querySelector("aside")).toHaveAttribute("data-rail", "true");
     expect(screen.getByRole("link", { name: "Dashboard" })).toHaveAttribute("aria-label", "Dashboard");
-    expect(screen.queryByText("Compete")).toBeNull();
-    expect(screen.queryByText("Dueling")).toBeNull();
-    expect(screen.queryByText("Domain")).toBeNull();
   });
 
-  it("collapsed: each link has a tooltip; expanded has none for links", () => {
-    const { container, rerender } = render(<Sidebar collapsed={true} onToggle={vi.fn()} account={ready} live={null} />);
-    expect(Array.from(container.querySelectorAll(".sv-tip")).map((t) => t.textContent)).toContain("Tournaments");
-    rerender(<Sidebar collapsed={false} onToggle={vi.fn()} account={ready} live={null} />);
-    expect(container.querySelector(".sv-tip")).toBeNull();
+  it("collapsing changes no markup, so the rail can animate: the same links, labels and tips in both", () => {
+    const shape = (root: HTMLElement) => ({
+      links: Array.from(root.querySelectorAll("nav a")).map((a) => a.getAttribute("href")),
+      labels: Array.from(root.querySelectorAll("nav p, nav a")).map((n) => n.textContent),
+      tips: Array.from(root.querySelectorAll(".sv-tip")).map((t) => t.textContent).filter((t) => t !== "Collapse sidebar" && t !== "Expand sidebar"),
+      seat: root.querySelector("[aria-haspopup='menu']")?.textContent,
+    });
+    const { container, rerender } = render(<Sidebar collapsed={false} onToggle={vi.fn()} account={ready} live={null} />);
+    const expanded = shape(container);
+    rerender(<Sidebar collapsed={true} onToggle={vi.fn()} account={ready} live={null} />);
+    expect(shape(container)).toEqual(expanded);
+    expect(expanded.tips).toContain("Tournaments");
+    expect(expanded.seat).toContain("Gold");
+  });
+
+  it("the two toggles are one control at a time: the other is inert and hidden from assistive tech", () => {
+    const { container, rerender } = render(<Sidebar collapsed={false} onToggle={vi.fn()} account={ready} live={null} />);
+    const side = container.querySelector('[data-for="side"]') as HTMLElement;
+    const rail = container.querySelector('[data-for="rail"]') as HTMLElement;
+    expect(side).not.toHaveAttribute("inert");
+    expect(rail).toHaveAttribute("inert");
+    expect(rail).toHaveAttribute("aria-hidden", "true");
+    rerender(<Sidebar collapsed={true} onToggle={vi.fn()} account={ready} live={null} />);
+    expect(side).toHaveAttribute("inert");
+    expect(rail).not.toHaveAttribute("inert");
+    expect(screen.getAllByRole("button", { name: "Expand sidebar" })).toEqual([rail]);
+  });
+
+  it("the active item carries one glide mark, and only the sidebar's items do", () => {
+    mockUsePathname.mockReturnValue("/drafts");
+    const { container } = render(<Sidebar collapsed={false} onToggle={vi.fn()} account={ready} live={null} />);
+    const marks = container.querySelectorAll("[data-glide]");
+    expect(marks).toHaveLength(1);
+    expect(marks[0]).toHaveAttribute("data-glide", "/drafts");
+    expect(marks[0].closest("a")).toHaveAccessibleName("Drafts");
   });
 
   it("expanded: no rail marker", () => {
@@ -128,12 +155,6 @@ describe("Sidebar structure", () => {
     expect(seat).toHaveTextContent("Imran");
     expect(seat).toHaveTextContent("Gold");
     expect(seat).toHaveTextContent("1432");
-  });
-
-  it("collapsed: the seat is the ring alone", () => {
-    render(<Sidebar collapsed={true} onToggle={vi.fn()} account={ready} live={null} />);
-    const seat = screen.getByRole("button", { name: /account menu, imran/i });
-    expect(seat).not.toHaveTextContent("Gold");
   });
 
   it("shows a placeholder while the session loads", () => {

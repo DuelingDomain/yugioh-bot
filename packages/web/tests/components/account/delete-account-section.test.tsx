@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
+// @vitest-environment-options {"url":"https://app.duelingdomain.com/"}
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { CookieJar } from "tough-cookie";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/font/local", () => ({ default: ({ variable }: { variable: string }) => ({ variable, className: "font-class" }) }));
@@ -18,8 +20,14 @@ const fetchMock = vi.fn();
 const reply = (status: number, body: unknown = {}) => fetchMock.mockResolvedValue(new Response(JSON.stringify(body), { status }));
 const button = () => screen.getByRole("button", { name: /delete my account|deleting/i }) as HTMLButtonElement;
 const field = () => screen.getByLabelText("Type your username to confirm") as HTMLInputElement;
+const environment = globalThis as typeof globalThis & { jsdom: { cookieJar: CookieJar } };
+const seedHint = () => { document.cookie = "dd_signed_in=1; Domain=duelingdomain.com; Path=/; Max-Age=2592000; Secure; SameSite=Lax"; };
+const marketingCookies = () => environment.jsdom.cookieJar.getCookieStringSync("https://duelingdomain.com/");
 
-beforeEach(() => { vi.stubGlobal("fetch", fetchMock); fetchMock.mockReset(); signOut.mockClear(); useClerk.mockClear(); hardNavigate.mockClear(); });
+beforeEach(() => {
+  vi.stubGlobal("fetch", fetchMock); fetchMock.mockReset(); signOut.mockReset().mockResolvedValue(undefined); useClerk.mockClear(); hardNavigate.mockReset();
+  environment.jsdom.cookieJar.removeAllCookiesSync();
+});
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("DeleteAccountSection", () => {
@@ -58,7 +66,7 @@ describe("DeleteAccountSection", () => {
     const user = userEvent.setup();
     let release!: (res: Response) => void;
     fetchMock.mockReturnValue(new Promise<Response>(resolve => { release = resolve; }));
-    render(<DeleteAccountSection username="Yugi_1" e2eMode={false} marketingUrl="https://marketing.example" />);
+    render(<DeleteAccountSection username="Yugi_1" e2eMode={false} marketingUrl="https://marketing.example/?from=account#goodbye" />);
     await user.type(field(), " Yugi_1 ");
     await user.click(button());
     expect(fetchMock).toHaveBeenCalledWith("/api/account/delete", expect.objectContaining({ method: "POST", body: JSON.stringify({ confirm: "Yugi_1" }) }));
@@ -68,7 +76,7 @@ describe("DeleteAccountSection", () => {
     expect(field().disabled).toBe(true);
     expect(signOut).not.toHaveBeenCalled();
     release(new Response(JSON.stringify({ ok: true }), { status: 200 }));
-    await waitFor(() => expect(signOut).toHaveBeenCalledExactlyOnceWith({ redirectUrl: "https://marketing.example" }));
+    await waitFor(() => expect(signOut).toHaveBeenCalledExactlyOnceWith({ redirectUrl: "https://marketing.example/?from=account&home=1#goodbye" }));
     expect(button().disabled).toBe(true); // stays locked while the page leaves
   });
 
@@ -77,7 +85,49 @@ describe("DeleteAccountSection", () => {
     signOut.mockRejectedValueOnce(new Error("clerk down")); reply(200, { ok: true });
     render(<DeleteAccountSection username="a" e2eMode={false} />);
     await user.type(field(), "a"); await user.click(button());
-    await waitFor(() => expect(hardNavigate).toHaveBeenCalledWith("https://duelingdomain.com"));
+    await waitFor(() => expect(hardNavigate).toHaveBeenCalledWith("https://duelingdomain.com/?home=1"));
+  });
+
+  it("removes the apex cookie before Clerk sign-out even when sign-out never settles", async () => {
+    const user = userEvent.setup();
+    seedHint();
+    expect(marketingCookies()).toBe("dd_signed_in=1");
+    let cookiesAtSignOut: string | undefined;
+    signOut.mockImplementationOnce(() => {
+      cookiesAtSignOut = marketingCookies();
+      return new Promise<void>(() => {});
+    });
+    reply(200, { ok: true });
+    render(<DeleteAccountSection username="a" e2eMode={false} />);
+    await user.type(field(), "a"); await user.click(button());
+    await waitFor(() => expect(signOut).toHaveBeenCalledOnce());
+    expect(cookiesAtSignOut).toBe("");
+    expect(marketingCookies()).toBe("");
+    expect(signOut).toHaveBeenCalledWith({ redirectUrl: "https://duelingdomain.com/?home=1" });
+    expect(hardNavigate).not.toHaveBeenCalled();
+  });
+
+  it("removes the apex cookie again before fallback navigation if Clerk sign-out rejects", async () => {
+    const user = userEvent.setup();
+    seedHint();
+    expect(marketingCookies()).toBe("dd_signed_in=1");
+    let cookiesAtSignOut: string | undefined;
+    let cookiesAtNavigation: string | undefined;
+    signOut.mockImplementationOnce(async () => {
+      cookiesAtSignOut = marketingCookies();
+      // A late signed-in update during sign-out must not survive the fallback either.
+      seedHint();
+      throw new Error("clerk down");
+    });
+    hardNavigate.mockImplementationOnce(() => { cookiesAtNavigation = marketingCookies(); });
+    reply(200, { ok: true });
+    render(<DeleteAccountSection username="a" e2eMode={false} marketingUrl="https://duelingdomain.com/?from=account#goodbye" />);
+    await user.type(field(), "a"); await user.click(button());
+    await waitFor(() => expect(hardNavigate).toHaveBeenCalledOnce());
+    expect(cookiesAtSignOut).toBe("");
+    expect(cookiesAtNavigation).toBe("");
+    expect(marketingCookies()).toBe("");
+    expect(hardNavigate).toHaveBeenCalledWith("https://duelingdomain.com/?from=account&home=1#goodbye");
   });
 
   it.each([

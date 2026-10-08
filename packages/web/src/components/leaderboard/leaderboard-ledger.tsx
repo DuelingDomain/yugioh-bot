@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { Flame } from "lucide-react";
 import { DuelAction, FloorList, FloorRow, LiveDot, Mono, Seat, ringColour } from "@/components/sheet";
+import { EmptyLeaderboard } from "@/components/empty-states/empty-leaderboard";
 import type { LeaderboardScope, PlayerPosition, Standing } from "./leaderboard-model";
 import styles from "./leaderboard.module.css";
 
@@ -39,14 +40,7 @@ export function LeaderboardLedger({ standings, scope, position, loading, liveDue
     return () => observer.disconnect();
   }, [standings, currentPlayerId]);
 
-  if (standings.length === 0) {
-    return (
-      <section className={styles.empty} aria-label="Leaderboard standings" aria-busy={loading}>
-        <h2>No one is on the board yet</h2>
-        <p>Finish a ranked match to appear here.</p>
-      </section>
-    );
-  }
+  if (standings.length === 0) return <EmptyLeaderboard busy={loading} />;
 
   return (
     <section className={`${styles.busy} ${styles.ledger}`} aria-label="Leaderboard standings" aria-busy={loading} data-scope={scope}>

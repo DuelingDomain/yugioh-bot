@@ -10,16 +10,20 @@ export const RAIGEKI = 12580477;
 export const SOLEMN_JUDGMENT = 41420027;
 export const UPSTART_GOBLIN = 70368879;
 export const DARK_MAGICIAN = 46986414;
+export const ENEMY_CONTROLLER = 98045062;
+export const UNI_ZOMBIE = 49959355;
 const FILLER = 46986414;
 
-export type ChainScenario = "negate" | "recover";
+export type ChainScenario = "negate" | "recover" | "select-effect" | "effect-hint";
 
 /**
  * Real cards and scripts on the stock core, every message of one chain from the activation to CHAIN_END.
  *  - "negate": P0 activates Raigeki, P1 answers with a face-down Solemn Judgment (CL2), which negates CL1.
  *  - "recover": P0 activates Upstart Goblin; P1 gains 1000 LP while it resolves.
+ *  - "select-effect": P0 chooses Enemy Controller's position-change effect with Duel.SelectEffect.
+ *  - "effect-hint": P0 activates Uni-Zombie's discard effect, which announces e:GetDescription() in its cost.
  */
-export type EngineBatch = { notes: string[]; messages: OcgMessage[] };
+export type EngineBatch = { notes: string[]; messages: OcgMessage[]; response?: OcgResponse };
 
 export async function chainResolutionBatches(scenario: ChainScenario, noteScripts: readonly string[] = []): Promise<EngineBatch[]> {
   const cards = loadCardDatabase(engineDataDirectory);
@@ -49,11 +53,17 @@ export async function chainResolutionBatches(scenario: ChainScenario, noteScript
     for (const controller of [0, 1] as const) {
       for (let i = 0; i < 3; i += 1) add(controller, FILLER, OcgLocation.DECK, i, OcgPosition.FACEDOWN_DEFENSE);
     }
-    const activationCode = scenario === "negate" ? RAIGEKI : UPSTART_GOBLIN;
-    add(0, activationCode, OcgLocation.HAND);
+    const activationCode = { negate: RAIGEKI, recover: UPSTART_GOBLIN, "select-effect": ENEMY_CONTROLLER, "effect-hint": UNI_ZOMBIE }[scenario];
+    add(0, activationCode, scenario === "effect-hint" ? OcgLocation.MZONE : OcgLocation.HAND);
     if (scenario === "negate") {
       add(1, DARK_MAGICIAN, OcgLocation.MZONE);
       add(1, SOLEMN_JUDGMENT, OcgLocation.SZONE, 0, OcgPosition.FACEDOWN_DEFENSE);
+    } else if (scenario === "select-effect") {
+      // Both operations must be legal so SelectEffect presents a real SELECT_OPTION prompt.
+      add(0, DARK_MAGICIAN, OcgLocation.MZONE);
+      add(1, DARK_MAGICIAN, OcgLocation.MZONE);
+    } else if (scenario === "effect-hint") {
+      add(0, DARK_MAGICIAN, OcgLocation.HAND);
     }
     noteScripts.forEach((script, index) => assert(core.loadScript(handle, `chain-notes-${index}.lua`, script)));
     core.startDuel(handle);
@@ -92,9 +102,17 @@ export async function chainResolutionBatches(scenario: ChainScenario, noteScript
         case OcgMessageType.SELECT_EFFECTYN:
           response = { type: OcgResponseType.SELECT_EFFECTYN, yes: true };
           break;
+        case OcgMessageType.SELECT_OPTION:
+          assert.equal(scenario, "select-effect");
+          response = { type: OcgResponseType.SELECT_OPTION, index: 0 };
+          break;
+        case OcgMessageType.SELECT_CARD:
+          response = { type: OcgResponseType.SELECT_CARD, indicies: Array.from({ length: prompt.min }, (_, index) => index) };
+          break;
         default:
           throw new Error(`Unexpected chain prompt: ${JSON.stringify(prompt, (_key, value) => typeof value === "bigint" ? String(value) : value)}`);
       }
+      batches[batches.length - 1].response = response;
       core.duelSetResponse(handle, response);
     }
     throw new Error("Chain scenario exceeded its step limit");

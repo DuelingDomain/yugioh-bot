@@ -16,6 +16,43 @@ npm run e2e:report --workspace=packages/e2e
 - Shard: `npx playwright test --shard=1/3`. Each shard starts its own stack, so run shards on separate machines.
 - Retries: 1 in CI, 0 locally. Traces are kept on the first retry in CI and on failure locally. Screenshots and video are kept on failure. A failed test also attaches more evidence: see Failure evidence.
 
+## Live Discord login (local only)
+
+`npm run e2e:live-login` from the repo root (or `npm run e2e:live-login --workspace=packages/e2e`) opens a headed Chromium window against **the real site**. It checks Continue with Discord, the return path, the authenticated `/api/auth/session`, the number of Discord authorization hops, absence of `/access` and error redirects, and how long the “You’re in” success heading stays visible before navigation. It starts no isolated stack and uses no fixture accounts.
+
+```bash
+export PATH=$HOME/.nvm/versions/node/v22.23.2/bin:$PATH
+npx playwright install chromium   # once, if using bundled Chromium
+npm run e2e:live-login
+```
+
+On the first run, log in to Discord in the opened window, including any MFA prompt; the test allows up to 3 minutes. If a Discord consent screen appears, click **Authorize** within 2 minutes, or opt in to automatic consent with `LIVE_AUTO_AUTHORIZE=1`. An already-consented account can automatically approve with `prompt=none`. Later runs reuse the same Discord login through a dedicated browser profile at `~/.cache/dueling-domain/live-login-profile`. Close another browser using that profile before starting a run.
+
+Each run clears cookies only for `app.duelingdomain.com`, `clerk.app.duelingdomain.com`, and the configured app host, plus the app origin’s localStorage and sessionStorage. Discord cookies remain, while the app starts signed out. The test does not load `.env` files; set options in your shell.
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `LIVE_BASE_URL` | `https://app.duelingdomain.com` | App origin to sign in to. |
+| `LIVE_RETURN_PATH` | `/dashboard` | Absolute app path after login, without a query or fragment. |
+| `LIVE_PROFILE_DIR` | `~/.cache/dueling-domain/live-login-profile` | Persistent Discord browser profile; `~/` is expanded. |
+| `LIVE_CHANNEL` | unset | Optional installed Chromium channel, such as `chrome`; otherwise bundled Chromium. |
+| `LIVE_EXPECT_DISCORD_HOPS` | `1` | Required number of main-frame visits to `discord.com/oauth2/authorize`. |
+| `LIVE_AUTO_AUTHORIZE` | unset | `1` clicks Discord’s Authorize button; otherwise consent is manual. |
+| `LIVE_ALLOW_RECOVERY` | unset | `1` permits existing-player recovery, ticks consent and clicks Continue. |
+| `LIVE_MIN_SUCCESS_MS` | `1500` | Minimum continuous rendered visibility of the “You’re in” success heading. |
+
+Recovery mode **creates real Clerk users** for pre-cutover players who have not linked their account. The default run stops as soon as it enters existing-player recovery, before accepting consent. To exercise the two-hop recovery flow explicitly:
+
+```bash
+LIVE_ALLOW_RECOVERY=1 LIVE_EXPECT_DISCORD_HOPS=2 npm run e2e:live-login
+```
+
+The test measures the success frame without delaying app navigation. The current sign-in hooks redirect after 900 ms, so the default 1500 ms requirement can fail until the app’s success timing meets that requirement.
+
+A readable main-frame timeline, total duration, hop count and measured success duration are printed and attached on every outcome. Server redirect requests and client-side navigations are included; subframes and API fetches are excluded. Query strings and fragments are removed except `existing_player=1` and a redacted `error` marker. A trace is kept only when the run fails; the video is kept on every run. Both are under `packages/e2e/test-results/live-login/`; the HTML report is in `packages/e2e/playwright-report/live-login/`. These browser artifacts contain real sign-in activity and should stay local.
+
+This test **never runs in CI**: the standalone config rejects `CI`, and the test also has a CI skip guard. The default e2e config searches only `tests/` for `.setup.ts` and `.spec.ts`; live tests live in `live/` and end in `.live.ts`. CI’s `test:unit` command runs only the pure timeline helper tests, without launching a browser or signing in.
+
 ## The isolated stack
 
 Playwright `webServer` runs `stack/start.mjs`. It starts four processes on non-live ports, waits for `GET /api/auth/session`, and stops them at the end:

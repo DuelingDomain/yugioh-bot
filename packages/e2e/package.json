@@ -9,6 +9,7 @@
     "stack:login": "node stack/login.mjs",
     "e2e": "node stack/prepare.mjs && playwright test",
     "e2e:nobuild": "playwright test",
+    "e2e:live-login": "playwright test -c playwright.live.config.ts",
     "e2e:ui": "node stack/prepare.mjs && playwright test --ui",
     "e2e:report": "node stack/report.mjs",
     "typecheck": "tsc --noEmit",

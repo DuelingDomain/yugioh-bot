@@ -1,7 +1,7 @@
 import { mapClerkError, type AuthErrorView } from "./auth-errors";
 import { safeReturnPath } from "./auth-return";
 
-export type AuthStep = "signin" | "password" | "code" | "newpw" | "invite" | "signing" | "success" | "err-invite" | "err-signup" | "err-banned";
+export type AuthStep = "signin" | "password" | "code" | "newpw" | "invite" | "signing" | "recovering" | "success" | "err-invite" | "err-signup" | "err-banned";
 export type CodePurpose = "signup" | "reset" | "client-trust";
 export type FieldName = "identifier" | "password" | "code" | "newPassword" | "confirm" | "username" | "legal";
 export interface AuthBanner { tone: "bad" | "info"; body: string; code?: string }
@@ -20,14 +20,40 @@ export type AuthEvent =
   | { type: "submit" } | { type: "settled" }
   | { type: "identified"; identifier: string } | { type: "needs-password" }
   | { type: "code-sent"; purpose: CodePurpose; now: number } | { type: "needs-new-password" }
-  | { type: "invite-ready"; lockedEmail: string } | { type: "complete" } | { type: "finalized" }
+  | { type: "invite-ready"; lockedEmail: string } | { type: "complete" } | { type: "finalized" } | { type: "recovering" }
   | { type: "error"; view: AuthErrorView } | { type: "back" };
+
+/**
+ * How long the success card stays up before the page navigates. The open pack (sign-in-shell.module.css) runs tear .8s,
+ * burst .9s and rays 1s, and the mark finishes last: `mkgem` starts 260 + 1020 ms in and lasts 340 ms, so ~1620 ms. The
+ * extra 80 ms is a settle so the finished mark is seen before the page switches.
+ */
+export const SUCCESS_HOLD_MS = 1700;
+/** With reduced motion nothing animates (the shell stops every animation), so only a brief read of "You're in" is needed. */
+export const SUCCESS_HOLD_REDUCED_MS = 600;
+
+export function successHoldMs(): number {
+  const reduced = typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  return reduced ? SUCCESS_HOLD_REDUCED_MS : SUCCESS_HOLD_MS;
+}
+
+/** The recovering card needs one painted frame before the page leaves. The timer covers a background tab, where frames never run. */
+export const RECOVERY_PAINT_FALLBACK_MS = 250;
+
+export function afterPaint(run: () => void): void {
+  let done = false;
+  const once = () => { if (!done) { done = true; run(); } };
+  requestAnimationFrame(() => requestAnimationFrame(once));
+  setTimeout(once, RECOVERY_PAINT_FALLBACK_MS);
+}
 
 export function initialAuthState(input: { returnTo: string; step?: AuthStep }): AuthFlowState {
   return { step: input.step ?? "signin", identifier: null, lockedEmail: null, codePurpose: null, fieldErrors: {}, banner: null, pending: false, resendAvailableAt: null, returnTo: safeReturnPath(input.returnTo) };
 }
 
 export function reduceAuth(state: AuthFlowState, event: AuthEvent): AuthFlowState {
+  // The page is already leaving for Discord: hold the card, except for a stalled hand-off (banner error) handled below.
+  if (state.step === "recovering" && !(event.type === "error" && event.view.kind === "banner")) return state;
   switch (event.type) {
     case "submit": return { ...state, pending: true, fieldErrors: {}, banner: null };
     case "settled": return { ...state, pending: false };
@@ -41,13 +67,16 @@ export function reduceAuth(state: AuthFlowState, event: AuthEvent): AuthFlowStat
     }
     case "complete": return { ...state, step: "signing", pending: true, fieldErrors: {}, banner: null };
     case "finalized": return state.step === "signing" ? { ...state, step: "success", pending: false } : state;
+    case "recovering": return { ...state, step: "recovering", pending: false, fieldErrors: {}, banner: null };
     case "error": {
       const view = event.view;
+      // The recovering card has no banner or buttons; if the hand-off stalls, fall back to the signing card's retry.
+      if (state.step === "recovering" && view.kind === "banner") return { ...state, step: "signing", pending: false, fieldErrors: {}, banner: view.banner };
       if (view.kind === "step") return { ...state, step: view.step, pending: false, fieldErrors: {}, banner: null };
       if (view.kind === "field") return { ...state, pending: false, fieldErrors: { ...state.fieldErrors, [view.field]: view.message }, banner: null };
       return { ...state, pending: false, banner: view.banner };
     }
-    case "back": return state.lockedEmail || state.pending || state.step === "success" || state.step === "signing" ? state : initialAuthState({ returnTo: state.returnTo });
+    case "back": return state.lockedEmail || state.pending || state.step === "success" || state.step === "signing" || state.step === "recovering" ? state : initialAuthState({ returnTo: state.returnTo });
   }
 }
 

@@ -24,4 +24,11 @@ describe("Tabs", () => {
     fireEvent.click(screen.getByRole("tab", { name: /my matches/i }));
     expect(onChange).toHaveBeenCalledWith("my");
   });
+
+  it("carries the sliding underline and keeps the tablist semantics", () => {
+    render(<Tabs value="a" onChange={() => {}} tabs={[{ id: "a", label: "A" }, { id: "b", label: "B" }]} />);
+    const list = screen.getByRole("tablist");
+    expect(list.querySelector("[data-tab-marker]")?.getAttribute("aria-hidden")).toBe("true");
+    expect(screen.getAllByRole("tab")).toHaveLength(2);
+  });
 });

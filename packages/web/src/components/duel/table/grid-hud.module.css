@@ -186,7 +186,7 @@
   padding: 0;
   border: 0;
   border-radius: 12px;
-  background: transparent;
+  background: rgb(9 15 29 / 0.7);
   color: var(--duel-ink-2);
   cursor: pointer;
   transition: color 0.15s, background-color 0.15s;
@@ -321,6 +321,11 @@
   font-family: var(--duel-f-ui);
   color: var(--duel-ink);
 }
+/* The chain panel (wide or narrow) lists every link itself, and it stands where the tower does: the tower steps out
+   of the way while that panel is on screen. The rule keys on the panel element, not the front layer's size: the size
+   stays "wide" after the panel goes, and a hidden layer (the Graveyard viewer is open, the layer is suspended or not
+   measured yet) shows no panel. A strip (a prompt covers the column, a phone) leaves the tower. */
+:global([data-duel-fx-speed-root]):not(:has(:global([data-pile-viewer]))):has(:global([data-chain-front]:not([data-suspended="true"]):not([data-room-ready="false"])) :global([data-chain-panel][data-shape="wide"]), :global([data-chain-front]:not([data-suspended="true"]):not([data-room-ready="false"])) :global([data-chain-panel][data-shape="narrow"])) .tower { display: none; }
 .towerHead {
   display: flex;
   align-items: center;
@@ -581,13 +586,14 @@
   --pv-ct: var(--ct, 15.5px);
   --pv-reserve: 270px;
   position: absolute;
-  left: 72px;
+  left: var(--pv-left, 72px);
+  /* --pv-bottom, --pv-max-h, --pv-w and --pv-left (lined up with the chain panel) come from grid-preview.tsx: the free band of the real layout (below the chain tower, above the Deck Master plate). */
   top: 50px;
   z-index: 34;
   display: flex;
   flex-direction: column;
-  width: clamp(270px, calc(var(--pv-ct) * 18), 284px);
-  max-height: max(300px, calc(100% - 50px - var(--pv-reserve)));
+  width: var(--pv-w, clamp(270px, calc(var(--pv-ct) * 18), 284px));
+  max-height: var(--pv-max-h, max(300px, calc(100% - 50px - var(--pv-reserve))));
   padding: 12px 12px 14px;
   overflow: hidden;
   border: 1px solid rgb(155 126 255 / 0.5);
@@ -597,19 +603,23 @@
   font-family: var(--duel-f-ui);
   color: var(--duel-ink);
   pointer-events: none;
-  transform: translateX(calc(-100% - 72px));
+  transform: translateX(calc(-100% - var(--pv-left, 72px)));
   transition: transform 0.18s ease-out, visibility 0s linear 0.18s;
   visibility: hidden;
 }
 .masterWrap[data-form="tall"]:not([data-slot="other"]) ~ .preview {
   --pv-reserve: calc(var(--hud-master-bottom, calc(clamp(58px, 5.6dvh, 68px) + 20px)) + 341px);
 }
-.preview[data-open="true"] { transform: none; visibility: visible; transition: transform 0.18s ease-out, visibility 0s; }
+/* grid-preview.tsx stands the panel on the bottom of its free band. */
+.preview[data-anchor="bottom"] { top: auto; bottom: var(--pv-bottom, 8px); }
+/* The right edge (grid-preview.tsx puts the panel there when the left side is full): it slides in from that edge. */
+.preview[data-side="right"] { left: auto; right: var(--pv-right, 16px); transform: translateX(calc(100% + 32px)); }
+.preview[data-open="true"], .preview[data-side="right"][data-open="true"] { transform: none; visibility: visible; transition: transform 0.18s ease-out, visibility 0s; }
 .preview[data-motion="none"] { transition: none; }
 /* The art gives way first: its shrink weight dwarfs the text's, down to a small card. It stays centered and blends in. */
 .preview[data-squeezed="true"] .previewArt { display: none; }
 .previewArt { display: block; flex: 0 1000 auto; width: 100%; min-height: 0; aspect-ratio: 59 / 86; margin: 0 0 10px; border-radius: 4px; object-fit: contain; background: transparent; }
-.preview h3 { flex: none; margin: 0; font-size: calc(var(--pv-ct) * 1.35); font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
+.preview h3 { flex: none; margin: 0; padding-right: 22px; font-size: calc(var(--pv-ct) * 1.35); font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
 .previewType { flex: none; margin: 3px 0 0; color: var(--duel-ink-2); font-size: calc(var(--pv-ct) * 0.95); }
 .previewStats { flex: none; margin: 6px 0 0; font-size: calc(var(--pv-ct) * 1.35); font-weight: 500; letter-spacing: 0.02em; }
 /* No line clamp: the whole effect shows while it fits. After the art is at its minimum, the rest fades out. */
@@ -631,6 +641,42 @@
 .previewOwner { flex: none; margin: 10px 0 0; line-height: 1.35; color: var(--duel-ink-3); font-size: calc(var(--pv-ct) * 0.95); }
 .previewOwner i { display: inline-block; width: 0.6em; height: 0.6em; margin-right: 6px; vertical-align: 0.05em; border-radius: 50%; background: var(--seat-main, var(--duel-ink-3)); }
 .previewOwner b { color: var(--seat-ink, var(--duel-ink)); font-weight: 600; }
+
+/* The wrapper of the name, type, stats, text and owner: the hover panel stacks them under the art, so it adds no box. */
+.previewBody { display: contents; }
+
+/*
+ * The pinned panel (a click on a board card) is the same window, frozen in the same place: same size, same layout. It only takes the pointer
+ * (a click on it never reaches the board under it: a target of a prompt may be covered), and adds the extra lines and the X button.
+ */
+.preview[data-pinned="true"] { pointer-events: auto; }
+.previewExtras {
+  flex: none;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--duel-ink-2);
+  font-size: calc(var(--pv-ct) * 0.95);
+  line-height: 1.4;
+}
+.previewExtras li { padding: 3px 0; border-top: 1px solid rgb(255 255 255 / 0.08); overflow-wrap: anywhere; }
+.previewClose {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: rgb(9 15 29 / 0.7);
+  color: var(--duel-ink-2);
+  cursor: pointer;
+  pointer-events: auto;
+}
+.previewClose:hover, .previewClose:focus-visible { background: rgb(255 255 255 / 0.1); color: var(--duel-ink); }
 
 @media (prefers-reduced-motion: reduce) {
   .preview { transition: none; }

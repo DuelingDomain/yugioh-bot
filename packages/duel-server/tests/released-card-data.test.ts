@@ -396,7 +396,7 @@ it("records graduated historical identities even when Ignis deleted their prerel
 it("includes the remap artifact in bundle identity and repairs a corrupt cached artifact", async () => {
   const {request,directory} = fixture();
   const first=await prepareData(directory,request);
-  expect(first.sources.databaseFormat).toBe("official-releases-prerelease-v2");
+  expect(first.sources.databaseFormat).toBe("official-releases-prerelease-v4");
   expect(first.integrity.cardRemaps).toBe(hash(readFileSync(join(directory,"card-remaps.json"))));
   writeFileSync(join(directory,"card-remaps.json"),"corrupt");
   request.mockClear();
@@ -521,4 +521,87 @@ it("updates a surviving artwork alias after its main preview graduates through h
  expect([...result.prereleaseCodes]).toEqual([100000002]);
  const db=new Database(result.path,{readonly:true});
  try{expect(db.prepare("SELECT alias FROM datas WHERE id=100000002").get()).toEqual({alias:12});}finally{db.close();}
+});
+
+it("puts real renamed graduation evidence into the common remap artifact, retaining only official rows", async () => {
+ const fixture = JSON.parse(readFileSync(new URL("./fixtures/prerelease-graduations.json",import.meta.url),"utf8"));
+ const dir=root(), examples=fixture.examples;
+ const bytes=cdb(dir,"official.cdb",examples.map(({after}:any)=>[after.code,0,after.name,after.type]));
+ const request=async(url:string)=>url.includes("/git/trees/")?Response.json(tree(["cards.cdb"])):new Response(new Uint8Array(bytes));
+ const transition={commit:fixture.databaseCommit,removed:examples.map((x:any)=>x.before),added:examples.map((x:any)=>x.after)};
+ const result=await downloadReleasedCardData(sources.database,join(dir,"bundle"),request,{historicalCards:transition.removed,historicalGraduations:[transition]});
+ expect(result.remaps).toEqual({101402001:77482666,101402002:4881365,101402021:25158975});
+ expect(result.unmatched).toEqual([]);
+ expect(JSON.parse(result.remapBytes).remaps).toEqual(result.remaps);
+});
+
+it("includes exact override source bytes in bundle integrity and validates sources/targets before remapping", async () => {
+ const {request,directory}=fixture();
+ const historicalCards=[{code:101402001,name:"Old preview name",type:33}];
+ const overrideBytes='{"101402001":17242022}\n';
+ const result=await downloadReleasedCardData(sources.database,directory,request,{historicalCards,overrideBytes});
+ expect(result.remaps).toEqual({101402001:17242022});
+ expect(JSON.parse(result.remapBytes).overrideSource).toBe(overrideBytes);
+ for(const overrideBytes of ['{"999999999":17242022}', '{"101402001":999}', '{"17242022":1}', '{"101402001":17242023}']){
+  await expect(downloadReleasedCardData(sources.database,join(root(),"bundle"),request,{historicalCards,overrideBytes})).rejects.toThrow(/override/i);
+ }
+});
+
+it("carries detected historical edges through reviewed overrides to the retained target",async()=>{
+ const {request,directory}=fixture();
+ const example=JSON.parse(readFileSync(new URL("./fixtures/prerelease-graduations.json",import.meta.url),"utf8")).examples[0];
+ const result=await downloadReleasedCardData(sources.database,directory,request,{historicalCards:[example.before,{...example.after,code:100000010}],historicalGraduations:[{commit:"earlier",removed:[example.before],added:[{...example.after,code:100000010}]}],overrideBytes:'{"100000010":17242022}\n'});
+ expect(result.remaps).toEqual({101402001:17242022,100000010:17242022});
+ expect(result.unmatched).toEqual([]);
+});
+
+it.each([1,null])("lets a reviewed override (%s) replace or veto an automatic graduation",async target=>{
+ const {request,directory}=fixture();
+ const example=JSON.parse(readFileSync(new URL("./fixtures/prerelease-graduations.json",import.meta.url),"utf8")).examples[0];
+ const after={...example.after,code:17242022};
+ const overrideBytes=JSON.stringify({[example.before.code]:target});
+ const result=await downloadReleasedCardData(sources.database,directory,request,{historicalCards:[example.before],historicalGraduations:[{commit:"automatic",removed:[example.before],added:[after]}],overrideBytes});
+ expect(result.remaps).toEqual(target===null?{}:{[example.before.code]:target});
+ expect(JSON.parse(result.remapBytes).overrides).toEqual({[example.before.code]:target});
+ expect(result.unmatched).toEqual([]);
+ expect(JSON.parse(result.remapBytes).unmatched).toEqual([]);
+});
+
+it.each([1,null])("lets a reviewed override (%s) replace or veto a name/type remap",async target=>{
+ const {request,directory}=fixture();
+ const result=await downloadReleasedCardData(sources.database,directory,request,{historicalCards:[{code:101402001,name:"Red-Eyes Black Dragon Exceed",type:33}],overrideBytes:JSON.stringify({101402001:target})});
+ expect(result.remaps).toEqual(target===null?{}:{101402001:target});
+ expect(result.unmatched).toEqual([]);
+ expect(JSON.parse(result.remapBytes).unmatched).toEqual([]);
+});
+
+it("does not follow an automatic chain through a vetoed intermediate code",async()=>{
+ const {request,directory}=fixture();
+ const example=JSON.parse(readFileSync(new URL("./fixtures/prerelease-graduations.json",import.meta.url),"utf8")).examples[0];
+ const intermediate={...example.after,code:100000010};
+ const result=await downloadReleasedCardData(sources.database,directory,request,{historicalCards:[example.before,intermediate],historicalGraduations:[{commit:"first",removed:[example.before],added:[intermediate]},{commit:"second",removed:[intermediate],added:[{...example.after,code:17242022}]}],overrideBytes:'{"100000010":null}'});
+ expect(result.remaps).toEqual({});
+ expect(result.unmatched.map(card=>card.code)).toEqual([example.before.code]);
+});
+
+it("smoke-checks unchanged prerelease scripts during preparation, removes failures, and caches the result",async()=>{
+ const f=fixture(),dir=root();
+ f.databases.set("prerelease-test.cdb",cdb(dir,"preview.cdb",[[100000001,0,"Healthy preview"],[100000002,0,"Broken preview"]]));
+ const scripts=join(dir,"stock");mkdirSync(join(scripts,"pre-release"),{recursive:true});mkdirSync(join(scripts,"official"));
+ writeFileSync(join(scripts,"constant.lua"),"");writeFileSync(join(scripts,"utility.lua"),"function GetID() return self_table,self_code end");
+ writeFileSync(join(scripts,"pre-release/c100000001.lua"),"local s,id=GetID();function s.initial_effect(c) end");
+ writeFileSync(join(scripts,"pre-release/c100000002.lua"),"local s,id=GetID();function s.initial_effect(c) error('broken preview') end");
+ writeFileSync(join(scripts,"official/c1.lua"),"local s,id=GetID();function s.initial_effect(c) error('released error') end");
+ cpSync(new URL("./fixtures/card-scripts/c3743515.lua",import.meta.url),join(scripts,"official/c3743515.lua"));
+ const archive=execFileSync("tar",["-czf","-","-C",dir,"stock"]);
+ const original=f.request.getMockImplementation()!;
+ f.request.mockImplementation(async(input:string|URL|Request)=>String(input).includes("/git/trees/")?Response.json(tree([...f.databases.keys()])):String(input).includes("codeload")?new Response(new Uint8Array(archive)):original(input));
+ const prepared=await prepareData(f.directory,f.request),artifact=JSON.parse(readFileSync(join(f.directory,"card-remaps.json"),"utf8"));
+ expect(artifact.scriptSmoke.checked).toBe(2);expect(artifact.scriptSmoke.excluded.map((card:any)=>card.code)).toEqual([100000002]);
+ expect(artifact.prerelease.map((card:any)=>card.code)).toEqual([100000001]);
+ const db=new Database(join(f.directory,"cards.cdb"));try{expect(db.prepare("SELECT id FROM datas WHERE id IN (1,100000001,100000002) ORDER BY id").all()).toEqual([{id:1},{id:100000001}]);}finally{db.close();}
+ expect(existsSync(join(f.directory,"card-scripts/pre-release/c100000002.lua"))).toBe(false);
+ expect(existsSync(join(f.directory,"card-scripts/official/c1.lua"))).toBe(true);
+ expect(prepared.integrity.cardRemaps).toBe(hash(readFileSync(join(f.directory,"card-remaps.json"))));
+ f.request.mockClear();expect((await prepareData(f.directory,f.request)).skipped).toBe(true);expect(f.request).not.toHaveBeenCalled();
 });

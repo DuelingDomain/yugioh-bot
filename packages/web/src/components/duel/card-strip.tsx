@@ -202,7 +202,7 @@ export function CardStrip({
             <ChevronRight size={20} strokeWidth={2.25} aria-hidden />
           </button>
         ) : null}
-        <ul ref={listRef} className={styles.strip} aria-label={label} onScroll={() => {
+        <ul ref={listRef} className={styles.strip} aria-label={label} data-notes={items.some((item) => item.detail) ? true : undefined} onScroll={() => {
           measure();
           record();
         }}>
@@ -245,7 +245,7 @@ export function CardStrip({
                     </span>
                   ) : null}
                 </span>
-                <span className={styles.name}>{item.label}</span>
+                <span className={styles.name} title={item.label}>{item.label}</span>
                 {item.note ? <span className={styles.note}>{item.note}</span> : null}
                 {item.detail ? (
                   <span className={styles.detail} title={item.detailTitle ?? item.detail}>{item.detail}</span>

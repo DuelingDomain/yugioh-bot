@@ -4,15 +4,16 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useSignUpFlow } from "../../src/hooks/use-sign-up-flow";
 
-const mock = vi.hoisted(() => ({ signal: {} as any, push: vi.fn() }));
+import { SUCCESS_HOLD_MS } from "../../src/lib/auth-flow";
+const mock = vi.hoisted(() => ({ signal: {} as any, push: vi.fn(), prefetch: vi.fn() }));
 vi.mock("@clerk/nextjs", () => ({ useSignUp: () => mock.signal }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mock.push }) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mock.push, prefetch: mock.prefetch }) }));
 const ok = () => Promise.resolve({ error: null });
 const account = { username: "duelist", password: "secret", legalAccepted: true };
 const setup = (ticket: string | null = "invitation") => renderHook(() => useSignUpFlow({ ticket, returnTo: "/drafts?join=1#seat" }));
 const mount = async () => { const view = setup(); await act(async () => {}); return view; };
 beforeEach(() => {
-  vi.useFakeTimers(); vi.setSystemTime(1000); mock.push.mockReset(); sessionStorage.clear();
+  vi.useFakeTimers(); vi.setSystemTime(1000); mock.push.mockReset(); mock.prefetch.mockReset(); sessionStorage.clear();
   mock.signal = { fetchStatus: "idle", errors: { fields: {}, raw: null, global: null }, signUp: {
     id: "sua_invited", status: "missing_requirements", emailAddress: "invited@test.dev", username: null, legalAcceptedAt: null,
     missingFields: ["username", "password", "legal_accepted"], unverifiedFields: [],
@@ -143,8 +144,11 @@ describe("invited sign-up flow", () => {
     expect(mock.signal.signUp.verifications.verifyEmailCode).toHaveBeenCalledWith({ code: "123456" });
     expect(result.current.state).toMatchObject({ step: "success", banner: null });
     expect(result.current.state.fieldErrors).toEqual({});
+    expect(mock.prefetch).toHaveBeenCalledWith("/drafts?join=1#seat");
     expect(mock.push).not.toHaveBeenCalled();
-    act(() => vi.advanceTimersByTime(900));
+    act(() => vi.advanceTimersByTime(SUCCESS_HOLD_MS - 1));
+    expect(mock.push).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(1));
     expect(mock.push).toHaveBeenCalledWith("/drafts?join=1#seat");
   });
   it("keeps the ticket attempt for Discord and saves consent before redirect", async () => {

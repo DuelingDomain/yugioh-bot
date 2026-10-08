@@ -26,12 +26,14 @@ import { createPortal } from "react-dom";
 import { Check, ChevronLeft, ChevronRight, Keyboard, Layers, Plus, Search, SlidersHorizontal } from "lucide-react";
 import { BugFabLift } from "@/components/bug-report/fab-lift";
 import { OwnsPageBar, ShellMenuButton } from "@/components/layout/shell-bar";
-import { PageBar, SheetRoot, SvButton } from "@/components/sheet";
+import { PageBar, SheetRoot, SvButton, segmentSlide } from "@/components/sheet";
+import { useTabDirection } from "@/lib/tab-motion";
 import { tileImage } from "./pool-browser-model";
 import styles from "./workbench.module.css";
 
 export type WorkbenchMode = "wide" | "mid" | "phone";
 export type PhoneTab = "sources" | "pool" | "rules";
+const PHONE_TABS: readonly PhoneTab[] = ["sources", "pool", "rules"];
 
 const PHONE_QUERY = "(max-width: 720px)";
 const WIDE_QUERY = "(min-width: 1280px)";
@@ -243,6 +245,9 @@ export function Workbench({ layout, sources, banner, pool, preview, rules, poolC
   }, []);
 
   const tab = layout.phoneTab;
+  // The phone panes arrive from the side their tab is on (globals.css, data-pane); other layouts show them all.
+  const paneDir = useTabDirection(tab, PHONE_TABS);
+  const dir = phone ? paneDir : undefined;
   const rulesHidden = phone ? tab !== "rules" : false;
   const toneLabel = tone === "ok" ? "Ready" : "Needs a change";
 
@@ -256,7 +261,7 @@ export function Workbench({ layout, sources, banner, pool, preview, rules, poolC
       data-preview={docked ? "" : undefined}
       data-tab={phone ? tab : undefined}
     >
-      <div className={styles.srcCol} hidden={phone && tab !== "sources"}>
+      <div className={styles.srcCol} data-pane="self" data-pane-dir={dir} hidden={phone && tab !== "sources"}>
         {docked && (
           <div className={styles.prevCol}>
             <div className={styles.prevHead}>
@@ -283,7 +288,7 @@ export function Workbench({ layout, sources, banner, pool, preview, rules, poolC
         </div>
       </div>
 
-      <section className={styles.poolCol} aria-label="Draft pool" hidden={phone && tab !== "pool"}>
+      <section className={styles.poolCol} data-pane="self" data-pane-dir={dir} aria-label="Draft pool" hidden={phone && tab !== "pool"}>
         {mode === "mid" && (
           <div className={styles.addRow}>
             <button type="button" className={styles.addBtn} onClick={layout.openSources} aria-haspopup="dialog" aria-expanded={layout.drawerOpen}>
@@ -298,7 +303,7 @@ export function Workbench({ layout, sources, banner, pool, preview, rules, poolC
         </div>
       </section>
 
-      <aside className={styles.rulesCol} aria-label="Draft rules and Create" hidden={rulesHidden}>
+      <aside className={styles.rulesCol} data-pane="self" data-pane-dir={dir} aria-label="Draft rules and Create" hidden={rulesHidden}>
         {wide && layout.rulesCollapsed ? (
           <div className={styles.strip} data-side="right">
             <button type="button" className={styles.stripBtn} aria-label="Show rules" title="Show rules (])" onClick={layout.toggleRules}>
@@ -331,7 +336,7 @@ export function Workbench({ layout, sources, banner, pool, preview, rules, poolC
       {phone && (
         <BugFabLift className={styles.dockWrap}>
           {dock}
-          <nav className={styles.tabs} aria-label="Workbench panes">
+          <nav className={styles.tabs} aria-label="Workbench panes" {...segmentSlide(PHONE_TABS.length, PHONE_TABS.indexOf(tab))}>
             <button type="button" aria-current={tab === "sources" ? "page" : undefined} onClick={() => layout.setPhoneTab("sources")}>
               <Search size={18} aria-hidden="true" />
               Sources
