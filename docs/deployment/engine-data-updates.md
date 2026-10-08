@@ -194,6 +194,8 @@ Owner decision, 2026-10-07: use EDOPro behavior on runtime card script errors—
 and continue the duel. This applies to legacy Standard/Domain 1v1, pinned 1v1,
 Tag, FFA3 and FFA4. `DUEL_SCRIPT_ERRORS=tolerant` is the default; use
 `DUEL_SCRIPT_ERRORS=strict` to restore throwing on these errors for new duels.
+Strict mode also ignores card-script errors in view queries so live play, recovery
+and replays remain deterministic.
 Unknown values fail configuration. Production Compose passes `DUEL_SCRIPT_ERRORS`;
 staging passes `STAGING_DUEL_SCRIPT_ERRORS` to the same container setting. Recreate
 the duel container after changing it. The resolved policy is saved in the duel's
