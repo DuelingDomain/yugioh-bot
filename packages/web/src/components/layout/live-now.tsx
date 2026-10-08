@@ -17,7 +17,7 @@ interface LiveNowRowProps {
 /**
  * The "Live now" row under Dashboard, with a light line above and below. Only renders when
  * something is live. Your own duel wins: "Your duel" with the opponent and "Open duel". Otherwise
- * "Live now" with the count, linking to /duels. In the rail it is the dot alone, with a tooltip.
+ * "Live now" with the count, linking to /duels. In the collapsed rail it is the dot alone, with a tooltip (the same row, its text faded out).
  * It grows open when something goes live and collapses when it ends, so the rows below ease down and
  * back instead of jumping (grid rows and opacity, 300ms). While it collapses it shows what it showed.
  */
@@ -33,36 +33,31 @@ export function LiveNowRow({ live, size, onNavigate }: LiveNowRowProps) {
     role="img" aria-label={row.present ? "Opponent in the room" : "Opponent away or presence unavailable"} />
     : <LiveDot className={styles.liveDot} />;
 
-  const link =
-    size === "rail" ? (
-      <Link className={styles.liveTile} href={row.href} aria-label={row.name} onClick={onNavigate}>
-        {dot}
-      </Link>
-    ) : (
-      <Link className={styles.liveRow} data-size={size} href={row.href} aria-label={row.name} onClick={onNavigate}>
-        {dot}
-        <span className={styles.liveText}>
-          <span className={styles.liveTitle}>{row.title}</span>
-          <span className={styles.liveSub}>{row.sub}</span>
-        </span>
-        {row.action ? <span className={styles.liveAction}>{row.action}</span> : null}
-      </Link>
-    );
+  const link = (
+    <Link className={styles.liveRow} data-size={size} href={row.href} aria-label={row.name} onClick={onNavigate}>
+      {dot}
+      <span className={styles.liveText}>
+        <span className={styles.liveTitle}>{row.title}</span>
+        <span className={styles.liveSub}>{row.sub}</span>
+      </span>
+      {row.action ? <span className={styles.liveAction}>{row.action}</span> : null}
+    </Link>
+  );
 
   return (
     <div className={styles.liveGrow} data-mo="grow" data-state={state} inert={model === null}>
       <div className={styles.liveClip}>
         <div className={styles.liveWrap} data-kind={row.kind} data-size={size}>
       <LightRule />
-      {size === "rail" ? (
+      {size === "side" ? (
         <Tip label={row.tip} side="right" className={styles.railTip}>
           {link}
         </Tip>
       ) : (
         link
       )}
-      {/* The rail's next group starts with its own divider, so the tile keeps only the top line. */}
-      {size === "rail" ? null : <LightRule />}
+      {/* The rail's next group starts with its own divider, so the collapsed rail fades this line out. */}
+      <LightRule className={styles.liveEnd} />
         </div>
       </div>
     </div>

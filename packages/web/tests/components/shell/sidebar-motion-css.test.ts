@@ -1,0 +1,79 @@
+import { readFileSync } from "node:fs";
+import postcss, { type Rule } from "postcss";
+import { describe, expect, it } from "vitest";
+
+const css = readFileSync(new URL("../../../src/components/layout/shell.module.css", import.meta.url), "utf8");
+const root = postcss.parse(css);
+
+function rules(selector: string): Rule[] {
+  const found: Rule[] = [];
+  root.walkRules((rule) => {
+    if (rule.selectors.includes(selector)) found.push(rule);
+  });
+  return found;
+}
+function decl(rule: Rule, prop: string): string | undefined {
+  let value: string | undefined;
+  rule.walkDecls(prop, (d) => {
+    value = d.value;
+  });
+  return value;
+}
+
+describe("sidebar rail motion (shell.module.css)", () => {
+  it("keeps the icon on one x in both widths: same padding, same icon size", () => {
+    const [item] = rules(".navItem");
+    expect(decl(item, "padding")).toBe("0 12px");
+    expect(decl(rules(".navIcon")[0], "width")).toBe("20px");
+    // 12px nav padding + 12px item padding puts the icon at x 24..44, centred on the 68px rail.
+    expect(decl(rules(".nav")[0], "padding")).toBe("12px 12px 8px");
+    expect(rules('.navItem[data-size="rail"]')).toHaveLength(0);
+  });
+
+  it("only transitions the rail and the page column while the shell says the rail is moving", () => {
+    const widths: string[] = [];
+    root.walkRules((rule) => {
+      const t = decl(rule, "transition");
+      if (t && /(^|\s)(width|margin-left)\s/.test(t)) widths.push(rule.selector);
+    });
+    expect(widths.sort()).toEqual([
+      ".frame[data-sidebar-moving] .main",
+      ".frame[data-sidebar-moving] .side",
+    ]);
+  });
+
+  it("uses the rail token and the strong ease-out for the rail", () => {
+    const side = rules(".frame[data-sidebar-moving] .side")[0];
+    expect(decl(side, "transition")).toBe("width var(--d-rail) var(--ease-out)");
+    expect(decl(rules(".frame[data-sidebar-moving] .main")[0], "transition")).toBe("margin-left var(--d-rail) var(--ease-out)");
+  });
+
+  it("text leaves first and arrives after the rail is mostly open", () => {
+    const expanding = decl(rules(".frame[data-sidebar-moving] .side")[0], "--t-label") ?? "";
+    const collapsing = decl(rules('.frame[data-sidebar-moving] .side[data-collapsed="true"]')[0], "--t-label") ?? "";
+    expect(expanding).toMatch(/110ms/);
+    expect(collapsing).not.toContain("110ms");
+    expect(collapsing).toContain("var(--d-pop-out)");
+  });
+
+  it("hides the tooltips when the rail is expanded and while it moves", () => {
+    const hidden = rules('.side:not([data-collapsed="true"]) .railTip.railTip > :global(.sv-tip)');
+    expect(hidden).toHaveLength(1);
+    expect(hidden[0].selectors).toContain('.frame[data-sidebar-moving] .side .railTip.railTip > :global(.sv-tip)');
+    expect(decl(hidden[0], "display")).toBe("none");
+  });
+
+  it("turns every rail transition off under reduced motion", () => {
+    let reduced: string | undefined;
+    root.walkAtRules("media", (at) => {
+      if (at.params.includes("prefers-reduced-motion")) reduced = (reduced ?? "") + at.toString();
+    });
+    expect(reduced).toContain("--t-label: none");
+    expect(reduced).toContain("--t-rail: none");
+    expect(reduced).toMatch(/\.frame\[data-sidebar-moving\] \.main[\s\S]*transition: none/);
+  });
+
+  it("animates nothing but opacity, visibility, transform-like and layout the rail needs", () => {
+    expect(css).not.toMatch(/transition:[^;]*\ball\b/);
+  });
+});

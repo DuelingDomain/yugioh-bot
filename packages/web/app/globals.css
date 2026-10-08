@@ -69,6 +69,7 @@
   --d-arrive: 160ms;      /* plus 20ms per row, rows past 8 arrive with row 8 */
   --d-roll: 220ms;
   --d-flip: 300ms;
+  --d-rail: 240ms;        /* the sidebar rail widening or narrowing, and the page column that follows it */
   --d-wash: 1200ms;
   --d-modal-in: 200ms;
   --d-modal-out: 150ms;

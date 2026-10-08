@@ -327,3 +327,31 @@ describe("AppShell tournament rail", () => {
     await waitFor(() => expect(container.querySelector("aside")).toHaveAttribute("data-rail"));
   });
 });
+
+describe("AppShell rail motion", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "requestAnimationFrame", "cancelAnimationFrame"] });
+    window.localStorage.clear();
+    mockUsePathname.mockReturnValue("/tournaments");
+    stubFetch();
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("a saved collapse on load does not animate: the frame is never marked as moving", async () => {
+    window.localStorage.setItem(KEY, "1");
+    const { container } = render(<AppShell><p>x</p></AppShell>);
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(container.firstElementChild).toHaveAttribute("data-sidebar-collapsed", "true");
+    expect(container.firstElementChild).not.toHaveAttribute("data-sidebar-moving");
+  });
+
+  it("a toggle marks the frame as moving in the same render, then clears it after the rail has landed", async () => {
+    const { container } = render(<AppShell><p>x</p></AppShell>);
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+    expect(container.firstElementChild).toHaveAttribute("data-sidebar-collapsed", "true");
+    expect(container.firstElementChild).toHaveAttribute("data-sidebar-moving");
+    await act(async () => { await vi.advanceTimersByTimeAsync(600); });
+    expect(container.firstElementChild).not.toHaveAttribute("data-sidebar-moving");
+  });
+});

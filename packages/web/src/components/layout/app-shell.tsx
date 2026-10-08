@@ -12,6 +12,7 @@ import { useShellAccount } from "./use-shell-account";
 import { usePageEnter } from "./use-page-enter";
 import { useLiveNow } from "./use-live-now";
 import { ShellContext } from "./shell-context";
+import { DURATION } from "@/lib/motion";
 import { PHONE_MAX_WIDTH, ROOM_COLLAPSE_QUERY, autoCollapseRoute } from "./shell-model";
 import styles from "./shell.module.css";
 
@@ -41,6 +42,10 @@ function ShellFrame({ children }: { children: ReactNode }) {
   const [override, setOverride] = useState<boolean | null>(null);
   const [roomWidth, setRoomWidth] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
+  // The rail's transitions run only while this is on: for DURATION.rail after the collapsed state changes,
+  // once the saved choice has been read. First paint, hydration and window resizes never animate.
+  const [settled, setSettled] = useState(false);
+  const [moving, setMoving] = useState(false);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
   const frameRef = useRef<HTMLDivElement>(null);
@@ -60,9 +65,12 @@ function ShellFrame({ children }: { children: ReactNode }) {
     setOverride(null);
   }, [pathname]);
 
-  // Read after mount so the server render and the first client render agree.
+  // Read after mount so the server render and the first client render agree. The frame after, the rail is
+  // allowed to animate: the saved choice has landed by then and must not play as a collapse.
   useEffect(() => {
     setStored(readCollapsed());
+    const frame = requestAnimationFrame(() => setSettled(true));
+    return () => cancelAnimationFrame(frame);
   }, []);
 
   useEffect(() => {
@@ -73,6 +81,19 @@ function ShellFrame({ children }: { children: ReactNode }) {
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
   }, []);
+
+  // Turned on in the same render that changes the collapsed state, so the first changed frame already has the
+  // transitions (an effect would be a frame late and the rail would snap).
+  const [seenCollapsed, setSeenCollapsed] = useState(sidebarCollapsed);
+  if (seenCollapsed !== sidebarCollapsed) {
+    setSeenCollapsed(sidebarCollapsed);
+    if (settled) setMoving(true);
+  }
+  useEffect(() => {
+    if (!moving) return;
+    const timer = setTimeout(() => setMoving(false), DURATION.rail + 160);
+    return () => clearTimeout(timer);
+  }, [moving, sidebarCollapsed]);
 
   const toggleSidebar = useCallback(() => {
     if (autoCollapsed || override !== null) {
@@ -128,6 +149,7 @@ function ShellFrame({ children }: { children: ReactNode }) {
         ref={frameRef}
         className={`${styles.frame} min-h-screen bg-bg-deep text-text-primary`}
         data-sidebar-collapsed={sidebarCollapsed ? "true" : "false"}
+        data-sidebar-moving={moving ? "" : undefined}
       >
         <PhoneTopBar ref={menuButtonRef} account={account} menuOpen={drawerOpen} live={live} onMenuClick={openMenu} onReportBug={openReport} />
         <Sidebar collapsed={sidebarCollapsed} onToggle={toggleSidebar} account={account} live={live} onReportBug={openReport} />
