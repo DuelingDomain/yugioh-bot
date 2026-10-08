@@ -38,7 +38,7 @@ async function seed(overrides: Partial<DraftConfig> = {}) {
     allowedCubeIds: [1, 2], cardsPerPlayer: 40, themePackSize: 3,
     extraDeckEnabled: false, pickSeconds: 45, ...overrides,
   };
-  db.prepare(`insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug) values ('guild', 'channel', 'Table', 'pending', ${fixtureUserId("host")}, ?, 'table')`).run(JSON.stringify(config));
+  db.prepare(`insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug, visibility) values ('guild', 'channel', 'Table', 'pending', ${fixtureUserId("host")}, ?, 'table', 'open')`).run(JSON.stringify(config));
   db.prepare(`insert into draft_players (draft_id, player_id, ready_at, ready_setup_hash) values (1, 1, 'ready', 'hash'), (1, 2, 'ready', 'hash')`).run();
   db.prepare("update drafts set lobby_start_at = 'deadline', lobby_start_kind = 'manual', lobby_start_token = 'token', lobby_start_revision = 0, lobby_start_setup_hash = 'hash', lobby_start_force = 1").run();
   return db;

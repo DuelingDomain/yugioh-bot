@@ -5,6 +5,8 @@ export type HistoryCounts = Record<string, number>;
 export const ownershipReferences: Readonly<Record<string, readonly string[]>> = {
   tournaments: ["created_by_user_id"], cubes: ["created_by_user_id"], drafts: ["created_by_user_id"],
   seasons: ["created_by_user_id"], saved_decks: ["owner_user_id"],
+  // Direct users.id references also participate in account history and owner merges.
+  draft_invite_grants: ["user_id"],
 };
 export const playerReferences: Readonly<Record<string, readonly string[]>> = {
   tournament_participants: ["player_id"], draft_player_cube: ["player_id"], draft_players: ["player_id"],

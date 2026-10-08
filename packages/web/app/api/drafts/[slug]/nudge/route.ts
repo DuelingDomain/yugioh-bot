@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createDraftLobbyService, isTestBotDiscordId } from "@yugidraft/shared/services";
 import { NUDGE_COOLDOWN_MS } from "@yugidraft/shared/types";
 import { requireWebAccess } from "@/lib/web-access";
+import { draftReadAccess } from "@/lib/draft-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { announcer } from "@/lib/notify";
@@ -29,6 +30,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
     const userId = actor.userId;
     if (!env.discordGuildId) fail("Server not configured", 503, "GUILD_ACCESS_UNAVAILABLE");
     const { slug } = await params;
+    const db = getDb();
+    const denied = draftReadAccess(db, slug, env.discordGuildId, userId);
+    if (denied) return denied;
     let body: unknown;
     try { body = await request.json(); } catch { fail("Invalid JSON body", 400, "INVALID_BODY"); }
     if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some(key => key !== "playerId")) {
@@ -38,7 +42,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
     if (playerId !== undefined && (typeof playerId !== "number" || !Number.isSafeInteger(playerId) || playerId <= 0)) {
       fail("playerId must be a positive integer", 400, "INVALID_BODY");
     }
-    const db = getDb();
     const now = new Date();
     const reservedAt = now.toISOString();
     const reservation = db.transaction(() => {

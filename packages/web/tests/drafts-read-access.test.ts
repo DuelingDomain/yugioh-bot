@@ -21,7 +21,7 @@ vi.mock("@yugidraft/shared/duels", () => import("../../shared/src/duels/index"))
 vi.mock("@/lib/notify", () => ({ announcer: {}, broadcaster: {} }));
 
 const statuses = ["pending", "active", "completed", "cancelled"] as const;
-const users = ["player", "creator", "outsider"] as const;
+const users = ["player", "creator", "grant", "outsider"] as const;
 const routes = ["draft", "pool", "preflight", "export", "deck-pool", "connection"] as const;
 type Route = typeof routes[number];
 
@@ -49,6 +49,7 @@ describe("draft read access", () => {
     database.current.prepare(`insert into players (id, guild_id, user_id, discord_user_id, display_name) values (2, 'guild-2', ${fixtureUserId("outsider")}, '${fixtureDiscordId("outsider")}', 'Kaiba')`).run();
     database.current.prepare(`insert into drafts (id, guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug) values (1, 'guild-1', 'channel', 'Draft', 'pending', ${fixtureUserId("creator")}, '{}', 'test-draft')`).run();
     database.current.prepare("insert into draft_players (draft_id, player_id, seat_index) values (1, 1, 0)").run();
+    database.current.prepare("insert into draft_invite_grants (draft_id,user_id) values (1,?)").run(fixtureUserId("grant"));
   });
 
   afterEach(() => {
@@ -57,17 +58,18 @@ describe("draft read access", () => {
     vi.restoreAllMocks();
   });
 
+  for (const visibility of ["open", "private"] as const) {
   for (const route of routes) {
-    describe(route, () => {
+    describe(`${visibility} ${route}`, () => {
       for (const status of statuses) {
         for (const user of users) {
           it(`${status}: ${user}`, async () => {
-            database.current!.prepare("update drafts set status = ? where id = 1").run(status);
+            database.current!.prepare("update drafts set status = ?, visibility = ? where id = 1").run(status, visibility);
             auth.mockResolvedValue({ user: { id: String(fixtureUserId(user)), discordUserId: fixtureDiscordId(user) } });
             const response = await read(route);
-            if (status !== "pending" && user === "outsider") {
-              expect(response.status).toBe(403);
-              expect(await response.json()).toEqual({ error: "This draft is only open to its players." });
+            if (user === "outsider" && (visibility === "private" || status !== "pending")) {
+              expect(response.status).toBe(404);
+              expect(await response.json()).toEqual({ error: "Draft not found" });
               return;
             }
             if (route === "export") {
@@ -115,18 +117,21 @@ describe("draft read access", () => {
     });
   }
 
+  }
+
   it("refuses a fresh lobby token once an outsider's draft starts", async () => {
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("outsider")), discordUserId: fixtureDiscordId("outsider") } });
+    database.current!.prepare("update drafts set visibility = 'open'").run();
     expect((await read("connection")).status).toBe(200);
     database.current!.prepare("update drafts set status = 'active' where id = 1").run();
-    expect((await read("connection")).status).toBe(403);
+    expect((await read("connection")).status).toBe(404);
   });
 
   it("does not count a participant from another guild", async () => {
     database.current!.prepare("insert into draft_players (draft_id, player_id) values (1, 2)").run();
     database.current!.prepare("update drafts set status = 'active' where id = 1").run();
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("outsider")), discordUserId: fixtureDiscordId("outsider") } });
-    for (const route of routes) expect((await read(route)).status).toBe(403);
+    for (const route of routes) expect((await read(route)).status).toBe(404);
   });
 
   it("does not issue a room token without the existing signing secret", async () => {
@@ -217,4 +222,4 @@ describe("draft read access", () => {
   });
 });
 
-const FIXTURE_KEYS = ["player", "outsider", "creator", "admin"] as const;
+const FIXTURE_KEYS = ["player", "outsider", "creator", "admin", "grant"] as const;

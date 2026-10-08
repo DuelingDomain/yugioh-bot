@@ -179,6 +179,7 @@ describe("shared draft service", () => {
       channelId: "channel-1",
       name: "cube night",
       status: "pending",
+      visibility: "private",
       createdByUserId: seedUser(app.db, "user-1").userId,
       config: {
         extraDeckEnabled: false,

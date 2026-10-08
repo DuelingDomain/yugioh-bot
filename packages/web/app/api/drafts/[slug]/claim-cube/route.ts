@@ -20,6 +20,7 @@ async function mutateClaim(request: Request, { params }: Context, release: boole
   const guildId = env.discordGuildId;
 
   try {
+    pendingThemeDraft(db, slug, guildId, userId);
     const body = release ? undefined : await themeDraftMutationBody(request);
     const cubeId = release ? null : body!.cubeId;
     const changed = db.transaction(() => {

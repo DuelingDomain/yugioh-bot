@@ -1,6 +1,6 @@
 import { randomBytes, randomInt } from "node:crypto";
 import type Database from "better-sqlite3";
-import type { Draft, DraftCard, DraftConfig, DraftPick, DraftPlayer } from "../types/index.js";
+import type { Draft, DraftCard, DraftConfig, DraftPick, DraftPlayer, DraftVisibility } from "../types/index.js";
 import { generateWebSlug } from "../util/web-slug.js";
 import { cubePoolSizes } from "./cubes.js";
 import { MAX_COPIES_PER_PLAYER } from "./constants.js";
@@ -52,6 +52,7 @@ function mapDraft(row: any): Draft {
     channelId: row.channel_id,
     name: row.name,
     status: row.status,
+    visibility: row.visibility,
     createdByUserId: row.created_by_user_id,
     config: normalizeDraftConfig(JSON.parse(row.config_json)),
     currentPackRound: row.current_wave_number,
@@ -239,16 +240,17 @@ export function createDraftService(
       config: DraftConfig,
       createdByUserId: number,
       creatorPlayerId: number,
+      visibility: DraftVisibility,
     ) => {
       assertLobbySeatTarget(config);
       const result = db
         .prepare(
           `
-          insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug)
-          values (?, ?, ?, 'pending', ?, ?, ?)
+          insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug, visibility)
+          values (?, ?, ?, 'pending', ?, ?, ?, ?)
         `,
         )
-        .run(guildId, channelId, name, createdByUserId, JSON.stringify(normalizeDraftConfig(config)), generateWebSlug());
+        .run(guildId, channelId, name, createdByUserId, JSON.stringify(normalizeDraftConfig(config)), generateWebSlug(), visibility);
 
       const draftId = Number(result.lastInsertRowid);
 
@@ -1469,6 +1471,7 @@ export function createDraftService(
       config: DraftConfig,
       createdByUserId: number,
       creatorPlayerId: number,
+      visibility: DraftVisibility = "private",
     ): Draft {
       const existingCurrent = db
         .prepare(
@@ -1488,7 +1491,7 @@ export function createDraftService(
 
       assertPlayerGuild(creatorPlayerId, guildId);
 
-      return findById(createDraft(guildId, channelId, name, config, createdByUserId, creatorPlayerId));
+      return findById(createDraft(guildId, channelId, name, config, createdByUserId, creatorPlayerId, visibility));
     },
 
     findById,

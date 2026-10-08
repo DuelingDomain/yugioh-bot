@@ -40,7 +40,7 @@ export function createOpenNowService(db: Database.Database): OpenNowService {
             and c.id in (select value from json_each(d.config_json, '$.allowedCubeIds'))
         ) else null end as seatCount
       from drafts d
-      where d.guild_id = @guild and d.status = 'pending' and d.web_slug is not null and d.web_slug != ''
+      where d.guild_id = @guild and d.status = 'pending' and d.visibility = 'open' and d.web_slug is not null and d.web_slug != ''
     )
     select slug, name, mode, seatsTaken, seatCount, viewerJoined from lobbies
     where seatCount is null or seatsTaken < seatCount

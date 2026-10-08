@@ -90,18 +90,18 @@ describe("POST /api/drafts/[slug]/talk", () => {
     expect((await call({ line: "gg" }, "nope")).status).toBe(404);
   });
 
-  it("403 when the caller has a player but is not seated in this draft", async () => {
+  it("404 when the caller cannot read this private draft", async () => {
     await seed();
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("outsider")), discordUserId: fixtureDiscordId("outsider"), name: "Kaiba" } });
     const res = await call({ line: "gg" });
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(404);
     expect(broadcaster.draft).not.toHaveBeenCalled();
   });
 
-  it("403 when the caller has no player at all", async () => {
+  it("404 when the caller has neither a seat nor a grant", async () => {
     await seed();
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("stranger")), discordUserId: fixtureDiscordId("stranger"), name: "Joey" } });
-    expect((await call({ line: "gg" })).status).toBe(403);
+    expect((await call({ line: "gg" })).status).toBe(404);
   });
 
   it("409 when the draft is not active", async () => {

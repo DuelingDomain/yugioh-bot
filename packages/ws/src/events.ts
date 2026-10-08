@@ -157,7 +157,7 @@ export function registerEventHandlers(
           ? verifyDraftRoomToken(payload?.token, opts.secret, { slug, userId })
           : null;
         if (!claims || !hasAccess(claims)) {
-          ack?.({ error: "This draft is only open to its players." });
+          ack?.({ error: "Draft not found" });
           return;
         }
         const room = roomManager.getOrCreateRoom(slug, slug);
@@ -166,7 +166,7 @@ export function registerEventHandlers(
         ack?.();
       } catch (err) {
         console.error(`[ws] draft:join error for ${socket.id}`, err);
-        ack?.({ error: "This draft is only open to its players." });
+        ack?.({ error: "Draft not found" });
       }
     });
 

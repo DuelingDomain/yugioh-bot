@@ -51,7 +51,7 @@ describe("the ws draft access reader", () => {
     dir = mkdtempSync(join(tmpdir(), "draft-room-access-"));
     db = new Database(join(dir, "drafts.sqlite"));
     migrate(db);
-    db.prepare("insert into drafts (guild_id, channel_id, name, status, created_by_user_id, web_slug) values ('guild', 'channel', 'Draft', 'pending', ?, 'draft')").run(seedUser(db, "creator").userId);
+    db.prepare("insert into drafts (guild_id, channel_id, name, status, created_by_user_id, web_slug, visibility) values ('guild', 'channel', 'Draft', 'pending', ?, 'draft', 'open')").run(seedUser(db, "creator").userId);
     claims = { slug: "draft", guildId: "guild", userId: seedUser(db, "outsider").userId };
     reader = createDraftAccessReader(join(dir, "drafts.sqlite"));
   });

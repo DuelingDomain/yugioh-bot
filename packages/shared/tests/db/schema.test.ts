@@ -71,6 +71,8 @@ describe("shared database schema", () => {
       "lobby_start_force",
       "lobby_start_error",
       "lobby_nudged_at",
+      "visibility",
+      "invite_code",
     ]);
     expect(getTableInfo(db, "draft_players").map((column) => column.name)).toEqual([
       "draft_id",

@@ -1131,6 +1131,23 @@ export function migrate(db: Database.Database) {
   migrateConfigPoolsToCubeCards(db);
   migrateIdentity(db);
   migrateAccessIndexes(db);
+
+  // Draft privacy follows identity migration so grants reference application users.
+  // Adding the default also makes every existing draft private; codes stay lazy.
+  db.transaction(() => {
+    addColumnIfMissing(db, "drafts", "visibility", "text not null default 'private' check (visibility in ('open', 'private'))");
+    addColumnIfMissing(db, "drafts", "invite_code", "text");
+    db.exec(`
+      create unique index if not exists drafts_invite_code_unique
+        on drafts(invite_code) where invite_code is not null;
+      create table if not exists draft_invite_grants (
+        draft_id integer not null references drafts(id) on delete cascade,
+        user_id integer not null references users(id),
+        created_at text not null default current_timestamp,
+        primary key (draft_id, user_id)
+      );
+    `);
+  })();
 }
 
 /**

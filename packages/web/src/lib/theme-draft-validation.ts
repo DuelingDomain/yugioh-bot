@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 import { NextResponse } from "next/server";
 import { DRAFT_LOBBY_ERROR_STATUS, type DraftConfig, type DraftLobbyErrorCode } from "@yugidraft/shared/types";
-import { createDraftLobbyService, DraftLobbyServiceError, type DraftLobbyInvalidationOptions } from "@yugidraft/shared/services";
+import { createDraftLobbyService, DraftLobbyServiceError, findDraftReadAccess, type DraftLobbyInvalidationOptions } from "@yugidraft/shared/services";
 
 export class ThemeDraftMutationError extends Error {
   constructor(public readonly code: DraftLobbyErrorCode, message: string, public readonly savedCubeId?: number) {
@@ -30,6 +30,9 @@ export async function themeDraftMutationBody(request: Request): Promise<Record<s
 
 /** Call again under the mutation's immediate transaction after any async work. */
 export function pendingThemeDraft(db: Database.Database, slug: string, guildId: string, userId: number, hostOnly = false) {
+  if (!findDraftReadAccess(db, slug, guildId, userId)?.canRead) {
+    throw new ThemeDraftMutationError("DRAFT_NOT_FOUND", "Draft not found");
+  }
   const row = db.prepare("select id, status, created_by_user_id, config_json from drafts where web_slug = ? and guild_id = ?")
     .get(slug, guildId) as { id: number; status: string; created_by_user_id: number; config_json: string } | undefined;
   if (!row) throw new ThemeDraftMutationError("DRAFT_NOT_FOUND", "Draft not found");

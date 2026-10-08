@@ -11,6 +11,7 @@ import {
   createCardCatalogService,
   createCardLookupBudget,
   createDraftService,
+  findDraftReadAccess,
   DraftLobbyServiceError,
   createSavedDeckService,
   MAX_COPIES_PER_PLAYER,
@@ -376,6 +377,9 @@ export async function buildDraftResponse(slug: string, actor: { userId: number; 
     channelId: draft.channel_id,
     name: draft.name,
     status: draft.status,
+    visibility: draftModel.visibility,
+    canJoin: findDraftReadAccess(db, slug, guildId, userId)?.canJoin ?? false,
+    ...(draft.created_by_user_id === userId ? { canManageInvite: true } : {}),
     createdByUserId: draft.created_by_user_id,
     config,
     currentPackRound: draftModel.currentPackRound,
@@ -448,6 +452,9 @@ export type DraftLobbyContext = {
 
 /** Also reusable by Nudge: resolve configured guild and ownership before writes. */
 export function assertDraftLobbyAccess(context: DraftLobbyContext) {
+  if (!findDraftReadAccess(context.db, context.slug, env.discordGuildId, context.userId)?.canRead) {
+    throw new DraftLobbyApiError("Draft not found", "DRAFT_NOT_FOUND");
+  }
   const draft = context.db.prepare(
     "select id, created_by_user_id, status, lobby_revision from drafts where id = ? and web_slug = ? and guild_id = ?",
   ).get(context.draftId, context.slug, env.discordGuildId) as
