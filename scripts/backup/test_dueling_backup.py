@@ -177,11 +177,12 @@ class BackupTests(unittest.TestCase):
         self.assertIn(" kept=2 total_bytes=", result.stdout)
 
     def test_daily_age_cap_removes_stale_pairs_even_below_count_limit(self):
-        names, protected = self.seed_retention((1, 13, 14, 30))
+        # The daily timer expires copies a day early, so nothing outlives 14 days between runs.
+        names, protected = self.seed_retention((1, 12, 13, 30))
         result = self.run_backup(keep=50)
         self.assert_success(result)
         for age, name in names.items():
-            self.assert_pair_exists(name, age < 14)
+            self.assert_pair_exists(name, age < 13)
         self.assert_protected(protected)
         self.assertIn(" kept=3 total_bytes=", result.stdout)
 
@@ -201,8 +202,8 @@ class BackupTests(unittest.TestCase):
     def test_daily_age_cap_uses_exact_utc_boundary(self):
         self.destination.mkdir()
         newest = "bot-20261008-120000Z.sqlite"
-        boundary = "bot-20260924-120000Z.sqlite"
-        expired = "bot-20260924-115959Z.sqlite"
+        boundary = "bot-20260925-120000Z.sqlite"
+        expired = "bot-20260925-115959Z.sqlite"
         for name in (newest, boundary, expired):
             write_pair(self.destination, name)
 
@@ -300,8 +301,8 @@ class BackupTests(unittest.TestCase):
 
     def test_release_age_cap_uses_exact_utc_boundary(self):
         newest = self.seed_release("pr2-20261008-120000Z")
-        boundary = self.seed_release("pr2-20260924-120000Z")
-        expired = self.seed_release("pr2-20260924-115959Z")
+        boundary = self.seed_release("pr2-20260925-120000Z")
+        expired = self.seed_release("pr2-20260925-115959Z")
 
         class FixedDateTime(datetime):
             @classmethod

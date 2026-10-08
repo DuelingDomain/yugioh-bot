@@ -19,6 +19,8 @@ DEST_DIR = Path(os.environ.get("DUELING_BACKUP_DIR", "/var/backups/yugioh-bot"))
 KEEP_ENV = "DUELING_BACKUP_KEEP"
 RELEASE_KEEP_ENV = "DUELING_RELEASE_KEEP_DAYS"
 MAX_BACKUP_DAYS = 14
+# The timer runs once a day, so expire copies a day early to keep the 14-day promise.
+RUN_INTERVAL = timedelta(days=1)
 SPACE_MULTIPLIER = 3
 CONNECT_TIMEOUT = 30
 UTC = timezone.utc
@@ -87,8 +89,8 @@ def prune_releases():
 
     releases.sort(key=lambda entry: entry[0], reverse=True)
     now = datetime.now(UTC)
-    database_cutoff = now - timedelta(days=keep_days)
-    directory_cutoff = now - timedelta(days=MAX_BACKUP_DAYS)
+    database_cutoff = now - timedelta(days=keep_days) + RUN_INTERVAL
+    directory_cutoff = now - timedelta(days=MAX_BACKUP_DAYS) + RUN_INTERVAL
     for index, (stamp, path) in enumerate(releases):
         if stamp >= database_cutoff:
             continue
@@ -113,7 +115,7 @@ def prune_releases():
 
 def prune_backups(keep):
     root = safe_path(DEST_DIR)
-    cutoff = datetime.now(UTC) - timedelta(days=MAX_BACKUP_DAYS)
+    cutoff = datetime.now(UTC) - timedelta(days=MAX_BACKUP_DAYS) + RUN_INTERVAL
     backups = []
     for path in root.iterdir():
         match = AUTOMATIC_NAME.fullmatch(path.name)
@@ -172,6 +174,13 @@ def create_backup():
         required = SPACE_MULTIPLIER * (source_size + wal_size)
         free = shutil.disk_usage(destination).free
         if free < required:
+            # Expired release copies may be what filled the disk; free them before giving up.
+            try:
+                prune_releases()
+            except Exception as error:
+                warn_release_pruning(error)
+            free = shutil.disk_usage(destination).free
+        if free < required:
             raise RuntimeError("insufficient free space: need {} bytes, have {} in {}".format(required, free, destination))
 
         fd, temporary_name = tempfile.mkstemp(prefix=".dueling-backup-", suffix=".tmp", dir=str(destination))
@@ -217,11 +226,14 @@ def create_backup():
         os.rename(temporary, final)
         os.rename(checksum_temporary, sidecar)
         os.fsync(directory_fd)
-        kept, total_bytes = prune_backups(keep)
         try:
-            prune_releases()
-        except Exception as error:
-            warn_release_pruning(error)
+            kept, total_bytes = prune_backups(keep)
+        finally:
+            # A failed daily prune must not keep expired release copies too.
+            try:
+                prune_releases()
+            except Exception as error:
+                warn_release_pruning(error)
         os.fsync(directory_fd)
         return final, size, checksum, kept, total_bytes
     finally:
