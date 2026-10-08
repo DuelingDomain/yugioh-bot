@@ -99,7 +99,7 @@ export function createAutoBlockPolicy(db: Database.Database, options: {
       const cached = cachedEntries.get(kind);
       if (cached) return cached;
       const entries = active.filter(row => !kind || row.engine_kind === "all" || row.engine_kind === kind)
-        .map(row => ({ code: resolveCode(row.code), reason: AUTO_BLOCK_REASON }));
+        .map(row => ({ code: resolveCode(row.code), reason: AUTO_BLOCK_REASON, exactCodes: relatedCodes(resolveCode(row.code)) }));
       cachedEntries.set(kind, entries);
       return entries;
     },

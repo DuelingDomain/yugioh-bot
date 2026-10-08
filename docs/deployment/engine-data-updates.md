@@ -332,7 +332,9 @@ with identical script bytes keeps the block. A changed script starts a fresh cou
 revision. The identity also covers installed shared Lua helpers, multiplayer suffixes and
 mp-utility.lua, and the legacy Normal transform. Blocks are scoped independently
 to legacy/pinned 1v1 and multiplayer, and to Normal/Domain; a multiplayer error
-never blocks a 1v1 deck. The small operational block table migrates to a composite
+never blocks a 1v1 deck. Automatic blocks cover only the exact failing passcode
+and its validated graduation remaps; they never spread along alias links. Manual
+blocks keep the complete alias-family behavior above. The small operational block table migrates to a composite
 (passcode, engine kind) key; existing rows are retained for startup revision checks. The manual list is applied first and its reason wins
 across the whole alias family. Admission arrays and catalog indexes are cached by manual-list identity and active
 block signature; deck/search/details reads never hash scripts or write block rows.

@@ -37,7 +37,7 @@ describe("script error automatic admission blocks", () => {
     record(2, error); record(2, error);
     expect(policy.entries()).toEqual([]);
     record(3, error);
-    expect(policy.entries()).toEqual([{ code: 10, reason: "Its effect script is being investigated" }]);
+    expect(policy.entries()).toEqual([{ code: 10, reason: "Its effect script is being investigated", exactCodes: [10, 400000010] }]);
     expect(db.prepare("SELECT * FROM card_script_auto_blocks").get()).toMatchObject({
       code: 10, distinct_duels: 3, error_count: 22, threshold: 3, window_days: 7,
       script_hash: "a".repeat(64), bundle_version: "bundle-1", cleared_at: null });
