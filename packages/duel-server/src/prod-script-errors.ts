@@ -30,13 +30,18 @@ export function prodScriptErrors(db: Database.Database, cards: CardScriptSource,
     const recent = aggregate();
     const totals = new Map(recent.map(row => [row.resolved, row]));
     const active = new Map<number, AutoBlockRow[]>();
+    let scanTruncated = false;
     let overlay: ReturnType<typeof loadMultiScriptsFor> | undefined;
     const hash = (code: number, kind: ScriptEngineKind = "all") => {
       if (kind.startsWith("multi-") && cards.dataDirectory) overlay ??= loadMultiScriptsFor(cards.dataDirectory);
       return cardScriptHash(cards, code, kind, overlay);
     };
     if (scriptErrorModeFromEnv() !== "strict") {
-      for (const row of db.prepare("SELECT * FROM card_script_auto_blocks WHERE cleared_at IS NULL ORDER BY code, engine_kind LIMIT 101").all() as AutoBlockRow[]) {
+      const rows = db.prepare("SELECT * FROM card_script_auto_blocks WHERE cleared_at IS NULL ORDER BY code, engine_kind LIMIT 101").all() as AutoBlockRow[];
+      // Stale revisions still consume the bounded scan. Preserve the sentinel
+      // before filtering so omitted active rows cannot look like an empty list.
+      scanTruncated = rows.length > 100;
+      for (const row of rows.slice(0, 100)) {
         const code = remaps.get(row.code) ?? row.code;
         if (hash(code, row.engine_kind) === row.script_hash) active.set(code, [...active.get(code) ?? [], row]);
       }
@@ -49,7 +54,7 @@ export function prodScriptErrors(db: Database.Database, cards: CardScriptSource,
       distinctDuels: totals.get(code)?.duels ?? 0, errorCount: totals.get(code)?.errors ?? 0,
       autoBlocked: row !== null, scriptHash: hash(code, row?.engine_kind), ...(row ? { engineKind: row.engine_kind } : {}) }))).slice(0, 100);
     result.sort((a, b) => b.errorCount - a.errorCount || a.code - b.code);
-    return { available: true as const, cards: result, truncated: codes.reduce((n, code) => n + (active.get(code)?.length ?? 1), 0) > 100 };
+    return { available: true as const, cards: result, truncated: scanTruncated || codes.reduce((n, code) => n + (active.get(code)?.length ?? 1), 0) > 100 };
   })();
 }
 
