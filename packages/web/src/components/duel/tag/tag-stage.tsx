@@ -48,6 +48,8 @@ export interface TagBoardProps extends Omit<TagStageProps, "camera"> {
   camera: RoofCameraState;
   /** Team names are not part of the engine view: the room passes them when it knows them. */
   teamNames?: readonly [string, string];
+  /** The HUD pins an idle card's peek while its field comes into focus. */
+  inspectIdleCards?: boolean;
 }
 
 const TAG = "tag" as const;
@@ -108,7 +110,7 @@ function toneHex(tone: SeatTone | undefined): HubSeatTone {
  * the chain hub and the hands. It draws the fields only through `renderSeatField`. FX, the prompt panel and any overlay
  * are slots over the whole box, so they measure the real screen position of `[data-zones]` and `[data-lp-seat]` nodes.
  */
-export function TagStage({ controller, layout, camera, dispatchCamera, renderSeatField, fx, promptCenter, overlay, hub: phaseHub, teamNames }: TagBoardProps) {
+export function TagStage({ controller, layout, camera, dispatchCamera, renderSeatField, fx, promptCenter, overlay, hub: phaseHub, teamNames, inspectIdleCards = false }: TagBoardProps) {
   const { engine, room, viewerSeat, nameOf, legalKeys, selectedKeys, reducedMotion, prompt, promptSeat } = controller;
   const [phone, setPhone] = useState(false);
   const [chainSize, setChainSize] = useState<ChainStripSize | null>(null);
@@ -468,7 +470,8 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
   };
   // Every zone is a full-size button, so most taps on a field land on one. A zone that offers no action (not a legal
   // pick, not selected, no pile to open) hands the tap to the camera instead: the field comes into focus and the click
-  // does not also inspect a card. A zone with an action, and any zone while a field is in close-up, act as usual.
+  // does not also inspect a card. The HUD can still pin the occupied card's peek while focusing. A zone with an
+  // action, and any zone while a field is in close-up, act as usual.
   const picking = prompt != null && promptSeat === viewerSeat && !(prompt.kind === "choice" && prompt.context?.type === "action");
   const onStageClickCapture = (event: MouseEvent<HTMLDivElement>) => {
     if (camera.mode === "focus") return;
@@ -483,6 +486,10 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     // During a pick prompt (a target, a zone, a card to choose) every tap belongs to the prompt: a zone that is not a
     // target does nothing, it never moves the camera. The open action menu of a main phase is no pick.
     if (picking && legalKeys.size > 0) return;
+    if (inspectIdleCards && zone.dataset.occupied === "true") {
+      focusField(seat);
+      return; // Let the card's click handler pin the HUD peek as the camera focuses.
+    }
     event.stopPropagation();
     focusField(seat);
   };

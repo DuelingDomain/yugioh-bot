@@ -36,6 +36,7 @@ vi.mock("@/components/duel/field", async (importOriginal) => {
     DuelField: (props: {
       onHoverCard?: (card: DuelCard | null, anchor: HTMLElement | null) => void;
       onActivate: (keys: string[], card: DuelCard | null, anchor: HTMLElement) => void;
+      onInspect: (target: { type: "pile"; title: string; cards: DuelCard[] }) => void;
       engine: DuelEngineView;
     }) => {
       const card = props.engine.seats[1].monsters.find((slot) => slot != null) ?? null;
@@ -45,12 +46,19 @@ vi.mock("@/components/duel/field", async (importOriginal) => {
             onMouseEnter={(event) => props.onHoverCard?.(card, event.currentTarget)}
             onMouseLeave={() => props.onHoverCard?.(null, null)}>card</button>
           {/* A second card, for the hover that switches the preview. */}
-          <button type="button" data-testid="field-other"
+          <button type="button" data-testid="field-other" data-zones="1:4:3"
+            onClick={(event) => {
+              const other = props.engine.seats[1].monsters[3];
+              if (other) props.onActivate([`${other.controller}:${other.location}:${other.sequence}`], other, event.currentTarget);
+            }}
             onMouseEnter={(event) => props.onHoverCard?.(props.engine.seats[1].monsters[3], event.currentTarget)}
             onMouseLeave={() => props.onHoverCard?.(null, null)}>other</button>
           {/* The monster is the legal pick of a select prompt. */}
-          <button type="button" data-testid="field-pick"
+          <button type="button" data-testid="field-pick" data-zones="1:4:2"
             onClick={(event) => card && props.onActivate([`${card.controller}:${card.location}:${card.sequence}`], card, event.currentTarget)}>pick</button>
+          {/* A board zone with no click handler (an empty zone of the rival), and a pile. */}
+          <button type="button" data-testid="field-dead" data-zones="1:4:4">dead</button>
+          <button type="button" data-testid="field-pile" onClick={() => props.onInspect({ type: "pile", title: "Graveyard", cards: [] })}>pile</button>
         </div>
       );
     },
@@ -67,18 +75,38 @@ vi.mock("@/components/duel/destroy-fx", () => ({ DestroyFx: () => null }));
 
 import { DuelRoomView } from "@/components/duel/room";
 
-function makeRoom(opts: { domain?: boolean; chain?: boolean; prompt?: DuelPrompt; clock?: DuelClock; spectator?: boolean; second?: boolean } = {}): DuelRoom {
+function makeRoom(opts: {
+  domain?: boolean; chain?: boolean; prompt?: DuelPrompt; clock?: DuelClock; spectator?: boolean; second?: boolean;
+  /** The rival's second monster is face-down. */
+  hiddenSecond?: boolean;
+  /** Battle Ox has a counter and Xyz materials. */
+  extras?: boolean;
+  /** Battle Ox has this ATK. */
+  atk?: number;
+  /** No monster on the board. */
+  empty?: boolean;
+  revision?: number;
+} = {}): DuelRoom {
   let board = newBoard();
-  const edits = [edit.monster(1, 2, CARDS.battleOx)];
+  const edits = opts.empty ? [] : [edit.monster(1, 2, CARDS.battleOx)];
   if (opts.second) edits.push(edit.monster(1, 3, CARDS.beaver));
+  if (opts.hiddenSecond) edits.push(edit.hiddenMonster(1, 3));
   if (opts.domain) {
     edits.push(edit.deckMaster(0, CARDS.darkMagician, { inZone: true, returns: 0, nextCost: 0 }));
     edits.push(edit.deckMaster(1, CARDS.blueEyes, { inZone: true, returns: 1, nextCost: 500 }));
   }
   board = applyEdits(board, edits);
+  const ox = board.seats[1].monsters[2];
+  if (ox && (opts.extras || opts.atk != null)) {
+    board.seats[1].monsters[2] = {
+      ...ox,
+      ...(opts.atk != null ? { attack: opts.atk } : null),
+      ...(opts.extras ? { counters: [{ type: 4, count: 2 }], materials: [{ ...ox, code: 111, name: "Material A" }, { ...ox, code: null, name: undefined }] } : null),
+    } as DuelCard;
+  }
   if (opts.chain) board = { ...board, chain: [link(1, 1, CARDS.bookOfMoon)] } as typeof board;
   const engine = {
-    revision: 2, turn: 1, turnSeat: 0, phase: "main1", seats: board.seats, prioritySeat: null, prompt: opts.prompt ?? null,
+    revision: opts.revision ?? 2, turn: 1, turnSeat: 0, phase: "main1", seats: board.seats, prioritySeat: null, prompt: opts.prompt ?? null,
     chain: board.chain, events: [], log: [], result: null,
   } as unknown as DuelEngineView;
   return {
@@ -295,6 +323,654 @@ describe("the hover preview of the 1v1 room", () => {
     fireEvent.click(screen.getByTestId("hud-dock-log"));
     fireEvent.mouseEnter(screen.getByTestId("field-card"));
     expect(screen.queryByTestId("hover-preview")).toBeNull();
+  });
+});
+
+describe("the pinned card peek of the 1v1 room", () => {
+  const peeks = () => screen.queryAllByTestId("hover-preview");
+  const peek = () => screen.getByTestId("hover-preview");
+  const pin = () => {
+    fireEvent.mouseEnter(screen.getByTestId("field-card"));
+    fireEvent.click(screen.getByTestId("field-pick"));
+  };
+
+  it("a click pins the peek: the wide panel opens, and the Card flyout and a second preview do not", () => {
+    mount({ second: true });
+    pin();
+    expect(peeks()).toHaveLength(1);
+    expect(peek().getAttribute("data-pinned")).toBe("true");
+    expect(peek().getAttribute("data-open")).toBe("true");
+    expect(peek()).toHaveTextContent("Battle Ox");
+    expect(isOpen()).toBe(false);
+    expect(screen.queryByRole("tab", { name: "Card", selected: true })).toBeNull();
+    expect(within(peek()).getByRole("button", { name: "Close Battle Ox preview" })).toBeTruthy();
+  });
+
+  it("stays when the pointer leaves, and a hover on another card does not swap it or add a panel", () => {
+    vi.useFakeTimers();
+    mount({ second: true });
+    pin();
+    fireEvent.mouseLeave(screen.getByTestId("field-card"));
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS * 4); });
+    expect(peek().getAttribute("data-open")).toBe("true");
+    fireEvent.mouseEnter(screen.getByTestId("field-other"));
+    expect(peeks()).toHaveLength(1);
+    expect(peek()).toHaveTextContent("Battle Ox");
+    expect(peek()).not.toHaveTextContent("Beaver Warrior");
+    expect(peek().getAttribute("data-pinned")).toBe("true");
+    expect(isOpen()).toBe(false);
+  });
+
+  it("closes with the X button", () => {
+    vi.useFakeTimers();
+    mount();
+    pin();
+    fireEvent.click(screen.getByTestId("hover-preview-close"));
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS + 20); });
+    expect(peek().getAttribute("data-open")).toBe("false");
+  });
+
+  it("closes with Esc, and that Esc does not answer the prompt; the next Esc does", () => {
+    vi.useFakeTimers();
+    mount({ prompt: chainPrompt });
+    pin();
+    expect(peek().getAttribute("data-pinned")).toBe("true");
+    fireEvent.keyDown(window, { key: "Escape" });
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS + 20); });
+    expect(peek().getAttribute("data-open")).toBe("false");
+    expect(sent()).toEqual([]);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(sent()).toHaveLength(1);
+  });
+
+  it("closes with a press outside, but not with a press inside the panel", () => {
+    vi.useFakeTimers();
+    mount();
+    pin();
+    fireEvent.pointerDown(within(peek()).getByRole("heading"));
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS * 2); });
+    expect(peek().getAttribute("data-open")).toBe("true");
+    fireEvent.pointerDown(document.body);
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS + 20); });
+    expect(peek().getAttribute("data-open")).toBe("false");
+  });
+
+  it("a click on another card pins that card, and the press on it does not close the panel first", () => {
+    vi.useFakeTimers();
+    mount({ second: true });
+    pin();
+    const other = screen.getByTestId("field-other");
+    // The press lands on a board zone (the stub carries the zone marker, as the real field does).
+    fireEvent.pointerDown(other);
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS * 2); });
+    expect(peek().getAttribute("data-open")).toBe("true");
+    fireEvent.click(other);
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS * 2); });
+    expect(peeks()).toHaveLength(1);
+    expect(peek()).toHaveTextContent("Beaver Warrior");
+    expect(peek().getAttribute("data-pinned")).toBe("true");
+    expect(peek().getAttribute("data-open")).toBe("true");
+    expect(isOpen()).toBe(false);
+  });
+
+  it("a press on a zone with no click handler lets the pin go after its click", () => {
+    vi.useFakeTimers();
+    mount();
+    pin();
+    const dead = screen.getByTestId("field-dead");
+    fireEvent.pointerDown(dead);
+    expect(peek().getAttribute("data-open")).toBe("true");
+    fireEvent.click(dead);
+    // The pin goes in a timer after the click; the panel then hides after its own delay.
+    act(() => { vi.advanceTimersByTime(1); });
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS + 20); });
+    expect(peek().getAttribute("data-open")).toBe("false");
+  });
+
+  it("a click on a face-down card opens the Card flyout and pins nothing", () => {
+    mount({ hiddenSecond: true });
+    fireEvent.click(screen.getByTestId("field-other"));
+    expect(isOpen()).toBe(true);
+    expect(flyout().getAttribute("data-pane")).toBe("card");
+    expect(peeks().filter((node) => node.getAttribute("data-pinned") === "true")).toHaveLength(0);
+  });
+
+  it("a pile lets the pin go, and it does not come back when the pile closes", () => {
+    vi.useFakeTimers();
+    mount();
+    pin();
+    fireEvent.click(screen.getByTestId("field-pile"));
+    fireEvent.keyDown(window, { key: "Escape" });
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS + 20); });
+    expect(peek().getAttribute("data-open")).toBe("false");
+  });
+
+  it("shows the same extra lines as the Card flyout: counters and materials", () => {
+    mount({ extras: true });
+    pin();
+    const lines = within(screen.getByTestId("hover-preview-extras")).getAllByRole("listitem").map((item) => item.textContent);
+    expect(lines).toEqual(["Counter 4: 2", "Materials: Material A, face-down"]);
+  });
+
+  it("shows no extras list for a card with no extra lines", () => {
+    mount();
+    pin();
+    expect(screen.queryByTestId("hover-preview-extras")).toBeNull();
+  });
+
+  it("is a labelled aside, not a dialog, and the X button is named after the card", () => {
+    mount();
+    pin();
+    expect(screen.getByRole("complementary", { name: "Pinned card" })).toBe(peek());
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(within(peek()).getByRole("button", { name: "Close Battle Ox preview" })).toBeTruthy();
+  });
+
+  it("the X button by keyboard returns focus to the card; by mouse it does not (the hover peek would come back)", () => {
+    vi.useFakeTimers();
+    mount();
+    pin();
+    const card = screen.getByTestId("field-pick");
+    fireEvent.click(screen.getByTestId("hover-preview-close"), { detail: 1 });
+    expect(document.activeElement).not.toBe(card);
+    pin();
+    fireEvent.click(screen.getByTestId("hover-preview-close"), { detail: 0 });
+    expect(document.activeElement).toBe(card);
+  });
+
+  it("a press on a prompt button lets the pin go, and the button still works", () => {
+    vi.useFakeTimers();
+    mount({ prompt: chainPrompt });
+    pin();
+    const yes = screen.getByRole("button", { name: "Yes" });
+    fireEvent.pointerDown(yes);
+    fireEvent.click(yes);
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS + 20); });
+    // The panel now shows the card of the first response row (focus), not the pin.
+    expect(peek().getAttribute("data-pinned")).toBeNull();
+    expect(peek()).not.toHaveTextContent("Battle Ox");
+    expect(screen.getAllByRole("button", { name: /^\d\. / })).toHaveLength(2);
+  });
+
+  it("the card of a hovered prompt row shows over the pin, and the pin returns when the pointer leaves the row", () => {
+    mount({ prompt: chainPrompt });
+    pin();
+    fireEvent.click(screen.getByRole("button", { name: "Yes" }));
+    const rows = screen.getAllByRole("button", { name: /^\d\. / });
+    fireEvent.mouseEnter(rows[1]);
+    expect(peeks()).toHaveLength(1);
+    expect(peek()).toHaveTextContent("Blue-Eyes Spirit Dragon");
+    expect(peek().getAttribute("data-pinned")).toBeNull();
+    fireEvent.mouseOut(rows[1], { relatedTarget: document.body });
+    expect(peek()).toHaveTextContent("Battle Ox");
+    expect(peek().getAttribute("data-pinned")).toBe("true");
+  });
+
+  it("a new prompt for this seat lets the pin go: it must not cover the cards that the prompt asks for", () => {
+    vi.useFakeTimers();
+    const view = mount();
+    pin();
+    expect(peek().getAttribute("data-pinned")).toBe("true");
+    swr.data = makeRoom({ prompt: pickPrompt });
+    view.rerender(<DuelRoomView slug="abc" windowed />);
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS + 20); });
+    expect(peek().getAttribute("data-open")).toBe("false");
+  });
+
+  it("takes the fresh copy of the card at each revision, and goes when the card is gone", () => {
+    vi.useFakeTimers();
+    const view = mount();
+    pin();
+    expect(peek()).toHaveTextContent("1700 / 1000");
+    swr.data = makeRoom({ atk: 2400, revision: 3 });
+    view.rerender(<DuelRoomView slug="abc" windowed />);
+    expect(peek()).toHaveTextContent("2400 / 1000");
+    expect(peek().getAttribute("data-pinned")).toBe("true");
+    swr.data = makeRoom({ empty: true, revision: 4 });
+    view.rerender(<DuelRoomView slug="abc" windowed />);
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS + 20); });
+    expect(peek().getAttribute("data-open")).toBe("false");
+  });
+
+  it("goes when the HUD goes (a narrow window), and does not come back when the window is wide again", () => {
+    let narrow = false;
+    const listeners = new Set<() => void>();
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: narrow && query.includes("max-width"), media: query,
+      addEventListener: (_: string, fn: () => void) => listeners.add(fn),
+      removeEventListener: (_: string, fn: () => void) => listeners.delete(fn),
+    }));
+    mount();
+    pin();
+    expect(peek().getAttribute("data-pinned")).toBe("true");
+    act(() => { narrow = true; listeners.forEach((fn) => fn()); });
+    expect(peeks()).toHaveLength(0);
+    act(() => { narrow = false; listeners.forEach((fn) => fn()); });
+    expect(peeks().filter((node) => node.getAttribute("data-pinned") === "true")).toHaveLength(0);
+  });
+
+  describe("placement", () => {
+    type Box = { left: number; right: number; top: number; bottom: number };
+    const spies: Array<{ mockRestore: () => void }> = [];
+    const LAYER_H = 720;
+    const PANEL_H = 300;
+    /**
+     * jsdom has no layout: the clicked card gets `box`, and the panel gets the size and the place that its CSS gives it at 1280 x 720
+     * (`--pv-w` wide, 300 px tall, standing on `--pv-bottom` from the layer bottom, at the left edge 72 or the right edge 16).
+     */
+    function layout(box: Box, fits: (panel: HTMLElement) => boolean = () => true) {
+      const rect = (b: Box) => ({ ...b, x: b.left, y: b.top, width: b.right - b.left, height: b.bottom - b.top, toJSON: () => ({}) });
+      const isPanel = (node: HTMLElement) => node.getAttribute("data-testid") === "hover-preview";
+      const widthOf = (node: HTMLElement) => parseInt(node.style.getPropertyValue("--pv-w") || "284", 10);
+      spies.push(
+        vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+          if (this === document.body) return rect({ left: 0, right: 1280, top: 0, bottom: LAYER_H }) as DOMRect;
+          return rect(this.getAttribute("data-testid") === "field-pick" ? box : { left: 0, right: 0, top: 0, bottom: 0 }) as DOMRect;
+        }),
+        vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (this: HTMLElement) { return isPanel(this) ? widthOf(this) : 0; }),
+        // The effect text is 200 px tall when it fits, and 100 px more when `fits` says the place is too small for it.
+        vi.spyOn(Element.prototype, "clientHeight", "get").mockImplementation(function (this: Element) { return this.tagName === "P" ? 200 : 0; }),
+        vi.spyOn(Element.prototype, "scrollHeight", "get").mockImplementation(function (this: Element) {
+          const panel = this.closest<HTMLElement>('[data-testid="hover-preview"]');
+          return this.tagName === "P" ? 200 + (panel && !fits(panel) ? 100 : 0) : 0;
+        }),
+        vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) { return isPanel(this) ? PANEL_H : 0; }),
+        vi.spyOn(HTMLElement.prototype, "offsetTop", "get").mockImplementation(function (this: HTMLElement) {
+          return isPanel(this) ? LAYER_H - (parseInt(this.style.getPropertyValue("--pv-bottom"), 10) || 8) - PANEL_H : 0;
+        }),
+        vi.spyOn(HTMLElement.prototype, "offsetLeft", "get").mockImplementation(function (this: HTMLElement) {
+          if (!isPanel(this)) return 0;
+          return this.getAttribute("data-side") === "right" ? 1280 - 16 - widthOf(this) : 72;
+        }),
+      );
+    }
+    afterEach(() => { while (spies.length) spies.pop()!.mockRestore(); });
+    const css = (name: string) => peek().style.getPropertyValue(name);
+
+    /** A part of the page with a fixed box (jsdom has no layout). */
+    function part(attrs: Record<string, string>, b: Box) {
+      const node = document.createElement("div");
+      for (const [name, value] of Object.entries(attrs)) node.setAttribute(name, value);
+      node.getBoundingClientRect = () => ({ ...b, x: b.left, y: b.top, width: b.right - b.left, height: b.bottom - b.top, toJSON: () => ({}) }) as DOMRect;
+      document.body.appendChild(node);
+      return node;
+    }
+    const TOWER: Box = { left: 14, right: 162, top: 232, bottom: 348 };
+    const hover = () => fireEvent.mouseEnter(screen.getByTestId("field-card"));
+
+    it("stays on the left when the clicked card is away from it, standing on the bottom of the free band", () => {
+      layout({ left: 900, right: 980, top: 300, bottom: 420 });
+      mount();
+      pin();
+      expect(peek().getAttribute("data-side")).toBe("left");
+      expect(peek().getAttribute("data-anchor")).toBe("bottom");
+      expect(css("--pv-w")).toBe("320px");
+      // The band runs from 50 (under the header pills) to 8 px above the layer end.
+      expect(css("--pv-bottom")).toBe("8px");
+      expect(css("--pv-max-h")).toBe("662px");
+    });
+
+    it("moves to the right when the clicked card is under the left panel (a card of the left seat, or Jinzo in the EMZ)", () => {
+      layout({ left: 100, right: 180, top: 400, bottom: 560 });
+      mount();
+      pin();
+      expect(peek().getAttribute("data-side")).toBe("right");
+    });
+
+    it("keeps the right edge place inside the window when the layer is wider than the window", () => {
+      Object.defineProperty(document.documentElement, "clientWidth", { configurable: true, value: 1180 });
+      try {
+        layout({ left: 100, right: 180, top: 400, bottom: 560 });
+        mount();
+        pin();
+        expect(peek().getAttribute("data-side")).toBe("right");
+        // The layer ends at 1280, the window at 1180: the panel keeps its usual 16 px gap to the window edge.
+        expect(css("--pv-right")).toBe("116px");
+      } finally { delete (document.documentElement as { clientWidth?: number }).clientWidth; }
+    });
+
+    it("has no window offset when the layer fits the window", () => {
+      layout({ left: 100, right: 180, top: 400, bottom: 560 });
+      mount();
+      pin();
+      expect(peek().getAttribute("data-side")).toBe("right");
+      expect(css("--pv-right")).toBe("");
+    });
+
+    it("keeps the left when the clicked card is under the right edge", () => {
+      layout({ left: 1000, right: 1080, top: 400, bottom: 560 });
+      mount();
+      pin();
+      expect(peek().getAttribute("data-side")).toBe("left");
+    });
+
+    it("is the same window for the hover and the pin: the same place and size, with no wide layout", () => {
+      layout({ left: 900, right: 980, top: 300, bottom: 420 });
+      const tower = part({ "data-testid": "chain-tower" }, TOWER);
+      try {
+        mount();
+        hover();
+        const place = ["--pv-w", "--pv-bottom", "--pv-max-h"].map(css);
+        const side = peek().getAttribute("data-side");
+        expect(peek().getAttribute("data-pinned")).toBeNull();
+        fireEvent.click(screen.getByTestId("field-pick"));
+        expect(peek().getAttribute("data-pinned")).toBe("true");
+        expect(["--pv-w", "--pv-bottom", "--pv-max-h"].map(css)).toEqual(place);
+        expect(peek().getAttribute("data-side")).toBe(side);
+        for (const name of ["data-narrow", "data-stack", "data-art"]) expect(peek().getAttribute(name)).toBeNull();
+      } finally { tower.remove(); }
+    });
+
+    it("stands below the chain tower, in the free band down to the bottom of the layer (hover and pin)", () => {
+      layout({ left: 900, right: 980, top: 300, bottom: 420 });
+      const tower = part({ "data-testid": "chain-tower" }, TOWER);
+      try {
+        mount();
+        hover();
+        expect(peek().getAttribute("data-side")).toBe("left");
+        // 348 (the tower) + the 12 px gap = 360; the band runs on to 712.
+        expect(css("--pv-max-h")).toBe("352px");
+        expect(css("--pv-bottom")).toBe("8px");
+        fireEvent.click(screen.getByTestId("field-pick"));
+        expect(css("--pv-max-h")).toBe("352px");
+      } finally { tower.remove(); }
+    });
+
+    it("takes the right edge when the chain tower and the chain panel cut the left column into short bands", () => {
+      layout({ left: 900, right: 980, top: 300, bottom: 420 });
+      const tower = part({ "data-testid": "chain-tower" }, TOWER);
+      const panel = part({ "data-chain-panel": "" }, { left: 164, right: 456, top: 446, bottom: 697 });
+      try {
+        mount();
+        hover();
+        expect(peek().getAttribute("data-side")).toBe("right");
+        fireEvent.click(screen.getByTestId("field-pick"));
+        expect(peek().getAttribute("data-side")).toBe("right");
+      } finally { tower.remove(); panel.remove(); }
+    });
+
+    it("stops above the Tag team plate at the bottom left, and above a Deck Master plate", () => {
+      layout({ left: 900, right: 980, top: 300, bottom: 420 });
+      const plate = part({ "data-team-plate": "" }, { left: 14, right: 200, top: 540, bottom: 700 });
+      const master = part({ "data-testid": "hud-master" }, { left: 14, right: 200, top: 100, bottom: 160 });
+      try {
+        mount();
+        hover();
+        expect(peek().getAttribute("data-side")).toBe("left");
+        // The band between the master (160 + 12) and the plate (540 - 12): it ends 720 - 528 above the layer bottom.
+        expect(css("--pv-bottom")).toBe("192px");
+        expect(css("--pv-max-h")).toBe("356px");
+      } finally { plate.remove(); master.remove(); }
+    });
+
+    it("fits the free side area beside the board: a narrower window, the same one on hover and pin", () => {
+      layout({ left: 900, right: 980, top: 300, bottom: 420 });
+      // The board starts at x 340: 340 - 12 (gap) - 72 (the left edge) = 256 px of room on the left, and the right edge has more room too.
+      const board = part({ "data-zones": "1:4:0" }, { left: 340, right: 940, top: 100, bottom: 500 });
+      try {
+        mount();
+        hover();
+        expect(peek().getAttribute("data-side")).toBe("left");
+        expect(css("--pv-w")).toBe("256px");
+        fireEvent.click(screen.getByTestId("field-pick"));
+        expect(peek().getAttribute("data-side")).toBe("left");
+        expect(css("--pv-w")).toBe("256px");
+      } finally { board.remove(); }
+    });
+
+    it("goes to the right edge when the left edge is covered by the board (an FFA grid with a life-point plate there)", () => {
+      layout({ left: 900, right: 980, top: 300, bottom: 420 });
+      const zones = part({ "data-zones": "1:4:0" }, { left: 300, right: 1000, top: 100, bottom: 600 });
+      const plate = part({ "data-lp-seat": "1" }, { left: 150, right: 320, top: 500, bottom: 600 });
+      try {
+        mount();
+        pin();
+        // The left room is 66 px (under the minimum, so the window would cover the plate); the right edge has 1280 - 16 - 1000 - 12 = 252 px.
+        expect(peek().getAttribute("data-side")).toBe("right");
+        expect(css("--pv-w")).toBe("252px");
+      } finally { zones.remove(); plate.remove(); }
+    });
+
+    /** The pinned card of the stub field has a printed text, so the panel has a text to fit. */
+    function mountWithText() {
+      const room = makeRoom();
+      const seat = room.engine!.seats[1] as unknown as { monsters: Array<{ description?: string } | null> };
+      seat.monsters[2] = { ...seat.monsters[2]!, description: "A long printed text." };
+      swr.data = room;
+      render(<DuelRoomView slug="abc" windowed />);
+    }
+
+    it("keeps the left edge for a long text (it scrolls there) instead of jumping to the other side", () => {
+      layout({ left: 900, right: 980, top: 300, bottom: 420 }, (panel) => panel.getAttribute("data-side") === "right");
+      const tower = part({ "data-testid": "chain-tower" }, TOWER);
+      try {
+        mountWithText();
+        hover();
+        expect(peek().getAttribute("data-side")).toBe("left");
+      } finally { tower.remove(); }
+    });
+
+    it("keeps the hover band on a click, even when the taller pin no longer fits it", () => {
+      // Two tall bands on the left (50-318 and 392-712): the hover stands in the first. The text of the pin does not fit that one.
+      layout({ left: 900, right: 980, top: 300, bottom: 420 }, (panel) => !(panel.getAttribute("data-pinned") === "true" && css("--pv-max-h") === "268px"));
+      const bar = part({ "data-testid": "chain-tower" }, { left: 14, right: 162, top: 330, bottom: 380 });
+      try {
+        mountWithText();
+        hover();
+        expect(css("--pv-max-h")).toBe("268px");
+        fireEvent.click(screen.getByTestId("field-pick"));
+        expect(peek().getAttribute("data-pinned")).toBe("true");
+        expect(peek().getAttribute("data-side")).toBe("left");
+        expect(css("--pv-max-h")).toBe("268px");
+        expect(css("--pv-bottom")).toBe("402px");
+      } finally { bar.remove(); }
+    });
+
+    it("does not keep the hover place when it covers the clicked card (the board is under the other side too): the places are ranked again", () => {
+      layout({ left: 100, right: 180, top: 400, bottom: 560 });
+      const board = part({ "data-zones": "" }, { left: 850, right: 1280, top: 0, bottom: 720 });
+      try {
+        mount();
+        hover();
+        expect(peek().getAttribute("data-side")).toBe("left");
+        fireEvent.click(screen.getByTestId("field-pick"));
+        expect(peek().getAttribute("data-pinned")).toBe("true");
+        expect(peek().getAttribute("data-side")).toBe("right");
+      } finally { board.remove(); }
+    });
+
+    it("takes the right edge when the left one covers the board or a kept part, even for a short text", () => {
+      layout({ left: 900, right: 980, top: 300, bottom: 420 });
+      const master = part({ "data-testid": "hud-master" }, { left: 14, right: 400, top: 20, bottom: 712 });
+      try {
+        mount();
+        hover();
+        expect(peek().getAttribute("data-side")).toBe("right");
+      } finally { master.remove(); }
+    });
+
+    it("places the panel again when a camera move puts the clicked card under it", () => {
+      vi.useFakeTimers();
+      try {
+        const box = { left: 900, right: 980, top: 300, bottom: 420 };
+        layout(box);
+        mount();
+        pin();
+        expect(peek().getAttribute("data-side")).toBe("left");
+        // The camera moves the card to the left, under the panel.
+        box.left = 100; box.right = 180; box.top = 400; box.bottom = 560;
+        act(() => { vi.advanceTimersByTime(600); });
+        expect(peek().getAttribute("data-side")).toBe("right");
+      } finally { vi.useRealTimers(); }
+    });
+
+    it("stops a right panel above the visible controls at the bottom right, not above hidden items", () => {
+      layout({ left: 100, right: 180, top: 400, bottom: 560 });
+      mount();
+      const corner = screen.getByTestId("hud-corner");
+      const box = (top: number, bottom: number) => () => ({ left: 1100, right: 1270, top, bottom, width: 170, height: bottom - top, x: 1100, y: top, toJSON: () => ({}) }) as DOMRect;
+      const added: HTMLElement[] = [];
+      const child = (top: number, bottom: number, style: string) => {
+        const node = document.createElement("div");
+        node.setAttribute("style", style);
+        node.getBoundingClientRect = box(top, bottom);
+        corner.appendChild(node);
+        added.push(node);
+      };
+      // Hidden items higher up in the column (opacity 0, hidden), and the shown controls below them.
+      child(300, 400, "opacity: 0");
+      child(350, 450, "visibility: hidden");
+      child(520, 712, "");
+      // The existing children of the stub corner have no size in jsdom, so they do not count.
+      try {
+        pin();
+        expect(peek().getAttribute("data-side")).toBe("right");
+        // The panel runs from 50 (under the header) to the controls at 520, less the 12 px gap.
+        expect(peek().style.getPropertyValue("--pv-max-h")).toBe("458px");
+      } finally { added.forEach((node) => node.remove()); }
+    });
+
+    it("takes the pointer in CSS, so a click on a pinned panel never reaches a card under it", () => {
+      // jsdom ignores CSS: read the rule. (The Playwright check with a target prompt open lives in the manual run.)
+      const css = readFileSync(join(__dirname, "../../src/components/duel/table/grid-hud.module.css"), "utf8");
+      const rule = css.match(/\.preview\[data-pinned="true"\]\s*\{[^}]*\}/);
+      expect(rule?.[0]).toMatch(/pointer-events:\s*auto/);
+    });
+
+    it("places the pinned panel again when a chain opens under it", () => {
+      vi.useFakeTimers();
+      let tower: HTMLElement | null = null;
+      try {
+        layout({ left: 900, right: 980, top: 300, bottom: 420 });
+        mount();
+        pin();
+        expect(css("--pv-max-h")).toBe("662px");
+        tower = part({ "data-testid": "chain-tower" }, TOWER);
+        act(() => { vi.advanceTimersByTime(600); });
+        expect(css("--pv-max-h")).toBe("352px");
+      } finally { tower?.remove(); vi.useRealTimers(); }
+    });
+
+    it("places a hover panel again when a chain opens under it, as it does for a pinned one", () => {
+      vi.useFakeTimers();
+      let tower: HTMLElement | null = null;
+      try {
+        layout({ left: 900, right: 980, top: 300, bottom: 420 });
+        mount();
+        hover();
+        expect(css("--pv-max-h")).toBe("662px");
+        tower = part({ "data-testid": "chain-tower" }, TOWER);
+        act(() => { vi.advanceTimersByTime(600); });
+        expect(css("--pv-max-h")).toBe("352px");
+      } finally { tower?.remove(); vi.useRealTimers(); }
+    });
+    it("checks a hover panel slowly while no chain is shown, and a pinned panel at full speed", () => {
+      vi.useFakeTimers();
+      let dock: HTMLElement | null = null;
+      try {
+        layout({ left: 900, right: 980, top: 300, bottom: 420 });
+        mount();
+        hover();
+        expect(css("--pv-max-h")).toBe("662px");
+        // Not a chain part: the hover check runs on every fourth beat only (150 ms each).
+        dock = part({ "data-testid": "hud-other" }, TOWER);
+        act(() => { vi.advanceTimersByTime(450); });
+        expect(css("--pv-max-h")).toBe("662px");
+        act(() => { vi.advanceTimersByTime(150); });
+        expect(css("--pv-max-h")).toBe("352px");
+        dock.remove();
+        fireEvent.click(screen.getByTestId("field-pick"));
+        act(() => { vi.advanceTimersByTime(600); });
+        expect(css("--pv-max-h")).toBe("662px");
+        dock = part({ "data-testid": "hud-other" }, TOWER);
+        act(() => { vi.advanceTimersByTime(150); });
+        expect(css("--pv-max-h")).toBe("352px");
+      } finally { dock?.remove(); vi.useRealTimers(); }
+    });
+
+    it("places a hover panel again when the chain panel changes its size, with no wait for the poll", () => {
+      vi.useFakeTimers();
+      const watchers: Array<(entries: unknown[]) => void> = [];
+      const globals = globalThis as { ResizeObserver?: unknown };
+      globals.ResizeObserver = (class {
+        constructor(cb: (entries: unknown[]) => void) { watchers.push(cb); }
+        observe() {}
+        disconnect() {}
+        unobserve() {}
+      });
+      const box: Box = { left: 100, right: 320, top: 60, bottom: 200 };
+      const panel = part({ "data-chain-panel": "true" }, box);
+      try {
+        layout({ left: 900, right: 980, top: 300, bottom: 420 });
+        mount();
+        hover();
+        const before = css("--pv-max-h");
+        const report = (width: number, height: number) => act(() => { watchers.forEach((cb) => cb([{ target: panel, contentRect: { width, height } }])); });
+        // The first report of a node is its start size: nothing moves.
+        report(220, 140);
+        expect(css("--pv-max-h")).toBe(before);
+        box.bottom = 420;
+        report(220, 360);
+        expect(css("--pv-max-h")).not.toBe(before);
+      } finally { panel.remove(); delete globals.ResizeObserver; vi.useRealTimers(); }
+    });
+  });
+
+  it("a dock icon swaps the pin for the flyout: only one of them shows, and the pin does not come back", () => {
+    vi.useFakeTimers();
+    mount();
+    pin();
+    fireEvent.click(screen.getByTestId("hud-dock-log"));
+    expect(isOpen()).toBe(true);
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS + 20); });
+    expect(peek().getAttribute("data-open")).toBe("false");
+    fireEvent.click(screen.getByTestId("hud-dock-log"));
+    expect(isOpen()).toBe(false);
+    expect(peek().getAttribute("data-open")).toBe("false");
+  });
+
+  it("a click that picks a target still picks it, and pins nothing", () => {
+    mount({ prompt: pickPrompt });
+    fireEvent.click(screen.getByTestId("field-pick"));
+    expect(sent()).toHaveLength(1);
+    expect(sent()[0]).toMatchObject({ promptId: "p2", answer: { selected: ["target"] } });
+    expect(peeks().filter((node) => node.getAttribute("data-pinned") === "true")).toHaveLength(0);
+    expect(isOpen()).toBe(false);
+  });
+
+  it("a click that opens the action menu still opens it, and the peek of the menu card is not pinned", () => {
+    mount({ prompt: menuPrompt });
+    fireEvent.click(screen.getByTestId("field-pick"));
+    expect(screen.getByRole("menu")).toBeTruthy();
+    expect(peeks()).toHaveLength(1);
+    expect(peek().getAttribute("data-pinned")).toBeNull();
+    expect(isOpen()).toBe(false);
+  });
+
+  it("a pinned card goes when the click on the card opens its action menu", () => {
+    mount({ prompt: menuPrompt, second: true });
+    fireEvent.click(screen.getByTestId("field-other"));
+    expect(peek().getAttribute("data-pinned")).toBe("true");
+    fireEvent.click(screen.getByTestId("field-pick"));
+    expect(screen.getByRole("menu")).toBeTruthy();
+    expect(peeks()).toHaveLength(1);
+    expect(peek().getAttribute("data-pinned")).toBeNull();
+    expect(peek()).toHaveTextContent("Battle Ox");
+  });
+
+  it("pins for a spectator too", () => {
+    mount({ spectator: true }, { spectate: true });
+    pin();
+    expect(peek().getAttribute("data-pinned")).toBe("true");
+    expect(isOpen()).toBe(false);
+  });
+
+  it("is not used on a narrow screen: no peek, the old phone panes stay", () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("max-width"), media: query, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+    mount();
+    fireEvent.click(screen.getByTestId("field-pick"));
+    expect(peeks()).toHaveLength(0);
+    expect(screen.queryByTestId("hud-flyout")).toBeNull();
   });
 });
 

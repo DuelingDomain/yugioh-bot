@@ -11,6 +11,7 @@ import { deckFanCodes, deckStatus } from "./library-status";
 import { formatWhen, modeLabel } from "./model";
 import { PageFrame } from "./page-frame";
 import { RegistrationMark } from "./registration";
+import { EmptyDecks } from "@/components/empty-states/empty-decks";
 import styles from "./library.module.css";
 
 function hasFiles(event: DragEvent): boolean {
@@ -193,7 +194,8 @@ export function SavedDeckLibrary() {
             <FileUp size={16} aria-hidden="true" />
             Import YDK
           </SvButton>
-          <SvButton as="a" href="/decks/new" variant="primary">
+          {/* With no decks, the empty state below holds the page's one primary button. */}
+          <SvButton as="a" href="/decks/new" variant={decks && decks.length === 0 ? "ghost" : "primary"}>
             <Plus size={16} aria-hidden="true" />
             New deck
           </SvButton>
@@ -245,31 +247,7 @@ export function SavedDeckLibrary() {
         </div>
       ) : null}
 
-      {decks && decks.length === 0 ? (
-        <div className={styles.empty}>
-          <span className={styles.emptyZones} aria-hidden="true">
-            <Zone state="empty" size="md" />
-            <Zone state="empty" size="md" />
-            <Zone state="empty" size="md" />
-          </span>
-          <div>
-            <h2>No saved decks yet</h2>
-            <p>
-              Import your YDK files or build a list, and reuse it when you sit down at a table. You can also drop .ydk
-              files anywhere on this page.
-            </p>
-            <div className={styles.emptyActs}>
-              <SvButton variant="ghost" onClick={() => setImportOpen(true)}>
-                <FileUp size={16} aria-hidden="true" />
-                Import YDK files
-              </SvButton>
-              <SvButton as="a" href="/decks/new" variant="quiet">
-                Create a deck
-              </SvButton>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      {decks && decks.length === 0 ? <EmptyDecks onImport={() => setImportOpen(true)} /> : null}
 
       {decks && decks.length > 0 ? (
         <>

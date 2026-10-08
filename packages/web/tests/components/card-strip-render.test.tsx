@@ -35,6 +35,15 @@ function mockLayout(box: { clientWidth: number; scrollWidth: number }) {
 }
 
 describe("CardStrip", () => {
+  it("gives the full name as a tooltip, and marks a strip with notes so the notes line up", () => {
+    const withNote = items().map((item, index) => (index === 0 ? { ...item, detail: "Under your Duo Drive" } : item));
+    const { container, rerender } = render(<CardStrip items={withNote} highlight={0} busy={false} multi label="Pick" onPick={() => {}} />);
+    expect(container.querySelector("ul")?.hasAttribute("data-notes")).toBe(true);
+    expect(container.querySelector("button span[title='Card 2']")).not.toBeNull();
+    rerender(<CardStrip items={items()} highlight={0} busy={false} multi label="Pick" onPick={() => {}} />);
+    expect(container.querySelector("ul")?.hasAttribute("data-notes")).toBe(false);
+  });
+
   it("numbers every card, shows the selected state and keeps the highlighted card as the primary", () => {
     render(<CardStrip items={items([2])} highlight={1} busy={false} multi label="Pick" onPick={() => {}} />);
     const buttons = screen.getAllByRole("button");

@@ -22,7 +22,7 @@ import roomStyles from "../room.module.css";
 import { SeriesBanner } from "../series-banner";
 import { useIsNarrow } from "../side-panel";
 import { resolveBattleStep, StationTrack } from "../station-track";
-import { RowPreviewBoundary, useHudEscape, useHudPane, useRowPreview } from "../table/hud-layer";
+import { RowPreviewBoundary, useHudEscape, useHudPane, usePinSync, useRowPreview } from "../table/hud-layer";
 import { clockStrip, hudClockBank, stationTrackProps } from "../table/hud-shared";
 import { tagSeatCode } from "../table-format";
 import { OpponentBar } from "../table/opponent-bar";
@@ -124,7 +124,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
   // there: a hover must not fill it, only a click or Inspect does, so the list pane stays the starting one.
   const hud = !narrow;
   const hudState = useHudPane({ camera: true });
-  const ui = useTableUi(tracked, { initialPane: hud ? "log" : undefined, hud, onOpenCard: hudState.openCard });
+  const ui = useTableUi(tracked, { initialPane: hud ? "log" : undefined, hud, onOpenCard: hudState.openCard, onPinCard: hudState.pinCard });
   const rowPreview = useRowPreview(tracked.prompt?.id ?? null);
   const base = ui.controller;
   const { engine, room, viewerSeat, nameOf, prompt } = base;
@@ -143,7 +143,8 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
   // One flag for the aim flow and the camera keys. A seat pick or an aim does not suspend input: they need their keys.
   const suspended = tagInputSuspended({ inputSuspended, menu: ui.menu, pile: ui.pile, narrow, sheetOpen });
   useHudEscape(hudState, hud, suspended);
-  const hudOpen = hud && hudState.pane != null;
+  usePinSync(hudState, engine.seats);
+  const hudOpen = hud && (hudState.pane != null || hudState.pinned != null);
   // A modal (Surrender) opened from the Settings flyout: the flyout closes so the modal owns Esc.
   const closeHud = hudState.close;
   useEffect(() => { if (inputSuspended) closeHud(); }, [inputSuspended, closeHud]);
@@ -358,6 +359,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
           <div className={styles.boardBox} ref={boardRef}>
             <MoveSourceBoundary events={engine.events} duelKey={session.slug} root={boardRef}>
               <TagStage
+                inspectIdleCards={hud}
                 controller={controller}
                 layout={layout}
                 camera={camera}

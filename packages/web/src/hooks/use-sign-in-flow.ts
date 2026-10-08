@@ -3,7 +3,7 @@
 import { useEffect, useReducer, useRef } from "react";
 import { useSignIn } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
-import { initialAuthState, reduceAuth, signInStatusEvent, type AuthFlowState } from "../lib/auth-flow";
+import { afterPaint, initialAuthState, reduceAuth, signInStatusEvent, successHoldMs, type AuthFlowState } from "../lib/auth-flow";
 import { isWaitlistRefusal, mapClerkError } from "../lib/auth-errors";
 import { hardNavigate } from "../components/auth/navigate";
 
@@ -45,10 +45,12 @@ export function useSignInFlow(opts: { returnTo: string; marketingUrl: string | n
   }, [pending]);
   useEffect(() => {
     if (state.step !== "success") return;
+    // Warm the destination while the pack opens so the switch after the hold is instant.
+    if (destination.current.startsWith("/")) router.prefetch(destination.current);
     const timer = setTimeout(() => {
       if (destination.current.startsWith("/")) router.push(destination.current);
       else window.location.assign(destination.current); // Clerk's Safari cookie-refresh decoration.
-    }, 900);
+    }, successHoldMs());
     return () => clearTimeout(timer);
   }, [state.step, router]);
 
@@ -61,7 +63,12 @@ export function useSignInFlow(opts: { returnTo: string; marketingUrl: string | n
 
   const fail = (error: unknown, context: Parameters<typeof mapClerkError>[1]) => {
     if (context === "sso" && isWaitlistRefusal(error)) {
-      if (!recovering.current) { recovering.current = true; hardNavigate("/api/auth/existing-player/start"); }
+      if (!recovering.current) {
+        recovering.current = true;
+        // Explain the second Discord trip before it starts; leave once the card has painted.
+        if (mounted.current) dispatch({ type: "recovering" });
+        afterPaint(() => hardNavigate("/api/auth/existing-player/start"));
+      }
       return;
     }
     if (mounted.current) dispatch({ type: "error", view: mapClerkError(error, context) });
@@ -83,6 +90,15 @@ export function useSignInFlow(opts: { returnTo: string; marketingUrl: string | n
     // Clerk can swallow an offline fetch and return { result: undefined, error: null }.
     if (!result || !("error" in result) || !progressed()) { fail({ code: "network_error" }, context); return false; }
     return true;
+  };
+  const waitForFreshSignIn = async (previous: NonNullable<typeof signal.signIn>) => {
+    const deadline = Date.now() + 2000;
+    while (mounted.current && Date.now() < deadline) {
+      const signIn = latest.current.signIn;
+      if (signIn && signIn !== previous && !signIn.id) return signIn;
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
+    return null;
   };
   const run = async (context: Parameters<typeof mapClerkError>[1], work: () => Promise<void>) => {
     if (busy.current || state.pending || latest.current.fetchStatus === "fetching" || !latest.current.signIn || state.step === "success") return;
@@ -144,7 +160,15 @@ export function useSignInFlow(opts: { returnTo: string; marketingUrl: string | n
         await run("sso", async () => {
           ssoAttempt.current = true;
           try { sessionStorage.setItem("dd_auth_resume", JSON.stringify({ kind: "sign-in", returnTo: state.returnTo })); } catch { /* Storage can be unavailable. Clerk still retains the attempt. */ }
-          await call(() => latest.current.signIn!.sso({ strategy: "oauth_discord", redirectUrl: state.returnTo, redirectCallbackUrl: "/sso-callback" }), "sso");
+          let signIn = latest.current.signIn!;
+          if (signIn.id) {
+            if (!await call(() => signIn.reset(), "sso")) return;
+            // Reset publishes a new signal object; the old wrapper keeps its ID.
+            const fresh = await waitForFreshSignIn(signIn);
+            if (!fresh) { fail({ code: "network_error" }, "sso"); return; }
+            signIn = fresh;
+          }
+          await call(() => signIn.sso({ strategy: "oauth_discord", redirectUrl: state.returnTo, redirectCallbackUrl: "/sso-callback" }), "sso");
         });
       },
       submitPassword: async (password) => {

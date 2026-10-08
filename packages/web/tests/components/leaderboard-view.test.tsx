@@ -147,6 +147,17 @@ describe("leaderboard view", () => {
     expect(screen.queryByRole("region", { name: "Top three" })).toBeNull();
   });
 
+  it("gives the empty board one primary action and a faded ledger", () => {
+    const { container } = render(<LeaderboardView {...props} rows={[]} />);
+    const region = screen.getByRole("region", { name: "Leaderboard standings" });
+    expect(region.querySelectorAll(".sv-btn.primary")).toHaveLength(1);
+    expect(within(region).getByRole("link", { name: "Challenge someone" })).toHaveClass("primary");
+    expect(within(region).getByRole("link", { name: "Challenge someone" })).toHaveAttribute("href", "/duels/new?challenge=1");
+    expect(within(region).getByRole("link", { name: "See tournaments" })).toHaveAttribute("href", "/tournaments");
+    expect(container.querySelector("[aria-hidden='true']")).not.toBeNull();
+    expect(container.textContent).not.toContain("Sample");
+  });
+
   it("preserves the list while it is busy", () => {
     render(<LeaderboardView {...props} loading />);
     expect(screen.getByRole("region", { name: "Leaderboard standings" })).toHaveAttribute("aria-busy", "true");

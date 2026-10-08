@@ -3,7 +3,7 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import { useSignIn, useSignUp } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
-import { initialAuthState, reduceAuth, signUpRequirementsEvent, type AuthFlowState } from "../lib/auth-flow";
+import { afterPaint, initialAuthState, reduceAuth, signUpRequirementsEvent, successHoldMs, type AuthFlowState } from "../lib/auth-flow";
 import { isWaitlistRefusal, mapClerkError } from "../lib/auth-errors";
 import { hardNavigate } from "../components/auth/navigate";
 import { DEFAULT_RETURN, safeReturnPath } from "../lib/auth-return";
@@ -55,11 +55,13 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
   }, [pending]);
   useEffect(() => {
     if (state.step !== "success") return;
+    // Warm the destination while the pack opens so the switch after the hold is instant.
+    if (destination.current.startsWith("/")) router.prefetch(destination.current);
     const timer = setTimeout(() => {
       try { sessionStorage.removeItem("dd_auth_resume"); } catch { /* Storage may be disabled. */ }
       if (destination.current.startsWith("/")) router.push(destination.current);
       else window.location.assign(destination.current);
-    }, 900);
+    }, successHoldMs());
     return () => clearTimeout(timer);
   }, [state.step, router]);
 
@@ -79,7 +81,11 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
     if (mounted.current) dispatch({ type: "error", view: mapClerkError(error, context) });
   };
   const recover = () => {
-    if (!recovering.current) { recovering.current = true; hardNavigate("/api/auth/existing-player/start"); }
+    if (recovering.current) return;
+    recovering.current = true;
+    // Explain the second Discord trip before it starts; leave once the card has painted.
+    if (mounted.current) dispatch({ type: "recovering" });
+    afterPaint(() => hardNavigate("/api/auth/existing-player/start"));
   };
   const signalError = (context: Parameters<typeof mapClerkError>[1], kind: Exclude<ResumeKind, null> = "sign-up") => {
     const errors = kind === "sign-in" ? latest.current.signInSignal?.errors : latest.current.signUpSignal.errors;

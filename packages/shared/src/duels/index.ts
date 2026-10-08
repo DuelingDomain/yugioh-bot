@@ -228,6 +228,12 @@ export interface DuelPromptOption {
   controller?: number;
   location?: number;
   sequence?: number;
+  /**
+   * An Xyz material (location LOCATION_OVERLAY, sequence = its place under the monster) names the Xyz monster
+   * it is attached to. It cannot be clicked on the board, so the prompt lists it as a card tile.
+   * `name` is filled for a viewer who sees that monster.
+   */
+  host?: DuelZoneRef & { code?: number; name?: string };
   values?: number[];
   /** Current Level from this viewer's card projection; takes precedence over the printed Level. */
   currentLevel?: number;
@@ -383,6 +389,8 @@ export interface DuelEvent {
   seat?: number;
   card?: DuelCardInfo;
   chainIndex?: number;
+  /** Public choices known at this chain event. Retained for playback when the chain finishes in one batch. */
+  chosenOptions?: DuelChainLink["chosenOptions"];
   /** target: the link's complete current target list (including [] when cleared). Coordinates only;
    * identities must come from the viewer's redacted board. Also accepted on activation events. */
   targets?: DuelZoneRef[];
@@ -474,6 +482,12 @@ export interface DuelChainLink {
   zone?: DuelZoneRef;
   /** Current target coordinates, public to every viewer. No target names or passcodes. */
   targets?: DuelZoneRef[];
+  /**
+   * Public effect choices, added only after selection. Missing on older snapshots/replays.
+   * `index` is the zero-based SELECT_OPTION prompt index, not a printed-text bullet or card-string index.
+   * A script can announce an operation without a prompt; in that case only `text` is known.
+   */
+  chosenOptions?: { index?: number; text: string }[];
 }
 
 export interface DuelEngineView {

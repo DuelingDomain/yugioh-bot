@@ -7,7 +7,7 @@
  *  - "sheet": the wide shape at the width of a phone, opened from the strip.
  * The strip is the one-line form for phones, tables and a column a prompt would cover; it is a real button.
  */
-import { useEffect, useId, useState, type CSSProperties, type Ref } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type Ref } from "react";
 import { Check, ChevronDown, ChevronUp, Circle, Play, X } from "lucide-react";
 import { cardArtUrl } from "./constants";
 import type { HeroView, PanelTone, PanelView, RowView, StripView } from "./chain-narrate";
@@ -35,10 +35,85 @@ function StateIcon({ tone }: { tone: PanelTone }) {
   return <Circle {...props} size={9} fill="currentColor" strokeWidth={0} />;
 }
 
-function Hero({ hero }: { hero: HeroView }) {
+/** True while the element's content is taller than its box: the box is cut by real layout, whatever the text length. */
+function useOverflow(ref: { current: HTMLElement | null }, content: unknown): boolean {
+  const [over, setOver] = useState(false);
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    let live = true;
+    const measure = () => { if (live) setOver(node.scrollHeight > node.clientHeight + 1); };
+    measure();
+    // Web fonts change the line breaks without resizing the box, so measure again once they are loaded.
+    document.fonts?.ready.then(measure, () => {});
+    if (typeof ResizeObserver === "undefined") return () => { live = false; };
+    const watch = new ResizeObserver(measure);
+    watch.observe(node);
+    return () => { live = false; watch.disconnect(); };
+  }, [ref, content]);
+  return over;
+}
+
+/**
+ * What the link does. The engine's own words for this activation come first (they tell which effect of a card is
+ * on the chain); the card's text follows in full, one line per line of the card, with each option as a bullet, so
+ * a card that lets its owner pick ("Apply 1 of these effects") shows every choice to every seat. The text takes the
+ * free height of the panel; only when the box really cuts it does it fade at the bottom and scroll.
+ */
+function EffectBlock({ full }: { full: NonNullable<HeroView["full"]> }) {
+  const textRef = useRef<HTMLDivElement>(null);
+  const overflowing = useOverflow(textRef, full);
+  // Consecutive options form one list.
+  const blocks: Array<{ kind: "text"; text: string } | { kind: "options"; items: Array<{ text: string; chosen: boolean }> }> = [];
+  for (const line of full.lines) {
+    const last = blocks[blocks.length - 1];
+    if (line.kind === "option") {
+      const item = { text: line.text, chosen: line.chosen === true };
+      if (last?.kind === "options") last.items.push(item);
+      else blocks.push({ kind: "options", items: [item] });
+    } else blocks.push({ kind: "text", text: line.text });
+  }
+  return (
+    <>
+      {full.lead ? (
+        <p className={styles.effect} data-chain-effect="string">
+          <small>Effect</small>
+          {full.lead}
+        </p>
+      ) : null}
+      {full.lines.length > 0 ? (
+        <div
+          ref={textRef}
+          className={styles.cardText}
+          data-chain-effect="text"
+          data-overflow={overflowing ? "true" : undefined}
+          role={overflowing ? "group" : undefined}
+          tabIndex={overflowing ? 0 : undefined}
+          aria-label={overflowing ? "Card text, scrollable" : undefined}
+        >
+          <small>Card text</small>
+          {blocks.map((block, at) => block.kind === "text" ? (
+            <p key={at} data-line="text">{block.text}</p>
+          ) : (
+            <ul key={at} className={styles.options}>
+              {block.items.map((item, i) => (
+                <li key={i} data-line="option" data-chain-option="true" data-chosen={item.chosen ? "true" : undefined}>
+                  {item.chosen ? <span className={styles.srOnly}>Chosen: </span> : null}
+                  {item.text}
+                </li>
+              ))}
+            </ul>
+          ))}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function Hero({ hero, compact = false }: { hero: HeroView; compact?: boolean }) {
   const single = hero.total === 1;
   return (
-    <article className={styles.hero} data-tone={hero.tone} data-chain-hero={hero.index} key={`${hero.index}:${hero.tone}`}>
+    <article className={styles.hero} data-tone={hero.tone} data-chain-hero={hero.index} data-compact={compact ? "true" : undefined} key={`${hero.index}:${hero.tone}`}>
       <div className={styles.eyebrow}>
         <b>{hero.eyebrow}</b>
         <span>{single ? "Effect" : `Link ${hero.index} of ${hero.total}`}</span>
@@ -50,20 +125,32 @@ function Hero({ hero }: { hero: HeroView }) {
           <p className={styles.sub}><b>{hero.owner}</b>{hero.kind ? ` · ${hero.kind}` : ""}</p>
         </div>
       </div>
-      {hero.effect ? (
-        <p className={styles.effect} data-chain-effect={hero.effect.caption === "Effect" ? "string" : "text"}>
-          <small>{hero.effect.caption}</small>
-          {hero.effect.text}
-        </p>
-      ) : null}
-      {hero.targets.length > 0 ? (
-        <p className={styles.targets} data-chain-hero-targets="true">
-          <i aria-hidden="true" />
-          {hero.targets.map((target, at) => (
-            <span key={at} className={styles.target}>
-              {target.name ? <>Targets <b>{target.name}</b><small>{target.place}</small></> : <>Targets <b>{target.place}</b></>}
-            </span>
-          ))}
+      {/* The card text, the options and the targets fold away while a prompt is open: the box stays mounted so it folds
+          and unfolds with a height transition, and `inert` keeps the folded text out of focus and out of the reading order. */}
+      <div className={styles.fold} data-chain-fold="true" data-folded={compact ? "true" : undefined} inert={compact}>
+        <div className={styles.foldBody}>
+          {hero.full ? <EffectBlock full={hero.full} /> : hero.effect ? (
+            <p className={styles.effect} data-chain-effect={hero.effect.caption === "Effect" ? "string" : "text"}>
+              <small>{hero.effect.caption}</small>
+              {hero.effect.text}
+            </p>
+          ) : null}
+          {hero.targets.length > 0 ? (
+            <p className={styles.targets} data-chain-hero-targets="true">
+              <i aria-hidden="true" />
+              {hero.targets.map((target, at) => (
+                <span key={at} className={styles.target}>
+                  {target.name ? <>Targets <b>{target.name}</b><small>{target.place}</small></> : <>Targets <b>{target.place}</b></>}
+                </span>
+              ))}
+            </p>
+          ) : null}
+        </div>
+      </div>
+      {hero.chosen.length > 0 ? (
+        <p className={styles.chose} data-chain-chose="true">
+          <b>Chose</b>
+          {hero.chosen.map((text) => <span key={text} data-chain-chose-option="true">{text}</span>)}
         </p>
       ) : null}
       {hero.outcome ? (
@@ -89,7 +176,10 @@ function Row({ row, seatTones, expand, pick }: { row: RowView; seatTones: SeatTo
       <b className={styles.rowNum}>{row.index}</b>
       <span className={styles.thumb} style={artStyle(row.code)} />
       <span className={styles.rowText}>
-        <span className={styles.rowName}>{row.name}</span>
+        <span className={styles.rowHead}>
+          <span className={styles.rowName}>{row.name}</span>
+          <span className={styles.rowOwner} data-chain-row-owner="true">{row.owner}</span>
+        </span>
         {line && !row.isHero && !expand?.open ? <span className={styles.rowLine} data-chain-row-line="true">{line}</span> : null}
       </span>
       <span className={styles.rowState}>{expand ? (expand.open ? <ChevronUp size={15} strokeWidth={2.4} aria-hidden="true" /> : <ChevronDown size={15} strokeWidth={2.4} aria-hidden="true" />) : <StateIcon tone={row.tone} />}</span>
@@ -165,10 +255,12 @@ export type ChainPanelProps = {
   mySeat: number | null;
   nameOf: (seat: number) => string;
   panelRef?: Ref<HTMLElement>;
+  /** A prompt of the local player is open: the resolving link shrinks to the art, the name, the owner and what was chosen. */
+  compact?: boolean;
 };
 
 /** The panel: header, hero and stack. A chain of one has no header and no stack. */
-export function ChainPanel({ view, shape, seatTones, priority, mySeat, nameOf, panelRef }: ChainPanelProps) {
+export function ChainPanel({ view, shape, seatTones, priority, mySeat, nameOf, panelRef, compact = false }: ChainPanelProps) {
   const many = view.total > 1;
   const accordion = many && shape === "sheet";
   const base = useId();
@@ -188,8 +280,14 @@ export function ChainPanel({ view, shape, seatTones, priority, mySeat, nameOf, p
   useEffect(() => { setPicked(null); }, [view.hero.index]);
   const pickedAt = picked == null ? -1 : view.rows.findIndex((row) => row.index === picked);
   const hero = pickedAt >= 0 && view.details[pickedAt] ? view.details[pickedAt] : view.hero;
+  // Only the resolving link folds, and only when the player did not pick a link to read: a link that they respond to (a target or a cost to
+  // choose) and a link that they clicked keep their text open.
+  const folded = compact && pickedAt < 0 && hero.tone === "now";
+  // A long chain on a short window: the rows give way first (never the outcome), then they scroll.
+  const stackRef = useRef<HTMLOListElement>(null);
+  const stackOver = useOverflow(stackRef, view.rows);
   return (
-    <section ref={panelRef} className={styles.cr} data-shape={shape} data-chain-panel="true" data-priority={priority?.length ? "true" : undefined}>
+    <section ref={panelRef} className={styles.cr} data-shape={shape} data-chain-panel="true" data-compact={folded ? "true" : undefined} data-priority={priority?.length ? "true" : undefined}>
       {many ? (
         <header className={styles.head}>
           <span>Chain</span>
@@ -219,9 +317,15 @@ export function ChainPanel({ view, shape, seatTones, priority, mySeat, nameOf, p
         </ol>
       ) : (
         <>
-          <Hero hero={hero} />
+          <Hero hero={hero} compact={folded} />
           {many ? (
-            <ol className={styles.stack}>
+            <ol
+              ref={stackRef}
+              className={styles.stack}
+              data-overflow={stackOver ? "true" : undefined}
+              tabIndex={stackOver ? 0 : undefined}
+              aria-label={stackOver ? "Chain links, scrollable" : undefined}
+            >
               {view.rows.map((row) => (
                 <li key={row.index} className={styles.item}>
                   <Row row={row} seatTones={seatTones} pick={{ picked: pickedAt >= 0 && row.index === picked, onPick: () => setPicked((now) => (now === row.index ? null : row.index)) }} />

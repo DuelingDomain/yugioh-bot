@@ -11,6 +11,7 @@ import { isCustomDomain } from "@yugidraft/shared/duels";
 import { BattleFx } from "../battle-fx";
 import { AttackConfirm, CardActionMenu, CardHoverInfo, confirmSide, targetName } from "../card-interactions";
 import { ChainFx } from "../chain-fx";
+import { ownPromptOpen } from "../chain-narrate";
 import { projectChainNames } from "../chain-state";
 import { CoinTossFx } from "../coin-toss-fx";
 import { isBattlePhase, phaseTitle, zoneKey } from "../constants";
@@ -53,7 +54,7 @@ import { GridStage } from "./grid-stage";
 import { CAPTION_TEXT, useGridFinale } from "./grid-finale";
 import { gridKeyGates, useGridFocus } from "./grid-focus";
 import { hudPreview } from "./hud-preview";
-import { HudLayer, RowPreviewBoundary, useHudEscape, useHudPane, useRowPreview } from "./hud-layer";
+import { HudLayer, RowPreviewBoundary, useHudEscape, useHudPane, usePinSync, useRowPreview } from "./hud-layer";
 import { clockStrip, hudClockBank, hudMasterProps, stationTrackProps } from "./hud-shared";
 import { gridCells, usesGridLayout } from "./grid-layout";
 import { HistoryStrip } from "./history-strip";
@@ -204,9 +205,10 @@ function TableShellBody({
   const hud = !narrow && (grid || plazaHud);
   // The Card pane is a flyout in the HUD: a hover must not fill it, only a click or Inspect does.
   const hudState = useHudPane({ camera: plazaHud, log: !plazaHud });
-  const ui = useTableUi(tracked, { initialPane: grid && hud ? "log" : undefined, hud, onOpenCard: hudState.openCard });
+  const ui = useTableUi(tracked, { initialPane: grid && hud ? "log" : undefined, hud, onOpenCard: hudState.openCard, onPinCard: hudState.pinCard });
   useHudEscape(hudState, hud, ui.suspended);
-  const hudOpen = hud && hudState.pane != null;
+  usePinSync(hudState, tracked.engine.seats);
+  const hudOpen = hud && (hudState.pane != null || hudState.pinned != null);
   // A modal (Surrender) opened from the Settings flyout: the flyout closes so the modal owns Esc.
   const closeHud = hudState.close;
   useEffect(() => { if (inputSuspended) closeHud(); }, [inputSuspended, closeHud]);
@@ -346,7 +348,7 @@ function TableShellBody({
   const lockedOption = flow.pointed && prompt ? prompt.options.find((option) => option.id === flow.pointed?.optionId) : undefined;
 
   const onInspectorActivate = (card: DuelCard, anchor: HTMLElement) =>
-    controller.onActivate([zoneKey(card.controller, card.location, card.sequence)], card, anchor);
+    controller.onActivate([zoneKey(card.controller, card.location, card.sequence)], card, anchor, true);
 
   const masterRail = domain ? (
     <DeckMasterRail
@@ -699,7 +701,7 @@ function TableShellBody({
                     {fxActive ? <SummonFx events={withDestroyCards(engine.events)} duelKey={session.slug} reducedMotion={controller.reducedMotion} shake={preferences.shake} /> : null}
                     {fxActive ? <MoveFx events={withDestroyCards(engine.events)} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
                     {fxActive ? <PositionFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
-                    {fxActive ? <ChainFx events={withDestroyCards(engine.events)} chain={namedChain} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} playerName={nameOf} seatTones={seatTones} priority={priority} ended={hasResult} table={format} seats={engine.seats} /> : null}
+                    {fxActive ? <ChainFx events={withDestroyCards(engine.events)} chain={namedChain} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} playerName={nameOf} seatTones={seatTones} priority={priority} ended={hasResult} table={format} seats={engine.seats} promptOpen={promptMine && ownPromptOpen(prompt, viewerSeat)} /> : null}
                     {fxActive ? <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} /> : null}
                     <BattleFx events={withDestroyCards(engine.events)} seats={engine.seats} reducedMotion={controller.reducedMotion} active={fxActive} aim={null} nameOf={nameOf} />
                     <DestroyFx events={withDestroyCards(engine.events)} reducedMotion={controller.reducedMotion} active={fxActive} mySeat={viewerSeat ?? 0} />
@@ -831,7 +833,8 @@ function TableShellBody({
             spectator ? `${nameOf(layout.anchorSeat)}'s Master` : "Your Master",
           ) : null}
           onInspect={ui.setInspect}
-          preview={hudPreview(ui.hover?.card ?? null, ui.menu?.card, rowPreview.card, (card) => ({ name: nameOf(card.controller), ...toneOf(card.controller) }))}
+          preview={hudPreview(ui.hover?.card ?? null, ui.menu?.card, rowPreview.card, (card) => ({ name: nameOf(card.controller), ...toneOf(card.controller) }), hudState.pinned)}
+          equipLinks={resolveEquipLinks(engine.seats)}
           previewHidden={ui.pile?.open === true}
           reducedMotion={controller.reducedMotion}
         />

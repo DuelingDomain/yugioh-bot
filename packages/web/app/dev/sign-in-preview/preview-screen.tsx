@@ -1,5 +1,6 @@
 "use client";
 
+import { waitlistHref } from "@/components/auth/marketing-links";
 import { AccountUnavailableStep } from "@/components/auth/steps/account-unavailable-step";
 import { CodeStep } from "@/components/auth/steps/code-step";
 import { CreateAccountStep } from "@/components/auth/steps/create-account-step";
@@ -7,13 +8,14 @@ import { IdentifierStep } from "@/components/auth/steps/identifier-step";
 import { NewPasswordStep } from "@/components/auth/steps/new-password-step";
 import { NotInvitedStep } from "@/components/auth/steps/not-invited-step";
 import { PasswordStep } from "@/components/auth/steps/password-step";
+import { RecoveringStep } from "@/components/auth/steps/recovering-step";
 import { SignupClosedStep } from "@/components/auth/steps/signup-closed-step";
 import { SigningStep } from "@/components/auth/steps/signing-step";
 import { SuccessStep } from "@/components/auth/steps/success-step";
 import type { PreviewStep } from "./steps";
 
 const EMAIL = "sam@example.com";
-const WAITLIST = "https://duelingdomain.com/#join";
+const WAITLIST = waitlistHref(undefined);
 const noop = () => {};
 
 /** One step card with static props and no-op handlers. Handlers cannot cross the server boundary, so this is a client file. */
@@ -63,6 +65,8 @@ export function PreviewScreen({ step, resendAvailableAt }: { step: PreviewStep; 
       return <AccountUnavailableStep onBack={noop} />;
     case "signing":
       return <SigningStep />;
+    case "recovering":
+      return <RecoveringStep />;
     case "success":
       return <SuccessStep />;
   }
