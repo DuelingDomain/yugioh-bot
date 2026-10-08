@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { DuelEngineChoice, DuelFormat, DuelMode } from "@yugidraft/shared/duels";
-import type { CardDatabase } from "./cards.js";
+import type { CardScriptSource } from "./card-script-source.js";
 import type { ScriptOverlay } from "./multi-scripts.js";
 import { legacyNormalScript } from "./legacy/script-compat.js";
 
@@ -11,7 +11,7 @@ export function scriptEngineKind(mode: DuelMode, format: DuelFormat, engine: Due
 }
 
 /** Identity covers the loaded card, shared Lua helpers and engine-specific transforms. */
-export function cardScriptHash(cards: CardDatabase, code: number, kind: ScriptEngineKind = "all", overlay?: ScriptOverlay & { utility?: string }): string | null {
+export function cardScriptHash(cards: CardScriptSource, code: number, kind: ScriptEngineKind = "all", overlay?: ScriptOverlay & { utility?: string }): string | null {
   const alias = cards.deckCard(code)?.alias ?? 0;
   const requested = alias && Math.abs(alias - code) < 10 ? alias : code;
   const text = cards.readScript(`c${requested}.lua`, kind.startsWith("multi-") ? overlay : undefined);

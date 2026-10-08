@@ -6,4 +6,4 @@ containers=$(docker ps -q --filter status=running \
   --filter label=com.docker.compose.project.working_dir=/opt/yugioh-bot)
 set -- $containers
 [ "$#" -eq 1 ] || exit 1
-exec docker exec "$1" node /app/packages/duel-server/dist/prod-script-errors.js
+exec docker exec "$1" node --max-old-space-size=32 --max-semi-space-size=2 /app/packages/duel-server/dist/prod-script-errors.js
