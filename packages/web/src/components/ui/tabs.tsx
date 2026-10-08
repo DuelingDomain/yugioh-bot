@@ -1,6 +1,8 @@
 "use client";
 
+import { useRef } from "react";
 import { cn } from "@/lib/utils";
+import { useTabMarker } from "@/lib/tab-motion";
 
 export interface TabDef {
   id: string;
@@ -17,11 +19,14 @@ export function Tabs({
   value: string;
   onChange: (id: string) => void;
 }) {
+  const listRef = useRef<HTMLDivElement>(null);
+  useTabMarker(listRef, value);
   return (
     <div
+      ref={listRef}
       role="tablist"
       aria-label="Tournament sections"
-      className="mb-6 flex gap-1 overflow-x-auto border-b border-border"
+      className="relative mb-6 flex gap-1 overflow-x-auto border-b border-border"
     >
       {tabs.map((tab) => {
         const selected = tab.id === value;
@@ -48,6 +53,8 @@ export function Tabs({
           </button>
         );
       })}
+      {/* The underline that slides to the selected tab (globals.css; until it is measured the tab's own border shows). */}
+      <span data-tab-marker aria-hidden="true" />
     </div>
   );
 }

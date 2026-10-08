@@ -227,6 +227,33 @@ body {
   [data-flip-id][data-wash]::before { animation-duration: var(--d-wash) !important; }
 }
 
+/* ---------- Tabs (site motion, part 4) ----------
+   A tab panel arrives with a fade and an 8px slide from the side its tab is on, 180ms, ease-out. There is no
+   exit, so new content is never held back. The panel carries data-pane-dir="next|prev" (useTabDirection in
+   src/lib/tab-motion.ts), which is absent on first paint, after a keyboard switch and under reduced motion.
+     data-pane="self"  the panel itself animates when it is shown (it may be toggled with `hidden`)
+     data-pane="kids"  the element is display: contents and its children animate when they mount, so wrapping
+                       conditional panels never changes the parent's layout
+   A tab row of unequal tabs slides its underline with useTabMarker: [data-tab-marker] inside a tablist that
+   carries data-marker, --tab-x and --tab-w. The slide only runs once data-marker-motion is on. */
+@keyframes mo-pane-next { from { opacity: 0; transform: translateX(calc(8px * var(--motion-travel))); } }
+@keyframes mo-pane-prev { from { opacity: 0; transform: translateX(calc(-8px * var(--motion-travel))); } }
+[data-pane-dir="next"] { --pane-anim: mo-pane-next; }
+[data-pane-dir="prev"] { --pane-anim: mo-pane-prev; }
+[data-pane="kids"] { display: contents; }
+[data-pane="self"][data-pane-dir]:not([hidden]),
+[data-pane="kids"][data-pane-dir] > * { animation: var(--pane-anim) var(--d-pane-in) var(--ease-out) backwards; }
+
+[data-tab-marker] { position: absolute; left: 0; bottom: 0; width: 1px; height: 2px; border-radius: 2px; background: var(--color-accent-primary, currentColor); transform-origin: left; opacity: 0; pointer-events: none; }
+[data-marker] > [data-tab-marker] { opacity: 1; transform: translateX(var(--tab-x, 0px)) scaleX(var(--tab-w, 1)); }
+[data-marker] > [role="tab"][aria-selected="true"] { border-bottom-color: transparent; }
+[data-marker-motion] > [data-tab-marker] { transition: transform var(--d-tab) var(--ease-in-out); }
+
+@media (prefers-reduced-motion: reduce) {
+  [data-pane][data-pane-dir], [data-pane][data-pane-dir] > * { animation: none !important; }
+  [data-marker-motion] > [data-tab-marker] { transition: none; }
+}
+
 /* ---------- Rank badge animations ---------- */
 
 /* keep gem + label above the gloss streak */

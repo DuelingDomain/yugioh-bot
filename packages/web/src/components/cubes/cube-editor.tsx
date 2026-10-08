@@ -4,7 +4,7 @@ import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Check, Download, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { PageFrame } from "@/components/decks/page-frame";
-import { ConfirmPanel, Segmented, StatusLine, SvButton, svButtonClass, Zone } from "@/components/sheet";
+import { ConfirmPanel, Segmented, StatusLine, SvButton, segmentSlide, svButtonClass, Zone } from "@/components/sheet";
 import type { CardSummary } from "@/lib/card-types";
 import { putCards } from "@/lib/cards-cache";
 import { isExtraDeckCardClient, poolToGridCards, type CubeCardDto, type CubePoolsDto } from "@/lib/cube-pools";
@@ -566,7 +566,7 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
       <div className="ce" ref={layoutRef}>
         <div>
           <div className="ce-tools">
-            <div className="seg" role="group" aria-label="Pool">
+            <div className="seg" role="group" aria-label="Pool" {...segmentSlide(2, activePool === "main" ? 0 : 1)}>
               <button
                 type="button"
                 aria-pressed={activePool === "main"}

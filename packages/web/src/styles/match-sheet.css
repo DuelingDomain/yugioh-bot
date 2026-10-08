@@ -244,7 +244,18 @@
 .ms .seg[data-slide="none"]::before { display: none; }
 .ms .seg[data-slide] button { position: relative; }
 .ms .seg[data-slide] button[aria-pressed="true"] { background: none; }
-@media (prefers-reduced-motion: reduce) { .ms .seg[data-slide]::before { transition: none; } }
+/* The same fill for a group whose buttons differ in width (the cube editor's Add by row): useTabMarker measures the
+   pressed button into --tab-x / --tab-w, and the fill is scaled to it. Until it is measured the button keeps its own fill. */
+.ms .seg[data-seg-measured] { position: relative; }
+.ms .seg[data-seg-measured] > button { position: relative; }
+.ms .seg[data-seg-measured]::before {
+  content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 1px; pointer-events: none;
+  background: var(--pen-soft); transform-origin: left; opacity: 0;
+}
+.ms .seg[data-seg-measured][data-marker]::before { opacity: 1; transform: translateX(var(--tab-x, 0px)) scaleX(var(--tab-w, 1)); }
+.ms .seg[data-seg-measured][data-marker] > button[aria-pressed="true"] { background: none; }
+.ms .seg[data-seg-measured][data-marker-motion]::before { transition: transform var(--d-tab) var(--ease-in-out); }
+@media (prefers-reduced-motion: reduce) { .ms .seg[data-slide]::before, .ms .seg[data-seg-measured]::before { transition: none; } }
 .ms .input { width: 100%; min-width: 0; height: 42px; padding: 0 12px; border: 1px solid var(--rule-lo); border-radius: 7px; background: var(--panel-2); color: var(--ink); font: inherit; font-size: 15px; }
 .ms .input:focus-visible { outline: none; border-color: var(--pen); box-shadow: 0 0 0 3px rgb(155 126 255 / 0.22); }
 .ms .label { display: block; margin-bottom: 6px; color: var(--ink-3); font-size: 12.5px; }
