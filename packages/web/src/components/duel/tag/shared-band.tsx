@@ -5,7 +5,7 @@ import { emzZoneProps, ZoneSlot, type DuelActivateHandler, type DuelHoverHandler
 import { extraMonster, extraMonsterKeys, withExact } from "../field-keys";
 import { disabledZones } from "../multi-seat";
 import fieldStyles from "../field.module.css";
-import { ROOF_FIELD } from "./roof-camera";
+import { ROOF_FIELD, ROOF_FIELD_Z } from "./roof-camera";
 import styles from "./tag-stage.module.css";
 
 /** Height of the band box in world units: one zone row (112 at the default zone size) with the field pad above and below. */
@@ -81,7 +81,7 @@ export function SharedExtraBand({ near, far, x, upright, nameOf, relationOf, out
     <div
       className={styles.fieldHold}
       data-shared-band={`${near.seat}-${far.seat}`}
-      style={{ width: ROOF_FIELD.width, height: BAND_HEIGHT, transform: `translate3d(${x - ROOF_FIELD.width / 2}px, ${-BAND_HEIGHT / 2}px, 2px)` }}
+      style={{ width: ROOF_FIELD.width, height: BAND_HEIGHT, transform: `translate3d(${x - ROOF_FIELD.width / 2}px, ${-BAND_HEIGHT / 2}px, ${ROOF_FIELD_Z}px)` }}
     >
       <div
         className={`${duelFontClasses} ${fieldStyles.seatField} ${styles.band}`}
