@@ -613,8 +613,16 @@ describe("the crumble waits for the attack, the damage and the LP roll that put 
     settle(OUT_HOLD_MS + 1000);
     expect(heldOf(container, 3)).toBe(true);
     expect(cell()?.getAttribute("data-cell-state")).toBe("out");
+    // jsdom does not apply :has, so the marks the CSS hides the outline and the plate label by are checked: the outline is
+    // a late one (it waits for the crumble) and the plate of the seat is held (no "Eliminated" label, no strike line).
+    const outline = () => container.querySelector("[data-out-outline='3']");
+    const plate = () => container.querySelector("[data-grid-lp='3'] [data-holo]");
+    expect(outline()?.getAttribute("data-late")).toBe("true");
+    expect(plate()?.getAttribute("data-held")).toBe("true");
     battleRunning = false;
     untilReleased(container, 3);
+    expect(outline()?.getAttribute("data-late")).toBe("true");
+    expect(plate()?.getAttribute("data-held")).toBeNull();
     settle(OUT_HOLD_MS - 2 * CRUMBLE_GATE_TICK_MS);
     expect(cell()?.getAttribute("data-cell-state")).toBe("out");
     settle(CRUMBLE_GATE_TICK_MS * 4);
