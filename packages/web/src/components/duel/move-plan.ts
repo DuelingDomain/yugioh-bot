@@ -19,6 +19,7 @@
 import type { DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
 import {
   LOCATION_DECK,
+  LOCATION_DMZONE,
   LOCATION_EXTRA,
   LOCATION_GRAVE,
   LOCATION_HAND,
@@ -708,6 +709,15 @@ export function captureZoneSnapshots(root: ParentNode = document): void {
       snapshots.set(key, snap);
       snapshotCards.set(key, { code: artCodeOf(el), owner: el.closest<HTMLElement>("[data-hand-id]")?.dataset.handId?.startsWith("hand-") === true });
     }
+  });
+  // The Deck Master plate of a floating HUD stands in for the Deck Master Zone: a Deck Master summoned from it flies
+  // out of the plate. The core names that zone 0x4000, or location 0 in a byte-sized MOVE; a real zone cell wins.
+  root.querySelectorAll<HTMLElement>("[data-master-source]").forEach((el) => {
+    const seat = Number(el.dataset.masterSource);
+    const r = moveDestinationRect(el);
+    if (!Number.isInteger(seat) || r.width < 4 || r.height < 4) return;
+    const snap: ZoneSnapshot = { rect: { left: r.left, top: r.top, width: r.width, height: r.height }, side: "you", faceUp: true, defense: false };
+    for (const key of [zoneKey(seat, LOCATION_DMZONE, 0), zoneKey(seat, 0, 0)]) if (!snapshots.has(key)) snapshots.set(key, snap);
   });
   root.querySelectorAll<HTMLElement>("[data-hand-seat]").forEach((el) => {
     const seat = Number(el.dataset.handSeat);
