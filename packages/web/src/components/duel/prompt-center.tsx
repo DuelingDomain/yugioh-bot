@@ -48,6 +48,7 @@ import { placeTributeDock, sameDock, type DockPlace } from "./tribute-dock-place
 import base from "./prompts.module.css";
 import baseStyles from "./prompt-center.module.css";
 import { useSkinExtra, useSkinStyles } from "./skin";
+import { useMedia } from "@/components/draft/room/use-media";
 
 /**
  * Prompts answered in the middle of the board.
@@ -421,17 +422,25 @@ function CardArt({ option, className }: { option: DuelPromptOption; className: s
   return <img src={cardArtUrl(option.card.code, "small")} alt="" className={className} draggable={false} />;
 }
 
-/** Printed card text: clamped to a few lines with a toggle when long, scrollable when open. */
+/**
+ * Small screens: a phone width, or a short viewport. The prompt panel has little free height there, so long card text
+ * is cut to a few lines with a toggle. Elsewhere the full text shows. Keep in step with the bottom-sheet breakpoint in
+ * prompt-center.module.css.
+ */
+export const COMPACT_TEXT_QUERY = "(max-width: 900px), (max-height: 640px)";
+
+/** Printed card text: full by default; on a small screen it is clamped to a few lines with a toggle when long. */
 function CardTextBlock({ text, label = "Card text", open: forceOpen }: { text: string; label?: string; open?: boolean }) {
   const styles = useSkinStyles(baseStyles, "prompt");
+  const compact = useMedia(COMPACT_TEXT_QUERY);
   const [open, setOpen] = useState(Boolean(forceOpen));
   const long = text.length > 200 || text.split(/\r?\n/).length > 3;
-  const shown = open || !long;
+  const clamped = compact && long && !open;
   return (
-    <div className={styles.cardText} data-open={shown ? "true" : "false"}>
+    <div className={styles.cardText} data-open={clamped ? "false" : "true"}>
       <span className={styles.cardTextLabel}>{label}</span>
-      <p className={styles.cardTextBody} data-clamped={shown ? "false" : "true"}>{text}</p>
-      {long && !forceOpen ? (
+      <p className={styles.cardTextBody} data-clamped={clamped ? "true" : "false"}>{text}</p>
+      {compact && long && !forceOpen ? (
         <button type="button" className={styles.cardTextMore} aria-expanded={open} onClick={() => setOpen((value) => !value)}>
           {open ? "Show less" : "Show full text"}
         </button>

@@ -397,7 +397,7 @@
 }
 .cardTextBody {
   margin: 0;
-  max-height: min(220px, 34dvh);
+  max-height: min(calc(220 * var(--duel-unit, 1px)), 34dvh);
   overflow-y: auto;
   color: var(--duel-ink-2, #c3bba8);
   font-size: var(--duel-t-sm, 12px);
