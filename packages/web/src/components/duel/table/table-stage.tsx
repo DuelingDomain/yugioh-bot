@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
+import { ArrowUp } from "lucide-react";
 import { flushSync } from "react-dom";
 import { engineFormat } from "../multi-seat";
 import type { GridFinaleBoard } from "./grid-finale";
@@ -22,7 +23,7 @@ import { GLIDE_MS, useSeatExits } from "./use-seat-exits";
 import { occluderRects, useViewZoom } from "./use-view-zoom";
 import { ROOF_ZOOM_MS } from "../tag/roof-camera";
 import { ViewReset } from "./view-reset";
-import { FOLLOW_ATTR, followShift, VIEW_IDENTITY, type FitItem } from "./view-zoom";
+import { clearRoom, FOLLOW_ATTR, fitItemRect, followShift, VIEW_IDENTITY, type FitItem } from "./view-zoom";
 import type { CameraMode, SeatFieldProps, SeatPose, SeatTone, TableStageProps } from "./types";
 import styles from "./table-stage.module.css";
 
@@ -52,6 +53,28 @@ const HUD_LEFT_COLUMN = 196;
 /** Your hand: it stays at its 1x place and size under the zoom of your own field (the view hook counters the zoom on it). */
 const OWN_HAND = '[data-hand-seat][data-side="you"]';
 /** The size of a rival's LP plate on the stage, for the fit of a zoom (see holo-lp.module.css). */
+/** A chip at the edge of the board box that points to a field off the screen: box px of its centre, and the arrow's turn. */
+interface RivalHint {
+  seat: number;
+  x: number;
+  y: number;
+  angle: number;
+}
+/** The chip sits this far from the side edges; at the top edge it sits `HINT_TOP` from it, above the moved plates; at the bottom edge it clears the hand by `HINT_BAND`. */
+const HINT_EDGE = 76;
+const HINT_TOP = 24;
+const HINT_BAND = 96;
+function edgeHint(centre: { x: number; y: number }, box: { width: number; height: number }): Omit<RivalHint, "seat"> {
+  const mid = { x: box.width / 2, y: box.height / 2 };
+  const dx = centre.x - mid.x;
+  const dy = centre.y - mid.y;
+  const angle = (Math.atan2(dy, dx) * 180) / Math.PI + 90;
+  const x = Math.min(box.width - HINT_EDGE, Math.max(HINT_EDGE, centre.x));
+  const y = centre.y < 0 ? HINT_TOP : Math.min(box.height - HINT_BAND, Math.max(HINT_TOP, centre.y));
+  return { x: Math.round(x), y: Math.round(y), angle: Math.round(angle) };
+}
+/** A fit at or under this scale shows no zoom: the camera does not enter focus for it. */
+const NO_ZOOM = 1.02;
 const RIVAL_PLATE = { width: 196, height: 100 } as const;
 const CLICK_PASS = "button, a, [data-legal='true'], [data-holo]";
 
@@ -176,11 +199,13 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
   );
   // Your own field enlarged (3-way) is a camera zoom of this board layer: the seats stay home, and your hand (HUD) stays at its size and place.
   const ownZoom = !fly && !portrait && isOwnFocus(play, camera);
+  // The zoom out eases: your hand and the moved plates keep their place until the view is back at the camera pose.
+  const [ownHold, setOwnHold] = useState(false);
   const zoom = useViewZoom({
     rootRef,
     layerRef: perspRef,
     enabled: !fly && k > 0,
-    fixed: ownZoom ? OWN_HAND : undefined,
+    fixed: ownZoom || ownHold ? OWN_HAND : undefined,
     reducedMotion,
     resetKey: `${camera.mode}|${camera.focusSeat ?? ""}|${camera.lookSeat ?? ""}|${outKey}|${portrait ? "portrait" : "wide"}`,
     frame: zoomFrame,
@@ -208,7 +233,6 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
   const wideAnchors = useMemo(() => portrait?.anchors ?? wideHoloAnchors(play, camera, poses, spread, hasChip, k > 0 ? { hint, hud: hudCorner } : undefined), [play, camera, poses, spread, hasChip, k, hint, hudCorner, portrait]);
   // Your own field zoomed: the rivals' plates sit above its top corners (they follow the board at their own size), so the field
   // can grow to the width the free box gives it. They stay there until the view is back at the camera pose, then glide home.
-  const [ownHold, setOwnHold] = useState(false);
   const plateAnchors = useMemo(() => {
     if (!(ownZoom || ownHold) || portrait) return wideAnchors;
     const mine = poses.get(layout.anchorSeat);
@@ -222,6 +246,32 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
     });
     return next;
   }, [ownZoom, ownHold, portrait, wideAnchors, poses, play, layout.anchorSeat, camera]);
+  // The phase hub strip: the classic place, or at a wide table (home and look) the clear place nearest the ring or your field.
+  // The place only depends on the camera's mode and target, so a fly-in drag (which changes only `camera.fly`) does not rescan.
+  const hubAt = useMemo(
+    () => (hub && threeWay && !portrait ? hubPose(play, camera, { box: fitBox, meFooter: hasChip, ...(centerPrompts ? { hud: HUD_CORNER } : {}) }) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [hub != null, threeWay, play, camera.mode, camera.focusSeat, camera.lookSeat, fitBox, hasChip, portrait, centerPrompts],
+  );
+  // What a zoom of your own field keeps on screen (board-box px at the camera pose): the field, and the plates and the phase strip
+  // that follow it at their own size (followShift).
+  const fitItems = useMemo(() => {
+    if (!ownZoom && !ownHold) return [];
+    const field = poses.get(layout.anchorSeat);
+    if (!field || portrait) return [];
+    const f = zoomFrame;
+    const toBox = (x: number, y: number, width: number, height: number) => ({ x: f.x + x * f.k, y: f.y + y * f.k, width: width * f.k, height: height * f.k });
+    const bounds = boardBounds(field);
+    const out: FitItem[] = [{ rect: toBox(bounds.l, bounds.t, bounds.r - bounds.l, bounds.b - bounds.t) }];
+    for (const slot of play.slots) {
+      const at = plateAnchors?.get(slot.seat) ?? holoAnchor(play, slot.seat, camera);
+      const width = at.me ? 212 : RIVAL_PLATE.width;
+      const height = at.me ? 128 : RIVAL_PLATE.height;
+      out.push({ rect: toBox(at.x, at.y, width, height), anchor: { x: f.x + (at.x + width / 2) * f.k, y: f.y + (at.y + 34) * f.k } });
+    }
+    if (hubAt) out.push({ rect: toBox(hubAt.x - hubAt.width / 2, hubAt.y - hubAt.height / 2, hubAt.width, hubAt.height), anchor: { x: f.x + hubAt.x * f.k, y: f.y + hubAt.y * f.k } });
+    return out;
+  }, [ownZoom, ownHold, poses, layout.anchorSeat, portrait, zoomFrame, play, plateAnchors, camera, hubAt]);
   // Free rooms for the prompts (a seat choice, "Activate?", the card-pick bar): off every board and plate, so a prompt that is
   // about a rival's field never covers it. In screen px of the board box; the prompt CSS and the select bar read them.
   const rooms = useMemo(() => {
@@ -230,13 +280,20 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
     if (chainInset && chainSize) return chainBandRooms(chainSize, box);
     // A zoomed board keeps the rooms of the camera pose: the panel and the pick bar stay where they are at rest, clear
     // of every card there, and the pan can take any card out from under them (the safe frame of useViewZoom).
-    const anchors = new Map(play.slots.map((slot) => [slot.seat, wideAnchors?.get(slot.seat) ?? holoAnchor(play, slot.seat, camera)] as const));
+    const anchors = new Map(play.slots.map((slot) => [slot.seat, plateAnchors?.get(slot.seat) ?? holoAnchor(play, slot.seat, camera)] as const));
     const found = promptRooms({ layout: play, camera, poses, anchors, spread, meFooter: hasChip, box, k, chainSize });
     const dx = (box.width - STAGE.width * k) / 2;
     const dy = stageTop + (stageHeight - canvasHeight * k) / 2;
     const toBox = (room: PromptRoom | null) => room && { x: Math.round(dx + room.x * k), y: Math.round(dy + room.y * k), width: Math.round(room.width * k), height: Math.round(room.height * k) };
-    return { panel: toBox(found.panel), bar: toBox(found.bar), chain: toBox(found.chain) };
-  }, [play, camera, poses, spread, hasChip, k, fly, box, canvasHeight, wideAnchors, chainSize, chainInset, stageHeight, stageTop, portrait]);
+    const mapped = { panel: toBox(found.panel), bar: toBox(found.bar), chain: toBox(found.chain) };
+    // Your own field zoomed: the rooms are planned at the camera pose, where the field is smaller. Each room moves off the zoomed
+    // field and the plates that follow it (the view is read at rest; the rooms follow when the zoom ends).
+    if (!(ownZoom || ownHold) || zoom.view.s <= NO_ZOOM || fitItems.length === 0) return mapped;
+    const view = zoom.view;
+    const obstacles = fitItems.map((item) => fitItemRect(item, view));
+    const move = (room: Rect | null) => (room ? clearRoom(room, obstacles, box) : room);
+    return { panel: move(mapped.panel), bar: move(mapped.bar), chain: move(mapped.chain) };
+  }, [play, camera, poses, spread, hasChip, k, fly, box, canvasHeight, plateAnchors, chainSize, chainInset, stageHeight, stageTop, portrait, ownZoom, ownHold, fitItems, zoom.view]);
 
   // The floating HUD: the prompts sit in the middle of the near field (the first seat of the table: you, or the anchor), in
   // box px; --pr-* carry that box to the prompt CSS. The pick bar finds a clear place on that field (never over a target);
@@ -264,6 +321,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
   const [zones, setZones] = useState<readonly Rect[]>([]);
   const [cards, setCards] = useState<readonly Rect[]>([]);
   const [hudRects, setHudRects] = useState<readonly Rect[]>([]);
+  const [handRect, setHandRect] = useState<Rect | null>(null);
   const legalKey = [...legalKeys].sort().join(",");
   useEffect(() => {
     const root = rootRef.current;
@@ -285,15 +343,35 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
       const held = boxes('[data-zones][data-occupied="true"]:not([data-legal="true"])');
       setCards((current) => (sameRects(current, held) ? current : held));
       setHudRects((current) => (sameRects(current, hud) ? current : hud));
+      // Your hand (HUD under an own-field zoom): the pick bar keeps off it.
+      const hand = boxes(`${OWN_HAND} [data-hand-card]`);
+      const union = hand.length === 0 ? null : (() => {
+        const x = Math.min(...hand.map((r) => r.x));
+        const y = Math.min(...hand.map((r) => r.y));
+        return { x, y, width: Math.max(...hand.map((r) => r.x + r.width)) - x, height: Math.max(...hand.map((r) => r.y + r.height)) - y };
+      })();
+      setHandRect((current) => (current && union && sameRects([current], [union]) ? current : union));
     };
     // Once the seats stand still (a regroup, the FINAL DUEL board, glides them to new places); watched while a pick is open.
     return watchMeasure(root, measure, { settleMs: reducedMotion ? 0 : regroup ? GLIDE_MS : SETTLE_MS, watch: legalKey !== "" });
-  }, [floating, nearBox, legalKey, reducedMotion, regroup, zoom.zoomed]);
+  }, [floating, nearBox, legalKey, reducedMotion, regroup, zoom.zoomed, ownZoom]);
   const barRoom = useMemo(() => {
     if (!floating) return undefined;
     // Zoomed: the bar docks at the bottom of the box, off the HUD (the timer, the responses, the master plate). The
     // pan can take any card out from under it (it is in VIEW_OCCLUDERS).
-    if (zoom.zoomed) return freeDockRoom(box, hudRects) ?? dockBarRoom(box);
+    if (zoom.zoomed) {
+      // Your own field zoomed: the bar keeps off your hand and off the targets as well (it is a strip at the bottom of the box).
+      if (ownZoom) {
+        const blocks = [...hudRects, ...(handRect ? [handRect] : [])];
+        const above = handRect && box.width >= 400 ? (() => {
+          const width = Math.min(PICK_BAR.max, box.width / 2);
+          const height = width < PICK_BAR.row ? PICK_BAR.stackHeight : PICK_BAR.rowHeight;
+          return `${Math.round((box.width - width) / 2)},${Math.max(0, Math.round(handRect.y - height - PICK_BAR.edge))},${Math.round(width)},${height}`;
+        })() : undefined;
+        return freeDockRoom(box, [...blocks, ...targets]) ?? freeDockRoom(box, blocks) ?? above ?? dockBarRoom(box);
+      }
+      return freeDockRoom(box, hudRects) ?? dockBarRoom(box);
+    }
     if (!nearBox) return undefined;
     // The bar may run to the edge of your field (the 4-way keeps 12 px inside a pair): a short field has one row band
     // above and one below your monsters, and the bar fits in one of them.
@@ -320,7 +398,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
     // only, never over one of your cards or the targets.
     const pair = { x: nearBox.x - edge, y: nearBox.y - edge, width: nearBox.width + 2 * edge, height: nearBox.height + 2 * edge };
     return clearBarRoom(pair, [...targets, ...cards], zones) ?? found;
-  }, [floating, zoom.zoomed, nearBox, targets, zones, cards, hudRects, rooms?.bar, box]);
+  }, [floating, zoom.zoomed, ownZoom, handRect, nearBox, targets, zones, cards, hudRects, rooms?.bar, box]);
 
   // A prompt that opens, closes or moves changes the HUD insets: the view eases into the new clamps (no gap stays).
   const hudKey = `${controller.prompt?.id ?? ""}|${promptCenter ? 1 : 0}|${overlay ? 1 : 0}|${controller.seatPick ? 1 : 0}|${barRoom ?? ""}|${rooms?.panel ? `${rooms.panel.x},${rooms.panel.y}` : ""}`;
@@ -409,17 +487,11 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
   const attackerSeat = controller.aim?.from ? Number(controller.aim.from.split(":")[0]) : null;
   const attackerTone = (attackerSeat != null ? tones.get(attackerSeat) : null) ?? "violet";
   const ringAt = ringPose(play, camera, spread);
-  // The phase hub strip: the classic place, or at a wide table (home and look) the clear place nearest the ring or your field.
-  // The place only depends on the camera's mode and target, so a fly-in drag (which changes only `camera.fly`) does not rescan.
-  const hubAt = useMemo(
-    () => (hub && threeWay && !portrait ? hubPose(play, camera, { box: fitBox, meFooter: hasChip, ...(centerPrompts ? { hud: HUD_CORNER } : {}) }) : null),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [hub != null, threeWay, play, camera.mode, camera.focusSeat, camera.lookSeat, fitBox, hasChip, portrait, centerPrompts],
-  );
   // Your own field enlarged: the camera eases (360 ms, as the Tag camera) to the zoom that fits the field, and the plates and the
   // phase strip that follow it, into the free box between the HUD parts. Leaving it eases back. A resize while it stays refits at once.
   const ownFit = useRef(false);
-  const fitKey = `${ownZoom ? 1 : 0}|${zoomFrame.x.toFixed(1)}|${zoomFrame.y.toFixed(1)}|${zoomFrame.k.toFixed(4)}|${hubAt ? `${hubAt.x},${hubAt.y}` : ""}|${[...(plateAnchors ?? [])].map(([seat, a]) => `${seat}:${a.x},${a.y}`).join(";")}`;
+  // A new fit of the field only after a resize (or the entry): a refit on a prompt or a hover would undo the player's own pan or zoom.
+  const fitKey = `${ownZoom ? 1 : 0}|${zoomFrame.x.toFixed(1)}|${zoomFrame.y.toFixed(1)}|${zoomFrame.k.toFixed(4)}`;
   const { zoomFit, zoomTo } = zoom;
   useLayoutEffect(() => {
     const root = rootRef.current;
@@ -430,25 +502,21 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
       if (was) zoomTo(VIEW_IDENTITY, ROOF_ZOOM_MS);
       return;
     }
-    const field = poses.get(layout.anchorSeat);
-    if (!field) return;
-    const f = zoomFrame;
-    const toBox = (x: number, y: number, width: number, height: number) => ({ x: f.x + x * f.k, y: f.y + y * f.k, width: width * f.k, height: height * f.k });
-    const bounds = boardBounds(field);
-    const items: FitItem[] = [{ rect: toBox(bounds.l, bounds.t, bounds.r - bounds.l, bounds.b - bounds.t) }];
-    // The plates and the strip keep their own size and follow the board (followShift): the fit keeps them on screen too.
-    for (const slot of play.slots) {
-      const at = plateAnchors?.get(slot.seat) ?? holoAnchor(play, slot.seat, camera);
-      const width = at.me ? 212 : RIVAL_PLATE.width;
-      const height = at.me ? 128 : RIVAL_PLATE.height;
-      items.push({ rect: toBox(at.x, at.y, width, height), anchor: { x: f.x + (at.x + width / 2) * f.k, y: f.y + (at.y + 34) * f.k } });
-    }
-    if (hubAt) items.push({ rect: toBox(hubAt.x - hubAt.width / 2, hubAt.y - hubAt.height / 2, hubAt.width, hubAt.height), anchor: { x: f.x + hubAt.x * f.k, y: f.y + hubAt.y * f.k } });
+    if (fitItems.length === 0) return;
+    const items = fitItems;
     // Your hand stays where it is: the free box ends above it.
     const box = root.getBoundingClientRect();
     const cards = Array.from(root.querySelectorAll<HTMLElement>(`${OWN_HAND} [data-hand-card]`)).map((node) => node.getBoundingClientRect());
     const avoid = cards.length > 0 ? [{ x: Math.min(...cards.map((r) => r.left)) - box.left, y: Math.min(...cards.map((r) => r.top)) - box.top, width: Math.max(...cards.map((r) => r.right)) - Math.min(...cards.map((r) => r.left)), height: box.bottom - Math.min(...cards.map((r) => r.top)) }] : [];
-    zoomFit(items, avoid, was ? 0 : ROOF_ZOOM_MS);
+    // A card pinned in the peek is stable: the fit keeps clear of it (read from the DOM; the hover peek moves away by itself).
+    const pinned = document.querySelector<HTMLElement>('[data-testid="hover-preview"][data-pinned="true"]');
+    if (pinned) {
+      const r = pinned.getBoundingClientRect();
+      if (r.width > 2 && r.height > 2) avoid.push({ x: r.left - box.left, y: r.top - box.top, width: r.width, height: r.height });
+    }
+    const fitted = zoomFit(items, avoid, was ? 0 : ROOF_ZOOM_MS);
+    // A window with no room to enlarge the field (the fit is the camera scale) has nothing to zoom: the camera stays home.
+    if (fitted.s <= NO_ZOOM) dispatchCamera({ type: "home" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fitKey]);
   // The view came back to the camera pose by itself (the reset button, a double click, a wheel out): the camera follows it home.
@@ -468,6 +536,46 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
       dispatchCamera({ type: "home" });
     }
   }, [ownZoom, zoom.zoomed, dispatchCamera]);
+
+  // A prompt or an aim that is about a rival's field (the legal targets, a seat choice, the aim): the camera does not move by itself,
+  // so while your own field is zoomed and that field is off the screen, a chip at the edge points to it. A click on it zooms out.
+  const rivalSeats = useMemo(() => {
+    const seats = new Set<number>();
+    const add = (seat: number | null | undefined) => {
+      if (seat != null && Number.isFinite(seat) && seat !== layout.anchorSeat) seats.add(seat);
+    };
+    for (const key of legalKeys) add(Number(key.split(":")[0]));
+    for (const key of controller.aim?.to.zones ?? []) add(Number(key.split(":")[0]));
+    add(controller.aim?.to.lpSeat);
+    add(targetSeat);
+    for (const seat of picks?.options.keys() ?? []) add(seat);
+    return [...seats].sort((x, y) => x - y);
+  }, [legalKeys, controller.aim, targetSeat, picks, layout.anchorSeat]);
+  const rivalSeatKey = ownZoom ? rivalSeats.join(",") : "";
+  const [rivalHints, setRivalHints] = useState<readonly RivalHint[]>([]);
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root || rivalSeatKey === "") {
+      setRivalHints((current) => (current.length === 0 ? current : []));
+      return;
+    }
+    const frame = requestAnimationFrame(() => {
+      const bounds = root.getBoundingClientRect();
+      const found: RivalHint[] = [];
+      for (const seat of rivalSeatKey.split(",").map(Number)) {
+        const slot = root.querySelector<HTMLElement>(`[data-seat-slot="${seat}"]`);
+        if (!slot) continue;
+        const r = slot.getBoundingClientRect();
+        const area = Math.max(1, r.width * r.height);
+        const seen = Math.max(0, Math.min(r.right, bounds.right) - Math.max(r.left, bounds.left)) * Math.max(0, Math.min(r.bottom, bounds.bottom) - Math.max(r.top, bounds.top));
+        // Most of the field is on screen: nothing to point at.
+        if (seen / area > 0.5) continue;
+        found.push({ seat, ...edgeHint({ x: r.left + r.width / 2 - bounds.left, y: r.top + r.height / 2 - bounds.top }, { width: bounds.width, height: bounds.height }) });
+      }
+      setRivalHints((current) => (JSON.stringify(current) === JSON.stringify(found) ? current : found));
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [rivalSeatKey, zoom.view, box.width, box.height, rootRef]);
 
   return (
     <div
@@ -647,6 +755,21 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
         ) : null}
         {controller.aim?.from ? <AttackLine aim={controller.aim} tone={attackerTone} /> : null}
       </div>
+      {rivalHints.map((hint) => (
+        <button
+          key={hint.seat}
+          type="button"
+          className={styles.rivalHint}
+          data-rival-hint={hint.seat}
+          data-reduced={reducedMotion ? "true" : undefined}
+          style={{ left: hint.x, top: hint.y }}
+          title={`Targets are on ${nameOf(hint.seat)}'s field. Zoom out to see them.`}
+          onClick={() => dispatchCamera({ type: "home" })}
+        >
+          <ArrowUp size={13} strokeWidth={2.4} aria-hidden style={{ transform: `rotate(${hint.angle}deg)` }} />
+          {nameOf(hint.seat)}
+        </button>
+      ))}
       <ViewReset zoomed={zoom.zoomed} scale={zoom.view.s} onReset={zoom.reset} board={rootRef} style={{ right: 10, top: stageTop + 10 }} />
       {fx ? <ChainRoomContext.Provider value={reserveChain ? setChainSize : null}><div className={styles.slot} data-slot="fx">{fx}</div></ChainRoomContext.Provider> : null}
       {promptCenter ? <div ref={promptRef} className={styles.slot} data-slot="prompt" data-seat-pick={picks ? "true" : undefined} data-prompt-dense={nearBox ? "true" : undefined} style={promptStyle}>{promptCenter}</div> : null}

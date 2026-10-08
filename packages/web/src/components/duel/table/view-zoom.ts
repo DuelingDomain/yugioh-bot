@@ -355,3 +355,39 @@ export function counterTransform(view: View, origin: Point, frame: LayerFrame = 
   const ty = (-u.y + (1 - s) * origin.y) / s;
   return `translate(${tx.toFixed(2)}px, ${ty.toFixed(2)}px) scale(${(1 / s).toFixed(5)})`;
 }
+
+/** Where a fit item stands on screen under a view (board-box px): a board item scales with it, a follower keeps its size and follows its anchor. */
+export function fitItemRect(item: FitItem, view: View): Rect {
+  const { rect, anchor } = item;
+  if (!anchor) return { x: view.x + view.s * rect.x, y: view.y + view.s * rect.y, width: view.s * rect.width, height: view.s * rect.height };
+  return { x: view.x + view.s * anchor.x + (rect.x - anchor.x), y: view.y + view.s * anchor.y + (rect.y - anchor.y), width: rect.width, height: rect.height };
+}
+
+const overlaps = (a: Rect, b: Rect) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+
+/**
+ * A prompt room moved off the obstacles it covers (the zoomed field, the plates that follow it), inside the box. The room
+ * keeps its size and goes to the nearest place that touches no obstacle: beside an obstacle edge or an edge of the box.
+ * It stays where it is when it is clear, or when no place is clear.
+ */
+export function clearRoom(room: Rect, obstacles: readonly Rect[], box: Size, margin: number = 8): Rect {
+  const hit = (r: Rect) => obstacles.some((o) => overlaps(r, o));
+  if (!hit(room)) return room;
+  const xs = [room.x, margin, box.width - room.width - margin, ...obstacles.flatMap((o) => [o.x + o.width + margin, o.x - room.width - margin])];
+  const ys = [room.y, margin, box.height - room.height - margin, ...obstacles.flatMap((o) => [o.y + o.height + margin, o.y - room.height - margin])];
+  let best: Rect | null = null;
+  let bestCost = Infinity;
+  for (const x of xs) {
+    for (const y of ys) {
+      if (x < margin || y < margin || x + room.width > box.width - margin || y + room.height > box.height - margin) continue;
+      const candidate = { x: Math.round(x), y: Math.round(y), width: room.width, height: room.height };
+      if (hit(candidate)) continue;
+      const cost = Math.hypot(x - room.x, y - room.y);
+      if (cost < bestCost) {
+        best = candidate;
+        bestCost = cost;
+      }
+    }
+  }
+  return best ?? room;
+}
