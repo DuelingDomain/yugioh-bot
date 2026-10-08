@@ -37,7 +37,7 @@ export const WIDTH_RATIO = 0.14;
 export const peekWidth = (windowWidth: number): number => Math.round(Math.min(MAX_WIDTH_PX, Math.max(MIN_WIDTH_PX, windowWidth * WIDTH_RATIO)));
 /** The right edge of the peek column from the left edge of the window: the shells keep the board right of it (`--hud-left`). */
 export const peekColumnRight = (windowWidth: number): number => EDGE_LEFT_PX + peekWidth(windowWidth) + GAP_PX;
-/** A free band shorter than this is no place for the window (the art and some lines do not fit): used only when no side has a taller one. */
+/** A free band shorter than this is a short place: it comes after the tall ones (the art and some lines may not fit it). */
 const MIN_BAND_PX = 260;
 /** The height of a typical panel: the free width is measured beside the board over this span up from the bottom of a band. */
 const SPAN_PX = 520;
@@ -47,10 +47,15 @@ const THIN_PX = 4;
 const BOARD_SELECTOR = "[data-zones], [data-lp-seat]";
 const KEEP_SELECTOR = [
   '[data-testid="chain-tower"]', "[data-chain-panel]", '[data-testid="hud-dock"]', '[data-testid="hud-master"]', '[data-testid="hud-other"]',
-  "[data-team-plate]", "[data-grid-controls]", "[data-view-reset]", "[data-camera-panel]", "[data-holo]", "[data-hub-slot]", "[data-hub]",
+  "[data-team-plate]", "[data-grid-controls]", "[data-view-reset]", "[data-camera-panel]", "[data-hub-slot]", "[data-hub]",
   // The glass pills of the bottom bar (the hint of the phase, the turn controls): the hint reaches into the column at 1280 px.
   '[data-testid="hud-bottom"] nav > div',
 ].join(", ");
+/**
+ * A pin also stays clear of the life-point plates: a pin takes clicks, and a plate can be a choose-opponent target. A hover panel takes none and
+ * may stand over a plate (its `.main` is a board part, `[data-lp-seat]`): a plate in the column would cut the band short and hide the art.
+ */
+const PIN_KEEP_SELECTOR = `${KEEP_SELECTOR}, [data-holo]`;
 
 /** Can the part be seen and clicked: it has a size, it is not collapsed and not invisible. */
 export function isShown(node: Element, rect: DOMRect = node.getBoundingClientRect()): boolean {
@@ -74,10 +79,10 @@ function cornerBoxes(): Box[] {
 }
 
 /**
- * Measure what the peek stays clear of. `peek`: the panel itself (it never counts). The clicked card counts like the rest of the board, so a
- * hover and a pin of the same card see the same room and stand in the same place.
+ * Measure what the peek stays clear of. `peek`: the panel itself (it never counts). `pinned`: the panel is a pin, which also stays clear of
+ * the life-point plates (`PIN_KEEP_SELECTOR`). The clicked card counts like the rest of the board.
  */
-export function measureObstacles(peek?: Element | null): Obstacles {
+export function measureObstacles(peek?: Element | null, pinned = false): Obstacles {
   // The board zones are many (up to 60 on a grid): they count by their rect only (a hidden zone has no size), with no computed style.
   const boxes = (selector: string, styled: boolean) => {
     const found: Box[] = [];
@@ -88,7 +93,7 @@ export function measureObstacles(peek?: Element | null): Obstacles {
     }
     return found;
   };
-  return { board: boxes(BOARD_SELECTOR, false), keep: [...boxes(KEEP_SELECTOR, true), ...cornerBoxes()] };
+  return { board: boxes(BOARD_SELECTOR, false), keep: [...boxes(pinned ? PIN_KEEP_SELECTOR : KEEP_SELECTOR, true), ...cornerBoxes()] };
 }
 
 /** A short text that changes when what the peek stays clear of moves (a camera move, a chain that opens): the peek is placed again then. */
@@ -117,8 +122,15 @@ export function coveredArea(box: Box, others: readonly Box[]): number {
 
 export interface Band { top: number; bottom: number }
 
-/** The free vertical bands of a column (x0 to x1) between `top` and `bottom`: each part that stays clear cuts the column. */
-export function bandsOf(x0: number, x1: number, top: number, bottom: number, keep: readonly Box[], any = false): Band[] {
+/** A free band shorter than this is no place at all (not even the least bad one): it is dropped when other bands exist. */
+const MIN_SHORT_BAND_PX = 60;
+
+/**
+ * The free vertical bands of a column (x0 to x1) between `top` and `bottom`: each part that stays clear cuts the column. The tall bands come
+ * first (top down). The short ones follow, tallest first: they are the places of last resort, and a pin takes one to stay clear of the card
+ * that was clicked. With no tall band, the short ones are the only places.
+ */
+export function bandsOf(x0: number, x1: number, top: number, bottom: number, keep: readonly Box[]): Band[] {
   const blockers = keep.filter((box) => box.right > x0 && box.left < x1 && box.bottom > top && box.top < bottom).sort((a, b) => a.top - b.top);
   const bands: Band[] = [];
   let cursor = top;
@@ -127,10 +139,12 @@ export function bandsOf(x0: number, x1: number, top: number, bottom: number, kee
     cursor = Math.max(cursor, box.bottom + GAP_PX);
   }
   if (bottom > cursor) bands.push({ top: cursor, bottom });
-  const tall = bands.filter((band) => band.bottom - band.top >= MIN_BAND_PX);
-  if (tall.length > 0 || !any) return tall;
-  // No tall band at all: the tallest one is the least bad.
-  return bands.length === 0 ? [{ top, bottom }] : [bands.reduce((best, band) => (band.bottom - band.top > best.bottom - best.top ? band : best))];
+  const height = (band: Band) => band.bottom - band.top;
+  const tall = bands.filter((band) => height(band) >= MIN_BAND_PX);
+  const short = bands.filter((band) => height(band) < MIN_BAND_PX && height(band) >= MIN_SHORT_BAND_PX).sort((a, b) => height(b) - height(a));
+  if (tall.length + short.length > 0) return [...tall, ...short];
+  // Nothing of a useful height: the tallest one is the least bad.
+  return bands.length === 0 ? [{ top, bottom }] : [bands.reduce((best, band) => (height(band) > height(best) ? band : best))];
 }
 
 /** The room from the panel edge to the nearest board part inside the band. `Infinity` with no board there. */
@@ -145,8 +159,8 @@ export function freeWidth(layer: Box, band: Band, board: readonly Box[]): number
 /**
  * The places of the panel: one per free band of the left column (the highest first). The width is `peekWidth` of the layer, or the free
  * room beside the board when that is less (never under the minimum). With no measurable layer it returns nothing: the CSS places it.
- * A column cut into short bands (a chain tower, the chain panel, a Deck Master plate) is still the column: the tallest bands are the least bad
- * places when no band is tall, and the panel never goes to the other side.
+ * A column cut into short bands (a chain tower, the chain panel, a Deck Master plate) is still the column: the short bands follow the tall ones
+ * (a pin can take one to stay clear of the clicked card), they are the only places when no band is tall, and the panel never goes to the other side.
  */
 export function peekPlaces(layer: Box, obstacles: Obstacles): Place[] {
   if (layer.bottom - layer.top <= 0) return [];
@@ -154,13 +168,10 @@ export function peekPlaces(layer: Box, obstacles: Obstacles): Place[] {
   const x0 = layer.left + EDGE_LEFT_PX;
   // The bands are cut at the minimum width: a part that stands further right (a life-point plate, the hub) only narrows the panel there.
   const near = [...obstacles.board, ...obstacles.keep];
-  for (const any of [false, true]) {
-    const places: Place[] = [];
-    for (const band of bandsOf(x0, x0 + MIN_WIDTH_PX, layer.top + TOP_PX, layer.bottom - BOTTOM_PX, obstacles.keep, any)) {
-      const width = Math.max(MIN_WIDTH_PX, Math.min(full, freeWidth(layer, band, near)));
-      places.push({ side: "left", width, top: band.top, maxH: band.bottom - band.top });
-    }
-    if (places.length > 0) return places;
+  const places: Place[] = [];
+  for (const band of bandsOf(x0, x0 + MIN_WIDTH_PX, layer.top + TOP_PX, layer.bottom - BOTTOM_PX, obstacles.keep)) {
+    const width = Math.max(MIN_WIDTH_PX, Math.min(full, freeWidth(layer, band, near)));
+    places.push({ side: "left", width, top: band.top, maxH: band.bottom - band.top });
   }
-  return [];
+  return places;
 }

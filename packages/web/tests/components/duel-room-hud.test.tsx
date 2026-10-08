@@ -610,7 +610,23 @@ describe("the pinned card peek of the 1v1 room", () => {
       expect(css("--pv-max-h")).toBe("662px");
     });
 
-    it("never goes to the right: a clicked card under the left panel does not move it (one place, the same for every card)", () => {
+    it("never goes to the right: a clicked card under the left panel gets the pin above or below it, still in the left column", () => {
+      layout({ left: 100, right: 180, top: 400, bottom: 560 });
+      // The tower cuts the column into a tall band (360-712) under it and a short one (50-220) above it.
+      const tower = part({ "data-testid": "chain-tower" }, TOWER);
+      try {
+        mount();
+        pin();
+        expect(peek().getAttribute("data-pinned")).toBe("true");
+        expect(peek().getAttribute("data-side")).toBe("left");
+        expect(css("--pv-right")).toBe("");
+        // The pin of the tall band would cover the card: it takes the short band above the tower, which stays clear of it.
+        expect(css("--pv-max-h")).toBe("170px");
+        expect(css("--pv-bottom")).toBe("500px");
+      } finally { tower.remove(); }
+    });
+
+    it("never goes to the right: with a single band, a clicked card under the left panel does not move it", () => {
       layout({ left: 100, right: 180, top: 400, bottom: 560 });
       mount();
       pin();
@@ -619,8 +635,39 @@ describe("the pinned card peek of the 1v1 room", () => {
       expect(css("--pv-bottom")).toBe("8px");
     });
 
+    it("shows the art again when the panel moves from a short place to a tall one (a squeeze in a passing place does not hide it for good)", () => {
+      layout({ left: 900, right: 980, top: 300, bottom: 420 });
+      // The art is 50 px tall until the panel stands in a band of 300 px or more (jsdom has no layout: this stands for the flex shrink).
+      const art = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function (this: HTMLElement) {
+        if (this.tagName !== "IMG") return 0;
+        const room = parseInt(this.closest<HTMLElement>('[data-testid="hover-preview"]')!.style.getPropertyValue("--pv-max-h") || "0", 10);
+        return room >= 300 ? 160 : 50;
+      });
+      spies.push(art);
+      mount();
+      hover();
+      expect(css("--pv-max-h")).toBe("662px");
+      expect(peek().getAttribute("data-squeezed")).toBeNull();
+    });
 
-
+    it("lets a hover stand over a life-point plate, so the art keeps its height; a pin stays clear of the plate", () => {
+      layout({ left: 900, right: 980, top: 300, bottom: 420 });
+      const zones = part({ "data-zones": "1:4:0" }, { left: 300, right: 1000, top: 100, bottom: 600 });
+      const plate = part({ "data-holo": "1" }, { left: 150, right: 320, top: 500, bottom: 600 });
+      try {
+        mount();
+        hover();
+        // The plate is no part to keep clear of for a hover: the band runs the whole column (50 to 712).
+        expect(css("--pv-max-h")).toBe("662px");
+        expect(css("--pv-bottom")).toBe("8px");
+        fireEvent.click(screen.getByTestId("field-pick"));
+        expect(peek().getAttribute("data-pinned")).toBe("true");
+        expect(peek().getAttribute("data-side")).toBe("left");
+        // The pin takes clicks, and a plate can be a target: it stands above it (500 - 12 = 488).
+        expect(css("--pv-max-h")).toBe("438px");
+        expect(css("--pv-bottom")).toBe("232px");
+      } finally { zones.remove(); plate.remove(); }
+    });
 
     it("is the same window for the hover and the pin: the same place and size, with no wide layout", () => {
       layout({ left: 900, right: 980, top: 300, bottom: 420 });
@@ -1078,7 +1125,7 @@ describe("the 1v1 HUD corner in the stylesheet", () => {
   });
 
   it("keeps the board left of the corner stack on narrow or nearly square screens, but never under 660px", () => {
-    expect(css).toMatch(/--hud-right-need: calc\(520px \+ 105\.6dvh - 100vw\);/);
+    expect(css).toMatch(/--hud-right-need: calc\(var\(--hud-left\) \+ 364px \+ 105\.6dvh - 100vw\);/);
     expect(css).toMatch(/--hud-right-max: min\(calc\(var\(--hud-corner-w\) \+ 28px\), calc\(100vw - var\(--hud-left\) - 660px\)\);/);
     expect(css).toMatch(/padding: var\(--hud-top\) clamp\(14px, var\(--hud-right-need\), var\(--hud-right-max\)\)/);
   });
