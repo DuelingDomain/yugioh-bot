@@ -1,6 +1,6 @@
 import type { DuelChainLink, DuelEngineView, DuelEvent, DuelPrompt, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import { ev, MZ, SZ } from "../../fx-lab/board";
-import { LOCATION_DECK, LOCATION_HAND, LOCATION_MZONE, POS_FACEDOWN_DEFENSE, POS_FACEUP_DEFENSE, zoneKey } from "../../constants";
+import { LOCATION_HAND, LOCATION_MZONE, POS_FACEDOWN_DEFENSE, POS_FACEUP_DEFENSE, zoneKey } from "../../constants";
 import {
   fixtureEngine,
   fixtureRoom,
@@ -9,6 +9,7 @@ import {
   putMonster,
   putSpell,
   TABLE_CARDS as C,
+  searchPrompt,
   withHiddenHands,
   type TableFixtureSet,
   type TableFixtureState,
@@ -253,28 +254,6 @@ const DEFENSE_ROWS = [
 
 export type Ffa3PreviewPick = "def" | "cards";
 
-/** Fourteen Red-Eyes cards of the Deck: the long "add to your hand" search of the card strip review (`?pick=cards`). */
-const SEARCH_NAMES = [
-  "Red-Eyes Black Dragon", "Red-Eyes Fang with Chain Dragon", "Red-Eyes Black Metal Dragon", "Red-Eyes Dark Dragoon",
-  "Red-Eyes Slash Dragon", "Red-Eyes Darkness Metal Dragon", "Red-Eyes Wyvern", "Red-Eyes Archfiend of Lightning",
-  "Red-Eyes Flare Metal Dragon", "Red-Eyes Zombie Dragon", "Red-Eyes B. Chick", "Red-Eyes Toon Dragon",
-  "Red-Eyes Spirit Dragon", "Red-Eyes Black Dragon Sword",
-] as const;
-const SEARCH_CODES = [74677422, 4961232, 64335804, 37818794, 71408082, 88264978, 24611934, 29491334, 61140872, 63942330, 36262024, 31293090, 55460084, 19025379] as const;
-
-/** The `?pick=cards` prompt: a pick among many cards of your Deck, so the strip has more cards than any window shows. */
-function searchPrompt(): DuelPrompt {
-  const options: DuelPromptOption[] = SEARCH_NAMES.map((name, sequence) => ({
-    id: `s${sequence}`,
-    label: name,
-    card: { ...C.redEyes, code: SEARCH_CODES[sequence], name },
-    controller: REN,
-    location: LOCATION_DECK,
-    sequence,
-  }));
-  return { id: "pick-search", seat: REN, kind: "cards", title: "Select a card", description: "Add to your hand", min: 1, max: 1, options };
-}
-
 /**
  * A preview variant of the 3-way fixtures: `out` sweeps those seats (as the engine does: no LP, an empty board, the
  * elimination order); `defense` lays Defense Position monsters on every field; `pick: "def"` asks you to pick one monster
@@ -308,7 +287,7 @@ export function ffa3Variant(set: TableFixtureSet, opts: { out: readonly number[]
         );
         prompt = { id: "pick-def", seat: REN, kind: "cards", title: "Select 1 monster to destroy", min: 1, max: 1, options };
       }
-      if (opts.pick === "cards" && state.room.mySeat === REN) prompt = searchPrompt();
+      if (opts.pick === "cards" && state.room.mySeat === REN) prompt = searchPrompt(REN);
       const order = opts.out.map((seat) => [seat]);
       const room = { ...state.room, engine: { ...engine, seats, prompt, ...(order.length > 0 ? { eliminationOrder: order } : {}) } };
       const ui = order.length > 0 ? { ...state.ui, initialOutOrder: order } : state.ui;

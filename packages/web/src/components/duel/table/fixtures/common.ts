@@ -1,8 +1,8 @@
 import { defaultDuelSettings, opponentSeatsOf, teamOfSeat } from "@yugidraft/shared/duels";
-import type { DuelCardInfo, DuelChainLink, DuelEngineView, DuelEvent, DuelPrompt, DuelRoom, DuelSeatView } from "@yugidraft/shared/duels";
+import type { DuelCardInfo, DuelChainLink, DuelEngineView, DuelEvent, DuelPrompt, DuelPromptOption, DuelRoom, DuelSeatView } from "@yugidraft/shared/duels";
 import { CARDS } from "../../fx-lab/cards";
 import { ATTRIBUTE } from "../../attack-styles";
-import { LOCATION_MZONE, POS_FACEUP_ATTACK, TYPE_CONTINUOUS, TYPE_EFFECT, TYPE_MONSTER, TYPE_TRAP, zoneKey } from "../../constants";
+import { LOCATION_DECK, LOCATION_MZONE, POS_FACEUP_ATTACK, TYPE_CONTINUOUS, TYPE_EFFECT, TYPE_MONSTER, TYPE_TRAP, zoneKey } from "../../constants";
 import type { BattleAim, CameraState, TableFormat } from "../types";
 
 import { cardAt, hiddenAt, MZ, SZ, link } from "../../fx-lab/board";
@@ -341,4 +341,26 @@ export function skeletonFixtureSet(o: {
     }),
   } satisfies Record<TableStateId, TableFixtureState>;
   return { format, title: o.title, states };
+}
+
+/** Fourteen Red-Eyes cards of the Deck: the long "add to your hand" search of the card strip review (`?pick=cards`). */
+const SEARCH_NAMES = [
+  "Red-Eyes Black Dragon", "Red-Eyes Fang with Chain Dragon", "Red-Eyes Black Metal Dragon", "Red-Eyes Dark Dragoon",
+  "Red-Eyes Slash Dragon", "Red-Eyes Darkness Metal Dragon", "Red-Eyes Wyvern", "Red-Eyes Archfiend of Lightning",
+  "Red-Eyes Flare Metal Dragon", "Red-Eyes Zombie Dragon", "Red-Eyes B. Chick", "Red-Eyes Toon Dragon",
+  "Red-Eyes Spirit Dragon", "Red-Eyes Black Dragon Sword",
+] as const;
+const SEARCH_CODES = [74677422, 4961232, 64335804, 37818794, 71408082, 88264978, 24611934, 29491334, 61140872, 63942330, 36262024, 31293090, 55460084, 19025379] as const;
+
+/** The `?pick=cards` prompt: a pick among many cards of your Deck, so the strip has more cards than any window shows. */
+export function searchPrompt(seat: number): DuelPrompt {
+  const options: DuelPromptOption[] = SEARCH_NAMES.map((name, sequence) => ({
+    id: `s${sequence}`,
+    label: name,
+    card: { ...TABLE_CARDS.redEyes, code: SEARCH_CODES[sequence], name },
+    controller: seat,
+    location: LOCATION_DECK,
+    sequence,
+  }));
+  return { id: "pick-search", seat, kind: "cards", title: "Select a card", description: "Add to your hand", min: 1, max: 1, options };
 }
