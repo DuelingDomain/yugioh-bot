@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { callDuelHost, duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
+import { callDuelHost, duelErrorResponse, requireDuelActor, redactDuelResult } from "@/lib/duel-host";
 
 export const runtime = "nodejs";
 
@@ -15,7 +15,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
     const openingDue = room.session.status === "lobby" && room.opening != null
       && Date.parse(room.opening.deadlineAt) <= Date.now();
     if (room.session.status !== "active" && !openingDue && !spectate) {
-      return NextResponse.json(room);
+      return NextResponse.json(redactDuelResult(room, actor.guildId, actor.playerId));
     }
   } catch (error) {
     return duelErrorResponse(error);

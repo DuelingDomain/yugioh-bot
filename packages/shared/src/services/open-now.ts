@@ -9,7 +9,7 @@ export interface OpenNowResult {
 
 export interface OpenNowService {
   /** Guild-wide joinable lobbies. A viewer without a player row has no memberships. */
-  forPlayer(guildId: string, playerId: number | null): OpenNowResult;
+  forPlayer(guildId: string, playerId: number | null, viewerUserId?: number): OpenNowResult;
 }
 
 type ReadParams = { guild: string; viewer: number | null };
@@ -50,12 +50,12 @@ export function createOpenNowService(db: Database.Database): OpenNowService {
   const live = createLiveNowService(db);
 
   return {
-    forPlayer(guildId, playerId) {
+    forPlayer(guildId, playerId, viewerUserId) {
       const params = { guild: guildId, viewer: playerId };
       return {
         tournaments: tournaments.all(params).map((row) => ({ ...row, viewerJoined: Boolean(row.viewerJoined) })),
         drafts: drafts.all(params).map((row) => ({ ...row, viewerJoined: Boolean(row.viewerJoined) })),
-        duelsInProgress: live.countInProgress(guildId, playerId, { excludeSeated: true }),
+        duelsInProgress: live.countInProgress(guildId, playerId, { excludeSeated: true, viewerUserId }),
       };
     },
   };

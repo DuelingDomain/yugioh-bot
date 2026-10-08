@@ -37,7 +37,7 @@ export async function POST(
     }
 
     if (match.tournament_id !== null && !findTournamentReadAccess(db, match.tournament_id, env.discordGuildId, actor.userId)?.canRead) {
-      return NextResponse.json({ error: "Tournament not found" }, { status: 404 });
+      return NextResponse.json({ error: "Match not found" }, { status: 404 });
     }
 
     const players = createPlayerService(db);

@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { tournamentReadScope, tournamentRelationshipScope } from "./tournament-read-scope.js";
 
 const PAGE_SIZE = 25;
 export class InvalidListCursorError extends Error {
@@ -67,14 +68,7 @@ function afterCursor(alias: string, rank: string) {
 const draftListScope = `d.guild_id = @guild
   and d.id in (select dp.draft_id from players p inner join draft_players dp on dp.player_id = p.id
     where p.guild_id = @guild and p.user_id = @user)`;
-const tournamentReadScope = `t.guild_id = @guild and (
-  t.visibility = 'open' or t.created_by_user_id = @user
-  or t.id in (select tp.tournament_id from players p
-    inner join tournament_participants tp on tp.player_id = p.id
-    where p.guild_id = @guild and p.user_id = @user)
-  or exists (select 1 from tournament_invite_grants g where g.tournament_id = t.id and g.user_id = @user)
-)`;
-const tournamentListScope = `${tournamentReadScope} and t.status in ('pending','active','completed')`;
+const tournamentListScope = `${tournamentReadScope()} and t.status in ('pending','active','completed')`;
 
 export interface ListStatusCounts {
   active: number;
@@ -211,11 +205,11 @@ export function findTournamentListPage(
   }));
 }
 
-/** At most ten current readable entries, including creators without a player row. */
+/** At most ten current created, joined or granted entries, including users without a player row. */
 export function findTournamentDashboardSummaries(db: Database.Database, guildId: string, userId: number): TournamentListEntry[] {
   return (db.prepare(`select t.id,t.guild_id,t.name,t.format,t.status,t.created_by_user_id,t.web_slug,
     (select count(*) from tournament_participants tp where tp.tournament_id=t.id) as participant_count
-    from tournaments t where ${tournamentReadScope} and t.status in ('pending','active')
+    from tournaments t where ${tournamentRelationshipScope()} and t.status in ('pending','active')
     order by ${tournamentRank},t.created_at desc,t.id desc limit 10`)
     .all({guild:guildId,user:userId}) as TournamentRow[]).map(row=>({
       id:row.id,guildId:row.guild_id,name:row.name,format:row.format,status:row.status,

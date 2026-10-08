@@ -107,7 +107,7 @@ it("shares creator, participant, grant and open scope for tournament lists and c
 
 it("scopes dashboard summaries before its limit, including users without player rows", () => {
   db.exec("insert into users(id,username,display_name) values(103,'noplayer','No player'); update tournaments set created_by_user_id=102; update tournaments set visibility='open' where id=1; update tournaments set created_by_user_id=103 where id=2; insert into tournament_invite_grants(tournament_id,user_id) values(3,103)");
-  expect(findTournamentDashboardSummaries(db,"g",103).map(t=>t.id)).toEqual([3,2,1]);
+  expect(findTournamentDashboardSummaries(db,"g",103).map(t=>t.id)).toEqual([3,2]);
   expect(findTournamentDashboardSummaries(db,"other",103)).toEqual([]);
 });
 

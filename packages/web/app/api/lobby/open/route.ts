@@ -15,7 +15,7 @@ export async function GET() {
     const db = getDb();
     const viewer = db.prepare("select id from players where user_id = ? and guild_id = ? limit 1")
       .get(actor.userId, env.discordGuildId) as { id: number } | undefined;
-    const open: OpenNow = createOpenNowService(db).forPlayer(env.discordGuildId, viewer?.id ?? null);
+    const open: OpenNow = createOpenNowService(db).forPlayer(env.discordGuildId, viewer?.id ?? null, actor.userId);
     return NextResponse.json(open, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     console.error("[api/lobby/open]", error);

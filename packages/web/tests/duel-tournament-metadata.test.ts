@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { createDuelService, createDuelSeriesService, createLiveNowService, createTournamentService } from "@yugidraft/shared/services";
+import { liveDuelSlugs } from "../src/components/player/live-duels";
 import { fixtureUserId, seedFixtureUsers } from "./fixtures/identity";
 
 const mocks = vi.hoisted(() => ({ db: null as Database.Database | null, post: vi.fn() }));
@@ -15,6 +16,8 @@ import { callDuelHost } from "../src/lib/duel-host";
 import { requireWebAccess } from "../src/lib/web-access";
 import { POST as cancelSeries } from "../app/api/duels/series/[id]/cancel/route";
 import { GET as connection } from "../app/api/duels/[slug]/connection/route";
+import { GET as readRoom } from "../app/api/duels/[slug]/route";
+import { POST as admitRoom } from "../app/api/duels/[slug]/invite/route";
 import { verifyDuelConnectionToken } from "@yugidraft/shared/ws";
 
 function setup() {
@@ -49,26 +52,29 @@ function expectHidden(payload: unknown) {
 }
 
 describe("private tournament metadata in accessible duels", () => {
-  it("redacts the name and tournament link in a stranger's lobby room while retaining spectator access", () => {
-    const room = app.duels.room(app.started.duel.slug, "g1", app.players.stranger!);
+  it("redacts the web lobby room while retaining spectator access and unredacted internal data", async () => {
+    vi.mocked(requireWebAccess).mockResolvedValue({ ok: true, userId: fixtureUserId("stranger"), userName: "stranger", discordUserId: null });
+    const response = await readRoom(new Request("http://localhost/duel"), { params: Promise.resolve({ slug: app.started.duel.slug }) });
+    expect(response.status).toBe(200);
+    const room = await response.json();
     expect(room.role).toBe("spectator");
     expect(room.session.settings.visibility).toBe("public");
     expectHidden(room);
     expect(room.session.name).toBe("Duel");
     expect(room.series).toMatchObject({ tournamentId: null, tournamentSlug: null, tournamentMatchId: null });
     expect(room.session.seriesId).toBe(app.started.series.id);
+    expect(app.duels.room(app.started.duel.slug, "g1", app.players.stranger!).series?.tournamentId).toBe(app.tournament.id);
   });
 
-  it("redacts live and archived all-scope lists while keeping the same duel listed", () => {
+  it("hides live and archived all-scope discovery from strangers", () => {
     expectHidden(app.duels.list("g1", app.players.stranger!));
-    expect(app.duels.list("g1", app.players.stranger!)).toHaveLength(1);
+    expect(app.duels.list("g1", app.players.stranger!)).toHaveLength(0);
     app.duels.activate(app.started.duel.slug, "g1", null, ["seed"], "bundle", null);
     app.duels.complete(app.started.duel.slug, "g1", 0, "done");
     app.duels.archive(app.started.duel.slug, "g1", app.started.duel.organizerPlayerId);
     const history = app.duels.list("g1", app.players.stranger!, { archived: true, scope: "all" });
-    expect(history).toHaveLength(1);
+    expect(history).toHaveLength(0);
     expectHidden(history);
-    expect(history[0]!.series).toMatchObject({ tournamentId: null, tournamentSlug: null, tournamentMatchId: null });
   });
 
   it.each(["owner", "a", "b", "grant"])("preserves metadata for the tournament reader %s", (key) => {
@@ -83,11 +89,14 @@ describe("private tournament metadata in accessible duels", () => {
     expect(app.duels.room(app.started.duel.slug, "g1", app.players.stranger!).session.name).toContain("Secret Cup");
   });
 
-  it("does not turn a duel invite grant into a tournament grant", () => {
+  it("does not turn a duel invite grant into a tournament grant and redacts the admission response", async () => {
     app.db.prepare("update duels set settings_json = json_set(settings_json, '$.visibility', 'private'), invite_code = 'duel-invite' where id = ?").run(app.started.duel.id);
     expect(() => app.duels.room(app.started.duel.slug, "g1", app.players.stranger!)).toThrow("Duel is invite-only");
-    app.duels.admit(app.started.duel.slug, "g1", app.players.stranger!, "duel-invite");
-    expectHidden(app.duels.room(app.started.duel.slug, "g1", app.players.stranger!));
+    vi.mocked(requireWebAccess).mockResolvedValue({ ok: true, userId: fixtureUserId("stranger"), userName: "stranger", discordUserId: null });
+    const { NextRequest } = await import("next/server");
+    const response = await admitRoom(new NextRequest("http://localhost/invite", { method: "POST", body: JSON.stringify({ inviteCode: "duel-invite" }) }), { params: Promise.resolve({ slug: app.started.duel.slug }) });
+    expect(response.status).toBe(200);
+    expectHidden(await response.json());
     expect(app.db.prepare("select count(*) as n from tournament_invite_grants").get()).toEqual({ n: 0 });
   });
 
@@ -108,11 +117,19 @@ describe("private tournament metadata in accessible duels", () => {
     expect(result).toEqual({ ok: true, data: { session: app.started.duel, series: app.started.series } });
   });
 
-  it("live-now reveals only existing duel counts and opponent details, with no source tournament metadata", () => {
+  it("live-now and player/leaderboard watch links omit private-tournament duels", () => {
     app.duels.activate(app.started.duel.slug, "g1", null, ["seed"], "bundle", null);
     const live = createLiveNowService(app.db).forPlayer("g1", app.players.stranger!);
-    expect(live).toEqual({ yourDuel: null, liveCount: 1 });
+    expect(live).toEqual({ yourDuel: null, liveCount: 0 });
     expectHidden(live);
+    expect(liveDuelSlugs(app.db, "g1", app.players.stranger!)).toEqual({});
+    expect(liveDuelSlugs(app.db, "g1", app.players.a!)).toEqual({ [app.players.a!]: app.started.duel.slug, [app.players.b!]: app.started.duel.slug });
+  });
+
+  it("does not classify metadata database errors as invalid engine JSON", async () => {
+    mocks.post.mockResolvedValue({ ok: true, text: JSON.stringify({ series: app.started.series }) });
+    vi.spyOn(app.db, "prepare").mockImplementation(() => { throw new Error("Database unavailable"); });
+    await expect(callDuelHost({ op: "view", slug: app.started.duel.slug, guildId: "g1", playerId: app.players.stranger! })).rejects.toThrow("Database unavailable");
   });
 
   it("does not identify a private tournament in a stranger's series cancellation denial", async () => {

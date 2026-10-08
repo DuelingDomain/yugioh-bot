@@ -54,6 +54,11 @@ export function duelErrorResponse(error: unknown) {
   return NextResponse.json({ error: "Failed to process duel request" }, { status: 500 });
 }
 
+/** Redact only when internal duel data leaves the web server for a viewer. */
+export function redactDuelResult<T>(data: T, guildId: string, playerId: number): T {
+  return redactDuelTournamentMetadata(getDb, data, guildId, playerId);
+}
+
 function hostErrorBody(text: string): { error: string; code?: string } {
   try {
     const parsed: unknown = JSON.parse(text);
@@ -163,12 +168,13 @@ export async function callDuelHost(input: {
   if (!result.text) {
     return { ok: false, response: NextResponse.json({ error: "Empty engine response" }, { status: 502 }) };
   }
+  let data: unknown;
   try {
-    const data: unknown = JSON.parse(result.text);
-    return { ok: true, data: redactDuelTournamentMetadata(getDb, data, input.guildId, input.playerId) };
+    data = JSON.parse(result.text);
   } catch {
     return { ok: false, response: NextResponse.json({ error: "Invalid engine response" }, { status: 502 }) };
   }
+  return { ok: true, data: redactDuelResult(data, input.guildId, input.playerId) };
 }
 
 export function sessionFromHost(data: unknown) {

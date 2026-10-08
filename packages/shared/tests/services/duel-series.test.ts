@@ -1195,7 +1195,10 @@ describe("tournament series", () => {
       expect(app.duels.get(slug, "g1").seats.map((seat) => seat.playerId).sort()).toEqual([app.p1, app.p2].sort());
     };
     check(first.duel.slug);
-    // Listed for the watcher with the series attached and both seats taken, so it is never an open table.
+    // Private tournament games are hidden from discovery; slug spectator access above remains unchanged.
+    expect(app.duels.list("g1", watcher)).toEqual([]);
+    app.db.prepare("update tournaments set visibility='open' where id=?").run(slot.tournament_id);
+    // An open tournament game is listed with both seats taken, so it is never an open table.
     const listed = app.duels.list("g1", watcher).find((entry) => entry.slug === first.duel.slug);
     expect(listed).toMatchObject({ mySeat: null, seriesId: first.series.id });
     expect(listed?.seats).toHaveLength(2);

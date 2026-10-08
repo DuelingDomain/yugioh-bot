@@ -18,11 +18,11 @@ it.each(["approve", "deny"])("%s hides private tournament matches before checkin
   const route = action === "approve" ? await import("../app/api/matches/[id]/approve/route") : await import("../app/api/matches/[id]/deny/route");
   const response = await route.POST(new Request("http://local/api/matches/1/" + action), { params: Promise.resolve({ id: "1" }) });
   expect(response.status).toBe(404);
-  expect(await response.json()).toEqual({ error: "Tournament not found" });
+  expect(await response.json()).toEqual({ error: "Match not found" });
   state.db!.exec("insert into tournament_invite_grants(tournament_id,user_id) values(1,2)");
   expect((await route.POST(new Request("http://local/"), { params: Promise.resolve({ id: "1" }) })).status).toBe(400);
 });
-it("dashboard API includes readable open, creator and granted entries without player memberships", async () => {
+it("dashboard API includes creator and granted entries without player memberships, excluding unrelated open entries", async () => {
   state.db!.exec(`update tournaments set status='pending';
     insert into tournaments(id,guild_id,name,format,status,created_by_user_id,web_slug,visibility) values
       (2,'g','Open','round_robin','pending',1,'open','open'),(3,'g','Created','round_robin','pending',2,'created','private'),(4,'g','Granted','round_robin','pending',1,'granted','private');
@@ -30,5 +30,5 @@ it("dashboard API includes readable open, creator and granted entries without pl
   const { GET } = await import("../app/api/dashboard/route");
   const response = await GET();
   expect(response.status).toBe(200);
-  expect((await response.json()).tournaments.map((t: { name: string }) => t.name)).toEqual(["Granted", "Created", "Open"]);
+  expect((await response.json()).tournaments.map((t: { name: string }) => t.name)).toEqual(["Granted", "Created"]);
 });

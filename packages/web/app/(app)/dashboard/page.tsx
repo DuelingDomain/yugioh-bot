@@ -50,7 +50,7 @@ export default async function DashboardPage() {
     if (firstPlayer) {
       try {
         const scoring = createScoringService(db);
-        const profile = scoring.getProfile(firstPlayer.guild_id, firstPlayer.id, "season");
+        const profile = scoring.getProfile(firstPlayer.guild_id, firstPlayer.id, "season", userId);
         profileData = {
           rating: profile.rating,
           rank: profile.rank,
@@ -117,7 +117,7 @@ export default async function DashboardPage() {
 
   const hasPlayer = playerIds.length > 0;
   // A new player: no player row yet, or a row (the sidebar's first poll creates one) with nothing played or joined.
-  const isNewPlayer = tournaments.length === 0 && drafts.length === 0 && stats.wins + stats.losses === 0;
+  const isNewPlayer = !hasPlayer || (tournaments.length === 0 && drafts.length === 0 && stats.wins + stats.losses === 0);
   const rounds = loadTournamentRounds(db, env.discordGuildId, tournaments);
   const viewerId = playerIds[0] ?? null;
   const rejoin = hasPlayer ? findRejoinDrafts(db, env.discordGuildId, userId) : [];

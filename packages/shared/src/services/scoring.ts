@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { tournamentReadScope } from "./tournament-read-scope.js";
 import { ELO_DEFAULT, SEASON_MULTIPLIER_DEFAULT } from "../scoring/constants.js";
 import { nextRating } from "../scoring/elo.js";
 import { matchWinPoints, placementPoints, sizeMultiplier } from "../scoring/winnings.js";
@@ -289,7 +290,7 @@ export function createScoringService(db: Database.Database) {
     });
   };
 
-  const getProfile = (guildId: string, playerId: number, scope: "season" | "all") => {
+  const getProfile = (guildId: string, playerId: number, scope: "season" | "all", viewerUserId: number) => {
     const season = seasons.getActive(guildId);
     const rating = db.prepare("select * from player_ratings where guild_id=? and player_id=?")
       .get(guildId, playerId) as any;
@@ -302,10 +303,10 @@ export function createScoringService(db: Database.Database) {
     const achievements = db.prepare("select achievement_key, unlocked_at from player_achievements where guild_id=? and player_id=?")
       .all(guildId, playerId) as Array<{ achievement_key: string; unlocked_at: string }>;
     const recent = db.prepare(
-      `select pa.kind, pa.points, pa.created_at, pa.tournament_id, t.name as tournament_name
-       from point_awards pa left join tournaments t on t.id = pa.tournament_id
-       where pa.guild_id=? and pa.player_id=? order by pa.id desc limit 10`,
-    ).all(guildId, playerId);
+      `select pa.kind, pa.points, pa.created_at, t.id as tournament_id, t.name as tournament_name
+       from point_awards pa left join tournaments t on t.id = pa.tournament_id and ${tournamentReadScope()}
+       where pa.guild_id=@guild and pa.player_id=@player order by pa.id desc limit 10`,
+    ).all({ guild: guildId, player: playerId, user: viewerUserId });
 
     const useSeason = scope === "season" && standing;
     return {

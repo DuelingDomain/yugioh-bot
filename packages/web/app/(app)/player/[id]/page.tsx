@@ -48,7 +48,7 @@ export default async function PlayerProfilePage({ params }: { params: Promise<{ 
   const season = createSeasonService(db).getActive(guildId);
   const hasSeason = Boolean(season);
 
-  const profile = scoring.getProfile(guildId, playerId, "season");
+  const profile = scoring.getProfile(guildId, playerId, "season", userId);
   const leaderboard = scoring.getLeaderboard(guildId, "season");
   const posIdx = leaderboard.findIndex((r) => r.playerId === playerId);
   const leaderboardRank = posIdx >= 0 ? posIdx + 1 : null;

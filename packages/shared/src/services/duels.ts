@@ -36,7 +36,7 @@ import {
 import { randomInt, randomBytes, timingSafeEqual } from "node:crypto";
 // duel-series.ts imports this module too; see the note there about the cycle.
 import { createSeriesStore } from "./duel-series.js";
-import { redactDuelTournamentMetadata } from "./duel-tournament-metadata.js";
+import { duelSeriesTournamentReadScope } from "./tournament-read-scope.js";
 import { isDuelEngineChoice, type DuelEngineChoice } from "../duels/engine-switch.js";
 import {
   newOpening,
@@ -608,6 +608,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
         and status in ('lobby', 'active')
         and archived_at is null
         and ${LIST_ACCESS_SQL}
+        and ${duelSeriesTournamentReadScope("duels.series_id")}
         and (
           organizer_player_id = @viewer
           or exists (select 1 from duel_seats s where s.duel_id = duels.id and s.player_id = @viewer)
@@ -628,6 +629,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       where guild_id = @guild
         and status in ('completed', 'interrupted')
         and ${LIST_ACCESS_SQL}
+        and ${duelSeriesTournamentReadScope("duels.series_id")}
         and (@all = 1 or exists (select 1 from duel_seats s where s.duel_id = duels.id and s.player_id = @viewer))
       order by datetime(coalesce(ended_at, created_at)) desc, id desc
       limit ${HISTORY_LIMIT}
@@ -1289,12 +1291,12 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
 
     list(guildId, playerId, options) {
       assertPlayerGuild(playerId, guildId);
-      const toItem = (row: DuelListItemRow): DuelListItem => redactDuelTournamentMetadata(() => db, {
+      const toItem = (row: DuelListItemRow): DuelListItem => ({
         ...mapSession(row),
         mySeat: row.my_seat,
         lastActivityAt: row.last_activity_at ?? row.created_at,
         series: row.series_id === null ? null : series.summaryById(row.series_id),
-      }, guildId, playerId);
+      });
       if (options?.archived) {
         const scope: DuelHistoryScope = options.scope ?? "mine";
         return listHistory.all({ guild: guildId, viewer: playerId, all: scope === "all" ? 1 : 0 }).map(toItem);
@@ -1362,7 +1364,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
         const own = ownDeck(row.id, playerId);
         room.mySide = series.sideState(linked, playerId) ?? (own ? { baseDeck: own, currentDeck: own } : null);
       }
-      return redactDuelTournamentMetadata(() => db, room, guildId, playerId);
+      return room;
     },
 
     privateState(slug, guildId) {

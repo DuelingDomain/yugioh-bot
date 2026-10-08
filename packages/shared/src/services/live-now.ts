@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { DUEL_LIVE_IDLE_AFTER_MS } from "./duels.js";
+import { duelSeriesTournamentReadScope } from "./tournament-read-scope.js";
 
 export type LiveDuelState = "live" | "between" | "waiting";
 export type LiveOpponent = { seat: number; name: string; isBot: boolean };
@@ -14,8 +15,8 @@ export interface LiveNow {
 export interface LiveNowService {
   /** Small database reads, no duel-host calls. Safe to poll. */
   forPlayer(guildId: string, playerId: number): LiveNow;
-  /** Same visibility and idle rules as the lobby; optionally exclude the viewer's seats. Null viewers see public duels. */
-  countInProgress(guildId: string, playerId: number | null, options?: { excludeSeated?: boolean }): number;
+  /** Same visibility and idle rules as the lobby; application identity also supports viewers without players. */
+  countInProgress(guildId: string, playerId: number | null, options?: { excludeSeated?: boolean; viewerUserId?: number }): number;
 }
 
 type OwnRow = {
@@ -47,6 +48,7 @@ const OWN_SQL = `
   from duels d
   join duel_seats me on me.duel_id = d.id and me.player_id = @viewer
   where d.guild_id = @guild
+    and ${duelSeriesTournamentReadScope("d.series_id")}
     and d.archived_at is null
     and (
       d.status = 'active'
@@ -61,6 +63,7 @@ const OWN_SQL = `
   from duel_series s
   left join players op on op.id = case when s.player0_id = @viewer then s.player1_id else s.player0_id end
   where s.guild_id = @guild
+    and ${duelSeriesTournamentReadScope("s.id")}
     and s.status = 'between_games'
     and (s.player0_id = @viewer or s.player1_id = @viewer)
 `;
@@ -73,6 +76,7 @@ const COUNT_SQL = `
   select count(*) as n
   from duels
   where guild_id = @guild
+    and ${duelSeriesTournamentReadScope("duels.series_id", "coalesce(@user, (select viewer.user_id from players viewer where viewer.id = @viewer and viewer.guild_id = @guild))")}
     and status = 'active'
     and archived_at is null
     and (
@@ -110,8 +114,8 @@ export function createLiveNowService(db: Database.Database): LiveNowService {
     order by x.seat
   `);
   const idle = `-${Math.ceil(DUEL_LIVE_IDLE_AFTER_MS / 1000)} seconds`;
-  const countInProgress = (guildId: string, playerId: number | null, options: { excludeSeated?: boolean } = {}) =>
-    count.get({ guild: guildId, viewer: playerId, idle, excludeSeated: options.excludeSeated ? 1 : 0 })?.n ?? 0;
+  const countInProgress = (guildId: string, playerId: number | null, options: { excludeSeated?: boolean; viewerUserId?: number } = {}) =>
+    count.get({ guild: guildId, viewer: playerId, user: options.viewerUserId ?? null, idle, excludeSeated: options.excludeSeated ? 1 : 0 })?.n ?? 0;
 
   return {
     countInProgress,

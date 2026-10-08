@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
+import { duelErrorResponse, requireDuelActor, redactDuelResult } from "@/lib/duel-host";
 
 export const runtime = "nodejs";
 
@@ -20,7 +20,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   try {
     actor.duels.admit(slug, actor.guildId, actor.playerId, body.inviteCode);
-    return NextResponse.json(actor.duels.room(slug, actor.guildId, actor.playerId));
+    return NextResponse.json(redactDuelResult(actor.duels.room(slug, actor.guildId, actor.playerId), actor.guildId, actor.playerId));
   } catch (error) {
     return duelErrorResponse(error);
   }
