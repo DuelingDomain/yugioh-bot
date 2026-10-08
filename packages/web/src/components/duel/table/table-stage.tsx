@@ -23,7 +23,7 @@ import { GLIDE_MS, useSeatExits } from "./use-seat-exits";
 import { occluderRects, useViewZoom } from "./use-view-zoom";
 import { ROOF_ZOOM_MS } from "../tag/roof-camera";
 import { ViewReset } from "./view-reset";
-import { clearRoom, FOLLOW_ATTR, fitItemRect, followShift, VIEW_IDENTITY, type FitItem, type View } from "./view-zoom";
+import { clearRoom, FOLLOW_ATTR, fitItemRect, fitRoom, followShift, VIEW_IDENTITY, type FitItem, type View } from "./view-zoom";
 import type { CameraMode, SeatFieldProps, SeatPose, SeatTone, TableStageProps } from "./types";
 import styles from "./table-stage.module.css";
 
@@ -71,6 +71,10 @@ function edgeHint(centre: { x: number; y: number }, box: { width: number; height
   const y = centre.y < 0 ? HINT_TOP : Math.min(box.height - HINT_BAND, Math.max(HINT_TOP, centre.y));
   return { x: Math.round(x), y: Math.round(y), angle: Math.round(angle) };
 }
+/** The air (px) a prompt room keeps off the HUD. */
+const HUD_AIR = 8;
+/** The least size of a prompt room that still holds the seat choice (px). */
+const PANEL_MIN = { width: 220, height: 170 } as const;
 /** The card pinned in the peek (the fit keeps clear of it). */
 const PINNED_PEEK = '[data-testid="hover-preview"][data-pinned="true"]';
 /** The most a chip takes (the CSS max-width, 152 px, keeps it inside the box at the nearest it sits to a side edge). */
@@ -299,6 +303,10 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
     if (hubAt) out.push({ rect: toBox(hubAt.x - hubAt.width / 2, hubAt.y - hubAt.height / 2, hubAt.width, hubAt.height), anchor: { x: f.x + hubAt.x * f.k, y: f.y + hubAt.y * f.k } });
     return out;
   }, [ownZoom, ownHold, poses, layout.anchorSeat, portrait, zoomFrame, play, plateAnchors, camera, hubAt]);
+  // The fixed HUD over the board (the corners, the Deck Master plate, the camera chip, the plates) and the card pinned in the peek: no prompt room
+  // stands on them. Measured with the targets below.
+  const [hudRects, setHudRects] = useState<readonly Rect[]>([]);
+  const [pinnedRect, setPinnedRect] = useState<Rect | null>(null);
   // Free rooms for the prompts (a seat choice, "Activate?", the card-pick bar): off every board and plate, so a prompt that is
   // about a rival's field never covers it. In screen px of the board box; the prompt CSS and the select bar read them.
   const rooms = useMemo(() => {
@@ -312,15 +320,34 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
     const dx = (box.width - STAGE.width * k) / 2;
     const dy = stageTop + (stageHeight - canvasHeight * k) / 2;
     const toBox = (room: PromptRoom | null) => room && { x: Math.round(dx + room.x * k), y: Math.round(dy + room.y * k), width: Math.round(room.width * k), height: Math.round(room.height * k) };
-    const mapped = { panel: toBox(found.panel), bar: toBox(found.bar), chain: toBox(found.chain) };
+    // No free room for the panel: the CSS puts it at the lower left (its fallback rules). When the HUD or the zoomed field stands there (the Deck
+    // Master plate), the panel gets a room beside it instead. A clear fallback stays with the CSS.
+    const own = { x: 10, y: box.height - Math.round(box.height * 0.12) - Math.round(box.height * 0.45), width: Math.round(Math.min(320, Math.max(220, box.width * 0.27))), height: Math.round(box.height * 0.45) };
+    // The HUD with a little air: a room that ends 1 px from the chip would look as if it touched it.
+    const airy = [...hudRects, ...(pinnedRect ? [pinnedRect] : [])].map((r) => ({ x: r.x - HUD_AIR, y: r.y - HUD_AIR, width: r.width + 2 * HUD_AIR, height: r.height + 2 * HUD_AIR }));
+    // `tiers`: the obstacles to keep clear of, most first. When no place is clear of all of them, the panel keeps clear of the next set (the
+    // zoomed field comes before the HUD: a panel over an empty zone is better than a panel over a plate that hides a row).
+    const settle = (...tiers: (readonly Rect[])[]) => {
+      const panel = toBox(found.panel);
+      // The panel is about 150 px high with two rivals to choose: a smaller room is clear where the full one is not.
+      let placed: Rect | null = null;
+      for (const obstacles of tiers) {
+        placed = fitRoom(panel ?? own, obstacles, box, PANEL_MIN);
+        if (placed) break;
+      }
+      return { panel: panel ? placed ?? panel : placed && !sameRects([placed], [own]) ? placed : null, bar: toBox(found.bar), chain: toBox(found.chain) };
+    };
     // Your own field zoomed: the rooms are planned at the camera pose, where the field is smaller. Each room moves off the zoomed
     // field and the plates that follow it (the view is read at rest; the rooms follow when the zoom ends).
-    if (!(ownZoom || ownHold) || !fitted || fitted.s <= NO_ZOOM || fitItems.length === 0) return mapped;
+    if (!(ownZoom || ownHold) || !fitted || fitted.s <= NO_ZOOM || fitItems.length === 0) return settle(airy);
     const view = fitted;
-    const obstacles = fitItems.map((item) => fitItemRect(item, view));
+    // The zoomed field, and the HUD that stays on screen (the Deck Master plate, the chip, the responses, a pinned peek).
+    const hud = airy;
+    const obstacles = [...fitItems.map((item) => fitItemRect(item, view)), ...hud];
+    const mapped = settle(obstacles, hud);
     const move = (room: Rect | null) => (room ? clearRoom(room, obstacles, box) : room);
-    return { panel: move(mapped.panel), bar: move(mapped.bar), chain: move(mapped.chain) };
-  }, [play, camera, poses, spread, hasChip, k, fly, box, canvasHeight, plateAnchors, chainSize, chainInset, stageHeight, stageTop, portrait, ownZoom, ownHold, fitItems, fitted]);
+    return { panel: mapped.panel, bar: move(mapped.bar), chain: move(mapped.chain) };
+  }, [play, camera, poses, spread, hasChip, k, fly, box, canvasHeight, plateAnchors, chainSize, chainInset, stageHeight, stageTop, portrait, ownZoom, ownHold, fitItems, fitted, hudRects, pinnedRect]);
 
   // The floating HUD: the prompts sit in the middle of the near field (the first seat of the table: you, or the anchor), in
   // box px; --pr-* carry that box to the prompt CSS. The pick bar finds a clear place on that field (never over a target);
@@ -347,7 +374,6 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
   const [targets, setTargets] = useState<readonly Rect[]>([]);
   const [zones, setZones] = useState<readonly Rect[]>([]);
   const [cards, setCards] = useState<readonly Rect[]>([]);
-  const [hudRects, setHudRects] = useState<readonly Rect[]>([]);
   const [handRect, setHandRect] = useState<Rect | null>(null);
   const legalKey = [...legalKeys].sort().join(",");
   useEffect(() => {
@@ -363,7 +389,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
       // The seat name under a field counts as a zone: the docked bar keeps off it.
       const rest = boxes('[data-zones]:not([data-legal="true"]), [data-seat-name]');
       // The life-point plates are HUD too: the docked bar keeps off them.
-      const hud = occluderRects(root, `${BAR_HUD}, [data-holo]`).map((r) => ({ x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) }));
+      const hud = occluderRects(root, `${BAR_HUD}, [data-holo], [data-camera-chip]`).map((r) => ({ x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) }));
       setTargets((current) => (sameRects(current, next) ? current : next));
       setZones((current) => (sameRects(current, rest) ? current : rest));
       // Zones that hold a card or a pile: the last place for the bar keeps off them.
@@ -521,21 +547,28 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
   // box): the view keeps its place and the hook clamps it. A pinned peek, the master chip or the hub moving change the free box: they refit
   // with an ease, but only when the player has not moved the view by hand (a refit on a prompt or a hover would undo that pan or zoom).
   const fitKey = `${ownZoom ? 1 : 0}|${Math.round(box.width)}|${Math.round(box.height)}`;
-  const [pinnedPeek, setPinnedPeek] = useState(false);
+  const pinnedPeek = pinnedRect != null;
   useEffect(() => {
-    if (!ownZoom) {
-      setPinnedPeek(false);
+    const root = rootRef.current;
+    if (!ownZoom || !root) {
+      setPinnedRect(null);
       return;
     }
     let frame = 0;
     const read = () => {
       frame = 0;
-      setPinnedPeek(document.querySelector(PINNED_PEEK) != null);
+      const node = (shell ?? root.ownerDocument).querySelector<HTMLElement>(PINNED_PEEK);
+      const r = node?.getBoundingClientRect();
+      const board = root.getBoundingClientRect();
+      const next = r && r.width > 2 && r.height > 2 ? { x: Math.round(r.left - board.left), y: Math.round(r.top - board.top), width: Math.round(r.width), height: Math.round(r.height) } : null;
+      setPinnedRect((current) => (current === next || (current && next && sameRects([current], [next])) ? current : next));
     };
+    // The peek lives in the table shell (beside the stage): the watch stays inside it, not on the whole page.
+    const shell = root.closest<HTMLElement>("[data-table-shell]");
     const observer = new MutationObserver(() => {
       if (!frame) frame = window.requestAnimationFrame(read);
     });
-    observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-pinned"] });
+    observer.observe(shell ?? root, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-pinned"] });
     read();
     return () => {
       observer.disconnect();
