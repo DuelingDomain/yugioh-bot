@@ -114,7 +114,7 @@ describe("planStripRoom on the measured tables", () => {
 });
 
 describe("planStripRoom: a room that shows too few tiles steps down in tile size", () => {
-  it("FFA4 zoom, 10 cards: the 130 px room shows 2 tiles at a time, so 112 or 96 px tiles are taken where they show more", () => {
+  it("FFA4 zoom, 10 cards: the 130 px room shows 2 tiles at a time (fewer than STRIP_ROOM.minShown), so 112 or 96 px tiles are taken where they show more", () => {
     const name = "ffa4-respond-10-1366x768-focus2";
     const { input, room } = plan(name);
     expect(room.card).toBeLessThan(STRIP_ROOM.card);
@@ -126,9 +126,10 @@ describe("planStripRoom: a room that shows too few tiles steps down in tile size
     expect(hits(room, handKeepOut(input.hand!))).toBe(false);
   });
 
-  it("keeps the 130 px tiles where they already show 4 at a time, or all the choices", () => {
+  it("keeps the 130 px tiles where they already show 3 at a time (STRIP_ROOM.minShown), or all the choices", () => {
     expect(plan("ffa3-respond-2-2560x1440-home").room.card).toBe(STRIP_ROOM.card);
     expect(plan("ffa3-respond-10-1920x1080-home").room).toMatchObject({ card: STRIP_ROOM.card });
+    expect(plan("ffa3-respond-10-1920x1080-zoom").room).toMatchObject({ card: STRIP_ROOM.card, cols: 3 });
     expect(tilesShown(plan("ffa3-respond-10-1920x1080-home").room, real("ffa3-respond-10-1920x1080-home"))).toBeGreaterThanOrEqual(STRIP_ROOM.minShown);
   });
 

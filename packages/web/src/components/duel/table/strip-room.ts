@@ -25,7 +25,7 @@ export const STRIP_ROOM = {
   /** The first tier (clear of every occupied zone too) may step down in width to this many columns before any zone is covered. */
   clearCols: 3,
   /** A room that shows fewer tiles than this at a time (with more choices waiting) steps down to the smaller tiles where they show more. */
-  minShown: 4,
+  minShown: 3,
   /** At most this many tiles in a row: more wrap and scroll. */
   maxCols: 6,
   /** The rows the wanted room shows before the strip scrolls. */
@@ -178,7 +178,7 @@ function variantsOf(count: number, box: { width: number; height: number }, tiles
  */
 export function planStripRoom(input: StripRoomInput): StripRoom | undefined {
   let best = planFor(input, STRIP_ROOM.card);
-  // A room that shows fewer than MIN_SHOWN tiles at a time while more choices wait scrolls too much: smaller tiles (112, then 96 px) are taken where they show more at a time.
+  // A room that shows fewer than STRIP_ROOM.minShown tiles at a time while more choices wait scrolls too much: smaller tiles (112, then 96 px) are taken where they show more at a time.
   for (const tile of STRIP_ROOM.smaller) {
     if (!best || input.count <= tilesShown(best, input) || tilesShown(best, input) >= STRIP_ROOM.minShown) break;
     const next = planFor(input, tile);
