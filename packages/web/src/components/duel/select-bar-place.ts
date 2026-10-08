@@ -29,6 +29,8 @@ export interface BarPlaceInput {
   emz: readonly BarZone[];
   /** Both hands. */
   hands: readonly BarRect[];
+  /** Score plates the top spot keeps clear of (the Rooftop's far team plate). Optional: other boards pass none. */
+  plates?: readonly BarRect[];
 }
 
 export interface BarPlace {
@@ -57,7 +59,7 @@ function valid(rect: BarRect): boolean {
   return rect.right > rect.left && rect.bottom > rect.top;
 }
 
-export function placeSelectBar({ board, emz, hands }: BarPlaceInput): BarPlace {
+export function placeSelectBar({ board, emz, hands, plates = [] }: BarPlaceInput): BarPlace {
   const height = board.bottom - board.top;
   const zones = emz.filter(valid);
   const handRects = hands.filter(valid);
@@ -100,6 +102,12 @@ export function placeSelectBar({ board, emz, hands }: BarPlaceInput): BarPlace {
     for (const hand of handRects) {
       if ((hand.top + hand.bottom) / 2 < board.top + height / 2) {
         edge = Math.max(edge, Math.min(hand.bottom - board.top + 6, height * 0.3));
+      }
+    }
+    // A plate in the upper half (the far team's LP) is kept clear the same way.
+    for (const plate of plates.filter(valid)) {
+      if ((plate.top + plate.bottom) / 2 < board.top + height / 2) {
+        edge = Math.max(edge, Math.min(plate.bottom - board.top + 6, height * 0.3));
       }
     }
     return { mode: "top", top: Math.round(edge), left: null, fit: null, stack: false };
