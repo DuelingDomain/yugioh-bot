@@ -216,7 +216,10 @@
   box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.5);
 }
 .rowText { flex: 1; min-width: 0; line-height: 1.2; }
-.rowName { display: block; overflow: hidden; font-size: var(--duel-t-sm, 12px); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.rowHead { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.rowName { flex: 0 1 auto; min-width: 0; overflow: hidden; font-size: var(--duel-t-sm, 12px); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.rowOwner { flex: none; color: var(--duel-ink-3, #958f81); font-size: var(--duel-t-xs, 11px); font-weight: 500; }
+.row[data-toned="true"] .rowOwner { color: var(--seat-ink, var(--duel-ink-3, #958f81)); }
 .rowLine {
   display: -webkit-box;
   margin-top: 1px;
@@ -282,6 +285,7 @@
 .cr[data-shape="narrow"] .effect { font-size: calc(14px * var(--tt, 1)); -webkit-line-clamp: 6; }
 .cr[data-shape="narrow"] .sub { font-size: calc(12px * var(--tt, 1)); }
 .cr[data-shape="narrow"] .row { gap: 5px; padding: 5px 8px; }
+.cr[data-shape="narrow"] .rowHead { flex-direction: column; gap: 0; }
 .cr[data-shape="narrow"] .thumb,
 .cr[data-shape="narrow"] .rowState,
 .cr[data-shape="narrow"] .eyebrow span,

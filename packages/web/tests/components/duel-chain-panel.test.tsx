@@ -393,6 +393,13 @@ describe("privacy in the rendered panel", () => {
     expect(hero(container)?.querySelector('[data-chain-effect="string"]')).toBeNull();
   });
 
+  it("names the owner of every row", () => {
+    const { container } = render(<ChainFx {...base} events={pair()} reducedMotion />);
+    flush(60);
+    const owners = Array.from(container.querySelectorAll("[data-chain-row-owner]")).map((node) => node.textContent);
+    expect(owners).toEqual(["Opponent", "You"]);
+  });
+
   it("renders an unknown card as A card with no art, text or passcode anywhere in the DOM", () => {
     const secret = info(55144522, "", TRAP_TEXT, 4);
     const { container } = render(

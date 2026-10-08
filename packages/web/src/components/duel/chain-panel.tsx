@@ -121,7 +121,10 @@ function Row({ row, seatTones, expand, pick }: { row: RowView; seatTones: SeatTo
       <b className={styles.rowNum}>{row.index}</b>
       <span className={styles.thumb} style={artStyle(row.code)} />
       <span className={styles.rowText}>
-        <span className={styles.rowName}>{row.name}</span>
+        <span className={styles.rowHead}>
+          <span className={styles.rowName}>{row.name}</span>
+          <span className={styles.rowOwner} data-chain-row-owner="true">{row.owner}</span>
+        </span>
         {line && !row.isHero && !expand?.open ? <span className={styles.rowLine} data-chain-row-line="true">{line}</span> : null}
       </span>
       <span className={styles.rowState}>{expand ? (expand.open ? <ChevronUp size={15} strokeWidth={2.4} aria-hidden="true" /> : <ChevronDown size={15} strokeWidth={2.4} aria-hidden="true" />) : <StateIcon tone={row.tone} />}</span>
