@@ -177,21 +177,31 @@ const edgeColumn = (side: "left" | "right", layer: Box): [number, number] =>
   side === "left" ? [layer.left + EDGE_LEFT_PX, layer.left + EDGE_LEFT_PX + WIDTH_PX] : [layer.right - EDGE_RIGHT_PX - WIDTH_PX, layer.right - EDGE_RIGHT_PX];
 
 /**
- * The places of the left side lined up with the chain panel (its left edge, and its width held to 220-320 px): one per free band beside
- * it where the board leaves at least the minimum width. Empty when no band has that room: the layer edge takes the panel then.
+ * The places of the left side lined up with the chain panel: one per free band beside it where the board leaves room. First the column
+ * from its left edge (its width held to 220-320 px). A panel narrower than 220 px with the board near it gets a second try: the 220 px
+ * column that ends at the right edge of the chain panel, which is a few px from its left edge and clear of the board. Empty when no
+ * band has that room: the layer edge takes the panel then.
  */
 function alignedPlaces(layer: Box, obstacles: Obstacles, any: boolean): Place[] {
   const column = alignedColumn(obstacles);
-  if (!column) return [];
-  const places: Place[] = [];
+  const chain = obstacles.chain;
+  if (!column || !chain) return [];
+  const fromLeft: Place[] = [];
   for (const band of bandsIn(column.left, column.left + column.width, layer, obstacles, any)) {
     // The chain panel may stand near the board: a few px of difference to the board gap do not narrow the peek, a clearly nearer board does.
     const free = freeWidth("left", layer, band, obstacles.board, column.left);
     if (free < MIN_WIDTH_PX) continue;
     const width = free >= column.width - ALIGN_SLACK_PX ? column.width : free;
-    places.push({ side: "left", width, left: column.left - layer.left, top: band.top, maxH: band.bottom - band.top });
+    fromLeft.push({ side: "left", width, left: column.left - layer.left, top: band.top, maxH: band.bottom - band.top });
   }
-  return places;
+  if (fromLeft.length > 0 || chain.right - chain.left >= MIN_WIDTH_PX) return fromLeft;
+  const left = Math.round(chain.right) - MIN_WIDTH_PX;
+  const fromRight: Place[] = [];
+  for (const band of bandsIn(left, left + MIN_WIDTH_PX, layer, obstacles, any)) {
+    if (freeWidth("left", layer, band, obstacles.board, left) < MIN_WIDTH_PX - ALIGN_SLACK_PX) continue;
+    fromRight.push({ side: "left", width: MIN_WIDTH_PX, left: left - layer.left, top: band.top, maxH: band.bottom - band.top });
+  }
+  return fromRight;
 }
 
 /**

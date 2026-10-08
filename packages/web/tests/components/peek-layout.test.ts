@@ -55,6 +55,28 @@ describe("the card peek lines up with the chain panel", () => {
     expect(tight[0].top).toBe(column.bottom + GAP_PX);
   });
 
+  it("ends a 220 px peek at the right edge of a narrow chain panel when the board is too near for the left edge column", () => {
+    // The 1280x720 case: the chain panel is 214 px wide (x 130-344) and the board starts at x 357.
+    const narrow = box(130, 131, 344, 298);
+    const near = [box(357, 28, 1575, 1042)];
+    const [first] = peekPlaces(layer, { board: near, keep: [narrow], chain: narrow });
+    expect(first.side).toBe("left");
+    expect(first.width).toBe(MIN_WIDTH_PX);
+    // 344 - 220 = 124: the left edges are 6 px apart, and the peek is not at the layer edge (x 40).
+    expect(first.left).toBe(narrow.right - MIN_WIDTH_PX - layer.left);
+    expect(first.top).toBe(narrow.bottom + GAP_PX);
+    expect(layer.left + first.left!).toBeGreaterThan(layer.left + EDGE_LEFT_PX);
+    // The right edge of the peek keeps the gap to the board, to the slack of 8 px.
+    expect(layer.left + first.left! + first.width).toBeLessThanOrEqual(near[0].left - GAP_PX + 8);
+  });
+
+  it("keeps the layer edge column when even the right-aligned 220 px column does not fit beside the board", () => {
+    const narrow = box(130, 131, 344, 298);
+    const [first] = peekPlaces(layer, { board: [box(330, 28, 1575, 1042)], keep: [narrow], chain: narrow });
+    expect(first.left).toBeUndefined();
+    expect(first.side).toBe("left");
+  });
+
   it("is placed again when the chain panel moves sideways", () => {
     const base = { board, keep: [chain] };
     expect(obstaclesKey({ ...base, chain })).not.toBe(obstaclesKey({ ...base, chain: box(chain.left + 20, chain.top, chain.right + 20, chain.bottom) }));
