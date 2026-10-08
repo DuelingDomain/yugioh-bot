@@ -5,19 +5,19 @@ import { baseSetup, everySeat, type Seat } from "./seat-kit.js";
 import { teamOneVariant } from "./team-variants.js";
 
 const DRAGON = "Blue-Eyes White Dragon", OX = "Battle Ox", FANG = "Silver Fang", SPIDER = "Link Spider";
-function guardedMember(empty: "p1" | "p3", emz: boolean): Scenario {
+function guardedMember(empty: "p1" | "p3", emz: boolean, set = false): Scenario {
   const guard: Seat = empty === "p1" ? "p3" : "p1";
   const monster = emz ? SPIDER : OX;
   return defineScenario({
-    id: `tag-direct-attack-empty-${empty}-blocked-by-${guard}-${emz ? "emz" : "mmz"}`,
+    id: `tag-direct-attack-empty-${empty}-blocked-by-${guard}-${set ? "set-monster" : emz ? "emz" : "mmz"}`,
     title: `Tag: empty ${empty} cannot be attacked directly while ${guard} has a ${emz ? "EMZ" : "MMZ"} monster`,
     source: `${SOURCE} [R-TAG-ATTACK] Konami Tag rules, owner decision 2026-10-07`, rules: ["R-TAG-ATTACK"],
     tags: ["multiplayer", "tag", "battle", "direct-attack"],
-    setup: baseSetup("tag", { p0: { monsters: [DRAGON] }, [guard]: { monsters: emz ? [null, null, null, null, null, monster] : [monster] } }),
+    setup: baseSetup("tag", { p0: { monsters: [DRAGON] }, [guard]: { monsters: emz ? [null, null, null, null, null, monster] : [set ? { card: monster, pos: "set" } : monster] } }),
     steps: [changePhase("battle", "p0"),
       expectPickOptions({ include: [{ id: "attack:0", card: DRAGON }], exclude: [{ id: "attack:0", label: "directly" }] }, "p0"),
       attack(DRAGON, { card: monster, owner: guard, from: "mzone" }, "p0"), expectNoLog("is attacked directly"),
-      everySeat("tag", { p0: { monsters: [DRAGON] }, [guard]: { grave: [monster], lp: emz ? 14000 : 14700 } }),
+      everySeat("tag", { p0: { monsters: [DRAGON] }, [guard]: { grave: [monster], lp: set ? 16000 : emz ? 14000 : 14700 } }),
     ],
   });
 }
@@ -59,6 +59,10 @@ const cardGranted = defineScenario({
   ],
 });
 export const TAG_DIRECT_ATTACK_RULE_SCENARIOS: Scenario[] = [
+  ...(["p1", "p3"] as const).flatMap((empty) => {
+    const scenario = guardedMember(empty, false, true);
+    return [scenario, teamOneVariant(scenario)];
+  }),
   ...(["p1", "p3"] as const).flatMap((empty) => [false, true].flatMap((emz) => {
     const scenario = guardedMember(empty, emz);
     return [scenario, teamOneVariant(scenario)];

@@ -31,22 +31,22 @@ function sharedEmz(actor: Seat, facing: boolean): Scenario {
     everySeat("tag", { [actor]: { monsters: [SPIDER], grave: [ELF], zones: { emz0: facing ? null : SPIDER, emz1: facing ? SPIDER : null } }, [other]: { monsters: [SPIDER], zones: { emz1: SPIDER } } }),
   ]);
 }
-function arrows(actor: Seat): Scenario {
-  const other = across(actor);
-  return scenario(`link-arrow-${actor}`, "R-TAG-FACING", {
+function arrows(actor: Seat, facing = true): Scenario {
+  const other = facing ? across(actor) : across(partner(actor));
+  return scenario(`link-arrow-${actor}${facing ? "" : "-non-facing"}`, "R-TAG-FACING", {
     [actor]: { monsters: [ELF], extra: [SPIDER] }, [other]: { monsters: slots(5, IMDUK) },
   }, [...turnsBefore("tag", actor), specialSummon(SPIDER, actor), select({ card: ELF, owner: actor }),
-    expectPickOptions([{ seat: actor, label: "Extra Monster Zone (left)" }, { seat: actor, label: "Monster Zone 4" }], actor), zone(actor, "m3", actor),
-    everySeat("tag", { [actor]: { monsters: [SPIDER], grave: [ELF], zones: { m3: SPIDER, emz0: null, emz1: null } }, [other]: { monsters: [IMDUK], zones: { emz0: IMDUK } } }),
+    expectPickOptions([{ seat: actor, label: "Extra Monster Zone (left)" }, { seat: actor, label: facing ? "Monster Zone 4" : "Extra Monster Zone (right)" }], actor), zone(actor, facing ? "m3" : "emz0", actor),
+    everySeat("tag", { [actor]: { monsters: [SPIDER], grave: [ELF], zones: { m3: facing ? SPIDER : null, emz0: facing ? null : SPIDER, emz1: null } }, [other]: { monsters: [IMDUK], zones: { emz0: IMDUK } } }),
   ]);
 }
-function fieldSpell(actor: Seat, setting: boolean, oldSet: boolean): Scenario {
+function fieldSpell(actor: Seat, setting: boolean, oldSet: boolean, ownField = false): Scenario {
   const mate = partner(actor), front = across(actor), side = across(mate);
-  return scenario(`field-${actor}-${setting ? "set" : "activate"}-replaces-${oldSet ? "set" : "faceup"}-partner`, "R-TAG-FIELD", {
-    [actor]: { hand: ["Sogen"] }, [mate]: { field: { card: "Mountain", pos: oldSet ? "set" : "up" } },
+  return scenario(`field-${actor}-${setting ? "set" : "activate"}-replaces-${oldSet ? "set" : "faceup"}-${ownField ? "own-and-partner" : "partner"}`, "R-TAG-FIELD", {
+    [actor]: { hand: ["Sogen"], ...(ownField ? { field: "Yami" } : {}) }, [mate]: { field: { card: "Mountain", pos: oldSet ? "set" : "up" } },
     [front]: { field: "Umi" }, [side]: {},
   }, [...turnsBefore("tag", actor), setting ? setCard("Sogen", actor) : activate("Sogen", actor),
-    everySeat("tag", { [actor]: { spells: ["Sogen"], zones: { f: { card: "Sogen", pos: setting ? "set" : "up" } } },
+    everySeat("tag", { [actor]: { spells: ["Sogen"], grave: ownField ? ["Yami"] : [], zones: { f: { card: "Sogen", pos: setting ? "set" : "up" } } },
       [mate]: { grave: ["Mountain"], zones: { f: null } }, [front]: { spells: ["Umi"], zones: { f: "Umi" } } }),
   ]);
 }
@@ -90,6 +90,6 @@ function metaverse(actor: Seat): Scenario {
 export const TAG_FACING_RULE_SCENARIOS: Scenario[] = SEATS.tag.flatMap((actor) => [
   firewallDeparture(actor, true), firewallDeparture(actor, false), ...(actor === "p0" ? [metaverse(actor)] : []),
   ...(["p0","p2"].includes(actor) ? [firewallOpponentDeparture(actor,true),firewallOpponentDeparture(actor,false)] : []),
-  columns(actor, true), columns(actor, false), columns(actor, false, true), sharedEmz(actor, true), sharedEmz(actor, false), arrows(actor),
-  ...[false, true].flatMap((setting) => [false, true].map((oldSet) => fieldSpell(actor, setting, oldSet))),
+  columns(actor, true), columns(actor, false), columns(actor, false, true), sharedEmz(actor, true), sharedEmz(actor, false), arrows(actor), arrows(actor, false),
+  ...[false, true].flatMap((setting) => [false, true].flatMap((oldSet) => [fieldSpell(actor, setting, oldSet), fieldSpell(actor, setting, oldSet, true)])),
 ]);

@@ -48,6 +48,12 @@ const fixture = await vi.hoisted(async () => {
         .run(code, `Shared Zone Proof ${code}`, "Test fixture: read geometry in an activation cost.", ...Array(16).fill(""));
       writeFileSync(join(directory, `card-scripts/official/c${code}.lua`), readFileSync(new URL(foreignColumn ? "./fixtures/df-shared-zone-column.lua" : secondReview ? "./fixtures/df-shared-zone-review2.lua" : review ? "./fixtures/df-shared-zone-review.lua" : mask ? "./fixtures/df-shared-zone-mask.lua" : "./fixtures/df-shared-zones.lua", import.meta.url), "utf8"));
     }
+    for (const code of [95200158, 95200159, 95200160]) {
+      db.prepare("INSERT OR REPLACE INTO datas VALUES (?,3,0,0,2,0,0,0,0,0,0)").run(code);
+      db.prepare(`INSERT OR REPLACE INTO texts VALUES (${Array(19).fill("?").join(",")})`)
+        .run(code, `Tag Review Proof ${code}`, "Check Tag disabled zones or move a partner Field Spell.", ...Array(16).fill(""));
+      writeFileSync(join(directory, `card-scripts/official/c${code}.lua`), readFileSync(new URL("./fixtures/tag-review.lua", import.meta.url), "utf8"));
+    }
   } finally { db.close(); }
   // The real immunity value is evaluated in an unbound callback scope. It must
   // use the incoming effect's exact seat, without an MPSeat(1) fallback.

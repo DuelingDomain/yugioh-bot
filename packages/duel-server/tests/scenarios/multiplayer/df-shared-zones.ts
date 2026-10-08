@@ -2,6 +2,7 @@ import { choose, pass, number, attack, position, yes, no, activate, defineScenar
 import { domainVariant } from "./domain-variants.js";
 import { everySeat, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 import { SOURCE } from "./nseat-scenarios.js";
+import { TAG_COLUMN_REVIEW_SCENARIOS } from "./tag-column-review.js";
 
 const ELF = "Mystical Elf", SPIDER = "Link Spider", IMDUK = "Imduk the World Chalice Dragon";
 const SARYUJA = "Saryuja Skull Dread", KNIGHT = "Mekk-Knight Purple Nightfall";
@@ -421,6 +422,7 @@ function eliminatedColumns(actor: Seat): Scenario {
 }
 
 const standard = [
+  ...TAG_COLUMN_REVIEW_SCENARIOS.map(s => mode === "domain" ? domainVariant(s) : s),
   previousSeatFallback("p1"),previousSeatFallback("p2"),
   foreignColumn("p1"),foreignColumn("p2"),foreignColumn("p3"),
   ...(["p0","p1","p2","p3"] as const).map(seat=>kidbrave("ffa4",seat)),kidbrave("ffa3","p1"),kidbrave("tag","p1"),
