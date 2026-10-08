@@ -161,7 +161,7 @@ describeWithCores("script errors through host, worker and journal", [needs.stand
         expect(topScriptErrors(db)[0]?.count).toBe(1);
         return;
       }
-      throw new Error("Stock Sabersaurus condition did not fail");
+      throw new Error("Synthetic card condition did not fail");
     } finally {
       await host.close(); hosts.splice(hosts.indexOf(host), 1); db.close();
     }

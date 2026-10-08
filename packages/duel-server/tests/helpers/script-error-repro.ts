@@ -1,4 +1,5 @@
 import type { DuelAnswer, DuelEngineView, DuelFormat, DuelMode, DuelPrompt } from "@yugidraft/shared/duels";
+import { readFileSync } from "node:fs";
 import type { EngineGame } from "../../src/engine.js";
 import { chooseSurrenderedAnswer } from "../../src/practice-bot.js";
 import { compileBoard } from "../support/board.js";
@@ -11,7 +12,12 @@ export function reproOptions(format: DuelFormat = "1v1", mode: DuelMode = "norma
     p1: { ...seat, monsters: ["Steamed Sabersaurus"] },
     ...(format === "ffa4" ? { p2: seat, p3: seat } : {}),
   }, DATA);
-  return { ...compiled.options, mode, seed: ["1", "2", "3", "4"], dataDirectory: DATA };
+  const fixture = readFileSync(new URL("../fixtures/card-scripts/runtime-error.lua", import.meta.url), "utf8");
+  return { ...compiled.options, mode, seed: ["1", "2", "3", "4"], dataDirectory: DATA,
+    // Explicit Lua chunk names survive the host's saved startup-script renaming and worker replay.
+    startupScripts: [...compiled.options.startupScripts!, { name: "runtime-error-fixture.lua", content:
+      `assert(load([=[${fixture}]=], 'c3743515.lua'))().register(Duel.GetFieldCard(1,LOCATION_MZONE,0))` }],
+  };
 }
 
 export function waiting(game: Pick<EngineGame, "view">): { seat: number; view: DuelEngineView; prompt: DuelPrompt } {
@@ -39,5 +45,5 @@ export function reachScriptError(game: EngineGame) {
     const { seat, prompt } = waiting(game);
     game.answer(seat, prompt.id, attackAnswer(prompt));
   }
-  throw new Error("Stock Sabersaurus condition did not fail");
+  throw new Error("Synthetic card condition did not fail");
 }

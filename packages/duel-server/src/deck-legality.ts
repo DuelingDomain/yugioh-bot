@@ -740,8 +740,8 @@ function collectMultiplayerIssues(
   }
 }
 
-function collectBlockedIssues(deck: DuelDeck, catalog: Catalog, issues: DuelDeckIssue[]): void {
-  const blocked = cardBlockIndex(catalog.cards);
+function collectBlockedIssues(deck: DuelDeck, catalog: Catalog, issues: DuelDeckIssue[], dataDirectory: string): void {
+  const blocked = cardBlockIndex(catalog.cards, undefined, dataDirectory);
   const groups = new Map<CardBlockEntry, DuelDeckCardRef[]>();
   const add = (section: DuelDeckCardRef["section"], code: number, index: number) => {
     const entry = blocked.get(code);
@@ -807,7 +807,7 @@ export function inspectDeck(
   if (deck.side.length > 15) issues.push({ message: "Side Deck must have 15 or fewer cards", cards: [] });
 
   const catalog = loadCatalog(dataDirectory);
-  collectBlockedIssues(deck, catalog, issues);
+  collectBlockedIssues(deck, catalog, issues, dataDirectory);
   const identities = identityIndex(catalog);
   const main = resolveSection(catalog, "main", deck.main, issues);
   const extra = resolveSection(catalog, "extra", deck.extra, issues);

@@ -21,6 +21,8 @@ export interface CardTextEntry {
 }
 
 export interface CardDatabase {
+  /** Bundle directory for policies that follow prerelease passcode graduations. */
+  readonly dataDirectory?: string;
   search(query: string, matches?: (card: OcgCardData) => boolean): DuelCardInfo[];
   get(code: number): DuelCardInfo | undefined;
   /** The deck editor's view of a card: duel info plus setcodes, scales, Link Arrows and card pool. */
@@ -238,6 +240,7 @@ function loadFromDisk(root: string): LoadedCardDatabase {
 
   const warnedFallbacks = new Set<string>();
   const database: LoadedCardDatabase = {
+    dataDirectory: root,
     search(query: string, matches?: (card: OcgCardData) => boolean) {
       const needle = query.trim().toLowerCase();
       if (!needle && !matches) return [];

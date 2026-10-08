@@ -16,8 +16,8 @@ const cases = [
 
 afterEach(() => vi.unstubAllEnvs());
 
-describeWithCores("stock Sabersaurus runtime recovery", [needs.standard(DATA), needs.domain(DATA), needs.installedMulti(DATA)], () => {
-  it.each(cases)("%s %s %s: reports and continues without patching the card", async (engine, format, mode) => {
+describeWithCores("synthetic card runtime recovery", [needs.standard(DATA), needs.domain(DATA), needs.installedMulti(DATA)], () => {
+  it.each(cases)("%s %s %s: reports and continues with a test-only card callback", async (engine, format, mode) => {
     const errors: Array<{ code: number; scriptFile: string; line: number }> = [];
     const create = engine === "legacy" ? createLegacyEngineGame : createEngineGame;
     const options = reproOptions(format, mode);
@@ -26,7 +26,7 @@ describeWithCores("stock Sabersaurus runtime recovery", [needs.standard(DATA), n
       reachScriptError(game);
       const view = game.view(null);
       expect(errors).toHaveLength(1);
-      expect(errors[0]).toMatchObject({ code: SABERSAURUS, scriptFile: "c3743515.lua", line: 61 });
+      expect(errors[0]).toMatchObject({ code: SABERSAURUS, scriptFile: "c3743515.lua", line: 8 });
       const event = view.events.find((entry) => entry.kind === "script-error")!;
       expect(event.text).toMatch(/^Card script error:.*effect may not have resolved correctly/);
       expect(event).not.toHaveProperty("card");
@@ -39,7 +39,7 @@ describeWithCores("stock Sabersaurus runtime recovery", [needs.standard(DATA), n
       for (const seat of [null, 0, 1]) expect(game.view(seat).events.find((entry) => entry.id === event.id)).toEqual(event);
     } finally { game.close(); }
   });
-  it.each(cases)("%s %s %s: strict mode still throws the stock error", async (engine, format, mode) => {
+  it.each(cases)("%s %s %s: strict mode still throws the synthetic error", async (engine, format, mode) => {
     vi.stubEnv("DUEL_SCRIPT_ERRORS", "strict");
     const game = await (engine === "legacy" ? createLegacyEngineGame : createEngineGame)(reproOptions(format, mode));
     try { expect(() => reachScriptError(game)).toThrow(/Card script error \(strict mode\)/); }

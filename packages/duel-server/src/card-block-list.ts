@@ -1,4 +1,6 @@
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { loadCardPasscodeRemaps } from "@yugidraft/shared/db";
 
 export interface CardBlockEntry {
   code: number;
@@ -6,9 +8,10 @@ export interface CardBlockEntry {
 }
 
 let repositoryEntries: readonly CardBlockEntry[] | undefined;
+const remappedRepositoryEntries = new Map<string, readonly CardBlockEntry[]>();
 
 /** Admission policy belongs to the deployed server package, outside the engine bundle. Restart after editing. */
-export function loadCardBlockList(path?: string | URL): readonly CardBlockEntry[] {
+function readCardBlockList(path?: string | URL): readonly CardBlockEntry[] {
   if (path === undefined && repositoryEntries) return repositoryEntries;
   let value: unknown;
   try {
@@ -33,13 +36,30 @@ export function loadCardBlockList(path?: string | URL): readonly CardBlockEntry[
   return entries;
 }
 
+/** Resolve graduated prerelease codes using this catalog's validated bundle remaps. */
+export function loadCardBlockList(path?: string | URL, dataDirectory?: string): readonly CardBlockEntry[] {
+  const entries = readCardBlockList(path);
+  if (!dataDirectory || !entries.length) return entries;
+  const directory = resolve(dataDirectory);
+  if (path === undefined) {
+    const cached = remappedRepositoryEntries.get(directory);
+    if (cached) return cached;
+  }
+  const remaps = loadCardPasscodeRemaps(directory);
+  const mapped = entries.map(entry => ({ ...entry, code: remaps.get(entry.code) ?? entry.code }));
+  if (path === undefined) remappedRepositoryEntries.set(directory, mapped);
+  return mapped;
+}
+
 const indexes = new WeakMap<ReadonlyMap<number, { alias?: number }>, { entries: readonly CardBlockEntry[]; index: Map<number, CardBlockEntry> }>();
 
 /** Blocks every passcode connected by an alias, including chains, reverse links and other named variants. */
 export function cardBlockIndex(
   catalog: ReadonlyMap<number, { alias?: number }>,
-  entries: readonly CardBlockEntry[] = loadCardBlockList(),
+  entries?: readonly CardBlockEntry[],
+  dataDirectory?: string,
 ): ReadonlyMap<number, CardBlockEntry> {
+  entries ??= loadCardBlockList(undefined, dataDirectory);
   const cached = indexes.get(catalog);
   if (cached?.entries === entries) return cached.index;
   const index = new Map<number, CardBlockEntry>();
