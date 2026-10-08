@@ -365,14 +365,21 @@ export function fitItemRect(item: FitItem, view: View): Rect {
 
 const overlaps = (a: Rect, b: Rect) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
 
+/** A rect moved inside the box (it keeps its size; a rect larger than the box starts at the box corner). */
+function inBox(r: Rect, box: Size): Rect {
+  const x = Math.max(0, Math.min(r.x, box.width - r.width));
+  const y = Math.max(0, Math.min(r.y, box.height - r.height));
+  return x === r.x && y === r.y ? r : { ...r, x, y };
+}
+
 /**
  * A prompt room moved off the obstacles it covers (the zoomed field, the plates that follow it), inside the box. The room
  * keeps its size and goes to the nearest place that touches no obstacle: beside an obstacle edge or an edge of the box.
- * It stays where it is when it is clear, or when no place is clear.
+ * It stays where it is when it is clear, or when no place is clear. The result is always inside the box.
  */
 export function clearRoom(room: Rect, obstacles: readonly Rect[], box: Size, margin: number = 8): Rect {
   const hit = (r: Rect) => obstacles.some((o) => overlaps(r, o));
-  if (!hit(room)) return room;
+  if (!hit(room)) return inBox(room, box);
   const xs = [room.x, margin, box.width - room.width - margin, ...obstacles.flatMap((o) => [o.x + o.width + margin, o.x - room.width - margin])];
   const ys = [room.y, margin, box.height - room.height - margin, ...obstacles.flatMap((o) => [o.y + o.height + margin, o.y - room.height - margin])];
   let best: Rect | null = null;
@@ -389,7 +396,7 @@ export function clearRoom(room: Rect, obstacles: readonly Rect[], box: Size, mar
       }
     }
   }
-  return best ?? room;
+  return inBox(best ?? room, box);
 }
 
 /**
