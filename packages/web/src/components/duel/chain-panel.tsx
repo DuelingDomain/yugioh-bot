@@ -110,10 +110,10 @@ function EffectBlock({ full }: { full: NonNullable<HeroView["full"]> }) {
   );
 }
 
-function Hero({ hero }: { hero: HeroView }) {
+function Hero({ hero, compact = false }: { hero: HeroView; compact?: boolean }) {
   const single = hero.total === 1;
   return (
-    <article className={styles.hero} data-tone={hero.tone} data-chain-hero={hero.index} key={`${hero.index}:${hero.tone}`}>
+    <article className={styles.hero} data-tone={hero.tone} data-chain-hero={hero.index} data-compact={compact ? "true" : undefined} key={`${hero.index}:${hero.tone}`}>
       <div className={styles.eyebrow}>
         <b>{hero.eyebrow}</b>
         <span>{single ? "Effect" : `Link ${hero.index} of ${hero.total}`}</span>
@@ -125,22 +125,28 @@ function Hero({ hero }: { hero: HeroView }) {
           <p className={styles.sub}><b>{hero.owner}</b>{hero.kind ? ` · ${hero.kind}` : ""}</p>
         </div>
       </div>
-      {hero.full ? <EffectBlock full={hero.full} /> : hero.effect ? (
-        <p className={styles.effect} data-chain-effect={hero.effect.caption === "Effect" ? "string" : "text"}>
-          <small>{hero.effect.caption}</small>
-          {hero.effect.text}
-        </p>
-      ) : null}
-      {hero.targets.length > 0 ? (
-        <p className={styles.targets} data-chain-hero-targets="true">
-          <i aria-hidden="true" />
-          {hero.targets.map((target, at) => (
-            <span key={at} className={styles.target}>
-              {target.name ? <>Targets <b>{target.name}</b><small>{target.place}</small></> : <>Targets <b>{target.place}</b></>}
-            </span>
-          ))}
-        </p>
-      ) : null}
+      {/* The card text, the options and the targets fold away while a prompt is open: the box stays mounted so it folds
+          and unfolds with a height transition, and `inert` keeps the folded text out of focus and out of the reading order. */}
+      <div className={styles.fold} data-chain-fold="true" data-folded={compact ? "true" : undefined} inert={compact}>
+        <div className={styles.foldBody}>
+          {hero.full ? <EffectBlock full={hero.full} /> : hero.effect ? (
+            <p className={styles.effect} data-chain-effect={hero.effect.caption === "Effect" ? "string" : "text"}>
+              <small>{hero.effect.caption}</small>
+              {hero.effect.text}
+            </p>
+          ) : null}
+          {hero.targets.length > 0 ? (
+            <p className={styles.targets} data-chain-hero-targets="true">
+              <i aria-hidden="true" />
+              {hero.targets.map((target, at) => (
+                <span key={at} className={styles.target}>
+                  {target.name ? <>Targets <b>{target.name}</b><small>{target.place}</small></> : <>Targets <b>{target.place}</b></>}
+                </span>
+              ))}
+            </p>
+          ) : null}
+        </div>
+      </div>
       {hero.chosen.length > 0 ? (
         <p className={styles.chose} data-chain-chose="true">
           <b>Chose</b>
@@ -249,10 +255,12 @@ export type ChainPanelProps = {
   mySeat: number | null;
   nameOf: (seat: number) => string;
   panelRef?: Ref<HTMLElement>;
+  /** A prompt of the local player is open: the hero shrinks to the art, the name, the owner and what was chosen. */
+  compact?: boolean;
 };
 
 /** The panel: header, hero and stack. A chain of one has no header and no stack. */
-export function ChainPanel({ view, shape, seatTones, priority, mySeat, nameOf, panelRef }: ChainPanelProps) {
+export function ChainPanel({ view, shape, seatTones, priority, mySeat, nameOf, panelRef, compact = false }: ChainPanelProps) {
   const many = view.total > 1;
   const accordion = many && shape === "sheet";
   const base = useId();
@@ -276,7 +284,7 @@ export function ChainPanel({ view, shape, seatTones, priority, mySeat, nameOf, p
   const stackRef = useRef<HTMLOListElement>(null);
   const stackOver = useOverflow(stackRef, view.rows);
   return (
-    <section ref={panelRef} className={styles.cr} data-shape={shape} data-chain-panel="true" data-priority={priority?.length ? "true" : undefined}>
+    <section ref={panelRef} className={styles.cr} data-shape={shape} data-chain-panel="true" data-compact={compact ? "true" : undefined} data-priority={priority?.length ? "true" : undefined}>
       {many ? (
         <header className={styles.head}>
           <span>Chain</span>
@@ -306,7 +314,7 @@ export function ChainPanel({ view, shape, seatTones, priority, mySeat, nameOf, p
         </ol>
       ) : (
         <>
-          <Hero hero={hero} />
+          <Hero hero={hero} compact={compact} />
           {many ? (
             <ol
               ref={stackRef}

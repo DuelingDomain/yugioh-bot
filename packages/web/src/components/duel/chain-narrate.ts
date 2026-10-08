@@ -475,3 +475,11 @@ export function stripLabel(view: StripView): string {
   const base = `Chain Link ${view.index} of ${view.total}: ${view.name}, ${view.stateLabel.toLowerCase()}`;
   return `${base}${view.summary ? `. ${view.summary}` : ""}. Show chain details`;
 }
+
+/**
+ * Does the local player have an open prompt (a pick, an option, a yes/no) that is not the chain response window? The
+ * panel then shrinks to its compact form, so the prompt's own windows (the card peek) have the room to read a card.
+ */
+export function ownPromptOpen(prompt: { seat: number; context?: { type?: string } | null } | null | undefined, mySeat: number | null): boolean {
+  return prompt != null && mySeat != null && prompt.seat === mySeat && prompt.context?.type !== "chain";
+}

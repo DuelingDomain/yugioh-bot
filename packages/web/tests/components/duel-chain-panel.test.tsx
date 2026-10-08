@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import React from "react";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DuelCard, DuelCardInfo, DuelChainLink, DuelEvent, DuelSeatView, DuelZoneRef } from "@yugidraft/shared/duels";
@@ -610,5 +612,80 @@ describe("privacy in the rendered panel", () => {
     act(() => { fireEvent.click(strip(container)!); });
     expect(container.innerHTML).not.toContain("55144522");
     expect(strip(container)?.getAttribute("aria-label")).toContain("A card");
+  });
+});
+
+describe("while a prompt of the local player is open", () => {
+  const prayers = () => info(45171524, "Mitsurugi Prayers", "Apply 1 of these effects.\r\n● Add 1 \"Mitsurugi\" monster from your Deck to your hand.\r\n● Take 800 damage.\r\nOnce per turn.", 0x10002);
+  // One list of events, so a rerender replays nothing.
+  const played = [
+    activate(1, 0, prayers(), z(0, SZONE, 0), { description: "Apply 1 of these effects" }),
+    { ...ev("chain-resolving", 1), chosenOptions: [{ text: "Take 800 damage" }] },
+  ];
+  const fold = (c: HTMLElement) => hero(c)?.querySelector("[data-chain-fold]") as HTMLElement | null;
+  const draw = (promptOpen: boolean) => <ChainFx {...base} events={played} reducedMotion promptOpen={promptOpen} />;
+
+  it("keeps the full detail while no prompt is open", () => {
+    const { container } = render(draw(false));
+    flush(60);
+    expect(panel(container)?.getAttribute("data-compact")).toBeNull();
+    expect(hero(container)?.getAttribute("data-compact")).toBeNull();
+    expect(fold(container)?.getAttribute("data-folded")).toBeNull();
+    expect(fold(container)?.hasAttribute("inert")).toBe(false);
+    expect(hero(container)?.querySelectorAll("[data-chain-option]")).toHaveLength(2);
+  });
+
+  it("folds the card text and the options, and keeps the name, the owner, the choice and Resolving", () => {
+    const { container } = render(draw(true));
+    flush(60);
+    expect(panel(container)?.getAttribute("data-compact")).toBe("true");
+    expect(hero(container)?.getAttribute("data-compact")).toBe("true");
+    // The fold holds the text and the options; it is closed to focus and to a screen reader.
+    expect(fold(container)?.getAttribute("data-folded")).toBe("true");
+    expect(fold(container)?.hasAttribute("inert")).toBe(true);
+    expect(fold(container)?.querySelector("[data-chain-effect]")).not.toBeNull();
+    // What stays outside the fold.
+    const kept = hero(container)!;
+    expect(kept.querySelector("h3")?.textContent).toBe("Mitsurugi Prayers");
+    expect(kept.querySelector("[data-chain-art]")).not.toBeNull();
+    expect(kept.textContent).toContain("You");
+    expect(Array.from(kept.querySelectorAll("[data-chain-chose-option]")).map((node) => node.textContent)).toEqual(["Take 800 damage"]);
+    expect(kept.querySelector("[data-chain-chose]")?.closest("[data-chain-fold]")).toBeNull();
+    expect(kept.querySelector("[data-chain-waiting]")?.textContent).toContain("Resolving");
+  });
+
+  it("folds and unfolds the same box, so the height can transition and nothing remounts", () => {
+    const view = render(draw(false));
+    flush(60);
+    const before = hero(view.container);
+    const box = fold(view.container);
+    view.rerender(draw(true));
+    flush(60);
+    expect(hero(view.container)).toBe(before);
+    expect(fold(view.container)).toBe(box);
+    expect(box?.getAttribute("data-folded")).toBe("true");
+    view.rerender(draw(false));
+    flush(60);
+    expect(fold(view.container)).toBe(box);
+    expect(box?.getAttribute("data-folded")).toBeNull();
+    expect(box?.hasAttribute("inert")).toBe(false);
+    expect(hero(view.container)).toBe(before);
+  });
+
+  it("animates the fold as a height transition, and not under reduced motion", () => {
+    const css = readFileSync(join(import.meta.dirname, "../../src/components/duel/chain-panel.module.css"), "utf8");
+    expect(css).toMatch(/\.fold \{[^}]*grid-template-rows: 1fr;[^}]*transition: grid-template-rows/);
+    expect(css).toMatch(/\.fold\[data-folded="true"\] \{[^}]*grid-template-rows: 0fr/);
+    expect(css).toMatch(/prefers-reduced-motion: reduce\) \{[\s\S]*?\.fold \{ transition: none !important; \}/);
+    expect(css).toMatch(/data-reduced="true"\]\) \.fold \{ transition: none; \}/);
+  });
+});
+
+describe("the shells say when a prompt is open", () => {
+  const duel = join(import.meta.dirname, "../../src/components/duel");
+  it("passes promptOpen to the panel in the room, the table and the Tag table", () => {
+    expect(readFileSync(join(duel, "room.tsx"), "utf8")).toMatch(/<ChainFx [^>]*promptOpen=\{promptMine && ownPromptOpen\(prompt, data\.mySeat\)\}/);
+    expect(readFileSync(join(duel, "table/table-shell.tsx"), "utf8")).toMatch(/<ChainFx [^>]*promptOpen=\{promptMine && ownPromptOpen\(prompt, viewerSeat\)\}/);
+    expect(readFileSync(join(duel, "tag/tag-fx.tsx"), "utf8")).toMatch(/<ChainFx [^>]*promptOpen=\{ownPromptOpen\(prompt, viewerSeat\)\}/);
   });
 });
