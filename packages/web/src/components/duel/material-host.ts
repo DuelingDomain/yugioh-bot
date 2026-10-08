@@ -22,39 +22,46 @@ function hostKey(option: DuelPromptOption): string | null {
   return host ? `${host.controller}:${host.location}:${host.sequence}` : null;
 }
 
-function zoneText(option: DuelPromptOption): string {
-  const sequence = option.host?.sequence ?? 0;
-  return sequence >= 5 ? "Extra Monster Zone" : `Zone ${sequence + 1}`;
+/** Who is reading the prompt, to name an Xyz's owner: "your" and "opponent's" in 1v1, the player's name on a table of 3 or 4. */
+export interface MaterialViewer {
+  mySeat: number | null;
+  /** Display name of a seat. Pass it only on a table of 3 or 4; 1v1 reads "your" / "opponent's". */
+  nameOf?: (seat: number) => string;
+}
+
+function ownerText(controller: number, who: MaterialViewer): string {
+  if (controller === who.mySeat) return "your";
+  return who.nameOf ? `${who.nameOf(controller)}'s` : "opponent's";
 }
 
 /**
- * One note per option, in order: "Under <Xyz name>" for a material, null for any other option. Only set when the
- * materials come from two or more Xyz monsters; one Xyz needs no line. Two Xyz of one name add their zone.
+ * One note per option, in order. A material says "Under <Xyz name>" when the materials sit under two or more Xyz monsters
+ * (one Xyz needs no line); the owner is added when the Xyz have different controllers, and "1 of 2" when two of one
+ * controller share a name.
+ * Any other option gets null.
  */
-export function materialHostNotes(options: readonly DuelPromptOption[]): Array<MaterialHostNote | null> {
-  const hosts = new Set<string>();
-  for (const option of options) {
-    const key = isMaterialOption(option) ? hostKey(option) : null;
-    if (key) hosts.add(key);
+export function materialHostNotes(options: readonly DuelPromptOption[], who: MaterialViewer = { mySeat: null }): Array<MaterialHostNote | null> {
+  const materials = options.filter(isMaterialOption);
+  const hosts = new Map<string, NonNullable<DuelPromptOption["host"]>>();
+  for (const option of materials) {
+    const key = hostKey(option);
+    if (key && option.host) hosts.set(key, option.host);
   }
   if (hosts.size < 2) return options.map(() => null);
-  // Which Xyz names are shared by more than one host.
-  const namesOf = new Map<string, Set<string>>();
-  for (const option of options) {
-    const key = isMaterialOption(option) ? hostKey(option) : null;
-    if (!key) continue;
-    const name = option.host?.name ?? "an Xyz monster";
-    const keys = namesOf.get(name) ?? new Set<string>();
-    keys.add(key);
-    namesOf.set(name, keys);
+  const spread = new Set([...hosts.values()].map((host) => host.controller)).size > 1;
+  // Hosts of one name and one controller, in zone order, to tell twins apart.
+  const twins = new Map<string, string[]>();
+  for (const [key, host] of [...hosts].sort((a, b) => a[1].sequence - b[1].sequence)) {
+    const group = `${host.controller}:${host.name ?? ""}`;
+    twins.set(group, [...(twins.get(group) ?? []), key]);
   }
   return options.map((option) => {
     if (!isMaterialOption(option) || !option.host) return null;
-    const name = option.host.name ?? "an Xyz monster";
-    const shared = (namesOf.get(name)?.size ?? 0) > 1;
-    const sameSeat = new Set(options.filter((other) => other.host).map((other) => other.host!.controller)).size < 2;
-    const where = shared ? ` (${sameSeat ? "" : `P${option.host.controller + 1} `}${zoneText(option)})` : "";
-    const text = `Under ${name}${where}`;
+    const key = hostKey(option)!;
+    const group = twins.get(`${option.host.controller}:${option.host.name ?? ""}`) ?? [];
+    const nth = group.indexOf(key);
+    const owner = spread ? `${ownerText(option.host.controller, who)} ` : "";
+    const text = `Under ${owner}${option.host.name ?? "an Xyz monster"}${group.length > 1 ? ` (${nth + 1} of ${group.length})` : ""}`;
     return { detail: text, title: text };
   });
 }
