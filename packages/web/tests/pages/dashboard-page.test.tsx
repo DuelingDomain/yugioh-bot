@@ -7,6 +7,7 @@ import { renderToString } from "react-dom/server";
 import { migrate } from "../../../shared/src/db/schema";
 import DashboardPage from "../../app/(app)/dashboard/page";
 import styles from "@/components/dashboard/dashboard.module.css";
+import { stubOpenNow } from "../fixtures/open-now";
 
 const { auth, getDb } = vi.hoisted(() => ({ auth: vi.fn(), getDb: vi.fn() }));
 vi.mock("@/lib/session-identity", async () => {
@@ -34,21 +35,45 @@ describe("DashboardPage", () => {
     seedFixtureUsers(db, FIXTURE_KEYS);
     getDb.mockReturnValue(db);
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1"), name: "Yugi" } });
+    stubOpenNow();
   });
 
   afterEach(() => {
     cleanup();
+    vi.unstubAllGlobals();
     db.close();
     vi.clearAllMocks();
     vi.useRealTimers();
     vi.unstubAllEnvs();
   });
 
-  it("shows the welcome panel, not dashes, when the user has no player yet", async () => {
+  it("shows the new-player view with the starting standing when the user has no player yet", async () => {
     render(await DashboardPage());
     screen.getByRole("heading", { name: "Your first match puts you on the board" });
-    expect(screen.queryByText("—")).toBeNull();
-    expect(screen.queryByRole("heading", { name: "Your standing" })).toBeNull();
+    const standing = screen.getByRole("heading", { name: "Your standing" }).closest("section") as HTMLElement;
+    within(standing).getByText("Silver");
+    within(standing).getByText("1000");
+    expect(readout("Record")).toHaveTextContent("0–0");
+    await screen.findByRole("link", { name: "Challenge someone" });
+  });
+
+  it("shows the same new-player view for a player row with no matches and nothing joined", async () => {
+    db.prepare(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('g1', ${fixtureUserId("u1")}, '${fixtureDiscordId("u1")}', 'Yugi')`).run();
+    const { container } = render(await DashboardPage());
+    screen.getByRole("heading", { name: "Your first match puts you on the board" });
+    const primary = await screen.findByRole("link", { name: "Challenge someone" });
+    expect(container.querySelectorAll(".sv-btn.primary")).toHaveLength(1);
+    expect(primary).toHaveAttribute("href", "/duels/new?challenge=1");
+  });
+
+  it("leads the new-player view with what is open, each row linking to its slug", async () => {
+    const { OPEN_DRAFT, OPEN_TOURNAMENT } = await import("../fixtures/open-now");
+    stubOpenNow({ tournaments: [OPEN_TOURNAMENT], drafts: [OPEN_DRAFT], duelsInProgress: 0 });
+    const { container } = render(await DashboardPage());
+    await screen.findByText("Open right now");
+    expect(container.querySelectorAll(".sv-btn.primary")).toHaveLength(1);
+    expect(screen.getByRole("link", { name: "Spring Cup" })).toHaveAttribute("href", "/tournament/spring-cup");
+    expect(screen.getByRole("link", { name: "Cube night" })).toHaveAttribute("href", "/draft/cube-night");
   });
 
   it("shows the browser's date after hydrating a page rendered on a UTC server", async () => {

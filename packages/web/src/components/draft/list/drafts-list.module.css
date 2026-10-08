@@ -16,12 +16,6 @@
 .more:hover { color: var(--ink); }
 .more:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 2px; border-radius: 3px; }
 
-/* Empty state: a heading, one sentence, the one button. */
-.empty { display: grid; gap: 10px; justify-items: start; max-width: 520px; padding-top: 8px; }
-.empty h2 { margin: 0; font: 600 21px/1.2 var(--f-display); color: var(--ink); }
-.empty p { margin: 0; color: var(--ink-2); font-size: 15.5px; line-height: 1.55; }
-.empty .go { margin-top: 6px; }
-
 .sections { display: grid; gap: clamp(28px, 4cqi, 44px); min-width: 0; }
 .sections > * { min-width: 0; }
 
