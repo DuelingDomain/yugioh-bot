@@ -104,7 +104,8 @@ export function applyEngineCardRemaps(db: Database.Database, directory: string):
     const quoted = columns.map(column => `"${column}"`);
     const copyCatalog = db.prepare(`INSERT OR IGNORE INTO card_catalog (${quoted.join(",")}) SELECT ${columns.map((column,index) => column === "ygoprodeck_id" ? "?" : quoted[index]).join(",")} FROM card_catalog WHERE ygoprodeck_id=?`);
     for (const [old, target] of remaps) {
-      if (copyCatalog.run(target, old).changes) {
+      const copiedPreview = copyCatalog.run(target, old).changes > 0;
+      if (copiedPreview) {
         db.prepare("UPDATE card_catalog SET image_url=?,image_url_small=? WHERE ygoprodeck_id=?").run(
           `https://images.ygoprodeck.com/images/cards/${target}.jpg`,
           `https://images.ygoprodeck.com/images/cards_small/${target}.jpg`, target);
@@ -112,7 +113,11 @@ export function applyEngineCardRemaps(db: Database.Database, directory: string):
       const official = metadata.get(target);
       if (official) {
         const fields = Object.keys(official);
-        db.prepare(`UPDATE card_catalog SET ${fields.map(field => `${field}=?`).join(",")} WHERE ygoprodeck_id=?`).run(...Object.values(official), target);
+        // Engine metadata is an offline fallback for copied/unsynced previews.
+        // Once refreshed (or synced by YGOPRODeck), cumulative remaps must leave
+        // it alone on subsequent bundle changes.
+        db.prepare(`UPDATE card_catalog SET ${fields.map(field => `${field}=?`).join(",")} WHERE ygoprodeck_id=?
+          AND (? OR (card_sets_json='[]' AND name<>?))`).run(...Object.values(official), target, Number(copiedPreview), official.name);
       }
       // Graduated main passcodes are one card now; retain copies up to the cube cap.
       db.prepare(`INSERT INTO cube_cards (cube_id,catalog_card_id,pool,max_copies,source)

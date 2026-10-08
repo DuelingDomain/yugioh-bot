@@ -1,8 +1,9 @@
 import type Database from "better-sqlite3";
 import { CARD_TYPE_BITS as T } from "../duels/card-query.js";
 
-/** Metadata for graduated catalog references comes from the installed engine,
- * so an offline startup never copies the translated preview name/type forward. */
+/** Offline fallback for graduated preview catalog rows only. These derived
+ * labels/stats are not the richer YGOPRODeck metadata; the caller must preserve
+ * synced rows and rows already refreshed to this engine name. */
 export function remapTargetMetadata(engine: Database.Database, targets: Iterable<number>): Map<number, Record<string, string | number | null>> {
   const columns = new Set((engine.prepare("PRAGMA table_info(datas)").all() as { name: string }[]).map(row => row.name));
   const texts = new Set((engine.prepare("PRAGMA table_info(texts)").all() as { name: string }[]).map(row => row.name));

@@ -231,9 +231,11 @@ No extra publication path is added: weekly automation still changes only the thr
 pin files. A human commits override edits as part of reviewed application code.
 
 The same bundle map feeds read/import/validation and the atomic startup migration.
-The migration refreshes renamed/type-corrected target catalog metadata from the
-installed engine, even offline; cubes and draft references therefore display the
-correct official name/type instead of copied preview labels. Historical duel records
+The migration refreshes target catalog metadata from the installed engine only for
+rows copied from previews in that transaction, or unsynced rows (`card_sets_json='[]'`)
+whose name still differs from the engine name. It preserves existing YGOPRODeck data
+and leaves already-refreshed rows alone on later weekly bundle changes. Cubes and
+draft references display the official name/type even offline. Historical duel records
 retain the existing replay rules. Update all three workflow bundle cache inputs when
 adding a matching helper or override input. The database format is now
 `official-releases-prerelease-v4`; older recipes rebuild at unchanged source pins.
