@@ -378,7 +378,7 @@ export async function buildDraftResponse(slug: string, actor: { userId: number; 
     name: draft.name,
     status: draft.status,
     visibility: draftModel.visibility,
-    canJoin: findDraftReadAccess(db, slug, guildId, userId)?.canJoin ?? false,
+    canJoin: findDraftReadAccess(db, draft.id, guildId, userId)?.canJoin ?? false,
     ...(draft.created_by_user_id === userId ? { canManageInvite: true } : {}),
     createdByUserId: draft.created_by_user_id,
     config,

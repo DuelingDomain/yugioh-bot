@@ -4,8 +4,8 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 
 export const DRAFT_READ_ACCESS_ERROR = "Draft not found";
 
-/** Web reads, seat admission and sockets share application-user permissions. */
-export function findDraftReadAccess(db: Database.Database, slug: string, guildId: string, userId: number) {
+/** Web reads, seat admission and sockets share application-user permissions by slug or draft id. */
+export function findDraftReadAccess(db: Database.Database, ref: string | number, guildId: string, userId: number) {
   const draft = db.prepare(`
     select d.id, d.status, d.visibility, d.created_by_user_id as creatorUserId,
       exists (
@@ -14,8 +14,8 @@ export function findDraftReadAccess(db: Database.Database, slug: string, guildId
         where dp.draft_id = d.id and p.guild_id = d.guild_id and p.user_id = ?
       ) as isPlayer,
       exists (select 1 from draft_invite_grants g where g.draft_id = d.id and g.user_id = ?) as hasGrant
-    from drafts d where d.web_slug = ? and d.guild_id = ?
-  `).get(userId, userId, slug, guildId) as
+    from drafts d where d.${typeof ref === "number" ? "id" : "web_slug"} = ? and d.guild_id = ?
+  `).get(userId, userId, ref, guildId) as
     | { id: number; status: string; visibility: "open" | "private"; creatorUserId: number; isPlayer: number; hasGrant: number }
     | undefined;
   if (!draft) return null;
@@ -26,7 +26,8 @@ export function findDraftReadAccess(db: Database.Database, slug: string, guildId
     isSeated: Boolean(draft.isPlayer),
     canRead: draft.creatorUserId === userId || Boolean(draft.isPlayer) || Boolean(draft.hasGrant)
       || (draft.visibility === "open" && draft.status === "pending"),
-    canJoin: draft.status === "pending" && (draft.visibility === "open" || Boolean(draft.hasGrant)) && !draft.isPlayer,
+    canJoin: draft.status === "pending" && !draft.isPlayer
+      && (draft.visibility === "open" || Boolean(draft.hasGrant) || draft.creatorUserId === userId),
   };
 }
 

@@ -66,6 +66,39 @@ it("blocks pending drafts whose allowed cubes include this cube and names the dr
   expect(error).toMatch(/finish or cancel/i);
   expect(db.prepare("select catalog_card_id from cube_cards where catalog_card_id != 20").all()).toEqual([{ catalog_card_id: 10 }]);
 });
+it.each(["pending", "active"])("blocks a cube used by an unreadable private %s draft without exposing its name or slug", async status => {
+  const { draft } = themeDraft();
+  db.prepare("update drafts set created_by_user_id=?,status=?,web_slug='secret-slug' where id=?").run(fixtureUserId("p1"), status, draft.id);
+  const response = await swap();
+  expect(response.status).toBe(409);
+  const { error } = await response.json();
+  expect(error).not.toContain("Theme");
+  expect(error).not.toContain("secret-slug");
+  expect(error).toMatch(/cube is used by/i);
+  expect(db.prepare("select catalog_card_id from cube_cards where catalog_card_id != 20").all()).toEqual([{ catalog_card_id: 10 }]);
+});
+it.each(["grant", "seated", "open"])("names the blocking draft for a %s reader", async role => {
+  const { draft } = themeDraft();
+  db.prepare("update drafts set created_by_user_id=?,web_slug='readable-slug' where id=?").run(fixtureUserId("p1"), draft.id);
+  if (role === "grant") db.prepare("insert into draft_invite_grants(draft_id,user_id) values(?,?)").run(draft.id, fixtureUserId("u"));
+  if (role === "seated") {
+    requireWebAccess.mockResolvedValue({ ok: true, userId: fixtureUserId("p2"), discordUserId: null, userName: "Reader" });
+    db.prepare("update cubes set created_by_user_id=? where id=1").run(fixtureUserId("p2"));
+  }
+  if (role === "open") db.prepare("update drafts set visibility='open' where id=?").run(draft.id);
+  const response = await swap();
+  expect(response.status).toBe(409);
+  expect((await response.json()).error).toContain('"Theme" (readable-slug)');
+});
+it("hides an open active draft from a cube owner who cannot read it", async () => {
+  const { draft } = themeDraft();
+  db.prepare("update drafts set created_by_user_id=?,visibility='open',status='active',web_slug='secret-slug' where id=?").run(fixtureUserId("p1"), draft.id);
+  const response = await swap();
+  expect(response.status).toBe(409);
+  const { error } = await response.json();
+  expect(error).not.toContain("Theme");
+  expect(error).not.toContain("secret-slug");
+});
 it("blocks an assigned active cube after a pick, even without allowedCubeIds", async () => {
   const { drafts, draft, players } = themeDraft(); drafts.start(draft.id);
   drafts.pickCard(draft.id, players[0], drafts.currentPackOptions(draft.id, players[0]).find(c => c.catalogCardId === 10)!.id, "manual");

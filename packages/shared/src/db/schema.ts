@@ -1142,12 +1142,12 @@ export function migrate(db: Database.Database) {
         on drafts(invite_code) where invite_code is not null;
       create table if not exists draft_invite_grants (
         draft_id integer not null references drafts(id) on delete cascade,
-        user_id integer not null references users(id),
+        user_id integer not null references users(id) on delete cascade,
         created_at text not null default current_timestamp,
         primary key (draft_id, user_id)
       );
     `);
-  })();
+  }).immediate();
 }
 
 /**

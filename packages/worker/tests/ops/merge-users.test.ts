@@ -5,6 +5,31 @@ let f: ReturnType<typeof fixture>;
 afterEach(() => f?.close());
 function setup() { f = fixture(); f.user(1, { clerk: "source_clerk", discord: "123" }); f.user(2); f.player(11, 1); }
 function draft(id: number) { f.db.prepare("insert into drafts(id,guild_id,name,status,created_by_user_id,config_json) values(?,'guild',?,'complete',1,?)").run(id, `Draft ${id}`, '{"themeAssignments":{"11":"theme"}}'); }
+it("moves source grants and keeps an existing target grant on the same draft", () => {
+  setup(); draft(1); draft(2); draft(3);
+  f.db.exec(`insert into draft_invite_grants(draft_id,user_id,created_at) values
+    (1,1,'2026-10-01'),(2,1,'2026-10-02'),(2,2,'2026-10-03'),(3,2,'2026-10-04')`);
+  const report = mergeUsers({ db: f.db, apply: true }, 1, 2);
+  expect(report.conflicts).toEqual([]);
+  expect(f.db.prepare("select draft_id,user_id,created_at from draft_invite_grants order by draft_id").all()).toEqual([
+    { draft_id: 1, user_id: 2, created_at: "2026-10-01" },
+    { draft_id: 2, user_id: 2, created_at: "2026-10-03" },
+    { draft_id: 3, user_id: 2, created_at: "2026-10-04" },
+  ]);
+  expect(f.db.prepare("select id from users where id=1").get()).toBeUndefined();
+  expect(f.db.pragma("foreign_key_check")).toEqual([]);
+});
+it("reports source grants in a dry-run without counting them as history or changing rows", () => {
+  setup(); draft(1);
+  f.db.exec("insert into draft_invite_grants(draft_id,user_id) values(1,1),(1,2)");
+  const before = f.checksum();
+  const report = mergeUsers({ db: f.db, apply: false }, 1, 2);
+  expect(report.sourceHistory).toEqual({ "drafts.created_by_user_id": 1 });
+  expect(report.targetHistory).toEqual({});
+  expect(report.affectedRows).toContainEqual({ table: "draft_invite_grants", column: "user_id", rowIds: [1] });
+  expect(report.conflicts).toEqual([]);
+  expect(f.checksum()).toBe(before);
+});
 it("reports identities, history and affected rows without writing during dry-run", () => {
   setup(); draft(1); const before = f.checksum();
   const report = mergeUsers({ db: f.db, apply: false }, 1, 2);

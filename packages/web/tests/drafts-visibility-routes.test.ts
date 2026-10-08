@@ -156,7 +156,16 @@ describe("seat admission", () => {
     expect(response.status).toBe(404);
     expect(database.current!.prepare("select id from players where user_id=104").get()).toBeUndefined();
   });
-  it("requires a grant even for the private creator after leaving their seat", async () => { expect((await join()).status).toBe(404); });
+  it("lets the private creator leave and rejoin without a grant", async () => {
+    expect((await join()).status).toBe(200);
+    expect((await (await detail()).json()).canJoin).toBe(false);
+    const route = await import("../app/api/drafts/[slug]/join/route");
+    expect((await route.DELETE(request("DELETE"), context())).status).toBe(200);
+    expect(await (await detail()).json()).toMatchObject({ visibility: "private", canJoin: true });
+    expect((await join()).status).toBe(200);
+    expect(database.current!.prepare("select p.user_id from draft_players dp join players p on p.id=dp.player_id where p.user_id=101").all()).toEqual([{ user_id: 101 }]);
+    expect(database.current!.prepare("select 1 from draft_invite_grants where user_id=101").get()).toBeUndefined();
+  });
   it("lets a grant holder take a pending private seat", async () => {
     actor.userId = 103; expect((await join()).status).toBe(200);
     expect(database.current!.prepare("select p.user_id from draft_players dp join players p on p.id=dp.player_id where p.user_id=103").get()).toEqual({ user_id: 103 });
@@ -214,7 +223,7 @@ describe("private mutation existence", () => {
 describe("detail and creation contracts", () => {
   it("shows visibility and join eligibility, with a creator-only invite capability", async () => {
     const host = await (await detail()).json();
-    expect(host).toMatchObject({ visibility: "private", canJoin: false, canManageInvite: true });
+    expect(host).toMatchObject({ visibility: "private", canJoin: true, canManageInvite: true });
     expect(host).not.toHaveProperty("inviteCode");
     actor.userId = 103; const guest = await (await detail()).json();
     expect(guest).toMatchObject({ visibility: "private", canJoin: true });

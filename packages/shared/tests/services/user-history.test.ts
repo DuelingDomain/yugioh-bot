@@ -24,7 +24,6 @@ const fixtures: Record<string, Record<string, string | number | null>> = {
   duels: { guild_id: "g", web_slug: "test", name: "test", organizer_player_id: 2, winner_player_id: 2, mode: "normal", status: "completed" },
   duel_seats: { duel_id: 1, seat: 0, player_id: 2 },
   duel_invite_grants: { duel_id: 1, player_id: 2 },
-  draft_invite_grants: { draft_id: 1, user_id: 2 },
   duel_series: { guild_id: "g", player0_id: 2, player1_id: 2, winner_player_id: 2, created_by_player_id: 2, mode: "normal", settings_json: "{}" },
   bug_reports: { guild_id: "g", player_id: 2, created_at: "2026-10-06", path: "/drafts", description: "test", context_json: "{}" },
   draft_cards: { draft_id: 1, wave_number: 1, catalog_card_id: 1, picked_by_player_id: 2 },
@@ -38,7 +37,6 @@ const references = [
   "tournament_matches.player_one_id", "tournament_matches.player_two_id",
   "player_ratings.player_id", "point_awards.player_id", "season_standings.player_id", "player_achievements.player_id",
   "duels.organizer_player_id", "duels.winner_player_id", "duel_seats.player_id", "duel_invite_grants.player_id",
-  "draft_invite_grants.user_id",
   "duel_series.player0_id", "duel_series.player1_id", "duel_series.winner_player_id", "duel_series.created_by_player_id",
   "bug_reports.player_id", "draft_cards.picked_by_player_id", "draft_picks.player_id", "draft_passes.player_id",
 ];
@@ -61,6 +59,11 @@ it("treats a fresh user with empty players as empty and excludes unrelated activ
   expect(userHistory(db, 1)).toEqual({});
   expect(hasHistory(db, 1)).toBe(false);
   expect(hasHistory(db, 2)).toBe(true);
+});
+it("does not treat redeemed draft invite grants as user history", () => {
+  db.exec("insert into draft_invite_grants(draft_id,user_id) values(1,1)");
+  expect(userHistory(db, 1)).toEqual({});
+  expect(hasHistory(db, 1)).toBe(false);
 });
 it.each(references)("counts %s with foreign keys enabled", reference => {
   const [table, column] = reference.split(".");

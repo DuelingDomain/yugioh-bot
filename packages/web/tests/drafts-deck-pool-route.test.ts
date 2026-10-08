@@ -68,10 +68,22 @@ describe("GET /api/drafts/[slug]/deck-pool", () => {
     expect((await call("nope")).status).toBe(404);
   });
 
-  it("403 when the caller is not a draft player", async () => {
+  it("404 when the caller cannot read the private draft", async () => {
     await seed({ picks: mainIds(3) });
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("outsider")), discordUserId: fixtureDiscordId("outsider"), name: "Kaiba" } });
-    expect((await call()).status).toBe(403);
+    const response = await call();
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "Draft not found" });
+  });
+
+  it("403 when a grant holder can read the draft but is not a draft player", async () => {
+    const { draftId } = await seed({ picks: mainIds(3) });
+    const { getDb } = await import("../src/lib/db");
+    getDb().prepare("insert into draft_invite_grants(draft_id,user_id) values(?,?)").run(draftId, fixtureUserId("outsider"));
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("outsider")), discordUserId: null } });
+    const response = await call();
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "Not a participant" });
   });
 
   it("409 while the draft is not completed", async () => {

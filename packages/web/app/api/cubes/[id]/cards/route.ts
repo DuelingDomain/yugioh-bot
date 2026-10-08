@@ -59,7 +59,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         if (!result.ok) return result.response.status === 404
           ? NextResponse.json({ error: "Source card not found in the duel engine" }, { status: 400 })
           : result.response;
-        swapCubeArtwork(db, cubeId, body.catalogCardId, body.artworkPasscode, result.family);
+        swapCubeArtwork(db, cubeId, body.catalogCardId, body.artworkPasscode, result.family, actor.userId);
         break;
       }
       case "add":

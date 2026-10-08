@@ -22,16 +22,33 @@ describe("draft visibility access matrix", () => {
           expect(findDraftReadAccess(db,"draft","g",userId)).toMatchObject({
             visibility,
             canRead: role !== "stranger" || (visibility === "open" && status === "pending"),
-            canJoin: status === "pending" && role !== "seated" && (visibility === "open" || role === "grant"),
+            canJoin: status === "pending" && role !== "seated" && (visibility === "open" || role === "grant" || role === "creator"),
           });
         });
       }
     }
   }
+  it("lets the private creator rejoin after leaving, without an invite grant", () => {
+    db.exec("insert into players(id,guild_id,user_id,display_name) values(2,'g',101,'Creator'); insert into draft_players(draft_id,player_id) values(1,2)");
+    expect(findDraftReadAccess(db,"draft","g",101)?.canJoin).toBe(false);
+    db.exec("delete from draft_players where player_id=2");
+    expect(findDraftReadAccess(db,"draft","g",101)).toMatchObject({ canRead: true, canJoin: true });
+    db.exec("update drafts set status='active'");
+    expect(findDraftReadAccess(db,"draft","g",101)?.canJoin).toBe(false);
+  });
   it("scopes grants to their draft and all access to the configured guild", () => {
     db.exec("insert into drafts(id,guild_id,name,status,created_by_user_id,web_slug) values(2,'g','Other','pending',101,'other')");
     expect(findDraftReadAccess(db,"other","g",103)?.canRead).toBe(false);
     expect(findDraftReadAccess(db,"draft","other",103)).toBeNull();
     expect(findDraftReadAccess(db,"missing","g",101)).toBeNull();
+  });
+  it("applies the same read permissions to draft ids when a draft has no web slug", () => {
+    db.exec("update drafts set web_slug=null,status='completed'");
+    expect(findDraftReadAccess(db,1,"g",101)?.canRead).toBe(true);
+    expect(findDraftReadAccess(db,1,"g",102)?.canRead).toBe(true);
+    expect(findDraftReadAccess(db,1,"g",103)?.canRead).toBe(true);
+    expect(findDraftReadAccess(db,1,"g",104)?.canRead).toBe(false);
+    expect(findDraftReadAccess(db,1,"other",101)).toBeNull();
+    expect(findDraftReadAccess(db,999,"g",101)).toBeNull();
   });
 });

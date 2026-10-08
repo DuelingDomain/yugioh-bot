@@ -33,6 +33,7 @@ export async function POST(
           ? NextResponse.json({ error: "You have already joined this draft" }, { status: 400 })
           : NextResponse.json({ error: "Draft not found" }, { status: 404 });
       }
+      // The shared admission rule lets a private creator rejoin without a grant.
       const player = createPlayerService(db).findOrCreate(guildId, actor.userId, actor.userName);
       createDraftService(db).join(access.id, player.id);
       return player;
