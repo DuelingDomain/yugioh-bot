@@ -152,7 +152,7 @@ describe("sign-in page", () => {
     expect(actions.back).toHaveBeenCalledOnce();
   });
 
-  it("drops the error tone once the not-invited email is on the waitlist, and restores it on retry", async () => {
+  it("drops the error tone once the not-invited email is on the waitlist, and goes back on retry", async () => {
     const user = userEvent.setup();
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ status: "joined" }), { status: 201 })));
     const { container, actions } = await renderSignIn(state("err-invite"));

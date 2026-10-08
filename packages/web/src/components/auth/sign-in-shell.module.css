@@ -173,6 +173,8 @@
 .eyebrow { display: inline-flex; align-items: center; gap: 12px; font-size: 13px; letter-spacing: .22em; text-transform: uppercase; color: var(--gold-soft); margin-bottom: 14px; }
 .eyebrow::before { content: ""; width: 34px; height: 1px; background: linear-gradient(90deg, transparent, var(--gold-soft)); }
 .ttl { font-family: var(--display); font-weight: 400; font-size: clamp(34px, 3.7vw, 50px); line-height: 1; letter-spacing: -.005em; text-wrap: balance; }
+/* Headings take focus only programmatically (a step change), never from the keyboard: no ring. */
+.ttl:focus { outline: none; }
 .ttl em { font-style: normal; color: var(--gold); text-shadow: 0 0 40px rgba(245, 158, 11, .35); }
 .lede { margin-top: 12px; font-size: 18px; line-height: 1.45; color: #BCC4DA; text-wrap: pretty; }
 .lede [data-email] { color: var(--text); font-weight: 600; word-break: break-all; }
