@@ -110,6 +110,26 @@ describe("placeSelectBar with the Rooftop's four shared cells", () => {
   });
 });
 
+describe("placeSelectBar top spot and score plates", () => {
+  const narrow = (): BarZone[] => [
+    { left: 560, right: 600, top: 400, bottom: 460, legal: true },
+    { left: 640, right: 680, top: 400, bottom: 460, legal: false },
+  ];
+  const plate: BarRect = { left: 400, right: 800, top: 60, bottom: 190 };
+
+  it("takes the top edge from below a far plate that sits in the upper half", () => {
+    const place = placeSelectBar({ board, emz: narrow(), hands: [], plates: [plate] });
+    expect(place.mode).toBe("top");
+    expect(place.top).toBe(190 - board.top + 6);
+  });
+
+  it("ignores a plate in the lower half and keeps the old edge without plates", () => {
+    const low: BarRect = { left: 400, right: 800, top: 800, bottom: 900 };
+    expect(placeSelectBar({ board, emz: narrow(), hands: [], plates: [low] }).top).toBe(8);
+    expect(placeSelectBar({ board, emz: narrow(), hands: [] }).top).toBe(8);
+  });
+});
+
 describe("samePlace", () => {
   it("compares every field", () => {
     const a = placeSelectBar({ board, emz: emzPair(300), hands: [] });
