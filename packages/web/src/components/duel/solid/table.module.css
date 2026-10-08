@@ -122,7 +122,7 @@
 }
 .cell[data-cell="band-pile"] { align-self: center; height: calc(var(--s) * 0.9); }
 
-/* Centre-band gaps: the opponent's clock (left, turned to face them, ember) and yours (right, purple). */
+/* Centre-band gaps: the opponent's clock (left, ember) and yours (right, purple). Both read the right way up. */
 .clock {
   position: relative;
   z-index: 1;
@@ -134,7 +134,7 @@
   font-size: calc(var(--s) * 0.3);
   line-height: 1;
 }
-.clock[data-sv-clock="opp"] { color: var(--sv-ember); transform: rotate(180deg); }
+.clock[data-sv-clock="opp"] { color: var(--sv-ember); }
 .clock[data-sv-clock="you"] { color: var(--pur-hi); }
 /* The V1 clock node (name + m:ss) stacks in the gap: name small above, time large below, in the seat colour. */
 .clock[data-sv-clock] > div,
@@ -147,6 +147,9 @@
 }
 .clock[data-sv-clock] > div > span[data-active] > small {
   max-width: calc(var(--s) * 0.9);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: #979080;
   font-family: var(--font);
   font-size: clamp(10px, calc(var(--s) * 0.15), 13px);
@@ -163,6 +166,38 @@
 .clock[data-sv-clock] > div > span[data-active="false"] { color: #979080; }
 .clock[data-sv-clock="opp"] > div > span[data-active="true"] { color: #e0916a; }
 .clock[data-sv-clock="you"] > div > span[data-active="true"] { color: #b8a8ff; }
+/* The answering seat glows in its colour. A clock at 1:00 or less turns red (the beep fires then, for your own clock),
+   answering or not, so the low time reads at a glance without the header block. */
+.clock[data-sv-clock] > div > span[data-active="true"] { text-shadow: 0 0 10px currentColor; }
+.clock[data-sv-clock] > div > span[data-low="true"][data-active] { color: #ff9489; }
+.clock[data-sv-clock] > div > span[data-low="true"][data-active="true"] { text-shadow: 0 0 12px rgb(255 120 110 / 0.7); }
+.clock[data-sv-clock] > div > span[data-low="true"][data-active="true"][data-motion="on"] { animation: svClockUrgent 1s ease-in-out infinite; }
+@keyframes svClockUrgent { 0%, 100% { opacity: 1; } 50% { opacity: 0.72; } }
+/* The time-bank gain (+1:00) pops under the digits, centred, so it never reaches the Banished zone next to the gap. */
+.clock[data-sv-clock] > div > span[data-active] > span[aria-hidden] {
+  top: calc(100% + 1px);
+  left: 50%;
+  margin: 0;
+  font-size: 11px;
+  transform: translateX(-50%);
+  animation-name: svClockGain;
+}
+.clock[data-sv-clock] > div > span[data-active] > span[aria-hidden][data-motion="off"] { animation-name: svClockGainStill; }
+@keyframes svClockGain {
+  0% { opacity: 0; transform: translate(-50%, -6px); }
+  14% { opacity: 1; transform: translate(-50%, 0); }
+  72% { opacity: 1; transform: translate(-50%, 0); }
+  100% { opacity: 0; transform: translate(-50%, 6px); }
+}
+@keyframes svClockGainStill {
+  0% { opacity: 0; transform: translateX(-50%); }
+  12%, 75% { opacity: 1; transform: translateX(-50%); }
+  100% { opacity: 0; transform: translateX(-50%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .clock[data-sv-clock] > div > span[data-low="true"][data-active="true"][data-motion="on"] { animation: none; }
+  .clock[data-sv-clock] > div > span[data-active] > span[aria-hidden] { animation-name: svClockGainStill; }
+}
 
 .planeSvg {
   position: absolute;

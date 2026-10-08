@@ -72,10 +72,8 @@ export type SolidRoomProps = {
   fieldProps: DuelFieldProps | null;
   /** MoveSourceBoundary around the given field, plus the FX layers, the prompt layer and the pile viewer. */
   renderBoard: (field: ReactNode) => ReactNode;
-  /** One seat's duel clock, drawn in that player's gap of the centre band. */
+  /** One seat's duel clock, drawn in that player's gap of the centre band. It is the only clock of the 3D room. */
   renderClock: (seat: number) => ReactNode;
-  /** The clock block of the header (every seat, the answering seat marked); null without a clock. */
-  headerClock?: ReactNode;
   inspect: InspectTarget | null;
   pane: SidePane;
   setPane: (pane: SidePane) => void;
@@ -94,7 +92,7 @@ export type SolidRoomProps = {
 export function SolidRoom(props: SolidRoomProps) {
   const { slug, boardRef, dealWait, domain, battle, spectator, myTurn, reducedMotion, view, engine, format, turnText, headerPhase,
     battleStep, wordmark, spectatorTag, seriesLabel, connectionStatus, headerTools, seriesBanner, noticesNode, inspectorNode,
-    promptDockNode, masterRail, legalActionsFor, onChooseAction, battleAim, trackNode, mobileTabs, overlaysNode, fieldProps, renderBoard, renderClock, headerClock, inspect, setPane, setMobileInspect,
+    promptDockNode, masterRail, legalActionsFor, onChooseAction, battleAim, trackNode, mobileTabs, overlaysNode, fieldProps, renderBoard, renderClock, inspect, setPane, setMobileInspect,
     boardQuiet, onBeforeViewChange } = props;
   const narrow = useIsNarrow();
   // The tilted plane, found when asked (it mounts once the engine view is up). The FX canvas follows its tilt.
@@ -159,7 +157,6 @@ export function SolidRoom(props: SolidRoomProps) {
       <DuelSkinProvider value={SOLID_SKIN}>
         <SolidHeader
           identity={<>{wordmark}{spectatorTag}</>}
-          clock={headerClock}
           format={format}
           turn={engine?.turn ?? "—"}
           phaseName={headerPhase}

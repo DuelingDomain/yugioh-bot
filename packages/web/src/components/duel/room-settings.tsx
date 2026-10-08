@@ -212,9 +212,11 @@ export function DuelClockDisplay({ clock, session, reducedMotion = false, bank =
         const active = clock.activeSeat === seat && clock.startedAt != null;
         const seconds = Math.ceil(Math.max(0, remaining - (active ? Math.max(0, clock.serverNow + elapsed - clock.startedAt!) : 0)) / 1000);
         const time = formatClock(seconds);
+        const low = seconds <= LOW_CLOCK_MS / 1000;
         const name = session.seats.find((player) => player.seat === seat)?.displayName ?? `Player ${seat + 1}`;
         const pop = pops[seat];
-        return <span key={seat} className={clockStyles.seat} data-active={active} title={`${name}${active ? " · answering" : ""}`} aria-label={`${name}: ${time}`}>
+        return <span key={seat} className={clockStyles.seat} data-active={active} data-low={low ? "true" : undefined}
+          data-motion={reducedMotion ? "off" : "on"} title={`${name}${active ? " · answering" : ""}${low ? " · under a minute" : ""}`} aria-label={`${name}: ${time}`}>
           <small>{name}</small> <span className={styles.clockTime}>{time}</span>
           {pop ? (
             <span key={pop.id} className={clockStyles.pop} data-motion={reducedMotion ? "off" : "on"} aria-hidden
