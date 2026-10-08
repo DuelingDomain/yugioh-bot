@@ -17,6 +17,9 @@ import { modeLabel } from "../decks/model";
 import { findSavedDuplicate, pastedDeckName, prepareImportSave, uniqueDeckName } from "./import-save";
 import { CardAddField } from "./card-add-field";
 
+/** A hung request must not block the saves after it. */
+const SAVE_TIMEOUT_MS = 15_000;
+
 type CardProblem = { name?: string; messages: string[] };
 
 function Section({
@@ -205,17 +208,17 @@ export function DeckEditor({
       if (raw.main.length + raw.extra.length + raw.side.length === 0 && raw.deckMaster === undefined) return;
       const prepared = prepareImportSave(raw, mode);
       if (!prepared.ok) {
-        note({ text: "Not saved: this list does not fit Domain.", error: true });
+        note({ text: "Not saved to your decks: saved Domain decks have no Side Deck." });
         return;
       }
-      const existing = savedList.latest.current ?? await listSavedDecks();
+      const existing = savedList.latest.current ?? await listSavedDecks(AbortSignal.timeout(SAVE_TIMEOUT_MS));
       const duplicate = findSavedDuplicate(existing, prepared.mode, prepared.deck);
       if (duplicate) {
         note({ text: `Already in your decks: ${duplicate.name}` });
         return;
       }
       const name = uniqueDeckName(baseName, existing.map((entry) => entry.name));
-      const created = await createSavedDeck({ name, mode: prepared.mode, deck: prepared.deck });
+      const created = await createSavedDeck({ name, mode: prepared.mode, deck: prepared.deck }, AbortSignal.timeout(SAVE_TIMEOUT_MS));
       savedList.add(created);
       note({
         text: prepared.mode === mode
@@ -231,7 +234,7 @@ export function DeckEditor({
   function queueSave(raw: DuelDeck, baseName: string) {
     importSeq.current += 1;
     const seq = importSeq.current;
-    saveQueue.current = saveQueue.current.then(() => saveImported(raw, baseName, seq));
+    saveQueue.current = saveQueue.current.then(() => saveImported(raw, baseName, seq)).catch(() => undefined);
   }
 
   function applyImported(raw: DuelDeck, baseName: string) {

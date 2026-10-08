@@ -54,7 +54,7 @@ describe("saving an imported deck to My Decks", () => {
     importFile("Red Eyes.ydk", YDK);
 
     expect(await screen.findByText("Saved to your decks as Red Eyes")).toBeInTheDocument();
-    expect(createSavedDeck).toHaveBeenCalledWith({ name: "Red Eyes", mode: "normal", deck: { main: [111, 112], extra: [], side: [] } });
+    expect(createSavedDeck).toHaveBeenCalledWith({ name: "Red Eyes", mode: "normal", deck: { main: [111, 112], extra: [], side: [] } }, expect.any(AbortSignal));
     expect(screen.getByRole("option", { name: /^Red Eyes ·/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Remove 111 from Main" })).toBeInTheDocument();
   });
@@ -191,7 +191,9 @@ describe("saving an imported deck to My Decks", () => {
     await waitFor(() => expect(screen.getByLabelText("Use a saved deck")).not.toBeDisabled());
     importFile("Dom.ydk", "#main\n111\n112\n#extra\n!side\n113\n114\n");
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Not saved: this list does not fit Domain.");
+    const note = await screen.findByText("Not saved to your decks: saved Domain decks have no Side Deck.");
+    expect(note).toHaveAttribute("role", "status");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(createSavedDeck).not.toHaveBeenCalled();
   });
 

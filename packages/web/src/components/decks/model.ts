@@ -14,6 +14,8 @@ export const EMPTY_DECK: DuelDeck = { main: [], extra: [], side: [] };
 export const DEFAULT_NAME = "Untitled deck";
 export const MAX_NAME_LENGTH = 100;
 
+export const EXTRA_TYPE_MASK = TYPE_FUSION | TYPE_SYNCHRO | TYPE_XYZ | TYPE_LINK;
+
 /** Cuts a name to at most `max` characters of the length the API counts, never inside a surrogate pair, without trailing spaces. */
 export function cutName(name: string, max = MAX_NAME_LENGTH): string {
   let out = "";
@@ -23,7 +25,6 @@ export function cutName(name: string, max = MAX_NAME_LENGTH): string {
   }
   return out.trimEnd();
 }
-export const EXTRA_TYPE_MASK = TYPE_FUSION | TYPE_SYNCHRO | TYPE_XYZ | TYPE_LINK;
 
 export type DeckSection = "main" | "extra" | "side";
 /** `index` is the copy that was chosen, when the choice came from one tile of a deck section. */

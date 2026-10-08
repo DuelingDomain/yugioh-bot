@@ -50,8 +50,8 @@ function readDeck(body: { deck?: SavedDeckView }): SavedDeckView {
   return body.deck;
 }
 
-export async function listSavedDecks(): Promise<SavedDeckView[]> {
-  const body = await parseBody<{ decks?: SavedDeckView[] }>(await fetch("/api/decks", { cache: "no-store" }));
+export async function listSavedDecks(signal?: AbortSignal): Promise<SavedDeckView[]> {
+  const body = await parseBody<{ decks?: SavedDeckView[] }>(await fetch("/api/decks", { cache: "no-store", signal }));
   if (!Array.isArray(body.decks)) {
     throw new DeckRequestError("The server returned an invalid deck list.", 502);
   }
@@ -66,11 +66,12 @@ export async function createSavedDeck(input: {
   name: string;
   mode: DuelMode;
   deck: DuelDeck;
-}): Promise<SavedDeck> {
+}, signal?: AbortSignal): Promise<SavedDeck> {
   return readDeck(await parseBody(await fetch("/api/decks", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
+    signal,
   })));
 }
 
