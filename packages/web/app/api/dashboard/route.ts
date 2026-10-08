@@ -28,6 +28,7 @@ export async function GET() {
       });
     }
 
+    // Dashboard summaries show at most 10 current entries; full lists live on their own pages.
     // Active tournaments the user is in
     const tournaments = db
       .prepare(
@@ -46,7 +47,8 @@ export async function GET() {
         where t.guild_id = ? and tp.player_id in (${playerIds.map(() => "?").join(",")})
           and t.status in ('pending', 'active')
         group by t.id
-        order by case t.status when 'active' then 0 else 1 end, t.created_at desc
+        order by case t.status when 'active' then 0 else 1 end, t.created_at desc, t.id desc
+        limit 10
       `
       )
       .all(env.discordGuildId, ...playerIds)
@@ -79,7 +81,8 @@ export async function GET() {
         where d.guild_id = ? and dp.player_id in (${playerIds.map(() => "?").join(",")})
           and d.status in ('pending', 'active')
         group by d.id
-        order by case d.status when 'active' then 0 else 1 end, d.created_at desc
+        order by case d.status when 'active' then 0 else 1 end, d.created_at desc, d.id desc
+        limit 10
       `
       )
       .all(env.discordGuildId, ...playerIds)

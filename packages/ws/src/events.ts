@@ -1,6 +1,12 @@
 import type { Server, Socket } from "socket.io";
 import type { DraftRoomManager } from "./rooms.js";
-import { verifyDraftRoomToken, type DraftRoomTokenClaims, type TalkLineId } from "@yugidraft/shared/ws";
+import {
+  verifyDraftRoomToken,
+  verifyTournamentRoomToken,
+  type TournamentRoomTokenClaims,
+  type DraftRoomTokenClaims,
+  type TalkLineId,
+} from "@yugidraft/shared/ws";
 
 export type DraftStatus = "active" | "cancelled" | "completed";
 
@@ -29,6 +35,7 @@ export interface ServerToClientEvents {
   "draft:seats": (data: Record<string, never>) => void;
   "draft:talk": (data: { playerId: number; line: TalkLineId }) => void;
   "draft:subscription-expired": (data: { slug: string }) => void;
+  "tournament:subscription-expired": (data: { slug: string }) => void;
   "tournament:participant-joined": (data: { playerId: number; displayName: string }) => void;
   "tournament:participant-left": (data: { playerId: number }) => void;
   "tournament:started": (data: Record<string, never>) => void;
@@ -46,7 +53,7 @@ export interface ClientToServerEvents {
     ack?: (result?: { error?: string }) => void,
   ) => void;
   "tournament:join": (
-    payload: { slug: string },
+    payload: { slug: string; token: string; userId: number },
     ack?: (result?: { error?: string }) => void,
   ) => void;
   "duel:join": (
@@ -88,9 +95,34 @@ export type TypedSocket = Socket<
 export function registerEventHandlers(
   io: TypedServer,
   roomManager: DraftRoomManager,
-  opts: { secret: string; canReadDraft: (claims: DraftRoomTokenClaims) => boolean },
+  opts: {
+    secret: string;
+    canReadDraft: (claims: DraftRoomTokenClaims) => boolean;
+    canReadTournament?: (claims: TournamentRoomTokenClaims) => boolean;
+  },
 ) {
   const subscriptions = new Map<TypedSocket, Map<string, { claims: DraftRoomTokenClaims }>>();
+
+  const tournamentMembers = new Map<string, Set<TypedSocket>>();
+  const tournamentSubscriptions = new Map<TypedSocket, Map<string, TournamentRoomTokenClaims>>();
+
+  function hasTournamentAccess(claims: TournamentRoomTokenClaims): boolean {
+    try {
+      return opts.canReadTournament?.(claims) ?? false;
+    } catch (error) {
+      console.error("[ws] tournament access check failed", error);
+      return false;
+    }
+  }
+
+  function leaveTournament(socket: TypedSocket, slug: string, expired: boolean) {
+    tournamentSubscriptions.get(socket)?.delete(slug);
+    const members = tournamentMembers.get(slug);
+    members?.delete(socket);
+    if (members?.size === 0) tournamentMembers.delete(slug);
+    socket.leave(`tournament:${slug}`);
+    if (expired) socket.emit("tournament:subscription-expired", { slug });
+  }
 
   function hasAccess(claims: DraftRoomTokenClaims): boolean {
     try {
@@ -111,6 +143,7 @@ export function registerEventHandlers(
   io.on("connection", (socket: TypedSocket) => {
     console.log(`[ws] client connected: ${socket.id}`);
     subscriptions.set(socket, new Map());
+    tournamentSubscriptions.set(socket, new Map());
 
     socket.on("draft:join", (payload, ack) => {
       try {
@@ -144,21 +177,44 @@ export function registerEventHandlers(
           ack?.({ error: "slug required" });
           return;
         }
+        const userId = payload?.userId;
+        const claims = typeof userId === "number" && Number.isSafeInteger(userId) && userId > 0
+          ? verifyTournamentRoomToken(payload?.token, opts.secret, { slug, userId })
+          : null;
+        if (!claims || !hasTournamentAccess(claims)) {
+          ack?.({ error: "Tournament not found" });
+          return;
+        }
         socket.join(`tournament:${slug}`);
+        tournamentSubscriptions.get(socket)?.set(slug, claims);
+        const members = tournamentMembers.get(slug) ?? new Set<TypedSocket>();
+        members.add(socket);
+        tournamentMembers.set(slug, members);
         ack?.();
       } catch (err) {
         console.error(`[ws] tournament:join error for ${socket.id}`, err);
-        ack?.({ error: err instanceof Error ? err.message : String(err) });
+        ack?.({ error: "Tournament not found" });
       }
     });
 
     socket.on("disconnecting", () => {
       for (const slug of subscriptions.get(socket)?.keys() ?? []) leaveDraft(socket, slug, false);
       subscriptions.delete(socket);
+      for (const slug of tournamentSubscriptions.get(socket)?.keys() ?? []) leaveTournament(socket, slug, false);
+      tournamentSubscriptions.delete(socket);
     });
   });
 
   return {
+    /** Admission tokens may expire after join; current database access controls broadcasts. */
+    pruneTournamentRoom(slug: string) {
+      for (const socket of tournamentMembers.get(slug) ?? []) {
+        const claims = tournamentSubscriptions.get(socket)?.get(slug);
+        if (socket.rooms.has(`tournament:${slug}`) && (!claims || !hasTournamentAccess(claims))) {
+          leaveTournament(socket, slug, true);
+        }
+      }
+    },
     /** Check current permissions before every broadcast, including lobby-to-active transitions. */
     pruneDraftRoom(slug: string) {
       const room = roomManager.getRoom(slug);

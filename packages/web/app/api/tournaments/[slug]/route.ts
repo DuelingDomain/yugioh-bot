@@ -7,6 +7,7 @@ import {
   createSavedDeckService,
   createTournamentDuelService,
   createTournamentService,
+  findTournamentReadAccess,
   TournamentDuelError,
 } from "@yugidraft/shared/services";
 import type { DuelBestOf, DuelSeriesSummary } from "@yugidraft/shared/duels";
@@ -43,9 +44,13 @@ export async function GET(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
+    const actor = await requireWebAccess();
+    if (!actor.ok) return actor.response;
     const { slug } = await params;
     const db = getDb();
 
+    const access = findTournamentReadAccess(db, slug, env.discordGuildId, actor.userId);
+    if (!access?.canRead) return NextResponse.json({ error: "Tournament not found" }, { status: 404 });
     const tournament = resolveTournamentBySlug(db, slug);
 
     if (!tournament) {
@@ -56,8 +61,6 @@ export async function GET(
 
     // A draft tournament entry uses the player's draft deck: save a missing one and register it
     // before the participants are read, so the viewer sees the deck in.
-    const actor = await requireWebAccess();
-    if (!actor.ok) return actor.response;
     {
       const viewer = db
         .prepare("select id from players where guild_id = ? and user_id = ?")

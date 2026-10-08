@@ -64,6 +64,7 @@ export default async function DashboardPage() {
 
     const ph = playerIds.map(() => "?").join(",");
 
+    // Dashboard summaries show at most 10 current entries; full lists live on their own pages.
     tournaments = db
       .prepare(
         `select t.id, t.guild_id, t.name, t.format, t.status, t.web_slug,
@@ -73,7 +74,8 @@ export default async function DashboardPage() {
          left join tournament_participants tp2 on tp2.tournament_id = t.id
          where t.guild_id = ? and tp.player_id in (${ph}) and t.status in ('pending', 'active')
          group by t.id
-         order by case t.status when 'active' then 0 else 1 end, t.created_at desc`
+         order by case t.status when 'active' then 0 else 1 end, t.created_at desc, t.id desc
+         limit 10`
       )
       .all(env.discordGuildId, ...playerIds)
       .map((row: any) => ({
@@ -96,7 +98,8 @@ export default async function DashboardPage() {
          left join draft_players dp2 on dp2.draft_id = d.id
          where d.guild_id = ? and dp.player_id in (${ph}) and d.status in ('pending', 'active')
          group by d.id
-         order by case d.status when 'active' then 0 else 1 end, d.created_at desc`
+         order by case d.status when 'active' then 0 else 1 end, d.created_at desc, d.id desc
+         limit 10`
       )
       .all(env.discordGuildId, ...playerIds)
       .map((row: any) => ({
