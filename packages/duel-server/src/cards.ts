@@ -38,6 +38,8 @@ export interface CardDatabase {
   counter(id: number): string | undefined;
   /** Script text by name. `overlay` (duels with more than two seats only) maps the original text; omitted, the text is the original. */
   readScript(name: string, overlay?: ScriptOverlay): string | null;
+  /** Installed script names for revision checks, including shared helpers. */
+  scriptNames?(): Iterable<string>;
   close(): void;
 }
 
@@ -301,6 +303,7 @@ function loadFromDisk(root: string): LoadedCardDatabase {
     counter(id) {
       return counters.get(id);
     },
+    scriptNames() { return scripts.keys(); },
     readScript(name, overlay) {
       const normalized = name.replaceAll("\\", "/");
       let resolvedName = name;

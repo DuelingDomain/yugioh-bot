@@ -6,6 +6,7 @@ import { boundedReport, withValidation, withPrereleaseSmoke, readProdScriptError
 import { withPreviewExclusions, withCardUpdate } from "./engine-data-card-report.js";
 import { probeEngineData } from "./probe-engine-data.js";
 import { loadCardDatabase } from "../src/cards.js";
+import { loadMultiScriptsFor } from "../src/multi-scripts.js";
 import { cardScriptHash } from "../src/card-script-hash.js";
 import { loadCardPasscodeRemaps } from "@yugidraft/shared/db";
 
@@ -33,7 +34,7 @@ if (metadata.changed) {
       withPreviewExclusions(metadata.cardChanges, artifact.scriptSmoke.excluded.map((card: { code: number }) => card.code)));
   }
   const cards = loadCardDatabase(dataDirectory), remaps = loadCardPasscodeRemaps(dataDirectory);
-  prodSection = prodScriptErrorReport(prod, code => cardScriptHash(cards, remaps.get(code) ?? code));
+  prodSection = prodScriptErrorReport(prod, (code, kind) => cardScriptHash(cards, remaps.get(code) ?? code, kind, kind?.startsWith("multi-") ? loadMultiScriptsFor(dataDirectory, join(dataDirectory, "multi-scripts")) : undefined));
   const probe = await probeEngineData(dataDirectory, metadata.changedPaths);
   const overlayExit = Number(await readFile(join(artifact, "overlay-exit.txt"), "utf8"));
   if (!Number.isInteger(overlayExit) || overlayExit < 0) throw new Error("Invalid overlay check exit status");

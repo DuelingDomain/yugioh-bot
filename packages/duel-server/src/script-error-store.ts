@@ -17,7 +17,7 @@ export interface CardScriptErrorCount {
 /** Host-only side effect. Saved seed, journal position, attempted command and request ordinal deduplicate retries. */
 export function createScriptErrorRecorder(db: Database.Database, log: (line: string) => void = console.error, autoBlocks?: AutoBlockPolicy) {
   const once = db.prepare(`INSERT OR IGNORE INTO card_script_error_occurrences
-    (duel_id, command_hash, error_index, code, created_at, resolved_code, script_hash, script_error_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+    (duel_id, command_hash, error_index, code, created_at, resolved_code, script_hash, script_error_mode, engine_kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   const prune = db.prepare(`DELETE FROM card_script_error_occurrences
     WHERE julianday(created_at) < julianday('now', '-30 days')
       AND NOT EXISTS (SELECT 1 FROM duels WHERE id = duel_id AND status IN ('active', 'lobby'))
@@ -43,12 +43,12 @@ export function createScriptErrorRecorder(db: Database.Database, log: (line: str
       capped.add(`${duelId}:${error.code}`);
       return false;
     }
-    const revision = autoBlocks?.revision(error.code);
+    const revision = autoBlocks?.revision(error.code, error);
     if (!once.run(duelId, error.commandHash ?? "", error.index, error.code,
       new Date(autoBlocks?.now() ?? Date.now()).toISOString(), revision?.code ?? error.code,
-      revision?.scriptHash ?? null, error.scriptErrorMode).changes) return false;
+      revision?.scriptHash ?? null, error.scriptErrorMode, revision?.engineKind ?? null).changes) return false;
     increment.run(error.code, error.message, error.scriptFile, error.line, error.mode, duelId);
-    if (error.scriptErrorMode === "tolerant" && revision) autoBlocks?.consider(revision.code, revision.scriptHash);
+    if (error.scriptErrorMode === "tolerant" && revision) autoBlocks?.consider(revision.code, revision.scriptHash, revision.engineKind);
     return true;
   });
   return (duelId: number, error: DuelScriptError): boolean => {
