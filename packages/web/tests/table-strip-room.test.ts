@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { hits, overlap, type Rect } from "../src/components/duel/table/rect-util";
-import { handKeepOut, planStripRoom, STRIP_ROOM, stripRoomSize, type StripRoomInput } from "../src/components/duel/table/strip-room";
+import { handKeepOut, planStripRoom, STRIP_ROOM, stripRoomSize, tilesShown, type StripRoomInput } from "../src/components/duel/table/strip-room";
 import cases from "./fixtures/strip-room-rects.json";
 
 /**
@@ -109,6 +109,34 @@ describe("planStripRoom on the measured tables", () => {
       expect(inside(room, base.box), `chrome ${chrome}`).toBe(true);
       // The room is tall enough for the chrome and one whole row (the footer is part of the chrome).
       expect(room.height, `chrome ${chrome}`).toBeGreaterThanOrEqual(Math.min(chrome + 200, base.box.height - 2 * STRIP_ROOM.edge));
+    }
+  });
+});
+
+describe("planStripRoom: a room that shows too few tiles steps down in tile size", () => {
+  it("FFA4 zoom, 10 cards: the 130 px room shows 2 tiles at a time, so 112 or 96 px tiles are taken where they show more", () => {
+    const name = "ffa4-respond-10-1366x768-focus2";
+    const { input, room } = plan(name);
+    expect(room.card).toBeLessThan(STRIP_ROOM.card);
+    expect(STRIP_ROOM.smaller).toContain(room.card);
+    expect(tilesShown(room, input)).toBeGreaterThan(2);
+    // The smaller tiles never hide more than the large ones would.
+    expect(touched(room, input.controls)).toBe(0);
+    expect(touched(room, input.soft)).toBe(0);
+    expect(hits(room, handKeepOut(input.hand!))).toBe(false);
+  });
+
+  it("keeps the 130 px tiles where they already show 4 at a time, or all the choices", () => {
+    expect(plan("ffa3-respond-2-2560x1440-home").room.card).toBe(STRIP_ROOM.card);
+    expect(plan("ffa3-respond-10-1920x1080-home").room).toMatchObject({ card: STRIP_ROOM.card });
+    expect(tilesShown(plan("ffa3-respond-10-1920x1080-home").room, real("ffa3-respond-10-1920x1080-home"))).toBeGreaterThanOrEqual(STRIP_ROOM.minShown);
+  });
+
+  it("never takes smaller tiles that cover more than the large ones (the soft HUD, the deep hand)", () => {
+    for (const name of Object.keys(REAL).filter((n) => /ffa3.*(1366|1280)/.test(n))) {
+      const { input, room } = plan(name);
+      expect(touched(room, input.soft), name).toBe(0);
+      expect(hits(room, handKeepOut(input.hand!)), name).toBe(false);
     }
   });
 });
