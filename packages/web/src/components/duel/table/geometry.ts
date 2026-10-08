@@ -581,6 +581,13 @@ export function wideHoloAnchors(
   const taken: Bounds[] = [{ l: ringAt.x - ringHalf, r: ringAt.x + ringHalf, t: ringAt.y - 62, b: ringAt.y + 76 }];
   // Your hand fans along the bottom edge under your board: up to ten cards, about 660 stage px.
   taken.push({ l: ARENA_CENTER.x - 330, r: ARENA_CENTER.x + 330, t: STAGE.height - 4, b: 960 });
+  // The hand as drawn (at a wide 3-way table it is 762 px wide and rises over the field's bottom pad) and your name label
+  // stay clear too. Your seat's pose is upright, so its rectangles are exact.
+  const homeSlot = plan[0] === "home" ? layout.slots[0] : undefined;
+  const homePose = homeSlot ? poses.get(homeSlot.seat) : undefined;
+  if (homePose && !homePose.hidden) {
+    for (const r of seatObstacles(homePose, true).slice(1)) taken.push({ l: r.x - r.width / 2, r: r.x + r.width / 2, t: r.y - r.height / 2, b: r.y + r.height / 2 });
+  }
   // The camera hint pill lives in the bottom left corner of the table area.
   if (corner) taken.push({ l: left - 6, r: left + corner.hint.width, t: 952 - corner.hint.height, b: 952 });
   // The floating HUD's turn controls in the bottom right corner (a 3-way plaza).
