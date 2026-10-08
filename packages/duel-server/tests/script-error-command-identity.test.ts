@@ -8,6 +8,26 @@ const error = { code: 3743515, scriptFile: "c3743515.lua", line: 61, message: "r
   mode: "normal", format: "1v1", engine: "pinned", scriptErrorMode: "strict" } as const;
 afterEach(async () => { await handleWorkerRequest({ id: 0, op: "close" }); create.mockReset(); });
 
+it("keys later errors by journal position and request ordinal after live/recovered elimination", async () => {
+  create.mockImplementation(async options => ({
+    eliminate() {},
+    view() { options.onScriptError({ ...error, source: "query", index: 123 }); return {}; },
+    answer() { options.onScriptError({ ...error, index: 91 }); options.onScriptError({ ...error, index: 92 }); },
+    close() {},
+  }));
+  async function run(atTurnEnd: boolean | undefined, queryCount: number) {
+    await handleWorkerRequest({ id: 1, op: "create", options: { mode: "normal", decks: [], seed: ["1"], dataDirectory: "unused" } });
+    await handleWorkerRequest({ id: 2, op: "eliminate", seat: 3, reason: 0, atTurnEnd });
+    for (let i = 0; i < queryCount; i++) await handleWorkerRequest({ id: 3, op: "view", seat: 0 });
+    const result = await handleWorkerRequest({ id: 4, op: "answer", seat: 0, promptId: "p1", answer: { choice: "a" } });
+    await handleWorkerRequest({ id: 0, op: "close" });
+    return result.scriptErrors!;
+  }
+  const live = await run(undefined, 1);
+  expect(live.map(error => [error.journalPosition, error.index])).toEqual([[1, 1], [1, 2]]);
+  expect(await run(false, 7)).toEqual(live);
+});
+
 it("deduplicates a recovered creation but distinguishes another failed start's seed", async () => {
   create.mockImplementation(async (options) => { options.onScriptError(error); throw new Error("Strict card error"); });
   async function attempt(id: number, seed: string[], dataDirectory: string) {

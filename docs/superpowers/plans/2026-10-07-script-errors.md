@@ -26,5 +26,13 @@ User's reviewed fixes are the implementation design; execute inline in the same 
 - [x] Isolate card callbacks in views and runtime FFA scripts; private query telemetry only; generic fatal text. Verify real-engine queries, three accepted answers, recovery and replay.
 - [x] Coalesce process events per answer, cap per-duel/card telemetry at 20, remove centre banners, and guard 100,000 process calls without a prompt.
 - [x] Replace stock Sabersaurus crash dependencies with a synthetic test script, and remap block-list passcodes through the bundle remaps.
-- [ ] Key process telemetry by journal position plus request ordinal; bound old occurrence rows.
-- [ ] Run targeted Node 22 tests with prlimit --core=0 and --maxWorkers=1, typechecks and native golden --check; remove generated build output. Commit each review item with the requested trailer.
+- [x] Key process telemetry by journal position plus request ordinal; bound old occurrence rows.
+- [x] Run targeted Node 22 tests with prlimit --core=0 and --maxWorkers=1, typechecks and native golden --check; remove generated build output. Commit each review item with the requested trailer.
+
+Follow-up validation: 164 duel-server tests (14 files), 39 shared schema/identity tests
+(2 files), and 36 web event/timing tests (2 files) pass with Node 22,
+`prlimit --core=0` and `--maxWorkers=1`. Shared, duel-server and web typechecks pass.
+Native golden `--check`: 80 rows checked, 0 skipped, 0 mismatches; no golden edits
+or WASM builds. Independent read-only code review found no blocking issues.
+Generated dependencies, copied test resources, native build output, shared dist
+and the web TypeScript build cache were removed; the local branch is preserved.

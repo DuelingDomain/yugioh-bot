@@ -3,12 +3,39 @@ import { describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { createScriptErrorRecorder, topScriptErrors } from "../src/script-error-store.js";
 import type { DuelScriptError } from "../src/script-errors.js";
+import { seedIdentity, seedUser } from "./helpers/identity.js";
 
 const error: DuelScriptError = { code: 3743515, scriptFile: "c3743515.lua", line: 61,
   message: 'c3743515.lua:61: attempt to index a nil value', index: 1,
   mode: "normal", format: "1v1", engine: "pinned", scriptErrorMode: "tolerant" };
 
 describe("persistent script error counters", () => {
+  it("upgrades occurrence rows from the original schema idempotently", () => {
+    const db = new Database(":memory:");
+    try {
+      db.exec("CREATE TABLE card_script_error_occurrences (duel_id INTEGER, command_hash TEXT, error_index INTEGER, PRIMARY KEY(duel_id, command_hash, error_index)); INSERT INTO card_script_error_occurrences VALUES (100, 'old', 1)");
+      migrate(db); migrate(db);
+      expect(db.prepare("SELECT code, created_at FROM card_script_error_occurrences").get()).toEqual({ code: 0, created_at: "1970-01-01 00:00:00" });
+    } finally { db.close(); }
+  });
+  it("retains active and recent rows while pruning completed/orphan rows older than 30 days", () => {
+    const db = new Database(":memory:"); migrate(db);
+    try {
+      const player = seedIdentity(db, { guildId: "g", name: "P", userId: seedUser(db, "retention").userId }).playerId;
+      const insert = db.prepare("INSERT INTO duels (id, guild_id, web_slug, name, organizer_player_id, mode, status, ended_at) VALUES (?, 'g', ?, 'Test', ?, 'normal', ?, ?)");
+      insert.run(100, "active", player, "active", null);
+      insert.run(101, "completed", player, "completed", "2000-01-01 00:00:00");
+      insert.run(102, "recent", player, "completed", new Date().toISOString());
+      const log = vi.fn();
+      const record = createScriptErrorRecorder(db, log);
+      for (const id of [100, 101, 102, 103, 104]) record(id, error);
+      db.exec("UPDATE card_script_error_occurrences SET created_at = '2000-01-01 00:00:00' WHERE duel_id <> 104");
+      const restarted = createScriptErrorRecorder(db, log);
+      expect(db.prepare("SELECT duel_id FROM card_script_error_occurrences ORDER BY duel_id").all()).toEqual([{ duel_id: 100 }, { duel_id: 102 }, { duel_id: 104 }]);
+      expect(restarted(100, error)).toBe(false);
+      expect(topScriptErrors(db)[0]?.count).toBe(5);
+    } finally { db.close(); }
+  });
   it("caps writes at 20 per duel/card across recorder restarts without limiting another card or duel", () => {
     const db = new Database(":memory:"); migrate(db);
     try {
