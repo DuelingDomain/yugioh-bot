@@ -1,5 +1,5 @@
 import { config } from "dotenv";
-import { createServer } from "node:http";
+import { createServer, type ServerResponse } from "node:http";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -48,7 +48,16 @@ const host = createDuelHost({
   // Rock-paper-scissors decides who goes first in game 1. DUEL_RPS_OPENING=0 turns it off.
   openingRps: process.env.DUEL_RPS_OPENING !== "0",
 });
+let closing = false;
+function restarting(response: ServerResponse) {
+  response.writeHead(503, { "content-type": "application/json", "connection": "close", "Retry-After": "2" });
+  response.end(JSON.stringify({ error: "restarting" }));
+}
 const server = createServer(async (request, response) => {
+  if (closing) {
+    restarting(response);
+    return;
+  }
   try {
     const chunks: Buffer[] = [];
     let length = 0;
@@ -61,6 +70,11 @@ const server = createServer(async (request, response) => {
       }
       chunks.push(chunk);
     }
+    // An upload may have started before the shutdown signal arrived.
+    if (closing) {
+      restarting(response);
+      return;
+    }
     const headers = new Headers();
     for (const [key, value] of Object.entries(request.headers)) {
       if (value !== undefined) headers.set(key, Array.isArray(value) ? value.join(", ") : value);
@@ -71,7 +85,10 @@ const server = createServer(async (request, response) => {
       headers,
       body: method === "GET" || method === "HEAD" ? undefined : Buffer.concat(chunks),
     }));
-    response.writeHead(result.status, Object.fromEntries(result.headers));
+    response.writeHead(result.status, {
+      ...Object.fromEntries(result.headers),
+      ...(closing ? { connection: "close" } : {}),
+    });
     response.end(Buffer.from(await result.arrayBuffer()));
   } catch (error) {
     console.error("[duel] Request failed", error);
@@ -84,10 +101,43 @@ const bind = process.env.DUEL_INTERNAL_HOST ?? "127.0.0.1";
 server.listen(port, bind, () => console.log(`[duel] Private server listening on http://${bind}:${port}`));
 
 async function shutdown() {
-  server.close();
-  await host.close();
-  cards.close();
-  db.close();
+  if (closing) {
+    process.exit(0);
+    return;
+  }
+  closing = true;
+  const exitTimer = setTimeout(() => process.exit(0), 5000);
+  exitTimer.unref();
+  let exitCode = 0;
+  try {
+    const stopped = new Promise<void>((resolve, reject) => {
+      server.close(error => error ? reject(error) : resolve());
+      server.closeIdleConnections();
+    });
+    // Let active answers finish, then remove any socket still holding the listener open.
+    const graceTimer = setTimeout(() => server.closeAllConnections(), 2500);
+    graceTimer.unref();
+    try {
+      await stopped;
+    } finally {
+      clearTimeout(graceTimer);
+      server.closeAllConnections();
+    }
+    // host.close() also waits for queued operations before terminating workers.
+    await host.close();
+    cards.close();
+    db.close();
+  } catch (error) {
+    console.error("[duel] Shutdown failed", error instanceof Error ? error.name : "Unknown");
+    exitCode = 1;
+  } finally {
+    clearTimeout(exitTimer);
+    process.exit(exitCode);
+  }
 }
-process.once("SIGTERM", () => { void shutdown(); });
-process.once("SIGINT", () => { void shutdown(); });
+function onShutdownSignal(signal: "SIGTERM" | "SIGINT") {
+  process.once(signal, () => process.exit(0));
+  void shutdown();
+}
+process.once("SIGTERM", () => onShutdownSignal("SIGTERM"));
+process.once("SIGINT", () => onShutdownSignal("SIGINT"));

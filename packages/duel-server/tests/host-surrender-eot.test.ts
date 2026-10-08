@@ -1220,7 +1220,7 @@ Duel.RegisterEffect(e,0)`]);
       const before = await t.view();
       t.db.exec(`CREATE TRIGGER reject_surrender_setup BEFORE INSERT ON duel_commands
         BEGIN SELECT RAISE(ABORT,'Reject surrender command'); END`);
-      await t.post("surrender", 3, {}, 400);
+      await t.post("surrender", 3, {}, 500);
       expect(t.source().commands).toEqual([]);
       expect(t.service.privateState(t.session.slug, "g").setup?.surrenderedSeats).toBeUndefined();
       t.db.exec("DROP TRIGGER reject_surrender_setup");
