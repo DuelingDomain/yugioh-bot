@@ -19,8 +19,19 @@ function rule(css: string, selector: string): string {
 describe("chain stack placement", () => {
   it("anchors the stack to the left side of the board, never the middle where the prompt opens", () => {
     const dock = rule(chainCss, ".dock");
-    expect(dock).toMatch(/inset:\s*0 auto 0 calc\(/);
+    expect(dock).toMatch(/inset:[^;]*auto [^;]*calc\(/);
     expect(dock).toMatch(/pointer-events:\s*none/);
+  });
+
+  it("starts the panel near the top of the gutter, grows it downward and keeps the bottom corner free", () => {
+    const dock = rule(chainCss, ".dock");
+    expect(dock).toMatch(/inset:\s*var\(--chain-dock-gap, 16%\) auto 14% calc\(/);
+    expect(dock).toMatch(/align-items:\s*flex-start/);
+  });
+
+  it("hides the chain tower while the wide or narrow panel lists the chain", () => {
+    const hud = readFileSync(join(duel, "table/grid-hud.module.css"), "utf8");
+    expect(hud).toMatch(/data-size="wide"[^{]*data-size="narrow"[^{]*\.tower \{ display: none; \}/);
   });
 
   it("puts the strip in the top left corner when there is no free gutter, and stops it short of the board edge", () => {

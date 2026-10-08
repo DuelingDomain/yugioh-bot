@@ -404,12 +404,14 @@
 
 /* ---------- the "Now resolving" panel and its strip (chain-panel.tsx / chain-panel.module.css) ---------- */
 
-/* The wide and narrow panel stand in the free gutter left of the field, centred on the board's height. */
+/* The wide and narrow panel stand in the free gutter left of the field. They start where the chain tower used to
+   stand (about a sixth of the way down) and grow downward, so the card text has room. They stop short of the bottom
+   edge: that corner belongs to the card peek and the hand. */
 .dock {
   position: absolute;
-  inset: 0 auto 0 calc(6 * var(--duel-unit, 1px));
+  inset: var(--chain-dock-gap, 16%) auto 14% calc(6 * var(--duel-unit, 1px));
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   pointer-events: none;
 }
 
