@@ -266,9 +266,9 @@ function fillDefense(seats: DuelSeatView[]): void {
   }
 }
 
-export type Ffa4PreviewPick = "field" | "hand" | "emz" | "zone" | "yesno" | "option" | "cards" | "search" | "position" | "number";
+export type Ffa4PreviewPick = "field" | "hand" | "emz" | "zone" | "yesno" | "option" | "cards" | "search" | "search2" | "position" | "number";
 
-export const FFA4_PREVIEW_PICKS: readonly Ffa4PreviewPick[] = ["field", "hand", "emz", "zone", "yesno", "option", "cards", "search", "position", "number"];
+export const FFA4_PREVIEW_PICKS: readonly Ffa4PreviewPick[] = ["field", "hand", "emz", "zone", "yesno", "option", "cards", "search", "search2", "position", "number"];
 
 /**
  * The prompt of a preview pick that is not a pick among your own cards: a zone of your field (`zone`), the "Activate its
@@ -292,6 +292,8 @@ function previewPrompt(pick: Ffa4PreviewPick, own: DuelSeatView): DuelPrompt | n
       };
     case "search":
       return searchPrompt(ASTER);
+    case "search2":
+      return searchPrompt(ASTER, 2);
     case "cards":
       return {
         id: "pick-cards", seat: ASTER, kind: "cards", title: "Select 1 monster in your GY", min: 1, max: 1, cancelable: true,

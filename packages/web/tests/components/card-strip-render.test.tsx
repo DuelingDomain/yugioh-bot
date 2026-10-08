@@ -263,6 +263,24 @@ describe("CardStrip", () => {
       expect(stripCardsPerRow()).toBe(1);
     });
 
+    it("takes a grid list as a wrapping one too", () => {
+      const layout = mockRows({ clientHeight: 300, scrollHeight: 800 });
+      const style = document.createElement("style");
+      style.textContent = "ul[data-card-strip] { display: grid; flex-wrap: nowrap; }";
+      document.head.appendChild(style);
+      try {
+        render(
+          <div data-prompt-panel>
+            <CardStrip items={many(12)} highlight={0} busy={false} multi label="Pick" onPick={() => {}} />
+          </div>,
+        );
+        expect(stripCardsPerRow()).toBe(3);
+      } finally {
+        style.remove();
+        layout.restore();
+      }
+    });
+
     it("looks for the strip in the open prompt panel only", () => {
       const layout = mockRows({ clientHeight: 300, scrollHeight: 800 });
       try {
