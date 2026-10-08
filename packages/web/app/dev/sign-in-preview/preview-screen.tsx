@@ -7,6 +7,7 @@ import { IdentifierStep } from "@/components/auth/steps/identifier-step";
 import { NewPasswordStep } from "@/components/auth/steps/new-password-step";
 import { NotInvitedStep } from "@/components/auth/steps/not-invited-step";
 import { PasswordStep } from "@/components/auth/steps/password-step";
+import { RecoveringStep } from "@/components/auth/steps/recovering-step";
 import { SignupClosedStep } from "@/components/auth/steps/signup-closed-step";
 import { SigningStep } from "@/components/auth/steps/signing-step";
 import { SuccessStep } from "@/components/auth/steps/success-step";
@@ -63,6 +64,8 @@ export function PreviewScreen({ step, resendAvailableAt }: { step: PreviewStep; 
       return <AccountUnavailableStep onBack={noop} />;
     case "signing":
       return <SigningStep />;
+    case "recovering":
+      return <RecoveringStep />;
     case "success":
       return <SuccessStep />;
   }

@@ -84,7 +84,7 @@ async function renderCallback(flowState: AuthFlowState) {
 
 describe("sign-in page", () => {
   it.each([
-    ["signin", "signin"], ["password", "password"], ["code", "code"], ["newpw", "newpw"], ["signing", "signing"],
+    ["signin", "signin"], ["password", "password"], ["code", "code"], ["newpw", "newpw"], ["signing", "signing"], ["recovering", "recovering"],
     ["success", "success"], ["err-invite", "err-invite"], ["err-signup", "err-signup"], ["err-banned", "err-banned"],
   ] as const)("renders the %s step", async (step, screenName) => {
     const { container } = await renderSignIn(state(step, { codePurpose: "reset" }));
@@ -108,7 +108,7 @@ describe("sign-in page", () => {
 
   it("opens the pack only on success and marks error steps as bad", async () => {
     for (const [step, pack, tone] of [
-      ["signin", "sealed", "neutral"], ["password", "sealed", "neutral"], ["signing", "sealed", "neutral"],
+      ["signin", "sealed", "neutral"], ["password", "sealed", "neutral"], ["signing", "sealed", "neutral"], ["recovering", "sealed", "neutral"],
       ["success", "open", "neutral"], ["err-invite", "sealed", "bad"], ["err-signup", "sealed", "bad"], ["err-banned", "sealed", "bad"],
     ] as const) {
       const { container, unmount } = await renderSignIn(state(step, { codePurpose: "reset" }));
