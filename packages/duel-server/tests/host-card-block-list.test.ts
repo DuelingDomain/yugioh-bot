@@ -8,6 +8,9 @@ import { migrate } from "@yugidraft/shared/db";
 import { createDuelService } from "@yugidraft/shared/services";
 import { defaultDuelSettings, seatCountFor } from "@yugidraft/shared/duels";
 import { createDuelHost, type DuelHost } from "../src/host.js";
+import { cardScriptHash } from "../src/card-script-hash.js";
+import { loadCardDatabase } from "../src/cards.js";
+import { loadMultiScriptsFor } from "../src/multi-scripts.js";
 import { seedIdentity, seedUser } from "./helpers/identity.js";
 
 vi.mock("node:fs", async (original) => {
@@ -89,4 +92,24 @@ it("refuses a blocked preset board card before creating a session or core", asyn
     expect(createWorker).not.toHaveBeenCalled();
     expect(db.prepare("SELECT count(*) AS n FROM duels").get()).toEqual({ n: 0 });
   } finally { await host.close(); hosts.splice(hosts.indexOf(host), 1); db.close(); }
+});
+
+it.each([
+  { presetId: "raigeki-dark-hole-tag", code: 12580477, kind: "multi-normal" as const },
+  { presetId: "dust-tornado-chain", code: 5318639, kind: "pinned-normal" as const },
+])("$presetId checks its actual engine scope when 1v1 defaults to legacy", async ({ presetId, code, kind }) => {
+  vi.stubEnv("DUEL_SCENARIOS", "1"); vi.stubEnv("MULTIPLAYER_TABLES", "1"); vi.stubEnv("DUEL_1V1_ENGINE", "legacy");
+  const db = new Database(":memory:"); migrate(db);
+  const player = seedIdentity(db, { guildId: "g", name: "P", userId: seedUser(db, presetId).userId }).playerId;
+  db.prepare(`INSERT INTO card_script_auto_blocks (code, reason, blocked_at, distinct_duels, error_count, threshold, window_days, bundle_version, script_hash, engine_kind)
+    VALUES (?, 'reason', CURRENT_TIMESTAMP, 3, 3, 3, 7, 'test', ?, ?)`)
+    .run(code, cardScriptHash(loadCardDatabase(DATA), code, kind, kind === "multi-normal" ? loadMultiScriptsFor(DATA) : undefined), kind);
+  const createWorker = vi.fn(() => { throw new Error("Blocked board must not create a core"); });
+  const host = createDuelHost({ db, dataDirectory: DATA, secret: SECRET, searchCards: () => [], createWorker });
+  try {
+    const result = await post(host, { op: "start-preset", presetId, guildId: "g", playerId: player });
+    expect(result.status).toBe(400);
+    expect(result.data.error).toContain("is unavailable");
+    expect(createWorker).not.toHaveBeenCalled();
+  } finally { await host.close(); db.close(); }
 });
