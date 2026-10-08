@@ -474,6 +474,16 @@ describe("privacy in the rendered panel", () => {
       expect(bullets.map((bullet) => bullet.textContent)).toEqual(["Add 1 \"Mitsurugi\" monster from your Deck to your hand.", "Chosen: Take 800 damage."]);
     });
 
+    it("shows the choice in the response window: the activate event has none, the live chain has it", () => {
+      const events = [activate(1, 0, prayers(), z(0, SZONE, 0), { description: "Apply 1 of these effects" })];
+      const chain: DuelChainLink[] = [{ index: 1, seat: 0, code: 45171524, name: "Mitsurugi Prayers", chosenOptions: [{ text: "Take 800 damage" }] }];
+      const view = render(<ChainFx {...base} chain={chain} events={events} reducedMotion />);
+      flush(60);
+      const bullets = Array.from(hero(view.container)?.querySelectorAll("[data-chain-option]") ?? []);
+      expect(bullets.filter((bullet) => bullet.getAttribute("data-chosen") === "true").map((bullet) => bullet.textContent?.replace(/^Chosen: /, ""))).toEqual(["Take 800 damage."]);
+      expect(Array.from(hero(view.container)?.querySelectorAll("[data-chain-chose-option]") ?? []).map((node) => node.textContent)).toEqual(["Take 800 damage"]);
+    });
+
     it("marks no bullet for a choice known only by its prompt index, and still says it", () => {
       const { marked, said } = chose([{ index: 0, text: "Option 1" }]);
       expect(marked).toEqual([]);
