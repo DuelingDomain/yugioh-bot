@@ -339,8 +339,8 @@ export function createDuelHost(options: {
       }
       return hashes.get(key)!;
     }, now: options.now });
-  const admissionEntries = (mode: DuelMode = "normal", format: DuelFormat = "1v1") =>
-    mergeCardBlockEntries(loadCardBlockList(undefined, options.dataDirectory), autoBlocks.entries(scriptEngineKind(mode, format, duel1v1Engine())));
+  const admissionEntries = (mode: DuelMode = "normal", format: DuelFormat = "1v1", engine: DuelEngineChoice = duel1v1Engine()) =>
+    mergeCardBlockEntries(loadCardBlockList(undefined, options.dataDirectory), autoBlocks.entries(scriptEngineKind(mode, format, engine)));
   const recordScriptError = createScriptErrorRecorder(options.db, console.error, autoBlocks);
   const spawn = (duelId?: number): DuelGameWorker => options.createWorker?.() ?? new GameWorker(
     duelId === undefined ? undefined : (error) => recordScriptError(duelId, error),
@@ -1531,7 +1531,7 @@ export function createDuelHost(options: {
       throw new RequestError(error instanceof Error ? error.message : "Preset board is invalid", 500);
     }
     const catalog = loadCardDatabase(options.dataDirectory);
-    const blocked = cardBlockIndex(new Map([...catalog.all()].map((card) => [card.code, card])), admissionEntries(), options.dataDirectory);
+    const blocked = cardBlockIndex(new Map([...catalog.all()].map((card) => [card.code, card])), admissionEntries(compiled.options.mode ?? "normal", preset.format, "pinned"), options.dataDirectory);
     for (const code of compiled.codes) {
       const entry = blocked.get(code);
       if (entry) throw new RequestError(`${catalog.get(code)?.name ?? code} is unavailable: ${entry.reason}`, 400);
