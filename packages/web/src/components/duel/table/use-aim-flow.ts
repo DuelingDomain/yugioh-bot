@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DuelAnswer, DuelPromptOption } from "@yugidraft/shared/duels";
+import { zoneKey } from "../constants";
 import { targetName } from "../card-interactions";
 import { isAttackDuelistPrompt, isAttackTargetPrompt, optionsForKeys, optionZoneKeys, type PromptAim } from "../prompts";
 import type { AimArrowProps, AimPointerSpot } from "./aim-arrow";
@@ -63,9 +64,13 @@ export interface AimFlow {
   pointed: { zoneKey: string | null; lpSeat: number | null; label: string; optionId: string } | null;
   /** Props of the pointer aim arrow, or null: no attack target is open, there is no mouse cursor, or an aim is locked. */
   arrow: AimArrowProps | null;
+  /** Seats of the legal targets of the attack being aimed (before it is sent, or at the core's own target step); empty when none. */
+  aimSeats: readonly number[];
   confirm: () => void;
   cancel: () => void;
 }
+
+const NO_SEATS: readonly number[] = [];
 
 const sameTo = (a: BattleAim["to"] | null, b: BattleAim["to"] | null): boolean =>
   a === b || (a != null && b != null && (a.zones ?? []).join(" ") === (b.zones ?? []).join(" ") && (a.lpSeat ?? null) === (b.lpSeat ?? null));
@@ -94,7 +99,7 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
   const { prompt: realPrompt, engine, viewerSeat, canAct, nameOf, onAnswer } = base;
   const pre = base.attackAim ?? null;
   // Before the attack is sent, the aim runs on a prompt made from the board: the same code aims, locks and sends.
-  const prompt = useMemo(() => (pre && realPrompt ? aimPromptFor(realPrompt, engine, viewerSeat, pre.direct) : realPrompt), [engine, pre, realPrompt, viewerSeat]);
+  const prompt = useMemo(() => (pre && realPrompt ? aimPromptFor(realPrompt, engine, viewerSeat, pre.direct, pre.targets) : realPrompt), [engine, pre, realPrompt, viewerSeat]);
   const promptId = prompt?.id ?? null;
   const attackerKey = base.aim?.from ?? null;
   const attackTarget = canAct && isAttackTargetPrompt(prompt, attackerKey != null);
@@ -173,6 +178,8 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
         const keys = target.closest("[data-zones]")?.getAttribute("data-zones")?.split(" ") ?? [];
         const key = keys.find((entry) => targets.has(entry));
         if (key) return { optionId: targets.get(key)!.id, to: { zones: [key] } };
+        // A monster that is not a legal target is never a direct attack on its seat, even when that seat may be hit directly.
+        if (pre && keys.some((entry) => engine.seats.some((view) => view.monsters.some((card) => card != null && zoneKey(card.controller, card.location, card.sequence) === entry)))) return null;
       }
       if (direct) {
         // Empty mat takes no pointer (field.module.css): the target is then the zoom layer, and the seat is found from the
@@ -187,7 +194,7 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
       }
       return null;
     },
-    [attackTarget, direct, root, targets],
+    [attackTarget, direct, engine.seats, pre, root, targets],
   );
   const resolveRef = useRef(resolve);
   resolveRef.current = resolve;
@@ -484,6 +491,12 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
   }, [attackTarget, confirm, direct, live, lockTo, pre, prompt?.cancelable, touchMode]);
 
   // Before the attack is sent, the rival monsters light up as the legal targets (the real prompt only knows the attacker).
+  const aimSeats = useMemo(() => {
+    if (!aimActive || !prompt) return NO_SEATS;
+    const seats = new Set<number>();
+    for (const option of prompt.options) if (option.controller != null && option.controller !== viewerSeat) seats.add(option.controller);
+    return [...seats].sort((a, b) => a - b);
+  }, [aimActive, prompt, viewerSeat]);
   const preKeys = useMemo(() => (pre && attackTarget ? new Set(targets.keys()) : null), [attackTarget, pre, targets]);
   const controller = useMemo<TableController>(
     () => ({ ...base, aim, seatPick, onActivate, onAim, ...(preKeys ? { legalKeys: preKeys } : {}) }),
@@ -498,6 +511,7 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
     promptAim,
     seatKeys: seatPick != null,
     arrow,
+    aimSeats,
     pointed: live ? { zoneKey: live.to.zones?.[0] ?? null, lpSeat: live.to.lpSeat ?? null, label: live.label, optionId: live.optionId } : null,
     confirm,
     cancel,

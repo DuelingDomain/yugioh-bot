@@ -808,6 +808,10 @@ const defaultName = (seat: number): string => `Player ${seat + 1}`;
 
 export function BattleFx({ events, reducedMotion, active = true, aim = null, seats, result = null, nameOf = defaultName }: BattleFxProps) {
   const [mounted, setMounted] = useState(false);
+  const layerRef = useRef<HTMLDivElement | null>(null);
+  // The layer is fixed to the page, so an own-field zoom would draw the attack line over the header. A table
+  // marks its board box (data-duel-board); the layer is cut to that box. Without one (the 1v1 room) nothing is cut.
+  const [clip, setClip] = useState<string | undefined>(undefined);
   const [play, setPlay] = useState<Play | null>(null);
   const [declared, setDeclared] = useState<BattleAim | null>(null);
   // The attack beat of a flip-effect sequence: no battle plays for it (battle-trigger.ts), so it has its own.
@@ -1064,6 +1068,28 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
     return () => duelFxClock.clearTimeout(timer);
   }, [strikeSeq, strikeEnd]);
 
+  useEffect(() => {
+    const layer = layerRef.current;
+    const board = layer?.closest<HTMLElement>("[data-duel-board]");
+    if (!layer || !board) {
+      setClip(undefined);
+      return;
+    }
+    const measure = () => {
+      const area = layer.getBoundingClientRect();
+      const box = board.getBoundingClientRect();
+      setClip(`inset(${Math.max(0, box.top - area.top)}px ${Math.max(0, area.right - box.right)}px ${Math.max(0, area.bottom - box.bottom)}px ${Math.max(0, box.left - area.left)}px)`);
+    };
+    measure();
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null;
+    observer?.observe(board);
+    window.addEventListener("resize", measure);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [mounted]);
+
   if (!mounted) return null;
   const strikeAim = strike?.aim ?? null;
   const shownAim = aim ?? declared ?? strikeAim;
@@ -1072,7 +1098,7 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
   // inside it. In the board context the layer takes --duel-z-fx-front, below --duel-z-prompt. The board
   // has no transformed ancestor, so `position: fixed` still measures against the viewport.
   return (
-    <div className={`${baseStyles.layer} ${duelFontClasses}`} aria-hidden>
+    <div ref={layerRef} className={`${baseStyles.layer} ${duelFontClasses}`} style={clip ? { clipPath: clip } : undefined} aria-hidden>
       {shownAim ? <AimLayer aim={shownAim} reduced={reducedMotion} /> : null}
       {strike ? <FlipStrike key={strike.seq} plan={strike} /> : null}
       {play ? <AttackPlay key={play.seq} play={play}

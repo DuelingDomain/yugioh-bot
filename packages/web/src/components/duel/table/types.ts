@@ -180,6 +180,8 @@ export interface TableStageProps {
   /** Phase hub card (3-way and 4-way tables): drawn flat on the canvas beside the turn ring, at `hubPose`. */
   hub?: ReactNode;
   masterChip?: ReactNode; // hangs under the viewer's own holo LP panel (the Deck Master chip of a domain duel)
+  /** Seats of the legal targets of the attack being aimed (before it is sent, or at the core's own target step). Empty when none. */
+  aimSeats?: readonly number[];
 }
 export type TagStageProps = TableStageProps;
 export type FxLockRule = (event: DuelEvent) => { reason: CameraLockReason; ms: number } | null;

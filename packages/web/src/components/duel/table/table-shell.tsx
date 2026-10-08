@@ -539,6 +539,7 @@ function TableShellBody({
       data-table-shell
       data-duel-fx-speed-root
       data-can-act={canAct ? "true" : "false"}
+      data-aim-seats={flow.aimSeats.length > 0 ? flow.aimSeats.join(" ") : undefined}
       data-viewport={fillViewport ? "true" : undefined}
       data-domain={domain}
       data-fit="true"
@@ -644,7 +645,7 @@ function TableShellBody({
         )}
         {hud ? null : promptDockNode}
         <section className={`${roomStyles.boardColumn} ${hud ? styles.hudBoard : ""}`} aria-label="Duel field">
-          <div className={roomStyles.board} ref={boardRef}>
+          <div className={roomStyles.board} ref={boardRef} data-duel-board>
             <MoveSourceBoundary events={engine.events} duelKey={session.slug} root={boardRef}>
               <Stage
                 controller={controller}
@@ -654,6 +655,7 @@ function TableShellBody({
                 locked={camera.locked}
                 out={camera.out}
                 targetSeat={camera.targetSeat}
+                aimSeats={flow.aimSeats}
                 placeLabels={placeLabels}
                 dispatchCamera={camera.dispatch}
                 grid={grid ? gridFocus : undefined}
