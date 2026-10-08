@@ -93,6 +93,10 @@
 .panel[data-tone="chain"] { border: var(--pc-border-chain); }
 
 .panel[data-wide="true"] { width: min(640px, calc(100% - 24px)); }
+/* Card text grows with the type, so the panel grows with it: the lines stay about as many as on a small screen. */
+@media (min-width: 901px) {
+  .panel:has(.cardText):not([data-wide="true"]) { width: min(max(560px, calc(560 * var(--duel-unit, 1px))), calc(100% - 24px)); }
+}
 /* A card strip is as wide as its cards need, up to about six large cards, and never wider than the board
    (the layer is the board box). A longer list scrolls inside the strip; the header stays whole above it. */
 .panel[data-strip="true"] {
@@ -408,6 +412,11 @@
   line-height: 1.45;
   white-space: pre-line;
   overflow-wrap: anywhere;
+}
+/* The box is too short for the text and there is more below: fade the last two lines. */
+.cardTextBody[data-overflow="true"][data-end="false"] {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 2lh), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 2lh), transparent);
 }
 .cardTextBody[data-clamped="true"] {
   display: -webkit-box;

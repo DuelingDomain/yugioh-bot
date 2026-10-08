@@ -445,10 +445,32 @@ function CardTextBlock({ text, label = "Card text", open: forceOpen }: { text: s
   const [open, setOpen] = useState(Boolean(forceOpen));
   const long = text.length > 200 || text.split(/\r?\n/).length > 3;
   const clamped = compact && long && !open;
+  // When the box is too short for the text it scrolls: a fade at the bottom says there is more until the end is reached.
+  const body = useRef<HTMLParagraphElement>(null);
+  const [scroll, setScroll] = useState({ overflow: false, end: true });
+  const measure = useCallback(() => {
+    const el = body.current;
+    if (!el) return;
+    const overflow = !clamped && el.scrollHeight - el.clientHeight > 1;
+    const end = el.scrollTop + el.clientHeight >= el.scrollHeight - 1;
+    setScroll((prev) => (prev.overflow === overflow && prev.end === end ? prev : { overflow, end }));
+  }, [clamped]);
+  useLayoutEffect(() => {
+    measure();
+    const el = body.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [measure, text]);
   return (
     <div ref={root} className={styles.cardText} data-open={clamped ? "false" : "true"}>
       <span className={styles.cardTextLabel}>{label}</span>
-      <p className={styles.cardTextBody} data-clamped={clamped ? "true" : "false"}>{text}</p>
+      <p
+        ref={body} className={styles.cardTextBody} data-clamped={clamped ? "true" : "false"}
+        data-overflow={scroll.overflow ? "true" : undefined} data-end={scroll.overflow ? (scroll.end ? "true" : "false") : undefined}
+        onScroll={measure}
+      >{text}</p>
       {compact && long && !forceOpen ? (
         <button type="button" className={styles.cardTextMore} aria-expanded={open} onClick={() => setOpen((value) => !value)}>
           {open ? "Show less" : "Show full text"}
