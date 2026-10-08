@@ -29,6 +29,34 @@
 }
 .caption[data-busy="true"] { color: var(--duel-chain-ink, #f4d690); }
 
+/* The caption line; a wrapping list that has more rows beyond an edge adds the count and the up and down buttons at its right end. */
+.bar { display: contents; }
+.bar[data-pager] { display: flex; align-items: center; gap: 8px; }
+.bar[data-pager] .caption { flex: 1 1 auto; min-width: 0; }
+.pager { display: flex; flex: none; align-items: center; gap: 6px; }
+.count {
+  color: var(--duel-ink-3, #958f81);
+  font-size: var(--duel-t-xs, 11px);
+  line-height: 1;
+  white-space: nowrap;
+}
+.pageBtn {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--duel-rule-hi, rgb(181 153 99 / 0.6));
+  border-radius: 50%;
+  background: rgb(11 17 32 / 0.92);
+  color: var(--duel-ink, #efe7d5);
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.pageBtn:hover:not(:disabled) { border-color: var(--duel-pen, #9b7eff); background: rgb(19 32 55 / 0.96); }
+.pageBtn:focus-visible { outline: 2px solid var(--duel-ink, #efe7d5); outline-offset: 2px; }
+.pageBtn:disabled { opacity: 0.35; cursor: default; }
+
 /* The frame holds the arrows over the scroller; the arrows sit at the middle of the art. */
 .frame {
   position: relative;
@@ -86,11 +114,6 @@
 }
 .arrow[data-side="prev"] { left: calc(4 * var(--cs-u)); }
 .arrow[data-side="next"] { right: calc(4 * var(--cs-u)); }
-/* The up and down buttons of a wrapping list: round chevrons at the middle of the top and bottom edge. */
-.arrow[data-side="up"],
-.arrow[data-side="down"] { left: 50%; translate: -50% 0; }
-.arrow[data-side="up"] { top: calc(4 * var(--cs-u)); }
-.arrow[data-side="down"] { top: auto; bottom: calc(4 * var(--cs-u)); }
 .arrow:hover { border-color: var(--duel-pen, #9b7eff); background: rgb(19 32 55 / 0.96); }
 .arrow:focus-visible { outline: 2px solid var(--duel-ink, #efe7d5); outline-offset: 2px; }
 
@@ -259,11 +282,11 @@
  */
 @media (min-width: 901px) {
   :global([data-prompt-dense]) .wrap:not([data-tone="chain"]) {
-    --cs-w: clamp(96px, calc((var(--pr-strip-h, 300px) - 158px * var(--tt, 1)) / 1.46), max(112px, calc(128 * var(--cs-u))));
+    --cs-w: clamp(70px, calc((var(--pr-strip-h, 300px) - 170px * var(--tt, 1)) / 1.46), max(112px, calc(128 * var(--cs-u))));
     --cs-gap: calc(10 * var(--cs-u));
     --cs-pad-x: 14px;
-    --cs-pad-top: 12px;
-    --cs-pad-bottom: 12px;
+    --cs-pad-top: 10px;
+    --cs-pad-bottom: 4px;
     --cs-fade: 28px;
     flex: 1 1 auto;
   }
@@ -278,7 +301,8 @@
     min-height: 0;
     flex-wrap: wrap;
     align-content: flex-start;
-    justify-content: center;
+    /* Rows start at the left, so Up and Down keep the column (a short last row does not centre). */
+    justify-content: flex-start;
     /* A row gap above the lift (4px) and the pick mark (8px) that hangs off the corner. */
     row-gap: 18px;
     overflow-x: hidden;

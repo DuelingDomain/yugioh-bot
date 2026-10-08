@@ -1,7 +1,7 @@
 "use client";
 
 import { duelFxClock } from "./fx-clock";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp } from "lucide-react";
 import type { DuelCardInfo } from "@yugidraft/shared/duels";
 import { cardArtUrl } from "./constants";
@@ -113,9 +113,9 @@ export function stripWraps(list: HTMLElement): boolean {
   return getComputedStyle(list).flexWrap === "wrap";
 }
 
-/** Cards in one row of the strip on screen: 1 when there is none, or when the strip is a single sideways row. For the Up and Down keys. */
+/** Cards in one row of the strip in the open prompt panel: 1 when there is none, or when the strip is a single sideways row. For the Up and Down keys. */
 export function stripCardsPerRow(): number {
-  const list = document.querySelector<HTMLElement>("[data-card-strip]");
+  const list = document.querySelector<HTMLElement>("[data-prompt-panel] [data-card-strip]");
   if (!list || !stripWraps(list)) return 1;
   return cardsPerRow(Array.from(list.children, (cell) => (cell as HTMLElement).offsetTop));
 }
@@ -167,7 +167,7 @@ export function CardStrip({
   onInspect?: (card: DuelCardInfo) => void;
 }) {
   const listRef = useRef<HTMLUListElement>(null);
-  const [more, setMore] = useState({ prev: false, next: false, up: false, down: false });
+  const [more, setMore] = useState({ prev: false, next: false, up: false, down: false, wrap: false });
 
   const scrollBehavior = useCallback((list: HTMLElement): ScrollBehavior => {
     const reduced = list.closest('[data-reduced="true"]') != null ||
@@ -181,10 +181,10 @@ export function CardStrip({
     if (!list) return;
     // One axis scrolls at a time: a wrapping list only up and down, a single row only sideways.
     const next = stripWraps(list)
-      ? { prev: false, next: false, ...stripOverflowY(list) }
-      : { ...stripOverflow(list), up: false, down: false };
+      ? { prev: false, next: false, ...stripOverflowY(list), wrap: true }
+      : { ...stripOverflow(list), up: false, down: false, wrap: false };
     setMore((current) => (
-      current.prev === next.prev && current.next === next.next && current.up === next.up && current.down === next.down ? current : next
+      current.prev === next.prev && current.next === next.next && current.up === next.up && current.down === next.down && current.wrap === next.wrap ? current : next
     ));
   }, []);
 
@@ -267,34 +267,42 @@ export function CardStrip({
     return () => list.removeEventListener("wheel", wheel);
   }, []);
 
+  // The count and the up and down buttons: only a wrapping list that has more rows beyond an edge.
+  const pager = more.wrap && (more.up || more.down);
+  // A mouse click on a scroll button keeps the focus where it was (on the card), so the arrow keys still work.
+  const keepFocus = (event: ReactMouseEvent) => event.preventDefault();
+
   return (
     <div className={styles.wrap} aria-busy={busy} data-tone={tone}>
-      <p className={styles.caption} data-busy={busy ? "true" : "false"} role="status">
-        {busy ? (offline ? "Reconnecting…" : "Syncing…") : <span className={styles.hint}>{hint}</span>}
-      </p>
+      <div className={styles.bar} data-pager={pager ? true : undefined}>
+        <p className={styles.caption} data-busy={busy ? "true" : "false"} role="status">
+          {busy ? (offline ? "Reconnecting…" : "Syncing…") : <span className={styles.hint}>{hint}</span>}
+        </p>
+        {pager ? (
+          <div className={styles.pager}>
+            <span className={styles.count}>{items.length} cards</span>
+            <button type="button" className={styles.pageBtn} tabIndex={-1} disabled={!more.up}
+              aria-label="Show earlier cards" onMouseDown={keepFocus} onClick={() => page(-1)}>
+              <ChevronUp size={14} strokeWidth={2.25} aria-hidden />
+            </button>
+            <button type="button" className={styles.pageBtn} tabIndex={-1} disabled={!more.down}
+              aria-label="Show more cards" onMouseDown={keepFocus} onClick={() => page(1)}>
+              <ChevronDown size={14} strokeWidth={2.25} aria-hidden />
+            </button>
+          </div>
+        ) : null}
+      </div>
       <div className={styles.frame} data-prev={more.prev} data-next={more.next} data-up={more.up} data-down={more.down}>
         {more.prev ? (
           <button type="button" className={styles.arrow} data-side="prev" tabIndex={-1}
-            aria-label="Show earlier cards" onClick={() => page(-1)}>
+            aria-label="Show earlier cards" onMouseDown={keepFocus} onClick={() => page(-1)}>
             <ChevronLeft size={20} strokeWidth={2.25} aria-hidden />
           </button>
         ) : null}
         {more.next ? (
           <button type="button" className={styles.arrow} data-side="next" tabIndex={-1}
-            aria-label="Show more cards" onClick={() => page(1)}>
+            aria-label="Show more cards" onMouseDown={keepFocus} onClick={() => page(1)}>
             <ChevronRight size={20} strokeWidth={2.25} aria-hidden />
-          </button>
-        ) : null}
-        {more.up ? (
-          <button type="button" className={styles.arrow} data-side="up" tabIndex={-1}
-            aria-label="Show earlier cards" onClick={() => page(-1)}>
-            <ChevronUp size={20} strokeWidth={2.25} aria-hidden />
-          </button>
-        ) : null}
-        {more.down ? (
-          <button type="button" className={styles.arrow} data-side="down" tabIndex={-1}
-            aria-label="Show more cards" onClick={() => page(1)}>
-            <ChevronDown size={20} strokeWidth={2.25} aria-hidden />
           </button>
         ) : null}
         <ul ref={listRef} className={styles.strip} data-card-strip aria-label={label} data-notes={items.some((item) => item.detail) ? true : undefined} onScroll={() => {
