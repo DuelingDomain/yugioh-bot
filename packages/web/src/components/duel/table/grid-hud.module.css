@@ -322,8 +322,10 @@
   color: var(--duel-ink);
 }
 /* The chain panel (wide or narrow) lists every link itself, and it stands where the tower does: the tower steps out
-   of the way while it shows. A strip (a prompt covers the column, a phone) leaves the tower. */
-:global([data-duel-fx-speed-root]):has(:global([data-chain-front][data-size="wide"]:not([data-room-ready="false"])), :global([data-chain-front][data-size="narrow"]:not([data-room-ready="false"]))) .tower { display: none; }
+   of the way while that panel is on screen. The rule keys on the panel element, not the front layer's size: the size
+   stays "wide" after the panel goes, and a hidden layer (the Graveyard viewer is open, the layer is suspended or not
+   measured yet) shows no panel. A strip (a prompt covers the column, a phone) leaves the tower. */
+:global([data-duel-fx-speed-root]):not(:has(:global([data-pile-viewer]))):has(:global([data-chain-front]:not([data-suspended="true"]):not([data-room-ready="false"])) :global([data-chain-panel][data-shape="wide"]), :global([data-chain-front]:not([data-suspended="true"]):not([data-room-ready="false"])) :global([data-chain-panel][data-shape="narrow"])) .tower { display: none; }
 .towerHead {
   display: flex;
   align-items: center;
