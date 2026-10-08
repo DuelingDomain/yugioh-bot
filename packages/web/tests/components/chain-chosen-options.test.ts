@@ -19,6 +19,16 @@ describe("markChosenLines", () => {
     expect(chosenTexts(markChosenLines(lines(), [{ index: 0, text: "Take 800 damage" }]))).toEqual(["Take 800 damage."]);
   });
 
+  it("prefers the equal bullet over one that only holds the text", () => {
+    const text = "Apply 1 of these effects.\n\u25cf Draw 2 cards.\n\u25cf Draw 2 cards, then discard 1 card.";
+    expect(chosenTexts(markChosenLines(cardTextLines(text), [{ text: "Draw 2 cards" }]))).toEqual(["Draw 2 cards."]);
+  });
+
+  it("marks nothing when two bullets fit the text partly and none is equal", () => {
+    const text = "Apply 1 of these effects.\n\u25cf Draw 2 cards, then discard 1.\n\u25cf Draw 2 cards, then banish 1.";
+    expect(chosenTexts(markChosenLines(cardTextLines(text), [{ text: "Draw 2 cards" }]))).toEqual([]);
+  });
+
   it("does not guess by the prompt index: the engine hides options, so the index is no bullet position", () => {
     expect(chosenTexts(markChosenLines(lines(), [{ index: 1, text: "Option 2" }]))).toEqual([]);
     expect(chosenTexts(markChosenLines(lines(), [{ index: 0, text: "Option 1" }]))).toEqual([]);
