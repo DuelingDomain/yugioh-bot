@@ -70,6 +70,13 @@ describe("Xyz materials in a pick", () => {
     ]);
   });
 
+  it("say Xyz material when one Xyz's materials share the prompt with other cards", () => {
+    const plain = { id: "card:9", label: "Dark Magician", card: card(46986414, "Dark Magician"), controller: 0, location: MZONE, sequence: 4 } as DuelPromptOption;
+    expect(materialHostNotes([...three.slice(0, 2), plain]).map((note) => note?.detail)).toEqual(["Xyz material", "Xyz material", undefined]);
+    // Materials alone (one Xyz) need no line.
+    expect(materialHostNotes(three)).toEqual([null, null, null]);
+  });
+
   it("show as a card list; picking two and Confirm answers with those materials", () => {
     const prompt = detach(three);
     const onSubmit = vi.fn();

@@ -1,6 +1,7 @@
 /**
  * Xyz materials in a pick (a detach cost, "detach 2 materials", a material of a Summon) are not cards on the board, so the
- * prompt lists them as card tiles. When the materials sit under more than one Xyz monster, each tile says which one.
+ * prompt lists them as card tiles. When the materials sit under more than one Xyz monster, each tile says which one. Next to
+ * normal cards, a material says what it is.
  */
 import type { DuelPromptOption } from "@yugidraft/shared/duels";
 import { LOCATION_OVERLAY } from "./constants";
@@ -37,7 +38,7 @@ function ownerText(controller: number, who: MaterialViewer): string {
 /**
  * One note per option, in order. A material says "Under <Xyz name>" when the materials sit under two or more Xyz monsters
  * (one Xyz needs no line); the owner is added when the Xyz have different controllers, and "1 of 2" when two of one
- * controller share a name.
+ * controller share a name. When one Xyz's materials share the prompt with other cards, they say "Xyz material" instead.
  * Any other option gets null.
  */
 export function materialHostNotes(options: readonly DuelPromptOption[], who: MaterialViewer = { mySeat: null }): Array<MaterialHostNote | null> {
@@ -47,7 +48,11 @@ export function materialHostNotes(options: readonly DuelPromptOption[], who: Mat
     const key = hostKey(option);
     if (key && option.host) hosts.set(key, option.host);
   }
-  if (hosts.size < 2) return options.map(() => null);
+  if (hosts.size < 2) {
+    if (materials.length === 0 || materials.length === options.length) return options.map(() => null);
+    const note = { detail: "Xyz material", title: "Xyz material" };
+    return options.map((option) => (isMaterialOption(option) ? note : null));
+  }
   const spread = new Set([...hosts.values()].map((host) => host.controller)).size > 1;
   // Hosts of one name and one controller, in zone order, to tell twins apart.
   const twins = new Map<string, string[]>();
