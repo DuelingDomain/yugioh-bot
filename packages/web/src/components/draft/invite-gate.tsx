@@ -30,6 +30,9 @@ type Phase =
  */
 export function DraftInviteGate({ slug, children }: { slug: string; children: React.ReactNode }) {
   const router = useRouter();
+  // The redeem effect reads the router through a ref, so a router that changes identity never runs it again.
+  const routerRef = React.useRef(router);
+  routerRef.current = router;
   const [phase, setPhase] = React.useState<Phase>({ step: "checking" });
   // Bumped by Try again to run the redeem once more. The code is read from the address each time.
   const [attempt, setAttempt] = React.useState(0);
@@ -37,7 +40,7 @@ export function DraftInviteGate({ slug, children }: { slug: string; children: Re
   React.useEffect(() => {
     const code = readInviteParam();
     if (code === null) {
-      setPhase({ step: "ready" });
+      setPhase((current) => (current.step === "ready" ? current : { step: "ready" }));
       return;
     }
     let live = true;
@@ -49,7 +52,7 @@ export function DraftInviteGate({ slug, children }: { slug: string; children: Re
         setPhase({ step: "ready" });
       } else if (result.kind === "unauthorized") {
         // The session ended: sign in again and come back to this exact address, invite included.
-        router.push(signInHref());
+        routerRef.current.push(signInHref());
       } else {
         setPhase({ step: "failed", result });
       }
@@ -57,7 +60,7 @@ export function DraftInviteGate({ slug, children }: { slug: string; children: Re
     return () => {
       live = false;
     };
-  }, [slug, attempt, router]);
+  }, [slug, attempt]);
 
   if (phase.step === "ready") return <>{children}</>;
   if (phase.step === "failed") {
