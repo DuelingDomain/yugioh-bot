@@ -837,6 +837,7 @@ export function migrate(db: Database.Database) {
       command_hash text not null,
       error_index integer not null,
       code integer not null default 0,
+      created_at text not null default current_timestamp,
       primary key (duel_id, command_hash, error_index)
     );
 
@@ -1091,7 +1092,11 @@ export function migrate(db: Database.Database) {
   `);
 
   addColumnIfMissing(db, "card_script_error_occurrences", "code", "integer not null default 0");
+  // SQLite cannot ALTER ADD COLUMN with CURRENT_TIMESTAMP. Unknown old ages are safely prunable
+  // only for ended/deleted duels; active duel keys are retained by the recorder's cleanup.
+  addColumnIfMissing(db, "card_script_error_occurrences", "created_at", "text not null default '1970-01-01 00:00:00'");
   db.exec("create index if not exists card_script_error_duel_code_idx on card_script_error_occurrences (duel_id, code)");
+  db.exec("create index if not exists card_script_error_created_idx on card_script_error_occurrences (created_at)");
   migrateConfigPoolsToCubeCards(db);
   migrateIdentity(db);
 }

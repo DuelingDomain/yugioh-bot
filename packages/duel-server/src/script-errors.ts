@@ -12,7 +12,9 @@ export interface CardScriptError {
 export interface DuelScriptError extends CardScriptError {
   index: number;
   source?: "query";
-  /** Worker-only digest of accepted command prefix plus attempted command. */
+  /** Number of accepted journal commands before this worker request. */
+  journalPosition?: number;
+  /** Worker-only digest of saved seed, journal position and attempted command. */
   commandHash?: string;
   mode: DuelMode;
   format: DuelFormat;

@@ -244,17 +244,24 @@ the command, discard the advanced worker, and recover from the accepted journal.
 If recovery itself fails, the existing recovery failure interrupts the duel.
 
 Private worker replies send card code, reported script file/line, raw message,
-mode, table format, engine, policy and deterministic error ordinal to the host.
+mode, table format, engine, policy, journal position and per-request error ordinal
+to the host. Query ordinals are separate from process ordinals.
 Process telemetry is sampled at most 20 times per card per engine instance; the
 host also caps persistent samples at 20 per duel/card across recoveries. Query
 samples use a separate stable per-card key. Samples beyond these limits do not
 write SQLite rows or JSON error logs and do not affect gameplay events.
 The host emits a JSON `card_script_error` log with the numeric `duelId` and saves
 `card_script_errors` counters in the shared SQLite database. The idempotent schema
-migration also creates `card_script_error_occurrences(duel_id, command_hash, error_index)`;
-the command hash covers the saved seed, accepted command prefix and attempted command, so
+migration also creates `card_script_error_occurrences` with the key
+`(duel_id, command_hash, error_index)`, card code and creation time. The command hash
+covers the saved seed, accepted journal position and attempted command (with
+default elimination flags normalized), so
 recovery/retries count an occurrence once while different rejected branches remain
-distinct. Fatal answer and elimination failures discard the advanced worker before
+distinct. Query telemetry uses a fixed per-card key independent of journal/view
+frequency. Occurrence rows for completed, interrupted, cancelled or deleted duels
+expire after 30 days; active/lobby duel keys remain to prevent recovery recounts.
+Cleanup runs on recorder startup and daily during telemetry. Cumulative
+`card_script_errors` counters are retained. Fatal answer and elimination failures discard the advanced worker before
 recovery. Replay workers and standalone journal replay have no recorder. A database write failure emits
 `card_script_error_persistence_failed` with the same diagnostic and does not reject
 the duel answer; that occurrence cannot be counted until a later recovery succeeds.

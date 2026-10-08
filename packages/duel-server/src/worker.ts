@@ -12,7 +12,8 @@ let game: EngineGame | null = null;
 let queue = Promise.resolve();
 let traceSeats = 0;
 const scriptErrors: DuelScriptError[] = [];
-let commandPath = "start";
+let creationIdentity = "start";
+let journalPosition = 0;
 
 function canonicalCommand(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalCommand);
@@ -22,20 +23,25 @@ function canonicalCommand(value: unknown): unknown {
 
 function commandIdentity(request: DuelWorkerRequest): string {
   // A saved seed identifies creation across recovery; failed new starts use a fresh seed.
-  // Resource paths and worker transport IDs do not belong to its command path.
+  // Count accepted journal commands instead of hashing their transport representation.
   const { id: _id, ...command } = request;
-  const value = request.op === "create" ? { op: "create", seed: request.options.seed } : command;
-  return createHash("sha256").update(commandPath).update("\n").update(JSON.stringify(canonicalCommand(value))).digest("hex");
+  const value = request.op === "create" ? { op: "create", seed: request.options.seed }
+    : request.op === "eliminate" ? { ...command, atTurnEnd: request.atTurnEnd ?? false } : command;
+  const prefix = request.op === "create" ? "start" : `${creationIdentity}:${journalPosition}`;
+  return createHash("sha256").update(prefix).update("\n").update(JSON.stringify(canonicalCommand(value))).digest("hex");
 }
 
 /** Every answer carries the core identity and counters, so the host can show them even when a later call hangs. */
 export async function handleWorkerRequest(request: DuelWorkerRequest): Promise<DuelWorkerResponse> {
   const mutation = ["create", "answer", "eliminate", "chain-mode"].includes(request.op);
-  const commandHash = mutation ? commandIdentity(request) : commandPath;
+  const position = request.op === "create" ? 0 : journalPosition;
+  const commandHash = mutation ? commandIdentity(request) : creationIdentity;
   const response = await runWorkerRequest(request);
-  if (scriptErrors.length) response.scriptErrors = scriptErrors.splice(0).map((error) => ({ ...error, commandHash: error.source === "query" ? "query" : commandHash }));
-  if (mutation && response.ok) commandPath = commandHash;
-  if (request.op === "close") commandPath = "start";
+  if (mutation && response.ok) {
+    if (request.op === "create") { creationIdentity = commandHash; journalPosition = 0; }
+    else journalPosition++;
+  }
+  if (request.op === "close") { creationIdentity = "start"; journalPosition = 0; traceSeats = 0; }
   if (response.ok && game) {
     try {
       response.info = game.coreInfo();
@@ -50,6 +56,11 @@ export async function handleWorkerRequest(request: DuelWorkerRequest): Promise<D
       // The game closed while answering.
     }
   }
+  // Include queries performed by prompt tracing in the same response, without process ordinals.
+  let ordinal = 0;
+  if (scriptErrors.length) response.scriptErrors = scriptErrors.splice(0).map(error => error.source === "query"
+    ? { ...error, index: error.code, commandHash: "query" }
+    : { ...error, journalPosition: position, index: ++ordinal, commandHash });
   return response;
 }
 

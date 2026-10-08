@@ -93,6 +93,7 @@ describeWithCores("script errors through host, worker and journal", [needs.stand
     const base = { slug: session.slug, guildId: "g" };
     const views = async (): Promise<DuelEngineView[]> => Promise.all(players.map(async (player) => (await request(host, { ...base, op: "view", playerId: player })).engine));
     try {
+      if (format === "ffa4") await request(host, { ...base, op: "surrender", playerId: players[3] });
       for (let step = 0; step < 80; step++) {
         const current = await views();
         if (current[0]!.events.some((event) => event.kind === "script-error")) break;
