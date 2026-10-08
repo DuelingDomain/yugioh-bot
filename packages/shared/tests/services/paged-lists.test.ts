@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { migrate } from "../../src/db/schema.js";
-import { findDraftListPage, findTournamentListPage, InvalidListCursorError } from "../../src/services/index.js";
+import { findDraftListPage, findTournamentListPage, findDraftListStatusCounts, findTournamentListStatusCounts, InvalidListCursorError } from "../../src/services/index.js";
 let db: Database.Database;
 beforeEach(() => {
   db = new Database(":memory:"); migrate(db);
@@ -70,5 +70,28 @@ describe("paged draft and tournament lists", () => {
   it.each(["", "not-a-cursor", "%%%", "e30", "W10", "A".repeat(5000)])("rejects invalid cursors: %s", cursor => {
     expect(()=>findDraftListPage(db,"g",101,cursor)).toThrow(InvalidListCursorError);
     expect(()=>findTournamentListPage(db,"g",101,cursor)).toThrow(InvalidListCursorError);
+  });
+});
+
+describe("full-list status counts", () => {
+  it("counts all 52 visible drafts, including completed and cancelled rows beyond the first page", () => {
+    expect(findDraftListStatusCounts(db, "g", 101)).toEqual({ active: 13, pending: 13, completed: 13, cancelled: 13 });
+  });
+  it("restricts draft counts to the guild and the viewer's membership in that guild", () => {
+    db.exec("insert into drafts(id,guild_id,channel_id,name,status,created_by_user_id) values(53,'g','c','Other player','active',102),(54,'other-guild','c','Other guild','pending',101),(55,'g','c','Wrong guild seat','completed',101); insert into draft_players(draft_id,player_id) values(53,3),(54,1),(54,2),(55,2)");
+    expect(findDraftListStatusCounts(db, "g", 101)).toEqual({ active: 13, pending: 13, completed: 13, cancelled: 13 });
+    expect(findDraftListStatusCounts(db, "g", 102)).toEqual({ active: 1, pending: 0, completed: 0, cancelled: 0 });
+    expect(findDraftListStatusCounts(db, "other-guild", 101)).toEqual({ active: 0, pending: 1, completed: 0, cancelled: 0 });
+  });
+  it("counts all 39 listed tournaments without requiring a participant seat", () => {
+    db.exec("insert into tournaments(guild_id,name,format,status,created_by_user_id) values('other-guild','Other guild','round_robin','active',101)");
+    expect(findTournamentListStatusCounts(db, "g")).toEqual({ active: 13, pending: 13, completed: 13, cancelled: 0 });
+    expect(findTournamentListStatusCounts(db, "other-guild")).toEqual({ active: 1, pending: 0, completed: 0, cancelled: 0 });
+  });
+  it("returns zero counts when the viewer or guild has no visible rows", () => {
+    const empty = { active: 0, pending: 0, completed: 0, cancelled: 0 };
+    expect(findDraftListStatusCounts(db, "g", 102)).toEqual(empty);
+    expect(findDraftListStatusCounts(db, "missing", 101)).toEqual(empty);
+    expect(findTournamentListStatusCounts(db, "missing")).toEqual(empty);
   });
 });

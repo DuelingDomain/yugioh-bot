@@ -1,4 +1,4 @@
-import { findDraftListPage } from "@yugidraft/shared/services";
+import { findDraftListPage, findDraftListStatusCounts } from "@yugidraft/shared/services";
 import { DraftsList } from "@/components/draft/list/drafts-list";
 import { env } from "@/lib/env";
 import { redirect } from "next/navigation";
@@ -11,8 +11,7 @@ import { DraftFrame } from "@/components/draft/draft-frame";
 import { RejoinDraftBanner } from "@/components/draft/rejoin-draft";
 import { findRejoinDrafts } from "@/lib/rejoin-drafts";
 import {
-  groupDrafts,
-  listSummaryParts,
+  listSummaryPartsFromCounts,
   parseDraftConfig,
   type DraftListItem,
 } from "@/components/draft/list/drafts-list-model";
@@ -39,8 +38,7 @@ export default async function DraftsPage() {
   }));
 
   const rejoin = findRejoinDrafts(db, env.discordGuildId, userId);
-  const groups = groupDrafts(drafts);
-  const summary = listSummaryParts(groups);
+  const summary = listSummaryPartsFromCounts(findDraftListStatusCounts(db, env.discordGuildId, userId));
 
   const newDraft = (
     // With no drafts, the empty state below holds the page's one primary button.

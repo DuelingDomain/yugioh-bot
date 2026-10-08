@@ -48,6 +48,30 @@ describe("paged list HTTP and server page contract", () => {
       cursor.guildId = "other-guild";
       expect((await api(kind,Buffer.from(JSON.stringify(cursor)).toString("base64url"))).status).toBe(400);
     });
+    it(`${kind}: the header counts every visible status beyond the first 25 rows`, async () => {
+      const db = state.db!;
+      // Keep 30 pending rows so finished statuses fall entirely beyond page one.
+      for (const [id, status] of [[31, "active"], [32, "completed"], [33, "cancelled"]] as const) {
+        db.prepare("insert into drafts(id,guild_id,channel_id,name,status,created_by_user_id) values(?,'g','c',?,?,101)").run(id, `Draft ${id}`, status);
+        db.prepare("insert into draft_players(draft_id,player_id) values(?,1)").run(id);
+        db.prepare("insert into tournaments(id,guild_id,name,format,status,created_by_user_id) values(?,'g',?,'round_robin',?,101)").run(id, `Cup ${id}`, status);
+      }
+      db.exec("insert into users(id,username,display_name) values(102,'other','Other'); insert into players(id,guild_id,user_id,display_name) values(2,'g',102,'Other'),(3,'other-guild',101,'Viewer'); insert into drafts(id,guild_id,channel_id,name,status,created_by_user_id) values(34,'g','c','Not a member','active',102),(35,'other-guild','c','Other guild','completed',101); insert into draft_players(draft_id,player_id) values(34,2),(35,3); insert into tournaments(id,guild_id,name,format,status,created_by_user_id) values(34,'other-guild','Other guild','round_robin','active',101)");
+      // Tournament counts are guild-wide, even for a viewer with no participant seats.
+      db.exec("delete from tournament_participants");
+      const page = kind === "drafts" ? await import("../app/(app)/drafts/page") : await import("../app/(app)/tournaments/page");
+      const element = await page.default();
+      expect(element.props.sub).toBe(kind === "drafts"
+        ? "1 live, 30 waiting to start, 2 finished"
+        : "1 in progress, 30 open to join, 1 finished");
+      expect(pagedProps(element).initialItems).toHaveLength(25);
+    });
+    it(`${kind}: omits zero status counts and an empty header summary`, async () => {
+      const page = kind === "drafts" ? await import("../app/(app)/drafts/page") : await import("../app/(app)/tournaments/page");
+      expect((await page.default()).props.sub).toBe(kind === "drafts" ? "30 waiting to start" : "30 open to join");
+      state.db!.exec("delete from tournament_participants; delete from tournaments; delete from draft_players; delete from drafts");
+      expect((await page.default()).props.sub).toBeUndefined();
+    });
     it(`${kind}: passes the first page and cursor to its client list`, async () => {
       const page = kind === "drafts" ? await import("../app/(app)/drafts/page") : await import("../app/(app)/tournaments/page");
       const props = pagedProps(await page.default());

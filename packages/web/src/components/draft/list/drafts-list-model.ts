@@ -1,4 +1,5 @@
 /** Row model for the drafts list (/drafts). Pure, so it is easy to test. */
+import type { ListStatusCounts } from "@yugidraft/shared/services";
 import type { StageStep } from "@/components/sheet";
 import { formatPickSeconds } from "../pick-time";
 
@@ -143,10 +144,16 @@ export function groupDrafts(items: DraftListItem[]): DraftGroups {
 
 /** The header line after "Drafts you're in": "1 live", "2 waiting to start", "6 finished". Zero counts are left out. */
 export function listSummaryParts(groups: DraftGroups): string[] {
+  return listSummaryPartsFromCounts({ active: groups.live.length, pending: groups.waiting.length, completed: groups.finished.length, cancelled: 0 });
+}
+
+/** Uses full-list counts when the page's rows are paginated. */
+export function listSummaryPartsFromCounts(counts: ListStatusCounts): string[] {
   const parts: string[] = [];
-  if (groups.live.length) parts.push(`${groups.live.length} live`);
-  if (groups.waiting.length) parts.push(`${groups.waiting.length} waiting to start`);
-  if (groups.finished.length) parts.push(`${groups.finished.length} finished`);
+  if (counts.active) parts.push(`${counts.active} live`);
+  if (counts.pending) parts.push(`${counts.pending} waiting to start`);
+  const finished = counts.completed + counts.cancelled;
+  if (finished) parts.push(`${finished} finished`);
   return parts;
 }
 

@@ -1,4 +1,4 @@
-import { findTournamentListPage } from "@yugidraft/shared/services";
+import { findTournamentListPage, findTournamentListStatusCounts } from "@yugidraft/shared/services";
 import { TournamentsList } from "@/components/tournament/tournaments-list";
 import { env } from "@/lib/env";
 import { redirect } from "next/navigation";
@@ -10,7 +10,7 @@ import { PageFrame } from "@/components/dashboard/page-frame";
 import { loadTournamentRounds } from "@/components/dashboard/tournament-rounds";
 import {
   groupTournaments,
-  listSummaryParts,
+  listSummaryPartsFromCounts,
 } from "@/components/tournament/tournaments-list-model";
 
 export default async function TournamentsPage() {
@@ -22,7 +22,7 @@ export default async function TournamentsPage() {
   const { items: tournaments, nextCursor } = findTournamentListPage(db, env.discordGuildId, userId);
 
   const groups = groupTournaments(tournaments);
-  const summary = listSummaryParts(groups);
+  const summary = listSummaryPartsFromCounts(findTournamentListStatusCounts(db, env.discordGuildId));
 
   // Round strips and duel actions need the pairings of the tournaments still in play.
   const viewer = db

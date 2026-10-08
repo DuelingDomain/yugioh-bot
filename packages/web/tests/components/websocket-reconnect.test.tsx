@@ -25,61 +25,99 @@ vi.mock("socket.io-client", () => ({ io }));
 
 const mockFetch = vi.fn();
 
+function mockTournamentConnection() {
+  mockFetch.mockReset();
+  mockFetch.mockResolvedValue({ ok: true, json: async () => ({ token: "tournament-token", userId: 101 }) });
+  vi.stubGlobal("fetch", mockFetch);
+}
+
+function acknowledgeTournamentJoin(index = 0) {
+  act(() => sockets[index].emit.mock.lastCall![2]({}));
+}
+
 describe.each([
   { room: "tournament", useSocket: (slug: string, refetch: () => void) => useTournamentWebsocket(slug, { onMatchUpdated: refetch }) },
 ])("$room reconnect", ({ room, useSocket }) => {
   beforeEach(() => {
     vi.clearAllMocks();
     sockets.length = 0;
+    mockTournamentConnection();
   });
 
-  function connect(index = 0) {
+  afterEach(() => vi.unstubAllGlobals());
+
+  async function connect(index = 0) {
+    const joins = sockets[index].emit.mock.calls.length;
     act(() => sockets[index].handlers.get("connect")!());
+    await waitFor(() => expect(sockets[index].emit).toHaveBeenCalledTimes(joins + 1));
   }
 
-  it("joins on first connect without refetching", () => {
+  it("joins on first connect without refetching", async () => {
     const refetch = vi.fn();
     renderHook(() => useSocket("cup", refetch));
-    connect();
-    expect(sockets[0].emit).toHaveBeenCalledExactlyOnceWith(`${room}:join`, { slug: "cup" });
+    await connect();
+    expect(mockFetch).toHaveBeenCalledExactlyOnceWith("/api/tournaments/cup/connection", expect.objectContaining({ cache: "no-store" }));
+    expect(sockets[0].emit).toHaveBeenCalledExactlyOnceWith(`${room}:join`, {
+      slug: "cup", token: "tournament-token", userId: 101,
+    }, expect.any(Function));
+    expect(refetch).not.toHaveBeenCalled();
+    acknowledgeTournamentJoin();
     expect(refetch).not.toHaveBeenCalled();
   });
 
-  it("refetches exactly once for each reconnect after rejoining", () => {
+  it("refetches exactly once for each reconnect after rejoining", async () => {
     const refetch = vi.fn(() => {
-      expect(sockets[0].emit).toHaveBeenLastCalledWith(`${room}:join`, { slug: "cup" });
+      expect(sockets[0].emit).toHaveBeenLastCalledWith(`${room}:join`, {
+        slug: "cup", token: "tournament-token", userId: 101,
+      }, expect.any(Function));
     });
     renderHook(() => useSocket("cup", refetch));
-    connect();
-    connect();
+    await connect();
+    acknowledgeTournamentJoin();
+    await connect();
+    expect(refetch).not.toHaveBeenCalled();
+    acknowledgeTournamentJoin();
     expect(refetch).toHaveBeenCalledTimes(1);
-    connect();
+    await connect();
+    expect(refetch).toHaveBeenCalledTimes(1);
+    acknowledgeTournamentJoin();
     expect(refetch).toHaveBeenCalledTimes(2);
     expect(sockets[0].emit).toHaveBeenCalledTimes(3);
+    expect(mockFetch).toHaveBeenCalledTimes(3);
   });
 
-  it("uses the current refetch callback without replacing the socket", () => {
+  it("uses the current refetch callback without replacing the socket", async () => {
     const oldRefetch = vi.fn();
     const newRefetch = vi.fn();
     const { rerender } = renderHook(({ refetch }) => useSocket("cup", refetch), { initialProps: { refetch: oldRefetch } });
-    connect();
+    await connect();
+    acknowledgeTournamentJoin();
     rerender({ refetch: newRefetch });
-    connect();
+    await connect();
+    expect(newRefetch).not.toHaveBeenCalled();
+    acknowledgeTournamentJoin();
     expect(oldRefetch).not.toHaveBeenCalled();
     expect(newRefetch).toHaveBeenCalledTimes(1);
     expect(io).toHaveBeenCalledTimes(1);
   });
 
-  it("treats a different slug as a new first connection", () => {
+  it("treats a different slug as a new first connection", async () => {
     const refetch = vi.fn();
     const { rerender } = renderHook(({ slug }) => useSocket(slug, refetch), { initialProps: { slug: "old" } });
-    connect();
+    await connect();
+    acknowledgeTournamentJoin();
     rerender({ slug: "new" });
-    connect(1);
+    await connect(1);
+    acknowledgeTournamentJoin(1);
     expect(refetch).not.toHaveBeenCalled();
     expect(sockets[0].disconnect).toHaveBeenCalledTimes(1);
-    expect(sockets[1].emit).toHaveBeenCalledExactlyOnceWith(`${room}:join`, { slug: "new" });
-    connect(1);
+    expect(mockFetch).toHaveBeenNthCalledWith(2, "/api/tournaments/new/connection", expect.objectContaining({ cache: "no-store" }));
+    expect(sockets[1].emit).toHaveBeenCalledExactlyOnceWith(`${room}:join`, {
+      slug: "new", token: "tournament-token", userId: 101,
+    }, expect.any(Function));
+    await connect(1);
+    expect(refetch).not.toHaveBeenCalled();
+    acknowledgeTournamentJoin(1);
     expect(refetch).toHaveBeenCalledTimes(1);
   });
 });
@@ -88,11 +126,14 @@ describe("tournament onInvalidate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sockets.length = 0;
+    mockTournamentConnection();
   });
+
+  afterEach(() => vi.unstubAllGlobals());
 
   const fire = (event: string, ...args: unknown[]) => act(() => sockets[0].handlers.get(event)!(...args));
 
-  it("fires after each tournament event, after the specific callback", () => {
+  it("fires after each tournament event, after the specific callback", async () => {
     const calls: string[] = [];
     renderHook(() =>
       useTournamentWebsocket("cup", {
@@ -102,6 +143,8 @@ describe("tournament onInvalidate", () => {
       }),
     );
     fire("connect");
+    await waitFor(() => expect(sockets[0].emit).toHaveBeenCalledTimes(1));
+    acknowledgeTournamentJoin();
     fire("tournament:match-updated");
     fire("tournament:completed");
     expect(calls).toEqual(["match", "invalidate", "completed", "invalidate"]);
@@ -111,14 +154,22 @@ describe("tournament onInvalidate", () => {
     expect(calls.filter((c) => c === "invalidate")).toHaveLength(6);
   });
 
-  it("fires on reconnect but not on the first connect", () => {
+  it("fires on reconnect but not on the first connect", async () => {
     const onInvalidate = vi.fn();
     renderHook(() => useTournamentWebsocket("cup", { onInvalidate }));
     fire("connect");
+    await waitFor(() => expect(sockets[0].emit).toHaveBeenCalledTimes(1));
+    acknowledgeTournamentJoin();
     expect(onInvalidate).not.toHaveBeenCalled();
     fire("connect");
+    await waitFor(() => expect(sockets[0].emit).toHaveBeenCalledTimes(2));
+    expect(onInvalidate).not.toHaveBeenCalled();
+    acknowledgeTournamentJoin();
     expect(onInvalidate).toHaveBeenCalledTimes(1);
-    expect(sockets[0].emit).toHaveBeenLastCalledWith("tournament:join", { slug: "cup" });
+    expect(sockets[0].emit).toHaveBeenLastCalledWith("tournament:join", {
+      slug: "cup", token: "tournament-token", userId: 101,
+    }, expect.any(Function));
+    expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
   it("uses the current callback without replacing the socket", () => {

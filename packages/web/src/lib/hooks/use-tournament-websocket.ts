@@ -17,8 +17,8 @@ interface UseTournamentWebsocketOptions {
   /**
    * One refetch hook for pages that just want fresh data. Fires after any
    * tournament event (join, leave, started, cancelled, completed, match
-   * updated) and after a reconnect, once the room is rejoined. The specific
-   * callbacks above still fire first. Pass this instead of them, not as well,
+   * updated) and after a reconnect or retried join, once the room is joined.
+   * The specific callbacks above still fire first. Pass this instead of them, not as well,
    * or a page that refetches in both will fetch twice.
    */
   onInvalidate?: () => void;
@@ -34,7 +34,7 @@ export function useTournamentWebsocket(slug: string, options: UseTournamentWebso
 
     const socket = io(WS_URL, { autoConnect: true });
     socketRef.current = socket;
-    let hasJoined = false;
+    let hasAttemptedJoin = false;
     let disposed = false;
     let requestId = 0;
     let tokenRequest: AbortController | null = null;
@@ -59,6 +59,9 @@ export function useTournamentWebsocket(slug: string, options: UseTournamentWebso
 
     async function joinTournamentRoom() {
       clearJoinRetry();
+      // An earlier failed or interrupted attempt may have missed room events.
+      const shouldRefetch = hasAttemptedJoin;
+      hasAttemptedJoin = true;
       const currentRequest = ++requestId;
       tokenRequest?.abort();
       tokenRequest = new AbortController();
@@ -67,7 +70,7 @@ export function useTournamentWebsocket(slug: string, options: UseTournamentWebso
           cache: "no-store", signal: tokenRequest.signal,
         });
         if (!response.ok) {
-          if (response.status !== 403 && response.status !== 404) scheduleJoinRetry(currentRequest);
+          if (response.status !== 401 && response.status !== 403 && response.status !== 404) scheduleJoinRetry(currentRequest);
           return;
         }
         const data = await response.json() as { token: string; userId: number };
@@ -80,11 +83,10 @@ export function useTournamentWebsocket(slug: string, options: UseTournamentWebso
           }
           clearJoinRetry();
           retryDelay = 1000;
-          if (hasJoined) {
+          if (shouldRefetch) {
             optionsRef.current.onMatchUpdated?.();
             optionsRef.current.onInvalidate?.();
           }
-          hasJoined = true;
         });
       } catch (error) {
         if (!disposed && socket.connected && currentRequest === requestId && !(error instanceof Error && error.name === "AbortError")) {

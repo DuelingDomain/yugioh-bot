@@ -1,5 +1,6 @@
 /** Grouping and labels for the tournaments list (/tournaments). Pure, so it is easy to test. */
 
+import type { ListStatusCounts } from "@yugidraft/shared/services";
 import type { ZoneState } from "@/components/sheet";
 import { matchView } from "./matches/match-model";
 import { buildStandings } from "./standings/standings-model";
@@ -67,10 +68,15 @@ export function playersLabel(count: number): string {
 
 /** The header line: "2 in progress, 1 open to join, 14 finished". Zero counts are left out. */
 export function listSummaryParts(groups: TournamentGroups): string[] {
+  return listSummaryPartsFromCounts({ active: groups.running.length, pending: groups.open.length, completed: groups.finished.length, cancelled: 0 });
+}
+
+/** Uses full-list counts when the page's rows are paginated. */
+export function listSummaryPartsFromCounts(counts: ListStatusCounts): string[] {
   const parts: string[] = [];
-  if (groups.running.length) parts.push(`${groups.running.length} in progress`);
-  if (groups.open.length) parts.push(`${groups.open.length} open to join`);
-  if (groups.finished.length) parts.push(`${groups.finished.length} finished`);
+  if (counts.active) parts.push(`${counts.active} in progress`);
+  if (counts.pending) parts.push(`${counts.pending} open to join`);
+  if (counts.completed) parts.push(`${counts.completed} finished`);
   return parts;
 }
 

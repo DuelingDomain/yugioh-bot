@@ -64,6 +64,37 @@ function afterCursor(alias: string, rank: string) {
     (${alias}.created_at < @created or (${alias}.created_at = @created and ${alias}.id < @id))))`;
 }
 
+const draftListScope = `d.guild_id = @guild
+  and d.id in (select dp.draft_id from players p inner join draft_players dp on dp.player_id = p.id
+    where p.guild_id = @guild and p.user_id = @user)`;
+const tournamentListScope = "t.guild_id = @guild and t.status in ('pending','active','completed')";
+
+export interface ListStatusCounts {
+  active: number;
+  pending: number;
+  completed: number;
+  cancelled: number;
+}
+function statusCounts(rows: { status: string; count: number }[]): ListStatusCounts {
+  const counts: ListStatusCounts = { active: 0, pending: 0, completed: 0, cancelled: 0 };
+  for (const row of rows) {
+    if (Object.hasOwn(counts, row.status)) counts[row.status as keyof ListStatusCounts] = row.count;
+  }
+  return counts;
+}
+
+/** All viewer-seated drafts in this guild, independent of the current list page. */
+export function findDraftListStatusCounts(db: Database.Database, guildId: string, userId: number): ListStatusCounts {
+  return statusCounts(db.prepare(`select d.status, count(*) as count from drafts d
+    where ${draftListScope} group by d.status`).all({ guild: guildId, user: userId }) as { status: string; count: number }[]);
+}
+
+/** All listed tournaments in this guild; a participant seat is not required. */
+export function findTournamentListStatusCounts(db: Database.Database, guildId: string): ListStatusCounts {
+  return statusCounts(db.prepare(`select t.status, count(*) as count from tournaments t
+    where ${tournamentListScope} group by t.status`).all({ guild: guildId }) as { status: string; count: number }[]);
+}
+
 type DraftRow = {
   id: number;
   guild_id: string;
@@ -102,9 +133,7 @@ export function findDraftListPage(
       d.current_wave_number, d.current_pick_step, d.created_at, d.ended_at,
       (select count(*) from draft_players dp where dp.draft_id = d.id) as player_count,
       ${draftRank} as status_rank
-    from drafts d where d.guild_id = @guild
-      and d.id in (select dp.draft_id from players p inner join draft_players dp on dp.player_id = p.id
-        where p.guild_id = @guild and p.user_id = @user)
+    from drafts d where ${draftListScope}
       and ${afterCursor("d", draftRank)}
     order by status_rank, d.created_at desc, d.id desc limit @limit`).all(params(guildId, userId, key)) as DraftRow[];
   return page(rows, "drafts", guildId, userId, (row) => {
@@ -160,7 +189,7 @@ export function findTournamentListPage(
   const rows = db.prepare(`select t.id, t.guild_id, t.name, t.format, t.status, t.created_by_user_id, t.web_slug, t.created_at,
       (select count(*) from tournament_participants tp where tp.tournament_id = t.id) as participant_count,
       ${tournamentRank} as status_rank
-    from tournaments t where t.guild_id = @guild and t.status in ('pending','active','completed')
+    from tournaments t where ${tournamentListScope}
       and ${afterCursor("t", tournamentRank)}
     order by status_rank, t.created_at desc, t.id desc limit @limit`).all(params(guildId, userId, key)) as TournamentRow[];
   return page(rows, "tournaments", guildId, userId, (row) => ({

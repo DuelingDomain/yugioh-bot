@@ -3,7 +3,7 @@ import { writeFileSync } from "node:fs";
 import { expect, it, vi } from "vitest";
 import { migrate } from "../../src/db/schema.js";
 import { findDraftReadAccess } from "../../src/services/draft-access.js";
-import { findDraftListPage, findTournamentListPage } from "../../src/services/paged-lists.js";
+import { findDraftListPage, findTournamentListPage, findDraftListStatusCounts, findTournamentListStatusCounts } from "../../src/services/paged-lists.js";
 import { createOpenNowService } from "../../src/services/open-now.js";
 
 it("uses lookup indexes for the actual list, draft access and open-now queries", () => {
@@ -30,6 +30,8 @@ it("uses lookup indexes for the actual list, draft access and open-now queries",
     });
     label = "draft list"; findDraftListPage(db,"g",101);
     label = "tournament list"; findTournamentListPage(db,"g",101);
+    label = "draft counts"; findDraftListStatusCounts(db,"g",101);
+    label = "tournament counts"; findTournamentListStatusCounts(db,"g");
     label = "draft access"; findDraftReadAccess(db,"draft","g",101);
     label = "open now"; createOpenNowService(db).forPlayer("g",1);
     spy.mockRestore();
@@ -37,6 +39,10 @@ it("uses lookup indexes for the actual list, draft access and open-now queries",
     expect(details("draft list")).toContain("draft_players_player_idx");
     expect(details("draft list")).toMatch(/players.*\(guild_id=\? AND user_id=\?\)/);
     expect(details("tournament list")).toContain("tournaments_guild_status_created_idx");
+    expect(details("draft counts")).toContain("draft_players_player_idx");
+    expect(details("draft counts")).toMatch(/players.*\(guild_id=\? AND user_id=\?\)/);
+    expect(details("draft counts")).toContain("drafts_guild_status_created_idx");
+    expect(details("tournament counts")).toContain("tournaments_guild_status_created_idx");
     expect(details("draft access")).toContain("drafts_web_slug_unique");
     expect(details("draft access")).toMatch(/players.*\(guild_id=\? AND user_id=\?\)/);
     expect(details("open now")).toContain("drafts_guild_status_created_idx");
