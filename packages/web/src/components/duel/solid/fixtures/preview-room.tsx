@@ -251,7 +251,7 @@ export function SolidPreviewRoom({ stateId, flat, reduced }: { stateId: SolidSta
           bottomName: playerName(mySeat ?? 0), topName: playerName(1 - (mySeat ?? 0)),
         }}
         renderBoard={renderBoard}
-        renderClock={(seat) => room.clock ? <DuelClockDisplay clock={room.clock} session={room.session} seats={[seat]} /> : null}
+        renderClock={(seat) => room.clock ? <DuelClockDisplay clock={room.clock} session={room.session} reducedMotion={reduced} seats={[seat]} /> : null}
         inspect={{ type: "info", card: inspectCard }}
         pane={pane}
         setPane={setPane}

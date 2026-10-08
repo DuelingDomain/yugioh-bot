@@ -122,7 +122,7 @@
 }
 .cell[data-cell="band-pile"] { align-self: center; height: calc(var(--s) * 0.9); }
 
-/* Centre-band gaps: the opponent's clock (left, turned to face them, ember) and yours (right, purple). */
+/* Centre-band gaps: the opponent's clock (left, ember) and yours (right, purple). Both read the right way up. */
 .clock {
   position: relative;
   z-index: 1;
@@ -134,7 +134,7 @@
   font-size: calc(var(--s) * 0.3);
   line-height: 1;
 }
-.clock[data-sv-clock="opp"] { color: var(--sv-ember); transform: rotate(180deg); }
+.clock[data-sv-clock="opp"] { color: var(--sv-ember); }
 .clock[data-sv-clock="you"] { color: var(--pur-hi); }
 /* The V1 clock node (name + m:ss) stacks in the gap: name small above, time large below, in the seat colour. */
 .clock[data-sv-clock] > div,
