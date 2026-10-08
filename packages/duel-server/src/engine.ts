@@ -619,8 +619,8 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     if (index < 0) return;
     const [line] = leftFieldLines.splice(index, 1);
     line!.entry.text = line!.destination === OcgLocation.REMOVED
-      ? destroyedAndBanishedLogText(cards, line!.code)
-      : destroyedLogText(cards, line!.code);
+      ? destroyedAndBanishedLogText(cards, line!.code, line!.zone.controller, format)
+      : destroyedLogText(cards, line!.code, line!.zone.controller, format);
   };
 
   const recordEvent = (message: OcgMessage) => {
@@ -703,7 +703,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       case OcgMessageType.CHAINING:
         startedChainLinks.delete(message.chain_size);
         liveChainSize = message.chain_size;
-        appendLog(`${cards.get(message.code)?.name ?? `Card ${message.code}`} is activating`);
+        appendLog(`${playerLabel(format, message.controller)}'s ${cards.get(message.code)?.name ?? `Card ${message.code}`} is activating`);
         return;
       case OcgMessageType.SPSUMMONED:
         synchroSummon = undefined;
@@ -780,15 +780,17 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       case OcgMessageType.SET:
         appendLog(`${playerLabel(format, message.controller)} Sets a card`);
         return;
-      case OcgMessageType.CHAIN_NEGATED:
-        appendLog("A chain link was negated");
+      case OcgMessageType.CHAIN_NEGATED: {
+        const link = chainMemory[message.chain_size - 1];
+        appendLog(link ? `${playerLabel(format, link.seat)}'s chain link was negated` : "A chain link was negated");
         return;
+      }
       case OcgMessageType.CHAIN_END:
         appendLog("Chain ended");
         return;
       case OcgMessageType.ATTACK:
         declaringAttack = false;
-        appendLog(message.target ? "A monster declares an attack" : "A monster declares a direct attack");
+        appendLog(`${playerLabel(format, message.card.controller)} declares ${message.target ? "an attack" : "a direct attack"}`);
         return;
       case OcgMessageType.SHUFFLE_DECK:
         appendLog(`Player ${message.player + 1} shuffled their deck`);
@@ -809,7 +811,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
           noteReveal(reveals, message.player, card.controller, card.location, card.sequence, card.code);
           const partner = partnerSeatOf(format, message.player);
           if (partner != null) noteReveal(reveals, partner, card.controller, card.location, card.sequence, card.code);
-          appendLog(`Confirmed ${cards.get(card.code)?.name ?? `Card ${card.code}`}`, confirmationAudience(card, message.player, eventContext));
+          appendLog(`Confirmed ${playerLabel(format, card.controller)}'s ${cards.get(card.code)?.name ?? `Card ${card.code}`}`, confirmationAudience(card, message.player, eventContext));
         }
         return;
       case OcgMessageType.CONFIRM_DECKTOP:
@@ -886,9 +888,10 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       // whose stock wrapper target is null and cannot identify the defender.
       const attack = events.at(-1);
       if (attack?.kind === "attack" && !attack.target) {
+        const declaration = attack.text;
         noteDirectAttackTarget(attack, raw.duelist, format);
         for (let i = log.length - 1; i >= 0; i--) {
-          if (log[i].text !== "A monster declares a direct attack") continue;
+          if (log[i].text !== declaration) continue;
           log[i].text = attack.text;
           break;
         }
