@@ -59,7 +59,7 @@ describe("crumbleMayStart", () => {
 });
 
 describe("the crumble wait", () => {
-  it("tells the listeners once, when the crumble starts or its seat is gone", () => {
+  it("tells the listeners once, when the crumble starts", () => {
     const seen = vi.fn();
     const off = onCrumbleStart(seen);
     const end = beginCrumbleWait();
@@ -73,34 +73,73 @@ describe("the crumble wait", () => {
     expect(seen).toHaveBeenCalledTimes(1);
   });
 
-  it("counts every crumble that waits", () => {
+  it("tells the listeners only when no other crumble waits any more", () => {
+    const seen = vi.fn();
+    const off = onCrumbleStart(seen);
     const a = beginCrumbleWait();
     const b = beginCrumbleWait();
     a();
     expect(crumbleWaiting()).toBe(true);
+    expect(seen).not.toHaveBeenCalled();
     b();
     expect(crumbleWaiting()).toBe(false);
+    expect(seen).toHaveBeenCalledTimes(1);
+    off();
+  });
+
+  it("tells the listeners in a microtask when a seat goes while it waits, once, and not when a new wait began by then", async () => {
+    const seen = vi.fn();
+    const off = onCrumbleStart(seen);
+    const a = beginCrumbleWait();
+    const b = beginCrumbleWait();
+    a.drop();
+    b.drop();
+    expect(seen).not.toHaveBeenCalled();
+    await Promise.resolve();
+    expect(seen).toHaveBeenCalledTimes(1);
+
+    // A StrictMode double effect: the cleanup and the new wait come in one task.
+    const first = beginCrumbleWait();
+    first.drop();
+    const again = beginCrumbleWait();
+    await Promise.resolve();
+    expect(seen).toHaveBeenCalledTimes(1);
+    again();
+    expect(seen).toHaveBeenCalledTimes(2);
+    first.drop();
+    await Promise.resolve();
+    expect(seen).toHaveBeenCalledTimes(2);
+    off();
   });
 });
 
 describe("pauseRegroup", () => {
   class CSSTransition {
     playState = "running";
-    constructor(public delay: number, public currentTime: number | null = 0) {}
-    effect = { getTiming: () => ({ delay: this.delay }) };
+    effect: { target: Element; getTiming: () => { delay: number } };
+    constructor(public delay: number, target: Element, public currentTime: number | null = 0) {
+      this.effect = { target, getTiming: () => ({ delay: this.delay }) };
+    }
     pause = vi.fn(() => { this.playState = "paused"; });
     play = vi.fn(() => { this.playState = "running"; });
     finished = Promise.resolve();
   }
   class CSSAnimation extends CSSTransition {}
-  const source = (list: unknown[]) => ({ getAnimations: () => list as never[] });
+  const stage = (list: unknown[]) => ({ getAnimations: () => list as never[] });
+  const glideSeat = () => {
+    const el = document.createElement("div");
+    el.setAttribute("data-glide", "true");
+    document.body.append(el);
+    return el;
+  };
 
   it("pauses the glide transitions that are still in their delay and lets them go on after", () => {
-    const waiting = new CSSTransition(2200, 40);
-    const moving = new CSSTransition(2200, 2600);
-    const quick = new CSSTransition(0, 0);
-    const script = new CSSAnimation(2200, 0);
-    const resume = pauseRegroup(source([waiting, moving, quick, script]));
+    const seat = glideSeat();
+    const waiting = new CSSTransition(2200, seat, 40);
+    const moving = new CSSTransition(2200, seat, 2600);
+    const quick = new CSSTransition(0, seat, 0);
+    const script = new CSSAnimation(2200, seat, 0);
+    const resume = pauseRegroup(stage([waiting, moving, quick, script]));
     expect(waiting.pause).toHaveBeenCalledTimes(1);
     expect(moving.pause).not.toHaveBeenCalled();
     expect(quick.pause).not.toHaveBeenCalled();
@@ -109,6 +148,31 @@ describe("pauseRegroup", () => {
     expect(waiting.play).toHaveBeenCalledTimes(1);
     resume();
     expect(waiting.play).toHaveBeenCalledTimes(1);
+    seat.remove();
+  });
+
+  it("leaves the transitions that are not part of the regroup alone (the LP colour, the chain slot, the HUD)", () => {
+    const seat = glideSeat();
+    const other = document.createElement("div");
+    document.body.append(other);
+    const strip = document.createElement("div");
+    strip.setAttribute("data-regroup", "true");
+    const hub = document.createElement("div");
+    hub.className = "hub";
+    const plain = document.createElement("div");
+    strip.append(hub, plain);
+    document.body.append(strip);
+    const lp = new CSSTransition(2200, other, 0);
+    const slot = new CSSTransition(2200, plain, 0);
+    const hubTransition = new CSSTransition(2200, hub, 0);
+    const resume = pauseRegroup(stage([lp, slot, hubTransition]));
+    expect(lp.pause).not.toHaveBeenCalled();
+    expect(slot.pause).not.toHaveBeenCalled();
+    expect(hubTransition.pause).toHaveBeenCalledTimes(1);
+    resume();
+    seat.remove();
+    other.remove();
+    strip.remove();
   });
 
   it("does nothing without getAnimations", () => {

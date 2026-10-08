@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { slotZIndex } from "./geometry";
+import { GATE_TIMING } from "../duel-timing";
 import { duelFxClock } from "../fx-clock";
 import { CRUMBLE_GATE_CAP_MS, CRUMBLE_GATE_TICK_MS, beginCrumbleWait, crumbleMayStart, pauseRegroup } from "./crumble-gate";
 import { boardWidth, crumbleCards } from "./crumble-model";
@@ -129,19 +130,25 @@ export function ExitingSeat({ pose, tone, view, masterRule, faceUpHand, angleOff
   done.current = onDone;
   // The board waits whole until the attack, the damage and the LP roll that put the seat out are over (crumble-gate.ts).
   const [held, setHeld] = useState(true);
+  const rootRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!held) return undefined;
     const startedAt = duelFxClock.dateNow();
-    const end = beginCrumbleWait();
-    // The glide of the seats that stay waits too: it is paused once its transition has begun (a frame or two on).
+    const wait = beginCrumbleWait();
+    // The glide of the seats that stay waits too: the delayed transitions of the regroup in this table are paused once they
+    // have begun (a frame or two on). Reduced motion has no such transitions and does not wait for the board (below).
     let resume: (() => void) | null = null;
     const frames: number[] = [];
-    frames.push(window.requestAnimationFrame(() => frames.push(window.requestAnimationFrame(() => { resume = pauseRegroup(); }))));
+    if (!reducedMotion) {
+      frames.push(window.requestAnimationFrame(() => frames.push(window.requestAnimationFrame(() => { resume = pauseRegroup(rootRef.current?.closest("[data-table-stage]")); }))));
+    }
     const timer = setInterval(() => {
-      if (!crumbleMayStart() && duelFxClock.dateNow() - startedAt < CRUMBLE_GATE_CAP_MS) return;
+      const elapsed = duelFxClock.dateNow() - startedAt;
+      // Reduced motion shows no battle FX to wait for: it takes the short pause of the result gate.
+      if (reducedMotion ? elapsed < GATE_TIMING.resultReducedPauseMs : !crumbleMayStart() && elapsed < CRUMBLE_GATE_CAP_MS) return;
       clearInterval(timer);
       resume?.();
-      end();
+      wait();
       setHeld(false);
     }, CRUMBLE_GATE_TICK_MS);
     return () => {
@@ -149,9 +156,9 @@ export function ExitingSeat({ pose, tone, view, masterRule, faceUpHand, angleOff
       frames.forEach((frame) => window.cancelAnimationFrame(frame));
       // A seat that goes while it waits lets the glide and the finale go on.
       resume?.();
-      end();
+      wait.drop();
     };
-  }, [held]);
+  }, [held, reducedMotion]);
   // The animation reports itself; this timer is for a browser with no animations and for reduced motion.
   useEffect(() => {
     if (held) return undefined;
@@ -167,7 +174,7 @@ export function ExitingSeat({ pose, tone, view, masterRule, faceUpHand, angleOff
     ...(clipTop != null ? { clipPath: `inset(${clipTop}px -600px -600px -600px)` } : {}),
   };
   return (
-    <div className={styles.seat} style={style} data-seat-exit={pose.seat} data-exit-motion={reducedMotion ? "reduced" : "full"} data-exit-held={held ? "true" : undefined} aria-hidden="true">
+    <div ref={rootRef} className={styles.seat} style={style} data-seat-exit={pose.seat} data-exit-motion={reducedMotion ? "reduced" : "full"} data-exit-held={held ? "true" : undefined} aria-hidden="true">
       <div className={styles.exitBoard} style={{ width, transform: `scale(${unit})` }}>
         <SeatCrumble
           cards={cards}
