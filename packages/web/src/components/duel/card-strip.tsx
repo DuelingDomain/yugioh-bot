@@ -2,7 +2,7 @@
 
 import { duelFxClock } from "./fx-clock";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, ChevronLeft, ChevronRight } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp } from "lucide-react";
 import type { DuelCardInfo } from "@yugidraft/shared/duels";
 import { cardArtUrl } from "./constants";
 import { closePickRects, rememberPickRects, type PickEntry } from "./pick-rects";
@@ -54,6 +54,8 @@ export function stripScrollTop(
   item: { top: number; height: number },
   pad = 12,
 ): number {
+  // A row taller than the list can not fit: show its top.
+  if (item.height + 2 * pad > view.clientHeight) return Math.max(0, item.top - pad);
   if (item.top - pad < view.scrollTop) return Math.max(0, item.top - pad);
   const bottom = item.top + item.height + pad;
   if (bottom > view.scrollTop + view.clientHeight) return Math.max(0, bottom - view.clientHeight);
@@ -83,6 +85,39 @@ export function stripOverflowY(
     up: view.scrollTop > slack,
     down: view.scrollTop + view.clientHeight < view.scrollHeight - slack,
   };
+}
+
+/** The scrollTop an up or down button moves to: most of a page, so the last row seen stays in view. Clamped to the scrollable range. */
+export function stripPageScrollY(
+  view: { scrollTop: number; clientHeight: number; scrollHeight: number },
+  direction: -1 | 1,
+): number {
+  const max = Math.max(0, view.scrollHeight - view.clientHeight);
+  const step = Math.max(1, Math.round(view.clientHeight * 0.8));
+  return Math.min(max, Math.max(0, view.scrollTop + direction * step));
+}
+
+/** How many cards sit in the first row, from the top offset of each card in order (the cards that share the first one's row). */
+export function cardsPerRow(tops: readonly number[]): number {
+  if (tops.length === 0) return 1;
+  let count = 0;
+  for (const top of tops) {
+    if (Math.abs(top - tops[0]) > 2) break;
+    count += 1;
+  }
+  return Math.max(1, count);
+}
+
+/** Whether the cards wrap into rows that scroll up and down (a dense host, card-strip.module.css) and not one row that scrolls sideways. */
+export function stripWraps(list: HTMLElement): boolean {
+  return getComputedStyle(list).flexWrap === "wrap";
+}
+
+/** Cards in one row of the strip on screen: 1 when there is none, or when the strip is a single sideways row. For the Up and Down keys. */
+export function stripCardsPerRow(): number {
+  const list = document.querySelector<HTMLElement>("[data-card-strip]");
+  if (!list || !stripWraps(list)) return 1;
+  return cardsPerRow(Array.from(list.children, (cell) => (cell as HTMLElement).offsetTop));
 }
 
 /**
@@ -144,7 +179,10 @@ export function CardStrip({
   const measure = useCallback(() => {
     const list = listRef.current;
     if (!list) return;
-    const next = { ...stripOverflow(list), ...stripOverflowY(list) };
+    // One axis scrolls at a time: a wrapping list only up and down, a single row only sideways.
+    const next = stripWraps(list)
+      ? { prev: false, next: false, ...stripOverflowY(list) }
+      : { ...stripOverflow(list), up: false, down: false };
     setMore((current) => (
       current.prev === next.prev && current.next === next.next && current.up === next.up && current.down === next.down ? current : next
     ));
@@ -192,7 +230,7 @@ export function CardStrip({
     if (!list || !cell) return;
     const style = getComputedStyle(list);
     // A dense host wraps the cards into rows that scroll up and down (card-strip.module.css): follow on that axis.
-    if (style.flexWrap === "wrap") {
+    if (stripWraps(list)) {
       const padY = parseFloat(style.scrollPaddingTop) || 12;
       const top = stripScrollTop(list, { top: cell.offsetTop, height: cell.offsetHeight }, padY);
       if (top !== list.scrollTop) list.scrollTo({ top, behavior: scrollBehavior(list) });
@@ -207,6 +245,10 @@ export function CardStrip({
   function page(direction: -1 | 1) {
     const list = listRef.current;
     if (!list) return;
+    if (stripWraps(list)) {
+      list.scrollTo({ top: stripPageScrollY(list, direction), behavior: scrollBehavior(list) });
+      return;
+    }
     list.scrollTo({ left: stripPageScroll(list, direction), behavior: scrollBehavior(list) });
   }
 
@@ -215,6 +257,8 @@ export function CardStrip({
     const list = listRef.current;
     if (!list) return;
     const wheel = (event: WheelEvent) => {
+      // A wrapping list scrolls up and down by itself.
+      if (stripWraps(list)) return;
       if (list.scrollWidth <= list.clientWidth || Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
       event.preventDefault();
       list.scrollLeft += event.deltaY;
@@ -241,7 +285,19 @@ export function CardStrip({
             <ChevronRight size={20} strokeWidth={2.25} aria-hidden />
           </button>
         ) : null}
-        <ul ref={listRef} className={styles.strip} aria-label={label} data-notes={items.some((item) => item.detail) ? true : undefined} onScroll={() => {
+        {more.up ? (
+          <button type="button" className={styles.arrow} data-side="up" tabIndex={-1}
+            aria-label="Show earlier cards" onClick={() => page(-1)}>
+            <ChevronUp size={20} strokeWidth={2.25} aria-hidden />
+          </button>
+        ) : null}
+        {more.down ? (
+          <button type="button" className={styles.arrow} data-side="down" tabIndex={-1}
+            aria-label="Show more cards" onClick={() => page(1)}>
+            <ChevronDown size={20} strokeWidth={2.25} aria-hidden />
+          </button>
+        ) : null}
+        <ul ref={listRef} className={styles.strip} data-card-strip aria-label={label} data-notes={items.some((item) => item.detail) ? true : undefined} onScroll={() => {
           measure();
           record();
         }}>
