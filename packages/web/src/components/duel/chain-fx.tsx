@@ -813,7 +813,10 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
   useEffect(() => {
     if (!sheetOpen) return undefined;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setSheetWanted(false);
+      if (event.key !== "Escape") return;
+      // The sheet owns this Esc: later listeners (the Tag camera's way back to the overview) must not act on it too.
+      event.preventDefault();
+      setSheetWanted(false);
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);

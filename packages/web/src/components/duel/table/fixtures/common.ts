@@ -68,7 +68,8 @@ export const TABLE_CARDS = {
 } as const satisfies Record<string, DuelCardInfo>;
 
 export interface TableFixtureState {
-  id: TableStateId;
+  /** One of the nine shared ids, or the id of a mode's own extra state (see `TableFixtureSet.extra`). */
+  id: TableStateId | (string & {});
   label: string;
   room: DuelRoom;
   ui?: { aim?: BattleAim | null; camera?: Partial<CameraState>; initialOutOrder?: readonly (readonly number[])[] };
@@ -77,6 +78,8 @@ export interface TableFixtureSet {
   format: TableFormat;
   title: string;
   states: Readonly<Record<TableStateId, TableFixtureState>>;
+  /** States only this mode shows (`?state=<id>`); they are not in the state links of the preview bar. */
+  extra?: Readonly<Record<string, TableFixtureState>>;
 }
 
 /** An engine view in the real shape. Team numbers come from the format; everything else is what the caller gives. */

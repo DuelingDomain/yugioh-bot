@@ -322,7 +322,7 @@ export interface DuelSeatView {
   /** Team of this seat (`teamOfSeat(format, seat)`). Absent in 1v1 views made before multi-player formats. */
   team?: number;
   /**
-   * Living facing seat sharing these Extra Monster Zones in FFA4 (0/1, 2/3). Null in other formats or
+   * Living facing seat sharing these Extra Monster Zones in FFA4 and Tag (0/1, 2/3). Null in other formats or
    * when either seat is eliminated. Sequences 5/6 mirror to 6/5. Absent in older views.
    */
   sharedExtraWith?: number | null;

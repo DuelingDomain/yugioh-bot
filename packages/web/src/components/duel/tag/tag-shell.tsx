@@ -4,7 +4,7 @@ import { multiTableTextStyle, tableTextBig, useCardTextSize, useMultiTableTextFl
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { teamOfSeat } from "@yugidraft/shared/duels";
 import { AttackConfirm, CardActionMenu, CardHoverInfo, confirmSide, targetName } from "../card-interactions";
-import { isBattlePhase } from "../constants";
+import { isBattlePhase, LOCATION_HAND } from "../constants";
 import { DuelResultScreen } from "../duel-result";
 import { SeatField } from "../field";
 import { MoveSourceBoundary } from "../fx-boundary";
@@ -15,7 +15,8 @@ import { usePickContinuation } from "../pick-continuation";
 import { useDuelPreferences, type DuelPreferences } from "../preferences";
 import { centerKind, PromptCenter } from "../prompt-center";
 import { fieldWaitsForReveal } from "../field-gate";
-import { PromptTray, promptTrayVisible } from "../prompts";
+import { PhaseHub } from "../phase-hub";
+import { optionZoneKeys, PromptTray, promptTrayVisible } from "../prompts";
 import { useResultGate } from "../result-reveal";
 import roomStyles from "../room.module.css";
 import { SeriesBanner } from "../series-banner";
@@ -45,6 +46,7 @@ import { TagStage } from "./tag-stage";
 import { TagBaton, TagTrack } from "./tag-track";
 import { chainDecidingSeat, useChainPasses } from "./use-chain-passes";
 import { useRoofKeys } from "./use-roof-keys";
+import { gridKeyGates } from "../table/grid-focus";
 import styles from "./tag-shell.module.css";
 
 /**
@@ -187,7 +189,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
     dispatchCamera({ type: "lock", reason: lock.reason, nowMs: performance.now(), ms: lock.ms });
   }, [engine.events, fxActive, controller.reducedMotion]);
 
-  // An aim holds the camera where it is (auto follow reads it).
+  // An aim holds the camera where it is: a close-up goes back to the overview, and no click zooms in until the aim ends.
   useEffect(() => {
     dispatchCamera({ type: "aiming", on: flow.aiming });
   }, [flow.aiming]);
@@ -195,10 +197,33 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
   const promptMine = prompt != null && !spectator && !viewerOut && prompt.seat === viewerSeat && !terminal;
   const centered = promptMine && centerKind(prompt) != null;
   const centeredUnrevealed = centered && !controller.revealed;
+  // A prompt that picks zones on other fields than the focused one takes the camera back to the overview, so every
+  // target stays in view and clickable. The prompt id keys it: a new prompt checks again, a click on a field does not.
+  // The plain action menu (play a card, change phase) is not a pick: the hand is always in reach, and the rail can step
+  // to the field that holds the card.
+  const pickPrompt = promptMine && !(prompt?.kind === "choice" && prompt.context?.type === "action");
+  const promptId = pickPrompt ? prompt?.id ?? null : null;
+  const promptSeats = useMemo(() => {
+    if (!pickPrompt || !prompt) return [];
+    // A hand card is not on any field (the hand dock is always in reach): only board zones count.
+    return [
+      ...new Set(
+        prompt.options
+          .filter((option) => option.controller != null && option.location !== LOCATION_HAND && optionZoneKeys(option).length > 0)
+          .map((option) => option.controller as number),
+      ),
+    ];
+  }, [pickPrompt, prompt]);
+  useEffect(() => {
+    if (promptId != null && promptSeats.length > 0) dispatchCamera({ type: "needSeats", seats: promptSeats });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [promptId]);
+  const gates = gridKeyGates({ prompt, viewerSeat, aiming: flow.aiming, seatKeys: flow.seatKeys, flyoutOpen: hudOpen });
   useRoofKeys({
+    mode: camera.mode,
+    escapeFree: gates.escapeFree,
     dispatch: dispatchCamera,
     anchorSeat: layout.anchorSeat,
-    pinned: camera.pinned,
     // The result screen owns the keys while it is shown.
     suspended: suspended || showResult,
     yields: tagCameraYields({ aiming: flow.aiming, seatKeys: flow.seatKeys, centeredUnrevealed }),
@@ -334,12 +359,29 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
           <div className={styles.boardBox} ref={boardRef}>
             <MoveSourceBoundary events={engine.events} duelKey={session.slug} root={boardRef}>
               <TagStage
+                inspectIdleCards={hud}
                 controller={controller}
                 layout={layout}
                 camera={camera}
                 dispatchCamera={dispatchCamera}
                 renderSeatField={(fieldProps) => <SeatField {...fieldProps} />}
                 teamNames={teamNames}
+                hub={centered ? null : (
+                  <PhaseHub
+                    variant="table"
+                    phase={engine.phase}
+                    battleStep={battleStep}
+                    turn={engine.turn}
+                    turnSeat={engine.turnSeat}
+                    mySeat={viewerSeat}
+                    playerName={nameOf}
+                    tone={engine.turnSeat != null ? toneOf(engine.turnSeat) : null}
+                    actionOptions={promptMine ? actionOptions : []}
+                    canAct={canAct}
+                    onChoose={(id) => controller.onAnswer({ choice: id })}
+                    reducedMotion={controller.reducedMotion}
+                  />
+                )}
                 fx={<TagFx controller={controller} preferences={preferences} fxActive={fxActive} passedSeats={passes} />}
                 promptCenter={
                   <RowPreviewBoundary row={rowPreview} enabled={hud}>
@@ -415,9 +457,10 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
       </div>
 
       {hud ? (
-        <div className={hudStyles.bottom} data-testid="hud-bottom" data-tag-track>
+        <div className={`${hudStyles.bottom} ${styles.tagBottom}`} data-testid="hud-bottom" data-tag-track>
           <StationTrack
             {...trackProps}
+            phases="hub"
             clock={null}
             attackLock={attackLockAt("tag", engine.seats.length || 4, engine.turn, prompt)}
             attackLockTestId="tag-attack-lock"

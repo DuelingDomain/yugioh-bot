@@ -6,8 +6,20 @@ import { useRoofKeys } from "@/components/duel/tag/use-roof-keys";
 
 afterEach(cleanup);
 
-function Probe({ suspended, yields, dispatch, pinned = false }: { suspended?: boolean; yields?: boolean; dispatch: (action: unknown) => void; pinned?: boolean }) {
-  useRoofKeys({ dispatch, anchorSeat: 0, pinned, suspended, yields });
+function Probe({
+  suspended,
+  yields,
+  dispatch,
+  mode,
+  escapeFree,
+}: {
+  suspended?: boolean;
+  yields?: boolean;
+  dispatch: (action: unknown) => void;
+  mode?: "overview" | "home" | "focus" | "look" | "fly";
+  escapeFree?: boolean;
+}) {
+  useRoofKeys({ dispatch, anchorSeat: 0, suspended, yields, mode, escapeFree });
   return (
     <div>
       <input aria-label="chat" />
@@ -24,6 +36,56 @@ function press(key: string, init: KeyboardEventInit = {}, target: Element | Wind
   (target as EventTarget).dispatchEvent(event);
   return event;
 }
+
+describe("useRoofKeys Esc", () => {
+  it("goes back to the overview from a close-up when nothing else owns Esc", () => {
+    const dispatch = vi.fn();
+    render(<Probe dispatch={dispatch} mode="focus" escapeFree />);
+    const event = press("Escape");
+    expect(dispatch).toHaveBeenCalledWith({ type: "overview" });
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("does nothing in the overview", () => {
+    const dispatch = vi.fn();
+    render(<Probe dispatch={dispatch} mode="overview" escapeFree />);
+    const event = press("Escape");
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it("leaves Esc to a prompt, an aim or a flyout (escapeFree is false)", () => {
+    const dispatch = vi.fn();
+    render(<Probe dispatch={dispatch} mode="focus" escapeFree={false} />);
+    const event = press("Escape");
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it("still works while the camera yields its other keys, but never while input is suspended or under a modal", () => {
+    const dispatch = vi.fn();
+    const view = render(<Probe dispatch={dispatch} mode="focus" escapeFree yields />);
+    press("Escape");
+    expect(dispatch).toHaveBeenCalledWith({ type: "overview" });
+    dispatch.mockClear();
+    view.rerender(<Probe dispatch={dispatch} mode="focus" escapeFree suspended />);
+    press("Escape");
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it("is skipped when an earlier handler already took the key", () => {
+    const dispatch = vi.fn();
+    render(<Probe dispatch={dispatch} mode="focus" escapeFree />);
+    const early = (event: KeyboardEvent) => event.preventDefault();
+    window.addEventListener("keydown", early, true);
+    try {
+      press("Escape");
+    } finally {
+      window.removeEventListener("keydown", early, true);
+    }
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+});
 
 describe("useRoofKeys", () => {
   it("sends a digit to the camera when nothing is open", () => {
@@ -60,14 +122,14 @@ describe("useRoofKeys", () => {
     expect(dispatch).not.toHaveBeenCalled();
   });
 
-  it("takes Tab and Shift+Tab as focus steps when nothing is open", () => {
+  it("never takes Tab or Shift+Tab: the page keeps its keyboard walk and the camera stays", () => {
     const dispatch = vi.fn();
     render(<Probe dispatch={dispatch} />);
     const event = press("Tab");
-    press("Tab", { shiftKey: true });
-    expect(dispatch).toHaveBeenNthCalledWith(1, { type: "focusStep", dir: 1 });
-    expect(dispatch).toHaveBeenNthCalledWith(2, { type: "focusStep", dir: -1 });
-    expect(event.defaultPrevented).toBe(true);
+    const back = press("Tab", { shiftKey: true });
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
+    expect(back.defaultPrevented).toBe(false);
   });
 
   it("leaves Tab alone inside a dialog or prompt", () => {
@@ -117,9 +179,9 @@ describe("useRoofKeys", () => {
     expect(dispatch).not.toHaveBeenCalled();
     rerender(<Probe dispatch={dispatch} yields={false} />);
     press("4");
-    press("k");
+    press("o");
     expect(dispatch).toHaveBeenNthCalledWith(1, { type: "focus", seat: 3 });
-    expect(dispatch).toHaveBeenNthCalledWith(2, { type: "pin", on: true });
+    expect(dispatch).toHaveBeenNthCalledWith(2, { type: "overview" });
   });
 
   it("stops listening on unmount", () => {

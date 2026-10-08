@@ -5,8 +5,6 @@ import {
   lastTeamDamage,
   passSummary,
   chainLinkLabel,
-  defaultDirectSeat,
-  directAttackSeats,
   responseWindow,
   rivalPickOptions,
   resultBanner,
@@ -148,28 +146,6 @@ describe("batonOrder", () => {
     expect(b[1]).toMatchObject({ seat: 1, now: false, next: true });
     expect(batonOrder(3)[0]).toMatchObject({ next: true });
     expect(batonOrder(3)[3]).toMatchObject({ now: true });
-  });
-});
-
-describe("directAttackSeats", () => {
-  it("lists rival members with no monster", () => {
-    const e = engine([seat(0, 1, true), seat(1, 1, true), seat(2, 1, true), seat(3, 1, false)]);
-    expect(directAttackSeats(e, 0)).toEqual([3]);
-    expect(defaultDirectSeat(e, 0)).toBe(3);
-  });
-  it("is empty when every rival has a monster", () => {
-    const e = engine([seat(0, 1, true), seat(1, 1, true), seat(2, 1, true), seat(3, 1, true)]);
-    expect(directAttackSeats(e, 0)).toEqual([]);
-    expect(defaultDirectSeat(e, 0)).toBeNull();
-  });
-  it("skips an eliminated rival and counts the other team from seat 1", () => {
-    const e = engine([seat(0, 1, false), seat(1, 1, true), seat(2, 1, false), seat(3, 1, true, { eliminated: true })]);
-    expect(directAttackSeats(e, 1)).toEqual([0, 2]);
-    expect(directAttackSeats(e, 0)).toEqual([]);
-  });
-  it("picks the first seat in turn order as the default", () => {
-    const e = engine([seat(0, 1, true), seat(1, 1, false), seat(2, 1, true), seat(3, 1, false)]);
-    expect(defaultDirectSeat(e, 0)).toBe(1);
   });
 });
 

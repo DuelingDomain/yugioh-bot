@@ -90,7 +90,7 @@
   position: absolute;
   inset: 0;
   overflow: hidden;
-  perspective: var(--persp, 1500px);
+  perspective: var(--persp, 1400px);
   perspective-origin: var(--cx, 50%) var(--cy, 50%);
   background:
     radial-gradient(70% 45% at var(--cx, 50%) 0%, rgb(38 30 78 / 0.55), transparent 70%),
@@ -283,7 +283,13 @@
 .under {
   pointer-events: none;
   border-radius: 60px;
-  filter: blur(34px);
+  /* A soft edge from a mask, not a blur (a 34px blur of a 1520x460 box was the biggest cost of every frame of a camera
+     move): two linear fades, one per axis, intersected. That keeps the soft RECTANGLE of the blur, with square-ish
+     corners, where one radial mask turned it into an oval. */
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 64px, #000 calc(100% - 64px), transparent), linear-gradient(180deg, transparent, #000 64px, #000 calc(100% - 64px), transparent);
+  -webkit-mask-composite: source-in;
+  mask-image: linear-gradient(90deg, transparent, #000 64px, #000 calc(100% - 64px), transparent), linear-gradient(180deg, transparent, #000 64px, #000 calc(100% - 64px), transparent);
+  mask-composite: intersect;
   opacity: 0.5;
 }
 
@@ -381,29 +387,43 @@
   position: absolute;
   left: 0;
   top: 0;
-  width: 189px;
+  /* The plate is as wide as its text needs (never under 189px, never over 330px), centred on its notch by the individual
+     translate, which composes with the inline transform. A long name is cut with an ellipsis inside the plate. */
+  box-sizing: border-box;
+  width: max-content;
+  min-width: 189px;
+  max-width: 330px;
   height: 51px;
-  margin: -25.5px 0 0 -94.5px;
+  translate: -50% -50%;
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 0 16px 0 22px;
+  padding: 0 24px 0 22px;
   border-radius: 26px;
   background: rgb(8 12 22 / 0.92);
   border: 2.5px solid rgb(var(--c) / 0.5);
   white-space: nowrap;
+  pointer-events: none;
 }
 
 .bpill b {
+  flex: none;
   font: 700 24px / 1 var(--disp);
   color: rgb(var(--c));
 }
 
+/* The name is the only part that takes the pointer (the full name is its tooltip): the rest lets clicks reach the fields. */
 .bpill span {
-  flex: 1;
+  pointer-events: auto;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   text-align: center;
   font: 700 19px / 1 var(--ui);
   letter-spacing: 0.17em;
+  /* The tracking adds space after the last letter: pull it back so the text sits in the middle of the plate. */
+  margin-right: -0.17em;
   color: var(--ink);
 }
 
@@ -529,12 +549,14 @@
 
 /* Partner cards: legal ring and a Partner nib, never the USE glow. The field draws its normal marks for a
    legal card; this turns them into the partner look by attribute only. */
-.fieldHold[data-relation="partner"] [data-state="usable"] {
+.fieldHold[data-relation="partner"] [data-state="usable"],
+.fieldHold :global([data-band-cell][data-relation="partner"]) [data-state="usable"] {
   animation: none;
   box-shadow: 0 0 0 1.5px rgb(92 184 245 / 0.85), 0 0 10px rgb(92 184 245 / 0.3);
 }
 
-.fieldHold[data-relation="partner"] [data-state="usable"] + span {
+.fieldHold[data-relation="partner"] [data-state="usable"] + span,
+.fieldHold :global([data-band-cell][data-relation="partner"]) [data-state="usable"] + span {
   width: auto;
   padding: 0 6px;
   border-color: rgb(92 184 245);
@@ -543,9 +565,11 @@
   box-shadow: 0 0 6px rgb(92 184 245 / 0.4);
 }
 
-.fieldHold[data-relation="partner"] [data-state="usable"] + span svg { display: none; }
+.fieldHold[data-relation="partner"] [data-state="usable"] + span svg,
+.fieldHold :global([data-band-cell][data-relation="partner"]) [data-state="usable"] + span svg { display: none; }
 
-.fieldHold[data-relation="partner"] [data-state="usable"] + span::after {
+.fieldHold[data-relation="partner"] [data-state="usable"] + span::after,
+.fieldHold :global([data-band-cell][data-relation="partner"]) [data-state="usable"] + span::after {
   content: "Partner";
   font: 600 calc(12px * var(--tt, 1)) / 13px var(--ui);
   letter-spacing: 0.1em;
@@ -569,11 +593,17 @@
 .hud > * { pointer-events: auto; }
 
 /* team LP plates */
+/* A team plate is one slim row: the team and its life points on the left, one small chip per member on the right.
+   The near and the far plate share it; the far one hangs from cords above its strip. */
 .plate {
   position: absolute;
   z-index: 6;
-  width: calc(258 * var(--u));
-  padding: calc(8 * var(--u)) calc(9 * var(--u));
+  display: flex;
+  align-items: center;
+  gap: calc(10 * var(--u));
+  width: max-content;
+  max-width: calc(100% - 16px);
+  padding: calc(5 * var(--u)) calc(7 * var(--u)) calc(5 * var(--u)) calc(10 * var(--u));
   border-radius: 6px;
   background:
     linear-gradient(180deg, rgb(14 22 44 / 0.93), rgb(6 10 22 / 0.95)),
@@ -594,14 +624,6 @@
   box-shadow: 0 0 12px rgb(255 255 255 / 0.12);
 }
 
-.plate[data-hang="true"] {
-  width: auto;
-  display: flex;
-  align-items: center;
-  gap: calc(10 * var(--u));
-  padding: calc(6 * var(--u)) calc(8 * var(--u)) calc(6 * var(--u)) calc(10 * var(--u));
-}
-
 .plate[data-hang="true"]::before,
 .plate[data-hang="true"]::after {
   content: "";
@@ -614,19 +636,28 @@
 
 .plate[data-hang="true"]::before { left: 22%; }
 .plate[data-hang="true"]::after { right: 22%; }
-.plate[data-hang="true"] .pr2 { margin: calc(2 * var(--u)) 0 0; }
-.plate[data-hang="true"] .mchips { width: calc(250 * var(--u)); }
+
+/* The team and its life points: name and state on top, the numerals under them. */
+.pmain {
+  flex: none;
+  min-width: calc(112 * var(--u));
+}
 
 .pr1 {
   display: flex;
   align-items: center;
   gap: 6px;
-  height: calc(17 * var(--u));
+  height: calc(15 * var(--u));
 }
 
 .pr1 .glyph { font: 700 calc(15 * var(--u)) / 1 var(--disp); }
 
 .tn {
+  min-width: 0;
+  max-width: calc(110 * var(--u));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font: 700 var(--fs-sm) / 1 var(--disp);
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -635,7 +666,7 @@
 
 .tstate {
   margin-left: auto;
-  font: 600 calc(10 * var(--u)) / 1 var(--ui);
+  font: 600 calc(9 * var(--u)) / 1 var(--ui);
   letter-spacing: 0.12em;
   text-transform: uppercase;
   padding: 2px 6px;
@@ -664,8 +695,8 @@
   display: flex;
   align-items: baseline;
   gap: 6px;
-  margin: calc(3 * var(--u)) 0 calc(6 * var(--u));
-  --lp-size: calc(32 * var(--u));
+  margin: calc(2 * var(--u)) 0 0;
+  --lp-size: calc(24 * var(--u));
 }
 
 .lpl {
@@ -691,18 +722,16 @@
   letter-spacing: 0.02em;
 }
 
-.plate[data-hang="true"] .pr2 { --lp-size: calc(28 * var(--u)); }
-
 .mchips {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, max-content);
   gap: calc(5 * var(--u));
 }
 
 .mchip {
   position: relative;
   min-width: 0;
-  padding: calc(4 * var(--u)) calc(6 * var(--u)) calc(4 * var(--u)) calc(7 * var(--u));
+  padding: calc(3 * var(--u)) calc(6 * var(--u)) calc(3 * var(--u)) calc(7 * var(--u));
   border-radius: 4px;
   border: 1px solid rgb(var(--seat) / 0.3);
   border-left: 3px solid rgb(var(--seat));
@@ -720,6 +749,8 @@
 }
 
 .m1 b {
+  min-width: 0;
+  max-width: calc(78 * var(--u));
   color: var(--seat-ink);
   font-weight: 700;
   overflow: hidden;
@@ -745,7 +776,7 @@
   display: flex;
   align-items: center;
   gap: calc(6 * var(--u));
-  margin-top: calc(4 * var(--u));
+  margin-top: calc(3 * var(--u));
   font: 600 var(--fs-xs) / 1 var(--num);
   color: var(--ink-2);
   white-space: nowrap;
@@ -882,6 +913,23 @@
 }
 
 .hub > * { pointer-events: auto; }
+
+/* The phase hub (the shared PhaseHub, "table" variant) on the helipad. The stage places it; only its chips take the pointer. */
+.stage:has([data-phase-hub-slot]:not([data-off="true"]) > nav) [data-pad-h] { opacity: 0; }
+.phaseHub[data-off="true"] { visibility: hidden; opacity: 0; pointer-events: none; }
+.phaseHub {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 4;
+  translate: -50% -50%;
+  pointer-events: none;
+  text-shadow: 0 1px 2px #000;
+}
+
+/* The strip alone, for a gap too short for the caption: the owner line goes and the root is only as tall as the strip. */
+.phaseHub[data-hub-row="true"] [data-part="owner"] { display: none; }
+.phaseHub[data-hub-row="true"] nav[data-variant="table"] { height: auto; min-height: 0; }
 
 .crail {
   display: flex;
@@ -1226,4 +1274,45 @@
   letter-spacing: 0.14em;
   text-transform: uppercase;
   pointer-events: none;
+}
+
+/* ---------- narrow screens: the plate, the own hand and the partner hand stack at the bottom ----------
+   No room for them side by side. The plate takes the bottom row; --plate-h and --hand-h come from apply() in tag-stage.tsx. */
+@media (max-width: 900px) {
+  .ownPlate { left: 8px; bottom: 4px; }
+  .handDock { bottom: calc(var(--plate-h, 52px) + 8px); }
+  .phand {
+    right: 8px;
+    bottom: calc(var(--plate-h, 52px) + var(--hand-h, 90px) + 12px);
+    padding: 4px 5px;
+  }
+  .phand .pl { display: none; }
+  /* The header strip already shows the clocks, so the chips drop theirs to fit two of them in the row. */
+  .plate .clk { display: none; }
+  .plate { gap: 6px; padding-left: 8px; }
+  .pmain { min-width: 0; }
+  .mchips { gap: 4px; }
+  .m1 b { max-width: 52px; }
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* The shared Extra Monster Zones of a facing pair: one SeatField-sized box, so its two cells sit in columns 2 and 4 of the
+   fields on either side. Only the Extra Monster row of the field grid is drawn. */
+.band {
+  pointer-events: none;
+}
+
+.band .bandGrid {
+  grid-template-rows: var(--z);
+  height: var(--z);
 }

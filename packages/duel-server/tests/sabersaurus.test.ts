@@ -62,6 +62,7 @@ function playBattle(game: EngineGame, targetSeat: number, activate: boolean) {
       const option = p.options.find(o => o.id === "to_bp")
         ?? p.options.find(o => o.id.startsWith("attack:"))
         ?? p.options.find(o => o.id === `direct:${targetSeat}`)
+        ?? p.options.find(o => o.controller === targetSeat && /directly/i.test(o.label))
         ?? p.options.find(o => o.controller === targetSeat && o.location === 4);
       if (!option) throw new Error(`Unexpected battle prompt: ${JSON.stringify(p)}`);
       if (option.id.startsWith("attack:")) attacked = true;
@@ -72,17 +73,19 @@ function playBattle(game: EngineGame, targetSeat: number, activate: boolean) {
   throw new Error("Battle exceeded step budget");
 }
 
-for (const engine of ["legacy", "pinned", "ffa4"] as const) {
+for (const engine of ["legacy", "pinned", "ffa4", "tag"] as const) {
   for (const mode of ["normal", "domain"] as const) {
-    const format: DuelFormat = engine === "ffa4" ? "ffa4" : "1v1";
+    const format: DuelFormat = engine === "tag" ? "tag" : engine === "ffa4" ? "ffa4" : "1v1";
+    const multi = format !== "1v1";
+    const startingLP = format === "tag" ? 16000 : 8000;
     const required = [needs.cards(dataDirectory), needs.scripts(dataDirectory),
-      ...(engine === "ffa4" ? [needs.installedMulti(dataDirectory)] : engine === "pinned" ? [needs.standard(dataDirectory)] : []),
+      ...(multi ? [needs.installedMulti(dataDirectory)] : engine === "pinned" ? [needs.standard(dataDirectory)] : []),
       ...(mode === "domain" ? [needs.domain(dataDirectory), needs.domainScript(dataDirectory),
-        needs.file("Domain core", `${dataDirectory}/ocgcore.${engine === "legacy" ? "domain.legacy" : engine === "ffa4" ? "multi-domain" : "domain"}.wasm`, "Use a prepared bundle.")] : [])];
+        needs.file("Domain core", `${dataDirectory}/ocgcore.${engine === "legacy" ? "domain.legacy" : multi ? "multi-domain" : "domain"}.wasm`, "Use a prepared bundle.")] : [])];
     async function start(board: BoardSpec) {
       const setup: BoardSpec = { ...board, format, mode, masterRule: 5, skipOpeningDraw: true, attackFirstTurn: true };
       if (mode === "domain") {
-        const ids: DuelistId[] = format === "ffa4" ? ["p0", "p1", "p2", "p3"] : ["p0", "p1"];
+        const ids: DuelistId[] = multi ? ["p0", "p1", "p2", "p3"] : ["p0", "p1"];
         for (const id of ids) {
           setup[id] = { ...setup[id], deckMaster: 89631139 };
         }
@@ -99,9 +102,11 @@ for (const engine of ["legacy", "pinned", "ffa4"] as const) {
     itWithCores(`${engine}/${mode}: opponent direct attack with Sabersaurus in play continues`, required, async () => {
       const game = await start({ p0: { monsters: [DIRECT] }, p1: { monsters: [SABER] } });
       try {
-        playBattle(game, format === "ffa4" ? 2 : 1, false);
+        const result = playBattle(game, format === "ffa4" ? 2 : 1, true);
+        expect(result.offered).toBe(false);
+        expect(result.triggered).toBe(false);
         const view = game.view(null);
-        expect(view.seats[format === "ffa4" ? 2 : 1]!.lp).toBe(7300);
+        expect(view.seats[format === "ffa4" ? 2 : 1]!.lp).toBe(startingLP - 700);
         expect(view.seats[1]!.monsters[0]?.code).toBe(SABER);
         expect(view.result).toBeNull();
       } finally { game.close(); }
@@ -114,7 +119,7 @@ for (const engine of ["legacy", "pinned", "ffa4"] as const) {
         expect(result.triggered).toBe(true);
         expect(result.attack).toBe(3900);
         const view = game.view(null);
-        expect(view.seats[1]!.lp).toBe(7100);
+        expect(view.seats[1]!.lp).toBe(startingLP - 900);
         expect(view.seats[1]!.graveyard.some(c => c.code === 89631139)).toBe(true);
         expect(view.seats[0]!.graveyard.some(c => c.code === SABER)).toBe(true);
         expect(view.seats[0]!.monsters[1]).toBeNull();
@@ -132,8 +137,8 @@ for (const engine of ["legacy", "pinned", "ffa4"] as const) {
         expect(result.triggered).toBe(true);
         expect(result.attack).toBe(3900);
         const view = game.view(null);
-        expect(view.seats[0]!.lp).toBe(7100);
-        expect(view.seats[1]!.lp).toBe(8000);
+        expect(view.seats[0]!.lp).toBe(startingLP - 900);
+        expect(view.seats[1]!.lp).toBe(startingLP);
         expect(view.seats[1]!.graveyard.some(c => c.code === SABER)).toBe(true);
         expect(view.seats[1]!.monsters[0]?.code).toBe(DINO);
       } finally { game.close(); }
@@ -149,11 +154,67 @@ for (const engine of ["legacy", "pinned", "ffa4"] as const) {
         expect(view.seats[0]!.monsters[0]?.code).toBe(SABER);
         expect(view.seats[0]!.monsters[0]?.attack).toBe(2000);
         expect(view.seats[0]!.graveyard.some(c => c.code === SABER)).toBe(false);
-        expect(view.seats[1]!.lp).toBe(7900);
+        expect(view.seats[1]!.lp).toBe(startingLP - 100);
         expect(view.seats[1]!.graveyard.some(c => c.code === DINO)).toBe(true);
         expect(view.result).toBeNull();
       } finally { game.close(); }
     });
+
+    if (engine === "tag") {
+      for (const guard of [1, 3] as const) {
+        itWithCores(`${engine}/${mode}: Sabersaurus at seat ${guard} blocks ordinary direct attacks at its empty partner`, required, async () => {
+          const game = await start({ p0: { monsters: [DINO] }, [`p${guard}`]: { monsters: [SABER] } });
+          try {
+            const main = prompt(game);
+            game.answer(main.seat, main.id, { choice: "to_bp" });
+            const battle = prompt(game);
+            expect(battle.options.filter(o => o.id.startsWith("attack:"))).toHaveLength(1);
+            expect(battle.options.find(o => o.id.startsWith("attack:"))?.label).not.toMatch(/directly/i);
+            // Attack the guard to prove that the partner's empty field is not a direct target.
+            const result = playBattle(game, guard, true);
+            expect(result.offered).toBe(false);
+            expect(result.triggered).toBe(false);
+            const view = game.view(null);
+            expect(view.seats.map(s => s.lp)).toEqual([15900, 16000, 15900, 16000]);
+            expect(view.seats[guard]!.monsters[0]?.code).toBe(SABER);
+            expect(view.seats[0]!.graveyard.some(c => c.code === DINO)).toBe(true);
+            expect(view.result).toBeNull();
+          } finally { game.close(); }
+        });
+      }
+
+      itWithCores(`${engine}/${mode}: card-granted direct attack at the empty partner of Sabersaurus continues without its boost`, required, async () => {
+        const game = await start({ p0: { monsters: [DIRECT] }, p1: { monsters: [SABER] } });
+        try {
+          const result = playBattle(game, 3, true);
+          expect(result.offered).toBe(false);
+          expect(result.triggered).toBe(false);
+          const view = game.view(null);
+          expect(view.seats.map(s => s.lp)).toEqual([16000, 15300, 16000, 15300]);
+          expect(view.seats[1]!.monsters[0]?.code).toBe(SABER);
+          expect(view.result).toBeNull();
+        } finally { game.close(); }
+      });
+
+      for (const defender of [1, 3] as const) {
+        itWithCores(`${engine}/${mode}: both opponents empty lets an ordinary Dinosaur attack seat ${defender} with Sabersaurus's boost`, required, async () => {
+          const game = await start({ p0: { monsters: [DINO, SABER] } });
+          try {
+            const result = playBattle(game, defender, true);
+            expect(result.triggered).toBe(true);
+            expect(result.attack).toBe(3900);
+            const view = game.view(null);
+            expect(view.seats.map(s => s.lp)).toEqual([16000, 12100, 16000, 12100]);
+            expect(view.seats[0]!.graveyard.some(c => c.code === SABER)).toBe(true);
+            expect(view.seats[0]!.monsters[0]?.code).toBe(DINO);
+            expect(view.result).toBeNull();
+            const p = prompt(game);
+            game.answer(p.seat, p.id, { choice: "to_m2" });
+            expect(game.view(null).seats[0]!.monsters[0]?.attack).toBe(1900);
+          } finally { game.close(); }
+        });
+      }
+    }
 
     if (engine === "ffa4") {
       itWithCores(`${engine}/${mode}: direct attack at the Sabersaurus seat continues without offering the boost`, required, async () => {

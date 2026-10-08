@@ -178,7 +178,7 @@ describe("the focused field only changes when the viewer asks", () => {
 describe("3-way: a click on a field enlarges it, and nothing else does", () => {
   const seatBox = (root: HTMLElement, seat: number) => root.querySelector<HTMLElement>(`[data-seat-slot='${seat}']`)!;
 
-  it("a click enlarges a rival or your own field; the same click again goes back", () => {
+  it("a click enlarges a rival or your own field; a click on the enlarged field never sends it home", () => {
     const { container } = render(<Table state={variant(() => {})} />);
     fireEvent.click(seatBox(container, RYO));
     expect(chip(container)).toBe("Focus · Ryo Sato");
@@ -188,6 +188,15 @@ describe("3-way: a click on a field enlarges it, and nothing else does", () => {
     expect(seatBox(container, REN).getAttribute("data-enlarged")).toBe("true");
     expect(seatBox(container, RYO).getAttribute("data-enlarged")).toBeNull();
     fireEvent.click(seatBox(container, REN));
+    fireEvent.click(seatBox(container, REN));
+    expect(chip(container)).toBe("Focus · Ren Arata");
+    fireEvent.click(container.querySelector("[data-camera-back]")!);
+    expect(chip(container)).toBe("Home");
+  });
+
+  it("Enter on the enlarged field box still goes back (a keyboard toggle, not a click)", () => {
+    const { container } = render(<Table state={variant(() => {})} camera={{ mode: "focus", focusSeat: RYO }} />);
+    fireEvent.keyDown(seatBox(container, RYO), { key: "Enter" });
     expect(chip(container)).toBe("Home");
   });
 

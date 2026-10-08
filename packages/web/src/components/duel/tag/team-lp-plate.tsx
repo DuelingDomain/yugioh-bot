@@ -100,7 +100,8 @@ function Chip({ member, onPick }: { member: PlateMember; onPick?: (seat: number)
       {member.pickable && member.hotkey != null ? <kbd className={styles.keyhint}>{member.hotkey}</kbd> : null}
       <div className={styles.m1}>
         <span className={styles.code}>{member.code}</span>
-        <b>{member.name.split(" ")[0]}</b>
+        <b title={member.name} aria-hidden="true">{member.name.split(" ")[0]}</b>
+        <span className={styles.srOnly}>{member.name}</span>
         {member.you ? <span className={styles.you}>YOU</span> : null}
         {member.response ? (
           <span className={styles.st2} data-k={member.response} title={member.response}>
@@ -129,10 +130,10 @@ export function TeamLpPlate({ teamName, glyph, near, lp, startLp, state, cracked
       style={style}
     >
       <span className={styles.trim} aria-hidden="true" />
-      <div>
+      <div className={styles.pmain}>
         <div className={styles.pr1}>
           <i className={`${styles.glyph}`} aria-hidden="true">{glyph}</i>
-          <span className={styles.tn}>{teamName}</span>
+          <span className={styles.tn} data-team-name title={teamName}>{teamName}</span>
           <span className={styles.tstate} data-k={state}>{STATE_TEXT[state]}</span>
         </div>
         <div className={styles.pr2}>

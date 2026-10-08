@@ -2183,6 +2183,19 @@
   top: calc(var(--z) * 1.196 + 6px);
 }
 
+/* The Rooftop (2v2) draws the shared Extra Monster Zones of a facing pair once, between the two fields, so each field hides
+   its own row but keeps its whole mat: the row holds the Banished zone of the field, which a cut would take away. */
+:global([data-roof-world]) .seatField[data-emz="none"] .sfMat {
+  clip-path: none;
+  /* The row stays as empty mat; it fades toward the gap so the shared band reads as the bridge between the two fields. */
+  border-top-color: rgb(var(--t, 155 126 255) / 0.16);
+  background: linear-gradient(180deg, rgb(10 17 34 / 0.08), rgb(10 17 34 / 0.62) calc(var(--z) * 1.25), rgb(5 8 15 / 0.58));
+}
+
+:global([data-roof-world]) .seatField[data-emz="none"] .sfRule {
+  top: 6px;
+}
+
 .seatField[data-emz="pair"][data-joined="true"] .sfMat {
   border-top-width: 0;
   border-radius: 0 0 6px 6px;
@@ -2493,6 +2506,31 @@
 .seatField[data-usable="false"] .zone[data-legal="true"] .frame {
   border-color: var(--pen);
   box-shadow: 0 0 0 1px var(--pen);
+}
+
+/* A cell of the Rooftop's shared Extra Monster Zones takes the look of the seat it belongs to (the card's controller, or for an
+   empty cell the seat of its legal address); the stage sets data-usable / data-relation / data-out on its wrapper. */
+:global([data-band-cell][data-usable="false"]) .glow,
+:global([data-band-cell][data-usable="false"]) .mark {
+  display: none;
+}
+
+:global([data-band-cell][data-usable="false"]) .zone[data-legal="true"] .frame {
+  border-color: var(--pen);
+  box-shadow: 0 0 0 1px var(--pen);
+}
+
+/* An empty cell you can pick stands out on the bare band: a full ring and a soft glow, like an empty legal zone of a field. */
+.seatField :global([data-band-cell]) .zone[data-legal="true"][data-occupied="false"] .frame {
+  border-color: var(--pen);
+  background: var(--pen-soft);
+  box-shadow:
+    0 0 0 2px var(--pen),
+    0 0 18px var(--pen-soft);
+}
+
+.seatField :global([data-band-cell][data-out="true"]) > * {
+  filter: grayscale(1) brightness(0.6);
 }
 
 /* Deck Masters of a 3 or 4 seat table: one small read-only dock per rival above your own. */

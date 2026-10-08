@@ -59,6 +59,35 @@ function s.cost(e,tp,eg,ep,ev,re,r,rp,chk)
   assert(Duel.GetLinkedGroupCount(tp,LOCATION_MZONE,LOCATION_MZONE)==3,'field linked group includes across')
   assert(#Duel.GetLinkedGroup(tp,LOCATION_MZONE,LOCATION_MZONE)==3,'field linked group size')
  end
+ if shared then
+  local own=Duel.MPSeatOf(c)
+  local across=Duel.MPAcrossSeat(own)
+  local saved=Duel.MPSeatBinding()
+  local bound=Duel.MPBound()
+  assert(Duel.MPBindSeat(across),'bind facing seat for opposite Link viewer')
+  local local_imduk,across_imduk
+  for _,tc in ipairs(s.cards) do
+   if tc:IsCode(31226177) then
+    if Duel.MPSeatOf(tc)==own then local_imduk=tc end
+    if Duel.MPSeatOf(tc)==across then across_imduk=tc end
+   end
+  end
+  assert(local_imduk and across_imduk,'both physical Imduk cards were captured')
+  assert(local_imduk:GetToBeLinkedZone(c,tp,false,true)==32,'own future linked zone keeps stock result')
+  assert(across_imduk:GetToBeLinkedZone(c,1-tp,false,true)==64,'opposite viewer keeps stock own-side result')
+  assert(across_imduk:GetToBeLinkedZone(c,tp,false,true)==32,'facing future linked zone keeps stock mirrored result')
+  assert(local_imduk:GetToBeLinkedZone(c,1-tp,false,true)==64,'opposite viewer keeps stock mirrored result')
+  assert(Duel.MPSeatBinding()==across and Duel.MPBound(),'future Link reads preserve the bound facing seat')
+  if saved==255 then Duel.MPBindSeat() else Duel.MPBindSeat(saved) end
+  assert(Duel.MPSeatBinding()==saved and Duel.MPBound()==bound,'Link viewers preserve exact bindings')
+  for _,tc in ipairs(s.cards) do
+   local seat=Duel.MPSeatOf(tc)
+   if seat~=own and seat~=across then
+    assert(tc:GetToBeLinkedZone(c,tp,nil,true)==0,'side and partner cards have no physical Link mask')
+    assert(not tc:IsColumn(1,tp,LOCATION_MZONE,c),'side and partner cards are not in the physical column')
+   end
+  end
+ end
  if chk==0 then return true end
  Duel.PayLPCost(tp,500)
 end

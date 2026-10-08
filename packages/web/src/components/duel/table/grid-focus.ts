@@ -11,8 +11,9 @@ export interface GridFocus {
 
 export type GridFocusAction = { type: "focus"; seat: number } | { type: "all" };
 
-export function initialGridFocus(seat: number): GridFocus {
-  return { seat };
+/** The grid starts on the full table (all four fields, an equal 2x2), also after a reload. It zooms in only on a player action. */
+export function initialGridFocus(): GridFocus {
+  return { seat: null };
 }
 
 export function gridFocusReducer(state: GridFocus, action: GridFocusAction): GridFocus {
@@ -57,8 +58,6 @@ export function gridKeyGates({ prompt, viewerSeat, aiming, seatKeys, flyoutOpen 
 
 export interface UseGridFocusOptions {
   enabled: boolean;
-  /** The viewer's own seat (a spectator: seat 0). */
-  home: number;
   /** Seats that have a field to show (not empty cells). */
   shown: readonly number[];
   /** A menu or the pile viewer is open: no key fires. */
@@ -69,7 +68,7 @@ export interface UseGridFocusOptions {
   escapeFree: boolean;
   /**
    * Seats that are gone from `shown` but still play their exit (the crumble). A focus on one of them stays until it is
-   * not held any more, so the exit is seen at its full size before the focus goes home.
+   * not held any more, so the exit is seen at its full size before all fields show again.
    */
   holding?: readonly number[];
 }
@@ -92,20 +91,20 @@ function typing(target: EventTarget | null): boolean {
 }
 
 /** The focus of the grid and its keys: 1 to 4 focus a field, O and Esc show all fields. */
-export function useGridFocus({ enabled, home, shown, suspended, digitsFree, escapeFree, holding }: UseGridFocusOptions): UseGridFocus {
-  const [focus, dispatch] = useReducer(gridFocusReducer, home, initialGridFocus);
+export function useGridFocus({ enabled, shown, suspended, digitsFree, escapeFree, holding }: UseGridFocusOptions): UseGridFocus {
+  const [focus, dispatch] = useReducer(gridFocusReducer, undefined, initialGridFocus);
   const live = useRef({ enabled, shown, suspended, digitsFree, escapeFree });
   live.current = { enabled, shown, suspended, digitsFree, escapeFree };
 
-  // A field whose cell goes empty cannot stay in focus: back to your own field, or to all fields when that is gone too.
+  // A field whose cell goes empty cannot stay in focus: all fields show again. The view never zooms in on a field by itself.
   const held = useRef<readonly number[]>([]);
   const [recheck, setRecheck] = useState(0);
   const gone = focus.seat != null && !shown.includes(focus.seat) && !holding?.includes(focus.seat);
   // A layout effect: the focus moves in the same frame the seat goes, so no frame shows a field that is not there.
   useLayoutEffect(() => {
     if (!gone || (focus.seat != null && held.current.includes(focus.seat))) return;
-    dispatch(shown.includes(home) ? { type: "focus", seat: home } : { type: "all" });
-  }, [gone, focus.seat, home, shown, recheck]);
+    dispatch({ type: "all" });
+  }, [gone, focus.seat, shown, recheck]);
   const hold = useCallback((seats: readonly number[]) => {
     const same = seats.length === held.current.length && seats.every((seat, index) => seat === held.current[index]);
     held.current = seats;

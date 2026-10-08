@@ -151,23 +151,42 @@ The build uses the same inputs as the engine session:
 - `domain-core/pins.json`: ygopro-core `efc21aa433b88cd35b7c37db4072a35c58d9d435`, wrapper source
   `9f36452f2a2464f057f7fd6e2273aa5ab589401e`, Lua `75ea9ccbea7c4886f30da147fb67b693b2624c26`,
   and emsdk `4.0.9` at digest `sha256:3c853ef9c3b4c2708da1adac2fdfdba49c775fdc4144ceef4989423963e96811`.
-- All numbered patches in `domain-core/patches` (currently 0001–0090, 0100, 0101 and 0105–0110; 98 patches). No experimental patches or
-  `PATCH_LIMIT`. The current series hash (concatenated patch bytes in filename order) is `7e916f1ac1e6c86ddc34801ef940abff4c53aa9dfaa1dd871978a6d4ac9e07a1`.
+- All numbered patches in `domain-core/patches` (currently 0001–0090, 0100, 0101 and 0105–0115; 103 patches). No experimental patches or
+  `PATCH_LIMIT`. The current series hash (concatenated patch bytes in filename order) is `a43e3fd5a78ae2e96cb08e922622156346c186cdc505ab2663526f2f4e47e92f`.
 - Domain additionally uses `APPLY_DOMAIN=1 DOMAIN_MULTI=1`, the existing Domain patch, `domain_master.cpp`
   and `apply-domain-multi.mjs`. The current multi layer hash is
   `06d5cfbfba8719eb5fe0b3b0eb211a6264d96bb295a8669fe0680969c1822bb8`.
 
-The 98-patch pinned builds use `LUA_FIXED_SEED=1` with the pinned image above. Patch 0089 was corrected on 2026-10-05 so delayed EVENT_CHAINING triggers from normally completed links remain legal. Patch 0101 follows the owner decision on 2026-10-05: control rotations complete the whole resolving chain link, including card choices and every placement, before pending surrender or timeout removal. Creature Swap (`c31036355.lua`) is the only multi-script that calls `MPRotateControl`; it marks the resolving link before the first card choice, including when an alias or a copying card such as Serial Spell calls the operation. Deferring that link is smaller than moving the Lua choices into the processor, and the existing host answers the leaving seat's required prompts. Patch 0105 sets the FFA4 facing pairs to 0/1 and 2/3. Patches 0106 and 0107 add the FFA3 column opponent and retain that choice through resolution. Patch 0108 restarts the FFA3/FFA4 response round after a cost elimination, so priority follows the newest living link (or the turn player when none is left). Patch 0109 clears the recorded opponent of an operation-based disabled-zone effect when its card leaves, so a revived Ojama King picks again. Patch 0110 keeps a resolved lock bound to its declared opponent after the registering seat leaves. Both changes are guarded by `n_duelists > 2`. Both multiplayer cores were rebuilt locally on 2026-10-06 from `origin/main` plus the reviewed fixes, using the cached pinned image, the full 98-patch series and `LUA_FIXED_SEED=1`. The following multiplayer hashes come from those builds; the Domain 1v1 pin is unchanged:
+The 103-patch pinned builds use `LUA_FIXED_SEED=1` with the pinned image above. Patch 0089 was corrected on 2026-10-05 so delayed EVENT_CHAINING triggers from normally completed links remain legal. Patch 0101 follows the owner decision on 2026-10-05: control rotations complete the whole resolving chain link, including card choices and every placement, before pending surrender or timeout removal. Creature Swap (`c31036355.lua`) is the only multi-script that calls `MPRotateControl`; it marks the resolving link before the first card choice, including when an alias or a copying card such as Serial Spell calls the operation. Deferring that link is smaller than moving the Lua choices into the processor, and the existing host answers the leaving seat's required prompts. Patch 0105 sets the FFA4 facing pairs to 0/1 and 2/3. Patches 0106 and 0107 add the FFA3 column opponent and retain that choice through resolution. Patch 0108 restarts the FFA3/FFA4 response round after a cost elimination, so priority follows the newest living link (or the turn player when none is left). Patch 0109 clears the recorded opponent of an operation-based disabled-zone effect when its card leaves, so a revived Ojama King picks again. Patch 0110 keeps a resolved lock bound to its declared opponent after the registering seat leaves. Both changes are guarded by `n_duelists > 2`. Patches 0111–0115 implement Tag facing EMZ, Link and column geometry, one Field Spell per team, opposing-team direct-attack blocking and exact current/previous Lua geometry seats. Patch 0112 excludes the moved target when a partner Field Spell moves into the own Field Zone. Both multiplayer cores were rebuilt locally on 2026-10-07 from `feat/tag-facing-rules` with the review fixes, using the cached pinned image, the full 103-patch series and `LUA_FIXED_SEED=1`. The following multiplayer hashes come from those builds; the Domain 1v1 pin is unchanged:
 
 | Pinned core | SHA-256 |
 | --- | --- |
-| Standard multiplayer | `5070da424a30ee8bf8ec18ed799af263eb44a01ff99ec1cdc6f35c9faef17f4f` |
-| Domain multiplayer | `51e41ea7e8620b46fbdb5685341d2b20eae224bfb0870aec6fea52c09d15cac4` |
+| Standard multiplayer | `eff21477fbb40b0c5a1cf0429642b4aebcf4d7c5ade3a99e2c3f02556deaf9ae` |
+| Domain multiplayer | `4c4dccb31589893eedcc1a21f75d4fa3c5b6863a1d875f5d062604a1315db383` |
 | Domain 1v1 | `01611db77c00ddef07a3d4cfc88800f5c523e3a388c3732616a79fa19b3c4a63` |
 
-The released-card preparation change uses `cards.cdb` plus `release-betb.cdb` at the
-current BabelCDB pin, yielding 14,845 passcodes (86 added). The core/Lua hashes above
-and in both `expected-sha256.txt` files are unchanged. These data hashes were verified
+The same 103-patch inputs were also built locally on 2026-10-07 without `LUA_FIXED_SEED` for deployment:
+
+| Deploy core | SHA-256 |
+| --- | --- |
+| Standard multiplayer | `49a33c6749993ede9b7e5256e77bee922234644fc4f352b67ab71eff7d618574` |
+| Domain multiplayer | `c195dcac74314f8f73e5e55edb8cc44f1e84ffd826866e6a7013bee34531caff` |
+
+The source and toolchain pins in `domain-core/pins.json` are unchanged. The fixed-seed hashes above are the CI binary pins in `domain-core/expected-sha256.txt`; deploy artifacts carry their own checked `.sha256` and `.SOURCE` sidecars. Local builds and test resources stay under `~/.cache/dk-duel-engine-tagrules`; the shell env file is `~/.cache/dk-duel-engine-tagrules.env`. The post-review native `run-nduel.sh --check` passed all 80 golden rows (20 seeds each for 1v1, FFA3, FFA4 and Tag), with no skips or mismatches. Re-recording was required by the intentional overlay/patch fingerprint change; all 80 replay step counts and hashes are unchanged.
+
+Merging `origin/main` at `04e2bf878` into `feat/tag-facing-rules` on 2026-10-07 leaves
+the core patches, multiplayer overlay, Domain transforms and source/toolchain pins
+unchanged, so the fixed-seed and deploy hashes above remain current. Preparation
+now includes the prerelease databases and the shared Steamed Sabersaurus script
+patch, yielding 14,984 passcodes in the isolated Tag cache. The merged native golden
+was explicitly re-recorded with fresh card data: all 60 1v1/FFA rows match main,
+while 19 of 20 Tag rows differ with the Tag rules. `run-nduel.sh --check` passed
+all 80 rows with no skips or mismatches. Details and targeted checks are in
+[Tag rules verification](../specs/2026-10-07-tag-rules-verification.md#main-integration).
+
+The earlier released-card preparation used `cards.cdb` plus `release-betb.cdb` at the
+same BabelCDB pin, yielding 14,845 passcodes (86 added). That data-only change
+did not change the core or Lua build inputs. These data hashes were verified
 in scratch preparation on 2026-10-06:
 
 | Card data | SHA-256 |

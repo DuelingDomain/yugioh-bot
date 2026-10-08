@@ -1097,7 +1097,12 @@ export function activatePromptFromField(
   ) {
     return false;
   }
-  const matches = optionsForCard(prompt, card, keys);
+  let matches = optionsForCard(prompt, card, keys);
+  // A shared Extra Monster Zone has one address per facing seat; when both are options, the deciding seat's own is the pick.
+  if (matches.length > 1) {
+    const own = matches.filter((entry) => entry.controller === prompt.seat);
+    if (own.length === 1) matches = own;
+  }
   if (matches.length !== 1) return false;
   const option = matches[0];
   if (prompt.kind === "tribute") {

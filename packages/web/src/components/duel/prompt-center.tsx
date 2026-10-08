@@ -1548,6 +1548,8 @@ export function PromptCenter(props: PromptCenterProps) {
         legal: zone.dataset.legal === "true",
       })),
       hands: Array.from(board.querySelectorAll<HTMLElement>("[data-hand-seat]")).map(rectOf),
+      // Only the Rooftop draws `[data-team-plate]`: the top spot goes under its far team plate.
+      plates: Array.from(board.querySelectorAll<HTMLElement>("[data-team-plate]")).map(rectOf),
     });
     setBarPlace((current) => (samePlace(current, next) ? current : next));
   }, []);

@@ -89,6 +89,47 @@ describe("placeSelectBar", () => {
   });
 });
 
+describe("placeSelectBar with the Rooftop's four shared cells", () => {
+  /** Two cells each side of the middle: a 60 wide cell, 20 between the pair, `gap` free in the middle. */
+  function band(gap: number, legalInner = false): BarZone[] {
+    const cell = (left: number, legal = false): BarZone => ({ left, right: left + 60, top: 400, bottom: 460, legal });
+    const centre = 600;
+    return [cell(centre - gap / 2 - 140), cell(centre - gap / 2 - 60, legalInner), cell(centre + gap / 2), cell(centre + gap / 2 + 80)];
+  }
+
+  it("sits in the middle gap between the inner cells, not across the whole band", () => {
+    const place = placeSelectBar({ board, emz: band(340), hands: [] });
+    expect(place.mode).toBe("mid");
+    expect(place.left).toBe(500);
+    expect(place.fit).toBe(340 - 16);
+  });
+
+  it("goes to the top edge when the middle gap is too narrow and a cell can be picked", () => {
+    const place = placeSelectBar({ board, emz: band(200, true), hands: [topHand, bottomHand] });
+    expect(place.mode).toBe("top");
+  });
+});
+
+describe("placeSelectBar top spot and score plates", () => {
+  const narrow = (): BarZone[] => [
+    { left: 560, right: 600, top: 400, bottom: 460, legal: true },
+    { left: 640, right: 680, top: 400, bottom: 460, legal: false },
+  ];
+  const plate: BarRect = { left: 400, right: 800, top: 60, bottom: 190 };
+
+  it("takes the top edge from below a far plate that sits in the upper half", () => {
+    const place = placeSelectBar({ board, emz: narrow(), hands: [], plates: [plate] });
+    expect(place.mode).toBe("top");
+    expect(place.top).toBe(190 - board.top + 6);
+  });
+
+  it("ignores a plate in the lower half and keeps the old edge without plates", () => {
+    const low: BarRect = { left: 400, right: 800, top: 800, bottom: 900 };
+    expect(placeSelectBar({ board, emz: narrow(), hands: [], plates: [low] }).top).toBe(8);
+    expect(placeSelectBar({ board, emz: narrow(), hands: [] }).top).toBe(8);
+  });
+});
+
 describe("samePlace", () => {
   it("compares every field", () => {
     const a = placeSelectBar({ board, emz: emzPair(300), hands: [] });

@@ -20,9 +20,10 @@ function core(mode: DuelMode) {
     const bytes = readFileSync(path);
     const sha = createHash("sha256").update(bytes).digest("hex");
     return { path, sha, binary: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
-      c6: readCoreCapabilities(dataDirectory, file, sha).ffa4SharedExtraZones };
+      c6: readCoreCapabilities(dataDirectory, file, sha).ffa4SharedExtraZones,
+      tagShared: readCoreCapabilities(dataDirectory, file, sha).tagSharedExtraZones };
   } catch {
-    return { path, sha: "", binary: undefined, c6: false };
+    return { path, sha: "", binary: undefined, c6: false, tagShared: false };
   }
 }
 
@@ -129,13 +130,14 @@ for (const mode of ["normal", "domain"] as const) {
       } finally { game.close(); }
     });
 
-    it.each<DuelFormat>(["ffa3", "tag", "1v1"])("keeps %s views separate on the real engine", async (format) => {
+    it.each<DuelFormat>(["ffa3", "tag", "1v1"])("publishes %s pairing on the real engine", async (format) => {
       const { game } = await start(mode, format, loaded.binary);
       try {
         for (const viewer of viewers(format)) {
           const view = game.view(viewer);
           for (const seat of view.seats) {
             if (format === "1v1") expect(seat).not.toHaveProperty("sharedExtraWith");
+            else if (format === "tag" && loaded.tagShared) expect(seat.sharedExtraWith).toBe(seat.seat ^ 1);
             else expect(seat.sharedExtraWith).toBeNull();
             expect(seat.lp).toBe(format === "tag" ? 16000 : 8000);
             expect(seat.deckCount).toBe(20);

@@ -7,7 +7,7 @@ import { EXTRA_MONSTER_ZONE_SCENARIOS } from "./extra-monster-zones.js";
 it.each([
   { format: "ffa4", rule: "R-FFA-ACROSS-EMZ", otherRule: "R-COMMON-EMZ" },
   { format: "ffa3", rule: "R-COMMON-EMZ", otherRule: "R-FFA-ACROSS-EMZ" },
-  { format: "tag", rule: "R-COMMON-EMZ", otherRule: "R-FFA-ACROSS-EMZ" },
+  { format: "tag", rule: "R-TAG-FACING", otherRule: "R-FFA-ACROSS-EMZ" },
 ])("$format Extra Monster Zone rows use $rule", ({ format, rule, otherRule }) => {
   const scenarios = EXTRA_MONSTER_ZONE_SCENARIOS.filter((scenario) => scenario.setup.format === format);
   expect(scenarios.length).toBeGreaterThan(0);

@@ -10,7 +10,7 @@ function s.spop(e,tp,eg,ep,ev,re,r,rp)
 		local seq=tc:GetSequence()
 		local nseq=4-seq
 		if Duel.CheckLocation(1-tp,LOCATION_MZONE,nseq)
-			and Duel.MPSeat(1-tp)==aux.MPColumnPeerSeat(Duel.MPSeatOf(tc)) then
+			and aux.MPGeometrySeat(1-tp)==aux.MPColumnPeerSeat(Duel.MPSeatOf(tc)) then
 			local e1=Effect.CreateEffect(e:GetHandler())
 			e1:SetType(EFFECT_TYPE_FIELD)
 			e1:SetCode(EFFECT_DISABLE_FIELD)

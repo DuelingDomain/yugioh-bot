@@ -1,5 +1,5 @@
 import {
-  activate, attack, defineScenario, endTurn, expectBoard, pickOpponent, yes,
+  activate, attack, defineScenario, endTurn, expectBoard, pickOpponent,
   type BoardExpect, type DuelistId, type Scenario, type Step,
 } from "../../support/dsl.js";
 
@@ -44,6 +44,11 @@ function allDecks(kind: Kind, format: Format): Scenario {
     setup.deckSize = 6;
     setup.p0!.monsters = ["Blue-Eyes White Dragon"];
     setup.p1!.monsters = [];
+    // Both opposing fields must be empty for an ordinary Tag direct attack.
+    if (format === "tag") {
+      setup.p3!.monsters = [];
+      board.p3!.monsters = [];
+    }
     setup.p1!.spells = [{ card: "Inferno Tempest", pos: "set" }];
     for (let i = 0; i < count; i++) {
       setup[SEATS[i]]!.deck = Array<string>(6).fill(HANDS[i]);
@@ -59,8 +64,7 @@ function allDecks(kind: Kind, format: Format): Scenario {
     board.p1!.lp = format === "tag" ? 13000 : 5000;
     if (format === "tag") board.p3!.lp = 13000;
     steps.push(attack("Blue-Eyes White Dragon", "direct", "p0"));
-    if (format === "tag") steps.push(yes("p0"));
-    else if (format !== "1v1") steps.push(pickOpponent("p1", "p0"));
+    if (format !== "1v1") steps.push(pickOpponent("p1", "p0"));
     steps.push(activate("Inferno Tempest", "p1"));
   }
   steps.push(expectBoard(board));

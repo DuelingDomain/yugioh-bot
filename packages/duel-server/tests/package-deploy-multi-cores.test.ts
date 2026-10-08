@@ -95,7 +95,7 @@ printf '{"luaFixedSeed":0,"head":"compiler-head"}\\n' > "packages/duel-server/do
       expect(source).toContain(`builtBy=${builtBy}\n`);
       expect(source).toContain(`deployedBy=${f.deployedBy}\n`);
       const sha = createHash("sha256").update(readFileSync(join(f.bundle, `${stem}.wasm`))).digest("hex");
-      expect(readCoreCapabilities(f.bundle, `${stem}.wasm`, sha)).toEqual({ ffa4SharedExtraZones: true });
+      expect(readCoreCapabilities(f.bundle, `${stem}.wasm`, sha)).toEqual({ ffa4SharedExtraZones: true, tagSharedExtraZones: true });
     }
     expect(result.stdout).toContain(`builtBy=${builtBy}`);
     expect(result.stdout).toContain(`deployedBy=${f.deployedBy}`);
