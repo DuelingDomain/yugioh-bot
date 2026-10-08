@@ -4,7 +4,7 @@ import { multiTableTextStyle, tableTextBig, useCardTextSize, useMultiTableTextFl
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { teamOfSeat } from "@yugidraft/shared/duels";
 import { AttackConfirm, CardActionMenu, CardHoverInfo, confirmSide, targetName } from "../card-interactions";
-import { isBattlePhase } from "../constants";
+import { isBattlePhase, LOCATION_HAND } from "../constants";
 import { DuelResultScreen } from "../duel-result";
 import { SeatField } from "../field";
 import { MoveSourceBoundary } from "../fx-boundary";
@@ -204,7 +204,14 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
   const promptId = pickPrompt ? prompt?.id ?? null : null;
   const promptSeats = useMemo(() => {
     if (!pickPrompt || !prompt) return [];
-    return [...new Set(prompt.options.filter((option) => option.controller != null && optionZoneKeys(option).length > 0).map((option) => option.controller as number))];
+    // A hand card is not on any field (the hand dock is always in reach): only board zones count.
+    return [
+      ...new Set(
+        prompt.options
+          .filter((option) => option.controller != null && option.location !== LOCATION_HAND && optionZoneKeys(option).length > 0)
+          .map((option) => option.controller as number),
+      ),
+    ];
   }, [pickPrompt, prompt]);
   useEffect(() => {
     if (promptId != null && promptSeats.length > 0) dispatchCamera({ type: "needSeats", seats: promptSeats });

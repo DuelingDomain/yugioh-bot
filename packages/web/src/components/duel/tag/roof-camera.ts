@@ -57,18 +57,46 @@ export interface RoofSlot {
   y: number;
 }
 
-/** World slot of every seat for an anchor seat: anchor near left, partner near right, rivals far in turn order. */
+/** World slot of every seat for an anchor seat: anchor near left, partner near right, each rival far across from the teammate it faces. */
 export function roofSlots(anchorSeat: number): Record<number, RoofSlot> {
   const { centerX, offsetY, height } = ROOF_FIELD;
   const nearY = offsetY + height / 2;
   const farY = -offsetY - height / 2;
   const a = ((anchorSeat % 4) + 4) % 4;
   const make = (seat: number, near: boolean, x: number): RoofSlot => ({ seat, near, x, y: near ? nearY : farY });
+  // Seats run 1A, 2A, 1B, 2B, so the facing seat of any seat is seat ^ 1 (1A-2A, 1B-2B) for every viewer.
+  const partner = (a + 2) % 4;
   return {
     [a]: make(a, true, -centerX),
-    [(a + 2) % 4]: make((a + 2) % 4, true, centerX),
-    [(a + 1) % 4]: make((a + 1) % 4, false, -centerX),
-    [(a + 3) % 4]: make((a + 3) % 4, false, centerX),
+    [partner]: make(partner, true, centerX),
+    [a ^ 1]: make(a ^ 1, false, -centerX),
+    [partner ^ 1]: make(partner ^ 1, false, centerX),
+  };
+}
+
+/** Free width of the middle band between the two seat labels, in world units (the gap row between the strips). */
+const GAP_FREE_WIDTH = 900;
+
+export type PhaseHubSize = "lg" | "sm" | "row";
+
+/**
+ * The phase hub sizes that fit the width of the gap row, biggest first: "lg" is the full strip (about 390px wide), "sm"
+ * the short strip with its caption and "row" the short strip alone. The stage takes the first one whose real height fits
+ * the gap between the strips; when none does, the hub stays hidden and the bottom bar keeps the turn buttons.
+ */
+export function phaseHubSizes(freePx: number): PhaseHubSize[] {
+  const sizes: PhaseHubSize[] = [];
+  if (freePx >= 410) sizes.push("lg");
+  if (freePx >= 215) sizes.push("sm", "row");
+  return sizes;
+}
+
+/** Gap height and free width, in screen px, between the strips for a pose and the stage fit factor. */
+export function roofGap(pose: RoofPose, fit: number): { gapPx: number; freePx: number } {
+  const scale = fit * pose.zoom;
+  return {
+    gapPx: 2 * ROOF_FIELD.offsetY * scale * Math.cos((pose.tilt * Math.PI) / 180),
+    freePx: GAP_FREE_WIDTH * scale,
   };
 }
 
@@ -184,7 +212,6 @@ const INPUT_ACTIONS: ReadonlySet<CameraAction["type"]> = new Set([
   "orbit",
   "zoom",
   "autoFollow",
-  "needSeats",
 ]);
 
 function moved(state: RoofCameraState, patch: Partial<RoofCameraState>, dur: number): RoofCameraState {
@@ -201,6 +228,11 @@ function goHome(state: RoofCameraState, dur = 950): RoofCameraState {
 
 function goOverview(state: RoofCameraState, dur = 950): RoofCameraState {
   return moved(state, { mode: "overview", focusSeat: null, lookSeat: null, pose: { ...ROOF_PRESETS.overview } }, dur);
+}
+
+/** The saved view after a lock, turned into the overview (the lock itself has already eased the camera there). */
+function overviewResume(r: RoofResume): RoofResume {
+  return { mode: "overview", focusSeat: null, lookSeat: null, pose: { ...ROOF_PRESETS.overview }, fly: r.fly };
 }
 
 function focusOn(state: RoofCameraState, seat: number): RoofCameraState {
@@ -260,10 +292,20 @@ export function roofReducer(state: RoofCameraState, action: CameraAction): RoofC
     case "aiming": {
       // An aim needs the rival field in view: a close-up on one field goes back to the overview first.
       if (action.on && (state.mode === "focus" || state.mode === "look") && !state.lock) return { ...goOverview(state), aiming: true };
+      // Under an FX lock the camera is already on the overview: make the saved close-up the overview too.
+      if (action.on && state.lock && state.resume && (state.resume.mode === "focus" || state.resume.mode === "look")) {
+        return { ...state, aiming: true, resume: overviewResume(state.resume) };
+      }
       return { ...state, aiming: action.on };
     }
     case "needSeats": {
-      if (state.mode !== "focus" || state.lock) return state;
+      if (state.lock) {
+        // Same under a lock: the close-up that comes back after the lock must not hide the field a prompt needs.
+        const r = state.resume;
+        if (r?.mode !== "focus" || !action.seats.some((seat) => seat !== r.focusSeat)) return state;
+        return { ...state, resume: overviewResume(r) };
+      }
+      if (state.mode !== "focus") return state;
       return action.seats.some((seat) => seat !== state.focusSeat) ? goOverview(state) : state;
     }
     case "autoFollow": {

@@ -1,7 +1,6 @@
 "use client";
 
 import type { CSSProperties } from "react";
-import type { CameraAction } from "../table/types";
 import styles from "./tag-camera.module.css";
 
 export interface CameraRailSeat {
@@ -11,6 +10,9 @@ export interface CameraRailSeat {
   rgb: string;
 }
 
+/** The two camera actions the rail sends: both belong to the roof reducer and to the table camera alike. */
+export type CameraRailAction = { type: "overview" } | { type: "focus"; seat: number };
+
 export interface CameraRailProps {
   /** The seat the camera is close on. */
   focusSeat: number | null;
@@ -18,7 +20,7 @@ export interface CameraRailProps {
   nameOf: (seat: number) => string;
   /** Seats that are out of the duel: they stay listed but cannot be picked. */
   out?: ReadonlySet<number>;
-  dispatch: (action: CameraAction) => void;
+  dispatch: (action: CameraRailAction) => void;
 }
 
 /**

@@ -388,6 +388,15 @@ describe("ChainFx", () => {
       expect(tag.container.querySelector("[data-chain-hero-targets]")?.textContent).toContain("Player 2's Field Zone");
     });
 
+    it("closes the sheet on Esc and marks the key as used, so the camera does not also act on it", () => {
+      const { container } = render(<ChainFx events={[dust(), shield()]} chain={[]} duelKey="t" reducedMotion={false} mySeat={0} playerName={names} table="tag" />);
+      expect(openSheet(container)).not.toBeNull();
+      const key = new KeyboardEvent("keydown", { key: "Escape", cancelable: true, bubbles: true });
+      act(() => { document.dispatchEvent(key); });
+      expect(key.defaultPrevented).toBe(true);
+      expect(container.querySelector("[data-chain-sheet]")).toBeNull();
+    });
+
     it("highlights each row as it resolves, then clears the panel after its recap", () => {
       placeZones("0:4:2", "1:8:0");
       const first = [dust(), shield()];
