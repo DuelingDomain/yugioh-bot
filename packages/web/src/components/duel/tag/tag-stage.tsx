@@ -469,6 +469,13 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     const seat = Number(node.closest<HTMLElement>("[data-field-hold]")?.dataset.fieldHold ?? node.closest<HTMLElement>("[data-member-seat]")?.dataset.memberSeat);
     if (Number.isInteger(seat) && engine.seats.some((s) => s.seat === seat)) focusField(seat);
   };
+  // A double click on a field (its mat, its name, a plate chip) focuses it on a wide screen; a card, a zone or a control keeps its own job.
+  const onStageDoubleClick = (event: MouseEvent<HTMLDivElement>) => {
+    const node = event.target instanceof Element ? event.target : null;
+    if (!node || node.closest(ACTION_TARGET) || node.closest("[data-uid], [data-zones], [data-pile]")) return;
+    const seat = Number(node.closest<HTMLElement>("[data-field-hold]")?.dataset.fieldHold ?? node.closest<HTMLElement>("[data-member-seat]")?.dataset.memberSeat);
+    if (Number.isInteger(seat) && engine.seats.some((s) => s.seat === seat)) focusField(seat);
+  };
   // Every zone is a full-size button, so most taps on a field land on one. A zone that offers no action (not a legal
   // pick, not selected, no pile to open) hands the tap to the camera instead: the field comes into focus and the click
   // does not also inspect a card. The HUD can still pin the occupied card's peek while focusing. A zone with an
@@ -648,6 +655,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
       data-camera-seat={camera.mode === "focus" && camera.focusSeat != null ? camera.focusSeat : undefined}
       onClick={isNarrow ? onStageClick : undefined}
       onClickCapture={isNarrow ? onStageClickCapture : undefined}
+      onDoubleClick={isNarrow ? undefined : onStageDoubleClick}
       data-camera-locked={camera.lock ? camera.lock.reason : undefined}
     >
       {fx != null ? (

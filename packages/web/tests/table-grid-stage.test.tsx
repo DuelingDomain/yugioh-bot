@@ -52,6 +52,22 @@ const zoomOwn = () => act(() => void fireEvent.keyDown(window, { key: "1" }));
 const cellOf = (container: HTMLElement, seat: number) => container.querySelector<HTMLElement>(`[data-grid-cell="${seat}"]`)!;
 
 describe("GridStage", () => {
+  it("a double click on a field focuses it; on a card, a zone or a control it does not; a single click never does", () => {
+    const { container } = render(<Shell id="main" />);
+    const stage = container.querySelector("[data-grid-stage]")!;
+    const field = (seat: number) => cellOf(container, seat).querySelector<HTMLElement>("[data-seat-field]")!;
+    act(() => void fireEvent.click(field(3), { detail: 1 }));
+    expect(stage.getAttribute("data-grid-focus")).toBe("all");
+    act(() => void fireEvent.doubleClick(cellOf(container, 3).querySelector("[data-zones]")!));
+    act(() => void fireEvent.doubleClick(cellOf(container, 3).querySelector("button")!));
+    expect(stage.getAttribute("data-grid-focus")).toBe("all");
+    act(() => void fireEvent.doubleClick(field(3)));
+    expect(stage.getAttribute("data-grid-focus")).toBe("3");
+    // the life box focuses its seat too
+    act(() => void fireEvent.doubleClick(container.querySelector('[data-grid-lp="1"]')!));
+    expect(stage.getAttribute("data-grid-focus")).toBe("1");
+  });
+
   it("places the four cells by seat, viewer bottom-left (Aster is seat 0)", () => {
     const { container } = render(<Shell id="main" />);
     const quadrants = [0, 1, 2, 3].map((seat) => cellOf(container, seat).getAttribute("data-quadrant"));

@@ -121,6 +121,31 @@ describe("Tag overview camera: a click on a field never focuses it on a wide scr
     expect(modeOf(root)).toBe("overview:-");
   });
 
+  it("a double click on the bare mat or the name label focuses the field; a single click does not", () => {
+    const root = mount();
+    fireEvent.click(mat(root, 3), { detail: 1 });
+    expect(modeOf(root)).toBe("overview:-");
+    fireEvent.doubleClick(mat(root, 3));
+    expect(modeOf(root)).toBe("focus:3");
+  });
+
+  it("a double click on the name label focuses the field", () => {
+    const root = mount();
+    fireEvent.doubleClick(root.querySelector<HTMLElement>('[data-field-hold="1"] [data-seat-name]')!);
+    expect(modeOf(root)).toBe("focus:1");
+  });
+
+  it("a double click on a zone or a card never focuses a field", () => {
+    const root = mount();
+    const { idle, piles } = zonesOf(root, 3);
+    for (const zone of [idle[0], piles[0]].filter(Boolean)) {
+      fireEvent.doubleClick(zone);
+      const button = zone.querySelector("button");
+      if (button) fireEvent.doubleClick(button);
+    }
+    expect(modeOf(root)).toBe("overview:-");
+  });
+
   it("the focus button of a field still focuses it, and Back returns to the overview", () => {
     const root = mount();
     fireEvent.click(root.querySelector<HTMLElement>('[data-field-focus="2"]')!);
