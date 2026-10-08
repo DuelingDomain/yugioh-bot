@@ -25,7 +25,7 @@ export function retargetFlight({ event, el, overlay, cx, cy, duration, fallback,
     return { now: duelFxClock.now(), target: rect ? {
       dx: rect.left - layer.left + rect.width / 2 - cx,
       dy: rect.top - layer.top + rect.height / 2 - cy,
-      rotation: destination ? moveDestinationRotation(destination) - endRot : goal.rotation,
+      rotation: destination ? moveDestinationRotation(destination, false, endRot) - endRot : goal.rotation,
     } : goal };
   };
   const at = (now: number): Pose => {
