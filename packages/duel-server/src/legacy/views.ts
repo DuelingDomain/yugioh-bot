@@ -1,4 +1,4 @@
-import type { DuelBattleStep, DuelCard, DuelCardInfo, DuelEngineView, DuelEvent, DuelMode, DuelMoveReason, DuelPrompt, DuelPromptOption, DuelSeatView, DuelSummonKind, DuelZoneRef } from "@yugidraft/shared/duels";
+import type { DuelChainLink, DuelBattleStep, DuelCard, DuelCardInfo, DuelEngineView, DuelEvent, DuelMode, DuelMoveReason, DuelPrompt, DuelPromptOption, DuelSeatView, DuelSummonKind, DuelZoneRef } from "@yugidraft/shared/duels"; // LEGACY-1V1: public chosen chain options
 import {
   OcgHintType,
   OcgLocation,
@@ -278,6 +278,7 @@ export interface StoredChainLink {
   description?: string;
   zone: DuelZoneRef;
   targets: DuelZoneRef[];
+  chosenOptions?: DuelChainLink["chosenOptions"]; // LEGACY-1V1: public chosen chain options
 }
 
 export interface StoredDuelEvent {
@@ -286,6 +287,7 @@ export interface StoredDuelEvent {
   seat?: number;
   card?: DuelCardInfo;
   chainIndex?: number;
+  chosenOptions?: DuelChainLink["chosenOptions"]; // LEGACY-1V1: public chosen chain options
   text: string;
   publicText: string;
   description?: string;
@@ -655,6 +657,7 @@ export function projectStoredEvent(event: StoredDuelEvent, viewer: number | null
   };
   if (event.seat != null) projected.seat = event.seat;
   if (event.chainIndex != null) projected.chainIndex = event.chainIndex;
+  if (event.chosenOptions) projected.chosenOptions = event.chosenOptions.map((choice) => ({ ...choice })); // LEGACY-1V1: public chosen chain options
   if (event.toss) projected.toss = event.toss.type === "coin"
     ? { type: "coin", results: [...event.toss.results] }
     : { type: "dice", results: [...event.toss.results] };
@@ -1457,6 +1460,7 @@ export function projectView(args: {
       cardType: info?.type,
       zone: args.chain?.[index]?.zone ? zoneOf(args.chain[index].zone) : zoneOf(link),
       targets: args.chain?.[index]?.targets.map(zoneOf) ?? [],
+      ...(args.chain?.[index]?.chosenOptions ? { chosenOptions: args.chain[index].chosenOptions!.map((option) => ({ ...option })) } : {}), // LEGACY-1V1: public chosen chain options
     };
   });
 
