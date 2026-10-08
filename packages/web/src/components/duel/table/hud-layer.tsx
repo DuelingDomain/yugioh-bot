@@ -54,7 +54,7 @@ const PIN_ZONES = (seat: DuelSeatView): Array<DuelCard | null> => [...seat.hand,
 export function useHudPane({ camera = false, log = true }: {
   /** The table has a camera panel (the Tag Rooftop, the 3-way plaza): the dock gets a camera icon. */
   camera?: boolean;
-  /** The dock has the Log icon. The 3-way plaza has none: it keeps Settings and Camera only. */
+  /** The dock has the Log icon. Every table has it; only a HUD with no log panel turns it off. */
   log?: boolean;
 } = {}): HudPaneState {
   const [pane, setPaneState] = useState<HudPane | null>(null);
