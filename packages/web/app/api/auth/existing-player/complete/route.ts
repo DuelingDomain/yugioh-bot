@@ -36,8 +36,11 @@ export async function POST(request: NextRequest) {
     if (matches.data.length || matches.totalCount) return clearRecoveryCookies(recoveryError(SUPPORT, 409));
     const base = usernameFor(user.username, proof.discordUsername, user.id);
     let createdId: string | undefined;
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const username = attempt === 0 ? base : `duelist_${user.id}`;
+    const fallback = `duelist_${user.id}`;
+    // One retry with the fallback name, unless the first try already used it.
+    const attempts = base === fallback ? 1 : 2;
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      const username = attempt === 0 ? base : fallback;
       try {
         const created = await client.users.createUser({ emailAddress: [proof.email], username, skipPasswordRequirement: true,
           legalAcceptedAt: new Date(), externalId: String(user.id), privateMetadata: { existingPlayerDiscordId: proof.discordId } });
@@ -48,7 +51,7 @@ export async function POST(request: NextRequest) {
         if (!collision && param !== "username" && !code?.startsWith("form_username_")) throw error;
         if (param && param !== "username") return clearRecoveryCookies(recoveryError(SUPPORT, 409));
         if (!param) { const matches = await byEmail(); if (matches.data.length || matches.totalCount) return clearRecoveryCookies(recoveryError(SUPPORT, 409)); }
-        if (attempt === 1) {
+        if (attempt === attempts - 1) {
           if (!collision) throw error;
           return clearRecoveryCookies(recoveryError(SUPPORT, 409));
         }

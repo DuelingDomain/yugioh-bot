@@ -88,8 +88,11 @@ export function recoveryRateLimit(request: NextRequest, stage: string): NextResp
   const now = Date.now();
   for (const [client, entry] of clients) { if (entry.expiresAt > now) break; clients.delete(client); }
   const ip = request.headers.get("x-forwarded-for")?.split(",", 1)[0]?.trim().slice(0, 128) || "unknown";
-  const cookieName = stage === "callback" ? OAUTH_COOKIE : stage === "complete" ? IDENTITY_COOKIE : stage === "ticket" ? TICKET_COOKIE : null;
-  const cookie = cookieName ? request.cookies.get(cookieName)?.value : undefined;
+  const purpose: Purpose | null = stage === "callback" ? "oauth" : stage === "complete" ? "identity" : stage === "ticket" ? "ticket" : null;
+  const cookieName = purpose === "oauth" ? OAUTH_COOKIE : purpose === "identity" ? IDENTITY_COOKIE : purpose === "ticket" ? TICKET_COOKIE : null;
+  const raw = cookieName ? request.cookies.get(cookieName)?.value : undefined;
+  // Only a cookie we sealed gets its own bucket; forged values share the IP bucket and cannot fill the map.
+  const cookie = purpose && raw && openCookie(purpose, raw) ? raw : undefined;
   const client = `${stage}:${ip}${cookie ? `:${createHash("sha256").update(cookie).digest("hex")}` : ""}`;
   const entry = clients.get(client);
   if ((!entry && clients.size >= 10_000) || (entry && entry.count >= (stage === "start" ? 30 : 10))) {

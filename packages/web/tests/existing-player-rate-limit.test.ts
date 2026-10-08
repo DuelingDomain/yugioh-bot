@@ -54,12 +54,20 @@ describe("recovery rate limits", () => {
     expect(recoveryRateLimit(request("GET", undefined, "198.51.100.1, 192.0.2.99"), "start")?.status).toBe(303);
     expect(recoveryRateLimit(request("GET", undefined, "198.51.100.2, 192.0.2.99"), "start")).toBeNull();
   });
-  it("bounds distinct cookie buckets and frees them after ten minutes", () => {
-    for (let i = 0; i < 10_000; i++) expect(recoveryRateLimit(request("POST", `${IDENTITY_COOKIE}=flow-${i}`), "complete")).toBeNull();
-    expect(recoveryRateLimit(request("POST", `${IDENTITY_COOKIE}=overflow`), "complete")?.status).toBe(429);
+  it("keeps forged cookies in the IP bucket so they cannot fill the map", () => {
+    for (let i = 0; i < 10; i++) expect(recoveryRateLimit(request("GET", `${OAUTH_COOKIE}=forged-${i}`), "callback")).toBeNull();
+    expect(recoveryRateLimit(request("GET", `${OAUTH_COOKIE}=forged-next`), "callback")?.status).toBe(303);
+    // Another player's real flow on a different IP is unaffected.
+    const real = `${OAUTH_COOKIE}=${sealCookie("oauth", { test: "real" })}`;
+    expect(recoveryRateLimit(request("GET", real, "198.51.100.9"), "callback")).toBeNull();
+  });
+  it("bounds distinct buckets and frees them after ten minutes", () => {
+    const ip = (i: number) => `10.${(i >> 16) & 255}.${(i >> 8) & 255}.${i & 255}`;
+    for (let i = 0; i < 10_000; i++) expect(recoveryRateLimit(request("POST", undefined, ip(i)), "complete")).toBeNull();
+    expect(recoveryRateLimit(request("POST", undefined, "198.51.100.200"), "complete")?.status).toBe(429);
     // A full map still allows existing buckets within their own budget.
-    expect(recoveryRateLimit(request("POST", `${IDENTITY_COOKIE}=flow-0`), "complete")).toBeNull();
+    expect(recoveryRateLimit(request("POST", undefined, ip(0)), "complete")).toBeNull();
     vi.advanceTimersByTime(600_000);
-    expect(recoveryRateLimit(request("POST", `${IDENTITY_COOKIE}=overflow`), "complete")).toBeNull();
+    expect(recoveryRateLimit(request("POST", undefined, "198.51.100.200"), "complete")).toBeNull();
   });
 });
