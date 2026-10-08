@@ -474,9 +474,9 @@ describe("privacy in the rendered panel", () => {
       expect(bullets.map((bullet) => bullet.textContent)).toEqual(["Add 1 \"Mitsurugi\" monster from your Deck to your hand.", "Chosen: Take 800 damage."]);
     });
 
-    it("marks the bullet at the prompt index when the text matches none", () => {
+    it("marks no bullet for a choice known only by its prompt index, and still says it", () => {
       const { marked, said } = chose([{ index: 0, text: "Option 1" }]);
-      expect(marked).toEqual(["Add 1 \"Mitsurugi\" monster from your Deck to your hand."]);
+      expect(marked).toEqual([]);
       expect(said).toEqual(["Option 1"]);
     });
 

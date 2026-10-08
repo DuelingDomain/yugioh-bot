@@ -14,12 +14,13 @@ describe("markChosenLines", () => {
     expect(chosenTexts(markChosenLines(lines(), [{ text: "Add 1 “Mitsurugi” monster from your Deck to your hand" }]))).toEqual(["Add 1 \"Mitsurugi\" monster from your Deck to your hand."]);
   });
 
-  it("matches by text before the index, so a wrong index cannot move the mark", () => {
+  it("matches by text and ignores the index, so a wrong index cannot move the mark", () => {
     expect(chosenTexts(markChosenLines(lines(), [{ index: 0, text: "Take 800 damage" }]))).toEqual(["Take 800 damage."]);
   });
 
-  it("falls back to the prompt index when no bullet has the text", () => {
-    expect(chosenTexts(markChosenLines(lines(), [{ index: 1, text: "Option 2" }]))).toEqual(["Take 800 damage."]);
+  it("does not guess by the prompt index: the engine hides options, so the index is no bullet position", () => {
+    expect(chosenTexts(markChosenLines(lines(), [{ index: 1, text: "Option 2" }]))).toEqual([]);
+    expect(chosenTexts(markChosenLines(lines(), [{ index: 0, text: "Option 1" }]))).toEqual([]);
   });
 
   it("marks nothing when neither the text nor the index fits", () => {
