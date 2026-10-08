@@ -309,7 +309,7 @@
   font-weight: 500;
 }
 .tabs button:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: -3px; border-radius: 4px; }
-.sideContent { position: relative; flex: 1; min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; }
+.sideContent { position: relative; flex: 1; min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; scrollbar-width: thin; }
 
 /* ---------- board column ---------- */
 .boardColumn {

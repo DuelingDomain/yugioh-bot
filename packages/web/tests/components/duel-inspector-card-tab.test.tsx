@@ -34,6 +34,7 @@ function Pane({ target, marked = true }: { target: DuelCard; marked?: boolean })
     </div>
   );
 }
+const nextFrame = () => new Promise<void>((resolve) => setTimeout(() => requestAnimationFrame(() => resolve()), 0));
 const scrollerOf = (container: HTMLElement) => container.querySelector<HTMLElement>('[data-testid="scroller"]')!;
 
 describe("Card tab", () => {
@@ -89,7 +90,7 @@ describe("Card tab", () => {
       const late = document.createElement("p");
       late.textContent = "Owner Rook";
       scroller.appendChild(late);
-      await Promise.resolve();
+      await nextFrame();
     });
     expect(scroller.dataset.cardMore).toBe("true");
   });
@@ -100,13 +101,35 @@ describe("Card tab", () => {
     expect(scrollerOf(container).getAttribute("tabindex")).toBeNull();
   });
 
-  it("makes the marked scroller reachable by keyboard", () => {
-    const { container } = render(<Pane target={card} />);
+  it("makes the scroller a tab stop while a card shows, and not otherwise", () => {
+    const { container, rerender } = render(<Pane target={card} />);
     const scroller = scrollerOf(container);
     expect(scroller.getAttribute("tabindex")).toBe("0");
-    expect(scroller.getAttribute("role")).toBe("region");
-    expect(scroller.getAttribute("aria-label")).toBe("Card");
+    // The mark alone (an empty Card tab) adds no tab stop, and no role or label that a screen reader would say again.
+    rerender(<div data-testid="scroller" {...cardScrollerProps(true)} />);
+    expect(scroller.getAttribute("tabindex")).toBeNull();
+    expect(scroller.getAttribute("role")).toBeNull();
     expect(cardScrollerProps(false)).toEqual({});
+  });
+
+  it("keeps a tab index that the scroller already had", () => {
+    const { container, rerender } = render(<div data-testid="scroller" tabIndex={-1} {...cardScrollerProps(true)}><CardInspector target={{ type: "card", card }} /></div>);
+    const scroller = scrollerOf(container);
+    expect(scroller.getAttribute("tabindex")).toBe("-1");
+    rerender(<div data-testid="scroller" tabIndex={-1} {...cardScrollerProps(true)} />);
+    expect(scroller.getAttribute("tabindex")).toBe("-1");
+  });
+
+  it("checks many mutations once per frame", async () => {
+    const frames = vi.spyOn(window, "requestAnimationFrame");
+    const { container } = render(<Pane target={card} />);
+    const scroller = scrollerOf(container);
+    frames.mockClear();
+    await act(async () => {
+      for (let i = 0; i < 20; i++) scroller.appendChild(document.createElement("p"));
+      await Promise.resolve();
+    });
+    expect(frames).toHaveBeenCalledTimes(1);
   });
 
   it("removes its flag and stops listening when the card closes", async () => {
@@ -119,7 +142,7 @@ describe("Card tab", () => {
     await act(async () => {
       scroller.dispatchEvent(new Event("scroll"));
       scroller.appendChild(document.createElement("p"));
-      await Promise.resolve();
+      await nextFrame();
     });
     expect(scroller.dataset.cardMore).toBeUndefined();
   });

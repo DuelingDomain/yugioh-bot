@@ -141,6 +141,7 @@
 .root ::selection { background: rgb(143 118 242 / 0.45); color: #fff; }
 .root :focus { outline: none; }
 .root :focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; border-radius: 6px; }
+.root [data-card-scroller]:focus-visible { outline-offset: -2px; border-radius: 0; }
 .root * { scrollbar-width: thin; scrollbar-color: var(--gold-lo) transparent; }
 .root *::-webkit-scrollbar { width: 8px; height: 8px; }
 .root *::-webkit-scrollbar-thumb { background: var(--gold-lo); border-radius: 8px; border: 2px solid var(--ink-1); }
