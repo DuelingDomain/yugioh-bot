@@ -79,6 +79,19 @@ describe("chain state with chosen options", () => {
     expect(kept.links[0].chosenOptions).toEqual([{ text: "Take 800 damage" }]);
   });
 
+  it("lets the replayed events win over the live snapshot, so a choice never shows before its replay", () => {
+    const snapshot: DuelChainLink[] = [{ index: 1, seat: 0, code: 45171524, name: "Mitsurugi Prayers", text: PRAYERS, cardType: 0x10002, chosenOptions: [{ text: "Take 800 damage" }] }];
+    // The link's events have played, none of them with a choice yet: the snapshot's choice waits for its replay.
+    const early = deriveChainState([ev({ id: 1, card }), ev({ id: 2, kind: "chain-resolving" })], snapshot);
+    expect(early.links[0].chosenOptions).toBeUndefined();
+    // Once the replay carries a choice, that one shows.
+    const later = deriveChainState([ev({ id: 1, card }), ev({ id: 2, kind: "chain-resolving", chosenOptions: [{ text: "Add 1 \"Mitsurugi\" monster" }] })], snapshot);
+    expect(later.links[0].chosenOptions).toEqual([{ text: "Add 1 \"Mitsurugi\" monster" }]);
+    // Another link with no replayed event yet still takes the snapshot (a cold hydration).
+    const other = deriveChainState([ev({ id: 1, chainIndex: 2, card })], [...snapshot, { index: 2, seat: 1, code: 22 }]);
+    expect(other.links[0].chosenOptions).toEqual([{ text: "Take 800 damage" }]);
+  });
+
   it("changes the state key when a choice arrives, so the panel draws it", () => {
     const before = deriveChainState([ev({ id: 1, card })]);
     const after = deriveChainState([ev({ id: 1, card }), ev({ id: 2, kind: "chain-resolving", chosenOptions: [{ text: "Take 800 damage" }] })]);

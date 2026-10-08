@@ -181,6 +181,7 @@ export function deriveChainState(events: readonly DuelEvent[], snapshot: readonl
   if (state === EMPTY_CHAIN && ordered.length > 0 && ordered[ordered.length - 1].kind === "chain-end") return EMPTY_CHAIN;
   const entries = snapshotEntries(snapshot);
   if (entries.length === 0) return state;
+  const replayed = new Set(ordered.map((event) => event.chainIndex));
   const top = entries[entries.length - 1].index;
   if (state.links.length === 0) return { links: fillGaps(entries, top), resolving: null };
   let links: ChainLinkState[] | null = state.links.length > top ? state.links.slice(0, top) : null;
@@ -193,6 +194,9 @@ export function deriveChainState(events: readonly DuelEvent[], snapshot: readonl
     // snapshots without the field still fall back to events. Preserve playback status and cards.
     const hasTargets = snapshot.findLast((link) => link.index === entry.index)?.targets != null;
     const base = current && current.code != null ? current : entry;
+    // The snapshot is live; the events play back a beat later. A link whose events have played shows the choice they
+    // carry, so a choice never shows before its replay. The snapshot's choice is for a cold start, with no event yet.
+    const chosen = replayed.has(entry.index) ? known.chosenOptions : entry.chosenOptions ?? known.chosenOptions;
     links[entry.index - 1] = {
       ...base,
       // A reload mid-chain has no activation event; the snapshot still carries the card text.
@@ -200,7 +204,7 @@ export function deriveChainState(events: readonly DuelEvent[], snapshot: readonl
       text: base.text ?? entry.text, cardType: base.cardType ?? entry.cardType,
       status: known.status, negated: known.negated, zone: known.zone ?? entry.zone,
       targets: hasTargets ? entry.targets : known.targets,
-      ...((entry.chosenOptions ?? known.chosenOptions) ? { chosenOptions: entry.chosenOptions ?? known.chosenOptions } : {}),
+      ...(chosen ? { chosenOptions: chosen } : {}),
     };
   }
   if (links) state = { links, resolving: state.resolving != null && state.resolving > links.length ? null : state.resolving };
