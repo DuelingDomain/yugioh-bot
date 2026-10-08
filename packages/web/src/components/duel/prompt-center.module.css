@@ -99,13 +99,14 @@
  * squeeze the cut text and the options.
  */
 @media (min-width: 901px) and (min-height: 641px) {
-  .panel:has(.cardText):not([data-wide="true"]) { width: min(max(640px, calc(560 * var(--duel-unit, 1px))), calc(100% - 24px)); }
+  .panel:has(.cardText[data-lead="true"]):not([data-wide="true"]) { width: min(max(640px, calc(560 * var(--duel-unit, 1px))), calc(100% - 24px)); }
   /*
    * The panel is centred on the board, so it reaches the hand once it is taller than the board less two hands
    * (about 115 units each, with the gap above). Long text then gives way (the box scrolls) before the panel covers
-   * the hand. Hosts with their own pair size (data-prompt-dense) set a smaller max-height.
+   * the hand. Hosts with their own pair size (data-prompt-dense) set a smaller max-height. Only the leading text block
+ * counts (data-lead): the text of an opened chain row must not make the panel jump.
    */
-  .panel:has(.cardText) { max-height: min(calc(100% - 24px), calc(100% - 240 * var(--duel-unit, 1px))); }
+  .panel:has(.cardText[data-lead="true"]) { max-height: min(calc(100% - 24px), calc(100% - 240 * var(--duel-unit, 1px))); }
 }
 /* A card strip is as wide as its cards need, up to about six large cards, and never wider than the board
    (the layer is the board box). A longer list scrolls inside the strip; the header stays whole above it. */
