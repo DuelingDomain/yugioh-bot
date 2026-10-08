@@ -109,8 +109,12 @@ function toneHex(tone: SeatTone | undefined): HubSeatTone {
 }
 /** The HUD the chain-response panel keeps off (strip-room.ts): the team plates, the camera rail and the card pinned in the peek. */
 const STRIP_KEY_HUD = "[data-team-plate], [data-camera-rail], [data-testid='hover-preview'][data-pinned='true']";
-/** The HUD it avoids when it can: the helipad hub (its chain line is also in the panel), the chain banner, the lock chip and the partner's hand. */
-const STRIP_SOFT_HUD = "[data-hub], [data-chain-panel], [data-lock-chip], [data-partner-hand]";
+/**
+ * The HUD it avoids when it can: the helipad hub (its chain line is also in the panel), the chain banner, the lock chip and the partner's hand.
+ * The team plates are here too: where the last-resort ranking must cover something, the soft area comes before the count of key pieces, so a plate that is only
+ * "key" could be hidden for a small corner of the hub (the 2B chip at 1366 home). Counted in both, a plate costs its area first.
+ */
+const STRIP_SOFT_HUD = "[data-hub], [data-chain-panel], [data-lock-chip], [data-partner-hand], [data-team-plate]";
 const STRIP_OWN_HAND = '[data-hand-seat][data-side="you"] [data-zones]';
 
 /**
