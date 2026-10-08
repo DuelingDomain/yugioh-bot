@@ -875,6 +875,35 @@ const TRIBUTE_SCENARIOS: LabScenario[] = [
   tributeAnimationScenario("tribute-fx-opp", "Tribute animation: opponent", "What you see when the opponent tributes: the same animation, with no prompt or glow.", C.summonedSkull, [3], OPP),
 ];
 
+/**
+ * What you see when the opponent plays a monster: a Normal Summon, a Special Summon, a Set or a Flip Summon on their
+ * side. The card must face its controller from the first frame to the last (no turn toward you, no snap at the end).
+ */
+function opponentPlayScenario(id: string, name: string, description: string, play: "normal" | "special" | "set" | "flip"): LabScenario {
+  return {
+    id,
+    category: "Summons",
+    name,
+    description,
+    build: () => {
+      const info = C.celtic;
+      const zone = MZ(OPP, 2);
+      const from = HAND(OPP, 0);
+      const flipsUp = play === "flip";
+      const start = board((e) => { if (flipsUp) e.push(edit.hiddenMonster(OPP, 2)); }, myHand, oppHand, "main1", OPP);
+      const events: EventSpec[] =
+        play === "set"
+          ? [ev.move(OPP, null, from, zone, "set", { faceDown: true }), ev.set(OPP, info, zone)]
+          : flipsUp
+            ? [ev.position(OPP, info, zone, POS_FACEDOWN_DEFENSE, POS_FACEUP_ATTACK, true), ev.summon(OPP, info, zone, "flip")]
+            : [ev.move(OPP, info, from, zone, "summon"), ev.summon(OPP, info, zone, play)];
+      const edits: Edit[] = [play === "set" ? edit.hiddenMonster(OPP, 2) : edit.monster(OPP, 2, info)];
+      if (!flipsUp) edits.push(edit.removeHand(OPP, 0));
+      return script(start, [{ at: 0, events, edits }], 3600);
+    },
+  };
+}
+
 const SUMMONS: LabScenario[] = [
   summonScenario("summon-normal", "Normal Summon", "A small monster from the hand. The plain arrival and the banner with the card portrait.", C.celtic, "normal"),
   summonScenario("summon-tribute-heavy", "Tribute Summon (heavy, 2500 ATK or more)", "A tribute for a strong monster. The heavy arrival: hologram and shake.", C.summonedSkull, "tribute", { tribute: C.feralImp }),
@@ -887,6 +916,10 @@ const SUMMONS: LabScenario[] = [
   summonScenario("summon-link", "Link Summon", "A Link Monster. The Link Rating 3 counts as heavy.", C.decodeTalker, "link", { from: "extra" }),
   summonScenario("summon-ritual", "Ritual Summon", "A Ritual Monster from the hand.", C.blackChaos, "ritual"),
   summonScenario("summon-pendulum", "Pendulum Summon", "A Pendulum Summon.", C.oddEyes, "pendulum"),
+  opponentPlayScenario("opp-summon-normal", "Opponent: Normal Summon", "The opponent Normal Summons from their hand. The card faces them the whole way.", "normal"),
+  opponentPlayScenario("opp-summon-special", "Opponent: Special Summon", "The opponent Special Summons from their hand. The card faces them the whole way.", "special"),
+  opponentPlayScenario("opp-set-monster", "Opponent: Set a monster", "The opponent Sets a monster. The sleeve lands turned toward them.", "set"),
+  opponentPlayScenario("opp-flip-summon", "Opponent: Flip Summon", "The opponent flips a face-down monster up. The card faces them the whole way.", "flip"),
   summonScenario("summon-ultimate", "Fusion Summon (4500 ATK)", "The strongest arrival: a very heavy Fusion Monster.", C.ultimateDragon, "fusion", { from: "extra" }),
 ];
 

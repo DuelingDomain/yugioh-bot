@@ -1,6 +1,6 @@
 import { duelFxClock } from "./fx-clock";
 import type { DuelEvent } from "@yugidraft/shared/duels";
-import { findMoveDestination, followMoveDestination, moveDestinationRect, moveDestinationRotation } from "./event-queue";
+import { findMoveDestination, followMoveDestination, moveDestinationRect, moveDestinationRotation, seatFieldTurn } from "./event-queue";
 
 type Rect = ReturnType<typeof moveDestinationRect>;
 type Offset = { dx: number; dy: number };
@@ -19,13 +19,24 @@ export function retargetFlight({ event, el, overlay, cx, cy, duration, fallback,
   let changedAt = start;
   let from: Pose = { dx: 0, dy: 0, rotation: 0 };
   let goal: Pose = { dx: 0, dy: 0, rotation: 0 };
+  // The seat turn is a DOM probe: read it again only when the zone moves (a table regrouping), not on every frame.
+  let seatAt = "";
+  let seatTurn = 0;
+  const seatTurnOf = (destination: HTMLElement, rect: Rect) => {
+    const key = `${rect.left}|${rect.top}|${rect.width}|${rect.height}`;
+    if (key !== seatAt) {
+      seatAt = key;
+      seatTurn = seatFieldTurn(destination);
+    }
+    return seatTurn;
+  };
   const read = (destination: HTMLElement | null) => {
     const rect = destination ? moveDestinationRect(destination) : fallback?.();
     const layer = overlay.getBoundingClientRect();
     return { now: duelFxClock.now(), target: rect ? {
       dx: rect.left - layer.left + rect.width / 2 - cx,
       dy: rect.top - layer.top + rect.height / 2 - cy,
-      rotation: destination ? moveDestinationRotation(destination) - endRot : goal.rotation,
+      rotation: destination ? moveDestinationRotation(destination, false, endRot, seatTurnOf(destination, rect)) - endRot : goal.rotation,
     } : goal };
   };
   const at = (now: number): Pose => {

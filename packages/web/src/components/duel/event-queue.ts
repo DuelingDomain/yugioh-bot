@@ -2,6 +2,7 @@ import { reportDuelClientError } from "./client-error";
 import type { SceneCueName } from "./fx3d/scene-plan";
 import type { DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
 import type { BattleSoundPlan } from "./attack-audio";
+import { screenPose } from "./attack-fx";
 import { BANNER_TIMING, CHAIN_TIMING, PHASE_TIMING } from "./duel-timing";
 import {
   isDefenseAt,
@@ -292,22 +293,60 @@ export function moveDestinationRect(dest: HTMLElement): { left: number; top: num
   return { left: rect.left - x, top: rect.top - (y ?? 0), width: rect.width, height: rect.height };
 }
 
-/** The card's board turn plus its fan angle; landing uses the engine's final angle. */
-export function moveDestinationRotation(dest: HTMLElement | null, visible = false): number {
+/** Brings `angle` to the equal angle nearest to `near` (a flight must turn the short way, never through upright). */
+export function nearestTurn(angle: number, near: number): number {
+  return angle + Math.round((near - angle) / 360) * 360;
+}
+
+/**
+ * The live screen turn of the seat field around `dest` (0 outside a seat field and for a hand card). Only a seat field
+ * of a multiplayer table is turned as a whole; the DOM probe behind it is skipped everywhere else, so a 1v1 flight
+ * adds no layout read.
+ */
+export function seatFieldTurn(dest: HTMLElement): number {
+  if (dest.closest("[data-hand-card]") || !dest.closest("[data-seat-field]")) return 0;
+  return screenPose(dest)?.turn ?? 0;
+}
+
+/**
+ * The screen turn a card departing from `from` starts at, where the seat's own turn decides it; null when the plain
+ * side-based turn is right. A rival hand rail of a multiplayer table is turned with its seat field (every card in it
+ * shares that turn: 180, 170, 0, ...). A card leaving a field zone, a pile or a Graveyard adds its seat field's turn to
+ * its own side/Defense turn, so `sideTurn` is that turn without the seat.
+ */
+export function departureTurn(from: DuelZoneRef | undefined | null, sideTurn: number): number | null {
+  if (!from || typeof document === "undefined" || !document.querySelector("[data-seat-field]")) return null;
+  if (from.location === LOCATION_HAND) {
+    const rail = document.querySelector<HTMLElement>(`[data-hand-seat="${from.controller}"]`);
+    return rail && rail.dataset.side === "opp" ? screenPose(rail)?.turn ?? null : null;
+  }
+  const zone = findMoveZoneElement(from);
+  return zone ? sideTurn + seatFieldTurn(zone) : null;
+}
+
+/**
+ * The card's turn on screen when it rests in `dest`: the zone's own half turn (far side), a quarter for Defense Position,
+ * and the turn of the seat field around it. A seat of a multiplayer table is rotated as a whole, live (also while the
+ * table regroups for a face-off), so the zone's side alone names the wrong way. A hand card adds its fan angle instead.
+ * `near` picks the equal angle closest to it, so a flight that ends here never spins the long way round.
+ * `seatTurn` is a seat turn read earlier (a flight reads it again only when the zone moves); omitted, it is read here.
+ */
+export function moveDestinationRotation(dest: HTMLElement | null, visible = false, near?: number, seatTurn?: number): number {
   if (!dest) return 0;
-  const turn = (dest.dataset.side === "opp" ? 180 : 0) + (dest.dataset.defense === "true" ? 90 : 0);
   const card = dest.closest<HTMLElement>("[data-hand-card]");
+  const turn = (dest.dataset.side === "opp" ? 180 : 0) + (dest.dataset.defense === "true" ? 90 : 0) + (card ? 0 : seatTurn ?? seatFieldTurn(dest));
+  const result = (angle: number) => (near == null ? angle : nearestTurn(angle, near));
   const hand = card?.closest<HTMLElement>("[data-hand-seat]");
-  if (!card || !hand || hand.closest('[data-reduced-motion="true"]')) return turn;
+  if (!card || !hand || hand.closest('[data-reduced-motion="true"]')) return result(turn);
   if (visible) {
     const transform = getComputedStyle(card).transform;
     const matrix = transform.match(/^matrix\(([^)]+)\)$/)?.[1].split(",").map(Number);
-    if (matrix) return turn + Math.atan2(matrix[1], matrix[0]) * 180 / Math.PI;
+    if (matrix) return result(turn + Math.atan2(matrix[1], matrix[0]) * 180 / Math.PI);
   }
-  if (hand.dataset.many !== "true") return turn;
+  if (hand.dataset.many !== "true") return result(turn);
   const index = Number.parseFloat(card.style.getPropertyValue("--i")) || 0;
   const count = Number.parseFloat(hand.style.getPropertyValue("--hn")) || hand.children.length;
-  return turn + (index - (count - 1) / 2) * 1.15;
+  return result(turn + (index - (count - 1) / 2) * 1.15);
 }
 
 type DestinationFollower = { read: () => unknown; write: (sample: unknown) => void };
