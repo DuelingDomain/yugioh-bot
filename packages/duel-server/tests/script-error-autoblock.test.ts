@@ -31,6 +31,24 @@ function setup(singleAccount = false) {
 }
 
 describe("script error automatic admission blocks", () => {
+  it("lifts only the row whose startup hash fails and logs the failure once", () => {
+    const t = setup(); [1, 2, 3].forEach(id => t.record(id, error));
+    t.db.exec(`INSERT INTO card_script_auto_blocks
+      SELECT 20, reason, blocked_at, distinct_duels, error_count, threshold, window_days,
+        bundle_version, script_hash, cleared_at, engine_kind FROM card_script_auto_blocks WHERE code = 10`);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const policy = createAutoBlockPolicy(t.db, { bundleVersion: "b", now: t.now, scriptHash: code => {
+        if (code === 10) throw new Error("Unsupported legacy chain.lua snapshot layout");
+        return "a".repeat(64);
+      } });
+      expect(policy.entries().map(entry => entry.code)).toEqual([20]);
+      expect(t.db.prepare("SELECT cleared_at FROM card_script_auto_blocks WHERE code = 10").get()).toEqual({ cleared_at: new Date(t.now()).toISOString() });
+      expect(log).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(log.mock.calls[0]![0])).toMatchObject({ event: "card_script_auto_block_hash_failed", code: 10, engineKind: "pinned-normal", failure: "Unsupported legacy chain.lua snapshot layout" });
+    } finally { log.mockRestore(); }
+  });
+
   it("counts distinct duels rather than error events or retries", () => {
     const { db, policy, record } = setup();
     for (let index = 1; index <= 30; index++) record(1, { ...error, index });

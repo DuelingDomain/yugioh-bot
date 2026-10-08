@@ -56,7 +56,13 @@ export function createAutoBlockPolicy(db: Database.Database, options: {
   const refresh = () => {
     if (!enabled) return;
     for (const row of rows.all() as AutoBlockRow[]) {
-      if (options.scriptHash(resolveCode(row.code), row.engine_kind) !== row.script_hash) {
+      let currentHash: string | null = null;
+      try { currentHash = options.scriptHash(resolveCode(row.code), row.engine_kind); }
+      catch (failure) {
+        console.error(JSON.stringify({ event: "card_script_auto_block_hash_failed", code: row.code,
+          engineKind: row.engine_kind, failure: failure instanceof Error ? failure.message : String(failure) }));
+      }
+      if (currentHash !== row.script_hash) {
         db.prepare("UPDATE card_script_auto_blocks SET cleared_at = ? WHERE code = ? AND engine_kind = ?")
           .run(new Date(now()).toISOString(), row.code, row.engine_kind);
       }
