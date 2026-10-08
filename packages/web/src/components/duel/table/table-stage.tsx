@@ -380,8 +380,9 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
       } as CSSProperties)
     : undefined;
   const [cards, setCards] = useState<readonly Rect[]>([]);
-  // A pan or zoom by hand moves every zone on screen: the targets are measured again when it comes to rest (the camera is not touched, only the bar room).
-  const restedView = zoom.zoomed && zoom.byHand() ? `${Math.round(zoom.view.x)},${Math.round(zoom.view.y)},${zoom.view.s.toFixed(3)}` : "";
+  // A pan or zoom by hand moves every zone on screen: the targets are measured again when it comes to rest (the camera is not touched, only the
+  // bar room). The count of the player's moves, not the view: the refit clamp that follows a new bar room moves the view and must not measure again.
+  const handMoves = zoom.zoomed ? zoom.handMoves() : 0;
   const legalKey = [...legalKeys].sort().join(",");
   useEffect(() => {
     const root = rootRef.current;
@@ -423,7 +424,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
       off();
       window.clearTimeout(again);
     };
-  }, [floating, nearBox, legalKey, reducedMotion, regroup, zoom.zoomed, ownZoom, restedView]);
+  }, [floating, nearBox, legalKey, reducedMotion, regroup, zoom.zoomed, ownZoom, handMoves]);
   // The card-pick bar: the clear place nearest the middle of the box, always inside it, off the legal targets, your live hand (and a card
   // raised from it) and the HUD, and off the cards on the board while a clear place exists (see pick-bar-room.ts). The same plan holds at
   // home, in rival focus and in your own zoom: the camera never moves for it.

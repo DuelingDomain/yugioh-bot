@@ -352,6 +352,33 @@ describe("useViewZoom on a board", () => {
     expect(zoom!.view.y).toBeCloseTo(BOX.height * (1 - s), 1);
   });
 
+  it("counts the moves by hand, and a refit that moves the view is not one", () => {
+    const rect = (x: number, y: number, width: number, height: number) => ({ left: x, top: y, right: x + width, bottom: y + height, width, height, x, y, toJSON: () => ({}) }) as DOMRect;
+    let hudOn = true;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      if (this.dataset.zoomOccluder != null) return hudOn ? rect(0, 540, BOX.width, 60) : rect(0, 0, 0, 0);
+      return rect(0, 0, BOX.width, BOX.height);
+    });
+    let zoom: ReturnType<typeof useViewZoom> | null = null;
+    const { getByTestId } = render(<Board onZone={() => undefined} onBoard={() => undefined} hud onZoom={(z) => (zoom = z)} />);
+    expect(zoom!.handMoves()).toBe(0);
+    act(() => {
+      getByTestId("root").dispatchEvent(new WheelEvent("wheel", { deltaY: -240, clientX: 500, clientY: 300, bubbles: true, cancelable: true, ctrlKey: true }));
+    });
+    act(() => press(getByTestId("floor"), [500, 300], [500, -3000]));
+    const moves = zoom!.handMoves();
+    expect(moves).toBeGreaterThan(0);
+    // The HUD goes: the refit takes the view to a new limit. The view moves, the count does not.
+    const before = zoom!.view.y;
+    hudOn = false;
+    act(() => zoom!.refit());
+    expect(zoom!.view.y).not.toBeCloseTo(before, 1);
+    expect(zoom!.handMoves()).toBe(moves);
+    // A move of the code (zoomTo) is not one either.
+    act(() => void zoom!.zoomTo({ s: 1.5, x: -100, y: -50 }, 0));
+    expect(zoom!.handMoves()).toBe(moves);
+  });
+
   it("keeps a refit that comes during a drag: the next move uses the new insets", () => {
     let hudOn = true;
     const rect = (x: number, y: number, width: number, height: number) => ({ left: x, top: y, right: x + width, bottom: y + height, width, height, x, y, toJSON: () => ({}) }) as DOMRect;

@@ -119,6 +119,8 @@ export interface UseViewZoom {
   zoomFit: (items: readonly FitItem[], avoid?: readonly Rect[], ms?: number) => View;
   /** True when the player moved the view by hand (drag, pinch, wheel) since the last zoomTo or zoomFit. */
   byHand: () => boolean;
+  /** How many moves by hand the player has made (it only grows): a refit of the code is not one, so it never changes this. */
+  handMoves: () => number;
 }
 
 const pointIn = (node: HTMLElement, event: { clientX: number; clientY: number }): Point => {
@@ -161,6 +163,8 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
     anim: null as { from: View; to: View; start: number; ms: number } | null,
     /** The player moved the view by hand (a drag, a pinch, a wheel) since the last camera move of the code (zoomTo, zoomFit). */
     byHand: false,
+    /** The count of moves by hand (see `handMoves`). */
+    handMoves: 0,
     /** The fixed nodes and where each stands at the identity view (canvas px, see counterTransform). */
     origins: new Map<Element, Point>(),
   });
@@ -296,7 +300,10 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
   /** A move the player makes (a drag, a pinch, a wheel): a later refit of the code leaves the view where the player put it. */
   const goByHand = useCallback((next: View, instant: boolean) => {
     // A move that goes nowhere (a wheel at the limit, a drag at the edge) is not a view the player chose.
-    if (!viewsClose(next, live.current.target)) live.current.byHand = true;
+    if (!viewsClose(next, live.current.target)) {
+      live.current.byHand = true;
+      live.current.handMoves += 1;
+    }
     go(next, instant);
   }, [go]);
 
@@ -613,6 +620,7 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
   }, []);
 
   const byHand = useCallback(() => live.current.byHand, []);
+  const handMoves = useCallback(() => live.current.handMoves, []);
 
-  return { view: rest, zoomed: isZoomed(rest), reset, refit, zoomTo, zoomFit, byHand };
+  return { view: rest, zoomed: isZoomed(rest), reset, refit, zoomTo, zoomFit, byHand, handMoves };
 }
