@@ -69,6 +69,8 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/** A safety net for a slow runner: each of these tests takes well under 2 s on a normal machine. */
+const TEST_TIMEOUT_MS = 20_000;
 const REN = 0;
 const RYO = 1;
 const BASE = FFA3_FIXTURES.states.main;
