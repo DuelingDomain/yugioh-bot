@@ -1,27 +1,39 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { DuelEvent } from "@yugidraft/shared/duels";
 
 // jsdom has no layout: the live turn of a seat field is the one thing the test sets by hand.
-const pose = vi.hoisted(() => ({ turn: 0 as number | null }));
+const pose = vi.hoisted(() => ({ turn: 0 as number | null, calls: 0 }));
 vi.mock("@/components/duel/attack-fx", async (original) => ({
   ...(await original<typeof import("@/components/duel/attack-fx")>()),
-  screenPose: () => (pose.turn == null ? null : { w: 60, h: 88, turn: pose.turn }),
+  screenPose: () => {
+    pose.calls += 1;
+    return pose.turn == null ? null : { w: 60, h: 88, turn: pose.turn };
+  },
 }));
 
-import { moveDestinationRotation, nearestTurn } from "@/components/duel/event-queue";
+import { moveDestinationRotation, nearestTurn, seatFieldTurn } from "@/components/duel/event-queue";
+import { retargetFlight } from "@/components/duel/live-flight";
 import { flipCopyBase } from "@/components/duel/position-fx";
 import { copyTurn } from "@/components/duel/summon-fx";
 
-function zone(side: "you" | "opp", defense = false): HTMLElement {
+/** A zone of a seat field (a multiplayer table) by default; `seat = false` is a 1v1 zone, which no field turns. */
+function zone(side: "you" | "opp", defense = false, seat = true): HTMLElement {
   const node = document.createElement("div");
   node.dataset.side = side;
   node.dataset.defense = String(defense);
-  document.body.appendChild(node);
+  if (seat) {
+    const field = document.createElement("div");
+    field.dataset.seatField = "1";
+    field.appendChild(node);
+    document.body.appendChild(field);
+  } else document.body.appendChild(node);
   return node;
 }
 
 afterEach(() => {
   pose.turn = 0;
+  pose.calls = 0;
   document.body.innerHTML = "";
 });
 
@@ -35,10 +47,13 @@ describe("nearestTurn", () => {
 });
 
 describe("moveDestinationRotation follows the controller's seat", () => {
-  it("keeps the side-based turn on a 1v1 table (no field turn)", () => {
-    expect(moveDestinationRotation(zone("you"))).toBe(0);
-    expect(moveDestinationRotation(zone("opp"))).toBe(180);
-    expect(moveDestinationRotation(zone("opp", true))).toBe(270);
+  it("keeps the side-based turn on a 1v1 table and never probes the DOM there", () => {
+    pose.turn = 33;
+    expect(moveDestinationRotation(zone("you", false, false))).toBe(0);
+    expect(moveDestinationRotation(zone("opp", false, false))).toBe(180);
+    expect(moveDestinationRotation(zone("opp", true, false))).toBe(270);
+    expect(seatFieldTurn(zone("you", false, false))).toBe(0);
+    expect(pose.calls).toBe(0);
   });
 
   it("adds the live turn of a turned seat field", () => {
@@ -103,5 +118,50 @@ describe("flip and typed-summon copies", () => {
     expect(copyTurn({ side: "opp", defense: true })).toBe(270);
     expect(copyTurn({ side: "you", defense: false, seat: { turn: 170, fit: 1, w: 1, h: 1 } })).toBe(170);
     expect(copyTurn({ side: "you", defense: true, seat: { turn: -170, fit: 1, w: 1, h: 1 } })).toBe(-80);
+  });
+});
+
+describe("a flight reads the seat turn only when its zone moves", () => {
+  const event: DuelEvent = { id: 1, kind: "move", text: "summon", zone: { controller: 0, location: 4, sequence: 0 } };
+  let left: number;
+  let destination: HTMLElement;
+  let overlay: HTMLElement;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    left = 500;
+    overlay = document.createElement("div");
+    document.body.appendChild(overlay);
+    vi.spyOn(overlay, "getBoundingClientRect").mockReturnValue({ left: 0, top: 0 } as DOMRect);
+  });
+  afterEach(() => vi.useRealTimers());
+
+  function fly(seat: boolean): void {
+    destination = zone("you", false, seat);
+    destination.dataset.zones = "0:4:0";
+    vi.spyOn(destination, "getBoundingClientRect").mockImplementation(() => ({ left, top: 700, width: 70, height: 100 }) as DOMRect);
+    const ghost = document.createElement("div");
+    const flight = retargetFlight({ event, el: ghost, overlay, cx: 535, cy: 750, duration: 500 });
+    pose.turn = 170;
+    vi.advanceTimersByTime(17 * 20);
+    flight.stop();
+  }
+
+  it("never probes in a 1v1 flight, frame after frame", () => {
+    fly(false);
+    expect(pose.calls).toBe(0);
+  });
+
+  it("probes a seat field once while the zone stays, and again when it moves", () => {
+    fly(true);
+    expect(pose.calls).toBe(1);
+    left = 520;
+    const ghost = document.createElement("div");
+    const flight = retargetFlight({ event, el: ghost, overlay, cx: 535, cy: 750, duration: 500 });
+    vi.advanceTimersByTime(17);
+    left = 540;
+    vi.advanceTimersByTime(17);
+    flight.stop();
+    expect(pose.calls).toBe(3);
   });
 });
