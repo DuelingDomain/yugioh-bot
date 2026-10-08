@@ -913,9 +913,11 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     const attackingSeat = attacker?.controller ?? turnSeat;
     const rivals = Array.from({ length: seatCount }, (_, seat) => seat).filter(seat =>
       !eliminated.has(seat) && !isLeaving(seat) && teamOfSeat(format, seat) !== teamOfSeat(format, attackingSeat));
+    // Keep the required FFA declaration query distinct from the optional battle display probe.
+    const scriptName = attacker ? "attack-target-query.lua" : "ffa-attack-target-query.lua";
     attackTargetQuery = query;
     try {
-      if (!scriptErrors.query(() => lib.loadScript(handle, "attack-target-query.lua", attackTargetQueryScript(attacker, rivals)), true)) {
+      if (!scriptErrors.query(() => lib.loadScript(handle, scriptName, attackTargetQueryScript(attacker, rivals)), true)) {
         throw new Error("Failed to query attack targets");
       }
     } finally { attackTargetQuery = null; }
