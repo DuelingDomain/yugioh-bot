@@ -67,12 +67,16 @@ describe("card strip in a dense host (3-way, Tag, 4-way)", () => {
     }
   });
 
-  it("keeps the panel in the pair box, and no taller than the box plus 28px on a short window, so it keeps off the hand", () => {
-    for (const css of [tableStage, gridStage]) {
+  it("keeps the panel in the pair box, and no taller than the box plus 28px (table) or minus 16px (grid) on a short window, so it keeps off the hand", () => {
+    const caps = [
+      [tableStage, "\\+ 28px"],
+      [gridStage, "- 16px"],
+    ] as const;
+    for (const [css, term] of caps) {
       const at = css.indexOf("--pr-strip-h:");
       expect(at).toBeGreaterThan(-1);
       const decl = css.slice(at, css.indexOf("}", at));
-      expect(decl).toMatch(/--pr-strip-h:\s*max\(calc\(var\(--pr-h[^)]*\) - 40px\), min\(300px, calc\(var\(--pr-h[^)]*\) ([+-]) (28|16)px\)\)\);/);
+      expect(decl).toMatch(new RegExp(`--pr-strip-h:\\s*max\\(calc\\(var\\(--pr-h[^)]*\\) - 40px\\), min\\(300px, calc\\(var\\(--pr-h[^)]*\\) ${term}\\)\\)\\);`));
       expect(decl).toMatch(/max-height:\s*min\(var\(--pr-strip-h\), calc\(100% - 24px\)\);/);
     }
   });
@@ -81,10 +85,13 @@ describe("card strip in a dense host (3-way, Tag, 4-way)", () => {
     expect(rule(strip, dense)).toMatch(/var\(--pr-strip-h, 300px\) - 170px \* var\(--tt, 1\)/);
   });
 
-  it("starts the rows at the left, so Up and Down keep the column in a short last row", () => {
+  it("lays the rows out as a centred grid of equal columns, so Up and Down keep the column in a short last row", () => {
     const list = rule(strip, `${dense} .strip`);
-    expect(list).toMatch(/justify-content:\s*flex-start;/);
-    expect(list).not.toMatch(/justify-content:\s*center/);
+    expect(list).toMatch(/display:\s*grid;/);
+    expect(list).toMatch(/grid-template-columns:\s*repeat\(auto-fill, var\(--cs-w\)\);/);
+    expect(list).toMatch(/justify-content:\s*center;/);
+    // The wrap check (stripWraps) reads flex-wrap, so it stays declared.
+    expect(list).toMatch(/flex-wrap:\s*wrap;/);
   });
 
   it("puts the count and the up and down buttons in the caption line, not over the cards", () => {

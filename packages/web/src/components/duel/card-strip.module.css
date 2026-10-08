@@ -299,10 +299,16 @@
   :global([data-prompt-dense]) .wrap:not([data-tone="chain"]) .strip {
     flex: 1 1 auto;
     min-height: 0;
+    /* A grid of equal columns, centred as a block: the columns line up (Up and Down keep the column) and no space piles up on one side. flex-wrap stays, as the wrap check reads it. */
+    display: grid;
+    grid-template-columns: repeat(auto-fill, var(--cs-w));
+    /* The width the cards ask for (a grid of auto-fill columns has no width of its own): the panel is as wide as its cards, up to its max-width. */
+    width: calc(var(--cs-n, 1) * var(--cs-w) + (var(--cs-n, 1) - 1) * var(--cs-gap) + 2 * var(--cs-pad-x));
+    max-width: 100%;
+    column-gap: var(--cs-gap);
     flex-wrap: wrap;
-    align-content: flex-start;
-    /* Rows start at the left, so Up and Down keep the column (a short last row does not centre). */
-    justify-content: flex-start;
+    align-content: start;
+    justify-content: center;
     /* A row gap above the lift (4px) and the pick mark (8px) that hangs off the corner. */
     row-gap: 18px;
     overflow-x: hidden;

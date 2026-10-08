@@ -1,7 +1,7 @@
 "use client";
 
 import { duelFxClock } from "./fx-clock";
-import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
 import { Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp } from "lucide-react";
 import type { DuelCardInfo } from "@yugidraft/shared/duels";
 import { cardArtUrl } from "./constants";
@@ -305,7 +305,7 @@ export function CardStrip({
             <ChevronRight size={20} strokeWidth={2.25} aria-hidden />
           </button>
         ) : null}
-        <ul ref={listRef} className={styles.strip} data-card-strip aria-label={label} data-notes={items.some((item) => item.detail) ? true : undefined} onScroll={() => {
+        <ul ref={listRef} className={styles.strip} data-card-strip aria-label={label} data-notes={items.some((item) => item.detail) ? true : undefined} style={{ "--cs-n": items.length } as CSSProperties} onScroll={() => {
           measure();
           record();
         }}>

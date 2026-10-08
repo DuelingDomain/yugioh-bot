@@ -9,6 +9,7 @@ import {
   newSeat,
   putMonster,
   putSpell,
+  searchPrompt,
   SZ,
   TABLE_CARDS as C,
   withHiddenHands,
@@ -283,3 +284,15 @@ const extra: Record<string, TableFixtureState> = {
 };
 
 export const TAG_FIXTURES: TableFixtureSet = { format: "tag", title: "2v2 tag duel", states, extra };
+
+/** The `?pick=cards` preview of the tag table: your prompt is a pick among 14 Deck cards, so the card strip has more cards than a window shows. */
+export function tagSearchVariant(set: TableFixtureSet): TableFixtureSet {
+  const states = Object.fromEntries(
+    Object.entries(set.states).map(([id, state]) => {
+      const engine = state.room.engine;
+      if (!engine || state.room.mySeat !== ASTER) return [id, state];
+      return [id, { ...state, room: { ...state.room, engine: { ...engine, prompt: searchPrompt(ASTER) } } }];
+    }),
+  ) as unknown as TableFixtureSet["states"];
+  return { ...set, states };
+}
