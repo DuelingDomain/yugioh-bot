@@ -25,7 +25,7 @@ Dueling Domain is the play surface for a Discord community: drafts, tournaments,
 - Spectators can watch; the duel log and card inspector are part of play.
 
 ## Capabilities and Constraints
-- Formats today: Standard 1v1 and Domain 1v1. Planned later: 3-way and 4-way duels (build on the same engine logic; do not design them yet, but do not block them).
+- Formats today: Standard and Domain, each at 1v1, Tag (2v2, shared team LP) and 3- or 4-player free-for-all tables.
 - Engine-legal actions only. No manual free-move mode, no Resolve button.
 - Board topology follows the orthodox Dueling Nexus layout: per player 5 Main Monster Zones and 5 Spell/Trap Zones (Pendulum markers on the first and fifth), 2 shared Extra Monster Zones, Field Spell, Main Deck, Extra Deck, Graveyard, and Banished piles. Domain adds a Deck Master zone per player, outside the normal zones.
 - The phase bar (DP, SP, M1, BP, M2, EP) stays at the bottom and stays visible.
