@@ -71,6 +71,18 @@ describe("Xyz materials in a pick", () => {
     ]);
   });
 
+  it("count twins right when both players' Xyz share one prompt, whatever the option order", () => {
+    // Opponent zone 2, my Utopia zone 0, opponent zone 1: on the far side zone 2 is drawn left of zone 1.
+    const mixed = [
+      material(0, 0, "Celtic Guardian", 2, "Ryzeal Duo Drive", 1),
+      material(1, 0, "Axe Raider", 0, "Number 39: Utopia", 0),
+      material(2, 0, "Mystical Elf", 1, "Ryzeal Duo Drive", 1),
+    ];
+    expect(materialHostNotes(mixed, { mySeat: 0 }).map((note) => note?.detail)).toEqual([
+      "1 of 2 · Under opponent's Ryzeal Duo Drive", "Under your Number 39: Utopia", "2 of 2 · Under opponent's Ryzeal Duo Drive",
+    ]);
+  });
+
   it("call an Xyz the viewer cannot see a face-down Xyz", () => {
     const hidden = (index: number, seat: number, name?: string): DuelPromptOption => {
       const option = material(index, 0, "Celtic Guardian", index, name ?? "x", seat);
