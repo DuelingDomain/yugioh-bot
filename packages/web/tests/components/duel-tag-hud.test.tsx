@@ -267,11 +267,14 @@ describe("the pinned card peek of the Tag Rooftop", () => {
     media(false);
     const { container } = render(<Shell />);
     const zone = container.querySelector("[data-kind='mz'][data-occupied='true']") as HTMLElement;
-    // In the overview a tap on a zone with no action focuses that field (Tag camera); in the close-up the tap pins the peek.
+    // A first click on a zone with no action no longer focuses that field (Tag camera).
     fireEvent.click(zone.querySelector("button") as HTMLElement);
     const card = container.querySelector("[data-kind='mz'][data-occupied='true'] button") as HTMLElement;
     fireEvent.mouseEnter(card);
     fireEvent.click(card);
+    // The click pins the peek and never moves the camera.
+    expect(container.querySelector("[data-camera-mode]")?.getAttribute("data-camera-mode")).toBe("overview");
+    expect(container.querySelector("[data-camera-seat]")).toBeNull();
     fireEvent.mouseLeave(card);
     act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS * 4); });
     expect(screen.getAllByTestId("hover-preview")).toHaveLength(1);
