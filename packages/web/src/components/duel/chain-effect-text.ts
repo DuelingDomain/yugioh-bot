@@ -104,15 +104,15 @@ const fold = (text: string): string =>
 const MIN_PARTIAL = 8;
 
 /**
- * Marks the option lines the link's player chose. A choice matches a bullet by its text first (equal, or one holds the
- * other); a choice with no text match falls back to its prompt option index when that index points at a bullet. A bullet
- * is marked once, and a choice that matches nothing marks nothing (the "Chose" line still names it).
+ * Marks the option lines the link's player chose, by text only (equal, or one holds the other). The prompt option index
+ * is no guide: the engine hides options whose condition is false, so it need not be the position of a printed bullet, and
+ * a wrong mark is worse than none. A bullet is marked once, and a choice that matches nothing marks nothing (the
+ * "Chose" line still names it).
  */
 export function markChosenLines(lines: readonly CardTextLine[], chosen: readonly ChosenOption[] | undefined): CardTextLine[] {
   if (!chosen?.length) return lines.map((line) => ({ ...line }));
   const optionAt = lines.flatMap((line, at) => (line.kind === "option" ? [at] : []));
   const marked = new Set<number>();
-  const loose: ChosenOption[] = [];
   for (const choice of chosen) {
     const want = fold(choice.text);
     const hit = want === "" ? undefined : optionAt.find((at) => !marked.has(at) && fold(lines[at].text) === want)
@@ -121,11 +121,6 @@ export function markChosenLines(lines: readonly CardTextLine[], chosen: readonly
         return !marked.has(at) && (have.includes(want) || (have.length >= MIN_PARTIAL && want.includes(have)));
       }) : undefined);
     if (hit != null) marked.add(hit);
-    else loose.push(choice);
-  }
-  for (const choice of loose) {
-    const at = choice.index != null && Number.isInteger(choice.index) ? optionAt[choice.index] : undefined;
-    if (at != null && !marked.has(at)) marked.add(at);
   }
   return lines.map((line, at) => (marked.has(at) ? { ...line, chosen: true } : { ...line }));
 }
