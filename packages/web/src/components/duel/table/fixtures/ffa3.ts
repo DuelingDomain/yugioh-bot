@@ -30,15 +30,15 @@ const MIKA = 2;
 /** The last plays of turns 3 to 5, the rows of the history rail. Each carries the seat that did it. */
 function history(): DuelEvent[] {
   const specs = [
-    ev.phase("Turn 3"),
+    ev.phase("Main Phase 1"),
     ev.summon(RYO, C.blueEyes, MZ(RYO, 1), "tribute"),
     ev.set(RYO, C.mirrorForce, SZ(RYO, 1)),
-    ev.phase("Turn 4"),
+    ev.phase("Main Phase 1"),
     ev.summon(MIKA, C.redEyes, MZ(MIKA, 0)),
     ev.summon(MIKA, C.gaia, MZ(MIKA, 2)),
     ev.attack(MIKA, MZ(MIKA, 0), MZ(RYO, 1)),
     ev.damage(MIKA, 1200),
-    ev.phase("Turn 5"),
+    ev.phase("Main Phase 1"),
     ev.summon(REN, C.darkMagician, MZ(REN, 0)),
     ev.destroy(MIKA, C.gaia, MZ(MIKA, 2), { cause: "effect", sourceCode: C.raigeki.code, sourceKind: "spell", sourceSeat: REN }),
     ev.toGrave(MIKA, C.gaia, MZ(MIKA, 2), 0, { cause: "effect", sourceCode: C.raigeki.code, sourceKind: "spell", sourceSeat: REN }),

@@ -36,18 +36,18 @@ const RIVALS = [MIRELLE, JUNIPER] as const;
 
 const POS_SET = 0x0a;
 
-/** The last plays of turns 2 to 5, the rows of the Log. Each carries the seat that did it. Corvin's Set card is his team's to see. */
+/** The last plays of turns 2 to 5, the rows of the Log. Each carries the seat that did it. Corvin's Set card stays face-down for his partner Aster: the rail treats a partner as a rival. */
 function history(): DuelEvent[] {
   const specs = [
-    ev.phase("Turn 2"),
+    ev.phase("Main Phase 1"),
     ev.summon(MIRELLE, C.summonedSkull, MZ(MIRELLE, 0)),
-    ev.phase("Turn 3"),
+    ev.phase("Main Phase 1"),
     ev.set(CORVIN, C.torrential, SZ(CORVIN, 0)),
-    ev.phase("Turn 4"),
+    ev.phase("Main Phase 1"),
     ev.summon(JUNIPER, C.gaia, MZ(JUNIPER, 2)),
     ev.attack(JUNIPER, MZ(JUNIPER, 0), MZ(CORVIN, 0)),
     { kind: "damage", seat: CORVIN, amount: 1_200, cause: "battle", text: `${TAG_NAMES[CORVIN]} took 1200 damage` } as const,
-    ev.phase("Turn 5"),
+    ev.phase("Main Phase 1"),
     ev.summon(ASTER, C.darkMagician, MZ(ASTER, 0)),
   ];
   return specs.map((spec, index) => ({ ...spec, id: index + 1 }) as DuelEvent);

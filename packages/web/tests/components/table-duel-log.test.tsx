@@ -122,4 +122,17 @@ describe("DuelLogLine with seat colours", () => {
     expect(container.textContent).toContain("Ryo");
     expect(container.textContent).toContain("Mika");
   });
+
+  it("does not match Player 10 or a Player number above 4", () => {
+    const { container } = render(<DuelLogLine text="Player 10 and Player 5 wait" kind="battle" playerName={names} seatTones={tones} />);
+    expect(container.querySelector("b[data-seat]")).toBeNull();
+    expect(container.textContent).toContain("Player 10");
+    expect(container.textContent).toContain("Player 5");
+  });
+
+  it("writes the plain name for a seat without a colour, and colours the others", () => {
+    const { container } = render(<DuelLogLine text="Player 1 attacks Player 2" kind="battle" playerName={names} seatTones={tones} />);
+    expect([...container.querySelectorAll("b[data-seat]")].map((node) => node.textContent)).toEqual(["Ryo"]);
+    expect(container.textContent).toContain("Ren attacks Ryo");
+  });
 });
