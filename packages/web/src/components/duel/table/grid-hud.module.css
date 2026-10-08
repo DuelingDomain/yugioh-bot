@@ -186,7 +186,7 @@
   padding: 0;
   border: 0;
   border-radius: 12px;
-  background: transparent;
+  background: rgb(9 15 29 / 0.7);
   color: var(--duel-ink-2);
   cursor: pointer;
   transition: color 0.15s, background-color 0.15s;
@@ -582,8 +582,8 @@
   --pv-reserve: 270px;
   position: absolute;
   left: 72px;
-  /* --pv-top and --pv-max-h come from grid-preview.tsx: the free band of the real layout (below the chain tower, above the Deck Master plate). */
-  top: var(--pv-top, 50px);
+  /* --pv-bottom, --pv-max-h and --pv-w come from grid-preview.tsx: the free band of the real layout (below the chain tower, above the Deck Master plate). */
+  top: 50px;
   z-index: 34;
   display: flex;
   flex-direction: column;
@@ -605,14 +605,15 @@
 .masterWrap[data-form="tall"]:not([data-slot="other"]) ~ .preview {
   --pv-reserve: calc(var(--hud-master-bottom, calc(clamp(58px, 5.6dvh, 68px) + 20px)) + 341px);
 }
-/* The right edge (grid-preview.tsx puts a hover or pinned panel there when the left side is full): it slides in from that edge. */
+/* The right edge (grid-preview.tsx puts the panel there when the left side is full): it slides in from that edge. */
+.preview[data-anchor="bottom"] { top: auto; bottom: var(--pv-bottom, 8px); }
 .preview[data-side="right"] { left: auto; right: 16px; transform: translateX(calc(100% + 32px)); }
 .preview[data-open="true"], .preview[data-side="right"][data-open="true"] { transform: none; visibility: visible; transition: transform 0.18s ease-out, visibility 0s; }
 .preview[data-motion="none"] { transition: none; }
 /* The art gives way first: its shrink weight dwarfs the text's, down to a small card. It stays centered and blends in. */
 .preview[data-squeezed="true"] .previewArt { display: none; }
 .previewArt { display: block; flex: 0 1000 auto; width: 100%; min-height: 0; aspect-ratio: 59 / 86; margin: 0 0 10px; border-radius: 4px; object-fit: contain; background: transparent; }
-.preview h3 { flex: none; margin: 0; font-size: calc(var(--pv-ct) * 1.35); font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
+.preview h3 { flex: none; margin: 0; padding-right: 22px; font-size: calc(var(--pv-ct) * 1.35); font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
 .previewType { flex: none; margin: 3px 0 0; color: var(--duel-ink-2); font-size: calc(var(--pv-ct) * 0.95); }
 .previewStats { flex: none; margin: 6px 0 0; font-size: calc(var(--pv-ct) * 1.35); font-weight: 500; letter-spacing: 0.02em; }
 /* No line clamp: the whole effect shows while it fits. After the art is at its minimum, the rest fades out. */
@@ -639,40 +640,10 @@
 .previewBody { display: contents; }
 
 /*
- * The pinned panel (a click on a board card): wide, with the art beside the text, so the whole effect text shows with no
- * scroll. It stays by the left edge like the hover panel, but moves to the right (data-side) or gets narrower (data-narrow)
- * when it would touch the card that was clicked. A text that does not fit the height makes the panel wider first (grid-preview.tsx
- * tries wider places), and only a very small screen scrolls it. On the left it keeps clear of the Deck Master plate (--pv-reserve),
- * on the right of the bottom right controls (--pv-reserve-right, set from the real controls). Unlike the hover panel it takes the pointer,
- * so a click on it never reaches a card under it.
+ * The pinned panel (a click on a board card) is the same window, frozen in the same place: same size, same layout. It only takes the pointer
+ * (a click on it never reaches the board under it: a target of a prompt may be covered), and adds the extra lines and the X button.
  */
-.preview[data-pinned="true"] {
-  flex-direction: row;
-  align-items: flex-start;
-  gap: 16px;
-  width: min(var(--pin-w, 700px), calc(100% - 88px));
-  padding: 14px 44px 12px 14px;
-  /* The panel takes the pointer like any panel: a click on it never reaches the board under it (a target of a prompt may be covered). */
-  pointer-events: auto;
-}
-/* On the right edge the Deck Master plate is far away: only the timer, Responses and End Turn at the bottom right are kept free. */
-.preview[data-pinned="true"][data-side="right"] { max-height: var(--pv-max-h, max(300px, calc(100% - 50px - var(--pv-reserve-right, 200px)))); }
-.preview[data-pinned="true"][data-narrow="true"] { gap: 12px; }
-.preview[data-pinned="true"][data-narrow="true"] .previewArt,
-.preview[data-pinned="true"][data-art="small"] .previewArt { width: clamp(96px, 34%, 140px); }
-.preview[data-pinned="true"][data-side="right"] { left: auto; right: 16px; }
-/* A narrow side area (under 430 px): the art goes on top of the text and the panel grows taller instead of wider. */
-.preview[data-pinned="true"][data-stack="true"] { flex-direction: column; align-items: stretch; gap: 8px; }
-.preview[data-pinned="true"][data-stack="true"] .previewArt { align-self: flex-start; width: clamp(96px, 38%, 150px); }
-.preview[data-pinned="true"][data-stack="true"][data-art="small"] .previewArt { width: clamp(72px, 26%, 100px); }
-.preview[data-pinned="true"][data-stack="true"] .previewBody { flex: 1 1 auto; align-self: stretch; }
-.preview[data-pinned="true"][data-side="right"][data-open="false"] { transform: translateX(calc(100% + 32px)); }
-.preview[data-pinned="true"] .previewArt { flex: none; align-self: flex-start; width: clamp(130px, 30%, 190px); height: auto; margin: 0; }
-.preview[data-pinned="true"][data-squeezed="true"] .previewArt { display: block; }
-.preview[data-pinned="true"][data-art="none"] .previewArt { display: none; }
-.preview[data-pinned="true"] .previewBody { display: flex; flex: 1 1 0; flex-direction: column; align-self: stretch; min-width: 0; min-height: 0; }
-.preview[data-pinned="true"] .previewText { flex: 0 1 auto; min-height: 0; margin-top: 6px; padding-right: 6px; }
-.preview[data-pinned="true"] .previewOwner { margin-top: 6px; }
+.preview[data-pinned="true"] { pointer-events: auto; }
 .previewExtras {
   flex: none;
   margin: 8px 0 0;
@@ -694,7 +665,7 @@
   padding: 0;
   border: 0;
   border-radius: 8px;
-  background: transparent;
+  background: rgb(9 15 29 / 0.7);
   color: var(--duel-ink-2);
   cursor: pointer;
   pointer-events: auto;
