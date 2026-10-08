@@ -35,10 +35,10 @@ it("sweeps only drafts completed at or after this worker started", async () => {
   vi.useFakeTimers();vi.setSystemTime(new Date("2026-10-06T12:00:00Z"));
   const app=setup();
   const insert=app.db.prepare(`insert into drafts(id,guild_id,channel_id,name,status,created_by_user_id,web_slug,ended_at)
-    values(?,'g','channel','Completed','completed',?,'completed',?)`);
-  insert.run(11,app.a.userId,"2026-10-06 11:59:59");
-  insert.run(12,app.a.userId,"2026-10-06 12:00:00");
-  insert.run(13,app.a.userId,"2026-10-06T12:00:01.000Z");
+    values(?,'g','channel','Completed','completed',?,?,?)`);
+  insert.run(11,app.a.userId,"completed-11","2026-10-06 11:59:59");
+  insert.run(12,app.a.userId,"completed-12","2026-10-06 12:00:00");
+  insert.run(13,app.a.userId,"completed-13","2026-10-06T12:00:01.000Z");
   vi.setSystemTime(new Date("2026-10-06T12:00:02Z"));
   await createDraftTimer(app).tick();
   expect(vi.mocked(app.effects.discord).mock.calls.map(([p])=>p.kind==="draft-completed" ? p.draftId : p.kind))
