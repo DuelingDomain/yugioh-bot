@@ -101,6 +101,56 @@ describe("planPickBarRoom: the card-pick bar stays in view", () => {
   });
 });
 
+/** The inputs the stage measured on the banish-pick fixture (/dev/table-preview/ffa3?state=banish-pick), one per window size. */
+const MEASURED = {
+  "1366x768": {box: {width: 1338, height: 683}, targets: [{x: 544, y: 291, width: 80, height: 80}, {x: 458, y: 376, width: 80, height: 80}, {x: 544, y: 376, width: 80, height: 80}, {x: 554, y: 564, width: 42, height: 61}, {x: 601, y: 564, width: 42, height: 61}, {x: 648, y: 564, width: 42, height: 61}, {x: 695, y: 564, width: 42, height: 61}, {x: 743, y: 564, width: 42, height: 61}], cards: [{x: 384, y: 462, width: 55, height: 80}, {x: 458, y: 462, width: 80, height: 80}, {x: 544, y: 462, width: 80, height: 80}, {x: 901, y: 462, width: 55, height: 80}, {x: 520, y: 47, width: 47, height: 57}, {x: 409, y: 119, width: 63, height: 61}, {x: 294, y: 139, width: 63, height: 62}, {x: 455, y: 55, width: 63, height: 60}, {x: 398, y: 64, width: 63, height: 60}, {x: 342, y: 74, width: 62, height: 60}, {x: 178, y: 105, width: 45, height: 58}, {x: 1114, y: 104, width: 45, height: 58}, {x: 1039, y: 149, width: 62, height: 62}, {x: 923, y: 129, width: 63, height: 62}, {x: 1048, y: 93, width: 62, height: 61}, {x: 990, y: 84, width: 62, height: 61}, {x: 770, y: 46, width: 47, height: 57}], hud: [{x: 0, y: -44, width: 1338, height: 36}, {x: 625, y: 186, width: 89, height: 89}, {x: 975, y: 495, width: 151, height: 93}, {x: 220, y: 293, width: 140, height: 75}, {x: 978, y: 293, width: 140, height: 81}, {x: 973, y: 389, width: 146, height: 44}, {x: 180, y: 639, width: 413, height: 34}, {x: 1170, y: 551, width: 168, height: 132}, {x: 0, y: 560, width: 168, height: 114}], hand: {x: 554, y: 564, width: 231, height: 61}},
+  "1280x720": {box: {width: 1252, height: 635}, targets: [{x: 509, y: 271, width: 74, height: 74}, {x: 429, y: 350, width: 74, height: 74}, {x: 509, y: 350, width: 74, height: 74}, {x: 519, y: 524, width: 39, height: 57}, {x: 563, y: 524, width: 39, height: 57}, {x: 607, y: 524, width: 39, height: 57}, {x: 651, y: 524, width: 39, height: 57}, {x: 695, y: 524, width: 39, height: 57}], cards: [{x: 361, y: 430, width: 51, height: 74}, {x: 429, y: 430, width: 74, height: 74}, {x: 509, y: 430, width: 74, height: 74}, {x: 842, y: 430, width: 51, height: 74}, {x: 497, y: 41, width: 42, height: 51}, {x: 397, y: 107, width: 57, height: 55}, {x: 293, y: 124, width: 57, height: 56}, {x: 438, y: 48, width: 57, height: 54}, {x: 387, y: 57, width: 57, height: 54}, {x: 336, y: 66, width: 56, height: 55}, {x: 188, y: 93, width: 40, height: 53}, {x: 1023, y: 93, width: 40, height: 53}, {x: 954, y: 133, width: 56, height: 56}, {x: 850, y: 115, width: 57, height: 56}, {x: 962, y: 83, width: 56, height: 55}, {x: 911, y: 74, width: 56, height: 55}, {x: 712, y: 41, width: 42, height: 51}], hud: [{x: 0, y: -44, width: 1252, height: 36}, {x: 585, y: 173, width: 82, height: 82}, {x: 911, y: 274, width: 141, height: 89}, {x: 209, y: 264, width: 130, height: 72}, {x: 913, y: 356, width: 130, height: 79}, {x: 909, y: 445, width: 136, height: 41}, {x: 180, y: 591, width: 413, height: 34}, {x: 1084, y: 503, width: 168, height: 132}, {x: 0, y: 512, width: 168, height: 114}], hand: {x: 519, y: 524, width: 215, height: 57}},
+} as const;
+
+describe("planPickBarRoom: near the middle at small windows", () => {
+  for (const size of ["1366x768", "1280x720"] as const) {
+    it(`takes a clear room near the middle of the box at ${size}`, () => {
+      const { box, targets, cards, hud, hand } = MEASURED[size];
+      const found = room(planPickBarRoom({ box, targets, cards, hud, hand }));
+      expect(found).toBeDefined();
+      const centre = mid(found);
+      // Within a quarter of the box width of the middle, whichever width the bar takes.
+      expect(Math.hypot(centre.x - box.width / 2, centre.y - box.height / 2)).toBeLessThan(box.width * 0.25);
+      expect(insideBox(found, box)).toBe(true);
+      for (const target of targets) expect(hits(found, target)).toBe(false);
+      expect(hits(found, hand)).toBe(false);
+    });
+  }
+
+  it("ranks the widths together: a narrower bar wins when it is clearly nearer the middle", () => {
+    // Two walls leave a gap in the middle that the full width does not fit but a narrower bar does.
+    const found = room(planPickBarRoom({ box: { width: 1000, height: 600 }, targets: [rect(300, 0, 20, 600), rect(700, 0, 20, 600)] }));
+    expect(found[2]).toBeLessThanOrEqual(380);
+    expect(Math.abs(mid(found).x - 500)).toBeLessThan(40);
+  });
+
+  it("keeps the full width when a narrower bar is not clearly nearer", () => {
+    const found = room(planPickBarRoom({ box: { width: 1000, height: 600 }, targets: [rect(490, 0, 20, 20)] }));
+    expect(found[2]).toBe(420);
+  });
+
+  it("takes under 5 ms for a fully blocked 2560x1440 box", () => {
+    const box = { width: 2560, height: 1440 };
+    const targets: ReturnType<typeof rect>[] = [];
+    for (let i = 0; i < 40; i += 1) targets.push(rect((i % 8) * 320, Math.floor(i / 8) * 288, 320, 288));
+    // The best of a few runs: the first runs include the JIT warm-up of the test runner.
+    let took = Infinity;
+    let found: string | undefined;
+    for (let run = 0; run < 5; run += 1) {
+      const started = performance.now();
+      found = planPickBarRoom({ box, targets });
+      took = Math.min(took, performance.now() - started);
+    }
+    expect(found).toBeDefined();
+    expect(took).toBeLessThan(5);
+  });
+});
+
 describe("clampRoom", () => {
   it("moves a room that stands on the bottom edge back inside the box", () => {
     const moved = clampRoom(rect(100, 960, 420, 92), BOX);
