@@ -36,7 +36,14 @@ export function cardScrollerProps(active: boolean): { "data-card-scroller"?: "" 
  * it all fits. The fade itself is CSS. The layout effect runs before the first paint, so there is no frame without the fade. While a
  * card shows, the scroller is a tab stop, so Safari can scroll it with the arrow keys.
  */
-function useScrollCue(root: RefObject<HTMLElement | null>, key: string | undefined) {
+function useScrollCue(root: RefObject<HTMLElement | null>, shown: boolean, key: string | undefined) {
+  // The tab stop depends only on "a face-up card shows", so a card change does not drop it (and the focus with it).
+  useLayoutEffect(() => {
+    const scroller = root.current?.closest<HTMLElement>("[data-card-scroller]") ?? null;
+    if (!scroller || scroller.hasAttribute("tabindex")) return;
+    scroller.tabIndex = 0;
+    return () => scroller.removeAttribute("tabindex");
+  }, [root, shown]);
   useLayoutEffect(() => {
     const node = root.current;
     const scroller = node?.closest<HTMLElement>("[data-card-scroller]") ?? null;
@@ -49,8 +56,6 @@ function useScrollCue(root: RefObject<HTMLElement | null>, key: string | undefin
       scroller.dataset.cardMore = next ? "true" : "false";
     };
     update();
-    const ownTabIndex = scroller.hasAttribute("tabindex");
-    if (!ownTabIndex) scroller.tabIndex = 0;
     scroller.addEventListener("scroll", update, { passive: true });
     const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
     resize?.observe(scroller);
@@ -69,7 +74,6 @@ function useScrollCue(root: RefObject<HTMLElement | null>, key: string | undefin
       resize?.disconnect();
       mutations?.disconnect();
       if (frame) cancelAnimationFrame(frame);
-      if (!ownTabIndex) scroller.removeAttribute("tabindex");
       delete scroller.dataset.cardMore;
     };
   }, [root, key]);
@@ -96,7 +100,7 @@ function InfoBody({ card: liveCard }: { card: DuelCard | DuelCardInfo }) {
     name: hasCardName(liveCard) ? liveCard.name : resolved.name,
     description: liveCard.description?.trim() ? liveCard.description : resolved.description,
   } : liveCard;
-  useScrollCue(rootRef, `${code}-${hidden}-${card.description?.length ?? 0}-${textSize}`);
+  useScrollCue(rootRef, !hidden, `${code}-${hidden}-${card.description?.length ?? 0}-${textSize}`);
   if (hidden) {
     return (
       <div className={styles.root} data-card-text={textSize} style={textStyle}>

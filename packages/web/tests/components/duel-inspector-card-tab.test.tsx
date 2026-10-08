@@ -112,6 +112,18 @@ describe("Card tab", () => {
     expect(cardScrollerProps(false)).toEqual({});
   });
 
+  it("keeps the tab stop when the card changes", () => {
+    const other = { ...card, code: card.code + 1, name: "Other" };
+    const { container, rerender } = render(<Pane target={card} />);
+    const scroller = scrollerOf(container);
+    const removed = vi.fn();
+    const spy = vi.spyOn(scroller, "removeAttribute").mockImplementation(removed);
+    rerender(<Pane target={other} />);
+    expect(removed).not.toHaveBeenCalledWith("tabindex");
+    spy.mockRestore();
+    expect(scroller.getAttribute("tabindex")).toBe("0");
+  });
+
   it("keeps a tab index that the scroller already had", () => {
     const { container, rerender } = render(<div data-testid="scroller" tabIndex={-1} {...cardScrollerProps(true)}><CardInspector target={{ type: "card", card }} /></div>);
     const scroller = scrollerOf(container);
@@ -126,8 +138,11 @@ describe("Card tab", () => {
     const scroller = scrollerOf(container);
     frames.mockClear();
     await act(async () => {
-      for (let i = 0; i < 20; i++) scroller.appendChild(document.createElement("p"));
-      await Promise.resolve();
+      // Each append is its own microtask, so the observer callback runs once per append.
+      for (let i = 0; i < 20; i++) {
+        scroller.appendChild(document.createElement("p"));
+        await Promise.resolve();
+      }
     });
     expect(frames).toHaveBeenCalledTimes(1);
   });
