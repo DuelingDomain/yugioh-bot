@@ -247,6 +247,49 @@ describe("the hover preview of the Tag Rooftop", () => {
   });
 });
 
+describe("the pinned card peek of the Tag Rooftop", () => {
+  it("a click on a face-up monster pins the peek, with no Card flyout and no second panel", () => {
+    vi.useFakeTimers();
+    media(false);
+    const { container } = render(<Shell />);
+    const zone = container.querySelector("[data-kind='mz'][data-occupied='true']") as HTMLElement;
+    const card = zone.querySelector("button") as HTMLElement;
+    fireEvent.mouseEnter(card);
+    fireEvent.click(card);
+    fireEvent.mouseLeave(card);
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS * 4); });
+    expect(screen.getAllByTestId("hover-preview")).toHaveLength(1);
+    expect(screen.getByTestId("hover-preview").getAttribute("data-pinned")).toBe("true");
+    expect(screen.getByTestId("hover-preview").getAttribute("data-open")).toBe("true");
+    expect(isOpen()).toBe(false);
+    fireEvent.keyDown(window, { key: "Escape" });
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS + 20); });
+    expect(screen.getByTestId("hover-preview").getAttribute("data-open")).toBe("false");
+  });
+});
+
+describe("the pinned card peek of the Tag Rooftop with a prompt", () => {
+  it("Esc closes the pin and keeps the prompt open; the next Esc declines it", () => {
+    vi.useFakeTimers();
+    media(false);
+    const onAnswer = vi.fn();
+    const answering = (controller: TableController): TableController => {
+      const prompt = controller.prompt ? { ...controller.prompt, cancelable: true } : null;
+      return { ...controller, onAnswer, prompt, engine: { ...controller.engine, prompt } };
+    };
+    const { container } = render(<Shell id="chain-2" tweak={answering} />);
+    const zone = container.querySelector("[data-kind='mz'][data-occupied='true']") as HTMLElement;
+    fireEvent.click(zone.querySelector("button") as HTMLElement);
+    expect(screen.getByTestId("hover-preview").getAttribute("data-pinned")).toBe("true");
+    fireEvent.keyDown(window, { key: "Escape" });
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS + 20); });
+    expect(screen.getByTestId("hover-preview").getAttribute("data-open")).toBe("false");
+    expect(onAnswer).not.toHaveBeenCalled();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onAnswer).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("the hover preview of the Tag Rooftop while a card menu is open", () => {
   it("keeps the card of the menu in the panel once the pointer has left it", () => {
     media(false);

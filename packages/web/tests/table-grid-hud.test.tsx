@@ -19,8 +19,8 @@ import { TableShell } from "@/components/duel/table/table-shell";
 
 beforeAll(() => {
   class RO {
-    constructor(private cb: () => void) {}
-    observe() { this.cb(); }
+    constructor(private cb: (entries: unknown[]) => void) {}
+    observe() { this.cb([]); }
     disconnect() {}
     unobserve() {}
   }
@@ -266,6 +266,151 @@ describe("the hover card preview", () => {
     const { container } = render(<Shell state={stateOf("main")} />);
     fireEvent.mouseEnter(myCard(container));
     expect(isOpen()).toBe(false);
+  });
+});
+
+describe("the pinned card peek of the 4-way grid", () => {
+  const myCard = (container: HTMLElement) =>
+    container.querySelector<HTMLElement>('[data-hand-seat="0"] button[aria-label="Celtic Guardian"]')!;
+
+  it("a click on a card pins the peek and opens no Card flyout", () => {
+    vi.useFakeTimers();
+    const { container } = render(<Shell state={stateOf("main")} />);
+    const card = myCard(container);
+    fireEvent.mouseEnter(card);
+    fireEvent.click(card);
+    fireEvent.mouseLeave(card);
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS * 4); });
+    const preview = screen.getByTestId("hover-preview");
+    expect(screen.getAllByTestId("hover-preview")).toHaveLength(1);
+    expect(preview.getAttribute("data-pinned")).toBe("true");
+    expect(preview.getAttribute("data-open")).toBe("true");
+    expect(within(preview).getByText("Celtic Guardian")).toBeTruthy();
+    expect(isOpen()).toBe(false);
+    // Esc lets it go; the X button too.
+    fireEvent.keyDown(window, { key: "Escape" });
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS + 20); });
+    expect(preview.getAttribute("data-open")).toBe("false");
+    fireEvent.click(card);
+    expect(preview.getAttribute("data-open")).toBe("true");
+    fireEvent.click(within(preview).getByRole("button", { name: "Close Celtic Guardian preview" }), { detail: 1 });
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS + 20); });
+    expect(preview.getAttribute("data-open")).toBe("false");
+  });
+
+  it("Esc closes the pin and does not answer the prompt", () => {
+    const onAnswer = vi.fn();
+    const { container } = render(<Shell state={stateOf("chain-2")} onAnswer={onAnswer} />);
+    const card = container.querySelector<HTMLElement>('[data-hand-seat="0"] button[aria-label]')!;
+    expect(card).toBeTruthy();
+    fireEvent.click(card);
+    const pinned = screen.queryByTestId("hover-preview")?.getAttribute("data-pinned") === "true";
+    expect(pinned).toBe(true);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onAnswer).not.toHaveBeenCalled();
+  });
+
+  /** The "main" state with a Celtic Guardian that has a counter and Xyz materials, and a graveyard of two cards for seat 0. */
+  function richState(): TableFixtureState {
+    const state = structuredClone(stateOf("main"));
+    const seat = state.room.engine!.seats.find((view) => view.seat === 0)!;
+    const guardian = seat.hand.find((card) => card?.name === "Celtic Guardian")!;
+    Object.assign(guardian, { counters: [{ type: 4, count: 2 }], materials: [{ ...guardian, code: 111, name: "Material A" }] });
+    const grave = (sequence: number) => ({ ...seat.hand[0]!, location: 16, sequence, name: `Grave ${sequence}` });
+    seat.graveyard = [grave(0), grave(1)];
+    return state;
+  }
+
+  it("shows the same extra lines as the Card flyout: counters and materials", () => {
+    const { container } = render(<Shell state={richState()} />);
+    fireEvent.click(myCard(container));
+    const lines = within(screen.getByTestId("hover-preview-extras")).getAllByRole("listitem").map((item) => item.textContent);
+    expect(lines).toEqual(["Counter 4: 2", "Materials: Material A"]);
+  });
+
+  it("a pile lets the pin go, and the pin does not come back when the pile closes", () => {
+    vi.useFakeTimers();
+    const { container } = render(<Shell state={richState()} />);
+    fireEvent.click(myCard(container));
+    expect(screen.getByTestId("hover-preview").getAttribute("data-pinned")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: /Graveyard \(2\)/ }));
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    fireEvent.keyDown(window, { key: "Escape" });
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS + 20); });
+    expect(screen.getByTestId("hover-preview").getAttribute("data-open")).toBe("false");
+  });
+
+  it("a click on a card inside an open pile opens the Card flyout and pins nothing", () => {
+    const { container } = render(<Shell state={richState()} />);
+    fireEvent.click(screen.getByRole("button", { name: /Graveyard \(2\)/ }));
+    fireEvent.click(within(screen.getByRole("dialog")).getAllByRole("button", { name: /Grave \d/ })[0]);
+    expect(isOpen()).toBe(true);
+    expect(container.querySelectorAll("[data-testid='hover-preview'][data-pinned='true']")).toHaveLength(0);
+  });
+
+  it("takes the fresh copy of the pinned card at a new revision, and lets the pin go when the card is gone", () => {
+    vi.useFakeTimers();
+    const first = stateOf("main");
+    const view = render(<Shell state={first} />);
+    fireEvent.click(myCard(view.container));
+    expect(screen.getByTestId("hover-preview")).toHaveTextContent("1400 / 1200");
+    const changed = structuredClone(first);
+    const seat = changed.room.engine!.seats.find((entry) => entry.seat === 0)!;
+    seat.hand.find((card) => card?.name === "Celtic Guardian")!.attack = 2400;
+    view.rerender(<Shell state={changed} />);
+    expect(screen.getByTestId("hover-preview")).toHaveTextContent("2400 / 1200");
+    expect(screen.getByTestId("hover-preview").getAttribute("data-pinned")).toBe("true");
+    const gone = structuredClone(first);
+    const goneSeat = gone.room.engine!.seats.find((entry) => entry.seat === 0)!;
+    goneSeat.hand = goneSeat.hand.filter((card) => card?.name !== "Celtic Guardian");
+    view.rerender(<Shell state={gone} />);
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS + 20); });
+    expect(screen.getByTestId("hover-preview").getAttribute("data-open")).toBe("false");
+  });
+
+  it("a new prompt for the viewer's seat lets the pin go", () => {
+    vi.useFakeTimers();
+    const first = stateOf("main");
+    const view = render(<Shell state={first} />);
+    fireEvent.click(myCard(view.container));
+    expect(screen.getByTestId("hover-preview").getAttribute("data-pinned")).toBe("true");
+    const next = structuredClone(first);
+    next.room.engine!.revision += 1;
+    next.room.engine!.prompt = { ...next.room.engine!.prompt!, id: "next-prompt" };
+    view.rerender(<Shell state={next} />);
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS + 20); });
+    expect(screen.getByTestId("hover-preview").getAttribute("data-open")).toBe("false");
+  });
+
+  it("a press on a prompt button lets the pin go, and the button still answers", () => {
+    vi.useFakeTimers();
+    const onAnswer = vi.fn();
+    const { container } = render(<Shell state={stateOf("chain-2")} onAnswer={onAnswer} />);
+    fireEvent.click(container.querySelector<HTMLElement>('[data-hand-seat="0"] button[aria-label]')!);
+    expect(screen.getByTestId("hover-preview").getAttribute("data-pinned")).toBe("true");
+    const pass = screen.getByRole("button", { name: /^(Pass|No)\b/ });
+    fireEvent.pointerDown(pass);
+    fireEvent.click(pass);
+    act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS + 20); });
+    expect(screen.getByTestId("hover-preview").getAttribute("data-open")).toBe("false");
+    expect(onAnswer).toHaveBeenCalledTimes(1);
+  });
+
+  it("the X button by keyboard returns focus to the card, and is named after it", () => {
+    const { container } = render(<Shell state={stateOf("main")} />);
+    const card = myCard(container);
+    fireEvent.click(card);
+    expect(screen.getByRole("complementary", { name: "Pinned card" })).toBe(screen.getByTestId("hover-preview"));
+    fireEvent.click(screen.getByRole("button", { name: "Close Celtic Guardian preview" }), { detail: 0 });
+    expect(document.activeElement).toBe(card);
+  });
+
+  it("a click on a card that opens its action menu pins nothing", () => {
+    const { container } = render(<Shell state={stateOf("main")} />);
+    const card = container.querySelector<HTMLElement>('[data-hand-seat="0"] button[aria-label="Raigeki"]')!;
+    fireEvent.click(card);
+    expect(screen.queryByRole("menu")).not.toBeNull();
+    expect(screen.getByTestId("hover-preview").getAttribute("data-pinned")).toBeNull();
   });
 });
 
