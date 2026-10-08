@@ -22,9 +22,12 @@ if (metadata.changed) {
   for (const key of ["scripts", "database", "strings"]) {
     if (manifest.sources[key] !== metadata.next[key]) throw new Error(`Prepared ${key} pin differs from candidate`);
   }
-  const cards = loadCardDatabase(dataDirectory), remaps = loadCardPasscodeRemaps(dataDirectory);
-  prodSection = prodScriptErrorReport(prod, (code, kind, helperScripts) => cardScriptHash(cards, remaps.get(code) ?? code, kind, kind?.startsWith("multi-") ? loadMultiScriptsFor(dataDirectory, join(dataDirectory, "multi-scripts")) : undefined, helperScripts));
   const probe = await probeEngineData(dataDirectory, metadata.changedPaths);
+  // An incomplete scan must still publish its blocking findings without opening the invalid bundle again.
+  if (!probe.artworkScriptScanError) {
+    const cards = loadCardDatabase(dataDirectory), remaps = loadCardPasscodeRemaps(dataDirectory);
+    prodSection = prodScriptErrorReport(prod, (code, kind, helperScripts) => cardScriptHash(cards, remaps.get(code) ?? code, kind, kind?.startsWith("multi-") ? loadMultiScriptsFor(dataDirectory, join(dataDirectory, "multi-scripts")) : undefined, helperScripts));
+  }
   const overlayExit = Number(await readFile(join(artifact, "overlay-exit.txt"), "utf8"));
   if (!Number.isInteger(overlayExit) || overlayExit < 0) throw new Error("Invalid overlay check exit status");
   const overlayLog = await readFile(join(artifact, "overlay-check.log"), "utf8");
