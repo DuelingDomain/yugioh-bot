@@ -18,6 +18,7 @@ import {
   seatObstacles,
   duoFinaleSlots,
   SEAT_BOX_FULL_DEF,
+  HAND_ROW_WIDTH,
   seatPoses,
   stageFit,
   stageSpread,
@@ -337,6 +338,19 @@ describe("4-way camera places", () => {
     expect(plan({ mode: "look", lookSeat: 3 })).toEqual(["vL", "vN", "vR", "home"]);
   });
 
+  it("your hand rect is the wide 762 x 144 one only at a wide 3-way table, and keeps the classic 605 x 116 elsewhere", () => {
+    const pose = { x: 550, y: 660, scale: 1, rotateDeg: 0 };
+    const classic = seatObstacles(pose, true);
+    expect(classic[1]).toMatchObject({ width: 605, height: 116 });
+    const wide = seatObstacles({ ...pose, width: SEAT_BOX_FULL_DEF }, true);
+    expect(wide[1]).toMatchObject({ width: 762, height: 144 });
+    // It stays inside the 829 px field and the hand row block is as wide as it plus air.
+    expect(wide[1].width).toBeLessThan(SEAT_BOX_FULL_DEF);
+    expect(HAND_ROW_WIDTH).toBeGreaterThan(wide[1].width);
+    // A rival's hand and a wide rival are not changed.
+    expect(seatObstacles({ ...pose, width: SEAT_BOX_FULL_DEF }, false)[1]).toMatchObject({ width: 420, height: 100 });
+  });
+
   it("overview and fly place the four fields on the compass", () => {
     expect(plan({ mode: "overview" })).toEqual(["oHome", "oL", "oN", "oR"]);
     expect(plan({ mode: "fly" })).toEqual(["oHome", "oL", "oN", "oR"]);
@@ -531,7 +545,7 @@ describe("hubPose", () => {
         expect(Math.hypot(dx, dy)).toBeGreaterThan(62 * ring.scale);
         if (area && spread > 0) {
           // A wide table: your hand's row under the stage and the camera hint pill in the bottom left corner stay clear too.
-          expect(overlaps(card, box(550, (860 - 4 + 960) / 2, 660, 960 - 856))).toBe(false);
+          expect(overlaps(card, box(550, (860 - 4 + 960) / 2, HAND_ROW_WIDTH, 960 - 856))).toBe(false);
           const k = stageFit(area);
           const hintW = 250 / k;
           const hintH = 40 / k;

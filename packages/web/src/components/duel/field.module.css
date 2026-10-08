@@ -585,17 +585,17 @@
 
   .handLocal .handCard .zone:hover .frame,
   .handLocal .handCard .zone:has(:focus-visible) .frame {
-    transform: translateY(calc(var(--lh) * -0.08)) scale(2);
+    transform: translateY(calc(var(--lh) * -0.08)) scale(var(--hand-hover, 2));
   }
 
   .handLocal .handCard .zone[data-legal="true"]:hover .frame,
   .handLocal .handCard .zone[data-legal="true"]:has(:focus-visible) .frame {
-    transform: translateY(calc(var(--lh) * -0.1)) scale(2);
+    transform: translateY(calc(var(--lh) * -0.1)) scale(var(--hand-hover, 2));
   }
 
   .handLocal .handCard .zone[data-selected="true"]:hover .frame,
   .handLocal .handCard .zone[data-selected="true"]:has(:focus-visible) .frame {
-    transform: translateY(calc(var(--lh) * -0.14)) scale(2);
+    transform: translateY(calc(var(--lh) * -0.14)) scale(var(--hand-hover, 2));
   }
 }
 
@@ -2470,6 +2470,34 @@
 /* Enlarged hand art can overlap the back row; clicks there belong to its zone button. */
 .sfHand .frame {
   pointer-events: none;
+}
+
+/* 3-way table: your hand is drawn as large as a board card (1.1 zone sizes tall, was 0.76), because the lane under your
+   field is free. It rises over the field's bottom pad only (no zone), and its box is only as tall as the cards need, so it
+   ends above the camera hint of a short screen. Real sizes, no transform: the stage and the prompt room measure this
+   element. Hovering zooms less (1.7x of a card that is already 1.45x larger). A phone keeps the small hand. */
+:global([data-table-stage="ffa3"]:not([data-portrait])) .seatField {
+  --lh: calc(var(--z) * 1.1);
+  --hand-rise: calc(var(--z) * 0.12);
+  --hand-hover: 1.7;
+}
+
+:global([data-table-stage="ffa3"]:not([data-portrait])) .sfHand {
+  height: calc(var(--lh) * 1.12 + 6px);
+}
+
+/* A wide 3-way field is 7.4 zone sizes across (`data-def-full`), so a long hand spreads over 6.8 of them instead of 5.4:
+   9 or 10 cards overlap less and their ATK/DEF chips stay readable. geometry.ts OWN_HAND_WIDE holds the same size. */
+:global([data-table-stage="ffa3"]:not([data-portrait])) :global([data-def-full]) .seatField {
+  --hand-w: 6.8;
+}
+
+/* The wider hand reaches over the place of your name label (17% of the field, under its left side), so there the label
+   stands just left of the field's bottom left corner, which is free (the rival's LP plate is higher). geometry.ts
+   `seatObstacles` keeps the hub off the same place. */
+:global([data-table-stage="ffa3"]:not([data-portrait])) :global([data-def-full]) .seatField[data-side="you"] .sfName {
+  left: 0;
+  translate: calc(-100% - var(--z) * 0.1) 100%;
 }
 
 /* 4-way grid: your hand rises over the lower edge of your Spell/Trap row. Only the cards take the pointer, never the
