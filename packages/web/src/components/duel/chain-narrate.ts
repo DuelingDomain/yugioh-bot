@@ -5,7 +5,7 @@
 //    face-down or hidden card reaches the client without a name);
 //  - a target is named only when the viewer's redacted board shows it face-up. A passcode is never rendered.
 import type { DuelCard, DuelEvent, DuelSeatView, DuelZoneRef } from "@yugidraft/shared/duels";
-import { chainEffectText, chainKindLabel, type EffectText } from "./chain-effect-text";
+import { chainEffectText, chainFullText, chainKindLabel, type EffectText, type FullEffectText } from "./chain-effect-text";
 import {
   LOCATION_GRAVE,
   LOCATION_MZONE,
@@ -245,6 +245,8 @@ function effectLines(events: readonly DuelEvent[], link: ChainLinkState, who: Wh
   const graveyard: Array<string | null> = [];
   const banished: Array<string | null> = [];
   const toHand: Array<string | null> = [];
+  const added: Array<string | null> = [];
+  let drawn = 0;
   const toDeck: Array<string | null> = [];
   const summoned: Array<{ verb: string; name: string | null }> = [];
   const damage: string[] = [];
@@ -264,7 +266,13 @@ function effectLines(events: readonly DuelEvent[], link: ChainLinkState, who: Wh
       const to = event.zone?.location;
       if (to === LOCATION_GRAVE) graveyard.push(name);
       else if (to === LOCATION_REMOVED) banished.push(name);
-      else if (to === 0x2) toHand.push(name);
+      else if (to === 0x2) {
+        // The hand is the card's way in: a draw, a card fetched from the Deck, Graveyard or banished pile, or a bounce from the field.
+        const from = event.from?.location;
+        if (event.reason === "draw") drawn += 1;
+        else if (from === LOCATION_MZONE || from === LOCATION_SZONE) toHand.push(name);
+        else added.push(name);
+      }
       else if (to === 0x1 || to === 0x40) toDeck.push(name);
     } else if (event.kind === "summon") {
       summoned.push({ verb: SUMMON_VERB[event.summonKind ?? "special"] ?? "Special Summoned", name });
@@ -280,6 +288,9 @@ function effectLines(events: readonly DuelEvent[], link: ChainLinkState, who: Wh
   if (destroyed.length > 0) lines.push(listCards("Destroyed", destroyed));
   if (graveyard.length > 0) lines.push(`${listCards("Sent", graveyard)} to the Graveyard`);
   if (banished.length > 0) lines.push(listCards("Banished", banished));
+  if (drawn > 0) lines.push(`Drew ${drawn} ${drawn === 1 ? "card" : "cards"}`);
+  // A card the effect searched or recovered ("Added"), against one it bounced back from the field ("Returned").
+  if (added.length > 0) lines.push(`${listCards("Added", added)} to the hand`);
   if (toHand.length > 0) lines.push(`${listCards("Returned", toHand)} to the hand`);
   if (toDeck.length > 0) lines.push(`${listCards("Returned", toDeck)} to the Deck`);
   for (const item of summoned) lines.push(`${item.verb} ${item.name ?? "a card"}`);
@@ -308,6 +319,8 @@ export interface HeroView {
   /** Art source. null for a card the client does not know: no art, no passcode. */
   code: number | null;
   effect: EffectText | null;
+  /** The full text for the panel: the engine's words for this activation and every printed line. null when there is none. */
+  full: FullEffectText | null;
   targets: HeroTarget[];
   /** The result of the link, or null when it is not known yet (the link is waiting or just started). */
   outcome: LinkOutcome | null;
@@ -389,6 +402,7 @@ export function buildPanelView(input: PanelInput): PanelView {
       kind: known(link) ? chainKindLabel(link.cardType) : null,
       code: known(link) ? link.code : null,
       effect: chainEffectText(link),
+      full: chainFullText(link),
       targets: chainHeroTargets(link, targets, who),
       outcome,
       waiting: link.status === "resolving" && outcome == null,

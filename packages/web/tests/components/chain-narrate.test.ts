@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DuelCard, DuelCardInfo, DuelEvent, DuelSeatView, DuelZoneRef } from "@yugidraft/shared/duels";
 
-import { chainEffectText, chainKindLabel } from "@/components/duel/chain-effect-text";
+import { cardTextLines, chainEffectText, chainFullText, chainKindLabel } from "@/components/duel/chain-effect-text";
 import {
   buildPanelView,
   buildStripView,
@@ -89,6 +89,42 @@ describe("chainEffectText", () => {
   it("never gives text for a card it does not know, whatever the link carries", () => {
     expect(chainEffectText(link({ name: null, description: "Destroy it.", text: TRAP_TEXT }))).toBeNull();
     expect(chainEffectText(link({ name: "  " }))).toBeNull();
+  });
+});
+
+const PRAYERS_TEXT = "Apply 1 of these effects, or if you Tributed a Reptile monster at activation, you can apply both effects in sequence.\r\n● Add 1 \"Mitsurugi\" monster from your Deck to your hand.\r\n● Take 800 damage.\r\n● Special Summon 1 \"Mitsurugi\" monster from your hand or GY.\r\nYou can only activate 1 \"Mitsurugi Prayers\" per turn.";
+
+describe("chainFullText", () => {
+  const prayers = { name: "Mitsurugi Prayers", description: "Apply 1 of these effects", text: PRAYERS_TEXT, cardType: 0x10002 };
+
+  it("keeps every printed line and marks each bullet as an option", () => {
+    expect(cardTextLines(PRAYERS_TEXT).map((line) => line.kind)).toEqual(["text", "option", "option", "option", "text"]);
+    expect(cardTextLines(PRAYERS_TEXT)[2]).toEqual({ kind: "option", text: "Take 800 damage." });
+  });
+
+  it("drops the engine's words when the printed text already holds them", () => {
+    const full = chainFullText(prayers);
+    expect(full?.lead).toBeNull();
+    expect(full?.lines).toHaveLength(5);
+  });
+
+  it("leads with the engine's words when they say which effect is on the chain", () => {
+    const full = chainFullText({ ...prayers, name: "Some Monster", description: "Special Summon this card.", text: "You can discard this card; draw 1 card.\nOnce per turn.", cardType: 0x21 });
+    expect(full?.lead).toBe("Special Summon this card.");
+    expect(full?.lines.map((line) => line.text)).toEqual(["You can discard this card; draw 1 card.", "Once per turn."]);
+  });
+
+  it("keeps the Spell or Trap condition, since the whole text is shown", () => {
+    expect(chainFullText({ name: "Trap Hole", description: undefined, text: TRAP_TEXT, cardType: TYPE_NORMAL_TRAP })?.lines[0].text).toBe(TRAP_TEXT);
+  });
+
+  it("gives only the engine's words when the card has no printed text", () => {
+    expect(chainFullText({ ...prayers, text: null })).toEqual({ lead: "Apply 1 of these effects", lines: [] });
+    expect(chainFullText({ ...prayers, text: null, description: "Activate" })).toBeNull();
+  });
+
+  it("gives nothing for a card the client does not know", () => {
+    expect(chainFullText({ ...prayers, name: null })).toBeNull();
   });
 });
 
@@ -281,6 +317,22 @@ describe("chainOutcomes", () => {
       chainEv("chain-resolved", 1),
     ];
     expect(chainOutcomes(events, settle(events), who).get(1)?.lines).toEqual(["Resolved"]);
+  });
+
+  it("tells a card added to the hand from one returned to it, and a draw from both", () => {
+    id = 0;
+    const events = [
+      activate(1, 0, RAIGEKI),
+      chainEv("chain-resolving", 1),
+      chainEv("move", undefined, { card: GAIA, zone: z(0, HAND, 0), from: z(0, 0x01, 0), reason: "other", addedToHand: true }),
+      chainEv("move", undefined, { zone: z(0, HAND, 1), from: z(0, 0x01, 0), reason: "draw" }),
+      chainEv("move", undefined, { zone: z(0, HAND, 2), from: z(0, 0x01, 0), reason: "draw" }),
+      chainEv("move", undefined, { card: GAIA, zone: z(1, HAND, 0), from: z(1, MZONE, 0), reason: "return" }),
+      chainEv("chain-resolved", 1),
+    ];
+    expect(chainOutcomes(events, settle(events), who).get(1)?.lines).toEqual([
+      "Drew 2 cards", "Added Gaia The Fierce Knight to the hand", "Returned Gaia The Fierce Knight to the hand",
+    ]);
   });
 
   it("says what was summoned, banished or returned", () => {

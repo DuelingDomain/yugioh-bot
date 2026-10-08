@@ -66,6 +66,51 @@ export function chainEffectText(link: Pick<ChainLinkState, "name" | "description
   return null;
 }
 
+/** One line of a card's printed text. An "option" is a bullet line ("● Add 1 ... to your hand."). */
+export interface CardTextLine {
+  kind: "text" | "option";
+  text: string;
+}
+
+/** The card's text in full, for the panel: the engine's own words (when they say more than the printed text) and every printed line. */
+export interface FullEffectText {
+  /** The engine's description of this activation, or null when it is generic or already part of the printed text. */
+  lead: string | null;
+  lines: CardTextLine[];
+}
+
+const BULLET = /^[●•◆◇■]\s*/;
+
+/** The printed text split by line, with each bullet marked as an option. Blank lines go. */
+export function cardTextLines(text: string): CardTextLine[] {
+  const lines: CardTextLine[] = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const flat = normalise(raw);
+    if (flat === "") continue;
+    if (BULLET.test(flat)) lines.push({ kind: "option", text: flat.replace(BULLET, "") });
+    else lines.push({ kind: "text", text: flat });
+  }
+  return lines;
+}
+
+const squash = (text: string): string => normalise(text).replace(/[.!\s]+$/, "").toLowerCase();
+
+/**
+ * Everything the panel can say about what a link does. Every seat sees the same words: the text of a card that
+ * is on the chain is public. An unknown card (no name) has none, and never a passcode.
+ */
+export function chainFullText(link: Pick<ChainLinkState, "name" | "description" | "text" | "cardType">): FullEffectText | null {
+  const name = link.name?.trim() ? link.name.trim() : null;
+  if (name == null) return null;
+  const lines = cardTextLines(link.text ?? "");
+  const engine = normalise(link.description ?? "");
+  const specific = !isGeneric(engine, name);
+  const printed = squash(lines.map((line) => line.text).join(" "));
+  const lead = specific && !printed.includes(squash(engine)) ? engine : null;
+  if (lead == null && lines.length === 0) return specific ? { lead: engine, lines } : null;
+  return { lead, lines };
+}
+
 /** "Normal Trap", "Quick-Play Spell", "Effect Monster": the second half of the hero's byline. */
 export function chainKindLabel(type: number | null): string | null {
   if (type == null || type <= 0) return null;

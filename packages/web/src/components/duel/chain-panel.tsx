@@ -35,6 +35,38 @@ function StateIcon({ tone }: { tone: PanelTone }) {
   return <Circle {...props} size={9} fill="currentColor" strokeWidth={0} />;
 }
 
+/** Over these many characters the printed text may be cut at the bottom edge of its box: always (long), or on a short window (mid). See .cardText in the css. */
+const LONG_TEXT = 420;
+const MID_TEXT = 240;
+
+/**
+ * What the link does. The engine's own words for this activation come first (they tell which effect of a card is
+ * on the chain); the card's text follows in full, one line per line of the card, with each option as a bullet, so
+ * a card that lets its owner pick ("Apply 1 of these effects") shows every choice to every seat.
+ */
+function EffectBlock({ full }: { full: NonNullable<HeroView["full"]> }) {
+  const chars = full.lines.reduce((sum, line) => sum + line.text.length, 0);
+  const length = chars > LONG_TEXT ? "long" : chars > MID_TEXT ? "mid" : undefined;
+  return (
+    <>
+      {full.lead ? (
+        <p className={styles.effect} data-chain-effect="string">
+          <small>Effect</small>
+          {full.lead}
+        </p>
+      ) : null}
+      {full.lines.length > 0 ? (
+        <div className={styles.cardText} data-chain-effect="text" data-length={length}>
+          <small>Card text</small>
+          {full.lines.map((line, at) => (
+            <p key={at} data-line={line.kind} data-chain-option={line.kind === "option" ? "true" : undefined}>{line.text}</p>
+          ))}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 function Hero({ hero }: { hero: HeroView }) {
   const single = hero.total === 1;
   return (
@@ -50,7 +82,7 @@ function Hero({ hero }: { hero: HeroView }) {
           <p className={styles.sub}><b>{hero.owner}</b>{hero.kind ? ` · ${hero.kind}` : ""}</p>
         </div>
       </div>
-      {hero.effect ? (
+      {hero.full ? <EffectBlock full={hero.full} /> : hero.effect ? (
         <p className={styles.effect} data-chain-effect={hero.effect.caption === "Effect" ? "string" : "text"}>
           <small>{hero.effect.caption}</small>
           {hero.effect.text}
