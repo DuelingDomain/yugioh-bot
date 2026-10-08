@@ -415,6 +415,11 @@
   min-height: 0;
 }
 
+/* The room is measured at rest (use-strip-room.ts): the panel waits, hidden, so it never shows at the wrong place first. */
+.board[data-strip-pending][data-strip-pending] .slot[data-slot="prompt"]:not([data-seat-pick]) :global([data-prompt-panel][data-tone="chain"][data-strip="true"]:not([data-precheck])) {
+  visibility: hidden;
+}
+
 /*
  * A rival's hand backs hang off the owner's back edge. In a 1v1 they tuck half behind the field; on a table of 3 or
  * 4 a rival field is read closely (focus, look), so the backs sit nearly outside the box and never cover its top row
