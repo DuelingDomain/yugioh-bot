@@ -49,7 +49,7 @@ export function SheetButton({
 
 /** Native select (keeps keyboard and screen-reader behaviour) with the sheet's slim styling. */
 export function SheetSelect<T extends string | number | boolean>({
-  label, value, choices, onChange, disabled = false, compact = false, className, hideLabel = false,
+  label, value, choices, onChange, disabled = false, compact = false, className, hideLabel = false, describedBy,
 }: {
   label: string;
   value: T;
@@ -59,12 +59,14 @@ export function SheetSelect<T extends string | number | boolean>({
   compact?: boolean;
   className?: string;
   hideLabel?: boolean;
+  /** The id of text that explains the select, such as a hint under it. */
+  describedBy?: string;
 }) {
   return (
     <label className={className} style={{ display: "block", minWidth: 0 }}>
       <span className={hideLabel ? ui.srOnly : ui.label}>{label}</span>
       <span className={cx(ui.selectWrap, compact && ui.selectSm)}>
-        <select className={cx(ui.input, ui.select)} value={String(value)} disabled={disabled} onChange={(event) => {
+        <select className={cx(ui.input, ui.select)} value={String(value)} disabled={disabled} aria-describedby={describedBy} onChange={(event) => {
           const selected = choices.find((choice) => String(choice.value) === event.target.value);
           if (selected && !selected.disabled) onChange?.(selected.value);
         }}>
