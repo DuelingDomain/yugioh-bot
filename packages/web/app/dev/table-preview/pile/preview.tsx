@@ -31,13 +31,13 @@ function pile(count: number, text: string | null): DuelCard[] {
   });
 }
 
-/** The pile viewer alone on a board-sized box, for the screenshots of every screen size. */
-export function PilePreview({ count, text, owner, reduced }: { count: number; text: string | null; owner: "you" | "opp"; reduced: boolean }) {
+/** The pile viewer alone on a board-sized box (`box` = the box height in px, else the window), for the screenshots of every size. */
+export function PilePreview({ count, text, owner, reduced, box }: { count: number; text: string | null; owner: "you" | "opp"; reduced: boolean; box: number | null }) {
   useTableTextScale();
   const cards = useMemo(() => pile(count, text), [count, text]);
   const [open, setOpen] = useState(true);
   return (
-    <div className={duelFontClasses} style={{ position: "relative", height: "100dvh", background: "#070b15" }}>
+    <div className={duelFontClasses} style={{ position: "relative", height: box ? `${box}px` : "100dvh", background: "#070b15" }}>
       {open ? null : <button type="button" onClick={() => setOpen(true)} style={{ margin: 16, color: "#efe7d5" }}>Open Graveyard</button>}
       <PileViewer title={owner === "you" ? "Your Graveyard" : "Opponent Graveyard"} cards={cards} owner={owner} open={open} onClose={() => setOpen(false)}
         onInspectCard={() => {}} reducedMotion={reduced} />
