@@ -131,11 +131,12 @@ describe("Tag overview camera: click to focus", () => {
     const root = mount();
     const button = root.querySelector<HTMLButtonElement>('[data-field-focus="1"]')!;
     const iconIn = button.querySelector("path")!.getAttribute("d");
-    expect(button.getAttribute("aria-pressed")).toBe("false");
+    // The label carries the state; a pressed state on top would say it twice.
+    expect(button.hasAttribute("aria-pressed")).toBe(false);
     fireEvent.click(button);
     expect(modeOf(root)).toBe("focus:1");
     expect(button.getAttribute("aria-label")).toBe("Back to overview");
-    expect(button.getAttribute("aria-pressed")).toBe("true");
+    expect(button.hasAttribute("aria-pressed")).toBe(false);
     expect(button.getAttribute("data-focused")).toBe("true");
     expect(button.getAttribute("title")).toMatch(/back to overview/i);
     expect(button.querySelector("path")!.getAttribute("d")).not.toBe(iconIn);
@@ -344,6 +345,8 @@ describe("Tag overview camera: back", () => {
     const rail = root.querySelector("[data-camera-rail]");
     expect(rail).not.toBeNull();
     expect(rail!.querySelector("[data-camera-back]")?.textContent).toMatch(/back to overview/i);
+    // On a phone the text is hidden: the button keeps its own name.
+    expect(rail!.querySelector("[data-camera-back]")?.getAttribute("aria-label")).toBe("Back to overview");
     const seats = [...rail!.querySelectorAll<HTMLElement>("[data-camera-seat-button]")];
     expect(seats.length).toBe(4);
     expect(seats.filter((node) => node.getAttribute("aria-pressed") === "true").map((node) => node.dataset.cameraSeatButton)).toEqual(["0"]);

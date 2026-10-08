@@ -30,7 +30,7 @@ export interface CameraRailProps {
 export function CameraRail({ focusSeat, seats, nameOf, out, dispatch }: CameraRailProps) {
   return (
     <div className={styles.rail} data-camera-rail role="group" aria-label="Camera">
-      <button type="button" className={styles.back} data-camera-back onClick={() => dispatch({ type: "overview" })}>
+      <button type="button" className={styles.back} data-camera-back aria-label="Back to overview" title="Back to overview (Esc)" onClick={() => dispatch({ type: "overview" })}>
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path d="M15 5l-7 7 7 7" />
         </svg>

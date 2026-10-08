@@ -166,5 +166,6 @@
 @media (max-width: 520px) {
   .back span { display: none; }
   .back kbd { display: none; }
-  .back { padding: 0 8px; }
+  /* The label is hidden here: the arrow alone stays a full-size tap target (the button has its aria-label). */
+  .back { padding: 0 8px; min-width: 44px; min-height: 44px; justify-content: center; }
 }
