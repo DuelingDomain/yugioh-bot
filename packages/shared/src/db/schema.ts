@@ -232,7 +232,13 @@ function assertIdentitySourceShape(db: Database.Database): void {
     seasons: ["id","guild_id","number","name","status","started_at","ended_at","created_by_user_id"],
     saved_decks: ["id","guild_id","owner_user_id","name","mode","deck_json","created_at","updated_at","draft_id"],
   };
-  const indexes = new Set(["tournaments_current_name_unique", "tournaments_web_slug_unique", "drafts_current_name_unique", "seasons_one_active", "saved_decks_owner_list_idx", "saved_decks_owner_draft_idx"]);
+  const indexes = new Set([
+    "tournaments_current_name_unique", "tournaments_web_slug_unique", "drafts_current_name_unique",
+    "seasons_one_active", "saved_decks_owner_list_idx", "saved_decks_owner_draft_idx",
+    "drafts_web_slug_unique", "drafts_web_slug_idx", "draft_players_player_idx",
+    "tournament_participants_player_idx", "drafts_guild_status_created_idx",
+    "tournaments_guild_status_created_idx", "players_user_idx",
+  ]);
   for (const table of identityTables) {
     const columns = (db.pragma(`table_info(${table})`) as Column[]).map(c => c.name).sort();
     if (JSON.stringify(columns) !== JSON.stringify([...expected[table]].sort())) {
@@ -1124,6 +1130,7 @@ export function migrate(db: Database.Database) {
   db.exec("create index if not exists card_script_error_revision_idx on card_script_error_occurrences (resolved_code, script_hash, created_at)");
   migrateConfigPoolsToCubeCards(db);
   migrateIdentity(db);
+  migrateAccessIndexes(db);
 }
 
 /**
@@ -1177,5 +1184,27 @@ function migrateConfigPoolsToCubeCards(db: Database.Database) {
       else delete config.customCardIds;
       update.run(JSON.stringify(config), cube.id);
     }
+  }).immediate();
+}
+
+/** Recreate lookup indexes after identity table rebuilds, including existing identity databases. */
+function migrateAccessIndexes(db: Database.Database) {
+  db.transaction(() => {
+    const duplicate = db.prepare(`select 1 from drafts where web_slug is not null
+      group by web_slug having count(*) > 1 limit 1`).get();
+    if (duplicate) {
+      db.exec("create index if not exists drafts_web_slug_idx on drafts(web_slug)");
+      console.warn("[db] Duplicate draft web slugs detected; using a non-unique lookup index. Reconcile duplicates before enforcing uniqueness.");
+    } else {
+      db.exec("create unique index if not exists drafts_web_slug_unique on drafts(web_slug) where web_slug is not null; drop index if exists drafts_web_slug_idx;");
+    }
+    db.exec(`
+      create index if not exists draft_players_player_idx on draft_players(player_id);
+      create index if not exists tournament_participants_player_idx on tournament_participants(player_id);
+      create index if not exists drafts_guild_status_created_idx on drafts(guild_id, status, created_at);
+      create index if not exists tournaments_guild_status_created_idx on tournaments(guild_id, status, created_at);
+      create index if not exists players_user_idx on players(user_id);
+    `);
+    // players already has a UNIQUE (guild_id, user_id) autoindex from the identity schema.
   }).immediate();
 }

@@ -1,0 +1,4 @@
+/* The sections keep the page frame's spacing; the Load more foot sits in the same block, outside that gap. */
+.paged { min-width: 0; }
+.sections { display: grid; gap: clamp(28px, 4cqi, 44px); min-width: 0; }
+.sections > * { min-width: 0; }

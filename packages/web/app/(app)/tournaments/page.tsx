@@ -1,18 +1,16 @@
+import { findTournamentListPage, findTournamentListStatusCounts } from "@yugidraft/shared/services";
+import { TournamentsList } from "@/components/tournament/tournaments-list";
 import { env } from "@/lib/env";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { parseUserId } from "@/lib/user-id";
 import { getDb } from "@/lib/db";
-import { FloorList, SectionHead, SvButton } from "@/components/sheet";
+import { SvButton } from "@/components/sheet";
 import { PageFrame } from "@/components/dashboard/page-frame";
 import { loadTournamentRounds } from "@/components/dashboard/tournament-rounds";
-import { EmptyTournaments } from "@/components/empty-states/empty-tournaments";
-import { TournamentRow } from "@/components/tournament/tournament-row";
-import { FinishedLedger } from "@/components/tournament/finished-ledger";
 import {
   groupTournaments,
-  listSummaryParts,
-  type TournamentListItem,
+  listSummaryPartsFromCounts,
 } from "@/components/tournament/tournaments-list-model";
 
 export default async function TournamentsPage() {
@@ -21,28 +19,10 @@ export default async function TournamentsPage() {
   if (userId === null) redirect("/login");
 
   const db = getDb();
-  const tournaments: TournamentListItem[] = db
-    .prepare(
-      `select t.id, t.guild_id, t.name, t.format, t.status, t.created_by_user_id,
-              t.web_slug, count(tp.player_id) as participant_count
-       from tournaments t
-       left join tournament_participants tp on tp.tournament_id = t.id
-       where t.guild_id = ? and t.status in ('pending', 'active', 'completed')
-       group by t.id
-       order by case t.status when 'active' then 0 when 'pending' then 1 else 2 end, t.created_at desc`
-    )
-    .all(env.discordGuildId)
-    .map((row: any) => ({
-      id: row.id,
-      name: row.name,
-      format: row.format,
-      status: row.status,
-      webSlug: row.web_slug ?? undefined,
-      participantCount: row.participant_count,
-    }));
+  const { items: tournaments, nextCursor } = findTournamentListPage(db, env.discordGuildId, userId);
 
   const groups = groupTournaments(tournaments);
-  const summary = listSummaryParts(groups);
+  const summary = listSummaryPartsFromCounts(findTournamentListStatusCounts(db, env.discordGuildId));
 
   // Round strips and duel actions need the pairings of the tournaments still in play.
   const viewer = db
@@ -62,38 +42,7 @@ export default async function TournamentsPage() {
         </SvButton>
       }
     >
-      {tournaments.length === 0 ? (
-        <EmptyTournaments />
-      ) : (
-        <>
-          {groups.running.length > 0 && (
-            <section aria-labelledby="tl-run">
-              <SectionHead title="In progress" id="tl-run" />
-              <FloorList aria-labelledby="tl-run">
-                {groups.running.map((t) => (
-                  <TournamentRow key={t.id} tournament={t} variant="running" rounds={rounds.get(t.id)} viewerId={viewerId} />
-                ))}
-              </FloorList>
-            </section>
-          )}
-          {groups.open.length > 0 && (
-            <section aria-labelledby="tl-open">
-              <SectionHead title="Open to join" id="tl-open" note="Nothing starts until the organizer presses Start." />
-              <FloorList aria-labelledby="tl-open">
-                {groups.open.map((t) => (
-                  <TournamentRow key={t.id} tournament={t} variant="open" rounds={rounds.get(t.id)} viewerId={viewerId} />
-                ))}
-              </FloorList>
-            </section>
-          )}
-          {groups.finished.length > 0 && (
-            <section aria-labelledby="tl-fin">
-              <SectionHead title="Finished" id="tl-fin" note="Newest first" />
-              <FinishedLedger items={groups.finished} />
-            </section>
-          )}
-        </>
-      )}
+      <TournamentsList initialItems={tournaments} nextCursor={nextCursor} rounds={rounds} viewerId={viewerId} />
     </PageFrame>
   );
 }

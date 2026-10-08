@@ -1,5 +1,7 @@
 import { env } from "@/lib/env";
 import { NextResponse } from "next/server";
+import { requireWebAccess } from "@/lib/web-access";
+import { findTournamentReadAccess } from "@yugidraft/shared/services";
 import { getDb } from "@/lib/db";
 
 export const runtime = "nodejs";
@@ -9,14 +11,13 @@ export async function GET(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
+    const actor = await requireWebAccess();
+    if (!actor.ok) return actor.response;
     const { slug } = await params;
     const db = getDb();
 
-    const tournament = db
-      .prepare("select id from tournaments where web_slug = ? and guild_id = ?")
-      .get(slug, env.discordGuildId) as { id: number } | undefined;
-
-    if (!tournament) {
+    const tournament = findTournamentReadAccess(db, slug, env.discordGuildId, actor.userId);
+    if (!tournament?.canRead) {
       return NextResponse.json({ error: "Tournament not found" }, { status: 404 });
     }
 

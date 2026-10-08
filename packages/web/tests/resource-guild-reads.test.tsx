@@ -46,9 +46,11 @@ describe("resource reads stay in the configured guild", () => {
     const { GET } = await import("../app/api/tournaments/route");
     const response = await GET();
     expect(response.status).toBe(200);
-    const rows = await response.json();
-    expect(rows).toHaveLength(3);
-    expect(rows.every((row: { guildId: string }) => row.guildId === "local")).toBe(true);
+    const body = await response.json();
+    expect(body.items).toHaveLength(3);
+    expect(body.nextCursor).toBeNull();
+    expect(body.items.every((row: { guildId: string }) => row.guildId === "local")).toBe(true);
+    expect(body.items.map((row: { status: string }) => row.status).sort()).toEqual(["active", "completed", "pending"]);
   });
 
   it.each(["tournaments", "drafts", "dashboard"])("excludes foreign resources from the %s page", async (page) => {
@@ -71,7 +73,10 @@ describe("resource reads stay in the configured guild", () => {
     const { GET } = await import("../app/api/drafts/route");
     const response = await GET();
     const body = await response.json();
-    expect([body.pending[0].guildId, body.active[0].guildId, body.completed[0].guildId]).toEqual(["local", "local", "local"]);
+    expect(body.items).toHaveLength(3);
+    expect(body.nextCursor).toBeNull();
+    expect(body.items.map((row: { guildId: string }) => row.guildId)).toEqual(["local", "local", "local"]);
+    expect(body.items.map((row: { status: string }) => row.status).sort()).toEqual(["active", "completed", "pending"]);
     expect(JSON.stringify(body)).not.toContain("foreign");
   });
 

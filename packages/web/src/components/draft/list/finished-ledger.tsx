@@ -6,9 +6,17 @@ import { FINISHED_PREVIEW, draftHref, formatDay, kindLabel, playersLabel, type D
 import styles from "./drafts-list.module.css";
 
 /** Completed and cancelled drafts, newest first (the page passes them sorted). Ten rows, then "Show all N". */
-export function FinishedLedger({ items, labelledBy }: { items: DraftListItem[]; labelledBy?: string }) {
+export interface FinishedLedgerProps {
+  items: DraftListItem[];
+  labelledBy?: string;
+  /** Rows were loaded from further pages, so none stay hidden behind "Show all". */
+  showAll?: boolean;
+  /** Called when "Show all N" is pressed, so the list can hold back "Load more" until then. */
+  onShowAll?: () => void;
+}
+export function FinishedLedger({ items, labelledBy, showAll = false, onShowAll }: FinishedLedgerProps) {
   const [all, setAll] = React.useState(false);
-  const shown = all ? items : items.slice(0, FINISHED_PREVIEW);
+  const shown = all || showAll ? items : items.slice(0, FINISHED_PREVIEW);
   const hidden = items.length - shown.length;
   return (
     <>
@@ -36,7 +44,7 @@ export function FinishedLedger({ items, labelledBy }: { items: DraftListItem[]; 
         ))}
       </FloorList>
       {hidden > 0 && (
-        <button type="button" className={styles.more} onClick={() => setAll(true)}>
+        <button type="button" className={styles.more} onClick={() => { setAll(true); onShowAll?.(); }}>
           Show all {items.length}
         </button>
       )}

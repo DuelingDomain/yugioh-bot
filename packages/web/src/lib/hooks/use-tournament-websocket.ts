@@ -17,8 +17,8 @@ interface UseTournamentWebsocketOptions {
   /**
    * One refetch hook for pages that just want fresh data. Fires after any
    * tournament event (join, leave, started, cancelled, completed, match
-   * updated) and after a reconnect, once the room is rejoined. The specific
-   * callbacks above still fire first. Pass this instead of them, not as well,
+   * updated) and after a reconnect or retried join, once the room is joined.
+   * The specific callbacks above still fire first. Pass this instead of them, not as well,
    * or a page that refetches in both will fetch twice.
    */
   onInvalidate?: () => void;
@@ -34,17 +34,84 @@ export function useTournamentWebsocket(slug: string, options: UseTournamentWebso
 
     const socket = io(WS_URL, { autoConnect: true });
     socketRef.current = socket;
-    let hasConnected = false;
+    let hasAttemptedJoin = false;
+    let disposed = false;
+    let requestId = 0;
+    let tokenRequest: AbortController | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let retryDelay = 1000;
+
+    function clearJoinRetry() {
+      if (retryTimer === null) return;
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
+
+    function scheduleJoinRetry(currentRequest: number) {
+      if (disposed || !socket.connected || currentRequest !== requestId) return;
+      clearJoinRetry();
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        void joinTournamentRoom();
+      }, retryDelay);
+      retryDelay = Math.min(retryDelay * 2, 15000);
+    }
+
+    async function joinTournamentRoom() {
+      clearJoinRetry();
+      // An earlier failed or interrupted attempt may have missed room events.
+      const shouldRefetch = hasAttemptedJoin;
+      hasAttemptedJoin = true;
+      const currentRequest = ++requestId;
+      tokenRequest?.abort();
+      tokenRequest = new AbortController();
+      try {
+        const response = await fetch(`/api/tournaments/${encodeURIComponent(slug)}/connection`, {
+          cache: "no-store", signal: tokenRequest.signal,
+        });
+        if (!response.ok) {
+          if (response.status !== 401 && response.status !== 403 && response.status !== 404) scheduleJoinRetry(currentRequest);
+          return;
+        }
+        const data = await response.json() as { token: string; userId: number };
+        if (disposed || !socket.connected || currentRequest !== requestId) return;
+        socket.emit("tournament:join", { slug, token: data.token, userId: data.userId }, (result?: { error?: string }) => {
+          if (disposed || !socket.connected || currentRequest !== requestId) return;
+          if (result?.error !== undefined) {
+            scheduleJoinRetry(currentRequest);
+            return;
+          }
+          clearJoinRetry();
+          retryDelay = 1000;
+          if (shouldRefetch) {
+            optionsRef.current.onMatchUpdated?.();
+            optionsRef.current.onInvalidate?.();
+          }
+        });
+      } catch (error) {
+        if (!disposed && socket.connected && currentRequest === requestId && !(error instanceof Error && error.name === "AbortError")) {
+          console.warn("Tournament live feed is unavailable. Retrying.");
+          scheduleJoinRetry(currentRequest);
+        }
+      }
+    }
 
     socket.on("connect", () => {
-      socket.emit("tournament:join", { slug });
-      // Reuse the page's existing refetch callback without firing on first connect.
-      const isReconnect = hasConnected;
-      hasConnected = true;
-      if (isReconnect) {
-        optionsRef.current.onMatchUpdated?.();
-        optionsRef.current.onInvalidate?.();
-      }
+      void joinTournamentRoom();
+    });
+
+    socket.on("disconnect", () => {
+      ++requestId;
+      clearJoinRetry();
+      retryDelay = 1000;
+      tokenRequest?.abort();
+    });
+
+    socket.on("tournament:subscription-expired", (payload: { slug: string }) => {
+      if (payload.slug !== slug) return;
+      optionsRef.current.onMatchUpdated?.();
+      optionsRef.current.onInvalidate?.();
+      void joinTournamentRoom();
     });
 
     socket.on("tournament:participant-joined", (payload: { playerId: number; displayName: string }) => {
@@ -83,6 +150,10 @@ export function useTournamentWebsocket(slug: string, options: UseTournamentWebso
     });
 
     return () => {
+      disposed = true;
+      ++requestId;
+      clearJoinRetry();
+      tokenRequest?.abort();
       socket.disconnect();
       socketRef.current = null;
     };

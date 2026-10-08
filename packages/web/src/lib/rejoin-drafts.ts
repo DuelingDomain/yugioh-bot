@@ -9,6 +9,7 @@ export interface RejoinDraft {
 
 /**
  * The lobby and active drafts the signed-in user sits in, live ones first. Scoped to one guild.
+ * The banner shows at most three recent entries so it stays compact and bounded.
  * Finished and cancelled drafts, and drafts with no web address, are left out.
  */
 export function findRejoinDrafts(db: Database.Database, guildId: string, userId: number): RejoinDraft[] {

@@ -5,7 +5,7 @@ import { requireWebAccess } from "@/lib/web-access";
 import { normalizeBoosterDraftNumbers } from "@/lib/booster-draft-validation";
 import { cubeReferenceAccess } from "@/lib/cube-access";
 import { env } from "@/lib/env";
-import { boosterDraftConfigError, themeDraftNumberError, createCardLookupBudget, createCardCatalogService, createDraftService, createPlayerService } from "@yugidraft/shared/services";
+import { findDraftListPage, InvalidListCursorError, boosterDraftConfigError, themeDraftNumberError, createCardLookupBudget, createCardCatalogService, createDraftService, createPlayerService } from "@yugidraft/shared/services";
 import { DEFAULT_LOBBY_SEATS, isValidLobbySeats } from "@yugidraft/shared/types";
 import { assertDraftConfigShape, readLobbyBody, draftLobbyErrorResponse } from "./[slug]/helpers";
 import type { DraftConfig } from "@yugidraft/shared/types";
@@ -16,93 +16,20 @@ import { hostThemeAssignmentError } from "@/lib/theme-draft-validation";
 
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(request?: Request) {
   try {
     const actor = await requireWebAccess();
     if (!actor.ok) return actor.response;
-
-    const userId = actor.userId;
-    const db = getDb();
-
-    const playerRows = db
-      .prepare("select id from players where user_id = ? and guild_id = ?")
-      .all(userId, env.discordGuildId) as Array<{ id: number }>;
-
-    const playerIds = playerRows.map((r) => r.id);
-
-    if (playerIds.length === 0) {
-      return NextResponse.json({ active: [], pending: [], completed: [], cancelled: [] });
-    }
-
-    const placeholders = playerIds.map(() => "?").join(",");
-
-    const drafts = db
-      .prepare(
-        `
-        select
-          d.id,
-          d.guild_id,
-          d.name,
-          d.status,
-          d.web_slug,
-          d.config_json,
-          d.current_wave_number,
-          d.current_pick_step,
-          d.created_at,
-          d.ended_at,
-          count(dp.player_id) as player_count
-        from drafts d
-        inner join draft_players dp_me on dp_me.draft_id = d.id
-        left join draft_players dp on dp.draft_id = d.id
-        where d.guild_id = ? and dp_me.player_id in (${placeholders})
-        group by d.id
-        order by
-          case d.status
-            when 'active' then 0
-            when 'pending' then 1
-            when 'completed' then 2
-            when 'cancelled' then 3
-          end,
-          d.created_at desc
-      `
-      )
-      .all(env.discordGuildId, ...playerIds)
-      .map((row: any) => {
-        let mode: "booster" | "theme" = "booster";
-        try {
-          if ((JSON.parse(row.config_json ?? "{}") as { mode?: string }).mode === "theme") {
-            mode = "theme";
-          }
-        } catch {
-          // malformed config_json — default to booster
-        }
-        return {
-          id: row.id,
-          guildId: row.guild_id,
-          name: row.name,
-          status: row.status,
-          mode,
-          webSlug: row.web_slug ?? undefined,
-          currentPackRound: row.current_wave_number ?? 0,
-          currentPickStep: row.current_pick_step ?? 0,
-          playerCount: row.player_count,
-          createdAt: toUtcIso(row.created_at),
-          endedAt: toUtcIso(row.ended_at),
-        };
-      });
-
-    const active = drafts.filter((d: any) => d.status === "active");
-    const pending = drafts.filter((d: any) => d.status === "pending");
-    const completed = drafts.filter((d: any) => d.status === "completed");
-    const cancelled = drafts.filter((d: any) => d.status === "cancelled");
-
-    return NextResponse.json({ active, pending, completed, cancelled });
+    const cursor = request ? new URL(request.url).searchParams.get("cursor") : null;
+    const result = findDraftListPage(getDb(), env.discordGuildId, actor.userId, cursor);
+    const items = result.items.map(({ configJson: _config, ...item }) => ({
+      ...item, createdAt: toUtcIso(item.createdAt), endedAt: toUtcIso(item.endedAt),
+    }));
+    return NextResponse.json({ items, nextCursor: result.nextCursor });
   } catch (error) {
+    if (error instanceof InvalidListCursorError) return NextResponse.json({ error: error.message }, { status: 400 });
     console.error("[api/drafts] error:", error);
-    return NextResponse.json(
-      { error: "Failed to load drafts" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to load drafts" }, { status: 500 });
   }
 }
 

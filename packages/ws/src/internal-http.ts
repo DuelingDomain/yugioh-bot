@@ -98,7 +98,14 @@ function parseDuelChanged(v: unknown): { slug: string; guildId: string } | null 
   return { slug: o.slug, guildId: o.guildId };
 }
 
-export function createInternalHttpHandler(opts: { io: TypedServer; secret: string; beforeDraftBroadcast?: (slug: string) => void }) {
+type BroadcastOptions = {
+  io: TypedServer;
+  secret: string;
+  beforeDraftBroadcast?: (slug: string) => void;
+  beforeTournamentBroadcast?: (slug: string) => void;
+};
+
+export function createInternalHttpHandler(opts: BroadcastOptions) {
   return async function handle(req: Request): Promise<Response> {
     const url = new URL(req.url);
     if (req.method !== "POST") return new Response("Not found", { status: 404 });
@@ -163,6 +170,7 @@ export function createInternalHttpHandler(opts: { io: TypedServer; secret: strin
       case "/internal/tournament/participant-joined": {
         const data = parseTournamentJoined(parsed);
         if (!data) return new Response("Bad payload", { status: 400 });
+        opts.beforeTournamentBroadcast?.(data.slug);
         opts.io
           .to(`tournament:${data.slug}`)
           .emit("tournament:participant-joined", { playerId: data.playerId, displayName: data.displayName });
@@ -171,6 +179,7 @@ export function createInternalHttpHandler(opts: { io: TypedServer; secret: strin
       case "/internal/tournament/participant-left": {
         const data = parseTournamentLeft(parsed);
         if (!data) return new Response("Bad payload", { status: 400 });
+        opts.beforeTournamentBroadcast?.(data.slug);
         opts.io
           .to(`tournament:${data.slug}`)
           .emit("tournament:participant-left", { playerId: data.playerId });
@@ -179,24 +188,28 @@ export function createInternalHttpHandler(opts: { io: TypedServer; secret: strin
       case "/internal/tournament/started": {
         const data = parseTournamentSlugOnly(parsed);
         if (!data) return new Response("Bad payload", { status: 400 });
+        opts.beforeTournamentBroadcast?.(data.slug);
         opts.io.to(`tournament:${data.slug}`).emit("tournament:started", {});
         return new Response(null, { status: 204 });
       }
       case "/internal/tournament/cancelled": {
         const data = parseTournamentSlugOnly(parsed);
         if (!data) return new Response("Bad payload", { status: 400 });
+        opts.beforeTournamentBroadcast?.(data.slug);
         opts.io.to(`tournament:${data.slug}`).emit("tournament:cancelled", {});
         return new Response(null, { status: 204 });
       }
       case "/internal/tournament/completed": {
         const data = parseTournamentSlugOnly(parsed);
         if (!data) return new Response("Bad payload", { status: 400 });
+        opts.beforeTournamentBroadcast?.(data.slug);
         opts.io.to(`tournament:${data.slug}`).emit("tournament:completed", {});
         return new Response(null, { status: 204 });
       }
       case "/internal/tournament/match-updated": {
         const data = parseTournamentSlugOnly(parsed);
         if (!data) return new Response("Bad payload", { status: 400 });
+        opts.beforeTournamentBroadcast?.(data.slug);
         opts.io.to(`tournament:${data.slug}`).emit("tournament:match-updated", {});
         return new Response(null, { status: 204 });
       }
@@ -212,7 +225,7 @@ export function createInternalHttpHandler(opts: { io: TypedServer; secret: strin
   };
 }
 
-export function listenInternalHttp(opts: { io: TypedServer; secret: string; port: number; beforeDraftBroadcast?: (slug: string) => void }): Server {
+export function listenInternalHttp(opts: BroadcastOptions & { port: number }): Server {
   const handle = createInternalHttpHandler(opts);
   const server = createServer(async (nodeReq, nodeRes) => {
     const chunks: Buffer[] = [];

@@ -1,4 +1,5 @@
 /** Row model for the drafts list (/drafts). Pure, so it is easy to test. */
+import type { ListStatusCounts } from "@yugidraft/shared/services";
 import type { StageStep } from "@/components/sheet";
 import { formatPickSeconds } from "../pick-time";
 
@@ -11,6 +12,13 @@ export interface DraftListConfig {
   extraDeckEnabled: boolean;
   extraDeckSize: number;
 }
+
+/**
+ * The setup a row knows about. The page parses the whole of config_json, so its rows carry every field.
+ * Rows appended from `/api/drafts` know only the mode, so the other fields can be missing, and the
+ * row then leaves out whatever it would have to guess (the pack total, the pick time).
+ */
+export type DraftListSetup = Pick<DraftListConfig, "mode"> & Partial<Omit<DraftListConfig, "mode">>;
 
 /** What the page reads from the drafts table (config_json already parsed with `parseDraftConfig`). */
 export interface DraftListItem {
@@ -25,7 +33,7 @@ export interface DraftListItem {
   pick: number;
   createdAt?: string;
   endedAt?: string;
-  config: DraftListConfig;
+  config: DraftListSetup;
 }
 
 export interface DraftGroups {
@@ -69,6 +77,40 @@ export function parseDraftConfig(json: string | null | undefined): DraftListConf
   };
 }
 
+/** One draft as `/api/drafts` returns it (the setup is left out; dates are UTC ISO strings). */
+export interface DraftApiItem {
+  id: number;
+  name: string;
+  status: string;
+  mode?: "booster" | "theme";
+  webSlug?: string;
+  currentPackRound: number;
+  currentPickStep: number;
+  playerCount: number;
+  createdAt?: string;
+  endedAt?: string;
+}
+
+/**
+ * The one adapter from an API row to a page row. The API names the stage `currentPackRound` and
+ * `currentPickStep` (the page: `wave`, `pick`); its UTC dates already parse with `parseDbDate`.
+ * The setup is not in the payload, so only the mode is carried over.
+ */
+export function draftFromApi(item: DraftApiItem): DraftListItem {
+  return {
+    id: item.id,
+    name: item.name,
+    status: item.status,
+    webSlug: item.webSlug ?? undefined,
+    wave: item.currentPackRound,
+    pick: item.currentPickStep,
+    playerCount: item.playerCount,
+    createdAt: item.createdAt ?? undefined,
+    endedAt: item.endedAt ?? undefined,
+    config: { mode: item.mode === "theme" ? "theme" : "booster" },
+  };
+}
+
 export function kindLabel(config: Pick<DraftListConfig, "mode">): string {
   return config.mode === "theme" ? "Theme draft" : "Cube draft";
 }
@@ -77,8 +119,8 @@ export function playersLabel(count: number): string {
   return `${count} ${count === 1 ? "player" : "players"}`;
 }
 
-export function pickLabel(seconds: number): string | null {
-  return seconds > 0 ? `${formatPickSeconds(seconds)} a pick` : null;
+export function pickLabel(seconds: number | undefined): string | null {
+  return seconds !== undefined && seconds > 0 ? `${formatPickSeconds(seconds)} a pick` : null;
 }
 
 export function draftHref(d: Pick<DraftListItem, "webSlug">): string | null {
@@ -102,10 +144,16 @@ export function groupDrafts(items: DraftListItem[]): DraftGroups {
 
 /** The header line after "Drafts you're in": "1 live", "2 waiting to start", "6 finished". Zero counts are left out. */
 export function listSummaryParts(groups: DraftGroups): string[] {
+  return listSummaryPartsFromCounts({ active: groups.live.length, pending: groups.waiting.length, completed: groups.finished.length, cancelled: 0 });
+}
+
+/** Uses full-list counts when the page's rows are paginated. */
+export function listSummaryPartsFromCounts(counts: ListStatusCounts): string[] {
   const parts: string[] = [];
-  if (groups.live.length) parts.push(`${groups.live.length} live`);
-  if (groups.waiting.length) parts.push(`${groups.waiting.length} waiting to start`);
-  if (groups.finished.length) parts.push(`${groups.finished.length} finished`);
+  if (counts.active) parts.push(`${counts.active} live`);
+  if (counts.pending) parts.push(`${counts.pending} waiting to start`);
+  const finished = counts.completed + counts.cancelled;
+  if (finished) parts.push(`${finished} finished`);
   return parts;
 }
 
@@ -122,7 +170,17 @@ function clamp(n: number, lo: number, hi: number): number {
 
 export function liveStages(d: DraftListItem): LiveStages {
   const c = d.config;
+  const wave = Math.max(d.wave, 1);
+  const lobbyToBuild = (draftLabel: string): StageStep[] => [
+    { label: "Lobby", state: "done" },
+    { label: draftLabel, state: "now" },
+    { label: "Build deck", state: "next" },
+  ];
   if (c.mode === "theme") {
+    if (c.cardsPerPlayer === undefined || c.extraDeckEnabled === undefined || c.extraDeckSize === undefined) {
+      // A row without its setup cannot tell main deck from Extra deck, or name the last round.
+      return { steps: lobbyToBuild("Draft"), caption: `Round ${wave}` };
+    }
     const withExtra = c.extraDeckEnabled && c.extraDeckSize > 0;
     const total = Math.max(c.cardsPerPlayer + (withExtra ? c.extraDeckSize : 0), 1);
     const round = clamp(d.wave, 1, total);
@@ -135,16 +193,10 @@ export function liveStages(d: DraftListItem): LiveStages {
     ];
     return { steps, caption: `Round ${round} of ${total}, ${inExtra ? "Extra deck" : "main deck"}` };
   }
+  const pick = Math.max(d.pick, 1);
+  if (c.packsPerPlayer === undefined) return { steps: lobbyToBuild("Draft"), caption: `Pack ${wave}, pick ${pick}` };
   const packs = Math.max(c.packsPerPlayer, 1);
-  const pack = clamp(d.wave, 1, packs);
-  return {
-    steps: [
-      { label: "Lobby", state: "done" },
-      { label: "Draft", state: "now" },
-      { label: "Build deck", state: "next" },
-    ],
-    caption: `Pack ${pack} of ${packs}, pick ${Math.max(d.pick, 1)}`,
-  };
+  return { steps: lobbyToBuild("Draft"), caption: `Pack ${clamp(d.wave, 1, packs)} of ${packs}, pick ${pick}` };
 }
 
 /** SQLite stores "YYYY-MM-DD HH:MM:SS" (UTC); the draft service writes ISO strings. Both parse here. */

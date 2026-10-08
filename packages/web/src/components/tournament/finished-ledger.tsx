@@ -9,9 +9,16 @@ import styles from "./tournament-row.module.css";
  * Finished tournaments: newest first, the first few rows, then "Show all N".
  * Champion and ended date need data the list query does not read yet, so they are left out.
  */
-export function FinishedLedger({ items }: { items: TournamentListItem[] }) {
+export interface FinishedLedgerProps {
+  items: TournamentListItem[];
+  /** Rows were loaded from further pages, so none stay hidden behind "Show all". */
+  showAll?: boolean;
+  /** Called when "Show all N" is pressed, so the list can hold back "Load more" until then. */
+  onShowAll?: () => void;
+}
+export function FinishedLedger({ items, showAll = false, onShowAll }: FinishedLedgerProps) {
   const [all, setAll] = React.useState(false);
-  const shown = all ? items : items.slice(0, FINISHED_PREVIEW);
+  const shown = all || showAll ? items : items.slice(0, FINISHED_PREVIEW);
   const hidden = items.length - shown.length;
   return (
     <>
@@ -31,7 +38,7 @@ export function FinishedLedger({ items }: { items: TournamentListItem[] }) {
         ))}
       </FloorList>
       {hidden > 0 && (
-        <button type="button" className={styles.more} onClick={() => setAll(true)}>
+        <button type="button" className={styles.more} onClick={() => { setAll(true); onShowAll?.(); }}>
           Show all {items.length}
         </button>
       )}

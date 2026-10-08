@@ -70,6 +70,7 @@ describe("draft socket access without starting a server", () => {
     } as unknown as TypedServer;
     guard = registerEventHandlers(server, rooms, {
       secret,
+      canReadTournament: () => false,
       canReadDraft: (claims) => findDraftReadAccess(db, claims.slug, claims.guildId, claims.userId)?.canRead ?? false,
     });
     clients.push(client());
@@ -196,12 +197,5 @@ describe("draft socket access without starting a server", () => {
     expect(join(clients[0], 101)).toEqual(error);
     expect(rooms.getRoom("test-draft")).toBeUndefined();
     log.mockRestore();
-  });
-
-  it("leaves tournament joins open by slug as before", () => {
-    const ack = vi.fn();
-    clients[0].handlers.get("tournament:join")!({ slug: "tournament-1" }, ack);
-    expect(ack.mock.calls[0]).toEqual([]);
-    expect(clients[0].socket.rooms.has("tournament:tournament-1")).toBe(true);
   });
 });

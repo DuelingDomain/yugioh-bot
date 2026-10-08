@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const tempDirs: string[] = [];
 vi.mock("@/lib/session-identity", async () => {
   const { sessionFixture } = await import("./fixtures/session");
-  return sessionFixture((() => ({ auth: vi.fn() }))().auth);
+  return sessionFixture(() => ({ user: { id: String(fixtureUserId("host")), name: "Host" } }));
 });
 
 async function setupDb() {
@@ -47,7 +47,7 @@ describe("GET /api/tournaments includes completed", () => {
     const { GET } = await import("../app/api/tournaments/route");
     const res = await GET();
     expect(res.status).toBe(200);
-    const json = (await res.json()) as Array<{ name: string; status: string }>;
+    const { items: json } = (await res.json()) as { items: Array<{ name: string; status: string }> };
     const byStatus = Object.fromEntries(json.map((t) => [t.status, t.name]));
     expect(byStatus.active).toBe("Active Cup");
     expect(byStatus.pending).toBe("Pending Cup");
