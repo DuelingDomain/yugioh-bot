@@ -83,9 +83,23 @@ function withBoards(state: TableFixtureState, boards: Partial<Record<number, num
 }
 
 /** Plays the given prompts in order: each answer, from the player or queued, moves to the next one. A null prompt is an engine step without a question. */
-function Flow({ Shell, state, prompts, onAnswer }: { Shell: typeof TableShell | typeof TagShell; state: TableFixtureState; prompts: (DuelPrompt | null)[]; onAnswer: (answer: DuelAnswer) => void }) {
+function Flow({
+  Shell,
+  state,
+  prompts,
+  onAnswer,
+  revisions,
+}: {
+  Shell: typeof TableShell | typeof TagShell;
+  state: TableFixtureState;
+  prompts: (DuelPrompt | null)[];
+  onAnswer: (answer: DuelAnswer) => void;
+  /** The engine revision of each step; by default the revision grows by one with each step, as the engine does. */
+  revisions?: number[];
+}) {
   const [step, setStep] = React.useState(0);
-  const source = { ...state, room: { ...state.room, engine: { ...state.room.engine!, prompt: prompts[step] } } } as TableFixtureState;
+  const revision = revisions ? revisions[Math.min(step, revisions.length - 1)] : (state.room.engine!.revision ?? 0) + step;
+  const source = { ...state, room: { ...state.room, engine: { ...state.room.engine!, revision, prompt: prompts[step] } } } as TableFixtureState;
   const controller = useFixtureController(source, { reducedMotion: true });
   const wrapped: TableController = {
     ...controller,
@@ -236,12 +250,12 @@ describe.each(scenes)("attack aim first on the table: %s", (_name, make) => {
 });
 
 describe("attack aim first: the queued target", () => {
-  const setup = (prompts: (DuelPrompt | null)[]) => {
+  const setup = (prompts: (DuelPrompt | null)[], revisions?: number[]) => {
     const scene = ffa3Scene();
     const sequence = scene.state.room.engine!.seats.find((view) => view.seat === 1)!.monsters.findIndex((card) => card != null);
     const state = withBoards(scene.state, { 1: [sequence, sequence + 1 < 5 ? sequence + 1 : sequence] });
     const onAnswer = vi.fn();
-    const view = render(<Flow Shell={TableShell} state={state} prompts={prompts} onAnswer={onAnswer} />);
+    const view = render(<Flow Shell={TableShell} state={state} prompts={prompts} onAnswer={onAnswer} revisions={revisions} />);
     return { ...view, onAnswer, sequence };
   };
 
@@ -281,6 +295,88 @@ describe("attack aim first: the queued target", () => {
     move(stage(container));
     pointerClick(monsterOf(container, 1, sequence));
     expect(onAnswer.mock.calls.map(([answer]) => answer)).toEqual([{ choice: "attack:0" }, { choice: "no" }]);
+  });
+});
+
+describe("attack aim first: the revision of the queued target", () => {
+  const base = (ffa3Scene().state.room.engine!.revision ?? 0) + 0;
+  const setup = (prompts: (DuelPrompt | null)[], revisions: number[]) => {
+    const scene = ffa3Scene();
+    const sequence = scene.state.room.engine!.seats.find((view) => view.seat === 1)!.monsters.findIndex((card) => card != null);
+    const state = withBoards(scene.state, { 1: [sequence] });
+    const onAnswer = vi.fn();
+    const view = render(<Flow Shell={TableShell} state={state} prompts={prompts} onAnswer={onAnswer} revisions={revisions} />);
+    return { ...view, onAnswer, sequence };
+  };
+  const aimAndSend = (container: HTMLElement, sequence: number) => {
+    pointerClick(attackerOf(container));
+    move(stage(container));
+    pointerClick(monsterOf(container, 1, sequence));
+  };
+
+  it("a replay target pick at the sent revision + 3 that offers the saved target gets no automatic answer", () => {
+    const scene = ffa3Scene();
+    const sequence = scene.state.room.engine!.seats.find((view) => view.seat === 1)!.monsters.findIndex((card) => card != null);
+    const { container, onAnswer } = setup([actionPrompt("Attack with Blue-Eyes White Dragon"), targetPrompt(1, sequence)], [base, base + 3]);
+    aimAndSend(container, sequence);
+    expect(onAnswer.mock.calls.map(([answer]) => answer)).toEqual([{ choice: "attack:0" }]);
+  });
+
+  it("the same pick at the sent revision + 1 is answered", () => {
+    const scene = ffa3Scene();
+    const sequence = scene.state.room.engine!.seats.find((view) => view.seat === 1)!.monsters.findIndex((card) => card != null);
+    const { container, onAnswer } = setup([actionPrompt("Attack with Blue-Eyes White Dragon"), targetPrompt(1, sequence)], [base, base + 1]);
+    aimAndSend(container, sequence);
+    expect(onAnswer.mock.calls.map(([answer]) => answer)).toEqual([{ choice: "attack:0" }, { selected: ["core-card"] }]);
+  });
+
+  it("after No to Attack directly?, the target pick is answered at +2 and not at +1 or +3", () => {
+    const scene = ffa3Scene();
+    const sequence = scene.state.room.engine!.seats.find((view) => view.seat === 1)!.monsters.findIndex((card) => card != null);
+    const yesNo: DuelPrompt = { id: "attack-directly", seat: 0, kind: "choice", title: "Attack directly?", options: [{ id: "yes", label: "Yes" }, { id: "no", label: "No" }] };
+    const run = (revisions: number[]) => {
+      const view = setup([actionPrompt("Attack with Blue-Eyes White Dragon"), yesNo, targetPrompt(1, sequence)], revisions);
+      aimAndSend(view.container, sequence);
+      const answers = view.onAnswer.mock.calls.map(([answer]) => answer);
+      view.unmount();
+      return answers;
+    };
+    expect(run([base, base + 1, base + 2])).toEqual([{ choice: "attack:0" }, { choice: "no" }, { selected: ["core-card"] }]);
+    expect(run([base, base + 1, base + 3])).toEqual([{ choice: "attack:0" }, { choice: "no" }]);
+    expect(run([base, base + 1, base + 1])).toEqual([{ choice: "attack:0" }, { choice: "no" }]);
+  });
+});
+
+describe("attack aim first: the Cancel button of the bar", () => {
+  it("shows Cancel with no locked aim; a click ends the aim and sends nothing", () => {
+    const scene = ffa3Scene();
+    const sequence = scene.state.room.engine!.seats.find((view) => view.seat === 1)!.monsters.findIndex((card) => card != null);
+    const state = withBoards(scene.state, { 1: [sequence] });
+    const onAnswer = vi.fn();
+    const { container } = render(<Flow Shell={TableShell} state={state} prompts={[actionPrompt("Attack with Blue-Eyes White Dragon"), targetPrompt(1, sequence)]} onAnswer={onAnswer} />);
+    pointerClick(attackerOf(container));
+    move(stage(container));
+    expect(arrow()).not.toBeNull();
+    const cancel = document.querySelector<HTMLElement>("[data-opponent-bar] button:not([data-rival-seat])")!;
+    expect(cancel.textContent).toMatch(/Cancel/);
+    act(() => void fireEvent.click(cancel));
+    expect(arrow()).toBeNull();
+    expect(document.querySelector("[data-opponent-bar]")).toBeNull();
+    expect(onAnswer).not.toHaveBeenCalled();
+  });
+
+  it("Tag shows the same Cancel button", () => {
+    const scene = tagScene();
+    const sequence = scene.state.room.engine!.seats.find((view) => view.seat === scene.rival)!.monsters.findIndex((card) => card != null);
+    const state = withBoards(scene.state, { [scene.rival]: [sequence], 1: [sequence] });
+    const onAnswer = vi.fn();
+    const { container } = render(<Flow Shell={TagShell} state={state} prompts={[actionPrompt("Attack with Blue-Eyes White Dragon"), targetPrompt(scene.rival, sequence)]} onAnswer={onAnswer} />);
+    pointerClick(attackerOf(container));
+    move(stage(container));
+    const cancel = document.querySelector<HTMLElement>("[data-opponent-bar] button:not([data-rival-seat])")!;
+    act(() => void fireEvent.click(cancel));
+    expect(arrow()).toBeNull();
+    expect(onAnswer).not.toHaveBeenCalled();
   });
 });
 

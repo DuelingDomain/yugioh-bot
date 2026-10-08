@@ -746,6 +746,7 @@ function TableShellBody({
                         onPick={(seat) => controller.seatPick?.onPick(seat)}
                         onConfirm={flow.confirm}
                         onCancel={flow.cancel}
+                        cancelable={flow.bar.cancelable}
                       />
                     ) : null}
                     {out.length > 0 ? (

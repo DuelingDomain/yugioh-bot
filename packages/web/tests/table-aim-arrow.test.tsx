@@ -201,7 +201,7 @@ describe("choose the attacker, then the target, as one gesture", () => {
             options: [{ id: "attack:0", label: optionLabel, controller: 0, location: MZONE, sequence: 0 }],
           } as const)
         : base.room.engine!.prompt!;
-    const state = { ...base, ui: undefined, room: { ...base.room, engine: { ...base.room.engine!, prompt: { ...prompt } } } } as unknown as TableFixtureState;
+    const state = { ...base, ui: undefined, room: { ...base.room, engine: { ...base.room.engine!, revision: base.room.engine!.revision + step, prompt: { ...prompt } } } } as unknown as TableFixtureState;
     const controller = useFixtureController(state, { reducedMotion: true });
     return (
       <TableShell
@@ -331,7 +331,7 @@ describe("the card menu draws no aim: the arrow starts after Attack is clicked",
             ],
           } as const)
         : base.room.engine!.prompt!;
-    const state = { ...base, ui: undefined, room: { ...base.room, engine: { ...base.room.engine!, prompt: { ...prompt } } } } as unknown as TableFixtureState;
+    const state = { ...base, ui: undefined, room: { ...base.room, engine: { ...base.room.engine!, revision: base.room.engine!.revision + step, prompt: { ...prompt } } } } as unknown as TableFixtureState;
     const controller = useFixtureController(state, { reducedMotion: true });
     return (
       <TableShell
@@ -426,7 +426,7 @@ describe("the attacker stays declared through the Attack directly? question", ()
       },
       base.room.engine!.prompt!,
     ];
-    const state = { ...base, ui: undefined, room: { ...base.room, engine: { ...base.room.engine!, prompt: { ...prompts[step] } } } } as unknown as TableFixtureState;
+    const state = { ...base, ui: undefined, room: { ...base.room, engine: { ...base.room.engine!, revision: base.room.engine!.revision + step, prompt: { ...prompts[step] } } } } as unknown as TableFixtureState;
     const controller = useFixtureController(state, { reducedMotion: true });
     return (
       <TableShell

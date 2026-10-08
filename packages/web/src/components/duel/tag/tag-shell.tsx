@@ -422,6 +422,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
                         onPick={(seat) => controller.seatPick?.onPick(seat)}
                         onConfirm={flow.confirm}
                         onCancel={flow.cancel}
+                        cancelable={flow.bar.cancelable}
                       />
                     ) : null}
                     <TagPileViewer controller={controller} ui={ui} />

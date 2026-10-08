@@ -68,7 +68,8 @@ export function useTableUi(base: TableController, options: TableUiOptions = {}):
   // The attacker the player clicked, before the attack is sent: the aim comes first, the target click sends (attack-aim.ts).
   const [aimFirst, setAimFirst] = useState<{ promptId: string; revision: number; key: string; optionId: string; direct: boolean } | null>(null);
   // The target the player clicked, until the core's own target step has taken it (or showed that it cannot).
-  const [queued, setQueued] = useState<{ fromPrompt: string; target: AttackAimTarget } | null>(null);
+  // `revision` is the revision the next attack step must have: the sent one + 1, and one more after a "No" to "Attack directly?".
+  const [queued, setQueued] = useState<{ fromPrompt: string; target: AttackAimTarget; revision: number } | null>(null);
   const queuedSent = useRef<string | null>(null);
 
   const promptId = prompt?.id ?? null;
@@ -98,21 +99,29 @@ export function useTableUi(base: TableController, options: TableUiOptions = {}):
   // offer it. A step that does not offer it, or any other prompt, drops it: the player then aims on the real prompt.
   useEffect(() => {
     if (!queued || !prompt || prompt.id === queued.fromPrompt) return;
+    // The step already answered stays as it is until the next prompt comes.
+    if (queuedSent.current === prompt.id) return;
+    // A prompt from any other revision (a replay, a later turn step) is not the step that follows the sent attack.
+    if (revision !== queued.revision) {
+      setQueued(null);
+      return;
+    }
     if (viewerSeat == null || prompt.seat !== viewerSeat || !isAttackStepPrompt(prompt)) {
       setQueued(null);
       return;
     }
-    if (!canAct || busy || queuedSent.current === prompt.id) return;
+    if (!canAct || busy) return;
     const answer = queuedAnswer(prompt, queued.target);
     if (!answer) {
       setQueued(null);
       return;
     }
     queuedSent.current = prompt.id;
-    // "No" to "Attack directly?" still has the monster pick behind it.
-    if (!isDirectAttackPrompt(prompt) || answer.choice !== "no") setQueued(null);
+    // "No" to "Attack directly?" still has the monster pick behind it, one revision later.
+    if (isDirectAttackPrompt(prompt) && answer.choice === "no") setQueued({ ...queued, revision: queued.revision + 1 });
+    else setQueued(null);
     onAnswer(answer);
-  }, [busy, canAct, onAnswer, prompt, queued, viewerSeat]);
+  }, [busy, canAct, onAnswer, prompt, queued, revision, viewerSeat]);
 
   // Set when an answer is sent; the next prompt (or the wait for one) then decides whether an open pile viewer stays.
   const pileAnswered = useRef(false);
@@ -216,7 +225,7 @@ export function useTableUi(base: TableController, options: TableUiOptions = {}):
     (target: AttackAimTarget) => {
       if (!aimingFirst) return;
       setAimFirst(null);
-      setQueued({ fromPrompt: aimingFirst.promptId, target });
+      setQueued({ fromPrompt: aimingFirst.promptId, target, revision: aimingFirst.revision + 1 });
       setPendingAttack({ key: aimingFirst.key, direct: aimingFirst.direct });
       onAnswer({ choice: aimingFirst.optionId });
     },
