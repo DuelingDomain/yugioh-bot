@@ -14,7 +14,7 @@ Dueling Domain is the play surface for a Discord community: drafts, tournaments,
 
 ## Positioning
 - Draft then duel: the same community and the same app take a player from drafting a pool to dueling with it.
-- Domain format: a custom 1v1 format where each player has a Deck Master in a dedicated zone, with returns and an LP surcharge. No other simulator has it.
+- Domain format: a custom format where each duelist has a Deck Master in a dedicated zone, in 1v1, Tag and free-for-all, with returns and an LP surcharge. No other simulator has it.
 - Browser, no install: a full automatic engine in the browser, with Discord sign-in only.
 - The best-looking, most readable board of any simulator.
 
