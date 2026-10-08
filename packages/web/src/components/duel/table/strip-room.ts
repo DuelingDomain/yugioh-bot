@@ -24,6 +24,8 @@ export const STRIP_ROOM = {
   narrowest: 420,
   /** The first tier (clear of every occupied zone too) may step down in width to this many columns before any zone is covered. */
   clearCols: 3,
+  /** A room that shows fewer tiles than this at a time (with more choices waiting) steps down to the smaller tiles where they show more. */
+  minShown: 4,
   /** At most this many tiles in a row: more wrap and scroll. */
   maxCols: 6,
   /** The rows the wanted room shows before the strip scrolls. */
@@ -138,12 +140,12 @@ interface Variant {
  * The sizes to try for some tile widths: for each tile, the wanted width then narrower ones (fewer tiles in a row, one more row of scroll),
  * each at the wanted height then lower ones down to one whole row (the strip scrolls). `coarse` keeps only the wanted and the least height.
  */
-function variantsOf(count: number, box: { width: number; height: number }, tiles: readonly number[], chrome: number, coarse: boolean): Variant[] {
-  const wantedCard = stripRoomSize(count, box, STRIP_ROOM.maxCols, STRIP_ROOM.card, chrome).card;
+function variantsOf(count: number, box: { width: number; height: number }, tiles: readonly number[], chrome: number, coarse: boolean, base: number = STRIP_ROOM.card): Variant[] {
+  const wantedCard = stripRoomSize(count, box, STRIP_ROOM.maxCols, base, chrome).card;
   const out: Variant[] = [];
   tiles.forEach((tile, tileIndex) => {
     const first = stripRoomSize(count, box, STRIP_ROOM.maxCols, tile, chrome);
-    if (tile !== STRIP_ROOM.card && first.card >= wantedCard) return;
+    if (tile !== base && first.card >= wantedCard) return;
     let last = -1;
     let step = 0;
     for (let cols = first.cols; cols >= 1; cols -= 1) {
@@ -175,11 +177,36 @@ function variantsOf(count: number, box: { width: number; height: number }, tiles
  * Pure: the camera is never read or moved.
  */
 export function planStripRoom(input: StripRoomInput): StripRoom | undefined {
+  let best = planFor(input, STRIP_ROOM.card);
+  // A room that shows fewer than MIN_SHOWN tiles at a time while more choices wait scrolls too much: smaller tiles (112, then 96 px) are taken where they show more at a time.
+  for (const tile of STRIP_ROOM.smaller) {
+    if (!best || input.count <= tilesShown(best, input) || tilesShown(best, input) >= STRIP_ROOM.minShown) break;
+    const next = planFor(input, tile);
+    // Smaller tiles never buy their count with a worse cover: nothing more of your actions, your hand, the chain's cards or the HUD may be hidden.
+    if (next && tilesShown(next, input) > tilesShown(best, input) && coverOf(next, input).every((n, i) => n <= coverOf(best!, input)[i])) best = next;
+  }
+  return best;
+}
+
+/** What a room covers, as counts: your actions, the deep hand, the chain's cards, the key HUD, the soft HUD (a sliver does not count). */
+function coverOf(room: StripRoom, input: StripRoomInput): number[] {
+  const count = (blocks: readonly Rect[] = []) => blocks.reduce((n, b) => n + (overlap(room, grow(b, STRIP_ROOM.air)) > STRIP_ROOM.sliver ? 1 : 0), 0);
+  return [count(input.controls), input.hand && overlap(room, handKeepOut(input.hand)) > STRIP_ROOM.sliver ? 1 : 0, count(input.source), count(input.hud), count(input.soft)];
+}
+
+/** How many tiles the room shows at a time: the whole rows its height holds, each of `cols` tiles (the strip scrolls the rest). */
+export function tilesShown(room: StripRoom, input: Pick<StripRoomInput, "count" | "chrome">): number {
+  const rows = Math.max(1, Math.floor((room.height - (input.chrome ?? STRIP_ROOM.chrome)) / rowHeight(room.card)));
+  return Math.min(input.count, room.cols * rows);
+}
+
+/** The plan for one wanted tile width (the tiers below start from `tile`; the smaller tiles are the ones under it). */
+function planFor(input: StripRoomInput, tile: number): StripRoom | undefined {
   const { box, count } = input;
   if (!(box.width > 0) || !(box.height > 0) || !(count > 0)) return undefined;
   const edge = STRIP_ROOM.edge;
   const chrome = input.chrome ?? STRIP_ROOM.chrome;
-  const wanted = stripRoomSize(count, box, STRIP_ROOM.maxCols, STRIP_ROOM.card, chrome);
+  const wanted = stripRoomSize(count, box, STRIP_ROOM.maxCols, tile, chrome);
   if (wanted.width <= 0 || wanted.height <= 0) return undefined;
   const anchor = input.anchor ?? { x: box.width / 2, y: box.height / 2 };
   const controls = (input.controls ?? []).map((r) => grow(r, STRIP_ROOM.air));
@@ -219,8 +246,8 @@ export function planStripRoom(input: StripRoomInput): StripRoom | undefined {
     return best ? done(best.room, best.of) : null;
   };
 
-  const wantedTile = variantsOf(count, box, [STRIP_ROOM.card], chrome, false);
-  const smallerTiles = variantsOf(count, box, STRIP_ROOM.smaller, chrome, false);
+  const wantedTile = variantsOf(count, box, [tile], chrome, false, tile);
+  const smallerTiles = variantsOf(count, box, STRIP_ROOM.smaller.filter((t) => t < tile), chrome, false, tile);
   const clear =
     search([...hud, ...soft, ...hand, ...source, ...zones], wantedTile.filter((v) => v.narrower === 0 || v.size.cols >= Math.min(STRIP_ROOM.clearCols, wanted.cols))) ??
     search([...hud, ...soft, ...hand, ...source], wantedTile) ??
@@ -240,7 +267,7 @@ export function planStripRoom(input: StripRoomInput): StripRoom | undefined {
   ];
   let best: StripRoom | null = null;
   let bestKey: number[] | null = null;
-  for (const variant of variantsOf(count, box, [STRIP_ROOM.card], chrome, true)) {
+  for (const variant of variantsOf(count, box, [tile], chrome, true, tile)) {
     const { width } = variant.size;
     const height = variant.height;
     for (const y of along(edge, Math.max(edge, box.height - height - edge), height, anchor.y, STRIP_ROOM.scanStep)) {
