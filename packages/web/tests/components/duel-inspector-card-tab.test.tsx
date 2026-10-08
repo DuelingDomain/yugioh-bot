@@ -113,7 +113,7 @@ describe("Card tab", () => {
   });
 
   it("keeps the tab stop when the card changes", () => {
-    const other = { ...card, code: card.code + 1, name: "Other" };
+    const other = { ...card, code: (card.code ?? 0) + 1, name: "Other" };
     const { container, rerender } = render(<Pane target={card} />);
     const scroller = scrollerOf(container);
     const removed = vi.fn();
