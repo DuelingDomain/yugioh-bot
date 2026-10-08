@@ -52,8 +52,11 @@ export interface MapPromptExtras {
   livingSeats?: readonly number[];
   /** Seats whose loss has landed. Their cards and zones are no longer part of the board. */
   eliminatedSeats?: readonly number[];
-  /** Old zones of cards the core removed while a choice was open, including cards on living fields. */
-  removedCards?: readonly DuelZoneRef[];
+  /**
+   * Old zones of cards the core removed while a choice was open, including cards on living fields.
+   * A removed Xyz material is its Xyz's zone plus overlay_sequence (its place under the monster).
+   */
+  removedCards?: readonly (DuelZoneRef & { overlay_sequence?: number })[];
   /** The Synchro monster explicitly chosen for an inherent summon, with its queried Level. */
   synchroSummon?: DuelZoneRef & { code: number; level: number };
 }
@@ -328,13 +331,22 @@ function idleOptions(message: Extract<OcgMessage, { type: OcgMessageType.SELECT_
   return options;
 }
 
+/** Is this option the card the core removed from `zone`? An Xyz material has its Xyz as host, and goes with it. */
+function removedOption(option: DuelPromptOption, zone: DuelZoneRef & { overlay_sequence?: number }): boolean {
+  const same = (ref: DuelZoneRef | undefined) => ref != null && ref.controller === zone.controller && ref.location === zone.location && ref.sequence === zone.sequence;
+  if (option.location === OcgLocation.OVERLAY) {
+    if (zone.overlay_sequence != null) return same(option.host) && option.sequence === zone.overlay_sequence;
+    return same(option.host);
+  }
+  return zone.overlay_sequence == null && option.controller === zone.controller && option.location === zone.location && option.sequence === zone.sequence;
+}
+
 /** Filter a new or suspended prompt without changing the indices the core expects. */
 export function filterPromptOptions(pending: PendingPrompt, extras: Pick<MapPromptExtras, "livingSeats" | "eliminatedSeats" | "removedCards">): PendingPrompt {
   const seatPick = pending.message.type === OcgMessageType.SELECT_OPTION &&
     pending.message.options.every((option) => directAttackSeat(option) != null || opponentPickSeat(option) != null);
   let options = pending.prompt.options.filter((option) => {
-    if (option.card && extras.removedCards?.some((zone) => zone.controller === option.controller &&
-      zone.location === option.location && zone.sequence === option.sequence)) return false;
+    if (option.card && extras.removedCards?.some((zone) => removedOption(option, zone))) return false;
     if (option.controller == null) return true;
     return !extras.eliminatedSeats?.includes(option.controller);
   });
