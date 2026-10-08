@@ -9,6 +9,7 @@ import type { UseGridFocus } from "./grid-focus";
 import { ChainRoomContext, type ChainStripSize } from "./chain-room";
 import { AttackLine } from "./attack-line";
 import { FlyCity } from "./fly-city";
+import { onCrumbleStart } from "./crumble-gate";
 import { watchMeasure } from "./measure-watch";
 import { BAR_HUD, promptUnit } from "./grid-stage";
 import { planPickBarRoom } from "./pick-bar-room";
@@ -410,7 +411,19 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
       setHandRect((current) => (current && union && sameRects([current], [union]) ? current : union));
     };
     // Once the seats stand still (a regroup, the FINAL DUEL board, glides them to new places); watched while a pick is open.
-    return watchMeasure(root, measure, { settleMs: reducedMotion ? 0 : regroup ? GLIDE_MS : SETTLE_MS, watch: legalKey !== "" });
+    const stop = watchMeasure(root, measure, { settleMs: reducedMotion ? 0 : regroup ? GLIDE_MS : SETTLE_MS, watch: legalKey !== "" });
+    if (!regroup || reducedMotion) return stop;
+    // A crumble that waited for the battle (crumble-gate.ts) starts late and the regroup glide with it: measure again when it ends.
+    let again: number | undefined;
+    const off = onCrumbleStart(() => {
+      window.clearTimeout(again);
+      again = window.setTimeout(measure, GLIDE_MS);
+    });
+    return () => {
+      stop();
+      off();
+      window.clearTimeout(again);
+    };
   }, [floating, nearBox, legalKey, reducedMotion, regroup, zoom.zoomed, ownZoom, handMoves]);
   // The card-pick bar: the clear place nearest the middle of the box, always inside it, off the legal targets, your live hand (and a card
   // raised from it) and the HUD, and off the cards on the board while a clear place exists (see pick-bar-room.ts). The same plan holds at

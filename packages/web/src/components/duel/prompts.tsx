@@ -12,7 +12,8 @@ import type {
 import { Button } from "@/components/ui/button";
 import { searchDuelCards } from "./api";
 import { cardArtUrl, LOCATION_HAND, LOCATION_MZONE, zoneKey } from "./constants";
-import { nextEnabledIndex } from "./multi-seat";
+import { stripCardsPerRow } from "./card-strip";
+import { nextEnabledIndex, rowStep } from "./multi-seat";
 import { backOutAnswer } from "./pick-backout";
 import { selectBarCopy, sumSelectionValues } from "./select-bar-copy";
 import { tributeClick, tributeState } from "./tribute-pick";
@@ -693,11 +694,22 @@ export function PromptTray({
 
       if ((event.key === "ArrowDown" || event.key === "ArrowRight") && options.length > 0) {
         event.preventDefault();
+        // Down moves one row in a card list that wraps into rows (one card in a single row).
+        const row = event.key === "ArrowDown" ? stripCardsPerRow() : 1;
+        if (row > 1) {
+          currentDraft.setHighlight((index) => rowStep(current, disabled, index, row, 1));
+          return;
+        }
         currentDraft.setHighlight((index) => (disabled && disabled.size > 0 ? nextEnabledIndex(current, disabled, index, 1) : (index + 1) % options.length));
         return;
       }
       if ((event.key === "ArrowUp" || event.key === "ArrowLeft") && options.length > 0) {
         event.preventDefault();
+        const row = event.key === "ArrowUp" ? stripCardsPerRow() : 1;
+        if (row > 1) {
+          currentDraft.setHighlight((index) => rowStep(current, disabled, index, row, -1));
+          return;
+        }
         currentDraft.setHighlight((index) => (disabled && disabled.size > 0 ? nextEnabledIndex(current, disabled, index, -1) : (index - 1 + options.length) % options.length));
         return;
       }

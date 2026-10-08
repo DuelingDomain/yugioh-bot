@@ -4,6 +4,7 @@ import { Crown, FileText, ScrollText, Settings, Video, X, type LucideIcon } from
 import type { KeyboardEvent, ReactNode, Ref } from "react";
 import baseRoomStyles from "../room.module.css";
 import { SIDE_PANE_LABEL, SidePanel, SideTabs, unreadLabel, type SidePane } from "../side-panel";
+import { cardScrollerProps } from "../inspector";
 import { useSkinStyles } from "../skin";
 import styles from "./table-rail.module.css";
 
@@ -148,7 +149,7 @@ export function TableDrawer({ panes, pane, open, unread, settled, card, log, mas
           <kbd>Esc</kbd>
         </button>
       </div>
-      <div className={roomStyles.sideContent}>
+      <div className={roomStyles.sideContent} {...cardScrollerProps(pane === "card")}>
         <SidePanel pane="card" selected={pane}>{card}</SidePanel>
         <SidePanel pane="log" selected={pane} keepMounted>{log}</SidePanel>
         {panes.includes("masters") ? <SidePanel pane="masters" selected={pane}><div className={styles.masters}>{masters}</div></SidePanel> : null}

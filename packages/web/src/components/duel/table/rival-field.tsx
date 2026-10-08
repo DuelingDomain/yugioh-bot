@@ -1,5 +1,8 @@
-import { useEffect, useMemo, useRef, type CSSProperties, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { slotZIndex } from "./geometry";
+import { GATE_TIMING } from "../duel-timing";
+import { duelFxClock } from "../fx-clock";
+import { CRUMBLE_GATE_CAP_MS, CRUMBLE_GATE_TICK_MS, beginCrumbleWait, crumbleMayStart, pauseRegroup } from "./crumble-gate";
 import { boardWidth, crumbleCards } from "./crumble-model";
 import { textScale } from "./seat-angle";
 import { SeatCrumble } from "./seat-crumble";
@@ -125,11 +128,44 @@ export function ExitingSeat({ pose, tone, view, masterRule, faceUpHand, angleOff
   const cards = useMemo(() => crumbleCards(view, { faceUpHand, width }), [view, faceUpHand, width]);
   const done = useRef(onDone);
   done.current = onDone;
+  // The board waits whole until the attack, the damage and the LP roll that put the seat out are over (crumble-gate.ts).
+  const [held, setHeld] = useState(true);
+  const rootRef = useRef<HTMLDivElement>(null);
+  // A layout effect: the wait is on the board before the first paint of the seat that left (the plate and the pair of the grid read it).
+  useLayoutEffect(() => {
+    if (!held) return undefined;
+    const startedAt = duelFxClock.dateNow();
+    const wait = beginCrumbleWait();
+    // The glide of the seats that stay waits too: the delayed transitions of the regroup in this table are paused once they
+    // have begun (a frame or two on). Reduced motion has no such transitions and does not wait for the board (below).
+    let resume: (() => void) | null = null;
+    const frames: number[] = [];
+    if (!reducedMotion) {
+      frames.push(window.requestAnimationFrame(() => frames.push(window.requestAnimationFrame(() => { resume = pauseRegroup(rootRef.current?.closest("[data-table-stage]")); }))));
+    }
+    const timer = setInterval(() => {
+      const elapsed = duelFxClock.dateNow() - startedAt;
+      // Reduced motion shows no battle FX to wait for: it takes the short pause of the result gate.
+      if (reducedMotion ? elapsed < GATE_TIMING.resultReducedPauseMs : !crumbleMayStart() && elapsed < CRUMBLE_GATE_CAP_MS) return;
+      clearInterval(timer);
+      resume?.();
+      wait();
+      setHeld(false);
+    }, CRUMBLE_GATE_TICK_MS);
+    return () => {
+      clearInterval(timer);
+      frames.forEach((frame) => window.cancelAnimationFrame(frame));
+      // A seat that goes while it waits lets the glide and the finale go on.
+      resume?.();
+      wait.drop();
+    };
+  }, [held, reducedMotion]);
   // The animation reports itself; this timer is for a browser with no animations and for reduced motion.
   useEffect(() => {
+    if (held) return undefined;
     const timer = setTimeout(() => done.current(), reducedMotion ? EXIT_CRUMBLE_REDUCED_MS : EXIT_CRUMBLE_MS);
     return () => clearTimeout(timer);
-  }, [reducedMotion]);
+  }, [reducedMotion, held]);
   const unit = pose.z / CRUMBLE_UNIT;
   const style: CSSProperties & Record<string, string | number> = {
     width: width * unit,
@@ -139,7 +175,7 @@ export function ExitingSeat({ pose, tone, view, masterRule, faceUpHand, angleOff
     ...(clipTop != null ? { clipPath: `inset(${clipTop}px -600px -600px -600px)` } : {}),
   };
   return (
-    <div className={styles.seat} style={style} data-seat-exit={pose.seat} data-exit-motion={reducedMotion ? "reduced" : "full"} aria-hidden="true">
+    <div ref={rootRef} className={styles.seat} style={style} data-seat-exit={pose.seat} data-exit-motion={reducedMotion ? "reduced" : "full"} data-exit-held={held ? "true" : undefined} aria-hidden="true">
       <div className={styles.exitBoard} style={{ width, transform: `scale(${unit})` }}>
         <SeatCrumble
           cards={cards}
@@ -149,6 +185,7 @@ export function ExitingSeat({ pose, tone, view, masterRule, faceUpHand, angleOff
           width={width}
           seed={1234 + pose.seat * 13}
           reducedMotion={reducedMotion}
+          held={held}
           onDone={() => done.current()}
         />
       </div>

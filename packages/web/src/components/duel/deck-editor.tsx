@@ -10,8 +10,15 @@ import styles from "./deck-editor.module.css";
 import { applyDomainMaster, parseDeckText, selectDomainMaster, serializeYdk, type DeckMasterSelection } from "./ydk";
 import { DeckValidationSkippedError, validateDuelDeck } from "./api";
 import { DeckMasterPicker } from "./deck-master-picker";
-import { SavedDeckPicker } from "./saved-deck-picker";
+import { SavedDeckPicker, useSavedDecks } from "./saved-deck-picker";
+import { createSavedDeck, listSavedDecks } from "../decks/api";
+import { deckNameFromFile } from "../decks/import";
+import { modeLabel } from "../decks/model";
+import { findSavedDuplicate, pastedDeckName, prepareImportSave, uniqueDeckName } from "./import-save";
 import { CardAddField } from "./card-add-field";
+
+/** A hung request must not block the saves after it. */
+const SAVE_TIMEOUT_MS = 15_000;
 
 type CardProblem = { name?: string; messages: string[] };
 
@@ -120,6 +127,10 @@ export function DeckEditor({
   const [retry, setRetry] = useState(0);
   const [fileName, setFileName] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  const savedList = useSavedDecks();
+  const importSeq = useRef(0);
+  const saveQueue = useRef<Promise<void>>(Promise.resolve());
+  const [saveNote, setSaveNote] = useState<{ text: string; error?: boolean } | null>(null);
   const [validation, setValidation] = useState<{
     slug: string;
     deck: DuelDeck;
@@ -189,7 +200,46 @@ export function DeckEditor({
     setParseError(null);
   }
 
-  function applyImported(raw: DuelDeck) {
+  /** Saves an import to the player's decks, as given. A failed save never blocks the import itself. */
+  async function saveImported(raw: DuelDeck, baseName: string, seq: number) {
+    // Only the newest import shows a note; an older save that ends later stays silent.
+    const note = (next: { text: string; error?: boolean }) => { if (seq === importSeq.current) setSaveNote(next); };
+    try {
+      if (raw.main.length + raw.extra.length + raw.side.length === 0 && raw.deckMaster === undefined) return;
+      const prepared = prepareImportSave(raw, mode);
+      if (!prepared.ok) {
+        note({ text: "Not saved to your decks: saved Domain decks have no Side Deck." });
+        return;
+      }
+      const existing = savedList.latest.current ?? await listSavedDecks(AbortSignal.timeout(SAVE_TIMEOUT_MS));
+      const duplicate = findSavedDuplicate(existing, prepared.mode, prepared.deck);
+      if (duplicate) {
+        note({ text: `Already in your decks: ${duplicate.name}` });
+        return;
+      }
+      const name = uniqueDeckName(baseName, existing.map((entry) => entry.name));
+      const created = await createSavedDeck({ name, mode: prepared.mode, deck: prepared.deck }, AbortSignal.timeout(SAVE_TIMEOUT_MS));
+      savedList.add(created);
+      note({
+        text: prepared.mode === mode
+          ? `Saved to your decks as ${created.name}`
+          : `Saved to your decks as ${created.name}, as a ${modeLabel(prepared.mode)} deck because it has a Deck Master.`,
+      });
+    } catch (error) {
+      note({ text: `Could not save to your decks: ${error instanceof Error ? error.message : "try again later."}`, error: true });
+    }
+  }
+
+  /** Saves run one after the other, so each one reads the list after the save before it. */
+  function queueSave(raw: DuelDeck, baseName: string) {
+    importSeq.current += 1;
+    const seq = importSeq.current;
+    saveQueue.current = saveQueue.current.then(() => saveImported(raw, baseName, seq)).catch(() => undefined);
+  }
+
+  function applyImported(raw: DuelDeck, baseName: string) {
+    setSaveNote(null);
+    queueSave(raw, baseName);
     const imported = mode === "domain"
       ? settings.validateDeck && raw.side.length <= 1 ? applyDomainMaster(raw) : raw
       : { main: raw.main, extra: raw.extra, side: raw.side };
@@ -216,7 +266,7 @@ export function DeckEditor({
     setFileName(file.name);
     file
       .text()
-      .then((text) => applyImported(parseDeckText(text)))
+      .then((text) => applyImported(parseDeckText(text), deckNameFromFile(file.name)))
       .catch((error: unknown) => setParseError(error instanceof Error ? error.message : "Could not read that file."));
   }
 
@@ -227,7 +277,7 @@ export function DeckEditor({
         setParseError("No cards found. Paste a YDK deck or a ydke:// link.");
         return;
       }
-      applyImported(deck);
+      applyImported(deck, pastedDeckName(new Date()));
     } catch (error) {
       setParseError(error instanceof Error ? error.message : "Could not parse that deck.");
     }
@@ -271,7 +321,7 @@ export function DeckEditor({
         <p className={styles.rules}><Info size={15} strokeWidth={1.6} aria-hidden /><span>{rulesNote}</span></p>
       </header>
 
-      <SavedDeckPicker mode={mode} disabled={busy} onLoad={(saved) => {
+      <SavedDeckPicker mode={mode} disabled={busy} list={savedList} onLoad={(saved) => {
         const hasCards = main.length > 0 || extra.length > 0 || side.length > 0 || masterCode !== undefined;
         if (hasCards && deck !== pristineDeck
           && !window.confirm("Replace the deck you changed at this table? Your saved deck is unchanged.")) return false;
@@ -371,6 +421,11 @@ export function DeckEditor({
           <SheetButton size="sm" onClick={onPasteApply}>Load paste</SheetButton>
         </div>
       </div>
+      {saveNote ? (
+        saveNote.error
+          ? <p role="alert" className={ui.alert}>{saveNote.text}</p>
+          : <p role="status" className={styles.muted}>{saveNote.text}</p>
+      ) : null}
 
       {mode === "domain" ? (
         <DeckMasterPicker code={masterCode} onChange={chooseMaster}
