@@ -110,7 +110,7 @@ const LP_NATURAL_WIDTH = 130;
 const lpFit = (rect: GridRect) => Math.min(1, rect.height / LP_NATURAL_HEIGHT, rect.width / LP_NATURAL_WIDTH);
 
 /** A double click on these keeps its own meaning; every other double click on a field or life box focuses it. */
-const OWN_DOUBLE_CLICK = "button, a, input, select, textarea, [role='button'], [data-zones], [data-legal='true'], [data-uid], [data-pile], [data-holo]";
+const OWN_DOUBLE_CLICK = "button, a, input, select, textarea, [role='button'], [data-zones], [data-legal='true'], [data-uid], [data-pile], [data-hand-seat], [data-holo]";
 
 /** What a legal pick is made of: a field pick (zones, cards on the board), a hand pick, or both (an open main phase). */
 export type PickKind = "field" | "hand" | "mixed" | null;

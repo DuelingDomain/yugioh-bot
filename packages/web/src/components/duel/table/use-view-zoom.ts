@@ -561,6 +561,8 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
       if (!target?.closest || inHud(target) || target.closest(NOT_EMPTY)) return;
       // Your own field zoomed (a camera zoom): the felt of a field is the field, not empty board; Esc, Back and the reset chip leave.
       if (fixedSelector.current && target.closest("[data-seat-slot]")) return;
+      // A cell of the 4-way grid is a field too: a double click on it focuses it (grid-stage) and never zooms out.
+      if (target.closest("[data-grid-cell]")) return;
       if (performance.now() - dragEnd < AFTER_DRAG_MS) return;
       reset();
     };
