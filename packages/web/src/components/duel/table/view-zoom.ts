@@ -379,24 +379,26 @@ function inBox(r: Rect, box: Size): Rect {
  */
 export function clearRoom(room: Rect, obstacles: readonly Rect[], box: Size, margin: number = 8): Rect {
   const hit = (r: Rect) => obstacles.some((o) => overlaps(r, o));
-  if (!hit(room)) return inBox(room, box);
-  const xs = [room.x, margin, box.width - room.width - margin, ...obstacles.flatMap((o) => [o.x + o.width + margin, o.x - room.width - margin])];
-  const ys = [room.y, margin, box.height - room.height - margin, ...obstacles.flatMap((o) => [o.y + o.height + margin, o.y - room.height - margin])];
+  // The room goes inside the box first: the clear check and the search both start from the rect that is returned when it is clear.
+  const start = inBox(room, box);
+  if (!hit(start)) return start;
+  const xs = [start.x, margin, box.width - start.width - margin, ...obstacles.flatMap((o) => [o.x + o.width + margin, o.x - start.width - margin])];
+  const ys = [start.y, margin, box.height - start.height - margin, ...obstacles.flatMap((o) => [o.y + o.height + margin, o.y - start.height - margin])];
   let best: Rect | null = null;
   let bestCost = Infinity;
   for (const x of xs) {
     for (const y of ys) {
-      if (x < margin || y < margin || x + room.width > box.width - margin || y + room.height > box.height - margin) continue;
-      const candidate = { x: Math.round(x), y: Math.round(y), width: room.width, height: room.height };
+      if (x < margin || y < margin || x + start.width > box.width - margin || y + start.height > box.height - margin) continue;
+      const candidate = { x: Math.round(x), y: Math.round(y), width: start.width, height: start.height };
       if (hit(candidate)) continue;
-      const cost = Math.hypot(x - room.x, y - room.y);
+      const cost = Math.hypot(x - start.x, y - start.y);
       if (cost < bestCost) {
         best = candidate;
         bestCost = cost;
       }
     }
   }
-  return inBox(best ?? room, box);
+  return best ?? start;
 }
 
 /**
