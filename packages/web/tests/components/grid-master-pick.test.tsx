@@ -81,6 +81,13 @@ describe("the wide Deck Master plate of the 3-way plaza", () => {
     expect(screen.getByTestId("hud-master-inspect")).toBeTruthy();
   });
 
+  it("shortens every Summon label to Summon, not only Normal Summon", () => {
+    const special = { id: "s2", label: "Special Summon Black Luster Soldier" } as DuelPromptOption;
+    plate({ legal: false, wide: true, actions: [special] });
+    expect(screen.getByTestId("hud-master-action")).toHaveTextContent(/^Summon$/);
+    expect(screen.getByTestId("hud-master-action").getAttribute("title") ?? screen.getByTestId("hud-master-action").getAttribute("aria-label")).toMatch(/Special Summon/);
+  });
+
   it("is the Deck Master Zone anchor of the seat for the summon and the return flights", () => {
     plate({ legal: false, wide: true });
     const art = document.querySelector("[data-master-dock]");
