@@ -1,3 +1,4 @@
+import type { CardAdmissionContext } from "@/lib/card-admission-context";
 import type { DraftDeckPool } from "./pool-model";
 import type { CardFacets, CardQuery, CardQueryResult, DeckArtworkSwapRequest, DeckCardInfo, DuelDeck, DuelMode, SavedDeck } from "@yugidraft/shared/duels";
 import type { DeckRegistrationMark } from "@yugidraft/shared/services";
@@ -152,11 +153,11 @@ export async function deleteSavedDeck(id: number): Promise<void> {
   await parseBody<{ ok?: boolean }>(await fetch(`/api/decks/${id}`, { method: "DELETE" }));
 }
 
-export async function queryDeckCards(query: CardQuery, signal?: AbortSignal): Promise<CardQueryResult> {
+export async function queryDeckCards(query: CardQuery, signal?: AbortSignal, context: CardAdmissionContext = {}): Promise<CardQueryResult> {
   const body = await parseBody<Partial<CardQueryResult>>(await fetch("/api/decks/cards", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(query),
+    body: JSON.stringify({ ...query, ...context }),
     signal,
   }));
   if (!Array.isArray(body.cards) || typeof body.total !== "number") {
@@ -170,11 +171,11 @@ export async function getDeckCardFacets(): Promise<CardFacets> {
   return { archetypes: body.archetypes ?? [], banlists: body.banlists ?? {} };
 }
 
-export async function getDeckCards(codes: number[]): Promise<{ cards: DeckCardInfo[]; missing: number[] }> {
+export async function getDeckCards(codes: number[], context: CardAdmissionContext = {}): Promise<{ cards: DeckCardInfo[]; missing: number[] }> {
   const body = await parseBody<{ cards?: DeckCardInfo[]; missing?: number[] }>(await fetch("/api/duels/cards", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ codes }),
+    body: JSON.stringify({ codes, ...context }),
   }));
   return { cards: body.cards ?? [], missing: body.missing ?? [] };
 }

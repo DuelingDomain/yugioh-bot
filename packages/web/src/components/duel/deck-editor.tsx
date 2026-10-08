@@ -377,7 +377,7 @@ export function DeckEditor({
           problem={masterProblem?.messages.join(" ")} custom={!settings.validateDeck} />
       ) : null}
 
-      <CardAddField settings={settings} sideAllowed={sideAllowed} onAdd={addCard} onError={setParseError} />
+      <CardAddField mode={mode} slug={slug} settings={settings} sideAllowed={sideAllowed} onAdd={addCard} onError={setParseError} />
 
       {parseError ? <p role="alert" className={ui.alert}>{parseError}</p> : null}
 

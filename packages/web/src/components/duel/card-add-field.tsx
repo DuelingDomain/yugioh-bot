@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import type { DeckCardInfo, DuelSettings } from "@yugidraft/shared/duels";
+import type { DeckCardInfo, DuelSettings, DuelMode } from "@yugidraft/shared/duels";
 import { Plus } from "lucide-react";
 import { defaultAddSection } from "../decks/model";
 import { cardArtUrl, cardKindText } from "./constants";
@@ -13,7 +13,9 @@ import styles from "./deck-editor.module.css";
 type AddSection = "main" | "extra" | "side";
 
 /** The deck editor's "Add card" row: a name or passcode field with a results dropdown, a Section select and Add. */
-export function CardAddField({ settings, sideAllowed, onAdd, onError }: {
+export function CardAddField({ mode, slug, settings, sideAllowed, onAdd, onError }: {
+  mode?: DuelMode;
+  slug?: string;
   settings: Pick<DuelSettings, "cardPool" | "validateDeck" | "banlist">;
   sideAllowed: boolean;
   onAdd: (code: number, section: AddSection) => void;
@@ -33,7 +35,7 @@ export function CardAddField({ settings, sideAllowed, onAdd, onError }: {
 
   const trimmed = query.trim();
   const isPasscode = /^\d+$/.test(trimmed);
-  const { search, pending } = useCardNameSearch(query, waitingFor === query.trim());
+  const { search, pending } = useCardNameSearch(query, waitingFor === query.trim(), { mode, slug });
   const limits = useBanlistLimits(settings.banlist, settings.validateDeck, trimmed !== "");
   const cards = search?.cards ?? [];
   const blocks = cards.map((card) => cardAddBlock(card, settings, limits));

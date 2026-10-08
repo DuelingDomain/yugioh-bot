@@ -320,6 +320,40 @@ describe("ArtworkPicker", () => {
 });
 
 describe("deck editor art", () => {
+  it("discards Normal art metadata that arrives after switching to Domain", async () => {
+    const fetcher = vi.mocked(globalThis.fetch);
+    const original = fetcher.getMockImplementation()!;
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let waiting = false;
+    fetcher.mockImplementation(async (url, init) => {
+      if (url === "/api/duels/cards") {
+        const { codes, mode } = JSON.parse(String(init?.body)) as { codes: number[]; mode: string };
+        if (mode === "normal" && codes.includes(ALT.code)) {
+          waiting = true;
+          await gate;
+          return Response.json({ cards: ALL.filter(entry => codes.includes(entry.code)).map(entry => ({ ...entry,
+            altArtCount: OTHER_ARTS.get(entry.code) ?? 0,
+            ...(entry.code === ALT.code ? { unavailableReason: "Normal script error" } : {}),
+          })), missing: [] });
+        }
+      }
+      return original(url, init);
+    });
+    render(<SavedDeckEditor />);
+    fireEvent.click(await screen.findByRole("button", { name: "Blue-Eyes White Dragon, 3 arts" }));
+    await waitFor(() => expect(waiting).toBe(true));
+    fireEvent.click(screen.getByRole("button", { name: "Domain" }));
+    await waitFor(() => expect(fetcher.mock.calls.some(([url, init]) => url === "/api/decks/cards" && JSON.parse(String(init?.body)).mode === "domain")).toBe(true));
+    await act(async () => { release(); });
+    const group = await screen.findByRole("group", { name: "Choose an art" });
+    fireEvent.click(within(group).getByRole("button", { name: /Art 2 of 3/ }));
+    await waitFor(() => expect(within(screen.getByRole("group", { name: "Choose an art" })).getByRole("button", { name: /Art 2 of 3/ })).toHaveAttribute("aria-pressed", "true"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add one Blue-Eyes White Dragon to Main" })).toBeEnabled());
+    expect(screen.queryByText("Unavailable: Normal script error")).toBeNull();
+    expect(fetcher.mock.calls.some(([url, init]) => url === "/api/duels/cards" && JSON.parse(String(init?.body)).mode === "domain" && JSON.parse(String(init?.body)).codes.includes(ALT.code))).toBe(true);
+  });
+
   it("shows the art count on cards that have other arts", async () => {
     render(<SavedDeckEditor />);
     const tile = await screen.findByRole("button", { name: "Blue-Eyes White Dragon, 3 arts" });

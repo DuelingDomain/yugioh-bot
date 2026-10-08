@@ -281,6 +281,14 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     saveEditorPrefs({ sort: query.sort, order: query.order, view, banlist: query.banlist, scope: query.scope });
   }, [prefsReady, query.sort, query.order, query.banlist, query.scope, view]);
 
+  const catalogMode = useRef(mode);
+  useEffect(() => {
+    if (catalogMode.current === mode) return;
+    catalogMode.current = mode;
+    setCatalog(new Map()); setUnknown(new Set()); setBlocked(new Set());
+    setPoolCards(null);
+  }, [mode]);
+
   // The card list of a draft deck is the pool: its card details load once.
   useEffect(() => {
     if (!pool) return;
@@ -289,7 +297,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     const codes = pool.cards.map((card) => card.code);
     const chunks: number[][] = [];
     for (let at = 0; at < codes.length; at += POOL_CHUNK) chunks.push(codes.slice(at, at + POOL_CHUNK));
-    void Promise.all(chunks.map((chunk) => getDeckCards(chunk))).then(
+    void Promise.all(chunks.map((chunk) => getDeckCards(chunk, { mode }))).then(
       (parts) => {
         if (cancelled) return;
         const cards = parts.flatMap((part) => part.cards);
@@ -305,7 +313,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
       },
     );
     return () => { cancelled = true; };
-  }, [pool, poolRetry]);
+  }, [pool, poolRetry, mode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -368,7 +376,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     if (needed.length === 0) return;
     let cancelled = false;
     setMetaError(null);
-    void getDeckCards(needed).then(
+    void getDeckCards(needed, { mode }).then(
       ({ cards, missing }) => {
         if (cancelled) return;
         rememberCatalog(cards);
@@ -389,7 +397,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
       },
     );
     return () => { cancelled = true; };
-  }, [deck, catalog, metaRetry]);
+  }, [deck, catalog, metaRetry, mode]);
 
   // A test hand shows one draw of the current Main Deck; a changed deck needs a new draw.
   const mainKey = deck.main.join(",");
@@ -504,10 +512,12 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
 
   /** Card details for every art of a family, so names, types and pool copies resolve for any of them. */
   async function loadFamilyCards(family: CardArtworksResponse): Promise<boolean> {
+    const requestedMode = modeRef.current;
     const missing = family.artworks.map((art) => art.passcode).filter((code) => !catalogRef.current.has(code));
     if (missing.length === 0) return true;
     try {
-      const { cards } = await getDeckCards(missing);
+      const { cards } = await getDeckCards(missing, { mode: requestedMode });
+      if (modeRef.current !== requestedMode) return false;
       rememberCatalog(cards);
       return missing.every((code) => cards.some((card) => card.code === code));
     } catch {
@@ -1215,7 +1225,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
             <DeckSectionGrid {...sectionProps} title="Extra" section="extra" codes={deck.extra} maximum={DRAFT_EXTRA_MAX} target="up to 15" emptyHint="Fusion, Synchro, Xyz and Link monsters go here." actions={clearButton("extra", "Extra")} />
             <DeckSectionGrid {...sectionProps} title="Side" section="side" codes={deck.side} unused={mode === "domain"} maximum={mode === "domain" ? 0 : 15} target={mode === "domain" ? "Not used in Domain" : "up to 15"} emptyHint="Drag cards here, Ctrl+click a deck card, or use Side on a selected card." actions={clearButton("side", "Side")} />
           </main>
-          <CardBrowser id="deck-editor-cards" pool={poolMap ? { cards: poolCards, remaining: (card) => remainingCopies(poolMap, usage, poolCode(card.code), forcedMap), totalCopies: [...poolMap.values()].reduce((sum, count) => sum + count, 0), notInDeck: [...poolMap.keys()].reduce((sum, code) => sum + remainingCopies(poolMap, usage, code, forcedMap), 0) } : undefined} query={query} onQueryChange={setQuery} archetypes={archetypes} limits={limits} view={view} onViewChange={setView} deckCount={deckCount} inspectCode={selected == null ? inspectCode : null} onInspect={(card, openSheet) => { rememberCatalog([card]); inspect(card.code, null, openSheet); }} onHover={(card) => { if (card) rememberCatalog([card]); pointAt(card ? { code: card.code, from: "list" } : null); }} onAdd={(card) => addFromList(card)} onCatalog={rememberCatalog} onRemoveDrop={(drag) => removeCopy(drag)} searchRef={searchRef} />
+          <CardBrowser mode={mode} id="deck-editor-cards" pool={poolMap ? { cards: poolCards, remaining: (card) => remainingCopies(poolMap, usage, poolCode(card.code), forcedMap), totalCopies: [...poolMap.values()].reduce((sum, count) => sum + count, 0), notInDeck: [...poolMap.keys()].reduce((sum, code) => sum + remainingCopies(poolMap, usage, code, forcedMap), 0) } : undefined} query={query} onQueryChange={setQuery} archetypes={archetypes} limits={limits} view={view} onViewChange={setView} deckCount={deckCount} inspectCode={selected == null ? inspectCode : null} onInspect={(card, openSheet) => { rememberCatalog([card]); inspect(card.code, null, openSheet); }} onHover={(card) => { if (card) rememberCatalog([card]); pointAt(card ? { code: card.code, from: "list" } : null); }} onAdd={(card) => addFromList(card)} onCatalog={rememberCatalog} onRemoveDrop={(drag) => removeCopy(drag)} searchRef={searchRef} />
         </div>
         {artMenu ? <DeckArtMenu key={`${artMenu.section}-${artMenu.index}`} target={artMenu} knownCount={altArtCount(artMenu.code, catalog) + 1} busy={artBusy} disabled={busy} onClose={() => setArtMenu(null)} onFamily={(family) => { void loadFamilyCards(family); }} onPick={(art, family) => { void pickMenuArtwork(art, family); }} /> : null}
         {isPhone && cardSheetOpen && inspectCode != null ? <CardBottomSheet label={cardName(inspectCode)} onClose={() => { setCardSheetOpen(false); setHover(null); }}>{shown ? <CardPreview card={shown} compact copySummary={inspected && !previewing ? <CardCopyCount copies={deckCount(inspected)} limit={copyLimit(inspected.code, catalog, limits)} poolCopies={poolMap ? deckAllowance(poolMap, poolCode(inspected.code), forcedMap) : undefined} forced={forcedMap.get(poolCode(inspected.code)) ?? 0} /> : undefined} /> : missingReader}{cardControls}</CardBottomSheet> : null}
