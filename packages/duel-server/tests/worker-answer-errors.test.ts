@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DUEL_SEAT_LEFT_ERROR_CODE } from "@yugidraft/shared/duels";
 import { EngineAnswerError } from "../src/prompts.js";
+import { EngineLoopError } from "../src/engine-loop-error.js";
 import { GameWorker } from "../src/worker-client.js";
 import { handleWorkerRequest } from "../src/worker.js";
 
@@ -47,5 +48,10 @@ describe("answer errors through the engine worker", () => {
     expect(error).toBeInstanceOf(EngineAnswerError);
     expect(error).toMatchObject({ message: "Invalid answer" });
     expect(error).toHaveProperty("code", undefined);
+  });
+
+  it("preserves a core loop invariant across both worker boundaries", async () => {
+    answer.mockImplementation(() => { throw new EngineLoopError(); });
+    await expect(worker.answer(0, "p1", { choice: "pass" })).rejects.toBeInstanceOf(EngineLoopError);
   });
 });
