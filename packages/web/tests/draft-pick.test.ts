@@ -265,7 +265,7 @@ describe("POST /api/drafts/[slug]/pick", () => {
     expect(invalidResponse.status).toBe(400);
   }, testTimeoutMs);
 
-  it("returns 400 for non-participant", async () => {
+  it("returns 404 for a stranger to a private draft", async () => {
     const tempDir = mkdtempSync(join(tmpdir(), "yugioh-draft-pick-"));
     const dbPath = join(tempDir, "draft-pick.sqlite");
     tempDirs.push(tempDir);
@@ -313,9 +313,10 @@ describe("POST /api/drafts/[slug]/pick", () => {
       { params: Promise.resolve({ slug: "legendary-draft" }) }
     );
 
-    expect(response.status).toBe(400);
+    // Seeded drafts are private, so a stranger gets the generic not-found.
+    expect(response.status).toBe(404);
     const payload = await response.json();
-    expect(payload.error).toContain("not a participant");
+    expect(payload.error).toBe("Draft not found");
   }, testTimeoutMs);
 });
 
