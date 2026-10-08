@@ -118,6 +118,11 @@ describe("chain stack placement", () => {
     expect(panelCss).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\s*\.cr, \.hero, \.out, \.strip, \.scrim, \.wait i \{ animation: none !important; \}/);
   });
 
+  it("keeps the row list's size independent of its overflow flag, so the measure cannot loop", () => {
+    expect(rule(panelCss, ".stack")).toMatch(/min-height:\s*76px/);
+    expect(rule(panelCss, '.stack[data-overflow="true"]')).not.toMatch(/(?:^|[\s;])(?:min-|max-)?(?:height|width)\s*:|padding|margin|border|gap|font/);
+  });
+
   it("takes a pointer only on the strip, the sheet, its scrim and a box the layout really cuts", () => {
     const auto = [...panelCss.matchAll(/(^|\n)([^\n{}]+)\{[^}]*pointer-events:\s*auto/g)].map((m) => m[2].trim());
     expect(auto).toEqual(['.cardText[data-overflow="true"]', '.stack[data-overflow="true"]', ".strip", ".scrim", ".sheet"]);

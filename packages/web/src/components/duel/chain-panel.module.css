@@ -189,10 +189,11 @@
 .wait i { display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: var(--duel-pen, #9b7eff); vertical-align: 1px; animation: crPulse 1.1s ease-in-out infinite; }
 
 /* ----- the stack: every link, the top of the chain first ----- */
-.stack { flex: 0 1000 auto; min-height: 0; margin: 0; padding: 0; overflow: hidden; list-style: none; }
-/* The rows give way first, down to about two rows; then they scroll. */
+/* The rows give way first, down to about two rows (the list shows only with 2+ links); then they scroll. The overflow
+   flag below changes paint, scroll and focus only, never the size, so the measure cannot feed back into itself. */
+.stack { flex: 0 1000 auto; min-height: 76px; margin: 0; padding: 0; overflow: hidden; list-style: none; }
+.stack[data-accordion="true"] { min-height: 0; }
 .stack[data-overflow="true"] {
-  min-height: 76px;
   overflow-y: auto;
   overscroll-behavior: contain;
   pointer-events: auto;
