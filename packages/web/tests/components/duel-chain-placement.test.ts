@@ -45,6 +45,11 @@ describe("chain stack placement", () => {
     expect(panelCss).toMatch(/\.cr\[data-shape="narrow"\] \{ width: clamp\(142px,\s*calc\(var\(--chain-gutter,\s*164px\) - 8px\),\s*214px\); \}/);
   });
 
+  it("scales the narrow hero name with the text scale", () => {
+    expect(panelCss).toMatch(/\.cr\[data-shape="narrow"\] \.name \{ font-size: calc\(17px \* var\(--tt, 1\)\); \}/);
+    expect(panelCss).not.toMatch(/\.name \{ font-size: \d+px; \}/);
+  });
+
   it("hides a target ring that sits under an open prompt panel", () => {
     expect(chainCss).toMatch(/\.target\[data-covered="true"\]\s*\{\s*visibility:\s*hidden/);
   });
