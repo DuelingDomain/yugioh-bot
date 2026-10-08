@@ -421,7 +421,8 @@ export function buildPanelView(input: PanelInput): PanelView {
       effect: chainEffectText(link),
       full: chainFullText(link),
       targets: chainHeroTargets(link, targets, who),
-      chosen: [...new Set((link.chosenOptions ?? []).map((option) => option.text.trim()).filter((text) => text !== ""))],
+      // Behind the same gate as the name, the text and the bullets: nothing of an unknown card shows.
+      chosen: known(link) ? [...new Set((link.chosenOptions ?? []).map((option) => option.text.trim()).filter((text) => text !== ""))] : [],
       outcome,
       waiting: link.status === "resolving" && outcome == null,
       status: link.status,
