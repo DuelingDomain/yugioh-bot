@@ -84,6 +84,15 @@ export function useSignInFlow(opts: { returnTo: string; marketingUrl: string | n
     if (!result || !("error" in result) || !progressed()) { fail({ code: "network_error" }, context); return false; }
     return true;
   };
+  const waitForFreshSignIn = async (previous: NonNullable<typeof signal.signIn>) => {
+    const deadline = Date.now() + 2000;
+    while (mounted.current && Date.now() < deadline) {
+      const signIn = latest.current.signIn;
+      if (signIn && signIn !== previous && !signIn.id) return signIn;
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
+    return null;
+  };
   const run = async (context: Parameters<typeof mapClerkError>[1], work: () => Promise<void>) => {
     if (busy.current || state.pending || latest.current.fetchStatus === "fetching" || !latest.current.signIn || state.step === "success") return;
     busy.current = true;
@@ -144,7 +153,15 @@ export function useSignInFlow(opts: { returnTo: string; marketingUrl: string | n
         await run("sso", async () => {
           ssoAttempt.current = true;
           try { sessionStorage.setItem("dd_auth_resume", JSON.stringify({ kind: "sign-in", returnTo: state.returnTo })); } catch { /* Storage can be unavailable. Clerk still retains the attempt. */ }
-          await call(() => latest.current.signIn!.sso({ strategy: "oauth_discord", redirectUrl: state.returnTo, redirectCallbackUrl: "/sso-callback" }), "sso");
+          let signIn = latest.current.signIn!;
+          if (signIn.id) {
+            if (!await call(() => signIn.reset(), "sso")) return;
+            // Reset publishes a new signal object; the old wrapper keeps its ID.
+            const fresh = await waitForFreshSignIn(signIn);
+            if (!fresh) { fail({ code: "network_error" }, "sso"); return; }
+            signIn = fresh;
+          }
+          await call(() => signIn.sso({ strategy: "oauth_discord", redirectUrl: state.returnTo, redirectCallbackUrl: "/sso-callback" }), "sso");
         });
       },
       submitPassword: async (password) => {
