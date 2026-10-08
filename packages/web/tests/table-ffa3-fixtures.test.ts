@@ -21,4 +21,9 @@ describe("3-way fixtures", () => {
     expect(prompt.options.every((option) => option.card)).toBe(true);
     expect(prompt.options.map((option) => option.card!.name)).toContain("Red-Eyes Fang with Chain Dragon");
   });
+
+  it("asks for one of 2 Deck cards in the `cards2` preview pick, to review a short card strip", () => {
+    const prompt = ffa3Variant(FFA3_FIXTURES, { out: [], pick: "cards2" }).states.main.room.engine!.prompt!;
+    expect(prompt.options).toHaveLength(2);
+  });
 });

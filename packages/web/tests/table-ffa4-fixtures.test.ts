@@ -50,4 +50,9 @@ describe("4-way fixtures", () => {
     expect(prompt.kind).toBe("cards");
     expect(prompt.options).toHaveLength(14);
   });
+
+  it("asks for one of 2 Deck cards in the `search2` preview pick, to review a short card strip", () => {
+    const prompt = ffa4Variant(FFA4_FIXTURES, { out: [], pick: "search2" }).states.main.room.engine!.prompt!;
+    expect(prompt.options).toHaveLength(2);
+  });
 });

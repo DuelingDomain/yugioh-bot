@@ -252,12 +252,12 @@ const DEFENSE_ROWS = [
   [C.redEyes, C.gaia, C.cyberDragon, C.sangan, C.blackChaos],
 ] as const;
 
-export type Ffa3PreviewPick = "def" | "cards";
+export type Ffa3PreviewPick = "def" | "cards" | "cards2";
 
 /**
  * A preview variant of the 3-way fixtures: `out` sweeps those seats (as the engine does: no LP, an empty board, the
  * elimination order); `defense` lays Defense Position monsters on every field; `pick: "def"` asks you to pick one monster
- * on any field (yours included), so the turned cards are the targets; `pick: "cards"` asks for one of 14 Deck cards.
+ * on any field (yours included), so the turned cards are the targets; `pick: "cards"` asks for one of 14 Deck cards (`"cards2"`: one of 2).
  */
 export function ffa3Variant(set: TableFixtureSet, opts: { out: readonly number[]; defense?: boolean; pick?: Ffa3PreviewPick | null }): TableFixtureSet {
   if (opts.out.length === 0 && !opts.defense && !opts.pick) return set;
@@ -287,7 +287,7 @@ export function ffa3Variant(set: TableFixtureSet, opts: { out: readonly number[]
         );
         prompt = { id: "pick-def", seat: REN, kind: "cards", title: "Select 1 monster to destroy", min: 1, max: 1, options };
       }
-      if (opts.pick === "cards" && state.room.mySeat === REN) prompt = searchPrompt(REN);
+      if ((opts.pick === "cards" || opts.pick === "cards2") && state.room.mySeat === REN) prompt = searchPrompt(REN, opts.pick === "cards2" ? 2 : undefined);
       const order = opts.out.map((seat) => [seat]);
       const room = { ...state.room, engine: { ...engine, seats, prompt, ...(order.length > 0 ? { eliminationOrder: order } : {}) } };
       const ui = order.length > 0 ? { ...state.ui, initialOutOrder: order } : state.ui;

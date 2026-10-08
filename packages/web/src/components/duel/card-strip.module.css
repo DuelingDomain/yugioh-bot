@@ -305,6 +305,8 @@
     /* The width the cards ask for (a grid of auto-fill columns has no width of its own): the panel is as wide as its cards, up to its max-width. */
     width: calc(var(--cs-n, 1) * var(--cs-w) + (var(--cs-n, 1) - 1) * var(--cs-gap) + 2 * var(--cs-pad-x));
     max-width: 100%;
+    /* A short list sits in the middle of the panel, not at the left. */
+    margin-inline: auto;
     column-gap: var(--cs-gap);
     flex-wrap: wrap;
     align-content: start;
@@ -313,12 +315,15 @@
     row-gap: 18px;
     overflow-x: hidden;
     overflow-y: auto;
+    /* No scroll bar: it would take width and push the last card of a row to the next row. The fade, the count and the buttons show that there is more. */
+    scrollbar-width: none;
     overscroll-behavior: contain;
     scroll-snap-type: none;
     scroll-padding-block: 14px;
     -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 var(--cs-fade-t), #000 calc(100% - var(--cs-fade-b)), transparent 100%);
     mask-image: linear-gradient(180deg, transparent 0, #000 var(--cs-fade-t), #000 calc(100% - var(--cs-fade-b)), transparent 100%);
   }
+  :global([data-prompt-dense]) .wrap:not([data-tone="chain"]) .strip::-webkit-scrollbar { display: none; }
   :global([data-prompt-dense]) .wrap:not([data-tone="chain"]) .strip { --cs-fade-t: 0px; --cs-fade-b: 0px; }
   :global([data-prompt-dense]) .wrap:not([data-tone="chain"]) .frame[data-up="true"] .strip { --cs-fade-t: var(--cs-fade); }
   :global([data-prompt-dense]) .wrap:not([data-tone="chain"]) .frame[data-down="true"] .strip { --cs-fade-b: var(--cs-fade); }

@@ -44,7 +44,7 @@ export function Ffa3Preview({ stateId, cam, lock, review = false, out = null, af
   }, [hover]);
   const base = useMemo(() => review ? reviewFixtures(damage) : FFA3_FIXTURES, [review, damage]);
   const set = useMemo(
-    () => ffa3Variant(base, { out: delay != null && !late ? [] : outSeats, defense: def === "1", pick: pickLive && (pick === "def" || pick === "cards") ? pick : null }),
+    () => ffa3Variant(base, { out: delay != null && !late ? [] : outSeats, defense: def === "1", pick: pickLive && (pick === "def" || pick === "cards" || pick === "cards2") ? pick : null }),
     [base, outSeats, delay, late, def, pick, pickLive],
   );
   return (

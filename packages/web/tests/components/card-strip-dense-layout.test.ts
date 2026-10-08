@@ -94,6 +94,13 @@ describe("card strip in a dense host (3-way, Tag, 4-way)", () => {
     expect(list).toMatch(/flex-wrap:\s*wrap;/);
   });
 
+  it("centres a short list, and has no scroll bar that could push a card to the next row", () => {
+    const list = rule(strip, `${dense} .strip`);
+    expect(list).toMatch(/margin-inline:\s*auto;/);
+    expect(list).toMatch(/scrollbar-width:\s*none;/);
+    expect(strip).toMatch(/\.strip::-webkit-scrollbar \{ display: none; \}/);
+  });
+
   it("puts the count and the up and down buttons in the caption line, not over the cards", () => {
     expect(strip).toMatch(/\.bar\[data-pager\] \{ display: flex;/);
     expect(strip).toMatch(/\.pageBtn \{/);

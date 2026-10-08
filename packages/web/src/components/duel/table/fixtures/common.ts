@@ -353,8 +353,8 @@ const SEARCH_NAMES = [
 const SEARCH_CODES = [74677422, 4961232, 64335804, 37818794, 71408082, 88264978, 24611934, 29491334, 61140872, 63942330, 36262024, 31293090, 55460084, 19025379] as const;
 
 /** The `?pick=cards` prompt: a pick among many cards of your Deck, so the strip has more cards than any window shows. */
-export function searchPrompt(seat: number): DuelPrompt {
-  const options: DuelPromptOption[] = SEARCH_NAMES.map((name, sequence) => ({
+export function searchPrompt(seat: number, count: number = SEARCH_NAMES.length): DuelPrompt {
+  const options: DuelPromptOption[] = SEARCH_NAMES.slice(0, count).map((name, sequence) => ({
     id: `s${sequence}`,
     label: name,
     card: { ...TABLE_CARDS.redEyes, code: SEARCH_CODES[sequence], name },

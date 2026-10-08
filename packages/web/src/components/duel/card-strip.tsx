@@ -108,9 +108,10 @@ export function cardsPerRow(tops: readonly number[]): number {
   return Math.max(1, count);
 }
 
-/** Whether the cards wrap into rows that scroll up and down (a dense host, card-strip.module.css) and not one row that scrolls sideways. */
+/** Whether the cards wrap into rows that scroll up and down (a dense host, card-strip.module.css: a grid) and not one row that scrolls sideways. */
 export function stripWraps(list: HTMLElement): boolean {
-  return getComputedStyle(list).flexWrap === "wrap";
+  const style = getComputedStyle(list);
+  return style.display === "grid" || style.flexWrap === "wrap";
 }
 
 /** Cards in one row of the strip in the open prompt panel: 1 when there is none, or when the strip is a single sideways row. For the Up and Down keys. */
