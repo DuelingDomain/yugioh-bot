@@ -7,8 +7,10 @@ import { createDuelService } from "@yugidraft/shared/services";
 import { emptyCardQuery, type DuelEngineView } from "@yugidraft/shared/duels";
 import { createDuelHost, type DuelHost } from "../src/host.js";
 import { pinnedEngineVersion } from "../src/multi-scripts.js";
-import { topScriptErrors } from "../src/script-error-store.js";
-import { clearAutoBlock } from "../src/script-error-autoblock.js";
+import { createScriptErrorRecorder, topScriptErrors } from "../src/script-error-store.js";
+import { cardScriptHash } from "../src/card-script-hash.js";
+import { loadCardDatabase } from "../src/cards.js";
+import { createAutoBlockPolicy, clearAutoBlock } from "../src/script-error-autoblock.js";
 import { reproOptions, attackAnswer } from "./helpers/script-error-repro.js";
 import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { engineDataDirectory as DATA } from "./engine-data-dir.js";
@@ -23,7 +25,8 @@ async function request(host: DuelHost, body: Record<string, unknown>, status = 2
 }
 describeWithCores("automatic blocks through live host and replay", [needs.standard(DATA)], () => {
   it.each(["legacy", "pinned"] as const)("%s: blocks new duels and deck checks while live/recovered/replayed state stays identical", async engine => {
-    vi.stubEnv("DUEL_SCRIPT_ERROR_BLOCK_DUELS", "1");
+    vi.stubEnv("DUEL_SCRIPT_ERROR_BLOCK_DUELS", "2");
+    vi.stubEnv("DUEL_1V1_ENGINE", engine);
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     const db = new Database(":memory:"); migrate(db);
     const players = [0, 1].map(i => seedIdentity(db, { guildId: "g", name: `P${i}`, userId: seedUser(db, `auto${i}`).userId }).playerId);
@@ -34,6 +37,10 @@ describeWithCores("automatic blocks through live host and replay", [needs.standa
     const version = JSON.parse(readFileSync(`${DATA}/manifest.json`, "utf8")).bundleVersion;
     duels.activate(session.slug, "g", players[0]!, options.seed, pinnedEngineVersion(version, 2, null), null,
       { engine, scriptErrorMode: "tolerant", firstTurnDraw: false, startupScripts: options.startupScripts!.map(script => script.content) });
+    const prior = duels.create({ guildId: "g", organizerPlayerId: players[0]!, name: "Earlier", mode: "normal", settings: options.settings });
+    duels.takeSeat(prior.slug, "g", players[1]!);
+    const policy = createAutoBlockPolicy(db, { bundleVersion: version, scriptHash: (code, kind) => cardScriptHash(loadCardDatabase(DATA), code, kind) });
+    createScriptErrorRecorder(db, () => {}, policy)(prior.id, { code: 3743515, scriptFile: "c3743515.lua", line: 1, message: "earlier failure", index: 1, mode: "normal", format: "1v1", engine, scriptErrorMode: "tolerant" });
     const makeHost = () => createDuelHost({ db, dataDirectory: DATA, secret, searchCards: () => [], pollIntervalMs: 60000 });
     let host = makeHost();
     const base = { slug: session.slug, guildId: "g" };

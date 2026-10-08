@@ -306,12 +306,14 @@ This is an admission policy, separate from the engine bundle. Editing it does no
 ### Automatic blocks after repeated script errors
 
 In tolerant mode, a card becomes unavailable for new duels and deck checks after
-runtime errors in **3 distinct duels within 7 days**. Repeated events, retries,
+runtime errors in **3 distinct duels within 7 days**, involving at least **2 distinct
+human accounts**. Practice-bot duels count, but one account alone cannot trigger a block. Repeated events, retries,
 queries and recoveries in one duel contribute only one duel to the threshold.
-`DUEL_SCRIPT_ERROR_BLOCK_DUELS` defaults to `3` (positive integer);
+`DUEL_SCRIPT_ERROR_BLOCK_DUELS` defaults to `3` (integer `2`–`1000000`);
 `DUEL_SCRIPT_ERROR_BLOCK_WINDOW_DAYS` defaults to `7` (integer `1`–`30`, within the
 telemetry retention period). Compose passes both settings to the duel service.
-Recreate that service after changing settings. `DUEL_SCRIPT_ERRORS=strict` ignores
+Invalid threshold/window settings log a warning and use their defaults; they do not
+prevent host startup. Recreate that service after changing settings. `DUEL_SCRIPT_ERRORS=strict` ignores
 auto blocks and strict errors never trigger them; the manual list remains enforced.
 
 The shared SQLite migration adds `card_script_auto_blocks` with passcode, neutral
