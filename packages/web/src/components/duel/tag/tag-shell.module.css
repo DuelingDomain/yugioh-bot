@@ -241,7 +241,8 @@
 .shell[data-hud="true"] {
   --hud-top: 52px;
   --hud-bottom: calc(clamp(58px, 5.6dvh, 68px) + 20px);
-  --hud-left: 156px;
+  /* The card peek always stands in the left column, right of the dock: the board starts right of it (see --pv-col-w in table/grid-hud.module.css). */
+  --hud-left: calc(72px + clamp(220px, 14vw, 284px) + 12px);
 }
 .shell[data-hud="true"] .main {
   grid-template-columns: minmax(0, 1fr);
