@@ -94,6 +94,36 @@ describe("callDuelHost error messages", () => {
     expect(await result.response.json()).toEqual({ error: "Invalid answer" });
   });
 
+  it("preserves a restart as a retryable 503 for duel answers", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: "restarting" }, { status: 503 })));
+    const { callDuelHost } = await loadHost();
+    const result = await callDuelHost({ ...call, op: "respond" });
+    if (result.ok) throw new Error("expected failure");
+    expect(result.response.status).toBe(503);
+    expect(await result.response.json()).toEqual({ error: "restarting" });
+  });
+
+  it.each(["view", "respond"] as const)("the room %s route surfaces a restart as 503", async op => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: "restarting" }, { status: 503 })));
+    const host = await loadHost();
+    vi.spyOn(host, "requireDuelActor").mockResolvedValue({
+      ok: true, guildId: call.guildId, playerId: call.playerId,
+      duels: { room: () => ({ session: { status: "active" } }) } as never,
+    });
+    const context = { params: Promise.resolve({ slug: call.slug }) };
+    let response: Response;
+    if (op === "view") {
+      const { GET } = await import("../app/api/duels/[slug]/route");
+      response = await GET(new Request("http://web.test/api/duels/abc"), context);
+    } else {
+      const { NextRequest } = await import("next/server");
+      const { POST } = await import("../app/api/duels/[slug]/actions/route");
+      response = await POST(new NextRequest("http://web.test/api/duels/abc/actions", { method: "POST", body: "{}" }), context);
+    }
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "restarting" });
+  });
+
   it("transports the spectator view flag to the authenticated host", async () => {
     const fetchMock = vi.fn().mockImplementation(async () => Response.json({ role: "spectator", mySeat: null }));
     vi.stubGlobal("fetch", fetchMock);

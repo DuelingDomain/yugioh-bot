@@ -2713,6 +2713,11 @@ export function createDuelHost(options: {
           });
         }
         const status = error instanceof Error && "status" in error && typeof error.status === "number" ? error.status : 400;
+        if (!(error instanceof RequestError) && !(error instanceof DeckLegalityError) &&
+          !(error instanceof Error && "status" in error && status >= 400 && status < 500)) {
+          // Error messages/stacks may contain SQL, private payloads or credentials.
+          console.error("[duel] Unexpected request error");
+        }
         return Response.json({ error: error instanceof Error ? error.message : "Duel request failed",
           ...(error instanceof RequestError && error.code ? { code: error.code } : {}) }, { status });
       }
