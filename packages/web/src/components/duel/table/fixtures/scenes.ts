@@ -11,7 +11,7 @@ import { POS_FACEDOWN_DEFENSE, POS_FACEUP_ATTACK } from "../../constants";
 export type SceneId = "smf" | "ko" | "mirror" | PlaySceneId;
 
 /** `<play>-<seat>`: that seat Normal Summons, Special Summons, Fusion Summons, Sets or Flip Summons a monster in its zone 4 (`?scene=normal-1`). */
-export type PlaySceneId = `${"normal" | "special" | "fusion" | "set" | "flip"}-${0 | 1 | 2}`;
+export type PlaySceneId = `${"normal" | "special" | "fusion" | "set" | "flip"}-${0 | 1 | 2 | 3}`;
 
 const STORMING_MIRROR_FORCE: DuelCardInfo = {
   code: 5650082,
@@ -111,7 +111,7 @@ function mirror(): LabStep[] {
   ];
 }
 
-const PLAY_SCENE = /^(normal|special|fusion|set|flip)-([012])$/;
+const PLAY_SCENE = /^(normal|special|fusion|set|flip)-([0-3])$/;
 
 /**
  * One seat plays a monster from its hand (or flips one up) into its zone 4: the card must face its controller from the
