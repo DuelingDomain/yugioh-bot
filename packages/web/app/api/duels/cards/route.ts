@@ -1,3 +1,4 @@
+import { cardAdmissionContext, type CardAdmissionContext } from "@/lib/card-admission-context";
 import { NextRequest, NextResponse } from "next/server";
 import { createCardCatalogService } from "@yugidraft/shared/services";
 import type { DeckCardInfo, DuelCardInfo } from "@yugidraft/shared/duels";
@@ -60,8 +61,10 @@ export async function POST(request: Request) {
   const actor = await requireDuelActor();
   if (!actor.ok) return actor.response;
   let body: unknown;
+  let context: CardAdmissionContext;
   try {
     body = await request.json();
+    context = cardAdmissionContext(body);
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
@@ -75,7 +78,7 @@ export async function POST(request: Request) {
     op: "card-details",
     guildId: actor.guildId,
     playerId: actor.playerId,
-    codes: ids,
+    codes: ids, ...context,
   });
   if (!result.ok) return result.response;
   const data = result.data as { cards: DeckCardInfo[]; missing: number[] };

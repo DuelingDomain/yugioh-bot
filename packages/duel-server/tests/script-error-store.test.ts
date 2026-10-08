@@ -15,7 +15,8 @@ describe("persistent script error counters", () => {
     try {
       db.exec("CREATE TABLE card_script_error_occurrences (duel_id INTEGER, command_hash TEXT, error_index INTEGER, PRIMARY KEY(duel_id, command_hash, error_index)); INSERT INTO card_script_error_occurrences VALUES (100, 'old', 1)");
       migrate(db); migrate(db);
-      expect(db.prepare("SELECT code, created_at FROM card_script_error_occurrences").get()).toEqual({ code: 0, created_at: "1970-01-01 00:00:00" });
+      expect(db.prepare("SELECT code, created_at, helper_scripts FROM card_script_error_occurrences").get()).toEqual({
+        code: 0, created_at: "1970-01-01 00:00:00", helper_scripts: "[]" });
     } finally { db.close(); }
   });
   it("retains active and recent rows while pruning completed/orphan rows older than 30 days", () => {

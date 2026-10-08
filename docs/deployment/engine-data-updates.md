@@ -418,3 +418,134 @@ A listed card is unavailable in Normal and Domain decks at 1v1, Tag, FFA3 and FF
 Deck-builder search retains blocked matches with an Unavailable label and the configured reason. Adding and selecting them as Deck Master is disabled. Importing or keeping an existing deck does not grant permission to start a duel: deck validation and duel admission reject it with `<card name> is unavailable: <reason>`, and validation reports reference every blocked copy.
 
 This is an admission policy, separate from the engine bundle. Editing it does not change `bundleVersion`, Lua scripts or WASM, and it does not change how an already running duel or its replay executes. Remove an entry and redeploy/restart to make the card available again; no engine rebuild is needed.
+
+### Automatic blocks after repeated script errors
+
+In tolerant mode, a card becomes unavailable for new duels and deck checks after
+runtime errors in **3 distinct duels within 7 days**, involving at least **2 distinct
+human accounts**. Practice-bot duels count, but one account alone cannot trigger a block. Repeated events, retries,
+queries and recoveries in one duel contribute only one duel to the threshold.
+`DUEL_SCRIPT_ERROR_BLOCK_DUELS` defaults to `3` (integer `2`–`1000000`);
+`DUEL_SCRIPT_ERROR_BLOCK_WINDOW_DAYS` defaults to `7` (integer `1`–`30`, within the
+telemetry retention period). Compose passes both settings to the duel service.
+Invalid threshold/window settings log a warning and use their defaults; they do not
+prevent host startup. Recreate that service after changing settings. `DUEL_SCRIPT_ERRORS=strict` ignores
+auto blocks and strict errors never trigger them; the manual list remains enforced.
+
+The shared SQLite migration adds `card_script_auto_blocks` with passcode, neutral
+reason, block time, distinct-duel and sampled-error counts, threshold/window,
+bundle version, script SHA-256, the helper filenames named by the recorded diagnostic
+and traceback, and optional clear time. New occurrence rows include
+resolved code, script hash and saved error policy. Historical rows without revision
+metadata cannot trigger a block. Counts use the current script revision, validated
+passcode remaps and the configured rolling window. The existing 20-sample cap still
+applies. A block persists beyond that window until the script changes or an operator
+clears it; window expiry alone does not grant repeated chances to a broken script.
+
+On startup and after accepted telemetry, a different resolved script identity clears an auto block.
+The comparison follows core near-code aliases, official/prerelease basename priority,
+artwork fallback and installed shared card-script patches. An unrelated data update
+with identical script bytes keeps the block. A changed script starts a fresh counting
+revision. The identity hashes the card script plus only the shared Lua helpers named
+by those errors, multiplayer suffixes and mp-utility.lua, and the emitted legacy Normal
+chain.lua transform. Helper names are stored when the block is created and reused for
+startup checks and production/candidate comparison. Changes to unrelated helpers keep
+the block, so a weekly helper update no longer lifts every card's block. A hash failure
+logs one line and lifts that row without preventing server startup. Blocks are scoped independently
+to legacy/pinned 1v1 and multiplayer, and to Normal/Domain; a multiplayer error
+never blocks a 1v1 deck. Automatic blocks cover the exact failing passcode,
+near aliases (absolute passcode difference below 10) that load its script, and their
+validated graduation remaps. Far aliases remain admitted. Manual
+blocks keep the complete alias-family behavior above. The small operational block table is created with a composite
+(passcode, engine kind) key. The manual list is applied first and its reason wins
+across the whole alias family. Admission arrays and catalog indexes are cached by manual-list identity and active
+block signature; deck/search/details reads never hash scripts or write block rows.
+Operator clears remain visible on the next request. Players see only the usual `<card name> is unavailable`
+message with `Its effect script is being investigated`, never Lua diagnostics.
+
+To clear an auto block without clearing telemetry or changing the manual list, run
+this small command with Node 22 from the repository root (no environment-file loading):
+
+```sh
+prlimit --core=0 -- node --import tsx packages/duel-server/src/clear-script-auto-block.ts 12345678 /path/to/bot.sqlite /path/to/duel-engine
+```
+
+In the deployed duel container, use
+`node /app/packages/duel-server/dist/clear-script-auto-block.js 12345678` via
+`docker exec <duel-container-id>`. It uses the container's existing `DATABASE_PATH`
+and `DUEL_DATA_DIR`. Either the old or graduated passcode is accepted. Clearing
+establishes a fresh counting baseline; new errors in the configured number of distinct
+duels can block it again. There is no restart requirement for a clear.
+
+Auto blocks are host admission state only. They never enter worker options, saved
+setup, commands, journal identity, recovery or replay. A currently running duel is
+never changed or interrupted by a threshold being reached.
+
+### Production script errors in the weekly PR
+
+The weekly workflow adds **Script errors in prod (last 7 days)**. It includes the
+top 20 cards by sampled error count plus active auto-blocked cards, including blocks
+with zero recent samples. Columns are passcode, card name, distinct duels, sampled
+errors, auto-block status and whether the candidate changes the script. No player
+names, Discord IDs, duel IDs/slugs, reasons or Lua diagnostics enter this public
+section. Auto blocks appear first; the section is capped at 12,000 UTF-8 bytes and
+100 cards, escapes Markdown/HTML/mentions and survives PR-body truncation.
+
+Deployment already reaches `/opt/yugioh-bot` using the `VM_HOST`, `VM_USER`,
+`VM_SSH_PRIVATE_KEY` and optional `VM_PORT` secrets (default `22`). A separate
+`prod-errors` job reuses that SSH path with **no checkout, dependency installation
+or GitHub write permissions**. It invokes only the fixed deployed command:
+
+```sh
+sh /opt/yugioh-bot/scripts/prod-script-errors.sh
+```
+
+The wrapper identifies the running production duel container by service and Compose
+working-directory labels, without loading Compose or environment files. It executes
+the deployed `dist/prod-script-errors.js` entrypoint. That command opens the existing
+SQLite database with `readonly: true`, `fileMustExist: true` and `query_only = ON`;
+it aggregates a fixed seven-day window in SQLite, returning the top 20 rows plus
+up to 100 active block scopes inside a read transaction. It never runs migrations,
+writes or caller-supplied SQL. Card names and aliases are fetched on demand; it
+never loads the full card catalog. SQLite page caches are capped at 1 MiB per DB.
+Node runs with `--max-old-space-size=32 --max-semi-space-size=2`. Validated remaps,
+core script lookup and script hashes follow the installed bundle.
+A local Node 22 measurement on 2026-10-07 (`/usr/bin/time -v`) used a read-only
+export from a 3.4-MiB database backup populated with 100 active block scopes:
+87,804 KiB peak RSS, 2.17 seconds, exit 0, valid 100-card output. The heap limit
+caps V8 allocations; RSS also includes Node, SQLite and native libraries. This is
+local evidence, not a production memory measurement. Only aggregate card fields and hashes used
+for candidate comparison are exported; hashes never appear in the PR section.
+
+Set **`VM_SSH_KNOWN_HOSTS`** to the independently verified VM host-key entry in
+OpenSSH known_hosts format (`[host]:port` for a nondefault port). This workflow
+requires strict host verification and does not bootstrap trust with `ssh-keyscan`.
+Set **`ENGINE_DATA_PROD_SSH_PRIVATE_KEY`** to a dedicated export key on the same
+VM/user. The job never receives the unrestricted deploy key. Install this full
+line in that user's `authorized_keys`, replacing the public-key placeholder:
+
+```text
+restrict,command="sh /opt/yugioh-bot/scripts/prod-script-errors.sh" ssh-ed25519 <dedicated-export-public-key> engine-data-prod-export
+```
+
+Install the key and host pin through the existing operator process. Without the
+dedicated secret, the section says **prod error data unavailable**. No VM configuration is changed
+by the weekly workflow. Temporary runner key files are removed after the SSH step.
+
+SSH has a 40-second deadline, five-second database lock timeout and 64-KiB output
+cap. Before uploading any public artifact, the credential job validates the byte
+limit, card/count/hash/scope types and field limits, then re-emits only known
+aggregate fields; unknown fields and raw remote bytes are discarded. Invalid data
+leaves the initialized unavailable snapshot. Missing secrets/host pin, connectivity or permission failures, a stopped duel
+container, a deployment predating this command/schema, invalid JSON and artifact
+download failures produce **prod error data unavailable**. They never fail the
+weekly preparation/publication path. The separate snapshot artifact expires after
+one day; the aggregate snapshot also accompanies the existing 14-day report artifact.
+
+After candidate preparation, final validation compares installed-prod hashes with
+the **exact prepared candidate bundle**, including shared card-script patches and
+passcode graduation. A changed or removed card script says **auto block will lift**;
+unchanged dependency bytes keep the block. Fixes to a recorded helper, overlay-only and legacy
+transform fixes also say **auto block will lift** for their engine scope. Manual blocks still win. The snapshot is
+advisory and can become stale before deployment. Existing live-duel drain and replay
+loss warnings for bundle updates still apply; admission auto blocks do not alter them.

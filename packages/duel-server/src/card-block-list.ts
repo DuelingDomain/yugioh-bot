@@ -5,6 +5,8 @@ import { loadCardPasscodeRemaps } from "@yugidraft/shared/db";
 export interface CardBlockEntry {
   code: number;
   reason: string;
+  /** Automatic script policy: these exact passcodes only, without alias traversal. */
+  exactCodes?: readonly number[];
 }
 
 let repositoryEntries: readonly CardBlockEntry[] | undefined;
@@ -51,7 +53,17 @@ export function loadCardBlockList(path?: string | URL, dataDirectory?: string): 
   return mapped;
 }
 
-const indexes = new WeakMap<ReadonlyMap<number, { alias?: number }>, { entries: readonly CardBlockEntry[]; index: Map<number, CardBlockEntry> }>();
+const merged = new WeakMap<readonly CardBlockEntry[], WeakMap<readonly CardBlockEntry[], readonly CardBlockEntry[]>>();
+/** Stable manual-first admission identity until either source changes. */
+export function mergeCardBlockEntries(manual: readonly CardBlockEntry[], automatic: readonly CardBlockEntry[]): readonly CardBlockEntry[] {
+  if (!automatic.length) return manual;
+  let byAuto = merged.get(manual);
+  if (!byAuto) { byAuto = new WeakMap(); merged.set(manual, byAuto); }
+  let entries = byAuto.get(automatic);
+  if (!entries) { entries = [...manual, ...automatic]; byAuto.set(automatic, entries); }
+  return entries;
+}
+const indexes = new WeakMap<ReadonlyMap<number, { alias?: number }>, WeakMap<readonly CardBlockEntry[], Map<number, CardBlockEntry>>>();
 
 /** Blocks every passcode connected by an alias, including chains, reverse links and other named variants. */
 export function cardBlockIndex(
@@ -60,10 +72,12 @@ export function cardBlockIndex(
   dataDirectory?: string,
 ): ReadonlyMap<number, CardBlockEntry> {
   entries ??= loadCardBlockList(undefined, dataDirectory);
-  const cached = indexes.get(catalog);
-  if (cached?.entries === entries) return cached.index;
+  let byEntries = indexes.get(catalog);
+  if (!byEntries) { byEntries = new WeakMap(); indexes.set(catalog, byEntries); }
+  const cached = byEntries.get(entries);
+  if (cached) return cached;
   const index = new Map<number, CardBlockEntry>();
-  indexes.set(catalog, { entries, index });
+  byEntries.set(entries, index);
   if (!entries.length) return index;
 
   const links = new Map<number, number[]>();
@@ -72,12 +86,16 @@ export function cardBlockIndex(
     linked.push(to);
     links.set(from, linked);
   };
-  for (const [code, card] of catalog) {
+  for (const [code, card] of entries.some(entry => !entry.exactCodes) ? catalog : []) {
     if (!card.alias) continue;
     add(code, card.alias);
     add(card.alias, code);
   }
   for (const entry of entries) {
+    if (entry.exactCodes) {
+      for (const code of entry.exactCodes) if (!index.has(code)) index.set(code, entry);
+      continue;
+    }
     const pending = [entry.code];
     while (pending.length) {
       const code = pending.pop()!;

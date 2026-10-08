@@ -540,6 +540,36 @@ describe("host hand scenarios (DUEL_SCENARIOS)", () => {
     }
   });
 
+  it.each([
+    { name: "legacy", sources: {}, integrity: {} },
+    { name: "prerelease", sources: { databaseFormat: "official-releases-prerelease-v2" }, integrity: {} },
+    { name: "integrity-pinned", sources: { databaseFormat: "official-releases-prerelease-v2" }, integrity: { cardRemaps: "a".repeat(64) } },
+  ])("starts and lists presets without remaps in a $name bundle", async ({ sources, integrity }) => {
+    process.env.DUEL_SCENARIOS = "1";
+    const dir = mkdtempSync(join(tmpdir(), "duel-no-remaps-"));
+    try {
+      writeFileSync(join(dir, "manifest.json"), JSON.stringify({ bundleVersion: "test-bundle", sources, integrity }));
+      const t = scenarioHost({ dataDirectory: dir });
+      const listed = await post(t.host, { op: "list-presets", ...t.who });
+      expect(listed.status).toBe(200);
+      expect(listed.data.core).toEqual({ tag: null, sha: null });
+      expect(listed.data.presets.map((preset: { id: string }) => preset.id)).toContain("dust-tornado-chain");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("validates the integrity of remaps when the file is present at startup", () => {
+    const dir = mkdtempSync(join(tmpdir(), "duel-invalid-remaps-"));
+    try {
+      writeFileSync(join(dir, "manifest.json"), JSON.stringify({ bundleVersion: "test-bundle", integrity: { cardRemaps: "a".repeat(64) } }));
+      writeFileSync(join(dir, "card-remaps.json"), JSON.stringify({ version: 1, remaps: {} }));
+      expect(() => scenarioHost({ dataDirectory: dir })).toThrow("card-remaps.json does not match manifest integrity.cardRemaps");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("refuses an unknown preset", async () => {
     process.env.DUEL_SCENARIOS = "1";
     const t = scenarioHost();

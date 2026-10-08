@@ -654,3 +654,49 @@ it("creates the engine remap completion table before bundle migration and preser
   expect(db.prepare("SELECT bundle_version,applied_at FROM engine_card_remap_runs").get()).toEqual({bundle_version:"bundle-v1",applied_at:expect.any(String)});
  } finally {db.close();}
 });
+
+it("creates auto blocks with independent engine scopes without rebuilding the table", () => {
+  const db = new Database(":memory:");
+  const exec = db.exec.bind(db);
+  db.exec = (sql: string) => {
+    if (/alter table card_script_auto_blocks/i.test(sql)) throw new Error("Auto block table must be created in its final shape");
+    return exec(sql);
+  };
+  migrate(db);
+  db.exec(`insert into card_script_auto_blocks
+    (code, reason, blocked_at, distinct_duels, error_count, threshold, window_days, bundle_version, script_hash)
+    values (10, 'reason', '2026-10-07', 3, 3, 3, 7, 'b', 'hash');`);
+  migrate(db); migrate(db);
+  expect(db.prepare("select code, engine_kind, script_hash from card_script_auto_blocks").all()).toEqual([{ code: 10, engine_kind: "all", script_hash: "hash" }]);
+  db.exec(`insert into card_script_auto_blocks
+    (code, reason, blocked_at, distinct_duels, error_count, threshold, window_days, bundle_version, script_hash, cleared_at, engine_kind)
+    select code, reason, blocked_at, distinct_duels, error_count,
+    threshold, window_days, bundle_version, script_hash, cleared_at, 'multi-normal' from card_script_auto_blocks;`);
+  expect(db.prepare("select count(*) as n from card_script_auto_blocks").get()).toEqual({ n: 2 });
+  db.close();
+});
+
+it("preserves existing auto blocks and occurrences when adding card revisions and helper names", () => {
+  const db = new Database(":memory:");
+  try {
+    db.exec(`create table card_script_auto_blocks (
+      code integer not null, reason text not null, blocked_at text not null,
+      distinct_duels integer not null, error_count integer not null, threshold integer not null,
+      window_days integer not null, bundle_version text not null, script_hash text not null,
+      cleared_at text, engine_kind text not null default 'all', helper_scripts text not null default '[]',
+      primary key (code, engine_kind));
+      insert into card_script_auto_blocks values
+        (10, 'reason', '2026-10-07', 3, 3, 3, 7, 'bundle', 'lift-hash', null, 'pinned-normal', '["proc_x.lua"]');
+      create table card_script_error_occurrences (
+        duel_id integer not null, command_hash text not null, error_index integer not null,
+        code integer not null, created_at text not null, resolved_code integer, script_hash text,
+        script_error_mode text, engine_kind text, primary key (duel_id, command_hash, error_index));
+      insert into card_script_error_occurrences values
+        (1, 'command', 1, 10, '2026-10-07', 10, 'old-hash', 'tolerant', 'pinned-normal');`);
+    migrate(db); migrate(db);
+    expect(db.prepare("select script_hash, card_script_hash, helper_scripts, cleared_at from card_script_auto_blocks").get())
+      .toEqual({ script_hash: "lift-hash", card_script_hash: null, helper_scripts: '["proc_x.lua"]', cleared_at: null });
+    expect(db.prepare("select script_hash, helper_scripts from card_script_error_occurrences").get())
+      .toEqual({ script_hash: "old-hash", helper_scripts: "[]" });
+  } finally { db.close(); }
+});

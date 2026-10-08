@@ -1,8 +1,11 @@
-import { cardBlockIndex } from "./card-block-list.js";
+import { cardBlockIndex, loadCardBlockList, mergeCardBlockEntries, type CardBlockEntry } from "./card-block-list.js";
+import { createAutoBlockPolicy } from "./script-error-autoblock.js";
+import { cardScriptHash, scriptEngineKind, type ScriptEngineKind } from "./card-script-hash.js";
+import { loadCardPasscodeRemaps } from "@yugidraft/shared/db";
 import { createScriptErrorRecorder } from "./script-error-store.js";
 import { scriptErrorModeFromEnv } from "./script-errors.js";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type Database from "better-sqlite3";
 import { createLocalCardDataStatus, type EngineDataManifest } from "./card-data-status.js";
@@ -41,7 +44,7 @@ import { cardArtworkFamily } from "./card-artworks.js";
 import { canonicalEngineCardCode, loadDraftDeckPool, normalizeCardCodes, normalizeImportedDeck } from "./deck-import.js";
 import { loadCardDatabase } from "./cards.js";
 import { cardFacets, queryCards, deckCardUnavailableReason } from "./card-search.js";
-import { activeMultiScriptsHash, pinnedEngineVersion } from "./multi-scripts.js";
+import { activeMultiScriptsHash, loadMultiScriptsFor, pinnedEngineVersion } from "./multi-scripts.js";
 import { firstTurnDrawFor, savedFirstTurnDraw } from "./first-turn-draw.js";
 import { botTableOf, buildPracticeBotDeck, choosePracticeBotAnswer, chooseSurrenderedAnswer, PracticeBotError } from "./practice-bot.js";
 import {
@@ -331,7 +334,31 @@ export function createDuelHost(options: {
   const games = new Map<string, LiveGame>();
   const replayCache = new Map<string, DuelReplay>();
   const queues = new Map<string, Promise<unknown>>();
-  const recordScriptError = createScriptErrorRecorder(options.db);
+  const remaps = existsSync(join(options.dataDirectory, "card-remaps.json"))
+    ? loadCardPasscodeRemaps(options.dataDirectory) : new Map<number, number>();
+  const hashes = new Map<string, string | null>();
+  let revisionOverlay: ReturnType<typeof loadMultiScriptsFor> | undefined;
+  const autoBlocks = createAutoBlockPolicy(options.db, { bundleVersion: manifest.bundleVersion,
+    remaps,
+    exactCodes: code => {
+      const codes = new Set([code]);
+      for (const card of loadCardDatabase(options.dataDirectory).all()) {
+        if (card.alias && Math.abs(card.alias - card.code) < 10 && (remaps.get(card.alias) ?? card.alias) === code) codes.add(card.code);
+      }
+      for (const [old, target] of remaps) if (codes.has(target)) codes.add(old);
+      return [...codes];
+    },
+    scriptHash: (code, kind, helperScripts) => {
+      const key = JSON.stringify([code, kind, helperScripts]);
+      if (!hashes.has(key)) {
+        if (kind.startsWith("multi-")) revisionOverlay ??= loadMultiScriptsFor(options.dataDirectory);
+        hashes.set(key, cardScriptHash(loadCardDatabase(options.dataDirectory), code, kind, revisionOverlay, helperScripts));
+      }
+      return hashes.get(key)!;
+    }, now: options.now });
+  const admissionEntries = (mode: DuelMode = "normal", format: DuelFormat = "1v1", engine: DuelEngineChoice = duel1v1Engine()) =>
+    mergeCardBlockEntries(loadCardBlockList(undefined, options.dataDirectory), autoBlocks.entries(scriptEngineKind(mode, format, engine)));
+  const recordScriptError = createScriptErrorRecorder(options.db, console.error, autoBlocks);
   const spawn = (duelId?: number): DuelGameWorker => options.createWorker?.() ?? new GameWorker(
     duelId === undefined ? undefined : (error) => recordScriptError(duelId, error),
     (error) => console.error(JSON.stringify({ event: "card_script_fatal", duelId, ...error })),
@@ -369,17 +396,33 @@ export function createDuelHost(options: {
   let stopped = false;
 
   /** Check one deck against the real table format, so a Tag or FFA table also refuses the cards that do not work there. */
+  function sessionCardEntries(session: DuelSession): readonly CardBlockEntry[] {
+    const startedMatch = session.seriesId != null && (
+      (session.gameNumber ?? 1) > 1 || session.status !== "lobby" || series.get(session.seriesId, session.guildId).tournamentId !== null
+    );
+    return startedMatch ? loadCardBlockList(undefined, options.dataDirectory) : admissionEntries(session.mode, session.format);
+  }
+
   async function sessionDeckOptions(session: DuelSession, playerId: number): Promise<InspectDeckOptions> {
     const table = session.format;
+    const cardBlocks = sessionCardEntries(session);
     const tournamentId = session.seriesId ? series.get(session.seriesId, session.guildId).tournamentId : null;
     const draftId = tournamentId === null ? null : createTournamentDuelService(options.db).rules(tournamentId).draftId;
-    if (draftId === null) return { table };
+    if (draftId === null) return { table, cardBlocks };
     const draftPool = await loadDraftDeckPool({ draftId, playerId, guildId: session.guildId, dataDirectory: options.dataDirectory, db: options.db });
-    return { table, draftPool };
+    return { table, draftPool, cardBlocks };
+  }
+
+  function cardRequestEntries(body: Record<string, unknown>, guildId: string, playerId: number): readonly CardBlockEntry[] {
+    if (typeof body.slug === "string" && body.slug) {
+      const { session } = service.room(body.slug, guildId, playerId);
+      return sessionCardEntries(session);
+    }
+    return admissionEntries(body.mode === "domain" ? "domain" : "normal", body.format === "tag" || body.format === "ffa3" || body.format === "ffa4" ? body.format : "1v1");
   }
 
   async function validateSessionDeck(mode: DuelMode, deck: DuelDeck, settings: DuelSettings, format: DuelFormat, context?: { session: DuelSession; playerId: number }): Promise<void> {
-    const checks = context ? await sessionDeckOptions(context.session, context.playerId) : { table: format };
+    const checks = context ? await sessionDeckOptions(context.session, context.playerId) : { table: format, cardBlocks: admissionEntries(mode, format) };
     validateDeck(mode, deck, options.dataDirectory, settings, checks);
   }
 
@@ -1519,7 +1562,7 @@ export function createDuelHost(options: {
       throw new RequestError(error instanceof Error ? error.message : "Preset board is invalid", 500);
     }
     const catalog = loadCardDatabase(options.dataDirectory);
-    const blocked = cardBlockIndex(new Map([...catalog.all()].map((card) => [card.code, card])), undefined, options.dataDirectory);
+    const blocked = cardBlockIndex(new Map([...catalog.all()].map((card) => [card.code, card])), admissionEntries(compiled.options.mode ?? "normal", preset.format, "pinned"), options.dataDirectory);
     for (const code of compiled.codes) {
       const entry = blocked.get(code);
       if (entry) throw new RequestError(`${catalog.get(code)?.name ?? code} is unavailable: ${entry.reason}`, 400);
@@ -2285,12 +2328,13 @@ export function createDuelHost(options: {
         throw new RequestError("Provide at most 1000 positive card passcodes", 400);
       }
       const catalog = loadCardDatabase(options.dataDirectory);
+      const entries = cardRequestEntries(body, guildId, actor);
       const cards = [];
       const missing: number[] = [];
       for (const code of new Set<number>(body.codes)) {
         const card = catalog.deckCard(code);
         if (card) {
-          const unavailableReason = deckCardUnavailableReason(catalog, code);
+          const unavailableReason = deckCardUnavailableReason(catalog, code, entries);
           cards.push({ ...card, ...(unavailableReason ? { unavailableReason } : {}), altArtCount: (cardArtworkFamily(catalog, code)?.artworks.length ?? 1) - 1 });
         }
         else missing.push(code);
@@ -2318,11 +2362,11 @@ export function createDuelHost(options: {
         if (!Number.isSafeInteger(body.draftId) || (body.draftId as number) < 1 || mode !== "normal") throw new RequestError("Invalid draft deck context", 400);
         draftPool = await loadDraftDeckPool({ draftId: body.draftId as number, playerId: actor, guildId, dataDirectory: options.dataDirectory, db: options.db });
       }
-      return { deck, report: inspectDeck(mode, deck, options.dataDirectory, settings, { draftPool }) };
+      return { deck, report: inspectDeck(mode, deck, options.dataDirectory, settings, { draftPool, cardBlocks: admissionEntries(mode, body.format === "tag" || body.format === "ffa3" || body.format === "ffa4" ? body.format : "1v1") }) };
     }
     if (op === "card-query") {
       try {
-        return queryCards(loadCardDatabase(options.dataDirectory), parseCardQuery(body.cardQuery));
+        return queryCards(loadCardDatabase(options.dataDirectory), parseCardQuery(body.cardQuery), cardRequestEntries(body, guildId, actor));
       } catch (error) {
         if (error instanceof CardQueryError) throw new RequestError(error.message, 400);
         throw error;

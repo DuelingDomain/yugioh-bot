@@ -14,6 +14,12 @@ describe("card script error classification", () => {
     expect(classifyCardScriptError(OcgLogType.ERROR, text, true, 'stack traceback:\n\t[string "official/c3743515.lua"]:64: in function <[string "official/c3743515.lua"]:62>'))
       .toMatchObject({ code: 3743515, scriptFile: "utility.lua", line: 42 });
   });
+  it("retains the helper names in a runtime diagnostic and its traceback", () => {
+    const message = '[string "official/c10.lua"]:7: attempt to index a nil value';
+    const trace = 'stack traceback:\n\t[string "utility.lua"]:42: in function x\n\tproc_x.lua:8: in function y\n\t[string "c10.lua"]:7: in function z';
+    expect(classifyCardScriptError(OcgLogType.ERROR, message, true, trace))
+      .toMatchObject({ code: 10, helperScripts: ["proc_x.lua", "utility.lua"] });
+  });
   it.each([
     [OcgLogType.ERROR, message, false],
     [OcgLogType.UNDEFINED, message, true],

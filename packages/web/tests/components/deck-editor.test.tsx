@@ -120,7 +120,7 @@ describe("SavedDeckEditor", () => {
     });
     render(<SavedDeckEditor deckId="7" />);
     await screen.findByRole("button", { name: /Barrel Dragon, Main Deck card/ });
-    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/duels/cards", expect.objectContaining({ body: JSON.stringify({ codes: [base.code] }) })));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/duels/cards", expect.objectContaining({ body: JSON.stringify({ codes: [base.code], mode: "normal" }) })));
   });
   it("counts a saved Barrel Dragon artwork against the canonical draft pool on load", async () => {
     const base = card(81480460, "Barrel Dragon", 0x21, 7);

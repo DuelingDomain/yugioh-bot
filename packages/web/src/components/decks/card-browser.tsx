@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent, type RefObject } from "react";
 import { AlertTriangle, ArrowDownWideNarrow, ArrowUpNarrowWide, LayoutGrid, List, Plus, RotateCw, Search, SlidersHorizontal, X } from "lucide-react";
-import { cardLimit, type CardArchetype, type CardQuery, type DeckCardInfo } from "@yugidraft/shared/duels";
+import { cardLimit, type CardArchetype, type CardQuery, type DeckCardInfo, type DuelMode } from "@yugidraft/shared/duels";
 import { TYPE_LINK, cardDetailsText, cardStatsText } from "@/components/duel/constants";
 import { cn } from "@/lib/utils";
 import { artCountLabel } from "@/components/artwork/artwork-picker";
@@ -48,6 +48,7 @@ export type BrowserPool = {
 
 export function CardBrowser({
   id,
+  mode = "normal",
   pool,
   query,
   onQueryChange,
@@ -65,6 +66,7 @@ export function CardBrowser({
   searchRef,
 }: {
   id?: string;
+  mode?: DuelMode;
   pool?: BrowserPool;
   query: CardQuery;
   onQueryChange: (query: CardQuery) => void;
@@ -83,7 +85,7 @@ export function CardBrowser({
   onRemoveDrop: (drag: CardDrag) => void;
   searchRef: RefObject<HTMLInputElement | null>;
 }) {
-  const key = queryKey(query);
+  const key = `${mode}:${queryKey(query)}`;
   const [results, setResults] = useState<Results | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -129,8 +131,9 @@ export function CardBrowser({
     }
     setLoading(true);
     const timer = window.setTimeout(() => {
-      void queryDeckCards({ ...latest.current, offset: 0, limit: PAGE }, controller.signal).then(
+      void queryDeckCards({ ...latest.current, offset: 0, limit: PAGE }, controller.signal, { mode }).then(
         (result) => {
+          if (controller.signal.aborted) return;
           setResults({ key, cards: result.cards, total: result.total, error: null });
           setLoading(false);
           dropHover();
@@ -151,8 +154,8 @@ export function CardBrowser({
     };
   }, [key, retry, poolCards]);
 
-  const cards = results?.cards ?? [];
-  const total = results?.total ?? 0;
+  const cards = results?.key === key ? results.cards : [];
+  const total = results?.key === key ? results.total : 0;
   const hasMore = results != null && results.key === key && !results.error && cards.length < total;
 
   function loadMore() {
@@ -161,8 +164,9 @@ export function CardBrowser({
     moreController.current = controller;
     setLoadingMore(true);
     const pageKey = results.key;
-    void queryDeckCards({ ...latest.current, offset: results.cards.length, limit: PAGE }, controller.signal).then(
+    void queryDeckCards({ ...latest.current, offset: results.cards.length, limit: PAGE }, controller.signal, { mode }).then(
       (result) => {
+        if (controller.signal.aborted) return;
         setResults((prev) => (prev && prev.key === pageKey
           ? { ...prev, cards: [...prev.cards, ...result.cards], total: result.total }
           : prev));

@@ -1,3 +1,6 @@
+import { readFile } from "node:fs/promises";
+import { SCRIPT_ENGINE_KINDS, type ScriptEngineKind } from "../src/card-script-hash.js";
+import type { ProdScriptErrorSnapshot } from "../src/prod-script-errors.js";
 import { boundCardUpdate } from "./engine-data-card-report.js";
 
 /** Bound GitHub-rendered copies; the artifact always retains the complete report. */
@@ -15,7 +18,8 @@ export function boundedReport(report: string, runUrl: string, maxBytes: number):
     while (end > 0 && end < bytes.length && (bytes[end]! & 0xc0) === 0x80) end--;
     return bytes.subarray(0, end).toString("utf8");
   };
-  const sections = [warnings, golden, artwork, patches, smoke].filter(Boolean);
+  const prod = report.match(/\n## Script errors in prod \(last 7 days\)\n[\s\S]*?(?=\n## |$)/)?.[0] ?? "";
+  const sections = [warnings, golden, artwork, patches, smoke, prod].filter(Boolean);
   const sectionLimit = Math.floor(Math.max(0, maxBytes - Buffer.byteLength(notice)) / (2 * Math.max(1, sections.length)));
   const limited = sections.map(section => {
     if (Buffer.byteLength(section) <= sectionLimit) return section;
@@ -36,6 +40,47 @@ export function boundedReport(report: string, runUrl: string, maxBytes: number):
 type Probe = { artworkScriptScanError?: string; artworkScriptFallbacks?: Array<{ passcode: number; main: number; requested?: number }>; errors: string[]; scriptsChecked: number; apiSymbolsChecked: number; globalsChecked: number; cardsChecked: number };
 const safe = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
   .replace(/@|#(?=\d)/g, (match) => match === "@" ? "&#64;" : "&#35;").replace(/`/g, "\\`").replace(/[\r\n]+/g, " ");
+
+/** Accept only the fixed export shape; bad, missing or oversized snapshots are optional data. */
+export async function readProdScriptErrors(path: string): Promise<ProdScriptErrorSnapshot | null> {
+  try {
+    const bytes = await readFile(path);
+    if (bytes.length > 65536) return null;
+    const value = JSON.parse(bytes.toString("utf8"));
+    if (value.available !== true || !Array.isArray(value.cards) || value.cards.length > 100) return null;
+    const integer = (n: unknown) => Number.isSafeInteger(n) && (n as number) >= 0;
+    if (value.cards.some((card: any) => !integer(card.code) || card.code === 0 || card.code > 0xffffffff ||
+      typeof card.name !== "string" || card.name.length > 200 || !integer(card.distinctDuels) || !integer(card.errorCount) ||
+      card.distinctDuels > card.errorCount || typeof card.autoBlocked !== "boolean" || (card.engineKind !== undefined && !SCRIPT_ENGINE_KINDS.includes(card.engineKind)) ||
+      (card.helperScripts !== undefined && (!Array.isArray(card.helperScripts) || card.helperScripts.length > 64 ||
+        card.helperScripts.some((name: unknown) => typeof name !== "string" || !/^[A-Za-z0-9_.-]{1,128}\.lua$/.test(name) || /^c\d+\.lua$/.test(name)))) ||
+      (card.scriptHash !== null && (typeof card.scriptHash !== "string" || !/^[a-f0-9]{64}$/.test(card.scriptHash))))) return null;
+    return { available: true, cards: value.cards.map((card: any) => ({ code: card.code, name: card.name,
+      distinctDuels: card.distinctDuels, errorCount: card.errorCount, autoBlocked: card.autoBlocked, scriptHash: card.scriptHash,
+      ...(card.engineKind ? { engineKind: card.engineKind } : {}), ...(card.helperScripts ? { helperScripts: card.helperScripts } : {}) })), truncated: value.truncated === true };
+  } catch { return null; }
+}
+
+export function prodScriptErrorReport(snapshot: ProdScriptErrorSnapshot | null, candidateHash?: (code: number, kind?: ScriptEngineKind, helperScripts?: readonly string[]) => string | null): string {
+  const heading = "## Script errors in prod (last 7 days)";
+  if (!snapshot?.available) return `${heading}\n\nprod error data unavailable\n`;
+  const lines = [heading, "", "Top 20 cards by sampled error count, plus active auto blocks (including cards with no recent errors). Counts retain the 20-sample per-duel/card telemetry cap. Manual blocks remain in force after an auto block lifts.", "",
+    "| Code | Card | Distinct duels | Errors | Auto blocked | Script changed in this update |",
+    "| --- | --- | ---: | ---: | --- | --- |"];
+  let omitted = snapshot.truncated ?? false;
+  // Prioritize auto blocks when a very large snapshot would exceed the rendered section cap.
+  for (const card of [...snapshot.cards].sort((a, b) => Number(b.autoBlocked) - Number(a.autoBlocked) || b.errorCount - a.errorCount || a.code - b.code)) {
+    const changed = candidateHash ? candidateHash(card.code, card.engineKind, card.helperScripts) !== card.scriptHash : null;
+    const status = changed === null ? "Comparison unavailable" : changed ? `Yes${card.autoBlocked ? " — auto block will lift" : ""}` : "No";
+    const name = safe(card.name).replace(/[\\*_{}\[\]|]/g, "\\$&");
+    const line = `| ${card.code} | ${name}${card.engineKind && card.engineKind !== "all" ? ` (${card.engineKind})` : ""} | ${card.distinctDuels} | ${card.errorCount} | ${card.autoBlocked ? "Yes" : "No"} | ${status} |`;
+    if (Buffer.byteLength([...lines, line].join("\n")) > 11800) { omitted = true; break; }
+    lines.push(line);
+  }
+  if (!snapshot.cards.length) lines.push("", omitted ? "No matching cards found within the capped scan." : "No script errors or active auto blocks found.");
+  if (omitted) lines.push("", "Prod card list truncated by the export or section size cap.");
+  return lines.join("\n") + "\n";
+}
 export function withValidation(report: string, probe: Probe, overlayExit: number | "not run", overlayLog?: string): string {
   const section = ["## Core compatibility", "",
     "Best effort: installed **npm ocgcore-wasm@0.1.2**, the oldest live/default production Standard 1v1 core. Candidate constant.lua, utility.lua and changed Lua are loaded; generated assertions check Duel./Card./Effect./Group. names and uppercase globals. New/changed official cards are inserted into a deck to exercise initial_effect. Findings are advisory, not a compatibility guarantee or full effect playthrough.", "",

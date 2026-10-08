@@ -73,7 +73,6 @@ const NEEDS_ENGINE = [
   "tests/host-domain-multi-real.test.ts",
   "tests/host-nseat.test.ts",
   "tests/host-report-replay.test.ts",
-  "tests/host-series.test.ts",
   "tests/host-table-legality.test.ts",
   "tests/host.test.ts",
   "tests/multi-scripts-table.test.ts",

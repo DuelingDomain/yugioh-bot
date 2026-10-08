@@ -54,6 +54,25 @@ describe("prepared candidate report", () => {
     expect(report).toContain("overlay drift");
     expect(JSON.parse(readFileSync(join(f.root, "probe.json"), "utf8")).errors).toHaveLength(1);
   });
+  it("preserves an incomplete scan report when production script errors are available", () => {
+    const f = fixture(true);
+    const reportPath = join(f.root, "report.md");
+    writeFileSync(reportPath, readFileSync(reportPath, "utf8") + "\n## Script errors in prod (last 7 days)\n\nPending.\n");
+    writeFileSync(join(f.root, "prod-script-errors.json"), JSON.stringify({ available: true, cards: [
+      { code: 10, name: "Dragon", distinctDuels: 3, errorCount: 3, autoBlocked: true, scriptHash: "a".repeat(64) },
+    ] }));
+    const result = f.run();
+    expect(result.status, result.stderr).toBe(1);
+    const report = readFileSync(reportPath, "utf8");
+    expect(report).toContain("BLOCKING: artwork script safety scan failed");
+    expect(report).toContain("probe errors 1, overlay check exit 1");
+    expect(report).toContain("overlay drift");
+    expect(report).toContain("Dragon");
+    expect(report).toContain("Comparison unavailable");
+    expect(report).not.toContain("auto block will lift");
+    expect(readFileSync(join(f.root, "pr-body.md"), "utf8")).toBe(report);
+    expect(readFileSync(join(f.root, "summary.md"), "utf8")).toBe(report);
+  });
 });
 
 it("writes a blocking report and fails validation for artwork script fallback", () => {

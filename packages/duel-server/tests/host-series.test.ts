@@ -1,6 +1,7 @@
 import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { createHmac } from "node:crypto";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { rmSync } from "node:fs";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
 import type { DuelAnswer, DuelCardInfo, DuelDeck, DuelEngineView, DuelPrompt } from "@yugidraft/shared/duels";
@@ -11,9 +12,22 @@ import {
 } from "@yugidraft/shared/services";
 import { normalizeImportedDeck } from "../src/deck-import.js";
 import { createDuelHost, type DuelHost, type TournamentNotice } from "../src/host.js";
+import { cardScriptHash } from "../src/card-script-hash.js";
+import { loadCardDatabase } from "../src/cards.js";
 import { buildPracticeBotDeck } from "../src/practice-bot.js";
 import type { DuelGameWorker, GameOptions } from "../src/worker-client.js";
-import { engineDataDirectory as DATA } from "./engine-data-dir.js";
+import { createHostDataFixture } from "./helpers/host-data-fixture.js";
+
+let DATA: string;
+beforeAll(() => {
+  DATA = createHostDataFixture([
+    ...Array.from({ length: 40 }, (_, i) => ({ code: 1000 + i, name: `Fixture Normal Monster ${i}` })),
+    { code: 18144506, name: "Harpie's Feather Duster", type: 2 },
+    { code: 46986414, name: "Dark Magician" },
+    { code: 46986421, name: "Dark Magician", alias: 46986414 },
+  ]);
+});
+afterAll(() => { rmSync(DATA, { recursive: true, force: true }); });
 
 // Passes through to the real import; the spy shows which options the host asks for.
 vi.mock("../src/deck-import.js", async (importOriginal) => {
@@ -91,6 +105,7 @@ afterEach(async () => {
     const host = hosts.pop();
     if (host) await host.close();
   }
+  vi.unstubAllEnvs();
 });
 
 function insertPlayer(db: Database.Database, discordUserId: string, displayName: string) {
@@ -98,6 +113,7 @@ function insertPlayer(db: Database.Database, discordUserId: string, displayName:
 }
 
 function setup() {
+  vi.stubEnv("DUEL_DATA_DIR", DATA);
   const db = new Database(":memory:");
   migrate(db);
   return {
@@ -298,6 +314,69 @@ describe("series game lobby ops", () => {
 });
 
 describe("series advance", () => {
+  it("a new auto block cannot stop tournament game 1 before either player is ready", async () => {
+    const app = setup();
+    const { host, workers } = openHost(app);
+    try {
+      const code = 18144506;
+      const deck = { ...deckWithSide(), main: [code, ...deckWithSide().main.slice(1)] };
+      const { started } = tournamentMatch(app, 3, deck);
+      app.db.prepare(`INSERT INTO card_script_auto_blocks
+        (code, reason, blocked_at, distinct_duels, error_count, threshold, window_days, bundle_version, script_hash)
+        VALUES (?, 'investigating', CURRENT_TIMESTAMP, 3, 3, 3, 7, 'test', ?)`)
+        .run(code, cardScriptHash(loadCardDatabase(DATA), code));
+      const details = await post(host, { op: "card-details", slug: started.duel.slug, playerId: app.p1, codes: [code] });
+      expect(details.data.cards[0]).not.toHaveProperty("unavailableReason");
+      const query = await post(host, { op: "card-query", slug: started.duel.slug, playerId: app.p1, cardQuery: { text: String(code) } });
+      expect(query.data.cards[0]).not.toHaveProperty("unavailableReason");
+      const fresh = await post(host, { op: "check-deck", playerId: app.p1, mode: "normal", deck });
+      expect(fresh.data.report.issues.some((issue: { message: string }) => issue.message.includes("is unavailable"))).toBe(true);
+      expect((await post(host, { op: "ready", slug: started.duel.slug, playerId: app.p1 })).status).toBe(200);
+      expect((await post(host, { op: "ready", slug: started.duel.slug, playerId: app.p2 })).status).toBe(200);
+      expect(workers).toHaveLength(1);
+      expect(app.duels.get(started.duel.slug, GUILD)).toMatchObject({ status: "active", gameNumber: 1 });
+    } finally { await host.close(); app.db.close(); }
+  });
+
+  it.each(["challenge", "tournament"] as const)("%s: a new auto block cannot stop games 2 and 3 or side decking", async kind => {
+    const app = setup();
+    const { host, workers } = openHost(app);
+    const deck = { ...deckWithSide(), main: [18144506, ...deckWithSide().main.slice(1)] };
+    const started = kind === "challenge" ? challenge(app, 3) : tournamentMatch(app, 3, deck).started;
+    if (kind === "challenge") {
+      await post(host, { op: "deck", slug: started.duel.slug, playerId: app.p1, deck });
+      expect((await post(host, { op: "deck", slug: started.duel.slug, playerId: app.p2, deck })).status).toBe(200);
+    }
+    if (kind === "tournament") {
+      await post(host, { op: "ready", slug: started.duel.slug, playerId: app.p1 });
+      await post(host, { op: "ready", slug: started.duel.slug, playerId: app.p2 });
+    }
+    await endGame(host, workers[0]!, started.duel.slug, app.p1, app.duels.get(started.duel.slug, GUILD).seats.find(seat => seat.playerId === app.p1)!.seat);
+    const code = 18144506;
+    app.db.prepare(`INSERT INTO card_script_auto_blocks
+      (code, reason, blocked_at, distinct_duels, error_count, threshold, window_days, bundle_version, script_hash)
+      VALUES (?, 'investigating', CURRENT_TIMESTAMP, 3, 3, 3, 7, 'test', ?)`)
+      .run(code, cardScriptHash(loadCardDatabase(DATA), code));
+    const check = await post(host, { op: "check-deck", playerId: app.p1, mode: "normal", deck });
+    expect(check.data.report.issues.some((issue: { message: string }) => issue.message.includes("is unavailable"))).toBe(true);
+    const fresh = app.series.createChallenge({ guildId: GUILD, challengerPlayerId: app.p1, opponentPlayerId: app.p3, bestOf: 3, ranked: false, mode: "normal" });
+    expect((await post(host, { op: "deck", slug: fresh.duel.slug, playerId: app.p1, deck })).status).toBe(400);
+    const details = await post(host, { op: "card-details", slug: started.duel.slug, playerId: app.p1, codes: [code] });
+    expect(details.data.cards[0]).not.toHaveProperty("unavailableReason");
+    const sided = await post(host, { op: "series-side", slug: started.duel.slug, playerId: app.p1, deck });
+    expect(sided.status).toBe(200);
+    for (let gameNumber = 2; gameNumber <= 3; gameNumber++) {
+      const previous = app.series.get(started.series.id, GUILD).currentDuelSlug!;
+      await post(host, { op: "series-ready", slug: previous, playerId: app.p1 });
+      const ready = await post(host, { op: "series-ready", slug: previous, playerId: app.p2 });
+      expect(ready.status).toBe(200);
+      const current = app.series.get(started.series.id, GUILD).currentDuelSlug!;
+      expect(app.duels.get(current, GUILD)).toMatchObject({ status: "active", gameNumber });
+      if (gameNumber === 2) await endGame(host, workers[1]!, current, app.p1, app.duels.get(current, GUILD).seats.find(seat => seat.playerId === app.p2)!.seat);
+    }
+    await host.close(); app.db.close();
+  });
+
   it("starts the next game when the side deck window ends, with the loser in seat 0", async () => {
     vi.useFakeTimers();
     const app = setup();
