@@ -79,3 +79,15 @@ it("a helper-only fix lifts a block and the candidate report announces the lift"
   policy.refresh();
   expect(policy.entries()).toEqual([]);
 });
+
+it("reports a capped block scan even when stale revisions consume its rows", () => {
+  const db = new Database(":memory:"); dbs.push(db); migrate(db);
+  const insert = db.prepare(`INSERT INTO card_script_auto_blocks (code, reason, blocked_at, distinct_duels, error_count, threshold, window_days, bundle_version, script_hash)
+    VALUES (?, 'r', CURRENT_TIMESTAMP, 3, 3, 3, 7, 'b', ?)`);
+  for (let code = 1; code <= 101; code++) insert.run(code, "f".repeat(64));
+  insert.run(102, cardScriptHash(cards, 102));
+  const result = prodScriptErrors(db, cards, new Map());
+  expect(result.truncated).toBe(true);
+  expect(prodScriptErrorReport(result)).toContain("truncated");
+  expect(prodScriptErrorReport(result)).not.toContain("No script errors or active auto blocks found.");
+});

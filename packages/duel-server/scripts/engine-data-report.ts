@@ -55,8 +55,8 @@ export function prodScriptErrorReport(snapshot: ProdScriptErrorSnapshot | null, 
     if (Buffer.byteLength([...lines, line].join("\n")) > 11800) { omitted = true; break; }
     lines.push(line);
   }
-  if (!snapshot.cards.length) lines.push("", "No script errors or active auto blocks found.");
-  if (omitted) lines.push("", "Prod card list truncated to the section size cap.");
+  if (!snapshot.cards.length) lines.push("", omitted ? "No matching cards found within the capped scan." : "No script errors or active auto blocks found.");
+  if (omitted) lines.push("", "Prod card list truncated by the export or section size cap.");
   return lines.join("\n") + "\n";
 }
 export function withValidation(report: string, probe: Probe, overlayExit: number | "not run", overlayLog?: string): string {
