@@ -405,9 +405,9 @@ describe("key map", () => {
     expect(roofKeyAction("5", ctx)).toBeNull();
   });
 
-  it("maps Tab and Shift+Tab to focus steps", () => {
-    expect(roofKeyAction("Tab", ctx)).toEqual({ type: "focusStep", dir: 1 });
-    expect(roofKeyAction("Tab", ctx, { shift: true })).toEqual({ type: "focusStep", dir: -1 });
+  it("does not map Tab or Shift+Tab: Tab never moves the camera", () => {
+    expect(roofKeyAction("Tab", ctx)).toBeNull();
+    expect(roofKeyAction("Tab", ctx, { shift: true })).toBeNull();
   });
 
   it("ignores keys with Ctrl, Meta or Alt held and unknown keys", () => {
