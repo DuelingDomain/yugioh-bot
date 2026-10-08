@@ -668,7 +668,9 @@ it("creates auto blocks with independent engine scopes without rebuilding the ta
     values (10, 'reason', '2026-10-07', 3, 3, 3, 7, 'b', 'hash');`);
   migrate(db); migrate(db);
   expect(db.prepare("select code, engine_kind, script_hash from card_script_auto_blocks").all()).toEqual([{ code: 10, engine_kind: "all", script_hash: "hash" }]);
-  db.exec(`insert into card_script_auto_blocks select code, reason, blocked_at, distinct_duels, error_count,
+  db.exec(`insert into card_script_auto_blocks
+    (code, reason, blocked_at, distinct_duels, error_count, threshold, window_days, bundle_version, script_hash, cleared_at, engine_kind)
+    select code, reason, blocked_at, distinct_duels, error_count,
     threshold, window_days, bundle_version, script_hash, cleared_at, 'multi-normal' from card_script_auto_blocks;`);
   expect(db.prepare("select count(*) as n from card_script_auto_blocks").get()).toEqual({ n: 2 });
   db.close();

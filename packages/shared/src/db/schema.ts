@@ -844,6 +844,7 @@ export function migrate(db: Database.Database) {
       script_hash text not null,
       cleared_at text,
       engine_kind text not null default 'all',
+      helper_scripts text not null default '[]',
       primary key (code, engine_kind)
     );
     -- Occurrence keys and revision metadata only; no private duel snapshot is stored here.

@@ -10,12 +10,15 @@ it("rejects missing, malformed and oversized prod snapshots without failing repo
   try {
     expect(await readProdScriptErrors(path)).toBeNull();
     for (const content of ["not json", JSON.stringify({ available: false }), "x".repeat(65537),
+      JSON.stringify({ available: true, cards: [{ code: 1, name: "Card", distinctDuels: 1, errorCount: 1, autoBlocked: true, scriptHash: null, helperScripts: ["../private.lua"] }] }),
       JSON.stringify({ available: true, cards: [{ code: 1, name: "Card", distinctDuels: 2, errorCount: 1, autoBlocked: true, scriptHash: null }] })]) {
       await writeFile(path, content); expect(await readProdScriptErrors(path)).toBeNull();
     }
     await writeFile(path, JSON.stringify({ available: true, cards: [{ code: 1, name: "Card", distinctDuels: 1, errorCount: 1,
-      autoBlocked: false, scriptHash: null, privateDiagnostic: "not retained" }] }));
-    expect(JSON.stringify(await readProdScriptErrors(path))).not.toContain("privateDiagnostic");
+      autoBlocked: false, scriptHash: null, helperScripts: ["utility.lua"], privateDiagnostic: "not retained" }] }));
+    const parsed = await readProdScriptErrors(path);
+    expect(JSON.stringify(parsed)).not.toContain("privateDiagnostic");
+    expect(parsed?.available && parsed.cards[0]?.helperScripts).toEqual(["utility.lua"]);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 it("reports prod counts and script changes without publishing diagnostics or metadata", () => {

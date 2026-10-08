@@ -17,12 +17,15 @@ it("server and production export hashes agree for near aliases, artwork fallback
   const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   try {
     for (const code of [100, 200, 300]) rmSync(join(dir, "card-scripts", `c${code}.lua`));
+    writeFileSync(join(dir, "card-scripts", "utility.lua"), "-- fixture shared helper");
     const server = loadCardDatabase(dir), exported = readOnlyCardScriptSource(dir);
     const overlay = { apply: (name: string, text: string | null) => `${name}:${text ?? "missing"}`, utility: "fixture utility" };
     try {
       for (const code of [10, 11, 100, 200]) {
         for (const kind of ["pinned-normal", "legacy-normal", "multi-normal", "multi-domain"] as const) {
-          expect(cardScriptHash(exported, code, kind, overlay), `${code}/${kind}`).toBe(cardScriptHash(server, code, kind, overlay));
+          for (const helpers of [[], ["utility.lua"]]) {
+            expect(cardScriptHash(exported, code, kind, overlay, helpers), `${code}/${kind}/${helpers}`).toBe(cardScriptHash(server, code, kind, overlay, helpers));
+          }
         }
       }
       expect(server.readScript("c100.lua", overlay)).toBe("c10.lua:-- fixture card script\n");

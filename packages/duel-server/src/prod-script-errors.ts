@@ -3,13 +3,13 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { loadCardPasscodeRemaps } from "@yugidraft/shared/db";
 import { readOnlyCardScriptSource, type CardScriptSource } from "./card-script-source.js";
-import { cardScriptHash, type ScriptEngineKind } from "./card-script-hash.js";
+import { cardScriptHash, scriptHelperNames, type ScriptEngineKind } from "./card-script-hash.js";
 import { loadMultiScriptsFor } from "./multi-scripts.js";
 import { scriptErrorModeFromEnv } from "./script-errors.js";
 import type { AutoBlockRow } from "./script-error-autoblock.js";
 
 export interface ProdScriptErrorCard {
-  code: number; name: string; distinctDuels: number; errorCount: number; autoBlocked: boolean; scriptHash: string | null; engineKind?: ScriptEngineKind;
+  code: number; name: string; distinctDuels: number; errorCount: number; autoBlocked: boolean; scriptHash: string | null; engineKind?: ScriptEngineKind; helperScripts?: readonly string[];
 }
 export type ProdScriptErrorSnapshot = { available: true; cards: ProdScriptErrorCard[]; truncated?: boolean } | { available: false };
 
@@ -32,9 +32,9 @@ export function prodScriptErrors(db: Database.Database, cards: CardScriptSource,
     const active = new Map<number, AutoBlockRow[]>();
     let scanTruncated = false;
     let overlay: ReturnType<typeof loadMultiScriptsFor> | undefined;
-    const hash = (code: number, kind: ScriptEngineKind = "all") => {
+    const hash = (code: number, kind: ScriptEngineKind = "all", helperScripts: readonly string[] = []) => {
       if (kind.startsWith("multi-") && cards.dataDirectory) overlay ??= loadMultiScriptsFor(cards.dataDirectory);
-      return cardScriptHash(cards, code, kind, overlay);
+      return cardScriptHash(cards, code, kind, overlay, helperScripts);
     };
     if (scriptErrorModeFromEnv() !== "strict") {
       const rows = db.prepare("SELECT * FROM card_script_auto_blocks WHERE cleared_at IS NULL ORDER BY code, engine_kind LIMIT 101").all() as AutoBlockRow[];
@@ -43,16 +43,20 @@ export function prodScriptErrors(db: Database.Database, cards: CardScriptSource,
       scanTruncated = rows.length > 100;
       for (const row of rows.slice(0, 100)) {
         const code = remaps.get(row.code) ?? row.code;
-        if (hash(code, row.engine_kind) === row.script_hash) active.set(code, [...active.get(code) ?? [], row]);
+        if (hash(code, row.engine_kind, scriptHelperNames(JSON.parse(row.helper_scripts))) === row.script_hash) active.set(code, [...active.get(code) ?? [], row]);
       }
     }
     const top = recent.map(row => row.resolved);
     if (active.size) for (const row of aggregate([...active.keys()])) totals.set(row.resolved, row);
     // Include blocks with no recent samples. Blocks receive priority when the hard size cap is reached.
     const codes = [...new Set([...active.keys()].sort((a, b) => a - b).concat(top))];
-    const result = codes.flatMap(code => (active.get(code) ?? [null]).map(row => ({ code, name: (cards.deckCard(code)?.name ?? "Name unavailable").slice(0, 200),
-      distinctDuels: totals.get(code)?.duels ?? 0, errorCount: totals.get(code)?.errors ?? 0,
-      autoBlocked: row !== null, scriptHash: hash(code, row?.engine_kind), ...(row ? { engineKind: row.engine_kind } : {}) }))).slice(0, 100);
+    const result = codes.flatMap(code => (active.get(code) ?? [null]).map(row => {
+      const helperScripts = row ? scriptHelperNames(JSON.parse(row.helper_scripts)) : [];
+      return { code, name: (cards.deckCard(code)?.name ?? "Name unavailable").slice(0, 200),
+        distinctDuels: totals.get(code)?.duels ?? 0, errorCount: totals.get(code)?.errors ?? 0,
+        autoBlocked: row !== null, scriptHash: hash(code, row?.engine_kind, helperScripts),
+        ...(row ? { engineKind: row.engine_kind } : {}), ...(helperScripts.length ? { helperScripts } : {}) };
+    })).slice(0, 100);
     result.sort((a, b) => b.errorCount - a.errorCount || a.code - b.code);
     return { available: true as const, cards: result, truncated: scanTruncated || codes.reduce((n, code) => n + (active.get(code)?.length ?? 1), 0) > 100 };
   })();

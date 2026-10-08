@@ -318,7 +318,8 @@ auto blocks and strict errors never trigger them; the manual list remains enforc
 
 The shared SQLite migration adds `card_script_auto_blocks` with passcode, neutral
 reason, block time, distinct-duel and sampled-error counts, threshold/window,
-bundle version, script SHA-256 and optional clear time. New occurrence rows include
+bundle version, script SHA-256, the helper filenames named by the recorded diagnostic
+and traceback, and optional clear time. New occurrence rows include
 resolved code, script hash and saved error policy. Historical rows without revision
 metadata cannot trigger a block. Counts use the current script revision, validated
 passcode remaps and the configured rolling window. The existing 20-sample cap still
@@ -329,8 +330,12 @@ On startup and after accepted telemetry, a different resolved script identity cl
 The comparison follows core near-code aliases, official/prerelease basename priority,
 artwork fallback and installed shared card-script patches. An unrelated data update
 with identical script bytes keeps the block. A changed script starts a fresh counting
-revision. The identity also covers installed shared Lua helpers, multiplayer suffixes and
-mp-utility.lua, and the legacy Normal transform. Blocks are scoped independently
+revision. The identity hashes the card script plus only the shared Lua helpers named
+by those errors, multiplayer suffixes and mp-utility.lua, and the emitted legacy Normal
+chain.lua transform. Helper names are stored when the block is created and reused for
+startup checks and production/candidate comparison. Changes to unrelated helpers keep
+the block, so a weekly helper update no longer lifts every card's block. A hash failure
+logs one line and lifts that row without preventing server startup. Blocks are scoped independently
 to legacy/pinned 1v1 and multiplayer, and to Normal/Domain; a multiplayer error
 never blocks a 1v1 deck. Automatic blocks cover the exact failing passcode,
 near aliases (absolute passcode difference below 10) that load its script, and their
@@ -424,7 +429,7 @@ one day; the aggregate snapshot also accompanies the existing 14-day report arti
 After candidate preparation, final validation compares installed-prod hashes with
 the **exact prepared candidate bundle**, including shared card-script patches and
 passcode graduation. A changed or removed card script says **auto block will lift**;
-unchanged dependency bytes keep the block. Helper-only, overlay-only and legacy
+unchanged dependency bytes keep the block. Fixes to a recorded helper, overlay-only and legacy
 transform fixes also say **auto block will lift** for their engine scope. Manual blocks still win. The snapshot is
 advisory and can become stale before deployment. Existing live-duel drain and replay
 loss warnings for bundle updates still apply; admission auto blocks do not alter them.

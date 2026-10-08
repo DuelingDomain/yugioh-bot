@@ -339,11 +339,11 @@ export function createDuelHost(options: {
       for (const [old, target] of remaps) if (codes.has(target)) codes.add(old);
       return [...codes];
     },
-    scriptHash: (code, kind) => {
-      const key = `${code}:${kind}`;
+    scriptHash: (code, kind, helperScripts) => {
+      const key = JSON.stringify([code, kind, helperScripts]);
       if (!hashes.has(key)) {
         if (kind.startsWith("multi-")) revisionOverlay ??= loadMultiScriptsFor(options.dataDirectory);
-        hashes.set(key, cardScriptHash(loadCardDatabase(options.dataDirectory), code, kind, revisionOverlay));
+        hashes.set(key, cardScriptHash(loadCardDatabase(options.dataDirectory), code, kind, revisionOverlay, helperScripts));
       }
       return hashes.get(key)!;
     }, now: options.now });
