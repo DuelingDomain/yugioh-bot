@@ -6,7 +6,7 @@ import type { DuelCard, DuelCardInfo } from "@yugidraft/shared/duels";
 import { cardTextStyle, useCardTextSize } from "../card-text-size";
 import { cardArtUrl, cardDetailsText, cardStatsText, isDefenseAt, isHiddenCard } from "../constants";
 import styles from "./grid-hud.module.css";
-import { coveredArea, measureObstacles, obstaclesKey, peekPlaces, type Box, type Place } from "./peek-layout";
+import { EDGE_RIGHT_PX, coveredArea, measureObstacles, obstaclesKey, peekPlaces, type Box, type Place } from "./peek-layout";
 
 /** The preview lingers this long after the pointer leaves, so a move between two cards does not flicker. */
 export const PREVIEW_HIDE_MS = 220;
@@ -22,7 +22,7 @@ const before = (a: readonly number[], b: readonly number[]) => {
   for (let i = 0; i < a.length; i += 1) if (a[i] !== b[i]) return a[i] < b[i];
   return false;
 };
-const place = (aside: HTMLElement, spot: Place, layer: Box | null) => {
+const place = (aside: HTMLElement, spot: Place, layer: Box | null, cut = 0) => {
   // `layer` is null when it cannot be measured (no layout): the CSS places the panel then.
   if (layer != null && spot.maxH > 0) {
     aside.style.setProperty("--pv-bottom", `${Math.round(layer.bottom - (spot.top + spot.maxH))}px`);
@@ -30,9 +30,12 @@ const place = (aside: HTMLElement, spot: Place, layer: Box | null) => {
     aside.style.setProperty("--pv-w", `${spot.width}px`);
     if (spot.left != null) aside.style.setProperty("--pv-left", `${Math.round(spot.left)}px`);
     else aside.style.removeProperty("--pv-left");
+    // A layer wider than the window (a narrow screen) puts its right edge outside it: the right edge place keeps its gap to the window.
+    if (cut > 0) aside.style.setProperty("--pv-right", `${cut + EDGE_RIGHT_PX}px`);
+    else aside.style.removeProperty("--pv-right");
     aside.setAttribute("data-anchor", "bottom");
   } else {
-    for (const name of ["--pv-bottom", "--pv-max-h", "--pv-w", "--pv-left"]) aside.style.removeProperty(name);
+    for (const name of ["--pv-bottom", "--pv-max-h", "--pv-w", "--pv-left", "--pv-right"]) aside.style.removeProperty(name);
     aside.removeAttribute("data-anchor");
   }
   aside.setAttribute("data-side", spot.side);
@@ -163,7 +166,10 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
     const target = frozen && avoid?.isConnected ? avoid.getBoundingClientRect() : null;
     const hasTarget = target != null && target.width > 0 && target.height > 0;
     const parent = (aside.offsetParent ?? document.body).getBoundingClientRect();
-    const layer: Box = { left: parent.left, top: parent.top, right: parent.right, bottom: parent.bottom };
+    // The part of the layer inside the window (jsdom has no window width: the whole layer then).
+    const windowRight = document.documentElement.clientWidth;
+    const layer: Box = { left: parent.left, top: parent.top, right: windowRight > 0 ? Math.min(parent.right, windowRight) : parent.right, bottom: parent.bottom };
+    const cut = Math.max(0, Math.round(parent.right - layer.right));
     const measured = parent.height > 0 ? layer : null;
     const obstacles = measureObstacles(aside);
     const text = textRef.current;
@@ -191,11 +197,11 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
       : undefined;
     if (frozen) hoverSpot.current = null;
     // It stays only when it does not cover the clicked card (on a narrow screen the hover place may): then the places are ranked as before.
-    if (hovered) place(aside, hovered, measured);
+    if (hovered) place(aside, hovered, measured, cut);
     const kept = hovered && clickedCover(rectNow()) === 0 ? hovered : undefined;
     if (kept) chosen = kept;
     for (const candidate of kept ? [] : candidates) {
-      place(aside, candidate, measured);
+      place(aside, candidate, measured, cut);
       const rect = rectNow();
       // Ranked in this order: 1. the clicked card, 2. the parts kept clear, 3. the board, 4. the left edge before the right one (a long text
       // does not move the panel to the other side), 5. the effect text that is cut off (it picks the band on one side).
@@ -210,7 +216,7 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
       }
       if (clicked === 0 && keep === 0 && board === 0 && hidden === 0) break;
     }
-    place(aside, chosen, measured);
+    place(aside, chosen, measured, cut);
     if (!frozen) hoverSpot.current = { key, place: chosen };
     watched.current = watch();
     setSpot((previous) => (previous.side === chosen.side && previous.width === chosen.width && previous.top === chosen.top && previous.maxH === chosen.maxH && previous.left === chosen.left ? previous : chosen));
