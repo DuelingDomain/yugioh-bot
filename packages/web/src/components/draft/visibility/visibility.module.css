@@ -1,0 +1,49 @@
+/* Draft visibility: the badge in the lobby header, the Private/Open choice on the create forms and the host's invite
+   controls. Match Sheet tokens only. No colour of its own: Private and Open are told apart by an icon and the word. */
+
+/* ---- badge ---- */
+.badge { display: inline-flex; align-items: center; gap: 5px; flex: none; height: 22px; padding: 0 9px; border: 1px solid var(--rule); border-radius: 999px; color: var(--ink-2); font-size: 12.5px; font-weight: 500; line-height: 1; white-space: nowrap; }
+.badge svg { flex: none; }
+.barSub { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.barName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---- the choice on the create forms ---- */
+.choice { min-width: 0; margin: 0; padding: 0; border: 0; }
+.choice legend { padding: 0; margin-bottom: 8px; color: var(--ink); font-size: 14px; font-weight: 500; }
+.opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); gap: 12px; }
+.choice[data-compact] .opts { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.opt { position: relative; display: grid; gap: 3px; min-width: 0; padding: 14px 14px 14px 44px; border: 1px solid var(--rule-lo); border-radius: 10px; background: var(--floor); cursor: pointer; }
+.choice[data-compact] .opt { padding: 10px 12px 10px 38px; }
+.opt:hover { border-color: var(--rule); }
+.opt input { appearance: none; -webkit-appearance: none; position: absolute; left: 14px; top: 16px; width: 18px; height: 18px; margin: 0; border: 1.5px solid var(--ink-3); border-radius: 50%; background: var(--floor); cursor: pointer; }
+.choice[data-compact] .opt input { left: 12px; top: 12px; }
+.opt input:checked { border-color: var(--pen); background: radial-gradient(circle, var(--pen) 0 4.5px, transparent 5.5px); }
+.opt:has(input:checked) { border-color: var(--pen); box-shadow: 0 0 0 1px var(--pen); }
+.opt:has(input:focus-visible) { outline: 2px solid var(--pen-ink); outline-offset: 2px; }
+.optT { color: var(--ink); font-size: 15.5px; font-weight: 600; }
+.choice[data-compact] .optT { font-size: 14.5px; }
+.optP { color: var(--ink-3); font-size: 14px; line-height: 1.45; }
+.choice[data-compact] .optP { font-size: 13px; }
+
+/* ---- the host's invite controls ---- */
+.host { display: grid; gap: 12px; min-width: 0; }
+.hostRow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.hostRow > .segWrap { min-width: 0; }
+.note { margin: 0; color: var(--ink-3); font-size: 14px; line-height: 1.5; }
+.locked { margin: 0; color: var(--ink-3); font-size: 13.5px; line-height: 1.45; }
+.copyBtn[data-copied] { border-color: rgb(134 207 161 / 0.5); color: var(--ok); }
+.status { margin: 0; color: var(--ok); font-size: 14px; line-height: 1.45; }
+.fallback { display: grid; gap: 6px; min-width: 0; }
+.fallback > span { color: var(--ink-3); font-size: 13.5px; }
+.fallback input { width: 100%; min-width: 0; height: 40px; padding: 0 12px; border: 1px solid var(--rule); border-radius: 8px; background: var(--floor); color: var(--ink); font: 14px var(--f-num); text-overflow: ellipsis; }
+.fallback input:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 1px; }
+.confirm { display: grid; gap: 10px; padding: 12px 14px; border: 1px solid var(--rule); border-radius: 10px; }
+.confirm p { margin: 0; color: var(--ink-2); font-size: 14.5px; line-height: 1.5; }
+.confirmActs { display: flex; flex-wrap: wrap; gap: 8px; }
+.err { margin: 0; }
+
+.plain { display: grid; gap: 14px; min-width: 0; }
+
+@media (max-width: 480px) {
+  .hostRow > .segWrap, .hostRow > .segWrap > :global(.seg) { width: 100%; }
+}

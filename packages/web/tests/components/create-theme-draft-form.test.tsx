@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CreateThemeDraftForm } from "../../src/components/draft/create-theme-draft-form";
 
@@ -28,7 +28,7 @@ describe("CreateThemeDraftForm", () => {
 
     const selection = screen.getByRole("group", { name: /theme selection/i });
     expect(selection.tagName).toBe("FIELDSET");
-    expect(screen.getAllByRole("radio")).toHaveLength(2);
+    expect(within(selection).getAllByRole("radio")).toHaveLength(2);
     expect(screen.getByRole("radio", { name: /players pick/i })).toBeChecked();
     expect(screen.getByRole("radio", { name: /random/i })).not.toBeChecked();
     expect(screen.queryByRole("radio", { name: /host assigned/i })).toBeNull();
@@ -162,5 +162,45 @@ describe("CreateThemeDraftForm", () => {
     expect(screen.queryByRole("combobox")).toBeNull();
     expect(screen.queryByText(/discord/i)).toBeNull();
     expect(fetchMock.mock.calls.some(([input]) => String(input).includes("discord"))).toBe(false);
+  });
+
+  describe("who can join", () => {
+    const stubCreate = () => {
+      const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === "/api/drafts" && init?.method === "POST") return Response.json({ webSlug: "theme-night" }, { status: 201 });
+        return Response.json({ channels: [] });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      return () => JSON.parse(String(fetchMock.mock.calls.find(([, init]) => init?.method === "POST")?.[1]?.body));
+    };
+
+    it("offers Private (checked) and Open with their one-line meanings", () => {
+      stubCreate();
+      render(<CreateThemeDraftForm />);
+      const group = screen.getByRole("group", { name: "Who can join" });
+      expect(within(group).getByRole("radio", { name: /private/i })).toBeChecked();
+      expect(within(group).getByRole("radio", { name: /open/i })).not.toBeChecked();
+      expect(within(group).getByText("Only people with your invite link can see and join")).toBeInTheDocument();
+      expect(within(group).getByText("Listed in Open right now for everyone")).toBeInTheDocument();
+    });
+
+    it("sends visibility private when nothing was changed", async () => {
+      const body = stubCreate();
+      render(<CreateThemeDraftForm />);
+      fireEvent.change(screen.getByLabelText(/draft name/i), { target: { value: "Theme Night" } });
+      fireEvent.click(screen.getByRole("button", { name: /create theme draft/i }));
+      await waitFor(() => expect(push).toHaveBeenCalledWith("/draft/theme-night"));
+      expect(body().visibility).toBe("private");
+    });
+
+    it("sends visibility open when Open is chosen", async () => {
+      const body = stubCreate();
+      render(<CreateThemeDraftForm />);
+      fireEvent.click(screen.getByRole("radio", { name: /open/i }));
+      fireEvent.change(screen.getByLabelText(/draft name/i), { target: { value: "Theme Night" } });
+      fireEvent.click(screen.getByRole("button", { name: /create theme draft/i }));
+      await waitFor(() => expect(push).toHaveBeenCalledWith("/draft/theme-night"));
+      expect(body().visibility).toBe("open");
+    });
   });
 });

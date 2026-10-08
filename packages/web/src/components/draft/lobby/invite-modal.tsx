@@ -2,12 +2,27 @@
 
 import * as React from "react";
 import { X } from "lucide-react";
+import type { DraftVisibility } from "@yugidraft/shared/types";
 import { CopyLinkRow, SvButton } from "@/components/sheet";
+import { HostInviteControls } from "../visibility/host-invite-controls";
 import { LobbyDialog, LobbyFeedback, type LobbyController } from "./lobby-actions";
 import styles from "./seats-first.module.css";
 
+/** What the lobby knows about who can join. Without it the modal is the plain "anyone in the server" link. */
+export interface InviteAccess {
+  visibility?: DraftVisibility;
+  /** The viewer is the host: the server's `canManageInvite`. */
+  canManage: boolean;
+  /** The draft is still in its lobby (the visibility switch is locked after that). */
+  pending: boolean;
+  /** The host changed the visibility: the page reads the draft again. */
+  onChanged?: () => void;
+}
+
 export interface InviteModalProps {
   slug: string;
+  /** Who can join. The host gets the real invite link and the switch; a private draft has no bare link to share. */
+  access?: InviteAccess;
   onClose: () => void;
   /** The lobby controller. With it the host gets "Post to Discord" (the Nudge route without a player). */
   controller?: LobbyController;
@@ -23,7 +38,7 @@ export interface InviteModalProps {
  * The invite modal: the draft link with Copy, the Discord command, and for the host a button that posts the invite
  * (and a mention for each player who is not ready) in the draft channel. Esc and the backdrop close it.
  */
-export function InviteModal({ slug, onClose, controller, canPost = false, discordEnabled = false, returnFocusRef }: InviteModalProps) {
+export function InviteModal({ slug, access, onClose, controller, canPost = false, discordEnabled = false, returnFocusRef }: InviteModalProps) {
   const [link, setLink] = React.useState(`/draft/${slug}`);
   const titleId = React.useId();
   const closeRef = React.useRef<HTMLButtonElement>(null);
@@ -42,8 +57,14 @@ export function InviteModal({ slug, onClose, controller, canPost = false, discor
             <X size={18} aria-hidden="true" />
           </button>
         </div>
-        <p className={styles.dialogP}>Anyone in the server can join with this link.</p>
-        <CopyLinkRow value={link} label="Invite link" />
+        {access?.canManage && access.visibility ? (
+          <HostInviteControls slug={slug} visibility={access.visibility} pending={access.pending} onChanged={access.onChanged} />
+        ) : (
+          <>
+            <p className={styles.dialogP}>Anyone in the server can join with this link.</p>
+            <CopyLinkRow value={link} label="Invite link" />
+          </>
+        )}
         {discordEnabled && (
           <p className={styles.dialogP}>
             Players can also join from Discord with <code className="cmd">/draft join</code>.

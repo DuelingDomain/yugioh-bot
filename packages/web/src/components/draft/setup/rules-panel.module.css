@@ -2,6 +2,7 @@
    Colours come from the Match Sheet tokens; nothing here floats or zooms. */
 .panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; color: var(--ink); }
 .body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.visibility { padding: 14px; border-top: 1px solid var(--rule-lo); }
 .foot { flex: none; display: grid; gap: 10px; padding: 12px 14px 14px; border-top: 1px solid var(--rule-lo); background: var(--panel-2, var(--floor)); }
 
 /* ---- ledger ---- */

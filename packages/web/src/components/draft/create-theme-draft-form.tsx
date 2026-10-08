@@ -2,10 +2,12 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import type { DraftConfig } from "@yugidraft/shared/types";
+import type { DraftConfig, DraftVisibility } from "@yugidraft/shared/types";
 import { StatusLine, SvButton, SvCheck } from "@/components/sheet";
 import { DraftLayout, DraftMain, DraftRail, Num, RailSection, Rules } from "./draft-frame";
 import { secondsText, themeSelectionText } from "./create/format";
+import { VisibilityChoice } from "./visibility/visibility-choice";
+import { VISIBILITY_LABEL } from "@/lib/draft-invite";
 import styles from "./create/create.module.css";
 import tableStyles from "./theme/theme-table.module.css";
 
@@ -25,6 +27,8 @@ export function CreateThemeDraftForm({ discordEnabled = false }: CreateThemeDraf
   const [name, setName] = React.useState("");
   const [channelId, setChannelId] = React.useState("");
   const [channels, setChannels] = React.useState<Channel[]>([]);
+  // New drafts start private: only people with the host's invite link can see and join.
+  const [visibility, setVisibility] = React.useState<DraftVisibility>("private");
   const [themePackSize, setThemePackSize] = React.useState(3);
   const [cardsPerPlayer, setCardsPerPlayer] = React.useState(40);
   const [extraDeckEnabled, setExtraDeckEnabled] = React.useState(true);
@@ -80,7 +84,7 @@ export function CreateThemeDraftForm({ discordEnabled = false }: CreateThemeDraf
       const res = await fetch("/api/drafts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), channelId: discordEnabled ? channelId || undefined : undefined, config }),
+        body: JSON.stringify({ name: name.trim(), channelId: discordEnabled ? channelId || undefined : undefined, visibility, config }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -165,6 +169,7 @@ export function CreateThemeDraftForm({ discordEnabled = false }: CreateThemeDraf
                 </div>
                 <p className="hint">How many players you want. You can start with fewer. {SEATS_MIN} to {SEATS_MAX}.</p>
               </div>
+              <VisibilityChoice className="wide" value={visibility} onChange={setVisibility} />
             </div>
           </section>
 
@@ -279,6 +284,7 @@ export function CreateThemeDraftForm({ discordEnabled = false }: CreateThemeDraf
           <p className={`${styles.railName}${unnamed ? ` ${styles.unnamed}` : ""}`}>{unnamed ? "Untitled draft" : name.trim()}</p>
           <Rules
             rows={[
+              { label: "Who can join", value: VISIBILITY_LABEL[visibility] },
               { label: "Seats", value: <><Num>{Number.isFinite(lobbySeats) ? lobbySeats : SEATS_DEFAULT}</Num> players</> },
               { label: "Themes", value: themeSelectionText(themeSelection, uniqueThemes) },
               { label: "Main deck", value: <><Num>{cardsPerPlayer}</Num> picks</> },

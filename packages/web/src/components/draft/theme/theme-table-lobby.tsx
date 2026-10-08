@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import type { DraftAllowedCube, DraftLobbyResponse, LobbySnapshot } from "@yugidraft/shared/types";
+import type { DraftAllowedCube, DraftLobbyResponse, DraftVisibility, LobbySnapshot } from "@yugidraft/shared/types";
 import { InviteModal } from "../lobby/invite-modal";
 import { useLobbyController } from "../lobby/lobby-actions";
 import {
@@ -31,6 +31,12 @@ export interface ThemeTableLobbyProps {
     players: RosterInput[];
     seats?: Array<{ playerId: number; isCurrentPlayer: boolean }>;
     allowedCubes?: DraftAllowedCube[];
+    /** Who can see and join. Absent from an older server: the invite then reads as open. */
+    visibility?: DraftVisibility;
+    /** The server's verdict on taking a seat. Join and Take a seat show only when it is true; absent means allowed. */
+    canJoin?: boolean;
+    /** Present (true) only for the host. */
+    canManageInvite?: boolean;
   };
   /** The viewer is the host. Only the host edits the rules and the box. */
   isCreator: boolean;
@@ -86,6 +92,10 @@ export function ThemeTableLobby({ slug, draft, isCreator, isParticipant, onJoin,
   const table = useThemeTable({ slug, lobby, players, config: draft.config, allowedCubes: cubes, controller, onChanged: refetch });
   const { preview, open: openPreview, close: closePreview } = useCubePreview();
   const [inviteOpen, setInviteOpen] = React.useState(false);
+  // A private draft has no link a seated player can pass on: only the host holds the invite.
+  const canManageInvite = draft.canManageInvite === true;
+  const inviteShareable = draft.visibility !== "private" || canManageInvite;
+  const openInvite = inviteShareable ? () => setInviteOpen(true) : undefined;
   const inviteButton = React.useRef<HTMLButtonElement>(null);
 
   const me = players.find((p) => p.isYou) ?? null;
@@ -124,7 +134,7 @@ export function ThemeTableLobby({ slug, draft, isCreator, isParticipant, onJoin,
             controller={controller}
             isHost={isCreator}
             isMember={isParticipant}
-            onInvite={() => setInviteOpen(true)}
+            onInvite={openInvite}
             onAddBot={onAddBot}
             botsEnabled={botsEnabled}
             discordEnabled={discordEnabled}
@@ -157,7 +167,8 @@ export function ThemeTableLobby({ slug, draft, isCreator, isParticipant, onJoin,
           blocker={blocker}
           onJoin={onJoin}
           onExpire={refetch}
-          onInvite={() => setInviteOpen(true)}
+          canJoin={draft.canJoin ?? true}
+          onInvite={openInvite}
         />
       </div>
 
@@ -173,7 +184,15 @@ export function ThemeTableLobby({ slug, draft, isCreator, isParticipant, onJoin,
         />
       )}
       {inviteOpen && (
-        <InviteModal slug={slug} onClose={() => setInviteOpen(false)} controller={controller} canPost={isCreator} discordEnabled={discordEnabled} returnFocusRef={inviteButton} />
+        <InviteModal
+          slug={slug}
+          access={{ visibility: draft.visibility, canManage: canManageInvite, pending: true, onChanged: refetch }}
+          onClose={() => setInviteOpen(false)}
+          controller={controller}
+          canPost={isCreator}
+          discordEnabled={discordEnabled}
+          returnFocusRef={inviteButton}
+        />
       )}
     </div>
   );

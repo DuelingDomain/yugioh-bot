@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { Pencil, UserPlus } from "lucide-react";
-import type { DraftLobbyResponse, LobbySnapshot } from "@yugidraft/shared/types";
+import type { DraftLobbyResponse, DraftVisibility, LobbySnapshot } from "@yugidraft/shared/types";
 import { Mono, SectionHead, StageLine, StatusLine, SvButton, SvCheck, svButtonClass, type StageStep } from "@/components/sheet";
 import { CubeDraftBuilder } from "@/components/cubes/cube-draft-builder";
 import { CubeLobbyPanel } from "@/components/cubes/cube-lobby-panel";
@@ -20,6 +20,8 @@ import { CardPoolPanel } from "@/components/cards/card-pool-panel";
 import type { CardSummary } from "@/lib/card-types";
 import { InvitePanel } from "./lobby/invite-panel";
 import { InviteModal } from "./lobby/invite-modal";
+import { HostInviteControls } from "./visibility/host-invite-controls";
+import { LobbyBarSub } from "./visibility/visibility-badge";
 import { LobbyActions, LobbyAutoStart, useLobbyController } from "./lobby/lobby-actions";
 import { LobbySeats, SeatMeter, SeatSlots } from "./lobby/lobby-seats";
 import {
@@ -50,6 +52,12 @@ interface DraftManageViewProps {
     status: string;
     createdByUserId: number;
     createdAt: string;
+    /** Who can see and join. Absent from an older server: the lobby then shows no badge and treats the invite as open. */
+    visibility?: DraftVisibility;
+    /** The server's verdict on taking a seat. Join and Take a seat show only when it is true; absent means allowed. */
+    canJoin?: boolean;
+    /** Present (true) only for the host: the invite link, the switch and Reset are theirs. */
+    canManageInvite?: boolean;
     config: {
       packSize?: number;
       packsPerPlayer?: number;
@@ -383,6 +391,13 @@ export function DraftManageView({
 
   const kind = isTheme ? "Theme draft" : "Cube draft";
   const isGuest = !isCreator && !isParticipant;
+  // Join is the server's call (`canJoin`), not the page's guess from seats.
+  const canJoin = draft.canJoin ?? true;
+  const canManageInvite = draft.canManageInvite === true;
+  // A private draft has no link a seated player can pass on: only the host holds the invite.
+  const inviteShareable = draft.visibility !== "private" || canManageInvite;
+  const pendingNow = draft.status === "pending";
+  const barSub = <LobbyBarSub visibility={draft.visibility} />;
 
   const joinPieces = [
     { content: kind, strong: true },
@@ -403,7 +418,7 @@ export function DraftManageView({
           <StatusLine tone="block">{error}</StatusLine>
         </div>
       )}
-      {isGuest && (
+      {isGuest && canJoin && (
         <SvButton variant="primary" big wide disabled={joining} aria-busy={joining || undefined} onClick={handleJoin}>
           <UserPlus size={18} aria-hidden="true" />Join draft
         </SvButton>
@@ -439,7 +454,7 @@ export function DraftManageView({
       )}
     </>
   );
-  const hasActions = isGuest || isCreator || Boolean(error);
+  const hasActions = (isGuest && canJoin) || isCreator || Boolean(error);
 
   const editPanel = (className: string) => (
     <section className={className} aria-labelledby="lobby-edit-t" ref={editSection} tabIndex={-1}>
@@ -499,6 +514,7 @@ export function DraftManageView({
     return (
       <DraftFrame
         title={draft.name}
+        sub={barSub}
         back={{ href: "/drafts", label: "All drafts" }}
         actions={
           isCreator && !editing ? (
@@ -540,7 +556,7 @@ export function DraftManageView({
             </div>
           )}
 
-          {isGuest ? (
+          {isGuest && canJoin ? (
             <section className={sf.join} aria-labelledby="lobby-join-t">
               <Mono name="" dashed you size="big" />
               <div>
@@ -584,7 +600,7 @@ export function DraftManageView({
               botsEnabled={botsEnabled}
               discordEnabled={discordEnabled}
               onAddBot={onAddBot}
-              onInvite={() => setInviteOpen(true)}
+              onInvite={inviteShareable ? () => setInviteOpen(true) : undefined}
               inviteRef={inviteButton}
             />
           </section>
@@ -597,8 +613,9 @@ export function DraftManageView({
               players={players}
               controller={controller}
               isHost={isCreator}
-              isMember={isCreator || isParticipant}
+              isMember={isParticipant}
               onJoin={onJoin}
+              canJoin={canJoin}
               onExpire={onChanged}
             />
           </div>
@@ -618,12 +635,19 @@ export function DraftManageView({
                 <SvButton variant="quiet" className={sf.cardBtn} onClick={handleStartEditConfig}>Edit setup</SvButton>
               )}
             </li>
-            <li className={sf.card}>
-              <h3 className={sf.cardT}>Invite</h3>
-              <p className={sf.cardV}>Share the link</p>
-              <p className={sf.cardNote}>Anyone in the server can join.</p>
-              <SvButton variant="ghost" className={sf.cardBtn} onClick={() => setInviteOpen(true)}>Invite players</SvButton>
-            </li>
+            {canManageInvite && draft.visibility && slug ? (
+              <li className={sf.card}>
+                <h3 className={sf.cardT}>Invite</h3>
+                <HostInviteControls slug={slug} visibility={draft.visibility} pending={pendingNow} onChanged={onChanged} />
+              </li>
+            ) : inviteShareable ? (
+              <li className={sf.card}>
+                <h3 className={sf.cardT}>Invite</h3>
+                <p className={sf.cardV}>Share the link</p>
+                <p className={sf.cardNote}>Anyone in the server can join.</p>
+                <SvButton variant="ghost" className={sf.cardBtn} onClick={() => setInviteOpen(true)}>Invite players</SvButton>
+              </li>
+            ) : null}
           </ul>
 
           {isEditingConfig && editPanel(sf.edit)}
@@ -644,7 +668,15 @@ export function DraftManageView({
           />
         )}
         {inviteOpen && slug && (
-          <InviteModal slug={slug} onClose={() => setInviteOpen(false)} controller={controller} canPost={isCreator} discordEnabled={discordEnabled} returnFocusRef={inviteButton} />
+          <InviteModal
+            slug={slug}
+            access={{ visibility: draft.visibility, canManage: canManageInvite, pending: pendingNow, onChanged }}
+            onClose={() => setInviteOpen(false)}
+            controller={controller}
+            canPost={isCreator}
+            discordEnabled={discordEnabled}
+            returnFocusRef={inviteButton}
+          />
         )}
       </DraftFrame>
     );
@@ -653,6 +685,7 @@ export function DraftManageView({
   return (
     <DraftFrame
       title={draft.name}
+      sub={barSub}
       back={{ href: "/drafts", label: "All drafts" }}
       actions={
         isCreator && !editing ? (
@@ -707,7 +740,7 @@ export function DraftManageView({
             </div>
           ))}
 
-          {isGuest ? (
+          {isGuest && canJoin ? (
             <section className={styles.join} aria-labelledby="lobby-join-t">
               <Mono name="" dashed you size="big" />
               <div>
@@ -737,7 +770,9 @@ export function DraftManageView({
             </StatusLine>
           )}
 
-          {(isCreator || isParticipant) && slug && <InvitePanel slug={slug} discordEnabled={discordEnabled} />}
+          {(isCreator || isParticipant) && slug && inviteShareable && (
+            <InvitePanel slug={slug} discordEnabled={discordEnabled} visibility={draft.visibility} canManageInvite={canManageInvite} pending={pendingNow} onChanged={onChanged} />
+          )}
 
           <LobbySeats players={draft.players} youIds={youIds} isCreator={isCreator} aux={playersAux} />
 
