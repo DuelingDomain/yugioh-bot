@@ -68,8 +68,16 @@ export function placeSelectBar({ board, emz, hands }: BarPlaceInput): BarPlace {
 
   if (zones.length >= 2) {
     const sorted = [...zones].sort((a, b) => a.left - b.left);
-    const first = sorted[0];
-    const last = sorted[sorted.length - 1];
+    // The widest free span between two neighbours: with the Rooftop's four shared cells (two each side of the helipad)
+    // that is the middle gap, not the whole band.
+    let first = sorted[0];
+    let last = sorted[1];
+    for (let index = 2; index < sorted.length; index += 1) {
+      if (sorted[index].left - sorted[index - 1].right > last.left - first.right) {
+        first = sorted[index - 1];
+        last = sorted[index];
+      }
+    }
     top = (Math.min(...zones.map((zone) => zone.top)) + Math.max(...zones.map((zone) => zone.bottom))) / 2 - board.top;
     left = (first.right + last.left) / 2 - board.left;
     gap = Math.max(0, last.left - first.right - 2 * BAR_EDGE);

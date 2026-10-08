@@ -76,33 +76,46 @@ export function roofSlots(anchorSeat: number): Record<number, RoofSlot> {
 
 /** Free width of the middle band between the two seat labels, in world units (the gap row between the strips). */
 const GAP_FREE_WIDTH = 900;
+/**
+ * The same with the shared Extra Monster Zones drawn in the gap: the two inner cells (column 4 of the left pair, column 2 of
+ * the right pair) stand 233 units either side of the helipad, 466 apart. A cell is about 61 units wide, so the free width
+ * between the inner edges is about 405. The scale this is multiplied by (fit x zoom) reads about 13% under what the tilted
+ * gap really measures (326px between the inner cell edges at 1920, where 405 x 0.8 = 324), so the hub keeps a margin.
+ */
+const GAP_FREE_WIDTH_SHARED = 405;
 
-export type PhaseHubSize = "lg" | "sm" | "row";
+/** Width of the smallest phase hub strip, in px. */
+export const XS_HUB_MIN = 170;
+
+export type PhaseHubSize = "lg" | "sm" | "row" | "xs";
 
 /**
  * The phase hub sizes that fit the width of the gap row, biggest first: "lg" is the full strip (about 390px wide), "sm"
- * the short strip with its caption and "row" the short strip alone. The stage takes the first one whose real height fits
+ * the short strip with its caption and "row" the short strip alone and "xs" the strip with smaller chips, for the narrow gap of a small screen. The stage takes the first one whose real height fits
  * the gap between the strips; when none does, the hub stays hidden and the bottom bar keeps the turn buttons.
  */
 export function phaseHubSizes(freePx: number): PhaseHubSize[] {
   const sizes: PhaseHubSize[] = [];
   if (freePx >= 410) sizes.push("lg");
   if (freePx >= 215) sizes.push("sm", "row");
+  if (freePx >= XS_HUB_MIN) sizes.push("xs");
   return sizes;
 }
 
 /** Gap height and free width, in screen px, between the strips for a pose and the stage fit factor. */
-export function roofGap(pose: RoofPose, fit: number): { gapPx: number; freePx: number } {
+export function roofGap(pose: RoofPose, fit: number, sharedExtra = false): { gapPx: number; freePx: number } {
   const scale = fit * pose.zoom;
   return {
     gapPx: 2 * ROOF_FIELD.offsetY * scale * Math.cos((pose.tilt * Math.PI) / 180),
-    freePx: GAP_FREE_WIDTH * scale,
+    freePx: (sharedExtra ? GAP_FREE_WIDTH_SHARED : GAP_FREE_WIDTH) * scale,
   };
 }
 
 /** Close-up of one field: it fills the free box (width first), whatever the screen shape. */
 const SEAT_ZOOM = 2.05;
 const SEAT_TILT = 22;
+/** World units the close-up aims toward the gap, so the shared Extra Monster Zones stay in view. */
+const SEAT_GAP_BIAS = 140;
 
 /**
  * Close pose on one field. The camera stays on the viewer's side for every field: a far field is drawn to read upright
@@ -111,7 +124,8 @@ const SEAT_TILT = 22;
 export function seatPose(anchorSeat: number, seat: number): RoofPose {
   const slot = roofSlots(anchorSeat)[seat];
   if (!slot) return { ...ROOF_PRESETS.home };
-  return { yaw: 0, tilt: SEAT_TILT, zoom: SEAT_ZOOM, fx: slot.x, fy: slot.y, oy: 0 };
+  // Aimed a little toward the gap so the shared Extra Monster Zones between the facing strips stay in the close-up.
+  return { yaw: 0, tilt: SEAT_TILT, zoom: SEAT_ZOOM, fx: slot.x, fy: slot.y - Math.sign(slot.y) * SEAT_GAP_BIAS, oy: 0 };
 }
 
 export type RoofCamName = "home" | "overview" | "rival" | "seat" | "free";

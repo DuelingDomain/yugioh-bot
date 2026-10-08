@@ -170,16 +170,18 @@ export function nextEnabledIndex(prompt: Pick<DuelPrompt, "options">, disabled: 
   return from;
 }
 
-/** Each reciprocal living FFA4 across pair once, in seat order. Older views keep separate EMZ rows. */
+/** Each reciprocal living facing pair (FFA4 across, Tag 1A-2A and 1B-2B) once, in seat order. Older views keep separate EMZ rows. */
 export function sharedExtraPairs(engine: Pick<DuelEngineView, "format" | "seats">): Array<[DuelSeatView, DuelSeatView]> {
-  if (engineFormat(engine) !== "ffa4") return [];
+  const format = engineFormat(engine);
+  if (format !== "ffa4" && format !== "tag") return [];
   const bySeat = new Map(engine.seats.map((view) => [view.seat, view]));
   const pairs: Array<[DuelSeatView, DuelSeatView]> = [];
   for (const view of engine.seats) {
     const across = view.sharedExtraWith;
-    if (across == null || across <= view.seat || across !== sharedExtraSeatOf("ffa4", view.seat) || isEliminated(view)) continue;
+    if (across == null || across <= view.seat || across !== sharedExtraSeatOf(format, view.seat) || isEliminated(view)) continue;
     const other = bySeat.get(across);
     // Older cores can occupy both mirrored cells. Keep both rows so neither card is hidden.
+    if (other && isEliminated(other)) continue;
     if (other && ((view.monsters[5] && other.monsters[6]) || (view.monsters[6] && other.monsters[5]))) continue;
     if (other && !isEliminated(other) && other.sharedExtraWith === view.seat) pairs.push([view, other]);
   }

@@ -89,6 +89,27 @@ describe("placeSelectBar", () => {
   });
 });
 
+describe("placeSelectBar with the Rooftop's four shared cells", () => {
+  /** Two cells each side of the middle: a 60 wide cell, 20 between the pair, `gap` free in the middle. */
+  function band(gap: number, legalInner = false): BarZone[] {
+    const cell = (left: number, legal = false): BarZone => ({ left, right: left + 60, top: 400, bottom: 460, legal });
+    const centre = 600;
+    return [cell(centre - gap / 2 - 140), cell(centre - gap / 2 - 60, legalInner), cell(centre + gap / 2), cell(centre + gap / 2 + 80)];
+  }
+
+  it("sits in the middle gap between the inner cells, not across the whole band", () => {
+    const place = placeSelectBar({ board, emz: band(340), hands: [] });
+    expect(place.mode).toBe("mid");
+    expect(place.left).toBe(500);
+    expect(place.fit).toBe(340 - 16);
+  });
+
+  it("goes to the top edge when the middle gap is too narrow and a cell can be picked", () => {
+    const place = placeSelectBar({ board, emz: band(200, true), hands: [topHand, bottomHand] });
+    expect(place.mode).toBe("top");
+  });
+});
+
 describe("samePlace", () => {
   it("compares every field", () => {
     const a = placeSelectBar({ board, emz: emzPair(300), hands: [] });
