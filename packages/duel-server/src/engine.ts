@@ -1,4 +1,5 @@
 import { readSandboxEngineSnapshot, type SandboxEngineSnapshot } from "./sandbox-snapshot.js";
+import { ChainOptions } from "./chain-options.js";
 import type { DuelAnswer, DuelBattleStep, DuelChainMode, DuelCardInfo, DuelDeck, DuelEngineView, DuelFormat, DuelMasterRule, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
 import { DUEL_SEAT_LEFT_ERROR_CODE, defaultChainMode, partnerSeatOf, seatCountFor, seatsOfTeam, startingLpFor, teamOfSeat } from "@yugidraft/shared/duels";
 import { createHash } from "node:crypto";
@@ -19,6 +20,7 @@ import createCore, {
   type OcgCoreSync,
   type OcgDuelHandle,
   type OcgMessage,
+  type OcgResponse,
   type OcgOpCode,
 } from "ocgcore-wasm";
 import { isOptionalCardScript, loadCardDatabase, type CardDatabase } from "./cards.js";
@@ -558,6 +560,11 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   const log: LogEntry[] = [];
   const events: StoredDuelEvent[] = [];
   const chainMemory: StoredChainLink[] = [];
+  const chainOptions = new ChainOptions(cards);
+  const respond = (prompt: PendingPrompt, response: OcgResponse) => {
+    chainOptions.recordResponse(prompt, response);
+    lib.duelSetResponse(handle, response);
+  };
   const reveals = createRevealMap(seatCount);
   let nextLogId = 1;
   let nextEventId = 1;
@@ -608,6 +615,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     for (const move of observeMoveEvents(message, cards, eventContext, nextEventId)) pushEvent(move);
     for (const confirm of observeConfirmEvents(message, cards, eventContext, nextEventId)) pushEvent(confirm);
     const stored = observeDuelEvent(message, cards, chainMemory, nextEventId, eventContext);
+    chainOptions.observe(message, chainMemory, stored);
     // The summon line is written here, right after applyMessage, because the summon method is only known now.
     if (
       stored?.kind === "summon" &&
@@ -984,10 +992,11 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       }
       lastSelectHint = undefined;
       lastPlaceSeat = undefined;
+      chainOptions.recordPrompt(next);
       const automated = emptyAttackTargetResponse(next) ?? (next.attackTargetPick || completingAttackPick && (waiting.type === OcgMessageType.SELECT_CARD || waiting.type === OcgMessageType.SELECT_OPTION)
         ? null : autoResponse(next, { stopAtEveryWindow: options.settings?.stopAtEveryWindow, chainMode: chainModes[next.seat], phase }));
       if (automated) {
-        lib.duelSetResponse(handle, automated);
+        respond(next, automated);
         continue;
       }
       promptSeq += 1;
@@ -1026,7 +1035,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       const response = resolveAnswer(current, current.seat, current.id, answer, cards);
       diagnose("leaving-answer", current.seat, `${current.prompt.kind} ${current.id}`);
       sawRetry = false;
-      lib.duelSetResponse(handle, response);
+      respond(current, response);
       processUntilWait();
       if (sawRetry) {
         pending = current;
@@ -1113,7 +1122,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       if (isPendulumSummonAnswer(pending, answer)) eventContext.pendulumSummon = true;
       completingAttackPick = Boolean(expandTargetPick);
       try {
-        lib.duelSetResponse(handle, response);
+        respond(previous, response);
         processUntilWait();
       } finally { completingAttackPick = false; }
       if (sawRetry) {
@@ -1133,20 +1142,20 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       // One public target answer expands to the legacy core responses. Only the outer answer advances
       // revision / the host journal; native prompt ids and automatic steps replay in the same order.
       if (expandTargetPick && cancelAttackPick && pending?.message.type === OcgMessageType.SELECT_CARD) {
-        lib.duelSetResponse(handle, resolveAnswer(pending, seat, pending.id, { cancel: true }, cards));
+        respond(pending, resolveAnswer(pending, seat, pending.id, { cancel: true }, cards));
         processUntilWait();
       } else if (expandTargetPick && targetPick && pending?.message.type === OcgMessageType.SELECT_OPTION && targetPick.id.startsWith("direct:") &&
         pending.message.options.every(option => directAttackSeat(option) != null) &&
         pending.message.options.some(option => directAttackSeat(option) === targetPick.controller)) {
         const option = pending.prompt.options.find(option => option.controller === targetPick.controller);
         if (!option) throw new Error("The core did not offer the chosen direct-attack seat");
-        lib.duelSetResponse(handle, resolveAnswer(pending, pending.seat, pending.id, { choice: option.id }, cards));
+        respond(pending, resolveAnswer(pending, pending.seat, pending.id, { choice: option.id }, cards));
         processUntilWait();
       } else if (expandTargetPick && targetPick && pending?.message.type === OcgMessageType.SELECT_CARD && !targetPick.id.startsWith("direct:")) {
         const option = pending.prompt.options.find(option => option.controller === targetPick.controller &&
           option.location === targetPick.location && option.sequence === targetPick.sequence);
         if (!option) throw new Error("The core did not offer the chosen attack target");
-        lib.duelSetResponse(handle, resolveAnswer(pending, pending.seat, pending.id, { selected: [option.id] }, cards));
+        respond(pending, resolveAnswer(pending, pending.seat, pending.id, { selected: [option.id] }, cards));
         processUntilWait();
       }
       answerForLeavingSeats();
@@ -1164,7 +1173,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       const automated = autoResponse(open, { stopAtEveryWindow: options.settings?.stopAtEveryWindow, chainMode: mode, phase });
       if (!automated) return false;
       sawRetry = false;
-      lib.duelSetResponse(handle, automated);
+      respond(open, automated);
       processUntilWait();
       if (sawRetry) {
         pending = open;
@@ -1236,7 +1245,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
           if (response) {
             const current = pending;
             sawRetry = false;
-            lib.duelSetResponse(handle, response);
+            respond(current, response);
             processUntilWait();
             if (sawRetry) {
               // Surrender already changed the board. A refused automatic answer must leave
