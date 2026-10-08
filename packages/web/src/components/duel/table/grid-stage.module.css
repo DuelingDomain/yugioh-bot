@@ -289,8 +289,9 @@
   min-height: 0;
 }
 
-/* The camera chip and the other overlay controls sit in the overlay slot, after this one: the room panel stands over them, never under. */
-.board[data-strip-room] .slot[data-slot="prompt"]:not([data-seat-pick]) {
+/* The camera chip and the other overlay controls sit in the overlay slot, after this one: the room panel stands over them, never under.
+   Not while a dialog of that slot is open (the pile viewer and its scrim): the slot keeps its own order then, and the dialog stands over the panel. */
+.board[data-strip-room]:not(:has([data-pile-viewer])) .slot[data-slot="prompt"]:not([data-seat-pick]) {
   z-index: 51;
 }
 
