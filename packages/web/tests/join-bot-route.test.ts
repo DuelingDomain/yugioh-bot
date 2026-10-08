@@ -124,7 +124,8 @@ describe("POST /api/drafts/[slug]/join-bot", () => {
     const res = await POST(new Request("http://localhost", { method: "POST" }), {
       params: Promise.resolve({ slug: draft.webSlug ?? "" }),
     });
-    expect(res.status).toBe(403);
+    // New drafts are private, so a stranger can't tell the draft exists.
+    expect(res.status).toBe(404);
     const { getDb } = await import("../src/lib/db");
     expect(getDb().prepare("select count(*) as n from draft_players where draft_id = ?").get(draft.id)).toEqual({ n: 1 });
   });

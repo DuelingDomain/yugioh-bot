@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireWebAccess } from "@/lib/web-access";
 import { env } from "@/lib/env";
-import { createDraftService, createPlayerService } from "@yugidraft/shared/services";
+import { createDraftService, createPlayerService, findDraftReadAccess } from "@yugidraft/shared/services";
 import { commitDraftLobbyMutation, draftLobbyErrorResponse, runDraftLobbyRoute } from "../helpers";
 import { broadcaster } from "@/lib/notify";
 
@@ -20,34 +20,31 @@ export async function POST(
     const db = getDb();
     const guildId = env.discordGuildId;
 
-    const draft = db
-      .prepare("select id, guild_id, status from drafts where web_slug = ? and guild_id = ?")
-      .get(slug, guildId) as { id: number; guild_id: string; status: string } | undefined;
-
-    if (!draft) {
-      return NextResponse.json({ error: "Draft not found" }, { status: 404 });
-    }
-
-    if (draft.status !== "pending") {
-      return NextResponse.json({ error: "Draft is no longer accepting players" }, { status: 409 });
-    }
-
-    const draftGuildId = draft.guild_id || env.discordGuildId;
-    if (!draftGuildId) {
-      return NextResponse.json({ error: "Server not configured" }, { status: 500 });
-    }
-
-    const players = createPlayerService(db);
-    const player = players.findOrCreate(draftGuildId, actor.userId, actor.userName);
-
-    const drafts = createDraftService(db);
-    drafts.join(draft.id, player.id);
+    // Hold the write lock across authorization and admission: a concurrent host
+    // visibility change must not race with creating the gameplay player/seat.
+    const result = db.transaction(() => {
+      const access = findDraftReadAccess(db, slug, guildId, actor.userId);
+      if (!access?.canRead) return NextResponse.json({ error: "Draft not found" }, { status: 404 });
+      if (access.status !== "pending") {
+        return NextResponse.json({ error: "Draft is no longer accepting players" }, { status: 409 });
+      }
+      if (!access.canJoin) {
+        return access.isSeated
+          ? NextResponse.json({ error: "You have already joined this draft" }, { status: 400 })
+          : NextResponse.json({ error: "Draft not found" }, { status: 404 });
+      }
+      // The shared admission rule lets a private creator rejoin without a grant.
+      const player = createPlayerService(db).findOrCreate(guildId, actor.userId, actor.userName);
+      createDraftService(db).join(access.id, player.id);
+      return player;
+    }).immediate();
+    if (result instanceof Response) return result;
 
     void broadcaster.draft(
       { kind: "seats", slug },
     );
 
-    return NextResponse.json({ success: true, playerId: player.id, displayName: player.displayName });
+    return NextResponse.json({ success: true, playerId: result.id, displayName: result.displayName });
   } catch (error) {
     if (error && typeof error === "object" && "code" in error) return draftLobbyErrorResponse(error);
     if (error instanceof Error) {

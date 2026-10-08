@@ -60,6 +60,11 @@ it("treats a fresh user with empty players as empty and excludes unrelated activ
   expect(hasHistory(db, 1)).toBe(false);
   expect(hasHistory(db, 2)).toBe(true);
 });
+it("does not treat redeemed draft invite grants as user history", () => {
+  db.exec("insert into draft_invite_grants(draft_id,user_id) values(1,1)");
+  expect(userHistory(db, 1)).toEqual({});
+  expect(hasHistory(db, 1)).toBe(false);
+});
 it.each(references)("counts %s with foreign keys enabled", reference => {
   const [table, column] = reference.split(".");
   if (["draft_cards", "draft_picks", "draft_passes"].includes(table)) {

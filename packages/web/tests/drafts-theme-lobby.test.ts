@@ -81,7 +81,7 @@ async function seedDraft(cubes: SeedCube[], configOverrides: Record<string, unkn
   const draftId = Number(
     db
       .prepare(
-        `insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug, current_wave_number, current_pick_step) values ('guild-1', 'c', 'Theme Night', 'pending', ${fixtureUserId("u1")}, ?, ?, 0, 0)`,
+        `insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug, current_wave_number, current_pick_step, visibility) values ('guild-1', 'c', 'Theme Night', 'pending', ${fixtureUserId("u1")}, ?, ?, 0, 0, 'open')`,
       )
       .run(JSON.stringify(config), "theme-slug").lastInsertRowid,
   );
@@ -515,7 +515,7 @@ describe("theme lobby routes", () => {
     expect(participantResponse.status).toBe(200);
     expect(await participantResponse.json()).toEqual({ errors: [], warnings: [] });
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("observer")), discordUserId: fixtureDiscordId("observer") } });
-    expect((await GET(new Request("http://localhost"), params)).status).toBe(status === "pending" ? 200 : 403);
+    expect((await GET(new Request("http://localhost"), params)).status).toBe(status === "pending" ? 200 : 404);
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1") } });
     const response = await GET(new Request("http://localhost"), params);
     expect(response.status).toBe(200);

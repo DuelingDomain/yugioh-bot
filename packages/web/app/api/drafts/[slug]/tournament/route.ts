@@ -4,6 +4,7 @@ import { requireWebAccess } from "@/lib/web-access";
 import { env } from "@/lib/env";
 import { createDraftTournamentService, TournamentDuelError } from "@yugidraft/shared/services";
 import { broadcaster } from "@/lib/notify";
+import { draftReadAccess } from "@/lib/draft-access";
 
 export const runtime = "nodejs";
 
@@ -19,6 +20,8 @@ export async function POST(
     const { slug } = await params;
     const db = getDb();
     const guildId = env.discordGuildId;
+    const denied = draftReadAccess(db, slug, guildId, userId);
+    if (denied) return denied;
 
     const draft = db
       .prepare("select id, created_by_user_id, status, tournament_id from drafts where web_slug = ? and guild_id = ?")

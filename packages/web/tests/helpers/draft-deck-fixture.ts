@@ -35,6 +35,8 @@ export async function seedDraftDeck(options: {
   const Database = (await import("better-sqlite3")).default;
   const { migrate } = await import("@yugidraft/shared/db");
   const db = new Database(dbPath);
+  db.pragma("journal_mode=WAL");
+  db.pragma("foreign_keys=on");
   migrate(db); seedFixtureUsers(db, FIXTURE_KEYS);
 
   const insertCard = db.prepare(

@@ -7,9 +7,11 @@ import { useDraftStore } from "../../src/lib/stores/draft-store";
 
 // The real finale on the real page: a draft:seats refetch brings the tournament in while a
 // non-host player is looking at the finale.
+// Next keeps one router per page, so the mock hands out the same object on every render.
+const router = vi.hoisted(() => ({ push: () => {}, refresh: () => {} }));
 vi.mock("next/navigation", () => ({
   useParams: () => ({ slug: "test-draft" }),
-  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+  useRouter: () => router,
 }));
 vi.mock("next/font/google", () => {
   const font = () => ({ variable: "--mock-font" });

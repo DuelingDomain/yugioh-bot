@@ -44,6 +44,7 @@ vi.mock("../../src/components/draft/draft-manage-view", () => ({
     draft: { name: string; lobby?: { revision: number } };
     onUpdate: (data: { name?: string; config?: unknown; revision?: number }) => Promise<void>;
     onChanged?: () => void;
+    onJoin?: () => Promise<void>;
   }) {
     const [message, setMessage] = React.useState("");
     manageRenders.push(`${props.slug}:${props.draft.name}`);
@@ -60,6 +61,7 @@ vi.mock("../../src/components/draft/draft-manage-view", () => ({
         <button type="button" onClick={() => void props.onUpdate({ name: "Renamed", revision: 9 }).catch((e: Error) => setMessage(e.message))}>save newer</button>
         <button type="button" onClick={() => void props.onUpdate({ name: "Renamed", revision: 3 }).catch((e: Error) => setMessage(e.message))}>save older</button>
         <button type="button" onClick={() => props.onChanged?.()}>changed</button>
+        <button type="button" onClick={() => void props.onJoin?.().catch((e: Error) => setMessage(e.message))}>take a seat</button>
         {message && <p role="alert">{message}</p>}
       </div>
     );
@@ -481,24 +483,26 @@ describe("DraftDetailPage — load failures", () => {
       return Promise.resolve({ ok: false, status, json: () => Promise.resolve(body) } as Response);
     });
 
-  it("shows a private-draft sheet on 403, not a load failure", async () => {
+  it("reads a stray 403 as the same Draft not found sheet, with no hint that the draft exists", async () => {
     global.fetch = respondWith(403, { error: "This draft is only open to its players." });
 
     render(<DraftDetailPage />);
 
-    expect(await screen.findByRole("heading", { name: "This draft is only open to its players" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Draft not found" })).toBeTruthy();
+    expect(document.body.textContent).not.toContain("only open to its players");
     expect(screen.getByRole("link", { name: "All drafts" }).getAttribute("href")).toBe("/drafts");
     expect(screen.getByRole("link", { name: "Dashboard" }).getAttribute("href")).toBe("/dashboard");
     expect(screen.queryByText(/Failed to load draft/)).toBeNull();
   });
 
-  it("shows a not-found sheet on 404 with the slug in the code element", async () => {
+  it("shows the generic Draft not found sheet on 404, without the address or any hint about why", async () => {
     global.fetch = respondWith(404, { error: "Draft not found" });
 
     render(<DraftDetailPage />);
 
-    expect(await screen.findByRole("heading", { name: "No draft at this address" })).toBeTruthy();
-    expect(document.querySelector("code")?.textContent).toBe("/draft/test-draft");
+    expect(await screen.findByRole("heading", { name: "Draft not found" })).toBeTruthy();
+    expect(document.querySelector("code")).toBeNull();
+    expect(document.body.textContent).not.toContain("test-draft");
     expect(screen.getByRole("link", { name: "All drafts" })).toBeTruthy();
   });
 
@@ -633,6 +637,14 @@ describe("DraftDetailPage — pending lobby wiring", () => {
     expect(view.getAttribute("data-discord")).toBe(expected);
     expect(view.getAttribute("data-bots")).toBe("true");
     expect(screen.queryByTestId("theme-table")).toBeNull();
+  });
+
+  it("takes a seat with POST /join and reads the draft again", async () => {
+    const net = serve(() => pending({ visibility: "private", canJoin: true, canManageInvite: true }));
+    render(<DraftDetailPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "take a seat" }));
+    await waitFor(() => expect(net.drafts("POST").map((c) => c.url)).toEqual(["/api/drafts/test-draft/join"]));
+    await waitFor(() => expect(net.reads()).toBe(2));
   });
 
   it("shows a pending theme draft on the Theme Table with the Discord flag, not on the booster lobby", async () => {

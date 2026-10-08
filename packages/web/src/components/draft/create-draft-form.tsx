@@ -11,6 +11,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { HideImportEntriesContext, ImportEntries, type ImportEntryView } from "@/components/card-list-import/auto-import-box";
+import type { DraftVisibility } from "@yugidraft/shared/types";
 import { configFromFields, type DraftConfigFieldsValue } from "./draft-config-fields";
 import { importLine, reportOf } from "./pool/pool-model";
 import { usePoolEditor } from "./pool/use-pool-editor";
@@ -19,6 +20,7 @@ import { PoolBrowser, type PoolBrowserHandle } from "./setup/pool-browser";
 import { RulesMetaFields, RulesPanel, useRulesAnalysis } from "./setup/rules-panel";
 import { applyPreset, readinessText } from "./setup/rules-model";
 import { SourceRail, type SourceTab } from "./setup/source-rail";
+import { VisibilityChoice } from "./visibility/visibility-choice";
 import { useCardInspector } from "./setup/use-card-inspector";
 import type { PoolEditActions, PoolLane } from "./setup/pool-browser-model";
 import {
@@ -64,6 +66,8 @@ export function CreateDraftForm({ discordEnabled = false }: CreateDraftFormProps
   // Set after mount so the server and the first client render agree.
   const [autoName, setAutoName] = React.useState("");
   const [channelId, setChannelId] = React.useState("");
+  // New drafts start private: only people with the host's invite link can see and join.
+  const [visibility, setVisibility] = React.useState<DraftVisibility>("private");
   const [channels, setChannels] = React.useState<Channel[]>([DEFAULT_CHANNEL]);
   const [fields, setFields] = React.useState<DraftConfigFieldsValue>(() => applyPreset(BASE_FIELDS, "community"));
   const [submitting, setSubmitting] = React.useState(false);
@@ -136,6 +140,7 @@ export function CreateDraftForm({ discordEnabled = false }: CreateDraftFormProps
       const body = {
         name: name.trim() || autoName || "Cube draft",
         channelId: discordEnabled ? channelId || undefined : undefined,
+        visibility,
         config: { ...configFromFields(fields), ...pool.config(), includeNames: [], excludeNames: [] },
       };
       const res = await fetch("/api/drafts", {
@@ -207,17 +212,20 @@ export function CreateDraftForm({ discordEnabled = false }: CreateDraftFormProps
       pool={counts}
       discordEnabled={discordEnabled}
       metaSlot={
-        <RulesMetaFields
-          name={name}
-          onNameChange={setName}
-          namePlaceholder={autoName || "Cube draft"}
-          channelId={channelId}
-          onChannelChange={setChannelId}
-          channels={channels}
-          discordEnabled={discordEnabled}
-          channelHint="The bot posts the lobby here. Players join from Discord. Default uses the server's channel."
-        />
+        <>
+          <RulesMetaFields
+            name={name}
+            onNameChange={setName}
+            namePlaceholder={autoName || "Cube draft"}
+            channelId={channelId}
+            onChannelChange={setChannelId}
+            channels={channels}
+            discordEnabled={discordEnabled}
+            channelHint="The bot posts the lobby here. Players join from Discord. Default uses the server's channel."
+          />
+        </>
       }
+      visibilitySlot={<VisibilityChoice value={visibility} onChange={setVisibility} compact />}
       actionSlot={
         phone ? undefined : (
           <>

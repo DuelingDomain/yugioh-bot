@@ -146,7 +146,7 @@ describe("POST/DELETE /api/drafts/[slug]/cubes (draft cubes)", () => {
       new Request("http://localhost/api/drafts/theme-slug/cubes", { method: "POST", body: JSON.stringify({ kind: "blank", name: "X" }) }) as any,
       { params: Promise.resolve({ slug: "theme-slug" }) },
     );
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(404);
   }, 30000);
 });
 

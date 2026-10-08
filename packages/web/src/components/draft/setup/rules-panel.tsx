@@ -35,6 +35,8 @@ export interface RulesPanelProps {
   pool: PoolCounts;
   /** Name and channel fields. `RulesMetaFields` is one ready-made option. */
   metaSlot?: React.ReactNode;
+  /** Always shown under the sections, for a choice that must not hide in a collapsed one (who can join). */
+  visibilitySlot?: React.ReactNode;
   /** The Create action (button and shortcut hint). The panel gives it a footer with the readiness line above it. */
   actionSlot?: React.ReactNode;
   /** Called after Fit to pool, with what changed or the deficit. The host can show it as a toast. */
@@ -208,7 +210,7 @@ function Section({ title, summary, open, onToggle, children }: {
  * The right pane of the Workbench. It edits the same strings `configFromFields` reads, and shows
  * rounds x players x cards per pile against the pool. Name, channel and the Create button come in as slots.
  */
-export function RulesPanel({ value, onChange, pool, metaSlot, actionSlot, onFit, discordEnabled = true, className }: RulesPanelProps) {
+export function RulesPanel({ value, onChange, pool, metaSlot, visibilitySlot, actionSlot, onFit, discordEnabled = true, className }: RulesPanelProps) {
   const analysis = useRulesAnalysis(value, pool);
   const { rules } = analysis;
   const preset = matchPreset(value);
@@ -306,6 +308,8 @@ export function RulesPanel({ value, onChange, pool, metaSlot, actionSlot, onFit,
             {metaSlot}
           </Section>
         )}
+
+        {visibilitySlot && <div className={styles.visibility}>{visibilitySlot}</div>}
       </div>
 
       <div className={styles.foot}>

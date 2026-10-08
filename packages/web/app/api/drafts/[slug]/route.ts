@@ -69,6 +69,8 @@ export async function DELETE(
     const { slug } = await params;
     const db = getDb();
     const guildId = env.discordGuildId;
+    const denied = draftReadAccess(db, slug, guildId, actor.userId);
+    if (denied) return denied;
 
     const draft = db
       .prepare("select id, created_by_user_id, status from drafts where web_slug = ? and guild_id = ?")

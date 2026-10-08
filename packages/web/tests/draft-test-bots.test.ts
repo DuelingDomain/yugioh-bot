@@ -115,7 +115,8 @@ describe("test bots in a production build", () => {
     const { draft } = await setup();
 
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("someone-else")), discordUserId: fixtureDiscordId("someone-else") } });
-    expect((await addBot(draft.webSlug!)).status).toBe(403);
+    // New drafts are private, so a stranger can't tell the draft exists.
+    expect((await addBot(draft.webSlug!)).status).toBe(404);
 
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("host")), discordUserId: fixtureDiscordId("host") } });
     const res = await addBot(draft.webSlug!);

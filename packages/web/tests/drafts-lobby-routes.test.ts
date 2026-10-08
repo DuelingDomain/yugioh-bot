@@ -58,8 +58,8 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
     vi.stubEnv("DUEL_DATA_DIR", "/tmp/ds-t04-unused-engine");
     db = new Database(":memory:"); migrate(db); seedFixtureUsers(db, FIXTURE_KEYS); getDb.mockReturnValue(db);
     db.exec(`insert into players (guild_id, user_id, discord_user_id, display_name) values ('guild', ${fixtureUserId("host")}, '${fixtureDiscordId("host")}', 'Host');
-      insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug)
-      values ('guild','channel','Lobby','pending',${fixtureUserId("host")},'{"mode":"theme","themeSelection":"random","allowedCubeIds":[]}', 'lobby');
+      insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug, visibility)
+      values ('guild','channel','Lobby','pending',${fixtureUserId("host")},'{"mode":"theme","themeSelection":"random","allowedCubeIds":[]}', 'lobby', 'open');
       insert into draft_players (draft_id, player_id) values (1,1);`);
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("host")) } });
     projection = sharedServices.createDraftLobbyService(db).read(1, fixtureUserId("host"));
@@ -244,7 +244,7 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("observer")) } });
     service.tick.mockImplementationOnce(() => { db.prepare("update drafts set status = 'active'").run(); return { started: [], changedSlugs: [] }; });
     const { GET } = await import("../app/api/drafts/[slug]/route");
-    expect((await GET(request("GET"), context)).status).toBe(403);
+    expect((await GET(request("GET"), context)).status).toBe(404);
   });
   it("rejects a roster join racing a whole host assignment map", async () => {
     db.exec(`insert into cubes (guild_id, name, created_by_user_id) values ('guild', 'One', ${fixtureUserId("host")}), ('guild', 'Two', ${fixtureUserId("host")});
@@ -419,7 +419,7 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
     vi.setSystemTime(new Date(Date.parse(deadline) + 1));
     const responses = await Promise.all([GET(request("GET"), context), GET(request("GET"), context)]);
     for (const response of responses) {
-      expect(response.status).toBe(viewer === "member" ? 403 : 200);
+      expect(response.status).toBe(viewer === "member" ? 404 : 200);
       if (response.status === 200) {
         expect(await response.json()).toMatchObject({ status: "active", discordEnabled: false });
       }
@@ -458,7 +458,7 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
       await new Promise<void>((resolve) => { setImmediate(resolve); });
       expect(returned).toBe(false);
     } finally { delivered(); }
-    expect((await response).status).toBe(403);
+    expect((await response).status).toBe(404);
   });
   it("preserves the shared service clock, optional viewer and invalidation contract", async () => {
     const api = await useRealLobbyService();

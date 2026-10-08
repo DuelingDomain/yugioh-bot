@@ -9,7 +9,7 @@ import { createInternalHttpHandler } from "../src/internal-http.js";
 import { DraftRoomManager } from "../src/rooms.js";
 
 const secret = "existing-internal-secret";
-const error = { error: "This draft is only open to its players." };
+const error = { error: "Draft not found" };
 type Handler = (...args: any[]) => void;
 
 describe("draft socket access without starting a server", () => {
@@ -58,7 +58,7 @@ describe("draft socket access without starting a server", () => {
     migrate(db);
     db.prepare("insert into users (id, discord_user_id, username, display_name) values (101, '900000000000000101', 'yugi', 'Yugi'), (102, '900000000000000102', 'creator', 'Creator')").run();
     db.prepare("insert into players (id, guild_id, user_id, discord_user_id, display_name) values (1, 'guild-1', 101, '900000000000000101', 'Yugi')").run();
-    db.prepare("insert into drafts (guild_id, channel_id, name, status, created_by_user_id, web_slug) values ('guild-1', 'channel', 'Draft', 'pending', 102, 'test-draft')").run();
+    db.prepare("insert into drafts (guild_id, channel_id, name, status, created_by_user_id, web_slug, visibility) values ('guild-1', 'channel', 'Draft', 'pending', 102, 'test-draft', 'open')").run();
     db.prepare("insert into draft_players (draft_id, player_id) values (1, 1)").run();
     rooms = new DraftRoomManager();
     clients.length = 0;
@@ -90,6 +90,20 @@ describe("draft socket access without starting a server", () => {
         expect(join(clients[0], userId)).toEqual(allowed ? undefined : error);
         expect(clients[0].socket.rooms.has("draft:test-draft")).toBe(allowed);
       });
+    }
+  }
+
+  for (const visibility of ["open", "private"]) {
+    for (const status of ["pending", "active"]) {
+      for (const [role, userId] of [["player", 101], ["creator", 102], ["grant", 105], ["stranger", 103]] as const) {
+        it(`${visibility} ${status}: socket admission for ${role}`, () => {
+          db.prepare("update drafts set visibility=?, status=?").run(visibility, status);
+          db.exec("insert into users(id,username,display_name) values(105,'granted','Granted'); insert into draft_invite_grants(draft_id,user_id) values(1,105)");
+          const allowed = role !== "stranger" || (visibility === "open" && status === "pending");
+          expect(join(clients[0], userId)).toEqual(allowed ? undefined : error);
+          expect(clients[0].socket.rooms.has("draft:test-draft")).toBe(allowed);
+        });
+      }
     }
   }
 
@@ -168,6 +182,33 @@ describe("draft socket access without starting a server", () => {
     expect(clients[0].socket.emit).not.toHaveBeenCalledWith("draft:pick", expect.anything());
   });
 
+  it("hides a private pending room from strangers, including a valid old open-lobby token", () => {
+    db.exec("update drafts set visibility='private'");
+    expect(join(clients[0], 103)).toEqual(error);
+    expect(clients[0].socket.rooms.has("draft:test-draft")).toBe(false);
+  });
+
+  it("admits a user grant without a player row and keeps it after link reset, then prunes a removed grant", async () => {
+    db.exec("update drafts set visibility='private',invite_code='old'; insert into users(id,username,display_name) values(103,'guest','Guest'); insert into draft_invite_grants(draft_id,user_id) values(1,103)");
+    expect(join(clients[0], 103)).toBeUndefined();
+    db.exec("update drafts set invite_code='reset'");
+    await broadcast("seats");
+    expect(clients[0].socket.rooms.has("draft:test-draft")).toBe(true);
+    db.exec("delete from draft_invite_grants where user_id=103");
+    await broadcast("pick");
+    expect(clients[0].socket.rooms.has("draft:test-draft")).toBe(false);
+    expect(clients[0].socket.emit).toHaveBeenCalledWith("draft:subscription-expired", { slug: "test-draft" });
+    expect(clients[0].socket.emit).not.toHaveBeenCalledWith("draft:pick", expect.anything());
+  });
+
+  it("prunes an open-lobby stranger before the visibility update broadcast", async () => {
+    expect(join(clients[0],103)).toBeUndefined();
+    db.exec("update drafts set visibility='private'");
+    await broadcast("seats");
+    expect(clients[0].socket.rooms.has("draft:test-draft")).toBe(false);
+    expect(clients[0].socket.emit).not.toHaveBeenCalledWith("draft:seats", expect.anything());
+  });
+
   it("removes memberships on disconnect", () => {
     join(clients[0], 101);
     clients[0].handlers.get("disconnecting")!();
@@ -175,7 +216,7 @@ describe("draft socket access without starting a server", () => {
   });
 
   it("keeps memberships in multiple drafts after both tokens expire", () => {
-    db.prepare("insert into drafts (guild_id, channel_id, name, status, created_by_user_id, web_slug) values ('guild-1', 'channel', 'Other draft', 'pending', 102, 'other-draft')").run();
+    db.prepare("insert into drafts (guild_id, channel_id, name, status, created_by_user_id, web_slug, visibility) values ('guild-1', 'channel', 'Other draft', 'pending', 102, 'other-draft', 'open')").run();
     join(clients[0], 101);
     vi.advanceTimersByTime(30_000);
     join(clients[0], 101, { slug: "other-draft" });

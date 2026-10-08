@@ -139,6 +139,7 @@ describe("draft service", () => {
       channelId: "channel-1",
       name: "cube night",
       status: "pending",
+      visibility: "private",
       createdByUserId: createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id,
       config: {
         setNames: ["Battle Pack 3"],

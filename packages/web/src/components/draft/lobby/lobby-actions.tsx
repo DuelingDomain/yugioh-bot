@@ -501,6 +501,8 @@ export interface LobbyActionsProps {
   hasLobby?: boolean;
   /** Join stays with the page (it also reloads the draft). */
   onJoin?: () => Promise<void>;
+  /** The server's `canJoin`: this viewer may take a seat now. Without it there is no Join and no Take a seat. Default on. */
+  canJoin?: boolean;
   /** Manual start for a server that sends no lobby. */
   onLegacyStart?: () => Promise<void>;
   /** An extra reason Start can't be used, for example a theme seat with no claim. It replaces the default reason. */
@@ -515,7 +517,7 @@ export interface LobbyActionsProps {
  * confirm), and the start box (a clock for everyone, Stop for the host). Pass the same controller to `SeatControls` and
  * `LobbyAutoStart`. A press never starts the draft by timer; Start on the server begins a server-side countdown.
  */
-export function LobbyActions({ lobby, players, controller, isHost, isMember, hasLobby = true, onJoin, onLegacyStart, blocker, onExpire, className }: LobbyActionsProps) {
+export function LobbyActions({ lobby, players, controller, isHost, isMember, hasLobby = true, onJoin, canJoin = true, onLegacyStart, blocker, onExpire, className }: LobbyActionsProps) {
   const [confirm, setConfirm] = React.useState<{ notReadyPlayerIds: number[]; unclaimedPlayerIds: number[] } | null>(null);
   const me = players.find((p) => p.isYou);
   const starting = lobby.start !== null;
@@ -541,7 +543,9 @@ export function LobbyActions({ lobby, players, controller, isHost, isMember, has
   };
 
   let body: React.ReactNode;
-  if (!isMember && !isHost) {
+  if (!isMember && !isHost && !canJoin) {
+    body = <p className={styles.gonote}>You can&apos;t take a seat in this draft.</p>;
+  } else if (!isMember && !isHost) {
     body = (
       <>
         <SvButton variant="primary" big wide disabled={full || (busy && controller.pending !== "join")} aria-busy={controller.pending === "join" || undefined} onClick={() => onJoin && void controller.run("join", onJoin, "Failed to join draft")}>
@@ -569,7 +573,7 @@ export function LobbyActions({ lobby, players, controller, isHost, isMember, has
           {reason ?? (hasLobby ? lobbyStartLine({ joined: lobby.joined, targetSeats }) : `Starts with ${plural(lobby.joined, "player")}. Nobody can join after this.`)}
         </p>
         {hasLobby && me && <ReadyToggle me={me} controller={controller} compact />}
-        {!isMember && onJoin && !full && (
+        {!isMember && canJoin && onJoin && !full && (
           <SvButton variant="ghost" wide disabled={busy && controller.pending !== "join"} aria-busy={controller.pending === "join" || undefined} onClick={() => void controller.run("join", onJoin, "Failed to join draft")}>
             <UserPlus size={16} aria-hidden="true" />Take a seat
           </SvButton>

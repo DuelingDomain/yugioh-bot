@@ -39,6 +39,8 @@ describe("POST /api/drafts/[slug]/tournament", () => {
     const Database = (await import("better-sqlite3")).default;
     const { migrate } = await import("@yugidraft/shared/db");
     const db = new Database(dbPath);
+    db.pragma("journal_mode=WAL");
+    db.pragma("foreign_keys=on");
     migrate(db);
     seedFixtureUsers(db, FIXTURE_KEYS);
 
@@ -110,12 +112,38 @@ describe("POST /api/drafts/[slug]/tournament", () => {
     expect((await postWithBody({ format: "round_robin" })).status).toBe(201);
   });
 
-  it("rejects a former admin who did not create or join the draft", async () => {
+  it("hides a private draft from a former admin who did not create or join it", async () => {
     await setupCompletedDraft();
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("admin-user")), discordUserId: null } });
-    expect((await postWithBody({ format: "round_robin" })).status).toBe(403);
+    const response = await postWithBody({ format: "round_robin" });
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "Draft not found" });
     const { getDb } = await import("../src/lib/db");
     expect(getDb().prepare("select count(*) as n from tournaments").get()).toEqual({ n: 0 });
+  });
+
+  it("checks read access before returning validation or existing tournament data", async () => {
+    await setupCompletedDraft();
+    const created = await postWithBody({ format: "round_robin" });
+    expect(created.status).toBe(201);
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("admin-user")), discordUserId: null } });
+    const { POST } = await import("../app/api/drafts/[slug]/tournament/route");
+    const request = () => new Request("http://localhost", { method: "POST", body: "{" }) as NextRequest;
+    for (const slug of ["test-slug", "unknown"]) {
+      const response = await POST(request(), { params: Promise.resolve({ slug }) });
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({ error: "Draft not found" });
+    }
+  });
+
+  it("keeps the creator-only 403 for a grant holder without a seat", async () => {
+    await setupCompletedDraft();
+    const { getDb } = await import("../src/lib/db");
+    getDb().prepare("insert into draft_invite_grants(draft_id,user_id) values(1,?)").run(fixtureUserId("admin-user"));
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("admin-user")), discordUserId: null } });
+    const response = await postWithBody({ format: "round_robin" });
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "Only the draft creator can create a tournament" });
   });
 
   it("rejects a non-creator independently of Discord availability", async () => {

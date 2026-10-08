@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireWebAccess } from "@/lib/web-access";
+import { draftReadAccess } from "@/lib/draft-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { broadcaster } from "@/lib/notify";
@@ -16,14 +17,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const actor = await requireWebAccess();
   if (!actor.ok) return actor.response;
 
+  const { slug } = await params;
+  const db = getDb();
+  const denied = draftReadAccess(db, slug, env.discordGuildId, actor.userId);
+  if (denied) return denied;
+
   const body = (await request.json().catch(() => null)) as { line?: unknown } | null;
   const line = body?.line;
   if (!isTalkLine(line)) {
     return NextResponse.json({ error: "Pick one of the lines from the list" }, { status: 400 });
   }
 
-  const { slug } = await params;
-  const db = getDb();
   const draft = db
     .prepare("select id, guild_id, status from drafts where web_slug = ? and guild_id = ?")
     .get(slug, env.discordGuildId) as { id: number; guild_id: string; status: string } | undefined;

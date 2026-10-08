@@ -24,8 +24,8 @@ function tournament(slug: string, status = "pending", guild = "g", created = "20
 
 function draft(slug: string, config: object = {}, status = "pending", guild = "g", created = "2026-01-01 00:00:00") {
   return Number(db.prepare(`insert into drafts
-    (guild_id, name, status, created_by_user_id, config_json, web_slug, created_at)
-    values (?, ?, ?, ?, ?, ?, ?)`).run(guild, slug, status, host.userId, JSON.stringify(config), slug, created).lastInsertRowid);
+    (guild_id, name, status, created_by_user_id, config_json, web_slug, created_at, visibility)
+    values (?, ?, ?, ?, ?, ?, ?, 'open')`).run(guild, slug, status, host.userId, JSON.stringify(config), slug, created).lastInsertRowid);
 }
 
 function cube(guild = "g") {
@@ -45,6 +45,18 @@ function duel(slug: string, options: { guild?: string; status?: string; private?
 describe("open now", () => {
   it("returns an empty result for an empty guild", () => {
     expect(createOpenNowService(db).forPlayer("g", null)).toEqual({ tournaments: [], drafts: [], duelsInProgress: 0 });
+  });
+
+  it("excludes private drafts before applying the newest-five limit, even for their host or grant holder", () => {
+    const open = draft("open");
+    for (let i=0;i<6;i++) {
+      const id = draft(`private-${i}`,{},"pending","g","2026-01-09 00:00:00");
+      db.prepare("update drafts set visibility='private' where id=?").run(id);
+      db.prepare("insert into draft_invite_grants(draft_id,user_id) values(?,?)").run(id,viewer.userId);
+    }
+    for (const user of [null,host.playerId,viewer.playerId]) {
+      expect(createOpenNowService(db).forPlayer("g",user).drafts.map(d => d.slug)).toEqual(["open"]);
+    }
   });
 
   it("includes only pending, linked tournaments and drafts from this guild", () => {

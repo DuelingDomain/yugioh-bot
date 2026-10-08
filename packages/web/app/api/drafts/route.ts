@@ -5,7 +5,7 @@ import { requireWebAccess } from "@/lib/web-access";
 import { normalizeBoosterDraftNumbers } from "@/lib/booster-draft-validation";
 import { cubeReferenceAccess } from "@/lib/cube-access";
 import { env } from "@/lib/env";
-import { findDraftListPage, InvalidListCursorError, boosterDraftConfigError, themeDraftNumberError, createCardLookupBudget, createCardCatalogService, createDraftService, createPlayerService } from "@yugidraft/shared/services";
+import { findDraftListPage, InvalidListCursorError, boosterDraftConfigError, themeDraftNumberError, createCardLookupBudget, createCardCatalogService, createDraftService, createPlayerService, isDraftVisibility } from "@yugidraft/shared/services";
 import { DEFAULT_LOBBY_SEATS, isValidLobbySeats } from "@yugidraft/shared/types";
 import { assertDraftConfigShape, readLobbyBody, draftLobbyErrorResponse } from "./[slug]/helpers";
 import type { DraftConfig } from "@yugidraft/shared/types";
@@ -38,6 +38,10 @@ async function handlePOST(request: NextRequest) {
   if (!actor.ok) return actor.response;
 
   const body = await readLobbyBody(request);
+  const visibility = body.visibility === undefined ? "private" : body.visibility;
+  if (!isDraftVisibility(visibility)) {
+    return NextResponse.json({ error: "visibility must be open or private", code: "INVALID_BODY" }, { status: 400 });
+  }
   const { name, channelId, config: rawConfig } = body as {
     name: string;
     channelId?: string;
@@ -94,6 +98,7 @@ async function handlePOST(request: NextRequest) {
       { ...config, allowedCubeIds: config.allowedCubeIds ?? [] },
       actor.userId,
       player.id,
+      visibility,
     );
 
     if (discordEnabled && draft.channelId) {
@@ -107,7 +112,7 @@ async function handlePOST(request: NextRequest) {
     }
 
     return NextResponse.json(
-      { id: draft.id, name: draft.name, status: draft.status, webSlug: draft.webSlug, warnings: [], errors: [] },
+      { id: draft.id, name: draft.name, status: draft.status, visibility: draft.visibility, webSlug: draft.webSlug, warnings: [], errors: [] },
       { status: 201 },
     );
   }
@@ -160,6 +165,7 @@ async function handlePOST(request: NextRequest) {
     configWithPool,
     actor.userId,
     player.id,
+    visibility,
   );
 
   if (discordEnabled && draft.channelId) {
@@ -179,6 +185,7 @@ async function handlePOST(request: NextRequest) {
       id: draft.id,
       name: draft.name,
       status: draft.status,
+      visibility: draft.visibility,
       webSlug: draft.webSlug,
       config: draft.config,
       warnings: analysis.warnings,

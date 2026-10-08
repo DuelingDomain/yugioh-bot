@@ -19,6 +19,28 @@ function history(userId: number) {
 }
 function players(userId: number) { return db.prepare("select * from players where user_id=? order by id").all(userId); }
 
+it("links an email-first user holding only grants to an imported Discord user with history", () => {
+  const b = users.ensureDiscord({ discordUserId: discord, displayName: "Imported" });
+  const bPlayerId = player(b.id); history(b.id);
+  const a = users.resolveClerkProfile(profile, now).user;
+  db.prepare("insert into drafts(id,guild_id,name,status,created_by_user_id) values(1,'g','Private','pending',?)").run(b.id);
+  db.prepare("insert into draft_invite_grants(draft_id,user_id) values(1,?)").run(a.id);
+  const outcome = users.resolveClerkProfile({ ...profile, discordUserId: discord }, now);
+  expect(outcome).toMatchObject({ user: { id: b.id, clerkUserId: "user_a", discordUserId: discord }, conflict: null, foldedUserId: a.id });
+  expect(users.findById(a.id)).toBeUndefined();
+  expect(players(b.id)).toEqual([expect.objectContaining({ id: bPlayerId, user_id: b.id })]);
+  expect(db.prepare("select user_id from draft_invite_grants where user_id=?").get(a.id)).toBeUndefined();
+});
+
+it("keeps grants when attaching an unclaimed Discord account to an email-first user", () => {
+  const a = users.resolveClerkProfile(profile, now).user;
+  const host = users.createNonLogin("Host");
+  db.prepare("insert into drafts(id,guild_id,name,status,created_by_user_id) values(1,'g','Private','pending',?)").run(host.id);
+  db.prepare("insert into draft_invite_grants(draft_id,user_id) values(1,?)").run(a.id);
+  expect(users.resolveClerkProfile({ ...profile, discordUserId: discord }, now)).toMatchObject({ user: { id: a.id, discordUserId: discord }, conflict: null, foldedUserId: null });
+  expect(db.prepare("select user_id from draft_invite_grants").get()).toEqual({ user_id: a.id });
+});
+
 it("creates and re-reads a Clerk user without attaching a duplicate-email identity", () => {
   const other = users.ensureDiscord({ discordUserId: discord, displayName: "Other", email: "yugi@example.com", emailVerified: true });
   const outcome = users.resolveClerkProfile(profile, now);

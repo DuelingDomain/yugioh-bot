@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type Database from "better-sqlite3";
 import { loadDraftPool } from "@/lib/tournament-deck";
+import { findDraftReadAccess } from "@yugidraft/shared/services";
 
 /** A draft the caller played in and can build a deck from. */
 export type DraftDeckContext = {
@@ -26,7 +27,7 @@ export type DraftDeckPool = {
 
 /**
  * Finds a completed draft (by web slug or id) and the caller's player in it.
- * 404 unknown draft, 403 caller is not a draft player, 409 draft not completed.
+ * 404 unknown or unreadable draft, 403 reader is not a draft player, 409 draft not completed.
  */
 export function findDraftDeckContext(
   db: Database.Database,
@@ -43,7 +44,7 @@ export function findDraftDeckContext(
         .get(ref.id, guildId)) as
     | { id: number; name: string; status: string; tournament_id: number | null }
     | undefined;
-  if (!row) {
+  if (!row || !findDraftReadAccess(db, row.id, guildId, userId)?.canRead) {
     return { ok: false, response: NextResponse.json({ error: "Draft not found" }, { status: 404 }) };
   }
   const player = db

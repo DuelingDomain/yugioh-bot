@@ -496,6 +496,36 @@ describe("CreateDraftForm: Create", () => {
     expect(body.config.poolSource).toBeFalsy();
   });
 
+  it("offers Private (checked) and Open, and sends visibility private by default", async () => {
+    const stub = stubFetch();
+    render(<CreateDraftForm />);
+    const group = screen.getByRole("group", { name: "Who can join" });
+    expect(within(group).getByRole("radio", { name: /private/i })).toBeChecked();
+    expect(within(group).getByRole("radio", { name: /open/i })).not.toBeChecked();
+    expect(within(group).getByText("Only people with your invite link can see and join")).toBeInTheDocument();
+    expect(within(group).getByText("Listed in Open right now for everyone")).toBeInTheDocument();
+    fireEvent.click(sourceTab("List"));
+    paste("99 Dragon Egg");
+    await screen.findByText(/^Pasted list - 99 cards/);
+    setSmallTable();
+    fireEvent.click(createButton());
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/draft/made"));
+    expect((stub.find("/api/drafts", "POST")[0].body as { visibility: string }).visibility).toBe("private");
+  });
+
+  it("sends visibility open when Open is chosen", async () => {
+    const stub = stubFetch();
+    render(<CreateDraftForm />);
+    fireEvent.click(screen.getByRole("radio", { name: /open/i }));
+    fireEvent.click(sourceTab("List"));
+    paste("99 Dragon Egg");
+    await screen.findByText(/^Pasted list - 99 cards/);
+    setSmallTable();
+    fireEvent.click(createButton());
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/draft/made"));
+    expect((stub.find("/api/drafts", "POST")[0].body as { visibility: string }).visibility).toBe("open");
+  });
+
   it("sends copyLimit false when Limit 3 copies per card is cleared", async () => {
     const stub = stubFetch();
     render(<CreateDraftForm />);

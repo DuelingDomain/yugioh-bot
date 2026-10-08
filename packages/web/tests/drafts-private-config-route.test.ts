@@ -99,10 +99,10 @@ describe("draft config privacy", () => {
     expect(Object.keys(body.config).filter((key) => /seed/i.test(key))).toEqual([]);
     expect(JSON.stringify(body)).not.toContain(secretSeed);
 
-    // Once the draft starts, someone who didn't join can't read it at all.
+    // A private draft is hidden from someone who has neither a seat nor a grant.
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("observer")), discordUserId: fixtureDiscordId("observer") } });
     const observerResponse = await GET(new Request(`http://localhost/api/drafts/${draft.webSlug}`), params);
-    expect(observerResponse.status).toBe(status === "pending" ? 200 : 403);
+    expect(observerResponse.status).toBe(404);
 
     // The host's editor still gets the map, and filtering never alters stored config.
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("creator")), discordUserId: fixtureDiscordId("creator") } });

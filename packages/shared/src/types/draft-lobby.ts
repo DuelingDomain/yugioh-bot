@@ -1,4 +1,4 @@
-import type { Draft, DraftConfig, DraftPlayer } from "./index.js";
+import type { Draft, DraftConfig, DraftPlayer, DraftVisibility } from "./index.js";
 
 // New web drafts use the default; missing lobbySeats in stored config stays
 // legacy/unbounded and cannot auto-start. Manual starts may precede target fill.
@@ -156,6 +156,10 @@ interface DraftDetailResponseBase {
   guildId: string;
   channelId: string | null;
   name: string;
+  visibility: DraftVisibility;
+  canJoin: boolean;
+  /** Present only for the creator; GET /invite lazily supplies the link. */
+  canManageInvite?: true;
   /** Ownership survives Leave; compare this with the viewer's session ID. */
   createdByUserId: number;
   /** Retains existing filtering of assignment maps and any private seeds. */
@@ -223,6 +227,7 @@ export interface DraftPreflightResponse {
 /** POST /api/drafts → 201. New web drafts default missing lobbySeats to 4. */
 export interface DraftCreateRequest {
   name: string;
+  visibility?: DraftVisibility;
   channelId?: string;
   config: DraftConfig;
 }
@@ -231,6 +236,7 @@ export interface DraftCreateResponse extends DraftPreflightResponse, DraftLookup
   id: number;
   name: string;
   status: "pending";
+  visibility: DraftVisibility;
   webSlug?: string;
   /** Legacy theme creation omits config. */
   config?: DraftConfig;

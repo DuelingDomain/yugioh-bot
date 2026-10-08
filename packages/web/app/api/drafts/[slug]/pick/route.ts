@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireWebAccess } from "@/lib/web-access";
+import { draftReadAccess } from "@/lib/draft-access";
 import { env } from "@/lib/env";
 import { createDraftService } from "@yugidraft/shared/services";
 import { buildDraftResponse } from "../helpers";
@@ -31,16 +32,18 @@ export async function POST(
     const actor = await requireWebAccess();
     if (!actor.ok) return actor.response;
 
+    const { slug } = await params;
+    const db = getDb();
+    const guildId = env.discordGuildId;
+    const denied = draftReadAccess(db, slug, guildId, actor.userId);
+    if (denied) return denied;
+
     const body = await request.json();
     const { cardId } = body as { cardId?: unknown };
 
     if (cardId === undefined || cardId === null || typeof cardId !== "number" || !Number.isInteger(cardId)) {
       return NextResponse.json({ error: "cardId is required and must be an integer" }, { status: 400 });
     }
-
-    const { slug } = await params;
-    const db = getDb();
-    const guildId = env.discordGuildId;
 
     const draft = db
       .prepare("select id, guild_id, status from drafts where web_slug = ? and guild_id = ?")

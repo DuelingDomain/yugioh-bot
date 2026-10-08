@@ -6,6 +6,6 @@ import { DRAFT_READ_ACCESS_ERROR, findDraftReadAccess } from "@yugidraft/shared/
 export function draftReadAccess(db: Database.Database, slug: string, guildId: string, userId: number) {
   const access = findDraftReadAccess(db, slug, guildId, userId);
   if (!access) return NextResponse.json({ error: "Draft not found" }, { status: 404 });
-  if (!access.canRead) return NextResponse.json({ error: DRAFT_READ_ACCESS_ERROR }, { status: 403 });
+  if (!access.canRead) return NextResponse.json({ error: DRAFT_READ_ACCESS_ERROR }, { status: 404 });
   return null;
 }

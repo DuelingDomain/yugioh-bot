@@ -1,11 +1,12 @@
 import type Database from "better-sqlite3";
 import type { DraftConfig } from "@yugidraft/shared/types";
 import type { CardArtworkFamily } from "@yugidraft/shared/duels";
+import { findDraftReadAccess } from "@yugidraft/shared/services";
 
 export class CubeArtworkConflict extends Error {}
 
 /** Family must come from the authenticated duel host. Keep cube membership and authored copies. */
-export function swapCubeArtwork(db: Database.Database, cubeId: number, from: number, to: number, family: CardArtworkFamily): void {
+export function swapCubeArtwork(db: Database.Database, cubeId: number, from: number, to: number, family: CardArtworkFamily, userId: number): void {
   if (![from, to].every(code => family.artworks.some(art => art.passcode === code))) {
     throw new Error("Artwork must be an engine-known member of the same card family");
   }
@@ -13,11 +14,14 @@ export function swapCubeArtwork(db: Database.Database, cubeId: number, from: num
     if (!db.prepare("select 1 from cube_cards where cube_id = ? and catalog_card_id = ?").get(cubeId, from)) {
       throw new Error("Cube card not found");
     }
-    const blocking = db.prepare(`select d.name, d.web_slug as slug, d.status from drafts d where d.guild_id = (select guild_id from cubes where id = ?) and d.status in ('pending', 'active') and (
+    const blocking = db.prepare(`select d.id, d.guild_id as guildId, d.name, d.web_slug as slug, d.status from drafts d where d.guild_id = (select guild_id from cubes where id = ?) and d.status in ('pending', 'active') and (
       exists (select 1 from draft_player_cube pc where pc.draft_id = d.id and pc.cube_id = ?)
       or exists (select 1 from json_each(d.config_json, '$.allowedCubeIds') allowed where allowed.value = ?)
-    ) order by d.id limit 1`).get(cubeId, cubeId, cubeId) as { name: string; slug: string | null; status: string } | undefined;
+    ) order by d.id limit 1`).get(cubeId, cubeId, cubeId) as { id: number; guildId: string; name: string; slug: string | null; status: string } | undefined;
     if (blocking) {
+      if (!findDraftReadAccess(db, blocking.id, blocking.guildId, userId)?.canRead) {
+        throw new CubeArtworkConflict("Artwork cannot change while this cube is used by a pending or active draft. Finish or cancel that draft first.");
+      }
       const label = blocking.slug ? `"${blocking.name}" (${blocking.slug})` : `"${blocking.name}"`;
       throw new CubeArtworkConflict(`Artwork cannot change while this cube is used by the ${blocking.status} draft ${label}. Finish or cancel that draft first.`);
     }

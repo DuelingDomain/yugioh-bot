@@ -71,6 +71,16 @@ beforeEach(() => {
 afterEach(() => db.close());
 
 describe("deleteUserAccount", () => {
+  it("removes a user holding only invite grants and cascades those grants", () => {
+    exec(`insert into users(id,clerk_user_id,username,display_name) values(3,'user_three','three','Three');
+      insert into draft_invite_grants(draft_id,user_id) values(1,2),(1,3);`);
+    expect(previewUserDeletion(db, 3)).toMatchObject({ mode: "removed" });
+    expect(deleteUserAccount(db, 3)).toMatchObject({ mode: "removed", counts: { users: 1 } });
+    expect(db.prepare("select id from users where id=3").get()).toBeUndefined();
+    expect(db.prepare("select draft_id,user_id from draft_invite_grants").all()).toEqual([{ draft_id: 1, user_id: 2 }]);
+    expect(db.prepare("select id from drafts").get()).toEqual({ id: 1 });
+    expect(db.pragma("foreign_key_check")).toEqual([]);
+  });
   it("is exported from the services index", () => {
     expect(services.deleteUserAccount).toBe(deleteUserAccount);
   });

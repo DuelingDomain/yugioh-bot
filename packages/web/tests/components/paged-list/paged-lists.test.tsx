@@ -58,7 +58,7 @@ describe("DraftsList load more", () => {
     expect(screen.getByRole("link", { name: /Draft 2/ })).toHaveTextContent("Aug 2");
     expect(screen.queryByRole("button", { name: /load more/i })).toBeNull();
     const end = screen.getByText("All 3 drafts shown");
-    expect(end).toHaveFocus();
+    await waitFor(() => expect(end).toHaveFocus());
     expect(screen.getByRole("status")).toHaveTextContent("Loaded 2 more drafts");
   });
 
@@ -211,7 +211,7 @@ describe("TournamentsList load more", () => {
     expect(fetchMock.mock.calls[0][0]).toBe("/api/tournaments?cursor=t1");
     expect(screen.getByRole("link", { name: /Cup 1/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /load more/i })).toBeNull();
-    expect(screen.getByText("All 3 tournaments shown")).toHaveFocus();
+    await waitFor(() => expect(screen.getByText("All 3 tournaments shown")).toHaveFocus());
   });
 
   it("draws an appended running tournament without a round strip or duel action", async () => {

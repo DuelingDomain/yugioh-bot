@@ -1,12 +1,15 @@
 "use client";
 
 import { parseUserId } from "@/lib/user-id";
+import { signInHref } from "@/lib/draft-invite";
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import type { DraftDetailResponse } from "@yugidraft/shared/types";
 import { DangerConfirm } from "@/components/draft/danger-confirm";
 import { DraftFrame } from "@/components/draft/draft-frame";
+import { DraftInviteGate } from "@/components/draft/invite-gate";
+import { LobbyBarSub } from "@/components/draft/visibility/visibility-badge";
 import { DraftManageView } from "@/components/draft/draft-manage-view";
 import { DraftState } from "@/components/draft/draft-state";
 import { DraftSummaryView } from "@/components/draft/draft-summary-view";
@@ -40,8 +43,13 @@ type DraftData = DraftDetailResponse & {
 export default function DraftDetailPage() {
   const params = useParams();
   const slug = typeof params.slug === "string" ? params.slug : "";
-  // A new address mounts a new body, so the last draft never shows for a frame under the new slug.
-  return <DraftDetailBody key={slug} slug={slug} />;
+  // A new address mounts a new body, so the last draft never shows for a frame under the new slug. The invite gate comes
+  // first: with `?invite=` it redeems the link before the body reads the draft or asks for a live connection.
+  return (
+    <DraftInviteGate key={slug} slug={slug}>
+      <DraftDetailBody slug={slug} />
+    </DraftInviteGate>
+  );
 }
 
 function DraftDetailBody({ slug }: { slug: string }) {
@@ -101,15 +109,36 @@ function DraftDetailBody({ slug }: { slug: string }) {
     };
   }, [slug, setFromServer]);
 
+  const clearProtectedState = useCallback(() => {
+    setFromServer({
+      slug,
+      packRound: 1,
+      pickStep: 1,
+      currentPack: [],
+      myPool: [],
+      seats: [],
+      timerSeconds: 0,
+      isMyTurn: false,
+      completed: false,
+      pickSeconds: 60,
+    });
+    draftRef.current = null;
+    setDraft(null);
+  }, [setFromServer, slug]);
+
   const loadDraft = useCallback(async (generation: number) => {
     try {
       const res = await fetch(`/api/drafts/${slug}`);
       if (generation !== generationRef.current || !aliveRef.current) return;
       if (!res.ok) {
         if (res.status === 401) {
-          router.push("/login");
+          // Sign in again and come back to this exact address.
+          router.push(signInHref());
           return;
         }
+        // Not found (a missing draft and a private one look the same) or closed to this viewer: nothing of the draft
+        // stays in the shared store, so a room that was open a moment ago cannot show through.
+        if (res.status === 404 || res.status === 403) clearProtectedState();
         // A server fault on a refresh keeps the room on screen; the next refresh brings it back up to date.
         if (res.status >= 500 && loadedRef.current) return;
         setError({ status: res.status });
@@ -143,7 +172,7 @@ function DraftDetailBody({ slug }: { slug: string }) {
     } catch {
       if (generation === generationRef.current && aliveRef.current && !loadedRef.current) setError({ status: null });
     }
-  }, [setFromServer, slug, router]);
+  }, [setFromServer, slug, router, clearProtectedState]);
 
   /**
    * Read the draft. Reads never overlap: a call made while one is running waits for it and then runs one more read,
@@ -178,7 +207,9 @@ function DraftDetailBody({ slug }: { slug: string }) {
     onRefresh: () => void fetchDraft(),
   });
 
-  useDraftWebsocket(slug, {
+  // Once the draft is not found or closed to this viewer there is nothing to keep live: the feed and the poll stop.
+  const liveSlug = error?.status === 404 || error?.status === 403 ? "" : slug;
+  useDraftWebsocket(liveSlug, {
     onStatusChange: (status) => {
       if (status === DRAFT_STATUS.completed) return;
       void fetchDraft();
@@ -191,7 +222,7 @@ function DraftDetailBody({ slug }: { slug: string }) {
     },
   });
   useDraftCountdown();
-  useDraftExpiryResync(slug);
+  useDraftExpiryResync(liveSlug);
   usePoolImagePrefetch(slug, draft?.status === "active");
 
   useEffect(() => {
@@ -452,7 +483,7 @@ function ThemeTablePage({
   return (
     <DraftFrame
       title="Theme Table"
-      sub={draft.name}
+      sub={<LobbyBarSub name={draft.name} visibility={draft.visibility} />}
       back={{ href: "/drafts", label: "Drafts" }}
       actions={
         isCreator && !confirm.open ? (

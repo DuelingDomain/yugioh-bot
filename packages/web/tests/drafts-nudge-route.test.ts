@@ -14,7 +14,8 @@ vi.mock("@/lib/session-identity", async () => {
 vi.mock("@/lib/db", () => ({ getDb: () => database.current! }));
 vi.mock("@/lib/env", () => ({ env: { discordGuildId: "guild-1", get discordBotEnabled() { return process.env.DISCORD_BOT_ENABLED === "1"; } } }));
 vi.mock("@/lib/notify", () => ({ announcer: { announce } }));
-vi.mock("@yugidraft/shared/services", () => ({
+vi.mock("@yugidraft/shared/services", async () => ({
+  ...await import("../../shared/src/services/index"),
   isTestBotDiscordId: (id: string | null) => id?.startsWith("bot_player_dev_") ?? false, createDraftLobbyService,
 }));
 vi.mock("@yugidraft/shared/types", () => import("../../shared/src/types/index"));
@@ -106,7 +107,7 @@ describe("draft Nudge route", () => {
   it("rejects malformed JSON", async () => { expect((await nudge("{", true)).status).toBe(400); });
 
   it.each([
-    ["session", 401], ["session-outage", 503], ["other-host", 403], ["cross-guild", 404], ["missing", 404], ["active", 409],
+    ["session", 401], ["session-outage", 503], ["other-host", 404], ["cross-guild", 404], ["missing", 404], ["active", 409],
   ])("enforces %s boundary", async (boundary, status) => {
     if (boundary === "session") auth.mockResolvedValue(null);
     if (boundary === "session-outage") auth.mockRejectedValue(new Error("Clerk unavailable"));

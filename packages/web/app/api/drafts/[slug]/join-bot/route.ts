@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireWebAccess } from "@/lib/web-access";
+import { draftReadAccess } from "@/lib/draft-access";
 import { env } from "@/lib/env";
 import { createDraftService, createPlayerService } from "@yugidraft/shared/services";
 import { draftLobbyErrorResponse } from "../helpers";
@@ -51,6 +52,8 @@ export async function POST(
     const { slug } = await params;
     const db = getDb();
     const guildId = env.discordGuildId;
+    const denied = draftReadAccess(db, slug, guildId, actor.userId);
+    if (denied) return denied;
 
     const draft = db
       .prepare("select id, guild_id, status, created_by_user_id from drafts where web_slug = ? and guild_id = ?")

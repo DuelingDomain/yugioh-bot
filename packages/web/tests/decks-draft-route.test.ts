@@ -126,10 +126,35 @@ describe("draft decks through /api/decks", () => {
       expect((await refused.json()).deckId).toBe(winner);
     });
 
-    it("403 when the caller is not a draft player", async () => {
+    it("404 when the caller cannot read the draft supplied by id", async () => {
       const { draftId } = await seed();
       auth.mockResolvedValue({ user: { id: String(fixtureUserId("outsider")), discordUserId: fixtureDiscordId("outsider"), name: "Kaiba" } });
-      expect((await post(deckBody({ main: main(40) }, { draftId }))).status).toBe(403);
+      const response = await post(deckBody({ main: main(40) }, { draftId }));
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({ error: "Draft not found" });
+    });
+
+    it.each(["pending", "active"])("hides an unreadable %s draft before completion checks", async status => {
+      const { draftId } = await seed({ status });
+      auth.mockResolvedValue({ user: { id: String(fixtureUserId("outsider")), discordUserId: null } });
+      const response = await post(deckBody({ main: main(40) }, { draftId }));
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({ error: "Draft not found" });
+    });
+
+    it.each(["creator", "grant"])("keeps 403 for a %s who can read but has no draft seat, even without a slug", async role => {
+      const { draftId } = await seed();
+      const { getDb } = await import("../src/lib/db");
+      getDb().prepare("update drafts set web_slug=null where id=?").run(draftId);
+      if (role === "creator") {
+        getDb().prepare("update drafts set created_by_user_id=? where id=?").run(fixtureUserId("outsider"), draftId);
+      } else {
+        getDb().prepare("insert into draft_invite_grants(draft_id,user_id) values(?,?)").run(draftId, fixtureUserId("outsider"));
+      }
+      auth.mockResolvedValue({ user: { id: String(fixtureUserId("outsider")), discordUserId: null } });
+      const response = await post(deckBody({ main: main(40) }, { draftId }));
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ error: "Not a participant" });
     });
 
     it("404 for an unknown draft", async () => {

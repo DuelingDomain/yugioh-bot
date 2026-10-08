@@ -51,12 +51,15 @@ export interface DraftConfig {
   draftType?: "theme" | "booster" | "any";
 }
 
+export type DraftVisibility = "open" | "private";
+
 export interface Draft {
   id: number;
   guildId: string;
   channelId: string | null;
   name: string;
   status: "pending" | "active" | "cancelled" | "completed";
+  visibility: DraftVisibility;
   createdByUserId: number;
   config: DraftConfig;
   currentPackRound: number;

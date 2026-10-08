@@ -186,7 +186,10 @@ export interface ThemeTableCardProps {
   blocker: string | null;
   onJoin?: () => Promise<void>;
   onExpire?: () => void;
-  onInvite: () => void;
+  /** The server's `canJoin`. Default on. */
+  canJoin?: boolean;
+  /** Open the invite dialog. Absent when the viewer has no link to share (a private draft they do not host). */
+  onInvite?: () => void;
   inviteRef?: React.Ref<HTMLButtonElement>;
 }
 
@@ -194,7 +197,7 @@ export interface ThemeTableCardProps {
  * The table card: the rules in plain rows, what is wrong with the setup, the seat numbers, and the lobby actions
  * (Ready, Start, the start box, auto-start). The host can edit the theme rules here; nobody else can.
  */
-export function ThemeTableCard({ name, config, lobby, players, cubeIds, table, controller, isHost, isMember, blocker, onJoin, onExpire, onInvite, inviteRef }: ThemeTableCardProps) {
+export function ThemeTableCard({ name, config, lobby, players, cubeIds, table, controller, isHost, isMember, blocker, onJoin, canJoin = true, onExpire, onInvite, inviteRef }: ThemeTableCardProps) {
   const [editing, setEditing] = React.useState(false);
   const selection = config.themeSelection ?? "player_pick";
   const unique = config.uniqueThemes ?? true;
@@ -249,7 +252,9 @@ export function ThemeTableCard({ name, config, lobby, players, cubeIds, table, c
 
       <SeatMeter lobby={lobby} />
       <div className={cn(styles.cardActs)}>
-        <button ref={inviteRef} type="button" className={svButtonClass("ghost", { wide: true })} onClick={onInvite}>Invite players</button>
+        {onInvite && (
+          <button ref={inviteRef} type="button" className={svButtonClass("ghost", { wide: true })} onClick={onInvite}>Invite players</button>
+        )}
         <LobbyAutoStart lobby={lobby} controller={controller} isHost={isHost} />
         <LobbyActions
           lobby={lobby}
@@ -258,6 +263,7 @@ export function ThemeTableCard({ name, config, lobby, players, cubeIds, table, c
           isHost={isHost}
           isMember={isMember}
           onJoin={onJoin}
+          canJoin={canJoin}
           onExpire={onExpire}
           blocker={blocker}
         />

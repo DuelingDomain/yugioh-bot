@@ -98,6 +98,12 @@ export function mergeUsers(ctx: OpsContext, sourceId: number, targetId: number) 
       conflicts: [] as Conflict[], manualReview: manualReferences(ctx.db, sourcePlayers),
       foreignKeyViolations: [] as unknown[],
     };
+    // Invite grants are access permissions, not history. Report them separately
+    // and combine overlapping grants instead of treating them as merge conflicts.
+    const grantRowIds = ctx.db.prepare<[number], { id: number }>(
+      "select rowid as id from draft_invite_grants where user_id=? order by rowid",
+    ).all(sourceId).map(row => row.id);
+    if (grantRowIds.length) report.affectedRows.push({ table: "draft_invite_grants", column: "user_id", rowIds: grantRowIds });
     const transformations = new Map<string, Map<string, string>>();
     for (const [references, ownership] of [[ownershipReferences, true], [playerReferences, false]] as const) {
       for (const [table, refs] of Object.entries(references)) {
@@ -148,6 +154,9 @@ export function mergeUsers(ctx: OpsContext, sourceId: number, targetId: number) 
         if (mappings.some(pair => pair.source === player.id)) ctx.db.prepare("delete from players where id=?").run(player.id);
         else ctx.db.prepare("update players set user_id=? where id=?").run(targetId, player.id);
       }
+      ctx.db.prepare(`insert or ignore into draft_invite_grants(draft_id,user_id,created_at)
+        select draft_id,?,created_at from draft_invite_grants where user_id=?`).run(targetId, sourceId);
+      ctx.db.prepare("delete from draft_invite_grants where user_id=?").run(sourceId);
       const clerk = target.clerkUserId ?? source.clerkUserId;
       ctx.db.prepare("update users set clerk_user_id=null,discord_user_id=null where id=?").run(sourceId);
       ctx.db.prepare("update users set clerk_user_id=?,discord_user_id=?,updated_at=current_timestamp,synced_at=null where id=?").run(clerk, discord, targetId);
