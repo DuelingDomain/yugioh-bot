@@ -14,7 +14,7 @@ import { CoinTossFx } from "./coin-toss-fx";
 import { useCoinPlaying, useHeldTossLogIds, withoutHeldTossLines } from "./coin-toss-lock";
 import { DuelFeedback } from "./feedback";
 import { MoveSourceBoundary } from "./fx-boundary";
-import { CardInspector, type InspectTarget } from "./inspector";
+import { CardInspector, cardScrollerProps, type InspectTarget } from "./inspector";
 import { DuelLogLine, useLogCategories } from "./log-line";
 import { useDuelPreferences } from "./preferences";
 import { buildReplayTimeline, type ReplayLogEntry } from "./replay-timeline";
@@ -259,7 +259,7 @@ export function DuelReplayView({ slug }: { slug: string }) {
         <aside className={styles.inspector}>
           <span className={styles.chamfer} aria-hidden="true" />
           {tabs(false)}
-          <div className={styles.sideContent} role="region" aria-label={pane === "card" ? "Card" : "Duel log"}>{sideContent}</div>
+          <div className={styles.sideContent} role="region" aria-label={pane === "card" ? "Card" : "Duel log"} {...cardScrollerProps(pane === "card")}>{sideContent}</div>
         </aside>
         <section className={styles.boardColumn} aria-label="Replay field">
           <div className={styles.board} ref={boardRef}>
