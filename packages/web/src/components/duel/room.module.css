@@ -672,7 +672,8 @@
   --hud-top: calc(36px + 3dvh);
   /* Your hand is the last thing at the bottom, so the board's frame ends 5px above the screen edge. */
   --hud-bottom: 5px;
-  --hud-left: 156px;
+  /* The card peek always stands in the left column, right of the dock: the board starts right of it (see --pv-col-w in table/grid-hud.module.css). */
+  --hud-left: calc(72px + clamp(220px, 14vw, 284px) + 12px);
   /* The corner stack is a little narrower than the gutter right of the board at 1280px. */
   --hud-corner-w: 168px;
   /* The Deck Master plate sits at the bottom of the left margin, as no bar is under it. */

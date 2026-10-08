@@ -604,45 +604,23 @@ describe("the pinned card peek of the 1v1 room", () => {
       pin();
       expect(peek().getAttribute("data-side")).toBe("left");
       expect(peek().getAttribute("data-anchor")).toBe("bottom");
-      expect(css("--pv-w")).toBe("320px");
+      expect(css("--pv-w")).toBe("220px");
       // The band runs from 50 (under the header pills) to 8 px above the layer end.
       expect(css("--pv-bottom")).toBe("8px");
       expect(css("--pv-max-h")).toBe("662px");
     });
 
-    it("moves to the right when the clicked card is under the left panel (a card of the left seat, or Jinzo in the EMZ)", () => {
+    it("never goes to the right: a clicked card under the left panel does not move it (one place, the same for every card)", () => {
       layout({ left: 100, right: 180, top: 400, bottom: 560 });
-      mount();
-      pin();
-      expect(peek().getAttribute("data-side")).toBe("right");
-    });
-
-    it("keeps the right edge place inside the window when the layer is wider than the window", () => {
-      Object.defineProperty(document.documentElement, "clientWidth", { configurable: true, value: 1180 });
-      try {
-        layout({ left: 100, right: 180, top: 400, bottom: 560 });
-        mount();
-        pin();
-        expect(peek().getAttribute("data-side")).toBe("right");
-        // The layer ends at 1280, the window at 1180: the panel keeps its usual 16 px gap to the window edge.
-        expect(css("--pv-right")).toBe("116px");
-      } finally { delete (document.documentElement as { clientWidth?: number }).clientWidth; }
-    });
-
-    it("has no window offset when the layer fits the window", () => {
-      layout({ left: 100, right: 180, top: 400, bottom: 560 });
-      mount();
-      pin();
-      expect(peek().getAttribute("data-side")).toBe("right");
-      expect(css("--pv-right")).toBe("");
-    });
-
-    it("keeps the left when the clicked card is under the right edge", () => {
-      layout({ left: 1000, right: 1080, top: 400, bottom: 560 });
       mount();
       pin();
       expect(peek().getAttribute("data-side")).toBe("left");
+      expect(css("--pv-right")).toBe("");
+      expect(css("--pv-bottom")).toBe("8px");
     });
+
+
+
 
     it("is the same window for the hover and the pin: the same place and size, with no wide layout", () => {
       layout({ left: 900, right: 980, top: 300, bottom: 420 });
@@ -676,16 +654,19 @@ describe("the pinned card peek of the 1v1 room", () => {
       } finally { tower.remove(); }
     });
 
-    it("takes the right edge when the chain tower and the chain panel cut the left column into short bands", () => {
+    it("stays on the left, in the tallest band, when the chain tower and the chain panel cut the left column into short bands", () => {
       layout({ left: 900, right: 980, top: 300, bottom: 420 });
       const tower = part({ "data-testid": "chain-tower" }, TOWER);
       const panel = part({ "data-chain-panel": "" }, { left: 164, right: 456, top: 446, bottom: 697 });
       try {
         mount();
         hover();
-        expect(peek().getAttribute("data-side")).toBe("right");
+        expect(peek().getAttribute("data-side")).toBe("left");
+        // The bands: 50-220 above the tower, 360-434 between the two, and 709-712 under the panel. The tallest one wins.
+        expect(css("--pv-max-h")).toBe("170px");
         fireEvent.click(screen.getByTestId("field-pick"));
-        expect(peek().getAttribute("data-side")).toBe("right");
+        expect(peek().getAttribute("data-side")).toBe("left");
+        expect(css("--pv-max-h")).toBe("170px");
       } finally { tower.remove(); panel.remove(); }
     });
 
@@ -703,31 +684,33 @@ describe("the pinned card peek of the 1v1 room", () => {
       } finally { plate.remove(); master.remove(); }
     });
 
-    it("fits the free side area beside the board: a narrower window, the same one on hover and pin", () => {
+    it("is never narrower than the column minimum, with the board beside it: the same one on hover and pin", () => {
       layout({ left: 900, right: 980, top: 300, bottom: 420 });
-      // The board starts at x 340: 340 - 12 (gap) - 72 (the left edge) = 256 px of room on the left, and the right edge has more room too.
-      const board = part({ "data-zones": "1:4:0" }, { left: 340, right: 940, top: 100, bottom: 500 });
+      // The board starts at x 300: 300 - 12 (gap) - 72 (the left edge) = 216 px of room, under the 220 px minimum.
+      const board = part({ "data-zones": "1:4:0" }, { left: 300, right: 940, top: 100, bottom: 500 });
       try {
         mount();
         hover();
         expect(peek().getAttribute("data-side")).toBe("left");
-        expect(css("--pv-w")).toBe("256px");
+        expect(css("--pv-w")).toBe("220px");
         fireEvent.click(screen.getByTestId("field-pick"));
         expect(peek().getAttribute("data-side")).toBe("left");
-        expect(css("--pv-w")).toBe("256px");
+        expect(css("--pv-w")).toBe("220px");
       } finally { board.remove(); }
     });
 
-    it("goes to the right edge when the left edge is covered by the board (an FFA grid with a life-point plate there)", () => {
+    it("stands above a life-point plate in the left column instead of going to the right (an FFA grid)", () => {
       layout({ left: 900, right: 980, top: 300, bottom: 420 });
       const zones = part({ "data-zones": "1:4:0" }, { left: 300, right: 1000, top: 100, bottom: 600 });
-      const plate = part({ "data-lp-seat": "1" }, { left: 150, right: 320, top: 500, bottom: 600 });
+      const plate = part({ "data-holo": "1" }, { left: 150, right: 320, top: 500, bottom: 600 });
       try {
         mount();
         pin();
-        // The left room is 66 px (under the minimum, so the window would cover the plate); the right edge has 1280 - 16 - 1000 - 12 = 252 px.
-        expect(peek().getAttribute("data-side")).toBe("right");
-        expect(css("--pv-w")).toBe("252px");
+        // The plate (500) less the 12 px gap ends the band; the board is 8 px right of the column, so the panel keeps its minimum width.
+        expect(peek().getAttribute("data-side")).toBe("left");
+        expect(css("--pv-w")).toBe("220px");
+        expect(css("--pv-max-h")).toBe("438px");
+        expect(css("--pv-bottom")).toBe("232px");
       } finally { zones.remove(); plate.remove(); }
     });
 
@@ -766,69 +749,18 @@ describe("the pinned card peek of the 1v1 room", () => {
       } finally { bar.remove(); }
     });
 
-    it("does not keep the hover place when it covers the clicked card (the board is under the other side too): the places are ranked again", () => {
-      layout({ left: 100, right: 180, top: 400, bottom: 560 });
-      const board = part({ "data-zones": "" }, { left: 850, right: 1280, top: 0, bottom: 720 });
-      try {
-        mount();
-        hover();
-        expect(peek().getAttribute("data-side")).toBe("left");
-        fireEvent.click(screen.getByTestId("field-pick"));
-        expect(peek().getAttribute("data-pinned")).toBe("true");
-        expect(peek().getAttribute("data-side")).toBe("right");
-      } finally { board.remove(); }
-    });
 
-    it("takes the right edge when the left one covers the board or a kept part, even for a short text", () => {
+    it("stays on the left when a kept part covers the whole column (the least bad place, never the other side)", () => {
       layout({ left: 900, right: 980, top: 300, bottom: 420 });
       const master = part({ "data-testid": "hud-master" }, { left: 14, right: 400, top: 20, bottom: 712 });
       try {
         mount();
         hover();
-        expect(peek().getAttribute("data-side")).toBe("right");
+        expect(peek().getAttribute("data-side")).toBe("left");
       } finally { master.remove(); }
     });
 
-    it("places the panel again when a camera move puts the clicked card under it", () => {
-      vi.useFakeTimers();
-      try {
-        const box = { left: 900, right: 980, top: 300, bottom: 420 };
-        layout(box);
-        mount();
-        pin();
-        expect(peek().getAttribute("data-side")).toBe("left");
-        // The camera moves the card to the left, under the panel.
-        box.left = 100; box.right = 180; box.top = 400; box.bottom = 560;
-        act(() => { vi.advanceTimersByTime(600); });
-        expect(peek().getAttribute("data-side")).toBe("right");
-      } finally { vi.useRealTimers(); }
-    });
 
-    it("stops a right panel above the visible controls at the bottom right, not above hidden items", () => {
-      layout({ left: 100, right: 180, top: 400, bottom: 560 });
-      mount();
-      const corner = screen.getByTestId("hud-corner");
-      const box = (top: number, bottom: number) => () => ({ left: 1100, right: 1270, top, bottom, width: 170, height: bottom - top, x: 1100, y: top, toJSON: () => ({}) }) as DOMRect;
-      const added: HTMLElement[] = [];
-      const child = (top: number, bottom: number, style: string) => {
-        const node = document.createElement("div");
-        node.setAttribute("style", style);
-        node.getBoundingClientRect = box(top, bottom);
-        corner.appendChild(node);
-        added.push(node);
-      };
-      // Hidden items higher up in the column (opacity 0, hidden), and the shown controls below them.
-      child(300, 400, "opacity: 0");
-      child(350, 450, "visibility: hidden");
-      child(520, 712, "");
-      // The existing children of the stub corner have no size in jsdom, so they do not count.
-      try {
-        pin();
-        expect(peek().getAttribute("data-side")).toBe("right");
-        // The panel runs from 50 (under the header) to the controls at 520, less the 12 px gap.
-        expect(peek().style.getPropertyValue("--pv-max-h")).toBe("458px");
-      } finally { added.forEach((node) => node.remove()); }
-    });
 
     it("takes the pointer in CSS, so a click on a pinned panel never reaches a card under it", () => {
       // jsdom ignores CSS: read the rule. (The Playwright check with a target prompt open lives in the manual run.)
