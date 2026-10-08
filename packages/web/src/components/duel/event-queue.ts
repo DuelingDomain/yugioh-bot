@@ -309,6 +309,22 @@ export function seatFieldTurn(dest: HTMLElement): number {
 }
 
 /**
+ * The screen turn a card departing from `from` starts at, where the seat's own turn decides it; null when the plain
+ * side-based turn is right. A rival hand rail of a multiplayer table is turned with its seat field (every card in it
+ * shares that turn: 180, 170, 0, ...). A card leaving a field zone, a pile or a Graveyard adds its seat field's turn to
+ * its own side/Defense turn, so `sideTurn` is that turn without the seat.
+ */
+export function departureTurn(from: DuelZoneRef | undefined | null, sideTurn: number): number | null {
+  if (!from || typeof document === "undefined" || !document.querySelector("[data-seat-field]")) return null;
+  if (from.location === LOCATION_HAND) {
+    const rail = document.querySelector<HTMLElement>(`[data-hand-seat="${from.controller}"]`);
+    return rail && rail.dataset.side === "opp" ? screenPose(rail)?.turn ?? null : null;
+  }
+  const zone = findMoveZoneElement(from);
+  return zone ? sideTurn + seatFieldTurn(zone) : null;
+}
+
+/**
  * The card's turn on screen when it rests in `dest`: the zone's own half turn (far side), a quarter for Defense Position,
  * and the turn of the seat field around it. A seat of a multiplayer table is rotated as a whole, live (also while the
  * table regroups for a face-off), so the zone's side alone names the wrong way. A hand card adds its fan angle instead.

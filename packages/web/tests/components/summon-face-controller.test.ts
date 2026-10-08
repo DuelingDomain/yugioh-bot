@@ -12,7 +12,7 @@ vi.mock("@/components/duel/attack-fx", async (original) => ({
   },
 }));
 
-import { moveDestinationRotation, nearestTurn, seatFieldTurn } from "@/components/duel/event-queue";
+import { departureTurn, moveDestinationRotation, nearestTurn, seatFieldTurn } from "@/components/duel/event-queue";
 import { retargetFlight } from "@/components/duel/live-flight";
 import { flipCopyBase } from "@/components/duel/position-fx";
 import { copyTurn } from "@/components/duel/summon-fx";
@@ -163,5 +163,64 @@ describe("a flight reads the seat turn only when its zone moves", () => {
     vi.advanceTimersByTime(17);
     flight.stop();
     expect(pose.calls).toBe(3);
+  });
+});
+
+describe("a departing card starts at the turn its seat gives it", () => {
+  const hand = { controller: 3, location: 0x02, sequence: 0 };
+
+  function rail(side: "you" | "opp", seat = 3): HTMLElement {
+    const node = document.createElement("div");
+    node.dataset.handSeat = String(seat);
+    node.dataset.side = side;
+    document.body.appendChild(node);
+    return node;
+  }
+  function field(): void {
+    const node = document.createElement("div");
+    node.dataset.seatField = "3";
+    document.body.appendChild(node);
+  }
+
+  it("takes the live turn of a rival hand rail in a seat table (FFA4 seat 3 and a turned FFA3 rival)", () => {
+    field();
+    rail("opp");
+    pose.turn = 0;
+    expect(departureTurn(hand, 180)).toBe(0);
+    pose.turn = 170;
+    expect(departureTurn(hand, 180)).toBe(170);
+    pose.turn = -170;
+    expect(departureTurn(hand, 180)).toBe(-170);
+  });
+
+  it("leaves a card of the viewer's own hand and a 1v1 table to the side turn, without a probe", () => {
+    rail("you", 0);
+    pose.turn = 90;
+    expect(departureTurn({ ...hand, controller: 0 }, 0)).toBeNull();
+    field();
+    expect(departureTurn({ ...hand, controller: 0 }, 0)).toBeNull();
+    document.body.innerHTML = "";
+    rail("opp", 1);
+    pose.calls = 0;
+    expect(departureTurn({ ...hand, controller: 1 }, 180)).toBeNull();
+    expect(pose.calls).toBe(0);
+  });
+
+  it("adds the seat turn to the side turn of a card that leaves a field zone", () => {
+    const zoneNode = zone("you");
+    zoneNode.dataset.zones = "2:4:1";
+    pose.turn = -170;
+    expect(departureTurn({ controller: 2, location: 0x04, sequence: 1 }, 90)).toBe(-80);
+  });
+
+  it("flies the short way: the end turn lands within 1 degree of the start", () => {
+    field();
+    rail("opp");
+    for (const turn of [0, 180, 170, -170]) {
+      pose.turn = turn;
+      const start = departureTurn(hand, 180)!;
+      const end = moveDestinationRotation(zone("you"), false, start);
+      expect(Math.abs(end - start)).toBeLessThan(1);
+    }
   });
 });

@@ -24,7 +24,7 @@ import { duelFxClock } from "./fx-clock";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { DuelCardInfo, DuelEvent } from "@yugidraft/shared/duels";
 import { cardArtUrl, isDefenseAt, LOCATION_DECK, LOCATION_EXTRA, LOCATION_GRAVE, LOCATION_HAND, LOCATION_REMOVED, TYPE_PENDULUM } from "./constants";
-import { collectFreshEvents, findMoveDestination, followMoveDestination, handArrivalTarget, maxEventId, moveDestinationRect, moveDestinationRotation } from "./event-queue";
+import { collectFreshEvents, departureTurn, findMoveDestination, followMoveDestination, handArrivalTarget, maxEventId, moveDestinationRect, moveDestinationRotation } from "./event-queue";
 import {
   getMovePlan,
   planMoves,
@@ -367,7 +367,10 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
     // A ghost that stands in at its source waits there (first keyframe held) until its flight starts.
     const delay = standsInAtSource(plan) ? Math.max(0, plan.startAt - duelFxClock.now()) : 0;
     const endDefense = dest?.dataset.defense === "true";
-    const startTurn = source ? cardTurn(source.side, plan.event.fromPosition == null ? source.defense : isDefenseAt(plan.event.from?.location, plan.event.fromPosition)) : 0;
+    // A departing card starts at the turn its seat gives it on screen (a rival hand rail or field of a multiplayer table
+    // is turned), so it does not spin to the turn of its zone in flight.
+    const sideTurn = source ? cardTurn(source.side, plan.event.fromPosition == null ? source.defense : isDefenseAt(plan.event.from?.location, plan.event.fromPosition)) : 0;
+    const startTurn = source ? departureTurn(plan.event.from, sideTurn) ?? sideTurn : 0;
     // The card rests turned as its seat field turns it on screen, and flies to that turn the short way.
     const endTurn = dest ? moveDestinationRotation(dest, false, startTurn) : cardTurn(target.side, endDefense);
     let liveFlight: ReturnType<typeof retargetFlight> | undefined;
