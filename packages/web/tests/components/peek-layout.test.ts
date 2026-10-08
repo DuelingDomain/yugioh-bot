@@ -47,6 +47,22 @@ describe("the card peek column", () => {
     for (const place of places) expect(place.top >= tower.bottom || place.top + place.maxH <= tower.top).toBe(true);
   });
 
+  it("lists the short bands after the tall ones, still in the left column", () => {
+    // The tower cuts the column: 50-158 (108 px, short) and 342-688 (346 px, tall) above a bar; under the bar is no room.
+    const tower = box(14, 170, 162, 330);
+    const bar = box(14, 700, 162, 704);
+    const places = peekPlaces(layer(1366, 720), { board: [], keep: [tower, bar] });
+    expect(places.map((place) => [place.top, place.maxH])).toEqual([[342, 346], [50, 108]]);
+    for (const place of places) expect(place.side).toBe("left");
+  });
+
+  it("uses the tallest short bands, tallest first, when no band is tall", () => {
+    const places = peekPlaces(layer(1366, 600), { board: [], keep: [box(14, 130, 162, 200), box(14, 300, 162, 320), box(14, 560, 162, 570)] });
+    expect(places.map((place) => place.maxH)).toEqual([...places.map((place) => place.maxH)].sort((a, b) => b - a));
+    expect(places.length).toBeGreaterThan(0);
+    for (const place of places) expect(place.side).toBe("left");
+  });
+
   it("keeps a gap to the board when the board is nearer than the column", () => {
     const [first] = peekPlaces(layer(1920, 1080), { board: [box(330, 38, 1900, 1042)], keep: [] });
     expect(first.width).toBe(330 - GAP_PX - EDGE_LEFT_PX);
@@ -77,12 +93,27 @@ describe("what the peek stays clear of", () => {
     document.body.append(node);
   };
 
-  it("keeps clear of the chain panel, the life-point plates and the phase hub", () => {
+  it("keeps clear of the chain panel and the phase hub, and of the life-point plates only for a pin", () => {
     part("data-chain-panel", box(14, 200, 230, 380));
     part("data-holo", box(900, 20, 1100, 110));
     part("data-hub-slot", box(800, 500, 1000, 560));
     part("data-hub", box(1200, 500, 1300, 560));
-    expect(measureObstacles().keep).toHaveLength(4);
+    expect(measureObstacles().keep).toHaveLength(3);
+    expect(measureObstacles(null, true).keep).toHaveLength(4);
+  });
+
+  it("keeps the art of a hover in FFA3 at 1366 x 768: a life-point plate in the column does not cut the band", () => {
+    // Ryo's plate: it starts at x 234, inside the column (72 to 292), and ends at y 360, and a team plate stands at 460.
+    part("data-holo", box(234, 80, 400, 360));
+    part("data-team-plate", box(14, 460, 240, 760));
+    const l = layer(1366, 768);
+    const [hover] = peekPlaces(l, measureObstacles());
+    const [pin] = peekPlaces(l, measureObstacles(null, true));
+    // Hover: the band from the header pills (50) to the team plate (448) is 398 px tall; art, text and owner line need about 217 px.
+    expect(hover.maxH).toBe(398);
+    expect(hover.width).toBeGreaterThanOrEqual(MIN_WIDTH_PX);
+    // The pin keeps clear of the plate: its band is the short one under the plate.
+    expect(pin.maxH).toBe(76);
   });
 });
 
@@ -95,6 +126,12 @@ describe("the CSS keeps the peek column free", () => {
     expect(css).toContain("--pv-col-w: clamp(220px, 14vw, 284px)");
     expect(css).not.toContain('.preview[data-side="right"]');
     expect(css).not.toContain("--pv-right");
+  });
+
+  it("keeps the 1v1 board clear of the corner stack by --hud-left, not by a fixed number", () => {
+    const css = read("room.module.css");
+    expect(css).toContain("--hud-right-need: calc(var(--hud-left) + 364px + 105.6dvh - 100vw)");
+    expect(css).not.toContain("--hud-right-need: calc(520px");
   });
 
   it("keeps the board of the 4-way table, the Tag table and the 1v1 table right of the column", () => {

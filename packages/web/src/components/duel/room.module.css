@@ -690,8 +690,11 @@
      (narrow or nearly square screens), its bottom-right corner would go under the corner stack and hide your Deck
      pile. The right padding grows just enough to keep the board left of the stack (up to the stack's width plus its
      gaps, where the board starts to get narrower). It never leaves the board less than 660px: below 641px the field
-     changes to its phone layout. On wide screens the term is negative and the minimum applies. */
-  --hud-right-need: calc(520px + 105.6dvh - 100vw);
+     changes to its phone layout. On wide screens the term is negative and the minimum applies.
+     The math: the board is W = 105.6dvh wide and centered between --hud-left and the right padding p, so its right edge is at
+     (100vw + --hud-left - p + W) / 2. Keeping that 182px (the stack's width plus its gap) left of the screen edge gives
+     p = --hud-left + 2 x 182px + W - 100vw. */
+  --hud-right-need: calc(var(--hud-left) + 364px + 105.6dvh - 100vw);
   --hud-right-max: min(calc(var(--hud-corner-w) + 28px), calc(100vw - var(--hud-left) - 660px));
   padding: var(--hud-top) clamp(14px, var(--hud-right-need), var(--hud-right-max)) var(--hud-bottom) var(--hud-left);
   border-left: 0;

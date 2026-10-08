@@ -113,6 +113,9 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
   // The first place of the left edge and the right edge that keeps clear of the clicked card, the chain tower, the Deck Master plates,
   // the dock, the controls and the board; with none, the one that covers least. It is placed again when the card or the window changes.
   const [spot, setSpot] = useState<Place>(FIRST_PLACE);
+  // A squeeze seen in a transient place (the CSS default before the first placement, a band that a camera move closes) must not hide the art for
+  // good: the art shows again in a new place, and it is measured again there.
+  useEffect(() => { setSqueezed(""); }, [spot.top, spot.maxH, spot.width]);
   const [resizeTick, setResizeTick] = useState(0);
   // What the placement saw last: the clicked card, the board and the parts kept clear. A change (a camera move, a chain that opens, a prompt)
   // places a pinned panel again (a hover panel is placed again by its next card).
@@ -121,8 +124,8 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
   const hoverSpot = useRef<{ key: string; place: Place } | null>(null);
   const watch = useCallback(() => {
     const card = avoid?.isConnected ? avoid.getBoundingClientRect() : null;
-    return `${card ? [card.left, card.top, card.width, card.height].map(Math.round).join(",") : ""}|${obstaclesKey(measureObstacles(asideRef.current))}`;
-  }, [avoid]);
+    return `${card ? [card.left, card.top, card.width, card.height].map(Math.round).join(",") : ""}|${obstaclesKey(measureObstacles(asideRef.current, frozen))}`;
+  }, [avoid, frozen]);
   const placing = open && current != null;
   // A hover panel watches too: a chain panel that folds or opens (a prompt comes and goes) must not leave it on the old room or under that panel.
   // The check reads many boxes, so a hover panel runs it at full speed only while a chain panel or tower is shown (the observer below covers
@@ -166,7 +169,7 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
     const windowRight = document.documentElement.clientWidth;
     const layer: Box = { left: parent.left, top: parent.top, right: windowRight > 0 ? Math.min(parent.right, windowRight) : parent.right, bottom: parent.bottom };
     const measured = parent.height > 0 ? layer : null;
-    const obstacles = measureObstacles(aside);
+    const obstacles = measureObstacles(aside, frozen);
     const text = textRef.current;
     const candidates = peekPlaces(layer, obstacles);
     if (candidates.length === 0) {
@@ -191,9 +194,10 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
       ? candidates.find((c) => c.side === hoverSpot.current?.place.side && c.top === hoverSpot.current.place.top && c.maxH === hoverSpot.current.place.maxH && c.width === hoverSpot.current.place.width)
       : undefined;
     if (frozen) hoverSpot.current = null;
-    // It stays only when it does not cover the clicked card (on a narrow screen the hover place may): then the places are ranked as before.
+    // It stays only when it covers neither the clicked card (on a narrow screen the hover place may) nor a part that a pin keeps clear
+    // (a life-point plate): then the places are ranked as before.
     if (hovered) place(aside, hovered, measured);
-    const kept = hovered && clickedCover(rectNow()) === 0 ? hovered : undefined;
+    const kept = hovered && clickedCover(rectNow()) === 0 && coveredArea(rectNow(), obstacles.keep) === 0 ? hovered : undefined;
     if (kept) chosen = kept;
     for (const candidate of kept ? [] : candidates) {
       place(aside, candidate, measured);
