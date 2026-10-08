@@ -255,7 +255,7 @@ export type ChainPanelProps = {
   mySeat: number | null;
   nameOf: (seat: number) => string;
   panelRef?: Ref<HTMLElement>;
-  /** A prompt of the local player is open: the hero shrinks to the art, the name, the owner and what was chosen. */
+  /** A prompt of the local player is open: the resolving link shrinks to the art, the name, the owner and what was chosen. */
   compact?: boolean;
 };
 
@@ -280,11 +280,14 @@ export function ChainPanel({ view, shape, seatTones, priority, mySeat, nameOf, p
   useEffect(() => { setPicked(null); }, [view.hero.index]);
   const pickedAt = picked == null ? -1 : view.rows.findIndex((row) => row.index === picked);
   const hero = pickedAt >= 0 && view.details[pickedAt] ? view.details[pickedAt] : view.hero;
+  // Only the resolving link folds, and only when the player did not pick a link to read: a link that they respond to (a target or a cost to
+  // choose) and a link that they clicked keep their text open.
+  const folded = compact && pickedAt < 0 && hero.tone === "now";
   // A long chain on a short window: the rows give way first (never the outcome), then they scroll.
   const stackRef = useRef<HTMLOListElement>(null);
   const stackOver = useOverflow(stackRef, view.rows);
   return (
-    <section ref={panelRef} className={styles.cr} data-shape={shape} data-chain-panel="true" data-compact={compact ? "true" : undefined} data-priority={priority?.length ? "true" : undefined}>
+    <section ref={panelRef} className={styles.cr} data-shape={shape} data-chain-panel="true" data-compact={folded ? "true" : undefined} data-priority={priority?.length ? "true" : undefined}>
       {many ? (
         <header className={styles.head}>
           <span>Chain</span>
@@ -314,7 +317,7 @@ export function ChainPanel({ view, shape, seatTones, priority, mySeat, nameOf, p
         </ol>
       ) : (
         <>
-          <Hero hero={hero} compact={compact} />
+          <Hero hero={hero} compact={folded} />
           {many ? (
             <ol
               ref={stackRef}
