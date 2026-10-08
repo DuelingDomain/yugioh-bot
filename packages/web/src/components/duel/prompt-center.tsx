@@ -37,6 +37,7 @@ import { chainCardName } from "./chain-state";
 import { PriorityChips, type PrioritySlot } from "./priority-chips";
 import { CardBack } from "./card-face";
 import { CardStrip, type StripCard } from "./card-strip";
+import { isMaterialOption, materialHostNotes } from "./material-host";
 import { optionNotes } from "./option-strip";
 import { battleStepLabel, type BattleStep } from "./station-track";
 import { PrecheckBar } from "./prompt-precheck";
@@ -1065,17 +1066,19 @@ export function isChainStripPrompt(prompt: DuelPrompt): boolean {
 
 /** The strip items for a choice prompt: the card, its name, and a short line only where one card has many options. */
 export function choiceStripItems(prompt: DuelPrompt): StripCard[] {
+  // A material has no effect to tell apart; it says which Xyz it is under when there is more than one.
   const notes = optionNotes(
-    prompt.options.map((option) => ({ code: option.card?.code ?? null, effect: effectText(option).effect })),
+    prompt.options.map((option) => ({ code: isMaterialOption(option) ? null : (option.card?.code ?? null), effect: effectText(option).effect })),
   );
+  const hosts = materialHostNotes(prompt.options);
   return prompt.options.map((option, index) => ({
     id: option.id,
     card: option.card as DuelCardInfo,
     label: option.card?.name ?? humanizeLabel(option.label),
     selected: prompt.kind === "toggle" && Boolean(option.selected),
     order: null,
-    detail: notes[index]?.detail,
-    detailTitle: notes[index]?.title,
+    detail: hosts[index]?.detail ?? notes[index]?.detail,
+    detailTitle: hosts[index]?.title ?? notes[index]?.title,
     location: option.location,
   }));
 }
@@ -1164,14 +1167,17 @@ function GridPicker({
 
   // Cards to pick: one wide strip of large cards. Zones, counters and the rest keep the tile grid.
   const strip = isStripPrompt(prompt);
+  const hostNotes = strip ? materialHostNotes(prompt.options) : [];
   const stripItems: StripCard[] = strip
-    ? prompt.options.map((option) => ({
+    ? prompt.options.map((option, index) => ({
         id: option.id,
         card: option.card as DuelCardInfo,
         label: option.card?.name ?? humanizeLabel(option.label),
         selected: aim ? aim.lockedId === option.id : draft.selected.includes(option.id),
         order: prompt.kind === "order" ? draft.selected.indexOf(option.id) + 1 || null : null,
         note: valueDetail && option.values?.length ? option.values.join(" / ") : undefined,
+        detail: hostNotes[index]?.detail,
+        detailTitle: hostNotes[index]?.title,
         location: option.location,
       }))
     : [];

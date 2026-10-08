@@ -228,6 +228,12 @@ export interface DuelPromptOption {
   controller?: number;
   location?: number;
   sequence?: number;
+  /**
+   * An Xyz material (location LOCATION_OVERLAY, sequence = its place under the monster) names the Xyz monster
+   * it is attached to. It cannot be clicked on the board, so the prompt lists it as a card tile.
+   * `name` is filled for a viewer who sees that monster.
+   */
+  host?: DuelZoneRef & { code?: number; name?: string };
   values?: number[];
   /** Current Level from this viewer's card projection; takes precedence over the printed Level. */
   currentLevel?: number;
