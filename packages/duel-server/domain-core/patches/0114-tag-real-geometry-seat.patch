@@ -1,0 +1,50 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Mon, 24 Apr 2000 00:00:00 +0000
+Subject: [PATCH] core: expose exact Tag seats for Lua geometry
+
+MPSeat intentionally returns a team key in Tag for flags and counters. MPGeometrySeat reads the exact acting or bound/facing seat without changing bindings, so the existing FFA geometry wrappers can use Tag seats p2/p3 correctly. Owner decision 2026-10-07; partner resource semantics stay unchanged.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019EpX1AcvnigK9dTsxAa5W9
+---
+ libduel.cpp | 23 +++++++++++++++++++++++
+ 1 file changed, 23 insertions(+)
+
+diff --git a/libduel.cpp b/libduel.cpp
+index 0c424b2..5e05b05 100644
+--- a/libduel.cpp
++++ b/libduel.cpp
+@@ -4945,6 +4945,29 @@ LUA_STATIC_FUNCTION(MPSharedZones) {
+ 	lua_pushboolean(L, f.has_shared_zones());
+ 	return 1;
+ }
++// Geometry needs the exact seat, whereas MPSeat deliberately keys Tag state by team.
++// Omitted player means the current scope seat; a folded opponent means the bound
++// opponent, or the facing seat when unbound. This read never prompts or binds.
++LUA_STATIC_FUNCTION(MPGeometrySeat) {
++	const auto& f = *pduel->game_field;
++	const auto* s = fold::active(pduel);
++	const auto v = lua_get<int64_t>(L, 1, s ? (f.n_teams == f.n_duelists ? 0 : f.team_of(s->P)) : f.core.reason_player);
++	uint8_t seat = DUELIST_NONE;
++	if(!s) {
++		if(f.is_duelist(v))
++			seat = static_cast<uint8_t>(v);
++	} else if(v >= 0 && v <= 1) {
++		if(fold::is_own(f, s->P, static_cast<uint8_t>(v)))
++			seat = s->P;
++		else {
++			seat = pduel->lua->scope_bound_opp();
++			if(seat == DUELIST_NONE)
++				seat = f.across_of(s->P);
++		}
++	}
++	lua_pushinteger(L, f.is_duelist(seat) ? seat : -1);
++	return 1;
++}
+ // Absolute physical across seat, or -1. The argument is a real seat (MPSeatOf),
+ // not a folded Lua player.
+ LUA_STATIC_FUNCTION(MPAcrossSeat) {
+-- 
+2.43.0
+

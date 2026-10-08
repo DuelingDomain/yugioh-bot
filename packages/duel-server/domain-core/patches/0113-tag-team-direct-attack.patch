@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Sun, 23 Apr 2000 00:00:00 +0000
+Subject: [PATCH] core: require empty opposing team fields for Tag direct
+ attacks
+
+Owner decision 2026-10-07 and Konami Tag Attacking: either opposing duelist MMZ or EMZ blocks an ordinary direct attack. Sum only the opposing monster counts, keeping SELF_ATTACK partner targets from blocking it. Targets still include both opponents. Explicit direct-attack effects, FFA and 1v1 behavior remain unchanged.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019EpX1AcvnigK9dTsxAa5W9
+---
+ field.cpp | 10 +++++++---
+ 1 file changed, 7 insertions(+), 3 deletions(-)
+
+diff --git a/field.cpp b/field.cpp
+index ee3fd2d..241f982 100644
+--- a/field.cpp
++++ b/field.cpp
+@@ -3456,13 +3456,17 @@ int32_t field::get_attack_target(card* pcard, card_vector* v, bool chain_attack,
+ 	}
+ 	if(atype <= 3)
+ 		return atype;
+-	// With more than 2 duelists the direct attack can go to every living opponent that has no monster
+-	// (to all of them with EFFECT_DIRECT_ATTACK or core.attack_player). The mask has one bit per duelist.
++	// FFA checks each defender. Tag checks the combined opposing monster fields
++	// (MMZ and EMZ); card-granted direct attacks keep their stock exception.
++	// The direct attack mask has one bit per opposing duelist.
+ 	uint32_t dmask = 0;
+ 	if(n_duelists > 2) {
+ 		const bool any_side = pcard->is_affected_by_effect(EFFECT_DIRECT_ATTACK) || core.attack_player;
++		uint32_t opposing_mcount = 0;
+ 		for(uint8_t oi = 0; oi < opp_count; ++oi)
+-			if((any_side || mcount_by[opps[oi]] == 0)
++			opposing_mcount += mcount_by[opps[oi]];
++		for(uint8_t oi = 0; oi < opp_count; ++oi)
++			if((any_side || (n_teams == 2 ? opposing_mcount : mcount_by[opps[oi]]) == 0)
+ 				&& (n_teams != n_duelists || !is_player_affected_by_effect(opps[oi], EFFECT_CANNOT_BE_DIRECT_ATTACKED)))
+ 				dmask |= 1u << opps[oi];
+ 	}
+-- 
+2.43.0
+
