@@ -114,7 +114,7 @@ static void fill_decks(OCG_Duel d, int n) {
 	for(int p = 0; p < n; ++p) { add_cards(d, static_cast<uint8_t>(p), LOCATION_DECK, 40); }
 }
 
-// 1. EMZ: FFA4 shares seats 0/1 and 2/3. FFA3 and Tag stay separate.
+// 1. EMZ: FFA4 and Tag share facing seats 0/1 and 2/3. FFA3 stays separate.
 static void check_emz(int n, bool tag) {
 	OCG_Duel d = make_duel();
 	if(n > 2) EXPECT(run_lua(d, setup_code(n, tag)), "setup");
@@ -128,7 +128,7 @@ static void check_emz(int n, bool tag) {
 			const bool useable = f.is_location_useable(static_cast<uint32_t>(p), LOCATION_MZONE, static_cast<uint32_t>(seq));
 			bool want = true;
 			if(p == mover && seq == 5) want = false;
-			if(((n == 2 && p == 1) || (n == 4 && !tag && p == 3)) && seq == 6) want = false; // the mirror of stock
+			if(((n == 2 && p == 1) || (n == 4 && p == 3)) && seq == 6) want = false; // the facing mirror
 			EXPECT(useable == want, "n=%d seat %d EMZ %d useable=%d want %d", n, p, seq, useable, want);
 			EXPECT(!(f.player[p].disabled_location & 0x60), "n=%d seat %d disabled bits 5/6 set", n, p);
 		}
@@ -142,7 +142,7 @@ static void check_emz(int n, bool tag) {
 		}
 		for(int p = 0; p < n; ++p) {
 			EXPECT(f.player[p].disabled_location == 0, "n=%d seat %d disabled %x", n, p, f.player[p].disabled_location);
-			EXPECT(static_cast<bool>(f.is_location_useable(static_cast<uint32_t>(p), LOCATION_MZONE, 6)) == !(n == 4 && !tag), "n=%d seat %d EMZ 6 mirror", n, p);
+			EXPECT(static_cast<bool>(f.is_location_useable(static_cast<uint32_t>(p), LOCATION_MZONE, 6)) == (n != 4), "n=%d seat %d EMZ 6 mirror", n, p);
 		}
 	} else {
 		// (Debug.AddCard into a blocked zone dereferences null in the stock core, so the zone test above is the check.)
@@ -156,7 +156,7 @@ static void check_emz(int n, bool tag) {
 			(void)list;
 		}
 	}
-	std::printf("ok   n=%d%s: EMZ %s\n", n, tag ? " tag" : "", n == 4 && !tag ? "across pairs share mirror zones" : n > 2 ? "separate EMZs" : "mirror kept (seat 0 EMZ 5 blocks seat 1 EMZ 6)");
+	std::printf("ok   n=%d%s: EMZ %s\n", n, tag ? " tag" : "", n == 4 ? "across pairs share mirror zones" : n > 2 ? "separate EMZs" : "mirror kept (seat 0 EMZ 5 blocks seat 1 EMZ 6)");
 	OCG_DestroyDuel(d);
 }
 
@@ -227,7 +227,7 @@ static void check_lua_libs(int n, bool tag) {
 	OCG_DestroyDuel(d);
 }
 
-// 4. get_linked_zone: across masks for FFA4; separate masks for FFA3 and Tag.
+// 4. get_linked_zone: across masks for FFA4 and Tag; separate masks for FFA3.
 static void check_linked(int n, bool tag) {
 	OCG_Duel d = make_duel();
 	EXPECT(run_lua(d, setup_code(n, tag)), "setup");
@@ -291,17 +291,17 @@ int main(int argc, char** argv) {
 		const int n = cfg == 0 ? 3 : 4;
 		const bool tag = cfg == 2;
 		check_emz(n, tag);
-		// Handler 2 disables own zones 0/5 and the across zone 0 in FFA4; other formats keep the next seat.
+		// Handler 2 disables own zones 0/5 and the across zone 0 in FFA4/Tag; FFA3 keeps the next seat.
 		const uint32_t value = 0x00010021u;
 		std::vector<int64_t> want(MAX_DUELISTS, 0);
 		want[2] = 0x21;
 		want[n == 3 ? 0 : 3] |= 0x1;
-		if(n == 4 && !tag) want[3] |= 0x40;
+		if(n == 4) want[3] |= 0x40;
 		check_disable(n, tag, value, 2, want);
-		// Bound opponent bit 5 stays on that seat. FFA4 also disables its across mirror, bit 6.
+		// Bound opponent bit 5 stays on that seat. FFA4/Tag also disable its across mirror, bit 6.
 		std::vector<int64_t> want2(MAX_DUELISTS, 0);
 		want2[0] = 0x20;
-		want2[1] = n == 4 && !tag ? 0x41 : 0x1;
+		want2[1] = n == 4 ? 0x41 : 0x1;
 		check_disable(n, tag, 0x00010020u, 0, want2);
 		check_lua_libs(n, tag);
 		check_linked(n, tag);

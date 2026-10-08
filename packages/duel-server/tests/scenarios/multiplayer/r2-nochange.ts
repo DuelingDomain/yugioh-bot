@@ -150,8 +150,14 @@ const dragion = (format: "ffa3" | "tag", card: number, name: string, answers: St
   const spec: Partial<Record<Seat, DuelistExpect>> = tag
     ? { p0: { monsters: [ELF, ELF, ELF], grave: [RAIGEKI] }, p1: { lp }, p3: { lp, monsters: [name] } }
     : { p0: { monsters: [name] }, p1: { monsters: [ELF, ELF, ELF], grave: [RAIGEKI] }, p2: { lp } };
+  if (tag && name === TRANSCENDENT) {
+    // MUST_ATTACK forces the replay into the newly revived 3000 ATK blocker.
+    // The third attack is no longer direct: Elf is destroyed for 2200 damage.
+    spec.p0 = { lp: 13800, monsters: [ELF, ELF], grave: [RAIGEKI, ELF] };
+    spec.p2 = { lp: 13800 };
+  }
   return probe(format, `${name.toLowerCase().replace(/ /g, "-")}-flag-of-${tag ? "team-0-serves-p3-of-team-1" : "p1-serves-p0"}`, card,
-    `${tag ? "Tag" : "FFA3"}: ${attacker} destroys the ${name} of ${holder} with Raigeki and declares 3 direct attacks on ${target} (the attack flag is kept for the ${tag ? "team" : "seat"} of ${attacker}): the ${name} in the Graveyard of ${holder} is offered after the 3rd attack and Special Summoned`,
+    `${tag ? "Tag" : "FFA3"}: ${attacker} destroys the ${name} of ${holder} with Raigeki and declares 3 direct attacks on ${target} (the attack flag is kept for the ${tag ? "team" : "seat"} of ${attacker}): the ${name} in the Graveyard of ${holder} is offered after the 3rd declaration and Special Summoned${tag ? name === TRANSCENDENT ? "; its forced replay destroys the attacking Elf" : "; the attacker cancels the replay into the revived blocker" : ""}`,
     setup,
     [...before, activate(RAIGEKI, attacker), changePhase("battle", attacker), ...attacks(3, attacker, target), expectOffered("activate", name, holder), activate(name, holder), ...answers],
     spec);
@@ -159,7 +165,7 @@ const dragion = (format: "ffa3" | "tag", card: number, name: string, answers: St
 
 const dragions = (): Scenario[] => [
   dragion("ffa3", 82570174, BIDENT, [auto("p0"), yes("p1"), pickOpponent("p2", "p1")]),
-  dragion("tag", 82570174, BIDENT, [pickOpponent("p0", "p3"), auto("p3"), yes("p0"), yes("p0")]),
+  dragion("tag", 82570174, BIDENT, [pickOpponent("p0", "p3"), auto("p3"), no("p0")], 2),
   dragion("ffa3", 18969888, TRANSCENDENT, [auto("p0"), no("p0")], 2),
   dragion("tag", 18969888, TRANSCENDENT, [pickOpponent("p0", "p3"), auto("p3"), no("p3")], 2),
 ];
@@ -421,8 +427,9 @@ const numeron = (format: "ffa3" | "tag"): Scenario => {
 
 const unified = (format: "ffa3" | "tag"): Scenario => {
   const tag = format === "tag";
+  const attacker = tag ? "Jinzo #7" : ELF;
   const UFSET = { card: UNIFIED, pos: "set" };
-  const setup: Record<string, unknown> = { p0: { monsters: [ELF, ELF], spells: [UFSET], hand: [DM], deck: [ELF, ELF, ELF] }, p1: { monsters: [DM], spells: [UFSET], hand: [ELF], deck: [ELF, ELF, ELF] }, p2: { deck: [ELF, ELF] } };
+  const setup: Record<string, unknown> = { p0: { monsters: [attacker, ELF], spells: [UFSET], hand: [DM], deck: [ELF, ELF, ELF] }, p1: { monsters: [DM], spells: [UFSET], hand: [ELF], deck: [ELF, ELF, ELF] }, p2: { deck: [ELF, ELF] } };
   if (tag) setup.p3 = { deck: [ELF, ELF] };
   // Set traps open a chain window for their owner at every phase change, in the turn of every seat, so the passes are part of the line.
   const ffa3Steps: Step[] = [
@@ -480,8 +487,9 @@ const unified = (format: "ffa3" | "tag"): Scenario => {
     expectOffered("activate", UNIFIED, "p0"),
     pass("p0"),
     pass("p1"),
-    attack({ card: ELF, nth: 0 }, "direct", "p0"),
+    attack(attacker, "direct", "p0"),
     yes("p0"),
+    pickOpponent("p1", "p0"),
     expectOffered("activate", UNIFIED, "p1"),
     pass("p1"),
     pass("p1"),
@@ -491,11 +499,11 @@ const unified = (format: "ffa3" | "tag"): Scenario => {
   ];
   const steps = tag ? tagSteps : ffa3Steps;
   const hit: Seat = tag ? "p1" : "p2";
-  const spec: Partial<Record<Seat, DuelistExpect>> = { p0: { monsters: [ELF, ELF], spells: [UNIFIED] }, p1: { monsters: [DM], spells: [UNIFIED] } };
-  spec[hit] = { ...spec[hit], lp: tag ? 15200 : 7200 };
-  if (tag) spec.p3 = { lp: 15200 };
+  const spec: Partial<Record<Seat, DuelistExpect>> = { p0: { monsters: [attacker, ELF], spells: [UNIFIED] }, p1: { monsters: [DM], spells: [UNIFIED] } };
+  spec[hit] = { ...spec[hit], lp: tag ? 15500 : 7200 };
+  if (tag) spec.p3 = { lp: 15500 };
   return probe(format, "unified-front-direct-attack-flag-p0", 31472884,
-    `${tag ? "Tag" : "FFA3"}: p0 and p1 each control a Set Unified Front; p0 attacks directly (the flag is kept for ${tag ? "team 0" : "p0"}): the Set Unified Front of p0 is offered before the attack and not after it, the Set Unified Front of p1 is offered in the Damage Step`,
+    `${tag ? "Tag" : "FFA3"}: p0 and p1 each control a Set Unified Front; p0 attacks directly${tag ? " with Jinzo #7's card-granted effect" : ""} (the flag is kept for ${tag ? "team 0" : "p0"}): the Set Unified Front of p0 is offered before the attack and not after it, the Set Unified Front of p1 is offered in the Damage Step`,
     setup, steps, spec);
 };
 
@@ -847,10 +855,10 @@ export const R2_NOCHANGE_SCENARIOS: Scenario[] = [
     [...turns(["p0", "p1", "p2"]), changePhase("battle", "p0"), ...attacks(5, "p0", "p1"), expectOffered("activate", MONO, "p2"), activate(MONO, "p2"), auto("p2"), yes("p0"), pickOpponent("p1", "p0")],
     { p0: { monsters: [ELF, ELF, ELF, ELF, ELF] }, p1: { lp: 4000 }, p2: { monsters: [MONO] } }),
   probe("tag", "monochroid-flag-of-team-0-serves-p3-of-team-1", 99748883,
-    "Tag: p0 declares 5 direct attacks on team 1 (the attack flag is kept for team 0): the Meteor Rush - Monochroid of p3 (team 1) is offered after the 5th and Special Summoned",
+    "Tag: p0 declares 5 direct attacks on team 1 (the attack flag is kept for team 0): the Meteor Rush - Monochroid of p3 (team 1) is offered after the 5th and Special Summoned; p0 cancels the replay into the revived blocker",
     { p0: { monsters: [ELF, ELF, ELF, ELF, ELF], deck: [ELF] }, p1: { deck: [ELF] }, p2: { deck: [ELF] }, p3: { hand: [MONO], deck: [ELF, ELF] } },
-    [...turns(["p0", "p1", "p2", "p3"]), changePhase("battle", "p0"), ...attacks(5, "p0", "p1"), expectOffered("activate", MONO, "p3"), activate(MONO, "p3"), pickOpponent("p0", "p3"), auto("p3"), yes("p0"), yes("p0")],
-    { p0: { monsters: [ELF, ELF, ELF, ELF, ELF] }, p1: { lp: 12000 }, p3: { lp: 12000, monsters: [MONO] } }),
+    [...turns(["p0", "p1", "p2", "p3"]), changePhase("battle", "p0"), ...attacks(5, "p0", "p1"), expectOffered("activate", MONO, "p3"), activate(MONO, "p3"), pickOpponent("p0", "p3"), auto("p3"), no("p0")],
+    { p0: { monsters: [ELF, ELF, ELF, ELF, ELF] }, p1: { lp: 12800 }, p3: { lp: 12800, monsters: [MONO] } }),
   ...dragions(),
   // Jurrac Volcano: the Trigger Effect needs "4 or more monster effects activated by the opponent this turn" (Duel.GetFlagEffect(1-tp,id)>=4)
   probe("ffa3", "volcano-flag-of-p1-serves-p0-and-p2", 89948817,

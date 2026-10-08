@@ -121,8 +121,7 @@ const NO_CONDITION_RUN: Record<number, string> = {
   36898537: "Metaphys Horus: the triggers need a Synchro Summon of this card; the generic game has no Synchro materials",
   // R1 and fix cards. Each is an event or Flip card; the live scenarios of the cards (tests/scenarios/multiplayer) play the event.
   12694768: "Abaki: the trigger is the destruction of this card by battle (EVENT_BATTLE_DESTROYED); the generic game does not destroy it in battle",
-  58071123: "Oxygeddon: the trigger is the destruction of this card by battle (EVENT_BATTLE_DESTROYED); the generic game does not destroy it in battle",
-  89731911: "Familiar Knight: the trigger is the destruction of this card by battle (EVENT_BATTLE_DESTROYED); in Tag the generic game does not destroy it in battle",
+  58071123: "Oxygeddon: the trigger is the destruction of this card by battle (EVENT_BATTLE_DESTROYED); in FFA3 the generic game does not destroy it in battle",
   39180960: "Rigorous Reaver: a Flip effect and a trigger on its destruction by battle; the generic game neither flips nor destroys it in battle",
   78706415: "Fiber Jar: a Flip effect (its only target function runs when the card is flipped); the generic game does not flip a Set monster",
   3549275: "Dice Jar: a Flip effect (its only target function runs when the card is flipped); the generic game does not flip a Set monster",
@@ -158,7 +157,7 @@ const NO_CONDITION_RUN: Record<number, string> = {
   94585852: "Pandemonium: a Field Spell with an LP-cost replacement and a trigger on a custom event; the generic game pays no LP cost and raises no such event",
 };
 /** Formats where the NO_CONDITION_RUN entry holds (default both). */
-const NO_CONDITION_RUN_ONLY: Record<number, DuelFormat[]> = { 89731911: ["tag"], 30109445: ["ffa3"], 29724053: ["tag"], 39767432: ["ffa3", "ffa4"] };
+const NO_CONDITION_RUN_ONLY: Record<number, DuelFormat[]> = { 58071123: ["ffa3"], 30109445: ["ffa3"], 29724053: ["tag"], 39767432: ["ffa3", "ffa4"] };
 
 /**
  * Cards of the table that are not in cards.cdb of the engine data (the script exists, the card does not), by code, with the reason.
