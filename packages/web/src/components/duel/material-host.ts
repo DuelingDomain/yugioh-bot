@@ -37,7 +37,7 @@ function ownerText(controller: number, who: MaterialViewer): string {
 
 /**
  * One note per option, in order. A material says "Under <Xyz name>" when the materials sit under two or more Xyz monsters
- * (one Xyz needs no line); the owner is added when the Xyz have different controllers, and "1 of 2" when two of one
+ * (one Xyz needs no line); the owner is added when the Xyz have different controllers, and "1 of 2" (first) when two of one
  * controller share a name. When one Xyz's materials share the prompt with other cards, they say "Xyz material" instead.
  * Any other option gets null.
  */
@@ -65,8 +65,11 @@ export function materialHostNotes(options: readonly DuelPromptOption[], who: Mat
     const key = hostKey(option)!;
     const group = twins.get(`${option.host.controller}:${option.host.name ?? ""}`) ?? [];
     const nth = group.indexOf(key);
-    const owner = spread ? `${ownerText(option.host.controller, who)} ` : "";
-    const text = `Under ${owner}${option.host.name ?? "an Xyz monster"}${group.length > 1 ? ` (${nth + 1} of ${group.length})` : ""}`;
+    // A host the viewer cannot see has no name: "a face-down Xyz", or "opponent's face-down Xyz" after an owner word.
+    const owner = spread ? ownerText(option.host.controller, who) : null;
+    const host = option.host.name ?? (owner ? "face-down Xyz" : "a face-down Xyz");
+    // The count comes first: a narrow tile cuts the end of the line, and twins must still differ.
+    const text = `${group.length > 1 ? `${nth + 1} of ${group.length} · ` : ""}Under ${owner ? `${owner} ` : ""}${host}`;
     return { detail: text, title: text };
   });
 }
