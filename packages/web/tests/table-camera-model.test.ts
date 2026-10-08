@@ -440,6 +440,18 @@ describe("the 3-way face-off has one view", () => {
     expect(run(own, { type: "home" }, L3, OUT).mode).toBe("home");
   });
 
+  it("keeps your own field for every request about a rival, and lets you enlarge it again from home", () => {
+    const own = run(HOME, { type: "enlarge", seat: 0 });
+    for (const action of [{ type: "enlarge", seat: 1 }, { type: "focus", seat: 1 }, { type: "focusStep", dir: 1 }, { type: "look", seat: 1 }] as CameraAction[]) {
+      expect(run(own, action, L3, OUT)).toBe(own);
+    }
+    expect(run(HOME, { type: "enlarge", seat: 1 }, L3, OUT)).toBe(HOME);
+    expect(run(HOME, { type: "enlarge", seat: 0 }, L3, OUT)).toMatchObject({ mode: "focus", focusSeat: 0 });
+    // The viewer's own seat out: nothing to enlarge.
+    expect(run(HOME, { type: "enlarge", seat: 0 }, L3, [0]).mode).toBe("home");
+    expect(cameraActionForKey({ key: "e" }, L3, HOME, { out: OUT })).toEqual({ type: "enlarge", seat: 0 });
+  });
+
   it("Esc still leaves the enlarged field in a face-off, and does nothing at home", () => {
     expect(cameraActionForKey({ key: "Escape" }, L3, run(HOME, { type: "enlarge", seat: 0 }), { out: OUT })).toEqual({ type: "home" });
     expect(cameraActionForKey({ key: "Escape" }, L3, HOME, { out: OUT })).toBeNull();

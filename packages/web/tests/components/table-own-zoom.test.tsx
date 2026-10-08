@@ -340,6 +340,45 @@ describe("FFA3 own field camera zoom", () => {
     expect(layer(container).style.transform).toBe("");
   });
 
+  it("in a face-off, a click on a rival zone keeps the zoom of your own field", () => {
+    frames();
+    const focus = { mode: "focus", focusSeat: REN } as const;
+    const { container, rerender } = render(<Table state={idle()} camera={focus} />);
+    advance(600);
+    rerender(<Table state={withMikaOut()} camera={focus} />);
+    advance(5000);
+    const zone = seatBox(container, RYO).querySelector<HTMLElement>("[data-zones][data-occupied='true']:not([data-pile]):not([data-legal='true']) button")!;
+    expect(zone).not.toBeNull();
+    fireEvent.click(zone);
+    advance(800);
+    expect(board(container).getAttribute("data-camera-mode")).toBe("focus");
+    expect(chip(container)).toBe("Focus · Ren Arata");
+    expect(scale(container)).toBeGreaterThan(1.02);
+  });
+
+  it("in a face-off, Back and then E (or the Zoom my field button) zoom your own field again", () => {
+    frames();
+    const focus = { mode: "focus", focusSeat: REN } as const;
+    const { container, rerender } = render(<Table state={idle()} camera={focus} />);
+    advance(600);
+    rerender(<Table state={withMikaOut()} camera={focus} />);
+    advance(5000);
+    fireEvent.click(container.querySelector("[data-camera-back]")!);
+    advance(800);
+    expect(chip(container)).toBe("Home");
+    expect(scale(container)).toBeLessThanOrEqual(1.001);
+    fireEvent.keyDown(window, { key: "e" });
+    advance(800);
+    expect(chip(container)).toBe("Focus · Ren Arata");
+    expect(scale(container)).toBeGreaterThan(1.02);
+    fireEvent.click(container.querySelector("[data-camera-back]")!);
+    advance(800);
+    fireEvent.click(container.querySelector("[data-camera-zoom]")!);
+    advance(800);
+    expect(chip(container)).toBe("Focus · Ren Arata");
+    expect(scale(container)).toBeGreaterThan(1.02);
+  });
+
   it("Esc leaves the zoom of your own field in a face-off", () => {
     frames();
     const focus = { mode: "focus", focusSeat: REN } as const;
