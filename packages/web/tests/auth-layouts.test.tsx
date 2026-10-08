@@ -23,6 +23,11 @@ it("reads the E2E gate at request time and omits ClerkProvider when enabled", as
 });
 it.each([
   ["", "https://duelingdomain.com/?home=1#join"],
+  ["marketing.example", "https://duelingdomain.com/?home=1#join"],
+  [" \t\n ", "https://duelingdomain.com/?home=1#join"],
+  ["/marketing", "https://duelingdomain.com/?home=1#join"],
+  ["ftp://marketing.example", "https://duelingdomain.com/?home=1#join"],
+  ["  https://marketing.example/ \n", "https://marketing.example/?home=1#join"],
   ["https://marketing.example/", "https://marketing.example/?home=1#join"],
   ["https://marketing.example/?from=app&home=0#intro", "https://marketing.example/?from=app&home=1#join"],
 ])("gives Clerk a marketing waitlist escape hatch for %s", async (marketingUrl, expected) => {

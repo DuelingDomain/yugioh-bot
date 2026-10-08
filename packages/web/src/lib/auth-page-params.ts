@@ -1,4 +1,5 @@
 import { safeReturnPath } from "./auth-return";
+import { normalizeMarketingUrl } from "../components/auth/marketing-links";
 
 export type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -7,9 +8,9 @@ export function firstParam(value: string | string[] | undefined): string | undef
   return Array.isArray(value) ? value[0] : value;
 }
 
-/** The marketing site origin without a trailing slash, or null when `MARKETING_URL` is unset. Read per request. */
-export function marketingUrlFromEnv(): string | null {
-  return process.env.MARKETING_URL?.trim().replace(/\/+$/, "") || null;
+/** Validated marketing URL with a public default. Read per request. */
+export function marketingUrlFromEnv(): string {
+  return normalizeMarketingUrl(process.env.MARKETING_URL);
 }
 
 /** `?redirect_url=` through the one shared validator. */

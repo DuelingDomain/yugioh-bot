@@ -170,6 +170,31 @@ export function nextEnabledIndex(prompt: Pick<DuelPrompt, "options">, disabled: 
   return from;
 }
 
+/**
+ * The highlight one row of `row` cards up or down in a card list that wraps into rows. It stays put at the first
+ * and last row (no wrap-around, as in a grid), and skips cards that are disabled.
+ */
+export function rowStep(
+  prompt: Pick<DuelPrompt, "options">,
+  disabled: ReadonlySet<string> | undefined,
+  from: number,
+  row: number,
+  step: 1 | -1,
+): number {
+  const last = prompt.options.length - 1;
+  const free = (at: number) => at >= 0 && at <= last && !disabled?.has(prompt.options[at].id);
+  let index = from + step * row;
+  // Down from a row above a shorter last row goes to the last free card there, as in a grid; from the last row it stays.
+  if (step === 1 && index > last) {
+    index = last;
+    while (index > from && Math.floor(index / row) > Math.floor(from / row) && !free(index)) index -= 1;
+    return free(index) && Math.floor(index / row) > Math.floor(from / row) ? index : from;
+  }
+  // A disabled target: the next card on in that direction.
+  while (index !== from && index >= 0 && index <= last && !free(index)) index += step;
+  return index >= 0 && index <= last ? index : from;
+}
+
 /** Each reciprocal living facing pair (FFA4 across, Tag 1A-2A and 1B-2B) once, in seat order. Older views keep separate EMZ rows. */
 export function sharedExtraPairs(engine: Pick<DuelEngineView, "format" | "seats">): Array<[DuelSeatView, DuelSeatView]> {
   const format = engineFormat(engine);

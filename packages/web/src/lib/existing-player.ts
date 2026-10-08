@@ -82,16 +82,22 @@ export function sameOrigin(request: NextRequest): boolean {
 }
 
 // Same bounded fixed-window pattern as /api/waitlist. Caddy replaces incoming
-// X-Forwarded-For; web must stay private. Separate budgets for each flow stage.
+// X-Forwarded-For; web must stay private. Cookie hashes split later NAT traffic.
 const clients = new Map<string, { count: number; expiresAt: number }>();
 export function recoveryRateLimit(request: NextRequest, stage: string): NextResponse | null {
   const now = Date.now();
   for (const [client, entry] of clients) { if (entry.expiresAt > now) break; clients.delete(client); }
   const ip = request.headers.get("x-forwarded-for")?.split(",", 1)[0]?.trim().slice(0, 128) || "unknown";
-  const client = `${stage}:${ip}`;
+  const purpose: Purpose | null = stage === "callback" ? "oauth" : stage === "complete" ? "identity" : stage === "ticket" ? "ticket" : null;
+  const cookieName = purpose === "oauth" ? OAUTH_COOKIE : purpose === "identity" ? IDENTITY_COOKIE : purpose === "ticket" ? TICKET_COOKIE : null;
+  const raw = cookieName ? request.cookies.get(cookieName)?.value : undefined;
+  // Only a cookie we sealed gets its own bucket; forged values share the IP bucket and cannot fill the map.
+  const cookie = purpose && raw && openCookie(purpose, raw) ? raw : undefined;
+  const client = `${stage}:${ip}${cookie ? `:${createHash("sha256").update(cookie).digest("hex")}` : ""}`;
   const entry = clients.get(client);
-  if ((!entry && clients.size >= 10_000) || (entry && entry.count >= 10)) {
-    const response = recoveryError("Too many attempts. Try again in a few minutes.", 429);
+  if ((!entry && clients.size >= 10_000) || (entry && entry.count >= (stage === "start" ? 30 : 10))) {
+    const response = request.method === "GET" ? recoveryRedirect("/sign-in?error=discord_recovery_busy")
+      : recoveryError("Too many attempts. Try again in a few minutes.", 429);
     response.headers.set("Retry-After", String(Math.max(1, Math.ceil(((entry ?? clients.values().next().value!).expiresAt - now) / 1000))));
     return response;
   }

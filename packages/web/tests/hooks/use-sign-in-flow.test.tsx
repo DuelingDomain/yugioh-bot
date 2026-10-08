@@ -44,6 +44,35 @@ describe("sign-in flow", () => {
     expect(result.current.state.banner).toMatchObject({ tone: "info", body: expect.stringMatching(/cancelled.*try again/i) });
     expect(mock.hardNavigate).not.toHaveBeenCalled();
   });
+  it.each([
+    ["discord_recovery_busy", /few minutes/i],
+    ["discord_recovery_unavailable", /having trouble.*try again/i],
+    ["discord_recovery_expired", /expired.*try again/i],
+  ])("shows a static banner for %s", (code, body) => {
+    window.history.replaceState(null, "", `/sign-in?error=${code}`);
+    const { result } = setup();
+    expect(result.current.state.banner).toMatchObject({ tone: "bad", body: expect.stringMatching(body) });
+    expect(result.current.state.step).toBe("signin");
+    expect(mock.hardNavigate).not.toHaveBeenCalled();
+  });
+  it.each(["discord_recovery_support", "discord_recovery_cancelled", "discord_recovery_busy", "discord_recovery_unavailable", "discord_recovery_expired"])("consumes the %s banner without removing return params or history state", code => {
+    const historyState = { retained: "router-state" };
+    window.history.replaceState(historyState, "", `/sign-in?error=${code}&redirect_url=/drafts&other=keep#seat`);
+    const view = setup();
+    expect(view.result.current.state.banner).not.toBeNull();
+    expect(new URLSearchParams(window.location.search).has("error")).toBe(false);
+    expect(new URLSearchParams(window.location.search).get("redirect_url")).toBe("/drafts");
+    expect(new URLSearchParams(window.location.search).get("other")).toBe("keep");
+    expect(window.location.hash).toBe("#seat"); expect(window.history.state).toEqual(historyState);
+    view.unmount();
+    expect(setup().result.current.state.banner).toBeNull();
+  });
+  it("discards unknown error codes without reflecting them into a banner", () => {
+    window.history.replaceState(null, "", "/sign-in?error=private-provider-detail&error=discord_recovery_support");
+    const { result } = setup();
+    expect(result.current.state.banner).toBeNull();
+    expect(window.location.search).toBe("");
+  });
   it("keeps later password signal errors on the password field after a failed SSO attempt", async () => {
     mock.signal.signIn.sso.mockResolvedValue(error("network_error"));
     const { result } = setup();
@@ -69,6 +98,21 @@ describe("sign-in flow", () => {
     act(() => vi.advanceTimersByTime(1000));
     expect(mock.hardNavigate).toHaveBeenCalledTimes(1);
     expect(result.current.state.step).toBe("recovering");
+  });
+  it("reloads a recovering sign-in restored from bfcache and removes the pageshow listener on unmount", async () => {
+    const reload = vi.fn();
+    vi.stubGlobal("window", new Proxy(window, { get: (target, key) => key === "location" ? { ...target.location, reload } : Reflect.get(target, key) }));
+    const show = (persisted: boolean) => window.dispatchEvent(Object.assign(new Event("pageshow"), { persisted }));
+    const view = setup();
+    act(() => show(true)); expect(reload).not.toHaveBeenCalled();
+    mock.signal.signIn.sso.mockResolvedValue(error("sign_up_restricted_waitlist"));
+    await act(() => view.result.current.actions.continueWithDiscord());
+    act(() => vi.advanceTimersByTime(RECOVERY_PAINT_FALLBACK_MS));
+    expect(view.result.current.state.step).toBe("recovering");
+    act(() => show(false)); expect(reload).not.toHaveBeenCalled();
+    act(() => show(true)); expect(reload).toHaveBeenCalledTimes(1);
+    view.unmount(); reload.mockClear();
+    act(() => show(true)); expect(reload).not.toHaveBeenCalled();
   });
   it("consumes the recovery ticket via a same-origin POST and finalizes once", async () => {
     window.history.replaceState(null, "", "/sign-in?existing_player=1");

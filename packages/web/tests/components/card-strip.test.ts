@@ -6,8 +6,9 @@ vi.mock("next/font/google", () => {
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
 });
 
-import { stripOverflow, stripPageScroll, stripScrollLeft } from "@/components/duel/card-strip";
+import { cardsPerRow, stripOverflow, stripOverflowY, stripPageScroll, stripPageScrollY, stripScrollLeft, stripScrollTop } from "@/components/duel/card-strip";
 import { choiceStripItems, isChainStripPrompt, isStripPrompt } from "@/components/duel/prompt-center";
+import { rowStep } from "@/components/duel/multi-seat";
 import { nextAnswerableId } from "@/components/duel/prompt-reveal";
 
 const card = (code: number): DuelCardInfo => ({
@@ -110,6 +111,61 @@ describe("stripScrollLeft", () => {
   });
 });
 
+describe("stripScrollTop", () => {
+  const view = { scrollTop: 200, clientHeight: 300 };
+
+  it("keeps the scroll when the row is fully in view", () => {
+    expect(stripScrollTop(view, { top: 260, height: 180 })).toBe(200);
+  });
+
+  it("scrolls up to a row cut off at the top, and down to a row cut off at the bottom", () => {
+    expect(stripScrollTop(view, { top: 150, height: 180 })).toBe(138);
+    expect(stripScrollTop(view, { top: 4, height: 180 })).toBe(0);
+    expect(stripScrollTop(view, { top: 380, height: 180 })).toBe(272);
+  });
+});
+
+describe("stripScrollTop, a row taller than the list", () => {
+  it("shows the top of the row, with the pad, when the row can not fit with the pad", () => {
+    expect(stripScrollTop({ scrollTop: 0, clientHeight: 150 }, { top: 400, height: 180 })).toBe(388);
+    expect(stripScrollTop({ scrollTop: 900, clientHeight: 150 }, { top: 400, height: 180 })).toBe(388);
+    expect(stripScrollTop({ scrollTop: 0, clientHeight: 150 }, { top: 5, height: 180 })).toBe(0);
+  });
+});
+
+describe("stripPageScrollY", () => {
+  const view = { scrollTop: 100, clientHeight: 300, scrollHeight: 800 };
+
+  it("moves most of a page and stops at both ends", () => {
+    expect(stripPageScrollY(view, 1)).toBe(340);
+    expect(stripPageScrollY({ ...view, scrollTop: 450 }, 1)).toBe(500);
+    expect(stripPageScrollY(view, -1)).toBe(0);
+    expect(stripPageScrollY({ scrollTop: 0, clientHeight: 300, scrollHeight: 300 }, 1)).toBe(0);
+  });
+});
+
+describe("cardsPerRow", () => {
+  it("counts the cards that share the first card's row", () => {
+    expect(cardsPerRow([0, 0, 0, 200, 200, 200, 400])).toBe(3);
+    expect(cardsPerRow([0, 1, 2, 200])).toBe(3);
+    expect(cardsPerRow([0, 200, 400])).toBe(1);
+    expect(cardsPerRow([0, 0])).toBe(2);
+    expect(cardsPerRow([])).toBe(1);
+  });
+});
+
+describe("stripOverflowY", () => {
+  it("shows no fade when every row fits", () => {
+    expect(stripOverflowY({ scrollTop: 0, clientHeight: 300, scrollHeight: 301 })).toEqual({ up: false, down: false });
+  });
+
+  it("shows only the side that has more rows beyond it", () => {
+    expect(stripOverflowY({ scrollTop: 0, clientHeight: 300, scrollHeight: 700 })).toEqual({ up: false, down: true });
+    expect(stripOverflowY({ scrollTop: 150, clientHeight: 300, scrollHeight: 700 })).toEqual({ up: true, down: true });
+    expect(stripOverflowY({ scrollTop: 400, clientHeight: 300, scrollHeight: 700 })).toEqual({ up: true, down: false });
+  });
+});
+
 describe("stripOverflow", () => {
   it("shows no arrows and no fade when every card fits", () => {
     expect(stripOverflow({ scrollLeft: 0, clientWidth: 900, scrollWidth: 900 })).toEqual({ prev: false, next: false });
@@ -155,5 +211,38 @@ describe("nextAnswerableId", () => {
 
   it("ignores a missing prompt", () => {
     expect(nextAnswerableId("p0", null, true)).toBe("p0");
+  });
+});
+
+describe("rowStep", () => {
+  const options = Array.from({ length: 8 }, (_, i) => ({ id: `c${i}`, label: `Card ${i}` }));
+  const list = { options } as Pick<DuelPrompt, "options">;
+
+  it("moves one row down or up, and stays put at the first and last row", () => {
+    expect(rowStep(list, undefined, 1, 3, 1)).toBe(4);
+    expect(rowStep(list, undefined, 4, 3, -1)).toBe(1);
+    expect(rowStep(list, undefined, 6, 3, 1)).toBe(6);
+    expect(rowStep(list, undefined, 2, 3, -1)).toBe(2);
+  });
+
+  it("goes to the last card from a row above a shorter last row, like a grid", () => {
+    const fourteen = { options: Array.from({ length: 14 }, (_, i) => ({ id: `c${i}`, label: `Card ${i}` })) } as Pick<DuelPrompt, "options">;
+    // Rows of 6: 0-5, 6-11, 12-13.
+    for (const from of [8, 9, 10, 11]) expect(rowStep(fourteen, undefined, from, 6, 1)).toBe(13);
+    expect(rowStep(fourteen, undefined, 6, 6, 1)).toBe(12);
+    expect(rowStep(fourteen, undefined, 7, 6, 1)).toBe(13);
+    expect(rowStep(fourteen, undefined, 13, 6, 1)).toBe(13);
+    expect(rowStep(fourteen, undefined, 13, 6, -1)).toBe(7);
+  });
+
+  it("goes to the last free card when the last card is disabled", () => {
+    const fourteen = { options: Array.from({ length: 14 }, (_, i) => ({ id: `c${i}`, label: `Card ${i}` })) } as Pick<DuelPrompt, "options">;
+    expect(rowStep(fourteen, new Set(["c13"]), 10, 6, 1)).toBe(12);
+    expect(rowStep(fourteen, new Set(["c12", "c13"]), 10, 6, 1)).toBe(10);
+  });
+
+  it("skips a disabled card in the target row, and stays when no card is left that way", () => {
+    expect(rowStep(list, new Set(["c4"]), 1, 3, 1)).toBe(5);
+    expect(rowStep(list, new Set(["c4", "c5", "c6", "c7"]), 1, 3, 1)).toBe(1);
   });
 });
