@@ -17,7 +17,7 @@ export class ChainOptions {
   private resolving: Link | undefined;
   private activating: Link | undefined;
   private deferred: Choice[] = [];
-  private selected: Choice | undefined;
+  private selected: Choice[] = [];
   private descriptions = new WeakMap<Link, bigint>();
   private slots = new WeakMap<Link, Map<string, number>>();
   private responseSeq = 0;
@@ -39,10 +39,8 @@ export class ChainOptions {
       case OcgMessageType.SELECT_EFFECTYN:
         // A new action/window cannot inherit an earlier non-chain operation choice.
         this.deferred = [];
-        this.selected = undefined;
+        this.selected = [];
         break;
-      case OcgMessageType.SELECT_OPTION:
-        this.selected = undefined;
     }
   }
 
@@ -92,7 +90,6 @@ export class ChainOptions {
     this.undoResponse = undefined;
     if (response.type !== OcgResponseType.SELECT_OPTION) return;
     const selected = this.selected;
-    this.selected = undefined;
     const choice = this.fromPrompt(pending, response.index);
     if (!choice) return;
     const target = this.target(choice);
@@ -100,7 +97,7 @@ export class ChainOptions {
     const options = target?.chosenOptions;
     const slots = target ? new Map(this.slots.get(target)) : undefined;
     const deferred = [...this.deferred];
-    this.selected = choice;
+    this.selected = [...selected, choice];
     this.record(choice);
     this.undoResponse = () => {
       this.selected = selected;
@@ -140,20 +137,20 @@ export class ChainOptions {
         break;
       case OcgMessageType.CHAIN_SOLVED:
         this.resolving = undefined;
-        this.selected = undefined;
+        this.selected = [];
         this.deferred = [];
         break;
       case OcgMessageType.CHAIN_END:
       case OcgMessageType.NEW_PHASE:
       case OcgMessageType.NEW_TURN:
         this.activating = this.resolving = undefined;
-        this.selected = undefined;
+        this.selected = [];
         this.deferred = [];
         this.undoResponse = undefined;
         break;
       case OcgMessageType.HINT: {
         if (message.hint_type !== OcgHintType.OPSELECTED || seatChoice(message.hint)) break;
-        const selected = this.selected?.description === message.hint ? this.selected : undefined;
+        const selected = [...this.selected].reverse().find((choice) => choice.description === message.hint);
         // Scripts also use OPSELECTED to announce the activated effect, without making a choice.
         if (!selected && chain.some((link) => this.descriptions.get(link) === message.hint)) break;
         const code = stringCode(message.hint);
