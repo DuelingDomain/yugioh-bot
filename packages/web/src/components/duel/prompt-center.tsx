@@ -936,7 +936,7 @@ function ResponseBody({
   return (
     <>
       {source?.text ? <CardTextBlock text={source.text} /> : null}
-      <div className={styles.rows}>
+      <div className={styles.rows} data-few={prompt.options.length <= 4 ? "true" : undefined}>
         {prompt.options.map((option, index) => {
           const { effectText: optionEffect } = optionTexts(option);
           // Seat-only choices use the same names as the LP panels, including duplicate-name seat numbers.
