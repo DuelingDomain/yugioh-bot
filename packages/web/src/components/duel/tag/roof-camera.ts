@@ -38,6 +38,8 @@ export const ROOF_PRESETS: Readonly<Record<"home" | "overview" | "rival" | "intr
   intro: { yaw: -150, tilt: 74, zoom: 0.25, fx: 0, fy: -500, oy: -150 },
 };
 
+/** How long a zoom into a field, a step to another field and the way back to the overview take: one quick ease-out. */
+export const ROOF_ZOOM_MS = 360;
 /** How long the camera takes to ease to the play view when an FX lock starts. The FX speed does not scale it. */
 export const ROOF_LOCK_IN_MS = 700;
 /**
@@ -234,7 +236,7 @@ function goHome(state: RoofCameraState, dur = 950): RoofCameraState {
   return moved(state, { mode: "home", focusSeat: null, lookSeat: null, pose: { ...ROOF_PRESETS.home } }, dur);
 }
 
-function goOverview(state: RoofCameraState, dur = 950): RoofCameraState {
+function goOverview(state: RoofCameraState, dur = ROOF_ZOOM_MS): RoofCameraState {
   return moved(state, { mode: "overview", focusSeat: null, lookSeat: null, pose: { ...ROOF_PRESETS.overview } }, dur);
 }
 
@@ -245,7 +247,7 @@ function overviewResume(r: RoofResume): RoofResume {
 
 function focusOn(state: RoofCameraState, seat: number): RoofCameraState {
   if (state.mode === "focus" && state.focusSeat === seat) return state;
-  return moved(state, { mode: "focus", focusSeat: seat, lookSeat: null, pose: seatPose(state.anchor, seat) }, 950);
+  return moved(state, { mode: "focus", focusSeat: seat, lookSeat: null, pose: seatPose(state.anchor, seat) }, ROOF_ZOOM_MS);
 }
 
 export function roofReducer(state: RoofCameraState, action: CameraAction): RoofCameraState {
