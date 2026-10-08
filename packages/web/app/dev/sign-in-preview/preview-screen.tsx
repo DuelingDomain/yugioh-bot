@@ -59,6 +59,18 @@ export function PreviewScreen({ step, resendAvailableAt }: { step: PreviewStep; 
       );
     case "err-invite":
       return <NotInvitedStep identifier={EMAIL} waitlistUrl={WAITLIST} onRetry={noop} />;
+    case "err-invite-pending":
+      return <NotInvitedStep identifier={EMAIL} waitlistUrl={WAITLIST} onRetry={noop} previewPhase="pending" />;
+    case "err-invite-joined":
+      return <NotInvitedStep identifier={EMAIL} waitlistUrl={WAITLIST} onRetry={noop} previewPhase="joined" />;
+    case "err-invite-exists":
+      return <NotInvitedStep identifier={EMAIL} waitlistUrl={WAITLIST} onRetry={noop} previewPhase="exists" />;
+    case "err-invite-limited":
+      return <NotInvitedStep identifier={EMAIL} waitlistUrl={WAITLIST} onRetry={noop} previewPhase="limited" />;
+    case "err-invite-failed":
+      return <NotInvitedStep identifier={EMAIL} waitlistUrl={WAITLIST} onRetry={noop} previewPhase="failed" />;
+    case "err-invite-username":
+      return <NotInvitedStep identifier="cardshark" waitlistUrl={WAITLIST} onRetry={noop} />;
     case "err-signup":
       return <SignupClosedStep waitlistUrl={WAITLIST} onRetry={noop} />;
     case "err-banned":
