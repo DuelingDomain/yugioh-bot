@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Check, EyeOff, Link2 } from "lucide-react";
 import type { DuelAnswer, DuelCardInfo, DuelChainLink, DuelPrompt, DuelPromptOption, DuelZoneRef } from "@yugidraft/shared/duels";
 import {
@@ -438,6 +438,7 @@ export const COMPACT_TEXT_QUERY = "(max-width: 900px), (max-height: 640px)";
 function CardTextBlock({ text, label = "Card text", open: forceOpen }: { text: string; label?: string; open?: boolean }) {
   const styles = useSkinStyles(baseStyles, "prompt");
   const root = useRef<HTMLDivElement>(null);
+  const bodyId = useId();
   const smallWindow = useMedia(COMPACT_TEXT_QUERY);
   const [dense, setDense] = useState(false);
   useLayoutEffect(() => { setDense(root.current?.closest("[data-prompt-dense]") != null); }, []);
@@ -466,13 +467,16 @@ function CardTextBlock({ text, label = "Card text", open: forceOpen }: { text: s
   return (
     <div ref={root} className={styles.cardText} data-open={clamped ? "false" : "true"}>
       <span className={styles.cardTextLabel}>{label}</span>
+      {/* A box that scrolls is a region the keyboard can reach and scroll. */}
       <p
-        ref={body} className={styles.cardTextBody} data-clamped={clamped ? "true" : "false"}
+        ref={body} id={bodyId} className={styles.cardTextBody} data-clamped={clamped ? "true" : "false"}
         data-overflow={scroll.overflow ? "true" : undefined} data-end={scroll.overflow ? (scroll.end ? "true" : "false") : undefined}
+        tabIndex={scroll.overflow ? 0 : undefined} role={scroll.overflow ? "region" : undefined}
+        aria-label={scroll.overflow ? `${label}, scrollable` : undefined}
         onScroll={measure}
       >{text}</p>
       {compact && long && !forceOpen ? (
-        <button type="button" className={styles.cardTextMore} aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+        <button type="button" className={styles.cardTextMore} aria-expanded={open} aria-controls={bodyId} onClick={() => setOpen((value) => !value)}>
           {open ? "Show less" : "Show full text"}
         </button>
       ) : null}
