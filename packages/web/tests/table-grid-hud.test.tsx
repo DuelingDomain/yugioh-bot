@@ -19,8 +19,8 @@ import { TableShell } from "@/components/duel/table/table-shell";
 
 beforeAll(() => {
   class RO {
-    constructor(private cb: () => void) {}
-    observe() { this.cb(); }
+    constructor(private cb: (entries: unknown[]) => void) {}
+    observe() { this.cb([]); }
     disconnect() {}
     unobserve() {}
   }

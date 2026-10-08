@@ -123,14 +123,31 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
     return `${card ? [card.left, card.top, card.width, card.height].map(Math.round).join(",") : ""}|${obstaclesKey(measureObstacles(asideRef.current))}`;
   }, [avoid]);
   const placing = open && current != null;
-  const watching = placing && frozen;
+  // A hover panel watches too: a chain panel that folds or opens (a prompt comes and goes) must not leave it on the old room or under that panel.
   useEffect(() => {
     if (!placing) return;
     const again = () => setResizeTick((tick) => tick + 1);
-    const timer = watching ? window.setInterval(() => { if (watch() !== watched.current) again(); }, WATCH_MS) : null;
+    const timer = window.setInterval(() => { if (watch() !== watched.current) again(); }, WATCH_MS);
     window.addEventListener("resize", again);
-    return () => { if (timer != null) window.clearInterval(timer); window.removeEventListener("resize", again); };
-  }, [placing, watching, watch]);
+    return () => { window.clearInterval(timer); window.removeEventListener("resize", again); };
+  }, [placing, watch]);
+  // The chain panel changes its height while it folds (a transition): the panel is placed again on each step, not only when the fold is over.
+  useEffect(() => {
+    if (!placing || typeof ResizeObserver === "undefined") return;
+    // An observer reports each node once when it starts: only a size that differs from the last one places the panel again.
+    const seen = new Map<Element, string>();
+    const observer = new ResizeObserver((entries) => {
+      let changed = false;
+      for (const entry of entries) {
+        const size = `${Math.round(entry.contentRect.width)}x${Math.round(entry.contentRect.height)}`;
+        if (seen.has(entry.target) && seen.get(entry.target) !== size) changed = true;
+        seen.set(entry.target, size);
+      }
+      if (changed) setResizeTick((tick) => tick + 1);
+    });
+    for (const node of Array.from(document.querySelectorAll("[data-chain-panel]"))) if (!asideRef.current?.contains(node)) observer.observe(node);
+    return () => observer.disconnect();
+  }, [placing, resizeTick]);
   useLayoutEffect(() => {
     const aside = asideRef.current;
     if (!aside || !placing) return;
@@ -145,7 +162,7 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
     if (candidates.length === 0) {
       // Nothing to measure (no layout yet): the CSS places the panel.
       place(aside, FIRST_PLACE, null);
-      watched.current = frozen ? watch() : "";
+      watched.current = watch();
       setSpot((previous) => (previous === FIRST_PLACE ? previous : FIRST_PLACE));
       return;
     }
@@ -186,7 +203,7 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
     }
     place(aside, chosen, measured);
     if (!frozen) hoverSpot.current = { key, place: chosen };
-    watched.current = frozen ? watch() : "";
+    watched.current = watch();
     setSpot((previous) => (previous.side === chosen.side && previous.width === chosen.width && previous.top === chosen.top && previous.maxH === chosen.maxH && previous.left === chosen.left ? previous : chosen));
   }, [placing, frozen, avoid, current, textSize, resizeTick, watch]);
   if (!current) return null;
