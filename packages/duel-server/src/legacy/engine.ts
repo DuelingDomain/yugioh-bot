@@ -2,6 +2,7 @@
 // duels in production before the n-seat work. It runs when DUEL_1V1_ENGINE=legacy (the default) for tables with two seats.
 // Do not "fix" or tidy this file, ./views.ts or ./prompts.ts: they must stay equal to main. Every line that differs from main is
 // marked "LEGACY-1V1:". See packages/duel-server/legacy-1v1/README.md.
+import { ChainOptions } from "../chain-options.js"; // LEGACY-1V1: public chosen chain options
 import type { DuelAnswer, DuelBattleStep, DuelChainMode, DuelCardInfo, DuelDeck, DuelEngineView, DuelMasterRule, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
 import { defaultChainMode } from "@yugidraft/shared/duels"; // LEGACY-1V1: chain response mode (Auto, Always, Off)
 import { firstTurnDrawFor } from "../first-turn-draw.js"; // LEGACY-1V1: owner draw rule and saved replay overrides
@@ -20,6 +21,7 @@ import createCore, {
   type OcgCoreSync,
   type OcgDuelHandle,
   type OcgMessage,
+  type OcgResponse, // LEGACY-1V1: public chosen chain options
   type OcgOpCode,
 } from "ocgcore-wasm";
 import { isOptionalCardScript, loadCardDatabase, type CardDatabase } from "../cards.js";
@@ -336,6 +338,11 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   const log: LogEntry[] = [];
   const events: StoredDuelEvent[] = [];
   const chainMemory: StoredChainLink[] = [];
+  const chainOptions = new ChainOptions(cards); // LEGACY-1V1: public chosen chain options
+  const respond = (prompt: PendingPrompt, response: OcgResponse) => { // LEGACY-1V1: public chosen chain options
+    chainOptions.recordResponse(prompt, response); // LEGACY-1V1: public chosen chain options
+    lib.duelSetResponse(handle, response); // LEGACY-1V1: public chosen chain options
+  }; // LEGACY-1V1: public chosen chain options
   const reveals = createRevealMap();
   let nextLogId = 1;
   let nextEventId = 1;
@@ -381,6 +388,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     for (const move of observeMoveEvents(message, cards, eventContext, nextEventId)) pushEvent(move);
     for (const confirm of observeConfirmEvents(message, cards, eventContext, nextEventId)) pushEvent(confirm);
     const stored = observeDuelEvent(message, cards, chainMemory, nextEventId, eventContext);
+    chainOptions.observe(message, chainMemory, stored); // LEGACY-1V1: public chosen chain options
     // The summon line is written here, right after applyMessage, because the summon method is only known now.
     if (
       stored?.kind === "summon" &&
@@ -602,9 +610,10 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
         },
       );
       lastSelectHint = undefined;
+      chainOptions.recordPrompt(next); // LEGACY-1V1: public chosen chain options
       const automated = autoResponse(next, { stopAtEveryWindow: options.settings?.stopAtEveryWindow, chainMode: chainModes[next.seat], phase }); // LEGACY-1V1: per-seat chain mode
       if (automated) {
-        lib.duelSetResponse(handle, automated);
+        respond(next, automated); // LEGACY-1V1: public chosen chain options
         continue;
       }
       promptSeq += 1;
@@ -663,7 +672,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
       const automated = autoResponse(open, { stopAtEveryWindow: options.settings?.stopAtEveryWindow, chainMode: mode, phase });
       if (!automated) return false;
       sawRetry = false;
-      lib.duelSetResponse(handle, automated);
+      respond(open, automated); // LEGACY-1V1: public chosen chain options
       processUntilWait();
       if (sawRetry) {
         pending = open;
@@ -696,7 +705,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
       sawRetry = false;
       // Stays set through the summon's follow-up prompts; observeDuelEvent clears it at SPSUMMONED.
       if (isPendulumSummonAnswer(pending, answer)) eventContext.pendulumSummon = true;
-      lib.duelSetResponse(handle, response);
+      respond(previous, response); // LEGACY-1V1: public chosen chain options
       processUntilWait();
       if (sawRetry) {
         pending = previous;
