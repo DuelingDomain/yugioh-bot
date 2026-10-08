@@ -663,6 +663,7 @@ function TableShellBody({
                   <PhaseHub
                     variant={place === "band" ? "band" : "table"}
                     phase={engine.phase}
+                    revision={engine.revision}
                     battleStep={battleStep}
                     turn={engine.turn}
                     turnSeat={engine.turnSeat}
@@ -682,6 +683,7 @@ function TableShellBody({
                   <PhaseHub
                     variant="table"
                     phase={engine.phase}
+                    revision={engine.revision}
                     battleStep={battleStep}
                     turn={engine.turn}
                     turnSeat={engine.turnSeat}

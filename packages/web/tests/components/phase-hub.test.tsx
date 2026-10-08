@@ -150,6 +150,90 @@ describe("PhaseHub on your turn", () => {
   });
 });
 
+/** The room's way: the click sends the answer and sets busy in the same event, so canAct drops in the same commit. */
+function Room({ phase, busy, onSend, variant = "band", revision = 1, canAct }: { phase: string; busy: boolean; onSend: () => void; variant?: "band" | "table"; revision?: number; canAct?: boolean }) {
+  return <PhaseHub {...hubProps({ phase, variant, revision, canAct: canAct ?? !busy, actionOptions: ALL_MOVES, onChoose: onSend })} />;
+}
+function Harness({ phase, variant }: { phase: string; variant?: "band" | "table" }) {
+  const [busy, setBusy] = React.useState(false);
+  return (
+    <>
+      <Room phase={phase} busy={busy} onSend={() => setBusy(true)} variant={variant} />
+      <button data-testid="done" onClick={() => setBusy(false)}>done</button>
+    </>
+  );
+}
+const chipOf = (code: string) => document.querySelector(`[data-phase="${code}"][title]`) as HTMLElement;
+
+describe("PhaseHub pending phase move", () => {
+  it.each(["band", "table"] as const)("lights the clicked phase at once on the %s hub, before the engine answers", (variant) => {
+    render(<Harness phase="main1" variant={variant} />);
+    fireEvent.click(screen.getByRole("button", { name: "Go to Battle Phase" }));
+    expect(chipOf("BP").getAttribute("data-state")).toBe("current");
+    expect(chipOf("BP").getAttribute("data-pending")).toBe("true");
+    expect(chipOf("M1").getAttribute("data-state")).toBe("done");
+    expect(chipOf("EP").getAttribute("data-state")).toBe("ahead");
+    // No second click while the move is on its way.
+    expect(screen.queryByRole("button", { name: "Go to Battle Phase" })).toBeNull();
+  });
+
+  it("goes back to the real phase when the server refuses the move", () => {
+    render(<Harness phase="main1" />);
+    fireEvent.click(screen.getByRole("button", { name: "Go to Battle Phase" }));
+    expect(chipOf("BP").getAttribute("data-pending")).toBe("true");
+    fireEvent.click(screen.getByTestId("done"));
+    expect(chipOf("BP").getAttribute("data-pending")).toBeNull();
+    expect(chipOf("BP").getAttribute("data-state")).toBe("ahead");
+    expect(chipOf("M1").getAttribute("data-state")).toBe("current");
+    expect(screen.getByRole("button", { name: "Go to Battle Phase" })).toBeTruthy();
+  });
+
+  it("hands over to the engine's phase when the move succeeds", () => {
+    const { rerender } = render(<Room phase="main1" busy={false} onSend={vi.fn()} />);
+    rerender(<Room phase="battle" busy={false} onSend={vi.fn()} />);
+    expect(chipOf("BP").getAttribute("data-state")).toBe("current");
+    expect(chipOf("BP").getAttribute("data-pending")).toBeNull();
+  });
+
+  it("lets the chip go when a new room revision comes back in the same phase while the seat cannot act", () => {
+    // The reply carried an opponent's prompt (or the duel ended): canAct stays false and the phase stays Main 1.
+    function Sent() {
+      const [revision, setRevision] = React.useState(1);
+      const [busy, setBusy] = React.useState(false);
+      return (
+        <>
+          <Room phase="main1" busy={busy} canAct={!busy} revision={revision} onSend={() => setBusy(true)} />
+          <button data-testid="reply" onClick={() => setRevision(2)}>reply</button>
+        </>
+      );
+    }
+    render(<Sent />);
+    fireEvent.click(screen.getByRole("button", { name: "Go to Battle Phase" }));
+    expect(chipOf("BP").getAttribute("data-pending")).toBe("true");
+    fireEvent.click(screen.getByTestId("reply"));
+    expect(chipOf("BP").getAttribute("data-pending")).toBeNull();
+    expect(chipOf("M1").getAttribute("data-state")).toBe("current");
+    expect(chipOf("BP").getAttribute("data-state")).toBe("ahead");
+  });
+
+  it("tells a screen reader the engine's phase while the move is pending", () => {
+    render(<Harness phase="main1" />);
+    fireEvent.click(screen.getByRole("button", { name: "Go to Battle Phase" }));
+    expect(chipOf("BP").getAttribute("data-state")).toBe("current");
+    expect(chipOf("BP").getAttribute("aria-current")).toBeNull();
+    expect(chipOf("M1").getAttribute("aria-current")).toBe("step");
+    expect(screen.getByRole("status").textContent).toMatch(/Main 1/);
+    expect(screen.getByRole("status").textContent).not.toMatch(/Battle/);
+  });
+
+  it("shows nothing pending when the click was dropped before the room went busy", () => {
+    render(<PhaseHub {...hubProps({ actionOptions: ALL_MOVES })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Go to Battle Phase" }));
+    expect(chipOf("BP").getAttribute("data-pending")).toBeNull();
+    expect(chipOf("M1").getAttribute("data-state")).toBe("current");
+  });
+});
+
 describe("PhaseHub on another turn", () => {
   it("is read-only even when options are passed in", () => {
     render(<PhaseHub {...hubProps({ turnSeat: 1, canAct: false, actionOptions: ALL_MOVES })} />);
