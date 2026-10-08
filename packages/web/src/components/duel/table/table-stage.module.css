@@ -93,7 +93,18 @@
   top: 410px;
   width: 0;
   height: 0;
+}
+
+/* The fly-in moves the world every frame: it keeps its own layer. A flat view does not: a permanent layer is rastered at
+   the camera pose and then scaled, which blurs the text and the card art of a zoomed field. The view hook sets will-change
+   on the layer only while it moves. */
+.board[data-fly="true"] .world {
   will-change: transform;
+}
+
+/* The same for the seats of a flat view (their glide is a plain transition). */
+.board[data-fly="false"] .world :global([data-seat-slot]) {
+  will-change: auto;
 }
 
 .board[data-fly="true"] .world,
