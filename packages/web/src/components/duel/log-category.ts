@@ -137,6 +137,8 @@ const TEXT_RULES: ReadonlyArray<readonly [RegExp, LogCategory]> = [
   [/^(A|Player \d+'s) chain link was negated$/, "chain"],
   [/^Chain ended$/, "chain"],
   [/^(A monster|Player \d+) declares (an|a direct) attack$/, "battle"],
+  [/^Player \d+ attacks Player \d+ directly$/, "battle"],
+  [/^Player \d+ is attacked directly$/, "battle"],
   [/^Player \d+ takes \d+ damage$/, "battle"],
   [/^Player \d+ pays \d+ LP$/, "battle"],
   [/ was destroyed$/, "destroy"],
