@@ -105,6 +105,7 @@ afterEach(async () => {
     const host = hosts.pop();
     if (host) await host.close();
   }
+  vi.unstubAllEnvs();
 });
 
 function insertPlayer(db: Database.Database, discordUserId: string, displayName: string) {
@@ -112,6 +113,7 @@ function insertPlayer(db: Database.Database, discordUserId: string, displayName:
 }
 
 function setup() {
+  vi.stubEnv("DUEL_DATA_DIR", DATA);
   const db = new Database(":memory:");
   migrate(db);
   return {
@@ -312,6 +314,30 @@ describe("series game lobby ops", () => {
 });
 
 describe("series advance", () => {
+  it("a new auto block cannot stop tournament game 1 before either player is ready", async () => {
+    const app = setup();
+    const { host, workers } = openHost(app);
+    try {
+      const code = 18144506;
+      const deck = { ...deckWithSide(), main: [code, ...deckWithSide().main.slice(1)] };
+      const { started } = tournamentMatch(app, 3, deck);
+      app.db.prepare(`INSERT INTO card_script_auto_blocks
+        (code, reason, blocked_at, distinct_duels, error_count, threshold, window_days, bundle_version, script_hash)
+        VALUES (?, 'investigating', CURRENT_TIMESTAMP, 3, 3, 3, 7, 'test', ?)`)
+        .run(code, cardScriptHash(loadCardDatabase(DATA), code));
+      const details = await post(host, { op: "card-details", slug: started.duel.slug, playerId: app.p1, codes: [code] });
+      expect(details.data.cards[0]).not.toHaveProperty("unavailableReason");
+      const query = await post(host, { op: "card-query", slug: started.duel.slug, playerId: app.p1, cardQuery: { text: String(code) } });
+      expect(query.data.cards[0]).not.toHaveProperty("unavailableReason");
+      const fresh = await post(host, { op: "check-deck", playerId: app.p1, mode: "normal", deck });
+      expect(fresh.data.report.issues.some((issue: { message: string }) => issue.message.includes("is unavailable"))).toBe(true);
+      expect((await post(host, { op: "ready", slug: started.duel.slug, playerId: app.p1 })).status).toBe(200);
+      expect((await post(host, { op: "ready", slug: started.duel.slug, playerId: app.p2 })).status).toBe(200);
+      expect(workers).toHaveLength(1);
+      expect(app.duels.get(started.duel.slug, GUILD)).toMatchObject({ status: "active", gameNumber: 1 });
+    } finally { await host.close(); app.db.close(); }
+  });
+
   it.each(["challenge", "tournament"] as const)("%s: a new auto block cannot stop games 2 and 3 or side decking", async kind => {
     const app = setup();
     const { host, workers } = openHost(app);

@@ -387,10 +387,16 @@ export function createDuelHost(options: {
   let stopped = false;
 
   /** Check one deck against the real table format, so a Tag or FFA table also refuses the cards that do not work there. */
+  function sessionCardEntries(session: DuelSession): readonly CardBlockEntry[] {
+    const startedMatch = session.seriesId != null && (
+      (session.gameNumber ?? 1) > 1 || session.status !== "lobby" || series.get(session.seriesId, session.guildId).tournamentId !== null
+    );
+    return startedMatch ? loadCardBlockList(undefined, options.dataDirectory) : admissionEntries(session.mode, session.format);
+  }
+
   async function sessionDeckOptions(session: DuelSession, playerId: number): Promise<InspectDeckOptions> {
     const table = session.format;
-    const startedMatch = session.seriesId != null && ((session.gameNumber ?? 1) > 1 || session.status !== "lobby");
-    const cardBlocks = startedMatch ? loadCardBlockList(undefined, options.dataDirectory) : admissionEntries(session.mode, table);
+    const cardBlocks = sessionCardEntries(session);
     const tournamentId = session.seriesId ? series.get(session.seriesId, session.guildId).tournamentId : null;
     const draftId = tournamentId === null ? null : createTournamentDuelService(options.db).rules(tournamentId).draftId;
     if (draftId === null) return { table, cardBlocks };
@@ -401,8 +407,7 @@ export function createDuelHost(options: {
   function cardRequestEntries(body: Record<string, unknown>, guildId: string, playerId: number): readonly CardBlockEntry[] {
     if (typeof body.slug === "string" && body.slug) {
       const { session } = service.room(body.slug, guildId, playerId);
-      if (session.seriesId != null && ((session.gameNumber ?? 1) > 1 || session.status !== "lobby")) return loadCardBlockList(undefined, options.dataDirectory);
-      return admissionEntries(session.mode, session.format);
+      return sessionCardEntries(session);
     }
     return admissionEntries(body.mode === "domain" ? "domain" : "normal", body.format === "tag" || body.format === "ffa3" || body.format === "ffa4" ? body.format : "1v1");
   }
