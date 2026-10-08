@@ -242,7 +242,27 @@ const states = {
   }),
 } satisfies Record<TableStateId, TableFixtureState>;
 
-export const FFA3_FIXTURES: TableFixtureSet = { format: "ffa3", title: "3-way free-for-all", states };
+/** States only the FFA3 preview shows (`?state=<id>`). */
+const extra = {
+  // A field-select bar over cards in your hand and on your field (the Banish cost of a summon).
+  "banish-pick": make("banish-pick" as TableStateId, "Banish: select a card", {
+    prompt: () => ({
+      id: "banish-pick",
+      seat: REN,
+      kind: "cards",
+      title: "Select a card",
+      description: "Banish",
+      min: 1,
+      max: 1,
+      options: [
+        ...[0, 1, 5].map((sequence) => monsterOption(REN, sequence, "Monster")),
+        ...[0, 1, 2, 3, 4].map((sequence) => ({ ...handOption(sequence, "Card"), label: "Card" })),
+      ],
+    }),
+  }),
+};
+
+export const FFA3_FIXTURES: TableFixtureSet = { format: "ffa3", title: "3-way free-for-all", states, extra };
 
 /** Monsters in Defense Position on every field (the `?def=1` preview): face-up and set, side by side, so a turned card next to an upright one shows the zone it keeps. */
 const DEFENSE_ROWS = [
