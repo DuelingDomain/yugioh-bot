@@ -25,12 +25,34 @@ describe("the card peek lines up with the chain panel", () => {
     expect(layer.left + EDGE_LEFT_PX).toBe(40);
   });
 
-  it("keeps the chain panel width a few px over the board gap, and gives way only to a clearly nearer board", () => {
-    const narrow = box(130, 131, 346, 298);
-    const near = peekPlaces(layer, { board: [box(346 + GAP_PX - 8, 28, 1042, 680)], keep: [narrow], chain: narrow });
-    expect(near[0].width).toBe(216);
-    const tight = peekPlaces(layer, { board: [box(346 - 40, 28, 1042, 680)], keep: [narrow], chain: narrow });
-    expect(tight[0].width).toBe(Math.max(MIN_WIDTH_PX, 216 - 40 - GAP_PX));
+  it("never makes the peek narrower than the minimum: a narrow chain panel gives its left edge, not its width", () => {
+    for (const width of [142, 186, 214]) {
+      const narrow = box(130, 131, 130 + width, 298);
+      const [first] = peekPlaces(layer, { board, keep: [narrow], chain: narrow });
+      expect(first.left).toBe(narrow.left - layer.left);
+      expect(first.width).toBe(MIN_WIDTH_PX);
+    }
+  });
+
+  it("holds a wide chain panel to the usual width", () => {
+    const wide = box(100, 100, 500, 300);
+    const [first] = peekPlaces(layer, { board: [box(600, 38, 1575, 1042)], keep: [wide], chain: wide });
+    expect(first.width).toBe(WIDTH_PX);
+  });
+
+  it("keeps a gap to the board: it narrows when the board is more than the slack nearer, and keeps the old column when 220 px do not fit", () => {
+    const column = box(130, 131, 130 + 292, 298);
+    // The board is 8 px nearer than the gap allows: the width stays. 9 px nearer: it narrows by that.
+    const slack = peekPlaces(layer, { board: [box(column.right + GAP_PX - 8, 28, 1575, 1042)], keep: [column], chain: column });
+    expect(slack[0].width).toBe(292);
+    const nearer = peekPlaces(layer, { board: [box(column.right + GAP_PX - 9, 28, 1575, 1042)], keep: [column], chain: column });
+    expect(nearer[0].width).toBe(283);
+    // The board leaves under 220 px beside the chain panel: the left column of the layer takes the peek (below the chain panel).
+    const tight = peekPlaces(layer, { board: [box(130 + 220 + GAP_PX - 1, 28, 1575, 1042)], keep: [column], chain: column });
+    expect(tight[0].left).toBeUndefined();
+    expect(tight[0].side).toBe("left");
+    expect(tight[0].width).toBeGreaterThanOrEqual(MIN_WIDTH_PX);
+    expect(tight[0].top).toBe(column.bottom + GAP_PX);
   });
 
   it("is placed again when the chain panel moves sideways", () => {
@@ -48,6 +70,12 @@ describe("measuring the chain panel", () => {
     node.getBoundingClientRect = () => ({ ...rect, x: rect.left, y: rect.top, width: rect.right - rect.left, height: rect.bottom - rect.top, toJSON: () => ({}) });
     document.body.append(node);
   };
+
+  it("does not take the strip of the 1v1 table for the chain column", () => {
+    panel(box(300, 20, 486, 120));
+    document.querySelector("[data-chain-panel]")!.setAttribute("data-chain-strip-wrap", "true");
+    expect(measureObstacles().chain).toBeNull();
+  });
 
   it("reports a narrow panel in the left half and not a strip or a right panel", () => {
     panel(chain);

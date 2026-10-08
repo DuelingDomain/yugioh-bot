@@ -38,7 +38,7 @@ export const WIDTH_PX = 320;
 /** The chain panel is at most this wide in the left column (a wider one is a strip across the table, and the peek does not line up with it). */
 const CHAIN_COLUMN_MAX_PX = 340;
 /** The peek keeps the chain panel's width when the board leaves this much less room than that (the panel stands as near to the board). */
-const ALIGN_SLACK_PX = 12;
+const ALIGN_SLACK_PX = 8;
 /** A free band shorter than this is no place for the window (the art and some lines do not fit): used only when no side has a taller one. */
 const MIN_BAND_PX = 260;
 /** The height of a typical panel: the free width is measured beside the board over this span up from the bottom of a band. */
@@ -95,7 +95,8 @@ export function measureObstacles(peek?: Element | null): Obstacles {
 function chainColumnBox(peek?: Element | null): Box | null {
   const layer = peek instanceof HTMLElement ? peek.offsetParent : null;
   const bounds = layer?.getBoundingClientRect();
-  for (const node of Array.from(document.querySelectorAll("[data-chain-panel]"))) {
+  for (const node of Array.from(document.querySelectorAll("[data-chain-panel]:not([data-chain-strip-wrap])"))) {
+    // The strip of the 1v1 table is no left column: the peek keeps the layer edge there.
     if (peek?.contains(node)) continue;
     const rect = node.getBoundingClientRect();
     if (rect.width <= 1 || rect.height <= 1 || !isShown(node, rect)) continue;
@@ -162,23 +163,36 @@ export function freeWidth(side: "left" | "right", layer: Box, band: Band, board:
   return limits.length === 0 ? Infinity : Math.floor(edge - (Math.max(...limits) + GAP_PX));
 }
 
-/** Where the left panel stands: lined up with the chain panel (its left edge and width) when that is in the left column, else at the layer edge. */
-function leftColumn(layer: Box, obstacles: Obstacles): { left: number; width: number | null } {
+/** The left column of the peek when it lines up with the chain panel: the left edge of that panel, and its width held to the width of the peek. */
+function alignedColumn(obstacles: Obstacles): { left: number; width: number } | null {
   const chain = obstacles.chain;
-  return chain ? { left: Math.round(chain.left), width: Math.round(chain.right - chain.left) } : { left: layer.left + EDGE_LEFT_PX, width: null };
+  if (!chain) return null;
+  return { left: Math.round(chain.left), width: Math.max(MIN_WIDTH_PX, Math.min(WIDTH_PX, Math.round(chain.right - chain.left))) };
 }
 
-const columnOf = (side: "left" | "right", width: number, layer: Box, obstacles: Obstacles): [number, number] => {
-  if (side === "right") return [layer.right - EDGE_RIGHT_PX - width, layer.right - EDGE_RIGHT_PX];
-  const column = leftColumn(layer, obstacles);
-  return [column.left, column.left + (column.width ?? width)];
-};
-
 const SIDES = ["left", "right"] as const;
-const bandsAt = (side: "left" | "right", width: number, layer: Box, obstacles: Obstacles, any = false) => {
-  const [x0, x1] = columnOf(side, width, layer, obstacles);
-  return bandsOf(x0, x1, layer.top + TOP_PX, layer.bottom - BOTTOM_PX, obstacles.keep, any);
-};
+const bandsIn = (x0: number, x1: number, layer: Box, obstacles: Obstacles, any: boolean) =>
+  bandsOf(x0, x1, layer.top + TOP_PX, layer.bottom - BOTTOM_PX, obstacles.keep, any);
+const edgeColumn = (side: "left" | "right", layer: Box): [number, number] =>
+  side === "left" ? [layer.left + EDGE_LEFT_PX, layer.left + EDGE_LEFT_PX + WIDTH_PX] : [layer.right - EDGE_RIGHT_PX - WIDTH_PX, layer.right - EDGE_RIGHT_PX];
+
+/**
+ * The places of the left side lined up with the chain panel (its left edge, and its width held to 220-320 px): one per free band beside
+ * it where the board leaves at least the minimum width. Empty when no band has that room: the layer edge takes the panel then.
+ */
+function alignedPlaces(layer: Box, obstacles: Obstacles, any: boolean): Place[] {
+  const column = alignedColumn(obstacles);
+  if (!column) return [];
+  const places: Place[] = [];
+  for (const band of bandsIn(column.left, column.left + column.width, layer, obstacles, any)) {
+    // The chain panel may stand near the board: a few px of difference to the board gap do not narrow the peek, a clearly nearer board does.
+    const free = freeWidth("left", layer, band, obstacles.board, column.left);
+    if (free < MIN_WIDTH_PX) continue;
+    const width = free >= column.width - ALIGN_SLACK_PX ? column.width : free;
+    places.push({ side: "left", width, left: column.left - layer.left, top: band.top, maxH: band.bottom - band.top });
+  }
+  return places;
+}
 
 /**
  * The places of the panel: both edges (the left one first), one per free band (the highest first). The width is `WIDTH_PX`, or the free
@@ -190,18 +204,14 @@ export function peekPlaces(layer: Box, obstacles: Obstacles): Place[] {
   // no side has a tall band, the tallest bands are the least bad places.
   for (const any of [false, true]) {
     const places: Place[] = [];
+    const aligned = alignedPlaces(layer, obstacles, any);
     for (const side of SIDES) {
-      for (const band of bandsAt(side, WIDTH_PX, layer, obstacles, any)) {
-        if (side === "left" && obstacles.chain) {
-          // Lined up with the chain panel: its left edge and its width. The chain panel stands as near to the board as it likes, so a few px
-          // of difference to the board gap do not narrow the peek: only a clearly nearer board does.
-          const column = leftColumn(layer, obstacles);
-          const chainWidth = column.width ?? WIDTH_PX;
-          const free = freeWidth(side, layer, band, obstacles.board, column.left);
-          const width = free >= chainWidth - ALIGN_SLACK_PX ? chainWidth : Math.max(MIN_WIDTH_PX, free);
-          places.push({ side, width, left: column.left - layer.left, top: band.top, maxH: band.bottom - band.top });
-          continue;
-        }
+      if (side === "left" && aligned.length > 0) {
+        places.push(...aligned);
+        continue;
+      }
+      const [x0, x1] = edgeColumn(side, layer);
+      for (const band of bandsIn(x0, x1, layer, obstacles, any)) {
         const width = Math.max(MIN_WIDTH_PX, Math.min(WIDTH_PX, freeWidth(side, layer, band, obstacles.board)));
         places.push({ side, width, top: band.top, maxH: band.bottom - band.top });
       }
