@@ -6,6 +6,7 @@ import {
   buildPanelView,
   buildStripView,
   chainOutcomes,
+  ownPromptOpen,
   publicTargetName,
   rememberTargetNames,
   stripLabel,
@@ -642,5 +643,21 @@ describe("buildStripView", () => {
     id = 0;
     const events = [activate(1, 1, TRAP_HOLE), chainEv("chain-resolving", 1), chainEv("chain-resolved", 1)];
     expect(events.reduce(applyChainEvent, EMPTY_CHAIN)).toEqual(deriveChainState(events));
+  });
+});
+
+describe("ownPromptOpen", () => {
+  it("is true for a prompt of the local seat that is not the chain response", () => {
+    expect(ownPromptOpen({ seat: 0, context: { type: "select" } }, 0)).toBe(true);
+    expect(ownPromptOpen({ seat: 0, context: null }, 0)).toBe(true);
+    expect(ownPromptOpen({ seat: 0 }, 0)).toBe(true);
+  });
+
+  it("is false for the chain response window, for another seat's prompt, for a spectator and for no prompt", () => {
+    expect(ownPromptOpen({ seat: 0, context: { type: "chain" } }, 0)).toBe(false);
+    expect(ownPromptOpen({ seat: 1, context: { type: "select" } }, 0)).toBe(false);
+    expect(ownPromptOpen({ seat: 0, context: { type: "select" } }, null)).toBe(false);
+    expect(ownPromptOpen(null, 0)).toBe(false);
+    expect(ownPromptOpen(undefined, 0)).toBe(false);
   });
 });

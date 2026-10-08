@@ -1,5 +1,5 @@
 /* The "Now resolving" panel, its strip and its sheet (chain-panel.tsx). Gold = activated and waiting, violet =
-   resolving, red = negated, grey = resolved. Only transform and opacity animate. Nothing here takes pointer input
+   resolving, red = negated, grey = resolved. Transform and opacity animate; only the hero fold animates a height. Nothing here takes pointer input
    except the strip, the sheet and its scrim. */
 
 .cr {
@@ -122,7 +122,16 @@
    outcome and the link rows stay in view. The sheet scrolls instead. */
 .cr:not([data-shape="sheet"]) .hero { display: flex; flex: 0 1 auto; flex-direction: column; min-height: 0; overflow: hidden; }
 .cr:not([data-shape="sheet"]) .hero > * { flex: none; }
-.cr:not([data-shape="sheet"]) .hero > .cardText { flex: 0 1 auto; min-height: 4.2em; }
+.cr:not([data-shape="sheet"]) .hero > .fold { flex: 0 1 auto; min-height: 0; }
+.cr:not([data-shape="sheet"]) .foldBody > * { flex: none; }
+.cr:not([data-shape="sheet"]) .foldBody > .cardText { flex: 0 1 auto; min-height: 4.2em; }
+
+/* While a prompt of the local player is open (data-folded, from chain-fx.tsx) the effect text, the options and the targets
+   fold away: the hero keeps the art, the name, the owner, what was chosen and the outcome, so the prompt's own windows
+   (the card peek) have the room. It is a height transition (a 1fr row to a 0fr row), so it folds and unfolds with no jump. */
+.fold { display: grid; grid-template-rows: 1fr; transition: grid-template-rows 0.24s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.18s ease; }
+.fold[data-folded="true"] { grid-template-rows: 0fr; opacity: 0; pointer-events: none; }
+.foldBody { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 
 /* The card's text in full: one paragraph per line of the card, each option a bullet in a list. The box takes the
    free height of the panel (the hero gives it up before anything else). Only when the layout really cuts it
@@ -456,6 +465,8 @@
 :global([data-chain-front][data-reduced="true"]) .strip,
 :global([data-chain-front][data-reduced="true"]) .scrim,
 :global([data-chain-front][data-reduced="true"]) .wait i { animation: none; }
+:global([data-chain-front][data-reduced="true"]) .fold { transition: none; }
 @media (prefers-reduced-motion: reduce) {
   .cr, .hero, .out, .strip, .scrim, .wait i { animation: none !important; }
+  .fold { transition: none !important; }
 }
