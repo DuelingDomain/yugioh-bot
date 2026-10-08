@@ -379,6 +379,17 @@ describe("FFA3 own field camera zoom", () => {
     expect(scale(container)).toBeGreaterThan(1.02);
   });
 
+  it("hides the Zoom my field button when your own seat is out", () => {
+    const engine = structuredClone(idle().room.engine!);
+    engine.seats[REN].lp = 0;
+    engine.seats[REN].eliminated = true;
+    const { container, rerender } = render(<Table state={idle()} />);
+    expect(container.querySelector("[data-camera-zoom]")).not.toBeNull();
+    rerender(<Table state={{ ...BASE, room: { ...BASE.room, engine } } as TableFixtureState} />);
+    advance(5000);
+    expect(container.querySelector("[data-camera-zoom]")).toBeNull();
+  });
+
   it("Esc leaves the zoom of your own field in a face-off", () => {
     frames();
     const focus = { mode: "focus", focusSeat: REN } as const;
