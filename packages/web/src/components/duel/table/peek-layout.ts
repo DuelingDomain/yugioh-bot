@@ -62,12 +62,6 @@ function cornerBoxes(): Box[] {
   return boxes;
 }
 
-/** The top of the bottom right controls, or `null` when there are none. */
-export function controlsTop(): number | null {
-  const boxes = cornerBoxes();
-  return boxes.length === 0 ? null : Math.min(...boxes.map((box) => box.top));
-}
-
 /**
  * Measure what the peek stays clear of. `peek`: the panel itself (it never counts). The clicked card counts like the rest of the board, so a
  * hover and a pin of the same card see the same room and stand in the same place.

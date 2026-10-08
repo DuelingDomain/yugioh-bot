@@ -605,8 +605,9 @@
 .masterWrap[data-form="tall"]:not([data-slot="other"]) ~ .preview {
   --pv-reserve: calc(var(--hud-master-bottom, calc(clamp(58px, 5.6dvh, 68px) + 20px)) + 341px);
 }
-/* The right edge (grid-preview.tsx puts the panel there when the left side is full): it slides in from that edge. */
+/* grid-preview.tsx stands the panel on the bottom of its free band. */
 .preview[data-anchor="bottom"] { top: auto; bottom: var(--pv-bottom, 8px); }
+/* The right edge (grid-preview.tsx puts the panel there when the left side is full): it slides in from that edge. */
 .preview[data-side="right"] { left: auto; right: 16px; transform: translateX(calc(100% + 32px)); }
 .preview[data-open="true"], .preview[data-side="right"][data-open="true"] { transform: none; visibility: visible; transition: transform 0.18s ease-out, visibility 0s; }
 .preview[data-motion="none"] { transition: none; }

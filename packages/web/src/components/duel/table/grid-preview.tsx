@@ -35,7 +35,7 @@ const place = (aside: HTMLElement, spot: Place, layer: Box | null) => {
 };
 
 /**
- * The hover preview of the table shells (Tag, 3-way, 4-way): a ~270 px panel that slides out from the left edge while a card is hovered or
+ * The hover preview of the table shells (Tag, 3-way, 4-way): a 220-320 px wide panel that slides out from the left edge while a card is hovered or
  * focused (card, name, type, ATK/DEF, owner, effect text). It takes no pointer events, so it never blocks the board.
  * The text size follows the "Text size" setting. The panel grows taller with it (not wider): the art shrinks first (down
  * to nothing), so the whole effect text shows at normal card lengths. A text that is still longer scrolls inside the panel:
@@ -114,6 +114,8 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
   // What the placement saw last: the clicked card, the board and the parts kept clear. A change (a camera move, a chain that opens, a prompt)
   // places a pinned panel again (a hover panel is placed again by its next card).
   const watched = useRef("");
+  // The place of the last hover panel: a click keeps it (the extra lines of the pin make the panel taller, and that must not pick another band).
+  const hoverSpot = useRef<{ key: string; place: Place } | null>(null);
   const watch = useCallback(() => {
     const card = avoid?.isConnected ? avoid.getBoundingClientRect() : null;
     return `${card ? [card.left, card.top, card.width, card.height].map(Math.round).join(",") : ""}|${obstaclesKey(measureObstacles(asideRef.current))}`;
@@ -147,7 +149,14 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
     }
     let chosen = candidates[0];
     let best: number[] | null = null;
-    for (const candidate of candidates) {
+    // The first place of a pin is the place of the hover of that card: a click never moves the window. Later places (a chain that opens) rank again.
+    const key = `${current?.code}-${current?.name}`;
+    const kept = frozen && hoverSpot.current?.key === key
+      ? candidates.find((c) => c.side === hoverSpot.current?.place.side && c.top === hoverSpot.current.place.top && c.maxH === hoverSpot.current.place.maxH && c.width === hoverSpot.current.place.width)
+      : undefined;
+    if (frozen) hoverSpot.current = null;
+    if (kept) chosen = kept;
+    for (const candidate of kept ? [] : candidates) {
       place(aside, candidate, measured);
       const rect: Box = {
         left: parent.left + aside.offsetLeft,
@@ -169,6 +178,7 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
       if (clicked === 0 && keep === 0 && board === 0 && hidden === 0) break;
     }
     place(aside, chosen, measured);
+    if (!frozen) hoverSpot.current = { key, place: chosen };
     watched.current = frozen ? watch() : "";
     setSpot((previous) => (previous.side === chosen.side && previous.width === chosen.width && previous.top === chosen.top && previous.maxH === chosen.maxH ? previous : chosen));
   }, [placing, frozen, avoid, current, textSize, resizeTick, watch]);
