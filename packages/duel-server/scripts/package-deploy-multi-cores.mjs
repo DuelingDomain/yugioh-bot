@@ -44,7 +44,7 @@ for (const { stem, path, sha, info } of cores) {
     `builtBy=${info.builderCommit}`,
     `deployedBy=${deployedBy}`,
     `sha256=${sha}`,
-    "capabilities=ffa4-facing-extra-zones",
+    "capabilities=ffa4-facing-extra-zones,tag-facing-extra-zones",
     `patches=${patches.length}`,
     `seriesSha256=${seriesHash}`,
     `ygoproCore=${info.ygoproCore}`,
