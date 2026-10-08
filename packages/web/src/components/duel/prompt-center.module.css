@@ -398,9 +398,10 @@
   display: flex;
   flex-direction: column;
   gap: calc(3 * var(--duel-unit, 1px));
-  min-height: 0;
-  /* When the panel is full the text gives way first (it scrolls inside), so the options stay in view. */
+  /* When the panel is full the text gives way first (it scrolls inside), so the options stay in view. It never gives
+     way below its label, padding and 3 lines: a percent min-height on the box resolves to 0 here. */
   flex-shrink: 10;
+  min-height: calc(var(--duel-t-sm, 12px) * 4.35 + var(--duel-t-xs, 11px) * 1.4 + 20 * var(--duel-unit, 1px));
   padding: calc(6 * var(--duel-unit, 1px)) calc(10 * var(--duel-unit, 1px));
   border: 1px solid var(--duel-rule-lo, rgb(181 153 99 / 0.17));
   border-radius: 6px;
@@ -408,9 +409,10 @@
 }
 /* A text cut to a few lines (small window or dense host) is already short: it never gives up more. */
 .cardText[data-open="false"] { flex-shrink: 0; }
-/* The options after the lead text keep their height: a flex shrink takes a few pixels off even a light item, which cut
-   the last option border. The text box (above) takes all of the squeeze. */
-.cardText[data-lead="true"] ~ .rows { flex-shrink: 0; }
+/* A short list of options (4 or fewer) keeps its height: a flex shrink takes a few pixels off even a light item, which cut
+   the last option border. The text box (above) takes the squeeze. A longer list still shrinks and scrolls by itself,
+   so the title and the text stay in view. */
+.cardText[data-lead="true"] ~ .rows[data-few="true"] { flex-shrink: 0; }
 .cardTextLabel {
   color: var(--duel-ink-3, #958f81);
   font-size: var(--duel-t-xs, 11px);
@@ -420,7 +422,7 @@
 .cardTextBody {
   margin: 0;
   flex: 0 1 auto;
-  min-height: min(3lh, 100%);
+  min-height: 3lh;
   max-height: min(15lh, 34dvh);
   overflow-y: auto;
   color: var(--duel-ink-2, #c3bba8);

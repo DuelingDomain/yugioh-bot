@@ -120,6 +120,16 @@ describe("PromptCenter card text", () => {
     expect(body.getAttribute("data-clamped")).toBe("true");
   });
 
+  it("marks a short option list, so only a long one shrinks and scrolls", () => {
+    mockScreen(false);
+    const few = optionPrompt(LONG);
+    mount(few);
+    expect(document.querySelector("[data-few]")).not.toBeNull();
+    cleanup();
+    mount({ ...few, options: Array.from({ length: 6 }, (_, i) => ({ id: `o${i}`, label: `Option ${i + 1}` })) });
+    expect(document.querySelector("[data-few]")).toBeNull();
+  });
+
   it("names the box the toggle opens", () => {
     mockScreen(true);
     mount(optionPrompt(LONG));
