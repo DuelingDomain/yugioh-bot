@@ -38,6 +38,8 @@
   line-height: 1.35;
   -webkit-font-smoothing: antialiased;
   pointer-events: none;
+  /* The sizes inside (art, text box, grid floor) come from the board box this sits in, not from the window: `cqh`. */
+  container-type: size;
 }
 
 /* The scrim dims the board under the panel; the panel is modal until it closes. */
@@ -171,16 +173,20 @@
   outline-offset: 2px;
 }
 
-/* ---------- preview: the card under the pointer, large ---------- */
+/* ---------- preview: the card under the pointer or last click, with its full text ---------- */
 
+/* Row 1: the art and the name and type lines. Row 2: the effect text across the full width, scrolling inside its own box
+   (never cut). The block never shrinks (`flex: none`), the text box has its own height limit, and the grid takes the
+   rest of the panel and scrolls, so a big pile cannot squeeze the text to nothing. */
 .preview {
-  --pv-art-h: clamp(96px, 16vh, 150px);
+  --pv-art-h: clamp(56px, 14cqh, 140px);
   display: grid;
   flex: none;
   grid-template-columns: calc(var(--pv-art-h) * 59 / 86) minmax(0, 1fr);
-  gap: calc(12 * var(--pv-u));
+  grid-template-rows: auto auto;
+  gap: calc(8 * var(--pv-u)) calc(12 * var(--pv-u));
   min-height: 0;
-  padding: calc(12 * var(--pv-u)) calc(14 * var(--pv-u)) calc(12 * var(--pv-u)) calc(16 * var(--pv-u));
+  padding: calc(12 * var(--pv-u)) calc(14 * var(--pv-u)) calc(10 * var(--pv-u)) calc(16 * var(--pv-u));
   border-bottom: 1px solid var(--pv-rule);
   background: linear-gradient(180deg, rgb(9 15 29 / 0.6), transparent);
 }
@@ -206,7 +212,6 @@
   flex-direction: column;
   gap: calc(3 * var(--pv-u));
   min-width: 0;
-  max-height: var(--pv-art-h);
 }
 
 .previewPos {
@@ -245,22 +250,40 @@
 }
 
 .previewText {
-  flex: 1 1 auto;
-  min-height: 0;
-  margin-top: calc(5 * var(--pv-u));
+  grid-column: 1 / -1;
+  /* A fixed height, not a max: the detail must not change height with each card's text, or the grid would move under a
+     still pointer and the hover would flap between cards. A long text scrolls in the box. */
+  height: clamp(5em, 24cqh, 16em);
   padding-top: calc(6 * var(--pv-u));
+  padding-right: calc(4 * var(--pv-u));
   overflow-y: auto;
   border-top: 1px solid var(--pv-rule-lo);
   color: var(--pv-ink-2);
-  font-size: var(--pv-t-sm);
-  line-height: 1.45;
+  font-size: var(--ct, var(--pv-t-sm));
+  line-height: 1.5;
   overscroll-behavior: contain;
   scrollbar-width: thin;
+  scrollbar-color: rgb(181 153 99 / 0.45) transparent;
+}
+
+.previewText:focus {
+  outline: none;
+}
+
+.previewText:focus-visible {
+  outline: 2px solid var(--pv-ink);
+  outline-offset: -2px;
 }
 
 .previewText p {
   margin: 0;
   white-space: pre-line;
+}
+
+.previewText .previewExtra {
+  margin-top: calc(4 * var(--pv-u));
+  color: var(--pv-ink-3);
+  font-size: calc(var(--ct, var(--pv-t-sm)) * 0.95);
 }
 
 .empty {
@@ -279,7 +302,8 @@
   grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
   gap: calc(10 * var(--pv-u)) calc(8 * var(--pv-u));
   align-content: start;
-  min-height: 0;
+  /* A floor of about one card row: the detail may not squeeze the cards out of a short board box. */
+  min-height: min(190px, 40cqh);
   margin: 0;
   padding: calc(18 * var(--pv-u)) calc(18 * var(--pv-u)) calc(18 * var(--pv-u)) calc(18 * var(--pv-u));
   overflow-x: hidden;
@@ -457,15 +481,45 @@
   }
 
   .preview {
-    --pv-art-h: clamp(120px, 24cqh, 170px);
-    gap: 10px;
+    --pv-art-h: clamp(56px, 11cqh, 100px);
+    gap: 8px 10px;
     padding: 10px 14px;
+  }
+
+  .previewText {
+    height: clamp(5em, 20cqh, 12em);
   }
 
   .grid {
     grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
     gap: 8px 6px;
     padding: 16px 16px 16px;
+  }
+}
+
+/* ---------- a short board box (a laptop window, the Tag table): tighter cards, so at least one full row of cards shows ---------- */
+
+@container (max-height: 540px) {
+  .preview {
+    padding-block: 8px 6px;
+  }
+
+  .grid {
+    grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+    gap: 8px 6px;
+    padding: 10px 14px;
+  }
+}
+
+/* Shorter still (the Tag table in a small window): the place in the pile ("4th from top") goes, and the text box
+   keeps its 3 lines, so the cards still show a full row. */
+@container (max-height: 450px) {
+  .previewPos {
+    display: none;
+  }
+
+  .previewText {
+    height: clamp(5em, 16cqh, 16em);
   }
 }
 

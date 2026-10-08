@@ -15,7 +15,7 @@ export const metadata: Metadata = {
 const one = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value) ?? null;
 
 /**
- * Fixture preview of the 3D mode board: `?state=m1|summon|battle|chain|damage|m2|end`, `&view=flat`, `&reduced=1`.
+ * Fixture preview of the 3D mode board: `?state=m1|summon|battle|chain|damage|m2|end`, `&view=flat`, `&reduced=1`, `&card=jinzo` (a long effect text in the card panel).
  * Off unless DUEL_FX_LAB=1 (or `next dev`); see src/lib/fx-lab.ts.
  */
 export default async function SolidPreviewPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
@@ -29,6 +29,7 @@ export default async function SolidPreviewPage({ searchParams }: { searchParams:
         stateId={isSolidStateId(state) ? state : "m1"}
         flat={one(query.view) === "flat"}
         reduced={one(query.reduced) === "1"}
+        card={one(query.card)}
       />
     </div>
   );
