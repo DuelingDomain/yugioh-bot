@@ -228,6 +228,10 @@ export interface DuelPromptOption {
   controller?: number;
   location?: number;
   sequence?: number;
+  /** Core-query result for an attack command; null when no query result is available. Direct targets are real seats. */
+  attackTargets?: { monsters: Array<{ controller: number; location: number; sequence: number }>; direct: number[] } | null;
+  /** False when an opponent effect (such as Patrician of Darkness) chooses the attack target. */
+  attackerChoosesTarget?: boolean;
   /**
    * An Xyz material (location LOCATION_OVERLAY, sequence = its place under the monster) names the Xyz monster
    * it is attached to. It cannot be clicked on the board, so the prompt lists it as a card tile.
