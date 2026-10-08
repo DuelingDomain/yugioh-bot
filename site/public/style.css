@@ -268,8 +268,6 @@ h2 { font-family: var(--display); font-weight: 400; font-size: clamp(34px, 4.4vw
 .features::before { content: ""; position: absolute; inset: 0; background: radial-gradient(50% 40% at 50% 38%, rgba(124, 58, 237, .13), transparent 70%); pointer-events: none; }
 .fgrid { display: grid; grid-template-columns: repeat(6, minmax(0, 141px)); justify-content: center; gap: 56px 48px; position: relative; }
 .fslot { grid-column: span 2; position: relative; aspect-ratio: 421 / 614; border-radius: 5.2% / 3.6%; border: 1px dashed rgba(201, 164, 92, .2); background: center / 28% no-repeat url("assets/card-back-main-hd.webp"); }
-.fslot:nth-child(4) { grid-column: 2 / span 2; }
-.fslot:nth-child(5) { grid-column: 4 / span 2; }
 .fslot::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--bg); opacity: .93; }
 .fcard { position: absolute; inset: 0; z-index: 2; }
 html.js:not(.rm) .fgrid:not(.is-dealt) .fcard { opacity: 0; pointer-events: none; }
@@ -316,6 +314,12 @@ html.js:not(.rm) .fcard.is-dealing { pointer-events: none; }
 .orbit { transform-origin: 50px 33px; animation: spin 26s linear infinite; }
 .zonepulse { transform-origin: 22px 34px; animation: zp 3.4s ease-in-out infinite; }
 @keyframes zp { 50% { transform: scale(1.12); opacity: .55; } }
+.bond { transform-box: fill-box; transform-origin: center; animation: bondp 3s ease-in-out infinite; }
+.bond.b2 { animation-delay: -1.5s; }
+@keyframes bondp { 50% { transform: scale(1.4); opacity: .55; } }
+.turn { transform-origin: 50px 33px; animation: spin 9s linear infinite; }
+.seat4 { animation: seatp 4s ease-in-out infinite; }
+@keyframes seatp { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
 .climb { animation: climb 4s var(--ease) infinite; }
 @keyframes climb { 0%, 12% { transform: translateY(18px); } 60%, 100% { transform: translateY(0); } }
 .bolt { animation: bolt 2.8s ease-in-out infinite; transform-origin: 50px 38px; }

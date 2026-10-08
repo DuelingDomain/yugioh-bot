@@ -107,7 +107,7 @@ try {
     // GET-only inspection: the native POST + 303 flow is a separate routing/API check.
     await nojs.page.goto(base + '/');
     await layout(nojs.page, true);
-    assert.equal(await nojs.page.locator('.c-text').count(), 5);
+    assert.equal(await nojs.page.locator('.c-text').count(), 6);
     assert.equal(await nojs.page.locator('.step .face').count(), 3);
     assert.equal(await nojs.page.locator('.pack-hit .pack').count(), 2);
     await nojs.page.screenshot({ path: path.join(output, `${width}-index-no-js.png`), fullPage: true });
