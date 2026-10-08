@@ -59,6 +59,18 @@ describe("Xyz materials in a pick", () => {
     ]);
   });
 
+  it("count the opponent's twins from the left of the 1v1 board, where their zones run backwards", () => {
+    const far = [material(0, 0, "Celtic Guardian", 1, "Ryzeal Duo Drive", 1), material(1, 0, "Axe Raider", 3, "Ryzeal Duo Drive", 1)];
+    // Zone 3 is drawn left of zone 1 on the far side, so it is the first.
+    expect(materialHostNotes(far, { mySeat: 0 }).map((note) => note?.detail)).toEqual([
+      "2 of 2 · Under Ryzeal Duo Drive", "1 of 2 · Under Ryzeal Duo Drive",
+    ]);
+    // On a table of 3 or 4 every row reads left to right by zone.
+    expect(materialHostNotes(far, { mySeat: 0, nameOf: () => "Bo" }).map((note) => note?.detail)).toEqual([
+      "1 of 2 · Under Ryzeal Duo Drive", "2 of 2 · Under Ryzeal Duo Drive",
+    ]);
+  });
+
   it("call an Xyz the viewer cannot see a face-down Xyz", () => {
     const hidden = (index: number, seat: number, name?: string): DuelPromptOption => {
       const option = material(index, 0, "Celtic Guardian", index, name ?? "x", seat);

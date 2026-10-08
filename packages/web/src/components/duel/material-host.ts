@@ -54,9 +54,11 @@ export function materialHostNotes(options: readonly DuelPromptOption[], who: Mat
     return options.map((option) => (isMaterialOption(option) ? note : null));
   }
   const spread = new Set([...hosts.values()].map((host) => host.controller)).size > 1;
-  // Hosts of one name and one controller, in zone order, to tell twins apart.
+  // Hosts of one name and one controller, in the viewer's left-to-right order, to tell twins apart. The 1v1 board turns the
+  // far side around (zone 4 sits at the left), so the opponent's twins count down; a table of 3 or 4 draws every row upright.
+  const farSide = (controller: number) => !who.nameOf && who.mySeat != null && controller !== who.mySeat;
   const twins = new Map<string, string[]>();
-  for (const [key, host] of [...hosts].sort((a, b) => a[1].sequence - b[1].sequence)) {
+  for (const [key, host] of [...hosts].sort((a, b) => (farSide(a[1].controller) ? b[1].sequence - a[1].sequence : a[1].sequence - b[1].sequence))) {
     const group = `${host.controller}:${host.name ?? ""}`;
     twins.set(group, [...(twins.get(group) ?? []), key]);
   }
