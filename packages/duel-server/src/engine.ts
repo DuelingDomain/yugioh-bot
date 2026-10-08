@@ -92,9 +92,10 @@ function loadWasmFile(path: string): LoadedWasm {
 }
 
 /**
- * Standard duels run the pinned ygopro-core with only the shared bug fixes in
+ * Pinned Standard duels run ygopro-core with only the shared bug fixes in
  * domain-core/src/apply-core-fixes.mjs (stock rules, no Domain patch). The npm
- * ocgcore-wasm core is older than the pinned card scripts, so it is never used.
+ * ocgcore-wasm core is older than the pinned card scripts and is used by legacy
+ * Standard 1v1 duels.
  */
 function readStandardWasm(dataDirectory: string): LoadedWasm {
   const path = join(dataDirectory, "ocgcore.standard.wasm");
