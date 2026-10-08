@@ -241,8 +241,8 @@ describe("script error automatic admission blocks", () => {
   });
   it("different gameplay player ids for the same account still count as one human", () => {
     const t = setup(true);
-    const account = (t.db.prepare("SELECT user_id FROM players LIMIT 1").get() as { user_id: number }).user_id;
-    const other = seedIdentity(t.db, { guildId: "other", name: "Same account", userId: account }).playerId;
+    const account = (t.db.prepare("SELECT discord_user_id FROM players LIMIT 1").get() as { discord_user_id: string }).discord_user_id;
+    const other = seedIdentity(t.db, { guildId: "other", name: "Same account", discordUserId: account }).playerId;
     t.db.prepare("UPDATE duel_seats SET player_id = ? WHERE duel_id = 3 AND is_bot = 0").run(other);
     [1, 2, 3].forEach(id => t.record(id, error));
     expect(t.policy.entries()).toEqual([]);

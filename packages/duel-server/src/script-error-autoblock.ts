@@ -95,7 +95,7 @@ export function createAutoBlockPolicy(db: Database.Database, options: {
           AND julianday(created_at) >= julianday(?) AND julianday(created_at) <= julianday(?)
           AND (? IS NULL OR julianday(created_at) > julianday(?)))
         SELECT count(DISTINCT duel_id) AS duels, count(*) AS errors,
-          (SELECT count(DISTINCT p.user_id) FROM (SELECT DISTINCT duel_id FROM eligible) e
+          (SELECT count(DISTINCT p.discord_user_id) FROM (SELECT DISTINCT duel_id FROM eligible) e
             JOIN duel_seats s ON s.duel_id = e.duel_id AND s.is_bot = 0
             JOIN players p ON p.id = s.player_id) AS humans,
           (SELECT json_group_array(DISTINCT helper.value) FROM eligible e
