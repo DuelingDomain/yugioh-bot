@@ -1,11 +1,4 @@
-import { handReach } from "./pick-bar-room";
-
-interface Rect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
+import { along, coverTable, grow, handReach, hits, overlap, type Rect } from "./rect-util";
 
 /**
  * The chain-response panel ("You can respond", every option a card) needs a wide room of its own: its cards are large (CARD px wide, about
@@ -16,9 +9,9 @@ export const STRIP_ROOM = {
   /** The width of one card tile (about twice the 65 px tile of the pair box), and the smaller tiles a box with no room for it falls back to. */
   card: 130,
   smaller: [112, 96],
-  /** The gap between tiles, and the panel's side padding plus the strip's own. */
+  /** The gap between tiles, and the panel's side padding, the strip's own and 10 px of slack (a border or a scrollbar must not drop a column). */
   gap: 12,
-  side: 56,
+  side: 66,
   /** Everything in the panel that is not the strip (title, chain line, chips, footer, paddings). */
   chrome: 232,
   /** One row of tiles: the art (59:86), the two-line name and the row gap. */
@@ -27,6 +20,8 @@ export const STRIP_ROOM = {
   fade: 28,
   /** The narrowest room: the title and the buttons must fit one row. */
   minWidth: 520,
+  /** The least width of a room that has to step down in width: the header wraps on more lines (the real chrome is measured). */
+  narrowest: 420,
   /** At most this many tiles in a row: more wrap and scroll. */
   maxCols: 6,
   /** The rows the wanted room shows before the strip scrolls. */
@@ -37,6 +32,18 @@ export const STRIP_ROOM = {
   air: 8,
   /** The part of the hand's height (from its top edge) the room may cover: a bit, never more. A deeper cover is the last thing the room accepts. */
   handCover: 0.28,
+  /** What a step down costs (px of distance to the anchor): a narrower room, a lower room. The wanted size wins unless a smaller one is clearly nearer. */
+  widthCost: 40,
+  heightCost: 24,
+  /** The grid of the sum table of the search, and the coarser one of the last-resort scan (px). */
+  cell: 16,
+  scanStep: 32,
+  /** Blocks (px squared) the last-resort ranking counts overlap in. */
+  area: 1000,
+  /** The same for the chain's cards (about a tenth of one card's zone): a nick at a corner does not count, covering a card does. */
+  sourceArea: 300,
+  /** A key HUD piece under less than this (px squared) is clipped, not covered: it does not count. */
+  sliver: 600,
 } as const;
 
 const rowHeight = (card: number) => Math.round((card * 86) / 59) + STRIP_ROOM.rowExtra;
@@ -52,8 +59,9 @@ export interface StripRoomSize {
 }
 
 /** The size the panel wants for `count` cards in a box. */
-export function stripRoomSize(count: number, box: { width: number; height: number }, colsCap: number = STRIP_ROOM.maxCols, tile: number = STRIP_ROOM.card): StripRoomSize {
-  const { gap, side, chrome, maxRows, edge, minWidth } = STRIP_ROOM;
+export function stripRoomSize(count: number, box: { width: number; height: number }, colsCap: number = STRIP_ROOM.maxCols, tile: number = STRIP_ROOM.card, chromePx: number = STRIP_ROOM.chrome, minWidth: number = STRIP_ROOM.minWidth): StripRoomSize {
+  const { gap, side, maxRows, edge } = STRIP_ROOM;
+  const chrome = chromePx;
   const maxCols = Math.max(1, Math.min(STRIP_ROOM.maxCols, colsCap));
   const maxWidth = Math.max(0, box.width - 2 * edge);
   // A box too narrow for two tiles shrinks the tile (a window of a phone is not planned here, but the room stays inside the box).
@@ -73,14 +81,22 @@ export interface StripRoomInput {
   box: { width: number; height: number };
   /** The number of cards in the response. */
   count: number;
-  /** Where the room wants to sit: the middle of your field at home, the middle of the box in your own zoom. */
+  /** Where the room wants to sit: the middle of your field at home, the middle of your pair, or the box in your own zoom. */
   anchor?: { x: number; y: number };
   /** The key HUD (the life plates, the phase strip, the turn ring, the Reset control): the room keeps off it unless the box leaves no place. */
   hud?: readonly Rect[];
-  /** The rest of the HUD (the corners, the chain stack, the Deck Master plate, the camera chip): the room keeps off it while a place exists. */
+  /** The HUD that holds your own actions (the turn actions and the response switch): a panel over it hides them, and they draw over the panel's own Back and Pass, so it ranks next to your hand. */
+  controls?: readonly Rect[];
+  /** The rest of the HUD (the corners, the chain banner, the Deck Master plate, the camera chip): it draws over the panel, so the room keeps off it while a place exists. */
   soft?: readonly Rect[];
   /** Your live hand: the room may cover its top STRIP_ROOM.handCover only; a deeper cover is the last thing it accepts. */
   hand?: Rect | null;
+  /** The zones that hold a card (the fields): the room keeps off them while a clear place exists. It may cover empty zones. */
+  zones?: readonly Rect[];
+  /** The zones of the cards in the chain (the one you respond to): the room never covers them while any other place exists. */
+  source?: readonly Rect[];
+  /** The height of the panel besides its cards, measured (px). Defaults to STRIP_ROOM.chrome, an estimate. */
+  chrome?: number;
 }
 
 export interface StripRoom extends Rect {
@@ -88,12 +104,15 @@ export interface StripRoom extends Rect {
   cols: number;
 }
 
+/** The search steps over the box in this many px (the last column and row are always tried). */
 const STEP = 20;
 const HEIGHT_STEP = 64;
+/** What one step down to a smaller tile costs in a search that mixes tiles. */
+const TILE_COST = 120;
+/** Air kept off an occupied zone and off a chain source card. */
+const ZONE_AIR = 4;
+const SOURCE_AIR = 8;
 
-const hits = (a: Rect, b: Rect) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
-const overlap = (a: Rect, b: Rect) =>
-  Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
 /**
  * The part of your hand a room must not cover: its reach (the sides and a card raised from it) below the line `handCover` of the
  * hand's height down from its top edge. The room may sit over the band above that line.
@@ -104,114 +123,147 @@ export function handKeepOut(hand: Rect): Rect {
   return { x: reach.x, y: line, width: reach.width, height: Math.max(0, reach.y + reach.height - line) };
 }
 
-const grow = (r: Rect, pad: number): Rect => ({ x: r.x - pad, y: r.y - pad, width: r.width + 2 * pad, height: r.height + 2 * pad });
+interface Variant {
+  size: StripRoomSize;
+  /** Steps down in width from the wanted one (0 is the wanted width). */
+  narrower: number;
+  height: number;
+  /** Distance (px) this size costs against the wanted one, so a smaller room wins only where it is clearly nearer the anchor. */
+  cost: number;
+}
 
-/** The places along one axis (the last one always), nearest the target centre first. */
-function along(low: number, high: number, size: number, centre: number): number[] {
-  const out: number[] = [];
-  for (let v = low; v < high; v += STEP) out.push(v);
-  out.push(Math.max(low, high));
-  return out.sort((a, b) => Math.abs(a + size / 2 - centre) - Math.abs(b + size / 2 - centre));
+/**
+ * The sizes to try for some tile widths: for each tile, the wanted width then narrower ones (fewer tiles in a row, one more row of scroll),
+ * each at the wanted height then lower ones down to one whole row (the strip scrolls). `coarse` keeps only the wanted and the least height.
+ */
+function variantsOf(count: number, box: { width: number; height: number }, tiles: readonly number[], chrome: number, coarse: boolean): Variant[] {
+  const wantedCard = stripRoomSize(count, box, STRIP_ROOM.maxCols, STRIP_ROOM.card, chrome).card;
+  const out: Variant[] = [];
+  tiles.forEach((tile, tileIndex) => {
+    const first = stripRoomSize(count, box, STRIP_ROOM.maxCols, tile, chrome);
+    if (tile !== STRIP_ROOM.card && first.card >= wantedCard) return;
+    let last = -1;
+    let step = 0;
+    for (let cols = first.cols; cols >= 1; cols -= 1) {
+      const size = cols === first.cols ? first : stripRoomSize(count, box, cols, tile, chrome, STRIP_ROOM.narrowest);
+      if (last >= 0 && size.width >= last) continue;
+      last = size.width;
+      const heights: number[] = [];
+      for (let h = size.height; h > size.minHeight; h -= HEIGHT_STEP) heights.push(h);
+      heights.push(size.minHeight);
+      const picked = coarse ? [heights[0], heights[heights.length - 1]].filter((h, i, all) => all.indexOf(h) === i) : heights;
+      picked.forEach((height, hi) => out.push({ size, narrower: step, height, cost: tileIndex * TILE_COST + step * STRIP_ROOM.widthCost + (coarse ? hi * 2 : hi) * STRIP_ROOM.heightCost }));
+      step += 1;
+      if (size.width <= STRIP_ROOM.narrowest) break;
+    }
+  });
+  return out;
 }
 
 /**
  * The room of a chain-response panel (a rect for `--sr-*`): the place nearest the anchor that is wholly inside the box and clear of
- * the HUD and your hand. It may cover the field, and the top strip of your hand (STRIP_ROOM.handCover of its height, no more). The
- * tiers, first that has a place wins; in each a size is tried at lower heights down to one whole row (the strip scrolls):
- *   1. clear of the HUD and the keep-out of your hand (handKeepOut);
- *   2. clear of the key HUD and your hand (the rest of the HUD is covered);
- *   3. clear of your hand (the life plates, the phase strip and ring and the Reset control are covered too);
- *   4. nothing is clear: the size and place that cover the least. A deep cover of your hand costs the most, then the key HUD,
- *      then the rest of the HUD; the top strip of your hand costs little.
- * In a tier the wanted width is tried first, then narrower rooms (fewer tiles in a row, so the grid scrolls more), then the same with
- * smaller tiles (STRIP_ROOM.smaller): a smaller tile beats a room over the HUD.
+ * what matters. The panel may cover the field, empty zones first, and the top strip of your hand (STRIP_ROOM.handCover of its height, no
+ * more). The tiers, first that has a place wins (a tier ranks every size and place by the distance to the anchor plus a cost per step
+ * down in size, so a narrower or lower room wins only where it is clearly nearer):
+ *   1. wanted tiles at the wanted width, clear of the HUD, the keep-out of your hand (handKeepOut), the chain's cards and every card on the board;
+ *   2. wanted tiles, clear of the same but the cards on the board (the fields are covered, never the cards of the chain);
+ *   3. smaller tiles (STRIP_ROOM.smaller), clear of the same as 2;
+ *   4. nothing is clear of the key HUD: the wanted tiles (large cards matter more than a ring) in the size and place that cover the least, compared in this order: the chain's cards, a deep cover of
+ *      your hand, the soft HUD, how many pieces of the key HUD; the cards on the board may be covered.
  * Pure: the camera is never read or moved.
  */
 export function planStripRoom(input: StripRoomInput): StripRoom | undefined {
   const { box, count } = input;
   if (!(box.width > 0) || !(box.height > 0) || !(count > 0)) return undefined;
   const edge = STRIP_ROOM.edge;
-  const size = stripRoomSize(count, box);
-  if (size.width <= 0 || size.height <= 0) return undefined;
+  const chrome = input.chrome ?? STRIP_ROOM.chrome;
+  const wanted = stripRoomSize(count, box, STRIP_ROOM.maxCols, STRIP_ROOM.card, chrome);
+  if (wanted.width <= 0 || wanted.height <= 0) return undefined;
   const anchor = input.anchor ?? { x: box.width / 2, y: box.height / 2 };
-  const hud = (input.hud ?? []).map((r) => grow(r, STRIP_ROOM.air));
+  const controls = (input.controls ?? []).map((r) => grow(r, STRIP_ROOM.air));
+  const hud = [...(input.hud ?? []).map((r) => grow(r, STRIP_ROOM.air)), ...controls];
   const soft = (input.soft ?? []).map((r) => grow(r, STRIP_ROOM.air));
   // The keep-out of your hand (its top strip may be covered), and the whole reach (the strip counts a little in the last-resort score).
   const hand = input.hand ? [handKeepOut(input.hand)] : [];
-  const handTop = input.hand ? [handReach(input.hand)] : [];
-  // The wanted tile and width first, then narrower rooms (fewer tiles in a row, one more row of scroll) down to the least width, then
-  // the smaller tiles the same way.
-  const sizes: StripRoomSize[] = [];
-  for (const tile of [STRIP_ROOM.card, ...STRIP_ROOM.smaller]) {
-    const first = tile === STRIP_ROOM.card ? size : stripRoomSize(count, box, STRIP_ROOM.maxCols, tile);
-    if (tile !== STRIP_ROOM.card && first.card >= size.card) continue;
-    let last = -1;
-    for (let cols = first.cols; cols >= 1; cols -= 1) {
-      const next = cols === first.cols ? first : stripRoomSize(count, box, cols, tile);
-      if (last < 0 || next.width < last) sizes.push(next);
-      last = next.width;
-      if (next.width <= STRIP_ROOM.minWidth) break;
-    }
-  }
+  const zones = (input.zones ?? []).map((r) => grow(r, ZONE_AIR));
+  const source = (input.source ?? []).map((r) => grow(r, SOURCE_AIR));
   const done = (r: Rect, of: StripRoomSize): StripRoom => ({ x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height), card: of.card, cols: of.cols });
 
-  const search = (blocks: readonly Rect[]): StripRoom | null => {
-    for (const of of sizes) {
-      const { width } = of;
-      const xs = along(edge, box.width - width - edge, width, anchor.x);
-      const heights: number[] = [];
-      for (let h = of.height; h > of.minHeight; h -= HEIGHT_STEP) heights.push(h);
-      heights.push(of.minHeight);
-      for (const height of heights) {
-        const ys = along(edge, box.height - height - edge, height, anchor.y);
-        let best: Rect | null = null;
-        let bestAway = Infinity;
-        for (const y of ys) {
-          const dy = y + height / 2 - anchor.y;
-          if (Math.abs(dy) >= bestAway) break;
-          for (const x of xs) {
-            const dx = x + width / 2 - anchor.x;
-            const away = Math.hypot(dx, dy);
-            if (away >= bestAway) break;
-            const room = { x, y, width, height };
-            if (blocks.some((b) => hits(room, b))) continue;
-            best = room;
-            bestAway = away;
-          }
+  const search = (blocks: readonly Rect[], variants: readonly Variant[]): StripRoom | null => {
+    const covered = coverTable(box, blocks, STRIP_ROOM.cell);
+    let best: { room: Rect; of: StripRoomSize } | null = null;
+    let bestScore = Infinity;
+    for (const variant of variants) {
+      if (variant.cost >= bestScore) continue;
+      const { width } = variant.size;
+      const height = variant.height;
+      const xs = along(edge, Math.max(edge, box.width - width - edge), width, anchor.x, STEP);
+      const ys = along(edge, Math.max(edge, box.height - height - edge), height, anchor.y, STEP);
+      for (const y of ys) {
+        const dy = y + height / 2 - anchor.y;
+        if (Math.abs(dy) + variant.cost >= bestScore) break;
+        for (const x of xs) {
+          const score = Math.hypot(x + width / 2 - anchor.x, dy) + variant.cost;
+          if (score >= bestScore) break;
+          if (covered(x, y, width, height)) continue;
+          const room = { x, y, width, height };
+          if (blocks.some((b) => hits(room, b))) continue;
+          best = { room, of: variant.size };
+          bestScore = score;
+          break;
         }
-        if (best) return done(best, of);
       }
     }
-    return null;
+    return best ? done(best.room, best.of) : null;
   };
-  const clear = search([...hud, ...soft, ...hand]) ?? search([...hud, ...hand]) ?? search(hand);
+
+  const wantedTile = variantsOf(count, box, [STRIP_ROOM.card], chrome, false);
+  const smallerTiles = variantsOf(count, box, STRIP_ROOM.smaller, chrome, false);
+  const clear =
+    search([...hud, ...soft, ...hand, ...source, ...zones], wantedTile.filter((v) => v.narrower === 0)) ??
+    search([...hud, ...soft, ...hand, ...source], wantedTile) ??
+    search([...hud, ...soft, ...hand, ...source], smallerTiles);
   if (clear) return clear;
 
-  // Nothing is clear: the size and place that cover the least (a narrow or short room covers less than the wanted one; a larger room wins a tie).
-  let worst: StripRoom | null = null;
-  let worstScore = Infinity;
-  for (const of of sizes) {
-    for (const height of of.height === of.minHeight ? [of.height] : [of.height, of.minHeight]) {
-      const { width } = of;
-      for (const y of along(edge, box.height - height - edge, height, anchor.y)) {
-        for (const x of along(edge, box.width - width - edge, width, anchor.x)) {
-          const room = { x, y, width, height };
-          let score = 0;
-          // A HUD over the room hides what is under it, so every HUD counts; the key HUD a little more. Your hand costs the most when the
-          // room goes deep into it, and little when it only covers its top strip.
-          for (const b of hud) score += 3 * overlap(room, b);
-          for (const b of soft) score += 2 * overlap(room, b);
-          for (const b of hand) score += 10 * overlap(room, b);
-          for (const b of handTop) score += 0.1 * overlap(room, b);
-          // A tie goes to the larger room, then to the one nearer the anchor.
-          score += (Math.hypot(x + width / 2 - anchor.x, y + height / 2 - anchor.y) - width * height * 0.01) * 0.0001;
-          if (score < worstScore) {
-            worst = done(room, of);
-            worstScore = score;
+  // No place is clear of the key HUD: the one that costs least, compared in this order (the first difference decides): your own actions covered,
+  // your hand covered deeper than its top strip, the chain's cards covered (a card on the field costs less than your hand), the soft HUD covered (it draws over the panel), how many pieces of the key HUD; then the nearer place (a card on the board may be covered). Areas count in blocks of STRIP_ROOM.area px so a sliver does not decide.
+  const area = (r: Rect, blocks: readonly Rect[]) => Math.round(blocks.reduce((sum, b) => sum + overlap(r, b), 0) / STRIP_ROOM.area);
+  const parts: ((r: Rect, near: number) => number)[] = [
+    (r) => controls.reduce((n, b) => n + (overlap(r, b) > STRIP_ROOM.sliver ? 1 : 0), 0),
+    (r) => area(r, hand),
+    (r) => Math.round(source.reduce((sum, b) => sum + overlap(r, b), 0) / STRIP_ROOM.sourceArea),
+    (r) => area(r, soft),
+    (r) => hud.reduce((n, b) => n + (overlap(r, b) > STRIP_ROOM.sliver ? 1 : 0), 0),
+    (_r, near) => near,
+  ];
+  let best: StripRoom | null = null;
+  let bestKey: number[] | null = null;
+  for (const variant of variantsOf(count, box, [STRIP_ROOM.card], chrome, true)) {
+    const { width } = variant.size;
+    const height = variant.height;
+    for (const y of along(edge, Math.max(edge, box.height - height - edge), height, anchor.y, STRIP_ROOM.scanStep)) {
+      for (const x of along(edge, Math.max(edge, box.width - width - edge), width, anchor.x, STRIP_ROOM.scanStep)) {
+        const room = { x, y, width, height };
+        const near = Math.round(Math.hypot(x + width / 2 - anchor.x, y + height / 2 - anchor.y) + variant.cost);
+        // The parts are worked out one by one: a place that is worse than the best at the first part that differs stops there.
+        const key: number[] = [];
+        let better = bestKey === null;
+        let worse = false;
+        for (let k = 0; k < parts.length; k += 1) {
+          const value = parts[k](room, near);
+          key.push(value);
+          if (better || !bestKey) continue;
+          if (value > bestKey[k]) {
+            worse = true;
+            break;
           }
+          if (value < bestKey[k]) better = true;
         }
+        if (worse || !better) continue;
+        best = done(room, variant.size);
+        bestKey = key;
       }
     }
   }
-  return worst ?? undefined;
+  return best ?? undefined;
 }

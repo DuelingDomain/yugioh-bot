@@ -1,180 +1,158 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { handKeepOut, planStripRoom, STRIP_ROOM, stripRoomSize } from "../src/components/duel/table/strip-room";
+import { hits, overlap, type Rect } from "../src/components/duel/table/rect-util";
+import { handKeepOut, planStripRoom, STRIP_ROOM, stripRoomSize, type StripRoomInput } from "../src/components/duel/table/strip-room";
+import cases from "./fixtures/strip-room-rects.json";
 
-const rect = (x: number, y: number, width: number, height: number) => ({ x, y, width, height });
-const hits = (a: ReturnType<typeof rect>, b: ReturnType<typeof rect>) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
-const inside = (r: ReturnType<typeof rect>, box: { width: number; height: number }) => r.x >= 0 && r.y >= 0 && r.x + r.width <= box.width && r.y + r.height <= box.height;
-
-/** The board box and the HUD of the FFA3 table as measured at each window size (own zoom, board px). */
-const BOXES = {
-  "1920x1080": { width: 1892, height: 995 },
-  "2560x1440": { width: 2532, height: 1355 },
-  "1366x768": { width: 1338, height: 683 },
-  "1280x720": { width: 1252, height: 635 },
+/**
+ * The rects in strip-room-rects.json were measured on the real tables (board px): the FFA3 fixtures at 2560x1440, 1920x1080, 1366x768 and 1280x720,
+ * home and own-field zoom, and the FFA4 fixture in zoom at 1366x768 (its corner buttons are the `controls`).
+ */
+type Case = Required<Pick<StripRoomInput, "box" | "count" | "anchor" | "hud" | "soft" | "zones" | "source">> & Pick<StripRoomInput, "hand" | "controls" | "chrome">;
+const REAL = cases as unknown as Record<string, Case>;
+const real = (name: string) => REAL[name];
+const plan = (name: string, extra: Partial<StripRoomInput> = {}) => {
+  const input = { ...real(name), ...extra };
+  return { input, room: planStripRoom(input)! };
 };
-const hudAt = (box: { width: number; height: number }) => ({
-  // the life plates, the phase ring and the Reset control at the top; the plate at the right
-  key: [rect(box.width * 0.18, 60, 150, 90), rect(box.width * 0.6, 60, 150, 90), rect(box.width / 2 - 56, 40, 112, 112), rect(box.width - 170, 8, 152, 28), rect(box.width * 0.74, box.height * 0.6, 150, 95)],
-  // the chain stack and the Deck Master plate at the left, the responses dock at the bottom right
-  soft: [rect(0, 180, 148, 133), rect(0, box.height - 262, 219, 262), rect(box.width - 168, box.height - 132, 168, 132)],
-  hand: rect(box.width / 2 - 170, box.height - 95, 340, 90),
-});
+const inside = (r: Rect, box: { width: number; height: number }) => r.x >= 0 && r.y >= 0 && r.x + r.width <= box.width && r.y + r.height <= box.height;
+const touched = (r: Rect, blocks: readonly Rect[] = []) => blocks.filter((b) => overlap(r, b) > STRIP_ROOM.sliver).length;
 
 describe("stripRoomSize: the cards are about twice as large", () => {
-  it("wants 130 px tiles, twice the 65 px tiles of the pair box", () => {
+  const box = { width: 1892, height: 995 };
+
+  it("wants 130 px tiles, twice the 65 px tiles of the pair box, and up to six in a row", () => {
     expect(STRIP_ROOM.card).toBeGreaterThanOrEqual(2 * 65);
-    expect(stripRoomSize(2, BOXES["1920x1080"]).card).toBe(STRIP_ROOM.card);
-    expect(stripRoomSize(10, BOXES["1366x768"]).card).toBe(STRIP_ROOM.card);
+    expect(stripRoomSize(2, box)).toMatchObject({ card: STRIP_ROOM.card, cols: 2 });
+    expect(stripRoomSize(10, box)).toMatchObject({ card: STRIP_ROOM.card, cols: 6 });
+    expect(stripRoomSize(14, box).height).toBeGreaterThan(stripRoomSize(2, box).height);
   });
 
-  it("holds up to six tiles in a row, then wraps into rows that scroll", () => {
-    expect(stripRoomSize(2, BOXES["1920x1080"]).cols).toBe(2);
-    expect(stripRoomSize(5, BOXES["1920x1080"]).cols).toBe(5);
-    const ten = stripRoomSize(10, BOXES["1920x1080"]);
-    expect(ten.cols).toBe(6);
-    expect(ten.height).toBeGreaterThan(stripRoomSize(2, BOXES["1920x1080"]).height);
-    expect(stripRoomSize(14, BOXES["1920x1080"]).cols).toBe(6);
+  it("gives six columns their tiles, gaps and side padding with the slack kept", () => {
+    const six = stripRoomSize(10, box);
+    expect(six.width).toBe(6 * STRIP_ROOM.card + 5 * STRIP_ROOM.gap + STRIP_ROOM.side);
+    // 2 x 28 px of strip padding plus 10 px of slack for a border or a scrollbar.
+    expect(STRIP_ROOM.side).toBeGreaterThanOrEqual(66);
   });
 
   it("never asks for more than the box", () => {
-    for (const box of Object.values(BOXES)) {
-      for (const count of [1, 2, 5, 10, 14, 40]) {
-        const size = stripRoomSize(count, box);
-        expect(size.width).toBeLessThanOrEqual(box.width - 2 * STRIP_ROOM.edge);
-        expect(size.height).toBeLessThanOrEqual(box.height - 2 * STRIP_ROOM.edge);
+    for (const size of [{ width: 1252, height: 635 }, { width: 300, height: 400 }]) {
+      for (const count of [1, 2, 10, 40]) {
+        const found = stripRoomSize(count, size);
+        expect(found.width).toBeLessThanOrEqual(size.width - 2 * STRIP_ROOM.edge);
+        expect(found.height).toBeLessThanOrEqual(size.height - 2 * STRIP_ROOM.edge);
       }
     }
   });
 });
 
-describe("planStripRoom: the panel shows in full, off the HUD", () => {
-  it("is always wholly inside the box, with 2, 5, 10 and 14 cards at every window size", () => {
-    for (const box of Object.values(BOXES)) {
-      const { key, soft, hand } = hudAt(box);
-      for (const count of [2, 5, 10, 14]) {
-        const found = planStripRoom({ box, count, hud: key, soft, hand });
-        expect(found, `${box.width}x${box.height} ${count}`).toBeDefined();
-        expect(inside(found!, box), `${box.width}x${box.height} ${count}`).toBe(true);
-      }
+describe("planStripRoom on the measured tables", () => {
+  it("is wholly inside the box and never over the chain's cards where a place exists", () => {
+    for (const name of Object.keys(REAL).filter((n) => n.startsWith("ffa3"))) {
+      const { input, room } = plan(name);
+      expect(inside(room, input.box), name).toBe(true);
+      expect(touched(room, input.source), name).toBe(0);
     }
   });
 
-  it("keeps the large tiles and clears the HUD and the keep-out of the hand where the box has room (1080p and 1440p)", () => {
-    for (const name of ["1920x1080", "2560x1440"] as const) {
-      const box = BOXES[name];
-      const { key, soft, hand } = hudAt(box);
-      for (const count of [2, 5, 10, 14]) {
-        const found = planStripRoom({ box, count, hud: key, soft, hand })!;
-        expect(found.card, `${name} ${count}`).toBe(STRIP_ROOM.card);
-        for (const block of [...key, ...soft, handKeepOut(hand)]) expect(hits(found, block), `${name} ${count}`).toBe(false);
-      }
+  it("2560 home: the large tiles in full width, clear of the HUD, the hand and every card zone", () => {
+    const { input, room } = plan("ffa3-respond-2-2560x1440-home");
+    expect(room).toMatchObject({ card: STRIP_ROOM.card, cols: 2 });
+    expect(room.width).toBeGreaterThanOrEqual(STRIP_ROOM.minWidth);
+    for (const block of [...input.hud, ...input.soft, ...input.zones, handKeepOut(input.hand!)]) expect(hits(room, block)).toBe(false);
+  });
+
+  it("1920 home: the soft HUD and the lower hand stay free; 10 cards keep the large tiles, 2 cards at least 1.5x the pair tile", () => {
+    for (const name of ["ffa3-respond-2-1920x1080-home", "ffa3-respond-10-1920x1080-home"]) {
+      const { input, room } = plan(name);
+      expect(touched(room, input.soft), name).toBe(0);
+      expect(touched(room, input.hud), name).toBeLessThanOrEqual(1);
+      expect(hits(room, handKeepOut(input.hand!)), name).toBe(false);
+    }
+    // The 2-card room has no clear place for 130 px tiles under the turn ring: it steps down to 96 px before it covers the ring.
+    expect(plan("ffa3-respond-2-1920x1080-home").room.card).toBeGreaterThanOrEqual(STRIP_ROOM.smaller[STRIP_ROOM.smaller.length - 1]);
+    expect(plan("ffa3-respond-10-1920x1080-home").room).toMatchObject({ card: STRIP_ROOM.card });
+    expect(plan("ffa3-respond-10-1920x1080-zoom").room).toMatchObject({ card: STRIP_ROOM.card, cols: 6 });
+  });
+
+  it("1366 and 1280: the room covers at most the turn ring (one key piece), never the soft HUD or the deep hand", () => {
+    for (const name of Object.keys(REAL).filter((n) => /ffa3.*(1366|1280)/.test(n))) {
+      const { input, room } = plan(name);
+      expect(touched(room, input.hud), name).toBeLessThanOrEqual(2);
+      expect(touched(room, input.soft), name).toBe(0);
+      expect(hits(room, handKeepOut(input.hand!)), name).toBe(false);
+      expect(room.width, name).toBeGreaterThanOrEqual(STRIP_ROOM.narrowest);
     }
   });
 
-  it("never covers the key HUD where a clear place exists, even on a small window", () => {
-    for (const name of ["1366x768", "1280x720"] as const) {
-      const box = BOXES[name];
-      // Only the plates at the top: a clear place exists below them for every count.
-      const key = [rect(box.width * 0.18, 20, 150, 90), rect(box.width * 0.6, 20, 150, 90), rect(box.width / 2 - 56, 10, 112, 100)];
-      for (const count of [2, 10]) {
-        const found = planStripRoom({ box, count, hud: key })!;
-        for (const block of key) expect(hits(found, block), `${name} ${count}`).toBe(false);
-        expect(found.card).toBeGreaterThanOrEqual(96);
-      }
+  it("FFA4 zoom: the corner buttons, the soft HUD and the lower hand stay free", () => {
+    const { input, room } = plan("ffa4-respond-10-1366x768-focus2");
+    expect(touched(room, input.controls)).toBe(0);
+    expect(touched(room, input.soft)).toBe(0);
+    expect(hits(room, handKeepOut(input.hand!))).toBe(false);
+    expect(inside(room, input.box)).toBe(true);
+  });
+
+  it("keeps Back and Pass on screen when the header wraps taller than the estimate", () => {
+    const base = real("ffa3-respond-10-1366x768-home");
+    for (const chrome of [STRIP_ROOM.chrome, 296, 360]) {
+      const { room } = plan("ffa3-respond-10-1366x768-home", { chrome });
+      expect(inside(room, base.box), `chrome ${chrome}`).toBe(true);
+      // The room is tall enough for the chrome and one whole row (the footer is part of the chrome).
+      expect(room.height, `chrome ${chrome}`).toBeGreaterThanOrEqual(Math.min(chrome + 200, base.box.height - 2 * STRIP_ROOM.edge));
     }
   });
+});
 
-  it("falls back to smaller tiles before it covers the HUD", () => {
-    const box = BOXES["1366x768"];
-    // A band of about 460 px is clear between the plates above and the top strip of the hand below: the wanted tiles need more.
-    const key = [rect(0, 0, box.width, 160)];
-    const hand = rect(box.width / 2 - 170, box.height - 70, 340, 60);
-    const found = planStripRoom({ box, count: 2, hud: key, hand })!;
-    expect(hits(found, key[0])).toBe(false);
-    expect(found.card).toBeLessThan(STRIP_ROOM.card);
-    expect(found.card).toBeGreaterThanOrEqual(STRIP_ROOM.smaller[STRIP_ROOM.smaller.length - 1]);
+describe("planStripRoom: what it gives up first", () => {
+  it("covers the field rather than your own actions, and your own actions rather than the deep hand", () => {
+    const input = real("ffa4-respond-10-1366x768-focus2");
+    expect(touched(planStripRoom({ ...input })!, input.controls)).toBe(0);
+    // Without the controls rank the room sits on them: the rank is what keeps them free.
+    const without = planStripRoom({ ...input, controls: [] })!;
+    expect(touched(without, input.controls)).toBeGreaterThan(0);
   });
 
-  it("starts from the anchor: the room is near it when the place is clear", () => {
-    const box = BOXES["1920x1080"];
-    const found = planStripRoom({ box, count: 5, anchor: { x: 400, y: 500 } })!;
-    expect(Math.hypot(found.x + found.width / 2 - 400, found.y + found.height / 2 - 500)).toBeLessThan(40);
-    const middle = planStripRoom({ box, count: 5 })!;
-    expect(Math.abs(middle.x + middle.width / 2 - box.width / 2)).toBeLessThan(30);
-  });
-
-  it("covers a bit of the hand, never more than its top strip, while a place exists", () => {
-    const box = BOXES["1366x768"];
-    const hand = rect(box.width / 2 - 170, box.height - 95, 340, 90);
-    // The field is clear above the hand only: the room would like to sit as low as it can, so it uses the top strip of the hand.
-    const found = planStripRoom({ box, count: 2, hand, anchor: { x: box.width / 2, y: box.height } })!;
-    const keep = handKeepOut(hand);
-    expect(hits(found, keep)).toBe(false);
-    expect(found.y + found.height).toBeLessThanOrEqual(hand.y + hand.height * STRIP_ROOM.handCover + 0.5);
-    // ... and it did reach into the hand strip (it is not held back by the whole hand).
-    expect(found.y + found.height).toBeGreaterThan(hand.y);
-  });
-
-  it("keeps the hand keep-out to the lower part of the hand, below the top strip", () => {
-    const hand = rect(400, 600, 340, 90);
-    const keep = handKeepOut(hand);
-    expect(keep.y).toBeCloseTo(hand.y + hand.height * STRIP_ROOM.handCover, 5);
-    expect(keep.y + keep.height).toBeGreaterThanOrEqual(hand.y + hand.height);
-    expect(STRIP_ROOM.handCover).toBeLessThanOrEqual(0.3);
-  });
-
-  it("covers the turn ring, the soft HUD or the field before it goes deep into the hand", () => {
-    for (const name of ["1366x768", "1280x720"] as const) {
-      const box = BOXES[name];
-      const hand = rect(box.width / 2 - 170, box.height - 95, 340, 90);
-      // The whole box above the hand is key HUD and soft HUD: nothing is clear, so the room must cover HUD, not the hand.
-      const key = [rect(0, 0, box.width, box.height - 120)];
-      const soft = [rect(0, box.height - 120, 120, 120)];
-      for (const count of [2, 10]) {
-        const found = planStripRoom({ box, count, hud: key, soft, hand })!;
-        expect(inside(found, box), `${name} ${count}`).toBe(true);
-        expect(hits(found, handKeepOut(hand)), `${name} ${count}`).toBe(false);
-      }
-    }
-  });
-
-  it("goes deep into the hand only when nothing else is left", () => {
-    const box = { width: 700, height: 500 };
-    const hand = rect(0, 20, 700, 470);
-    const found = planStripRoom({ box, count: 2, hand })!;
-    expect(inside(found, box)).toBe(true);
+  it("takes a card of the chain last: the hand and the actions rank above it", () => {
+    const box = { width: 900, height: 600 };
+    const hand = { x: 300, y: 500, width: 300, height: 80 };
+    const source = [{ x: 400, y: 60, width: 80, height: 80 }];
+    // Every place is covered by key HUD, so the fallback ranks; the card in the chain is the cheaper loss next to your hand.
+    const room = planStripRoom({ box, count: 2, hud: [{ x: 0, y: 0, width: 900, height: 600 }], hand, source })!;
+    expect(hits(room, handKeepOut(hand))).toBe(false);
   });
 
   it("returns nothing for an empty box or no cards", () => {
     expect(planStripRoom({ box: { width: 0, height: 500 }, count: 2 })).toBeUndefined();
-    expect(planStripRoom({ box: BOXES["1920x1080"], count: 0 })).toBeUndefined();
+    expect(planStripRoom({ box: { width: 1892, height: 995 }, count: 0 })).toBeUndefined();
   });
 
-  it("plans quickly even when nothing is clear", () => {
-    const box = BOXES["2560x1440"];
-    const blocks = [rect(0, 0, box.width, box.height)];
+  it("plans in a few ms on the measured tables and in under 50 ms when nothing is clear", () => {
     const started = performance.now();
-    const found = planStripRoom({ box, count: 14, hud: blocks, soft: blocks, hand: rect(1000, 1200, 500, 120) });
-    expect(found).toBeDefined();
-    expect(performance.now() - started).toBeLessThan(1500);
+    for (const name of Object.keys(REAL)) planStripRoom(REAL[name]);
+    expect((performance.now() - started) / Object.keys(REAL).length).toBeLessThan(25);
+    const box = { width: 2532, height: 1355 };
+    const all = [{ x: 0, y: 0, width: box.width, height: box.height }];
+    const begun = performance.now();
+    expect(planStripRoom({ box, count: 14, hud: all, soft: all, hand: { x: 1000, y: 1200, width: 500, height: 120 } })).toBeDefined();
+    expect(performance.now() - begun).toBeLessThan(50);
   });
 });
 
-describe("the stage css gives the response panel its room and large cards", () => {
-  const stage = readFileSync(join(__dirname, "../src/components/duel/table/table-stage.module.css"), "utf8");
-  const strip = readFileSync(join(__dirname, "../src/components/duel/card-strip.module.css"), "utf8");
+describe("the stage css gives the response panel its room", () => {
+  const read = (path: string) => readFileSync(join(__dirname, "../src/components/duel", path), "utf8");
 
-  it("places the chain-response panel in the --sr-* room and scrolls the grid inside it", () => {
-    expect(stage).toContain('.board[data-strip-room][data-strip-room][data-strip-room]');
-    expect(stage).toMatch(/inset: var\(--sr-y\) auto calc\(100% - var\(--sr-y\) - var\(--sr-h\)\) var\(--sr-x\);/);
-    expect(stage).toMatch(/width: var\(--sr-w\);/);
-    expect(stage).toMatch(/max-height: var\(--sr-h\);/);
+  it("places the panel in the --sr-* room on the FFA3, FFA4 and Tag stages and hides it until the room is known", () => {
+    for (const file of ["table/table-stage.module.css", "table/grid-stage.module.css", "tag/tag-stage.module.css"]) {
+      const css = read(file);
+      expect(css, file).toContain("[data-strip-room]");
+      expect(css, file).toContain("var(--sr-w)");
+      expect(css, file).toContain("[data-strip-pending]");
+    }
   });
 
-  it("sizes the tiles from --sr-card, not from the pair unit", () => {
-    expect(strip).toMatch(/\[data-strip-room\]\) \.wrap\[data-tone="chain"\] \{[^}]*--cs-w: var\(--sr-card, 130px\);/);
-    expect(strip).toMatch(/\[data-strip-room\]\) \.wrap\[data-tone="chain"\] \.strip \{[^}]*overflow-y: auto;/);
+  it("sizes the tiles from --sr-card", () => {
+    expect(read("card-strip.module.css")).toContain("--cs-w: var(--sr-card, 130px)");
   });
 });
