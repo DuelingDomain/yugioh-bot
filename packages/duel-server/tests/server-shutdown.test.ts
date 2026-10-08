@@ -57,12 +57,13 @@ async function start() {
 
 function post(port: number, agent?: Agent) {
   const req = request({ host: "127.0.0.1", port, path: "/internal/duel", method: "POST", agent });
-  const result = new Promise<{ status: number; body: unknown; connection?: string }>((resolve, reject) => {
+  const result = new Promise<{ status: number; body: unknown; connection?: string; retryAfter?: string }>((resolve, reject) => {
     req.once("error", reject);
     req.once("response", response => {
       const chunks: Buffer[] = [];
       response.on("data", chunk => chunks.push(chunk));
-      response.once("end", () => resolve({ status: response.statusCode!, body: JSON.parse(Buffer.concat(chunks).toString()), connection: response.headers.connection }));
+      response.once("end", () => resolve({ status: response.statusCode!, body: JSON.parse(Buffer.concat(chunks).toString()), connection: response.headers.connection,
+        ...(response.headers["retry-after"] ? { retryAfter: response.headers["retry-after"] } : {}) }));
     });
   });
   // Cleanup can disconnect a request when an earlier assertion fails.
@@ -111,7 +112,7 @@ describe("duel server shutdown", () => {
     const end = vi.spyOn(response, "end");
     server.emit("request", incoming, response);
 
-    expect(writeHead).toHaveBeenCalledWith(503, expect.objectContaining({ "connection": "close" }));
+    expect(writeHead).toHaveBeenCalledWith(503, expect.objectContaining({ "connection": "close", "Retry-After": "2" }));
     expect(end).toHaveBeenCalledWith(JSON.stringify({ error: "restarting" }));
     expect(state.host.handle).not.toHaveBeenCalled();
     expect(state.db.close).not.toHaveBeenCalled();
@@ -126,7 +127,7 @@ describe("duel server shutdown", () => {
     process.emit("SIGTERM");
     req.end("}");
 
-    expect(await result).toEqual({ status: 503, body: { error: "restarting" }, connection: "close" });
+    expect(await result).toEqual({ status: 503, body: { error: "restarting" }, connection: "close", retryAfter: "2" });
     expect(state.host.handle).not.toHaveBeenCalled();
     await vi.waitFor(() => expect(process.exit).toHaveBeenCalledWith(0));
   });
@@ -172,6 +173,16 @@ describe("duel server shutdown", () => {
     await vi.waitFor(() => expect(process.exit).toHaveBeenCalledWith(0), { timeout: 1000 });
     expect(idle).toHaveBeenCalled();
     expect(all).toHaveBeenCalled();
+  });
+
+  it.each(["host", "cards", "db"] as const)("logs only the error name and exits with code 1 when %s cleanup fails", async resource => {
+    await start();
+    state[resource].close.mockImplementation(() => { throw new TypeError("private-shutdown-message"); });
+    process.emit("SIGTERM");
+
+    await vi.waitFor(() => expect(process.exit).toHaveBeenCalledWith(1));
+    expect(process.exit).not.toHaveBeenCalledWith(0);
+    expect(console.error).toHaveBeenCalledExactlyOnceWith("[duel] Shutdown failed", "TypeError");
   });
 
   it("force-closes a stuck request after the short grace and exits within five seconds", async () => {

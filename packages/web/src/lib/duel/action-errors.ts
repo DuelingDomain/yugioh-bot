@@ -17,6 +17,7 @@ export const ANSWER_REJECTED_NOTICE = "That choice is no longer open. Pick again
  */
 export function duelActionErrorText(err: unknown, options: { seatPick?: boolean } = {}): string {
   if (!(err instanceof DuelRequestError)) return err instanceof Error ? err.message : "Action failed";
+  if (err.status === 503 && err.message === "restarting") return "The duel server is restarting. Try again in a moment.";
   if (err.code === SEAT_LEFT_ERROR_CODE || err.message === SEAT_LEFT_NOTICE) return SEAT_LEFT_NOTICE;
   if (err.status === 409 && err.message === NO_ELIMINATE_CORE) return SURRENDER_UNSUPPORTED_NOTICE;
   if (err.status === 409 && err.message === STALE_CHOICE) return CHOICE_CLOSED_NOTICE;

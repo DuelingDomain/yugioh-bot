@@ -102,6 +102,14 @@ const DEFAULT_QUEUE_BLOCKED_MS = 3000;
 const TRACE_LIMIT = 40;
 /** The log lines a bug report keeps (the newest). */
 const BUG_CONTEXT_LOG_LINES = 15;
+/** Only recognized operation names may appear in unexpected request error logs. */
+const DUEL_OPS = new Set([
+  "engine-data-status", "capabilities", "view", "start", "respond", "deck", "validate-deck", "cards",
+  "card-details", "card-artworks", "card-query", "card-facets", "surrender", "add-bot", "archive", "cancel",
+  "replay", "ready", "unready", "series-side", "series-ready", "series-unready", "series-first",
+  "opening-pick", "opening-choose", "normalize-codes", "check-deck", "list-presets", "start-preset",
+  "report", "debug-trace", "bug-context", "chain-mode",
+]);
 
 /** What the `bug-context` op answers: public duel facts only. */
 interface BugDuelContext {
@@ -2696,10 +2704,12 @@ export function createDuelHost(options: {
       if (Buffer.byteLength(signature) !== Buffer.byteLength(expected) || !timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
         return Response.json({ error: "Unauthorized" }, { status: 401 });
       }
+      let requestOp: string | undefined;
       try {
         let body: Record<string, unknown>;
         try { body = JSON.parse(raw); } catch { throw new RequestError("Invalid JSON", 400); }
         if (!body || typeof body !== "object" || Array.isArray(body)) throw new RequestError("Invalid request", 400);
+        if (typeof body.op === "string" && DUEL_OPS.has(body.op)) requestOp = body.op;
         const key = typeof body.slug === "string" ? body.slug : "catalog";
         // Diagnostics skip the queue; GitHub status reads must not block card editor requests.
         const ctl = { abandoned: false };
@@ -2713,12 +2723,14 @@ export function createDuelHost(options: {
           });
         }
         const status = error instanceof Error && "status" in error && typeof error.status === "number" ? error.status : 400;
-        if (!(error instanceof RequestError) && !(error instanceof DeckLegalityError) &&
-          !(error instanceof Error && "status" in error && status >= 400 && status < 500)) {
+        const unexpected = !(error instanceof RequestError) && !(error instanceof DeckLegalityError) &&
+          !(error instanceof Error && "status" in error && status >= 400 && status < 500);
+        if (unexpected) {
           // Error messages/stacks may contain SQL, private payloads or credentials.
-          console.error("[duel] Unexpected request error");
+          console.error("[duel] Unexpected request error", { name: error instanceof Error ? error.name : "Unknown",
+            ...(requestOp ? { op: requestOp } : {}) });
         }
-        return Response.json({ error: error instanceof Error ? error.message : "Duel request failed",
+        return Response.json({ error: unexpected ? "Duel server error" : error instanceof Error ? error.message : "Duel request failed",
           ...(error instanceof RequestError && error.code ? { code: error.code } : {}) }, { status });
       }
     },

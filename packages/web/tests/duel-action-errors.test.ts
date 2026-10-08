@@ -5,6 +5,17 @@ import {
 } from "@/lib/duel/action-errors";
 
 describe("duelActionErrorText", () => {
+  it.each([true, false])("explains a restarting 503 (seatPick: %s)", seatPick => {
+    const err = new DuelRequestError("restarting", 503);
+    expect(duelActionErrorText(err, { seatPick })).toBe("The duel server is restarting. Try again in a moment.");
+  });
+
+  it("keeps restart-like text for other statuses and error types", () => {
+    expect(duelActionErrorText(new DuelRequestError("restarting", 409))).toBe("restarting");
+    expect(duelActionErrorText(new DuelRequestError("restarting soon", 503))).toBe("restarting soon");
+    expect(duelActionErrorText(new Error("restarting"))).toBe("restarting");
+  });
+
   it("maps an unsupported-core surrender 409 to a short notice", () => {
     const err = new DuelRequestError("This engine cannot eliminate a surrendering duelist", 409);
     expect(duelActionErrorText(err)).toBe(SURRENDER_UNSUPPORTED_NOTICE);
