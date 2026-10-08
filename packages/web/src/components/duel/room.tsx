@@ -605,9 +605,17 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         ? { key: zoneKey(attack.controller, attack.location, attack.sequence), direct: /directly/i.test(attack.label) }
         : null);
       // Only an opponent or direct-attack pick gets the general "pick again" notice on a 400 (a seat may have left).
-      void run(() => sendDuelAction(slug, command), isOpponentPick(prompt) || isAttackDuelistPrompt(prompt) ? "seat-pick" : undefined);
+      // A refused answer (a stale choice, a rejected move) is no cause for a follow-up: forget it, so the next prompt keeps its beat.
+      void run(async () => {
+        try {
+          return await sendDuelAction(slug, command);
+        } catch (err) {
+          pick.clearAnswer();
+          throw err;
+        }
+      }, isOpponentPick(prompt) || isAttackDuelistPrompt(prompt) ? "seat-pick" : undefined);
     },
-    [data, prompt, fieldHeld, error, catchingUp, run, slug, pick.noteAnswer, viewerOut],
+    [data, prompt, fieldHeld, error, catchingUp, run, slug, pick.noteAnswer, pick.clearAnswer, viewerOut],
   );
 
   /** A prompt tile or response row under the pointer: show the card in the inspector, as board cards do. */
