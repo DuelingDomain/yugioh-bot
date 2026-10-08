@@ -151,22 +151,27 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
     let best: number[] | null = null;
     // The first place of a pin is the place of the hover of that card: a click never moves the window. Later places (a chain that opens) rank again.
     const key = `${current?.code}-${current?.name}`;
-    const kept = frozen && hoverSpot.current?.key === key
+    const rectNow = (): Box => ({
+      left: parent.left + aside.offsetLeft,
+      top: parent.top + aside.offsetTop,
+      right: parent.left + aside.offsetLeft + aside.offsetWidth,
+      bottom: parent.top + aside.offsetTop + aside.offsetHeight,
+    });
+    const clickedCover = (rect: Box) => (hasTarget ? coveredArea(rect, [{ left: target.left, top: target.top, right: target.right, bottom: target.bottom }]) : 0);
+    const hovered = frozen && hoverSpot.current?.key === key
       ? candidates.find((c) => c.side === hoverSpot.current?.place.side && c.top === hoverSpot.current.place.top && c.maxH === hoverSpot.current.place.maxH && c.width === hoverSpot.current.place.width)
       : undefined;
     if (frozen) hoverSpot.current = null;
+    // It stays only when it does not cover the clicked card (on a narrow screen the hover place may): then the places are ranked as before.
+    if (hovered) place(aside, hovered, measured);
+    const kept = hovered && clickedCover(rectNow()) === 0 ? hovered : undefined;
     if (kept) chosen = kept;
     for (const candidate of kept ? [] : candidates) {
       place(aside, candidate, measured);
-      const rect: Box = {
-        left: parent.left + aside.offsetLeft,
-        top: parent.top + aside.offsetTop,
-        right: parent.left + aside.offsetLeft + aside.offsetWidth,
-        bottom: parent.top + aside.offsetTop + aside.offsetHeight,
-      };
+      const rect = rectNow();
       // Ranked in this order: 1. the clicked card, 2. the parts kept clear, 3. the board, 4. the left edge before the right one (a long text
       // does not move the panel to the other side), 5. the effect text that is cut off (it picks the band on one side).
-      const clicked = hasTarget ? coveredArea(rect, [{ left: target.left, top: target.top, right: target.right, bottom: target.bottom }]) : 0;
+      const clicked = clickedCover(rect);
       const keep = coveredArea(rect, obstacles.keep);
       const board = coveredArea(rect, obstacles.board);
       const hidden = text ? Math.max(0, text.scrollHeight - text.clientHeight - 1) : 0;
