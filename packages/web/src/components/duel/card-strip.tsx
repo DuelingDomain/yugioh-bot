@@ -274,7 +274,7 @@ export function CardStrip({
   const keepFocus = (event: ReactMouseEvent) => event.preventDefault();
 
   return (
-    <div className={styles.wrap} aria-busy={busy} data-tone={tone}>
+    <div className={styles.wrap} aria-busy={busy} data-tone={tone} data-strip-wrap>
       <div className={styles.bar} data-pager={pager ? true : undefined}>
         <p className={styles.caption} data-busy={busy ? "true" : "false"} role="status">
           {busy ? (offline ? "Reconnecting…" : "Syncing…") : <span className={styles.hint}>{hint}</span>}
