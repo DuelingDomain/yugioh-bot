@@ -75,6 +75,27 @@ interface Tween {
   start: number;
   dur: number;
   ease: CameraEasing;
+  /** The fit the keyframes were built with: a resize that changes it restarts the move. */
+  fit: number;
+}
+
+/** Length of the short ease that follows a change of the free box (a resize, a hand that grows) in a close-up. */
+const REFIT_MS = 220;
+
+function samePose(a: RoofPose, b: RoofPose): boolean {
+  return Math.abs(a.zoom - b.zoom) < 0.002 && Math.abs(a.fx - b.fx) < 0.5 && Math.abs(a.fy - b.fy) < 0.5 && Math.abs(a.oy - b.oy) < 0.5 && Math.abs(a.yaw - b.yaw) < 0.1 && Math.abs(a.tilt - b.tilt) < 0.1;
+}
+
+/** Where a running animation has moved a node from its resting place, in px (0 when none runs). */
+function shiftOf(node: HTMLElement): { x: number; y: number } {
+  try {
+    const found = /^matrix\(([^)]+)\)$/.exec(getComputedStyle(node).transform);
+    if (!found) return { x: 0, y: 0 };
+    const parts = found[1].split(",").map(Number);
+    return { x: Number.isFinite(parts[4]) ? parts[4] : 0, y: Number.isFinite(parts[5]) ? parts[5] : 0 };
+  } catch {
+    return { x: 0, y: 0 };
+  }
 }
 
 function toneHex(tone: SeatTone | undefined): HubSeatTone {
@@ -158,7 +179,13 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
   const tweenRef = useRef<Tween | null>(null);
   const animsRef = useRef<Animation[]>([]);
   const fitRef = useRef(1);
+  // The fit the world transform was last set with (fitRef already holds the new one while a resize is eased).
+  const paintedFitRef = useRef(1);
   const startedRev = useRef(-1);
+  // The first measure puts the world straight on its pose; only later changes of the free box ease.
+  const shownRef = useRef(false);
+  // Set on every render: eases the world to the pose of the new free box (see `glide`). False when it cannot animate.
+  const refitRef = useRef<() => boolean>(() => false);
   // Where apply() last put each floating HUD box (hub, phase hub, far plate), so a move can glide them to the new place.
   const placedRef = useRef(new Map<HTMLElement, { x: number; y: number }>());
 
@@ -223,10 +250,20 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     root.style.setProperty("--cx", `${cx.toFixed(1)}px`);
     root.style.setProperty("--cy", `${cy.toFixed(1)}px`);
     root.style.setProperty("--persp", `${(ROOF_PERSP * fit).toFixed(1)}px`);
-    // A move in flight ends on poseRef; with none, a close-up is fitted again (the box may have changed size).
-    if (!tweenRef.current) poseRef.current = resolvePose(targetRef.current, m);
+    // A move in flight ends on poseRef; with none, a close-up is fitted again (the box may have changed size). A change
+    // of the box (a resize, a hand that grows) during a move or in a close-up eases from the pose on screen to the new
+    // fit; it never jumps and never plays two jumps.
+    const live = tweenRef.current;
+    const end = resolvePose(targetRef.current, m);
+    if (shownRef.current) {
+      const changed = live ? !samePose(end, live.to) || Math.abs(fit - live.fit) > 0.002 : modeRef.current === "focus" && !samePose(end, poseRef.current);
+      if (changed && refitRef.current()) return;
+    }
+    shownRef.current = true;
+    if (!live) poseRef.current = end;
     const pose = poseRef.current;
     world.style.transform = roofTransform(pose, fit);
+    paintedFitRef.current = fit;
     // The focus buttons keep one size on screen: world units grow when the view zooms out.
     const unit = FOCUS_BTN_PX / Math.max(fit * pose.zoom, 0.05);
     root.querySelectorAll<HTMLElement>("[data-field-focus]").forEach((node) => node.style.setProperty("--focus-btn", `${unit.toFixed(1)}px`));
@@ -303,27 +340,40 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
    * cut in half starts from the pose the clock says is on screen. Without the Web Animations API, or with reduced
    * motion, or for a jump (`dur` 0), the world snaps to its end pose.
    */
-  const move = () => {
+  const glide = ({ from: origin, dur: ms, intro: fly }: { from: RoofPose | null | undefined; dur: number; intro: boolean }) => {
     const world = worldRef.current;
     const live = tweenRef.current;
     const visible = live ? poseAt(live.from, live.to, tweenProgress(performance.now(), live.start, live.dur), live.ease) : poseRef.current;
+    // The HUD boxes start from the place they are seen at: their resting place plus what a running glide has moved them
+    // by. A box that left the page is forgotten.
+    for (const node of [...placedRef.current.keys()]) if (!node.isConnected) placedRef.current.delete(node);
+    const before = new Map<HTMLElement, { x: number; y: number }>();
+    for (const [node, at] of placedRef.current) {
+      const shift = live ? shiftOf(node) : { x: 0, y: 0 };
+      before.set(node, { x: at.x + shift.x, y: at.y + shift.y });
+    }
+    // The fit on screen now (a resize changes it): the keyframes ease from it to the new one with the pose.
+    const fitBefore = shownRef.current ? live?.fit ?? paintedFitRef.current : null;
     stopMove();
-    const before = new Map(placedRef.current);
-    const animated = !reducedMotion && dur > 0 && world != null && typeof world.animate === "function";
+    const animated = !reducedMotion && ms > 0 && world != null && typeof world.animate === "function";
     const root = rootRef.current;
     const m = root ? measure(root) : null;
-    const end = m ? resolvePose(target, m) : target;
+    const end = m ? resolvePose(targetRef.current, m) : targetRef.current;
     poseRef.current = end;
     apply();
     if (!animated || world == null) return;
-    const start = from ?? visible;
-    const ease = intro ? easeFly : easeCam;
-    const steps = Math.min(60, Math.max(8, Math.round(dur / 16)));
-    const frames = Array.from({ length: steps + 1 }, (_, index) => ({ transform: roofTransform(poseAt(start, end, index / steps, ease), fitRef.current) }));
-    const tween: Tween = { from: start, to: end, start: performance.now(), dur, ease };
+    const start = origin ?? visible;
+    const ease = fly ? easeFly : easeCam;
+    const steps = Math.min(60, Math.max(8, Math.round(ms / 16)));
+    const fitEnd = fitRef.current;
+    const frames = Array.from({ length: steps + 1 }, (_, index) => {
+      const t = ease(index / steps);
+      return { transform: roofTransform(poseAt(start, end, index / steps, ease), fitBefore == null ? fitEnd : fitBefore + (fitEnd - fitBefore) * t) };
+    });
+    const tween: Tween = { from: start, to: end, start: performance.now(), dur: ms, ease, fit: fitRef.current };
     tweenRef.current = tween;
     world.style.willChange = "transform";
-    const run = world.animate(frames, { duration: dur, easing: "linear" });
+    const run = world.animate(frames, { duration: ms, easing: "linear" });
     const anims = [run];
     // The floating boxes glide the same way (a transform from the old place to 0). One that was not on screen fades in.
     for (const [node, now] of placedRef.current) {
@@ -331,7 +381,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
       if (!node.isConnected) continue;
       if (!old) {
         if (node.hidden || node.dataset.off === "true") continue;
-        anims.push(node.animate([{ opacity: 0 }, { opacity: 1 }], { duration: Math.min(dur, 260), easing: "ease-out" }));
+        anims.push(node.animate([{ opacity: 0 }, { opacity: 1 }], { duration: Math.min(ms, 260), easing: "ease-out" }));
         continue;
       }
       const dx = old.x - now.x;
@@ -341,7 +391,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
         const rest = 1 - ease(index / steps);
         return { transform: `translate(${(dx * rest).toFixed(2)}px, ${(dy * rest).toFixed(2)}px)` };
       });
-      anims.push(node.animate(path, { duration: dur, easing: "linear" }));
+      anims.push(node.animate(path, { duration: ms, easing: "linear" }));
     }
     animsRef.current = anims;
     run.onfinish = () => {
@@ -350,6 +400,12 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
       // Renders during the move left the HUD boxes alone: measure them once more at the end.
       apply();
     };
+  };
+  const move = () => glide({ from, dur, intro });
+  refitRef.current = () => {
+    if (reducedMotion || typeof worldRef.current?.animate !== "function") return false;
+    glide({ from: null, dur: REFIT_MS, intro: false });
+    return true;
   };
 
   // Each commit: a new `rev` starts a move; any other render measures the HUD again (it changes size with the data) unless
