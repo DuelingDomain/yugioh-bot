@@ -441,7 +441,17 @@ function CardTextBlock({ text, label = "Card text", open: forceOpen }: { text: s
   const bodyId = useId();
   const smallWindow = useMedia(COMPACT_TEXT_QUERY);
   const [dense, setDense] = useState(false);
-  useLayoutEffect(() => { setDense(root.current?.closest("[data-prompt-dense]") != null); }, []);
+  // The table can set or clear data-prompt-dense on the prompt slot while this prompt is open (the camera moves), so watch it.
+  useLayoutEffect(() => {
+    const host = root.current?.closest('[data-slot="prompt"], [data-prompt-dense]');
+    if (!host) return;
+    const read = () => setDense(host.hasAttribute("data-prompt-dense"));
+    read();
+    if (typeof MutationObserver === "undefined") return;
+    const observer = new MutationObserver(read);
+    observer.observe(host, { attributes: true, attributeFilter: ["data-prompt-dense"] });
+    return () => observer.disconnect();
+  }, []);
   const compact = smallWindow || dense;
   const [open, setOpen] = useState(Boolean(forceOpen));
   const long = text.length > 200 || text.split(/\r?\n/).length > 3;
