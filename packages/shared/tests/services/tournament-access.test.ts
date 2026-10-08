@@ -10,8 +10,8 @@ it("tournament reads share one guild-scoped access policy", () => {
   const db = new Database(":memory:");
   try {
     migrate(db);
-    db.exec("insert into users(id,username,display_name) values(101,'host','Host'); insert into tournaments(guild_id,name,format,status,created_by_user_id,web_slug) values('g','Cup','round_robin','active',101,'cup')");
-    expect(findTournamentReadAccess(db, "cup", "g", 999)).toEqual({ id: 1, status: "active", canRead: true });
+    db.exec("insert into users(id,username,display_name) values(101,'host','Host'); insert into tournaments(guild_id,name,format,status,created_by_user_id,web_slug,visibility) values('g','Cup','round_robin','active',101,'cup','open')");
+    expect(findTournamentReadAccess(db, "cup", "g", 999)).toEqual({ id: 1, status: "active", visibility: "open", isParticipant: false, canRead: true, canJoin: false });
     expect(findTournamentReadAccess(db, "cup", "other", 101)).toBeNull();
     expect(findTournamentReadAccess(db, "missing", "g", 101)).toBeNull();
   } finally { db.close(); }
@@ -23,7 +23,7 @@ it("the websocket reader checks current access with a readonly connection", () =
   let reader: ReturnType<typeof createTournamentAccessReader> | undefined;
   try {
     migrate(db);
-    db.exec("insert into users(id,username,display_name) values(101,'host','Host'); insert into tournaments(guild_id,name,format,status,created_by_user_id,web_slug) values('g','Cup','round_robin','active',101,'cup')");
+    db.exec("insert into users(id,username,display_name) values(101,'host','Host'); insert into tournaments(guild_id,name,format,status,created_by_user_id,web_slug,visibility) values('g','Cup','round_robin','active',101,'cup','open')");
     reader = createTournamentAccessReader(path);
     const claims = { slug: "cup", guildId: "g", userId: 101 };
     expect(reader.canReadTournament(claims)).toBe(true);

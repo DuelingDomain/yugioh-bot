@@ -1,3 +1,4 @@
+import { findTournamentReadAccess } from "@yugidraft/shared/services";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
@@ -17,6 +18,8 @@ export async function POST(
     const userId = actor.userId;
     const { slug } = await params;
     const db = getDb();
+    const access = findTournamentReadAccess(db, slug, env.discordGuildId, actor.userId);
+    if (!access?.canRead) return NextResponse.json({ error: "Tournament not found" }, { status: 404 });
 
     const body = (await request.json()) as {
       tournamentMatchId: number;

@@ -3,7 +3,7 @@
 import { cardImageUrl } from "@/lib/card-image-url";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DraftTournament } from "../use-draft-tournament";
+import { inheritedVisibilityNote, type DraftTournament } from "../use-draft-tournament";
 import { FullscreenLayer } from "./layer";
 import { EASE_OUT, animate, motionLevel, popExitMs, stagger } from "./motion";
 import { KINDS, KIND_LABEL, countKinds, kindOf, type RoomCard } from "./room-model";
@@ -18,6 +18,8 @@ export interface FinaleProps {
   canCreateTournament: boolean;
   /** Tournament made from this draft, plus the state to create one. */
   tournament: DraftTournament;
+  /** Who can see the draft. The tournament keeps this setting, and the form says so. */
+  visibility?: "open" | "private";
   exporting: boolean;
   exportError: string | null;
   onExport: () => void;
@@ -197,6 +199,7 @@ export function DraftFinale(p: FinaleProps) {
                   <option value={1}>Best of 1</option>
                 </select>
               </label>
+              {inheritedVisibilityNote(p.visibility) && <p className="fin-note">{inheritedVisibilityNote(p.visibility)}</p>}
               {tournament.error && (
                 <p className="fin-error" role="alert">
                   {tournament.error}

@@ -33,9 +33,9 @@ describe("scoring reads", () => {
   });
 
   it("getProfile returns season + career figures and recent results", () => {
-    const { scoring, p1, m } = setup();
+    const { db, scoring, p1, m } = setup();
     scoring.recordMatchResult(m(p1));
-    const profile = scoring.getProfile("g1", p1, "season");
+    const profile = scoring.getProfile("g1", p1, "season", seedUser(db, "u1").userId);
     expect(profile.winnings).toBeGreaterThan(0);
     expect(profile.careerWinnings).toBeGreaterThan(0);
     expect(profile.rank.name).toBeTruthy();

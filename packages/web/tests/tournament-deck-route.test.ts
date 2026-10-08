@@ -35,7 +35,7 @@ function seed() {
   const b = Number(insert.run(fixtureUserId("u-b"), fixtureDiscordId("u-b"), "Bob").lastInsertRowid);
   const tournaments = createTournamentService(db);
   const tour = tournaments.create("g1", "Cup", "round_robin", fixtureUserId("u-org"));
-  db.prepare("update tournaments set web_slug = 'cup' where id = ?").run(tour.id);
+  db.prepare("update tournaments set web_slug = 'cup', visibility = 'open' where id = ?").run(tour.id);
   tournaments.join(tour.id, a);
   tournaments.join(tour.id, b);
   const saved = createSavedDeckService(db).create("g1", fixtureUserId("u-a"), { name: "Mine", mode: "normal", deck: DECK });

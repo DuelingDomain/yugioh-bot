@@ -3,6 +3,7 @@ import { httpTransport } from "@yugidraft/shared/notify";
 import {
   createDuelService,
   createPlayerService,
+  redactDuelTournamentMetadata,
   DuelServiceError,
   SavedDeckServiceError,
   TournamentDuelError,
@@ -51,6 +52,11 @@ export function duelErrorResponse(error: unknown) {
   }
   console.error("[api/duels]", error);
   return NextResponse.json({ error: "Failed to process duel request" }, { status: 500 });
+}
+
+/** Redact only when internal duel data leaves the web server for a viewer. */
+export function redactDuelResult<T>(data: T, guildId: string, playerId: number): T {
+  return redactDuelTournamentMetadata(getDb, data, guildId, playerId);
 }
 
 function hostErrorBody(text: string): { error: string; code?: string } {
@@ -162,11 +168,13 @@ export async function callDuelHost(input: {
   if (!result.text) {
     return { ok: false, response: NextResponse.json({ error: "Empty engine response" }, { status: 502 }) };
   }
+  let data: unknown;
   try {
-    return { ok: true, data: JSON.parse(result.text) as unknown };
+    data = JSON.parse(result.text);
   } catch {
     return { ok: false, response: NextResponse.json({ error: "Invalid engine response" }, { status: 502 }) };
   }
+  return { ok: true, data: redactDuelResult(data, input.guildId, input.playerId) };
 }
 
 export function sessionFromHost(data: unknown) {

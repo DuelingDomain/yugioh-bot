@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { requireWebAccess } from "@/lib/web-access";
-import { createPlayerService } from "@yugidraft/shared/services";
+import { createPlayerService, findTournamentReadAccess } from "@yugidraft/shared/services";
 import { broadcaster } from "@/lib/notify";
 import { backfillDraftDecks, linkDraftDeck } from "@/lib/draft-decks";
 
@@ -19,39 +19,24 @@ export async function POST(
     const { slug } = await params;
     const db = getDb();
 
-    const tournament = db
-      .prepare("select id, guild_id, status from tournaments where web_slug = ? and guild_id = ?")
-      .get(slug, env.discordGuildId) as { id: number; guild_id: string; status: string } | undefined;
-
-    if (!tournament) {
-      return NextResponse.json({ error: "Tournament not found" }, { status: 404 });
-    }
-
-    if (tournament.status !== "pending") {
-      return NextResponse.json({ error: "Tournament has already started" }, { status: 400 });
-    }
-
-    const tournamentId = tournament.id;
-    const guildId = tournament.guild_id;
-
-    const players = createPlayerService(db);
-    const player = players.findOrCreate(guildId, actor.userId, actor.userName);
-
-    const existing = db
-      .prepare("select 1 from tournament_participants where tournament_id = ? and player_id = ?")
-      .get(tournamentId, player.id);
-
-    if (existing) {
-      return NextResponse.json({ error: "You have already joined this tournament" }, { status: 400 });
-    }
-
-    db.prepare(
-      "insert into tournament_participants (tournament_id, player_id) values (?, ?)"
-    ).run(tournamentId, player.id);
-
-    // A draft tournament entry takes the player's drafted deck at once (a no-op for any other tournament).
-    backfillDraftDecks(guildId, actor.userId, db);
-    linkDraftDeck(tournamentId, player.id, db);
+    // Read authorization and entry creation share the write lock, including player creation.
+    const result = db.transaction(() => {
+      const access = findTournamentReadAccess(db, slug, env.discordGuildId, actor.userId);
+      if (!access?.canRead) return { response: NextResponse.json({ error: "Tournament not found" }, { status: 404 }) };
+      if (!access.canJoin) {
+        return { response: NextResponse.json({ error: access.status === "pending" && access.isParticipant
+          ? "You have already joined this tournament" : "Tournament has already started" }, { status: 400 }) };
+      }
+      const guildId = env.discordGuildId;
+      const player = createPlayerService(db).findOrCreate(guildId, actor.userId, actor.userName);
+      db.prepare("insert into tournament_participants (tournament_id, player_id) values (?, ?)").run(access.id, player.id);
+      // A draft tournament entry takes the player's drafted deck immediately.
+      backfillDraftDecks(guildId, actor.userId, db);
+      linkDraftDeck(access.id, player.id, db);
+      return { player };
+    }).immediate();
+    if (result.response) return result.response;
+    const { player } = result;
 
     void broadcaster.tournament(
       {

@@ -14,3 +14,4 @@
   .code { font-size: 44px; }
   .title { font-size: 23px; }
 }
+.opening { margin-top: 4px; color: var(--ink-3); font-size: 15px; }

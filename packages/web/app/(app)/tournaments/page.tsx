@@ -22,7 +22,7 @@ export default async function TournamentsPage() {
   const { items: tournaments, nextCursor } = findTournamentListPage(db, env.discordGuildId, userId);
 
   const groups = groupTournaments(tournaments);
-  const summary = listSummaryPartsFromCounts(findTournamentListStatusCounts(db, env.discordGuildId));
+  const summary = listSummaryPartsFromCounts(findTournamentListStatusCounts(db, env.discordGuildId, userId));
 
   // Round strips and duel actions need the pairings of the tournaments still in play.
   const viewer = db

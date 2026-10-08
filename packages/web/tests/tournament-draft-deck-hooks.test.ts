@@ -117,6 +117,7 @@ describe("draft deck hooks in the tournament routes", () => {
 
   it("join links the player's draft deck right after the entry is made", async () => {
     const s = seed({ draft: true, pending: true });
+    s.db.prepare("update tournaments set visibility = 'open' where id = ?").run(s.tournamentId);
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-b")), discordUserId: fixtureDiscordId("u-b"), name: "Bob" } });
     const { POST } = await import("../app/api/tournaments/[slug]/join/route");
     const res = await POST(post(), ctx);

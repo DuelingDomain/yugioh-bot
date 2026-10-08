@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { tournamentReadScope, tournamentRelationshipScope } from "./tournament-read-scope.js";
 
 const PAGE_SIZE = 25;
 export class InvalidListCursorError extends Error {
@@ -67,7 +68,7 @@ function afterCursor(alias: string, rank: string) {
 const draftListScope = `d.guild_id = @guild
   and d.id in (select dp.draft_id from players p inner join draft_players dp on dp.player_id = p.id
     where p.guild_id = @guild and p.user_id = @user)`;
-const tournamentListScope = "t.guild_id = @guild and t.status in ('pending','active','completed')";
+const tournamentListScope = `${tournamentReadScope()} and t.status in ('pending','active','completed')`;
 
 export interface ListStatusCounts {
   active: number;
@@ -89,10 +90,10 @@ export function findDraftListStatusCounts(db: Database.Database, guildId: string
     where ${draftListScope} group by d.status`).all({ guild: guildId, user: userId }) as { status: string; count: number }[]);
 }
 
-/** All listed tournaments in this guild; a participant seat is not required. */
-export function findTournamentListStatusCounts(db: Database.Database, guildId: string): ListStatusCounts {
+/** Counts every readable entry, using the same scope as the paged list. */
+export function findTournamentListStatusCounts(db: Database.Database, guildId: string, userId: number): ListStatusCounts {
   return statusCounts(db.prepare(`select t.status, count(*) as count from tournaments t
-    where ${tournamentListScope} group by t.status`).all({ guild: guildId }) as { status: string; count: number }[]);
+    where ${tournamentListScope} group by t.status`).all({ guild: guildId, user: userId }) as { status: string; count: number }[]);
 }
 
 type DraftRow = {
@@ -202,4 +203,16 @@ export function findTournamentListPage(
     webSlug: row.web_slug ?? undefined,
     participantCount: row.participant_count,
   }));
+}
+
+/** At most ten current created, joined or granted entries, including users without a player row. */
+export function findTournamentDashboardSummaries(db: Database.Database, guildId: string, userId: number): TournamentListEntry[] {
+  return (db.prepare(`select t.id,t.guild_id,t.name,t.format,t.status,t.created_by_user_id,t.web_slug,
+    (select count(*) from tournament_participants tp where tp.tournament_id=t.id) as participant_count
+    from tournaments t where ${tournamentRelationshipScope()} and t.status in ('pending','active')
+    order by ${tournamentRank},t.created_at desc,t.id desc limit 10`)
+    .all({guild:guildId,user:userId}) as TournamentRow[]).map(row=>({
+      id:row.id,guildId:row.guild_id,name:row.name,format:row.format,status:row.status,
+      createdByUserId:row.created_by_user_id,webSlug:row.web_slug ?? undefined,participantCount:row.participant_count,
+    }));
 }

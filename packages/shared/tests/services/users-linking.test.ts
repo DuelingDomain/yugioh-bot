@@ -29,7 +29,7 @@ it("links an email-first user holding only grants to an imported Discord user wi
   expect(outcome).toMatchObject({ user: { id: b.id, clerkUserId: "user_a", discordUserId: discord }, conflict: null, foldedUserId: a.id });
   expect(users.findById(a.id)).toBeUndefined();
   expect(players(b.id)).toEqual([expect.objectContaining({ id: bPlayerId, user_id: b.id })]);
-  expect(db.prepare("select user_id from draft_invite_grants where user_id=?").get(a.id)).toBeUndefined();
+  expect(db.prepare("select user_id from draft_invite_grants").get()).toEqual({ user_id: b.id });
 });
 
 it("keeps grants when attaching an unclaimed Discord account to an email-first user", () => {
@@ -144,4 +144,23 @@ it.each([
 it("needsSync refreshes a missing user", () => {
   expect(users.needsSync(undefined, now)).toBe(true);
   expect(USER_SYNC_MAX_AGE_MS).toBe(5 * 60_000);
+});
+
+it.each(["keep-imported", "keep-clerk"])("combines draft and tournament grants before folding users: %s", branch => {
+  const a = users.resolveClerkProfile(profile, now).user;
+  const b = users.ensureDiscord({ discordUserId: discord, displayName: "Imported" });
+  const keeper = branch === "keep-imported" ? b : a;
+  const folded = branch === "keep-imported" ? a : b;
+  history(keeper.id);
+  for (const [table, column, extra] of [["drafts", "draft_id", ""], ["tournaments", "tournament_id", ",format"]]) {
+    for (let id=1;id<=3;id++) db.prepare(`insert into ${table}(id,guild_id,name,status,created_by_user_id${extra}) values(?,'g',?,'pending',?${extra ? ",'round_robin'" : ""})`).run(id, `Entry ${id}`, keeper.id);
+    const grantTable = table === "drafts" ? "draft_invite_grants" : "tournament_invite_grants";
+    db.prepare(`insert into ${grantTable}(${column},user_id,created_at) values(1,?,'source'),(2,?,'source'),(2,?,'kept'),(3,?,'kept')`).run(folded.id,folded.id,keeper.id,keeper.id);
+  }
+  expect(users.resolveClerkProfile({ ...profile, discordUserId: discord }, now)).toMatchObject({ user: { id: keeper.id }, foldedUserId: folded.id, conflict: null });
+  for (const [table, column] of [["draft_invite_grants", "draft_id"], ["tournament_invite_grants", "tournament_id"]]) {
+    expect(db.prepare(`select ${column} as entry,user_id,created_at from ${table} order by ${column}`).all()).toEqual([
+      {entry:1,user_id:keeper.id,created_at:"source"},{entry:2,user_id:keeper.id,created_at:"kept"},{entry:3,user_id:keeper.id,created_at:"kept"},
+    ]);
+  }
 });

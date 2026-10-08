@@ -11,14 +11,16 @@ vi.mock("next/font/google", () => {
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
 });
 const push = vi.fn();
+const router = { push, replace: vi.fn() };
 let handlers: NonNullable<Parameters<typeof useTournamentWebsocket>[1]>;
+let socketSlug = "";
 let searchParams = new URLSearchParams();
 let routeSlug = "friday-night-12";
 vi.mock("next/navigation", () => ({
-  useParams: () => ({ slug: routeSlug }), useRouter: () => ({ push, replace: vi.fn() }), useSearchParams: () => searchParams,
+  useParams: () => ({ slug: routeSlug }), useRouter: () => router, useSearchParams: () => searchParams,
 }));
 vi.mock("@/lib/hooks/use-tournament-websocket", () => ({
-  useTournamentWebsocket: (_slug: string, options: typeof handlers) => { handlers = options; },
+  useTournamentWebsocket: (slug: string, options: typeof handlers) => { socketSlug = slug; handlers = options; },
 }));
 
 import TournamentDetailPage from "../../app/(app)/tournament/[slug]/page";
@@ -255,7 +257,7 @@ describe("TournamentDetailPage one sheet", () => {
     expect(screen.getByLabelText(/Deadline/)).toHaveValue("2099-01-01T12:30");
   });
 
-  it.each([404, 500])("keeps old data after a refresh fails with status %s and clears the quiet status on recovery", async (status) => {
+  it.each([500, 503])("keeps old data after a refresh fails with status %s and clears the quiet status on recovery", async (status) => {
     const fetchMock = setup();
     render(<TournamentDetailPage />);
     await ready();
@@ -265,6 +267,36 @@ describe("TournamentDetailPage one sheet", () => {
     expect(screen.getByRole("heading", { name: sheetTournament.name })).toBeInTheDocument();
     act(() => handlers.onInvalidate?.());
     await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
+  });
+
+  it("keeps old data after a network error on refresh, and the socket stays on the slug", async () => {
+    const fetchMock = setup();
+    render(<TournamentDetailPage />);
+    await ready();
+    fetchMock.mockRejectedValueOnce(new TypeError("offline"));
+    act(() => handlers.onInvalidate?.());
+    expect(await screen.findByRole("status")).toHaveTextContent("Couldn't refresh. Showing the last update.");
+    expect(screen.getByRole("heading", { name: sheetTournament.name })).toBeInTheDocument();
+    expect(socketSlug).toBe("friday-night-12");
+  });
+
+  it.each([404, 403])("drops the tournament when a refresh returns %s: generic not found, no name, players or bracket, and the socket stops", async (status) => {
+    const fetchMock = setup(threeMatchTournament);
+    render(<TournamentDetailPage />);
+    await ready();
+    expect(socketSlug).toBe("friday-night-12");
+    const names = threeMatchTournament.participants.map((p) => p.displayName);
+    expect(names.length).toBeGreaterThan(0);
+    fetchMock.mockResolvedValueOnce(Response.json({ error: "Tournament not found" }, { status }));
+    act(() => handlers.onInvalidate?.());
+    expect(await screen.findByRole("heading", { name: "Tournament not found" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: threeMatchTournament.name })).toBeNull();
+    expect(screen.queryByText(threeMatchTournament.name)).toBeNull();
+    for (const name of names) expect(screen.queryByText(name)).toBeNull();
+    expect(screen.queryByRole("region", { name: "Standings" })).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(socketSlug).toBe("");
   });
 
   it.each([200, 404, 500])("ignores an out-of-order tournament response with status %s", async (status) => {
@@ -284,7 +316,7 @@ describe("TournamentDetailPage one sheet", () => {
     expect(screen.queryByRole("status")).toBeNull();
   });
 
-  it("shows the missing tournament address and recovery links after an initial 404", async () => {
+  it("shows one generic Tournament not found state after an initial 404, with nothing about the address", async () => {
     routeSlug = "no-such-event";
     const fetchMock = setup();
     const original = fetchMock.getMockImplementation()!;
@@ -292,12 +324,10 @@ describe("TournamentDetailPage one sheet", () => {
       ? Promise.resolve(Response.json({}, { status: 404 }))
       : original(url, init));
     render(<TournamentDetailPage />);
-    const title = await screen.findByRole("heading", { name: "No tournament at this address" });
+    const title = await screen.findByRole("heading", { name: "Tournament not found" });
     expect(title.closest(".ms")).not.toBeNull();
     expect(screen.getByText("404")).toBeInTheDocument();
-    const address = screen.getByText("/tournament/no-such-event");
-    expect(address.tagName).toBe("CODE");
-    expect(address.parentElement).toHaveTextContent("Nothing on this server matches /tournament/no-such-event. It may have been deleted, or the link has a typo.");
+    expect(screen.queryByText(/no-such-event/)).toBeNull();
     expect(screen.getByRole("link", { name: "All tournaments" })).toHaveAttribute("href", "/tournaments");
     expect(screen.getByRole("link", { name: "Dashboard" })).toHaveAttribute("href", "/dashboard");
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
@@ -340,7 +370,7 @@ describe("TournamentDetailPage one sheet", () => {
     render(<TournamentDetailPage />);
     expect(await screen.findByRole("heading", { name: "This tournament didn't load" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
-    expect(screen.queryByRole("heading", { name: "No tournament at this address" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Tournament not found" })).toBeNull();
   });
 
   it("lets the viewer try again after a retry also fails", async () => {

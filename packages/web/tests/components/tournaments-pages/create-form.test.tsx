@@ -58,6 +58,7 @@ describe("CreateTournamentForm", () => {
     expect(postBody(fetchMock)).toEqual({
       name: "New Cup",
       format: "round_robin",
+      visibility: "private",
       deadlineAt: null,
       reportConfirmWindowHours: null,
       bestOf: 3,
@@ -126,5 +127,40 @@ describe("CreateTournamentForm", () => {
     expect(alert.textContent).toContain("Turn time must be between 30 and 3600 seconds.");
     expect(screen.getByRole("complementary", { name: /tournament summary/i }).contains(alert)).toBe(true);
     expect(push).not.toHaveBeenCalled();
+  });
+});
+
+describe("CreateTournamentForm visibility", () => {
+  afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
+
+  it("offers Private and Open with Private selected, and their one-line meanings", () => {
+    mockFetch(() => Response.json({}));
+    render(<CreateTournamentForm />);
+    const group = screen.getByRole("group", { name: "Who can join" });
+    expect(within(group).getByRole("radio", { name: /private/i })).toBeChecked();
+    expect(within(group).getByRole("radio", { name: /open/i })).not.toBeChecked();
+    expect(within(group).getByText("Only people with your invite link can see and join")).toBeInTheDocument();
+    expect(within(group).getByText("Listed in Open right now for everyone")).toBeInTheDocument();
+    expect(within(screen.getByRole("complementary", { name: /tournament summary/i })).getByText("Private")).toBeInTheDocument();
+  });
+
+  it("sends visibility private by default", async () => {
+    const fetchMock = mockFetch(() => Response.json({ webSlug: "cup" }));
+    render(<CreateTournamentForm />);
+    fireEvent.change(screen.getByLabelText(/tournament name/i), { target: { value: "Cup" } });
+    fireEvent.click(screen.getByRole("button", { name: /create tournament/i }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/tournament/cup"));
+    expect(postBody(fetchMock).visibility).toBe("private");
+  });
+
+  it("sends visibility open when Open is chosen", async () => {
+    const fetchMock = mockFetch(() => Response.json({ webSlug: "cup" }));
+    render(<CreateTournamentForm />);
+    fireEvent.change(screen.getByLabelText(/tournament name/i), { target: { value: "Cup" } });
+    fireEvent.click(screen.getByRole("radio", { name: /open/i }));
+    expect(within(screen.getByRole("complementary", { name: /tournament summary/i })).getByText("Open")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /create tournament/i }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/tournament/cup"));
+    expect(postBody(fetchMock).visibility).toBe("open");
   });
 });

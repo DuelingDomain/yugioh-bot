@@ -83,6 +83,22 @@ describe("DraftFinale", () => {
       expect(create).toHaveBeenCalledTimes(1);
     });
 
+    it("says who can see the tournament it will make: the draft's own setting", async () => {
+      const { unmount } = render(<DraftFinale {...host} visibility="private" />);
+      fireEvent.click(await screen.findByRole("button", { name: "Create tournament" }));
+      expect(screen.getByText("It is private, like this draft. Only the drafters and people you invite to the tournament can see it.")).toBeTruthy();
+      unmount();
+      render(<DraftFinale {...host} visibility="open" />);
+      fireEvent.click(await screen.findByRole("button", { name: "Create tournament" }));
+      expect(screen.getByText("It is open, like this draft. Anyone can see it and join while entries are open.")).toBeTruthy();
+    });
+
+    it("says nothing about visibility when the draft sent none", async () => {
+      render(<DraftFinale {...host} />);
+      fireEvent.click(await screen.findByRole("button", { name: "Create tournament" }));
+      expect(screen.queryByText(/like this draft/)).toBeNull();
+    });
+
     it("goes back to the primary button when the format choice is cancelled", async () => {
       render(<DraftFinale {...host} />);
       fireEvent.click(await screen.findByRole("button", { name: "Create tournament" }));

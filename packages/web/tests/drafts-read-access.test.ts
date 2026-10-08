@@ -141,6 +141,13 @@ describe("draft read access", () => {
     expect(await response.json()).toEqual({ error: "The live feed is unavailable. Try again later." });
   });
 
+  it("hides a private linked tournament from a draft grant holder who never joined it", async () => {
+    database.current!.prepare(`insert into tournaments(id,guild_id,name,format,status,created_by_user_id,web_slug) values(7,'guild-1','Hidden Cup','round_robin','pending',${fixtureUserId("creator")},'hidden-cup')`).run();
+    database.current!.exec("update drafts set status='completed',tournament_id=7 where id=1");
+    auth.mockResolvedValue({user:{id:String(fixtureUserId("grant")),discordUserId:fixtureDiscordId("grant")}});
+    expect(await (await read("draft")).json()).toMatchObject({tournamentId:null,tournamentName:null,tournamentSlug:null});
+  });
+
   it("names the tournament made from the draft so the finale can link to it", async () => {
     const db = database.current!;
     db.prepare("update drafts set status = 'completed' where id = 1").run();
@@ -148,6 +155,7 @@ describe("draft read access", () => {
 
     db.prepare(`insert into tournaments (id, guild_id, name, format, status, created_by_user_id, web_slug) values (7, 'guild-1', 'Draft Cup', 'round_robin', 'pending', ${fixtureUserId("creator")}, 'draft-cup')`).run();
     db.prepare("update drafts set tournament_id = 7 where id = 1").run();
+    db.prepare("insert into tournament_participants(tournament_id,player_id) values(7,1)").run();
     expect(await (await read("draft")).json()).toMatchObject({ tournamentId: 7, tournamentName: "Draft Cup", tournamentSlug: "draft-cup" });
   });
 
@@ -159,7 +167,7 @@ describe("draft read access", () => {
     const response = await read("draft");
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
-      tournamentId: 7, tournamentName: null, tournamentSlug: null, canCreateTournament: false,
+      tournamentId: null, tournamentName: null, tournamentSlug: null, canCreateTournament: false,
     });
   });
 

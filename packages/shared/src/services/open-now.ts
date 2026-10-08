@@ -9,7 +9,7 @@ export interface OpenNowResult {
 
 export interface OpenNowService {
   /** Guild-wide joinable lobbies. A viewer without a player row has no memberships. */
-  forPlayer(guildId: string, playerId: number | null): OpenNowResult;
+  forPlayer(guildId: string, playerId: number | null, viewerUserId?: number): OpenNowResult;
 }
 
 type ReadParams = { guild: string; viewer: number | null };
@@ -22,7 +22,7 @@ export function createOpenNowService(db: Database.Database): OpenNowService {
       (select count(*) from tournament_participants p where p.tournament_id = t.id) as joinedCount,
       exists (select 1 from tournament_participants p where p.tournament_id = t.id and p.player_id = @viewer) as viewerJoined
     from tournaments t
-    where t.guild_id = @guild and t.status = 'pending' and t.web_slug is not null and t.web_slug != ''
+    where t.guild_id = @guild and t.status = 'pending' and t.visibility = 'open' and t.web_slug is not null and t.web_slug != ''
     order by julianday(t.created_at) desc, t.id desc
     limit 5
   `);
@@ -50,12 +50,12 @@ export function createOpenNowService(db: Database.Database): OpenNowService {
   const live = createLiveNowService(db);
 
   return {
-    forPlayer(guildId, playerId) {
+    forPlayer(guildId, playerId, viewerUserId) {
       const params = { guild: guildId, viewer: playerId };
       return {
         tournaments: tournaments.all(params).map((row) => ({ ...row, viewerJoined: Boolean(row.viewerJoined) })),
         drafts: drafts.all(params).map((row) => ({ ...row, viewerJoined: Boolean(row.viewerJoined) })),
-        duelsInProgress: live.countInProgress(guildId, playerId, { excludeSeated: true }),
+        duelsInProgress: live.countInProgress(guildId, playerId, { excludeSeated: true, viewerUserId }),
       };
     },
   };

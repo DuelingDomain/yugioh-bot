@@ -244,3 +244,18 @@ describe("createTournamentFromDraft", () => {
     expect(duels.registrations(result.tournamentId).map((row) => row.registered)).toEqual([true, false]);
   });
 });
+
+it.each(["private", "open"])("inherits %s draft visibility without copying unseated grants", visibility => {
+  const db = new Database(":memory:");
+  try {
+    migrate(db);
+    const {draft,aliceId,bobId} = completeDraft(db);
+    const guest = seedIdentity(db, {guildId:"g1",name:"Guest"});
+    db.prepare("update drafts set visibility=? where id=?").run(visibility,draft.id);
+    db.prepare("insert into draft_invite_grants(draft_id,user_id) values(?,?)").run(draft.id,guest.userId);
+    const result = createDraftTournamentService(db).createTournamentFromDraft({draftId:draft.id,format:"round_robin",createdByUserId:draft.createdByUserId});
+    expect(db.prepare("select visibility from tournaments where id=?").get(result.tournamentId)).toEqual({visibility});
+    expect(createTournamentService(db).participants(result.tournamentId).sort()).toEqual([aliceId,bobId].sort());
+    expect(db.prepare("select * from tournament_invite_grants").all()).toEqual([]);
+  } finally {db.close();}
+});

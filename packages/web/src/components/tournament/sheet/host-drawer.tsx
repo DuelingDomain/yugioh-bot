@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import { SheetPortal } from "@/components/sheet";
+import { HostInviteControls } from "@/components/draft/visibility/host-invite-controls";
+import { tournamentInviteApi } from "@/lib/invite-link";
 import { DURATION, usePresence } from "@/lib/motion";
 import { MatchRow } from "../matches/match-row";
 import type { PlayerRatings } from "../sheet-contracts";
@@ -84,6 +86,19 @@ export function HostDrawer({ open, tournament, tournamentSlug, ratings, onChange
             <h3 className={styles.dSecH}>Decks</h3>
             <PlayersPanel tournament={tournament} ratings={ratings} />
           </section>
+          {tournament.canManageInvite === true && tournament.visibility && (
+            <section className={styles.dSec} aria-label="Invite">
+              <h3 className={styles.dSecH}>Invite</h3>
+              <HostInviteControls
+                slug={tournamentSlug}
+                api={tournamentInviteApi}
+                visibility={tournament.visibility}
+                pending={tournament.status === "pending"}
+                onChanged={onChanged}
+                lockedNote="Who can join is locked now that the tournament has started. The link still lets people watch."
+              />
+            </section>
+          )}
           {tournament.status === "active" && (
             <section className={styles.dSec} aria-label="Ending early">
               <EndingEarly tournament={tournament} tournamentSlug={tournamentSlug} onChanged={onChanged} />

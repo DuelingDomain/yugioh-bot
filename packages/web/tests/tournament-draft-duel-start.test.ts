@@ -46,7 +46,7 @@ function seed(opts: { status?: "active" | "pending" } = {}) {
   insert.run(fixtureUserId("u-org"), fixtureDiscordId("u-org"), "Organizer");
   const tournaments = createTournamentService(db);
   const tour = tournaments.create("g1", "Cube cup", "round_robin", fixtureUserId("u-org"));
-  db.prepare("update tournaments set web_slug = 'cup' where id = ?").run(tour.id);
+  db.prepare("update tournaments set web_slug = 'cup', visibility = 'open' where id = ?").run(tour.id);
   db.prepare(
     `insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug, tournament_id) values ('g1', 'c', 'Cube', 'completed', ${fixtureUserId("u-org")}, '{}', 'cube-1', ?)`,
   ).run(tour.id);

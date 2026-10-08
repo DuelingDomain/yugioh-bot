@@ -36,6 +36,7 @@ import {
 import { randomInt, randomBytes, timingSafeEqual } from "node:crypto";
 // duel-series.ts imports this module too; see the note there about the cycle.
 import { createSeriesStore } from "./duel-series.js";
+import { duelSeriesTournamentReadScope } from "./tournament-read-scope.js";
 import { isDuelEngineChoice, type DuelEngineChoice } from "../duels/engine-switch.js";
 import {
   newOpening,
@@ -607,6 +608,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
         and status in ('lobby', 'active')
         and archived_at is null
         and ${LIST_ACCESS_SQL}
+        and ${duelSeriesTournamentReadScope("duels.series_id")}
         and (
           organizer_player_id = @viewer
           or exists (select 1 from duel_seats s where s.duel_id = duels.id and s.player_id = @viewer)
@@ -627,6 +629,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       where guild_id = @guild
         and status in ('completed', 'interrupted')
         and ${LIST_ACCESS_SQL}
+        and ${duelSeriesTournamentReadScope("duels.series_id")}
         and (@all = 1 or exists (select 1 from duel_seats s where s.duel_id = duels.id and s.player_id = @viewer))
       order by datetime(coalesce(ended_at, created_at)) desc, id desc
       limit ${HISTORY_LIMIT}

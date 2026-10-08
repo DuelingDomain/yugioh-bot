@@ -44,7 +44,7 @@ describe("loading skeletons", () => {
   });
 
   it("the tournament gate shows blocks, still named 'Loading tournament'", () => {
-    render(<TournamentGate kind="loading" slug="x" />);
+    render(<TournamentGate kind="loading" />);
     const status = screen.getByRole("status", { name: "Loading tournament" });
     expect(within(status).queryByText(/loading/i)).toBeNull();
     expect(status.querySelectorAll(".sk")).toHaveLength(3);

@@ -3,8 +3,10 @@
 import { parseUserId } from "@/lib/user-id";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { signInHref } from "@/lib/invite-link";
 import { useTournamentWebsocket } from "@/lib/hooks/use-tournament-websocket";
+import { TournamentInviteGate } from "@/components/tournament/invite-gate";
 import { TournamentGate } from "@/components/tournament/sheet/tournament-gate";
 import { TournamentSheet } from "@/components/tournament/sheet/tournament-sheet";
 import { buildPlayerRatings } from "@/components/tournament/sheet/sheet-model";
@@ -14,6 +16,19 @@ import type { TournamentDetail } from "@/components/tournament/types";
 export default function TournamentDetailPage() {
   const params = useParams();
   const slug = typeof params.slug === "string" ? params.slug : "";
+  // This is a client page: it reads the tournament and opens the live connection as soon as the body mounts. The invite
+  // gate comes first, so with `?invite=` the link is redeemed before either happens. A new address mounts a new body.
+  return (
+    <TournamentInviteGate key={slug} slug={slug}>
+      <TournamentDetailBody slug={slug} />
+    </TournamentInviteGate>
+  );
+}
+
+function TournamentDetailBody({ slug }: { slug: string }) {
+  const router = useRouter();
+  const routerRef = useRef(router);
+  routerRef.current = router;
   const searchParams = useSearchParams();
   const [loaded, setLoaded] = useState<{ slug: string; tournament: TournamentDetail } | null>(null);
   const [error, setError] = useState<{ slug: string; status: number | null } | null>(null);
@@ -34,7 +49,8 @@ export default function TournamentDetailPage() {
     return () => { active = false; };
   }, []);
 
-  // Refetching never blanks the page: the last good tournament stays until a newer one arrives.
+  // Refetching never blanks the page for a server or network failure: the last good tournament stays until a newer one
+  // arrives. A 404 or 403 is different: the viewer can no longer see it (made private, removed), so drop it.
   const fetchTournament = useCallback(async () => {
     if (!slug) return;
     const request = ++tournamentRequest.current;
@@ -43,7 +59,15 @@ export default function TournamentDetailPage() {
     try {
       const response = await fetch(`/api/tournaments/${slug}`);
       if (!response.ok) {
-        if (request === tournamentRequest.current) setError({ slug, status: response.status });
+        if (response.status === 401 && request === tournamentRequest.current) {
+          // Sign in again and come back to this exact address.
+          routerRef.current.push(signInHref());
+          return;
+        }
+        if (request === tournamentRequest.current) {
+          if (response.status === 404 || response.status === 403) setLoaded(null);
+          setError({ slug, status: response.status });
+        }
         return;
       }
       const data: TournamentDetail = await response.json();
@@ -91,18 +115,19 @@ export default function TournamentDetailPage() {
   }, [tournament, fetchRatings]);
 
   // Every event refetches the tournament (onInvalidate). A match update also reloads ratings, which move with results.
-  useTournamentWebsocket(slug, {
+  // Once the tournament is hidden from this viewer, an empty slug stops the socket from rejoining its room.
+  const hidden = error?.slug === slug && (error.status === 404 || error.status === 403);
+  useTournamentWebsocket(hidden ? "" : slug, {
     onInvalidate: () => { void fetchTournament(); },
     onMatchUpdated: () => { void fetchRatings(); },
   });
 
   if (!tournament) {
     const initialError = error?.slug === slug ? error : null;
-    if (!initialError) return <TournamentGate kind="loading" slug={slug} />;
+    if (!initialError) return <TournamentGate kind="loading" />;
     return (
       <TournamentGate
-        kind={initialError.status === 404 ? "missing" : "error"}
-        slug={slug}
+        kind={initialError.status === 404 || initialError.status === 403 ? "missing" : "error"}
         busy={loadingSlug === slug}
         onRetry={() => { if (!tournamentInFlight.current) void fetchTournament(); }}
       />

@@ -108,14 +108,19 @@ describe("invite landing order", () => {
 });
 
 describe("invite landing failures", () => {
-  it("shows the generic Draft not found on 404, loads nothing, and keeps the invite in the address", async () => {
+  it("on 404 strips the expired invite and mounts the body so its own access check decides", async () => {
     redeemStatus = 404;
+    window.history.replaceState(null,"","/draft/night?invite=ABC123&x=1#top");
+    events=[];
     render(<DraftInviteGate slug="night"><Body /></DraftInviteGate>);
-    expect(await screen.findByRole("heading", { name: "Draft not found" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Lobby" })).toBeNull();
-    expect(events).toEqual(['POST /api/drafts/night/invite {"code":"ABC123"}']);
-    expect(document.body.textContent).not.toContain("night");
-    expect(document.body.textContent).not.toContain("ABC123");
+    expect(await screen.findByRole("heading",{name:"Lobby"})).toBeInTheDocument();
+    expect(events).toEqual([
+      'POST /api/drafts/night/invite {"code":"ABC123"}',
+      'replaceState /draft/night?x=1#top',
+      'mount@/draft/night?x=1#top',
+      'GET /api/drafts/night',
+    ]);
+    expect(window.location.search).toBe("?x=1");
   });
 
   it("on 429 says to try again in a moment, never retries by itself, and retries once on the button", async () => {

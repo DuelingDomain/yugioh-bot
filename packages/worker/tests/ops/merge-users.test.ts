@@ -129,3 +129,20 @@ it("rejects a deferred FK violation before commit and reports the violating row"
   expect(f.db.pragma("foreign_keys", { simple: true })).toBe(1);
   expect(f.db.pragma("foreign_key_check")).toEqual([]);
 });
+
+it("reports and combines tournament grants while preserving target timestamps", () => {
+  setup();
+  for (let id=1;id<=3;id++) f.db.prepare("insert into tournaments(id,guild_id,name,format,status,created_by_user_id) values(?,'guild',?,'round_robin','pending',1)").run(id, `Cup ${id}`);
+  f.db.exec("insert into tournament_invite_grants(tournament_id,user_id,created_at) values(1,1,'source'),(2,1,'source'),(2,2,'kept'),(3,2,'kept')");
+  const before=f.checksum();
+  const dry=mergeUsers({db:f.db,apply:false},1,2);
+  expect(dry.affectedRows).toContainEqual({table:"tournament_invite_grants",column:"user_id",rowIds:[1,2]});
+  expect(dry.sourceHistory).toEqual({"tournaments.created_by_user_id":3});
+  expect(dry.conflicts).toEqual([]);
+  expect(f.checksum()).toBe(before);
+  mergeUsers({db:f.db,apply:true},1,2);
+  expect(f.db.prepare("select tournament_id,user_id,created_at from tournament_invite_grants order by tournament_id").all()).toEqual([
+    {tournament_id:1,user_id:2,created_at:"source"},{tournament_id:2,user_id:2,created_at:"kept"},{tournament_id:3,user_id:2,created_at:"kept"},
+  ]);
+  expect(f.db.pragma("foreign_key_check")).toEqual([]);
+});

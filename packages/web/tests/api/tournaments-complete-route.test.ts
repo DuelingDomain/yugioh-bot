@@ -20,7 +20,7 @@ function seedActive(dbPath: string) {
     seedFixtureUsers(seedDb, FIXTURE_KEYS);
     seedDb
       .prepare(
-        `insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug) values ('g1', 'T', 'round_robin', 'active', ${fixtureUserId("u-org")}, 'slug-1')`,
+        `insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug, visibility) values ('g1', 'T', 'round_robin', 'active', ${fixtureUserId("u-org")}, 'slug-1', 'open')`,
       )
       .run();
     seedDb.close();

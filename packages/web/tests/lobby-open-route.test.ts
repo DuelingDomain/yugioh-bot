@@ -36,16 +36,16 @@ function seedOpen() {
   const db = state.db!;
   const host = Number(db.prepare("insert into players(guild_id, user_id, display_name) values ('g', ?, 'Host')")
     .run(fixtureUserId("host")).lastInsertRowid);
-  const cup = Number(db.prepare(`insert into tournaments(guild_id, name, format, status, created_by_user_id, web_slug)
-    values ('g', 'Cup', 'single_elimination', 'pending', ?, 'cup')`).run(fixtureUserId("host")).lastInsertRowid);
+  const cup = Number(db.prepare(`insert into tournaments(guild_id, name, format, status, created_by_user_id, web_slug, visibility)
+    values ('g', 'Cup', 'single_elimination', 'pending', ?, 'cup', 'open')`).run(fixtureUserId("host")).lastInsertRowid);
   const draft = Number(db.prepare(`insert into drafts(guild_id, name, status, created_by_user_id, web_slug, visibility)
     values ('g', 'Draft', 'pending', ?, 'draft', 'open')`).run(fixtureUserId("host")).lastInsertRowid);
   db.prepare("insert into tournament_participants(tournament_id, player_id) values (?, ?)").run(cup, host);
   db.prepare("insert into draft_players(draft_id, player_id) values (?, ?)").run(draft, host);
   db.prepare(`insert into duels(guild_id, web_slug, name, organizer_player_id, mode, status)
     values ('g', 'duel', 'Duel', ?, 'normal', 'active')`).run(host);
-  db.prepare(`insert into tournaments(guild_id, name, format, status, created_by_user_id, web_slug)
-    values ('other', 'Other cup', 'single_elimination', 'pending', ?, 'other-cup')`).run(fixtureUserId("host"));
+  db.prepare(`insert into tournaments(guild_id, name, format, status, created_by_user_id, web_slug, visibility)
+    values ('other', 'Other cup', 'single_elimination', 'pending', ?, 'other-cup', 'open')`).run(fixtureUserId("host"));
   db.prepare(`insert into drafts(guild_id, name, status, created_by_user_id, web_slug, visibility)
     values ('other', 'Other draft', 'pending', ?, 'other-draft', 'open')`).run(fixtureUserId("host"));
   return { host, cup, draft };

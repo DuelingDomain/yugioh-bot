@@ -368,6 +368,9 @@ describe("shared database schema", () => {
     const cols = getTableInfo(db, "tournaments").map((column) => column.name);
     expect(cols).toContain("deadline_at");
     expect(cols).toContain("report_confirm_window_hours");
+    expect(cols).toContain("visibility");
+    expect(cols).toContain("invite_code");
+    expect(getTableInfo(db, "tournament_invite_grants").map(column => column.name)).toEqual(["tournament_id", "user_id", "created_at"]);
 
     db.close();
   });

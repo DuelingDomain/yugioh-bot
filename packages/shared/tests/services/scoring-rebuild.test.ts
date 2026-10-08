@@ -137,7 +137,7 @@ describe("scoring.rebuildStandings", () => {
     db.exec("drop trigger reject_final");
     expect(db.prepare("select kind, player_id, points from point_awards").all())
       .toEqual([{ kind: "placement", player_id: a, points: 50 }]);
-    expect(scoring.getProfile("g1", a, "all").achievements)
+    expect(scoring.getProfile("g1", a, "all", seedUser(db, "a").userId).achievements)
       .toContainEqual(expect.objectContaining({ achievement_key: "first_tournament_win" }));
 
     // The deployed legacy reopen retained bonuses without rebuilding ratings.
@@ -151,8 +151,8 @@ describe("scoring.rebuildStandings", () => {
 
     scoring.rebuildStandings("g1", { recoverMissing: true });
 
-    expect(scoring.getProfile("g1", a, "all").careerWinnings).toBe(0);
-    expect(scoring.getProfile("g1", a, "all").achievements).toEqual([]);
+    expect(scoring.getProfile("g1", a, "all", seedUser(db, "a").userId).careerWinnings).toBe(0);
+    expect(scoring.getProfile("g1", a, "all", seedUser(db, "a").userId).achievements).toEqual([]);
     expect(db.prepare("select player_id, season_id, placement, points from point_awards where kind='placement'").all())
       .toEqual(state === "recompleted"
         ? [{ player_id: b, season_id: season.id, placement: "champion", points: 50 }] : []);

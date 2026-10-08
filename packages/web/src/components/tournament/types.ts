@@ -1,5 +1,6 @@
 import type { DuelBestOf, DuelSeriesSummary } from "@yugidraft/shared/duels";
 import type { TournamentDuelRules } from "@yugidraft/shared/services";
+import type { TournamentVisibility } from "@yugidraft/shared/types";
 
 export type { DuelBestOf, DuelSeriesSummary, TournamentDuelRules };
 
@@ -68,6 +69,12 @@ export interface TournamentDetail {
   deckNote?: DeckNote | null;
   /** The viewer's Elo stakes. Older payloads (and tests) omit it. */
   stakes?: ViewerStakes | null;
+  /** Who can see and join. Older payloads (and tests) omit it. */
+  visibility?: TournamentVisibility;
+  /** The server says this viewer may join now: entries are open, they are not in it, and they are allowed. Older payloads omit it. */
+  canJoin?: boolean;
+  /** Sent only to the host: the invite link, the Private/Open switch and Reset are theirs to use. */
+  canManageInvite?: true;
   /** The server can post to Discord (the bot is enabled). Absent or false hides the Announce button and the /event hint. */
   discordEnabled?: boolean;
 }

@@ -72,6 +72,12 @@ export function createUserService(db: Database.Database): UserService {
     db.prepare("update players set discord_user_id=? where user_id=?").run(input.discordUserId, id);
     return mapUser(byId.get(id)!);
   });
+  const moveInviteGrants = (sourceId: number, targetId: number) => {
+    for (const [table, column] of [["draft_invite_grants", "draft_id"], ["tournament_invite_grants", "tournament_id"]]) {
+      db.prepare(`insert or ignore into ${table}(${column},user_id,created_at)
+        select ${column},?,created_at from ${table} where user_id=?`).run(targetId, sourceId);
+    }
+  };
   const resolve = db.transaction((profile: ClerkProfile, now: Date): LinkOutcome => {
     // Identity/history reads must all happen after BEGIN IMMEDIATE acquires the
     // writer lock. No caller's cached user is used to make a folding decision.
@@ -107,6 +113,7 @@ export function createUserService(db: Database.Database): UserService {
     }
     if (b.clerk_user_id !== null) return outcome(a.id, "discord_claimed");
     if (!hasHistory(db, a.id)) {
+      moveInviteGrants(a.id, b.id);
       db.prepare("delete from players where user_id=?").run(a.id);
       db.prepare("update users set clerk_user_id=null where id=?").run(a.id);
       db.prepare("delete from users where id=?").run(a.id);
@@ -115,6 +122,7 @@ export function createUserService(db: Database.Database): UserService {
       return outcome(b.id, null, a.id);
     }
     if (!hasHistory(db, b.id)) {
+      moveInviteGrants(b.id, a.id);
       db.prepare("delete from players where user_id=?").run(b.id);
       db.prepare("update users set discord_user_id=null where id=?").run(b.id);
       db.prepare("delete from users where id=?").run(b.id);

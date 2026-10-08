@@ -1148,6 +1148,23 @@ export function migrate(db: Database.Database) {
       );
     `);
   }).immediate();
+
+  // Tournament privacy also follows identity migration. Existing entries become
+  // private without changing their creators or participants; codes are generated lazily.
+  db.transaction(() => {
+    addColumnIfMissing(db, "tournaments", "visibility", "text not null default 'private' check (visibility in ('open', 'private'))");
+    addColumnIfMissing(db, "tournaments", "invite_code", "text");
+    db.exec(`
+      create unique index if not exists tournaments_invite_code_unique
+        on tournaments(invite_code) where invite_code is not null;
+      create table if not exists tournament_invite_grants (
+        tournament_id integer not null references tournaments(id) on delete cascade,
+        user_id integer not null references users(id) on delete cascade,
+        created_at text not null default current_timestamp,
+        primary key (tournament_id, user_id)
+      );
+    `);
+  }).immediate();
 }
 
 /**

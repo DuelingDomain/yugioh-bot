@@ -3,6 +3,8 @@
 import { useRef, useState } from "react";
 import { CopyLinkRow, FloorList, FloorRow, Mono, SectionHead, Seat, StatusLine, SvButton, ringColour } from "@/components/sheet";
 import { generateSingleElimFirstRound } from "@yugidraft/shared/tournaments";
+import { HostInviteControls } from "@/components/draft/visibility/host-invite-controls";
+import { tournamentInviteApi } from "@/lib/invite-link";
 import { useFlipList } from "@/lib/motion";
 import styles from "./tournament-lobby.module.css";
 import { MyDeckPanel } from "./my-deck-panel";
@@ -85,6 +87,9 @@ export function TournamentLobby({ tournament, tournamentSlug, isCreator, onChang
   const post = (key: string, path: string, fallback: string, after?: () => void) => call(key, `${base}${path}`, { method: "POST" }, fallback, after);
   const link = typeof window !== "undefined" ? `${window.location.origin}/tournament/${tournamentSlug}` : `/tournament/${tournamentSlug}`;
   const needed = 2 - count;
+  // The host's real invite link, switch and Reset. A private tournament has no plain link to share: it would 404 for
+  // everyone it was sent to, so only the host's invite link (and a participant's seat) opens it.
+  const manageInvite = tournament.canManageInvite === true && tournament.visibility !== undefined;
 
   const rulesLine = rules ? `${formatLabel(tournament.format)}, best of ${rules.bestOf}` : formatLabel(tournament.format);
   const extra = rules ? rules.line.split(", ").slice(2).join(", ") : "";
@@ -94,7 +99,7 @@ export function TournamentLobby({ tournament, tournamentSlug, isCreator, onChang
       <div className={styles.main}>
         {error && <div role="alert"><StatusLine tone="block">{error}</StatusLine></div>}
 
-        {!isParticipant && (
+        {!isParticipant && tournament.canJoin === true && (
           <section className={styles.join} aria-label={`Join ${tournament.name}`}>
             <div>
               <h2 className={styles.joinT}>Join {tournament.name}</h2>
@@ -112,13 +117,30 @@ export function TournamentLobby({ tournament, tournamentSlug, isCreator, onChang
           </section>
         )}
 
-        <section aria-label={isCreator ? "Invite players" : "Invite link"} className={styles.invite}>
-          <SectionHead title={isCreator ? "Invite players" : "Invite link"} note={isCreator ? "Anyone with the link can join." : "Share it so others can join."} />
-          <CopyLinkRow value={link} label="Invite link" />
-          {isCreator && discordEnabled && (
-            <p className={styles.note}>Players can also join from Discord with <code className={styles.cmd}>/event join</code>.</p>
-          )}
-        </section>
+        {manageInvite ? (
+          <section aria-label="Invite players" className={styles.invite}>
+            <SectionHead title="Invite players" />
+            <HostInviteControls
+              slug={tournamentSlug}
+              api={tournamentInviteApi}
+              visibility={tournament.visibility!}
+              pending={tournament.status === "pending"}
+              onChanged={onChanged}
+              lockedNote="This is locked once the tournament starts."
+            />
+            {discordEnabled && (
+              <p className={styles.note}>Players can also join from Discord with <code className={styles.cmd}>/event join</code>.</p>
+            )}
+          </section>
+        ) : tournament.visibility !== "private" && (
+          <section aria-label={isCreator ? "Invite players" : "Invite link"} className={styles.invite}>
+            <SectionHead title={isCreator ? "Invite players" : "Invite link"} note={isCreator ? "Anyone with the link can join." : "Share it so others can join."} />
+            <CopyLinkRow value={link} label="Invite link" />
+            {isCreator && discordEnabled && (
+              <p className={styles.note}>Players can also join from Discord with <code className={styles.cmd}>/event join</code>.</p>
+            )}
+          </section>
+        )}
 
         <section aria-labelledby="seats-t" className={styles.seats}>
           <SectionHead title="Who's in" id="seats-t" note={`${count} joined. At least 2 to start. No seat limit.`} />

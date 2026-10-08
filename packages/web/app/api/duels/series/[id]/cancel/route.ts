@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createDuelSeriesService, DuelServiceError } from "@yugidraft/shared/services";
+import { createDuelSeriesService, DuelServiceError, findTournamentReadAccess } from "@yugidraft/shared/services";
 import { getDb } from "@/lib/db";
 import { duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
 import { notifyDuelChange } from "@/lib/notify-duel";
@@ -28,7 +28,10 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
       const player = db.prepare("select user_id from players where id = ? and guild_id = ?")
         .get(actor.playerId, actor.guildId) as { user_id: number } | undefined;
       if (!tournament || tournament.created_by_user_id !== player?.user_id) {
-        throw new DuelServiceError("Only the tournament organizer can cancel a tournament match", 403);
+        const readable = player && findTournamentReadAccess(db, series.tournamentId, actor.guildId, player.user_id)?.canRead;
+        throw new DuelServiceError(readable
+          ? "Only the tournament organizer can cancel a tournament match"
+          : "Only a player of this match can cancel it", 403);
       }
     } else if (!series.playerIds.includes(actor.playerId)) {
       throw new DuelServiceError("Only a player of this match can cancel it", 403);
