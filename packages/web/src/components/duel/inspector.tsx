@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useRef, type CSSProperties, type HTMLAttributes, type RefObject } from "react";
+import { useLayoutEffect, useRef, type CSSProperties, type RefObject } from "react";
 import type { DuelCard, DuelCardInfo } from "@yugidraft/shared/duels";
 import { CardBack } from "./card-face";
 import { hasCardName, useDuelCardInfo } from "./card-info";
@@ -23,16 +23,18 @@ export type InspectTarget =
 
 /**
  * Mark the scroller that holds the Card tab when it shows the card pane. Its bottom rows then fade while the text has more to read
- * (see globals.css), and it takes the keyboard focus so Safari can scroll it with the arrow keys. A scroller without the mark (the phone
- * Sheet, which paints its own background and edge) gets no fade. Pass `active` as "the card pane is the one shown".
+ * (see globals.css). A scroller without the mark (the phone Sheet, which paints its own background and edge) gets no fade. Pass
+ * `active` as "the card pane is the one shown". The card text itself makes the scroller focusable (see useScrollCue), so an empty
+ * Card tab is not a tab stop.
  */
-export function cardScrollerProps(active: boolean): HTMLAttributes<HTMLElement> & { "data-card-scroller"?: "" } {
-  return active ? { "data-card-scroller": "", tabIndex: 0, role: "region", "aria-label": "Card" } : {};
+export function cardScrollerProps(active: boolean): { "data-card-scroller"?: "" } {
+  return active ? { "data-card-scroller": "" } : {};
 }
 
 /**
  * Keep `data-card-more` on the marked scroller up to date: "true" while the text runs past its bottom edge, "false" at the end or when
- * it all fits. The fade itself is CSS. The layout effect runs before the first paint, so there is no frame without the fade.
+ * it all fits. The fade itself is CSS. The layout effect runs before the first paint, so there is no frame without the fade. While a
+ * card shows, the scroller is a tab stop, so Safari can scroll it with the arrow keys.
  */
 function useScrollCue(root: RefObject<HTMLElement | null>, key: string | undefined) {
   useLayoutEffect(() => {
@@ -47,17 +49,27 @@ function useScrollCue(root: RefObject<HTMLElement | null>, key: string | undefin
       scroller.dataset.cardMore = next ? "true" : "false";
     };
     update();
+    const ownTabIndex = scroller.hasAttribute("tabindex");
+    if (!ownTabIndex) scroller.tabIndex = 0;
     scroller.addEventListener("scroll", update, { passive: true });
     const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
     resize?.observe(scroller);
     resize?.observe(node);
     // A line that arrives late (the owner, the meta list, a card lookup) grows the text inside a box of fixed size, which no resize reports.
-    const mutations = typeof MutationObserver === "undefined" ? null : new MutationObserver(update);
+    // Log rows in the same scroller mutate it often, so many mutations share one check per frame.
+    let frame = 0;
+    const later = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => { frame = 0; update(); });
+    };
+    const mutations = typeof MutationObserver === "undefined" ? null : new MutationObserver(later);
     mutations?.observe(scroller, { childList: true, subtree: true, characterData: true });
     return () => {
       scroller.removeEventListener("scroll", update);
       resize?.disconnect();
       mutations?.disconnect();
+      if (frame) cancelAnimationFrame(frame);
+      if (!ownTabIndex) scroller.removeAttribute("tabindex");
       delete scroller.dataset.cardMore;
     };
   }, [root, key]);
