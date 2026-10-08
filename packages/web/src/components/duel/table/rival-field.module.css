@@ -65,17 +65,18 @@
   }
 }
 
+/* The seats that stay fade back in after the reduced hold (GATE_TIMING.resultReducedPauseMs, 0.4s) has let the crumble start. */
 @media (prefers-reduced-motion: reduce) {
   .seat[data-glide="true"] {
     transition: none;
-    animation: glideIn 0.38s ease-out 0.22s both;
+    animation: glideIn 0.38s ease-out 0.5s both;
   }
 }
 
 /* The in-app reduced motion setting (the media query above covers the system one). */
 :global([data-reduced="true"]) .seat[data-glide="true"] {
   transition: none;
-  animation: glideIn 0.38s ease-out 0.22s both;
+  animation: glideIn 0.38s ease-out 0.5s both;
 }
 
 /* The board that left. The 3D chain seat > .exitBoard > layer must not get opacity, filter or overflow. */
