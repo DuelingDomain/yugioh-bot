@@ -12,7 +12,7 @@ import {
   TYPE_SPELL,
   TYPE_TRAP,
 } from "./constants";
-import type { ChainLinkState } from "./chain-state";
+import type { ChainLinkState, ChosenOption } from "./chain-state";
 
 export interface EffectText {
   text: string;
@@ -64,6 +64,87 @@ export function chainEffectText(link: Pick<ChainLinkState, "name" | "description
     if (text !== "") return { text, caption: "Card text" };
   }
   return null;
+}
+
+/** One line of a card's printed text. An "option" is a bullet line ("● Add 1 ... to your hand."). */
+export interface CardTextLine {
+  kind: "text" | "option";
+  text: string;
+  /** An option line the link's player chose. */
+  chosen?: true;
+}
+
+/** The card's text in full, for the panel: the engine's own words (when they say more than the printed text) and every printed line. */
+export interface FullEffectText {
+  /** The engine's description of this activation, or null when it is generic or already part of the printed text. */
+  lead: string | null;
+  lines: CardTextLine[];
+}
+
+const BULLET = /^[●•◆◇■]\s*/;
+
+/** The printed text split by line, with each bullet marked as an option. Blank lines go. */
+export function cardTextLines(text: string): CardTextLine[] {
+  const lines: CardTextLine[] = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const flat = normalise(raw);
+    if (flat === "") continue;
+    if (BULLET.test(flat)) lines.push({ kind: "option", text: flat.replace(BULLET, "") });
+    else lines.push({ kind: "text", text: flat });
+  }
+  return lines;
+}
+
+const squash = (text: string): string => normalise(text).replace(/[.!\s]+$/, "").toLowerCase();
+
+/** Quotes and dashes in either style, so a prompt label and the printed text compare as equal. */
+const fold = (text: string): string =>
+  squash(text).replace(/[\u2018\u2019\u201b]/g, "'").replace(/[\u201c\u201d]/g, '"').replace(/[\u2013\u2014]/g, "-");
+/** Shortest text that may match a bullet by containment: a one-word choice must not light an unrelated bullet. */
+const MIN_PARTIAL = 8;
+
+/**
+ * Marks the option lines the link's player chose, by text only (equal, or one holds the other). The prompt option index
+ * is no guide: the engine hides options whose condition is false, so it need not be the position of a printed bullet, and
+ * a wrong mark is worse than none. An equal bullet beats a partial one; when no bullet is equal and two fit partly,
+ * nothing is marked. A bullet is marked once, and a choice that matches nothing marks nothing (the "Chose" line
+ * still names it).
+ */
+export function markChosenLines(lines: readonly CardTextLine[], chosen: readonly ChosenOption[] | undefined): CardTextLine[] {
+  if (!chosen?.length) return lines.map((line) => ({ ...line }));
+  const optionAt = lines.flatMap((line, at) => (line.kind === "option" ? [at] : []));
+  const marked = new Set<number>();
+  for (const choice of chosen) {
+    const want = fold(choice.text);
+    if (want === "") continue;
+    const free = optionAt.filter((at) => !marked.has(at));
+    // An equal bullet wins. Without one, a partial match counts only when exactly one bullet fits: two fits are a guess.
+    const exact = free.find((at) => fold(lines[at].text) === want);
+    if (exact != null) { marked.add(exact); continue; }
+    if (want.length < MIN_PARTIAL) continue;
+    const partial = free.filter((at) => {
+      const have = fold(lines[at].text);
+      return have.includes(want) || (have.length >= MIN_PARTIAL && want.includes(have));
+    });
+    if (partial.length === 1) marked.add(partial[0]);
+  }
+  return lines.map((line, at) => (marked.has(at) ? { ...line, chosen: true } : { ...line }));
+}
+
+/**
+ * Everything the panel can say about what a link does. Every seat sees the same words: the text of a card that
+ * is on the chain is public. An unknown card (no name) has none, and never a passcode.
+ */
+export function chainFullText(link: Pick<ChainLinkState, "name" | "description" | "text" | "cardType" | "chosenOptions">): FullEffectText | null {
+  const name = link.name?.trim() ? link.name.trim() : null;
+  if (name == null) return null;
+  const lines = markChosenLines(cardTextLines(link.text ?? ""), link.chosenOptions);
+  const engine = normalise(link.description ?? "");
+  const specific = !isGeneric(engine, name);
+  const printed = squash(lines.map((line) => line.text).join(" "));
+  const lead = specific && !printed.includes(squash(engine)) ? engine : null;
+  if (lead == null && lines.length === 0) return specific ? { lead: engine, lines } : null;
+  return { lead, lines };
 }
 
 /** "Normal Trap", "Quick-Play Spell", "Effect Monster": the second half of the hero's byline. */

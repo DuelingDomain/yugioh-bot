@@ -107,6 +107,7 @@ import { MoveFx } from "./move-fx";
 import { fxLayersUp, useStartBeats } from "./use-start-beats";
 import { PositionFx } from "./position-fx";
 import { ChainFx } from "./chain-fx";
+import { ownPromptOpen } from "./chain-narrate";
 import { CoinTossFx } from "./coin-toss-fx";
 import { isCoinTossActive, useCoinTossLocked } from "./coin-toss-lock";
 import { SummonFx } from "./summon-fx";
@@ -1296,7 +1297,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       {fxUp ? <MoveFx events={withDestroyCards(engine.events)} duelKey={slug} reducedMotion={preferences.reducedMotion} replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough} /> : null}
       {fxUp ? <PositionFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} /> : null}
       {fxUp ? <ChainFx events={withDestroyCards(engine.events)} chain={engine.chain} duelKey={slug}
-        reducedMotion={preferences.reducedMotion} mySeat={data.mySeat} playerName={playerName} ended={duelOver} seats={engine.seats} /> : null}
+        reducedMotion={preferences.reducedMotion} mySeat={data.mySeat} playerName={playerName} ended={duelOver} seats={engine.seats} promptOpen={promptMine && ownPromptOpen(prompt, data.mySeat)} /> : null}
       {fxUp ? <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={slug}
         reducedMotion={preferences.reducedMotion} mySeat={data.mySeat} /> : null}
       <BattleFx key={`battle-${slug}`} events={withDestroyCards(engine.events)} seats={engine.seats} reducedMotion={preferences.reducedMotion}

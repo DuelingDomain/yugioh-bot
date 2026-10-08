@@ -11,6 +11,7 @@ import { isCustomDomain } from "@yugidraft/shared/duels";
 import { BattleFx } from "../battle-fx";
 import { AttackConfirm, CardActionMenu, CardHoverInfo, confirmSide, targetName } from "../card-interactions";
 import { ChainFx } from "../chain-fx";
+import { ownPromptOpen } from "../chain-narrate";
 import { projectChainNames } from "../chain-state";
 import { CoinTossFx } from "../coin-toss-fx";
 import { isBattlePhase, phaseTitle, zoneKey } from "../constants";
@@ -700,7 +701,7 @@ function TableShellBody({
                     {fxActive ? <SummonFx events={withDestroyCards(engine.events)} duelKey={session.slug} reducedMotion={controller.reducedMotion} shake={preferences.shake} /> : null}
                     {fxActive ? <MoveFx events={withDestroyCards(engine.events)} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
                     {fxActive ? <PositionFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
-                    {fxActive ? <ChainFx events={withDestroyCards(engine.events)} chain={namedChain} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} playerName={nameOf} seatTones={seatTones} priority={priority} ended={hasResult} table={format} seats={engine.seats} /> : null}
+                    {fxActive ? <ChainFx events={withDestroyCards(engine.events)} chain={namedChain} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} playerName={nameOf} seatTones={seatTones} priority={priority} ended={hasResult} table={format} seats={engine.seats} promptOpen={promptMine && ownPromptOpen(prompt, viewerSeat)} /> : null}
                     {fxActive ? <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} /> : null}
                     <BattleFx events={withDestroyCards(engine.events)} seats={engine.seats} reducedMotion={controller.reducedMotion} active={fxActive} aim={null} nameOf={nameOf} />
                     <DestroyFx events={withDestroyCards(engine.events)} reducedMotion={controller.reducedMotion} active={fxActive} mySeat={viewerSeat ?? 0} />

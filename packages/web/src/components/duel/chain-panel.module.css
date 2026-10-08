@@ -1,5 +1,5 @@
 /* The "Now resolving" panel, its strip and its sheet (chain-panel.tsx). Gold = activated and waiting, violet =
-   resolving, red = negated, grey = resolved. Only transform and opacity animate. Nothing here takes pointer input
+   resolving, red = negated, grey = resolved. Transform and opacity animate; only the hero fold animates a height. Nothing here takes pointer input
    except the strip, the sheet and its scrim. */
 
 .cr {
@@ -79,7 +79,7 @@
   text-transform: uppercase;
 }
 .eyebrow b { color: var(--tone-ink); font-weight: 700; white-space: nowrap; }
-.eyebrow span { color: var(--duel-ink-3, #958f81); font-weight: 500; }
+.eyebrow span { color: var(--duel-ink-3, #958f81); font-weight: 500; white-space: nowrap; }
 
 .main { display: flex; align-items: flex-start; gap: 10px; }
 .art {
@@ -118,11 +118,75 @@
   text-transform: uppercase;
 }
 
+/* On a short window the panel cannot hold the whole text: the hero shrinks (its text gives way first) so the
+   outcome and the link rows stay in view. The sheet scrolls instead. */
+.cr:not([data-shape="sheet"]) .hero { display: flex; flex: 0 1 auto; flex-direction: column; min-height: 0; overflow: hidden; }
+.cr:not([data-shape="sheet"]) .hero > * { flex: none; }
+.cr:not([data-shape="sheet"]) .hero > .fold { flex: 0 1 auto; min-height: 0; }
+.cr:not([data-shape="sheet"]) .foldBody > * { flex: none; }
+.cr:not([data-shape="sheet"]) .foldBody > .cardText { flex: 0 1 auto; min-height: 4.2em; }
+
+/* While a prompt of the local player is open (data-folded, from chain-fx.tsx) the effect text, the options and the targets
+   fold away: the hero keeps the art, the name, the owner, what was chosen and the outcome, so the prompt's own windows
+   (the card peek) have the room. It is a height transition (a 1fr row to a 0fr row), so it folds and unfolds with no jump. */
+.fold { display: grid; grid-template-rows: 1fr; transition: grid-template-rows 0.24s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.18s ease; }
+.fold[data-folded="true"] { grid-template-rows: 0fr; opacity: 0; pointer-events: none; }
+.foldBody { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+
+/* The card's text in full: one paragraph per line of the card, each option a bullet in a list. The box takes the
+   free height of the panel (the hero gives it up before anything else). Only when the layout really cuts it
+   (data-overflow, measured in chain-panel.tsx) does it fade at the bottom edge and scroll. */
+.cardText {
+  margin: 9px 0 0;
+  padding-left: 8px;
+  overflow: hidden;
+  border-left: 2px solid rgb(181 153 99 / 0.35);
+  color: var(--duel-ink, #efe7d5);
+  font: 400 var(--duel-t-body, 13px)/1.38 var(--duel-f-ink, Georgia), Georgia, serif;
+}
+.cardText small {
+  display: block;
+  margin-bottom: 1px;
+  color: var(--duel-ink-3, #958f81);
+  font: 600 calc(12px * var(--tt, 1))/1.2 var(--duel-f-ui, "Arial Narrow"), "Arial Narrow", sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.cardText p { margin: 0; }
+.cardText p + p, .cardText p + .options, .cardText .options + p { margin-top: 3px; }
+.options { margin: 0; padding: 0; list-style: none; }
+.options li { position: relative; padding-left: 13px; }
+.options li + li { margin-top: 3px; }
+/* The option the player chose: brighter text, a tinted bar and a check where the bullet was. Colour never works alone. */
+.options li[data-chosen="true"] { margin-left: -4px; padding: 1px 4px 1px 17px; border-radius: 3px; background: var(--tone-soft); box-shadow: inset 2px 0 0 var(--tone); color: var(--duel-ink, #efe7d5); font-weight: 600; }
+.options li[data-chosen="true"]::before { left: 5px; top: 0.3em; width: 4px; height: 8px; border-radius: 0; background: none; border: solid var(--tone-ink); border-width: 0 2px 2px 0; transform: rotate(40deg); }
+.srOnly { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.options li::before { content: ""; position: absolute; left: 2px; top: 0.58em; width: 5px; height: 5px; border-radius: 50%; background: var(--tone-ink); }
+.cardText[data-overflow="true"] {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  pointer-events: auto;
+  scrollbar-width: thin;
+  -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 1.6em), transparent);
+  mask-image: linear-gradient(180deg, #000 calc(100% - 1.6em), transparent);
+}
+.cardText[data-overflow="true"]:focus-visible { outline: 2px solid var(--duel-pen-ink, #c6b6ff); outline-offset: 2px; }
+.cr[data-shape="narrow"] .cardText { font-size: calc(13px * var(--tt, 1)); }
+.cr[data-shape="sheet"] .cardText { overflow: visible; -webkit-mask-image: none; mask-image: none; font-size: calc(15px * var(--tt, 1)); }
+
 .targets { margin: 7px 0 0; color: var(--duel-ink-2, #c3bba8); font-size: var(--duel-t-sm, 12px); line-height: 1.3; }
 .targets i { display: inline-block; width: 8px; height: 8px; margin-right: 5px; box-sizing: border-box; border: 2px solid var(--duel-pen-ink, #c6b6ff); border-radius: 50%; vertical-align: -1px; }
 .target { display: block; }
 .target b { color: var(--duel-ink, #efe7d5); font-weight: 600; }
 .target small { display: block; margin-left: 13px; color: var(--duel-ink-3, #958f81); font-size: var(--duel-t-xs, 11px); }
+
+/* What the player chose, in words: it stays when the text above has no bullet for it. */
+.chose { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; margin: 8px 0 0; color: var(--duel-ink, #efe7d5); font-size: var(--duel-t-body, 13px); font-weight: 600; line-height: 1.25; }
+.chose b { color: var(--tone-ink); font-size: var(--duel-t-xs, 11px); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.chose b::after { content: ":"; }
+.chose span + span::before { content: "+ "; color: var(--duel-ink-3, #958f81); }
+.cr[data-shape="narrow"] .chose { font-size: calc(13px * var(--tt, 1)); }
+.cr[data-shape="sheet"] .chose { font-size: calc(14px * var(--tt, 1)); }
 
 .out {
   display: flex;
@@ -146,7 +210,19 @@
 .wait i { display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: var(--duel-pen, #9b7eff); vertical-align: 1px; animation: crPulse 1.1s ease-in-out infinite; }
 
 /* ----- the stack: every link, the top of the chain first ----- */
-.stack { flex: 0 1 auto; min-height: 0; margin: 0; padding: 0; overflow: hidden; list-style: none; }
+/* The rows give way first, down to about two rows (the list shows only with 2+ links); then they scroll. The overflow
+   flag below changes paint, scroll and focus only, never the size, so the measure cannot feed back into itself. */
+.stack { flex: 0 1000 auto; min-height: 76px; margin: 0; padding: 0; overflow: hidden; list-style: none; }
+.stack[data-accordion="true"] { min-height: 0; }
+.stack[data-overflow="true"] {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  pointer-events: auto;
+  scrollbar-width: thin;
+  -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 1.4em), transparent);
+  mask-image: linear-gradient(180deg, #000 calc(100% - 1.4em), transparent);
+}
+.stack[data-overflow="true"]:focus-visible { outline: 2px solid var(--duel-pen-ink, #c6b6ff); outline-offset: -2px; }
 .row {
   position: relative;
   display: flex;
@@ -179,7 +255,11 @@
   box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.5);
 }
 .rowText { flex: 1; min-width: 0; line-height: 1.2; }
-.rowName { display: block; overflow: hidden; font-size: var(--duel-t-sm, 12px); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+/* The owner sits under the card name in every shape, so a long name keeps the whole row width. */
+.rowHead { display: flex; flex-direction: column; min-width: 0; }
+.rowName { flex: 0 1 auto; min-width: 0; overflow: hidden; font-size: var(--duel-t-sm, 12px); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.rowOwner { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--duel-ink-3, #958f81); font-size: var(--duel-t-xs, 11px); font-weight: 500; }
+.row[data-toned="true"] .rowOwner { color: var(--seat-ink, var(--duel-ink-3, #958f81)); }
 .rowLine {
   display: -webkit-box;
   margin-top: 1px;
@@ -241,7 +321,7 @@
 .cr[data-shape="narrow"] .hero { padding: 8px 8px 9px 10px; }
 .cr[data-shape="narrow"] .main { flex-direction: column; gap: 7px; }
 .cr[data-shape="narrow"] .art { width: 78px; }
-.cr[data-shape="narrow"] .name { font-size: 17px; }
+.cr[data-shape="narrow"] .name { font-size: calc(17px * var(--tt, 1)); }
 .cr[data-shape="narrow"] .effect { font-size: calc(14px * var(--tt, 1)); -webkit-line-clamp: 6; }
 .cr[data-shape="narrow"] .sub { font-size: calc(12px * var(--tt, 1)); }
 .cr[data-shape="narrow"] .row { gap: 5px; padding: 5px 8px; }
@@ -249,6 +329,15 @@
 .cr[data-shape="narrow"] .rowState,
 .cr[data-shape="narrow"] .eyebrow span,
 .cr[data-shape="narrow"] .head small { display: none; }
+
+/* A short window: the narrow panel puts the art beside the name, and smaller, so the text and the rows keep their room. */
+@media (max-height: 800px) {
+  .cr[data-shape="narrow"] .main { flex-direction: row; gap: 8px; }
+  .cr[data-shape="narrow"] .art { width: 50px; }
+  .cr[data-shape="narrow"] .name { font-size: calc(15px * var(--tt, 1)); }
+  .cr:not([data-shape="sheet"]) .hero { padding-top: 6px; padding-bottom: 7px; }
+  .cr:not([data-shape="sheet"]) .eyebrow { margin-bottom: 4px; }
+}
 
 /* ----- the strip: a real button, 44 px tall with a 48 px hit area ----- */
 .strip {
@@ -376,6 +465,8 @@
 :global([data-chain-front][data-reduced="true"]) .strip,
 :global([data-chain-front][data-reduced="true"]) .scrim,
 :global([data-chain-front][data-reduced="true"]) .wait i { animation: none; }
+:global([data-chain-front][data-reduced="true"]) .fold { transition: none; }
 @media (prefers-reduced-motion: reduce) {
   .cr, .hero, .out, .strip, .scrim, .wait i { animation: none !important; }
+  .fold { transition: none !important; }
 }
