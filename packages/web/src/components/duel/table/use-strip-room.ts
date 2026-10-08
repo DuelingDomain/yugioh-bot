@@ -77,6 +77,8 @@ export function useStripRoom(options: UseStripRoomOptions): UseStripRoom {
   const [chrome, setChrome] = useState<number | null>(null);
   const sourceKey = sourceKeys.join(",");
   const lastPrompt = useRef("");
+  // The panel's real chrome is read only once the room is applied: before that it sits in the narrow pair box and its text wraps taller.
+  const roomed = useRef(false);
 
   useEffect(() => {
     if (!active) {
@@ -104,22 +106,36 @@ export function useStripRoom(options: UseStripRoomOptions): UseStripRoom {
       }
       return bits.join(",");
     };
+    // The room the stage keeps for the chain banner (data-chain-room, board px): the banner is drawn there after the plan, so the plan reads the room, not the banner's place of the moment.
+    const reservedChain = (): Rect[] => {
+      const holder = root.hasAttribute("data-chain-room") ? root : root.querySelector("[data-chain-room]");
+      const [x, y, width, height] = (holder?.getAttribute("data-chain-room") ?? "").split(",").map(Number);
+      return [x, y, width, height].every(Number.isFinite) && width > 1 && height > 1 ? [rounded({ x, y, width, height })] : [];
+    };
+    // The chain banner has a room reserved: it is drawn there, so the place it holds while it moves is left out and the room counts instead.
+    const softRects = (): Rect[] => {
+      const reserved = reservedChain();
+      const rects = occluderRects(root, softHud).map(rounded);
+      if (reserved.length === 0) return rects;
+      const banner = occluderRects(root, "[data-chain-strip-wrap]").map(rounded);
+      return [...rects.filter((r) => !banner.some((b) => sameRects([b], [r]))), ...reserved];
+    };
     const measure = () => {
       const zones = boxes('[data-zones][data-occupied="true"]');
       const source = sourceKey === "" ? [] : sourceKey.split(",").flatMap((key) => boxes(`[data-zones~="${key}"]`));
       const next: Measured = {
         key: occluderRects(root, keyHud).map(rounded),
         controls: controlsHud === "" ? [] : occluderRects(root, controlsHud).map(rounded),
-        soft: occluderRects(root, softHud).map(rounded),
+        soft: softRects(),
         hand: unionOf(boxes(`${hand}`)),
         zones,
         source,
       };
       setMeasured((current) => (current && sameRects(current.key, next.key) && sameRects(current.controls, next.controls) && sameRects(current.soft, next.soft) && sameRects(current.zones, next.zones) && sameRects(current.source, next.source) && ((current.hand === null && next.hand === null) || (current.hand !== null && next.hand !== null && sameRects([current.hand], [next.hand]))) ? current : next));
-      // The panel's real height besides its cards: it only grows, so a text that wraps differently in a new room cannot make the room flip back and forth.
+      // The panel's real height besides its cards, once the room is applied: it only grows, so a text that wraps differently in a new room cannot make the room flip back and forth.
       const panel = root.querySelector<HTMLElement>('[data-prompt-panel][data-tone="chain"][data-strip="true"]');
       const wrap = panel?.querySelector<HTMLElement>("[data-strip-wrap]");
-      if (panel && wrap) {
+      if (panel && wrap && roomed.current) {
         const real = Math.ceil((panel.getBoundingClientRect().height - wrap.getBoundingClientRect().height) / CHROME_STEP) * CHROME_STEP;
         if (real > 0) setChrome((current) => (current === null || real > current ? real : current));
       }
@@ -128,24 +144,33 @@ export function useStripRoom(options: UseStripRoomOptions): UseStripRoom {
     let frame = 0;
     let same = 0;
     let last = "";
-    let waited = 0;
+    // When the first request of this burst came (0: none waits): every new request keeps it, so a board that never rests is measured after REST_MAX_MS at the latest.
+    let started = 0;
     let hard: number | undefined;
     const stop = () => {
       window.cancelAnimationFrame(frame);
       window.clearTimeout(hard);
+      started = 0;
+    };
+    const finish = () => {
+      stop();
+      measure();
     };
     // Waits until the board stands still, then measures once.
     const settle = () => {
-      stop();
+      window.cancelAnimationFrame(frame);
       same = 0;
       last = "";
-      waited = performance.now();
+      if (started === 0) {
+        started = performance.now();
+        hard = window.setTimeout(finish, REST_MAX_MS);
+      }
       const step = () => {
         const now = picture();
         same = now === last ? same + 1 : 0;
         last = now;
-        if (same >= REST_FRAMES || performance.now() - waited >= REST_MAX_MS) {
-          measure();
+        if (same >= REST_FRAMES || performance.now() - started >= REST_MAX_MS) {
+          finish();
           return;
         }
         frame = window.requestAnimationFrame(step);
@@ -164,7 +189,7 @@ export function useStripRoom(options: UseStripRoomOptions): UseStripRoom {
         follow();
         settle();
       });
-      nodes.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-legal", "data-occupied"] });
+      nodes.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-legal", "data-occupied", "data-chain-room"] });
     }
     return () => {
       stop();
@@ -190,5 +215,8 @@ export function useStripRoom(options: UseStripRoomOptions): UseStripRoom {
     });
   }, [active, measured, box, count, anchor?.x, anchor?.y, extraHud, chrome]);
 
+  useEffect(() => {
+    roomed.current = room !== undefined;
+  }, [room]);
   return { room, pending: active && measured === null };
 }

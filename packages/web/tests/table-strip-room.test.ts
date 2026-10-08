@@ -63,7 +63,7 @@ describe("planStripRoom on the measured tables", () => {
     for (const block of [...input.hud, ...input.soft, ...input.zones, handKeepOut(input.hand!)]) expect(hits(room, block)).toBe(false);
   });
 
-  it("1920 home: the soft HUD and the lower hand stay free; 10 cards keep the large tiles, 2 cards at least 1.5x the pair tile", () => {
+  it("1920 home: the soft HUD and the lower hand stay free; 10 cards keep the large tiles, 2 cards keep tiles of at least 96 px (the pair tile is 65 px)", () => {
     for (const name of ["ffa3-respond-2-1920x1080-home", "ffa3-respond-10-1920x1080-home"]) {
       const { input, room } = plan(name);
       expect(touched(room, input.soft), name).toBe(0);
@@ -73,10 +73,18 @@ describe("planStripRoom on the measured tables", () => {
     // The 2-card room has no clear place for 130 px tiles under the turn ring: it steps down to 96 px before it covers the ring.
     expect(plan("ffa3-respond-2-1920x1080-home").room.card).toBeGreaterThanOrEqual(STRIP_ROOM.smaller[STRIP_ROOM.smaller.length - 1]);
     expect(plan("ffa3-respond-10-1920x1080-home").room).toMatchObject({ card: STRIP_ROOM.card });
-    expect(plan("ffa3-respond-10-1920x1080-zoom").room).toMatchObject({ card: STRIP_ROOM.card, cols: 6 });
   });
 
-  it("1366 and 1280: the room covers at most the turn ring (one key piece), never the soft HUD or the deep hand", () => {
+  it("1920 zoom, 10 cards: tier 1 tries narrower widths (down to 3 columns) and finds a room clear of every zone", () => {
+    const { input, room } = plan("ffa3-respond-10-1920x1080-zoom");
+    expect(room.cols).toBeGreaterThanOrEqual(STRIP_ROOM.clearCols);
+    expect(room.cols).toBeLessThan(6);
+    expect(touched(room, input.zones)).toBe(0);
+    expect(touched(room, input.hud)).toBe(0);
+    expect(touched(room, input.soft)).toBe(0);
+  });
+
+  it("1366 and 1280: the room covers at most two key HUD pieces (the turn ring and one more), never the soft HUD or the deep hand", () => {
     for (const name of Object.keys(REAL).filter((n) => /ffa3.*(1366|1280)/.test(n))) {
       const { input, room } = plan(name);
       expect(touched(room, input.hud), name).toBeLessThanOrEqual(2);
