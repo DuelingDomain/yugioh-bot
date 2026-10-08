@@ -79,7 +79,7 @@
   text-transform: uppercase;
 }
 .eyebrow b { color: var(--tone-ink); font-weight: 700; white-space: nowrap; }
-.eyebrow span { color: var(--duel-ink-3, #958f81); font-weight: 500; }
+.eyebrow span { color: var(--duel-ink-3, #958f81); font-weight: 500; white-space: nowrap; }
 
 .main { display: flex; align-items: flex-start; gap: 10px; }
 .art {
@@ -124,8 +124,9 @@
 .cr:not([data-shape="sheet"]) .hero > * { flex: none; }
 .cr:not([data-shape="sheet"]) .hero > .cardText { flex: 0 1 auto; min-height: 4.2em; }
 
-/* The card's text in full: one paragraph per line of the card, each option a bullet. The text is cut by its own box
-   (--chain-text-lines, fewer on a short window), with a fade at the bottom edge when it is long. */
+/* The card's text in full: one paragraph per line of the card, each option a bullet in a list. The box takes the
+   free height of the panel (the hero gives it up before anything else). Only when the layout really cuts it
+   (data-overflow, measured in chain-panel.tsx) does it fade at the bottom edge and scroll. */
 .cardText {
   margin: 9px 0 0;
   padding-left: 8px;
@@ -133,7 +134,6 @@
   border-left: 2px solid rgb(181 153 99 / 0.35);
   color: var(--duel-ink, #efe7d5);
   font: 400 var(--duel-t-body, 13px)/1.38 var(--duel-f-ink, Georgia), Georgia, serif;
-  max-height: calc(var(--chain-text-lines, 13) * 1.38em + 1.4em);
 }
 .cardText small {
   display: block;
@@ -144,16 +144,22 @@
   text-transform: uppercase;
 }
 .cardText p { margin: 0; }
-.cardText p + p { margin-top: 3px; }
-.cardText p[data-line="option"] { position: relative; padding-left: 13px; }
-.cardText p[data-line="option"]::before { content: ""; position: absolute; left: 2px; top: 0.58em; width: 5px; height: 5px; border-radius: 50%; background: var(--tone-ink); }
-.cardText[data-length="long"] { -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 1.6em), transparent); mask-image: linear-gradient(180deg, #000 calc(100% - 1.6em), transparent); }
-@media (max-height: 800px) {
-  .cardText { --chain-text-lines: 8; }
-  .cardText[data-length="mid"] { -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 1.6em), transparent); mask-image: linear-gradient(180deg, #000 calc(100% - 1.6em), transparent); }
+.cardText p + p, .cardText p + .options, .cardText .options + p { margin-top: 3px; }
+.options { margin: 0; padding: 0; list-style: none; }
+.options li { position: relative; padding-left: 13px; }
+.options li + li { margin-top: 3px; }
+.options li::before { content: ""; position: absolute; left: 2px; top: 0.58em; width: 5px; height: 5px; border-radius: 50%; background: var(--tone-ink); }
+.cardText[data-overflow="true"] {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  pointer-events: auto;
+  scrollbar-width: thin;
+  -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 1.6em), transparent);
+  mask-image: linear-gradient(180deg, #000 calc(100% - 1.6em), transparent);
 }
+.cardText[data-overflow="true"]:focus-visible { outline: 2px solid var(--duel-pen-ink, #c6b6ff); outline-offset: 2px; }
 .cr[data-shape="narrow"] .cardText { font-size: calc(13px * var(--tt, 1)); }
-.cr[data-shape="sheet"] .cardText { max-height: none; overflow: visible; -webkit-mask-image: none; mask-image: none; font-size: calc(15px * var(--tt, 1)); }
+.cr[data-shape="sheet"] .cardText { overflow: visible; -webkit-mask-image: none; mask-image: none; font-size: calc(15px * var(--tt, 1)); }
 
 .targets { margin: 7px 0 0; color: var(--duel-ink-2, #c3bba8); font-size: var(--duel-t-sm, 12px); line-height: 1.3; }
 .targets i { display: inline-block; width: 8px; height: 8px; margin-right: 5px; box-sizing: border-box; border: 2px solid var(--duel-pen-ink, #c6b6ff); border-radius: 50%; vertical-align: -1px; }

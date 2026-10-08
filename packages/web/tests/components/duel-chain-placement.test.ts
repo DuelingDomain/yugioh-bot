@@ -45,6 +45,12 @@ describe("chain stack placement", () => {
     expect(panelCss).toMatch(/\.cr\[data-shape="narrow"\] \{ width: clamp\(142px,\s*calc\(var\(--chain-gutter,\s*164px\) - 8px\),\s*214px\); \}/);
   });
 
+  it("lets the card text use the free height", () => {
+    expect(panelCss).not.toMatch(/--chain-text-lines|data-length/);
+    expect(rule(panelCss, ".cardText")).not.toMatch(/max-height/);
+    expect(panelCss).toMatch(/\.cr:not\(\[data-shape="sheet"\]\) \.hero > \* \{ flex: none; \}/);
+  });
+
   it("scales the narrow hero name with the text scale", () => {
     expect(panelCss).toMatch(/\.cr\[data-shape="narrow"\] \.name \{ font-size: calc\(17px \* var\(--tt, 1\)\); \}/);
     expect(panelCss).not.toMatch(/\.name \{ font-size: \d+px; \}/);
@@ -111,9 +117,9 @@ describe("chain stack placement", () => {
     expect(panelCss).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\s*\.cr, \.hero, \.out, \.strip, \.scrim, \.wait i \{ animation: none !important; \}/);
   });
 
-  it("takes a pointer only on the strip, the sheet and its scrim", () => {
+  it("takes a pointer only on the strip, the sheet, its scrim and a box the layout really cuts", () => {
     const auto = [...panelCss.matchAll(/(^|\n)([^\n{}]+)\{[^}]*pointer-events:\s*auto/g)].map((m) => m[2].trim());
-    expect(auto).toEqual([".strip", ".scrim", ".sheet"]);
+    expect(auto).toEqual(['.cardText[data-overflow="true"]', ".strip", ".scrim", ".sheet"]);
     expect(rule(panelCss, ".cr")).not.toMatch(/pointer-events:\s*auto/);
   });
 

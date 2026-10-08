@@ -393,6 +393,33 @@ describe("privacy in the rendered panel", () => {
     expect(hero(container)?.querySelector('[data-chain-effect="string"]')).toBeNull();
   });
 
+  it("puts the options in one list and fades and scrolls the text only when the layout really cuts it", () => {
+    const prayers = info(45171524, "Mitsurugi Prayers", "Apply 1 of these effects.\r\n● Add 1 \"Mitsurugi\" monster from your Deck to your hand.\r\n● Take 800 damage.\r\nOnce per turn.", 0x10002);
+    const events = [activate(1, 0, prayers, z(0, SZONE, 0), { description: "Apply 1 of these effects" })];
+    const text = (container: HTMLElement) => hero(container)?.querySelector<HTMLElement>('[data-chain-effect="text"]');
+    // Nothing is cut (jsdom lays nothing out): a plain box, a list, no scroll stop.
+    const fits = render(<ChainFx {...base} events={events} reducedMotion />);
+    flush(60);
+    expect(text(fits.container)?.querySelectorAll("ul > li[data-chain-option]")).toHaveLength(2);
+    expect(text(fits.container)?.querySelector("p[data-chain-option]")).toBeNull();
+    expect(text(fits.container)?.hasAttribute("data-overflow")).toBe(false);
+    expect(text(fits.container)?.hasAttribute("tabindex")).toBe(false);
+    fits.unmount();
+    // The box is shorter than its text: it scrolls and is a keyboard stop with a name.
+    const scroll = vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(300);
+    const client = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(120);
+    try {
+      const cut = render(<ChainFx {...base} events={events} reducedMotion />);
+      flush(60);
+      expect(text(cut.container)?.getAttribute("data-overflow")).toBe("true");
+      expect(text(cut.container)?.getAttribute("tabindex")).toBe("0");
+      expect(text(cut.container)?.getAttribute("aria-label")).toBe("Card text, scrollable");
+    } finally {
+      scroll.mockRestore();
+      client.mockRestore();
+    }
+  });
+
   it("names the owner of every row", () => {
     const { container } = render(<ChainFx {...base} events={pair()} reducedMotion />);
     flush(60);
