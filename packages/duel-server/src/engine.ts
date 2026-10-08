@@ -170,7 +170,7 @@ export interface EngineStartupScript {
 export interface EngineDiagnostic {
   turn: number;
   phase: string;
-  /** `response` (a MSG_SELECT_CHAIN prompt), `msg200`, `msg201`, `msg202`, `win`, `win-ignored`, `eliminate`, `stderr` (a core log line). */
+  /** `response` (a MSG_SELECT_CHAIN prompt), `msg200`, `msg201`, `msg202`, `win`, `win-ignored`, `eliminate`, `stderr` (a core log line), `chain-options` (display data error). */
   kind: string;
   /** The seat the entry is about, or null. */
   seat: number | null;
@@ -559,7 +559,11 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   const chainMemory: StoredChainLink[] = [];
   const chainOptions = new ChainOptions(cards);
   const respond = (prompt: PendingPrompt, response: OcgResponse) => {
-    chainOptions.recordResponse(prompt, response);
+    try {
+      chainOptions.recordResponse(prompt, response);
+    } catch (error) {
+      diagnose("chain-options", prompt.seat, `recordResponse: ${String(error)}`);
+    }
     lib.duelSetResponse(handle, response);
   };
   const reveals = createRevealMap(seatCount);
@@ -612,7 +616,11 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     for (const move of observeMoveEvents(message, cards, eventContext, nextEventId)) pushEvent(move);
     for (const confirm of observeConfirmEvents(message, cards, eventContext, nextEventId)) pushEvent(confirm);
     const stored = observeDuelEvent(message, cards, chainMemory, nextEventId, eventContext);
-    chainOptions.observe(message, chainMemory, stored);
+    try {
+      chainOptions.observe(message, chainMemory, stored);
+    } catch (error) {
+      diagnose("chain-options", null, `observe: ${String(error)}`);
+    }
     // The summon line is written here, right after applyMessage, because the summon method is only known now.
     if (
       stored?.kind === "summon" &&
@@ -989,7 +997,11 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       }
       lastSelectHint = undefined;
       lastPlaceSeat = undefined;
-      chainOptions.recordPrompt(next);
+      try {
+        chainOptions.recordPrompt(next);
+      } catch (error) {
+        diagnose("chain-options", next.seat, `recordPrompt: ${String(error)}`);
+      }
       const automated = emptyAttackTargetResponse(next) ?? (next.attackTargetPick || completingAttackPick && (waiting.type === OcgMessageType.SELECT_CARD || waiting.type === OcgMessageType.SELECT_OPTION)
         ? null : autoResponse(next, { stopAtEveryWindow: options.settings?.stopAtEveryWindow, chainMode: chainModes[next.seat], phase }));
       if (automated) {

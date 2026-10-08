@@ -17,7 +17,8 @@ export class ChainOptions {
   private resolving: Link | undefined;
   private activating: Link | undefined;
   private deferred: Choice[] = [];
-  private selected: Choice | undefined;
+  private selected: Choice[] = [];
+  private descriptions = new WeakMap<Link, bigint>();
   private slots = new WeakMap<Link, Map<string, number>>();
   private responseSeq = 0;
   private undoResponse: (() => void) | undefined;
@@ -38,10 +39,8 @@ export class ChainOptions {
       case OcgMessageType.SELECT_EFFECTYN:
         // A new action/window cannot inherit an earlier non-chain operation choice.
         this.deferred = [];
-        this.selected = undefined;
+        this.selected = [];
         break;
-      case OcgMessageType.SELECT_OPTION:
-        this.selected = undefined;
     }
   }
 
@@ -53,8 +52,10 @@ export class ChainOptions {
     return { key: `answer:${++this.responseSeq}`, description, index, text: option.label, code: stringCode(description) ?? pending.prompt.source?.code, seat: pending.seat };
   }
 
-  private target(choice: Choice): Link | undefined {
+  private target(choice: Choice): Link | null | undefined {
     // The chooser can be the opponent of the effect controller. The resolving link wins over seat/code guesses.
+    // null drops another real card's operation; helper string IDs can still belong to this link.
+    if (this.resolving && choice.code && this.cards.get(choice.code) && !this.sameCard(choice.code, this.resolving.code)) return null;
     return this.resolving ?? (this.activating && (!choice.code || this.sameCard(choice.code, this.activating.code)) ? this.activating : undefined);
   }
 
@@ -75,6 +76,7 @@ export class ChainOptions {
 
   private record(choice: Choice): void {
     const target = this.target(choice);
+    if (target === null) return;
     if (target) this.add(target, choice);
     else {
       const previous = this.deferred.findIndex((entry) => entry.key === choice.key);
@@ -88,14 +90,14 @@ export class ChainOptions {
     this.undoResponse = undefined;
     if (response.type !== OcgResponseType.SELECT_OPTION) return;
     const selected = this.selected;
-    this.selected = undefined;
     const choice = this.fromPrompt(pending, response.index);
     if (!choice) return;
     const target = this.target(choice);
+    if (target === null) return;
     const options = target?.chosenOptions;
     const slots = target ? new Map(this.slots.get(target)) : undefined;
     const deferred = [...this.deferred];
-    this.selected = choice;
+    this.selected = [...selected, choice];
     this.record(choice);
     this.undoResponse = () => {
       this.selected = selected;
@@ -117,7 +119,10 @@ export class ChainOptions {
         break;
       case OcgMessageType.CHAINING: {
         this.activating = chain.find((link) => link.index === message.chain_size);
+        if (this.activating) this.descriptions.set(this.activating, message.description);
         if (this.activating) for (const choice of this.deferred) {
+          // A cost/target script can announce the activated effect before CHAINING arrives.
+          if (choice.key.startsWith("hint:") && choice.description === message.description) continue;
           if (choice.code ? this.sameCard(choice.code, this.activating.code) : choice.seat === this.activating.seat) this.add(this.activating, choice);
         }
         this.deferred = [];
@@ -132,20 +137,22 @@ export class ChainOptions {
         break;
       case OcgMessageType.CHAIN_SOLVED:
         this.resolving = undefined;
-        this.selected = undefined;
+        this.selected = [];
         this.deferred = [];
         break;
       case OcgMessageType.CHAIN_END:
       case OcgMessageType.NEW_PHASE:
       case OcgMessageType.NEW_TURN:
         this.activating = this.resolving = undefined;
-        this.selected = undefined;
+        this.selected = [];
         this.deferred = [];
         this.undoResponse = undefined;
         break;
       case OcgMessageType.HINT: {
         if (message.hint_type !== OcgHintType.OPSELECTED || seatChoice(message.hint)) break;
-        const selected = this.selected?.description === message.hint ? this.selected : undefined;
+        const selected = [...this.selected].reverse().find((choice) => choice.description === message.hint);
+        // Scripts also use OPSELECTED to announce the activated effect, without making a choice.
+        if (!selected && chain.some((link) => this.descriptions.get(link) === message.hint)) break;
         const code = stringCode(message.hint);
         const source = code ?? this.resolving?.code ?? this.activating?.code;
         const text = selected?.text ?? fillPlaceholders(this.cards.resolveLabel(message.hint), [source ? cardInfoLabel(this.cards, source) : undefined]);

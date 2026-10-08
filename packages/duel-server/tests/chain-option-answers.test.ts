@@ -2,15 +2,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { OcgHintType, OcgLocation, OcgMessageType, OcgPosition, type OcgMessage } from "ocgcore-wasm";
 import { createEngineGame } from "../src/engine.js";
 import { createEngineGame as createLegacyEngineGame } from "../src/legacy/engine.js";
+import { createLegacyEngineGame as createLegacyAdapterGame } from "../src/legacy/index.js";
+import { ChainOptions } from "../src/chain-options.js";
 import { choosePracticeBotAnswer } from "../src/practice-bot.js";
 
-const fake = vi.hoisted(() => ({ batches: [] as OcgMessage[][], messages: [] as OcgMessage[], chain: [] as object[] }));
+const fake = vi.hoisted(() => ({ batches: [] as OcgMessage[][], messages: [] as OcgMessage[], chain: [] as object[], respond: vi.fn() }));
 // Only replace the core and missing card bundle. Use the real answer mapping, processing loops and views.
 vi.mock("ocgcore-wasm", async (importOriginal) => {
   const actual = await importOriginal<typeof import("ocgcore-wasm")>();
   return { ...actual, default: async () => ({
     createDuel: () => ({}), destroyDuel: () => undefined, startDuel: () => undefined,
-    duelNewCard: () => undefined, loadScript: () => true, duelSetResponse: () => undefined,
+    duelNewCard: () => undefined, loadScript: () => true, duelSetResponse: fake.respond,
     duelProcess: () => {
       const messages = fake.batches.shift();
       if (!messages) throw new Error("Unexpected core processing step");
@@ -30,20 +32,20 @@ vi.mock("../src/cards.js", async (importOriginal) => ({
   ...await importOriginal<typeof import("../src/cards.js")>(),
   loadCardDatabase: () => ({
     readScript: () => "-- test resource", cardData: () => null,
-    get: (code: number) => ({ code, canonicalPasscode: code === 10000002 ? 10000001 : code, name: "Effect card", description: "Printed text", type: 2 }),
+    get: (code: number) => code === 4014 || code === 5000 ? undefined : ({ code, canonicalPasscode: code === 10000002 ? 10000001 : code, name: "Effect card", description: "Printed text", type: 2 }),
     system: () => undefined,
     resolveLabel: (description: bigint) => ({
       1: 'Add 1 "Mitsurugi" monster from your Deck to your hand', 2: "Take 800 damage",
-      3: 'Apply the effect of "%ls"',
-    })[Number(description & 0xfffffn) as 1 | 2 | 3] ?? "",
+      3: 'Apply the effect of "%ls"', 4014: "Take 800 damage",
+    })[Number(description & 0xfffffn) as 1 | 2 | 3 | 4014] ?? "",
   }),
 }));
 
 const CODE = 10000001;
 const description = (index: number) => (BigInt(CODE) << 20n) | BigInt(index);
-const chain = (index = 1, code = CODE) => ({
+const chain = (index = 1, code = CODE, effectDescription = 0n) => ({
   type: OcgMessageType.CHAINING, chain_size: index, code, controller: 0,
-  location: OcgLocation.SZONE, sequence: index - 1, description: 0n,
+  location: OcgLocation.SZONE, sequence: index - 1, description: effectDescription,
 } as OcgMessage);
 const chained = (index = 1) => ({ type: OcgMessageType.CHAINED, chain_size: index } as OcgMessage);
 const solving = (index = 1) => ({ type: OcgMessageType.CHAIN_SOLVING, chain_size: index } as OcgMessage);
@@ -58,12 +60,73 @@ const idle = () => ({
   monster_sets: [], spell_sets: [], activates: [], to_bp: false, to_ep: true, shuffle: false,
 } as OcgMessage);
 
-beforeEach(() => { fake.batches = []; fake.messages = []; fake.chain = []; });
+describe.each([["merged", createEngineGame], ["legacy adapter", createLegacyAdapterGame]] as const)("%s chain option errors", (_name, create) => {
+  it.each(["observe", "recordPrompt", "recordResponse"] as const)("keeps the duel running when %s throws", async (method) => {
+    vi.spyOn(ChainOptions.prototype, method).mockImplementationOnce(() => { throw new Error("Choice display failed"); });
+    fake.batches = [[chain(), chained(), solving(), option()], [followUp()]];
+    const game = await create({
+      mode: "normal", decks: [0, 1].map(() => ({ main: [], extra: [], side: [] })),
+      dataDirectory: "/tmp/chain-options-no-bundle", seed: ["1", "2", "3", "4"], standardWasmBinary: new ArrayBuffer(0),
+    });
+    try {
+      const prompt = game.view(1).prompt!;
+      expect(() => game.answer(1, prompt.id, { choice: "opt:1" })).not.toThrow();
+      expect(fake.respond).toHaveBeenCalledTimes(1);
+      expect(game.view(1).prompt!.kind).toBe("cards");
+      expect(game.diagnostics()).toContainEqual(expect.objectContaining({
+        kind: "chain-options", detail: `${method}: Error: Choice display failed`,
+      }));
+      expect(JSON.stringify(game.view(null))).not.toContain("Choice display failed");
+    } finally { game.close(); }
+  });
+
+  it("keeps an automatic answer running when choice recording throws", async () => {
+    vi.spyOn(ChainOptions.prototype, "recordResponse").mockImplementationOnce(() => { throw new Error("Automatic display failed"); });
+    fake.batches = [[chain(), chained(), solving(), option([description(2)])], [followUp()]];
+    const game = await create({
+      mode: "normal", decks: [0, 1].map(() => ({ main: [], extra: [], side: [] })),
+      dataDirectory: "/tmp/chain-options-no-bundle", seed: ["1", "2", "3", "4"], standardWasmBinary: new ArrayBuffer(0),
+    });
+    try {
+      expect(fake.respond).toHaveBeenCalledTimes(1);
+      expect(game.view(1).prompt!.kind).toBe("cards");
+      expect(game.diagnostics()).toContainEqual(expect.objectContaining({
+        kind: "chain-options", detail: "recordResponse: Error: Automatic display failed",
+      }));
+    } finally { game.close(); }
+  });
+});
+
+beforeEach(() => { vi.restoreAllMocks(); fake.batches = []; fake.messages = []; fake.chain = []; fake.respond.mockClear(); });
 
 describe.each([["merged", createEngineGame], ["legacy", createLegacyEngineGame]] as const)("%s chain option answers", (_name, create) => {
   const open = () => create({
     mode: "normal", decks: [0, 1].map(() => ({ main: [], extra: [], side: [] })),
     dataDirectory: "/tmp/chain-options-no-bundle", seed: ["1", "2", "3", "4"], standardWasmBinary: new ArrayBuffer(0),
+  });
+
+  it.each(["before chaining", "activation", "resolution"])("ignores an effect-description hint with no option prompt during %s", async (window) => {
+    const activation = chain(1, CODE, description(1));
+    fake.batches = [window === "before chaining"
+      ? [hint(1), activation, chained(), followUp()]
+      : window === "activation"
+        ? [activation, hint(1), chained(), followUp()]
+        : [activation, chained(), solving(), hint(1), followUp()]];
+    const game = await open();
+    try {
+      expect(game.view(null).chain[0].chosenOptions).toBeUndefined();
+    } finally { game.close(); }
+  });
+
+  it("keeps a selected option that equals the effect description", async () => {
+    fake.batches = [[chain(1, CODE, description(1)), chained(), solving(), option()], [hint(1), followUp()]];
+    const game = await open();
+    try {
+      game.answer(1, game.view(1).prompt!.id, { choice: "opt:0" });
+      expect(game.view(null).chain[0].chosenOptions).toEqual([
+        { index: 0, text: 'Add 1 "Mitsurugi" monster from your Deck to your hand' },
+      ]);
+    } finally { game.close(); }
   });
 
   it("records the resolving link's opponent choice, with the exact button text", async () => {
@@ -79,6 +142,43 @@ describe.each([["merged", createEngineGame], ["legacy", createLegacyEngineGame]]
         expect(game.view(viewer).chain[0].chosenOptions).toEqual([{ index: 1, text: prompt.options[1].label }]);
         expect(game.view(viewer).chain[1].chosenOptions).toBeUndefined();
       }
+    } finally { game.close(); }
+  });
+
+  it.each(["answer", "hint"])("drops a resolving %s from a different real card", async (source) => {
+    const foreign = (BigInt(CODE + 2) << 20n) | 2n;
+    fake.batches = source === "answer"
+      ? [[chain(), chained(), solving(), option([foreign, description(1)])], [followUp()]]
+      : [[chain(), chained(), solving(), { ...hint(2), hint: foreign } as OcgMessage, followUp()]];
+    const game = await open();
+    try {
+      if (source === "answer") game.answer(1, game.view(1).prompt!.id, { choice: "opt:0" });
+      expect(game.view(null).chain[0].chosenOptions).toBeUndefined();
+    } finally { game.close(); }
+  });
+
+  it.each([
+    ["answer", 4014n], ["hint", 4014n],
+    ["answer", (5000n << 20n) | 2n], ["hint", (5000n << 20n) | 2n],
+  ])("keeps a resolving %s from helper string %s", async (source, helper) => {
+    fake.batches = source === "answer"
+      ? [[chain(), chained(), solving(), option([helper, description(1)])], [followUp()]]
+      : [[chain(), chained(), solving(), { ...hint(2), hint: helper } as OcgMessage, followUp()]];
+    const game = await open();
+    try {
+      if (source === "answer") game.answer(1, game.view(1).prompt!.id, { choice: "opt:0" });
+      expect(game.view(null).chain[0].chosenOptions).toEqual([
+        { ...(source === "answer" ? { index: 0 } : {}), text: "Take 800 damage" },
+      ]);
+    } finally { game.close(); }
+  });
+
+  it("keeps a resolving choice from alternate artwork of the same card", async () => {
+    fake.batches = [[chain(1, CODE + 1), chained(), solving(), option()], [followUp()]];
+    const game = await open();
+    try {
+      game.answer(1, game.view(1).prompt!.id, { choice: "opt:1" });
+      expect(game.view(null).chain[0].chosenOptions).toEqual([{ index: 1, text: "Take 800 damage" }]);
     } finally { game.close(); }
   });
 
@@ -124,6 +224,33 @@ describe.each([["merged", createEngineGame], ["legacy", createLegacyEngineGame]]
       game.answer(1, game.view(1).prompt!.id, { choice: "opt:1" });
       expect(game.view(null).chain[0].chosenOptions).toEqual([
         { index: 1, text: "Take 800 damage" }, { index: 1, text: 'Apply the effect of "Effect card"' },
+      ]);
+    } finally { game.close(); }
+  });
+
+  it("matches delayed hints against all option answers in the current window", async () => {
+    fake.batches = [[chain(1, CODE, description(1)), chained(), solving(), option()],
+      [option()], [hint(1), hint(2), followUp()]];
+    const game = await open();
+    try {
+      game.answer(1, game.view(1).prompt!.id, { choice: "opt:0" });
+      game.answer(1, game.view(1).prompt!.id, { choice: "opt:1" });
+      expect(game.view(null).chain[0].chosenOptions).toEqual([
+        { index: 0, text: 'Add 1 "Mitsurugi" monster from your Deck to your hand' },
+        { index: 1, text: "Take 800 damage" },
+      ]);
+    } finally { game.close(); }
+  });
+
+  it("does not duplicate delayed hints when neither answer is the effect description", async () => {
+    fake.batches = [[chain(), chained(), solving(), option()], [option()], [hint(1), hint(2), followUp()]];
+    const game = await open();
+    try {
+      game.answer(1, game.view(1).prompt!.id, { choice: "opt:0" });
+      game.answer(1, game.view(1).prompt!.id, { choice: "opt:1" });
+      expect(game.view(null).chain[0].chosenOptions).toEqual([
+        { index: 0, text: 'Add 1 "Mitsurugi" monster from your Deck to your hand' },
+        { index: 1, text: "Take 800 damage" },
       ]);
     } finally { game.close(); }
   });
