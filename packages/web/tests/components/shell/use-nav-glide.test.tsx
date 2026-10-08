@@ -59,6 +59,41 @@ describe("useNavGlide", () => {
     expect(Object.keys(frames[0])).toEqual(["transform"]);
   });
 
+  it("refreshes from a pointerdown anywhere on the page, so a click in the page glides from where the mark is", () => {
+    let top = 80;
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      const y = this.getAttribute("data-glide") === "/b" ? 200 : this.getAttribute("data-glide") === "/a" ? top : 0;
+      return { left: 12, top: y, x: 12, y, right: 0, bottom: 0, width: 0, height: 0, toJSON: () => ({}) } as DOMRect;
+    };
+    const animate = vi.fn(() => ({}) as Animation);
+    Element.prototype.animate = animate as unknown as typeof Element.prototype.animate;
+    const { rerender, unmount } = render(<Rail href="/a" />);
+    // A row appeared above and pushed the mark down while nothing re-rendered the rail.
+    top = 100;
+    const outside = document.createElement("main");
+    document.body.append(outside);
+    outside.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    rerender(<Rail href="/b" />);
+    const [frames] = animate.mock.calls[0] as unknown as [Keyframe[]];
+    expect(frames[0]).toEqual({ transform: "translate(0px, -100px)" });
+    unmount();
+    // Cleaned up: a later pointerdown reads nothing and throws nothing.
+    expect(() => outside.dispatchEvent(new Event("pointerdown", { bubbles: true }))).not.toThrow();
+    outside.remove();
+  });
+
+  it("only measures when the active item changes, not on every render", () => {
+    place();
+    const rect = vi.spyOn(Element.prototype, "getBoundingClientRect");
+    const { rerender } = render(<Rail href="/a" />);
+    const after = rect.mock.calls.length;
+    rerender(<Rail href="/a" />);
+    rerender(<Rail href="/a" />);
+    expect(rect.mock.calls.length).toBe(after);
+    rerender(<Rail href="/b" />);
+    expect(rect.mock.calls.length).toBeGreaterThan(after);
+  });
+
   it("stays still after a keyboard choice", () => {
     place();
     const animate = vi.fn(() => ({}) as Animation);

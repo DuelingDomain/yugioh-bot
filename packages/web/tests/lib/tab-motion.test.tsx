@@ -107,11 +107,15 @@ describe("useTabMarker", () => {
     expect(row.style.getPropertyValue("--tab-w")).toBe("120");
   });
 
-  it("measures a pressed button too, for the segmented rows", () => {
+  it("measures a pressed button too, and the pressed one rather than its sibling", () => {
+    // Each button reports its own place by index, so the result says which one was measured.
+    const at = (el: HTMLElement) => Array.from(el.parentElement?.children ?? []).indexOf(el);
+    Object.defineProperty(HTMLElement.prototype, "offsetLeft", { configurable: true, get() { return [5, 80, 300][at(this)] ?? 0; } });
+    Object.defineProperty(HTMLElement.prototype, "offsetWidth", { configurable: true, get() { return [40, 120, 70][at(this)] ?? 0; } });
     const list = document.createElement("div");
-    list.innerHTML = '<button aria-pressed="false"></button><button aria-pressed="true"></button>';
+    list.innerHTML = '<button aria-pressed="false"></button><button aria-pressed="true"></button><button aria-pressed="false"></button>';
     document.body.append(list);
-    expect(measureTab(list)).toEqual({ x: 0, w: 0 });
+    expect(measureTab(list)).toEqual({ x: 80, w: 120 });
     list.remove();
   });
 

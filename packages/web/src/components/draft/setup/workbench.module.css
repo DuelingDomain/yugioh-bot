@@ -69,7 +69,8 @@
 .wb .shut { visibility: hidden; box-shadow: none; transition: transform 220ms var(--ease, ease-out), visibility 0s linear 220ms; }
 
 /* ---- the phone layout: one pane, a sticky Create bar and tabs ---- */
-.wb[data-mode="phone"] { display: flex; flex-direction: column; transition: none; }
+/* overflow-x: clip, not hidden: the arriving pane starts 8px to the side and must not widen the page, and the sticky Create bar still sticks. */
+.wb[data-mode="phone"] { display: flex; flex-direction: column; transition: none; overflow-x: clip; }
 .wb[data-mode="phone"] > :is(.srcCol, .poolCol, .rulesCol) { flex: 1 1 auto; border: 0; }
 .wb[data-mode="phone"] .rulesBody { overflow: hidden; display: flex; flex-direction: column; }
 .dockWrap { position: sticky; bottom: 0; z-index: 20; flex: none; background: var(--panel); border-top: 1px solid var(--rule-lo); }

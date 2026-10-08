@@ -37,18 +37,19 @@ export function useNavGlide(rootRef: RefObject<HTMLElement | null>, activeHref: 
 
   useEffect(() => {
     trackInputModality();
-    const root = rootRef.current;
-    if (!root) return;
-    // Read the mark where it visibly is, still carrying any glide in flight, before a click changes it.
+    // Read the mark where it visibly is, still carrying any glide in flight, before a click changes it. It listens
+    // on the document, not the sidebar: a link in the page can change the active item too.
     const onDown = () => {
-      const mark = root.querySelector<HTMLElement>("[data-glide]");
-      if (mark) last.current = spotOf(root, mark, mark.dataset.glide ?? "");
+      const root = rootRef.current;
+      const mark = root?.querySelector<HTMLElement>("[data-glide]");
+      if (root && mark) last.current = spotOf(root, mark, mark.dataset.glide ?? "");
     };
-    root.addEventListener("pointerdown", onDown, true);
-    return () => root.removeEventListener("pointerdown", onDown, true);
+    document.addEventListener("pointerdown", onDown, true);
+    return () => document.removeEventListener("pointerdown", onDown, true);
   }, [rootRef]);
 
-  // No dependency list: the mark can also move with a layout change, and the check is cheap.
+  // Re-measures when the active item changes. A layout shift in between (a row appearing above) leaves the record
+  // stale, which is why every pointerdown refreshes it above before the click can change the item.
   useLayoutEffect(() => {
     const root = rootRef.current;
     const mark = root?.querySelector<HTMLElement>("[data-glide]") ?? null;
@@ -74,5 +75,5 @@ export function useNavGlide(rootRef: RefObject<HTMLElement | null>, activeHref: 
     animation.onfinish = animation.oncancel = () => {
       if (running.current === animation) running.current = null;
     };
-  });
+  }, [rootRef, activeHref]);
 }

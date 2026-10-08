@@ -42,10 +42,13 @@ function ShellFrame({ children }: { children: ReactNode }) {
   const [override, setOverride] = useState<boolean | null>(null);
   const [roomWidth, setRoomWidth] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
-  // The rail's transitions run only while this is on: for DURATION.rail after the collapsed state changes,
-  // once the saved choice has been read. First paint, hydration and window resizes never animate.
+  // The rail's transitions run only while this is on: for DURATION.rail after the toggle is used by hand,
+  // once the saved choice has been read. First paint, hydration, window resizes, a route that collapses the
+  // rail by itself and the saved choice landing never animate.
   const [settled, setSettled] = useState(false);
   const [moving, setMoving] = useState(false);
+  // Set by the toggle for the render its click causes (the same pattern as the Sources / Card switch).
+  const byHand = useRef(false);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
   const frameRef = useRef<HTMLDivElement>(null);
@@ -83,12 +86,16 @@ function ShellFrame({ children }: { children: ReactNode }) {
   }, []);
 
   // Turned on in the same render that changes the collapsed state, so the first changed frame already has the
-  // transitions (an effect would be a frame late and the rail would snap).
+  // transitions (an effect would be a frame late and the rail would snap). Only a change made by hand counts.
   const [seenCollapsed, setSeenCollapsed] = useState(sidebarCollapsed);
   if (seenCollapsed !== sidebarCollapsed) {
     setSeenCollapsed(sidebarCollapsed);
-    if (settled) setMoving(true);
+    if (settled && byHand.current) setMoving(true);
   }
+  // Whatever caused this change, the next one starts unmarked.
+  useEffect(() => {
+    byHand.current = false;
+  }, [sidebarCollapsed]);
   useEffect(() => {
     if (!moving) return;
     const timer = setTimeout(() => setMoving(false), DURATION.rail + 160);
@@ -96,6 +103,7 @@ function ShellFrame({ children }: { children: ReactNode }) {
   }, [moving, sidebarCollapsed]);
 
   const toggleSidebar = useCallback(() => {
+    byHand.current = true;
     if (autoCollapsed || override !== null) {
       // A page that collapses itself: the toggle is for this visit only.
       setOverride(!sidebarCollapsed);

@@ -38,10 +38,12 @@
   width: 68px;
 }
 
-/* The two fade timings. Text leaves at once and arrives late; the rail's own parts do the reverse. */
+/* The two fade timings. Text leaves at once and arrives late; the rail's own parts do the reverse.
+   The idle value is a zero-length transition, never `none`: these vars are also one item in the toggles'
+   comma lists, and `none` inside a list makes the whole declaration invalid at computed-value time. */
 .side {
-  --t-label: none;
-  --t-rail: none;
+  --t-label: opacity 0s;
+  --t-rail: opacity 0s;
 }
 
 .frame[data-sidebar-moving] .side {
@@ -928,8 +930,8 @@
   .side,
   .frame[data-sidebar-moving] .side,
   .frame[data-sidebar-moving] .side[data-collapsed="true"] {
-    --t-label: none;
-    --t-rail: none;
+    --t-label: opacity 0s;
+    --t-rail: opacity 0s;
     transition: none;
   }
 
