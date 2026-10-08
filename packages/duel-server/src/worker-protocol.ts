@@ -35,4 +35,4 @@ export type DuelWorkerRequest =
 
 export type DuelWorkerResponse =
   | { id: number; ok: true; value?: DuelEngineView | DuelCardInfo[] | EngineDiagnostic[] | boolean; info?: EngineCoreInfo; promptTrace?: PromptTraceEntry; scriptErrors?: DuelScriptError[]; fatalScriptErrors?: DuelScriptFatalError[] }
-  | { id: number; ok: false; error: string; answerError?: true; code?: DuelErrorCode; scriptErrors?: DuelScriptError[]; fatalScriptErrors?: DuelScriptFatalError[] };
+  | { id: number; ok: false; error: string; answerError?: true; engineLoop?: true; code?: DuelErrorCode; scriptErrors?: DuelScriptError[]; fatalScriptErrors?: DuelScriptFatalError[] };

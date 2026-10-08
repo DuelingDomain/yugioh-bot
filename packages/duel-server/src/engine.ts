@@ -1,4 +1,5 @@
 import { scriptErrorCoreFactory } from "./script-load-scope.js";
+import { EngineLoopError } from "./engine-loop-error.js";
 import { CARD_SCRIPT_ERROR_TEXT, CORE_PROCESS_CALL_LIMIT, createScriptErrorPolicy, type DuelScriptError, type DuelScriptFatalError } from "./script-errors.js";
 import type { DuelAnswer, DuelBattleStep, DuelChainMode, DuelCardInfo, DuelDeck, DuelEngineView, DuelFormat, DuelMasterRule, DuelMode, DuelSettings, DuelScriptErrorMode } from "@yugidraft/shared/duels";
 import { DUEL_SEAT_LEFT_ERROR_CODE, defaultChainMode, partnerSeatOf, seatCountFor, seatsOfTeam, startingLpFor, teamOfSeat } from "@yugidraft/shared/duels";
@@ -906,7 +907,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     leftFieldLines.length = 0;
     let processCalls = 0;
     while (!result) {
-      if (processCalls++ >= CORE_PROCESS_CALL_LIMIT) throw new Error(`Engine exceeded ${CORE_PROCESS_CALL_LIMIT} process calls without a player prompt`);
+      if (processCalls++ >= CORE_PROCESS_CALL_LIMIT) throw new EngineLoopError();
       scriptErrors.enterProcess();
       let status: ReturnType<typeof lib.duelProcess>;
       try { status = lib.duelProcess(handle); }

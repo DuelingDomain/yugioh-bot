@@ -22,10 +22,11 @@ vi.mock("ocgcore-wasm", async original => {
 describeWithCores("process calls without a prompt", [needs.standard(DATA)], () => {
   it.each(["legacy", "pinned"] as const)("%s: fails clearly after 100,000 calls instead of looping forever", async engine => {
     fixture.calls = 0;
-    await expect((engine === "legacy" ? createLegacyEngineGame : createEngineGame)({
+    const failure = await (engine === "legacy" ? createLegacyEngineGame : createEngineGame)({
       mode: "normal", decks: Array.from({ length: 2 }, () => ({ main: Array(20).fill(15025844), extra: [], side: [] })),
       seed: ["1", "2", "3", "4"], dataDirectory: DATA,
-    }).then(game => { game.close(); })).rejects.toThrow("Engine exceeded 100000 process calls without a player prompt");
+    }).then(game => { game.close(); }).catch((error: unknown) => error);
+    expect(failure).toMatchObject({ name: "EngineLoopError", message: "Engine exceeded 100000 process calls without a player prompt" });
     expect(fixture.calls).toBe(100_000);
   });
 });

@@ -34,6 +34,7 @@ import {
 } from "@yugidraft/shared/duels";
 import { ELIMINATE_PROMPT_PREFIX as ELIMINATE_PREFIX, eliminationCodeOf, eliminationAtTurnEnd } from "./engine.js";
 import { EngineAnswerError } from "./prompts.js";
+import { ENGINE_LOOP_REASON, EngineLoopError } from "./engine-loop-error.js";
 import { GameWorker, type DuelGameWorker, type GameOptions, type WorkerDebugState } from "./worker-client.js";
 import { DeckLegalityError, inspectDeck, validateDeck, type InspectDeckOptions } from "./deck-legality.js";
 import { cardArtworkFamily } from "./card-artworks.js";
@@ -598,6 +599,16 @@ export function createDuelHost(options: {
     if (entry) await safeClose(entry.game);
   }
 
+  /** A loop is a core invariant failure; recovering the same journal would just repeat it. */
+  async function interruptEngineLoop(slug: string, guildId: string, error: unknown): Promise<boolean> {
+    if (!(error instanceof EngineLoopError)) return false;
+    service.interrupt(slug, guildId, ENGINE_LOOP_REASON);
+    await disposeGame(slug);
+    await emitChange(slug, guildId);
+    await afterGameEnded(slug, guildId);
+    return true;
+  }
+
   function cancelBotLoop(slug: string): void {
     const loop = botLoops.get(slug);
     if (!loop) return;
@@ -771,6 +782,7 @@ export function createDuelHost(options: {
       try {
         await game.answer(seat, prompt.id, answer);
       } catch (error) {
+        if (await interruptEngineLoop(slug, guildId, error)) return;
         throw new RequestError(error instanceof Error ? error.message : "Practice bot made an illegal choice", 500);
       }
       try {
@@ -1019,6 +1031,7 @@ export function createDuelHost(options: {
       await game.answer(plan.seat, plan.promptId, plan.answer);
     } catch (error) {
       finish();
+      if (await interruptEngineLoop(slug, guildId, error)) return { kind: "stop" };
       console.warn("[duel] practice bot answer was rejected", error);
       const rejectedTrace = entry.traces.get(plan.seat) ?? [];
       rejectedTrace.push({ rule: plan.note ?? "practice bot", matched: true, answer: plan.answer, rejected: true, reason: error instanceof Error ? error.message : String(error) });
@@ -1088,6 +1101,7 @@ export function createDuelHost(options: {
       ));
     } catch (error) {
       await safeClose(game);
+      if (await interruptEngineLoop(slug, guildId, error)) return game;
       throw new RequestError(error instanceof Error ? error.message : "Duel engine is temporarily unavailable", 503);
     }
     try {
@@ -1112,6 +1126,7 @@ export function createDuelHost(options: {
           else if (game.eliminate) await game.eliminate(input.seat, elimination, eliminationAtTurnEnd(input.command.promptId));
           else throw new ReplayMismatchError("Duel recovery needs an engine that can eliminate a duelist");
         } catch (error) {
+          if (error instanceof EngineLoopError) throw error;
           if (error instanceof ReplayMismatchError) throw error;
           if (!game.running) {
             await safeClose(game);
@@ -1122,6 +1137,7 @@ export function createDuelHost(options: {
       }
     } catch (error) {
       await safeClose(game);
+      if (await interruptEngineLoop(slug, guildId, error)) return game;
       if (error instanceof ReplayMismatchError) {
         service.interrupt(slug, guildId, "The saved engine state could not be recovered.");
         await emitChange(slug, guildId);
@@ -1154,6 +1170,7 @@ export function createDuelHost(options: {
     try {
       await game.eliminate(seat, code);
     } catch (error) {
+      if (await interruptEngineLoop(slug, guildId, error)) return true;
       const message = error instanceof Error ? error.message : "Engine rejected the elimination";
       if (/no Debug\.EliminateDuelist/.test(message)) return false;
       if (/already eliminated/.test(message)) return true;
@@ -1210,6 +1227,7 @@ export function createDuelHost(options: {
       return;
     }
     if (!entry.surrendered.has(seat) && (await eliminateInCore(slug, guildId, game, seat, reason === TIME_LIMIT_REASON ? WIN_REASON_TIME_LIMIT : WIN_REASON_SURRENDER))) {
+      if (service.get(slug, guildId).status !== "active") return;
       // The core removed the seat (journaled like an answer). The last duelist standing ends the duel.
       const after = await game.view(0);
       if (after.result) {
@@ -1301,7 +1319,8 @@ export function createDuelHost(options: {
       ...(setup?.commands ?? []).filter((input) => eliminationReasonOf(input.command) !== null).map((input) => input.seat),
     ].some((seat) => seat === room.mySeat || (room.session.format === "tag"
       && teamOfSeat("tag", seat) === teamOfSeat("tag", room.mySeat!)));
-    if (lossForViewer && room.engine === null && room.session.status === "interrupted" && room.session.format !== "1v1") {
+    // A saved core loop must not restart automatically when an eliminated player polls the room.
+    if (lossForViewer && room.engine === null && room.session.status === "interrupted" && room.session.resultReason !== ENGINE_LOOP_REASON && room.session.format !== "1v1") {
       try {
         const publicReplay = await replay(slug, guildId, { ...room, role: "spectator", mySeat: null, myDeck: null });
         const last = publicReplay.frames.at(-1)?.view ?? null;
@@ -2507,6 +2526,7 @@ export function createDuelHost(options: {
     try {
       await live.answer(seat, command.promptId, command.answer);
     } catch (error) {
+      if (await interruptEngineLoop(slug, guildId, error)) return project(slug, guildId, actor);
       // A fatal error may have advanced the core before any command could be journaled.
       if (!(error instanceof EngineAnswerError)) await disposeGame(slug);
       throw new RequestError(error instanceof Error ? error.message : "Invalid engine choice", 400,
@@ -2565,6 +2585,7 @@ export function createDuelHost(options: {
     try {
       passed = await live.setChainMode(seat, mode);
     } catch (error) {
+      if (await interruptEngineLoop(slug, guildId, error)) return project(slug, guildId, actor);
       // The engine sets the mode before it passes the window, so a throw can leave the mode (or the core) changed with
       // nothing journaled. Drop the worker whatever the cause; the next request rebuilds the duel from the journal.
       const stillRunning = live.running;

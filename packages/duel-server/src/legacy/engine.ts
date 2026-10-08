@@ -1,4 +1,5 @@
 import { scriptErrorCoreFactory } from "../script-load-scope.js"; // LEGACY-1V1: distinguish load failures from runtime errors
+import { EngineLoopError } from "../engine-loop-error.js"; // LEGACY-1V1: shared core loop invariant
 import { CARD_SCRIPT_ERROR_TEXT, CORE_PROCESS_CALL_LIMIT, createScriptErrorPolicy, type DuelScriptError, type DuelScriptFatalError } from "../script-errors.js"; // LEGACY-1V1: owner runtime script-error policy
 // LEGACY 1V1 ENGINE. A copy of packages/duel-server/src/engine.ts from main (commit 2a5a959), the engine that ran one-against-one
 // duels in production before the n-seat work. It runs when DUEL_1V1_ENGINE=legacy (the default) for tables with two seats.
@@ -570,7 +571,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     leftFieldLines.length = 0;
     let processCalls = 0;
     while (!result) {
-      if (processCalls++ >= CORE_PROCESS_CALL_LIMIT) throw new Error(`Engine exceeded ${CORE_PROCESS_CALL_LIMIT} process calls without a player prompt`);
+      if (processCalls++ >= CORE_PROCESS_CALL_LIMIT) throw new EngineLoopError();
       scriptErrors.enterProcess();
       let status: ReturnType<typeof lib.duelProcess>;
       try { status = lib.duelProcess(handle); }

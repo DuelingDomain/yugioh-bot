@@ -4,6 +4,7 @@ import type { PromptTraceEntry } from "./prompt-trace.js";
 import type { EngineCoreInfo, EngineDiagnostic, EngineStartupScript } from "./engine.js";
 import type { DuelWorkerResponse } from "./worker-protocol.js";
 import { EngineAnswerError } from "./prompts.js";
+import { EngineLoopError } from "./engine-loop-error.js";
 import type { DuelAnswer, DuelCardInfo, DuelChainMode, DuelDeck, DuelEngineChoice, DuelEngineView, DuelFormat, DuelMasterRule, DuelMode, DuelSettings, DuelScriptErrorMode } from "@yugidraft/shared/duels";
 
 const PROMPT_LOG_LIMIT = 5_000;
@@ -100,7 +101,7 @@ export class GameWorker implements DuelGameWorker {
       if (!request) return;
       this.pending.delete(message.id);
       if (message.ok) request.resolve(message.value);
-      else request.reject(message.answerError || message.code
+      else request.reject(message.engineLoop ? new EngineLoopError() : message.answerError || message.code
         ? new EngineAnswerError(message.error, message.code)
         : new Error(message.error ?? "Engine rejected the request"));
     });

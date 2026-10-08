@@ -238,10 +238,12 @@ centre banner. Event/log IDs depend only on the core sequence; timestamps and
 counters never enter views or the command journal. Strict-mode client errors also
 use generic text; their raw diagnostic remains in private telemetry. Errors never
 end a duel merely because their count is high. A batch exceeding 100,000 core
-process calls without a player prompt throws “Engine exceeded 100000 process calls
-without a player prompt”. This follows the existing fatal engine-error path: reject
-the command, discard the advanced worker, and recover from the accepted journal.
-If recovery itself fails, the existing recovery failure interrupts the duel.
+process calls without a player prompt raises an engine loop invariant failure.
+The host interrupts the duel with an “Engine loop” reason and discards the worker,
+including during bot turns, eliminations and recovery. The failed command is not
+journaled; the response returns the interrupted duel rather than rejecting the
+player's answer. Later room requests do not replay the loop, including polls from
+previously eliminated seats.
 
 Private worker replies send card code, reported script file/line, raw message,
 mode, table format, engine, policy, journal position and per-request error ordinal

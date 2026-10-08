@@ -7,6 +7,7 @@ import type { DuelWorkerRequest, DuelWorkerResponse } from "./worker-protocol.js
 import { seatCountFor } from "@yugidraft/shared/duels";
 import { tracePrompt } from "./prompt-trace.js";
 import { EngineAnswerError } from "./prompts.js";
+import { EngineLoopError } from "./engine-loop-error.js";
 
 let game: EngineGame | null = null;
 let queue = Promise.resolve();
@@ -115,6 +116,7 @@ async function runWorkerRequest(request: DuelWorkerRequest): Promise<DuelWorkerR
     }
   } catch (error) {
     return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error),
+      ...(error instanceof EngineLoopError ? { engineLoop: true as const } : {}),
       ...(error instanceof EngineAnswerError ? { answerError: true as const, ...(error.code ? { code: error.code } : {}) } : {}) };
   }
 }
