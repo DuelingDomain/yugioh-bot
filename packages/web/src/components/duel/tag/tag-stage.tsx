@@ -505,7 +505,6 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
             data-focused={focused ? "true" : undefined}
             data-near={near ? "true" : "false"}
             aria-label={focused ? "Back to overview" : `Focus ${nameOf(seat)}'s field`}
-            aria-pressed={focused}
             title={focused ? "Back to overview (Esc)" : `Focus ${nameOf(seat)}'s field`}
             onClick={() => (focused ? dispatchCamera({ type: "overview" }) : focusField(seat))}
           >
