@@ -19,6 +19,7 @@
 import { duelFxClock } from "./fx-clock";
 import { useLayoutEffect, useRef, useState } from "react";
 import type { DuelCardInfo, DuelEvent } from "@yugidraft/shared/duels";
+import { screenPose } from "./attack-fx";
 import { cardArtUrl } from "./constants";
 import {
   collectFreshEvents,
@@ -76,17 +77,25 @@ type Item = {
   faceMs?: number;
 };
 
-type Geo = { left: number; top: number; w: number; h: number; radius: number; side: "you" | "opp" };
+/** `turn`: the screen angle of the zone's top edge (a seat field of a multiplayer table is turned as a whole; 0 on a 1v1 table). */
+type Geo = { left: number; top: number; w: number; h: number; radius: number; side: "you" | "opp"; turn: number };
+
+/** The turn a copy of the zone's card needs on screen: half a turn on the far side of the zone, plus the turn of the seat field around it. */
+export function flipCopyBase(geo: Pick<Geo, "side" | "turn">): number {
+  return (geo.side === "opp" ? 180 : 0) + geo.turn;
+}
 
 function measure(overlay: HTMLElement, zone: HTMLElement): Geo | null {
   const o = overlay.getBoundingClientRect();
   const z = zone.getBoundingClientRect();
   if (z.width < 4 || z.height < 4 || o.width < 4) return null;
-  const h = z.height;
-  const w = Math.min(z.width, h * CARD_ASPECT);
+  // A turned seat field: the zone's bounding box is not the card's box, its edges and angle are.
+  const pose = screenPose(zone);
+  const h = pose?.h ?? z.height;
+  const w = Math.min(pose?.w ?? z.width, h * CARD_ASPECT);
   const cx = z.left - o.left + z.width / 2;
   const cy = z.top - o.top + z.height / 2;
-  return { left: cx - w / 2, top: cy - h / 2, w, h, radius: Math.max(2, w * 0.05), side: zone.dataset.side === "opp" ? "opp" : "you" };
+  return { left: cx - w / 2, top: cy - h / 2, w, h, radius: Math.max(2, w * 0.05), side: zone.dataset.side === "opp" ? "opp" : "you", turn: pose?.turn ?? 0 };
 }
 
 function place(el: HTMLElement | null, geo: Geo): void {
@@ -208,8 +217,8 @@ function FlipFx(props: EffectProps) {
   const reveal = change.reveal;
   useSetup(props, ({ track, zone, geo, d }) => {
     place(anchor.current, geo);
-    // The copy sits on the opponent's card, which is turned half way (field.module.css).
-    const base = geo.side === "opp" ? 180 : 0;
+    // The copy sits on the real card: turned half way on the far side (field.module.css) and with its seat field.
+    const base = flipCopyBase(geo);
     const from = base + (change.fromDefense ? 90 : 0);
     const to = base + (change.toDefense ? 90 : 0);
     const body = cardBodyOf(zone);

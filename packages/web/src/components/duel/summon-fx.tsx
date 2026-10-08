@@ -320,9 +320,12 @@ function placeAnchor(anchor: HTMLElement, geo: Geo): void {
   anchor.dataset.side = geo.side;
 }
 
-/** The turn a card copy needs to match the real card: 180 degrees for the opponent, plus 90 in Defense Position. */
-function copyTurn(geo: Geo): number {
-  return (geo.side === "opp" ? 180 : 0) + (geo.defense ? 90 : 0);
+/**
+ * The turn a card copy needs to match the real card on screen: 180 degrees for the far side of its zone, plus 90 in
+ * Defense Position, plus the turn of the seat field around the zone (a table of 3 or 4 turns each field as a whole).
+ */
+export function copyTurn(geo: Pick<Geo, "side" | "defense" | "seat">): number {
+  return (geo.side === "opp" ? 180 : 0) + (geo.defense ? 90 : 0) + (geo.seat?.turn ?? 0);
 }
 
 function artOf(zone: HTMLElement): HTMLElement | null {
@@ -1436,7 +1439,8 @@ function useTypedSetup(
   useEffectSetup(overlay, item, done, ({ track, zone, geo }) => {
     const d = item.delayMs;
     const { handOver, total } = TYPED_AUTHORED[style];
-    if (refs.anchor.current) placeAnchor(refs.anchor.current, geo);
+    // In a seat field the copy is the card's own box (turned below), not the turned field's bounding box.
+    if (refs.anchor.current) placeAnchor(refs.anchor.current, cardGeo(geo));
     applyTone(refs.anchor.current, style);
     if (refs.copyBody.current && copyTurn(geo) !== 0) refs.copyBody.current.style.rotate = `${copyTurn(geo)}deg`;
     holdHidden(track, zone, d + handOver * TYPED_SCALE);
