@@ -20,6 +20,12 @@ const prompt = {
 } as DuelPrompt;
 
 describe("matchesSel", () => {
+  it("picks an Xyz material by from: overlay, and not a card on the Xyz's zone", () => {
+    const material = option("card:0", 100, { controller: 0, location: 0x80, sequence: 1 });
+    expect(matchesSel(material, { code: 100, from: "overlay", seq: 1 })).toBe(true);
+    expect(matchesSel(material, { code: 100, from: "mzone" })).toBe(false);
+    expect(matchesSel(option("card:1", 100, { controller: 0, location: 0x04, sequence: 1 }), { code: 100, from: "overlay" })).toBe(false);
+  });
   it("needs the passcode and a card on the option", () => {
     expect(matchesSel(prompt.options[0], { code: 100 })).toBe(true);
     expect(matchesSel(prompt.options[0], { code: 101 })).toBe(false);
