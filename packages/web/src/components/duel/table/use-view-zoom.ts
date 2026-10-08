@@ -117,6 +117,8 @@ export interface UseViewZoom {
    * in it. The free box is the board box minus the HUD over it and the `avoid` rects (board-box px, at the pose).
    */
   zoomFit: (items: readonly FitItem[], avoid?: readonly Rect[], ms?: number) => View;
+  /** True when the player moved the view by hand (drag, pinch, wheel) since the last zoomTo or zoomFit. */
+  byHand: () => boolean;
 }
 
 const pointIn = (node: HTMLElement, event: { clientX: number; clientY: number }): Point => {
@@ -157,6 +159,8 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
     held: null as Held | null,
     /** A timed camera move (zoomTo): it replaces the exponential ease until it ends or a gesture takes over. */
     anim: null as { from: View; to: View; start: number; ms: number } | null,
+    /** The player moved the view by hand (a drag, a pinch, a wheel) since the last camera move of the code (zoomTo, zoomFit). */
+    byHand: false,
     /** The fixed nodes and where each stands at the identity view (canvas px, see counterTransform). */
     origins: new Map<Element, Point>(),
   });
@@ -289,12 +293,18 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
   }, [settle, tick, write]);
 
   const reset = useCallback(() => go(VIEW_IDENTITY, false), [go]);
+  /** A move the player makes (a drag, a pinch, a wheel): a later refit of the code leaves the view where the player put it. */
+  const goByHand = useCallback((next: View, instant: boolean) => {
+    live.current.byHand = true;
+    go(next, instant);
+  }, [go]);
 
   const zoomTo = useCallback((view: View, ms: number = ROOF_ZOOM_MS) => {
     const root = rootRef.current;
     const state = live.current;
     if (!root) return;
     const next = clampView(view, sizeOf(root), insetsOf(root));
+    state.byHand = false;
     if (ms <= 0 || state.reducedMotion) {
       go(next, true);
       settle();
@@ -462,7 +472,7 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
         if (pinch) {
           const a = touches.get(pinch.ids[0]);
           const b = touches.get(pinch.ids[1]);
-          if (a && b) go(pinchView(pinch.start, pinch.a0, pinch.b0, a, b, box(), insets()), true);
+          if (a && b) goByHand(pinchView(pinch.start, pinch.a0, pinch.b0, a, b, box(), insets()), true);
           return;
         }
       }
@@ -484,7 +494,7 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
           }
         }
       }
-      if (press.pan) go(panBy(state.target, at.x - press.last.x, at.y - press.last.y, box(), insets()), true);
+      if (press.pan) goByHand(panBy(state.target, at.x - press.last.x, at.y - press.last.y, box(), insets()), true);
       press.last = at;
     };
 
@@ -535,7 +545,7 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
       const now = performance.now();
       if (now - wheelAt > WHEEL_GESTURE_MS) readInsets();
       wheelAt = now;
-      go(zoomAt(state.target, pointIn(root, event), wheelFactor(event.deltaY, event.deltaMode, event.ctrlKey), box(), insets()), false);
+      goByHand(zoomAt(state.target, pointIn(root, event), wheelFactor(event.deltaY, event.deltaMode, event.ctrlKey), box(), insets()), false);
     };
 
     const dblclick = (event: MouseEvent) => {
@@ -560,7 +570,7 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
       if (!gesture || typeof e.scale !== "number") return;
       const rect = root.getBoundingClientRect();
       const at = typeof e.clientX === "number" && typeof e.clientY === "number" ? pointIn(root, { clientX: e.clientX, clientY: e.clientY }) : { x: rect.width / 2, y: rect.height / 2 };
-      go(zoomAt(gesture, at, e.scale, box(), insets()), true);
+      goByHand(zoomAt(gesture, at, e.scale, box(), insets()), true);
     };
     const gestureEnd = (event: Event) => {
       event.preventDefault();
@@ -593,7 +603,7 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
       root.classList.remove(styles.dragging);
       root.style.touchAction = "";
     };
-  }, [enabled, go, layerRef, reset, rootRef, settle]);
+  }, [enabled, go, goByHand, layerRef, reset, rootRef, settle]);
 
   useEffect(() => () => {
     const state = live.current;
@@ -601,5 +611,7 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
     state.raf = 0;
   }, []);
 
-  return { view: rest, zoomed: isZoomed(rest), reset, refit, zoomTo, zoomFit };
+  const byHand = useCallback(() => live.current.byHand, []);
+
+  return { view: rest, zoomed: isZoomed(rest), reset, refit, zoomTo, zoomFit, byHand };
 }
