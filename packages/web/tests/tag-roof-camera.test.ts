@@ -83,6 +83,15 @@ describe("presets and seat poses", () => {
     expect(seatPose(0, 1).fy).toBeLessThan(0);
   });
 
+  it("aims a close-up toward the gap, where the shared Extra Monster Zones sit, and leaves the hub less room beside them", () => {
+    expect(Math.abs(seatPose(0, 0).fy)).toBeLessThan(270);
+    expect(Math.abs(seatPose(0, 1).fy)).toBeLessThan(270);
+    const plain = roofGap(ROOF_PRESETS.overview, 1);
+    const shared = roofGap(ROOF_PRESETS.overview, 1, true);
+    expect(shared.gapPx).toBe(plain.gapPx);
+    expect(shared.freePx).toBeLessThan(plain.freePx);
+  });
+
   it("puts 1A across from 2A and 1B across from 2B (seats 0-1 and 2-3) for every viewer", () => {
     for (const anchor of [0, 1, 2, 3]) {
       const slots = roofSlots(anchor);
@@ -501,8 +510,9 @@ describe("overview camera (default, focus, back)", () => {
 
 describe("phase hub sizing", () => {
   it("offers the full strip only when the gap row is wide enough, then the short strips, then none", () => {
-    expect(phaseHubSizes(600)).toEqual(["lg", "sm", "row"]);
-    expect(phaseHubSizes(300)).toEqual(["sm", "row"]);
+    expect(phaseHubSizes(600)).toEqual(["lg", "sm", "row", "xs"]);
+    expect(phaseHubSizes(300)).toEqual(["sm", "row", "xs"]);
+    expect(phaseHubSizes(190)).toEqual(["xs"]);
     expect(phaseHubSizes(120)).toEqual([]);
   });
 

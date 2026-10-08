@@ -4,7 +4,7 @@ import { isFacedown } from "../constants";
 import { opponentPickOptions } from "../multi-seat";
 import { tagSeatCode } from "../table-format";
 
-/** Pure rules of the 2v2 Rooftop: team LP, team loss, response window, chain labels, baton, direct attack. */
+/** Pure rules of the 2v2 Rooftop: team LP, team loss, response window, chain labels, baton. */
 
 const TAG = "tag" as const;
 
@@ -91,19 +91,6 @@ export function batonOrder(turnSeat: number): BatonStop[] {
     now: seat === turnSeat,
     next: seat === (turnSeat + 1) % 4,
   }));
-}
-
-/** Rival members an attacker may hit directly: members with no monster, not eliminated, in turn order. */
-export function directAttackSeats(engine: DuelEngineView, attackerSeat: number): number[] {
-  return opponentSeatsOf(TAG, attackerSeat).filter((seat) => {
-    const view = engine.seats.find((s) => s.seat === seat);
-    if (!view || view.eliminated) return false;
-    return view.monsters.every((m) => m == null);
-  });
-}
-
-export function defaultDirectSeat(engine: DuelEngineView, attackerSeat: number): number | null {
-  return directAttackSeats(engine, attackerSeat)[0] ?? null;
 }
 
 export type ResponderState = "choosing" | "waiting" | "passed";

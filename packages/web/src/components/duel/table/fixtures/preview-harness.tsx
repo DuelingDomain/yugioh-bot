@@ -142,7 +142,7 @@ export function PreviewHarness({ set, stateId, cam, lock, basePath, renderStage,
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
   const activeId = isTableStateId(stateId) ? stateId : "main";
-  const state = useAttackOverride(set.states[activeId], query);
+  const state = useAttackOverride((stateId != null ? set.extra?.[stateId] : undefined) ?? set.states[activeId], query);
   const chainFromUrl = query.get("chain");
   // The live room draws the switch for a seated player; so does the preview, on Auto, unless `?chain=none`.
   const [chain, setChain] = useState<DuelChainMode | null>(isDuelChainMode(chainFromUrl) ? chainFromUrl : chainFromUrl === "none" ? null : "auto");

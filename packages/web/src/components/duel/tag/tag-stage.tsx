@@ -6,6 +6,7 @@ import { duelFontClasses } from "../fonts";
 import { formatStartingLp } from "../table-format";
 import { hexToRgbTriplet } from "../table/seat-angle";
 import { SEAT_TONE_HEX, type SeatFieldProps, type SeatTone, type TagStageProps } from "../table/types";
+import { sharedExtraPairs } from "../multi-seat";
 import { useIsNarrow } from "../side-panel";
 import { HelipadHub, type HubSeatTone } from "./helipad-hub";
 import { OwnHand, PartnerHand } from "./tag-hand";
@@ -28,6 +29,7 @@ import {
 } from "./roof-camera";
 import { CameraRail } from "./camera-rail";
 import { Baton, RoofDecor, TeamStrip } from "./roof-world";
+import { SharedExtraBand } from "./shared-band";
 import { batonOrder, lastTeamDamage, responseWindow, rivalPickOptions, teamGlyph, teamLoss, teamLp } from "./tag-logic";
 import { plateState, TeamLpPlate, type PlateMember } from "./team-lp-plate";
 import styles from "./tag-stage.module.css";
@@ -129,6 +131,8 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
   modeRef.current = camera.mode;
   const targetRef = useRef(target);
   targetRef.current = target;
+  // apply() sizes the phase hub for the gap: shared Extra Monster Zones in it leave less room beside the helipad.
+  const sharedRef = useRef(false);
   const poseRef = useRef<RoofPose>(target);
   const tweenRef = useRef<Tween | null>(null);
   const rafRef = useRef(0);
@@ -193,14 +197,14 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
       // ends on (so it does not flip during a tween): the biggest strip that fits the gap, with the chain hub stacked
       // under it when one is open. When none fits, or on a phone (the bottom bar has the phases) or in a close-up (the
       // helipad is behind the focused field), the hub is hidden.
-      const gap = roofGap(targetRef.current, fit);
+      const gap = roofGap(targetRef.current, fit, sharedRef.current);
       const usable = !narrowRef.current && modeRef.current !== "focus" && padSeen;
       let stackH = 0;
       let fitted = false;
       if (usable) {
         for (const size of phaseHubSizes(gap.freePx)) {
-          phases.setAttribute("data-hub-size", size === "lg" ? "lg" : "sm");
-          if (size === "row") phases.setAttribute("data-hub-row", "true");
+          phases.setAttribute("data-hub-size", size === "lg" ? "lg" : size === "xs" ? "xs" : "sm");
+          if (size === "row" || size === "xs") phases.setAttribute("data-hub-row", "true");
           else phases.removeAttribute("data-hub-row");
           stackH = phases.offsetHeight + (hub ? PHASE_HUB_GAP + hub.offsetHeight : 0);
           if (stackH <= gap.gapPx - 4) {
@@ -347,12 +351,20 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
   }, [camera.mode, camera.focusSeat]);
 
   // ---------- fields ----------
+  // A facing pair (1A-2A, 1B-2B) draws one band of two Extra Monster Zones between its fields (Master Rule 4 and 5 only; an
+  // older core without `sharedExtraWith`, or a pair holding both mirrored cells, keeps the rows of its fields).
+  const sharedPairs = useMemo(() => (room.session.masterRule >= 4 ? sharedExtraPairs(engine) : []), [engine, room.session.masterRule]);
+  const sharedSeats = useMemo(() => new Set(sharedPairs.flatMap((pair) => pair.map((view) => view.seat))), [sharedPairs]);
+  sharedRef.current = sharedPairs.length > 0;
+  const relationOf = (seat: number) =>
+    spectator ? "other" : seat === viewerSeat ? "self" : teamOfSeat(TAG, seat) === teamOfSeat(TAG, viewerSeat) ? "partner" : "opponent";
+  const outOf = (seat: number) => (engine.seats.find((s) => s.seat === seat)?.eliminated ?? false) || loss.lostTeam === teamOfSeat(TAG, seat);
   const fieldHold = (seat: number) => {
     const slot = slotsOf[seat];
     const view = engine.seats.find((s) => s.seat === seat);
     if (!slot || !view) return null;
     const near = slot.near;
-    const relation = spectator ? "other" : seat === viewerSeat ? "self" : teamOfSeat(TAG, seat) === teamOfSeat(TAG, viewerSeat) ? "partner" : "opponent";
+    const relation = relationOf(seat);
     const props: SeatFieldProps = {
       engine,
       seat,
@@ -366,7 +378,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
       tone: layout.slots.find((s) => s.seat === seat)?.tone ?? "violet",
       density: near ? "full" : "rival",
       hand: "none",
-      emz: "own",
+      emz: sharedSeats.has(seat) ? "none" : "own",
       showTally: false,
       usable: relation === "self",
       name: nameOf(seat),
@@ -387,7 +399,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
         className={styles.fieldHold}
         data-field-hold={seat}
         data-relation={relation}
-        data-out={view.eliminated || loss.lostTeam === teamOfSeat(TAG, seat) ? "true" : undefined}
+        data-out={outOf(seat) ? "true" : undefined}
         style={{ width: ROOF_FIELD.width, height: ROOF_FIELD.height, transform }}
       >
         {renderSeatField(props)}
@@ -497,6 +509,28 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
           <TeamStrip near glyph={teamGlyph(anchorTeam, anchorTeam)} teamName={teamName(anchorTeam)} out={loss.lostTeam === anchorTeam} />
           <TeamStrip near={false} glyph={teamGlyph(anchorTeam, 1 - anchorTeam)} teamName={teamName(1 - anchorTeam)} out={loss.lostTeam === 1 - anchorTeam} />
           {engine.seats.map((s) => fieldHold(s.seat))}
+          {sharedPairs.map(([first, second]) => {
+            const firstAt = slotsOf[first.seat];
+            const secondAt = slotsOf[second.seat];
+            if (!firstAt || !secondAt || firstAt.near === secondAt.near) return null;
+            const [nearView, farView] = firstAt.near ? [first, second] : [second, first];
+            return (
+              <SharedExtraBand
+                key={`band-${first.seat}-${second.seat}`}
+                near={nearView}
+                far={farView}
+                x={(firstAt.near ? firstAt : secondAt).x}
+                upright={camera.upright}
+                nameOf={nameOf}
+                relationOf={relationOf}
+                outOf={outOf}
+                legalKeys={legalKeys}
+                selectedKeys={selectedKeys}
+                onActivate={controller.onActivate}
+                onHoverCard={controller.onHoverCard}
+              />
+            );
+          })}
           <div ref={padRef} className={styles.anc} style={{ transform: "translate3d(0px, 0px, 2px)" }} />
           <div ref={farRef} className={styles.anc} style={{ transform: `translate3d(0px, ${FAR_ANCHOR_Y}px, 2px)` }} />
         </div>

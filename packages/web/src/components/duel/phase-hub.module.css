@@ -540,6 +540,26 @@ button.chip:focus-visible {
 :global([data-text-big="true"]) :global([data-hub-size="sm"]) .root[data-variant="table"] .captionLit {
   white-space: normal;
 }
+:global([data-hub-size="xs"]) .root[data-variant="table"] {
+  --hc: 27px;
+  --hfs: 13px;
+  --cw: 24px;
+  --gap: 2px;
+  width: 170px;
+  height: 40px;
+}
+:global([data-hub-size="xs"]) .root[data-variant="table"] .chip[data-state="current"] {
+  width: var(--cw);
+  padding: 0;
+  letter-spacing: 0.02em;
+}
+:global([data-hub-size="xs"]) .root[data-variant="table"] .chip[data-state="current"] .code {
+  display: inline;
+}
+:global([data-hub-size="xs"]) .root[data-variant="table"] .chip[data-state="current"] .name {
+  display: none;
+}
+
 :global([data-hub-size="sm"]) .root[data-variant="table"] .chip[data-state="current"] {
   width: var(--cw);
   padding: 0;

@@ -38,20 +38,26 @@ function board(): DuelSeatView[] {
   const aster = newSeat(ASTER, { lp: 11800, hand: [C.darkHole, C.featherDuster, C.celtic, C.solemn, C.potOfGreed], deck: 30, extra: [C.darkPaladin] });
   putMonster(aster, 0, C.darkMagician);
   putMonster(aster, 1, C.celtic);
+  // The shared Extra Monster Zones of both facing pairs, one cell held by each side: 1A and 2A (Aster left, Mirelle right) and
+  // 1B and 2B (Juniper left, Corvin right). Seat 5 and the facing seat's 6 are one cell, and so are 6 and 5.
+  putMonster(aster, 5, C.darkPaladin);
   aster.spells[0] = cardAt(C.callOfTheHaunted, SZ(ASTER, 0), POS_SET);
   putSpell(aster, 1, null);
   const mirelle = newSeat(MIRELLE, { lp: 9400, hand: [null, null, null], deck: 28, extra: [null] });
   putMonster(mirelle, 0, C.summonedSkull);
   putMonster(mirelle, 2, C.envoy);
+  putMonster(mirelle, 5, C.jinzo);
   putSpell(mirelle, 0, null);
   putSpell(mirelle, 1, null);
   const corvin = newSeat(CORVIN, { lp: 11800, hand: [C.jinzo, C.torrential, C.darkMagician, C.potOfGreed], deck: 29, extra: [null] });
   putMonster(corvin, 0, C.blueEyes);
+  putMonster(corvin, 6, C.celtic);
   corvin.spells[0] = cardAt(C.torrential, SZ(CORVIN, 0), POS_SET);
   putSpell(corvin, 1, null);
   const juniper = newSeat(JUNIPER, { lp: 9400, hand: [null, null, null, null], deck: 28, extra: [null] });
   putMonster(juniper, 0, C.redEyes);
   putMonster(juniper, 2, C.gaia);
+  putMonster(juniper, 6, C.gaia);
   putSpell(juniper, 0, null);
   return [aster, mirelle, corvin, juniper];
 }
@@ -96,10 +102,13 @@ interface Spec {
   ui?: TableFixtureState["ui"];
 }
 
-function make(id: TableStateId, label: string, spec: Spec = {}): TableFixtureState {
+function make(id: TableFixtureState["id"], label: string, spec: Spec = {}): TableFixtureState {
   const viewerSeat = spec.viewerSeat === undefined ? ASTER : spec.viewerSeat;
   let seats = board();
   spec.edit?.(seats);
+  // Each seat shares its Extra Monster Zones with the seat it faces: 1A-2A and 1B-2B (a Tag core reports it per seat).
+  // A seat that is out shares nothing (null), and neither does the seat that faced it.
+  for (const view of seats) view.sharedExtraWith = view.eliminated || seats[view.seat ^ 1]?.eliminated ? null : view.seat ^ 1;
   if (viewerSeat == null) {
     // A spectator sees no hand and no Set card identity.
     seats = withHiddenHands(seats).map((view) => ({
@@ -201,6 +210,9 @@ const states = {
         ...rivalMonsterOptions(seats),
         // The partner's monster is a legal tribute / target too: Aster tributes Corvin's Blue-Eyes.
         monsterOption(CORVIN, 0, seats[CORVIN].monsters[0]?.name ?? "Monster"),
+        // Rival monsters in the shared Extra Monster Zones: each is one legal target on its own seat and sequence.
+        monsterOption(MIRELLE, 5, seats[MIRELLE].monsters[5]?.name ?? "Monster"),
+        monsterOption(JUNIPER, 6, seats[JUNIPER].monsters[6]?.name ?? "Monster"),
       ],
     }),
   }),
@@ -251,4 +263,23 @@ const states = {
   }),
 } satisfies Record<TableStateId, TableFixtureState>;
 
-export const TAG_FIXTURES: TableFixtureSet = { format: "tag", title: "2v2 tag duel", states };
+/** States only the Rooftop previews (`?state=emz-place`). */
+const extra: Record<string, TableFixtureState> = {
+  // Aster Special Summons Dark Paladin: the left cell shared with Mirelle is free, the right one holds her monster.
+  "emz-place": make("emz-place", "Place in a shared Extra Monster Zone", {
+    edit: (seats) => {
+      seats[ASTER].monsters[5] = null;
+    },
+    prompt: () => ({
+      id: "emz-place",
+      seat: ASTER,
+      kind: "places",
+      title: `Select a zone for ${C.darkPaladin.name}`,
+      min: 1,
+      max: 1,
+      options: [{ id: "place:5", label: "Extra Monster Zone, left", controller: ASTER, location: LOCATION_MZONE, sequence: 5 }],
+    }),
+  }),
+};
+
+export const TAG_FIXTURES: TableFixtureSet = { format: "tag", title: "2v2 tag duel", states, extra };

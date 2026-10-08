@@ -211,13 +211,22 @@ describe("FFA4 shared Extra Monster Zones", () => {
     expect(document.querySelectorAll('[data-kind="emz"]')).toHaveLength(0);
   });
 
-  it.each<DuelFormat>(["ffa3", "tag", "1v1"])("does not infer shared pairs in %s", (format) => {
+  it.each<DuelFormat>(["ffa3", "1v1"])("does not infer shared pairs in %s", (format) => {
     const engine = fixture(format);
     for (const view of engine.seats) view.sharedExtraWith = view.seat ^ 1;
     expect(sharedExtraPairs(engine)).toEqual([]);
     render(stage(engine, null, null));
     expect(screen.queryAllByTestId(/^shared-emz-pair-/)).toHaveLength(0);
     expect(document.querySelectorAll('[data-kind="emz"]')).toHaveLength(seatCountFor(format) * 2);
+  });
+
+  it("still draws the shared pairs for a Tag table on the legacy stage (?stage=legacy)", () => {
+    const engine = fixture("tag");
+    for (const view of engine.seats) view.sharedExtraWith = view.seat ^ 1;
+    expect(sharedExtraPairs(engine).map((pair) => pair.map((view) => view.seat))).toEqual([[0, 1], [2, 3]]);
+    render(stage(engine, 0, 1));
+    expect(screen.getAllByTestId(/^shared-emz-pair-/)).toHaveLength(2);
+    expect(document.querySelectorAll('[data-kind="emz"]')).toHaveLength(4);
   });
 
   it("keeps older FFA4 views with no pairing field on their separate EMZ layout", () => {
