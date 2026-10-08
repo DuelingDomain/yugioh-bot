@@ -1232,7 +1232,6 @@ function GridPicker({
 
   // Cards to pick: one wide strip of large cards. Zones, counters and the rest keep the tile grid.
   const strip = isStripPrompt(prompt);
-  const shownStatus = strip && prompt.options.length > 1 ? `${status} · ${prompt.options.length} cards` : status;
   const hostNotes = strip ? materialHostNotes(prompt.options, who) : [];
   const stripItems: StripCard[] = strip
     ? prompt.options.map((option, index) => ({
@@ -1253,7 +1252,7 @@ function GridPicker({
       <header className={styles.head}>
         <div className={styles.titles}>
           <h2 title={copy.tooltip}>{title}</h2>
-          <p>{description && description !== fullTitle ? `${description} · ${shownStatus}` : shownStatus}</p>
+          <p>{description && description !== fullTitle ? `${description} · ${status}` : status}</p>
         </div>
         <button type="button" className={styles.hide} aria-label="Hide to look at the board" title="Hide to look at the board" onClick={onCollapse}>
           <EyeOff size={16} strokeWidth={1.75} aria-hidden />

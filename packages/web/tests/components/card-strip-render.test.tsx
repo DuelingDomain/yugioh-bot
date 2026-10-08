@@ -202,7 +202,8 @@ describe("CardStrip", () => {
         expect(frame.getAttribute("data-up")).toBe("false");
         expect(frame.getAttribute("data-next")).toBe("false");
         expect(frame.getAttribute("data-prev")).toBe("false");
-        expect(screen.queryByRole("button", { name: "Show earlier cards" })).toBeNull();
+        expect((screen.getByRole("button", { name: "Show earlier cards" }) as HTMLButtonElement).disabled).toBe(true);
+        expect((screen.getByRole("button", { name: "Show more cards" }) as HTMLButtonElement).disabled).toBe(false);
         fireEvent.click(screen.getByRole("button", { name: "Show more cards" }));
         expect(layout.scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 240 }));
       } finally {
@@ -220,7 +221,7 @@ describe("CardStrip", () => {
         const frame = list.parentElement as HTMLElement;
         expect(frame.getAttribute("data-up")).toBe("true");
         expect(frame.getAttribute("data-down")).toBe("false");
-        expect(screen.queryByRole("button", { name: "Show more cards" })).toBeNull();
+        expect((screen.getByRole("button", { name: "Show more cards" }) as HTMLButtonElement).disabled).toBe(true);
         fireEvent.click(screen.getByRole("button", { name: "Show earlier cards" }));
         expect(layout.scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 260 }));
       } finally {
@@ -245,16 +246,66 @@ describe("CardStrip", () => {
     });
 
     it("counts the cards in a row for the Up and Down keys, and one card in a single sideways row", () => {
+      const inPanel = (
+        <div data-prompt-panel>
+          <CardStrip items={many(12)} highlight={0} busy={false} multi label="Pick" onPick={() => {}} />
+        </div>
+      );
       const layout = mockRows({ clientHeight: 300, scrollHeight: 800 });
       try {
-        render(<CardStrip items={many(12)} highlight={0} busy={false} multi label="Pick" onPick={() => {}} />);
+        render(inPanel);
         expect(stripCardsPerRow()).toBe(3);
       } finally {
         layout.restore();
       }
       cleanup();
-      render(<CardStrip items={many(12)} highlight={0} busy={false} multi label="Pick" onPick={() => {}} />);
+      render(inPanel);
       expect(stripCardsPerRow()).toBe(1);
+    });
+
+    it("looks for the strip in the open prompt panel only", () => {
+      const layout = mockRows({ clientHeight: 300, scrollHeight: 800 });
+      try {
+        render(<CardStrip items={many(12)} highlight={0} busy={false} multi label="Pick" onPick={() => {}} />);
+        expect(stripCardsPerRow()).toBe(1);
+      } finally {
+        layout.restore();
+      }
+    });
+
+    it("shows the card count in the caption line when the list wraps and has rows beyond an edge", () => {
+      const layout = mockRows({ clientHeight: 300, scrollHeight: 800 });
+      try {
+        render(<CardStrip items={many(14)} highlight={0} busy={false} multi label="Pick" onPick={() => {}} />);
+        expect(screen.getByText("14 cards")).toBeTruthy();
+      } finally {
+        layout.restore();
+      }
+    });
+
+    it("shows no count when every row fits, or when the list is one sideways row", () => {
+      const layout = mockRows({ clientHeight: 300, scrollHeight: 300 });
+      try {
+        render(<CardStrip items={many(6)} highlight={0} busy={false} multi label="Pick" onPick={() => {}} />);
+        expect(screen.queryByText(/\d+ cards/)).toBeNull();
+        expect(screen.queryByRole("button", { name: "Show more cards" })).toBeNull();
+      } finally {
+        layout.restore();
+      }
+      cleanup();
+      render(<CardStrip items={many(14)} highlight={0} busy={false} multi label="Pick" onPick={() => {}} />);
+      expect(screen.queryByText(/\d+ cards/)).toBeNull();
+    });
+
+    it("keeps the focus on the card when a scroll button is pressed with the mouse", () => {
+      const layout = mockRows({ clientHeight: 300, scrollHeight: 800 });
+      try {
+        render(<CardStrip items={many(12)} highlight={0} busy={false} multi label="Pick" onPick={() => {}} />);
+        const button = screen.getByRole("button", { name: "Show more cards" });
+        expect(fireEvent.mouseDown(button)).toBe(false);
+      } finally {
+        layout.restore();
+      }
     });
 
     it("leaves the wheel to the list, which scrolls up and down by itself", () => {

@@ -24,9 +24,9 @@ describe("card strip in a dense host (3-way, Tag, 4-way)", () => {
     expect(strip.indexOf(dense, at)).toBeGreaterThan(at);
   });
 
-  it("sizes the tile from a px floor of 96px and a 112px base, not from the pair unit alone", () => {
+  it("sizes the tile from a px floor of 70px and a 112px base, not from the pair unit alone", () => {
     const decl = rule(strip, dense);
-    expect(decl).toMatch(/--cs-w:\s*clamp\(96px,/);
+    expect(decl).toMatch(/--cs-w:\s*clamp\(70px,/);
     expect(decl).toMatch(/max\(112px, calc\(128 \* var\(--cs-u\)\)\)/);
   });
 
@@ -67,22 +67,30 @@ describe("card strip in a dense host (3-way, Tag, 4-way)", () => {
     }
   });
 
-  it("keeps the panel in the pair box, and no taller than the box plus 16px on a short window, so it keeps off the hand", () => {
+  it("keeps the panel in the pair box, and no taller than the box plus 28px on a short window, so it keeps off the hand", () => {
     for (const css of [tableStage, gridStage]) {
       const at = css.indexOf("--pr-strip-h:");
       expect(at).toBeGreaterThan(-1);
       const decl = css.slice(at, css.indexOf("}", at));
-      expect(decl).toMatch(/--pr-strip-h:\s*max\(calc\(var\(--pr-h[^)]*\) - 40px\), min\(300px, calc\(var\(--pr-h[^)]*\) \+ 16px\)\)\);/);
+      expect(decl).toMatch(/--pr-strip-h:\s*max\(calc\(var\(--pr-h[^)]*\) - 40px\), min\(300px, calc\(var\(--pr-h[^)]*\) ([+-]) (28|16)px\)\)\);/);
       expect(decl).toMatch(/max-height:\s*min\(var\(--pr-strip-h\), calc\(100% - 24px\)\);/);
     }
   });
 
   it("sizes the tile from that cap and from the text scale", () => {
-    expect(rule(strip, dense)).toMatch(/var\(--pr-strip-h, 300px\) - 158px \* var\(--tt, 1\)/);
+    expect(rule(strip, dense)).toMatch(/var\(--pr-strip-h, 300px\) - 170px \* var\(--tt, 1\)/);
   });
 
-  it("puts the up and down buttons at the middle of the top and bottom edge", () => {
-    expect(strip).toMatch(/\.arrow\[data-side="up"\],\s*\n\.arrow\[data-side="down"\] \{ left: 50%;/);
-    expect(strip).toMatch(/\.arrow\[data-side="down"\] \{ top: auto; bottom:/);
+  it("starts the rows at the left, so Up and Down keep the column in a short last row", () => {
+    const list = rule(strip, `${dense} .strip`);
+    expect(list).toMatch(/justify-content:\s*flex-start;/);
+    expect(list).not.toMatch(/justify-content:\s*center/);
   });
+
+  it("puts the count and the up and down buttons in the caption line, not over the cards", () => {
+    expect(strip).toMatch(/\.bar\[data-pager\] \{ display: flex;/);
+    expect(strip).toMatch(/\.pageBtn \{/);
+    expect(strip).not.toMatch(/\.arrow\[data-side="(up|down)"\]/);
+  });
+
 });
