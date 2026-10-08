@@ -274,6 +274,85 @@ describe("FFA3 own field camera zoom", () => {
     expect(scale(container)).toBeCloseTo(byHand, 3);
   });
 
+  /** The same idle table with the third seat out of the duel (a 3-way down to a face-off). */
+  const withMikaOut = () => {
+    const engine = structuredClone(idle().room.engine!);
+    engine.seats[2].lp = 0;
+    engine.seats[2].eliminated = true;
+    return { ...BASE, room: { ...BASE.room, engine } } as TableFixtureState;
+  };
+
+  it("an elimination keeps the zoom of your own field: no reset, no camera move, at every step of the regroup", () => {
+    frames();
+    const focus = { mode: "focus", focusSeat: REN } as const;
+    const { container, rerender } = render(<Table state={idle()} camera={focus} />);
+    advance(600);
+    const before = scale(container);
+    expect(before).toBeGreaterThan(1.02);
+    rerender(<Table state={withMikaOut()} camera={focus} />);
+    for (let t = 0; t < 4600; t += 100) {
+      advance(100);
+      expect(scale(container)).toBeGreaterThan(1.02);
+      expect(chip(container)).toBe("Focus · Ren Arata");
+    }
+    expect(board(container).getAttribute("data-regroup")).toBeNull();
+  });
+
+  it("after the regroup the view is fitted to the new field again, with the same eased path", () => {
+    frames();
+    const focus = { mode: "focus", focusSeat: REN } as const;
+    const { container, rerender } = render(<Table state={idle()} camera={focus} />);
+    advance(600);
+    rerender(<Table state={withMikaOut()} camera={focus} />);
+    advance(300);
+    expect(board(container).getAttribute("data-regroup")).toBe("true");
+    const during = layer(container).style.transform;
+    // The fit waits for the seats to stand still: the view does not move while they glide.
+    advance(2500);
+    expect(layer(container).style.transform).toBe(during);
+    advance(2400);
+    expect(board(container).getAttribute("data-regroup")).toBeNull();
+    expect(scale(container)).toBeGreaterThan(1.02);
+  });
+
+  it("after an elimination the player's own zoom level stays", () => {
+    frames();
+    const focus = { mode: "focus", focusSeat: REN } as const;
+    const { container, rerender } = render(<Table state={idle()} camera={focus} />);
+    advance(600);
+    fireEvent.wheel(board(container), { deltaY: -300, clientX: 300, clientY: 300 });
+    advance(600);
+    const byHand = scale(container);
+    rerender(<Table state={withMikaOut()} camera={focus} />);
+    advance(5000);
+    expect(scale(container)).toBeCloseTo(byHand, 3);
+    expect(chip(container)).toBe("Focus · Ren Arata");
+  });
+
+  it("an elimination at home does not move the camera", () => {
+    frames();
+    const { container, rerender } = render(<Table state={idle()} />);
+    advance(600);
+    expect(chip(container)).toBe("Home");
+    rerender(<Table state={withMikaOut()} />);
+    advance(5000);
+    expect(chip(container)).toBe("Home");
+    expect(layer(container).style.transform).toBe("");
+  });
+
+  it("Esc leaves the zoom of your own field in a face-off", () => {
+    frames();
+    const focus = { mode: "focus", focusSeat: REN } as const;
+    const { container, rerender } = render(<Table state={idle()} camera={focus} />);
+    advance(600);
+    rerender(<Table state={withMikaOut()} camera={focus} />);
+    advance(5000);
+    fireEvent.keyDown(window, { key: "Escape" });
+    advance(800);
+    expect(chip(container)).toBe("Home");
+    expect(scale(container)).toBeLessThanOrEqual(1.001);
+  });
+
   it("a resize with no room to zoom keeps the focus: the camera does not go home by itself", () => {
     frames();
     const { container } = render(<Table state={idle()} camera={{ mode: "focus", focusSeat: REN }} />);

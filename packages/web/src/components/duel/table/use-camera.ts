@@ -5,6 +5,7 @@ import { isEliminated } from "../multi-seat";
 import {
   cameraActionForKey,
   cameraReducer,
+  holdsOwnFocus,
   isFaceOff,
   effectiveCamera,
   initialCamera,
@@ -103,8 +104,9 @@ export function useCamera({ controller, layout, initial, initialLock = null, sea
   // A 3-way face-off has one view: the camera goes home before the next paint, so the old pose never shows.
   const faceOff = isFaceOff(layout, out);
   useLayoutEffect(() => {
-    if (faceOff && state.mode !== "home") dispatch({ type: "home" });
-  }, [faceOff, state.mode]);
+    // Your own field enlarged stays through an elimination: the camera does not zoom out by itself (a rival focus still goes home).
+    if (faceOff && state.mode !== "home" && !holdsOwnFocus(layout, state, out)) dispatch({ type: "home" });
+  }, [faceOff, state.mode, state.focusSeat, layout, out]);
 
   const escapeOwned = useRef(false);
   const keyRef = useRef({ state, seatKeys, suspended, uprightOnly });

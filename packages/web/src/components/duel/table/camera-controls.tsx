@@ -105,8 +105,9 @@ export function CameraControls({ layout, camera, locked, hint = null, nameOf, di
   const flyReady = camera.flyIn !== false;
   const label = cameraLabel(camera, nameOf, layout.anchorSeat);
   const plaza = layout.format === "ffa3" && !faceOff;
-  const enlarged = plaza && camera.mode === "focus";
-  const keysHint = faceOff ? "" : flyOn ? "Drag · wheel · 1-3 · Esc" : enlarged ? "Esc or Back to leave" : plaza ? (camera.mode === "home" ? "Click a field to enlarge · P look · 0 overview" : "Click a field to enlarge · E yours · P look · 0 overview") : "[ ] focus · P look · 0 overview";
+  // In a face-off the one view that can be on is your own field enlarged (an elimination does not end it).
+  const enlarged = layout.format === "ffa3" && camera.mode === "focus";
+  const keysHint = faceOff && !enlarged ? "" : flyOn ? "Drag · wheel · 1-3 · Esc" : enlarged ? "Esc or Back to leave" : plaza ? (camera.mode === "home" ? "Click a field to enlarge · P look · 0 overview" : "Click a field to enlarge · E yours · P look · 0 overview") : "[ ] focus · P look · 0 overview";
 
   const showPanel = variant !== "stage";
   const showStage = variant !== "panel";
