@@ -831,7 +831,7 @@ describe("the pinned card peek of the 1v1 room", () => {
       } finally { tower?.remove(); vi.useRealTimers(); }
     });
 
-    it("does not poll for a hover panel: it is placed again by the next card or a resize", () => {
+    it("places a hover panel again when a chain opens under it, as it does for a pinned one", () => {
       vi.useFakeTimers();
       let tower: HTMLElement | null = null;
       try {
@@ -841,10 +841,34 @@ describe("the pinned card peek of the 1v1 room", () => {
         expect(css("--pv-max-h")).toBe("662px");
         tower = part({ "data-testid": "chain-tower" }, TOWER);
         act(() => { vi.advanceTimersByTime(600); });
-        expect(css("--pv-max-h")).toBe("662px");
-        act(() => { window.dispatchEvent(new Event("resize")); });
         expect(css("--pv-max-h")).toBe("352px");
       } finally { tower?.remove(); vi.useRealTimers(); }
+    });
+    it("places a hover panel again when the chain panel changes its size, with no wait for the poll", () => {
+      vi.useFakeTimers();
+      const watchers: Array<(entries: unknown[]) => void> = [];
+      const globals = globalThis as { ResizeObserver?: unknown };
+      globals.ResizeObserver = (class {
+        constructor(cb: (entries: unknown[]) => void) { watchers.push(cb); }
+        observe() {}
+        disconnect() {}
+        unobserve() {}
+      });
+      const box: Box = { left: 100, right: 320, top: 60, bottom: 200 };
+      const panel = part({ "data-chain-panel": "true" }, box);
+      try {
+        layout({ left: 900, right: 980, top: 300, bottom: 420 });
+        mount();
+        hover();
+        const before = css("--pv-max-h");
+        const report = (width: number, height: number) => act(() => { watchers.forEach((cb) => cb([{ target: panel, contentRect: { width, height } }])); });
+        // The first report of a node is its start size: nothing moves.
+        report(220, 140);
+        expect(css("--pv-max-h")).toBe(before);
+        box.bottom = 420;
+        report(220, 360);
+        expect(css("--pv-max-h")).not.toBe(before);
+      } finally { panel.remove(); delete globals.ResizeObserver; vi.useRealTimers(); }
     });
   });
 
