@@ -97,7 +97,7 @@ These are the defaults. The organizer may later get options for LP.
 ## Decisions added on 2026-09-30 (product owner)
 
 - The FFA chain response decision from 2026-09-30 is superseded by the owner's 2026-10-04 confirmation of Domain Format Complete Rulebook v1.4: respond clockwise after the latest link's activating duelist (R-FFA-CHAIN above). 2v2 keeps the official Tag rule (the opposing team responds first); 1v1 is unchanged.
-- FFA3 and Tag keep separate EMZ. The 2026-10-02 FFA4 across-seat rule replaces the earlier separate-EMZ decision for FFA4.
+- FFA3 and Tag keep separate EMZ (**superseded for Tag by R-TAG-FACING (2026-10-07)**). The 2026-10-02 FFA4 across-seat rule replaces the earlier separate-EMZ decision for FFA4.
 - The 2026-10-04 removal decision replaces the old no-effect resolution rule: unresolved links of an eliminated FFA duelist are removed without resolving.
 - A partner is never "your opponent". "All" and both-side effects include the partner.
 - Negation and partners: in 2v2 Tag, a card that negates an activation, an effect or a summon cannot negate the partner's. In free-for-all it can negate any duelist. Your own activation stays as in 1v1.

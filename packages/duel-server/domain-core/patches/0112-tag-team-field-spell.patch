@@ -25,7 +25,7 @@ index 2074fdf..a468c12 100644
 +				for(uint8_t q = 0; q < n_duelists; ++q) {
 +					if(q == playerid || !is_alive(q) || !same_team(playerid, q))
 +						continue;
-+					if(auto* old_field = get_field_card(q, LOCATION_SZONE, 5)) {
++					if(auto* old_field = get_field_card(q, LOCATION_SZONE, 5); old_field && old_field != target) {
 +						send_to(old_field, nullptr, REASON_RULE, old_field->current.controler, none_id(), LOCATION_GRAVE, 0, 0);
 +						adjust_all();
 +					}
