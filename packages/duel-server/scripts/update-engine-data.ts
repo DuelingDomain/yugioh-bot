@@ -187,7 +187,7 @@ export async function runUpdate(options: Options = {}) {
       }),
     ]);
     let cardChanges = await cardUpdate(oldDatabase, database, request);
-    report.splice(6, 0, renderCardUpdate(cardChanges), "");
+    report.splice(report.indexOf("## Upstream commits"), 0, renderCardUpdate(cardChanges), "");
     const oldDatabases = oldDatabase?.files ?? await discoverReleasedDatabases(old.database, download);
     const releases = database.files.filter(path => path.startsWith("release-"));
     const loadedCodes = new Set([...database.releaseCodes, ...database.prereleaseCodes]);
