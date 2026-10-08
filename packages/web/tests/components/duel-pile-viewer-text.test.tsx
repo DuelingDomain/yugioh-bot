@@ -76,4 +76,24 @@ describe("pile viewer detail", () => {
     view([{ controller: 0, location: LOCATION_GRAVE, sequence: 0, position: 8 }]);
     expect(screen.getByTestId("pile-card-text")).toHaveTextContent("Face-down card. Its identity is not public.");
   });
+
+  it("keeps the clicked card in the detail while the pointer crosses other cards, until it leaves the grid", () => {
+    view([card(0), card(1), card(2)]);
+    const text = () => screen.getByTestId("pile-card-text");
+    fireEvent.click(screen.getByRole("button", { name: /^Card 0 name, 3 of 3/ }));
+    expect(text()).toHaveTextContent("Effect text of card 0.");
+    const other = screen.getByRole("button", { name: /^Card 1 name, 2 of 3/ });
+    fireEvent.mouseEnter(other);
+    expect(text()).toHaveTextContent("Effect text of card 1.");
+    fireEvent.mouseLeave(screen.getByRole("list", { name: /newest first/ }));
+    expect(text()).toHaveTextContent("Effect text of card 0.");
+  });
+
+  it("names a pile card by the looked-up name in its label when the engine sends none", async () => {
+    getDuelCards.mockResolvedValue({
+      cards: [{ code: 2001, name: "Red-Eyes Alternative Black Dragon", description: "Text.", type: TYPE_MONSTER | TYPE_EFFECT, attack: 2400, defense: 2000, level: 7, attribute: 32, race: "Dragon" }],
+    });
+    view([card(0, { code: 2001, name: undefined, description: undefined })]);
+    expect(await screen.findByRole("button", { name: /^Red-Eyes Alternative Black Dragon, 1 of 1/ })).toBeTruthy();
+  });
 });

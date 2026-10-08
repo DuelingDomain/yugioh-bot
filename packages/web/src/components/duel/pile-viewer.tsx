@@ -5,7 +5,9 @@ import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, MouseEvent as 
 import type { DuelCard } from "@yugidraft/shared/duels";
 import { Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getDuelCards } from "./api";
 import { CardBack } from "./card-face";
+import { hasCardName } from "./card-info";
 import { cardTextStyle, useCardTextSize } from "./card-text-size";
 import {
   cardArtUrl,
@@ -49,9 +51,9 @@ type Entry = { card: DuelCard; key: string; index: number };
 
 const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-function cardName(card: DuelCard): string {
+function cardName(card: DuelCard, looked?: ReadonlyMap<number, string>): string {
   if (isHiddenCard(card) || card.code == null) return "Face-down card";
-  return card.name ?? `Card ${card.code}`;
+  return (hasCardName(card) ? card.name : looked?.get(card.code)) ?? card.name ?? `Card ${card.code}`;
 }
 
 function ordinal(n: number): string {
@@ -154,7 +156,11 @@ export function PileViewer({
   const panelRef = useRef<HTMLElement>(null);
   const gridRef = useRef<HTMLUListElement>(null);
   const restoreRef = useRef<HTMLElement | null>(null);
-  const [previewKey, setPreviewKey] = useState<string | null>(null);
+  // `pinnedKey` is the last click or keyboard focus. `hoverKey` only counts while the pointer is on the grid, so a
+  // pointer that crosses other cards on its way to the text never replaces the clicked card.
+  const [pinnedKey, setPinnedKey] = useState<string | null>(null);
+  const [hoverKey, setHoverKey] = useState<string | null>(null);
+  const [lookedNames, setLookedNames] = useState<ReadonlyMap<number, string>>(new Map());
 
   const entries = useMemo<Entry[]>(() => {
     const newestFirst = [...cards].reverse();
@@ -165,9 +171,24 @@ export function PileViewer({
     }));
   }, [cards]);
 
-  const preview = entries.find((entry) => entry.key === previewKey) ?? entries[0] ?? null;
+  const preview = entries.find((entry) => entry.key === hoverKey) ?? entries.find((entry) => entry.key === pinnedKey) ?? entries[0] ?? null;
   const tone = usableGlowToneForPile(cards);
   const anyLegal = entries.some((entry) => legalKeys?.has(zoneKey(entry.card.controller, entry.card.location, entry.card.sequence)));
+
+  // A pile card that came without a name gets it by passcode (one batch), so the grid label and aria-label name it too.
+  useEffect(() => {
+    if (!open) return;
+    const codes = [...new Set(entries.flatMap(({ card }) => (!isHiddenCard(card) && card.code != null && !hasCardName(card) ? [card.code] : [])))];
+    if (codes.length === 0) return;
+    let live = true;
+    getDuelCards(codes).then(({ cards: infos }) => {
+      if (!live) return;
+      const names = new Map<number, string>();
+      for (const info of infos) if (hasCardName(info)) names.set(info.code, info.name);
+      setLookedNames(names);
+    }, () => {});
+    return () => { live = false; };
+  }, [open, entries]);
 
   // Open: remember where focus was and move it inside. Close: give it back.
   useEffect(() => {
@@ -245,7 +266,7 @@ export function PileViewer({
 
   function onCardClick(event: ReactMouseEvent<HTMLButtonElement>, key: string, card: DuelCard, legal: boolean) {
     // A click always selects the card into the detail (touch has no hover, and some browsers do not focus a tapped button).
-    setPreviewKey(key);
+    setPinnedKey(key);
     if (legal && onActivateCard) onActivateCard(card, event.currentTarget);
     else onInspectCard(card);
   }
@@ -282,21 +303,21 @@ export function PileViewer({
         </header>
 
         {preview ? (
-          <PileDetail entry={preview} total={total} styles={styles} />
+          <PileDetail key={preview.key} entry={preview} total={total} styles={styles} />
         ) : (
           <div className={styles.preview} aria-live="polite">
             <p className={styles.empty}>This pile is empty.</p>
           </div>
         )}
 
-        <ul ref={gridRef} className={styles.grid} role="list" aria-label={`${title}, newest first`}>
+        <ul ref={gridRef} className={styles.grid} role="list" aria-label={`${title}, newest first`} onMouseLeave={() => setHoverKey(null)}>
           {entries.map((entry) => {
             const { card, key, index } = entry;
             const hidden = isHiddenCard(card) || card.code == null;
             const zone = zoneKey(card.controller, card.location, card.sequence);
             const legal = legalKeys?.has(zone) ?? false;
             const selected = selectedKeys?.has(zone) ?? false;
-            const name = cardName(card);
+            const name = cardName(card, lookedNames);
             return (
               <li key={key} className={styles.cell}>
                 <button
@@ -309,11 +330,12 @@ export function PileViewer({
                   aria-label={`${name}, ${index + 1} of ${total}${legal ? ", can be chosen" : ""}`}
                   aria-pressed={selected}
                   onMouseEnter={() => {
-                    setPreviewKey(key);
+                    setHoverKey(key);
                     onHoverCard?.(card);
                   }}
                   onFocus={() => {
-                    setPreviewKey(key);
+                    setPinnedKey(key);
+                    setHoverKey(null);
                     onHoverCard?.(card);
                   }}
                   onKeyDown={(event) => onCardKeyDown(event, index)}
