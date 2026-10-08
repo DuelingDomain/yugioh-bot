@@ -420,6 +420,29 @@ describe("privacy in the rendered panel", () => {
     }
   });
 
+  it("measures the card text again once the web fonts are loaded", async () => {
+    const prayers = info(45171524, "Mitsurugi Prayers", "Apply 1 of these effects.\r\n● Add 1 \"Mitsurugi\" monster from your Deck to your hand.\r\n● Take 800 damage.", 0x10002);
+    const events = [activate(1, 0, prayers, z(0, SZONE, 0), { description: "Apply 1 of these effects" })];
+    let loaded!: () => void;
+    Object.defineProperty(document, "fonts", { configurable: true, value: { ready: new Promise<void>((resolve) => { loaded = resolve; }) } });
+    const scroll = vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(100);
+    const client = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(120);
+    try {
+      const { container } = render(<ChainFx {...base} events={events} reducedMotion />);
+      flush(60);
+      const text = () => hero(container)?.querySelector<HTMLElement>('[data-chain-effect="text"]');
+      expect(text()?.hasAttribute("data-overflow")).toBe(false);
+      // The new font wraps the lines: the same box is now too short.
+      scroll.mockReturnValue(300);
+      await act(async () => { loaded(); await Promise.resolve(); });
+      expect(text()?.getAttribute("data-overflow")).toBe("true");
+    } finally {
+      scroll.mockRestore();
+      client.mockRestore();
+      Reflect.deleteProperty(document, "fonts");
+    }
+  });
+
   it("keeps the row list a list when it scrolls, as a named keyboard stop", () => {
     const stack = (container: HTMLElement) => container.querySelector<HTMLElement>("ol[data-overflow]");
     const scroll = vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(300);

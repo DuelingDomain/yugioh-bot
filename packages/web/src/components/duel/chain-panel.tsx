@@ -41,12 +41,15 @@ function useOverflow(ref: { current: HTMLElement | null }, content: unknown): bo
   useLayoutEffect(() => {
     const node = ref.current;
     if (!node) return;
-    const measure = () => setOver(node.scrollHeight > node.clientHeight + 1);
+    let live = true;
+    const measure = () => { if (live) setOver(node.scrollHeight > node.clientHeight + 1); };
     measure();
-    if (typeof ResizeObserver === "undefined") return;
+    // Web fonts change the line breaks without resizing the box, so measure again once they are loaded.
+    document.fonts?.ready.then(measure, () => {});
+    if (typeof ResizeObserver === "undefined") return () => { live = false; };
     const watch = new ResizeObserver(measure);
     watch.observe(node);
-    return () => watch.disconnect();
+    return () => { live = false; watch.disconnect(); };
   }, [ref, content]);
   return over;
 }
