@@ -278,7 +278,7 @@
 .cr[data-shape="narrow"] .hero { padding: 8px 8px 9px 10px; }
 .cr[data-shape="narrow"] .main { flex-direction: column; gap: 7px; }
 .cr[data-shape="narrow"] .art { width: 78px; }
-.cr[data-shape="narrow"] .name { font-size: 17px; }
+.cr[data-shape="narrow"] .name { font-size: calc(17px * var(--tt, 1)); }
 .cr[data-shape="narrow"] .effect { font-size: calc(14px * var(--tt, 1)); -webkit-line-clamp: 6; }
 .cr[data-shape="narrow"] .sub { font-size: calc(12px * var(--tt, 1)); }
 .cr[data-shape="narrow"] .row { gap: 5px; padding: 5px 8px; }
@@ -291,7 +291,7 @@
 @media (max-height: 800px) {
   .cr[data-shape="narrow"] .main { flex-direction: row; gap: 8px; }
   .cr[data-shape="narrow"] .art { width: 50px; }
-  .cr[data-shape="narrow"] .name { font-size: 15px; }
+  .cr[data-shape="narrow"] .name { font-size: calc(15px * var(--tt, 1)); }
   .cr:not([data-shape="sheet"]) .hero { padding-top: 6px; padding-bottom: 7px; }
   .cr:not([data-shape="sheet"]) .eyebrow { margin-bottom: 4px; }
 }
