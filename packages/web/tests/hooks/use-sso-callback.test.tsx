@@ -24,6 +24,23 @@ afterEach(() => { cleanup(); vi.useRealTimers(); });
 const mount = async () => { const view = renderHook(() => useSsoCallback()); await act(async () => {}); return view; };
 
 describe("SSO callback", () => {
+  it.each([
+    ["username", "form_username_exists", "username"], ["legalAccepted", "legal_accepted", "legal"], ["code", "form_code_incorrect", "code"],
+  ])("keeps invited callback %s signal errors out of the SSO banner", async (field, code, expectedField) => {
+    if (field === "code") { mock.signUpSignal.signUp.missingFields = []; mock.signUpSignal.signUp.unverifiedFields = ["email_address"]; }
+    const view = await mount();
+    mock.signUpSignal.errors.fields[field] = { code };
+    view.rerender(); await act(async () => {});
+    expect(view.result.current.state.fieldErrors[expectedField as "username" | "legal" | "code"]).toBeTruthy();
+    expect(view.result.current.state.banner).toBeNull(); expect(mock.hardNavigate).not.toHaveBeenCalled();
+  });
+  it("keeps non-waitlist global signup errors out of the SSO banner after callback", async () => {
+    const view = await mount();
+    mock.signUpSignal.errors.global = [{ code: "form_username_exists" }];
+    view.rerender(); await act(async () => {});
+    expect(view.result.current.state.fieldErrors.username).toBe("That username is taken.");
+    expect(view.result.current.state.banner).toBeNull(); expect(mock.hardNavigate).not.toHaveBeenCalled();
+  });
   it("resumes missing username and consent with Clerk's locked email", async () => {
     const { result } = await mount();
     expect(result.current.resumeKind).toBe("sign-up");

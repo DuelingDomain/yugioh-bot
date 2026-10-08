@@ -31,6 +31,30 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe("sign-in flow", () => {
+  it("shows a support message for a refused recovery account", () => {
+    window.history.replaceState(null, "", "/sign-in?error=discord_recovery_support");
+    const { result } = setup();
+    expect(result.current.state.banner?.body).toContain("support@duelingdomain.com");
+    expect(result.current.state.step).toBe("signin");
+  });
+  it("shows a friendly cancellation message after Discord denial", () => {
+    window.history.replaceState(null, "", "/sign-in?error=discord_recovery_cancelled");
+    const { result } = setup();
+    expect(result.current.state.banner).toMatchObject({ tone: "info", body: expect.stringMatching(/cancelled.*try again/i) });
+    expect(mock.hardNavigate).not.toHaveBeenCalled();
+  });
+  it("keeps later password signal errors on the password field after a failed SSO attempt", async () => {
+    mock.signal.signIn.sso.mockResolvedValue(error("network_error"));
+    const { result } = setup();
+    await act(() => result.current.actions.continueWithDiscord());
+    await act(() => result.current.actions.submitIdentifier("a@test.dev"));
+    mock.signal.signIn.password.mockImplementation(async () => {
+      mock.signal.errors.fields.password = { code: "form_password_incorrect" }; return error("form_password_incorrect");
+    });
+    await act(() => result.current.actions.submitPassword("wrong"));
+    expect(result.current.state.fieldErrors.password).toBe("That password doesn't match. Try again or reset it.");
+    expect(result.current.state.banner).toBeNull(); expect(mock.hardNavigate).not.toHaveBeenCalled();
+  });
   it.each(["sign_up_restricted_waitlist", "not_allowed_access", "sign_up_mode_restricted"])("recovers Discord refusal %s", async code => {
     mock.signal.signIn.sso.mockResolvedValue(error(code));
     const { result } = setup();

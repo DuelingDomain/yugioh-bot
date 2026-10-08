@@ -31,6 +31,14 @@ export function useSignInFlow(opts: { returnTo: string; marketingUrl: string | n
 
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => {
+    const error = new URLSearchParams(window.location.search).get("error");
+    if (error === "discord_recovery_support") {
+      dispatch({ type: "error", view: { kind: "banner", banner: { tone: "bad", body: "Your account needs help linking. Contact support@duelingdomain.com." } } });
+    } else if (error === "discord_recovery_cancelled") {
+      dispatch({ type: "error", view: { kind: "banner", banner: { tone: "info", body: "Discord sign-in was cancelled. You can try again when you're ready." } } });
+    }
+  }, []);
+  useEffect(() => {
     if (!pending) return;
     const timer = setTimeout(() => dispatch({ type: "error", view: mapClerkError({ code: "fetch_timeout" }, "password") }), 30000);
     return () => clearTimeout(timer);
@@ -81,7 +89,7 @@ export function useSignInFlow(opts: { returnTo: string; marketingUrl: string | n
     busy.current = true;
     dispatch({ type: "submit" });
     try { await work(); } catch (error) { fail(error, context); }
-    finally { busy.current = false; if (mounted.current) dispatch({ type: "settled" }); }
+    finally { ssoAttempt.current = false; busy.current = false; if (mounted.current) dispatch({ type: "settled" }); }
   };
   const advance = async () => {
     const signIn = latest.current.signIn!;

@@ -6,18 +6,20 @@ import { migrate } from "@yugidraft/shared/db";
 import { createUserService, type User } from "@yugidraft/shared/services";
 import { sessionFixture } from "./fixtures/session";
 
-const mock = vi.hoisted(() => ({ db: null as unknown as Database.Database, list: vi.fn(), create: vi.fn(), remove: vi.fn(), token: vi.fn() }));
+const mock = vi.hoisted(() => ({ db: null as unknown as Database.Database, get: vi.fn(), metadata: vi.fn(), list: vi.fn(), create: vi.fn(), remove: vi.fn(), token: vi.fn() }));
 vi.mock("@/lib/db", () => ({ getDb: () => mock.db }));
 vi.mock("@/lib/session-identity", () => sessionFixture(() => null));
-vi.mock("@clerk/nextjs/server", () => ({ clerkClient: async () => ({ users: { getUserList: mock.list, createUser: mock.create, deleteUser: mock.remove }, signInTokens: { createSignInToken: mock.token } }) }));
+vi.mock("@clerk/nextjs/server", () => ({ clerkClient: async () => ({ users: { getUser: mock.get, updateUserMetadata: mock.metadata, getUserList: mock.list, createUser: mock.create, deleteUser: mock.remove }, signInTokens: { createSignInToken: mock.token } }) }));
 import { GET as start } from "../app/api/auth/existing-player/start/route";
 import { GET as callback } from "../app/api/auth/callback/discord/route";
 import { POST as complete } from "../app/api/auth/existing-player/complete/route";
 import { POST as ticket } from "../app/api/auth/existing-player/ticket/route";
 import { IDENTITY_COOKIE, OAUTH_COOKIE, TICKET_COOKIE, readIdentity, sealCookie, openCookie } from "../src/lib/existing-player";
+import { syncClerkUser } from "../src/lib/clerk-sync";
 
 const ORIGIN = "https://app.test";
 const discordId = "900000000000000101";
+const clerkUser = (id: string) => ({ id, banned: false, locked: false, externalAccounts: [], privateMetadata: {} });
 let player: User;
 let fetcher: ReturnType<typeof vi.fn>;
 let ip = 0;
@@ -52,6 +54,7 @@ beforeEach(() => {
   mock.db = new Database(":memory:"); migrate(mock.db);
   player = createUserService(mock.db).ensureDiscord({ discordUserId: discordId, displayName: "Yugi" });
   mock.list.mockResolvedValue({ data: [], totalCount: 0 }); mock.create.mockResolvedValue({ id: "user_created" });
+  mock.get.mockImplementation(async (id: string) => clerkUser(id)); mock.metadata.mockResolvedValue({});
   mock.remove.mockResolvedValue({}); mock.token.mockResolvedValue({ token: "fake-clerk-ticket" });
   fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
   vi.spyOn(console, "info").mockImplementation(() => {});
@@ -92,6 +95,12 @@ describe("Discord recovery start and cookies", () => {
   });
 });
 describe("Discord recovery callback", () => {
+  it.each(["access_denied", "cancelled"])("returns Discord error=%s to a friendly sign-in page", async error => {
+    const p = await proof();
+    const res = await callback(request(`/api/auth/callback/discord?state=${p.state}&error=${error}`, { cookie: p.cookie }));
+    expect(res.status).toBe(303); expect(res.headers.get("location")).toBe(`${ORIGIN}/sign-in?error=discord_recovery_cancelled`);
+    expect(fetcher).not.toHaveBeenCalled(); expect(mock.token).not.toHaveBeenCalled(); expectCleared(res);
+  });
   it.each(["", "?state=untrusted&code=x"])("rejects missing proof before contacting Discord (%s)", async query => {
     const res = await callback(request(`/api/auth/callback/discord${query}`));
     expect(res.status).toBe(400); expect(fetcher).not.toHaveBeenCalled(); expectCleared(res);
@@ -129,6 +138,80 @@ describe("Discord recovery callback", () => {
     const res = await verifiedCallback(); expect(res.headers.get("location")).toBe(`${ORIGIN}/sign-in?existing_player=1`);
     expect(mock.token).toHaveBeenCalledWith({ userId: "user_stored", expiresInSeconds: 120 });
     expect(mock.list).not.toHaveBeenCalled(); expect(mock.create).not.toHaveBeenCalled(); expectCleared(res);
+  });
+  it.each([{ verified: false }, { email: null }, { email: "" }])("recovers an already-linked row without requiring Discord email %j", async profile => {
+    createUserService(mock.db).claimExistingDiscordUser(player.id, discordId, "user_stored");
+    const res = await verifiedCallback(profile);
+    expect(res.headers.get("location")).toBe(`${ORIGIN}/sign-in?existing_player=1`);
+    expect(mock.token).toHaveBeenCalledWith({ userId: "user_stored", expiresInSeconds: 120 });
+  });
+  it("preserves an already-linked Discord row through the real first web sync and second recovery", async () => {
+    const users = createUserService(mock.db);
+    users.claimExistingDiscordUser(player.id, discordId, "user_stored");
+    const playerId = Number(mock.db.prepare("insert into players(guild_id,user_id,discord_user_id,display_name) values('g',?,?,?)").run(player.id, discordId, "Yugi").lastInsertRowid);
+    const stored = { ...clerkUser("user_stored"), privateMetadata: { unrelated: "preserve" } as Record<string, unknown> };
+    mock.get.mockResolvedValue(stored);
+    mock.metadata.mockImplementation(async (id, params) => {
+      expect(id).toBe("user_stored"); stored.privateMetadata = { ...stored.privateMetadata, ...params.privateMetadata }; return stored;
+    });
+    const first = await verifiedCallback();
+    expect(first.headers.get("location")).toBe(`${ORIGIN}/sign-in?existing_player=1`);
+    fetcher.mockResolvedValueOnce(Response.json({ id: stored.id, username: "yugi", first_name: null, last_name: null, image_url: null,
+      external_id: String(player.id), private_metadata: stored.privateMetadata, primary_email_address_id: null, email_addresses: [], external_accounts: [] }));
+    const result = await syncClerkUser("user_stored");
+    expect(result.user).toMatchObject({ id: player.id, clerkUserId: "user_stored", discordUserId: discordId });
+    expect(users.findByDiscordId(discordId)?.id).toBe(player.id);
+    expect(mock.db.prepare("select id,user_id,discord_user_id from players").get()).toEqual({ id: playerId, user_id: player.id, discord_user_id: discordId });
+    expect(stored.privateMetadata.unrelated).toBe("preserve");
+    expect(mock.metadata.mock.invocationCallOrder[0]).toBeLessThan(mock.token.mock.invocationCallOrder[0]);
+    const second = await verifiedCallback();
+    expect(second.headers.get("location")).toBe(`${ORIGIN}/sign-in?existing_player=1`);
+    expect(mock.token).toHaveBeenCalledTimes(2); expect(mock.metadata).toHaveBeenCalledTimes(1);
+  });
+  it.each(["banned", "locked", "deleted", "missing", "404"])("refuses a %s stored Clerk user with a support redirect", async status => {
+    createUserService(mock.db).claimExistingDiscordUser(player.id, discordId, "user_stored");
+    if (status === "404") mock.get.mockRejectedValue({ status: 404 });
+    else mock.get.mockResolvedValue(status === "missing" ? null : { ...clerkUser("user_stored"), [status]: true });
+    const res = await verifiedCallback();
+    expect(res.status).toBe(303); expect(res.headers.get("location")).toBe(`${ORIGIN}/sign-in?error=discord_recovery_support`);
+    expect(mock.get).toHaveBeenCalledWith("user_stored"); expect(mock.token).not.toHaveBeenCalled(); expect(mock.metadata).not.toHaveBeenCalled(); expectCleared(res);
+    expect(createUserService(mock.db).findByDiscordId(discordId)?.id).toBe(player.id);
+  });
+  it("always redirects a refused callback even when the GET client accepts JSON", async () => {
+    createUserService(mock.db).claimExistingDiscordUser(player.id, discordId, "user_stored");
+    mock.get.mockResolvedValue({ ...clerkUser("user_stored"), banned: true });
+    const p = await proof();
+    fetcher.mockResolvedValueOnce(Response.json({ access_token: "fake-discord-token" }))
+      .mockResolvedValueOnce(Response.json({ id: discordId, email: "yugi@test.dev", verified: true }));
+    const req = request(`/api/auth/callback/discord?state=${p.state}&code=test-code`, { cookie: p.cookie });
+    req.headers.set("accept", "application/json");
+    const res = await callback(req);
+    expect(res.status).toBe(303); expect(res.headers.get("location")).toBe(`${ORIGIN}/sign-in?error=discord_recovery_support`);
+    expect(mock.token).not.toHaveBeenCalled();
+  });
+  it.each(["external", "metadata"])("refuses a stored Clerk user claiming another Discord ID via %s", async claim => {
+    createUserService(mock.db).claimExistingDiscordUser(player.id, discordId, "user_stored");
+    mock.get.mockResolvedValue({ ...clerkUser("user_stored"), ...(claim === "external"
+      ? { externalAccounts: [{ provider: "oauth_discord", providerUserId: "900000000000000999", verification: { status: "verified" } }], privateMetadata: { existingPlayerDiscordId: discordId } }
+      : { privateMetadata: { existingPlayerDiscordId: "900000000000000999" } }) });
+    const res = await verifiedCallback();
+    expect(res.headers.get("location")).toBe(`${ORIGIN}/sign-in?error=discord_recovery_support`);
+    expect(mock.token).not.toHaveBeenCalled(); expect(mock.metadata).not.toHaveBeenCalled();
+  });
+  it.each(["external", "metadata"])("accepts a matching %s Discord claim without rewriting metadata", async claim => {
+    createUserService(mock.db).claimExistingDiscordUser(player.id, discordId, "user_stored");
+    mock.get.mockResolvedValue({ ...clerkUser("user_stored"), ...(claim === "external"
+      ? { externalAccounts: [{ provider: "oauth_discord", providerUserId: discordId, verification: { status: "verified" } }] }
+      : { privateMetadata: { existingPlayerDiscordId: discordId } }) });
+    const res = await verifiedCallback();
+    expect(res.headers.get("location")).toBe(`${ORIGIN}/sign-in?existing_player=1`); expect(mock.metadata).not.toHaveBeenCalled();
+  });
+  it("never issues a recovery ticket if saving the bootstrap Discord proof fails", async () => {
+    createUserService(mock.db).claimExistingDiscordUser(player.id, discordId, "user_stored");
+    mock.metadata.mockRejectedValue(new Error("private provider failure"));
+    const res = await verifiedCallback();
+    expect(res.status).toBe(503); expect(mock.token).not.toHaveBeenCalled();
+    expect(await res.text()).not.toContain("private provider failure"); expectCleared(res);
   });
   it("handles Discord provider failure without exposing upstream credentials", async () => {
     const p = await proof(); fetcher.mockRejectedValue(new Error("sensitive provider error"));
@@ -179,6 +262,22 @@ describe("recovery completion", () => {
     expect(res.cookies.get(TICKET_COOKIE)).toMatchObject({ httpOnly: true, secure: true, sameSite: "lax", maxAge: 120 });
     expect(res.headers.get("location")).not.toContain("fake-clerk-ticket");
     expect(console.info).toHaveBeenCalledWith(`[existing-player] users.id=${player.id} linked clerk user`);
+  });
+  it.each(["banned", "locked", "deleted"])("refuses a newly created Clerk user that is %s before ticket issuance", async status => {
+    if (status === "deleted") mock.get.mockRejectedValue({ status: 404 });
+    else mock.get.mockResolvedValue({ ...clerkUser("user_created"), [status]: true });
+    const res = await complete(request("/api/auth/existing-player/complete", { method: "POST", cookie: completionCookie(), body: { consent: true } }));
+    expect(res.status).toBe(303); expect(res.headers.get("location")).toBe(`${ORIGIN}/sign-in?error=discord_recovery_support`);
+    expect(mock.get).toHaveBeenCalledWith("user_created"); expect(mock.token).not.toHaveBeenCalled(); expectCleared(res);
+  });
+  it.each(["banned", "deleted"])("returns a support message to the consent form when the created Clerk user is %s", async status => {
+    if (status === "deleted") mock.get.mockRejectedValue({ status: 404 });
+    else mock.get.mockResolvedValue({ ...clerkUser("user_created"), banned: true });
+    const req = request("/api/auth/existing-player/complete", { method: "POST", cookie: completionCookie(), body: { consent: true } });
+    req.headers.set("accept", "application/json");
+    const res = await complete(req);
+    expect(res.status).toBe(409); expect((await res.json()).error).toContain("support@duelingdomain.com");
+    expect(mock.token).not.toHaveBeenCalled(); expect(res.cookies.get(TICKET_COOKIE)?.value).toBe(""); expectCleared(res);
   });
   it("retries a username collision with a valid unique suffix", async () => {
     mock.db.prepare("update users set username='A name! 💫' where id=?").run(player.id);

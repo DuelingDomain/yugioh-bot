@@ -86,9 +86,9 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
     if (!errors) return false;
     let found = false;
     for (const [name, error] of Object.entries(errors.fields)) {
-      if (error) { fail({ ...error, meta: { paramName: name === "legalAccepted" ? "legal_accepted" : name } }, context === "sso" ? "sso" : name === "code" ? "code" : "signup"); found = true; }
+      if (error) { fail({ ...error, meta: { paramName: name === "legalAccepted" ? "legal_accepted" : name } }, !opts.callback && context === "sso" ? "sso" : name === "code" ? "code" : "signup"); found = true; }
     }
-    for (const error of [...errors.raw ?? [], ...errors.global ?? []]) { fail(error, context); found = true; }
+    for (const error of [...errors.raw ?? [], ...errors.global ?? []]) { fail(error, opts.callback ? isWaitlistRefusal(error) ? "sso" : state.step === "code" ? "code" : "signup" : context); found = true; }
     return found;
   };
   const call = async (request: () => Promise<{ error: unknown }>, context: Parameters<typeof mapClerkError>[1], kind: Exclude<ResumeKind, null> = "sign-up", progressed = () => true) => {

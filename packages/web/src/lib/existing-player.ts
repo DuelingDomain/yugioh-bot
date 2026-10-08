@@ -99,8 +99,23 @@ export function recoveryRateLimit(request: NextRequest, stage: string): NextResp
   else clients.set(client, { count: 1, expiresAt: now + TTL * 1000 });
   return null;
 }
-export async function signInRecovery(request: NextRequest, clerkUserId: string): Promise<NextResponse> {
+export async function signInRecovery(request: NextRequest, clerkUserId: string, discordId: string): Promise<NextResponse> {
   const client = await clerkClient();
+  const refuse = () => clearTicketCookie(clearRecoveryCookies(request.method === "POST" && request.headers.get("accept") === "application/json"
+    ? recoveryError("Your account needs help linking. Contact support@duelingdomain.com.", 409)
+    : recoveryRedirect("/sign-in?error=discord_recovery_support")));
+  let user;
+  try { user = await client.users.getUser(clerkUserId); }
+  catch (error) { if ((error as { status?: number } | null)?.status === 404) return refuse(); throw error; }
+  if (!user || user.id !== clerkUserId || user.banned || user.locked || ("deleted" in user && user.deleted)) return refuse();
+  const discord = user.externalAccounts.filter(account => account.provider === "oauth_discord" && account.verification?.status === "verified");
+  const metadataId = user.privateMetadata.existingPlayerDiscordId;
+  const recoveryId = typeof metadataId === "string" && /^[0-9]{1,25}$/.test(metadataId) ? metadataId : null;
+  if (discord.some(account => account.providerUserId !== discordId) || (recoveryId !== null && recoveryId !== discordId)) return refuse();
+  // Preserve fresh Discord proof before the ticket's first profile sync.
+  if (!discord.length && recoveryId === null) {
+    await client.users.updateUserMetadata(clerkUserId, { privateMetadata: { existingPlayerDiscordId: discordId } });
+  }
   const { token } = await client.signInTokens.createSignInToken({ userId: clerkUserId, expiresInSeconds: 120 });
   const path = "/sign-in?existing_player=1";
   const response = request.headers.get("accept") === "application/json"
