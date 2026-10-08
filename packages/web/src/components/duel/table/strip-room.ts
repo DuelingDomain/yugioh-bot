@@ -22,6 +22,8 @@ export const STRIP_ROOM = {
   minWidth: 520,
   /** The least width of a room that has to step down in width: the header wraps on more lines (the real chrome is measured). */
   narrowest: 420,
+  /** The first tier (clear of every occupied zone too) may step down in width to this many columns before any zone is covered. */
+  clearCols: 3,
   /** At most this many tiles in a row: more wrap and scroll. */
   maxCols: 6,
   /** The rows the wanted room shows before the strip scrolls. */
@@ -165,7 +167,7 @@ function variantsOf(count: number, box: { width: number; height: number }, tiles
  * what matters. The panel may cover the field, empty zones first, and the top strip of your hand (STRIP_ROOM.handCover of its height, no
  * more). The tiers, first that has a place wins (a tier ranks every size and place by the distance to the anchor plus a cost per step
  * down in size, so a narrower or lower room wins only where it is clearly nearer):
- *   1. wanted tiles at the wanted width, clear of the HUD, the keep-out of your hand (handKeepOut), the chain's cards and every card on the board;
+ *   1. wanted tiles at the wanted width, or narrower down to STRIP_ROOM.clearCols columns, clear of the HUD, the keep-out of your hand (handKeepOut), the chain's cards and every card on the board;
  *   2. wanted tiles, clear of the same but the cards on the board (the fields are covered, never the cards of the chain);
  *   3. smaller tiles (STRIP_ROOM.smaller), clear of the same as 2;
  *   4. nothing is clear of the key HUD: the wanted tiles (large cards matter more than a ring) in the size and place that cover the least, compared in this order: the chain's cards, a deep cover of
@@ -220,7 +222,7 @@ export function planStripRoom(input: StripRoomInput): StripRoom | undefined {
   const wantedTile = variantsOf(count, box, [STRIP_ROOM.card], chrome, false);
   const smallerTiles = variantsOf(count, box, STRIP_ROOM.smaller, chrome, false);
   const clear =
-    search([...hud, ...soft, ...hand, ...source, ...zones], wantedTile.filter((v) => v.narrower === 0)) ??
+    search([...hud, ...soft, ...hand, ...source, ...zones], wantedTile.filter((v) => v.narrower === 0 || v.size.cols >= Math.min(STRIP_ROOM.clearCols, wanted.cols))) ??
     search([...hud, ...soft, ...hand, ...source], wantedTile) ??
     search([...hud, ...soft, ...hand, ...source], smallerTiles);
   if (clear) return clear;
