@@ -30,9 +30,21 @@
   margin-left: 0;
 }
 
-.hb > div {
+.hb > div,
+.hb > div > div {
   width: 100%;
   height: 100%;
+}
+
+/* The size of one back, for a card that lands on a hand with no back drawn for it. It takes no space and no pointer. */
+.probe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: calc(var(--cw) * 0.72);
+  height: calc(var(--z) * 0.72);
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .count {

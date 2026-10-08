@@ -1168,7 +1168,7 @@ export const SeatField = memo(function SeatField({
             />
           </div>
         ) : null}
-        {hand === "backs" && view ? <RivalHand seat={seat} count={view.hand.length} name={label} /> : null}
+        {hand === "backs" && view ? <RivalHand seat={seat} count={view.hand.length} name={label} cards={view.hand} /> : null}
       </div>
     </EquipLinksContext.Provider>
   );
