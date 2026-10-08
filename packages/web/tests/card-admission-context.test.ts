@@ -5,6 +5,15 @@ const host = vi.hoisted(() => ({ call: vi.fn(), actor: vi.fn() }));
 vi.mock("@/lib/duel-host", () => ({ callDuelHost: host.call, requireDuelActor: host.actor, duelErrorResponse: vi.fn() }));
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => { throw new Error("No DB needed for complete card metadata"); }) }));
 afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); });
+it("card search returns Invalid JSON for malformed request bodies", async () => {
+  host.actor.mockResolvedValue({ ok: true, guildId: "g", playerId: 1 });
+  const { POST } = await import("../app/api/decks/cards/route");
+  const result = await POST(new Request("http://local/cards", { method: "POST", body: "{" }));
+  expect(result.status).toBe(400);
+  expect(await result.json()).toEqual({ error: "Invalid JSON" });
+  expect(host.call).not.toHaveBeenCalled();
+});
+
 it("passes editor mode and room context through both client card requests", async () => {
   const fetcher = vi.fn(async (_url: string, _options?: RequestInit) => Response.json({ cards: [], missing: [], total: 0 }));
   vi.stubGlobal("fetch", fetcher);

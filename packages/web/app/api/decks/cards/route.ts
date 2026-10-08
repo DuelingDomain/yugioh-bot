@@ -16,7 +16,7 @@ export async function POST(request: Request) {
     context = cardAdmissionContext(body);
     cardQuery = parseCardQuery(body);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Invalid JSON";
+    const message = error instanceof SyntaxError ? "Invalid JSON" : error instanceof Error ? error.message : "Invalid JSON";
     return NextResponse.json({ error: message }, { status: 400 });
   }
   const result = await callDuelHost({
