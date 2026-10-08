@@ -11,6 +11,8 @@ import {
 } from "@yugidraft/shared/services";
 import { normalizeImportedDeck } from "../src/deck-import.js";
 import { createDuelHost, type DuelHost, type TournamentNotice } from "../src/host.js";
+import { cardScriptHash } from "../src/card-script-hash.js";
+import { loadCardDatabase } from "../src/cards.js";
 import { buildPracticeBotDeck } from "../src/practice-bot.js";
 import type { DuelGameWorker, GameOptions } from "../src/worker-client.js";
 import { engineDataDirectory as DATA } from "./engine-data-dir.js";
@@ -298,6 +300,43 @@ describe("series game lobby ops", () => {
 });
 
 describe("series advance", () => {
+  it.each(["challenge", "tournament"] as const)("%s: a new auto block cannot stop games 2 and 3 or side decking", async kind => {
+    const app = setup();
+    const { host, workers } = openHost(app);
+    const deck = { ...deckWithSide(), main: [18144506, ...deckWithSide().main.slice(1)] };
+    const started = kind === "challenge" ? challenge(app, 3) : tournamentMatch(app, 3, deck).started;
+    if (kind === "challenge") {
+      await post(host, { op: "deck", slug: started.duel.slug, playerId: app.p1, deck });
+      expect((await post(host, { op: "deck", slug: started.duel.slug, playerId: app.p2, deck })).status).toBe(200);
+    }
+    if (kind === "tournament") {
+      await post(host, { op: "ready", slug: started.duel.slug, playerId: app.p1 });
+      await post(host, { op: "ready", slug: started.duel.slug, playerId: app.p2 });
+    }
+    await endGame(host, workers[0]!, started.duel.slug, app.p1, app.duels.get(started.duel.slug, GUILD).seats.find(seat => seat.playerId === app.p1)!.seat);
+    const code = 18144506;
+    app.db.prepare(`INSERT INTO card_script_auto_blocks
+      (code, reason, blocked_at, distinct_duels, error_count, threshold, window_days, bundle_version, script_hash)
+      VALUES (?, 'investigating', CURRENT_TIMESTAMP, 3, 3, 3, 7, 'test', ?)`)
+      .run(code, cardScriptHash(loadCardDatabase(DATA), code));
+    const check = await post(host, { op: "check-deck", playerId: app.p1, mode: "normal", deck });
+    expect(check.data.report.issues.some((issue: { message: string }) => issue.message.includes("is unavailable"))).toBe(true);
+    const fresh = app.series.createChallenge({ guildId: GUILD, challengerPlayerId: app.p1, opponentPlayerId: app.p3, bestOf: 3, ranked: false, mode: "normal" });
+    expect((await post(host, { op: "deck", slug: fresh.duel.slug, playerId: app.p1, deck })).status).toBe(400);
+    const sided = await post(host, { op: "series-side", slug: started.duel.slug, playerId: app.p1, deck });
+    expect(sided.status).toBe(200);
+    for (let gameNumber = 2; gameNumber <= 3; gameNumber++) {
+      const previous = app.series.get(started.series.id, GUILD).currentDuelSlug!;
+      await post(host, { op: "series-ready", slug: previous, playerId: app.p1 });
+      const ready = await post(host, { op: "series-ready", slug: previous, playerId: app.p2 });
+      expect(ready.status).toBe(200);
+      const current = app.series.get(started.series.id, GUILD).currentDuelSlug!;
+      expect(app.duels.get(current, GUILD)).toMatchObject({ status: "active", gameNumber });
+      if (gameNumber === 2) await endGame(host, workers[1]!, current, app.p1, app.duels.get(current, GUILD).seats.find(seat => seat.playerId === app.p2)!.seat);
+    }
+    await host.close(); app.db.close();
+  });
+
   it("starts the next game when the side deck window ends, with the loser in seat 0", async () => {
     vi.useFakeTimers();
     const app = setup();

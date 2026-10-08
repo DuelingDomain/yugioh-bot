@@ -376,11 +376,13 @@ export function createDuelHost(options: {
   /** Check one deck against the real table format, so a Tag or FFA table also refuses the cards that do not work there. */
   async function sessionDeckOptions(session: DuelSession, playerId: number): Promise<InspectDeckOptions> {
     const table = session.format;
+    const startedMatch = session.seriesId != null && ((session.gameNumber ?? 1) > 1 || session.status !== "lobby");
+    const cardBlocks = startedMatch ? loadCardBlockList(undefined, options.dataDirectory) : admissionEntries();
     const tournamentId = session.seriesId ? series.get(session.seriesId, session.guildId).tournamentId : null;
     const draftId = tournamentId === null ? null : createTournamentDuelService(options.db).rules(tournamentId).draftId;
-    if (draftId === null) return { table, cardBlocks: admissionEntries() };
+    if (draftId === null) return { table, cardBlocks };
     const draftPool = await loadDraftDeckPool({ draftId, playerId, guildId: session.guildId, dataDirectory: options.dataDirectory, db: options.db });
-    return { table, draftPool, cardBlocks: admissionEntries() };
+    return { table, draftPool, cardBlocks };
   }
 
   async function validateSessionDeck(mode: DuelMode, deck: DuelDeck, settings: DuelSettings, format: DuelFormat, context?: { session: DuelSession; playerId: number }): Promise<void> {
