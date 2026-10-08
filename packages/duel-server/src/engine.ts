@@ -178,7 +178,7 @@ export interface EngineStartupScript {
 export interface EngineDiagnostic {
   turn: number;
   phase: string;
-  /** `response` (a MSG_SELECT_CHAIN prompt), `msg200`, `msg201`, `msg202`, `win`, `win-ignored`, `eliminate`, `stderr` (a core log line), `chain-options` (display data error). */
+  /** `response` (a MSG_SELECT_CHAIN prompt), `msg200`, `msg201`, `msg202`, `win`, `win-ignored`, `eliminate`, `stderr` (a core log line), `chain-options` / `attack-target-query` (display data error). */
   kind: string;
   /** The seat the entry is about, or null. */
   seat: number | null;
@@ -923,15 +923,25 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   };
 
   const battleAttackTargets = (attacker: DuelZoneRef) => {
-    const query = queryAttackTargets(attacker);
-    return {
-      attackTargets: {
-        monsters: query.targets.filter(target => !eliminated.has(target.controller) && !isLeaving(target.controller))
-          .map(({ controller, location, sequence }) => ({ controller, location, sequence })),
-        direct: query.directSeats.filter(seat => !eliminated.has(seat) && !isLeaving(seat)),
-      },
-      attackerChoosesTarget: query.attackerChoosesTarget,
-    };
+    const errorCount = errors.length;
+    try {
+      const query = queryAttackTargets(attacker);
+      if (errors.length > errorCount) throw new Error("Failed to query battle attack targets");
+      return {
+        attackTargets: {
+          monsters: query.targets.filter(target => !eliminated.has(target.controller) && !isLeaving(target.controller))
+            .map(({ controller, location, sequence }) => ({ controller, location, sequence })),
+          direct: query.directSeats.filter(seat => !eliminated.has(seat) && !isLeaving(seat)),
+        },
+        attackerChoosesTarget: query.attackerChoosesTarget,
+      };
+    } catch {
+      // Display metadata is optional. Discard only this probe's queued errors so the
+      // next answer can proceed; the FFA declaration query still fails normally.
+      errors.length = errorCount;
+      diagnose("attack-target-query", attacker.controller, "Failed to query battle attack targets");
+      return { attackTargets: null, attackerChoosesTarget: undefined };
+    }
   };
 
   const withBattleAttackTargets = (current: PendingPrompt): PendingPrompt => {
@@ -1039,7 +1049,6 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
           synchroSummon,
         },
       );
-      next = withBattleAttackTargets(next);
       const attackYesNo = (waiting.type === OcgMessageType.SELECT_YESNO || waiting.type === OcgMessageType.SELECT_EFFECTYN) && waiting.description === 31n;
       const directSeatPick = waiting.type === OcgMessageType.SELECT_OPTION && waiting.options.length > 0 && waiting.options.every(option => directAttackSeat(option) != null);
       if ((format === "ffa3" || format === "ffa4") && !completingAttackPick && (attackYesNo || directSeatPick)) {
@@ -1062,6 +1071,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
         respond(next, automated);
         continue;
       }
+      next = withBattleAttackTargets(next);
       promptSeq += 1;
       next.id = `p${revision}-${promptSeq}`;
       next.prompt.id = next.id;
