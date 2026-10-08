@@ -1,4 +1,7 @@
-import { cardBlockIndex } from "./card-block-list.js";
+import { cardBlockIndex, loadCardBlockList } from "./card-block-list.js";
+import { createAutoBlockPolicy } from "./script-error-autoblock.js";
+import { cardScriptHash } from "./card-script-hash.js";
+import { loadCardPasscodeRemaps } from "@yugidraft/shared/db";
 import { createScriptErrorRecorder } from "./script-error-store.js";
 import { scriptErrorModeFromEnv } from "./script-errors.js";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
@@ -323,7 +326,17 @@ export function createDuelHost(options: {
   const games = new Map<string, LiveGame>();
   const replayCache = new Map<string, DuelReplay>();
   const queues = new Map<string, Promise<unknown>>();
-  const recordScriptError = createScriptErrorRecorder(options.db);
+  const remaps = loadCardPasscodeRemaps(options.dataDirectory);
+  const hashes = new Map<number, string | null>();
+  const autoBlocks = createAutoBlockPolicy(options.db, { bundleVersion: manifest.bundleVersion,
+    remaps,
+    scriptHash: code => {
+      if (!hashes.has(code)) hashes.set(code, cardScriptHash(loadCardDatabase(options.dataDirectory), code));
+      return hashes.get(code)!;
+    }, now: options.now });
+  autoBlocks.entries(); // Lift stale revision blocks at startup, before the first admission request.
+  const admissionEntries = () => [...loadCardBlockList(undefined, options.dataDirectory), ...autoBlocks.entries()];
+  const recordScriptError = createScriptErrorRecorder(options.db, console.error, autoBlocks);
   const spawn = (duelId?: number): DuelGameWorker => options.createWorker?.() ?? new GameWorker(
     duelId === undefined ? undefined : (error) => recordScriptError(duelId, error),
     (error) => console.error(JSON.stringify({ event: "card_script_fatal", duelId, ...error })),
@@ -365,13 +378,13 @@ export function createDuelHost(options: {
     const table = session.format;
     const tournamentId = session.seriesId ? series.get(session.seriesId, session.guildId).tournamentId : null;
     const draftId = tournamentId === null ? null : createTournamentDuelService(options.db).rules(tournamentId).draftId;
-    if (draftId === null) return { table };
+    if (draftId === null) return { table, cardBlocks: admissionEntries() };
     const draftPool = await loadDraftDeckPool({ draftId, playerId, guildId: session.guildId, dataDirectory: options.dataDirectory, db: options.db });
-    return { table, draftPool };
+    return { table, draftPool, cardBlocks: admissionEntries() };
   }
 
   async function validateSessionDeck(mode: DuelMode, deck: DuelDeck, settings: DuelSettings, format: DuelFormat, context?: { session: DuelSession; playerId: number }): Promise<void> {
-    const checks = context ? await sessionDeckOptions(context.session, context.playerId) : { table: format };
+    const checks = context ? await sessionDeckOptions(context.session, context.playerId) : { table: format, cardBlocks: admissionEntries() };
     validateDeck(mode, deck, options.dataDirectory, settings, checks);
   }
 
@@ -1511,7 +1524,7 @@ export function createDuelHost(options: {
       throw new RequestError(error instanceof Error ? error.message : "Preset board is invalid", 500);
     }
     const catalog = loadCardDatabase(options.dataDirectory);
-    const blocked = cardBlockIndex(new Map([...catalog.all()].map((card) => [card.code, card])), undefined, options.dataDirectory);
+    const blocked = cardBlockIndex(new Map([...catalog.all()].map((card) => [card.code, card])), admissionEntries(), options.dataDirectory);
     for (const code of compiled.codes) {
       const entry = blocked.get(code);
       if (entry) throw new RequestError(`${catalog.get(code)?.name ?? code} is unavailable: ${entry.reason}`, 400);
@@ -2277,12 +2290,13 @@ export function createDuelHost(options: {
         throw new RequestError("Provide at most 1000 positive card passcodes", 400);
       }
       const catalog = loadCardDatabase(options.dataDirectory);
+      const entries = admissionEntries();
       const cards = [];
       const missing: number[] = [];
       for (const code of new Set<number>(body.codes)) {
         const card = catalog.deckCard(code);
         if (card) {
-          const unavailableReason = deckCardUnavailableReason(catalog, code);
+          const unavailableReason = deckCardUnavailableReason(catalog, code, entries);
           cards.push({ ...card, ...(unavailableReason ? { unavailableReason } : {}), altArtCount: (cardArtworkFamily(catalog, code)?.artworks.length ?? 1) - 1 });
         }
         else missing.push(code);
@@ -2310,11 +2324,11 @@ export function createDuelHost(options: {
         if (!Number.isSafeInteger(body.draftId) || (body.draftId as number) < 1 || mode !== "normal") throw new RequestError("Invalid draft deck context", 400);
         draftPool = await loadDraftDeckPool({ draftId: body.draftId as number, playerId: actor, guildId, dataDirectory: options.dataDirectory, db: options.db });
       }
-      return { deck, report: inspectDeck(mode, deck, options.dataDirectory, settings, { draftPool }) };
+      return { deck, report: inspectDeck(mode, deck, options.dataDirectory, settings, { draftPool, cardBlocks: admissionEntries() }) };
     }
     if (op === "card-query") {
       try {
-        return queryCards(loadCardDatabase(options.dataDirectory), parseCardQuery(body.cardQuery));
+        return queryCards(loadCardDatabase(options.dataDirectory), parseCardQuery(body.cardQuery), admissionEntries());
       } catch (error) {
         if (error instanceof CardQueryError) throw new RequestError(error.message, 400);
         throw error;

@@ -302,3 +302,50 @@ A listed card is unavailable in Normal and Domain decks at 1v1, Tag, FFA3 and FF
 Deck-builder search retains blocked matches with an Unavailable label and the configured reason. Adding and selecting them as Deck Master is disabled. Importing or keeping an existing deck does not grant permission to start a duel: deck validation and duel admission reject it with `<card name> is unavailable: <reason>`, and validation reports reference every blocked copy.
 
 This is an admission policy, separate from the engine bundle. Editing it does not change `bundleVersion`, Lua scripts or WASM, and it does not change how an already running duel or its replay executes. Remove an entry and redeploy/restart to make the card available again; no engine rebuild is needed.
+
+### Automatic blocks after repeated script errors
+
+In tolerant mode, a card becomes unavailable for new duels and deck checks after
+runtime errors in **3 distinct duels within 7 days**. Repeated events, retries,
+queries and recoveries in one duel contribute only one duel to the threshold.
+`DUEL_SCRIPT_ERROR_BLOCK_DUELS` defaults to `3` (positive integer);
+`DUEL_SCRIPT_ERROR_BLOCK_WINDOW_DAYS` defaults to `7` (integer `1`–`30`, within the
+telemetry retention period). Compose passes both settings to the duel service.
+Recreate that service after changing settings. `DUEL_SCRIPT_ERRORS=strict` ignores
+auto blocks and strict errors never trigger them; the manual list remains enforced.
+
+The shared SQLite migration adds `card_script_auto_blocks` with passcode, neutral
+reason, block time, distinct-duel and sampled-error counts, threshold/window,
+bundle version, script SHA-256 and optional clear time. New occurrence rows include
+resolved code, script hash and saved error policy. Historical rows without revision
+metadata cannot trigger a block. Counts use the current script revision, validated
+passcode remaps and the configured rolling window. The existing 20-sample cap still
+applies. A block persists beyond that window until the script changes or an operator
+clears it; window expiry alone does not grant repeated chances to a broken script.
+
+On startup and admission, a different resolved card-script hash clears an auto block.
+The comparison follows core near-code aliases, official/prerelease basename priority,
+artwork fallback and installed shared card-script patches. An unrelated data update
+with identical script bytes keeps the block. A changed script starts a fresh counting
+revision. Multiplayer suffix overlays and shared helper changes alone do not change
+this per-card base-script hash. The manual list is applied first and its reason wins
+across the whole alias family. Players see only the usual `<card name> is unavailable`
+message with `Its effect script is being investigated`, never Lua diagnostics.
+
+To clear an auto block without clearing telemetry or changing the manual list, run
+this small command with Node 22 from the repository root (no environment-file loading):
+
+```sh
+prlimit --core=0 -- node --import tsx packages/duel-server/src/clear-script-auto-block.ts 12345678 /path/to/bot.sqlite /path/to/duel-engine
+```
+
+In the deployed duel container, use
+`node /app/packages/duel-server/dist/clear-script-auto-block.js 12345678` via
+`docker exec <duel-container-id>`. It uses the container's existing `DATABASE_PATH`
+and `DUEL_DATA_DIR`. Either the old or graduated passcode is accepted. Clearing
+establishes a fresh counting baseline; new errors in the configured number of distinct
+duels can block it again. There is no restart requirement for a clear.
+
+Auto blocks are host admission state only. They never enter worker options, saved
+setup, commands, journal identity, recovery or replay. A currently running duel is
+never changed or interrupted by a threshold being reached.

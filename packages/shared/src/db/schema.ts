@@ -831,7 +831,20 @@ export function migrate(db: Database.Database) {
       last_duel_id integer not null,
       last_seen text not null default current_timestamp
     );
-    -- Only the deterministic occurrence key is retained; no private duel snapshot is stored here.
+    -- Operational admission state; it never participates in bundle or journal identity.
+    create table if not exists card_script_auto_blocks (
+      code integer primary key,
+      reason text not null,
+      blocked_at text not null,
+      distinct_duels integer not null,
+      error_count integer not null,
+      threshold integer not null,
+      window_days integer not null,
+      bundle_version text not null,
+      script_hash text not null,
+      cleared_at text
+    );
+    -- Occurrence keys and revision metadata only; no private duel snapshot is stored here.
     create table if not exists card_script_error_occurrences (
       duel_id integer not null,
       command_hash text not null,
@@ -1092,11 +1105,16 @@ export function migrate(db: Database.Database) {
   `);
 
   addColumnIfMissing(db, "card_script_error_occurrences", "code", "integer not null default 0");
+  // Historical samples have no reliable revision/policy; they cannot trigger automatic blocks.
+  addColumnIfMissing(db, "card_script_error_occurrences", "resolved_code", "integer");
+  addColumnIfMissing(db, "card_script_error_occurrences", "script_hash", "text");
+  addColumnIfMissing(db, "card_script_error_occurrences", "script_error_mode", "text");
   // SQLite cannot ALTER ADD COLUMN with CURRENT_TIMESTAMP. Unknown old ages are safely prunable
   // only for ended/deleted duels; active duel keys are retained by the recorder's cleanup.
   addColumnIfMissing(db, "card_script_error_occurrences", "created_at", "text not null default '1970-01-01 00:00:00'");
   db.exec("create index if not exists card_script_error_duel_code_idx on card_script_error_occurrences (duel_id, code)");
   db.exec("create index if not exists card_script_error_created_idx on card_script_error_occurrences (created_at)");
+  db.exec("create index if not exists card_script_error_revision_idx on card_script_error_occurrences (resolved_code, script_hash, created_at)");
   migrateConfigPoolsToCubeCards(db);
   migrateIdentity(db);
 }

@@ -22,6 +22,8 @@ import { cardBlockIndex, type CardBlockEntry } from "./card-block-list.js";
 export type { MultiplayerTable };
 
 export interface InspectDeckOptions {
+  /** Current host admission policy (manual entries first). Never used by engine recovery. */
+  cardBlocks?: readonly CardBlockEntry[];
   /** Table the deck is for. Default "1v1" adds no multiplayer rule. */
   table?: MultiplayerTable;
   /** Server-loaded picks only. Each forced pick adds one copy to the draft limit. */
@@ -740,8 +742,8 @@ function collectMultiplayerIssues(
   }
 }
 
-function collectBlockedIssues(deck: DuelDeck, catalog: Catalog, issues: DuelDeckIssue[], dataDirectory: string): void {
-  const blocked = cardBlockIndex(catalog.cards, undefined, dataDirectory);
+function collectBlockedIssues(deck: DuelDeck, catalog: Catalog, issues: DuelDeckIssue[], dataDirectory: string, entries?: readonly CardBlockEntry[]): void {
+  const blocked = cardBlockIndex(catalog.cards, entries, dataDirectory);
   const groups = new Map<CardBlockEntry, DuelDeckCardRef[]>();
   const add = (section: DuelDeckCardRef["section"], code: number, index: number) => {
     const entry = blocked.get(code);
@@ -807,7 +809,7 @@ export function inspectDeck(
   if (deck.side.length > 15) issues.push({ message: "Side Deck must have 15 or fewer cards", cards: [] });
 
   const catalog = loadCatalog(dataDirectory);
-  collectBlockedIssues(deck, catalog, issues, dataDirectory);
+  collectBlockedIssues(deck, catalog, issues, dataDirectory, options.cardBlocks);
   const identities = identityIndex(catalog);
   const main = resolveSection(catalog, "main", deck.main, issues);
   const extra = resolveSection(catalog, "extra", deck.extra, issues);
