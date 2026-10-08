@@ -76,5 +76,6 @@ it("a helper-only fix lifts a block and the candidate report announces the lift"
   const snapshot = prodScriptErrors(db, source, new Map());
   helper = "fixed";
   expect(prodScriptErrorReport(snapshot, (code, kind) => cardScriptHash(source, code, kind))).toContain("auto block will lift");
+  policy.refresh();
   expect(policy.entries()).toEqual([]);
 });

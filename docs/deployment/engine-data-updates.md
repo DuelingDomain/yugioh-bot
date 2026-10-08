@@ -325,7 +325,7 @@ passcode remaps and the configured rolling window. The existing 20-sample cap st
 applies. A block persists beyond that window until the script changes or an operator
 clears it; window expiry alone does not grant repeated chances to a broken script.
 
-On startup and admission, a different resolved script identity clears an auto block.
+On startup and after accepted telemetry, a different resolved script identity clears an auto block.
 The comparison follows core near-code aliases, official/prerelease basename priority,
 artwork fallback and installed shared card-script patches. An unrelated data update
 with identical script bytes keeps the block. A changed script starts a fresh counting
@@ -334,7 +334,9 @@ mp-utility.lua, and the legacy Normal transform. Blocks are scoped independently
 to legacy/pinned 1v1 and multiplayer, and to Normal/Domain; a multiplayer error
 never blocks a 1v1 deck. The small operational block table migrates to a composite
 (passcode, engine kind) key; existing rows are retained for startup revision checks. The manual list is applied first and its reason wins
-across the whole alias family. Players see only the usual `<card name> is unavailable`
+across the whole alias family. Admission arrays and catalog indexes are cached by manual-list identity and active
+block signature; deck/search/details reads never hash scripts or write block rows.
+Operator clears remain visible on the next request. Players see only the usual `<card name> is unavailable`
 message with `Its effect script is being investigated`, never Lua diagnostics.
 
 To clear an auto block without clearing telemetry or changing the manual list, run
