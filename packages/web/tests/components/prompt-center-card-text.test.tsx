@@ -108,6 +108,18 @@ describe("PromptCenter card text", () => {
     expect(screen.getByRole("button", { name: "Show full text" })).toBeTruthy();
   });
 
+  it("follows the dense host marker while the prompt is open", async () => {
+    mockScreen(false);
+    mount(optionPrompt(LONG), true);
+    const host = document.querySelector("[data-prompt-dense]") as HTMLElement;
+    const body = screen.getByText(/Activate 1 of these effects/);
+    expect(body.getAttribute("data-clamped")).toBe("true");
+    await act(async () => { host.removeAttribute("data-prompt-dense"); });
+    expect(body.getAttribute("data-clamped")).toBe("false");
+    await act(async () => { host.setAttribute("data-prompt-dense", "true"); });
+    expect(body.getAttribute("data-clamped")).toBe("true");
+  });
+
   it("names the box the toggle opens", () => {
     mockScreen(true);
     mount(optionPrompt(LONG));
