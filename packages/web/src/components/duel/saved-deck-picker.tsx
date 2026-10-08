@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { DuelDeck, DuelMode, SavedDeck } from "@yugidraft/shared/duels";
 import { listSavedDecks } from "../decks/api";
 import { SheetButton, SheetSelect, sheetButtonClass } from "./sheet-ui";
@@ -34,10 +34,13 @@ export function useSavedDecks() {
 
   const reload = useCallback(() => setRetry((value) => value + 1), []);
   const add = useCallback((saved: SavedDeck) => {
-    // A list that did not load yet is not replaced by a one-deck list; the reload finds the new deck.
     if (latest.current) {
       latest.current = [saved, ...latest.current];
       setDecks(latest.current);
+    } else {
+      // The list is loading or failed to load. A one-deck list would hide the other decks, so load it
+      // again; the new deck is saved already, so the new list holds it.
+      setRetry((value) => value + 1);
     }
   }, []);
   return { decks, error, reload, add, latest };
@@ -60,6 +63,7 @@ export function SavedDeckPicker({ mode, disabled, list, onLoad }: {
 }) {
   const { decks, error, reload } = list;
   const [selected, setSelected] = useState("");
+  const hintId = useId();
 
   const matching = decks?.filter((saved) => saved.mode === mode) ?? [];
   const otherFormat = decks?.filter((saved) => saved.mode !== mode) ?? [];
@@ -70,6 +74,7 @@ export function SavedDeckPicker({ mode, disabled, list, onLoad }: {
     if (!saved || onLoad(saved.deck)) setSelected(value);
   }
 
+  const showHint = Boolean(decks) && (matching.length === 0 || otherFormat.length > 0);
   const placeholder = error ? "Saved decks unavailable"
     : !decks ? "Loading saved decks…"
     : matching.length ? "Choose a deck"
@@ -78,7 +83,7 @@ export function SavedDeckPicker({ mode, disabled, list, onLoad }: {
   return (
     <section className={styles.head} aria-label="Saved decks">
       <div className={styles.addRow}>
-        <SheetSelect label="Use a saved deck" className={styles.savedSelect}
+        <SheetSelect label="Use a saved deck" className={styles.savedSelect} describedBy={showHint ? hintId : undefined}
           value={current ? selected : ""} disabled={disabled || !decks} onChange={choose}
           choices={[
             { value: "", label: placeholder },
@@ -93,8 +98,8 @@ export function SavedDeckPicker({ mode, disabled, list, onLoad }: {
         <Link href="/decks" className={sheetButtonClass("quiet", "sm")}>Manage decks</Link>
       </div>
       {error ? <p role="alert" className={ui.alert}>{error}</p> : null}
-      {decks && (matching.length === 0 || otherFormat.length > 0) ? (
-        <p className={styles.muted}>
+      {showHint ? (
+        <p id={hintId} className={styles.muted}>
           {otherFormat.length > 0
             ? `${otherFormat.length === 1 ? "1 saved deck uses" : `${otherFormat.length} saved decks use`} another format and can't be loaded here. `
             : ""}
