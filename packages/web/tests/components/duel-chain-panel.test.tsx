@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import React from "react";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DuelCard, DuelCardInfo, DuelChainLink, DuelEvent, DuelSeatView, DuelZoneRef } from "@yugidraft/shared/duels";
@@ -378,6 +380,212 @@ describe("privacy in the rendered panel", () => {
     expect(text).toContain("your hand card 1");
   });
 
+  it("lists every option of a card that lets its owner pick, for a viewer who is not the owner", () => {
+    const prayers = info(45171524, "Mitsurugi Prayers", "Apply 1 of these effects.\r\n● Add 1 \"Mitsurugi\" monster from your Deck to your hand.\r\n● Take 800 damage.\r\nOnce per turn.", 0x10002);
+    const { container } = render(
+      <ChainFx {...base} mySeat={1} events={[activate(1, 0, prayers, z(0, SZONE, 0), { description: "Apply 1 of these effects" })]} reducedMotion />,
+    );
+    flush(60);
+    const text = hero(container)?.querySelector('[data-chain-effect="text"]');
+    expect(text?.textContent).toContain("Card text");
+    expect(Array.from(text?.querySelectorAll("[data-chain-option]") ?? []).map((option) => option.textContent)).toEqual([
+      "Add 1 \"Mitsurugi\" monster from your Deck to your hand.", "Take 800 damage.",
+    ]);
+    // The engine's words are part of the printed text, so they are not said twice.
+    expect(hero(container)?.querySelector('[data-chain-effect="string"]')).toBeNull();
+  });
+
+  it("puts the options in one list and fades and scrolls the text only when the layout really cuts it", () => {
+    const prayers = info(45171524, "Mitsurugi Prayers", "Apply 1 of these effects.\r\n● Add 1 \"Mitsurugi\" monster from your Deck to your hand.\r\n● Take 800 damage.\r\nOnce per turn.", 0x10002);
+    const events = [activate(1, 0, prayers, z(0, SZONE, 0), { description: "Apply 1 of these effects" })];
+    const text = (container: HTMLElement) => hero(container)?.querySelector<HTMLElement>('[data-chain-effect="text"]');
+    // Nothing is cut (jsdom lays nothing out): a plain box, a list, no scroll stop.
+    const fits = render(<ChainFx {...base} events={events} reducedMotion />);
+    flush(60);
+    expect(text(fits.container)?.querySelectorAll("ul > li[data-chain-option]")).toHaveLength(2);
+    expect(text(fits.container)?.querySelector("p[data-chain-option]")).toBeNull();
+    expect(text(fits.container)?.hasAttribute("data-overflow")).toBe(false);
+    expect(text(fits.container)?.hasAttribute("tabindex")).toBe(false);
+    fits.unmount();
+    // The box is shorter than its text: it scrolls and is a keyboard stop with a name.
+    const scroll = vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(300);
+    const client = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(120);
+    try {
+      const cut = render(<ChainFx {...base} events={events} reducedMotion />);
+      flush(60);
+      expect(text(cut.container)?.getAttribute("data-overflow")).toBe("true");
+      expect(text(cut.container)?.getAttribute("tabindex")).toBe("0");
+      expect(text(cut.container)?.getAttribute("aria-label")).toBe("Card text, scrollable");
+    } finally {
+      scroll.mockRestore();
+      client.mockRestore();
+    }
+  });
+
+  it("measures the card text again once the web fonts are loaded", async () => {
+    const prayers = info(45171524, "Mitsurugi Prayers", "Apply 1 of these effects.\r\n● Add 1 \"Mitsurugi\" monster from your Deck to your hand.\r\n● Take 800 damage.", 0x10002);
+    const events = [activate(1, 0, prayers, z(0, SZONE, 0), { description: "Apply 1 of these effects" })];
+    let loaded!: () => void;
+    Object.defineProperty(document, "fonts", { configurable: true, value: { ready: new Promise<void>((resolve) => { loaded = resolve; }) } });
+    const scroll = vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(100);
+    const client = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(120);
+    try {
+      const { container } = render(<ChainFx {...base} events={events} reducedMotion />);
+      flush(60);
+      const text = () => hero(container)?.querySelector<HTMLElement>('[data-chain-effect="text"]');
+      expect(text()?.hasAttribute("data-overflow")).toBe(false);
+      // The new font wraps the lines: the same box is now too short.
+      scroll.mockReturnValue(300);
+      await act(async () => { loaded(); await Promise.resolve(); });
+      expect(text()?.getAttribute("data-overflow")).toBe("true");
+    } finally {
+      scroll.mockRestore();
+      client.mockRestore();
+      Reflect.deleteProperty(document, "fonts");
+    }
+  });
+
+  describe("the option the player chose", () => {
+    const prayers = () => info(45171524, "Mitsurugi Prayers", "Apply 1 of these effects.\r\n\u25cf Add 1 \"Mitsurugi\" monster from your Deck to your hand.\r\n\u25cf Take 800 damage.\r\nOnce per turn.", 0x10002);
+    const chose = (chosenOptions?: { index?: number; text: string }[]) => {
+      const events = [
+        activate(1, 0, prayers(), z(0, SZONE, 0), { description: "Apply 1 of these effects" }),
+        { ...ev("chain-resolving", 1), ...(chosenOptions ? { chosenOptions } : {}) },
+      ];
+      const view = render(<ChainFx {...base} events={events} reducedMotion />);
+      flush(60);
+      const bullets = Array.from(hero(view.container)?.querySelectorAll("[data-chain-option]") ?? []);
+      return {
+        view,
+        marked: bullets.filter((bullet) => bullet.getAttribute("data-chosen") === "true").map((bullet) => bullet.textContent?.replace(/^Chosen: /, "")),
+        said: Array.from(hero(view.container)?.querySelectorAll("[data-chain-chose-option]") ?? []).map((node) => node.textContent),
+        line: hero(view.container)?.querySelector("[data-chain-chose]") ?? null,
+      };
+    };
+
+    it("marks the bullet that matches by text and says the choice", () => {
+      const { marked, said, line } = chose([{ index: 1, text: "Take 800 damage" }]);
+      expect(marked).toEqual(["Take 800 damage."]);
+      expect(said).toEqual(["Take 800 damage"]);
+      expect(line?.textContent).toBe("ChoseTake 800 damage");
+    });
+
+    it("tells the chosen bullet to a screen reader, and only that one", () => {
+      const { view } = chose([{ text: "Take 800 damage" }]);
+      const bullets = Array.from(hero(view.container)?.querySelectorAll("[data-chain-option]") ?? []);
+      expect(bullets.map((bullet) => bullet.textContent)).toEqual(["Add 1 \"Mitsurugi\" monster from your Deck to your hand.", "Chosen: Take 800 damage."]);
+    });
+
+    it("shows the choice in the response window: the activate event has none, the live chain has it", () => {
+      const events = [activate(1, 0, prayers(), z(0, SZONE, 0), { description: "Apply 1 of these effects" })];
+      const chain: DuelChainLink[] = [{ index: 1, seat: 0, code: 45171524, name: "Mitsurugi Prayers", chosenOptions: [{ text: "Take 800 damage" }] }];
+      const view = render(<ChainFx {...base} chain={chain} events={events} reducedMotion />);
+      flush(60);
+      const bullets = Array.from(hero(view.container)?.querySelectorAll("[data-chain-option]") ?? []);
+      expect(bullets.filter((bullet) => bullet.getAttribute("data-chosen") === "true").map((bullet) => bullet.textContent?.replace(/^Chosen: /, ""))).toEqual(["Take 800 damage."]);
+      expect(Array.from(hero(view.container)?.querySelectorAll("[data-chain-chose-option]") ?? []).map((node) => node.textContent)).toEqual(["Take 800 damage"]);
+    });
+
+    describe("when the panel is already mounted", () => {
+      const events = () => [activate(1, 0, prayers(), z(0, SZONE, 0), { description: "Apply 1 of these effects" })];
+      const link = (chosenOptions?: { text: string }[]): DuelChainLink[] => [{ index: 1, seat: 0, code: 45171524, name: "Mitsurugi Prayers", ...(chosenOptions ? { chosenOptions } : {}) }];
+      const read = (container: HTMLElement) => ({
+        marked: Array.from(hero(container)?.querySelectorAll("[data-chain-option][data-chosen=true]") ?? []).map((bullet) => bullet.textContent?.replace(/^Chosen: /, "")),
+        said: Array.from(hero(container)?.querySelectorAll("[data-chain-chose-option]") ?? []).map((node) => node.textContent),
+      });
+
+      it("marks the choice when the activate event and the live chain arrive together", () => {
+        const view = render(<ChainFx {...base} chain={[]} events={[]} reducedMotion />);
+        view.rerender(<ChainFx {...base} chain={link([{ text: "Take 800 damage" }])} events={events()} reducedMotion />);
+        flush(60);
+        expect(read(view.container)).toEqual({ marked: ["Take 800 damage."], said: ["Take 800 damage"] });
+      });
+
+      it("marks the choice when only the live chain gets it, after the link is shown", () => {
+        const view = render(<ChainFx {...base} chain={[]} events={[]} reducedMotion />);
+        view.rerender(<ChainFx {...base} chain={link()} events={events()} reducedMotion />);
+        flush(60);
+        expect(read(view.container)).toEqual({ marked: [], said: [] });
+        view.rerender(<ChainFx {...base} chain={link([{ text: "Take 800 damage" }])} events={events()} reducedMotion />);
+        flush(60);
+        expect(read(view.container)).toEqual({ marked: ["Take 800 damage."], said: ["Take 800 damage"] });
+      });
+    });
+
+    it("marks no bullet for a choice known only by its prompt index, and still says it", () => {
+      const { marked, said } = chose([{ index: 0, text: "Option 1" }]);
+      expect(marked).toEqual([]);
+      expect(said).toEqual(["Option 1"]);
+    });
+
+    it("shows only the Chose line when the choice fits no bullet", () => {
+      const { marked, said, line } = chose([{ text: "Draw 3 cards" }]);
+      expect(marked).toEqual([]);
+      expect(said).toEqual(["Draw 3 cards"]);
+      expect(line).not.toBeNull();
+    });
+
+    it("marks and lists two chosen options", () => {
+      const { marked, said } = chose([{ index: 1, text: "Take 800 damage" }, { index: 0, text: "Add 1 \"Mitsurugi\" monster from your Deck to your hand" }]);
+      expect(marked).toEqual(["Add 1 \"Mitsurugi\" monster from your Deck to your hand.", "Take 800 damage."]);
+      expect(said).toEqual(["Take 800 damage", "Add 1 \"Mitsurugi\" monster from your Deck to your hand"]);
+    });
+
+    it("shows nothing extra without a choice", () => {
+      const { marked, line } = chose(undefined);
+      expect(marked).toEqual([]);
+      expect(line).toBeNull();
+      expect(chose([]).line).toBeNull();
+    });
+
+    it("shows the same choice to the other seat", () => {
+      const events = [
+        activate(1, 1, prayers(), z(1, SZONE, 0), { description: "Apply 1 of these effects" }),
+        { ...ev("chain-resolving", 1), chosenOptions: [{ index: 1, text: "Take 800 damage" }] },
+      ];
+      const { container } = render(<ChainFx {...base} events={events} reducedMotion />);
+      flush(60);
+      expect(hero(container)?.querySelector('[data-chain-option][data-chosen="true"]')?.textContent).toContain("Take 800 damage.");
+      expect(hero(container)?.querySelector("[data-chain-chose]")?.textContent).toContain("Take 800 damage");
+    });
+
+    it("keeps the choice after the link has resolved", () => {
+      const events = [
+        activate(1, 0, prayers(), z(0, SZONE, 0), { description: "Apply 1 of these effects" }),
+        { ...ev("chain-resolving", 1), chosenOptions: [{ index: 1, text: "Take 800 damage" }] },
+        { ...ev("chain-resolved", 1), chosenOptions: [{ index: 1, text: "Take 800 damage" }] },
+      ];
+      const { container } = render(<ChainFx {...base} events={events} reducedMotion />);
+      flush(60);
+      expect(hero(container)?.querySelector("[data-chain-chose]")?.textContent).toContain("Take 800 damage");
+    });
+  });
+
+  it("keeps the row list a list when it scrolls, as a named keyboard stop", () => {
+    const stack = (container: HTMLElement) => container.querySelector<HTMLElement>("ol[data-overflow]");
+    const scroll = vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(300);
+    const client = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(120);
+    try {
+      const { container } = render(<ChainFx {...base} events={pair()} reducedMotion />);
+      flush(60);
+      expect(stack(container)?.tagName).toBe("OL");
+      expect(stack(container)?.hasAttribute("role")).toBe(false);
+      expect(stack(container)?.getAttribute("tabindex")).toBe("0");
+      expect(stack(container)?.getAttribute("aria-label")).toBe("Chain links, scrollable");
+      expect(stack(container)?.querySelectorAll(":scope > li")).toHaveLength(2);
+    } finally {
+      scroll.mockRestore();
+      client.mockRestore();
+    }
+  });
+
+  it("names the owner of every row", () => {
+    const { container } = render(<ChainFx {...base} events={pair()} reducedMotion />);
+    flush(60);
+    const owners = Array.from(container.querySelectorAll("[data-chain-row-owner]")).map((node) => node.textContent);
+    expect(owners).toEqual(["Opponent", "You"]);
+  });
+
   it("renders an unknown card as A card with no art, text or passcode anywhere in the DOM", () => {
     const secret = info(55144522, "", TRAP_TEXT, 4);
     const { container } = render(
@@ -404,5 +612,114 @@ describe("privacy in the rendered panel", () => {
     act(() => { fireEvent.click(strip(container)!); });
     expect(container.innerHTML).not.toContain("55144522");
     expect(strip(container)?.getAttribute("aria-label")).toContain("A card");
+  });
+});
+
+describe("while a prompt of the local player is open", () => {
+  const prayers = () => info(45171524, "Mitsurugi Prayers", "Apply 1 of these effects.\r\n● Add 1 \"Mitsurugi\" monster from your Deck to your hand.\r\n● Take 800 damage.\r\nOnce per turn.", 0x10002);
+  // One list of events, so a rerender replays nothing.
+  const played = [
+    activate(1, 0, prayers(), z(0, SZONE, 0), { description: "Apply 1 of these effects" }),
+    { ...ev("chain-resolving", 1), chosenOptions: [{ text: "Take 800 damage" }] },
+  ];
+  const fold = (c: HTMLElement) => hero(c)?.querySelector("[data-chain-fold]") as HTMLElement | null;
+  const draw = (promptOpen: boolean) => <ChainFx {...base} events={played} reducedMotion promptOpen={promptOpen} />;
+
+  it("keeps the full detail while no prompt is open", () => {
+    const { container } = render(draw(false));
+    flush(60);
+    expect(panel(container)?.getAttribute("data-compact")).toBeNull();
+    expect(hero(container)?.getAttribute("data-compact")).toBeNull();
+    expect(fold(container)?.getAttribute("data-folded")).toBeNull();
+    expect(fold(container)?.hasAttribute("inert")).toBe(false);
+    expect(hero(container)?.querySelectorAll("[data-chain-option]")).toHaveLength(2);
+  });
+
+  it("folds the card text and the options, and keeps the name, the owner, the choice and Resolving", () => {
+    const { container } = render(draw(true));
+    flush(60);
+    expect(panel(container)?.getAttribute("data-compact")).toBe("true");
+    expect(hero(container)?.getAttribute("data-compact")).toBe("true");
+    // The fold holds the text and the options; it is closed to focus and to a screen reader.
+    expect(fold(container)?.getAttribute("data-folded")).toBe("true");
+    expect(fold(container)?.hasAttribute("inert")).toBe(true);
+    expect(fold(container)?.querySelector("[data-chain-effect]")).not.toBeNull();
+    // What stays outside the fold.
+    const kept = hero(container)!;
+    expect(kept.querySelector("h3")?.textContent).toBe("Mitsurugi Prayers");
+    expect(kept.querySelector("[data-chain-art]")).not.toBeNull();
+    expect(kept.textContent).toContain("You");
+    expect(Array.from(kept.querySelectorAll("[data-chain-chose-option]")).map((node) => node.textContent)).toEqual(["Take 800 damage"]);
+    expect(kept.querySelector("[data-chain-chose]")?.closest("[data-chain-fold]")).toBeNull();
+    expect(kept.querySelector("[data-chain-waiting]")?.textContent).toContain("Resolving");
+  });
+
+  it("folds and unfolds the same box, so the height can transition and nothing remounts", () => {
+    const view = render(draw(false));
+    flush(60);
+    const before = hero(view.container);
+    const box = fold(view.container);
+    view.rerender(draw(true));
+    flush(60);
+    expect(hero(view.container)).toBe(before);
+    expect(fold(view.container)).toBe(box);
+    expect(box?.getAttribute("data-folded")).toBe("true");
+    view.rerender(draw(false));
+    flush(60);
+    expect(fold(view.container)).toBe(box);
+    expect(box?.getAttribute("data-folded")).toBeNull();
+    expect(box?.hasAttribute("inert")).toBe(false);
+    expect(hero(view.container)).toBe(before);
+  });
+
+  it("keeps the text of a link the player responds to: only the resolving link folds", () => {
+    // The chain is still being built (no link resolves): the player picks a target or a cost for a link, so its text stays open.
+    const building = [
+      activate(1, 1, info(100, "Opponent Spell", "Destroy 1 monster."), z(1, SZONE, 0), { description: "Destroy 1 monster." }),
+      activate(2, 0, info(200, "Own Trap", "Negate the activation."), z(0, SZONE, 1), { description: "Negate the activation." }),
+    ];
+    const { container } = render(<ChainFx {...base} events={building} reducedMotion promptOpen />);
+    flush(60);
+    expect(panel(container)?.getAttribute("data-compact")).toBeNull();
+    expect(hero(container)?.getAttribute("data-compact")).toBeNull();
+    expect(fold(container)?.getAttribute("data-folded")).toBeNull();
+    expect(fold(container)?.hasAttribute("inert")).toBe(false);
+  });
+
+  it("keeps the text of a link the player clicked during the prompt, and folds the live one again after", () => {
+    const resolving = [
+      activate(1, 1, info(100, "Opponent Spell", "Destroy 1 monster."), z(1, SZONE, 0), { description: "Destroy 1 monster." }),
+      activate(2, 0, info(200, "Own Trap", "Negate the activation."), z(0, SZONE, 1), { description: "Negate the activation." }),
+      ev("chain-resolving", 2),
+    ];
+    const { container } = render(<ChainFx {...base} events={resolving} reducedMotion promptOpen />);
+    flush(60);
+    const row = (n: number) => container.querySelector(`[data-chain-panel] button[data-chain-row="${n}"]`) as HTMLButtonElement;
+    expect(hero(container)?.textContent).toContain("Link 2 of 2");
+    expect(fold(container)?.getAttribute("data-folded")).toBe("true");
+    act(() => { fireEvent.click(row(1)); });
+    expect(hero(container)?.textContent).toContain("Link 1 of 2");
+    expect(panel(container)?.getAttribute("data-compact")).toBeNull();
+    expect(fold(container)?.getAttribute("data-folded")).toBeNull();
+    act(() => { fireEvent.click(row(1)); });
+    expect(hero(container)?.textContent).toContain("Link 2 of 2");
+    expect(fold(container)?.getAttribute("data-folded")).toBe("true");
+  });
+
+  it("animates the fold as a height transition, and not under reduced motion", () => {
+    const css = readFileSync(join(import.meta.dirname, "../../src/components/duel/chain-panel.module.css"), "utf8");
+    expect(css).toMatch(/\.fold \{[^}]*grid-template-rows: 1fr;[^}]*transition: grid-template-rows/);
+    expect(css).toMatch(/\.fold\[data-folded="true"\] \{[^}]*grid-template-rows: 0fr/);
+    expect(css).toMatch(/prefers-reduced-motion: reduce\) \{[\s\S]*?\.fold \{ transition: none !important; \}/);
+    expect(css).toMatch(/data-reduced="true"\]\) \.fold \{ transition: none; \}/);
+  });
+});
+
+describe("the shells say when a prompt is open", () => {
+  const duel = join(import.meta.dirname, "../../src/components/duel");
+  it("passes promptOpen to the panel in the room, the table and the Tag table", () => {
+    expect(readFileSync(join(duel, "room.tsx"), "utf8")).toMatch(/<ChainFx [^>]*promptOpen=\{promptMine && ownPromptOpen\(prompt, data\.mySeat\)\}/);
+    expect(readFileSync(join(duel, "table/table-shell.tsx"), "utf8")).toMatch(/<ChainFx [^>]*promptOpen=\{promptMine && ownPromptOpen\(prompt, viewerSeat\)\}/);
+    expect(readFileSync(join(duel, "tag/tag-fx.tsx"), "utf8")).toMatch(/<ChainFx [^>]*promptOpen=\{ownPromptOpen\(prompt, viewerSeat\)\}/);
   });
 });

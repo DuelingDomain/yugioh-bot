@@ -16,6 +16,13 @@ export function syncClerkUser(clerkUserId: string): Promise<LinkOutcome> {
     const json = await backend.getUser(clerkUserId);
     if (!json || json.id !== clerkUserId) throw new ClerkBackendError("Clerk user is unavailable", 0, "missing_user", null);
     const outcome = createUserService(getDb()).resolveClerkProfile(profileFromClerkUser(json));
+    // Recovery metadata bootstraps the link until Clerk owns it; then unlinking
+    // the external account must also revoke application recovery.
+    const recoveredDiscord = json.private_metadata?.existingPlayerDiscordId;
+    if (typeof recoveredDiscord === "string" && /^[0-9]{1,25}$/.test(recoveredDiscord) && json.external_accounts.some(account =>
+      account.provider === "oauth_discord" && account.verification?.status === "verified" && account.provider_user_id === recoveredDiscord)) {
+      void (async () => { await backend.updateUserMetadata(clerkUserId, { privateMetadata: { existingPlayerDiscordId: null } }); })().catch(() => {});
+    }
     if (outcome.foldedUserId !== null || json.external_id !== String(outcome.user.id)) {
       void (async () => {
         for (let attempt = 0; attempt < 3; attempt++) {

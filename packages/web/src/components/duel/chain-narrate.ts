@@ -5,7 +5,7 @@
 //    face-down or hidden card reaches the client without a name);
 //  - a target is named only when the viewer's redacted board shows it face-up. A passcode is never rendered.
 import type { DuelCard, DuelEvent, DuelSeatView, DuelZoneRef } from "@yugidraft/shared/duels";
-import { chainEffectText, chainKindLabel, type EffectText } from "./chain-effect-text";
+import { chainEffectText, chainFullText, chainKindLabel, type EffectText, type FullEffectText } from "./chain-effect-text";
 import {
   LOCATION_GRAVE,
   LOCATION_MZONE,
@@ -239,12 +239,19 @@ export function chainOutcomes(events: readonly DuelEvent[], state: ChainState, w
   return out;
 }
 
+function sameZone(a: DuelZoneRef, b: DuelZoneRef | null): boolean {
+  return b != null && a.controller === b.controller && a.location === b.location && a.sequence === b.sequence;
+}
+
 /** The lines for the effects of one link: destroyed, sent, banished, returned, summoned, damage, recovered. */
 function effectLines(events: readonly DuelEvent[], link: ChainLinkState, who: Who): string[] {
   const destroyed: Array<string | null> = [];
   const graveyard: Array<string | null> = [];
   const banished: Array<string | null> = [];
   const toHand: Array<string | null> = [];
+  // Cards that reach a hand, per seat (the seat the card goes to), in the order the seats first appear.
+  const added = new Map<number, Array<string | null>>();
+  const drawn = new Map<number, number>();
   const toDeck: Array<string | null> = [];
   const summoned: Array<{ verb: string; name: string | null }> = [];
   const damage: string[] = [];
@@ -255,8 +262,10 @@ function effectLines(events: readonly DuelEvent[], link: ChainLinkState, who: Wh
     if (event.kind === "destroy") {
       destroyed.push(name);
     } else if (event.kind === "move") {
-      // The source card going to the Graveyard after its own effect is cleanup, not what the effect did.
-      if (event.card != null && link.code != null && event.card.code === link.code) continue;
+      // The source card leaving its own zone for the Graveyard after its effect is cleanup, not what the effect did. A
+      // card of the same name that is drawn or searched (Pot of Greed drawing a Pot of Greed) is an effect. Old events carry
+      // no link zone, so there the card's own move is skipped as before.
+      if (event.card != null && link.code != null && event.card.code === link.code && (event.from == null || link.zone == null || sameZone(event.from, link.zone))) continue;
       if (event.reason === "destroy") {
         if (destroyEvents.length === 0) destroyed.push(name);
         continue;
@@ -264,7 +273,14 @@ function effectLines(events: readonly DuelEvent[], link: ChainLinkState, who: Wh
       const to = event.zone?.location;
       if (to === LOCATION_GRAVE) graveyard.push(name);
       else if (to === LOCATION_REMOVED) banished.push(name);
-      else if (to === 0x2) toHand.push(name);
+      else if (to === 0x2) {
+        // The hand is the card's way in: a draw, a card fetched from the Deck, Graveyard or banished pile, or a bounce from the field.
+        const from = event.from?.location;
+        const seat = event.zone?.controller ?? link.seat;
+        if (event.reason === "draw") drawn.set(seat, (drawn.get(seat) ?? 0) + 1);
+        else if (from === LOCATION_MZONE || from === LOCATION_SZONE) toHand.push(name);
+        else added.set(seat, [...(added.get(seat) ?? []), name]);
+      }
       else if (to === 0x1 || to === 0x40) toDeck.push(name);
     } else if (event.kind === "summon") {
       summoned.push({ verb: SUMMON_VERB[event.summonKind ?? "special"] ?? "Special Summoned", name });
@@ -280,6 +296,16 @@ function effectLines(events: readonly DuelEvent[], link: ChainLinkState, who: Wh
   if (destroyed.length > 0) lines.push(listCards("Destroyed", destroyed));
   if (graveyard.length > 0) lines.push(`${listCards("Sent", graveyard)} to the Graveyard`);
   if (banished.length > 0) lines.push(listCards("Banished", banished));
+  // The link's owner "Drew 2 cards"; another seat is named, like the damage lines.
+  for (const [seat, count] of drawn) {
+    const label = seat === link.seat ? "Drew" : `${chainSeatLabel(seat, who.mySeat, who.playerName, who.named)} drew`;
+    lines.push(`${label} ${count} ${count === 1 ? "card" : "cards"}`);
+  }
+  // A card the effect searched or recovered ("Added"), against one it bounced back from the field ("Returned").
+  for (const [seat, cards] of added) {
+    const label = seat === link.seat ? "Added" : `${chainSeatLabel(seat, who.mySeat, who.playerName, who.named)} added`;
+    lines.push(`${listCards(label, cards)} to the hand`);
+  }
   if (toHand.length > 0) lines.push(`${listCards("Returned", toHand)} to the hand`);
   if (toDeck.length > 0) lines.push(`${listCards("Returned", toDeck)} to the Deck`);
   for (const item of summoned) lines.push(`${item.verb} ${item.name ?? "a card"}`);
@@ -308,7 +334,11 @@ export interface HeroView {
   /** Art source. null for a card the client does not know: no art, no passcode. */
   code: number | null;
   effect: EffectText | null;
+  /** The full text for the panel: the engine's words for this activation and every printed line. null when there is none. */
+  full: FullEffectText | null;
   targets: HeroTarget[];
+  /** The text of each option the link's player chose; public to every seat. Empty when none was chosen. */
+  chosen: string[];
   /** The result of the link, or null when it is not known yet (the link is waiting or just started). */
   outcome: LinkOutcome | null;
   /** The link is resolving and has not reported a result yet. */
@@ -389,7 +419,10 @@ export function buildPanelView(input: PanelInput): PanelView {
       kind: known(link) ? chainKindLabel(link.cardType) : null,
       code: known(link) ? link.code : null,
       effect: chainEffectText(link),
+      full: chainFullText(link),
       targets: chainHeroTargets(link, targets, who),
+      // Behind the same gate as the name, the text and the bullets: nothing of an unknown card shows.
+      chosen: known(link) ? [...new Set((link.chosenOptions ?? []).map((option) => option.text.trim()).filter((text) => text !== ""))] : [],
       outcome,
       waiting: link.status === "resolving" && outcome == null,
       status: link.status,
@@ -441,4 +474,12 @@ export function buildStripView(view: PanelView): StripView {
 export function stripLabel(view: StripView): string {
   const base = `Chain Link ${view.index} of ${view.total}: ${view.name}, ${view.stateLabel.toLowerCase()}`;
   return `${base}${view.summary ? `. ${view.summary}` : ""}. Show chain details`;
+}
+
+/**
+ * Does the local player have an open prompt (a pick, an option, a yes/no) that is not the chain response window? The
+ * panel then shrinks to its compact form, so the prompt's own windows (the card peek) have the room to read a card.
+ */
+export function ownPromptOpen(prompt: { seat: number; context?: { type?: string } | null } | null | undefined, mySeat: number | null): boolean {
+  return prompt != null && mySeat != null && prompt.seat === mySeat && prompt.context?.type !== "chain";
 }

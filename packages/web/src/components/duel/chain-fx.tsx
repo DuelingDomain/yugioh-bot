@@ -104,6 +104,8 @@ export type ChainFxProps = {
   table?: string;
   /** engine.seats: the viewer's redacted board. The panel names a target from it, only when the target is a face-up public card. */
   seats?: readonly DuelSeatView[];
+  /** The local player has an open prompt that is not the chain response (`ownPromptOpen`): the panel shows the compact form. */
+  promptOpen?: boolean;
 };
 
 /** A phone or a narrow window: the panel is the strip, whatever the gutter. */
@@ -355,7 +357,7 @@ export function sequenceOwners(events: readonly DuelEvent[]): Map<number, number
   return owners;
 }
 
-export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerName, seatTones, priority, ended = false, table, seats }: ChainFxProps) {
+export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerName, seatTones, priority, ended = false, table, seats, promptOpen = false }: ChainFxProps) {
   // Classic: the module's own classes (the same object). 3D mode: the same keys with the solid classes added.
   const styles = useSkinStyles(baseStyles, "chain");
   const skinned = styles !== baseStyles;
@@ -897,7 +899,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
               ) : null}
             </div>
           ) : (
-            <ChainPanel view={view} shape={form} seatTones={seatTones} priority={priority} mySeat={mySeat} nameOf={playerName} panelRef={panelRef} />
+            <ChainPanel view={view} shape={form} compact={promptOpen} seatTones={seatTones} priority={priority} mySeat={mySeat} nameOf={playerName} panelRef={panelRef} />
           )}
         </div>
       ) : null}

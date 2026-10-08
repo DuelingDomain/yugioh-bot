@@ -13,8 +13,12 @@ import { auth } from "@/lib/auth";
 import { parseUserId } from "@/lib/user-id";
 import { getDb } from "@/lib/db";
 import { createScoringService } from "@yugidraft/shared/services";
+import { rankForRating } from "@yugidraft/shared/scoring";
 import { RejoinDraftBanner } from "@/components/draft/rejoin-draft";
 import { findRejoinDrafts } from "@/lib/rejoin-drafts";
+
+/** What a player with no rating row yet starts with. */
+const STARTING_PROFILE: StandingProfile = { rating: 1000, rank: rankForRating(1000), winnings: 0, currentStreak: 0 };
 
 interface Stats {
   wins: number;
@@ -133,15 +137,17 @@ export default async function DashboardPage() {
   }
 
   const hasPlayer = playerIds.length > 0;
+  // A new player: no player row yet, or a row (the sidebar's first poll creates one) with nothing played or joined.
+  const isNewPlayer = !hasPlayer || (tournaments.length === 0 && drafts.length === 0 && stats.wins + stats.losses === 0);
   const rounds = loadTournamentRounds(db, env.discordGuildId, tournaments);
   const viewerId = playerIds[0] ?? null;
   const rejoin = hasPlayer ? findRejoinDrafts(db, env.discordGuildId, userId) : [];
 
   return (
-    <PageFrame title="Dashboard" sub={hasPlayer ? <DashboardDate /> : undefined}>
+    <PageFrame title="Dashboard" sub={<DashboardDate />}>
       <RejoinDraftBanner drafts={rejoin} />
-      {!hasPlayer ? (
-        <WelcomePanel />
+      {isNewPlayer ? (
+        <WelcomePanel standing={<YourStanding profile={profileData ?? STARTING_PROFILE} record={stats} />} />
       ) : (
         <div className={styles.cols}>
           <section className={styles.tournaments} aria-labelledby="db-tournaments">

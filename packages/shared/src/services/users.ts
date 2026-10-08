@@ -28,6 +28,8 @@ export interface DiscordUserInput {
 export interface UserService {
   findById(id: number): User | undefined;
   findByDiscordId(discordUserId: string): User | undefined;
+  /** Claim a server-proven Discord identity without allocating or merging a user. */
+  claimExistingDiscordUser(id: number, discordUserId: string, clerkUserId: string): boolean;
   ensureDiscord(input: DiscordUserInput): User;
   createNonLogin(displayName: string): User;
   findByClerkId(clerkUserId: string): User | undefined;
@@ -124,6 +126,10 @@ export function createUserService(db: Database.Database): UserService {
   return {
     findById(id) { const row = byId.get(id); return row && mapUser(row); },
     findByDiscordId(discordUserId) { const row = byDiscord.get(discordUserId); return row && mapUser(row); },
+    claimExistingDiscordUser(id, discordUserId, clerkUserId) {
+      return db.transaction(() => db.prepare("update users set clerk_user_id=?,updated_at=current_timestamp where id=? and discord_user_id=? and clerk_user_id is null")
+        .run(clerkUserId, id, discordUserId).changes === 1).immediate();
+    },
     ensureDiscord(input) { return ensure.immediate(input); },
     createNonLogin(displayName) { return db.transaction(() => mapUser(byId.get(insert(displayName, null))!)).immediate(); },
     findByClerkId(clerkUserId) { const row = byClerk.get(clerkUserId); return row && mapUser(row); },

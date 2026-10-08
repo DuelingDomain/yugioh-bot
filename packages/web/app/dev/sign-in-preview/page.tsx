@@ -22,7 +22,7 @@ const one = (value: string | string[] | undefined) => (Array.isArray(value) ? va
  * `?view=sign-in|sign-up|sso-callback|access` renders the wired page views of Task 3b the same way.
  *
  * Review page for the sign-in step cards: `?step=signin|password|code|newpw|invite|invite-sso|err-username|err-invite|
- * err-signup|err-password|err-banned|err-service|signing|success`. Static props, no Clerk. Off unless DUEL_FX_LAB=1
+ * err-signup|err-password|err-banned|err-service|signing|recovering|success`. Static props, no Clerk. Off unless DUEL_FX_LAB=1
  * (or `next dev`); see src/lib/fx-lab.ts.
  */
 export default async function SignInPreviewPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {

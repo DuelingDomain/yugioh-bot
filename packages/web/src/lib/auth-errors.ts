@@ -10,6 +10,13 @@ function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" ? value as Record<string, unknown> : {};
 }
 
+export function isWaitlistRefusal(error: unknown): boolean {
+  const outer = record(error);
+  const cause = record(outer.cause);
+  const errors = Array.isArray(outer.errors) ? outer.errors : Array.isArray(cause.errors) ? cause.errors : [outer];
+  return errors.some(value => ["sign_up_restricted_waitlist", "not_allowed_access", "sign_up_mode_restricted"].includes(String(record(value).code)));
+}
+
 export function mapClerkError(error: unknown, context: Context): AuthErrorView {
   const outer = record(error);
   // Signal methods may wrap a ClerkAPIResponseError in ClerkError.cause.

@@ -1,4 +1,4 @@
-import type { DuelBattleStep, DuelCard, DuelCardInfo, DuelEngineView, DuelEvent, DuelMode, DuelMoveReason, DuelPrompt, DuelPromptOption, DuelSeatView, DuelSummonKind, DuelZoneRef } from "@yugidraft/shared/duels";
+import type { DuelChainLink, DuelBattleStep, DuelCard, DuelCardInfo, DuelEngineView, DuelEvent, DuelMode, DuelMoveReason, DuelPrompt, DuelPromptOption, DuelSeatView, DuelSummonKind, DuelZoneRef } from "@yugidraft/shared/duels"; // LEGACY-1V1: public chosen chain options
 import {
   OcgHintType,
   OcgLocation,
@@ -278,6 +278,7 @@ export interface StoredChainLink {
   description?: string;
   zone: DuelZoneRef;
   targets: DuelZoneRef[];
+  chosenOptions?: DuelChainLink["chosenOptions"]; // LEGACY-1V1: public chosen chain options
 }
 
 export interface StoredDuelEvent {
@@ -286,6 +287,7 @@ export interface StoredDuelEvent {
   seat?: number;
   card?: DuelCardInfo;
   chainIndex?: number;
+  chosenOptions?: DuelChainLink["chosenOptions"]; // LEGACY-1V1: public chosen chain options
   text: string;
   publicText: string;
   description?: string;
@@ -655,6 +657,7 @@ export function projectStoredEvent(event: StoredDuelEvent, viewer: number | null
   };
   if (event.seat != null) projected.seat = event.seat;
   if (event.chainIndex != null) projected.chainIndex = event.chainIndex;
+  if (event.chosenOptions) projected.chosenOptions = event.chosenOptions.map((choice) => ({ ...choice })); // LEGACY-1V1: public chosen chain options
   if (event.toss) projected.toss = event.toss.type === "coin"
     ? { type: "coin", results: [...event.toss.results] }
     : { type: "dice", results: [...event.toss.results] };
@@ -1320,6 +1323,7 @@ function redactPromptOption(option: DuelPromptOption, fieldCard: DuelCard | null
   if (option.controller != null) redacted.controller = option.controller;
   if (option.location != null) redacted.location = option.location;
   if (option.sequence != null) redacted.sequence = option.sequence;
+  if (option.host) redacted.host = { controller: option.host.controller, location: option.host.location, sequence: option.host.sequence };
   if (option.values) redacted.values = option.values;
   if (option.max != null) redacted.max = option.max;
   if (option.selected != null) redacted.selected = option.selected;
@@ -1339,6 +1343,13 @@ function projectPrompt(
     options: prompt.options.map((option) => {
       // A zone choice names a place (label from zoneLabel), never a card, so it hides nothing.
       if (prompt.kind === "places") return option;
+      if (option.location === OcgLocation.OVERLAY && option.host) {
+        // An Xyz material shows while its Xyz monster does, and says which Xyz it is under.
+        const hostCard = cardAt(seats, option.host.controller, option.host.location, option.host.sequence);
+        // A hidden Xyz is no reason to call its material face-down: it has no field card of its own.
+        if (hostCard?.code == null) return redactPromptOption(option, null);
+        return { ...option, host: { ...option.host, code: hostCard.code, ...(hostCard.name ? { name: hostCard.name } : null) } };
+      }
       const card = cardAt(seats, option.controller ?? -1, option.location ?? -1, option.sequence ?? -1);
       if (promptOptionVisible(option, viewer, seats, reveals)) {
         return card?.level != null ? { ...option, currentLevel: card.level } : option;
@@ -1457,6 +1468,7 @@ export function projectView(args: {
       cardType: info?.type,
       zone: args.chain?.[index]?.zone ? zoneOf(args.chain[index].zone) : zoneOf(link),
       targets: args.chain?.[index]?.targets.map(zoneOf) ?? [],
+      ...(args.chain?.[index]?.chosenOptions ? { chosenOptions: args.chain[index].chosenOptions!.map((option) => ({ ...option })) } : {}), // LEGACY-1V1: public chosen chain options
     };
   });
 

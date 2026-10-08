@@ -50,9 +50,9 @@ Preparation and the updater discover root `cards.cdb`, every root non-Rush `prer
 
 The output is one `cards.cdb`, read by artwork identity and catalog writers, duel deck validation, legacy 1v1, pinned 1v1 and multiplayer engines. Load order is base, sorted prereleases, then sorted releases, using case-insensitive filename order within each group. Complete `datas`/`texts` pairs use `INSERT OR REPLACE`, with rows sorted by ID; released rows always win. SQLite copies integer values directly, preserving 64-bit setcodes/races. The sorted discovery and replacement behavior follows EDOPro's [file discovery](https://github.com/edo9300/edopro/blob/c250b6ab9bebb6eca9fdd07ee0c5bd2278426e81/gframe/utils.cpp#L555), [repository database loading](https://github.com/edo9300/edopro/blob/c250b6ab9bebb6eca9fdd07ee0c5bd2278426e81/gframe/game.cpp#L2648) and [replacement of card entries](https://github.com/edo9300/edopro/blob/c250b6ab9bebb6eca9fdd07ee0c5bd2278426e81/gframe/data_manager.cpp#L97). The preview identity deduplication below adds the owner's casual-format policy.
 
-Only main-art rows (`alias=0`) without the token bit (`type & 0x4000`) participate in identity deduplication or historical remaps. Alternate artworks and tokens keep their distinct passcodes; exact-code released rows still take precedence. Identity is trimmed, case-folded name plus exact numeric type. A released identity wins over every preview, including a preview with a different passcode. Duplicate previews prefer an official-size passcode (below 100,000,000), then an `-en.cdb` source, then the lowest code. Every dropped preview is printed during preparation and listed in the weekly report, with its retained passcode when available. References in `datas.alias` to graduated main-card IDs follow their remap. Conflicting remaps or remap sources still retained under another identity stop preparation instead of redirecting a saved card silently. Released and preview artwork families remain intact. Read/import paths and startup skip remaps whose source is a retained alternate artwork or token. Startup checks application artwork families inside the same immediate transaction as its writes. The unsafe v1 recipe omitted alias metadata for dropped artwork rows; nonempty v1 remaps are refused before any saved data or cache records change, requiring bundle preparation with v2. Historical graduations also update the alias of each surviving artwork to its current main code.
+Only main-art rows (`alias=0`) without the token bit (`type & 0x4000`) participate in identity deduplication or historical remaps. Alternate artworks and tokens keep their distinct passcodes; exact-code released rows still take precedence. Identity is trimmed, case-folded name plus exact numeric type. A released identity wins over every preview, including a preview with a different passcode. Renamed/type-corrected historical previews additionally use the v3 policy below. Duplicate previews prefer an official-size passcode (below 100,000,000), then an `-en.cdb` source, then the lowest code. Every dropped preview is printed during preparation and listed in the weekly report, with its retained passcode when available. References in `datas.alias` to graduated main-card IDs follow their remap. Conflicting remaps or remap sources still retained under another identity stop preparation instead of redirecting a saved card silently. Released and preview artwork families remain intact. Read/import paths and startup skip remaps whose source is a retained alternate artwork or token. Startup checks application artwork families inside the same immediate transaction as its writes. The unsafe v1 recipe omitted alias metadata for dropped artwork rows; nonempty v1 remaps are refused before any saved data or cache records change, requiring bundle preparation with v2. Historical graduations also update the alias of each surviving artwork to its current main code.
 
-The manifest records `sources.databaseFormat = "official-releases-prerelease-v2"`, the ordered `sources.databaseFiles`, and `sources.prereleaseHistoryStart`. `integrity.cards` is SHA-256 over ordered `<filename>:<input SHA-256>` records, joined by newlines with no trailing newline. `integrity.cardsMerged` hashes the merged output bytes and verifies the cached `cards.cdb` on disk. `card-remaps.json` contains schema version 1, old-to-current `remaps`, retained `prerelease` identities and `drops`; `integrity.cardRemaps` hashes its exact bytes. That hash participates in `bundleVersion`. Startup, bundle cache checks and installation verify it; the new recipe requires the artifact even if its remap map is empty. Every bundle version writer excludes only `cardsMerged` and `multiScripts`: SQLite layout/library changes alone cannot invalidate duels or replays. The format marker forces older recipes at unchanged upstream pins to rebuild. Bump it when selection, merge or script filtering changes.
+The manifest records `sources.databaseFormat = "official-releases-prerelease-v4"`, the ordered `sources.databaseFiles`, and `sources.prereleaseHistoryStart`. `integrity.cards` is SHA-256 over ordered `<filename>:<input SHA-256>` records, joined by newlines with no trailing newline. `integrity.cardsMerged` hashes the merged output bytes and verifies the cached `cards.cdb` on disk. `card-remaps.json` contains schema version 1, old-to-current `remaps`, retained `prerelease` identities and `drops`; `integrity.cardRemaps` hashes its exact bytes. That hash participates in `bundleVersion`. Startup, bundle cache checks and installation verify it; the new recipe requires the artifact even if its remap map is empty. Every bundle version writer excludes only `cardsMerged` and `multiScripts`: SQLite layout/library changes alone cannot invalidate duels or replays. The format marker forces older recipes at unchanged upstream pins to rebuild. Bump it when selection, merge or script filtering changes.
 
 `integrity.scripts` continues to hash the pinned input archive. Preparation keeps `pre-release/cNNN.lua` only when its code is present in the final merged database, and prefers an `official/` copy when both exist. Basename lookup prefers `official/`, then `pre-release/`, then root/shared helpers and other directories; explicit paths remain available. Native fixed-path checks also search `pre-release/` after root and `official/`. Artwork aliases resolve through the merged database.
 
@@ -62,7 +62,7 @@ Five rows in `prerelease-imph.cdb` are real alternate artworks, not identity dup
 
 Ignis can replace a temporary code with a final official one and delete the prerelease database. The [BETB release commit on 2026-09-23](https://github.com/ProjectIgnis/BabelCDB/commit/85e7fd3e7c30002a8a2d4047eaf496206b442b85) deletes `prerelease-betb.cdb` and adds `release-betb.cdb`. Adamancipator Conductor moves `101402024 → 24925387`, and Adamancipator Crystal - Tiamite moves `101402025 → 51420096`, preserving name/type. Some other preview names change on release, so name matching cannot safely infer every graduation.
 
-For deterministic cleanup on a fresh deployment, preparation reads all distinct prerelease Git blobs from the feature's fixed initial pin (`prereleaseHistoryStart`, abbreviated to avoid the updater rewriting it) through the candidate pin. Git is required after that initial pin. The reader walks full merge history, collects distinct database blob IDs, and fetches all of them in one batch before reading their local bytes. Network round trips do not increase with the number of weekly snapshots. It matches historical name/type identities to the current released or retained preview identity, preserving old-to-current mappings even after a file disappears and across skipped weekly updates. No previous bundle or generated tracked registry is required. The initial pin does not retroactively map unsupported previews from earlier history. Withdrawals without a current identity match produce no remap: saved decks keep their code and validation reports it as unknown. Renamed/type-changed identities require an explicit future policy; ambiguous candidate mappings fail closed. The report explicitly lists disappeared codes without a remap and, for renamed cards, suggests newly released main-art rows with equal type/ATK/DEF/level/attribute for human review. An ambiguous old snapshot is an advisory finding: the report marks its comparison unavailable and the candidate update continues.
+For deterministic cleanup on a fresh deployment, preparation reads all distinct prerelease Git blobs from the feature's fixed initial pin (`prereleaseHistoryStart`, abbreviated to avoid the updater rewriting it) through the candidate pin. Git is required after that initial pin. The reader walks full merge history, collects distinct database blob IDs, and fetches all of them in one batch before reading their local bytes. Network round trips do not increase with the number of weekly snapshots. It matches historical name/type identities to the current released or retained preview identity, preserving old-to-current mappings even after a file disappears and across skipped weekly updates. No previous bundle or generated tracked registry is required. The initial pin does not retroactively map unsupported previews from earlier history. Withdrawals without a current identity match produce no remap: saved decks keep their code and validation reports it as unknown. Renamed/type-changed identities use the conservative same-commit stats/text policy described below; ambiguous candidates remain unknown for human review. The report explicitly lists disappeared codes without a remap and, for renamed cards, suggests newly released main-art rows with equal type/ATK/DEF/level/attribute for human review. An ambiguous old snapshot is an advisory finding: the report marks its comparison unavailable and the candidate update continues.
 
 Duel-server startup verifies the bundle and applies remaps to the shared application database before serving. An immediate SQLite transaction and a per-`bundleVersion` marker make the rewrite atomic and idempotent across concurrent startups. It updates saved decks, tournament registered decks, lobby duel decks, open series' base/current decks, and the `customCardIds`, `customExtraCardIds`, `cubeCardIds` and `poolCardIds` arrays in cube/draft configs. Lobby sandbox setup scripts rewrite literal first arguments of `Debug.AddCard` only. Draft card/deal/undealt catalog references move to the official row while pick row IDs stay stable. Cube collisions sum copies up to `MAX_CUBE_COPIES` (99) and retain existing official metadata. Decks retain all copies after a collision, so normal legality checks may flag the merged deck for exceeding its copy limit. Invalid or non-object JSON rows are skipped unchanged and logged with their table, column and row ID; one unusable saved row does not stop the duel server. The valid rewrites and the schema-owned `engine_card_remap_runs` completion marker remain in one transaction. Missing official catalog metadata is copied from the preview with official image URLs; artwork references move before the old cache row is deleted. Foreign keys stay valid. Completed series and finished/started duel decks, setup, snapshots, seeds and command journals are not rewritten; existing bundle-version replay/recovery rules apply. Web and worker processes use the same database. Rolling back a bundle does not reverse completed remaps: saved data may reference official codes absent from the older bundle. Keep a bundle containing those targets, or restore a matched application DB backup while reconciling intervening writes; see the VM runbook. Never blindly reverse remaps.
 
@@ -153,6 +153,7 @@ The default report is `.status/engine-data-update.md` (ignored by git); `--repor
 
 The first line is `Needs review: N conflicts, M risks, K shared-script changes, probe errors P, overlay check exit X`. A successful overlay check does not clear stock-hash conflicts or other findings.
 
+- **New cards in this update:** near the top, the merged old/candidate CDB passcodes determine additions independently of script changes. Each product has a collapsible list with CDB names, passcodes, pre-release marks and 80-pixel images. BabelCDB `release-SET.cdb`/`prerelease-SET[-en].cdb` codes take priority; base/generic rows use the earliest known YGOPRODeck printing, or an unknown-set group. Product release dates come from the set catalog; each card's original TCG/OCG dates are labeled separately. Two best-effort catalog requests have 15-second deadlines: failures keep CDB names/source codes and omit unknown dates. Temporary pre-release passcodes use PR #226's Ignis image URL; official codes use YGOPRODeck. Removed cards and old-to-new pre-release graduations are listed separately. Final smoke validation removes excluded previews from additions. The report artifact retains every row; GitHub copies truncate whole rows, close set blocks, and show “N more, see the report artifact.” The PR body remains bounded to 60,000 UTF-8 bytes, below GitHub's 65,536-character limit.
 - **Commits, release/prerelease databases and scripts:** compare links show upstream changes; release filename additions/removals, loaded passcodes, added/removed/graduated previews and deduplication drops are listed. New/changed official `cNNN.lua` scripts include names from the merged candidate database. Database-only changes can add cards without a script diff; loaded release and prerelease scripts are still probed.
 - **Overlay conflicts:** every manifest stock hash is compared with its explicitly reviewed `stockPath`, or `official/cNNN.lua` by default. A nonofficial copy does not silently become the baseline: without a reviewed path, the report says `removed`. Reconcile affected overlays with upstream and review baseline hashes; do not replace hashes merely to silence a conflict.
 - **Card script patches:** every shared patch baseline is compared with candidate stock. A changed or removed file is reported as **patch needs review** and blocks the candidate before any pin rewrite or bundle preparation. The workflow failure summary and report artifact retain the affected paths and hashes, including when the summary is truncated. Current pins and the deployed bundle remain in service until the patch is reconciled or explicitly retired; the updater never drops the fix or accepts a new stock hash automatically. Historical baseline citations use abbreviated commits so the pin-rewrite guard does not mistake them for active pins.
@@ -187,6 +188,121 @@ unset NDUEL_DIR
 ```
 
 Review the row changes and all four fingerprint headers, verify 80 rows were recorded/checked with no skips or mismatches, and commit `packages/duel-server/scripts/native/golden.tsv` in the data-update PR. Merge only after its CI passes. Never refresh the headers alone to bypass a failed check.
+
+Report summaries use HTML entity escaping, so product names do not show literal
+Markdown backslashes. Ignis images remain inline: on 2026-10-07, the read-only
+GitHub Markdown API rendered the `:2096` image URL for passcode `101402001` through
+Camo, and fetching that generated proxy URL returned HTTP 200 `image/jpeg`.
+This checks an actual GitHub proxy response, rather than assuming support for the
+port; individual missing images can still fail. See GitHub's
+[Camo troubleshooting guide](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/about-anonymized-urls).
+
+### Renamed and type-corrected graduations (v3)
+
+The v3 recipe also records individual BabelCDB commit transitions from the immutable
+support boundary. A candidate must be a removed main prerelease row and a newly added
+main released row in the **same commit**. ATK, DEF, packed level/scales, attribute and
+race must all match exactly; race is read as a SQLite decimal string to preserve 64-bit
+precision. Effect text must match exactly after replacing only each card's own name
+with a sentinel and collapsing whitespace, with at least 40 characters of evidence.
+Type flags may change within the same card kind (`type & 7`), but Monster, Spell
+and Trap cannot match each other. Both directions must be unique across all historical
+snapshots. Same stats alone, approximate names, unrelated quoted-name substitutions,
+short/blank text and one-to-many pairs do not establish identity. Missing signals
+remain unknown and appear as **unmatched graduation, needs review**, including after
+skipped weekly bumps. Existing name/type matching remains available.
+
+Three measured examples from [BabelCDB BETB release 85e7fd3](https://github.com/ProjectIgnis/BabelCDB/commit/85e7fd3e7c30002a8a2d4047eaf496206b442b85)
+are Swift Panther Warrior `101402001 → 77482666` (Swiftwind Panther Warrior),
+Alligator's Sword Dragon Knight `101402002 → 4881365` (Alligator's Dragon Knight), and
+Destiny HERO - Death Dogma `101402021 → 25158975` (Destiny HERO - Destro-Dogma).
+All three retain exact type/stats/race and normalized effect text. Their aliases are
+zero and the CDB has no independent artwork identifier: aliases provide no additional
+identity signal. [CardScripts 89b88935](https://github.com/ProjectIgnis/CardScripts/commit/89b88935577b0b25d5b1484a0dff52077d54f1fb)
+renames all three `pre-release/cOLD.lua` scripts to `official/cNEW.lua` with **100%**
+Git similarity and identical SHA-256 bytes; a following commit updates English-name
+comments. The committed `tests/fixtures/prerelease-graduations.json` records the real
+rows, commits and script hashes. These examples support the conservative text rule;
+script similarity is measured evidence, not a fuzzy automatic remap rule.
+
+For reviewed exceptions, edit `packages/duel-server/card-remap-overrides.json`:
+`{"OLD_CODE": NEW_CODE}` (numeric target, decimal-string source), or
+`{"OLD_CODE": null}` to veto any automatic remap for that source. The default is `{}`.
+The source must be a supported historical/dropped main preview and absent from the
+retained database; the destination must be a retained main card. Invalid codes,
+artwork/token sources or targets stop preparation. Reviewed overrides win over all
+automatic mappings; a veto also prevents chains from following that source.
+Overrides do not extend the history boundary backwards. Their parsed map and exact
+source bytes are embedded in `card-remaps.json`, covered by `integrity.cardRemaps` and
+`bundleVersion`; changing even those source bytes invalidates the preparation cache.
+No extra publication path is added: weekly automation still changes only the three
+pin files. A human commits override edits as part of reviewed application code.
+
+History cost grows with preview-changing commits since the immutable support
+boundary. Each fresh scan needs Git history/network access, reads those commit
+trees and distinct non-Rush preview blobs, then reads base/release blobs on both
+sides of preview-removal edges. Passcode Sets make removal comparisons linear
+per edge. Blob downloads are batched and cached by immutable blob hash for that
+scan, as are extracted rows and released snapshots. Workflow bundle caches and
+the unchanged-pin prepare fast path reuse the completed extraction/check. A cold
+rebuild at new pins still scans the full interval; retaining that interval preserves
+graduations across skipped weekly updates. A durable extracted-transition cache
+would need a `(support start, commit, extraction recipe)` key and is deferred.
+
+The same bundle map feeds read/import/validation and the atomic startup migration.
+The migration refreshes target catalog metadata from the installed engine only for
+rows copied from previews in that transaction. It preserves all existing target
+metadata, including YGOPRODeck OCG-only rows with no TCG sets and a different name,
+on later weekly bundle changes. Newly copied cube and draft references display the
+official name/type even offline. Historical duel records
+retain the existing replay rules. Update all three workflow bundle cache inputs when
+adding a matching helper or override input. The database format is now
+`official-releases-prerelease-v4`; older recipes rebuild at unchanged source pins.
+
+
+### Required prerelease script smoke check (v4)
+
+Every fresh preparation registers **every retained prerelease passcode**, including
+unchanged scripts and alternate artworks, on installed npm `ocgcore-wasm@0.1.2`.
+This minimum-core gate is deliberate: new 1v1 tables still default to the legacy
+Standard path (`src/legacy/engine.ts`), which loads the npm core without an external
+WASM binary. All engines share the preview pool. Checking only the newer pinned
+Standard/Domain/multiplayer cores would admit scripts that break default tables.
+The newer cores reuse the npm wrapper but supply different WASM bytes. The
+`prerelease-engine.test.ts` initialization matrix separately covers retained
+previews on legacy/pinned 1v1, Tag, FFA3 and FFA4 in Standard and Domain modes.
+Native registration loads the effective script and invokes `initial_effect` without
+playing a duel. Each card gets a fresh duel so earlier errors cannot poison later
+checks. Optional scriptless Normal Monsters keep the engine's existing behavior.
+Card-attributed script-load, missing-script and `initial_effect` errors exclude that
+preview from both `datas` and `texts`; released rows are never excluded, even when
+their script still resides in `pre-release/`. Artwork previews depending on an
+excluded main preview also disappear. Filtered scripts and final database bytes are
+hashed only after exclusions. Remaps targeting an excluded preview are suppressed,
+so saved source codes remain unknown rather than migrating to a missing target.
+
+The worker isolates synchronous Lua. A thirty-second card timer starts only after
+the active-card message, after tsx/DB/WASM startup and fresh-duel initialization.
+A separate two-minute setup watchdog aborts preparation on infrastructure stalls.
+Timeouts/crashes retry that card once in a fresh worker before excluding it and
+resuming untested cards. Missing core/helpers, errors naming any non-card Lua script,
+invalid progress and other unattributed infrastructure failures stop preparation
+without excluding cards. Diagnostic Lua/stderr/timing text goes to the console only.
+Artifact errors contain fixed reason codes: `card-script-error`, `missing-card-script`,
+`card-timeout`, `worker-crash`, or propagated `main-card-excluded`. Output lists each
+**excluded: script error** with its code, name, source and reason, plus counts.
+`card-remaps.json.scriptSmoke` retains checked counts, exclusions and suppressed
+remaps under the existing integrity hash and bundle version. Weekly inline validation
+uses the same checker after installing the reviewed shared card-script patches,
+just as fresh preparation does. Deferred reports mark smoke pending; final CI
+validation reads the patched prepared artifact, verifies its hash and includes
+its exact exclusions in the weekly report. Cache hits reuse the
+recorded check for the same pins/recipe/override inputs. Workflow bundle cache inputs
+include both smoke helpers. The format is `official-releases-prerelease-v4`.
+
+This is an initialization check. A callback that fails later during an effect still
+needs gameplay investigation. Runtime EDOPro-style logging and the manually reviewed
+card block list are maintained on the separate `fix/script-error-tolerant` branch.
 
 ## Runtime card script errors
 

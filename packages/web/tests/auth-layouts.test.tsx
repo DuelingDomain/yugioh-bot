@@ -21,3 +21,12 @@ it("reads the E2E gate at request time and omits ClerkProvider when enabled", as
  state.provider.mockClear(); state.auth.mockClear(); vi.stubEnv("E2E_AUTH", "1"); vi.stubEnv("E2E_AUTH_SECRET", "x".repeat(32));
  expect(renderToString(await RootLayout({ children: <p>Offline</p> }))).toContain("Offline"); expect(state.connection).toHaveBeenCalledTimes(2); expect(state.provider).not.toHaveBeenCalled(); expect(state.auth).not.toHaveBeenCalled();
 });
+it.each([
+  ["", "https://duelingdomain.com/?home=1#join"],
+  ["https://marketing.example/", "https://marketing.example/?home=1#join"],
+  ["https://marketing.example/?from=app&home=0#intro", "https://marketing.example/?from=app&home=1#join"],
+])("gives Clerk a marketing waitlist escape hatch for %s", async (marketingUrl, expected) => {
+ vi.stubEnv("MARKETING_URL", marketingUrl);
+ renderToString(await RootLayout({ children: <p>App</p> }));
+ expect(state.provider).toHaveBeenCalledWith(expect.objectContaining({ waitlistUrl: expected }));
+});

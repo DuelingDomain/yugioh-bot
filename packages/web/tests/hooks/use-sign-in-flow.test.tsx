@@ -1,12 +1,15 @@
 // @vitest-environment jsdom
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { flushSync } from "react-dom";
+import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useSignInFlow } from "../../src/hooks/use-sign-in-flow";
 
-const mock = vi.hoisted(() => ({ signal: {} as any, push: vi.fn() }));
+import { RECOVERY_PAINT_FALLBACK_MS, SUCCESS_HOLD_MS, SUCCESS_HOLD_REDUCED_MS } from "../../src/lib/auth-flow";
+const mock = vi.hoisted(() => ({ signal: {} as any, push: vi.fn(), prefetch: vi.fn(), hardNavigate: vi.fn() }));
+vi.mock("@/components/auth/navigate", () => ({ hardNavigate: mock.hardNavigate }));
 vi.mock("@clerk/nextjs", () => ({ useSignIn: () => mock.signal }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mock.push }) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mock.push, prefetch: mock.prefetch }) }));
 const ok = () => Promise.resolve({ error: null });
 const setup = () => renderHook(() => useSignInFlow({ returnTo: "/drafts?join=1#seat", marketingUrl: "https://duelingdomain.com" }));
 const error = (code: string) => ({ error: { errors: [{ code }] } });
@@ -14,7 +17,9 @@ const error = (code: string) => ({ error: { errors: [{ code }] } });
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(1000);
-  mock.push.mockReset();
+  mock.push.mockReset(); mock.prefetch.mockReset();
+  mock.hardNavigate.mockReset();
+  window.history.replaceState(null, "", "/sign-in");
   sessionStorage.clear();
   mock.signal = { fetchStatus: "idle", errors: { fields: {}, raw: null, global: null }, signIn: {
     status: "needs_identifier", supportedSecondFactors: [{ strategy: "email_code" }], isTransferable: false,
@@ -24,9 +29,80 @@ beforeEach(() => {
     resetPasswordEmailCode: { sendCode: vi.fn(ok), verifyCode: vi.fn(ok), submitPassword: vi.fn(ok) },
   } };
 });
-afterEach(() => { cleanup(); vi.useRealTimers(); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe("sign-in flow", () => {
+  it("shows a support message for a refused recovery account", () => {
+    window.history.replaceState(null, "", "/sign-in?error=discord_recovery_support");
+    const { result } = setup();
+    expect(result.current.state.banner?.body).toContain("support@duelingdomain.com");
+    expect(result.current.state.step).toBe("signin");
+  });
+  it("shows a friendly cancellation message after Discord denial", () => {
+    window.history.replaceState(null, "", "/sign-in?error=discord_recovery_cancelled");
+    const { result } = setup();
+    expect(result.current.state.banner).toMatchObject({ tone: "info", body: expect.stringMatching(/cancelled.*try again/i) });
+    expect(mock.hardNavigate).not.toHaveBeenCalled();
+  });
+  it("keeps later password signal errors on the password field after a failed SSO attempt", async () => {
+    mock.signal.signIn.sso.mockResolvedValue(error("network_error"));
+    const { result } = setup();
+    await act(() => result.current.actions.continueWithDiscord());
+    await act(() => result.current.actions.submitIdentifier("a@test.dev"));
+    mock.signal.signIn.password.mockImplementation(async () => {
+      mock.signal.errors.fields.password = { code: "form_password_incorrect" }; return error("form_password_incorrect");
+    });
+    await act(() => result.current.actions.submitPassword("wrong"));
+    expect(result.current.state.fieldErrors.password).toBe("That password doesn't match. Try again or reset it.");
+    expect(result.current.state.banner).toBeNull(); expect(mock.hardNavigate).not.toHaveBeenCalled();
+  });
+  it.each(["sign_up_restricted_waitlist", "not_allowed_access", "sign_up_mode_restricted"])("recovers Discord refusal %s", async code => {
+    mock.signal.signIn.sso.mockResolvedValue(error(code));
+    const { result } = setup();
+    await act(() => result.current.actions.continueWithDiscord());
+    // The card explaining the second Discord trip shows first, then the page leaves once it has painted.
+    expect(result.current.state).toMatchObject({ step: "recovering", banner: null, fieldErrors: {} });
+    expect(mock.hardNavigate).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(RECOVERY_PAINT_FALLBACK_MS));
+    expect(mock.hardNavigate).toHaveBeenCalledTimes(1);
+    expect(mock.hardNavigate).toHaveBeenCalledWith("/api/auth/existing-player/start");
+    act(() => vi.advanceTimersByTime(1000));
+    expect(mock.hardNavigate).toHaveBeenCalledTimes(1);
+    expect(result.current.state.step).toBe("recovering");
+  });
+  it("consumes the recovery ticket via a same-origin POST and finalizes once", async () => {
+    window.history.replaceState(null, "", "/sign-in?existing_player=1");
+    const fetcher = vi.fn(async () => Response.json({ ticket: "test-ticket" }));
+    vi.stubGlobal("fetch", fetcher);
+    mock.signal.signIn.create.mockImplementation(async () => { mock.signal.signIn.status = "complete"; return { error: null }; });
+    const { result, rerender } = setup();
+    await act(async () => {});
+    expect(fetcher).toHaveBeenCalledWith("/api/auth/existing-player/ticket", expect.objectContaining({ method: "POST" }));
+    expect(mock.signal.signIn.create).toHaveBeenCalledWith({ strategy: "ticket", ticket: "test-ticket" });
+    expect(result.current.state.step).toBe("success");
+    rerender(); await act(async () => {});
+    expect(mock.signal.signIn.create).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+  });
+  it("maps rejected recovery tickets and does not activate a session", async () => {
+    window.history.replaceState(null, "", "/sign-in?existing_player=1");
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ticket: "expired-ticket" })));
+    mock.signal.signIn.create.mockResolvedValue(error("ticket_expired"));
+    const { result } = setup(); await act(async () => {});
+    expect(result.current.state.step).toBe("err-signup");
+    expect(mock.signal.signIn.finalize).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+  it("consumes a recovery ticket once in StrictMode and waits for SDK fetching", async () => {
+    window.history.replaceState(null, "", "/sign-in?existing_player=1");
+    const fetcher = vi.fn(async () => Response.json({ ticket: "test-ticket" })); vi.stubGlobal("fetch", fetcher);
+    mock.signal.fetchStatus = "fetching";
+    mock.signal.signIn.create.mockImplementation(async () => { mock.signal.signIn.status = "complete"; return { error: null }; });
+    const { result, rerender } = renderHook(() => useSignInFlow({ returnTo: "/dashboard", marketingUrl: null }), { wrapper: StrictMode });
+    await act(async () => {}); expect(fetcher).not.toHaveBeenCalled();
+    mock.signal.fetchStatus = "idle"; rerender(); await act(async () => {});
+    expect(fetcher).toHaveBeenCalledTimes(1); expect(mock.signal.signIn.finalize).toHaveBeenCalledTimes(1); expect(result.current.state.step).toBe("success");
+  });
   it.each([undefined, {}, { result: undefined, error: null }])("shows service trouble when identifying makes no progress (%j)", async (response) => {
     mock.signal.signIn.create.mockResolvedValue(response);
     const { result } = setup();
@@ -85,10 +161,49 @@ describe("sign-in flow", () => {
     expect(result.current.state).toMatchObject({ step: "err-invite", identifier: "a@test.dev" });
   });
   it("preserves the return path for Discord and uses the custom callback", async () => {
+    mock.signal.signIn.id = "";
     const { result } = setup();
     await act(() => result.current.actions.continueWithDiscord());
+    expect(mock.signal.signIn.reset).not.toHaveBeenCalled();
     expect(mock.signal.signIn.sso).toHaveBeenCalledWith({ strategy: "oauth_discord", redirectUrl: "/drafts?join=1#seat", redirectCallbackUrl: "/sso-callback" });
     expect(mock.push).not.toHaveBeenCalled();
+  });
+  it("resets a stale Discord attempt and waits for a fresh signal object before SSO", async () => {
+    const stale = mock.signal.signIn;
+    stale.id = "sia_stale";
+    stale.firstFactorVerification = { status: "verified", error: { code: "sign_up_restricted_waitlist" } };
+    const fresh = { ...stale, id: "", firstFactorVerification: { status: "unverified", error: null }, sso: vi.fn(ok), reset: vi.fn(ok) };
+    const { result, rerender } = setup();
+    let request!: Promise<void>;
+    act(() => { request = result.current.actions.continueWithDiscord(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(stale.reset).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(stale.sso).not.toHaveBeenCalled();
+    expect(fresh.sso).not.toHaveBeenCalled();
+    expect(result.current.state.pending).toBe(true);
+    mock.signal = { ...mock.signal, signIn: fresh };
+    rerender();
+    await act(async () => { await vi.advanceTimersByTimeAsync(50); await request; });
+    expect(stale.id).toBe("sia_stale");
+    expect(stale.sso).not.toHaveBeenCalled();
+    expect(fresh.reset).not.toHaveBeenCalled();
+    expect(fresh.sso).toHaveBeenCalledExactlyOnceWith({ strategy: "oauth_discord", redirectUrl: "/drafts?join=1#seat", redirectCallbackUrl: "/sso-callback" });
+    expect(JSON.parse(sessionStorage.getItem("dd_auth_resume")!)).toEqual({ kind: "sign-in", returnTo: "/drafts?join=1#seat" });
+    expect(result.current.state.pending).toBe(false);
+    expect(mock.hardNavigate).not.toHaveBeenCalled();
+  });
+  it("shows service trouble when reset never publishes a fresh sign-in object", async () => {
+    mock.signal.signIn.id = "sia_stale";
+    const stale = mock.signal.signIn;
+    const { result } = setup();
+    let request!: Promise<void>;
+    act(() => { request = result.current.actions.continueWithDiscord(); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); await request; });
+    expect(stale.reset).toHaveBeenCalledTimes(1);
+    expect(stale.sso).not.toHaveBeenCalled();
+    expect(result.current.state).toMatchObject({ step: "signin", pending: false, banner: { tone: "bad", code: "network_error" } });
+    expect(mock.hardNavigate).not.toHaveBeenCalled();
   });
   it("keeps wrong password errors on the password field", async () => {
     const { result } = setup();
@@ -118,10 +233,31 @@ describe("sign-in flow", () => {
     await act(async () => { finish({ error: null }); await request; });
     expect(result.current.state).toMatchObject({ step: "success", banner: null });
     expect(result.current.state.fieldErrors).toEqual({});
-    act(() => vi.advanceTimersByTime(899));
+    // The destination is warmed as the success card appears, so the switch itself is instant.
+    expect(mock.prefetch).toHaveBeenCalledWith("/drafts?join=1#seat");
+    act(() => vi.advanceTimersByTime(SUCCESS_HOLD_MS - 1));
     expect(mock.push).not.toHaveBeenCalled();
     act(() => vi.advanceTimersByTime(1));
     expect(mock.push).toHaveBeenCalledWith("/drafts?join=1#seat");
+  });
+  it("holds only briefly under reduced motion, since nothing animates", async () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: query === "(prefers-reduced-motion: reduce)", media: query }));
+    try {
+      mock.signal.signIn.password.mockImplementation(async () => { mock.signal.signIn.status = "complete"; return { error: null }; });
+      mock.signal.signIn.finalize.mockImplementation(async () => { mock.signal.signIn.status = null; return { error: null }; });
+      const { result } = setup();
+      await act(() => result.current.actions.submitIdentifier("a@test.dev"));
+      await act(() => result.current.actions.submitPassword("secret"));
+      expect(result.current.state.step).toBe("success");
+      act(() => vi.advanceTimersByTime(SUCCESS_HOLD_REDUCED_MS - 1));
+      expect(mock.push).not.toHaveBeenCalled();
+      act(() => vi.advanceTimersByTime(1));
+      expect(mock.push).toHaveBeenCalledWith("/drafts?join=1#seat");
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it("outlasts the pack animation before navigating", () => {
+    // mkgem starts at 260 + 1020 ms and lasts 340 ms (sign-in-shell.module.css); the hold must cover it.
+    expect(SUCCESS_HOLD_MS).toBeGreaterThanOrEqual(260 + 1020 + 340);
   });
   it("shows a service banner when finalize fails and never navigates", async () => {
     mock.signal.signIn.password.mockImplementation(async () => { mock.signal.signIn.status = "complete"; return { error: null }; });

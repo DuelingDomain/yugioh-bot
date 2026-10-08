@@ -1,0 +1,87 @@
+/* Empty states: a headline and one primary action, then either what is open right now or a faded
+   ghost of the filled page. Motion is opacity and a short rise only, and --motion-travel is 0 under
+   reduced motion. */
+
+.hero { display: grid; gap: 14px; max-width: 660px; }
+.heroTitle { margin: 0; font: 600 clamp(24px, 3.4cqi, 32px) / 1.15 var(--f-display); color: var(--ink); text-wrap: balance; }
+.heroLede { margin: 0; max-width: 56ch; color: var(--ink-2); line-height: 1.55; }
+.heroActs { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 6px; }
+
+/* What arrives after the fetch settles fades in. Nothing is drawn for it before then, so the page never flashes the wrong version. */
+.settle { animation: es-in var(--d-arrive) var(--ease-out) backwards; }
+@keyframes es-in { from { opacity: 0; } }
+@keyframes es-rise { from { opacity: 0; transform: translateY(calc(6px * var(--motion-travel))); } }
+
+/* ---------- open right now ---------- */
+.open { min-width: 0; }
+.row { animation: es-rise var(--d-arrive) var(--ease-out) backwards; }
+.row:nth-child(2) { animation-delay: 20ms; }
+.row:nth-child(3) { animation-delay: 40ms; }
+.row:nth-child(4) { animation-delay: 60ms; }
+.row:nth-child(n + 5) { animation-delay: 80ms; }
+.first { background: linear-gradient(90deg, var(--pen-soft), transparent 70%); }
+.row .id { min-width: 0; display: grid; gap: 4px; }
+.name { margin: 0; font: 600 18px / 1.25 var(--f-display); color: var(--ink); overflow-wrap: anywhere; text-decoration: none; }
+a.name:hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--rule-hi); }
+a.name:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 2px; border-radius: 3px; }
+.meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 14px; margin: 0; padding: 0; list-style: none; color: var(--ink-3); font-size: 14px; }
+.seats { display: inline-flex; gap: 4px; }
+.seats i { display: block; width: 9px; height: 13px; border: 1px solid rgb(var(--beam) / 0.28); border-radius: 2px; }
+.seats i[data-taken] { border-color: rgb(var(--beam) / 0.7); background: rgb(var(--beam) / 0.22); }
+.go { justify-self: end; }
+.foot { margin: 16px 0 0; color: var(--ink-3); font-size: 14px; line-height: 1.5; }
+
+@container (max-width: 620px) {
+  .name { font-size: 17px; }
+  .go { align-self: start; }
+}
+
+/* ---------- ghost of the filled page ---------- */
+.pre { display: flex; align-items: center; gap: 12px; margin: 0; color: var(--ink-3); font-size: 13.5px; }
+.pre::before { content: ""; width: 28px; height: 1px; background: rgb(var(--beam) / 0.4); }
+.pre::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, rgb(var(--beam) / 0.2), transparent); }
+.ghost { display: grid; gap: 28px; min-width: 0; -webkit-mask-image: linear-gradient(180deg, #000 0, #000 30%, transparent 98%); mask-image: linear-gradient(180deg, #000 0, #000 30%, transparent 98%); pointer-events: none; user-select: none; }
+.gtop { display: grid; gap: 20px; min-width: 0; }
+.glist { display: block; margin: 0; padding: 0; list-style: none; }
+.grow { display: flex; align-items: center; gap: 16px; min-width: 0; padding: 14px 0; border-bottom: 1px solid rgb(var(--rule-rgb) / 0.13); animation: es-rise var(--d-arrive) var(--ease-out) backwards; animation-delay: calc(min(var(--i, 0), 7) * 20ms); }
+.gcol { display: grid; gap: 8px; min-width: 0; flex: 1; }
+.gb, .gbS { display: block; height: 11px; border-radius: 3px; background: rgb(239 231 213 / 0.13); }
+.gbS { height: 8px; background: rgb(239 231 213 / 0.08); }
+.gpill { flex: none; height: 26px; border: 1px solid rgb(239 231 213 / 0.14); border-radius: 999px; }
+.gring { flex: none; width: 40px; height: 40px; border: 1.5px solid rgb(239 231 213 / 0.18); border-radius: 50%; }
+.gstrip { display: flex; gap: 6px; flex: none; }
+.gseg { display: flex; gap: 2px; height: 4px; width: min(100%, 160px); }
+.gseg i { flex: 1; border-radius: 2px; background: rgb(239 231 213 / 0.13); }
+.gseg i[data-on] { background: rgb(155 126 255 / 0.5); }
+.gdeck { display: flex; flex: none; margin-left: 6px; opacity: 0.55; }
+.gdeck > * + * { margin-left: -14px; }
+
+.ghostHead, .glrow { display: grid; grid-template-columns: 44px minmax(0, 1fr) 110px 90px 80px 80px; gap: 14px; align-items: center; padding: 12px 0; border-bottom: 1px solid rgb(var(--rule-rgb) / 0.13); }
+.ghostHead { padding: 8px 0; border-bottom-color: var(--rule-lo); color: var(--ink-3); font-size: 13px; }
+.glrow { animation: es-rise var(--d-arrive) var(--ease-out) backwards; animation-delay: calc(min(var(--i, 0), 7) * 20ms); }
+.glnum { font: 600 20px / 1 var(--f-num); color: rgb(239 231 213 / 0.22); }
+.glwho { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.glwho .gring { width: 26px; height: 26px; }
+.gr { display: flex; justify-content: flex-end; }
+.ghostHead .gr { text-align: right; }
+
+@container (max-width: 620px) {
+  .gstrip, .gdeck { display: none; }
+  .ghostHead, .glrow { grid-template-columns: 28px minmax(0, 1fr) 56px; gap: 10px; }
+  .ghostHead > :nth-child(n + 4), .glrow > :nth-child(n + 4) { display: none; }
+}
+
+/* ---------- decks and leaderboard ---------- */
+.stack { display: grid; gap: 30px; min-width: 0; }
+.dropGap { margin-top: 20px; }
+.drop { display: flex; align-items: center; gap: 14px; max-width: 660px; padding: 16px 18px; border: 1px dashed rgb(var(--beam) / 0.4); border-radius: 8px; color: var(--ink-2); }
+.drop svg { flex: none; color: var(--ink-3); }
+.drop small { display: block; margin-top: 2px; color: var(--ink-3); font-size: 13px; }
+
+/* ---------- dashboard ---------- */
+.none { margin: 14px 0 0; max-width: 46ch; color: var(--ink-2); line-height: 1.5; }
+.startNote { margin: 14px 0 0; color: var(--ink-3); font-size: 14px; line-height: 1.5; }
+
+@media (prefers-reduced-motion: reduce) {
+  .settle, .row, .grow, .glrow { animation: none; }
+}

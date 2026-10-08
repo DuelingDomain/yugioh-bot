@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { DuelCard, DuelCardInfo, DuelEvent, DuelSeatView, DuelZoneRef } from "@yugidraft/shared/duels";
 
-import { chainEffectText, chainKindLabel } from "@/components/duel/chain-effect-text";
+import { cardTextLines, chainEffectText, chainFullText, chainKindLabel } from "@/components/duel/chain-effect-text";
 import {
   buildPanelView,
   buildStripView,
   chainOutcomes,
+  ownPromptOpen,
   publicTargetName,
   rememberTargetNames,
   stripLabel,
@@ -89,6 +90,42 @@ describe("chainEffectText", () => {
   it("never gives text for a card it does not know, whatever the link carries", () => {
     expect(chainEffectText(link({ name: null, description: "Destroy it.", text: TRAP_TEXT }))).toBeNull();
     expect(chainEffectText(link({ name: "  " }))).toBeNull();
+  });
+});
+
+const PRAYERS_TEXT = "Apply 1 of these effects, or if you Tributed a Reptile monster at activation, you can apply both effects in sequence.\r\n● Add 1 \"Mitsurugi\" monster from your Deck to your hand.\r\n● Take 800 damage.\r\n● Special Summon 1 \"Mitsurugi\" monster from your hand or GY.\r\nYou can only activate 1 \"Mitsurugi Prayers\" per turn.";
+
+describe("chainFullText", () => {
+  const prayers = { name: "Mitsurugi Prayers", description: "Apply 1 of these effects", text: PRAYERS_TEXT, cardType: 0x10002 };
+
+  it("keeps every printed line and marks each bullet as an option", () => {
+    expect(cardTextLines(PRAYERS_TEXT).map((line) => line.kind)).toEqual(["text", "option", "option", "option", "text"]);
+    expect(cardTextLines(PRAYERS_TEXT)[2]).toEqual({ kind: "option", text: "Take 800 damage." });
+  });
+
+  it("drops the engine's words when the printed text already holds them", () => {
+    const full = chainFullText(prayers);
+    expect(full?.lead).toBeNull();
+    expect(full?.lines).toHaveLength(5);
+  });
+
+  it("leads with the engine's words when they say which effect is on the chain", () => {
+    const full = chainFullText({ ...prayers, name: "Some Monster", description: "Special Summon this card.", text: "You can discard this card; draw 1 card.\nOnce per turn.", cardType: 0x21 });
+    expect(full?.lead).toBe("Special Summon this card.");
+    expect(full?.lines.map((line) => line.text)).toEqual(["You can discard this card; draw 1 card.", "Once per turn."]);
+  });
+
+  it("keeps the Spell or Trap condition, since the whole text is shown", () => {
+    expect(chainFullText({ name: "Trap Hole", description: undefined, text: TRAP_TEXT, cardType: TYPE_NORMAL_TRAP })?.lines[0].text).toBe(TRAP_TEXT);
+  });
+
+  it("gives only the engine's words when the card has no printed text", () => {
+    expect(chainFullText({ ...prayers, text: null })).toEqual({ lead: "Apply 1 of these effects", lines: [] });
+    expect(chainFullText({ ...prayers, text: null, description: "Activate" })).toBeNull();
+  });
+
+  it("gives nothing for a card the client does not know", () => {
+    expect(chainFullText({ ...prayers, name: null })).toBeNull();
   });
 });
 
@@ -281,6 +318,78 @@ describe("chainOutcomes", () => {
       chainEv("chain-resolved", 1),
     ];
     expect(chainOutcomes(events, settle(events), who).get(1)?.lines).toEqual(["Resolved"]);
+  });
+
+  it("tells a card added to the hand from one returned to it, and a draw from both", () => {
+    id = 0;
+    const events = [
+      activate(1, 0, RAIGEKI),
+      chainEv("chain-resolving", 1),
+      chainEv("move", undefined, { card: GAIA, zone: z(0, HAND, 0), from: z(0, 0x01, 0), reason: "other", addedToHand: true }),
+      chainEv("move", undefined, { zone: z(0, HAND, 1), from: z(0, 0x01, 0), reason: "draw" }),
+      chainEv("move", undefined, { zone: z(0, HAND, 2), from: z(0, 0x01, 0), reason: "draw" }),
+      chainEv("move", undefined, { card: GAIA, zone: z(1, HAND, 0), from: z(1, MZONE, 0), reason: "return" }),
+      chainEv("chain-resolved", 1),
+    ];
+    expect(chainOutcomes(events, settle(events), who).get(1)?.lines).toEqual([
+      "Drew 2 cards", "Added Gaia The Fierce Knight to the hand", "Returned Gaia The Fierce Knight to the hand",
+    ]);
+  });
+
+  it("counts a draw of the link's own card, and still skips the card leaving its own zone", () => {
+    id = 0;
+    const events = [
+      activate(1, 0, RAIGEKI),
+      chainEv("chain-resolving", 1),
+      chainEv("move", undefined, { card: RAIGEKI, zone: z(0, HAND, 0), from: z(0, 0x01, 0), reason: "draw" }),
+      chainEv("move", undefined, { card: RAIGEKI, zone: z(0, GRAVE, 0), from: z(0, SZONE, 0), reason: "other" }),
+      chainEv("chain-resolved", 1),
+    ];
+    expect(chainOutcomes(events, settle(events), who).get(1)?.lines).toEqual(["Drew 1 card"]);
+    // The opponent sees the same count.
+    expect(chainOutcomes(events, settle(events), { mySeat: 1, playerName: names }).get(1)?.lines).toEqual(["Drew 1 card"]);
+  });
+
+  it("skips the card's own move when an old event carries no link zone", () => {
+    id = 0;
+    const events = [
+      activate(1, 0, RAIGEKI, { zone: undefined }),
+      chainEv("chain-resolving", 1),
+      chainEv("move", undefined, { card: RAIGEKI, zone: z(0, GRAVE, 0), from: z(0, SZONE, 0), reason: "other" }),
+      chainEv("move", undefined, { card: RAIGEKI, zone: z(0, GRAVE, 0), from: z(0, HAND, 0), reason: "other" }),
+      chainEv("chain-resolved", 1),
+    ];
+    expect(chainOutcomes(events, settle(events), who).get(1)?.lines).toEqual(["Resolved"]);
+  });
+
+  it("names the seat of each draw and each card added to a hand", () => {
+    id = 0;
+    const events = [
+      activate(1, 0, RAIGEKI),
+      chainEv("chain-resolving", 1),
+      chainEv("move", undefined, { zone: z(0, HAND, 0), from: z(0, 0x01, 0), reason: "draw" }),
+      chainEv("move", undefined, { zone: z(1, HAND, 0), from: z(1, 0x01, 0), reason: "draw" }),
+      chainEv("move", undefined, { zone: z(1, HAND, 1), from: z(1, 0x01, 0), reason: "draw" }),
+      chainEv("move", undefined, { card: GAIA, zone: z(1, HAND, 2), from: z(1, GRAVE, 0), reason: "other", addedToHand: true }),
+      chainEv("chain-resolved", 1),
+    ];
+    expect(chainOutcomes(events, settle(events), who).get(1)?.lines).toEqual([
+      "Drew 1 card", "Opponent drew 2 cards", "Opponent added Gaia The Fierce Knight to the hand",
+    ]);
+    expect(chainOutcomes(events, settle(events), { mySeat: 1, playerName: names }).get(1)?.lines).toEqual([
+      "Drew 1 card", "You drew 2 cards", "You added Gaia The Fierce Knight to the hand",
+    ]);
+  });
+
+  it("says a card from an unknown Deck position was added without a name", () => {
+    id = 0;
+    const events = [
+      activate(1, 0, RAIGEKI),
+      chainEv("chain-resolving", 1),
+      chainEv("move", undefined, { zone: z(0, HAND, 3), from: z(0, 0x01, 5), reason: "other", addedToHand: true }),
+      chainEv("chain-resolved", 1),
+    ];
+    expect(chainOutcomes(events, settle(events), who).get(1)?.lines).toEqual(["Added a card to the hand"]);
   });
 
   it("says what was summoned, banished or returned", () => {
@@ -534,5 +643,21 @@ describe("buildStripView", () => {
     id = 0;
     const events = [activate(1, 1, TRAP_HOLE), chainEv("chain-resolving", 1), chainEv("chain-resolved", 1)];
     expect(events.reduce(applyChainEvent, EMPTY_CHAIN)).toEqual(deriveChainState(events));
+  });
+});
+
+describe("ownPromptOpen", () => {
+  it("is true for a prompt of the local seat that is not the chain response", () => {
+    expect(ownPromptOpen({ seat: 0, context: { type: "select" } }, 0)).toBe(true);
+    expect(ownPromptOpen({ seat: 0, context: null }, 0)).toBe(true);
+    expect(ownPromptOpen({ seat: 0 }, 0)).toBe(true);
+  });
+
+  it("is false for the chain response window, for another seat's prompt, for a spectator and for no prompt", () => {
+    expect(ownPromptOpen({ seat: 0, context: { type: "chain" } }, 0)).toBe(false);
+    expect(ownPromptOpen({ seat: 1, context: { type: "select" } }, 0)).toBe(false);
+    expect(ownPromptOpen({ seat: 0, context: { type: "select" } }, null)).toBe(false);
+    expect(ownPromptOpen(null, 0)).toBe(false);
+    expect(ownPromptOpen(undefined, 0)).toBe(false);
   });
 });

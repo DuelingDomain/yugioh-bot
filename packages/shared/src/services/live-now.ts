@@ -14,6 +14,8 @@ export interface LiveNow {
 export interface LiveNowService {
   /** Small database reads, no duel-host calls. Safe to poll. */
   forPlayer(guildId: string, playerId: number): LiveNow;
+  /** Same visibility and idle rules as the lobby; optionally exclude the viewer's seats. Null viewers see public duels. */
+  countInProgress(guildId: string, playerId: number | null, options?: { excludeSeated?: boolean }): number;
 }
 
 type OwnRow = {
@@ -74,6 +76,10 @@ const COUNT_SQL = `
     and status = 'active'
     and archived_at is null
     and (
+      @excludeSeated = 0
+      or not exists (select 1 from duel_seats s where s.duel_id = duels.id and s.player_id = @viewer)
+    )
+    and (
       organizer_player_id = @viewer
       or exists (select 1 from duel_seats s where s.duel_id = duels.id and s.player_id = @viewer)
       or exists (select 1 from duel_invite_grants g where g.duel_id = duels.id and g.player_id = @viewer)
@@ -94,7 +100,7 @@ function urgency(row: OwnRow): number {
 
 export function createLiveNowService(db: Database.Database): LiveNowService {
   const own = db.prepare<Record<string, string | number>, OwnRow>(OWN_SQL);
-  const count = db.prepare<Record<string, string | number>, { n: number }>(COUNT_SQL);
+  const count = db.prepare<Record<string, string | number | null>, { n: number }>(COUNT_SQL);
   const opponents = db.prepare<{ guild: string; slug: string; viewer: number; bot: string }, { seat: number; name: string; is_bot: number }>(`
     select x.seat, case when x.is_bot = 1 then @bot else p.display_name end as name, x.is_bot
     from duels d join duel_seats x on x.duel_id = d.id
@@ -104,15 +110,18 @@ export function createLiveNowService(db: Database.Database): LiveNowService {
     order by x.seat
   `);
   const idle = `-${Math.ceil(DUEL_LIVE_IDLE_AFTER_MS / 1000)} seconds`;
+  const countInProgress = (guildId: string, playerId: number | null, options: { excludeSeated?: boolean } = {}) =>
+    count.get({ guild: guildId, viewer: playerId, idle, excludeSeated: options.excludeSeated ? 1 : 0 })?.n ?? 0;
 
   return {
+    countInProgress,
     forPlayer(guildId, playerId) {
       const rows = own
         .all({ guild: guildId, viewer: playerId, bot: PRACTICE_BOT_NAME })
         .filter((row) => row.slug !== null)
         .sort((a, b) => urgency(a) - urgency(b) || (b.activity ?? "").localeCompare(a.activity ?? ""));
       const top = rows[0];
-      const liveCount = count.get({ guild: guildId, viewer: playerId, idle })?.n ?? 0;
+      const liveCount = countInProgress(guildId, playerId);
       return {
         yourDuel: top
           ? { href: `/duels/${top.slug}`, opponent: top.opponent ?? "Opponent", state: top.state,

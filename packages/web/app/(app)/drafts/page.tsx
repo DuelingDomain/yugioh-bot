@@ -11,6 +11,7 @@ import { RejoinDraftBanner } from "@/components/draft/rejoin-draft";
 import { findRejoinDrafts } from "@/lib/rejoin-drafts";
 import { FinishedLedger } from "@/components/draft/list/finished-ledger";
 import styles from "@/components/draft/list/drafts-list.module.css";
+import { EmptyDrafts } from "@/components/empty-states/empty-drafts";
 import {
   groupDrafts,
   listSummaryParts,
@@ -75,7 +76,8 @@ export default async function DraftsPage() {
   const summary = listSummaryParts(groups);
 
   const newDraft = (
-    <SvButton as="a" href="/drafts/new" variant="primary">
+    // With no drafts, the empty state below holds the page's one primary button.
+    <SvButton as="a" href="/drafts/new" variant={drafts.length === 0 ? "ghost" : "primary"}>
       <Plus size={16} strokeWidth={2.2} aria-hidden="true" />
       New draft
     </SvButton>
@@ -85,16 +87,7 @@ export default async function DraftsPage() {
     <DraftFrame title="Drafts" sub={summary.length > 0 ? summary.join(", ") : undefined} actions={newDraft}>
       <RejoinDraftBanner drafts={rejoin} />
       {drafts.length === 0 ? (
-        <div className={styles.empty}>
-          <h2>No drafts yet</h2>
-          <p>
-            Start one and share the link. Drafts you join show up on this page.
-          </p>
-          <SvButton as="a" href="/drafts/new" variant="primary" className={styles.go}>
-            <Plus size={16} strokeWidth={2.2} aria-hidden="true" />
-            New draft
-          </SvButton>
-        </div>
+        <EmptyDrafts />
       ) : (
         <div className={styles.sections}>
           {groups.live.length > 0 && (

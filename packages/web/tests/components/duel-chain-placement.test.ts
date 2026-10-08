@@ -19,8 +19,14 @@ function rule(css: string, selector: string): string {
 describe("chain stack placement", () => {
   it("anchors the stack to the left side of the board, never the middle where the prompt opens", () => {
     const dock = rule(chainCss, ".dock");
-    expect(dock).toMatch(/inset:\s*0 auto 0 calc\(/);
+    expect(dock).toMatch(/inset:\s*var\(--chain-dock-gap, 16%\) auto 14% calc\(/);
     expect(dock).toMatch(/pointer-events:\s*none/);
+  });
+
+  it("starts the panel near the top of the gutter, grows it downward and keeps the bottom corner free", () => {
+    const dock = rule(chainCss, ".dock");
+    expect(dock).toMatch(/inset:\s*var\(--chain-dock-gap, 16%\) auto 14% calc\(/);
+    expect(dock).toMatch(/align-items:\s*flex-start/);
   });
 
   it("puts the strip in the top left corner when there is no free gutter, and stops it short of the board edge", () => {
@@ -37,6 +43,18 @@ describe("chain stack placement", () => {
   it("sizes the panel by the measured gutter and never by a fixed px width alone", () => {
     expect(rule(panelCss, ".cr")).toMatch(/width:\s*clamp\(214px,\s*calc\(var\(--chain-gutter,\s*230px\) - 16px\),\s*292px\)/);
     expect(panelCss).toMatch(/\.cr\[data-shape="narrow"\] \{ width: clamp\(142px,\s*calc\(var\(--chain-gutter,\s*164px\) - 8px\),\s*214px\); \}/);
+  });
+
+  it("lets the card text use the free height, and lets the rows give way before the outcome", () => {
+    expect(panelCss).not.toMatch(/--chain-text-lines|data-length/);
+    expect(rule(panelCss, ".cardText")).not.toMatch(/max-height/);
+    expect(rule(panelCss, ".stack")).toMatch(/flex:\s*0 1000 auto/);
+    expect(panelCss).toMatch(/\.cr:not\(\[data-shape="sheet"\]\) \.hero > \* \{ flex: none; \}/);
+  });
+
+  it("scales the narrow hero name with the text scale", () => {
+    expect(panelCss).toMatch(/\.cr\[data-shape="narrow"\] \.name \{ font-size: calc\(17px \* var\(--tt, 1\)\); \}/);
+    expect(panelCss).not.toMatch(/\.name \{ font-size: \d+px; \}/);
   });
 
   it("hides a target ring that sits under an open prompt panel", () => {
@@ -100,9 +118,22 @@ describe("chain stack placement", () => {
     expect(panelCss).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\s*\.cr, \.hero, \.out, \.strip, \.scrim, \.wait i \{ animation: none !important; \}/);
   });
 
-  it("takes a pointer only on the strip, the sheet and its scrim", () => {
+  it("keeps the row list's size independent of its overflow flag, so the measure cannot loop", () => {
+    expect(rule(panelCss, ".stack")).toMatch(/min-height:\s*76px/);
+    expect(rule(panelCss, '.stack[data-overflow="true"]')).not.toMatch(/(?:^|[\s;])(?:min-|max-)?(?:height|width)\s*:|padding|margin|border|gap|font/);
+  });
+
+  it("puts the row owner under the card name in every shape, so a long name keeps the row width", () => {
+    const head = rule(panelCss, ".rowHead");
+    expect(head).toMatch(/flex-direction:\s*column/);
+    expect(head).not.toMatch(/gap:/);
+    expect(panelCss).not.toMatch(/\[data-shape="[a-z]+"\] \.rowHead/);
+    expect(rule(panelCss, ".rowOwner")).toMatch(/text-overflow:\s*ellipsis/);
+  });
+
+  it("takes a pointer only on the strip, the sheet, its scrim and a box the layout really cuts", () => {
     const auto = [...panelCss.matchAll(/(^|\n)([^\n{}]+)\{[^}]*pointer-events:\s*auto/g)].map((m) => m[2].trim());
-    expect(auto).toEqual([".strip", ".scrim", ".sheet"]);
+    expect(auto).toEqual(['.cardText[data-overflow="true"]', '.stack[data-overflow="true"]', ".strip", ".scrim", ".sheet"]);
     expect(rule(panelCss, ".cr")).not.toMatch(/pointer-events:\s*auto/);
   });
 

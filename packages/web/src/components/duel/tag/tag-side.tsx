@@ -130,7 +130,7 @@ export function TagSide({
     <CardInspector
       target={startTarget}
       onInspectCard={(card) => ui.setInspect({ type: "card", card })}
-      onActivateCard={(card, anchor) => controller.onActivate([zoneKey(card.controller, card.location, card.sequence)], card, anchor)}
+      onActivateCard={(card, anchor) => controller.onActivate([zoneKey(card.controller, card.location, card.sequence)], card, anchor, true)}
       equipLinks={resolveEquipLinks(engine.seats)}
       ownerOf={(card) => ({ name: nameOf(card.controller), tone: seatTones.get(card.controller) ?? SEAT_TONE_HEX.ice })}
     />
@@ -217,7 +217,8 @@ export function TagSide({
           master={domain ? hudMasterProps(source, engine.seats.find((view) => view.seat === seat), viewerSeat != null, viewerSeat == null ? `${nameOf(seat)}'s Master` : "Your Master") : null}
           otherMaster={domain && partner != null ? hudMasterProps(source, engine.seats.find((view) => view.seat === partner), false, `${nameOf(partner)}'s Master`) : null}
           onInspect={ui.setInspect}
-          preview={hudPreview(hud.hover?.card ?? null, hud.menuCard, hud.rowCard, (card) => ({ name: nameOf(card.controller), ...(seatTones.get(card.controller) ?? SEAT_TONE_HEX.ice) }))}
+          preview={hudPreview(hud.hover?.card ?? null, hud.menuCard, hud.rowCard, (card) => ({ name: nameOf(card.controller), ...(seatTones.get(card.controller) ?? SEAT_TONE_HEX.ice) }), hud.state.pinned)}
+          equipLinks={resolveEquipLinks(engine.seats)}
           previewHidden={ui.pile?.open === true}
           reducedMotion={controller.reducedMotion}
         />
@@ -294,7 +295,7 @@ export function TagPileViewer({ controller, ui }: { controller: TableController;
       onClose={ui.closePile}
       onInspectCard={(card) => ui.inspectCard({ type: "card", card })}
       onHoverCard={(card) => { if (ui.pane === "card") ui.setInspect({ type: "card", card }); }}
-      onActivateCard={(card, anchor) => controller.onActivate([zoneKey(card.controller, card.location, card.sequence)], card, anchor)}
+      onActivateCard={(card, anchor) => controller.onActivate([zoneKey(card.controller, card.location, card.sequence)], card, anchor, true)}
       legalKeys={controller.legalKeys}
       selectedKeys={controller.selectedKeys}
       reducedMotion={controller.reducedMotion}

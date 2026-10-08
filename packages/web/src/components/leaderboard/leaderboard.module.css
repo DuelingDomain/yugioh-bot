@@ -50,9 +50,6 @@
 .row .seat :global(.sv-seat-name) a:focus-visible::after { outline: 2px solid var(--pen-ink); outline-offset: -2px; }
 .act { position: relative; z-index: 2; display: inline-flex; align-items: center; justify-content: flex-end; gap: 10px; }
 .anchor { position: absolute; inset: 0; pointer-events: none; }
-.empty { padding: 28px 0; }
-.empty h2 { margin: 0 0 6px; font: 600 20px/1.25 var(--f-display); color: var(--ink); }
-.empty p { margin: 0; color: var(--ink-2); font-size: 15px; }
 
 /* your row, pinned while it is out of view */
 .pin {

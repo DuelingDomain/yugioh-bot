@@ -12,6 +12,7 @@ import { NewPasswordStep } from "@/components/auth/steps/new-password-step";
 import { NotInvitedStep } from "@/components/auth/steps/not-invited-step";
 import { PasswordStep } from "@/components/auth/steps/password-step";
 import { SignupClosedStep } from "@/components/auth/steps/signup-closed-step";
+import { RecoveringStep } from "@/components/auth/steps/recovering-step";
 import { SigningStep } from "@/components/auth/steps/signing-step";
 import { SuccessStep } from "@/components/auth/steps/success-step";
 
@@ -37,7 +38,7 @@ describe("IdentifierStep", () => {
     expect(screen.getByLabelText("Email address")).toHaveAttribute("type", "email");
     screen.getByRole("button", { name: "Continue" });
     const foot = container.querySelector('[data-slot="foot"]') as HTMLElement;
-    expect(within(foot).getByRole("link", { name: "Join the waitlist" })).toHaveAttribute("href", "https://duelingdomain.com/#join");
+    expect(within(foot).getByRole("link", { name: "Join the waitlist" })).toHaveAttribute("href", "https://duelingdomain.com/?home=1#join");
     expect(within(foot).getByRole("link", { name: "Terms" })).toHaveAttribute("href", TERMS);
     expect(within(foot).getByRole("link", { name: "Privacy" })).toHaveAttribute("href", PRIVACY);
   });
@@ -288,19 +289,19 @@ describe("CreateAccountStep", () => {
 describe("error cards", () => {
   it("NotInvitedStep shows the email, the waitlist link and a retry", async () => {
     const onRetry = vi.fn();
-    render(<NotInvitedStep identifier="sam@example.com" waitlistUrl="https://duelingdomain.com/#join" onRetry={onRetry} />);
+    render(<NotInvitedStep identifier="sam@example.com" waitlistUrl="https://duelingdomain.com/?home=1#join" onRetry={onRetry} />);
     expect(title("This email isn’t in the alpha yet").querySelector("em")).toHaveTextContent("alpha");
     screen.getByText("sam@example.com");
-    expect(screen.getByRole("link", { name: "Join the waitlist" })).toHaveAttribute("href", "https://duelingdomain.com/#join");
+    expect(screen.getByRole("link", { name: "Join the waitlist" })).toHaveAttribute("href", "https://duelingdomain.com/?home=1#join");
     await userEvent.click(screen.getByRole("button", { name: "Try a different email" }));
     expect(onRetry).toHaveBeenCalledOnce();
   });
 
   it("SignupClosedStep links to the waitlist and goes back to sign in", async () => {
     const onRetry = vi.fn();
-    render(<SignupClosedStep waitlistUrl="https://duelingdomain.com/#join" onRetry={onRetry} />);
+    render(<SignupClosedStep waitlistUrl="https://duelingdomain.com/?home=1#join" onRetry={onRetry} />);
     expect(title("You’re not in the alpha yet").querySelector("em")).toHaveTextContent("alpha");
-    expect(screen.getByRole("link", { name: "Join the waitlist" })).toHaveAttribute("href", "https://duelingdomain.com/#join");
+    expect(screen.getByRole("link", { name: "Join the waitlist" })).toHaveAttribute("href", "https://duelingdomain.com/?home=1#join");
     await userEvent.click(screen.getByRole("button", { name: "Back to sign in" }));
     expect(onRetry).toHaveBeenCalledOnce();
   });
@@ -323,6 +324,16 @@ describe("signing and success", () => {
     expect(status).toHaveAttribute("aria-live", "polite");
     expect(status).toHaveTextContent("Opening Dueling Domain…");
     expect(container.querySelectorAll("button, a, input")).toHaveLength(0);
+  });
+
+  it("RecoveringStep explains the second Discord trip with no controls or waitlist links", () => {
+    const { container } = render(<RecoveringStep />);
+    screen.getByText("Existing player?");
+    expect(title("Checking your profile").querySelector("em")).toHaveTextContent("profile");
+    screen.getByText("Discord will confirm it’s you once more, then you’re back in.");
+    expect(screen.getByRole("status")).toHaveAttribute("aria-live", "polite");
+    expect(container.querySelectorAll("button, a, input")).toHaveLength(0);
+    expect(container.textContent).not.toContain("—");
   });
 
   it("SuccessStep is only a status region", () => {
