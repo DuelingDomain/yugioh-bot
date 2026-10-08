@@ -29,8 +29,7 @@
   position: relative;
   box-sizing: border-box;
   flex: none;
-  /* The art never takes more than 30% of the window height, so a short screen keeps room for the effect text. */
-  width: min(100%, calc(190 * var(--duel-unit, 1px)), calc(30dvh * 421 / 614));
+  width: min(100%, calc(190 * var(--duel-unit, 1px)));
   min-width: 0;
   margin: 0 auto calc(4 * var(--duel-unit, 1px));
   background: #06080e;
