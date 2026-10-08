@@ -9,6 +9,31 @@ const evaluate = (expression, needs) => Function("needs", "always", `return (${e
   .replace(/^\$\{\{\s*|\s*\}\}$/g, "")
   .replace(/needs\.([\w-]+)/g, 'needs["$1"]')});`)(needs, () => true);
 
+for (const [file, jobId, cacheJobId] of [
+  ["test.yml", "cores", "core-cache"],
+  ["deploy.yml", "deploy", "deploy"],
+  ["deploy-staging.yml", "staging", "staging"],
+  ["engine-data-update.yml", "prepare"],
+]) {
+  const data = parse(readFileSync(new URL(`../../.github/workflows/${file}`, import.meta.url), "utf8"));
+  test(`${file} builds shared before preparing card data on a fresh checkout`, () => {
+    const steps = data.jobs[jobId].steps;
+    const prepare = steps.findIndex(step => step.run?.includes("npm run duel:prepare"));
+    const build = steps.findIndex(step => /npm run build --workspace=(packages\/shared|@yugidraft\/shared)/.test(step.run ?? ""));
+    const install = steps.findIndex(step => step.run?.includes("npm ci"));
+    assert.ok(prepare >= 0, "prepares card data");
+    assert.ok(build > install && build < prepare, "builds shared after install and before the smoke check imports it");
+    if (cacheJobId) assert.equal(steps[build].if, steps[prepare].if, "builds shared whenever a bundle is prepared");
+    else assert.ok(build < steps.findIndex(step => step.id === "update"), "builds shared before the weekly updater imports the smoke check too");
+  });
+  if (cacheJobId) test(`${file} invalidates the bundle when shared duel code or its build inputs change`, () => {
+    const key = data.jobs[cacheJobId].steps.find(step => step.name === "Compute bundle cache key");
+    for (const input of ["packages/shared/src/duels/**", "packages/shared/package.json", "packages/shared/tsconfig*.json", "tsconfig.json"]) {
+      assert.ok(key.run.includes(`'${input}'`), `bundle cache includes ${input}`);
+    }
+  });
+}
+
 test("the required core job runs and fails for failed or cancelled builds on every PR layer", () => {
   const job = workflow.jobs.cores;
   assert.equal(job.name, "Engine cores (build or restore)");
