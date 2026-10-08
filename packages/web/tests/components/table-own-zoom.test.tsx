@@ -267,4 +267,31 @@ describe("FFA3 own field camera zoom", () => {
     expect(seen.length).toBe(settled);
     expect(settled).toBeLessThanOrEqual(3);
   });
+
+  it("the chip is HUD for the pan and keeps clear of the Reset control", () => {
+    frames();
+    const state = FFA3_FIXTURES.states["target-pick"];
+    const first = render(<Table state={state} camera={{ mode: "focus", focusSeat: REN }} />);
+    advance(800);
+    const free = first.container.querySelector<HTMLElement>("[data-rival-hint]")!;
+    expect(free.hasAttribute("data-zoom-occluder")).toBe(true);
+    const home = { left: free.style.left, top: free.style.top };
+    first.unmount();
+    // The Reset control stands where the chip would: the chip slides along its edge to clear it.
+    const rect = (x: number, y: number, width: number, height: number) => ({ x, y, left: x, top: y, width, height, right: x + width, bottom: y + height, toJSON: () => ({}) }) as DOMRect;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      if (this.hasAttribute("data-table-stage")) return rect(0, 0, 1100, 860);
+      if (this.hasAttribute("data-view-reset")) return rect(0, 0, 160, 60);
+      return rect(0, 0, 0, 0);
+    });
+    const second = render(<Table state={state} camera={{ mode: "focus", focusSeat: REN }} />);
+    advance(800);
+    const moved = second.container.querySelector<HTMLElement>("[data-rival-hint]")!;
+    expect({ left: moved.style.left, top: moved.style.top }).not.toEqual(home);
+    // It sits clear of the control.
+    const x = Number.parseFloat(moved.style.left);
+    const y = Number.parseFloat(moved.style.top);
+    expect(x - 76 >= 160 || y - 14 >= 60).toBe(true);
+    expect(moved.querySelector("span")?.textContent).toMatch(/\S/);
+  });
 });
