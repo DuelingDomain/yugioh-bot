@@ -198,13 +198,17 @@ it.each([[33,"extra","main"],[97,"main","extra"]] as const)("corrects cube pool 
  }finally{db.close();}
 });
 
-it.each(['[{"set_name":"Official set"}]','[]'])("preserves existing catalog metadata across weekly bundles (sets=%s)",sets=>{
+it.each([
+ ['[{"set_name":"Official set"}]','Catalog translation'],
+ ['[]','Official'],
+ ['[]','OCG-only catalog translation'],
+])("preserves existing catalog metadata across weekly bundles (sets=%s, name=%s)",(sets,name)=>{
  const dir=bundle(),db=sharedDb.openDatabase(":memory:");
  const cdb=new Database(join(dir,"cards.cdb"));
  cdb.exec("CREATE TABLE texts(id INTEGER PRIMARY KEY,name TEXT,desc TEXT);UPDATE datas SET type=97 WHERE id=12;INSERT INTO texts VALUES(12,'Official','Lossy engine effect');");cdb.close();
  try{
   db.prepare(`INSERT INTO card_catalog(ygoprodeck_id,name,type,frame_type,effect_text,image_url,image_url_small,card_sets_json,cached_at)
-   VALUES(12,?,'Fusion Monster','fusion','Synced effect','synced','synced',?,'synced date')`).run(sets==='[]'?'Official':'Catalog translation',sets);
+   VALUES(12,?,'Fusion Monster','fusion','Synced effect','synced','synced',?,'synced date')`).run(name,sets);
   const before=db.prepare("SELECT * FROM card_catalog WHERE ygoprodeck_id=12").get();
   sharedDb.applyEngineCardRemaps(db,dir);
   expect(db.prepare("SELECT * FROM card_catalog WHERE ygoprodeck_id=12").get()).toEqual(before);
@@ -215,13 +219,13 @@ it.each(['[{"set_name":"Official set"}]','[]'])("preserves existing catalog meta
  }finally{db.close();}
 });
 
-it("refreshes an existing unsynced preview only once, even if engine text changes next week",()=>{
+it("refreshes a copied preview only once, even if engine text changes next week",()=>{
  const dir=bundle(),db=sharedDb.openDatabase(":memory:");
  const cdb=new Database(join(dir,"cards.cdb"));
  cdb.exec("CREATE TABLE texts(id INTEGER PRIMARY KEY,name TEXT,desc TEXT);UPDATE datas SET type=97 WHERE id=12;INSERT INTO texts VALUES(12,'Official','First effect');");cdb.close();
  try{
   db.exec(`INSERT INTO card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
-   VALUES(12,'Preview','Effect Monster','effect','preview','preview','[]','now');`);
+   VALUES(100000001,'Preview','Effect Monster','effect','preview','preview','[]','now');`);
   sharedDb.applyEngineCardRemaps(db,dir);
   expect(db.prepare("SELECT name,effect_text FROM card_catalog").get()).toEqual({name:"Official",effect_text:"First effect"});
   const before=db.prepare("SELECT * FROM card_catalog").get();
