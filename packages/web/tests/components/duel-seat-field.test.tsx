@@ -60,7 +60,11 @@ describe("extraMonsterKeys", () => {
 describe("SeatField", () => {
   it("draws the seat's own Extra Monster Zones, one data-zones per zone", () => {
     const { container } = render(<SeatField {...props()} />);
-    const zones = [...container.querySelectorAll("[data-zones]")].map((node) => node.getAttribute("data-zones") ?? "");
+    // The rival hand cards carry data-zones too (hand anchors for the effects); they are not field zones.
+    const all = [...container.querySelectorAll("[data-zones]")].map((node) => node.getAttribute("data-zones") ?? "");
+    const isHandAnchor = (z: string) => z.split(" ").every((key) => key.split(":")[1] === String(LOCATION_HAND));
+    expect(all.filter(isHandAnchor)).toHaveLength(3);
+    const zones = all.filter((z) => !isHandAnchor(z));
     expect(zones.some((z) => z.split(" ").includes("1:4:5"))).toBe(true);
     expect(zones.some((z) => z.split(" ").includes("1:4:6"))).toBe(true);
     expect(zones.some((z) => z.split(" ").includes("0:4:5"))).toBe(false);

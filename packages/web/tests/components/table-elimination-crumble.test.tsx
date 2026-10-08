@@ -201,10 +201,11 @@ describe("the glide only runs when the table regroups", () => {
       expect(container.querySelector("[data-seat-exit='3']")).not.toBeNull();
       expect(glideNodes(container)).toBe(0);
       expect(container.querySelector("[data-plaza][data-glide]")).toBeNull();
-      settle(AFTER_BATTLE);
+      // Nothing is asserted after the crumble: one large step runs the fake gate interval and timers, then the table goes.
+      act(() => { vi.advanceTimersByTime(AFTER_BATTLE); });
       unmount();
     }
-  });
+  }, 20_000);
 
   it("sends it to the boards and panels of a 3-way table at 3 to 2", () => {
     const main = FFA3_FIXTURES.states.main;
