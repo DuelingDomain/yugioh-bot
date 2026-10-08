@@ -378,6 +378,21 @@ describe("privacy in the rendered panel", () => {
     expect(text).toContain("your hand card 1");
   });
 
+  it("lists every option of a card that lets its owner pick, for a viewer who is not the owner", () => {
+    const prayers = info(45171524, "Mitsurugi Prayers", "Apply 1 of these effects.\r\n● Add 1 \"Mitsurugi\" monster from your Deck to your hand.\r\n● Take 800 damage.\r\nOnce per turn.", 0x10002);
+    const { container } = render(
+      <ChainFx {...base} mySeat={1} events={[activate(1, 0, prayers, z(0, SZONE, 0), { description: "Apply 1 of these effects" })]} reducedMotion />,
+    );
+    flush(60);
+    const text = hero(container)?.querySelector('[data-chain-effect="text"]');
+    expect(text?.textContent).toContain("Card text");
+    expect(Array.from(text?.querySelectorAll("[data-chain-option]") ?? []).map((option) => option.textContent)).toEqual([
+      "Add 1 \"Mitsurugi\" monster from your Deck to your hand.", "Take 800 damage.",
+    ]);
+    // The engine's words are part of the printed text, so they are not said twice.
+    expect(hero(container)?.querySelector('[data-chain-effect="string"]')).toBeNull();
+  });
+
   it("renders an unknown card as A card with no art, text or passcode anywhere in the DOM", () => {
     const secret = info(55144522, "", TRAP_TEXT, 4);
     const { container } = render(
