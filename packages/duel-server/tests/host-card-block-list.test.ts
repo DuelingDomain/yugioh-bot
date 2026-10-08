@@ -113,3 +113,26 @@ it.each([
     expect(createWorker).not.toHaveBeenCalled();
   } finally { await host.close(); db.close(); }
 });
+
+it.each([
+  { mode: "normal" as const, format: "tag" as const, kind: "multi-normal" as const },
+  { mode: "domain" as const, format: "1v1" as const, kind: "legacy-domain" as const },
+])("search and details use $kind room context without blocking Normal 1v1", async ({ mode, format, kind }) => {
+  vi.stubEnv("DUEL_1V1_ENGINE", "legacy");
+  const db = new Database(":memory:"); migrate(db);
+  const player = seedIdentity(db, { guildId: "g", name: "P", userId: seedUser(db, kind).userId }).playerId;
+  const session = createDuelService(db).create({ guildId: "g", organizerPlayerId: player, name: "Scoped", mode, format });
+  const code = 18144506;
+  db.prepare(`INSERT INTO card_script_auto_blocks (code, reason, blocked_at, distinct_duels, error_count, threshold, window_days, bundle_version, script_hash, engine_kind)
+    VALUES (?, 'reason', CURRENT_TIMESTAMP, 3, 3, 3, 7, 'test', ?, ?)`)
+    .run(code, cardScriptHash(loadCardDatabase(DATA), code, kind, kind === "multi-normal" ? loadMultiScriptsFor(DATA) : undefined), kind);
+  const host = createDuelHost({ db, dataDirectory: DATA, secret: SECRET, searchCards: () => [] });
+  try {
+    for (const op of ["card-query", "card-details"]) {
+      const body = { op, guildId: "g", playerId: player, codes: [code], cardQuery: { text: String(code) } };
+      expect((await post(host, body)).data.cards[0]).not.toHaveProperty("unavailableReason");
+      expect((await post(host, { ...body, slug: session.slug })).data.cards[0].unavailableReason).toBe("Its effect script is being investigated");
+      if (mode === "domain") expect((await post(host, { ...body, mode })).data.cards[0].unavailableReason).toBe("Its effect script is being investigated");
+    }
+  } finally { await host.close(); db.close(); }
+});

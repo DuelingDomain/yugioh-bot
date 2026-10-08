@@ -323,6 +323,8 @@ describe("series advance", () => {
     expect(check.data.report.issues.some((issue: { message: string }) => issue.message.includes("is unavailable"))).toBe(true);
     const fresh = app.series.createChallenge({ guildId: GUILD, challengerPlayerId: app.p1, opponentPlayerId: app.p3, bestOf: 3, ranked: false, mode: "normal" });
     expect((await post(host, { op: "deck", slug: fresh.duel.slug, playerId: app.p1, deck })).status).toBe(400);
+    const details = await post(host, { op: "card-details", slug: started.duel.slug, playerId: app.p1, codes: [code] });
+    expect(details.data.cards[0]).not.toHaveProperty("unavailableReason");
     const sided = await post(host, { op: "series-side", slug: started.duel.slug, playerId: app.p1, deck });
     expect(sided.status).toBe(200);
     for (let gameNumber = 2; gameNumber <= 3; gameNumber++) {

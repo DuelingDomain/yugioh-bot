@@ -1,4 +1,4 @@
-import { cardBlockIndex, loadCardBlockList, mergeCardBlockEntries } from "./card-block-list.js";
+import { cardBlockIndex, loadCardBlockList, mergeCardBlockEntries, type CardBlockEntry } from "./card-block-list.js";
 import { createAutoBlockPolicy } from "./script-error-autoblock.js";
 import { cardScriptHash, scriptEngineKind, type ScriptEngineKind } from "./card-script-hash.js";
 import { loadCardPasscodeRemaps } from "@yugidraft/shared/db";
@@ -388,6 +388,15 @@ export function createDuelHost(options: {
     if (draftId === null) return { table, cardBlocks };
     const draftPool = await loadDraftDeckPool({ draftId, playerId, guildId: session.guildId, dataDirectory: options.dataDirectory, db: options.db });
     return { table, draftPool, cardBlocks };
+  }
+
+  function cardRequestEntries(body: Record<string, unknown>, guildId: string, playerId: number): readonly CardBlockEntry[] {
+    if (typeof body.slug === "string" && body.slug) {
+      const { session } = service.room(body.slug, guildId, playerId);
+      if (session.seriesId != null && ((session.gameNumber ?? 1) > 1 || session.status !== "lobby")) return loadCardBlockList(undefined, options.dataDirectory);
+      return admissionEntries(session.mode, session.format);
+    }
+    return admissionEntries(body.mode === "domain" ? "domain" : "normal", body.format === "tag" || body.format === "ffa3" || body.format === "ffa4" ? body.format : "1v1");
   }
 
   async function validateSessionDeck(mode: DuelMode, deck: DuelDeck, settings: DuelSettings, format: DuelFormat, context?: { session: DuelSession; playerId: number }): Promise<void> {
@@ -2297,7 +2306,7 @@ export function createDuelHost(options: {
         throw new RequestError("Provide at most 1000 positive card passcodes", 400);
       }
       const catalog = loadCardDatabase(options.dataDirectory);
-      const entries = admissionEntries(body.mode === "domain" ? "domain" : "normal", body.format === "tag" || body.format === "ffa3" || body.format === "ffa4" ? body.format : "1v1");
+      const entries = cardRequestEntries(body, guildId, actor);
       const cards = [];
       const missing: number[] = [];
       for (const code of new Set<number>(body.codes)) {
@@ -2335,7 +2344,7 @@ export function createDuelHost(options: {
     }
     if (op === "card-query") {
       try {
-        return queryCards(loadCardDatabase(options.dataDirectory), parseCardQuery(body.cardQuery), admissionEntries(body.mode === "domain" ? "domain" : "normal", body.format === "tag" || body.format === "ffa3" || body.format === "ffa4" ? body.format : "1v1"));
+        return queryCards(loadCardDatabase(options.dataDirectory), parseCardQuery(body.cardQuery), cardRequestEntries(body, guildId, actor));
       } catch (error) {
         if (error instanceof CardQueryError) throw new RequestError(error.message, 400);
         throw error;

@@ -10,6 +10,7 @@ import {
   type DeckCardInfo,
   type DuelSettings,
 } from "@yugidraft/shared/duels";
+import type { CardAdmissionContext } from "@/lib/card-admission-context";
 import { getDeckCardFacets, queryDeckCards } from "../decks/api";
 
 /** Results the "Add card" dropdown shows. */
@@ -44,7 +45,7 @@ export function cardAddBlock(
   return null;
 }
 
-export type CardNameSearch = { query: string; cards?: DeckCardInfo[]; error?: string };
+export type CardNameSearch = { query: string; scope?: string; cards?: DeckCardInfo[]; error?: string };
 
 /**
  * Name search for the "Add card" field: waits for typing to pause, then asks the deck-builder card
@@ -54,8 +55,11 @@ export function useCardNameSearch(
   query: string,
   /** Skip the pause: the player pressed Enter or Add and is waiting for the answer. */
   immediate = false,
+  context: CardAdmissionContext = {},
 ): { search: CardNameSearch | null; pending: boolean } {
   const trimmed = query.trim();
+  const { mode, slug } = context;
+  const scope = `${mode ?? "normal"}:${slug ?? ""}`;
   const [search, setSearch] = useState<CardNameSearch | null>(null);
   const reqId = useRef(0);
   const latest = useRef(search);
@@ -65,17 +69,17 @@ export function useCardNameSearch(
     const myReq = ++reqId.current;
     if (!trimmed) return undefined;
     // Going from "wait for the answer" back to normal must not search again for text already answered.
-    if (latest.current?.query === trimmed) return undefined;
+    if (latest.current?.query === trimmed && latest.current?.scope === scope) return undefined;
     const controller = new AbortController();
     const timeout = setTimeout(() => {
       const request = { ...emptyCardQuery(), text: trimmed, scope: "name" as const, sort: "match" as const, limit: ADD_RESULT_LIMIT };
-      queryDeckCards(request, controller.signal).then(
+      queryDeckCards(request, controller.signal, { mode, slug }).then(
         ({ cards }) => {
-          if (myReq === reqId.current) setSearch({ query: trimmed, cards: cards.slice(0, ADD_RESULT_LIMIT) });
+          if (myReq === reqId.current) setSearch({ query: trimmed, scope, cards: cards.slice(0, ADD_RESULT_LIMIT) });
         },
         (error: unknown) => {
           if (myReq !== reqId.current || controller.signal.aborted) return;
-          setSearch({ query: trimmed, error: error instanceof Error ? error.message : "Could not search cards." });
+          setSearch({ query: trimmed, scope, error: error instanceof Error ? error.message : "Could not search cards." });
         },
       );
     }, immediate ? 0 : ADD_SEARCH_DEBOUNCE_MS);
@@ -83,9 +87,9 @@ export function useCardNameSearch(
       clearTimeout(timeout);
       controller.abort();
     };
-  }, [trimmed, immediate]);
+  }, [trimmed, immediate, scope, mode, slug]);
 
-  const current = trimmed && search?.query === trimmed ? search : null;
+  const current = trimmed && search?.query === trimmed && search.scope === scope ? search : null;
   return { search: current, pending: trimmed !== "" && current === null };
 }
 
