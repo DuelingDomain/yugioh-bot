@@ -91,28 +91,79 @@ describe("Tag overview camera: the default", () => {
   });
 });
 
-describe("Tag overview camera: click to focus", () => {
-  it("a click on the bare mat of a field focuses that field", () => {
+/** A phone: the corner focus buttons are gone, so a tap on a field is how it focuses. */
+function narrow(on: boolean) {
+  vi.stubGlobal("matchMedia", (query: string) => ({ matches: on && query.includes("max-width"), media: query, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+}
+
+describe("Tag overview camera: a click on a field never focuses it on a wide screen", () => {
+  const mat = (root: HTMLElement, seat: number) =>
+    [...root.querySelectorAll<HTMLElement>(`[data-field-hold="${seat}"] div`)].find((node) => !node.closest("button, [role='button'], [data-legal='true']") && node.className.includes("sfMat"))!;
+
+  it("a click on the bare mat of a field moves nothing", () => {
     const root = mount();
-    const hold = root.querySelector<HTMLElement>('[data-field-hold="3"]')!;
-    const mat = [...hold.querySelectorAll<HTMLElement>("div")].find((node) => !node.closest("button, [role='button'], [data-legal='true']") && node.className.includes("sfMat"));
-    expect(mat).toBeTruthy();
-    fireEvent.click(mat!);
-    expect(modeOf(root)).toBe("focus:3");
+    expect(mat(root, 3)).toBeTruthy();
+    fireEvent.click(mat(root, 3));
+    expect(modeOf(root)).toBe("overview:-");
   });
 
-  it("a click on the field name label focuses that field", () => {
+  it("a click on the field name label moves nothing", () => {
     const root = mount();
     const label = root.querySelector<HTMLElement>('[data-field-hold="1"] [data-seat-name]');
     expect(label).toBeTruthy();
     fireEvent.click(label!);
+    expect(modeOf(root)).toBe("overview:-");
+  });
+
+  it("a click on a seat chip of the team plate moves nothing", () => {
+    const root = mount();
+    fireEvent.click(root.querySelector<HTMLElement>('[data-team-plate="far"] [data-member-seat="3"]')!);
+    expect(modeOf(root)).toBe("overview:-");
+  });
+
+  it("a double click on the bare mat or the name label focuses the field; a single click does not", () => {
+    const root = mount();
+    fireEvent.click(mat(root, 3), { detail: 1 });
+    expect(modeOf(root)).toBe("overview:-");
+    fireEvent.doubleClick(mat(root, 3));
+    expect(modeOf(root)).toBe("focus:3");
+  });
+
+  it("a double click on the name label focuses the field", () => {
+    const root = mount();
+    fireEvent.doubleClick(root.querySelector<HTMLElement>('[data-field-hold="1"] [data-seat-name]')!);
     expect(modeOf(root)).toBe("focus:1");
   });
 
-  it("a click on a seat chip of the team plate focuses that seat", () => {
+  it("a double click on a zone or a card never focuses a field", () => {
     const root = mount();
-    fireEvent.click(root.querySelector<HTMLElement>('[data-team-plate="far"] [data-member-seat="3"]')!);
-    expect(modeOf(root)).toBe("focus:3");
+    const { idle, piles } = zonesOf(root, 3);
+    for (const zone of [idle[0], piles[0]].filter(Boolean)) {
+      fireEvent.doubleClick(zone);
+      const button = zone.querySelector("button");
+      if (button) fireEvent.doubleClick(button);
+    }
+    expect(modeOf(root)).toBe("overview:-");
+  });
+
+  it("the focus button of a field still focuses it, and Back returns to the overview", () => {
+    const root = mount();
+    fireEvent.click(root.querySelector<HTMLElement>('[data-field-focus="2"]')!);
+    expect(modeOf(root)).toBe("focus:2");
+    fireEvent.click(root.querySelector<HTMLElement>("[data-camera-back]")!);
+    expect(modeOf(root)).toBe("overview:-");
+  });
+
+  it("on a phone, a tap on the mat or the name label still focuses the field (there are no corner buttons)", () => {
+    narrow(true);
+    try {
+      const root = mount();
+      expect(root.querySelector("[data-field-focus]")).toBeNull();
+      fireEvent.click(root.querySelector<HTMLElement>('[data-field-hold="1"] [data-seat-name]')!);
+      expect(modeOf(root)).toBe("focus:1");
+    } finally {
+      narrow(false);
+    }
   });
 
   it("the focus button of a field focuses it (keyboard and pointer: it is a real button)", () => {
@@ -173,11 +224,16 @@ describe("Tag overview camera: keyboard focus", () => {
     expect(document.activeElement).toBe(button);
   });
 
-  it("after a focus by a click on the mat, the keyboard focus lands on Back to overview, not on the page body", () => {
-    const root = mount();
-    fireEvent.click(root.querySelector<HTMLElement>('[data-field-hold="1"] [data-seat-name]')!);
-    expect(modeOf(root)).toBe("focus:1");
-    expect(document.activeElement).toBe(root.querySelector("[data-camera-back]"));
+  it("after a focus by a phone tap on the mat, the keyboard focus lands on Back to overview, not on the page body", () => {
+    narrow(true);
+    try {
+      const root = mount();
+      fireEvent.click(root.querySelector<HTMLElement>('[data-field-hold="1"] [data-seat-name]')!);
+      expect(modeOf(root)).toBe("focus:1");
+      expect(document.activeElement).toBe(root.querySelector("[data-camera-back]"));
+    } finally {
+      narrow(false);
+    }
   });
 
   it("after Back, the keyboard focus returns to the focus button of the field that was in close-up", () => {
@@ -214,24 +270,33 @@ describe("Tag overview camera: the phase hub", () => {
 });
 
 describe("Tag overview camera: a tap on a zone", () => {
-  it("a zone that offers no action focuses its field", () => {
+  it("a zone that offers no action moves nothing on a wide screen", () => {
     const root = mount();
     const { idle } = zonesOf(root, 2);
     expect(idle.length).toBeGreaterThan(5);
     fireEvent.click(idle[0].querySelector("button")!);
-    expect(modeOf(root)).toBe("focus:2");
+    expect(modeOf(root)).toBe("overview:-");
   });
 
-  it("the tap does not also act on the zone (no card inspect)", () => {
-    const inspect = vi.fn();
+  it("the click is not swallowed: it reaches the page, and on a phone the tap focuses the field", () => {
+    const outside = vi.fn();
     const root = render(<Stage id="main" />).container;
-    const seen = root.querySelectorAll("[data-card-art]").length;
-    expect(seen).toBeGreaterThan(0);
     const occupied = [...root.querySelectorAll<HTMLElement>('[data-field-hold="3"] [data-zones][data-occupied="true"]')].find((zone) => zone.dataset.pile !== "true");
     expect(occupied).toBeTruthy();
-    root.addEventListener("click", inspect);
+    root.addEventListener("click", outside);
     fireEvent.click(occupied!.querySelector("button")!);
-    expect(modeOf(root)).toBe("focus:3");
+    expect(modeOf(root)).toBe("overview:-");
+    expect(outside).toHaveBeenCalled();
+    cleanup();
+    narrow(true);
+    try {
+      const phone = render(<Stage id="main" />).container;
+      const zone = [...phone.querySelectorAll<HTMLElement>('[data-field-hold="3"] [data-zones][data-occupied="true"]')].find((node) => node.dataset.pile !== "true")!;
+      fireEvent.click(zone.querySelector("button")!);
+      expect(modeOf(phone)).toBe("focus:3");
+    } finally {
+      narrow(false);
+    }
   });
 
   it("a legal zone, or a pile that opens, acts and never moves the camera", () => {

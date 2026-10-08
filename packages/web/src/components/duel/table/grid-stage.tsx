@@ -34,7 +34,6 @@ import { bandHubFit } from "../phase-hub-model";
 import { SEAT_TONE_HEX, type SeatFieldProps, type SeatPose, type SeatTone } from "./types";
 import { occluderRects, useViewZoom } from "./use-view-zoom";
 import { watchMeasure } from "./measure-watch";
-import { seatBehindBoard } from "./seat-at-point";
 import { ViewReset } from "./view-reset";
 import { FOLLOW_ATTR, followShift, followTransform, visibleRect } from "./view-zoom";
 import zoomStyles from "./view-zoom.module.css";
@@ -110,8 +109,8 @@ const LP_NATURAL_HEIGHT = 90;
 const LP_NATURAL_WIDTH = 130;
 const lpFit = (rect: GridRect) => Math.min(1, rect.height / LP_NATURAL_HEIGHT, rect.width / LP_NATURAL_WIDTH);
 
-/** A click on these keeps its own meaning; every other click on a field or life box focuses it. */
-const OWN_CLICK = "button, a, input, select, textarea, [role='button'], [data-zones], [data-legal='true']";
+/** A double click on these keeps its own meaning; every other double click on a field or life box focuses it. */
+const OWN_DOUBLE_CLICK = "button, a, input, select, textarea, [role='button'], [data-zones], [data-legal='true'], [data-uid], [data-pile], [data-hand-seat], [data-holo]";
 
 /** What a legal pick is made of: a field pick (zones, cards on the board), a hand pick, or both (an open main phase). */
 export type PickKind = "field" | "hand" | "mixed" | null;
@@ -523,11 +522,14 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
   const focusOn = (seat: number) => {
     if (focus.seat !== seat) focusControl.focusSeat(seat);
   };
-  const onClick = (event: MouseEvent<HTMLDivElement>) => {
+  // A click on a field or a life box never focuses it (a misclick would zoom): the keys 1-4, O and Esc, the seat strip and Tab do,
+  // and so does a double click on the field itself (not on a card, a zone or a control). The board's own double click (use-view-zoom)
+  // is a native listener and runs first; it only eases the manual view back, and the focus that follows resets that view anyway.
+  const onDoubleClick = (event: MouseEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement;
-    if (target.closest(OWN_CLICK)) return;
+    if (target.closest(OWN_DOUBLE_CLICK)) return;
     const host = target.closest<HTMLElement>("[data-grid-cell], [data-grid-lp]");
-    const seat = host ? Number(host.dataset.gridCell ?? host.dataset.gridLp) : seatBehindBoard(event.currentTarget, target, event.clientX, event.clientY);
+    const seat = host ? Number(host.dataset.gridCell ?? host.dataset.gridLp) : NaN;
     if (Number.isInteger(seat)) focusOn(seat);
   };
   // Tab into a field that is out of view brings it into view.
@@ -653,7 +655,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
       data-turn-seat={engine.turnSeat ?? undefined}
       data-pick-kind={pickKind ?? undefined}
     >
-      <div className={styles.world} onClick={onClick} onFocusCapture={onFocus}>
+      <div className={styles.world} onDoubleClick={onDoubleClick} onFocusCapture={onFocus}>
         <div ref={layerRef} className={zoomStyles.layer} data-view-layer>
           {placed
             ? ([0, 1] as const).map((column) => {
