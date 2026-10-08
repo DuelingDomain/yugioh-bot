@@ -687,4 +687,17 @@ describe("rooms in an own field zoom", () => {
     // Nothing is clear: null (the caller keeps its own room).
     expect(fitRoom(room, [{ x: 0, y: 0, width: box.width, height: box.height }], box, { width: 220, height: 140 })).toBeNull();
   });
+
+  it("keeps the room it returns inside the box (clearRoom and fitRoom)", () => {
+    const inside = (r: { x: number; y: number; width: number; height: number }) => r.x >= 0 && r.y >= 0 && r.x + r.width <= box.width && r.y + r.height <= box.height;
+    // A room that starts outside the box comes back inside it, clear or not.
+    const out = { x: box.width - 50, y: box.height - 40, width: 300, height: 200 };
+    expect(inside(clearRoom(out, [], box))).toBe(true);
+    // No place is clear: the room it gives back is still inside the box.
+    const wall = { x: 0, y: 0, width: box.width, height: box.height };
+    expect(inside(clearRoom(out, [wall], box))).toBe(true);
+    // A clear place found next to an obstacle edge is inside too.
+    const found = fitRoom(out, [{ x: 0, y: 0, width: box.width - 100, height: box.height }], box, { width: 220, height: 140 });
+    if (found) expect(inside(found)).toBe(true);
+  });
 });

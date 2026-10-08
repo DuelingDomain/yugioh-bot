@@ -11,7 +11,18 @@ vi.mock("next/font/google", () => {
 });
 
 // Counts every placement of a prompt room (the table recomputes the rooms only when its inputs change).
-const placed = vi.hoisted(() => ({ calls: 0 }));
+const placed = vi.hoisted(() => ({ calls: 0, noPanel: false }));
+// `noPanel` makes the planner find no free room for the seat-choice panel (the CSS fallback rules then place it).
+vi.mock("@/components/duel/table/geometry", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/duel/table/geometry")>();
+  return {
+    ...actual,
+    promptRooms: (...args: Parameters<typeof actual.promptRooms>) => {
+      const found = actual.promptRooms(...args);
+      return placed.noPanel ? { ...found, panel: null } : found;
+    },
+  };
+});
 vi.mock("@/components/duel/table/view-zoom", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/components/duel/table/view-zoom")>();
   return {
@@ -43,6 +54,7 @@ beforeAll(() => {
 });
 beforeEach(() => {
   placed.calls = 0;
+  placed.noPanel = false;
   window.localStorage.clear();
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date", "performance"] });
   setAnimationSpeed(1);
@@ -189,6 +201,35 @@ describe("FFA3 own field camera zoom", () => {
     expect(chip(container)).toBe("Home");
   });
 
+  it("the pinned peek is measured again when its slide ends, so the refit does not keep the rect of the first frame", async () => {
+    frames();
+    layout();
+    const { container } = render(<Table state={idle()} camera={{ mode: "focus", focusSeat: REN }} />);
+    advance(600);
+    const peek = document.createElement("aside");
+    peek.setAttribute("data-testid", "hover-preview");
+    peek.setAttribute("data-pinned", "true");
+    const at = (width: number) => ({ x: 1100 - width, y: 0, left: 1100 - width, top: 0, width, height: 860, right: 1100, bottom: 860, toJSON: () => ({}) }) as DOMRect;
+    // The peek has barely slid in when it is first read.
+    peek.getBoundingClientRect = () => at(40);
+    await act(async () => {
+      container.querySelector("[data-table-shell]")!.appendChild(peek);
+      await Promise.resolve();
+    });
+    advance(100);
+    advance(800);
+    const early = scale(container);
+    // Its slide ends at full width: the transition end reads the rect again and the zoom fits the peek.
+    peek.getBoundingClientRect = () => at(270);
+    await act(async () => {
+      peek.dispatchEvent(new Event("transitionend", { bubbles: true }));
+      await Promise.resolve();
+    });
+    advance(100);
+    advance(800);
+    expect(scale(container)).toBeLessThan(early);
+  });
+
   it("a pinned peek after the entry refits the zoom, and a wheel by hand is left alone", async () => {
     frames();
     layout();
@@ -306,6 +347,69 @@ describe("FFA3 own field camera zoom", () => {
     const moved = roomOf(second.container);
     expect(moved.width).toBeGreaterThan(0);
     expect(hits(moved, onRoom)).toBe(false);
+  });
+
+  describe("the seat-choice panel room against the HUD, the hand and the legal targets", () => {
+    type R = { x: number; y: number; width: number; height: number };
+    const rect = (r: R) => ({ x: r.x, y: r.y, left: r.x, top: r.y, width: r.width, height: r.height, right: r.x + r.width, bottom: r.y + r.height, toJSON: () => ({}) }) as DOMRect;
+    const hits = (a: R, b: R) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+    const state = FFA3_FIXTURES.states["choose-opponent"];
+    // Renders the seat choice with a mocked layout: `hand` (the hand cards), `chip` (the camera chip), `none` (promptRooms finds no room).
+    const place = (mock: { hand?: R; chip?: R }, camera: Partial<CameraState> = { mode: "focus", focusSeat: REN }) => {
+      vi.restoreAllMocks();
+      frames();
+      vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+        if (this.hasAttribute("data-table-stage")) return rect({ x: 0, y: 0, width: 1100, height: 860 });
+        if (mock.hand && this.hasAttribute("data-hand-card") && this.closest('[data-hand-seat][data-side="you"]')) return rect(mock.hand);
+        if (mock.chip && this.hasAttribute("data-camera-chip")) return rect(mock.chip);
+        return rect({ x: 0, y: 0, width: 0, height: 0 });
+      });
+      const view = render(<Table state={state} camera={camera} />);
+      advance(900);
+      const style = board(view.container).style;
+      const n = (name: string) => Number.parseFloat(style.getPropertyValue(`--room-${name}`));
+      const panel = board(view.container).hasAttribute("data-panel-room") ? { x: n("x"), y: n("y"), width: n("w"), height: n("h") } : null;
+      view.unmount();
+      return panel;
+    };
+
+    it("moves off the hand when the hand stands on its room", () => {
+      // The hand stands on the room that the planner gives the panel at rest (x 251, y 116 with no hand there): the panel moves off it.
+      const hand = { x: 240, y: 100, width: 260, height: 330 };
+      const moved = place({ hand });
+      expect(moved).not.toBeNull();
+      expect(hits(moved!, hand)).toBe(false);
+    });
+
+    it("shrinks to the smallest room (220x170) where only a small place is clear", () => {
+      const free = place({ hand: { x: 300, y: 700, width: 500, height: 160 } })!;
+      expect(free.height).toBeGreaterThan(190);
+      // The chip covers the upper part of the box and the hand the lower part: a strip of 206 px stays free between them.
+      const strip = 170 + 36;
+      const chip = { x: 0, y: 0, width: 1100, height: 300 };
+      const hand = { x: 0, y: 300 + strip + 2 * 8, width: 1100, height: 860 - (300 + strip + 2 * 8) };
+      const small = place({ chip, hand });
+      expect(small).not.toBeNull();
+      expect(small!.height).toBeGreaterThanOrEqual(170);
+      expect(small!.height).toBeLessThan(free.height);
+      expect(small!.width).toBeGreaterThanOrEqual(220);
+      expect(hits(small!, chip)).toBe(false);
+      expect(hits(small!, hand)).toBe(false);
+    });
+
+    it("gets a room off the HUD and the hand when the planner finds none and the CSS would put it at the lower left", () => {
+      placed.noPanel = true;
+      // The planner has no room: the room comes from the CSS fallback place (lower left), moved off the zoomed field.
+      const fallback = place({ hand: { x: 300, y: 700, width: 500, height: 160 } });
+      expect(fallback).not.toBeNull();
+      // The hand and the chip now stand on the fallback place: the panel gets a room beside them.
+      const hand = { x: 0, y: 380, width: 360, height: 480 };
+      const chip = { x: 360, y: 380, width: 200, height: 60 };
+      const beside = place({ hand, chip });
+      expect(beside).not.toBeNull();
+      expect(hits(beside!, hand)).toBe(false);
+      expect(hits(beside!, chip)).toBe(false);
+    });
   });
 
   it("the chip is HUD for the pan and keeps clear of the Reset control", () => {
