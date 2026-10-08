@@ -647,7 +647,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     view(seat) {
       if (closed) throw new Error("Engine is closed");
       if (seat != null && seat !== 0 && seat !== 1) throw new Error("Invalid seat");
-      const projected = projectView({
+      const projected = scriptErrors.query(() => projectView({
         lib,
         handle,
         cards,
@@ -668,7 +668,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
         handIdentities: eventContext.handIdentities,
         mode: options.mode,
         domainState: readDomainState(),
-      });
+      }));
       if (seat != null) projected.chainMode = chainModes[seat]; // LEGACY-1V1: private to the seat
       return projected;
     },

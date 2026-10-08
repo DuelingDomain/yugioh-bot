@@ -219,7 +219,12 @@ existing `_ocgapiLoadScript` export, including loads triggered by cards during
 processing, so both syntax errors and top-level runtime errors in a loaded chunk
 remain fatal. Initial deck/setup failures, missing scripts, `UNDEFINED` (3),
 unattributed errors, stack/memory/panic diagnostics and protocol failures remain
-fatal. The WASM binaries are unchanged. A callback can fail without a traceback,
+fatal. View queries and the runtime FFA attack-target/elimination scripts use a
+separate scope: card callbacks there are tolerated even in strict mode, with one
+private telemetry sample per card and no event or duel-log line. Nested automatic
+card loads remain fatal. Query frequency differs between live play, recovery and
+replay, so query errors never change event IDs or processing error ordinals. Fatal
+Lua diagnostics also use generic player-facing text. The WASM binaries are unchanged. A callback can fail without a traceback,
 so traceback presence alone is not used to distinguish loading from runtime.
 
 Every tolerated occurrence produces a deterministic `script-error` event and a

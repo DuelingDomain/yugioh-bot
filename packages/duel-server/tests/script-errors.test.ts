@@ -29,6 +29,29 @@ describe("card script error classification", () => {
 
 
 describe("saved script error policy", () => {
+  it("drops query callback errors even in strict mode, reporting each card privately once", () => {
+    const reported = vi.fn();
+    const policy = createScriptErrorPolicy({ mode: "normal", scriptErrorMode: "strict", onScriptError: reported });
+    for (let i = 0; i < 3; i++) policy.query(() => policy.note(OcgLogType.ERROR, 'c3743515.lua:61: attempt to index a nil value'));
+    expect(policy.errors).toEqual([]);
+    expect(policy.drain()).toEqual([]);
+    expect(reported).toHaveBeenCalledTimes(1);
+    expect(reported).toHaveBeenCalledWith(expect.objectContaining({ code: 3743515, source: "query" }));
+  });
+  it("scopes a runtime helper load but keeps nested card loads fatal and private", () => {
+    const policy = createScriptErrorPolicy({ mode: "normal" });
+    policy.query(() => {
+      policy.enterLoad();
+      policy.note(OcgLogType.ERROR, 'c3743515.lua:61: attempt to index a nil value');
+      policy.enterLoad();
+      policy.note(OcgLogType.ERROR, 'c123.lua:1: attempt to index a nil value');
+      policy.leaveLoad(); policy.leaveLoad();
+    }, true);
+    expect(policy.errors).toEqual(["Engine script error: the duel could not continue."]);
+    expect(policy.drain()).toEqual([]);
+    policy.note(OcgLogType.ERROR, 'c3743515.lua:1: unexpected symbol near end');
+    expect(policy.errors.join()).not.toMatch(/3743515|c123|nil value|unexpected symbol/);
+  });
   it("defaults to tolerant and accepts the strict operational override", () => {
     vi.stubEnv("DUEL_SCRIPT_ERRORS", undefined); expect(scriptErrorModeFromEnv()).toBe("tolerant");
     vi.stubEnv("DUEL_SCRIPT_ERRORS", "strict"); expect(scriptErrorModeFromEnv()).toBe("strict");

@@ -23,7 +23,7 @@ const options = { mode: "normal" as const, decks: Array.from({ length: 2 }, () =
 describeWithCores("script loading remains fatal during processing", [needs.standard(DATA)], () => {
   it.each(["legacy", "pinned"] as const)("%s: refuses top-level runtime failure in a dynamically loaded card", async (engine) => {
     fixture.cardScript = "local s,id=GetID() function s.initial_effect(c) end dependency.failure()";
-    await expect((engine === "legacy" ? createLegacyEngineGame : createEngineGame)(options).then((game) => { game.close(); return game; })).rejects.toThrow(/c3743515.lua.*nil value/);
+    await expect((engine === "legacy" ? createLegacyEngineGame : createEngineGame)(options).then((game) => { game.close(); return game; })).rejects.toThrow(/Engine script error/);
   });
   it.each(["legacy", "pinned"] as const)("%s: tolerates a runtime coroutine without a traceback", async (engine) => {
     const reported = vi.fn();
@@ -40,6 +40,6 @@ describeWithCores("script loading remains fatal during processing", [needs.stand
   });
   it.each(["legacy", "pinned"] as const)("%s: refuses a syntax failure in a dynamically loaded card", async (engine) => {
     fixture.cardScript = "local s,id=GetID() function s.initial_effect(c) if true then return end";
-    await expect((engine === "legacy" ? createLegacyEngineGame : createEngineGame)(options).then((game) => { game.close(); return game; })).rejects.toThrow(/c3743515.lua.*expected/);
+    await expect((engine === "legacy" ? createLegacyEngineGame : createEngineGame)(options).then((game) => { game.close(); return game; })).rejects.toThrow(/Engine script error/);
   });
 });

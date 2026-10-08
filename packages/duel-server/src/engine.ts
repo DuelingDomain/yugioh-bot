@@ -986,7 +986,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
         const query: AttackTargetQuery = { targets: [], directSeats: [] };
         attackTargetQuery = query;
         try {
-          if (!lib.loadScript(handle, "ffa-attack-target-query.lua", ATTACK_TARGET_QUERY_SCRIPT)) {
+          if (!scriptErrors.query(() => lib.loadScript(handle, "ffa-attack-target-query.lua", ATTACK_TARGET_QUERY_SCRIPT), true)) {
             throw new Error("Failed to query FFA attack targets");
           }
         } finally { attackTargetQuery = null; }
@@ -1060,7 +1060,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     view(seat) {
       if (closed) throw new Error("Engine is closed");
       if (seat != null && !(Number.isInteger(seat) && seat >= 0 && seat < seatCount)) throw new Error("Invalid seat");
-      const projected = projectView({
+      const projected = scriptErrors.query(() => projectView({
         lib,
         coreCapabilities,
         handle,
@@ -1083,7 +1083,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
         mode: options.mode,
         domainState: readDomainState(),
         ...(multi ? { format, eliminated, leaving: new Set([...leaving].filter(isLeaving)), chain: chainMemory.slice(0, liveChainSize).filter((link) => !eliminated.has(link.seat) || startedChainLinks.has(link.index)) } : {}),
-      });
+      }));
       // Disabled zones are public board facts. The field is set only for seats that have one.
       if (multi) projected.eliminationOrder = eliminationOrder.map((group) => [...group]);
       // Private: a seat sees its own chain mode, nobody else's, and a spectator sees none.
@@ -1199,9 +1199,9 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       // Check before the core is touched, so a throw cannot leave the duel half changed.
       if (!pending) throw new Error("The core waits for an answer but the engine has no open prompt");
       const surrender = reason === 0;
-      if (!lib.loadScript(handle, "duel-probe-eliminate.lua", surrender
+      if (!scriptErrors.query(() => lib.loadScript(handle, "duel-probe-eliminate.lua", surrender
         ? "assert(Debug.EliminateDuelist~=nil and Debug.SurrenderDuelist~=nil)"
-        : "assert(Debug.EliminateDuelist~=nil)")) {
+        : "assert(Debug.EliminateDuelist~=nil)"), true)) {
         errors.length = 0;
         throw new Error(surrender ? "This duel core has no Debug.EliminateDuelist immediate surrender support" : "This duel core has no Debug.EliminateDuelist");
       }
@@ -1209,9 +1209,9 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       // suffix it adds, so the old prompt and its events are not counted twice.
       const oldMessages = tap ? withoutDuelistParseWarnings(() => lib.duelGetMessage(handle)) : lib.duelGetMessage(handle);
       const oldBytes = tap?.take().at(-1)?.byteLength ?? 0;
-      if (!lib.loadScript(handle, "duel-eliminate.lua", surrender
+      if (!scriptErrors.query(() => lib.loadScript(handle, "duel-eliminate.lua", surrender
         ? `Debug.SurrenderDuelist(${seat})`
-        : `Debug.EliminateDuelist(${seat},${Math.trunc(reason)})`)) {
+        : `Debug.EliminateDuelist(${seat},${Math.trunc(reason)})`), true)) {
         const detail = errors.join("; ");
         errors.length = 0;
         throw new Error(`Failed to eliminate seat ${seat}${detail ? `: ${detail}` : ""}`);
