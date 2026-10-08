@@ -137,15 +137,21 @@ export function parseFieldPlaces(mask: number, answeringPlayer: number): SelectF
   return places;
 }
 
-function cardOption(cards: CardDatabase, id: string, code: number, loc: { controller?: number; location?: number; sequence?: number }, extra?: Partial<DuelPromptOption>): DuelPromptOption {
+function cardOption(cards: CardDatabase, id: string, code: number, loc: { controller?: number; location?: number; sequence?: number; overlay_sequence?: number }, extra?: Partial<DuelPromptOption>): DuelPromptOption {
   const info = cards.get(code);
+  // The core names an Xyz material by the zone of its Xyz monster and sets overlay_sequence. Keep that zone as `host` and
+  // report the material as the view does (LOCATION_OVERLAY, place under the monster): it is not a card on the board.
+  const overlay = loc.overlay_sequence != null;
   const option: DuelPromptOption = {
     id,
     label: extra?.label ?? (info?.name ?? `Card ${code}`),
     card: info,
     controller: loc.controller,
-    location: loc.location,
-    sequence: loc.sequence,
+    location: overlay ? OcgLocation.OVERLAY : loc.location,
+    sequence: overlay ? loc.overlay_sequence : loc.sequence,
+    ...(overlay && loc.controller != null && loc.location != null && loc.sequence != null
+      ? { host: { controller: loc.controller, location: loc.location & ~OcgLocation.OVERLAY, sequence: loc.sequence } }
+      : null),
     ...extra,
   };
   if (info?.description && option.cardText == null) option.cardText = info.description;
