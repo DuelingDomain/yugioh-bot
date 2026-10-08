@@ -7,7 +7,7 @@
  *  - "sheet": the wide shape at the width of a phone, opened from the strip.
  * The strip is the one-line form for phones, tables and a column a prompt would cover; it is a real button.
  */
-import { useEffect, useId, useState, type CSSProperties, type Ref } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type Ref } from "react";
 import { Check, ChevronDown, ChevronUp, Circle, Play, X } from "lucide-react";
 import { cardArtUrl } from "./constants";
 import type { HeroView, PanelTone, PanelView, RowView, StripView } from "./chain-narrate";
@@ -35,18 +35,40 @@ function StateIcon({ tone }: { tone: PanelTone }) {
   return <Circle {...props} size={9} fill="currentColor" strokeWidth={0} />;
 }
 
-/** Over these many characters the printed text may be cut at the bottom edge of its box: always (long), or on a short window (mid). See .cardText in the css. */
-const LONG_TEXT = 420;
-const MID_TEXT = 240;
+/** True while the element's content is taller than its box: the box is cut by real layout, whatever the text length. */
+function useOverflow(ref: { current: HTMLElement | null }, content: unknown): boolean {
+  const [over, setOver] = useState(false);
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    const measure = () => setOver(node.scrollHeight > node.clientHeight + 1);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const watch = new ResizeObserver(measure);
+    watch.observe(node);
+    return () => watch.disconnect();
+  }, [ref, content]);
+  return over;
+}
 
 /**
  * What the link does. The engine's own words for this activation come first (they tell which effect of a card is
  * on the chain); the card's text follows in full, one line per line of the card, with each option as a bullet, so
- * a card that lets its owner pick ("Apply 1 of these effects") shows every choice to every seat.
+ * a card that lets its owner pick ("Apply 1 of these effects") shows every choice to every seat. The text takes the
+ * free height of the panel; only when the box really cuts it does it fade at the bottom and scroll.
  */
 function EffectBlock({ full }: { full: NonNullable<HeroView["full"]> }) {
-  const chars = full.lines.reduce((sum, line) => sum + line.text.length, 0);
-  const length = chars > LONG_TEXT ? "long" : chars > MID_TEXT ? "mid" : undefined;
+  const textRef = useRef<HTMLDivElement>(null);
+  const overflowing = useOverflow(textRef, full);
+  // Consecutive options form one list.
+  const blocks: Array<{ kind: "text"; text: string } | { kind: "options"; items: string[] }> = [];
+  for (const line of full.lines) {
+    const last = blocks[blocks.length - 1];
+    if (line.kind === "option") {
+      if (last?.kind === "options") last.items.push(line.text);
+      else blocks.push({ kind: "options", items: [line.text] });
+    } else blocks.push({ kind: "text", text: line.text });
+  }
   return (
     <>
       {full.lead ? (
@@ -56,10 +78,22 @@ function EffectBlock({ full }: { full: NonNullable<HeroView["full"]> }) {
         </p>
       ) : null}
       {full.lines.length > 0 ? (
-        <div className={styles.cardText} data-chain-effect="text" data-length={length}>
+        <div
+          ref={textRef}
+          className={styles.cardText}
+          data-chain-effect="text"
+          data-overflow={overflowing ? "true" : undefined}
+          role={overflowing ? "group" : undefined}
+          tabIndex={overflowing ? 0 : undefined}
+          aria-label={overflowing ? "Card text, scrollable" : undefined}
+        >
           <small>Card text</small>
-          {full.lines.map((line, at) => (
-            <p key={at} data-line={line.kind} data-chain-option={line.kind === "option" ? "true" : undefined}>{line.text}</p>
+          {blocks.map((block, at) => block.kind === "text" ? (
+            <p key={at} data-line="text">{block.text}</p>
+          ) : (
+            <ul key={at} className={styles.options}>
+              {block.items.map((item, i) => <li key={i} data-line="option" data-chain-option="true">{item}</li>)}
+            </ul>
           ))}
         </div>
       ) : null}
