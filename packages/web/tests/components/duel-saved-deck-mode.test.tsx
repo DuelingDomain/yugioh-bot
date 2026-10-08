@@ -54,19 +54,44 @@ describe("saved deck picker and the table's format", () => {
   it.each([
     ["checked", true],
     ["custom", false],
-  ])("lists only Domain decks at a %s Domain table", async (_label, validateDeck) => {
+  ])("lists Domain decks first at a %s Domain table", async (_label, validateDeck) => {
     renderEditor("domain", validateDeck);
     const select = await picker();
 
-    expect(optionNames()).toEqual(["Choose a deck", "Real Domain · 1 Main / 0 Extra / 0 Side"]);
+    expect(optionNames()).toEqual([
+      "Choose a deck",
+      "Real Domain · 1 Main / 0 Extra / 0 Side",
+      "Blue-Eyes DOMAIN · Saved as Standard. Not usable in a Domain room.",
+      "Plain Normal · Saved as Standard. Not usable in a Domain room.",
+    ]);
     fireEvent.change(select, { target: { value: select.options[1]!.value } });
     expect(screen.getByRole("button", { name: "Remove 221 from Main" })).toBeInTheDocument();
+  });
+
+  it("shows decks of the other format disabled after the usable ones, with a hint", async () => {
+    renderEditor("domain", true);
+    const select = await picker();
+
+    expect(select.options[1]).not.toBeDisabled();
+    expect(select.options[2]).toBeDisabled();
+    expect(select.options[3]).toBeDisabled();
+    expect(screen.getByText(/2 saved decks use another format and can't be loaded here/)).toBeInTheDocument();
+    expect(screen.getByText(/save a deck as Domain/i)).toBeInTheDocument();
+  });
+
+  it("shows no hint when every saved deck fits the table", async () => {
+    listSavedDecks.mockResolvedValue([saved(2, "Real Domain", "domain", [221])]);
+    renderEditor("domain", true);
+    await picker();
+
+    expect(screen.queryByText(/another format/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/save a deck as Domain/i)).not.toBeInTheDocument();
   });
 
   it.each([
     ["checked", true],
     ["custom", false],
-  ])("lists only Standard decks at a %s Standard table", async (_label, validateDeck) => {
+  ])("lists Standard decks first at a %s Standard table", async (_label, validateDeck) => {
     renderEditor("normal", validateDeck);
     await picker();
 
@@ -74,6 +99,7 @@ describe("saved deck picker and the table's format", () => {
       "Choose a deck",
       "Blue-Eyes DOMAIN · 2 Main / 0 Extra / 0 Side",
       "Plain Normal · 1 Main / 0 Extra / 0 Side",
+      "Real Domain · Saved as Domain. Not usable in a Standard room.",
     ]);
   });
 
@@ -82,7 +108,11 @@ describe("saved deck picker and the table's format", () => {
     renderEditor("domain", false);
     await picker();
 
-    expect(optionNames()).toEqual(["No saved Domain decks"]);
+    expect(optionNames()).toEqual([
+      "No saved Domain decks",
+      "Blue-Eyes DOMAIN · Saved as Standard. Not usable in a Domain room.",
+    ]);
+    expect(screen.getByText(/1 saved deck uses another format/)).toBeInTheDocument();
     expect(screen.getByText(/save a deck as Domain/i)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Manage decks" })).toHaveAttribute("href", "/decks");
   });

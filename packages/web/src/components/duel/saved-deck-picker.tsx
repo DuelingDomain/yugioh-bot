@@ -46,9 +46,10 @@ export function useSavedDecks() {
 export type SavedDeckList = ReturnType<typeof useSavedDecks>;
 
 /**
- * Lists the saved decks that were saved in the table's format, and only those. A custom table turns the
+ * Lets the player load the saved decks that were saved in the table's format. A custom table turns the
  * format and copy-limit checks off, but a Domain deck list stays a Domain list and a Standard deck list
- * stays a Standard list, so the two formats never mix here.
+ * stays a Standard list, so the two formats never mix here. Decks of the other format stay in the list,
+ * after the usable ones, disabled and with the reason, so a deck is never missing without a sign.
  */
 export function SavedDeckPicker({ mode, disabled, list, onLoad }: {
   mode: DuelMode;
@@ -61,6 +62,7 @@ export function SavedDeckPicker({ mode, disabled, list, onLoad }: {
   const [selected, setSelected] = useState("");
 
   const matching = decks?.filter((saved) => saved.mode === mode) ?? [];
+  const otherFormat = decks?.filter((saved) => saved.mode !== mode) ?? [];
   const current = matching.find((saved) => String(saved.id) === selected);
 
   function choose(value: string) {
@@ -81,14 +83,21 @@ export function SavedDeckPicker({ mode, disabled, list, onLoad }: {
           choices={[
             { value: "", label: placeholder },
             ...matching.map((saved) => ({ value: String(saved.id), label: `${saved.name} · ${saved.deck.main.length} Main / ${saved.deck.extra.length} Extra / ${saved.deck.side.length} Side` })),
+            ...otherFormat.map((saved) => ({
+              value: String(saved.id),
+              label: `${saved.name} · Saved as ${MODE_NAME[saved.mode]}. Not usable in a ${MODE_NAME[mode]} room.`,
+              disabled: true,
+            })),
           ]} />
         <SheetButton disabled={disabled} size="sm" onClick={reload}>Refresh</SheetButton>
         <Link href="/decks" className={sheetButtonClass("quiet", "sm")}>Manage decks</Link>
       </div>
       {error ? <p role="alert" className={ui.alert}>{error}</p> : null}
-      {decks && matching.length === 0 ? (
+      {decks && (matching.length === 0 || otherFormat.length > 0) ? (
         <p className={styles.muted}>
-          {decks.length > 0 ? "Your saved decks use another format. " : ""}
+          {otherFormat.length > 0
+            ? `${otherFormat.length === 1 ? "1 saved deck uses" : `${otherFormat.length} saved decks use`} another format and can't be loaded here. `
+            : ""}
           In Manage decks, save a deck as {MODE_NAME[mode]} to use it at this table.
         </p>
       ) : null}
