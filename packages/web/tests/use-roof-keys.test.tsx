@@ -122,14 +122,14 @@ describe("useRoofKeys", () => {
     expect(dispatch).not.toHaveBeenCalled();
   });
 
-  it("takes Tab and Shift+Tab as focus steps when nothing is open", () => {
+  it("never takes Tab or Shift+Tab: the page keeps its keyboard walk and the camera stays", () => {
     const dispatch = vi.fn();
     render(<Probe dispatch={dispatch} />);
     const event = press("Tab");
-    press("Tab", { shiftKey: true });
-    expect(dispatch).toHaveBeenNthCalledWith(1, { type: "focusStep", dir: 1 });
-    expect(dispatch).toHaveBeenNthCalledWith(2, { type: "focusStep", dir: -1 });
-    expect(event.defaultPrevented).toBe(true);
+    const back = press("Tab", { shiftKey: true });
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
+    expect(back.defaultPrevented).toBe(false);
   });
 
   it("leaves Tab alone inside a dialog or prompt", () => {

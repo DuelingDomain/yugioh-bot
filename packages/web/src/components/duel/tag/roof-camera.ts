@@ -471,7 +471,7 @@ export function roofKeyAction(key: string, ctx: RoofKeyContext, mods: RoofKeyMod
   if (mods.ctrl || mods.meta || mods.alt) return null;
   const k = key.length === 1 ? key.toLowerCase() : key;
   if (k === "Escape") return ctx.mode != null && ctx.mode !== "overview" ? { type: "overview" } : null;
-  if (k === "Tab") return { type: "focusStep", dir: mods.shift ? -1 : 1 };
+  // Tab is never a camera key: it walks the page (the focus buttons are keyboard stops), and Enter or Space on one moves the camera.
   if (k >= "1" && k <= "4") return { type: "focus", seat: Number(k) - 1 };
   switch (k) {
     case "h":

@@ -35,9 +35,9 @@ function typing(target: EventTarget | null): boolean {
 }
 
 /**
- * Window key handling of the roof camera: digits 1-4 focus a seat, Tab steps the focus, and the letter keys of
+ * Window key handling of the roof camera: digits 1-4 focus a seat, and the letter keys of
  * `roofKeyAction`. Never takes keys typed in a field, keys with Ctrl/Meta/Alt, keys under a modal, or any key while
- * `suspended` or `yields` is true. Tab inside a prompt or dialog keeps its focus job.
+ * `suspended` or `yields` is true. Tab is never taken: it keeps walking the page and never moves the camera.
  */
 export function useRoofKeys({
   dispatch,
@@ -61,7 +61,6 @@ export function useRoofKeys({
       if (event.key === "Escape" && !escFree) return;
       const target = event.target as HTMLElement | null;
       if (target?.closest?.('[role="dialog"][aria-modal="true"]') || document.querySelector('[aria-modal="true"]')) return;
-      if (event.key === "Tab" && target?.closest?.("[data-slot='prompt'], [role='dialog']")) return;
       const action = roofKeyAction(event.key, { anchorSeat: anchor, mode: now }, { shift: event.shiftKey });
       if (!action) return;
       event.preventDefault();
