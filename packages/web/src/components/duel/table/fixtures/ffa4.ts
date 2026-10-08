@@ -9,6 +9,7 @@ import {
   newSeat,
   putMonster,
   putSpell,
+  respondPrompt,
   searchPrompt,
   TABLE_CARDS as C,
   withHiddenHands,
@@ -264,7 +265,28 @@ const states = {
   }),
 } satisfies Record<TableStateId, TableFixtureState>;
 
-export const FFA4_FIXTURES: TableFixtureSet = { format: "ffa4", title: "4-way free-for-all", states };
+/** "You can respond" with `count` cards to activate (`?state=respond-<count>`): the card-choice panel of a chain response. */
+const respondState = (count: number) =>
+  make(`respond-${count}` as TableStateId, `Respond: ${count} cards`, {
+    phase: "battle",
+    battleStep: "battle",
+    edit: (seats) => {
+      putSpell(seats[JUNIPER], 0, C.sakuretsu);
+      putSpell(seats[MIRELLE], 0, C.mst);
+    },
+    chain: [{ ...link(1, JUNIPER, C.sakuretsu), zone: { controller: JUNIPER, location: LOCATION_SZONE, sequence: 0 } }, { ...link(2, MIRELLE, C.mst), zone: { controller: MIRELLE, location: LOCATION_SZONE, sequence: 0 } }],
+    prompt: () => respondPrompt(ASTER, count, `${NAMES[MIRELLE]} activated ${C.mst.name}. Respond?`),
+  });
+
+/** States only the FFA4 preview shows (`?state=<id>`). */
+const extra = {
+  "respond-2": respondState(2),
+  "respond-5": respondState(5),
+  "respond-10": respondState(10),
+  "respond-14": respondState(14),
+};
+
+export const FFA4_FIXTURES: TableFixtureSet = { format: "ffa4", title: "4-way free-for-all", states, extra };
 
 /** Monsters for the Defense board, by seat: big ATK/DEF and 0/0 cards, so the plates are wide and narrow. */
 const DEFENSE_ROWS = [

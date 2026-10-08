@@ -34,7 +34,11 @@ import { bandHubFit } from "../phase-hub-model";
 import { SEAT_TONE_HEX, type SeatFieldProps, type SeatPose, type SeatTone } from "./types";
 import { occluderRects, useViewZoom } from "./use-view-zoom";
 import { watchMeasure } from "./measure-watch";
+import { useStripRoom } from "./use-strip-room";
+import { zoneKey } from "../constants";
+import { isChainStripPrompt } from "../prompt-center";
 import { ViewReset } from "./view-reset";
+import { sameRects } from "./rect-util";
 import { FOLLOW_ATTR, followShift, followTransform, visibleRect } from "./view-zoom";
 import zoomStyles from "./view-zoom.module.css";
 import type { TableStageViewProps } from "./table-stage";
@@ -128,6 +132,15 @@ export function pickKindOf(legalKeys: ReadonlySet<string>): PickKind {
 
 /** The HUD the pick bar keeps off when it docks at the bottom of the board at rest. */
 export const BAR_HUD = "[data-grid-controls], [data-view-reset], [data-camera-panel], [data-testid='hud-corner'], [data-testid='hud-top'], [data-testid='hud-master'], [data-opponent-bar], [data-table-chrome]";
+
+/** The HUD a chain-response panel keeps off unless the box leaves no place: the life plates, the phase hub, the Reset control, the top bar. */
+const KEY_HUD = "[data-holo], [data-grid-hub], [data-view-reset], [data-testid='hud-top']";
+/** The rest of the HUD: it draws over the panel, so the panel keeps off it while a place exists. */
+/** The turn actions and the response switch (bottom right): the panel keeps off them. */
+const STRIP_CONTROLS_HUD = "[data-testid='hud-corner']";
+const STRIP_SOFT_HUD = "[data-grid-controls], [data-camera-panel], [data-testid='hud-master'], [data-opponent-bar], [data-table-chrome], [data-camera-chip], [data-chain-panel], [data-testid='chain-tower']";
+/** Your hand: the chain-response panel may cover only its top strip. */
+const OWN_HAND = '[data-hand-seat][data-side="you"]';
 
 /** A target under the pick bar costs this many times what another zone under it costs. */
 const OTHER_WEIGHT = 1000;
@@ -301,9 +314,6 @@ function moveFrame(el: HTMLElement, tracks: Map<string, FrameTrack>, key: string
   const px = (r: GridRect) => ({ left: `${r.x}px`, top: `${r.y}px`, width: `${r.width}px`, height: `${r.height}px` });
   rest.anim = el.animate([px(from), px(next)], { duration, easing });
 }
-
-const sameRects = (a: readonly GridRect[], b: readonly GridRect[]) =>
-  a.length === b.length && a.every((r, i) => r.x === b[i].x && r.y === b[i].y && r.width === b[i].width && r.height === b[i].height);
 
 /** The pose of a seat that left, for its crumble: the centre of its box, upright size, turned like its field. */
 const exitPose = (seat: number, spot: GridCellRect, rotateDeg: 0 | 180): SeatPose => ({
@@ -625,8 +635,30 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [promptPair?.x, promptPair?.y, promptPair?.width, promptPair?.height, targets, zones, hudRects, zoom.zoomed, box.width, box.height]);
 
+  // The chain-response panel (every option a card): a wide room of its own for large cards (strip-room.ts), wholly inside the box and off the HUD and
+  // all but the top strip of your hand; it may cover the fields. It starts from the middle of your pair (as it shows after a zoom). The camera never
+  // moves for it.
+  const stripCount = promptCenter && promptPair && controller.prompt && isChainStripPrompt(controller.prompt) ? controller.prompt.options.length : 0;
+  const stripAnchor = useMemo(() => (promptPair ? { x: promptPair.x + promptPair.width / 2, y: promptPair.y + promptPair.height / 2 } : undefined), [promptPair?.x, promptPair?.y, promptPair?.width, promptPair?.height]);
+  const sourceKeys = useMemo(() => controller.engine.chain.flatMap((link) => (link.zone ? [zoneKey(link.zone.controller, link.zone.location, link.zone.sequence)] : [])), [controller.engine.chain]);
+  const { room: stripRoom, pending: stripPending } = useStripRoom({
+    rootRef,
+    active: stripCount > 0,
+    promptId: controller.prompt?.id ?? "",
+    count: stripCount,
+    box,
+    anchor: stripAnchor,
+    keyHud: KEY_HUD,
+    controlsHud: STRIP_CONTROLS_HUD,
+    softHud: STRIP_SOFT_HUD,
+    hand: `${OWN_HAND} [data-hand-card]`,
+    sourceKeys,
+    viewKey: `${zoom.zoomed ? 1 : 0}|${Math.round(zoom.view.s * 100)}|${Math.round(zoom.view.x)},${Math.round(zoom.view.y)}|${camera.mode}|${camera.focusSeat ?? ""}`,
+  });
+  const stripKey = stripRoom ? `${stripRoom.x},${stripRoom.y},${stripRoom.width},${stripRoom.height}` : "";
+
   // A prompt that opens, closes or moves changes the HUD insets: the view eases into the new clamps (no gap stays).
-  const hudKey = `${controller.prompt?.id ?? ""}|${promptCenter ? 1 : 0}|${overlay ? 1 : 0}|${picks ? 1 : 0}|${barRoom ?? ""}`;
+  const hudKey = `${controller.prompt?.id ?? ""}|${promptCenter ? 1 : 0}|${overlay ? 1 : 0}|${picks ? 1 : 0}|${barRoom ?? ""}|${stripKey}`;
   const { refit } = zoom;
   useEffect(() => {
     const frame = window.requestAnimationFrame(refit);
@@ -639,6 +671,9 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
       className={styles.board}
       tabIndex={-1}
       data-bar-room={barRoom}
+      data-strip-room={stripRoom ? "true" : undefined}
+      data-strip-pending={stripPending ? "true" : undefined}
+      style={stripRoom ? ({ ["--sr-x" as string]: `${stripRoom.x}px`, ["--sr-y" as string]: `${stripRoom.y}px`, ["--sr-w" as string]: `${stripRoom.width}px`, ["--sr-h" as string]: `${stripRoom.height}px`, ["--sr-card" as string]: `${stripRoom.card}px` } as CSSProperties) : undefined}
       data-prompt-scope
       data-table-stage={layout.format}
       data-grid-stage="true"

@@ -257,6 +257,40 @@
   flex-shrink: 0;
 }
 
+/*
+ * A chain response whose options are all cards ("You can respond") has a room of its own (strip-room.ts, published as --sr-*): wide enough
+ * for large cards, wholly inside the board box, off the HUD and all but the top strip of your hand. It may cover the fields. The card grid
+ * scrolls inside the panel when the cards do not fit. The tripled attribute outranks the pair-box rules above.
+ */
+.board[data-strip-room][data-strip-room][data-strip-room] .slot[data-slot="prompt"]:not([data-seat-pick]) :global([data-prompt-panel][data-tone="chain"][data-strip="true"]:not([data-precheck])) {
+  --duel-unit: 1px;
+  --duel-t-xs: calc(12px * var(--tt, 1));
+  --duel-t-sm: calc(13px * var(--tt, 1));
+  --duel-t-body: calc(14px * var(--tt, 1));
+  --duel-t-head: calc(15px * var(--tt, 1));
+  --pc-title: calc(18px * var(--tt, 1));
+  --pc-sub: calc(14px * var(--tt, 1));
+  inset: var(--sr-y) auto calc(100% - var(--sr-y) - var(--sr-h)) var(--sr-x);
+  translate: none;
+  margin: auto 0;
+  width: var(--sr-w);
+  min-width: 0;
+  max-width: none;
+  height: fit-content;
+  max-height: var(--sr-h);
+  overflow: hidden;
+}
+.board[data-strip-room][data-strip-room][data-strip-room] .slot[data-slot="prompt"]:not([data-seat-pick]) :global([data-prompt-panel][data-tone="chain"][data-strip="true"]:not([data-precheck])) > :global([data-strip-wrap]) {
+  flex: 1 1 auto;
+  flex-shrink: 1;
+  min-height: 0;
+}
+
+/* The room is measured at rest (use-strip-room.ts): the panel waits, hidden, so it never shows at the wrong place first. */
+.board[data-strip-pending][data-strip-pending] .slot[data-slot="prompt"]:not([data-seat-pick]) :global([data-prompt-panel][data-tone="chain"][data-strip="true"]:not([data-precheck])) {
+  visibility: hidden;
+}
+
 .slot[data-slot="prompt"] :global([data-prompt-panel] [data-testid="priority-chips"]) {
   flex-wrap: wrap;
 }
