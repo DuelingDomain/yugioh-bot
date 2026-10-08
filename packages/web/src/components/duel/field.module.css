@@ -564,17 +564,17 @@
 
   .hand:not(.handLocal) .handCard .zone:hover .frame,
   .hand:not(.handLocal) .handCard .zone:has(:focus-visible) .frame {
-    transform: translateY(calc(var(--oh) * var(--top-hide))) scale(1.6);
+    transform: translateY(calc(var(--oh) * var(--top-hide))) scale(1.45);
   }
 
   .hand:not(.handLocal) .handCard .zone[data-legal="true"]:hover .frame,
   .hand:not(.handLocal) .handCard .zone[data-legal="true"]:has(:focus-visible) .frame {
-    transform: translateY(calc(var(--oh) * (var(--top-hide) + 0.05))) scale(1.6);
+    transform: translateY(calc(var(--oh) * (var(--top-hide) + 0.05))) scale(1.45);
   }
 
   .hand:not(.handLocal) .handCard .zone[data-selected="true"]:hover .frame,
   .hand:not(.handLocal) .handCard .zone[data-selected="true"]:has(:focus-visible) .frame {
-    transform: translateY(calc(var(--oh) * (var(--top-hide) + 0.12))) scale(1.6);
+    transform: translateY(calc(var(--oh) * (var(--top-hide) + 0.12))) scale(1.45);
   }
 
   /* Yours grows UP from its bottom edge: the station track below must never cover it. It may overlap
