@@ -75,4 +75,10 @@ describe("your hand is drawn larger than the strip reserves", () => {
     // The 4-way grid keeps its own size (--sf-lh) and the default hand stays 0.76.
     expect(css).toMatch(/--lh: var\(--sf-lh, calc\(var\(--z\) \* 0\.76\)\);/);
   });
+  it("spreads the wide 3-way hand over 6.8 zone sizes and moves your name label off it", () => {
+    // The wide field (data-def-full) is 7.4 zone sizes across, so 6.8 fits inside it; other fields keep the 5.4 default.
+    expect(css).toMatch(/\[data-def-full\]\) \.seatField \{\s*--hand-w: 6\.8;/);
+    expect(css.match(/--hand-w: [\d.]+;/g)).toEqual(["--hand-w: 6.8;"]);
+    expect(css).toMatch(/\.seatField\[data-side="you"\] \.sfName \{\s*left: 0;\s*translate: calc\(-100% - var\(--z\) \* 0\.1\) 100%;/);
+  });
 });
