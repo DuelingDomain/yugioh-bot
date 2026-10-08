@@ -1541,11 +1541,13 @@ export function createDuelHost(options: {
       return enqueue(slug, async () => {
         const state = service.privateState(slug, guildId);
         const session = state.session;
-        const game = spawn();
+        const game = spawn(session.id);
+        // Save the resolved script error policy, so recovery and replay keep it.
+        const scriptErrorMode = setup.scriptErrorMode ?? scriptErrorModeFromEnv();
         try {
           await game.create(workerCreateOptions(session.mode, state.decks, seed, session.masterRule,
-            session.settings, session.format, setup.startupScripts, setup.engine, setup.firstTurnDraw));
-          service.activate(slug, guildId, actor, seed, pinnedVersionFor(session.format), null, setup);
+            session.settings, session.format, setup.startupScripts, setup.engine, setup.firstTurnDraw, scriptErrorMode));
+          service.activate(slug, guildId, actor, seed, pinnedVersionFor(session.format), null, { ...setup, scriptErrorMode });
           games.set(slug, { game, guildId, lastRequestAt: now(), surrendered: new Set(), traces: new Map(),
             ...policiesForRun(setup.sandbox!.run, session.format) });
           const board = setup.sandbox!.board;
