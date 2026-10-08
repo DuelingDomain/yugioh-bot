@@ -38,7 +38,7 @@ describe("IdentifierStep", () => {
     expect(screen.getByLabelText("Email address")).toHaveAttribute("type", "email");
     screen.getByRole("button", { name: "Continue" });
     const foot = container.querySelector('[data-slot="foot"]') as HTMLElement;
-    expect(within(foot).getByRole("link", { name: "Join the waitlist" })).toHaveAttribute("href", "https://duelingdomain.com/#join");
+    expect(within(foot).getByRole("link", { name: "Join the waitlist" })).toHaveAttribute("href", "https://duelingdomain.com/?home=1#join");
     expect(within(foot).getByRole("link", { name: "Terms" })).toHaveAttribute("href", TERMS);
     expect(within(foot).getByRole("link", { name: "Privacy" })).toHaveAttribute("href", PRIVACY);
   });
@@ -289,19 +289,19 @@ describe("CreateAccountStep", () => {
 describe("error cards", () => {
   it("NotInvitedStep shows the email, the waitlist link and a retry", async () => {
     const onRetry = vi.fn();
-    render(<NotInvitedStep identifier="sam@example.com" waitlistUrl="https://duelingdomain.com/#join" onRetry={onRetry} />);
+    render(<NotInvitedStep identifier="sam@example.com" waitlistUrl="https://duelingdomain.com/?home=1#join" onRetry={onRetry} />);
     expect(title("This email isn’t in the alpha yet").querySelector("em")).toHaveTextContent("alpha");
     screen.getByText("sam@example.com");
-    expect(screen.getByRole("link", { name: "Join the waitlist" })).toHaveAttribute("href", "https://duelingdomain.com/#join");
+    expect(screen.getByRole("link", { name: "Join the waitlist" })).toHaveAttribute("href", "https://duelingdomain.com/?home=1#join");
     await userEvent.click(screen.getByRole("button", { name: "Try a different email" }));
     expect(onRetry).toHaveBeenCalledOnce();
   });
 
   it("SignupClosedStep links to the waitlist and goes back to sign in", async () => {
     const onRetry = vi.fn();
-    render(<SignupClosedStep waitlistUrl="https://duelingdomain.com/#join" onRetry={onRetry} />);
+    render(<SignupClosedStep waitlistUrl="https://duelingdomain.com/?home=1#join" onRetry={onRetry} />);
     expect(title("You’re not in the alpha yet").querySelector("em")).toHaveTextContent("alpha");
-    expect(screen.getByRole("link", { name: "Join the waitlist" })).toHaveAttribute("href", "https://duelingdomain.com/#join");
+    expect(screen.getByRole("link", { name: "Join the waitlist" })).toHaveAttribute("href", "https://duelingdomain.com/?home=1#join");
     await userEvent.click(screen.getByRole("button", { name: "Back to sign in" }));
     expect(onRetry).toHaveBeenCalledOnce();
   });
