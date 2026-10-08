@@ -130,6 +130,15 @@ describe("PromptCenter card text", () => {
     expect(document.querySelector("[data-few]")).toBeNull();
   });
 
+  it("marks only a long text, so a short one gets no minimum height", () => {
+    mockScreen(false);
+    mount(optionPrompt("Draw 2 cards."));
+    expect(document.querySelector("[data-long]")).toBeNull();
+    cleanup();
+    mount(optionPrompt(LONG));
+    expect(document.querySelector("[data-long='true']")).not.toBeNull();
+  });
+
   it("names the box the toggle opens", () => {
     mockScreen(true);
     mount(optionPrompt(LONG));
