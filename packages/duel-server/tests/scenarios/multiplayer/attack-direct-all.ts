@@ -1,3 +1,5 @@
+// This table covers FFA direct-attack effects. Tag ordinary attacks now require both
+// opposing fields (including EMZ) empty; see tag-direct-attack-rule.ts and owner 2026-10-07.
 // Table of the ATTACK cards (manifest class ATTACK, "when an opponent's monster declares a direct attack") that attack-direct.ts and
 // attack-count.ts do not run with their own scenario. Every card gets two live scenarios at FFA3 and at FFA4, built from one row:
 //   - the direct attack goes to the holder p0: the effect is offered to p0 (p0 declines, so the state of every seat is the plain result of the attack);

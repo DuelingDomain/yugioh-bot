@@ -13,9 +13,9 @@ const SECURITY = "Security Dragon";
 const ELF = "Mystical Elf";
 const OX = "Battle Ox";
 const KNIGHT = "Mekk-Knight Purple Nightfall";
-const emzRule = (format: Format) => format === "ffa4" ? "R-FFA-ACROSS-EMZ" : "R-COMMON-EMZ";
-// Local Link and column queries follow R-COMMON-EMZ in docs/adr/0002-multiplayer-duel-rules.md.
-// Patch 0069 implements the local zone viewer rule. FFA4 shared geometry follows R-FFA-ACROSS-EMZ.
+const emzRule = (format: Format) => format === "ffa4" ? "R-FFA-ACROSS-EMZ" : format === "tag" ? "R-TAG-FACING" : "R-COMMON-EMZ";
+// Zone queries follow the format-specific geometry rules in ADR 0002.
+// Patch 0069 implements the local zone viewer rule. FFA4/Tag facing geometry follows R-FFA-ACROSS-EMZ/R-TAG-FACING.
 // This file also checks the occupied Extra Link outcome.
 const emz = (card: string) => [null, null, null, null, null, card];
 
@@ -29,8 +29,8 @@ function independentZones(format: Format, right: boolean): Scenario {
       zones: { m0: ELF, m1: OX, m2: null, m3: null, m4: null, emz0: null, emz1: null } };
   }
   for (const [index, seat] of SEATS[format].entries()) {
-    const acrossOccupied = format === "ffa4" && index % 2 === 1;
-    // The facing partner blocks the mirrored EMZ. Seats 1 and 3 use the same local number as their partners.
+    const acrossOccupied = (format === "ffa4" || format === "tag") && index % 2 === 1;
+    // The facing player blocks the mirrored EMZ. Seats 1 and 3 use the same local number as their partners.
     const extraZone = right ? "emz1" : "emz0";
     const blockedZone = right ? "emz0" : "emz1";
     const linkedZone = right ? "m3" : "m1";
@@ -54,7 +54,7 @@ function independentZones(format: Format, right: boolean): Scenario {
     if (index < SEATS[format].length - 1) steps.push(endTurn(seat));
   }
   return defineScenario({ id: `emz-${format}-every-seat-${right ? "right" : "left"}-and-own-link-arrow`,
-    title: format === "ffa4" ? `ffa4: across seats share two EMZ and use their own Link arrows (${right ? "right" : "left"})`
+    title: (format === "ffa4" || format === "tag") ? `${format}: across seats share two EMZ and use their own Link arrows (${right ? "right" : "left"})`
       : `${format}: every seat uses its own ${right ? "right" : "left"} EMZ and its own linked main zone`,
     source: `${SOURCE} [${emzRule(format)}]`, rules: [emzRule(format)], tags: ["multiplayer", format, "link", "card:98978921", "card:31226177"], setup, steps });
 }
@@ -82,8 +82,8 @@ function coLinks(format: Format, actor: Seat): Scenario {
     source: `${SOURCE} [${emzRule(format)}]`, rules: [emzRule(format)], tags: ["multiplayer", format, "link", "card:98978921", "card:99111753"], setup,
     steps: [...turnsBefore(format, actor), expectNotOffered("activate", SECURITY, actor), before,
       specialSummon(SPIDER, actor), select({ card: ELF, owner: actor }),
-      // In FFA4 the across seat's EMZ 0 blocks this seat's EMZ 1. The host answers the one-place prompt.
-      ...(format === "ffa4" ? [] : [zone(actor, "emz0", actor)]), linked,
+      // In FFA4/Tag the facing seat's EMZ 0 blocks this seat's EMZ 1. The host answers the one-place prompt.
+      ...((format === "ffa4" || format === "tag") ? [] : [zone(actor, "emz0", actor)]), linked,
       expectOffered("activate", SECURITY, actor), activate(SECURITY, actor),
       // R-FFA-OPP-ONE: declare the opponent before seeing only its legal target cards.
       ...(format !== "tag" ? [expectPickSeats(targets, actor), pickOpponent(target, actor)] : []),
@@ -102,9 +102,9 @@ function columns(format: Format): Scenario {
       zones: { m0: null, m1: null, m2: null, m3: null, m4: null, emz0: SPIDER, emz1: null,
         s0: null, s1: null, s2: null, s3: null, s4: null } };
   }
-  // FFA4 shares columns with the across seat. FFA3 and Tag keep columns on each seat.
+  // FFA4 and Tag share columns with the facing seat. FFA3 keeps its fixture local.
   for (const [index, seat] of SEATS[format].entries()) {
-    const acrossColumn = format === "ffa4" && index % 2 === 1;
+    const acrossColumn = (format === "ffa4" || format === "tag") && index % 2 === 1;
     if (index) state[seat] = { ...state[seat], hand: [KNIGHT, "Dark Hole", ELF], deckCount: 19 };
     if (!acrossColumn) {
       // One own Spider is not enough. The cards of the other pair do not count.
@@ -112,7 +112,7 @@ function columns(format: Format): Scenario {
       state[seat] = { ...state[seat], spells: ["Dark Hole"], hand: index ? [KNIGHT, ELF] : [KNIGHT],
         zones: { ...state[seat]!.zones, s1: { card: "Dark Hole", pos: "set" } } };
     }
-    // For p1 and p3, two partner cards permit the summon before this seat sets a Spell.
+    // For p1 and p3, two facing cards permit the summon before this seat sets a Spell.
     steps.push(expectOffered("specialSummon", KNIGHT, seat), specialSummon(KNIGHT, seat));
     state[seat] = { ...state[seat], monsters: [SPIDER, KNIGHT],
       hand: acrossColumn ? ["Dark Hole", ELF] : index ? [ELF] : [],
@@ -127,7 +127,7 @@ function columns(format: Format): Scenario {
     if (index < SEATS[format].length - 1) steps.push(endTurn(seat));
   }
   return defineScenario({ id: `emz-${format}-columns-stay-on-each-seat`,
-    title: format === "ffa4" ? "ffa4: column summons count the across field and exclude the other pair"
+    title: (format === "ffa4" || format === "tag") ? `${format}: column summons count the facing field and exclude the other pair`
       : `${format}: column summons use two cards of the same seat`,
     source: `${SOURCE} [${emzRule(format)}]`, rules: [emzRule(format)], tags: ["multiplayer", format, "column", "card:28692962"], setup, steps });
 }
@@ -151,8 +151,8 @@ function arrowViewer(format: Format, actor: Seat): Scenario {
     source: `${SOURCE} [${emzRule(format)}]`, rules: [emzRule(format)], tags: ["multiplayer", format, "link", "card:65100616"], setup,
     steps: [...turnsBefore(format, actor), expectNotOffered("specialSummon", FLIER, actor), before,
       specialSummon(SPIDER, actor), select({ card: ELF, owner: actor }),
-      // FFA4 has one free EMZ. The host answers that zone prompt automatically.
-      ...(format === "ffa4" ? [] : [zone(actor, "emz0", actor)]), linked,
+      // FFA4/Tag has one free EMZ. The host answers that zone prompt automatically.
+      ...((format === "ffa4" || format === "tag") ? [] : [zone(actor, "emz0", actor)]), linked,
       expectOffered("specialSummon", FLIER, actor), specialSummon(FLIER, actor), everySeat(format, state)],
   });
 }
@@ -163,16 +163,16 @@ function extraLink(format: Format, blocked = false): Scenario {
   const setup: Scenario["setup"] = { format, p0: { monsters: [ELF, TRI, BINARY, TRI, null, SPIDER], extra: [SPIDER] } };
   // A free second EMZ is required even with an Extra Link. Other pairs' EMZ do not block this pair.
   for (const seat of SEATS[format].slice(1)) setup[seat] = {
-    monsters: format === "ffa4" && seat === "p1" && !blocked ? [] : emz(SPIDER),
+    monsters: (format === "ffa4" || format === "tag") && seat === "p1" && !blocked ? [] : emz(SPIDER),
   };
   return defineScenario({ id: `emz-${format}-${blocked ? "second-zone-blocked-by-across" : "second-zone-by-extra-link"}`,
-    title: blocked ? "ffa4: an across monster blocks the second EMZ even with an Extra Link"
+    title: blocked ? `${format}: a facing monster blocks the second EMZ even with an Extra Link`
       : `${format}: an Extra Link permits the free second EMZ`,
     source: `${SOURCE} [${emzRule(format)}]`, rules: [emzRule(format)], tags: ["multiplayer", format, "link", "card:32617464"], setup,
     steps: [specialSummon(SPIDER, "p0"), select({ card: ELF, owner: "p0" }),
       ...(blocked ? [expectPickOptions([{ seat: "p0", label: "Monster Zone 1" }, { seat: "p0", label: "Monster Zone 5" }], "p0"),
         zone("p0", "m0", "p0")]
-        : [expectPickOptions(format === "ffa4"
+        : [expectPickOptions((format === "ffa4" || format === "tag")
           ? [{ seat: "p0", label: "Monster Zone 1" }, { seat: "p0", label: "Monster Zone 5" },
             { seat: "p0", label: "Extra Monster Zone (right)" }]
           : { include: [{ seat: "p0", label: "Extra Monster Zone (right)" }],
@@ -181,9 +181,9 @@ function extraLink(format: Format, blocked = false): Scenario {
         ? { monsters: [TRI, BINARY, TRI, SPIDER, SPIDER], extra: [], grave: [ELF], hand: [], deckCount: 20,
           zones: { m0: blocked ? SPIDER : null, m1: TRI, m2: BINARY, m3: TRI, m4: null,
             emz0: SPIDER, emz1: blocked ? null : SPIDER } }
-        : { monsters: format === "ffa4" && seat === "p1" && !blocked ? [] : [SPIDER], hand: [], extra: [], deckCount: 20,
+        : { monsters: (format === "ffa4" || format === "tag") && seat === "p1" && !blocked ? [] : [SPIDER], hand: [], extra: [], deckCount: 20,
           zones: { m0: null, m1: null, m2: null, m3: null, m4: null,
-            emz0: format === "ffa4" && seat === "p1" && !blocked ? null : SPIDER, emz1: null } }])) )],
+            emz0: (format === "ffa4" || format === "tag") && seat === "p1" && !blocked ? null : SPIDER, emz1: null } }])) )],
   });
 }
 
@@ -204,6 +204,6 @@ const standard = (["ffa3", "ffa4", "tag"] as Format[]).flatMap((format) => [
   independentZones(format, false), independentZones(format, true), coLinks(format, "p0"),
   coLinks(format, format === "ffa3" ? "p2" : "p3"), columns(format), arrowViewer(format, "p0"),
   arrowViewer(format, format === "ffa3" ? "p2" : "p3"), extraLink(format),
-  ...(format === "ffa4" ? [extraLink(format, true)] : []),
+  ...((format === "ffa4" || format === "tag") ? [extraLink(format, true)] : []),
 ]).concat(oldAcrossDoesNotBlock());
 export const EXTRA_MONSTER_ZONE_SCENARIOS: Scenario[] = [...standard, ...standard.map(domainVariant)];

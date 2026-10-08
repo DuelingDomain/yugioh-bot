@@ -21,5 +21,5 @@ function opponentCost(format: "ffa3" | "ffa4"): Scenario {
 }
 const tag = EXTRA_MONSTER_ZONE_SCENARIOS.find((s) => s.id === "emz-tag-columns-stay-on-each-seat")!;
 const standard = [opponentCost("ffa3"), opponentCost("ffa4"),
-  { ...tag, id: "df-local-zone-viewer-tag-mekk-knight", title: "Tag: each Mekk-Knight column belongs to its own seat" }];
+  { ...tag, id: "df-local-zone-viewer-tag-mekk-knight", title: "Tag: Mekk-Knight columns include only the facing field" }];
 export const DF_LOCAL_ZONE_VIEWER_SCENARIOS: Scenario[] = [...standard, ...standard.map(domainVariant)];

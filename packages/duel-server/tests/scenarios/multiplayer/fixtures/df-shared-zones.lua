@@ -59,6 +59,17 @@ function s.cost(e,tp,eg,ep,ev,re,r,rp,chk)
   assert(Duel.GetLinkedGroupCount(tp,LOCATION_MZONE,LOCATION_MZONE)==3,'field linked group includes across')
   assert(#Duel.GetLinkedGroup(tp,LOCATION_MZONE,LOCATION_MZONE)==3,'field linked group size')
  end
+ if shared then
+  local own=Duel.MPSeatOf(c)
+  local across=Duel.MPAcrossSeat(own)
+  for _,tc in ipairs(s.cards) do
+   local seat=Duel.MPSeatOf(tc)
+   if seat~=own and seat~=across then
+    assert(tc:GetToBeLinkedZone(c,tp,nil,true)==0,'side and partner cards have no physical Link mask')
+    assert(not tc:IsColumn(1,tp,LOCATION_MZONE,c),'side and partner cards are not in the physical column')
+   end
+  end
+ end
  if chk==0 then return true end
  Duel.PayLPCost(tp,500)
 end
