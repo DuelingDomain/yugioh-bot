@@ -17,6 +17,12 @@ export const EASE_DRAWER = "cubic-bezier(0.32, 0.72, 0, 1)";
 export const DURATION = {
   pageIn: 200,
   flip: 300,
+  /** The sidebar rail and the page column beside it. */
+  rail: 240,
+  /** The active-tab marker sliding to its new tab. */
+  tab: 200,
+  /** A tab panel arriving. */
+  paneIn: 180,
   /** How long an overlay stays mounted to play its exit; pass to `usePresence`. */
   modalOut: 150,
   popOut: 100,
@@ -57,6 +63,26 @@ function subscribeReduced(onChange: () => void): () => void {
  */
 export function usePrefersReducedMotion(): boolean {
   return useSyncExternalStore(subscribeReduced, prefersReducedMotion, () => false);
+}
+
+let keyboardLast = false;
+let tracking = false;
+
+/** Starts remembering whether the last input was the keyboard. Safe to call often; browser only. */
+export function trackInputModality(): void {
+  if (tracking || typeof document === "undefined") return;
+  tracking = true;
+  document.addEventListener("keydown", () => { keyboardLast = true; }, true);
+  document.addEventListener("pointerdown", () => { keyboardLast = false; }, true);
+}
+
+/**
+ * True when the last thing the person did was press a key. Motion that answers a keyboard action
+ * (arrowing through tabs, Enter on a link) is skipped: those repeat all day and should feel instant.
+ */
+export function inputWasKeyboard(): boolean {
+  trackInputModality();
+  return keyboardLast;
 }
 
 export type Presence = { mounted: boolean; state: "open" | "closed" };

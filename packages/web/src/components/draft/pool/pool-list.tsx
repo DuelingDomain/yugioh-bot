@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDown, Minus, Plus, Search, Undo2, X } from "lucide-react";
+import { segmentSlide } from "@/components/sheet";
 import { CardThumb } from "./pool-bits";
 import {
   MAX_COPIES,
@@ -129,7 +130,7 @@ export function PoolList({ ctl }: { ctl: PoolEditor }) {
             <b>{copies.total}</b> {copies.total === 1 ? "card" : "cards"}, <b>{pool.size}</b> different
           </span>
         </div>
-        <div className={`seg ${styles.lanes}`} role="group" aria-label="Pool">
+        <div className={`seg ${styles.lanes}`} role="group" aria-label="Pool" {...segmentSlide(2, extraLane ? 1 : 0)}>
           <button type="button" aria-pressed={!extraLane} onClick={() => switchLane("main")}>
             Main <small>{ctl.total}</small>
           </button>

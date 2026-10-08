@@ -16,7 +16,7 @@ interface AccountMenuProps {
   pathname: string;
   /** side: the seat at the foot of the sidebar. phone: the ring in the top bar. */
   variant: "side" | "phone";
-  /** Collapsed rail: the ring alone, no name. Only for the side variant. */
+  /** Collapsed rail: the menu opens beside the ring. The name fades out in CSS, so the trigger is the same markup. Side variant only. */
   rail?: boolean;
   /** Called when a menu choice navigates, so a surrounding drawer can close. */
   onNavigate?: () => void;
@@ -102,12 +102,10 @@ export function AccountMenu({ account, pathname, variant, rail = false, onNaviga
     return variant === "side" ? (
       <span className={styles.seatBtn} data-rail={rail ? "true" : undefined} aria-busy="true" aria-label="Loading your account">
         <span className={styles.seatSkRing} />
-        {rail ? null : (
-          <span className={styles.seatText} style={{ width: 110, gap: 7 }}>
-            <span className={styles.seatSk} style={{ width: "72%" }} />
-            <span className={styles.seatSk} style={{ width: "48%", height: 8 }} />
-          </span>
-        )}
+        <span className={styles.seatText} style={{ width: 110, gap: 7 }}>
+          <span className={styles.seatSk} style={{ width: "72%" }} />
+          <span className={styles.seatSk} style={{ width: "48%", height: 8 }} />
+        </span>
       </span>
     ) : (
       <span className={styles.ringBtn} aria-busy="true" aria-label="Loading your account">
@@ -135,19 +133,17 @@ export function AccountMenu({ account, pathname, variant, rail = false, onNaviga
         onKeyDown={onTriggerKeyDown}
       >
         <Ring account={account} size="md" />
-        {rail ? null : (
-          <span className={styles.seatText}>
-            <span className={styles.seatName}>{displayName}</span>
-            {noProfile ? (
-              <span className={styles.seatLine}>No profile yet</span>
-            ) : account.tier !== null || account.elo !== null ? (
-              <span className={styles.seatLine}>
-                {account.tier !== null ? <TierName tier={account.tier} /> : null}
-                {account.elo !== null ? <em className={styles.seatElo}>{account.elo}</em> : null}
-              </span>
-            ) : null}
-          </span>
-        )}
+        <span className={styles.seatText}>
+          <span className={styles.seatName}>{displayName}</span>
+          {noProfile ? (
+            <span className={styles.seatLine}>No profile yet</span>
+          ) : account.tier !== null || account.elo !== null ? (
+            <span className={styles.seatLine}>
+              {account.tier !== null ? <TierName tier={account.tier} /> : null}
+              {account.elo !== null ? <em className={styles.seatElo}>{account.elo}</em> : null}
+            </span>
+          ) : null}
+        </span>
       </button>
     ) : (
       <button

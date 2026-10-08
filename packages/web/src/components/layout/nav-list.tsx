@@ -24,11 +24,11 @@ export function NavList({ activeHref, label, size, live = null, isAdmin = false,
       {groupedNav(isAdmin).map((g, index) => (
         <div key={g.label ?? "top"} className={styles.navGroup}>
           {g.label ? (
-            size === "rail" ? (
-              <span className={styles.groupLine} aria-hidden="true" />
-            ) : (
+            // One header box in both widths: the label fades out and the rail's short line fades in, so nothing shifts.
+            <div className={styles.groupHead}>
               <p className={styles.groupLabel}>{g.label}</p>
-            )
+              <span className={styles.groupLine} aria-hidden="true" />
+            </div>
           ) : null}
           {g.items.map((item) => (
             <NavItem key={item.href} item={item} active={item.href === activeHref} size={size} onNavigate={onNavigate} />

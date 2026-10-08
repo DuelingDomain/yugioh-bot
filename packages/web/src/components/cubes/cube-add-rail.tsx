@@ -10,6 +10,7 @@ import { putCards } from "@/lib/cards-cache";
 import { isExtraDeckCardClient } from "@/lib/cube-pools";
 import { useResultNav } from "@/lib/hooks/use-result-nav";
 import type { AddTab } from "./library-model";
+import { useTabDirection, useTabMarker } from "@/lib/tab-motion";
 import styles from "./cubes.module.css";
 
 export interface AddNote {
@@ -62,6 +63,7 @@ const TABS: Array<{ value: AddTab; label: string }> = [
   { value: "passcodes", label: "Passcodes" },
   { value: "ydk", label: "YDK" },
 ];
+const TAB_ORDER: readonly AddTab[] = TABS.map((t) => t.value);
 
 function Note({ note }: { note: AddNote | null }) {
   if (!note) return null;
@@ -382,62 +384,68 @@ function ImportTab({
 /** The "Add cards" rail body: one segmented control, five ways to add. */
 export function AddCardsBody(props: AddRailProps) {
   const [tab, setTab] = React.useState<AddTab>(props.initialTab ?? "card");
+  const dir = useTabDirection(tab, TAB_ORDER);
+  // The buttons keep their own widths in this rail, so the fill that slides between them is measured.
+  const rowRef = React.useRef<HTMLDivElement>(null);
+  useTabMarker(rowRef, tab);
   return (
     <>
-      <div className="seg" role="group" aria-label="Add by" style={{ width: "100%" }}>
+      <div ref={rowRef} className="seg" data-seg-measured="" role="group" aria-label="Add by" style={{ width: "100%" }}>
         {TABS.map((t) => (
           <button key={t.value} type="button" aria-pressed={tab === t.value} onClick={() => setTab(t.value)}>
             {t.label}
           </button>
         ))}
       </div>
-      {tab === "card" && <CardTab busy={props.busy} copiesInCube={props.copiesInCube} onAddCard={props.onAddCard} />}
-      {tab === "archetype" && <ArchetypeTab busy={props.busy} onSeedArchetype={props.onSeedArchetype} />}
-      {tab === "list" && (
-        <ImportTab
-          {...props}
-          kind="list"
-          label="Card list"
-          placeholder={"3 Dark Hole\nShooting Star Dragon\n46986414\n\nOr paste a whole .ydk file"}
-          hint={
-            <>
-              Card names or passcodes, one per line. A number before a name is its copies, like 3 Dark Hole. Without one, a card
-              gets 1 copy. A paste or a loaded file is added at once and copies add to the ones already in the cube. Extra Deck
-              monsters go to the Extra pool. Typed text is added when you press Enter or choose Add. Shift+Enter starts a new line.
-            </>
-          }
-        />
-      )}
-      {tab === "passcodes" && (
-        <ImportTab
-          {...props}
-          kind="passcodes"
-          label="Passcodes, one per line"
-          placeholder={"46986414\n83764718, 12345678"}
-          fileLabel="Load a .txt file"
-          hint={
-            <>
-              List a card as many times as you want copies, up to 99. A card already in the cube takes the new count, so one line
-              sets it to ×1. A paste or a loaded file is added at once. Typed text is added when you press Enter or choose Add. Shift+Enter starts a new line.
-            </>
-          }
-        />
-      )}
-      {tab === "ydk" && (
-        <ImportTab
-          {...props}
-          kind="ydk"
-          label="Deck list (.ydk)"
-          placeholder={"#main\n46986414\n46986414\n#extra\n23995346\n!side"}
-          fileLabel="Load a .ydk file"
-          hint={
-            <>
-              Each line is one copy, up to 99. Copies add to the ones already in the cube. Extra Deck monsters and the #extra
-              section go to the Extra pool; main and side cards go to Main. A paste or a loaded file is added at once.
-            </>
-          }
-        />
-      )}
+      <div data-pane="kids" data-pane-dir={dir}>
+        {tab === "card" && <CardTab busy={props.busy} copiesInCube={props.copiesInCube} onAddCard={props.onAddCard} />}
+        {tab === "archetype" && <ArchetypeTab busy={props.busy} onSeedArchetype={props.onSeedArchetype} />}
+        {tab === "list" && (
+          <ImportTab
+            {...props}
+            kind="list"
+            label="Card list"
+            placeholder={"3 Dark Hole\nShooting Star Dragon\n46986414\n\nOr paste a whole .ydk file"}
+            hint={
+              <>
+                Card names or passcodes, one per line. A number before a name is its copies, like 3 Dark Hole. Without one, a card
+                gets 1 copy. A paste or a loaded file is added at once and copies add to the ones already in the cube. Extra Deck
+                monsters go to the Extra pool. Typed text is added when you press Enter or choose Add. Shift+Enter starts a new line.
+              </>
+            }
+          />
+        )}
+        {tab === "passcodes" && (
+          <ImportTab
+            {...props}
+            kind="passcodes"
+            label="Passcodes, one per line"
+            placeholder={"46986414\n83764718, 12345678"}
+            fileLabel="Load a .txt file"
+            hint={
+              <>
+                List a card as many times as you want copies, up to 99. A card already in the cube takes the new count, so one line
+                sets it to ×1. A paste or a loaded file is added at once. Typed text is added when you press Enter or choose Add. Shift+Enter starts a new line.
+              </>
+            }
+          />
+        )}
+        {tab === "ydk" && (
+          <ImportTab
+            {...props}
+            kind="ydk"
+            label="Deck list (.ydk)"
+            placeholder={"#main\n46986414\n46986414\n#extra\n23995346\n!side"}
+            fileLabel="Load a .ydk file"
+            hint={
+              <>
+                Each line is one copy, up to 99. Copies add to the ones already in the cube. Extra Deck monsters and the #extra
+                section go to the Extra pool; main and side cards go to Main. A paste or a loaded file is added at once.
+              </>
+            }
+          />
+        )}
+      </div>
     </>
   );
 }

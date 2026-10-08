@@ -327,3 +327,82 @@ describe("AppShell tournament rail", () => {
     await waitFor(() => expect(container.querySelector("aside")).toHaveAttribute("data-rail"));
   });
 });
+
+describe("AppShell rail motion", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "requestAnimationFrame", "cancelAnimationFrame"] });
+    window.localStorage.clear();
+    mockUsePathname.mockReturnValue("/tournaments");
+    stubFetch();
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("a saved collapse on load does not animate: the frame is never marked as moving", async () => {
+    window.localStorage.setItem(KEY, "1");
+    const { container } = render(<AppShell><p>x</p></AppShell>);
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(container.firstElementChild).toHaveAttribute("data-sidebar-collapsed", "true");
+    expect(container.firstElementChild).not.toHaveAttribute("data-sidebar-moving");
+  });
+
+  it("a toggle marks the frame as moving in the same render, then clears it after the rail has landed", async () => {
+    const { container } = render(<AppShell><p>x</p></AppShell>);
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+    expect(container.firstElementChild).toHaveAttribute("data-sidebar-collapsed", "true");
+    expect(container.firstElementChild).toHaveAttribute("data-sidebar-moving");
+    await act(async () => { await vi.advanceTimersByTimeAsync(600); });
+    expect(container.firstElementChild).not.toHaveAttribute("data-sidebar-moving");
+  });
+
+  it("a window resize across the room-width rule collapses the rail without animating it", async () => {
+    const room = { matches: false, listener: null as null | (() => void) };
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      get matches() { return query === ROOM_COLLAPSE_QUERY ? room.matches : false; },
+      addEventListener: (_: string, cb: () => void) => { if (query === ROOM_COLLAPSE_QUERY) room.listener = cb; },
+      removeEventListener: vi.fn(),
+    })) as unknown as typeof window.matchMedia;
+    mockUsePathname.mockReturnValue("/tournament/friday");
+    const { container } = render(<AppShell><p>x</p></AppShell>);
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(container.firstElementChild).toHaveAttribute("data-sidebar-collapsed", "false");
+    room.matches = true;
+    act(() => room.listener?.());
+    expect(container.firstElementChild).toHaveAttribute("data-sidebar-collapsed", "true");
+    expect(container.firstElementChild).not.toHaveAttribute("data-sidebar-moving");
+    // The next hand toggle still plays.
+    fireEvent.click(screen.getByRole("button", { name: "Expand sidebar" }));
+    expect(container.firstElementChild).toHaveAttribute("data-sidebar-collapsed", "false");
+    expect(container.firstElementChild).toHaveAttribute("data-sidebar-moving");
+    // @ts-expect-error jsdom has no matchMedia by default
+    delete window.matchMedia;
+  });
+
+  it("a route that collapses the rail by itself does not animate it", async () => {
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: query === ROOM_COLLAPSE_QUERY,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })) as unknown as typeof window.matchMedia;
+    const { container, rerender } = render(<AppShell><p>x</p></AppShell>);
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(container.firstElementChild).toHaveAttribute("data-sidebar-collapsed", "false");
+    mockUsePathname.mockReturnValue("/tournament/friday");
+    rerender(<AppShell><p>x</p></AppShell>);
+    expect(container.firstElementChild).toHaveAttribute("data-sidebar-collapsed", "true");
+    expect(container.firstElementChild).not.toHaveAttribute("data-sidebar-moving");
+    // @ts-expect-error jsdom has no matchMedia by default
+    delete window.matchMedia;
+  });
+
+  it("a hand toggle that has already landed does not leave the mark set for the next automatic change", async () => {
+    const { container } = render(<AppShell><p>x</p></AppShell>);
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(600); });
+    expect(container.firstElementChild).not.toHaveAttribute("data-sidebar-moving");
+    // A hand toggle in a page that collapses itself (override) is by hand too.
+    fireEvent.click(screen.getByRole("button", { name: "Expand sidebar" }));
+    expect(container.firstElementChild).toHaveAttribute("data-sidebar-moving");
+  });
+});

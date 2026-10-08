@@ -500,3 +500,36 @@ describe("SourceRail: drawer", () => {
     expect(screen.queryByRole("region", { name: "Card inspector" })).toBeNull();
   });
 });
+
+describe("SourceRail: tab motion", () => {
+  const dirs = () => Array.from(document.querySelectorAll("[data-pane-dir]")).map((el) => el.getAttribute("data-pane-dir"));
+  const shown = () => document.querySelector('[role="tabpanel"][data-pane-dir]:not([hidden])');
+
+  it("slides the arriving source in from the side of its tab, and not for a key press", async () => {
+    await renderRail();
+    expect(dirs()).toEqual([]);
+    fireEvent.pointerDown(document.body);
+    // The rail starts on List, the fourth source.
+    fireEvent.click(sourceTab("Set"));
+    expect(shown()).toHaveAttribute("data-pane-dir", "prev");
+    fireEvent.click(sourceTab("Cubes"));
+    expect(shown()).toHaveAttribute("data-pane-dir", "next");
+    fireEvent.keyDown(sourceTab("Cubes"), { key: "ArrowLeft" });
+    await waitFor(() => expect(sourceTab("List")).toHaveAttribute("aria-selected", "true"));
+    expect(shown()).toBeNull();
+  });
+
+  it("moves the Sources / Card pane only for a click on the switch, never for a pin or hover", async () => {
+    await renderRail();
+    paste("3 Dragon Egg");
+    await screen.findByText("Pasted list - 3 cards (3 Main, 0 Extra)");
+    fireEvent.pointerDown(document.body);
+    fireEvent.click(screen.getByRole("button", { name: "Pin Dragon Egg" }));
+    expect(screen.getByRole("tab", { name: "Card" })).toHaveAttribute("aria-selected", "true");
+    expect(dirs()).toEqual([]);
+    expect(document.querySelector('[role="tablist"][aria-label="Left panel"]')).not.toHaveAttribute("data-hand");
+    fireEvent.click(screen.getByRole("tab", { name: "Sources" }));
+    expect(document.querySelector('[role="tablist"][aria-label="Left panel"]')).toHaveAttribute("data-hand");
+    expect(dirs()).toContain("prev");
+  });
+});

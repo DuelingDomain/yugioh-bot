@@ -63,6 +63,9 @@ describe("tokens", () => {
   it("mirrors the durations JS needs", () => {
     expect(token("d-page-in")).toBe(`${DURATION.pageIn}ms`);
     expect(token("d-flip")).toBe(`${DURATION.flip}ms`);
+    expect(token("d-rail")).toBe(`${DURATION.rail}ms`);
+    expect(token("d-tab")).toBe(`${DURATION.tab}ms`);
+    expect(token("d-pane-in")).toBe(`${DURATION.paneIn}ms`);
     expect(token("d-rm")).toBe(`${DURATION.reduced}ms`);
     expect(token("d-modal-out")).toBe(`${DURATION.modalOut}ms`);
     expect(token("d-pop-out")).toBe(`${DURATION.popOut}ms`);

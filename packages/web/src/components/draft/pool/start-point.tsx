@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { segmentSlide } from "@/components/sheet";
 import type { Mode } from "./use-pool-editor";
 import styles from "./pool.module.css";
 
@@ -12,7 +13,7 @@ export function StartPoint({ mode, hasCubes, onChange }: { mode: Mode; hasCubes:
       <span className="label" id={labelId}>
         Starting point
       </span>
-      <div className="seg" role="group" aria-labelledby={labelId}>
+      <div className="seg" role="group" aria-labelledby={labelId} {...segmentSlide(2, mode === "cube" ? 0 : 1)}>
         <button type="button" aria-pressed={mode === "cube"} disabled={!hasCubes} onClick={() => onChange("cube")}>
           Use a cube
         </button>

@@ -2,7 +2,8 @@
 
 import * as React from "react";
 import { Check, CircleAlert, Info, Plus, Search } from "lucide-react";
-import { svButtonClass } from "@/components/sheet";
+import { segmentSlide, svButtonClass } from "@/components/sheet";
+import { useTabDirection } from "@/lib/tab-motion";
 import { isExtraDeckMonster, type CardSummary } from "@/lib/card-types";
 import { AutoImportBox, type ImportEntryView, type ImportRun } from "@/components/card-list-import/auto-import-box";
 import { ListImportReport } from "@/components/card-list-import/list-import-report";
@@ -30,6 +31,7 @@ const TABS: Array<{ value: AddTab; label: string }> = [
   { value: "set", label: "Set" },
   { value: "list", label: "Card list" },
 ];
+const TAB_ORDER: readonly AddTab[] = TABS.map((t) => t.value);
 
 export interface Note {
   tone: "ok" | "bad";
@@ -92,6 +94,8 @@ export function AddCards({ ctl, initialTab }: { ctl: PoolEditor; initialTab: Add
   const [tab, setTab] = React.useState<AddTab>(initialTab);
   const [note, setNote] = React.useState<Note | null>(null);
 
+  const dir = useTabDirection(tab, TAB_ORDER);
+
   const choose = (next: AddTab) => {
     setTab(next);
     setNote(null);
@@ -99,17 +103,19 @@ export function AddCards({ ctl, initialTab }: { ctl: PoolEditor; initialTab: Add
 
   return (
     <>
-      <div className={`seg ${styles.tabs}`} role="group" aria-label="Add by">
+      <div className={`seg ${styles.tabs}`} role="group" aria-label="Add by" {...segmentSlide(TABS.length, TAB_ORDER.indexOf(tab))}>
         {TABS.map((t) => (
           <button key={t.value} type="button" aria-pressed={tab === t.value} onClick={() => choose(t.value)}>
             {t.label}
           </button>
         ))}
       </div>
-      {tab === "card" && <CardTab ctl={ctl} setNote={setNote} />}
-      {tab === "archetype" && <ArchetypeTab ctl={ctl} setNote={setNote} />}
-      {tab === "set" && <SetTab ctl={ctl} setNote={setNote} />}
-      {tab === "list" && <ListTab ctl={ctl} />}
+      <div data-pane="kids" data-pane-dir={dir}>
+        {tab === "card" && <CardTab ctl={ctl} setNote={setNote} />}
+        {tab === "archetype" && <ArchetypeTab ctl={ctl} setNote={setNote} />}
+        {tab === "set" && <SetTab ctl={ctl} setNote={setNote} />}
+        {tab === "list" && <ListTab ctl={ctl} />}
+      </div>
       <NoteLine note={note} />
     </>
   );

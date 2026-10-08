@@ -143,8 +143,10 @@ describe("AccountMenu", () => {
     expect(screen.getByRole("button", { name: /account menu, imran/i }).textContent).not.toMatch(/\d{3,}/);
   });
 
-  it("the rail seat is the ring alone", () => {
+  it("the rail seat is the same button, so its text can fade instead of remounting", () => {
     render(<AccountMenu account={ready} pathname="/dashboard" variant="side" rail />);
-    expect(screen.getByRole("button", { name: /account menu, imran/i })).not.toHaveTextContent("Gold");
+    const seat = screen.getByRole("button", { name: /account menu, imran/i });
+    expect(seat).toHaveAttribute("data-rail", "true");
+    expect(seat).toHaveTextContent("Gold");
   });
 });
