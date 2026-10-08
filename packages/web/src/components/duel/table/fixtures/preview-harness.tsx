@@ -124,6 +124,7 @@ function useSceneOverride(state: TableFixtureState, query: URLSearchParams): Tab
   const steps = useMemo(() => (id ? sceneSteps(id) : []), [id]);
   const [count, setCount] = useState(0);
   useEffect(() => {
+    setCount(0);
     if (!id) return;
     const timers = steps.map((step, index) => setTimeout(() => setCount(index + 1), SCENE_START_MS + step.at));
     return () => timers.forEach(clearTimeout);

@@ -42,7 +42,7 @@ export function RivalHand({ seat, count, name, cards }: { seat: number; count: n
             </span>
           );
         })}
-        <span className={styles.count} aria-hidden="true">{count}</span>
+        <span className={styles.count} data-hand-count="true" aria-hidden="true">{count}</span>
       </div>
       <div className={styles.probe} data-hand-size-probe="true" data-side="opp" aria-hidden="true" />
     </>
