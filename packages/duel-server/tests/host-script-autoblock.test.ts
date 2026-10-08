@@ -1,20 +1,65 @@
 import { createHmac } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import Database from "better-sqlite3";
-import { expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { createDuelService } from "@yugidraft/shared/services";
-import { emptyCardQuery, type DuelEngineView } from "@yugidraft/shared/duels";
+import { emptyCardQuery, normalizeDuelSettings, type DuelAnswer, type DuelCardInfo, type DuelEngineView } from "@yugidraft/shared/duels";
 import { createDuelHost, type DuelHost } from "../src/host.js";
 import { pinnedEngineVersion } from "../src/multi-scripts.js";
 import { createScriptErrorRecorder, topScriptErrors } from "../src/script-error-store.js";
 import { cardScriptHash } from "../src/card-script-hash.js";
 import { loadCardDatabase } from "../src/cards.js";
 import { createAutoBlockPolicy, clearAutoBlock } from "../src/script-error-autoblock.js";
-import { reproOptions, attackAnswer } from "./helpers/script-error-repro.js";
 import { seedIdentity, seedUser } from "./helpers/identity.js";
-import { engineDataDirectory as DATA } from "./engine-data-dir.js";
-import { describeWithCores, needs } from "./support/cores.js";
+import { createHostDataFixture } from "./helpers/host-data-fixture.js";
+import { CARD_SCRIPT_ERROR_TEXT, type DuelScriptError } from "../src/script-errors.js";
+import type { DuelGameWorker, GameOptions } from "../src/worker-client.js";
+
+// Keep the host's real worker callbacks and recorder; replace only the core transport.
+// One deterministic accepted answer reproduces an error on recovery and replay.
+vi.mock("../src/worker-client.js", () => ({
+  GameWorker: class implements DuelGameWorker {
+    running = true;
+    private step = 0;
+    private options!: GameOptions;
+    constructor(private onScriptError?: (error: DuelScriptError) => void) {}
+    async create(options: GameOptions) { this.options = options; }
+    async view(viewer: number | null): Promise<DuelEngineView> {
+      return {
+        revision: this.step + 1, turn: 1, turnSeat: 0, phase: "main1",
+        seats: [0, 1].map(seat => ({ seat, lp: 8000, hand: [], deckCount: 40, extraCount: 0,
+          extra: [], monsters: [], spells: [], graveyard: [], banished: [] })),
+        prompt: viewer === 0 ? { id: `fixture-${this.step}`, seat: 0, kind: "choice", title: "Main",
+          options: [{ id: "continue", label: "Continue" }] } : null,
+        chain: [], result: null,
+        events: this.step ? [{ id: 1, kind: "script-error", text: CARD_SCRIPT_ERROR_TEXT }] : [],
+        log: this.step ? [{ id: 1, text: CARD_SCRIPT_ERROR_TEXT }] : [],
+      };
+    }
+    async answer(seat: number, promptId: string, answer: DuelAnswer) {
+      expect(seat).toBe(0);
+      expect(promptId).toBe(`fixture-${this.step}`);
+      expect(answer).toEqual({ choice: "continue" });
+      this.step++;
+      this.onScriptError?.({ code: 3743515, scriptFile: "c3743515.lua", line: 1,
+        message: "fixture runtime failure", index: this.step, commandHash: `fixture-answer-${this.step}`,
+        mode: this.options.mode, format: this.options.format ?? "1v1", engine: this.options.engine ?? "pinned",
+        scriptErrorMode: this.options.scriptErrorMode ?? "tolerant" });
+    }
+    async search(_query: string): Promise<DuelCardInfo[]> { return []; }
+    async close() { this.running = false; }
+  },
+}));
+
+let DATA: string;
+beforeAll(() => {
+  DATA = createHostDataFixture([
+    { code: 3743515, name: "Inaba White Rabbit", type: 33 },
+    { code: 15025844, name: "Mystical Elf" },
+  ]);
+});
+afterAll(() => { rmSync(DATA, { recursive: true, force: true }); });
 
 const secret = "auto-block-test";
 async function request(host: DuelHost, body: Record<string, unknown>, status = 200): Promise<any> {
@@ -23,14 +68,20 @@ async function request(host: DuelHost, body: Record<string, unknown>, status = 2
     headers: { "content-type": "application/json", "x-announce-signature": "sha256=" + createHmac("sha256", secret).update(raw).digest("hex") } }));
   const result = await response.json(); expect(response.status, JSON.stringify(result)).toBe(status); return result;
 }
-describeWithCores("automatic blocks through live host and replay", [needs.standard(DATA)], () => {
+describe("automatic blocks through host and replay", () => {
   it.each(["legacy", "pinned"] as const)("%s: blocks new duels and deck checks while live/recovered/replayed state stays identical", async engine => {
     vi.stubEnv("DUEL_SCRIPT_ERROR_BLOCK_DUELS", "2");
     vi.stubEnv("DUEL_1V1_ENGINE", engine);
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     const db = new Database(":memory:"); migrate(db);
     const players = [0, 1].map(i => seedIdentity(db, { guildId: "g", name: `P${i}`, userId: seedUser(db, `auto${i}`).userId }).playerId);
-    const duels = createDuelService(db), options = reproOptions();
+    const duels = createDuelService(db);
+    const options: GameOptions = {
+      mode: "normal", dataDirectory: DATA, seed: ["1", "2", "3", "4"],
+      settings: normalizeDuelSettings("normal", { validateDeck: false, banlist: "none", startingHand: 1 }),
+      decks: [0, 1].map(() => ({ main: [3743515, ...Array(39).fill(15025844)], extra: [], side: [] })),
+      startupScripts: [{ name: "fixture-startup.lua", content: "-- saved fixture startup" }],
+    };
     const session = duels.create({ guildId: "g", organizerPlayerId: players[0]!, name: "Existing", mode: "normal", settings: options.settings });
     duels.takeSeat(session.slug, "g", players[1]!);
     players.forEach((player, seat) => duels.setDeck(session.slug, "g", player, options.decks[seat]!));
@@ -49,11 +100,12 @@ describeWithCores("automatic blocks through live host and replay", [needs.standa
       for (let step = 0; step < 80; step++) {
         const current = await views(); if (current[0]!.events.some(event => event.kind === "script-error")) break;
         const seat = current.findIndex(view => view.prompt !== null), view = current[seat]!;
-        await request(host, { ...base, op: "respond", playerId: players[seat], command: { promptId: view.prompt!.id, revision: view.revision, answer: attackAnswer(view.prompt!) } });
+        await request(host, { ...base, op: "respond", playerId: players[seat], command: { promptId: view.prompt!.id, revision: view.revision, answer: { choice: "continue" } } });
       }
       const live = await views(), journal = duels.privateState(session.slug, "g").commands;
       const count = topScriptErrors(db)[0]!.count;
       expect(count).toBeGreaterThan(0);
+      expect(journal).toHaveLength(1);
       expect(db.prepare("SELECT code FROM card_script_auto_blocks WHERE cleared_at IS NULL").all()).toEqual([{ code: 3743515 }]);
       const blockedDeck = { ...options.decks[0]!, main: [3743515, ...options.decks[0]!.main] };
       const check = await request(host, { op: "check-deck", guildId: "g", playerId: players[0], mode: "normal", deck: blockedDeck, settings: options.settings });

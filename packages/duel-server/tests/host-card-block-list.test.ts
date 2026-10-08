@@ -1,7 +1,5 @@
 import { createHmac } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { rmSync } from "node:fs";
 import Database from "better-sqlite3";
 import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
@@ -12,6 +10,7 @@ import { cardScriptHash } from "../src/card-script-hash.js";
 import { loadCardDatabase } from "../src/cards.js";
 import { loadMultiScriptsFor } from "../src/multi-scripts.js";
 import { seedIdentity, seedUser } from "./helpers/identity.js";
+import { createHostDataFixture } from "./helpers/host-data-fixture.js";
 
 vi.mock("node:fs", async (original) => {
   const fs = await original<typeof import("node:fs")>();
@@ -24,26 +23,22 @@ vi.mock("node:fs", async (original) => {
 const SECRET = "blocked-start";
 let DATA: string;
 beforeAll(() => {
-  DATA = mkdtempSync(join(tmpdir(), "host-card-block-list-"));
-  writeFileSync(join(DATA, "manifest.json"), JSON.stringify({ bundleVersion: "fixture" }));
-  writeFileSync(join(DATA, "strings.conf"), "");
-  mkdirSync(join(DATA, "card-scripts"));
-  // Pass the host's installed-file guards; blocked cards must prevent any core load.
-  for (const file of ["ocgcore.multi.wasm", "ocgcore.multi-domain.wasm"]) writeFileSync(join(DATA, file), "fixture");
-  const cards = new Database(join(DATA, "cards.cdb"));
-  try {
-    cards.exec(`CREATE TABLE datas (id INTEGER PRIMARY KEY, ot INTEGER, alias INTEGER, setcode INTEGER,
-      type INTEGER, atk INTEGER, def INTEGER, level INTEGER, race INTEGER, attribute INTEGER);
-      CREATE TABLE texts (id INTEGER PRIMARY KEY, name TEXT, desc TEXT);
-      INSERT INTO datas VALUES
-        (89631139,3,0,0,17,3000,2500,8,8192,16),
-        (77585513,3,0,0,33,2400,1500,6,32,32),
-        (44095762,3,0,0,4,0,0,0,0,0),
-        (15025844,3,0,0,17,800,2000,4,2,16);
-      INSERT INTO texts VALUES
-        (89631139,'Blue-Eyes White Dragon',''),(77585513,'Jinzo',''),
-        (44095762,'Mirror Force',''),(15025844,'Mystical Elf','');`);
-  } finally { cards.close(); }
+  DATA = createHostDataFixture([
+    { code: 89631139, name: "Blue-Eyes White Dragon" },
+    { code: 77585513, name: "Jinzo", type: 33 },
+    { code: 44095762, name: "Mirror Force", type: 4 },
+    { code: 15025844, name: "Mystical Elf" },
+    { code: 12580477, name: "Raigeki", type: 2 },
+    { code: 53129443, name: "Dark Hole", type: 2 },
+    { code: 14778250, name: "Celtic Guardian" },
+    { code: 91152256, name: "Gemini Elf" },
+    { code: 97017120, name: "Giant Rat", type: 33 },
+    { code: 70781052, name: "Summoned Skull" },
+    { code: 5318639, name: "Mystical Space Typhoon", type: 2 },
+    { code: 72302403, name: "Swords of Revealing Light", type: 2 },
+    { code: 60082869, name: "Dust Tornado", type: 4 },
+    { code: 18144506, name: "Harpie's Feather Duster", type: 2 },
+  ]);
 });
 afterAll(() => { rmSync(DATA, { recursive: true, force: true }); });
 const hosts: DuelHost[] = [];
