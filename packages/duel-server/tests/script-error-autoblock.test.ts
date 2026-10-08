@@ -5,14 +5,23 @@ import { createAutoBlockPolicy, clearAutoBlock, autoBlockConfigFromEnv } from ".
 import { createScriptErrorRecorder } from "../src/script-error-store.js";
 import { cardBlockIndex } from "../src/card-block-list.js";
 import type { DuelScriptError } from "../src/script-errors.js";
+import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { clearRemappedAutoBlock } from "../src/clear-script-auto-block.js";
 
 const error: DuelScriptError = { code: 10, scriptFile: "c10.lua", line: 1, message: "private Lua text",
   index: 1, mode: "normal", format: "1v1", engine: "pinned", scriptErrorMode: "tolerant" };
 const databases: Database.Database[] = [];
 afterEach(() => { databases.splice(0).forEach(db => db.close()); vi.unstubAllEnvs(); });
-function setup() {
+function setup(singleAccount = false) {
   const db = new Database(":memory:"); databases.push(db); migrate(db); migrate(db);
+  const accounts = ["a", "b"].map(name => seedUser(db, name).userId);
+  const players = accounts.map((userId, index) => seedIdentity(db, { guildId: "g", name: `Human ${index}`, userId }).playerId);
+  for (let id = 1; id <= 10; id++) {
+    const player = players[singleAccount ? 0 : id % 2]!;
+    db.prepare("INSERT INTO duels (id, guild_id, web_slug, name, organizer_player_id, mode, status) VALUES (?, 'g', ?, 'Test', ?, 'normal', 'active')").run(id, `duel-${id}`, player);
+    db.prepare("INSERT INTO duel_seats (duel_id, seat, player_id, is_bot, ready) VALUES (?, 0, ?, 0, 1)").run(id, player);
+    db.prepare("INSERT INTO duel_seats (duel_id, seat, player_id, is_bot, ready) VALUES (?, 1, NULL, 1, 1)").run(id);
+  }
   let time = Date.parse("2026-10-07T12:00:00Z"), hash = "a".repeat(64);
   const policy = createAutoBlockPolicy(db, { bundleVersion: "bundle-1", scriptHash: () => hash,
     remaps: new Map([[400000010, 10]]), now: () => time });
@@ -90,9 +99,29 @@ describe("script error automatic admission blocks", () => {
     expect(autoBlockConfigFromEnv()).toEqual({ threshold: 3, windowDays: 7 });
     vi.stubEnv("DUEL_SCRIPT_ERROR_BLOCK_DUELS", "4"); vi.stubEnv("DUEL_SCRIPT_ERROR_BLOCK_WINDOW_DAYS", "14");
     expect(autoBlockConfigFromEnv()).toEqual({ threshold: 4, windowDays: 14 });
-    vi.stubEnv("DUEL_SCRIPT_ERROR_BLOCK_DUELS", "0"); expect(() => autoBlockConfigFromEnv()).toThrow();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    for (const value of ["0", "1", "no", "1.5", "1000001"]) {
+      vi.stubEnv("DUEL_SCRIPT_ERROR_BLOCK_DUELS", value);
+      expect(autoBlockConfigFromEnv().threshold).toBe(3);
+      expect(warn).toHaveBeenLastCalledWith(expect.stringContaining("DUEL_SCRIPT_ERROR_BLOCK_DUELS"));
+    }
     vi.stubEnv("DUEL_SCRIPT_ERROR_BLOCK_DUELS", "3"); vi.stubEnv("DUEL_SCRIPT_ERROR_BLOCK_WINDOW_DAYS", "31");
-    expect(() => autoBlockConfigFromEnv()).toThrow();
+    expect(autoBlockConfigFromEnv().windowDays).toBe(7);
+    expect(warn).toHaveBeenLastCalledWith(expect.stringContaining("DUEL_SCRIPT_ERROR_BLOCK_WINDOW_DAYS"));
+    warn.mockRestore();
+  });
+  it("one account cannot trigger a block with three practice-bot duels", () => {
+    const t = setup(true);
+    [1, 2, 3].forEach(id => t.record(id, error));
+    expect(t.policy.entries()).toEqual([]);
+  });
+  it("different gameplay player ids for the same account still count as one human", () => {
+    const t = setup(true);
+    const account = (t.db.prepare("SELECT user_id FROM players LIMIT 1").get() as { user_id: number }).user_id;
+    const other = seedIdentity(t.db, { guildId: "other", name: "Same account", userId: account }).playerId;
+    t.db.prepare("UPDATE duel_seats SET player_id = ? WHERE duel_id = 3 AND is_bot = 0").run(other);
+    [1, 2, 3].forEach(id => t.record(id, error));
+    expect(t.policy.entries()).toEqual([]);
   });
   it("counts and clears historical codes through the current bundle's validated remaps", () => {
     const t = setup();

@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { afterEach, expect, it } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
+import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { prodScriptErrors } from "../src/prod-script-errors.js";
 import { createAutoBlockPolicy } from "../src/script-error-autoblock.js";
 import { createScriptErrorRecorder } from "../src/script-error-store.js";
@@ -65,6 +66,11 @@ it("a helper-only fix lifts a block and the candidate report announces the lift"
   const source = { ...cards, scriptNames: () => ["c10.lua", "proc_x.lua"], readScript: (name: string) => name === "proc_x.lua" ? helper : "unchanged card" };
   const policy = createAutoBlockPolicy(db, { bundleVersion: "b", scriptHash: (code, kind) => cardScriptHash(source, code, kind) });
   const record = createScriptErrorRecorder(db, () => {}, policy);
+  for (const id of [1, 2, 3]) {
+    const player = seedIdentity(db, { guildId: "g", name: `Human ${id}`, userId: seedUser(db, `helper-${id}`).userId }).playerId;
+    db.prepare("INSERT INTO duels (id, guild_id, web_slug, name, organizer_player_id, mode, status) VALUES (?, 'g', ?, 'Test', ?, 'normal', 'active')").run(id, `duel-${id}`, player);
+    db.prepare("INSERT INTO duel_seats (duel_id, seat, player_id, is_bot, ready) VALUES (?, 0, ?, 0, 1)").run(id, player);
+  }
   for (const id of [1, 2, 3]) record(id, { code: 10, scriptFile: "proc_x.lua", line: 1, message: "error", index: 1, mode: "normal", format: "1v1", engine: "pinned", scriptErrorMode: "tolerant" });
   expect(policy.entries("pinned-normal")).toHaveLength(1);
   const snapshot = prodScriptErrors(db, source, new Map());

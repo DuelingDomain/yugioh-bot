@@ -6,13 +6,16 @@ import { scriptErrorModeFromEnv } from "./script-errors.js";
 
 export const AUTO_BLOCK_REASON = "Its effect script is being investigated";
 export function autoBlockConfigFromEnv() {
-  const integer = (name: string, fallback: number, max: number) => {
+  const integer = (name: string, fallback: number, min: number, max: number) => {
     const value = process.env[name] ? Number(process.env[name]) : fallback;
-    if (!Number.isSafeInteger(value) || value < 1 || value > max) throw new Error(`${name} must be an integer from 1 to ${max}`);
+    if (!Number.isSafeInteger(value) || value < min || value > max) {
+      console.warn(`${name} must be an integer from ${min} to ${max}; using default ${fallback}`);
+      return fallback;
+    }
     return value;
   };
-  return { threshold: integer("DUEL_SCRIPT_ERROR_BLOCK_DUELS", 3, 1_000_000),
-    windowDays: integer("DUEL_SCRIPT_ERROR_BLOCK_WINDOW_DAYS", 7, 30) };
+  return { threshold: integer("DUEL_SCRIPT_ERROR_BLOCK_DUELS", 3, 2, 1_000_000),
+    windowDays: integer("DUEL_SCRIPT_ERROR_BLOCK_WINDOW_DAYS", 7, 1, 30) };
 }
 
 export interface AutoBlockRow {
@@ -61,12 +64,15 @@ export function createAutoBlockPolicy(db: Database.Database, options: {
       if (previous.some(row => row.cleared_at === null && row.script_hash === hash)) return;
       const clearedAt = previous.map(row => row.cleared_at).filter((at): at is string => at !== null).sort().at(-1) ?? null;
       const time = now(), at = new Date(time).toISOString();
-      const result = db.prepare(`SELECT count(DISTINCT duel_id) AS duels, count(*) AS errors
-        FROM card_script_error_occurrences WHERE resolved_code IN (${placeholders}) AND script_hash = ? AND script_error_mode = 'tolerant' AND engine_kind = ?
+      const result = db.prepare(`WITH eligible AS (SELECT duel_id FROM card_script_error_occurrences WHERE resolved_code IN (${placeholders}) AND script_hash = ? AND script_error_mode = 'tolerant' AND engine_kind = ?
           AND julianday(created_at) >= julianday(?) AND julianday(created_at) <= julianday(?)
-          AND (? IS NULL OR julianday(created_at) > julianday(?))`)
-        .get(...codes, hash, kind, new Date(time - config.windowDays * 86400000).toISOString(), at, clearedAt, clearedAt) as { duels: number; errors: number };
-      if (result.duels < config.threshold) return;
+          AND (? IS NULL OR julianday(created_at) > julianday(?)))
+        SELECT count(DISTINCT duel_id) AS duels, count(*) AS errors,
+          (SELECT count(DISTINCT p.user_id) FROM (SELECT DISTINCT duel_id FROM eligible) e
+            JOIN duel_seats s ON s.duel_id = e.duel_id AND s.is_bot = 0
+            JOIN players p ON p.id = s.player_id) AS humans FROM eligible`)
+        .get(...codes, hash, kind, new Date(time - config.windowDays * 86400000).toISOString(), at, clearedAt, clearedAt) as { duels: number; errors: number; humans: number };
+      if (result.duels < config.threshold || result.humans < 2) return;
       block.run(code, AUTO_BLOCK_REASON, at, result.duels, result.errors, config.threshold, config.windowDays, options.bundleVersion, hash, kind);
     },
     entries(kind?: ScriptEngineKind): readonly CardBlockEntry[] {
