@@ -225,6 +225,22 @@ describe("rowStep", () => {
     expect(rowStep(list, undefined, 2, 3, -1)).toBe(2);
   });
 
+  it("goes to the last card from a row above a shorter last row, like a grid", () => {
+    const fourteen = { options: Array.from({ length: 14 }, (_, i) => ({ id: `c${i}`, label: `Card ${i}` })) } as Pick<DuelPrompt, "options">;
+    // Rows of 6: 0-5, 6-11, 12-13.
+    for (const from of [8, 9, 10, 11]) expect(rowStep(fourteen, undefined, from, 6, 1)).toBe(13);
+    expect(rowStep(fourteen, undefined, 6, 6, 1)).toBe(12);
+    expect(rowStep(fourteen, undefined, 7, 6, 1)).toBe(13);
+    expect(rowStep(fourteen, undefined, 13, 6, 1)).toBe(13);
+    expect(rowStep(fourteen, undefined, 13, 6, -1)).toBe(7);
+  });
+
+  it("goes to the last free card when the last card is disabled", () => {
+    const fourteen = { options: Array.from({ length: 14 }, (_, i) => ({ id: `c${i}`, label: `Card ${i}` })) } as Pick<DuelPrompt, "options">;
+    expect(rowStep(fourteen, new Set(["c13"]), 10, 6, 1)).toBe(12);
+    expect(rowStep(fourteen, new Set(["c12", "c13"]), 10, 6, 1)).toBe(10);
+  });
+
   it("skips a disabled card in the target row, and stays when no card is left that way", () => {
     expect(rowStep(list, new Set(["c4"]), 1, 3, 1)).toBe(5);
     expect(rowStep(list, new Set(["c4", "c5", "c6", "c7"]), 1, 3, 1)).toBe(1);

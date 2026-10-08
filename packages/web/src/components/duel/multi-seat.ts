@@ -181,9 +181,18 @@ export function rowStep(
   row: number,
   step: 1 | -1,
 ): number {
+  const last = prompt.options.length - 1;
+  const free = (at: number) => at >= 0 && at <= last && !disabled?.has(prompt.options[at].id);
   let index = from + step * row;
-  while (index >= 0 && index < prompt.options.length && disabled?.has(prompt.options[index].id)) index += step;
-  return index >= 0 && index < prompt.options.length ? index : from;
+  // Down from a row above a shorter last row goes to the last free card there, as in a grid; from the last row it stays.
+  if (step === 1 && index > last) {
+    index = last;
+    while (index > from && Math.floor(index / row) > Math.floor(from / row) && !free(index)) index -= 1;
+    return free(index) && Math.floor(index / row) > Math.floor(from / row) ? index : from;
+  }
+  // A disabled target: the next card on in that direction.
+  while (index !== from && index >= 0 && index <= last && !free(index)) index += step;
+  return index >= 0 && index <= last ? index : from;
 }
 
 /** Each reciprocal living facing pair (FFA4 across, Tag 1A-2A and 1B-2B) once, in seat order. Older views keep separate EMZ rows. */
