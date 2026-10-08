@@ -31,6 +31,21 @@ www.{$SITE_DOMAIN}, http:// {
         Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
     }
 
+    # The app shares a routing hint, never a credential, on .duelingdomain.com.
+    # Keep both HTML and redirect variants out of shared/browser caches.
+    @marketingHome path / /index.html
+    header @marketingHome {
+        Vary Cookie
+        Cache-Control "private, no-store"
+    }
+    @returningMember {
+        method GET
+        path / /index.html
+        header_regexp Cookie "(^|;[[:blank:]]*)dd_signed_in=1(;|$)"
+        not query home=1
+    }
+    redir @returningMember https://{$SITE_DOMAIN}/ 302
+
     @waitlist {
         path /api/waitlist
         method POST

@@ -174,8 +174,18 @@ The same 103-patch inputs were also built locally on 2026-10-07 without `LUA_FIX
 
 The source and toolchain pins in `domain-core/pins.json` are unchanged. The fixed-seed hashes above are the CI binary pins in `domain-core/expected-sha256.txt`; deploy artifacts carry their own checked `.sha256` and `.SOURCE` sidecars. Local builds and test resources stay under `~/.cache/dk-duel-engine-tagrules`; the shell env file is `~/.cache/dk-duel-engine-tagrules.env`. The post-review native `run-nduel.sh --check` passed all 80 golden rows (20 seeds each for 1v1, FFA3, FFA4 and Tag), with no skips or mismatches. Re-recording was required by the intentional overlay/patch fingerprint change; all 80 replay step counts and hashes are unchanged.
 
-The released-card preparation change uses `cards.cdb` plus `release-betb.cdb` at the
-current BabelCDB pin, yielding 14,845 passcodes (86 added). That data-only change
+Merging `origin/main` at `04e2bf878` into `feat/tag-facing-rules` on 2026-10-07 leaves
+the core patches, multiplayer overlay, Domain transforms and source/toolchain pins
+unchanged, so the fixed-seed and deploy hashes above remain current. Preparation
+now includes the prerelease databases and the shared Steamed Sabersaurus script
+patch, yielding 14,984 passcodes in the isolated Tag cache. The merged native golden
+was explicitly re-recorded with fresh card data: all 60 1v1/FFA rows match main,
+while 19 of 20 Tag rows differ with the Tag rules. `run-nduel.sh --check` passed
+all 80 rows with no skips or mismatches. Details and targeted checks are in
+[Tag rules verification](../specs/2026-10-07-tag-rules-verification.md#main-integration).
+
+The earlier released-card preparation used `cards.cdb` plus `release-betb.cdb` at the
+same BabelCDB pin, yielding 14,845 passcodes (86 added). That data-only change
 did not change the core or Lua build inputs. These data hashes were verified
 in scratch preparation on 2026-10-06:
 

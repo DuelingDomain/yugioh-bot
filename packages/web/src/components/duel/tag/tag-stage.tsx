@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties, type MouseEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent } from "react";
 import { seatsOfTeam, teamOfSeat } from "@yugidraft/shared/duels";
+import { ChainRoomContext, type ChainStripSize } from "../table/chain-room";
 import { duelFontClasses } from "../fonts";
 import { formatStartingLp } from "../table-format";
 import { hexToRgbTriplet } from "../table/seat-angle";
@@ -84,6 +85,16 @@ function toneHex(tone: SeatTone | undefined): HubSeatTone {
  */
 export function TagStage({ controller, layout, camera, dispatchCamera, renderSeatField, fx, promptCenter, overlay, hub: phaseHub, teamNames }: TagBoardProps) {
   const { engine, room, viewerSeat, nameOf, legalKeys, selectedKeys, reducedMotion, prompt, promptSeat } = controller;
+  const [phone, setPhone] = useState(false);
+  const [chainSize, setChainSize] = useState<ChainStripSize | null>(null);
+  useLayoutEffect(() => {
+    const read = () => setPhone(window.innerWidth <= 640);
+    read();
+    window.addEventListener("resize", read);
+    return () => window.removeEventListener("resize", read);
+  }, []);
+  // The entire roof viewport, including its HUD and prompt, stays below the measured phone strip.
+  const chainInset = phone && chainSize ? chainSize.height + 12 : 0;
   const target = camera.pose;
   const anchor = layout.anchorSeat;
   const anchorTeam = teamOfSeat(TAG, anchor);
@@ -475,11 +486,11 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
 
   return (
     <div
-      ref={rootRef}
       className={`${styles.stage} ${duelFontClasses}`}
       style={rootStyle}
       data-table-stage="tag"
       data-tag-stage
+      data-chain-room={phone && chainSize ? `6,4,${chainSize.width},${chainSize.height}` : undefined}
       data-battle={battle ? "true" : "false"}
       data-spectator={spectator ? "true" : undefined}
       data-reduced-motion={reducedMotion ? "true" : "false"}
@@ -489,109 +500,115 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
       onClickCapture={onStageClickCapture}
       data-camera-locked={camera.lock ? camera.lock.reason : undefined}
     >
-      <div className={styles.persp}>
-        <div className={styles.sky} aria-hidden="true">
-          <div className={styles.stars} />
-          <span className={styles.beam} data-n="1" style={{ left: "12%" }} />
-          <span className={styles.beam} data-n="2" style={{ left: "58%" }} />
-          <span className={styles.beam} data-n="3" style={{ left: "84%" }} />
+      {fx != null ? (
+        <ChainRoomContext.Provider value={phone ? setChainSize : null}>
+          <div className={styles.slot}>{fx}</div>
+        </ChainRoomContext.Provider>
+      ) : null}
+      <div ref={rootRef} className={styles.viewport} data-tag-viewport style={{ top: chainInset }}>
+        <div className={styles.persp}>
+          <div className={styles.sky} aria-hidden="true">
+            <div className={styles.stars} />
+            <span className={styles.beam} data-n="1" style={{ left: "12%" }} />
+            <span className={styles.beam} data-n="2" style={{ left: "58%" }} />
+            <span className={styles.beam} data-n="3" style={{ left: "84%" }} />
+          </div>
+          <div ref={worldRef} className={styles.world} data-roof-world>
+            <RoofDecor />
+            <Baton
+              stops={stops}
+              anchorSeat={anchor}
+              nameOf={nameOf}
+              rgbOf={(seat) => toneOf(seat).rgb}
+              out={outSeats}
+              holderRef={(node) => { pillsRef.current = node; }}
+            />
+            <TeamStrip near glyph={teamGlyph(anchorTeam, anchorTeam)} teamName={teamName(anchorTeam)} out={loss.lostTeam === anchorTeam} />
+            <TeamStrip near={false} glyph={teamGlyph(anchorTeam, 1 - anchorTeam)} teamName={teamName(1 - anchorTeam)} out={loss.lostTeam === 1 - anchorTeam} />
+            {engine.seats.map((s) => fieldHold(s.seat))}
+            {sharedPairs.map(([first, second]) => {
+              const firstAt = slotsOf[first.seat];
+              const secondAt = slotsOf[second.seat];
+              if (!firstAt || !secondAt || firstAt.near === secondAt.near) return null;
+              const [nearView, farView] = firstAt.near ? [first, second] : [second, first];
+              return (
+                <SharedExtraBand
+                  key={`band-${first.seat}-${second.seat}`}
+                  near={nearView}
+                  far={farView}
+                  x={(firstAt.near ? firstAt : secondAt).x}
+                  upright={camera.upright}
+                  nameOf={nameOf}
+                  relationOf={relationOf}
+                  outOf={outOf}
+                  legalKeys={legalKeys}
+                  selectedKeys={selectedKeys}
+                  onActivate={controller.onActivate}
+                  onHoverCard={controller.onHoverCard}
+                />
+              );
+            })}
+            <div ref={padRef} className={styles.anc} style={{ transform: "translate3d(0px, 0px, 2px)" }} />
+            <div ref={farRef} className={styles.anc} style={{ transform: `translate3d(0px, ${FAR_ANCHOR_Y}px, 2px)` }} />
+          </div>
         </div>
-        <div ref={worldRef} className={styles.world} data-roof-world>
-          <RoofDecor />
-          <Baton
-            stops={stops}
-            anchorSeat={anchor}
-            nameOf={nameOf}
-            rgbOf={(seat) => toneOf(seat).rgb}
-            out={outSeats}
-            holderRef={(node) => { pillsRef.current = node; }}
-          />
-          <TeamStrip near glyph={teamGlyph(anchorTeam, anchorTeam)} teamName={teamName(anchorTeam)} out={loss.lostTeam === anchorTeam} />
-          <TeamStrip near={false} glyph={teamGlyph(anchorTeam, 1 - anchorTeam)} teamName={teamName(1 - anchorTeam)} out={loss.lostTeam === 1 - anchorTeam} />
-          {engine.seats.map((s) => fieldHold(s.seat))}
-          {sharedPairs.map(([first, second]) => {
-            const firstAt = slotsOf[first.seat];
-            const secondAt = slotsOf[second.seat];
-            if (!firstAt || !secondAt || firstAt.near === secondAt.near) return null;
-            const [nearView, farView] = firstAt.near ? [first, second] : [second, first];
-            return (
-              <SharedExtraBand
-                key={`band-${first.seat}-${second.seat}`}
-                near={nearView}
-                far={farView}
-                x={(firstAt.near ? firstAt : secondAt).x}
-                upright={camera.upright}
-                nameOf={nameOf}
-                relationOf={relationOf}
-                outOf={outOf}
-                legalKeys={legalKeys}
-                selectedKeys={selectedKeys}
-                onActivate={controller.onActivate}
-                onHoverCard={controller.onHoverCard}
-              />
-            );
-          })}
-          <div ref={padRef} className={styles.anc} style={{ transform: "translate3d(0px, 0px, 2px)" }} />
-          <div ref={farRef} className={styles.anc} style={{ transform: `translate3d(0px, ${FAR_ANCHOR_Y}px, 2px)` }} />
-        </div>
-      </div>
-      <div className={styles.fog} aria-hidden="true" />
-      <div className={styles.wash} aria-hidden="true" />
-      {fx != null ? <div className={styles.slot}>{fx}</div> : null}
-      {plate(anchorTeam, true)}
-      {plate(1 - anchorTeam, false)}
-      {phaseHub != null ? <div ref={phaseHubRef} className={styles.phaseHub} hidden={camera.mode === "focus"} data-phase-hub-slot>{phaseHub}</div> : null}
-      <HelipadHub
-        chain={engine.chain}
-        anchorSeat={anchor}
-        nameOf={nameOf}
-        toneOf={toneOf}
-        response={window_}
-        teamLabel={teamLabel}
-        pick={pickSeats.length > 0 ? { seats: pickSeats, onPick, title: prompt?.title ?? "Choose a rival" } : null}
-        hubRef={(node) => { hubRef.current = node; }}
-      />
-      {!spectator && viewerView ? (
-        <OwnHand
-            seat={viewerView.seat}
-            cards={viewerView.hand}
+        <div className={styles.fog} aria-hidden="true" />
+        <div className={styles.wash} aria-hidden="true" />
+        {plate(anchorTeam, true)}
+        {plate(1 - anchorTeam, false)}
+        {phaseHub != null ? <div ref={phaseHubRef} className={styles.phaseHub} hidden={camera.mode === "focus"} data-phase-hub-slot>{phaseHub}</div> : null}
+        <HelipadHub
+          chain={engine.chain}
+          anchorSeat={anchor}
+          nameOf={nameOf}
+          toneOf={toneOf}
+          response={window_}
+          teamLabel={teamLabel}
+          pick={pickSeats.length > 0 ? { seats: pickSeats, onPick, title: prompt?.title ?? "Choose a rival" } : null}
+          hubRef={(node) => { hubRef.current = node; }}
+        />
+        {!spectator && viewerView ? (
+          <OwnHand
+              seat={viewerView.seat}
+              cards={viewerView.hand}
+              legalKeys={legalKeys}
+              selectedKeys={selectedKeys}
+              onActivate={controller.onActivate}
+              onInspect={controller.onInspect}
+              onHoverCard={controller.onHoverCard}
+              reducedMotion={reducedMotion}
+              label={`${nameOf(viewerView.seat)} hand`}
+            />
+        ) : null}
+        {!spectator && partnerView ? (
+          <PartnerHand
+            seat={partnerView.seat}
+            cards={partnerView.hand}
             legalKeys={legalKeys}
-            selectedKeys={selectedKeys}
-            onActivate={controller.onActivate}
             onInspect={controller.onInspect}
             onHoverCard={controller.onHoverCard}
-            reducedMotion={reducedMotion}
-            label={`${nameOf(viewerView.seat)} hand`}
+            label={`${nameOf(partnerView.seat)} hand`}
+            partnerName={nameOf(partnerView.seat).split(" ")[0]}
           />
-      ) : null}
-      {!spectator && partnerView ? (
-        <PartnerHand
-          seat={partnerView.seat}
-          cards={partnerView.hand}
-          legalKeys={legalKeys}
-          onInspect={controller.onInspect}
-          onHoverCard={controller.onHoverCard}
-          label={`${nameOf(partnerView.seat)} hand`}
-          partnerName={nameOf(partnerView.seat).split(" ")[0]}
-        />
-      ) : null}
-      {camera.mode === "focus" && !camera.lock ? (
-        <CameraRail
-          focusSeat={camera.focusSeat}
-          seats={railSeats}
-          nameOf={nameOf}
-          out={outSeats}
-          dispatch={dispatchCamera}
-        />
-      ) : null}
-      {camera.lock ? (
-        <div className={styles.lockchip} data-lock-chip role="status">
-          Camera locked &middot; {lockLabel(camera.lock.reason)}
-        </div>
-      ) : null}
-      {/* PromptCenter measures its parent as the board (card scope, bar place): it must sit right in the stage root. */}
-      {promptCenter}
-      {overlay != null ? <div className={styles.slot}>{overlay}</div> : null}
+        ) : null}
+        {camera.mode === "focus" && !camera.lock ? (
+          <CameraRail
+            focusSeat={camera.focusSeat}
+            seats={railSeats}
+            nameOf={nameOf}
+            out={outSeats}
+            dispatch={dispatchCamera}
+          />
+        ) : null}
+        {camera.lock ? (
+          <div className={styles.lockchip} data-lock-chip role="status">
+            Camera locked &middot; {lockLabel(camera.lock.reason)}
+          </div>
+        ) : null}
+        {/* PromptCenter measures its parent as the board (card scope, bar place): keep it in the fitted viewport. */}
+        {promptCenter}
+        {overlay != null ? <div className={styles.slot}>{overlay}</div> : null}
+      </div>
     </div>
   );
 }

@@ -6,7 +6,7 @@ Live since 2026-10-06. Contact: `support@duelingdomain.com`. Server: Nuremberg, 
 
 | Hostname | Serves or redirects to |
 | --- | --- |
-| `duelingdomain.com` | Static marketing site |
+| `duelingdomain.com` | Static marketing site; returning members' home GETs get a 302 to the app (details below) |
 | `www.duelingdomain.com` | 308 to `https://duelingdomain.com`, preserving path and query |
 | `app.duelingdomain.com` | App and Socket.IO |
 | `www.app.duelingdomain.com` | 308 to `https://app.duelingdomain.com`, preserving path and query |
@@ -30,20 +30,35 @@ Discord OAuth redirects to `https://app.duelingdomain.com/api/auth/callback/disc
 ## Marketing host behaviour
 
 - Static files come from `site/public`, mounted read-only at `/srv/site`.
+- Only `GET /` and `GET /index.html` with `dd_signed_in=1` return 302 to `https://app.duelingdomain.com/`. Adding `?home=1` serves the marketing page even with the hint. Home responses carry `Vary: Cookie` and `Cache-Control: private, no-store`.
 - Clean `/privacy` and `/terms` resolve to their HTML files.
 - Only exact `POST /api/waitlist` is proxied to the app; other APIs and socket paths return 404.
 - `/login` returns 302 to `https://app.duelingdomain.com/login`.
 - Missing files use `404.html` with status 404 and `Cache-Control: no-store`.
 - CSP restricts resources to self (data images and inline styles allowed), forbids framing, and uses self-hosted fonts. HSTS is `max-age=31536000`, without `includeSubDomains` or `preload`.
 
+| Marketing request | Behaviour |
+| --- | --- |
+| `GET /` or `/index.html`, `dd_signed_in=1` | 302 to app `/`; an active Clerk session resumes and app `/` redirects to `/dashboard` |
+| Same GET, hint absent, cleared, `0` or any other value | Static marketing page |
+| Same GET, stale hint but no active app session | 302 to app, then app `/sign-in?redirect_url=%2F`; no automatic return to marketing |
+| Same GET with `?home=1`, any cookie state | Static marketing page |
+| `HEAD` or other methods, legal pages, assets, waitlist or any other path | Existing routing and caching rules |
+
+The app owns `dd_signed_in`: its Clerk state observer sets the non-HttpOnly hint to `1` on `.duelingdomain.com` (`Path=/`, `Secure`, `SameSite=Lax`, 30-day maximum age) after Clerk loads a signed-in session, and deletes it when Clerk reports sign-out. It only runs on `https://app.duelingdomain.com`, outside isolated E2E mode. It carries no user ID or token and does not authenticate app requests. Existing sessions need one app visit after deployment to seed the hint; blocked JavaScript or cookies leave visitors on marketing with the existing login link.
+
+The installed SDKs identify `__client_uat` and instance-suffixed variants, but do not define the production Frontend API's domain/HttpOnly attributes for these cookies. Offline inspection cannot confirm that they reach `duelingdomain.com`; the app-owned hint makes this routing independent of those attributes. After deployment, inspect cookie attributes and request cookie **names** in browser tools without copying tokens or secrets. Check sign-in, sign-out, the escape hatch, and a stale hint with an inactive session. App and Caddy changes must deploy together.
+
 ## Checks
 
-Routing checks need Docker. Browser checks need local Caddy with `SITE_DOMAIN=localhost`, `MARKETING_DOMAIN=marketing.localhost`, `LEGACY_DOMAIN=legacy.localhost`, plus Playwright and Chromium. Production curls use normal TLS validation and do not follow redirects.
+Routing checks need Docker and a preloaded `caddy:2-alpine` image; they never pull an image. They validate/adapt the real Caddyfile and exercise cookie/query/method cases against Caddy. Browser checks need local Caddy with `SITE_DOMAIN=localhost`, `MARKETING_DOMAIN=marketing.localhost`, `LEGACY_DOMAIN=legacy.localhost`, plus Playwright and Chromium. Production curls use normal TLS validation and do not follow redirects.
 ```bash
-python3 site/src/verify-static.py
-python3 scripts/deployment/verify-domain-routing.py
+python3 -I site/src/verify-static.py
+python3 -I scripts/deployment/verify-domain-routing.py
 MARKETING_URL=https://marketing.localhost CHROMIUM=/path/to/chromium SHOTS_DIR=/tmp/dd-site-shots node site/src/verify-browser.mjs
 curl -sS -i https://duelingdomain.com/
+curl -sS -i https://duelingdomain.com/ -H 'Cookie: dd_signed_in=1'
+curl -sS -i 'https://duelingdomain.com/index.html?home=1' -H 'Cookie: dd_signed_in=1'
 curl -sS -i https://www.duelingdomain.com/privacy
 curl -sS -i https://app.duelingdomain.com/robots.txt
 curl -sS -i https://www.app.duelingdomain.com/path

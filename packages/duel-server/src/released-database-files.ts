@@ -1,7 +1,11 @@
 export type ReleasedDatabaseTree = { truncated: boolean; tree: Array<{ path: string; type: string }> };
 
 export function isReleasedDatabaseFile(path: string): boolean {
-  return path === "cards.cdb" || /^release-[^/\\]*\.cdb$/.test(path);
+  return path === "cards.cdb" || /^release-[^/\\]*\.cdb$/.test(path) || isPrereleaseDatabaseFile(path);
+}
+
+export function isPrereleaseDatabaseFile(path: string): boolean {
+  return /^prerelease-[^/\\]*\.cdb$/.test(path) && !/rush/i.test(path);
 }
 
 export function sortDatabaseFiles(files: string[]): string[] {
@@ -9,7 +13,7 @@ export function sortDatabaseFiles(files: string[]): string[] {
 }
 
 /** EDOPro sorts CDB filenames case-insensitively and replaces previously loaded rows.
- * Base first, then release-*.cdb in the same filename order.
+ * Base first, then prerelease-*.cdb, then release-*.cdb in that filename order.
  * See docs/deployment/engine-data-updates.md for the upstream implementation.
  */
 export function releasedDatabaseFiles(tree: ReleasedDatabaseTree): string[] {
