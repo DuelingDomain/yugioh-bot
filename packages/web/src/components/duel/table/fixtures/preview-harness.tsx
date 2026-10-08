@@ -10,6 +10,7 @@ import { duelFontClasses } from "../../fonts";
 import type { CameraLockReason, CameraMode, TableController } from "../types";
 import { TABLE_STATE_IDS, isTableStateId, type TableFixtureSet, type TableFixtureState } from "./common";
 import { useFixtureController } from "./use-fixture-controller";
+import { engineAtStep, isSceneId, sceneSteps } from "./scenes";
 import styles from "./preview-harness.module.css";
 
 /**
@@ -110,6 +111,30 @@ function useAttackOverride(state: TableFixtureState, query: URLSearchParams): Ta
   }, [state, attack, as, late]);
 }
 
+/** Wait before a scene starts, so the layers have measured the board (a live event arrives on a drawn table). */
+const SCENE_START_MS = 1500;
+
+/**
+ * `?scene=smf|ko|mirror` plays a scripted batch of engine events on the fixture (see scenes.ts): the table layers play
+ * them as they do in a duel. The viewer is the fixture's own (`?as=` changes it).
+ */
+function useSceneOverride(state: TableFixtureState, query: URLSearchParams): TableFixtureState {
+  const scene = query.get("scene");
+  const id = isSceneId(scene) ? scene : null;
+  const steps = useMemo(() => (id ? sceneSteps(id) : []), [id]);
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    if (!id) return;
+    const timers = steps.map((step, index) => setTimeout(() => setCount(index + 1), SCENE_START_MS + step.at));
+    return () => timers.forEach(clearTimeout);
+  }, [id, steps]);
+  return useMemo(() => {
+    const engine = state.room.engine;
+    if (!id || !engine || count === 0) return state;
+    return { ...state, room: { ...state.room, engine: engineAtStep(engine, steps, count, state.room.mySeat ?? null) } };
+  }, [state, id, steps, count]);
+}
+
 function HarnessBody({
   state,
   preview,
@@ -142,7 +167,7 @@ export function PreviewHarness({ set, stateId, cam, lock, basePath, renderStage,
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
   const activeId = isTableStateId(stateId) ? stateId : "main";
-  const state = useAttackOverride((stateId != null ? set.extra?.[stateId] : undefined) ?? set.states[activeId], query);
+  const state = useSceneOverride(useAttackOverride((stateId != null ? set.extra?.[stateId] : undefined) ?? set.states[activeId], query), query);
   const chainFromUrl = query.get("chain");
   // The live room draws the switch for a seated player; so does the preview, on Auto, unless `?chain=none`.
   const [chain, setChain] = useState<DuelChainMode | null>(isDuelChainMode(chainFromUrl) ? chainFromUrl : chainFromUrl === "none" ? null : "auto");
