@@ -9,6 +9,7 @@ import { parseArgs } from "node:util";
 import Database from "better-sqlite3";
 import { smokePrereleaseScripts } from "./prerelease-script-smoke.js";
 import { applyPrereleaseSmokeResult } from "./prerelease-script-exclusions.js";
+import { installCardScriptPatches } from "./card-script-patches.js";
 import { probeEngineData } from "./probe-engine-data.js";
 import { withValidation, prereleaseUpdateReport, prereleaseScriptReport } from "./engine-data-report.js";
 import { cardUpdate, renderCardUpdate, withPreviewExclusions, withCardUpdate } from "./engine-data-card-report.js";
@@ -257,6 +258,9 @@ export async function runUpdate(options: Options = {}) {
       throw new Error(`patch needs review: ${patchConflicts.map(patch => patch.stockPath).join(", ")}. Current pins unchanged. Report: ${reportPath}`);
     }
     if (options.validate !== false) {
+      // Match prepare-data: reviewed shared patches are part of the effective
+      // scripts being gated, after stock conflicts have already blocked the run.
+      installCardScriptPatches(extracted, join(root, packagePath, "card-script-patches"));
       await writeFile(join(temporary, "strings.conf"), Buffer.from(await (await download(`https://raw.githubusercontent.com/ProjectIgnis/Distribution/${next.strings}/config/strings.conf`)).arrayBuffer()));
       try {
         await applyPrereleaseSmokeResult(database, await smokePrereleaseScripts(temporary, [...database.prereleaseCodes]));

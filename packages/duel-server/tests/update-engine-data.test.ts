@@ -13,12 +13,14 @@ import {
 import { MULTIPLAYER_FORBIDDEN } from "../src/banlists/multiplayer.js";
 import { reconcile, scanText } from "../scripts/scan-multiplayer-scripts.js";
 import { withCardUpdate } from "../scripts/engine-data-card-report.js";
+import * as smoke from "../scripts/prerelease-script-smoke.js";
+import * as probe from "../scripts/probe-engine-data.js";
 
 const oldPins: Pins = { scripts: "a".repeat(40), database: "b".repeat(40), strings: "c".repeat(40) };
 const nextPins: Pins = { scripts: "d".repeat(40), database: "e".repeat(40), strings: "f".repeat(40) };
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
 const temporary: string[] = [];
-afterEach(async () => { await Promise.all(temporary.splice(0).map((p) => rm(p, { recursive: true, force: true }))); });
+afterEach(async () => { vi.restoreAllMocks(); await Promise.all(temporary.splice(0).map((p) => rm(p, { recursive: true, force: true }))); });
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "engine-data-test-"));
@@ -135,7 +137,8 @@ describe("engine data update", () => {
     [false, nextPins, "unchanged", "old"], [false, nextPins, "unchanged", "next"],
     [false, nextPins, "changed", undefined], [true, nextPins, "changed", undefined],
     [false, nextPins, "missing", undefined],
-  ] as const)("reports a complete mocked update (dryRun=%s, pins=%j, patch=%s, ambiguous=%s), preserving overlays and core pins", async (dryRun, overrides, patchState, ambiguous) => {
+    [true, nextPins, "unchanged", undefined, true],
+  ] as const)("reports a complete mocked update (dryRun=%s, pins=%j, patch=%s, ambiguous=%s), preserving overlays and core pins", async (dryRun, overrides, patchState, ambiguous, inline: boolean = false) => {
     const { root, files } = await fixture();
     const manifest = { cards: [{ code: 1, file: "c1.lua", name: "Old card", stockSha256: sha256("old") }] };
     const manifestPath = join(root, "packages/duel-server/domain-core/multi-scripts/MANIFEST.json");
@@ -201,6 +204,7 @@ describe("engine data update", () => {
       if (url.endsWith("/release-old.cdb")) return new Response(new Uint8Array(oldRelease));
       if (url.endsWith("/prerelease-conflict.cdb")) return new Response(new Uint8Array(conflictingPreview));
       if (url.endsWith("/prerelease-test.cdb")) return new Response(new Uint8Array(url.includes(oldPins.database) ? oldPreview : nextPreview));
+      if (url.endsWith("/strings.conf")) return new Response("");
       throw new Error(`Unexpected request: ${url}`);
     });
     if (ambiguous === "next") {
@@ -223,7 +227,16 @@ describe("engine data update", () => {
       }
       return;
     }
-    const result = await runUpdate({ root, overrides, dryRun, request, validate: false });
+    if (inline) {
+      await writeFile(join(root,"packages/duel-server/card-script-patches/c1.lua"),"-- reviewed smoke patch\n");
+      vi.spyOn(smoke,"smokePrereleaseScripts").mockImplementation(async directory => {
+        expect(await readFile(join(directory,"card-scripts/official/c1.lua"),"utf8")).toContain("-- reviewed smoke patch");
+        return { checked: 1, excluded: [] };
+      });
+      vi.spyOn(probe,"probeEngineData").mockResolvedValue({errors:[],scriptsChecked:0,apiSymbolsChecked:0,globalsChecked:0,cardsChecked:0});
+    }
+    const result = await runUpdate({ root, overrides, dryRun, request, validate: inline });
+    if (inline) expect(smoke.smokePrereleaseScripts).toHaveBeenCalledOnce();
     expect(result.changed).toBe(true);
     expect(await readPins(root)).toEqual(dryRun ? oldPins : overrides);
     const report = await readFile(result.reportPath, "utf8");
