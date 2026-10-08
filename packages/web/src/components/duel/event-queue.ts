@@ -261,7 +261,8 @@ export function handArrivalTarget(event: DuelEvent): { rect: ReturnType<typeof m
   let sequence = zone.sequence;
   let slot = findZoneElement(zone);
   if (!slot) {
-    sequence = Math.max(0, hand.children.length - 1);
+    // The count chip of a grid rival hand is a child of the rail, not a card.
+    sequence = Math.max(0, Array.from(hand.children).filter((child) => !child.hasAttribute("data-hand-count")).length - 1);
     slot = findZoneElement({ ...zone, sequence });
   }
   if (slot) {

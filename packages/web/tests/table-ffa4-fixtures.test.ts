@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FFA4_FIXTURES } from "@/components/duel/table/fixtures/ffa4";
+import { FFA4_FIXTURES, ffa4Variant } from "@/components/duel/table/fixtures/ffa4";
 
 const ids = ["main", "battle-aim", "chain-2", "target-pick", "choose-opponent", "direct-attack", "elimination", "spectator", "result"] as const;
 
@@ -43,5 +43,16 @@ describe("4-way fixtures", () => {
 
   it("has no viewer seat for the spectator", () => {
     expect(FFA4_FIXTURES.states.spectator.room.mySeat).toBeNull();
+  });
+
+  it("asks for one of 14 Deck cards in the `search` preview pick, to review a long card strip", () => {
+    const prompt = ffa4Variant(FFA4_FIXTURES, { out: [], pick: "search" }).states.main.room.engine!.prompt!;
+    expect(prompt.kind).toBe("cards");
+    expect(prompt.options).toHaveLength(14);
+  });
+
+  it("asks for one of 2 Deck cards in the `search2` preview pick, to review a short card strip", () => {
+    const prompt = ffa4Variant(FFA4_FIXTURES, { out: [], pick: "search2" }).states.main.room.engine!.prompt!;
+    expect(prompt.options).toHaveLength(2);
   });
 });

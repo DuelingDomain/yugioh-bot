@@ -105,6 +105,32 @@
   line-height: 1.5;
 }
 
+/* A face-up card: the art is a small card beside the name and stats, and the effect text runs the full width under both, so a long text
+   keeps most of the pane. (The column is 104px at 1x, never more than about a third of the pane.) The pane scrolls when the text still does
+   not fit: inspector.tsx fades the last rows then. */
+.root[data-header="side"] {
+  display: grid;
+  grid-template-columns: minmax(0, min(calc(104 * var(--duel-unit, 1px)), 36%)) minmax(0, 1fr);
+  /* The art spans the first two rows: the facts row (1fr) takes any extra height, so the name never drifts from the stats. */
+  grid-template-rows: auto 1fr auto;
+  align-content: start;
+  align-items: start;
+  column-gap: calc(14 * var(--duel-unit, 1px));
+  row-gap: calc(8 * var(--duel-unit, 1px));
+}
+.root[data-header="side"] > .art {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+}
+/* The body adds no box: its name and facts take the second column, its text the whole row under them. */
+.root[data-header="side"] > .body { display: contents; }
+.root[data-header="side"] .name { grid-column: 2; grid-row: 1; }
+.root[data-header="side"] .facts { grid-column: 2; grid-row: 2; margin: 0; }
+.root[data-header="side"] .text { grid-column: 1 / -1; grid-row: 3; }
+
 .metaList {
   margin: 0;
   padding: 0 calc(16 * var(--duel-unit, 1px)) calc(14 * var(--duel-unit, 1px));

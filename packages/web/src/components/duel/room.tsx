@@ -77,7 +77,7 @@ import { DUEL_SHAKE_LABEL, DUEL_SHAKE_LEVELS, useDuelPreferences } from "./prefe
 import { DuelAnimationSpeedControl, useDuelAnimationSpeed } from "./animation-speed-control";
 import { DuelCardTextSizeControl } from "./card-text-size-control";
 import { DuelDiceSkinControl } from "./dice-skin-control";
-import { CardInspector, type InspectTarget } from "./inspector";
+import { CardInspector, cardScrollerProps, type InspectTarget } from "./inspector";
 import {
   activatePromptFromField,
   isAttackTargetPrompt,
@@ -1258,7 +1258,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const inspectorNode = (
     <>
       {tabs()}
-      <div className={styles.sideContent}>{sidePanes(true)}</div>
+      <div className={styles.sideContent} {...cardScrollerProps(desktopPane(pane) === "card")}>{sidePanes(true)}</div>
     </>
   );
   const promptDockNode = (
