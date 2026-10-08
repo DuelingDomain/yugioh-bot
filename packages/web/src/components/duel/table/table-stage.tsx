@@ -23,7 +23,7 @@ import { GLIDE_MS, useSeatExits } from "./use-seat-exits";
 import { occluderRects, useViewZoom } from "./use-view-zoom";
 import { ROOF_ZOOM_MS } from "../tag/roof-camera";
 import { ViewReset } from "./view-reset";
-import { clearRoom, FOLLOW_ATTR, fitItemRect, followShift, VIEW_IDENTITY, type FitItem } from "./view-zoom";
+import { clearRoom, FOLLOW_ATTR, fitItemRect, followShift, VIEW_IDENTITY, type FitItem, type View } from "./view-zoom";
 import type { CameraMode, SeatFieldProps, SeatPose, SeatTone, TableStageProps } from "./types";
 import styles from "./table-stage.module.css";
 
@@ -49,10 +49,8 @@ const SETTLE_MS = 1500;
 /** Box px from the left edge that the floating HUD's left column (the dock, the chain tower, the Deck Master plate) takes. */
 const HUD_LEFT_COLUMN = 196;
 
-/** What a click on a seat must leave alone: the controls and the legal targets inside a field. */
 /** Your hand: it stays at its 1x place and size under the zoom of your own field (the view hook counters the zoom on it). */
 const OWN_HAND = '[data-hand-seat][data-side="you"]';
-/** The size of a rival's LP plate on the stage, for the fit of a zoom (see holo-lp.module.css). */
 /** A chip at the edge of the board box that points to a field off the screen: box px of its centre, and the arrow's turn. */
 interface RivalHint {
   seat: number;
@@ -73,9 +71,13 @@ function edgeHint(centre: { x: number; y: number }, box: { width: number; height
   const y = centre.y < 0 ? HINT_TOP : Math.min(box.height - HINT_BAND, Math.max(HINT_TOP, centre.y));
   return { x: Math.round(x), y: Math.round(y), angle: Math.round(angle) };
 }
+/** The card pinned in the peek (the fit keeps clear of it). */
+const PINNED_PEEK = '[data-testid="hover-preview"][data-pinned="true"]';
 /** A fit at or under this scale shows no zoom: the camera does not enter focus for it. */
 const NO_ZOOM = 1.02;
+/** The size of a rival's LP plate on the stage, for the fit of a zoom (see holo-lp.module.css). */
 const RIVAL_PLATE = { width: 196, height: 100 } as const;
+/** What a click on a seat must leave alone: the controls and the legal targets inside a field. */
 const CLICK_PASS = "button, a, [data-legal='true'], [data-holo]";
 
 export interface TableStageViewProps extends TableStageProps {
@@ -201,6 +203,11 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
   const ownZoom = !fly && !portrait && isOwnFocus(play, camera);
   // The zoom out eases: your hand and the moved plates keep their place until the view is back at the camera pose.
   const [ownHold, setOwnHold] = useState(false);
+  // The view the last fit aimed at: the rooms (panel, bar, chain) clear the field at THIS view, not at the live one, so a pan or a
+  // refit does not move them again (a room that moves with the view would move the view back: a loop).
+  const [fitted, setFitted] = useState<View | null>(null);
+  // The chips that point to a rival field off the screen (measured below); they are HUD (data-zoom-occluder), so the pan keeps clear of them.
+  const [rivalHints, setRivalHints] = useState<readonly RivalHint[]>([]);
   const zoom = useViewZoom({
     rootRef,
     layerRef: perspRef,
@@ -288,12 +295,12 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
     const mapped = { panel: toBox(found.panel), bar: toBox(found.bar), chain: toBox(found.chain) };
     // Your own field zoomed: the rooms are planned at the camera pose, where the field is smaller. Each room moves off the zoomed
     // field and the plates that follow it (the view is read at rest; the rooms follow when the zoom ends).
-    if (!(ownZoom || ownHold) || zoom.view.s <= NO_ZOOM || fitItems.length === 0) return mapped;
-    const view = zoom.view;
+    if (!(ownZoom || ownHold) || !fitted || fitted.s <= NO_ZOOM || fitItems.length === 0) return mapped;
+    const view = fitted;
     const obstacles = fitItems.map((item) => fitItemRect(item, view));
     const move = (room: Rect | null) => (room ? clearRoom(room, obstacles, box) : room);
     return { panel: move(mapped.panel), bar: move(mapped.bar), chain: move(mapped.chain) };
-  }, [play, camera, poses, spread, hasChip, k, fly, box, canvasHeight, plateAnchors, chainSize, chainInset, stageHeight, stageTop, portrait, ownZoom, ownHold, fitItems, zoom.view]);
+  }, [play, camera, poses, spread, hasChip, k, fly, box, canvasHeight, plateAnchors, chainSize, chainInset, stageHeight, stageTop, portrait, ownZoom, ownHold, fitItems, fitted]);
 
   // The floating HUD: the prompts sit in the middle of the near field (the first seat of the table: you, or the anchor), in
   // box px; --pr-* carry that box to the prompt CSS. The pick bar finds a clear place on that field (never over a target);
@@ -490,40 +497,75 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
   // Your own field enlarged: the camera eases (360 ms, as the Tag camera) to the zoom that fits the field, and the plates and the
   // phase strip that follow it, into the free box between the HUD parts. Leaving it eases back. A resize while it stays refits at once.
   const ownFit = useRef(false);
-  // A new fit of the field only after a resize (or the entry): a refit on a prompt or a hover would undo the player's own pan or zoom.
-  const fitKey = `${ownZoom ? 1 : 0}|${zoomFrame.x.toFixed(1)}|${zoomFrame.y.toFixed(1)}|${zoomFrame.k.toFixed(4)}`;
-  const { zoomFit, zoomTo } = zoom;
+  // A new fit of the field after a resize (or the entry) always: the box is new. The chain strip is not a resize (it changes the frame, not the
+  // box): the view keeps its place and the hook clamps it. A pinned peek, the master chip or the hub moving change the free box: they refit
+  // with an ease, but only when the player has not moved the view by hand (a refit on a prompt or a hover would undo that pan or zoom).
+  const fitKey = `${ownZoom ? 1 : 0}|${Math.round(box.width)}|${Math.round(box.height)}`;
+  const [pinnedPeek, setPinnedPeek] = useState(false);
+  useEffect(() => {
+    if (!ownZoom) {
+      setPinnedPeek(false);
+      return;
+    }
+    let frame = 0;
+    const read = () => {
+      frame = 0;
+      setPinnedPeek(document.querySelector(PINNED_PEEK) != null);
+    };
+    const observer = new MutationObserver(() => {
+      if (!frame) frame = window.requestAnimationFrame(read);
+    });
+    observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-pinned"] });
+    read();
+    return () => {
+      observer.disconnect();
+      window.cancelAnimationFrame(frame);
+    };
+  }, [ownZoom]);
+  const softKey = `${pinnedPeek ? 1 : 0}|${hasChip ? 1 : 0}|${hubAt ? `${Math.round(hubAt.x)},${Math.round(hubAt.y)}` : ""}`;
+  const lastFitKey = useRef("");
+  const { zoomFit, zoomTo, byHand } = zoom;
   useLayoutEffect(() => {
     const root = rootRef.current;
     const was = ownFit.current;
     ownFit.current = ownZoom;
+    const hard = !was || lastFitKey.current !== fitKey;
+    lastFitKey.current = fitKey;
     if (!root) return;
     if (!ownZoom) {
       if (was) zoomTo(VIEW_IDENTITY, ROOF_ZOOM_MS);
       return;
     }
     if (fitItems.length === 0) return;
+    // A pinned peek, the chip or the hub moved: the player's own pan or zoom stays.
+    if (!hard && byHand()) return;
     const items = fitItems;
     // Your hand stays where it is: the free box ends above it.
     const box = root.getBoundingClientRect();
     const cards = Array.from(root.querySelectorAll<HTMLElement>(`${OWN_HAND} [data-hand-card]`)).map((node) => node.getBoundingClientRect());
     const avoid = cards.length > 0 ? [{ x: Math.min(...cards.map((r) => r.left)) - box.left, y: Math.min(...cards.map((r) => r.top)) - box.top, width: Math.max(...cards.map((r) => r.right)) - Math.min(...cards.map((r) => r.left)), height: box.bottom - Math.min(...cards.map((r) => r.top)) }] : [];
     // A card pinned in the peek is stable: the fit keeps clear of it (read from the DOM; the hover peek moves away by itself).
-    const pinned = document.querySelector<HTMLElement>('[data-testid="hover-preview"][data-pinned="true"]');
+    const pinned = document.querySelector<HTMLElement>(PINNED_PEEK);
     if (pinned) {
       const r = pinned.getBoundingClientRect();
       if (r.width > 2 && r.height > 2) avoid.push({ x: r.left - box.left, y: r.top - box.top, width: r.width, height: r.height });
     }
-    const fitted = zoomFit(items, avoid, was ? 0 : ROOF_ZOOM_MS);
-    // A window with no room to enlarge the field (the fit is the camera scale) has nothing to zoom: the camera stays home.
-    if (fitted.s <= NO_ZOOM) dispatchCamera({ type: "home" });
+    // The entry and a soft refit ease; a resize lands at once.
+    const target = zoomFit(items, avoid, !was || !hard ? ROOF_ZOOM_MS : 0);
+    setFitted(target);
+    // The entry into a window with no room to enlarge the field (the fit is the camera scale): nothing to zoom, so the camera stays home.
+    // On a resize later the camera never moves by itself: the focus stays, at about 1x.
+    if (!was && target.s <= NO_ZOOM) dispatchCamera({ type: "home" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fitKey]);
+  }, [fitKey, softKey]);
   // The view came back to the camera pose by itself (the reset button, a double click, a wheel out): the camera follows it home.
   const zoomedOnce = useRef(false);
   useEffect(() => {
     if (ownZoom) setOwnHold(true);
-    else if (!zoom.zoomed) setOwnHold(false);
+    else if (!zoom.zoomed) {
+      setOwnHold(false);
+      setFitted(null);
+    }
   }, [ownZoom, zoom.zoomed]);
   useEffect(() => {
     if (!ownZoom) {
@@ -552,7 +594,6 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
     return [...seats].sort((x, y) => x - y);
   }, [legalKeys, controller.aim, targetSeat, picks, layout.anchorSeat]);
   const rivalSeatKey = ownZoom ? rivalSeats.join(",") : "";
-  const [rivalHints, setRivalHints] = useState<readonly RivalHint[]>([]);
   useEffect(() => {
     const root = rootRef.current;
     if (!root || rivalSeatKey === "") {

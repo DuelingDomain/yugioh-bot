@@ -39,6 +39,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  document.querySelectorAll('[data-testid="hover-preview"]').forEach((node) => node.remove());
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
@@ -58,7 +59,10 @@ const layer = (root: HTMLElement) => root.querySelector<HTMLElement>("[data-view
 const poseOf = (root: HTMLElement, seat: number) => seatBox(root, seat).parentElement?.getAttribute("style") ?? seatBox(root, seat).getAttribute("style");
 const advance = (ms: number) => act(() => void vi.advanceTimersByTime(ms));
 /** The chip reads the DOM on an animation frame: run the frames on the fake clock. */
-const frames = () => vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => setTimeout(() => cb(performance.now()), 16) as unknown as number);
+const frames = () => {
+  vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => clearTimeout(id));
+  return vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => setTimeout(() => cb(performance.now()), 16) as unknown as number);
+};
 const idle = () => ({ ...BASE, room: { ...BASE.room, engine: { ...BASE.room.engine!, prompt: null } } }) as TableFixtureState;
 
 describe("FFA3 own field camera zoom", () => {
@@ -128,5 +132,139 @@ describe("FFA3 own field camera zoom", () => {
     const { container } = render(<Table state={idle()} camera={{ mode: "focus", focusSeat: REN }} />);
     advance(500);
     expect(container.querySelector("[data-rival-hint]")).toBeNull();
+  });
+
+  /** jsdom has no layout: the board is 1100x860 and your hand cards stand at the bottom of it, when `hand` is set. */
+  const layout = (hand?: { x: number; y: number; width: number; height: number }) => {
+    const rect = (x: number, y: number, width: number, height: number) => ({ x, y, left: x, top: y, width, height, right: x + width, bottom: y + height, toJSON: () => ({}) }) as DOMRect;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      if (this.hasAttribute("data-table-stage")) return rect(0, 0, 1100, 860);
+      if (hand && this.hasAttribute("data-hand-card") && this.closest('[data-hand-seat][data-side="you"]')) return rect(hand.x, hand.y, hand.width, hand.height);
+      return rect(0, 0, 0, 0);
+    });
+  };
+  const scale = (root: HTMLElement) => Number(/scale\(([\d.]+)\)/.exec(layer(root).style.transform)?.[1] ?? 1);
+  const handScale = (root: HTMLElement) => root.querySelector<HTMLElement>('[data-hand-seat][data-side="you"]')?.style.transform ?? "";
+  const board = (root: HTMLElement) => root.querySelector<HTMLElement>("[data-table-stage]")!;
+
+  it("keeps the hand at its place while the zoom eases out, and clears it when the view is back", () => {
+    frames();
+    const { container } = render(<Table state={idle()} camera={{ mode: "focus", focusSeat: REN }} />);
+    advance(600);
+    expect(scale(container)).toBeGreaterThan(1.02);
+    fireEvent.click(container.querySelector("[data-camera-back]")!);
+    // Half way out: the view is between the zoom and 1x, and the hand still has its counter transform.
+    advance(180);
+    expect(scale(container)).toBeGreaterThan(1);
+    expect(handScale(container)).toMatch(/scale\(0\./);
+    advance(600);
+    expect(chip(container)).toBe("Home");
+    expect(layer(container).style.transform).toBe("");
+    expect(handScale(container)).toBe("");
+  });
+
+  it("a wheel back to 1x sends the camera home", () => {
+    frames();
+    const { container } = render(<Table state={idle()} camera={{ mode: "focus", focusSeat: REN }} />);
+    advance(600);
+    expect(chip(container)).toBe("Focus · Ren Arata");
+    for (let i = 0; i < 6; i++) {
+      fireEvent.wheel(board(container), { deltaY: 400, clientX: 550, clientY: 430 });
+      advance(120);
+    }
+    advance(600);
+    expect(scale(container)).toBeLessThanOrEqual(1.001);
+    expect(chip(container)).toBe("Home");
+  });
+
+  it("a pinned peek after the entry refits the zoom, and a wheel by hand is left alone", async () => {
+    frames();
+    layout();
+    const { container } = render(<Table state={idle()} camera={{ mode: "focus", focusSeat: REN }} />);
+    advance(600);
+    const fitted = scale(container);
+    const peek = document.createElement("aside");
+    peek.setAttribute("data-testid", "hover-preview");
+    peek.setAttribute("data-pinned", "true");
+    peek.getBoundingClientRect = () => ({ x: 830, y: 0, left: 830, top: 0, width: 270, height: 860, right: 1100, bottom: 860, toJSON: () => ({}) }) as DOMRect;
+    await act(async () => {
+      document.body.appendChild(peek);
+      await Promise.resolve();
+    });
+    // The frame that reads the peek, then the ease of the refit (React flushes the state when the first advance ends).
+    advance(100);
+    advance(800);
+    const pinned = scale(container);
+    expect(pinned).toBeLessThan(fitted);
+    // The player zooms by hand: the peek that goes away does not undo it.
+    fireEvent.wheel(board(container), { deltaY: -300, clientX: 300, clientY: 300 });
+    advance(600);
+    const byHand = scale(container);
+    await act(async () => {
+      peek.remove();
+      await Promise.resolve();
+    });
+    advance(800);
+    expect(scale(container)).toBeCloseTo(byHand, 3);
+  });
+
+  it("a chain strip that opens while the field is zoomed does not snap the view", () => {
+    frames();
+    const { container, rerender } = render(<Table state={idle()} camera={{ mode: "focus", focusSeat: REN }} />);
+    advance(600);
+    fireEvent.wheel(board(container), { deltaY: -300, clientX: 300, clientY: 300 });
+    advance(600);
+    const byHand = scale(container);
+    expect(byHand).not.toBeCloseTo(scale(container) + 1, 3);
+    rerender(<Table state={FFA3_FIXTURES.states["chain-2"]} camera={{ mode: "focus", focusSeat: REN }} />);
+    advance(800);
+    expect(scale(container)).toBeCloseTo(byHand, 3);
+  });
+
+  it("a resize with no room to zoom keeps the focus: the camera does not go home by itself", () => {
+    frames();
+    const { container } = render(<Table state={idle()} camera={{ mode: "focus", focusSeat: REN }} />);
+    advance(600);
+    expect(chip(container)).toBe("Focus · Ren Arata");
+    act(() => void window.dispatchEvent(new Event("resize")));
+    advance(800);
+    expect(chip(container)).toBe("Focus · Ren Arata");
+  });
+
+  it("the pick bar of a zoomed own field keeps off your hand", () => {
+    frames();
+    const hand = { x: 300, y: 700, width: 500, height: 160 };
+    layout(hand);
+    const { container } = render(<Table state={FFA3_FIXTURES.states["target-pick"]} camera={{ mode: "focus", focusSeat: REN }} />);
+    advance(1500);
+    const room = board(container).dataset.barRoom;
+    expect(room).toBeTruthy();
+    const [x, y, width, height] = room!.split(",").map(Number);
+    const apart = x + width <= hand.x || x >= hand.x + hand.width || y + height <= hand.y || y >= hand.y + hand.height;
+    expect(apart).toBe(true);
+  });
+
+  it("a seat-choice panel moves at most once while the zoom settles, and a pan does not move it again", () => {
+    frames();
+    layout({ x: 300, y: 700, width: 500, height: 160 });
+    const { container } = render(<Table state={FFA3_FIXTURES.states["choose-opponent"]} camera={{ mode: "focus", focusSeat: REN }} />);
+    const seen: string[] = [];
+    const sample = () => {
+      const at = `${board(container).style.getPropertyValue("--room-x")},${board(container).style.getPropertyValue("--room-y")}|${board(container).dataset.barRoom ?? ""}`;
+      if (seen[seen.length - 1] !== at) seen.push(at);
+    };
+    for (let i = 0; i < 60; i++) {
+      advance(16);
+      sample();
+    }
+    const settled = seen.length;
+    // A manual pan and zoom: the rooms stay where they are.
+    fireEvent.wheel(board(container), { deltaY: -300, clientX: 300, clientY: 300 });
+    for (let i = 0; i < 60; i++) {
+      advance(16);
+      sample();
+    }
+    expect(seen.length).toBe(settled);
+    expect(settled).toBeLessThanOrEqual(3);
   });
 });
