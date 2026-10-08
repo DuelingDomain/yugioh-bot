@@ -82,6 +82,11 @@ export interface TableFixtureSet {
   extra?: Readonly<Record<string, TableFixtureState>>;
 }
 
+/** The Text log lines of a fixture, as the engine words them ("Player N", seats counted from 1). Ids count up from 1. */
+export function fixtureLog(...lines: string[]): DuelEngineView["log"] {
+  return lines.map((text, index) => ({ id: index + 1, text }));
+}
+
 /** An engine view in the real shape. Team numbers come from the format; everything else is what the caller gives. */
 export function fixtureEngine(o: {
   format: TableFormat;

@@ -3,6 +3,7 @@ import { ev, MZ, SZ } from "../../fx-lab/board";
 import { LOCATION_HAND, LOCATION_MZONE, POS_FACEDOWN_DEFENSE, POS_FACEUP_DEFENSE, zoneKey } from "../../constants";
 import {
   fixtureEngine,
+  fixtureLog,
   fixtureRoom,
   link,
   newSeat,
@@ -43,6 +44,26 @@ function history(): DuelEvent[] {
     ev.toGrave(MIKA, C.gaia, MZ(MIKA, 2), 0, { cause: "effect", sourceCode: C.raigeki.code, sourceKind: "spell", sourceSeat: REN }),
   ];
   return specs.map((spec, index) => ({ ...spec, id: index + 1 }) as DuelEvent);
+}
+
+/** The Text log of the same plays, as the engine words them. Ren is Player 1, Ryo Player 2, Mika Player 3. */
+function textLog(): DuelEngineView["log"] {
+  return fixtureLog(
+    "Turn 3 — Player 2", "main1",
+    "Player 2 Tribute Summons Blue-Eyes White Dragon",
+    "Player 2 Sets a card",
+    "Turn 4 — Player 3", "main1",
+    "Player 3 Normal Summons Red-Eyes Black Dragon",
+    "Player 3 Normal Summons Gaia The Fierce Knight",
+    "battle", "A monster declares an attack",
+    "Player 3 takes 1200 damage",
+    "Turn 5 — Player 1", "draw",
+    "Player 1 drew 1 card(s)", "You drew Heavy Storm",
+    "main1",
+    "Player 1 Normal Summons Dark Magician",
+    "Raigeki is activating",
+    "Gaia The Fierce Knight was destroyed",
+  );
 }
 
 const MASTERS = [
@@ -124,6 +145,7 @@ function make(id: TableStateId, label: string, spec: Spec = {}): TableFixtureSta
     prompt: spec.prompt?.(seats) ?? null,
     chain: spec.chain,
     events: history(),
+    log: textLog(),
     result: spec.result,
   });
   return { id, label, room: fixtureRoom({ format: "ffa3", names: NAMES, viewerSeat, engine, clockMs: CLOCK_MS, mode: "domain" }), ui: spec.ui };
