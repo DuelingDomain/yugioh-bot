@@ -111,7 +111,7 @@ export interface UseViewZoom {
   /** The HUD over the board changed (a prompt opened, closed or moved): the view eases into the new clamps. */
   refit: () => void;
   /** A camera move to `view` (clamped) in `ms` (the Rooftop camera's time and ease); at once with reduced motion or `ms` 0. */
-  zoomTo: (view: View, ms?: number) => void;
+  zoomTo: (view: View, ms?: number) => View;
   /**
    * A camera zoom that shows `items` (board-box px at the camera pose) as large as the free box allows and centres them
    * in it. The free box is the board box minus the HUD over it and the `avoid` rects (board-box px, at the pose).
@@ -300,18 +300,18 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
     go(next, instant);
   }, [go]);
 
-  const zoomTo = useCallback((view: View, ms: number = ROOF_ZOOM_MS) => {
+  const zoomTo = useCallback((view: View, ms: number = ROOF_ZOOM_MS): View => {
     const root = rootRef.current;
     const state = live.current;
-    if (!root) return;
+    if (!root) return view;
     const next = clampView(view, sizeOf(root), insetsOf(root));
     state.byHand = false;
     if (ms <= 0 || state.reducedMotion) {
       go(next, true);
       settle();
-      return;
+      return next;
     }
-    if (viewsClose(state.current, next) && viewsClose(state.target, next)) return;
+    if (viewsClose(state.current, next) && viewsClose(state.target, next)) return next;
     if (state.raf) cancelAnimationFrame(state.raf);
     state.raf = 0;
     state.held = null;
@@ -323,6 +323,7 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
       tick(time);
     });
     write();
+    return next;
   }, [go, insetsOf, rootRef, settle, tick, write]);
 
   const zoomFit = useCallback((items: readonly FitItem[], avoid: readonly Rect[] = [], ms?: number) => {
@@ -332,9 +333,8 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
     const insets = edgeInsets([...occluderRects(root, occluderSelector.current), ...avoid], box);
     const gap = 8;
     const free = { x: insets.left + gap, y: insets.top + gap, width: box.width - insets.left - insets.right - 2 * gap, height: box.height - insets.top - insets.bottom - 2 * gap };
-    const fitted = fitView(items, free);
-    zoomTo(fitted, ms);
-    return fitted;
+    // The clamped view the camera aims at (the HUD insets can pan it): the rooms of the prompts clear the field at THIS view.
+    return zoomTo(fitView(items, free), ms);
   }, [rootRef, zoomTo]);
 
   const refit = useCallback(() => {
