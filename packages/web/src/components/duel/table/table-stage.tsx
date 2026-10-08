@@ -8,6 +8,7 @@ import type { UseGridFocus } from "./grid-focus";
 import { ChainRoomContext, type ChainStripSize } from "./chain-room";
 import { AttackLine } from "./attack-line";
 import { FlyCity } from "./fly-city";
+import { onCrumbleStart } from "./crumble-gate";
 import { watchMeasure } from "./measure-watch";
 import { BAR_HUD, clearBarRoom, dockBarRoom, freeDockRoom, PICK_BAR, pickBarRoom, promptUnit } from "./grid-stage";
 import { aliveLayout, boardBounds, chainBandRooms, chainStripInset, flyWorld, holoAnchor, hubPose, normalizeAngle, ringAngles, CAMERA_HINT, HUD_CORNER, portraitTable, promptRooms, ringPose, type HoloAnchor, type PromptRoom, seatPoses, slotPlan, stageFit, stageSpread, STAGE, wideHoloAnchors } from "./geometry";
@@ -263,7 +264,19 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
       setHudRects((current) => (sameRects(current, hud) ? current : hud));
     };
     // Once the seats stand still (a regroup, the FINAL DUEL board, glides them to new places); watched while a pick is open.
-    return watchMeasure(root, measure, { settleMs: reducedMotion ? 0 : regroup ? GLIDE_MS : SETTLE_MS, watch: legalKey !== "" });
+    const stop = watchMeasure(root, measure, { settleMs: reducedMotion ? 0 : regroup ? GLIDE_MS : SETTLE_MS, watch: legalKey !== "" });
+    if (!regroup || reducedMotion) return stop;
+    // A crumble that waited for the battle (crumble-gate.ts) starts late and the regroup glide with it: measure again when it ends.
+    let again: number | undefined;
+    const off = onCrumbleStart(() => {
+      window.clearTimeout(again);
+      again = window.setTimeout(measure, GLIDE_MS);
+    });
+    return () => {
+      stop();
+      off();
+      window.clearTimeout(again);
+    };
   }, [floating, nearBox, legalKey, reducedMotion, regroup, zoom.zoomed]);
   const barRoom = useMemo(() => {
     if (!floating) return undefined;
