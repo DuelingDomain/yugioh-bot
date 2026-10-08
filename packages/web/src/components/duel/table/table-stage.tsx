@@ -22,6 +22,7 @@ import { useFlyWorld } from "./use-fly-world";
 import { GLIDE_MS, useSeatExits } from "./use-seat-exits";
 import { occluderRects, useViewZoom } from "./use-view-zoom";
 import { ROOF_ZOOM_MS } from "../tag/roof-camera";
+import { isFaceOff } from "./camera-model";
 import { ViewReset } from "./view-reset";
 import { clearRoom, FOLLOW_ATTR, fitItemRect, fitRoom, followShift, VIEW_IDENTITY, type FitItem, type View } from "./view-zoom";
 import type { CameraMode, SeatFieldProps, SeatPose, SeatTone, TableStageProps } from "./types";
@@ -518,6 +519,8 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
     if (target?.closest?.(CLICK_PASS) && !plainZone) return;
     const seat = Number(slot.getAttribute("data-seat-slot"));
     if (!Number.isInteger(seat) || out.includes(seat)) return;
+    // A face-off has one view: a click on the rival's field (an inspect click) moves nothing, and never ends your own zoom.
+    if (seat !== layout.anchorSeat && isFaceOff(layout, out)) return;
     // A click only enlarges: it never sends an enlarged field home, and a zone click never enlarges a field that
     // holds a legal choice of the open prompt. Legal keys on another field do not count: on the viewer's own turn the idle
     // and battle commands are legal keys of the own field only, and a click on a rival field still enlarges it.

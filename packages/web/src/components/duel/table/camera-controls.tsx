@@ -210,7 +210,7 @@ export function CameraControls({ layout, camera, locked, hint = null, nameOf, di
         <Focus size={13} aria-hidden="true" />
         <b role="status">{label}</b>
         {keysHint ? <span className={styles.hint}>{keysHint}</span> : null}
-        {plaza && !flyOn && camera.mode === "home" ? (
+        {layout.format === "ffa3" && !flyOn && camera.mode === "home" ? (
           <button type="button" className={styles.back} data-camera-zoom disabled={locked} onClick={() => dispatch({ type: "enlarge", seat: layout.anchorSeat })}>
             Zoom my field <Key>E</Key>
           </button>

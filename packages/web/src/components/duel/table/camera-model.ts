@@ -88,10 +88,17 @@ const MOVES = new Set<CameraAction["type"]>(["home", "overview", "focus", "enlar
 export function cameraReducer(state: CameraState, action: CameraAction, layout: TableLayout, ctx?: CameraContext): CameraState {
   const { anchor, known, out, rivals } = seatsOf(layout, ctx);
   const faceOff = isFaceOff(layout, out);
+  // Your own field enlarged through a face-off: only Home, Esc and a second E leave it. A click or a key about a rival changes nothing.
+  if (faceOff && holdsOwnFocus(layout, state, out)) {
+    const aboutRival = action.type === "focusStep" || action.type === "look" || ((action.type === "focus" || action.type === "enlarge") && action.seat !== anchor);
+    if (aboutRival) return state;
+  }
   // A face-off has one view, so a camera in another mode goes home at once, also under an FX lock (the lock stays).
   if (faceOff && state.mode !== "home" && (action.type === "home" || FACE_OFF_VIEWS.has(action.type))) return move(state, HOME_VIEW);
   if (state.lock != null && MOVES.has(action.type)) return state;
-  if (faceOff) {
+  // The viewer may enlarge their own field again in a face-off (the Zoom my field button, E): that view is the one the face-off keeps.
+  const ownAgain = faceOff && action.type === "enlarge" && action.seat === anchor && !out.has(anchor);
+  if (faceOff && !ownAgain) {
     // One view only: a request for another one sends the camera home.
     if (FACE_OFF_VIEWS.has(action.type)) return state.mode === "home" ? state : move(state, HOME_VIEW);
   }
