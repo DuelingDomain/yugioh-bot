@@ -93,8 +93,8 @@ export function useCellHold(seats: readonly { seat: number; eliminated?: boolean
     [],
   );
   // The crumble of a seat that just went out starts to wait in an effect of its own (a child, so before this one): draw again
-  // with the hold in place.
-  useEffect(() => {
+  // with the hold in place, before the paint.
+  useLayoutEffect(() => {
     if (crumbleWaiting() !== waiting) setTick((value) => value + 1);
   });
   useEffect(() => {
