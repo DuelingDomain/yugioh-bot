@@ -423,21 +423,30 @@ function CardArt({ option, className }: { option: DuelPromptOption; className: s
 }
 
 /**
- * Small screens: a phone width, or a short viewport. The prompt panel has little free height there, so long card text
- * is cut to a few lines with a toggle. Elsewhere the full text shows. Keep in step with the bottom-sheet breakpoint in
- * prompt-center.module.css.
+ * Small windows: a phone or tablet width, or a short window. The prompt panel has little free height there, so long card
+ * text is cut to a few lines with a toggle. Keep the width in step with the bottom-sheet breakpoint in
+ * prompt-center.module.css. A host with `data-prompt-dense` (the 3-way and 4-way tables put the panel in one field pair)
+ * is small at any window size, so it is checked on the element (see `CardTextBlock`).
  */
 export const COMPACT_TEXT_QUERY = "(max-width: 900px), (max-height: 640px)";
 
-/** Printed card text: full by default; on a small screen it is clamped to a few lines with a toggle when long. */
+/**
+ * Printed card text: full by default. It is clamped to a few lines with a toggle when it is long and the space is small
+ * (a small window, or a dense host). The CSS also lets the box shrink before the options do, so options never leave the
+ * panel.
+ */
 function CardTextBlock({ text, label = "Card text", open: forceOpen }: { text: string; label?: string; open?: boolean }) {
   const styles = useSkinStyles(baseStyles, "prompt");
-  const compact = useMedia(COMPACT_TEXT_QUERY);
+  const root = useRef<HTMLDivElement>(null);
+  const smallWindow = useMedia(COMPACT_TEXT_QUERY);
+  const [dense, setDense] = useState(false);
+  useLayoutEffect(() => { setDense(root.current?.closest("[data-prompt-dense]") != null); }, []);
+  const compact = smallWindow || dense;
   const [open, setOpen] = useState(Boolean(forceOpen));
   const long = text.length > 200 || text.split(/\r?\n/).length > 3;
   const clamped = compact && long && !open;
   return (
-    <div className={styles.cardText} data-open={clamped ? "false" : "true"}>
+    <div ref={root} className={styles.cardText} data-open={clamped ? "false" : "true"}>
       <span className={styles.cardTextLabel}>{label}</span>
       <p className={styles.cardTextBody} data-clamped={clamped ? "true" : "false"}>{text}</p>
       {compact && long && !forceOpen ? (
