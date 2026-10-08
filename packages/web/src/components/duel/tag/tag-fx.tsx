@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { seatsOfTeam, teamOfSeat, type DuelEvent, type DuelEngineView } from "@yugidraft/shared/duels";
 import { BattleFx } from "../battle-fx";
 import { ChainFx } from "../chain-fx";
+import { ownPromptOpen } from "../chain-narrate";
 import { CoinTossFx } from "../coin-toss-fx";
 import { DestroyFx } from "../destroy-fx";
 import { DuelFeedback } from "../feedback";
@@ -92,7 +93,7 @@ export function TagFx({ controller, preferences, fxActive = true, passedSeats = 
       <SummonFx events={withDestroyCards(events)} duelKey={duelKey} reducedMotion={reducedMotion} shake={preferences.shake} />
       <MoveFx events={withDestroyCards(events)} duelKey={duelKey} reducedMotion={reducedMotion} />
       <PositionFx events={events} duelKey={duelKey} reducedMotion={reducedMotion} />
-      <ChainFx events={withDestroyCards(events)} chain={engine.chain} duelKey={duelKey} reducedMotion={reducedMotion} mySeat={viewerSeat} playerName={nameOf} seatTones={seatTones} priority={priority} ended={room.session.status !== "active" || engine.result != null} table="tag" seats={engine.seats} />
+      <ChainFx events={withDestroyCards(events)} chain={engine.chain} duelKey={duelKey} reducedMotion={reducedMotion} mySeat={viewerSeat} playerName={nameOf} seatTones={seatTones} priority={priority} ended={room.session.status !== "active" || engine.result != null} table="tag" seats={engine.seats} promptOpen={ownPromptOpen(prompt, viewerSeat)} />
       <MasterReturnFx events={events} seats={engine.seats} duelKey={duelKey} reducedMotion={reducedMotion} mySeat={viewerSeat} />
       <BattleFx events={withDestroyCards(events)} seats={engine.seats} reducedMotion={reducedMotion} active aim={null} nameOf={nameOf} />
       <DestroyFx events={withDestroyCards(events)} reducedMotion={reducedMotion} active mySeat={viewerSeat ?? 0} />

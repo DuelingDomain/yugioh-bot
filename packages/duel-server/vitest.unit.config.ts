@@ -38,6 +38,9 @@ const NEEDS_ENGINE = [
   "tests/chain-targets.test.ts",
   "tests/replay-chain-mode-surrender.test.ts",
   "tests/material-count.test.ts",
+  "tests/xyz-detach-prompt.test.ts",
+  "tests/xyz-material-prompts.test.ts",
+  "tests/legacy-xyz-material-prompt.test.ts",
   "tests/target-response.test.ts",
   "tests/c6-geometry-audit.test.ts",
   // a wasm core (engine, host, summons, presets, scenarios, fuzz, differential)
