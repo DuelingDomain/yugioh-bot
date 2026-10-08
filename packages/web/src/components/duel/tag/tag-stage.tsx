@@ -20,6 +20,8 @@ import {
   poseAt,
   fitSeatPose,
   ROOF_FIELD,
+  ROOF_FIELD_Z,
+  ROOF_PERSP,
   roofFit,
   roofGap,
   roofSlots,
@@ -220,7 +222,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     const cy = (view.top + view.bottom) / 2;
     root.style.setProperty("--cx", `${cx.toFixed(1)}px`);
     root.style.setProperty("--cy", `${cy.toFixed(1)}px`);
-    root.style.setProperty("--persp", `${(1400 * fit).toFixed(1)}px`);
+    root.style.setProperty("--persp", `${(ROOF_PERSP * fit).toFixed(1)}px`);
     // A move in flight ends on poseRef; with none, a close-up is fitted again (the box may have changed size).
     if (!tweenRef.current) poseRef.current = resolvePose(targetRef.current, m);
     const pose = poseRef.current;
@@ -482,8 +484,8 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
       onHoverCard: controller.onHoverCard,
     };
     const transform = near
-      ? `translate3d(${slot.x - HALF_W}px, ${slot.y - HALF_H}px, 2px)`
-      : `translate3d(${slot.x}px, ${slot.y}px, 2px) rotate(180deg) translate(${-HALF_W}px, ${-HALF_H}px)`;
+      ? `translate3d(${slot.x - HALF_W}px, ${slot.y - HALF_H}px, ${ROOF_FIELD_Z}px)`
+      : `translate3d(${slot.x}px, ${slot.y}px, ${ROOF_FIELD_Z}px) rotate(180deg) translate(${-HALF_W}px, ${-HALF_H}px)`;
     const focused = camera.mode === "focus" && camera.focusSeat === seat;
     return (
       <div

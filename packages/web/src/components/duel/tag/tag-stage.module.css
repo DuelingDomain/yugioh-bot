@@ -90,7 +90,7 @@
   position: absolute;
   inset: 0;
   overflow: hidden;
-  perspective: var(--persp, 1500px);
+  perspective: var(--persp, 1400px);
   perspective-origin: var(--cx, 50%) var(--cy, 50%);
   background:
     radial-gradient(70% 45% at var(--cx, 50%) 0%, rgb(38 30 78 / 0.55), transparent 70%),

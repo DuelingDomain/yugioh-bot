@@ -9,6 +9,7 @@ import {
   easeCam,
   easeFly,
   fitSeatPose,
+  roofFitCorners,
   initialRoofCamera,
   phaseHubSizes,
   poseAt,
@@ -81,11 +82,23 @@ describe("fitSeatPose", () => {
     { name: "1617x933", left: 8, right: 1601, top: 70, bottom: 640 },
     { name: "390x844", left: 8, right: 382, top: 170, bottom: 420 },
   ];
+  // The corners the code fits: the shared Extra Monster row (inner edge -sign*45) to the outer edge of the field, a
+  // little wider than the mat. Built here from the field geometry, not from the code, so a drift shows.
   const corners = (seat: number) => {
     const slot = roofSlots(0)[seat]!;
     const sign = Math.sign(slot.y);
-    return [-1, 1].flatMap((sx) => [slot.y + (sign * ROOF_FIELD.height) / 2, sign * 10].map((y) => ({ x: slot.x + (sx * ROOF_FIELD.width) / 2, y, z: ROOF_FIELD_Z })));
+    return [-1, 1].flatMap((sx) => [slot.y + (sign * ROOF_FIELD.height) / 2, -sign * 45].map((y) => ({ x: slot.x + (sx * (ROOF_FIELD.width / 2 + 14)), y, z: ROOF_FIELD_Z })));
   };
+
+  it("fits the corners the field really has: the plane is the z of the field holds, the inner edge is the Extra Monster row", () => {
+    expect(ROOF_FIELD_Z).toBe(2);
+    for (const seat of [0, 1, 2, 3]) {
+      const { corners: fitted } = roofFitCorners(0, seat);
+      expect(fitted).toHaveLength(4);
+      const mine = corners(seat);
+      for (const corner of mine) expect(fitted).toContainEqual(corner);
+    }
+  });
 
   it("keeps the whole field, with its shared Extra Monster row, inside the free box at every size and for every seat", () => {
     for (const box of boxes) {

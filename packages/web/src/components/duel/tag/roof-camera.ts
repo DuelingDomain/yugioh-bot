@@ -126,8 +126,8 @@ export function seatPose(anchorSeat: number, seat: number): RoofPose {
   return { yaw: 0, tilt: SEAT_TILT, zoom: SEAT_ZOOM, fx: slot.x, fy: slot.y, oy: 0 };
 }
 
-/** Height of the field plane above the roof, in world units (the SeatField box sits at this z). */
-export const ROOF_FIELD_Z = 112;
+/** Height of the field plane above the roof, in world units: the z of every field hold (tag-stage) and of the shared band. */
+export const ROOF_FIELD_Z = 2;
 /** The world's perspective distance at fit 1 (px). The stage scales it with the fit. */
 export const ROOF_PERSP = 1400;
 /** How far the close-up reaches into the gap (and a little past its middle) for the shared Extra Monster Zones, in world units. */
@@ -155,14 +155,13 @@ export function projectRoof(pose: RoofPose, fit: number, point: { x: number; y: 
 }
 
 /**
- * Close pose on one field that shows the WHOLE field (the Extra Monster row between the strips, the monster and the
- * Spell/Trap rows, the piles) inside the free box: the biggest zoom whose projected field fits both the width and the
- * height with a small margin, centred in the box. The box already ends above the hands, so nothing here sits under them.
+ * The four corners (world units) the close-up keeps in view for one field: the monster and Spell/Trap rows on the
+ * outer side, and the shared Extra Monster row on the inner side (`FIT_EMZ_REACH` into the gap, a little past its
+ * middle). The inner edge is `sign * (offsetY - FIT_EMZ_REACH)` = -sign * 45, where sign is the side of the seat.
  */
-export function fitSeatPose(anchorSeat: number, seat: number, fit: number, view: RoofView): RoofPose {
-  const base = seatPose(anchorSeat, seat);
+export function roofFitCorners(anchorSeat: number, seat: number): { corners: { x: number; y: number; z: number }[]; inner: number; outer: number } {
   const slot = roofSlots(anchorSeat)[seat];
-  if (!slot || !(fit > 0)) return base;
+  if (!slot) return { corners: [], inner: 0, outer: 0 };
   const { width, height, offsetY } = ROOF_FIELD;
   const sign = Math.sign(slot.y) || 1;
   const inner = sign * (offsetY - FIT_EMZ_REACH);
@@ -175,6 +174,19 @@ export function fitSeatPose(anchorSeat: number, seat: number, fit: number, view:
     { x: x0, y: outer, z: ROOF_FIELD_Z },
     { x: x1, y: outer, z: ROOF_FIELD_Z },
   ];
+  return { corners, inner, outer };
+}
+
+/**
+ * Close pose on one field that shows the WHOLE field (the Extra Monster row between the strips, the monster and the
+ * Spell/Trap rows, the piles) inside the free box: the biggest zoom whose projected field fits both the width and the
+ * height with a small margin, centred in the box. The box already ends above the hands, so nothing here sits under them.
+ */
+export function fitSeatPose(anchorSeat: number, seat: number, fit: number, view: RoofView): RoofPose {
+  const base = seatPose(anchorSeat, seat);
+  const slot = roofSlots(anchorSeat)[seat];
+  if (!slot || !(fit > 0)) return base;
+  const { corners, inner, outer } = roofFitCorners(anchorSeat, seat);
   const availW = view.right - view.left - 2 * FIT_MARGIN;
   const availH = view.bottom - view.top - 2 * FIT_MARGIN;
   if (!(availW > 0) || !(availH > 0)) return base;
