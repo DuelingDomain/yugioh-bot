@@ -484,6 +484,32 @@ describe("privacy in the rendered panel", () => {
       expect(Array.from(hero(view.container)?.querySelectorAll("[data-chain-chose-option]") ?? []).map((node) => node.textContent)).toEqual(["Take 800 damage"]);
     });
 
+    describe("when the panel is already mounted", () => {
+      const events = () => [activate(1, 0, prayers(), z(0, SZONE, 0), { description: "Apply 1 of these effects" })];
+      const link = (chosenOptions?: { text: string }[]): DuelChainLink[] => [{ index: 1, seat: 0, code: 45171524, name: "Mitsurugi Prayers", ...(chosenOptions ? { chosenOptions } : {}) }];
+      const read = (container: HTMLElement) => ({
+        marked: Array.from(hero(container)?.querySelectorAll("[data-chain-option][data-chosen=true]") ?? []).map((bullet) => bullet.textContent?.replace(/^Chosen: /, "")),
+        said: Array.from(hero(container)?.querySelectorAll("[data-chain-chose-option]") ?? []).map((node) => node.textContent),
+      });
+
+      it("marks the choice when the activate event and the live chain arrive together", () => {
+        const view = render(<ChainFx {...base} chain={[]} events={[]} reducedMotion />);
+        view.rerender(<ChainFx {...base} chain={link([{ text: "Take 800 damage" }])} events={events()} reducedMotion />);
+        flush(60);
+        expect(read(view.container)).toEqual({ marked: ["Take 800 damage."], said: ["Take 800 damage"] });
+      });
+
+      it("marks the choice when only the live chain gets it, after the link is shown", () => {
+        const view = render(<ChainFx {...base} chain={[]} events={[]} reducedMotion />);
+        view.rerender(<ChainFx {...base} chain={link()} events={events()} reducedMotion />);
+        flush(60);
+        expect(read(view.container)).toEqual({ marked: [], said: [] });
+        view.rerender(<ChainFx {...base} chain={link([{ text: "Take 800 damage" }])} events={events()} reducedMotion />);
+        flush(60);
+        expect(read(view.container)).toEqual({ marked: ["Take 800 damage."], said: ["Take 800 damage"] });
+      });
+    });
+
     it("marks no bullet for a choice known only by its prompt index, and still says it", () => {
       const { marked, said } = chose([{ index: 0, text: "Option 1" }]);
       expect(marked).toEqual([]);
