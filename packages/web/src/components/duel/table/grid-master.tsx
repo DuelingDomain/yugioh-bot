@@ -12,11 +12,11 @@ import styles from "./grid-hud.module.css";
 
 /**
  * The plate is narrow, so the buttons show a short word. The full option text ("Normal Summon Sage with Eyes of Blue")
- * stays as the accessible name and the tooltip. Normal Summon, Set and Attack get a short word; other labels are shown
+ * stays as the accessible name and the tooltip. Every Summon, Set and Attack get a short word; other labels are shown
  * as they are and end in an ellipsis when they are too long.
  */
 function shortActionLabel(label: string): string {
-  if (/^Normal Summon\b/i.test(label)) return "Summon";
+  if (/^(?:\w+ )?Summon\b/i.test(label)) return "Summon";
   if (/^Set\b/i.test(label)) return "Set";
   if (/^Attack directly\b/i.test(label)) return "Direct attack";
   if (/^Attack\b/i.test(label)) return "Attack";
