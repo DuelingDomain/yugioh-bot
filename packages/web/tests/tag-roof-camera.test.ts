@@ -8,9 +8,12 @@ import {
   clampCenter,
   easeCam,
   easeFly,
+  fitSeatPose,
   initialRoofCamera,
   phaseHubSizes,
   poseAt,
+  projectRoof,
+  ROOF_FIELD_Z,
   roofFit,
   roofGap,
   roofKeyAction,
@@ -69,6 +72,54 @@ describe("initial state", () => {
   });
 });
 
+describe("fitSeatPose", () => {
+  // The free boxes of the sizes the stage is checked at (the box ends above the hands), width x height after the HUD.
+  const boxes = [
+    { name: "1920x1080", left: 8, right: 1904, top: 76, bottom: 770 },
+    { name: "2560x1440", left: 8, right: 2544, top: 90, bottom: 1030 },
+    { name: "1366x768", left: 8, right: 1352, top: 62, bottom: 470 },
+    { name: "1617x933", left: 8, right: 1601, top: 70, bottom: 640 },
+    { name: "390x844", left: 8, right: 382, top: 170, bottom: 420 },
+  ];
+  const corners = (seat: number) => {
+    const slot = roofSlots(0)[seat]!;
+    const sign = Math.sign(slot.y);
+    return [-1, 1].flatMap((sx) => [slot.y + (sign * ROOF_FIELD.height) / 2, sign * 10].map((y) => ({ x: slot.x + (sx * ROOF_FIELD.width) / 2, y, z: ROOF_FIELD_Z })));
+  };
+
+  it("keeps the whole field, with its shared Extra Monster row, inside the free box at every size and for every seat", () => {
+    for (const box of boxes) {
+      const fit = roofFit(box);
+      const cx = (box.left + box.right) / 2;
+      const cy = (box.top + box.bottom) / 2;
+      for (const seat of [0, 1, 2, 3]) {
+        const pose = fitSeatPose(0, seat, fit, box);
+        for (const corner of corners(seat)) {
+          const at = projectRoof(pose, fit, corner);
+          expect(at.x + cx, `${box.name} seat ${seat} x`).toBeGreaterThanOrEqual(box.left);
+          expect(at.x + cx, `${box.name} seat ${seat} x`).toBeLessThanOrEqual(box.right);
+          expect(at.y + cy, `${box.name} seat ${seat} y`).toBeGreaterThanOrEqual(box.top);
+          expect(at.y + cy, `${box.name} seat ${seat} y`).toBeLessThanOrEqual(box.bottom);
+        }
+      }
+    }
+  });
+
+  it("zooms in on every seat as far as the box allows, never past the limit, and keeps the viewer's side up", () => {
+    for (const box of boxes) {
+      const pose = fitSeatPose(0, 0, roofFit(box), box);
+      expect(pose.yaw).toBe(0);
+      expect(pose.zoom).toBeGreaterThan(ROOF_PRESETS.overview.zoom);
+      expect(pose.zoom).toBeLessThanOrEqual(ROOF_LIMITS.zoomMax);
+    }
+  });
+
+  it("falls back to the plain close-up for an empty box", () => {
+    expect(fitSeatPose(0, 0, 0, boxes[0]!)).toEqual(seatPose(0, 0));
+    expect(fitSeatPose(0, 0, 1, { left: 0, right: 10, top: 0, bottom: 10 })).toEqual(seatPose(0, 0));
+  });
+});
+
 describe("presets and seat poses", () => {
   it("zooms in on a seat from the viewer's side, so a far field keeps its readable text", () => {
     for (const seat of [0, 1, 2, 3]) {
@@ -82,8 +133,9 @@ describe("presets and seat poses", () => {
   });
 
   it("aims a close-up toward the gap, where the shared Extra Monster Zones sit, and leaves the hub less room beside them", () => {
-    expect(Math.abs(seatPose(0, 0).fy)).toBeLessThan(270);
-    expect(Math.abs(seatPose(0, 1).fy)).toBeLessThan(270);
+    const view = { left: 8, right: 1600, top: 150, bottom: 640 };
+    expect(Math.abs(fitSeatPose(0, 0, roofFit(view), view).fy)).toBeLessThan(270);
+    expect(Math.abs(fitSeatPose(0, 1, roofFit(view), view).fy)).toBeLessThan(270);
     const plain = roofGap(ROOF_PRESETS.overview, 1);
     const shared = roofGap(ROOF_PRESETS.overview, 1, true);
     expect(shared.gapPx).toBe(plain.gapPx);

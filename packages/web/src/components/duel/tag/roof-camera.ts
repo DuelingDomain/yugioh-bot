@@ -110,21 +110,102 @@ export function roofGap(pose: RoofPose, fit: number, sharedExtra = false): { gap
   };
 }
 
-/** Close-up of one field: it fills the free box (width first), whatever the screen shape. */
+/** Close-up of one field: the whole field, with its shared Extra Monster Zones, fits the free box, whatever the screen shape. */
 const SEAT_ZOOM = 2.05;
 const SEAT_TILT = 22;
-/** World units the close-up aims toward the gap, so the shared Extra Monster Zones stay in view. */
-const SEAT_GAP_BIAS = 140;
 
 /**
- * Close pose on one field. The camera stays on the viewer's side for every field: a far field is drawn to read upright
- * from there, so a zoom is easier to read than the rival's end (which turns its text upside down).
+ * Close pose on one field before the screen is known: the biggest close-up a roomy screen gives, aimed at the field.
+ * The camera stays on the viewer's side for every field: a far field is drawn to read upright from there, so a zoom is
+ * easier to read than the rival's end (which turns its text upside down). The stage swaps it for `fitSeatPose` once it
+ * has measured the free box.
  */
 export function seatPose(anchorSeat: number, seat: number): RoofPose {
   const slot = roofSlots(anchorSeat)[seat];
   if (!slot) return { ...ROOF_PRESETS.home };
-  // Aimed a little toward the gap so the shared Extra Monster Zones between the facing strips stay in the close-up.
-  return { yaw: 0, tilt: SEAT_TILT, zoom: SEAT_ZOOM, fx: slot.x, fy: slot.y - Math.sign(slot.y) * SEAT_GAP_BIAS, oy: 0 };
+  return { yaw: 0, tilt: SEAT_TILT, zoom: SEAT_ZOOM, fx: slot.x, fy: slot.y, oy: 0 };
+}
+
+/** Height of the field plane above the roof, in world units (the SeatField box sits at this z). */
+export const ROOF_FIELD_Z = 112;
+/** The world's perspective distance at fit 1 (px). The stage scales it with the fit. */
+export const ROOF_PERSP = 1400;
+/** How far the close-up reaches into the gap (and a little past its middle) for the shared Extra Monster Zones, in world units. */
+const FIT_EMZ_REACH = 125;
+/** Extra world units beside the field that stay in the close-up (the pile on the left, the Field Zone label on the right). */
+const FIT_SIDE = 14;
+/** Air between the field and the edge of the free box, in px. */
+const FIT_MARGIN = 10;
+const FIT_ZOOM_MAX = 2.6;
+
+/** Screen position of a world point (px from the centre of the free box) for a pose, the fit factor and the perspective. */
+export function projectRoof(pose: RoofPose, fit: number, point: { x: number; y: number; z: number }): { x: number; y: number } {
+  const s = pose.zoom * fit;
+  const yaw = (pose.yaw * Math.PI) / 180;
+  const tilt = (pose.tilt * Math.PI) / 180;
+  const dx = point.x - pose.fx;
+  const dy = point.y - pose.fy;
+  const rx = dx * Math.cos(yaw) - dy * Math.sin(yaw);
+  const ry = dx * Math.sin(yaw) + dy * Math.cos(yaw);
+  const y1 = ry * Math.cos(tilt) - point.z * Math.sin(tilt);
+  const z1 = ry * Math.sin(tilt) + point.z * Math.cos(tilt);
+  const d = ROOF_PERSP * fit;
+  const k = d / Math.max(d - z1 * s, 1);
+  return { x: rx * s * k, y: (y1 * s + pose.oy * fit) * k };
+}
+
+/**
+ * Close pose on one field that shows the WHOLE field (the Extra Monster row between the strips, the monster and the
+ * Spell/Trap rows, the piles) inside the free box: the biggest zoom whose projected field fits both the width and the
+ * height with a small margin, centred in the box. The box already ends above the hands, so nothing here sits under them.
+ */
+export function fitSeatPose(anchorSeat: number, seat: number, fit: number, view: RoofView): RoofPose {
+  const base = seatPose(anchorSeat, seat);
+  const slot = roofSlots(anchorSeat)[seat];
+  if (!slot || !(fit > 0)) return base;
+  const { width, height, offsetY } = ROOF_FIELD;
+  const sign = Math.sign(slot.y) || 1;
+  const inner = sign * (offsetY - FIT_EMZ_REACH);
+  const outer = slot.y + (sign * height) / 2;
+  const x0 = slot.x - width / 2 - FIT_SIDE;
+  const x1 = slot.x + width / 2 + FIT_SIDE;
+  const corners = [
+    { x: x0, y: inner, z: ROOF_FIELD_Z },
+    { x: x1, y: inner, z: ROOF_FIELD_Z },
+    { x: x0, y: outer, z: ROOF_FIELD_Z },
+    { x: x1, y: outer, z: ROOF_FIELD_Z },
+  ];
+  const availW = view.right - view.left - 2 * FIT_MARGIN;
+  const availH = view.bottom - view.top - 2 * FIT_MARGIN;
+  if (!(availW > 0) || !(availH > 0)) return base;
+  const pose: RoofPose = { ...base, fy: (inner + outer) / 2 };
+  const extent = (zoom: number) => {
+    const shots = corners.map((corner) => projectRoof({ ...pose, zoom, oy: 0 }, fit, corner));
+    const ys = shots.map((shot) => shot.y);
+    const xs = shots.map((shot) => shot.x);
+    return { w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys), minY: Math.min(...ys), maxY: Math.max(...ys) };
+  };
+  let lo: number = ROOF_LIMITS.zoomMin;
+  let hi: number = FIT_ZOOM_MAX;
+  if (extent(hi).w <= availW && extent(hi).h <= availH) lo = hi;
+  else {
+    for (let i = 0; i < 28; i += 1) {
+      const mid = (lo + hi) / 2;
+      const e = extent(mid);
+      if (e.w <= availW && e.h <= availH) lo = mid;
+      else hi = mid;
+    }
+  }
+  pose.zoom = lo;
+  // Centre it in the box (the box centre is the origin of the projection, so 0 is the middle): slide the world on the screen.
+  const e = extent(lo);
+  const want = 0;
+  pose.oy = (want - (e.minY + e.maxY) / 2) / fit;
+  for (let i = 0; i < 3; i += 1) {
+    const shots = corners.map((corner) => projectRoof(pose, fit, corner).y);
+    pose.oy += (want - (Math.min(...shots) + Math.max(...shots)) / 2) / fit;
+  }
+  return pose;
 }
 
 export type RoofCamName = "home" | "overview" | "rival" | "seat" | "free";

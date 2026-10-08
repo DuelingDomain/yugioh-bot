@@ -18,6 +18,7 @@ import {
   lockLabel,
   phaseHubSizes,
   poseAt,
+  fitSeatPose,
   ROOF_FIELD,
   roofFit,
   roofGap,
@@ -27,6 +28,7 @@ import {
   type CameraEasing,
   type RoofCameraState,
   type RoofPose,
+  type RoofView,
 } from "./roof-camera";
 import { CameraRail } from "./camera-rail";
 import { Baton, RoofDecor, TeamStrip } from "./roof-world";
@@ -142,6 +144,10 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
   modeRef.current = camera.mode;
   const targetRef = useRef(target);
   targetRef.current = target;
+  const anchorRef = useRef(anchor);
+  anchorRef.current = anchor;
+  const focusSeatRef = useRef(camera.focusSeat);
+  focusSeatRef.current = camera.focusSeat;
   // apply() sizes the phase hub for the gap: shared Extra Monster Zones in it leave less room beside the helipad.
   const sharedRef = useRef(false);
   // poseRef is the pose the world ends on; a move is one animation the compositor runs (see `move`), so nothing here
@@ -160,13 +166,11 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     placedRef.current.set(node, { x, y });
   };
 
-  const apply = useCallback(() => {
-    const root = rootRef.current;
-    const world = worldRef.current;
-    if (!root || !world) return;
+  /** Measures the stage box: the free view rect (above the hands, under the plates) and the overview fit. Null for an empty box. */
+  const measure = (root: HTMLElement): { w: number; h: number; view: RoofView; fit: number } | null => {
     const w = root.clientWidth;
     const h = root.clientHeight;
-    if (w <= 0 || h <= 0) return;
+    if (w <= 0 || h <= 0) return null;
     const handH = Math.max(
       root.querySelector<HTMLElement>("[data-hand-dock]")?.offsetHeight ?? 0,
       root.querySelector<HTMLElement>("[data-partner-hand]")?.offsetHeight ?? 0,
@@ -197,11 +201,28 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     const view = { left: 8, right: w - 8, top: Math.min(railTop + railRow, bottom - 40), bottom };
     const fit = roofFit(view) || 1;
     fitRef.current = fit;
+    return { w, h, view, fit };
+  };
+
+  /** The pose the world ends on: a close-up is fitted to the free box so the whole field shows; any other pose is as it is. */
+  const resolvePose = (pose: RoofPose, m: { fit: number; view: RoofView }): RoofPose =>
+    modeRef.current === "focus" && focusSeatRef.current != null ? fitSeatPose(anchorRef.current, focusSeatRef.current, m.fit, m.view) : pose;
+
+  const apply = useCallback(() => {
+    const root = rootRef.current;
+    const world = worldRef.current;
+    if (!root || !world) return;
+    const m = measure(root);
+    if (!m) return;
+    const { view, fit } = m;
+    fitRef.current = fit;
     const cx = (view.left + view.right) / 2;
     const cy = (view.top + view.bottom) / 2;
     root.style.setProperty("--cx", `${cx.toFixed(1)}px`);
     root.style.setProperty("--cy", `${cy.toFixed(1)}px`);
     root.style.setProperty("--persp", `${(1400 * fit).toFixed(1)}px`);
+    // A move in flight ends on poseRef; with none, a close-up is fitted again (the box may have changed size).
+    if (!tweenRef.current) poseRef.current = resolvePose(targetRef.current, m);
     const pose = poseRef.current;
     world.style.transform = roofTransform(pose, fit);
     // The focus buttons keep one size on screen: world units grow when the view zooms out.
@@ -287,14 +308,17 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     stopMove();
     const before = new Map(placedRef.current);
     const animated = !reducedMotion && dur > 0 && world != null && typeof world.animate === "function";
-    poseRef.current = target;
+    const root = rootRef.current;
+    const m = root ? measure(root) : null;
+    const end = m ? resolvePose(target, m) : target;
+    poseRef.current = end;
     apply();
     if (!animated || world == null) return;
     const start = from ?? visible;
     const ease = intro ? easeFly : easeCam;
     const steps = Math.min(60, Math.max(8, Math.round(dur / 16)));
-    const frames = Array.from({ length: steps + 1 }, (_, index) => ({ transform: roofTransform(poseAt(start, target, index / steps, ease), fitRef.current) }));
-    const tween: Tween = { from: start, to: target, start: performance.now(), dur, ease };
+    const frames = Array.from({ length: steps + 1 }, (_, index) => ({ transform: roofTransform(poseAt(start, end, index / steps, ease), fitRef.current) }));
+    const tween: Tween = { from: start, to: end, start: performance.now(), dur, ease };
     tweenRef.current = tween;
     world.style.willChange = "transform";
     const run = world.animate(frames, { duration: dur, easing: "linear" });
