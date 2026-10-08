@@ -5,6 +5,11 @@ import {
 } from "@/lib/duel/action-errors";
 
 describe("duelActionErrorText", () => {
+  it.each([true, false])("keeps an unexpected 500 as a server error (seatPick: %s)", seatPick => {
+    const err = new DuelRequestError("Duel server error", 500);
+    expect(duelActionErrorText(err, { seatPick })).toBe("Duel server error");
+  });
+
   it.each([true, false])("explains a restarting 503 (seatPick: %s)", seatPick => {
     const err = new DuelRequestError("restarting", 503);
     expect(duelActionErrorText(err, { seatPick })).toBe("The duel server is restarting. Try again in a moment.");
