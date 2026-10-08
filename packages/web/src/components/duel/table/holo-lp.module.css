@@ -402,6 +402,16 @@
   animation: none;
 }
 
+:global([data-table-stage]):has([data-exit-held]) .holo[data-exiting="true"][data-elim="true"] .main::after,
+.holo[data-held="true"][data-elim="true"] .main::after {
+  animation: none;
+  opacity: 0;
+}
+
+.holo[data-held="true"] .state {
+  display: none;
+}
+
 :global([data-table-stage]):has([data-exit-held]) .exitChip {
   animation: none;
   opacity: 0;
