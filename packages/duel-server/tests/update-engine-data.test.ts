@@ -257,9 +257,9 @@ describe("engine data update", () => {
     }
     expect(report).toContain("## Prerelease cards");
     expect(report).toContain("## Card script patches");
-    const finalized = report.replace(/## Script errors in prod \(last 7 days\)\n[\s\S]*?(?=\n## |$)/, "## Script errors in prod (last 7 days)\n\nNo errors.\n");
-    expect(finalized).toContain("| Repository | Old → new | Commits ahead |");
-    expect(finalized).toContain("## Golden hashes");
+    const finalizedProd = finalized.replace(/## Script errors in prod \(last 7 days\)\n[\s\S]*?(?=\n## |$)/, "## Script errors in prod (last 7 days)\n\nNo errors.\n");
+    expect(finalizedProd).toContain("| Repository | Old → new | Commits ahead |");
+    expect(finalizedProd).toContain("## Golden hashes");
     expect(report).toContain("All shared card-script patch stock hashes match the candidate.");
     expect(report).toContain("release-new.cdb");
     expect(report).toContain("release-old.cdb");
