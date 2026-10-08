@@ -381,3 +381,11 @@ html[data-duel-no-callout] {
 html[data-duel-no-callout] :is(input, textarea, [contenteditable='true']) {
   -webkit-touch-callout: default;
 }
+
+/* The Card tab's scroller (marked by cardScrollerProps in inspector.tsx): a thin scrollbar and a fade on the last rows while the text
+   has more to read. A global rule, since the scroller belongs to each table and not to the inspector. */
+[data-card-scroller] { scrollbar-width: thin; }
+[data-card-scroller][data-card-more="true"] {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+}
