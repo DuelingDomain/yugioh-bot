@@ -26,11 +26,11 @@ test("production export requires its dedicated forced-command key", () => {
   assert.deepEqual(runCapture({ dedicatedKey: false }).snapshot, { available: false });
 });
 
-function runCapture({ configured = true, failure = false, oversized = false, dedicatedKey = true } = {}) {
+function runCapture({ configured = true, failure = false, oversized = false, dedicatedKey = true, payload } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "prod-export-test-"));
   try {
     const response = join(dir, "response.json"), calls = join(dir, "calls.txt");
-    writeFileSync(response, oversized ? "x".repeat(70000) : '{"available":true,"cards":[]}');
+    writeFileSync(response, payload ?? (oversized ? "x".repeat(70000) : '{"available":true,"cards":[]}'));
     writeFileSync(join(dir, "ssh"), '#!/bin/sh\nprintf "%s\\n" "$@" > "$FAKE_CALLS"\nif [ "$FAKE_FAIL" = 1 ]; then echo "private diagnostic" >&2; exit 1; fi\ncat "$FAKE_RESPONSE"\n', { mode: 0o700 });
     const result = spawnSync("bash", ["-e", "-o", "pipefail", "-c", capture.run], { encoding: "utf8", timeout: 10000,
       env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, RUNNER_TEMP: dir, VM_HOST: "vm.example.com", VM_USER: "root", VM_PORT: "22",
@@ -70,4 +70,17 @@ fi
     const filters = readFileSync(calls, "utf8");
     assert.match(filters, /project\.working_dir=\/opt\/yugioh-bot/); assert.match(filters, /compose\.service=duel/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("public artifacts retain only validated fields from the bounded remote output", () => {
+  const card = { code: 10, name: "Card", distinctDuels: 2, errorCount: 3, autoBlocked: true, scriptHash: "a".repeat(64), engineKind: "multi-normal" };
+  const result = runCapture({ payload: JSON.stringify({ available: true, privatePlayer: "secret", cards: [{ ...card, privateDiagnostic: "Lua text" }] }) });
+  assert.deepEqual(result.snapshot, { available: true, cards: [card] });
+  for (const payload of ["not JSON", "null", JSON.stringify({ available: true, cards: [null] }),
+    JSON.stringify({ available: true, cards: [{ ...card, errorCount: -1 }] }),
+    JSON.stringify({ available: true, cards: [{ ...card, name: "x".repeat(201) }] }),
+    JSON.stringify({ available: true, cards: [{ ...card, engineKind: "unknown" }] }),
+    JSON.stringify({ available: true, cards: Array(101).fill(card) })]) {
+    assert.deepEqual(runCapture({ payload }).snapshot, { available: false });
+  }
 });

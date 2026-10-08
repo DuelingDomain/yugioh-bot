@@ -65,7 +65,42 @@ jobs:
             -o ConnectionAttempts=1 -o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=2 \
             "$VM_USER@$VM_HOST" 'sh /opt/yugioh-bot/scripts/prod-script-errors.sh' 2>/dev/null \
             | head -c 65537 > "$ssh_dir/result"; then
-            if [ "$(wc -c < "$ssh_dir/result")" -le 65536 ]; then cp "$ssh_dir/result" "$snapshot"; fi
+            # Validate and re-emit a strict field allowlist BEFORE any public upload.
+            python3 - "$ssh_dir/result" "$snapshot" <<'PYTHON'
+          import json, re, sys
+          try:
+              raw = open(sys.argv[1], 'rb').read(65537)
+              if len(raw) > 65536: raise ValueError()
+              value = json.loads(raw)
+              if not isinstance(value, dict) or value.get('available') is not True: raise ValueError()
+              cards = value.get('cards')
+              if not isinstance(cards, list) or len(cards) > 100: raise ValueError()
+              kinds = {'all', 'legacy-normal', 'legacy-domain', 'pinned-normal', 'pinned-domain', 'multi-normal', 'multi-domain'}
+              clean = []
+              for card in cards:
+                  if not isinstance(card, dict): raise ValueError()
+                  code, name = card.get('code'), card.get('name')
+                  duels, errors = card.get('distinctDuels'), card.get('errorCount')
+                  blocked, digest, kind = card.get('autoBlocked'), card.get('scriptHash'), card.get('engineKind')
+                  integer = lambda n: type(n) is int and 0 <= n <= 9007199254740991
+                  if not integer(code) or not 1 <= code <= 4294967295: raise ValueError()
+                  if not isinstance(name, str) or len(name.encode('utf-16-le')) > 400: raise ValueError()
+                  if not integer(duels) or not integer(errors) or duels > errors: raise ValueError()
+                  if type(blocked) is not bool: raise ValueError()
+                  if digest is not None and (not isinstance(digest, str) or not re.fullmatch('[a-f0-9]{64}', digest)): raise ValueError()
+                  if kind is not None and (not isinstance(kind, str) or kind not in kinds): raise ValueError()
+                  entry = dict(code=code, name=name, distinctDuels=duels, errorCount=errors, autoBlocked=blocked, scriptHash=digest)
+                  if kind is not None: entry['engineKind'] = kind
+                  clean.append(entry)
+              result = dict(available=True, cards=clean)
+              if value.get('truncated') is True: result['truncated'] = True
+              output = json.dumps(result, ensure_ascii=True, separators=(',', ':')) + '\n'
+              if len(output.encode()) > 65536: raise ValueError()
+              with open(sys.argv[2], 'w') as target: target.write(output)
+          except Exception:
+              # The initialized unavailable snapshot remains the only public output.
+              pass
+          PYTHON
           fi
 
       - name: Save optional production snapshot
