@@ -335,6 +335,50 @@ describe("chainOutcomes", () => {
     ]);
   });
 
+  it("counts a draw of the link's own card, and still skips the card leaving its own zone", () => {
+    id = 0;
+    const events = [
+      activate(1, 0, RAIGEKI),
+      chainEv("chain-resolving", 1),
+      chainEv("move", undefined, { card: RAIGEKI, zone: z(0, HAND, 0), from: z(0, 0x01, 0), reason: "draw" }),
+      chainEv("move", undefined, { card: RAIGEKI, zone: z(0, GRAVE, 0), from: z(0, SZONE, 0), reason: "other" }),
+      chainEv("chain-resolved", 1),
+    ];
+    expect(chainOutcomes(events, settle(events), who).get(1)?.lines).toEqual(["Drew 1 card"]);
+    // The opponent sees the same count.
+    expect(chainOutcomes(events, settle(events), { mySeat: 1, playerName: names }).get(1)?.lines).toEqual(["Drew 1 card"]);
+  });
+
+  it("names the seat of each draw and each card added to a hand", () => {
+    id = 0;
+    const events = [
+      activate(1, 0, RAIGEKI),
+      chainEv("chain-resolving", 1),
+      chainEv("move", undefined, { zone: z(0, HAND, 0), from: z(0, 0x01, 0), reason: "draw" }),
+      chainEv("move", undefined, { zone: z(1, HAND, 0), from: z(1, 0x01, 0), reason: "draw" }),
+      chainEv("move", undefined, { zone: z(1, HAND, 1), from: z(1, 0x01, 0), reason: "draw" }),
+      chainEv("move", undefined, { card: GAIA, zone: z(1, HAND, 2), from: z(1, GRAVE, 0), reason: "other", addedToHand: true }),
+      chainEv("chain-resolved", 1),
+    ];
+    expect(chainOutcomes(events, settle(events), who).get(1)?.lines).toEqual([
+      "Drew 1 card", "Opponent drew 2 cards", "Opponent added Gaia The Fierce Knight to the hand",
+    ]);
+    expect(chainOutcomes(events, settle(events), { mySeat: 1, playerName: names }).get(1)?.lines).toEqual([
+      "Drew 1 card", "You drew 2 cards", "You added Gaia The Fierce Knight to the hand",
+    ]);
+  });
+
+  it("says a card from an unknown Deck position was added without a name", () => {
+    id = 0;
+    const events = [
+      activate(1, 0, RAIGEKI),
+      chainEv("chain-resolving", 1),
+      chainEv("move", undefined, { zone: z(0, HAND, 3), from: z(0, 0x01, 5), reason: "other", addedToHand: true }),
+      chainEv("chain-resolved", 1),
+    ];
+    expect(chainOutcomes(events, settle(events), who).get(1)?.lines).toEqual(["Added a card to the hand"]);
+  });
+
   it("says what was summoned, banished or returned", () => {
     id = 0;
     const events = [
