@@ -898,7 +898,7 @@
 .hub > * { pointer-events: auto; }
 
 /* The phase hub (the shared PhaseHub, "table" variant) on the helipad. The stage places it; only its chips take the pointer. */
-.stage:has([data-phase-hub-slot] > nav) [data-pad-h] { opacity: 0; }
+.stage:has([data-phase-hub-slot]:not([data-off="true"]) > nav) [data-pad-h] { opacity: 0; }
 .phaseHub[data-off="true"] { visibility: hidden; opacity: 0; pointer-events: none; }
 .phaseHub {
   position: absolute;
@@ -909,6 +909,10 @@
   pointer-events: none;
   text-shadow: 0 1px 2px #000;
 }
+
+/* The strip alone, for a gap too short for the caption: the owner line goes and the root is only as tall as the strip. */
+.phaseHub[data-hub-row="true"] [data-part="owner"] { display: none; }
+.phaseHub[data-hub-row="true"] nav[data-variant="table"] { height: auto; min-height: 0; }
 
 .crail {
   display: flex;

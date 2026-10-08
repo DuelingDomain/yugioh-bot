@@ -20,7 +20,7 @@ afterEach(cleanup);
 
 const seen: { camera: RoofCameraState | null } = { camera: null };
 
-function Stage({ id, mode }: { id: TableStateId; mode?: "overview" | "focus" }) {
+function Stage({ id, mode, hub }: { id: TableStateId; mode?: "overview" | "focus"; hub?: React.ReactNode }) {
   const state = TAG_FIXTURES.states[id];
   const controller = useFixtureController(state, { reducedMotion: true });
   const layout = tableLayout("tag", controller.engine, controller.viewerSeat);
@@ -37,6 +37,7 @@ function Stage({ id, mode }: { id: TableStateId; mode?: "overview" | "focus" }) 
         dispatchCamera={dispatch}
         renderSeatField={(props) => <SeatField {...props} />}
         teamNames={TAG_TEAM_NAMES}
+        hub={hub}
       />
     </div>
   );
@@ -44,6 +45,38 @@ function Stage({ id, mode }: { id: TableStateId; mode?: "overview" | "focus" }) 
 
 function mount(id: TableStateId = "main", mode?: "overview" | "focus") {
   return render(<Stage id={id} mode={mode} />).container;
+}
+
+/** The zones of one field, split by what a click on them does. */
+function zonesOf(root: HTMLElement, seat: number) {
+  const zones = [...root.querySelectorAll<HTMLElement>(`[data-field-hold="${seat}"] [data-zones]`)];
+  return {
+    idle: zones.filter((zone) => zone.dataset.legal !== "true" && zone.dataset.selected !== "true" && !(zone.dataset.pile === "true" && zone.dataset.occupied === "true")),
+    legal: zones.filter((zone) => zone.dataset.legal === "true"),
+    piles: zones.filter((zone) => zone.dataset.pile === "true" && zone.dataset.occupied === "true"),
+  };
+}
+
+function LockedStage() {
+  const state = TAG_FIXTURES.states.main;
+  const controller = useFixtureController(state, { reducedMotion: true });
+  const layout = tableLayout("tag", controller.engine, controller.viewerSeat);
+  const [camera, dispatch] = useReducer(roofReducer, undefined, () => {
+    const base = initialRoofCamera({ anchorSeat: layout.anchorSeat });
+    return roofReducer(base, { type: "lock", reason: "chain", nowMs: 0, ms: 60_000 });
+  });
+  return (
+    <div style={{ width: 1000, height: 800 }}>
+      <TagStage
+        controller={controller}
+        layout={layout}
+        camera={camera}
+        dispatchCamera={dispatch}
+        renderSeatField={(props) => <SeatField {...props} />}
+        teamNames={TAG_TEAM_NAMES}
+      />
+    </div>
+  );
 }
 
 const stageOf = (root: HTMLElement) => root.querySelector<HTMLElement>("[data-tag-stage]")!;
@@ -93,21 +126,137 @@ describe("Tag overview camera: click to focus", () => {
     expect(root.querySelector('[data-field-focus="2"]')).toBeNull();
     expect(root.querySelector('[data-field-focus="0"]')).not.toBeNull();
   });
+
+  it("the focus button of a field has no seat label under it: it sits inside the mat, in the corner of the field", () => {
+    const root = mount();
+    for (const seat of [0, 1, 2, 3]) {
+      const button = root.querySelector<HTMLElement>(`[data-field-focus="${seat}"]`)!;
+      expect(button.closest(`[data-field-hold="${seat}"]`)).not.toBeNull();
+      expect(button.getAttribute("data-near")).toBe(seat === 0 || seat === 2 ? "true" : "false");
+    }
+  });
+
+  it("an FX lock removes the focus buttons: they would do nothing", () => {
+    const root = render(<LockedStage />).container;
+    expect(root.querySelector("[data-field-focus]")).toBeNull();
+  });
 });
 
-describe("Tag overview camera: action clicks never move the camera", () => {
-  it("a click on a legal zone, a button or a card button on a field does its own job only", () => {
+describe("Tag overview camera: keyboard focus", () => {
+  it("after a focus, the keyboard focus lands on Back to overview, not on the page body", () => {
     const root = mount();
-    const hold = root.querySelector<HTMLElement>('[data-field-hold="0"]')!;
-    const legal = [...hold.querySelectorAll<HTMLElement>('[data-legal="true"]')];
-    const buttons = [...hold.querySelectorAll<HTMLElement>("button:not([data-field-focus])")];
-    expect(legal.length + buttons.length).toBeGreaterThan(0);
-    for (const node of [...legal, ...buttons]) {
-      fireEvent.click(node);
+    const button = root.querySelector<HTMLButtonElement>('[data-field-focus="1"]')!;
+    button.focus();
+    expect(document.activeElement).toBe(button);
+    fireEvent.click(button);
+    expect(document.activeElement).toBe(root.querySelector("[data-camera-back]"));
+  });
+
+  it("after Back, the keyboard focus returns to the focus button of the field that was in close-up", () => {
+    const root = mount();
+    fireEvent.click(root.querySelector<HTMLElement>('[data-field-focus="3"]')!);
+    const back = root.querySelector<HTMLButtonElement>("[data-camera-back]")!;
+    back.focus();
+    fireEvent.click(back);
+    expect(modeOf(root)).toBe("overview:-");
+    expect(document.activeElement).toBe(root.querySelector('[data-field-focus="3"]'));
+  });
+
+  it("does not take the focus from another control that holds it", () => {
+    const root = mount();
+    fireEvent.click(root.querySelector<HTMLElement>('[data-field-focus="1"]')!);
+    const other = root.querySelector<HTMLButtonElement>('[data-camera-seat-button="2"]')!;
+    other.focus();
+    fireEvent.click(other);
+    expect(document.activeElement).toBe(other);
+  });
+});
+
+describe("Tag overview camera: the phase hub", () => {
+  const hub = <nav data-testid="phases">phases</nav>;
+  const slotOf = (root: HTMLElement) => root.querySelector<HTMLElement>("[data-phase-hub-slot]")!;
+
+  it("is hidden in a close-up (the helipad is behind the focused field) and back in the overview", () => {
+    const focused = render(<Stage id="main" mode="focus" hub={hub} />);
+    expect(slotOf(focused.container).hidden).toBe(true);
+    cleanup();
+    const overview = render(<Stage id="main" hub={hub} />);
+    expect(slotOf(overview.container).hidden).toBe(false);
+  });
+});
+
+describe("Tag overview camera: a tap on a zone", () => {
+  it("a zone that offers no action focuses its field", () => {
+    const root = mount();
+    const { idle } = zonesOf(root, 2);
+    expect(idle.length).toBeGreaterThan(5);
+    fireEvent.click(idle[0].querySelector("button")!);
+    expect(modeOf(root)).toBe("focus:2");
+  });
+
+  it("the tap does not also act on the zone (no card inspect)", () => {
+    const inspect = vi.fn();
+    const root = render(<Stage id="main" />).container;
+    const seen = root.querySelectorAll("[data-card-art]").length;
+    expect(seen).toBeGreaterThan(0);
+    const occupied = [...root.querySelectorAll<HTMLElement>('[data-field-hold="3"] [data-zones][data-occupied="true"]')].find((zone) => zone.dataset.pile !== "true");
+    expect(occupied).toBeTruthy();
+    root.addEventListener("click", inspect);
+    fireEvent.click(occupied!.querySelector("button")!);
+    expect(modeOf(root)).toBe("focus:3");
+  });
+
+  it("a legal zone, or a pile that opens, acts and never moves the camera", () => {
+    const root = mount();
+    const nodes = [0, 1, 2, 3].flatMap((seat) => {
+      const { legal, piles } = zonesOf(root, seat);
+      return [...legal, ...piles];
+    });
+    expect(nodes.length).toBeGreaterThan(0);
+    for (const zone of nodes) {
+      fireEvent.click(zone.querySelector("button")!);
       expect(modeOf(root)).toBe("overview:-");
     }
   });
 
+  it("a plain button on a field does its own job only", () => {
+    const root = mount();
+    for (const button of root.querySelectorAll<HTMLElement>("[data-field-hold] button:not([data-field-focus]):not([data-zones] button)")) {
+      fireEvent.click(button);
+      expect(modeOf(root)).toBe("overview:-");
+    }
+  });
+
+  it("during a pick prompt, a zone that is not a target never moves the camera", () => {
+    const root = mount("target-pick");
+    let tapped = 0;
+    for (const seat of [0, 1, 2, 3]) {
+      for (const zone of zonesOf(root, seat).idle.slice(0, 3)) {
+        fireEvent.click(zone.querySelector("button")!);
+        tapped += 1;
+        expect(modeOf(root)).toBe("overview:-");
+      }
+    }
+    expect(tapped).toBeGreaterThan(0);
+  });
+
+  it("a zone of the field that is already in close-up acts as usual", () => {
+    const root = mount("main", "focus");
+    const { idle } = zonesOf(root, 0);
+    fireEvent.click(idle[0].querySelector("button")!);
+    expect(modeOf(root)).toBe("focus:0");
+  });
+
+  it("a zone does not focus while the camera is locked", () => {
+    const root = render(<LockedStage />).container;
+    const { idle } = zonesOf(root, 2);
+    fireEvent.click(idle[0].querySelector("button")!);
+    expect(modeOf(root)).toBe("overview:-");
+    expect(root.querySelector("[data-field-focus]")).toBeNull();
+  });
+});
+
+describe("Tag overview camera: action clicks never move the camera", () => {
   it("a click on a pickable seat chip answers the pick and does not focus", () => {
     const root = mount("choose-opponent");
     const pickable = root.querySelector<HTMLElement>('[data-member-seat][data-pickable="true"]');

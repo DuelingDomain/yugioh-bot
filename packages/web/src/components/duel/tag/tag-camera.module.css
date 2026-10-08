@@ -1,29 +1,28 @@
 /* Camera focus controls of the Tag stage: the per-field focus button and the rail shown while one field is in close-up. */
 
-/* A small corner mark on each field (a world-space child of the hold, in world units). It sits just outside the mat,
-   toward the middle of the roof, so it never covers a zone. */
+/* A corner mark on each field (a world-space child of the hold). The stage sets --focus-btn in world units so the button
+   stays about 36px on screen at every zoom. It sits in the empty corner of the mat (left of the Extra Monster row on
+   the field's own side, which is the far end of a rival field, as the rival fields are turned half a circle), so it
+   covers no zone and no seat label. */
 .focusBtn {
+  --b: var(--focus-btn, 44px);
   position: absolute;
-  right: 6px;
-  top: -52px;
-  width: 44px;
-  height: 44px;
-  padding: 9px;
+  left: calc(var(--b) * 0.25);
+  top: calc(var(--b) * 0.25);
+  z-index: 3;
+  width: var(--b);
+  height: var(--b);
+  padding: calc(var(--b) * 0.2);
+  box-sizing: border-box;
   display: grid;
   place-items: center;
-  border-radius: 12px;
-  border: 2px solid rgb(239 231 213 / 0.28);
+  border-radius: calc(var(--b) * 0.28);
+  border: calc(var(--b) * 0.05) solid rgb(239 231 213 / 0.3);
   background: rgb(8 12 22 / 0.78);
   color: rgb(239 231 213 / 0.8);
   cursor: pointer;
-  opacity: 0.55;
+  opacity: 0.6;
   transition: opacity 0.15s, border-color 0.15s, color 0.15s;
-}
-
-/* The far fields are turned half a circle: their gap side is the bottom edge. */
-.focusBtn[data-near="false"] {
-  top: auto;
-  bottom: -52px;
 }
 
 .focusBtn svg {
@@ -45,8 +44,8 @@
 }
 
 .focusBtn:focus-visible {
-  outline: 3px solid rgb(217 141 82 / 0.9);
-  outline-offset: 2px;
+  outline: calc(var(--b) * 0.07) solid rgb(217 141 82 / 0.9);
+  outline-offset: calc(var(--b) * 0.04);
 }
 
 /* ---------- rail ---------- */

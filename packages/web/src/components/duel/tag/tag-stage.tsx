@@ -14,9 +14,11 @@ import {
   easeCam,
   easeFly,
   lockLabel,
+  phaseHubSizes,
   poseAt,
   ROOF_FIELD,
   roofFit,
+  roofGap,
   roofSlots,
   roofTransform,
   tweenProgress,
@@ -44,18 +46,20 @@ export interface TagBoardProps extends Omit<TagStageProps, "camera"> {
 const TAG = "tag" as const;
 const HALF_W = ROOF_FIELD.width / 2;
 const HALF_H = ROOF_FIELD.height / 2;
-/** The phase hub shows its full strip when the helipad is at least this wide on screen (px); under it, the short strip. */
-const PHASE_HUB_LG_PAD = 380;
 /** Space between the phase hub and the chain hub while both are on the helipad. */
 const PHASE_HUB_GAP = 8;
 /** Anchor above the far strip: the rival plate hangs from here. */
 const FAR_ANCHOR_Y = -ROOF_FIELD.offsetY - ROOF_FIELD.height - 46;
-/**
- * A click on one of these does its own job (play a card, pick a zone, press a button): it never moves the camera.
- * Everything else on a field (the mat, the name label, a zone that offers no action) or on a seat chip focuses that field.
- */
+/** A screen this wide has free room left of the fields for the camera rail; a narrower one gets a row under the far plate. */
 const RAIL_COLUMN_MIN = 900;
 const RAIL_ROW = 46;
+/** Screen size of a field's focus button, in CSS px: large enough to hit with a finger, whatever the zoom. */
+const FOCUS_BTN_PX = 36;
+/**
+ * A click on one of these does its own job (play a card, pick a zone, press a button): it never moves the camera.
+ * Everything else on a field (the mat, the name label) or on a seat chip focuses that field, and so does a zone that
+ * offers no action (see `onStageClickCapture`).
+ */
 const ACTION_TARGET = "button, a, input, select, textarea, summary, [role='button'], [data-legal='true'], [data-pickable='true']";
 
 interface Tween {
@@ -118,7 +122,13 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
   const farPlateRef = useRef<HTMLDivElement | null>(null);
   // apply() runs every frame of a camera tween: it reads the narrow flag from a ref, never from a new media query.
   const narrowRef = useRef(false);
-  narrowRef.current = useIsNarrow();
+  const isNarrow = useIsNarrow();
+  narrowRef.current = isNarrow;
+  // apply() also reads the camera mode and the pose it eases to from refs, for the same reason.
+  const modeRef = useRef(camera.mode);
+  modeRef.current = camera.mode;
+  const targetRef = useRef(target);
+  targetRef.current = target;
   const poseRef = useRef<RoofPose>(target);
   const tweenRef = useRef<Tween | null>(null);
   const rafRef = useRef(0);
@@ -166,6 +176,9 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     root.style.setProperty("--persp", `${(1400 * fit).toFixed(1)}px`);
     const pose = poseRef.current;
     world.style.transform = roofTransform(pose, fit);
+    // The focus buttons keep one size on screen: world units grow when the view zooms out.
+    const unit = FOCUS_BTN_PX / Math.max(fit * pose.zoom, 0.05);
+    root.querySelectorAll<HTMLElement>("[data-field-focus]").forEach((node) => node.style.setProperty("--focus-btn", `${unit.toFixed(1)}px`));
     pillsRef.current?.style.setProperty("--flip", Math.cos((pose.yaw * Math.PI) / 180) < 0 ? "180deg" : "0deg");
 
     const box = root.getBoundingClientRect();
@@ -173,27 +186,46 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     const far = farRef.current?.getBoundingClientRect();
     const hub = hubRef.current;
     const phases = phaseHubRef.current;
-    // A camera that focuses a seat can leave the helipad out of the view. The hub then hides instead of sliding onto the
-    // field it zoomed in on; the bottom bar still has the turn buttons.
     const padAt = pad ? { x: pad.left - box.left, y: pad.top - box.top } : null;
     const padSeen = padAt != null && padAt.x >= view.left && padAt.x <= view.right && padAt.y >= view.top && padAt.y <= view.bottom;
-    if (phases) {
-      if (padSeen) phases.removeAttribute("data-off");
-      else phases.setAttribute("data-off", "true");
-    }
-    if (phases && pad && padSeen) {
-      // The phase hub takes the middle of the helipad (the decoration under it is plain paint). The full strip needs the
-      // pad's width; a smaller pad gets the short one. While the chain hub is open the two stack around the middle.
-      const padSize = root.querySelector<SVGElement>("[data-roof='pad']")?.getBoundingClientRect().width ?? 0;
-      phases.setAttribute("data-hub-size", padSize >= PHASE_HUB_LG_PAD ? "lg" : "sm");
-      const stackH = phases.offsetHeight + (hub ? PHASE_HUB_GAP + hub.offsetHeight : 0);
-      const at = clampCenter({ x: pad.left - box.left, y: pad.top - box.top }, { w: Math.max(phases.offsetWidth, hub?.offsetWidth ?? 0), h: stackH }, view);
-      const top = at.y - stackH / 2;
-      phases.style.left = `${at.x.toFixed(1)}px`;
-      phases.style.top = `${(top + phases.offsetHeight / 2).toFixed(1)}px`;
-      if (hub) {
+    if (phases && pad && padAt) {
+      // The phase hub sits in the gap between the two strips, on the helipad. The size comes from the gap the camera
+      // ends on (so it does not flip during a tween): the biggest strip that fits the gap, with the chain hub stacked
+      // under it when one is open. When none fits, or on a phone (the bottom bar has the phases) or in a close-up (the
+      // helipad is behind the focused field), the hub is hidden.
+      const gap = roofGap(targetRef.current, fit);
+      const usable = !narrowRef.current && modeRef.current !== "focus" && padSeen;
+      let stackH = 0;
+      let fitted = false;
+      if (usable) {
+        for (const size of phaseHubSizes(gap.freePx)) {
+          phases.setAttribute("data-hub-size", size === "lg" ? "lg" : "sm");
+          if (size === "row") phases.setAttribute("data-hub-row", "true");
+          else phases.removeAttribute("data-hub-row");
+          stackH = phases.offsetHeight + (hub ? PHASE_HUB_GAP + hub.offsetHeight : 0);
+          if (stackH <= gap.gapPx - 4) {
+            fitted = true;
+            break;
+          }
+        }
+      }
+      if (fitted) {
+        phases.removeAttribute("data-off");
+        const at = clampCenter(padAt, { w: Math.max(phases.offsetWidth, hub?.offsetWidth ?? 0), h: stackH }, view);
+        const top = at.y - stackH / 2;
+        phases.style.left = `${at.x.toFixed(1)}px`;
+        phases.style.top = `${(top + phases.offsetHeight / 2).toFixed(1)}px`;
+        if (hub) {
+          hub.style.left = `${at.x.toFixed(1)}px`;
+          hub.style.top = `${(top + phases.offsetHeight + PHASE_HUB_GAP + hub.offsetHeight / 2).toFixed(1)}px`;
+        }
+      } else {
+        phases.setAttribute("data-off", "true");
+      }
+      if (!fitted && hub) {
+        const at = clampCenter(padAt, { w: hub.offsetWidth, h: hub.offsetHeight }, view);
         hub.style.left = `${at.x.toFixed(1)}px`;
-        hub.style.top = `${(top + phases.offsetHeight + PHASE_HUB_GAP + hub.offsetHeight / 2).toFixed(1)}px`;
+        hub.style.top = `${at.y.toFixed(1)}px`;
       }
     } else if (hub && pad) {
       const at = clampCenter({ x: pad.left - box.left, y: pad.top - box.top }, { w: hub.offsetWidth, h: hub.offsetHeight }, view);
@@ -269,8 +301,10 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     [layout.slots, slotsOf, toneOf],
   );
   // A close-up needs a free camera: not under an FX lock, and not while an attack is aimed (the aim wants every rival).
+  // A phone has no room for the corner buttons: a tap on the field, its name or a plate chip focuses it there.
+  const focusFree = !camera.lock && !camera.aiming && controller.aim == null;
   const focusField = (seat: number) => {
-    if (camera.lock || camera.aiming || controller.aim != null) return;
+    if (!focusFree) return;
     dispatchCamera({ type: "focus", seat });
   };
   const onStageClick = (event: MouseEvent<HTMLDivElement>) => {
@@ -279,6 +313,38 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     const seat = Number(node.closest<HTMLElement>("[data-field-hold]")?.dataset.fieldHold ?? node.closest<HTMLElement>("[data-member-seat]")?.dataset.memberSeat);
     if (Number.isInteger(seat) && engine.seats.some((s) => s.seat === seat)) focusField(seat);
   };
+  // Every zone is a full-size button, so most taps on a field land on one. A zone that offers no action (not a legal
+  // pick, not selected, no pile to open) hands the tap to the camera instead: the field comes into focus and the click
+  // does not also inspect a card. A zone with an action, and any zone of the field already in close-up, act as usual.
+  const picking = prompt != null && promptSeat === viewerSeat && !(prompt.kind === "choice" && prompt.context?.type === "action");
+  const onStageClickCapture = (event: MouseEvent<HTMLDivElement>) => {
+    const node = event.target instanceof Element ? event.target : null;
+    const zone = node?.closest<HTMLElement>("[data-zones]");
+    const hold = zone?.closest<HTMLElement>("[data-field-hold]");
+    if (!zone || !hold || zone.dataset.legal === "true" || zone.dataset.selected === "true") return;
+    if (zone.dataset.pile === "true" && zone.dataset.occupied === "true") return;
+    const seat = Number(hold.dataset.fieldHold);
+    if (!Number.isInteger(seat) || (camera.mode === "focus" && camera.focusSeat === seat)) return;
+    if (camera.lock || camera.aiming || controller.aim != null) return;
+    // During a pick prompt (a target, a zone, a card to choose) every tap belongs to the prompt: a zone that is not a
+    // target does nothing, it never moves the camera. The open action menu of a main phase is no pick.
+    if (picking && legalKeys.size > 0) return;
+    event.stopPropagation();
+    focusField(seat);
+  };
+
+  // A button that unmounts takes the keyboard focus with it. After a focus, the focus moves to Back to overview; after
+  // the way back (the button, the Esc key), it returns to the focus button of the field that was in close-up.
+  const lastFocusRef = useRef<{ mode: RoofCameraState["mode"]; seat: number | null }>({ mode: camera.mode, seat: camera.focusSeat });
+  useEffect(() => {
+    const last = lastFocusRef.current;
+    lastFocusRef.current = { mode: camera.mode, seat: camera.focusSeat };
+    const root = rootRef.current;
+    const active = document.activeElement;
+    if (!root || (active != null && active !== document.body && root.contains(active))) return;
+    if (camera.mode === "focus" && last.mode !== "focus") root.querySelector<HTMLElement>("[data-camera-back]")?.focus();
+    else if (camera.mode !== "focus" && last.mode === "focus" && last.seat != null) root.querySelector<HTMLElement>(`[data-field-focus="${last.seat}"]`)?.focus();
+  }, [camera.mode, camera.focusSeat]);
 
   // ---------- fields ----------
   const fieldHold = (seat: number) => {
@@ -320,13 +386,12 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
         key={seat}
         className={styles.fieldHold}
         data-field-hold={seat}
-        data-focusable={focused ? undefined : "true"}
         data-relation={relation}
         data-out={view.eliminated || loss.lostTeam === teamOfSeat(TAG, seat) ? "true" : undefined}
         style={{ width: ROOF_FIELD.width, height: ROOF_FIELD.height, transform }}
       >
         {renderSeatField(props)}
-        {focused ? null : (
+        {focused || !focusFree || isNarrow ? null : (
           <button
             type="button"
             className={cameraStyles.focusBtn}
@@ -409,6 +474,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
       data-camera-mode={camera.mode}
       data-camera-seat={camera.mode === "focus" && camera.focusSeat != null ? camera.focusSeat : undefined}
       onClick={onStageClick}
+      onClickCapture={onStageClickCapture}
       data-camera-locked={camera.lock ? camera.lock.reason : undefined}
     >
       <div className={styles.persp}>
@@ -440,7 +506,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
       {fx != null ? <div className={styles.slot}>{fx}</div> : null}
       {plate(anchorTeam, true)}
       {plate(1 - anchorTeam, false)}
-      {phaseHub != null ? <div ref={phaseHubRef} className={styles.phaseHub} data-phase-hub-slot>{phaseHub}</div> : null}
+      {phaseHub != null ? <div ref={phaseHubRef} className={styles.phaseHub} hidden={camera.mode === "focus"} data-phase-hub-slot>{phaseHub}</div> : null}
       <HelipadHub
         chain={engine.chain}
         anchorSeat={anchor}

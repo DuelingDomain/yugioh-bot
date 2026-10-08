@@ -9,8 +9,10 @@ import {
   easeCam,
   easeFly,
   initialRoofCamera,
+  phaseHubSizes,
   poseAt,
   roofFit,
+  roofGap,
   roofKeyAction,
   roofReducer,
   roofSlots,
@@ -41,8 +43,8 @@ describe("roofSlots", () => {
       const slots = roofSlots(anchor);
       expect(slots[anchor]).toMatchObject({ near: true, x: -357 });
       expect(slots[(anchor + 2) % 4]).toMatchObject({ near: true, x: 357 });
-      expect(slots[(anchor + 1) % 4]).toMatchObject({ near: false, x: -357 });
-      expect(slots[(anchor + 3) % 4]).toMatchObject({ near: false, x: 357 });
+      expect(slots[anchor ^ 1]).toMatchObject({ near: false, x: -357 });
+      expect(slots[((anchor + 2) % 4) ^ 1]).toMatchObject({ near: false, x: 357 });
     }
   });
 });
@@ -79,6 +81,24 @@ describe("presets and seat poses", () => {
     expect(seatPose(0, 2).fx).toBe(357);
     expect(seatPose(0, 0).fy).toBeGreaterThan(0);
     expect(seatPose(0, 1).fy).toBeLessThan(0);
+  });
+
+  it("puts 1A across from 2A and 1B across from 2B (seats 0-1 and 2-3) for every viewer", () => {
+    for (const anchor of [0, 1, 2, 3]) {
+      const slots = roofSlots(anchor);
+      expect(Object.keys(slots).sort()).toEqual(["0", "1", "2", "3"]);
+      for (const [a, b] of [[0, 1], [2, 3]]) {
+        expect(slots[a].near).not.toBe(slots[b].near);
+        expect(slots[a].x).toBe(slots[b].x);
+      }
+      // The viewer is near left and the partner near right.
+      expect(slots[anchor]).toMatchObject({ near: true, x: -ROOF_FIELD.centerX });
+      expect(slots[(anchor + 2) % 4]).toMatchObject({ near: true, x: ROOF_FIELD.centerX });
+    }
+    expect(roofSlots(1)[0]).toMatchObject({ near: false, x: -ROOF_FIELD.centerX });
+    expect(roofSlots(1)[2]).toMatchObject({ near: false, x: ROOF_FIELD.centerX });
+    expect(roofSlots(3)[2]).toMatchObject({ near: false, x: -ROOF_FIELD.centerX });
+    expect(roofSlots(3)[0]).toMatchObject({ near: false, x: ROOF_FIELD.centerX });
   });
 
   it("keeps facing fields in the same columns, with a gap between the strips", () => {
@@ -265,7 +285,16 @@ describe("FX lock", () => {
     const r = roofReducer(s, { type: "tick", nowMs: 1000 });
     expect(r.pinned).toBe(true);
     expect(r.aiming).toBe(true);
-    expect(r.mode).toBe("focus");
+    // The aim needs the rival fields, so the close-up does not come back after the lock.
+    expect(r.mode).toBe("overview");
+    expect(r.pose).toEqual(ROOF_PRESETS.overview);
+  });
+
+  it("an aim under a lock keeps the pin and the overview, and an aim that ends changes nothing more", () => {
+    const s = run(focus, { type: "lock", reason: "chain", nowMs: 0, ms: 1000 }, { type: "aiming", on: true }, { type: "aiming", on: false });
+    const r = roofReducer(s, { type: "tick", nowMs: 1000 });
+    expect(r.mode).toBe("overview");
+    expect(r.aiming).toBe(false);
   });
 
   it("starts a locked state from a preview lock", () => {
@@ -452,8 +481,36 @@ describe("overview camera (default, focus, back)", () => {
     expect(run(overview, { type: "needSeats", seats: [2] })).toBe(overview);
   });
 
-  it("an FX lock still wins over a prompt need", () => {
+  it("a prompt need under an FX lock does not move the camera now, but the close-up does not come back after the lock", () => {
     const locked = run(run(overview, { type: "focus", seat: 1 }), { type: "lock", reason: "chain", nowMs: 0, ms: 1000 });
-    expect(roofReducer(locked, { type: "needSeats", seats: [2] })).toBe(locked);
+    const needed = roofReducer(locked, { type: "needSeats", seats: [2] });
+    expect(needed.rev).toBe(locked.rev);
+    expect(needed.mode).toBe("overview");
+    const after = roofReducer(needed, { type: "tick", nowMs: 1000 });
+    expect(after).toMatchObject({ mode: "overview", focusSeat: null, lock: null });
+    expect(after.pose).toEqual(ROOF_PRESETS.overview);
+  });
+
+  it("a prompt under an FX lock that needs only the focused field brings the close-up back after the lock", () => {
+    const locked = run(run(overview, { type: "focus", seat: 1 }), { type: "lock", reason: "chain", nowMs: 0, ms: 1000 });
+    const same = roofReducer(locked, { type: "needSeats", seats: [1] });
+    expect(same).toBe(locked);
+    expect(roofReducer(same, { type: "tick", nowMs: 1000 })).toMatchObject({ mode: "focus", focusSeat: 1 });
+  });
+});
+
+describe("phase hub sizing", () => {
+  it("offers the full strip only when the gap row is wide enough, then the short strips, then none", () => {
+    expect(phaseHubSizes(600)).toEqual(["lg", "sm", "row"]);
+    expect(phaseHubSizes(300)).toEqual(["sm", "row"]);
+    expect(phaseHubSizes(120)).toEqual([]);
+  });
+
+  it("takes the gap height and width from the pose scale (zoom 1 is the overview)", () => {
+    const gap = roofGap(ROOF_PRESETS.overview, 0.5);
+    expect(gap.freePx).toBeCloseTo(450, 5);
+    expect(gap.gapPx).toBeGreaterThan(0);
+    expect(gap.gapPx).toBeLessThanOrEqual(2 * ROOF_FIELD.offsetY * 0.5);
+    expect(roofGap(ROOF_PRESETS.overview, 1).gapPx).toBeGreaterThan(gap.gapPx);
   });
 });

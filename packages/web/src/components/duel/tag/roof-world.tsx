@@ -1,7 +1,7 @@
 import { Fragment, type CSSProperties } from "react";
 import { tagSeatCode } from "../table-format";
 import type { BatonStop } from "./tag-logic";
-import { ROOF_FIELD } from "./roof-camera";
+import { ROOF_FIELD, roofSlots } from "./roof-camera";
 import styles from "./tag-stage.module.css";
 
 /**
@@ -147,13 +147,19 @@ export interface BatonProps {
   holderRef?: (node: HTMLDivElement | null) => void;
 }
 
-function stopAt(anchor: number, k: number): number {
-  return (anchor + k) % 4;
+/**
+ * The notch a seat's pill sits on, from where the stage puts that seat's field (left or right, near or far), so the
+ * baton follows the facing pairs for every viewer. Notches run: left near, left far, right near, right far.
+ */
+export function batonNotch(anchorSeat: number, seat: number): number {
+  const slot = roofSlots(anchorSeat)[seat];
+  if (!slot) return 0;
+  return (slot.x < 0 ? 0 : 2) + (slot.near ? 0 : 1);
 }
 
 /** The bow-tie baton on the helipad: one pill per seat, turn order 1A to 2A to 1B to 2B. */
 export function Baton({ stops, anchorSeat, nameOf, rgbOf, out, holderRef }: BatonProps) {
-  const notchOf = (seat: number) => (seat - anchorSeat + 4) % 4;
+  const notchOf = (seat: number) => batonNotch(anchorSeat, seat);
   const now = stops.find((s) => s.now);
   const next = stops.find((s) => s.next);
   const seg = now && next ? [NOTCH[notchOf(now.seat)], NOTCH[notchOf(next.seat)]] : null;
@@ -167,8 +173,8 @@ export function Baton({ stops, anchorSeat, nameOf, rgbOf, out, holderRef }: Bato
         ) : null}
       </svg>
       <div ref={holderRef} className={styles.bpills} data-roof="baton-pills" style={{ left: 0, top: 0, transform: "translateZ(2px)" }}>
-        {[0, 1, 2, 3].map((k) => {
-          const seat = stopAt(anchorSeat, k);
+        {[0, 1, 2, 3].map((seat) => {
+          const k = notchOf(seat);
           const stop = stops.find((s) => s.seat === seat);
           const isOut = out.has(seat);
           const state = isOut ? "out" : stop?.now ? "now" : stop?.next ? "next" : "";
