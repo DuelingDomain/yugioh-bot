@@ -4,7 +4,9 @@ import { FloorList, SectionHead } from "@/components/sheet";
 import { EmptyTournaments } from "@/components/empty-states/empty-tournaments";
 import { TournamentRow } from "./tournament-row";
 import { FinishedLedger } from "./finished-ledger";
-import { groupTournaments, type TournamentListItem } from "./tournaments-list-model";
+import { LoadMore } from "@/components/paged-list/load-more";
+import { usePagedList } from "@/lib/hooks/use-paged-list";
+import { groupTournaments, tournamentFromApi, type TournamentApiItem, type TournamentListItem } from "./tournaments-list-model";
 import type { TournamentRounds } from "@/components/dashboard/tournament-rounds";
 
 export interface TournamentsListProps {
@@ -13,9 +15,19 @@ export interface TournamentsListProps {
   rounds: Map<number, TournamentRounds>;
   viewerId: number | null;
 }
-/** First page is server rendered. nextCursor is reserved for the subsequent paging UI. */
-export function TournamentsList({ initialItems, nextCursor: _nextCursor, rounds, viewerId }: TournamentsListProps) {
-  const tournaments = initialItems;
+/**
+ * The first page is server rendered; "Load more" appends the next ones from `/api/tournaments`.
+ * `rounds` covers the first page only, so an appended running or open row has no round strip or
+ * duel action (`TournamentRow` already draws without them).
+ */
+export function TournamentsList({ initialItems, nextCursor, rounds, viewerId }: TournamentsListProps) {
+  const list = usePagedList<TournamentApiItem, TournamentListItem>({
+    endpoint: "/api/tournaments",
+    initialItems,
+    initialCursor: nextCursor,
+    adapt: tournamentFromApi,
+  });
+  const tournaments = list.items;
   const groups = groupTournaments(tournaments);
   return (
     <>
@@ -46,11 +58,12 @@ export function TournamentsList({ initialItems, nextCursor: _nextCursor, rounds,
           {groups.finished.length > 0 && (
             <section aria-labelledby="tl-fin">
               <SectionHead title="Finished" id="tl-fin" note="Newest first" />
-              <FinishedLedger items={groups.finished} />
+              <FinishedLedger items={groups.finished} showAll={list.appended} />
             </section>
           )}
         </>
       )}
+      <LoadMore list={list} noun="tournaments" />
     </>
   );
 }

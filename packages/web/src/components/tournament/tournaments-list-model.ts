@@ -14,6 +14,24 @@ export interface TournamentListItem {
   webSlug?: string;
 }
 
+/**
+ * One tournament as `/api/tournaments` returns it: the list shape plus fields the list does not use.
+ * It has no pairings, so an appended row shows without a round strip or duel action.
+ */
+export type TournamentApiItem = TournamentListItem & { guildId?: string; createdByUserId?: number };
+
+/** The one adapter from an API row to a page row; it drops the fields the list does not read. */
+export function tournamentFromApi(item: TournamentApiItem): TournamentListItem {
+  return {
+    id: item.id,
+    name: item.name,
+    format: item.format,
+    status: item.status,
+    participantCount: item.participantCount,
+    webSlug: item.webSlug ?? undefined,
+  };
+}
+
 export interface TournamentGroups {
   running: TournamentListItem[];
   open: TournamentListItem[];
