@@ -626,6 +626,29 @@ describe("the pinned card peek of the 1v1 room", () => {
       } finally { tower.remove(); }
     });
 
+    it("takes a tall band over the clicked card before a 100 px band that clips the panel (the pin then covers the card)", () => {
+      layout({ left: 100, right: 180, top: 400, bottom: 560 });
+      // The panel needs 300 px: a place under that clips it (jsdom has no layout, so the clip is computed from the band).
+      const asideSize = (node: Element) => (node.tagName === "ASIDE" ? node as HTMLElement : null);
+      spies.push(
+        vi.spyOn(Element.prototype, "clientHeight", "get").mockImplementation(function (this: Element) {
+          const aside = asideSize(this);
+          if (aside) return Math.min(300, parseInt(aside.style.getPropertyValue("--pv-max-h") || "300", 10));
+          return this.tagName === "P" ? 200 : 0;
+        }),
+        vi.spyOn(Element.prototype, "scrollHeight", "get").mockImplementation(function (this: Element) { return asideSize(this) ? 300 : 0; }),
+      );
+      // The tower leaves a 100 px band above it (50-150, clear of the card) and the tall band 360-712 under it, over the card.
+      const tower = part({ "data-testid": "chain-tower" }, { left: 14, right: 162, top: 162, bottom: 348 });
+      try {
+        mount();
+        pin();
+        expect(peek().getAttribute("data-side")).toBe("left");
+        expect(css("--pv-max-h")).toBe("352px");
+        expect(css("--pv-bottom")).toBe("8px");
+      } finally { tower.remove(); }
+    });
+
     it("never goes to the right: with a single band, a clicked card under the left panel does not move it", () => {
       layout({ left: 100, right: 180, top: 400, bottom: 560 });
       mount();
@@ -808,6 +831,13 @@ describe("the pinned card peek of the 1v1 room", () => {
     });
 
 
+
+    it("keeps a floor under the card art in a tall band, so a long text scrolls instead of taking the art to 0", () => {
+      const css = readFileSync(join(__dirname, "../../src/components/duel/table/grid-hud.module.css"), "utf8");
+      const rule = css.match(/^\.previewArt\s*\{[^}]*\}/m);
+      // 0 in a band under about 330 px, up to 180 px from 510 px on (--pv-max-h is the band height that grid-preview.tsx sets).
+      expect(rule?.[0]).toMatch(/min-height:\s*clamp\(0px,\s*calc\(var\(--pv-max-h,\s*0px\)\s*-\s*330px\),\s*180px\)/);
+    });
 
     it("takes the pointer in CSS, so a click on a pinned panel never reaches a card under it", () => {
       // jsdom ignores CSS: read the rule. (The Playwright check with a target prompt open lives in the manual run.)

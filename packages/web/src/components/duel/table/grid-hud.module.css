@@ -674,9 +674,10 @@
 .preview[data-anchor="bottom"] { top: auto; bottom: var(--pv-bottom, 8px); }
 .preview[data-open="true"] { transform: none; visibility: visible; transition: transform 0.18s ease-out, visibility 0s; }
 .preview[data-motion="none"] { transition: none; }
-/* The art gives way first: its shrink weight dwarfs the text's, down to a small card. It stays centered and blends in. */
+/* The art gives way first: its shrink weight dwarfs the text's, down to a small card. It stays centered and blends in.
+   In a band over about 420px (--pv-max-h, from grid-preview.tsx) it keeps a floor of up to 180px, so a very long text scrolls instead of taking the art to 0. */
 .preview[data-squeezed="true"] .previewArt { display: none; }
-.previewArt { display: block; flex: 0 1000 auto; width: 100%; min-height: 0; aspect-ratio: 59 / 86; margin: 0 0 10px; border-radius: 4px; object-fit: contain; background: transparent; }
+.previewArt { display: block; flex: 0 1000 auto; width: 100%; min-height: clamp(0px, calc(var(--pv-max-h, 0px) - 330px), 180px); aspect-ratio: 59 / 86; margin: 0 0 10px; border-radius: 4px; object-fit: contain; background: transparent; }
 .preview h3 { flex: none; margin: 0; padding-right: 22px; font-size: calc(var(--pv-ct) * 1.35); font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
 .previewType { flex: none; margin: 3px 0 0; color: var(--duel-ink-2); font-size: calc(var(--pv-ct) * 0.95); }
 .previewStats { flex: none; margin: 6px 0 0; font-size: calc(var(--pv-ct) * 1.35); font-weight: 500; letter-spacing: 0.02em; }
