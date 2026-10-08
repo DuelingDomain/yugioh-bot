@@ -548,7 +548,8 @@
   box-shadow: inset 0 0 0 1px rgb(239 231 213 / 0.14), 0 6px 16px -6px rgb(0 0 0 / 0.8);
 }
 /* The details open inside the plate, over the card and the name, so they never reach past the plate. */
-.masterWrap[data-form="tall"] .masterFly {
+.masterWrap[data-form="tall"] .masterFly,
+.masterWrap[data-form="wide"] .masterFly {
   inset: 0;
   z-index: 1;
   display: flex;
@@ -562,15 +563,73 @@
   background: rgb(9 15 29);
   box-shadow: none;
 }
-.masterWrap[data-form="tall"] .masterFly::after { display: none; }
-.masterWrap[data-form="tall"] .masterFly > * { flex: none; }
+.masterWrap[data-form="tall"] .masterFly::after,
+.masterWrap[data-form="wide"] .masterFly::after { display: none; }
+.masterWrap[data-form="tall"] .masterFly > *,
+.masterWrap[data-form="wide"] .masterFly > * { flex: none; }
 /* One line per fact (the label left, the value right), so the facts and Card view fit in the plate. */
-.masterWrap[data-form="tall"] .masterFly dl div { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
-.masterWrap[data-form="tall"] .masterFly dd { text-align: right; white-space: nowrap; }
+.masterWrap[data-form="tall"] .masterFly dl div,
+.masterWrap[data-form="wide"] .masterFly dl div { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
+.masterWrap[data-form="tall"] .masterFly dd,
+.masterWrap[data-form="wide"] .masterFly dd { text-align: right; white-space: nowrap; }
 /* The tall plate is higher: the dock flyout (after the plate in the layer) ends above it. The flyout top (56px), a
    10px gap, the plate's bottom offset, its rest (132px) and its tallest card (222px). */
 .masterWrap[data-form="tall"] ~ .flyout {
   max-height: max(200px, calc(100% - 66px - var(--hud-master-bottom, calc(clamp(58px, 5.6dvh, 68px) + 20px)) - 354px));
+}
+
+/*
+ * The wide form (data-form="wide"; the 3-way plaza, which has free room in the left margin): the whole card beside the
+ * name and the facts, the ability text under them (it scrolls when long) and the actions at the bottom. The box is
+ * anchored bottom left (14px, `--hud-master-bottom`), 208px to 340px wide (16vw) and never wider than the screen less
+ * its margins; the card is `--hud-master-art-h` high (120px to 250px, 18% of the window height). On a window under
+ * 600px high the ability text is hidden (Inspect still shows it). Phones do not use the HUD at all.
+ */
+.masterWrap[data-form="wide"] {
+  --hud-master-art-h: clamp(120px, 18dvh, 250px);
+  width: var(--hud-master-w, clamp(208px, 16vw, 340px));
+  max-width: calc(100vw - 28px);
+}
+.masterWrap[data-form="wide"] .master { gap: 8px; padding: 10px; }
+.masterWrap[data-form="wide"] .masterFace { position: relative; gap: 8px; }
+.masterWrap[data-form="wide"] .masterToken { align-items: flex-start; gap: 10px; width: 100%; }
+.masterWrap[data-form="wide"] .masterArt {
+  width: auto;
+  height: var(--hud-master-art-h);
+  background-position: center;
+  background-size: contain;
+  box-shadow: inset 0 0 0 1px rgb(239 231 213 / 0.14), 0 6px 16px -6px rgb(0 0 0 / 0.8);
+}
+.masterWrap[data-form="wide"] .masterId { gap: 4px; }
+.masterWrap[data-form="wide"] .masterId b { -webkit-line-clamp: 3; line-clamp: 3; font-size: calc(14px * var(--tt, 1)); line-height: 1.2; }
+.masterFacts { display: grid; gap: 2px; margin-top: 2px; color: var(--duel-ink-2); font-size: calc(12px * var(--tt, 1)); line-height: 1.3; }
+.masterFacts span { min-width: 0; overflow-wrap: anywhere; }
+.masterFacts span[data-status="away"] { color: var(--duel-pen-ink); }
+.masterAbility {
+  max-height: clamp(64px, 11dvh, 132px);
+  padding: 6px 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  border-radius: 8px;
+  background: rgb(239 231 213 / 0.05);
+  color: var(--duel-ink-2);
+  font-size: calc(12px * var(--tt, 1));
+  line-height: 1.4;
+  white-space: pre-line;
+}
+.masterAbility:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: 2px; }
+.masterAbilityNone { color: var(--duel-ink-3); }
+.masterWrap[data-form="wide"] .masterActions button { height: 32px; }
+.masterWrap[data-form="wide"] .masterActions .masterInspect { width: auto; padding: 0 12px; }
+.masterWrap[data-form="wide"] .masterInspectText { display: inline; }
+/* The dock flyout (after the plate in the layer) ends above the wide plate: its card, ability text and actions. */
+.masterWrap[data-form="wide"] ~ .flyout {
+  max-height: max(200px, calc(100% - 66px - var(--hud-master-bottom, calc(clamp(58px, 5.6dvh, 68px) + 20px)) - 430px));
+}
+@media (max-height: 599px) {
+  .masterWrap[data-form="wide"] { --hud-master-art-h: 100px; }
+  .masterWrap[data-form="wide"] .masterAbility { display: none; }
 }
 
 /* ---------- hover preview: slides out from the left edge, beside the dock (never over its icons) ---------- */

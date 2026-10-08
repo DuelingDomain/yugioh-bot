@@ -100,11 +100,13 @@
    of the Deck Master plate, not under it. */
 .shell.shell[data-hud="true"][data-plaza-hud="true"] {
   --hud-left: 14px;
+  /* The wide Deck Master plate (grid-master.tsx, data-form="wide") at the bottom left: 14px from the edge, this wide. */
+  --hud-master-w: clamp(208px, 16vw, 340px);
 }
 
 .shell.shell[data-plaza-hud="true"] :global([data-camera-chip]),
 .shell.shell[data-plaza-hud="true"] :global([data-camera-cue]) {
-  left: 180px;
+  left: calc(14px + var(--hud-master-w) + 12px);
 }
 
 .shell.shell[data-hud="true"] .hudLayout {

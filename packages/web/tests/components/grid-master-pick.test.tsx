@@ -2,7 +2,7 @@
 import React from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { DuelCardInfo, DuelSeatView } from "@yugidraft/shared/duels";
+import type { DuelCardInfo, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 
 vi.mock("next/font/google", () => {
   const font = () => ({ variable: "font-var", className: "font-class" });
@@ -20,11 +20,11 @@ const info: DuelCardInfo = { code: 9, name: "Dark Magician", description: "A mag
 const view = { seat: 0, deckMaster: { card: info, inZone: true, returns: 0, nextCost: 0 } } as unknown as DuelSeatView;
 const zone = `0:${LOCATION_DMZONE}:0`;
 
-function plate(opts: { legal: boolean; canAct?: boolean; local?: boolean; onActivate?: () => void }) {
+function plate(opts: { legal: boolean; canAct?: boolean; local?: boolean; onActivate?: () => void; wide?: boolean; actions?: DuelPromptOption[] }) {
   const onToggle = vi.fn();
   render(
     <GridMasterToken view={view} local={opts.local ?? true} legalKeys={new Set(opts.legal ? [zone] : [])} selectedKeys={new Set()}
-      canAct={opts.canAct ?? true} legalActionsFor={() => []} open={false} title="Your Master" onToggle={onToggle} onClose={vi.fn()}
+      canAct={opts.canAct ?? true} legalActionsFor={() => opts.actions ?? []} wide={opts.wide} open={false} title="Your Master" onToggle={onToggle} onClose={vi.fn()}
       onChooseAction={vi.fn()} onActivate={opts.onActivate} onInspect={vi.fn()} />,
   );
   return { onToggle };
@@ -63,6 +63,44 @@ describe("the Deck Master plate token", () => {
     cleanup();
     plate({ legal: false, onActivate: vi.fn() });
     expect(screen.getByTestId("hud-master-token").getAttribute("aria-expanded")).toBe("false");
+  });
+});
+
+describe("the wide Deck Master plate of the 3-way plaza", () => {
+  const summon = { id: "s1", label: "Normal Summon Dark Magician" } as DuelPromptOption;
+
+  it("shows the name, the facts and the ability text, and keeps the actions", () => {
+    plate({ legal: false, wide: true, actions: [summon] });
+    expect(screen.getByTestId("hud-master").getAttribute("data-form")).toBe("wide");
+    expect(screen.getByTestId("hud-master-token")).toHaveTextContent("Dark Magician");
+    const facts = screen.getByTestId("hud-master-facts");
+    expect(facts).toHaveTextContent("Level 7");
+    expect(facts).toHaveTextContent("In Deck Master Zone");
+    expect(screen.getByTestId("hud-master-ability")).toHaveTextContent("A mage.");
+    expect(screen.getByTestId("hud-master-action")).toHaveTextContent("Summon");
+    expect(screen.getByTestId("hud-master-inspect")).toBeTruthy();
+  });
+
+  it("is the Deck Master Zone anchor of the seat for the summon and the return flights", () => {
+    plate({ legal: false, wide: true });
+    const art = document.querySelector("[data-master-dock]");
+    expect(art?.getAttribute("data-master-dock")).toBe("0");
+    expect(art?.getAttribute("data-master-source")).toBe("0");
+  });
+
+  it("says so when the Deck Master has no effect text", () => {
+    cleanup();
+    const blank = { seat: 0, deckMaster: { card: { ...info, description: "" }, inZone: true, returns: 0, nextCost: 0 } } as unknown as DuelSeatView;
+    render(<GridMasterToken view={blank} local legalKeys={new Set()} selectedKeys={new Set()} canAct legalActionsFor={() => []} wide open={false}
+      title="Your Master" onToggle={vi.fn()} onClose={vi.fn()} onChooseAction={vi.fn()} onInspect={vi.fn()} />);
+    expect(screen.getByTestId("hud-master-ability")).toHaveTextContent("no effect text");
+  });
+
+  it("leaves the other plates as they are: no ability box, no anchors", () => {
+    plate({ legal: false });
+    expect(screen.getByTestId("hud-master").getAttribute("data-form")).not.toBe("wide");
+    expect(screen.queryByTestId("hud-master-ability")).toBeNull();
+    expect(document.querySelector("[data-master-dock], [data-master-source]")).toBeNull();
   });
 });
 

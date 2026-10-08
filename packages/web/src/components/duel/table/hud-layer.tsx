@@ -218,6 +218,8 @@ export interface HudMasterProps {
   /** A click on the token picks the card while a prompt asks for it. */
   onActivate?: DuelActivateHandler;
   onHoverCard?: DuelHoverHandler;
+  /** The wide plate of the 3-way plaza (grid-master.tsx): the ability text shows, and the plate is the Deck Master Zone anchor. */
+  wide?: boolean;
 }
 
 export interface HudLayerProps {
