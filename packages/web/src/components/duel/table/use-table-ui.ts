@@ -8,7 +8,7 @@ import { livePileCards, shouldClosePileForPrompt, type PileView } from "../pile-
 import type { CardMenuState } from "../card-interactions";
 import { promptLegalKeys } from "../prompts";
 import { DEFAULT_SIDE_PANE, type SidePane } from "../side-panel";
-import { aimPromptFor, attackAimOf, isAttackStepPrompt, queuedAnswer, type AttackAim, type AttackAimTarget } from "./attack-aim";
+import { aimPromptFor, attackAimOf, isAttackStepPrompt, queuedAnswer, type AttackAim, type AttackAimTarget, type AttackTargets } from "./attack-aim";
 import type { BattleAim, DuelActivateHandler, InspectTarget, TableController } from "./types";
 
 /**
@@ -66,10 +66,10 @@ export function useTableUi(base: TableController, options: TableUiOptions = {}):
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [pendingAttack, setPendingAttack] = useState<{ key: string; direct: boolean } | null>(null);
   // The attacker the player clicked, before the attack is sent: the aim comes first, the target click sends (attack-aim.ts).
-  const [aimFirst, setAimFirst] = useState<{ promptId: string; revision: number; key: string; optionId: string; direct: boolean } | null>(null);
+  const [aimFirst, setAimFirst] = useState<{ promptId: string; revision: number; key: string; optionId: string; direct: boolean; targets: AttackTargets | null } | null>(null);
   // The target the player clicked, until the core's own target step has taken it (or showed that it cannot).
   // `revision` is the revision the next attack step must have: the sent one + 1, and one more after a "No" to "Attack directly?".
-  const [queued, setQueued] = useState<{ fromPrompt: string; target: AttackAimTarget; revision: number } | null>(null);
+  const [queued, setQueued] = useState<{ fromPrompt: string; target: AttackAimTarget; revision: number; directSeats: number[] | null } | null>(null);
   const queuedSent = useRef<string | null>(null);
 
   const promptId = prompt?.id ?? null;
@@ -111,7 +111,7 @@ export function useTableUi(base: TableController, options: TableUiOptions = {}):
       return;
     }
     if (!canAct || busy) return;
-    const answer = queuedAnswer(prompt, queued.target);
+    const answer = queuedAnswer(prompt, queued.target, queued.directSeats);
     if (!answer) {
       setQueued(null);
       return;
@@ -195,7 +195,7 @@ export function useTableUi(base: TableController, options: TableUiOptions = {}):
     (answer: DuelAnswer) => {
       // A declared attack does not go out yet: the player aims first, and the target click sends it (attack-aim.ts).
       const declared = attackAimOf(prompt, answer);
-      if (declared && prompt && canAct && !busy && aimPromptFor(prompt, engine, viewerSeat, declared.direct).options.length > 0) {
+      if (declared && prompt && canAct && !busy && aimPromptFor(prompt, engine, viewerSeat, declared.direct, declared.targets).options.length > 0) {
         setMenu(null);
         setAimFirst({ promptId: prompt.id, revision, ...declared });
         return;
@@ -225,7 +225,7 @@ export function useTableUi(base: TableController, options: TableUiOptions = {}):
     (target: AttackAimTarget) => {
       if (!aimingFirst) return;
       setAimFirst(null);
-      setQueued({ fromPrompt: aimingFirst.promptId, target, revision: aimingFirst.revision + 1 });
+      setQueued({ fromPrompt: aimingFirst.promptId, target, revision: aimingFirst.revision + 1, directSeats: aimingFirst.targets?.direct ?? null });
       setPendingAttack({ key: aimingFirst.key, direct: aimingFirst.direct });
       onAnswer({ choice: aimingFirst.optionId });
     },
@@ -233,7 +233,7 @@ export function useTableUi(base: TableController, options: TableUiOptions = {}):
   );
   const cancelAim = useCallback(() => setAimFirst(null), []);
   const attackAim = useMemo<AttackAim | null>(
-    () => (aimingFirst ? { key: aimingFirst.key, optionId: aimingFirst.optionId, direct: aimingFirst.direct, send: sendAim, cancel: cancelAim } : null),
+    () => (aimingFirst ? { key: aimingFirst.key, optionId: aimingFirst.optionId, direct: aimingFirst.direct, targets: aimingFirst.targets, send: sendAim, cancel: cancelAim } : null),
     [aimingFirst, cancelAim, sendAim],
   );
 

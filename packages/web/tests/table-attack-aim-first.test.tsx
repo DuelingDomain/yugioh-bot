@@ -380,11 +380,165 @@ describe("attack aim first: the Cancel button of the bar", () => {
   });
 });
 
+describe("attack aim first: the engine's legal target list", () => {
+  type Targets = NonNullable<NonNullable<DuelPrompt["options"][number]["attackTargets"]>>;
+  const attackWith = (label: string, targets: Targets | null | undefined, extra: Partial<DuelPrompt["options"][number]> = {}): DuelPrompt => {
+    const base = actionPrompt(label);
+    const [option] = base.options;
+    return { ...base, options: [{ ...option, ...(targets === undefined ? {} : { attackTargets: targets }), ...extra }] };
+  };
+  /** The unchanged 3-way battle scene: seats 1 and 2 are both alive and hold monsters. */
+  const open3 = () => (FFA3_FIXTURES.states as Record<string, TableFixtureState>)["battle-aim"];
+  const monsterRef = (state: TableFixtureState, seat: number, nth = 0) => {
+    const cards = state.room.engine!.seats.find((view) => view.seat === seat)!.monsters.filter((card) => card != null);
+    return { controller: seat, location: cards[nth]!.location, sequence: cards[nth]!.sequence };
+  };
+  const keyOf = (ref: { controller: number; location: number; sequence: number }) => `${ref.controller}:${ref.location}:${ref.sequence}`;
+  /** The core's merged attack pick of the table of 3 or 4: monster zones and direct seats in one list. */
+  const merged = (refs: { controller: number; location: number; sequence: number }[], seats: number[]): DuelPrompt => ({
+    id: "attack-merged",
+    seat: 0,
+    kind: "choice",
+    title: "Select an attack target",
+    min: 1,
+    max: 1,
+    options: [
+      ...refs.map((ref, index) => ({ id: `card:${index}`, label: "Monster", ...ref })),
+      ...seats.map((seat) => ({ id: `direct:${seat}`, label: `Attack Player ${seat + 1} directly`, controller: seat })),
+    ],
+  });
+
+  it("aimPromptFor lists the monsters of the engine and its direct seats, also a seat that holds monsters", () => {
+    const state = open3();
+    const engine = state.room.engine!;
+    const ref = monsterRef(state, 2);
+    const prompt = aimPromptFor(attackWith("Attack directly with Blue-Eyes White Dragon", null), engine, 0, true, { monsters: [ref], direct: [1, 2] });
+    expect(prompt.options.map((option) => option.id)).toEqual(["card:0", "direct:1", "direct:2"]);
+    expect(prompt.options[0]).toMatchObject(ref);
+    expect(isAttackStepPrompt(prompt)).toBe(true);
+  });
+
+  it("aimPromptFor drops a protected empty seat and an unattackable monster; an empty list offers nothing", () => {
+    const state = withBoards(open3(), { 1: [] });
+    const engine = state.room.engine!;
+    const ref = monsterRef(state, 2);
+    const listed = aimPromptFor(attackWith("Attack directly with Blue-Eyes White Dragon", null), engine, 0, true, { monsters: [ref], direct: [] });
+    expect(listed.options.map((option) => option.id)).toEqual(["card:0"]);
+    // The board would have offered the empty seat 1 and every monster of seat 2; the list decides.
+    const board = aimPromptFor(attackWith("Attack directly with Blue-Eyes White Dragon", null), engine, 0, true);
+    expect(board.options.map((option) => option.id)).toContain("direct:1");
+    expect(aimPromptFor(attackWith("Attack with Blue-Eyes White Dragon", null), engine, 0, false, { monsters: [], direct: [] }).options).toEqual([]);
+  });
+
+  it("a can-attack-directly monster: a click on a rival that holds monsters sends the attack, and the merged pick is answered with that seat", () => {
+    const state = open3();
+    const ref = monsterRef(state, 1);
+    const onAnswer = vi.fn();
+    const prompts = [attackWith("Attack directly with Blue-Eyes White Dragon", { monsters: [ref], direct: [1] }), merged([ref], [1])];
+    const { container } = render(<Flow Shell={TableShell} state={state} prompts={prompts} onAnswer={onAnswer} />);
+    pointerClick(attackerOf(container));
+    expect(onAnswer).not.toHaveBeenCalled();
+    move(stage(container));
+    expect(container.querySelector("[data-table-shell]")?.getAttribute("data-aim-seats")).toBe("1");
+    const chip = container.querySelector<HTMLElement>("[data-lp-seat='1']")!;
+    move(chip);
+    expect(label()).toMatch(/^Direct attack: /);
+    pointerClick(chip);
+    expect(onAnswer.mock.calls.map(([answer]) => answer)).toEqual([{ choice: "attack:0" }, { choice: "direct:1" }]);
+  });
+
+  it("a monster that the engine does not list is no target, and its seat is not hit directly by the click on it", () => {
+    const state = open3();
+    const listed = monsterRef(state, 2);
+    const other = monsterRef(state, 1);
+    const onAnswer = vi.fn();
+    const { container } = render(
+      <Flow Shell={TableShell} state={state} prompts={[attackWith("Attack with Blue-Eyes White Dragon", { monsters: [listed], direct: [] }), merged([listed], [])]} onAnswer={onAnswer} />,
+    );
+    pointerClick(attackerOf(container));
+    move(stage(container));
+    expect(container.querySelector("[data-table-shell]")?.getAttribute("data-aim-seats")).toBe("2");
+    pointerClick(pressable(container.querySelector<HTMLElement>(`[data-zones~="${keyOf(other)}"]`)!));
+    pointerClick(container.querySelector<HTMLElement>("[data-lp-seat='1']")!);
+    expect(onAnswer).not.toHaveBeenCalled();
+    pointerClick(pressable(container.querySelector<HTMLElement>(`[data-zones~="${keyOf(listed)}"]`)!));
+    expect(onAnswer.mock.calls.map(([answer]) => answer)).toEqual([{ choice: "attack:0" }, { choice: "card:0" }]);
+  });
+
+  it("a protected empty seat is not offered: a click on its panel sends nothing", () => {
+    const state = withBoards(open3(), { 1: [] });
+    const ref = monsterRef(state, 2);
+    const onAnswer = vi.fn();
+    const { container } = render(
+      <Flow Shell={TableShell} state={state} prompts={[attackWith("Attack directly with Blue-Eyes White Dragon", { monsters: [ref], direct: [] }), merged([ref], [])]} onAnswer={onAnswer} />,
+    );
+    pointerClick(attackerOf(container));
+    move(stage(container));
+    pointerClick(container.querySelector<HTMLElement>("[data-lp-seat='1']")!);
+    expect(onAnswer).not.toHaveBeenCalled();
+    expect(arrow()).not.toBeNull();
+  });
+
+  it("an attacker with no legal target is sent at once, as the core asks", () => {
+    const state = open3();
+    const onAnswer = vi.fn();
+    const { container } = render(<Flow Shell={TableShell} state={state} prompts={[attackWith("Attack with Blue-Eyes White Dragon", { monsters: [], direct: [] }), mainPrompt]} onAnswer={onAnswer} />);
+    pointerClick(attackerOf(container));
+    expect(onAnswer.mock.calls.map(([answer]) => answer)).toEqual([{ choice: "attack:0" }]);
+    expect(arrow()).toBeNull();
+  });
+
+  it("Patrician of Darkness (the opponent picks): the attack is sent at once with no aim", () => {
+    const state = open3();
+    const ref = monsterRef(state, 1);
+    const onAnswer = vi.fn();
+    const { container } = render(
+      <Flow Shell={TableShell} state={state} prompts={[attackWith("Attack with Blue-Eyes White Dragon", { monsters: [ref], direct: [] }, { attackerChoosesTarget: false }), mainPrompt]} onAnswer={onAnswer} />,
+    );
+    pointerClick(attackerOf(container));
+    expect(onAnswer.mock.calls.map(([answer]) => answer)).toEqual([{ choice: "attack:0" }]);
+    expect(arrow()).toBeNull();
+    expect(attackAimOf(attackWith("Attack with Blue-Eyes White Dragon", null, { attackerChoosesTarget: false }), { choice: "attack:0" })).toBeNull();
+  });
+
+  it("with no list (an older server) the board decides: the click on the one open rival still aims and sends", () => {
+    const scene = ffa3Scene();
+    const state = withBoards(scene.state, { [scene.rival]: [] });
+    const onAnswer = vi.fn();
+    const { container } = render(<Flow Shell={TableShell} state={state} prompts={[attackWith("Attack directly with Blue-Eyes White Dragon", undefined), null]} onAnswer={onAnswer} />);
+    pointerClick(attackerOf(container));
+    move(stage(container));
+    pointerClick(container.querySelector<HTMLElement>(`[data-lp-seat='${scene.rival}']`)!);
+    expect(onAnswer.mock.calls.map(([answer]) => answer)).toEqual([{ choice: "attack:0" }]);
+  });
+
+  it("Tag: Attack directly? is answered Yes only for a seat in the direct list", () => {
+    const yesNo: DuelPrompt = { id: "y", seat: 0, kind: "choice", title: "Attack directly?", options: [{ id: "yes", label: "Yes" }, { id: "no", label: "No" }] };
+    expect(queuedAnswer(yesNo, { seat: 3 }, [2, 3])).toEqual({ choice: "yes" });
+    expect(queuedAnswer(yesNo, { seat: 2 }, [3])).toBeNull();
+    expect(queuedAnswer(yesNo, { zoneKey: "3:4:0" }, [3])).toEqual({ choice: "no" });
+    expect(queuedAnswer(yesNo, { seat: 2 }, null)).toEqual({ choice: "yes" });
+  });
+
+  it("Tag: the click on a rival seat of the list answers Yes, and the one on a seat outside it sends nothing", () => {
+    const scene = tagScene();
+    const state = withBoards(scene.state, { [scene.rival]: [] });
+    const yesNo: DuelPrompt = { id: "y", seat: 0, kind: "choice", title: "Attack directly?", options: [{ id: "yes", label: "Yes" }, { id: "no", label: "No" }] };
+    const prompts = [attackWith("Attack directly with Blue-Eyes White Dragon", { monsters: [], direct: [scene.rival] }), yesNo];
+    const onAnswer = vi.fn();
+    const { container } = render(<Flow Shell={TagShell} state={state} prompts={prompts} onAnswer={onAnswer} />);
+    pointerClick(attackerOf(container));
+    move(stage(container));
+    pointerClick(container.querySelector<HTMLElement>(`[data-lp-seat='${scene.rival}']`)!);
+    expect(onAnswer.mock.calls.map(([answer]) => answer)).toEqual([{ choice: "attack:0" }, { choice: "yes" }]);
+  });
+});
+
 describe("attack-aim helpers", () => {
   const action = actionPrompt("Attack directly with Blue-Eyes White Dragon");
 
   it("attackAimOf reads a declared attack of an action prompt and nothing else", () => {
-    expect(attackAimOf(action, { choice: "attack:0" })).toEqual({ key: "0:4:0", optionId: "attack:0", direct: true });
+    expect(attackAimOf(action, { choice: "attack:0" })).toEqual({ key: "0:4:0", optionId: "attack:0", direct: true, targets: null });
     expect(attackAimOf(actionPrompt("Attack with Blue-Eyes White Dragon"), { choice: "attack:0" })?.direct).toBe(false);
     expect(attackAimOf(action, { choice: "to_ep" })).toBeNull();
     expect(attackAimOf({ ...action, context: undefined }, { choice: "attack:0" })).toBeNull();

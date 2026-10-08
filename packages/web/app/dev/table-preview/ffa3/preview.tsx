@@ -11,7 +11,7 @@ import { useTableTextScale } from "@/components/duel/card-text-size";
  * The 3-way preview: the real table stage on the hand-made fixtures.
  * `?out=2` sweeps that seat (the last two face each other as a 1v1, the FINAL DUEL); `?after=1500` starts with it alive
  * and sweeps it after that many ms (to watch the crumble and the finale move); `?def=1` lays Defense Position monsters on
- * every field; `?pick=def` asks for one of them on any field; `?pick=attack` or `attack-direct` shows the battle prompt (the aim-first flow); `?hover=rival|mine|hand` puts the pointer on a card once the
+ * every field; `?pick=def` asks for one of them on any field; `?pick=attack`, `attack-direct` or `attack-listed` (the engine's target list: the first rival may be hit directly and holds monsters; the second rival's monsters are no targets) shows the battle prompt (the aim-first flow); `?hover=rival|mine|hand` puts the pointer on a card once the
  * table is drawn (the preview at the left).
  */
 export function Ffa3Preview({ stateId, cam, lock, review = false, out = null, after = null, def = null, pick = null, hover = null }: { stateId: string | null; cam: string | null; lock: string | null; review?: boolean; out?: string | null; after?: string | null; def?: string | null; pick?: string | null; hover?: string | null }) {
@@ -44,7 +44,7 @@ export function Ffa3Preview({ stateId, cam, lock, review = false, out = null, af
   }, [hover]);
   const base = useMemo(() => review ? reviewFixtures(damage) : FFA3_FIXTURES, [review, damage]);
   const set = useMemo(
-    () => ffa3Variant(base, { out: delay != null && !late ? [] : outSeats, defense: def === "1", pick: pickLive && (pick === "def" || pick === "attack" || pick === "attack-direct") ? pick : null }),
+    () => ffa3Variant(base, { out: delay != null && !late ? [] : outSeats, defense: def === "1", pick: pickLive && (pick === "def" || pick === "attack" || pick === "attack-direct" || pick === "attack-listed") ? pick : null }),
     [base, outSeats, delay, late, def, pick, pickLive],
   );
   return (

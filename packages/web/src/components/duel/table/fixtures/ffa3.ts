@@ -251,7 +251,7 @@ const DEFENSE_ROWS = [
   [C.redEyes, C.gaia, C.cyberDragon, C.sangan, C.blackChaos],
 ] as const;
 
-export type Ffa3PreviewPick = "def" | "attack" | "attack-direct";
+export type Ffa3PreviewPick = "def" | "attack" | "attack-direct" | "attack-listed";
 
 /**
  * A preview variant of the 3-way fixtures: `out` sweeps those seats (as the engine does: no LP, an empty board, the
@@ -281,8 +281,15 @@ export function ffa3Variant(set: TableFixtureSet, opts: { out: readonly number[]
         }
       }
       let prompt = engine.prompt;
-      if ((opts.pick === "attack" || opts.pick === "attack-direct") && state.room.mySeat === REN) {
+      if ((opts.pick === "attack" || opts.pick === "attack-direct" || opts.pick === "attack-listed") && state.room.mySeat === REN) {
         const direct = opts.pick === "attack-direct";
+        const listed = opts.pick === "attack-listed";
+        // The engine's list: the first rival holds monsters and may still be hit directly; the other rival's monsters cannot be attacked.
+        const rivals = seats.filter((view) => view.seat !== REN && !view.eliminated);
+        const attackTargets = {
+          monsters: (rivals[0]?.monsters ?? []).flatMap((card) => (card ? [{ controller: card.controller, location: card.location, sequence: card.sequence }] : [])),
+          direct: rivals[0] ? [rivals[0].seat] : [],
+        };
         if (direct) {
           const open = seats.find((view) => view.seat !== REN && !view.eliminated);
           if (open) open.monsters = open.monsters.map(() => null);
@@ -294,7 +301,7 @@ export function ffa3Variant(set: TableFixtureSet, opts: { out: readonly number[]
           title: "Battle Phase",
           context: { type: "action", phase: "battle" },
           options: [
-            { id: "attack:0", label: direct ? "Attack directly with Dark Magician" : "Attack with Dark Magician", controller: REN, location: LOCATION_MZONE, sequence: 0 },
+            { id: "attack:0", label: direct || listed ? "Attack directly with Dark Magician" : "Attack with Dark Magician", controller: REN, location: LOCATION_MZONE, sequence: 0, ...(listed ? { attackTargets } : {}) },
             { id: "to_ep", label: "End Phase" },
           ],
         };

@@ -318,6 +318,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
       data-table-shell="tag"
       data-duel-fx-speed-root
       data-can-act={canAct ? "true" : "false"}
+      data-aim-seats={flow.aimSeats.length > 0 ? flow.aimSeats.join(" ") : undefined}
       data-viewport={fillViewport ? "true" : undefined}
       data-domain={domain}
       data-phase={battle ? "battle" : undefined}
@@ -356,10 +357,11 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
         </div>
         {narrow ? null : side}
         <section className={styles.board} aria-label="Duel field">
-          <div className={styles.boardBox} ref={boardRef}>
+          <div className={styles.boardBox} ref={boardRef} data-duel-board>
             <MoveSourceBoundary events={engine.events} duelKey={session.slug} root={boardRef}>
               <TagStage
                 inspectIdleCards={hud}
+                aimSeats={flow.aimSeats}
                 controller={controller}
                 layout={layout}
                 camera={camera}
