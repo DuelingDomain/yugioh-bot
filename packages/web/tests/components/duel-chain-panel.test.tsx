@@ -672,6 +672,40 @@ describe("while a prompt of the local player is open", () => {
     expect(hero(view.container)).toBe(before);
   });
 
+  it("keeps the text of a link the player responds to: only the resolving link folds", () => {
+    // The chain is still being built (no link resolves): the player picks a target or a cost for a link, so its text stays open.
+    const building = [
+      activate(1, 1, info(100, "Opponent Spell", "Destroy 1 monster."), z(1, SZONE, 0), { description: "Destroy 1 monster." }),
+      activate(2, 0, info(200, "Own Trap", "Negate the activation."), z(0, SZONE, 1), { description: "Negate the activation." }),
+    ];
+    const { container } = render(<ChainFx {...base} events={building} reducedMotion promptOpen />);
+    flush(60);
+    expect(panel(container)?.getAttribute("data-compact")).toBeNull();
+    expect(hero(container)?.getAttribute("data-compact")).toBeNull();
+    expect(fold(container)?.getAttribute("data-folded")).toBeNull();
+    expect(fold(container)?.hasAttribute("inert")).toBe(false);
+  });
+
+  it("keeps the text of a link the player clicked during the prompt, and folds the live one again after", () => {
+    const resolving = [
+      activate(1, 1, info(100, "Opponent Spell", "Destroy 1 monster."), z(1, SZONE, 0), { description: "Destroy 1 monster." }),
+      activate(2, 0, info(200, "Own Trap", "Negate the activation."), z(0, SZONE, 1), { description: "Negate the activation." }),
+      ev("chain-resolving", 2),
+    ];
+    const { container } = render(<ChainFx {...base} events={resolving} reducedMotion promptOpen />);
+    flush(60);
+    const row = (n: number) => container.querySelector(`[data-chain-panel] button[data-chain-row="${n}"]`) as HTMLButtonElement;
+    expect(hero(container)?.textContent).toContain("Link 2 of 2");
+    expect(fold(container)?.getAttribute("data-folded")).toBe("true");
+    act(() => { fireEvent.click(row(1)); });
+    expect(hero(container)?.textContent).toContain("Link 1 of 2");
+    expect(panel(container)?.getAttribute("data-compact")).toBeNull();
+    expect(fold(container)?.getAttribute("data-folded")).toBeNull();
+    act(() => { fireEvent.click(row(1)); });
+    expect(hero(container)?.textContent).toContain("Link 2 of 2");
+    expect(fold(container)?.getAttribute("data-folded")).toBe("true");
+  });
+
   it("animates the fold as a height transition, and not under reduced motion", () => {
     const css = readFileSync(join(import.meta.dirname, "../../src/components/duel/chain-panel.module.css"), "utf8");
     expect(css).toMatch(/\.fold \{[^}]*grid-template-rows: 1fr;[^}]*transition: grid-template-rows/);
