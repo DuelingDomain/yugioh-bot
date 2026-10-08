@@ -337,6 +337,8 @@ export interface HeroView {
   /** The full text for the panel: the engine's words for this activation and every printed line. null when there is none. */
   full: FullEffectText | null;
   targets: HeroTarget[];
+  /** The text of each option the link's player chose; public to every seat. Empty when none was chosen. */
+  chosen: string[];
   /** The result of the link, or null when it is not known yet (the link is waiting or just started). */
   outcome: LinkOutcome | null;
   /** The link is resolving and has not reported a result yet. */
@@ -419,6 +421,7 @@ export function buildPanelView(input: PanelInput): PanelView {
       effect: chainEffectText(link),
       full: chainFullText(link),
       targets: chainHeroTargets(link, targets, who),
+      chosen: [...new Set((link.chosenOptions ?? []).map((option) => option.text.trim()).filter((text) => text !== ""))],
       outcome,
       waiting: link.status === "resolving" && outcome == null,
       status: link.status,

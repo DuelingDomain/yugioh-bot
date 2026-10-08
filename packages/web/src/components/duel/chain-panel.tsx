@@ -64,12 +64,13 @@ function EffectBlock({ full }: { full: NonNullable<HeroView["full"]> }) {
   const textRef = useRef<HTMLDivElement>(null);
   const overflowing = useOverflow(textRef, full);
   // Consecutive options form one list.
-  const blocks: Array<{ kind: "text"; text: string } | { kind: "options"; items: string[] }> = [];
+  const blocks: Array<{ kind: "text"; text: string } | { kind: "options"; items: Array<{ text: string; chosen: boolean }> }> = [];
   for (const line of full.lines) {
     const last = blocks[blocks.length - 1];
     if (line.kind === "option") {
-      if (last?.kind === "options") last.items.push(line.text);
-      else blocks.push({ kind: "options", items: [line.text] });
+      const item = { text: line.text, chosen: line.chosen === true };
+      if (last?.kind === "options") last.items.push(item);
+      else blocks.push({ kind: "options", items: [item] });
     } else blocks.push({ kind: "text", text: line.text });
   }
   return (
@@ -95,7 +96,12 @@ function EffectBlock({ full }: { full: NonNullable<HeroView["full"]> }) {
             <p key={at} data-line="text">{block.text}</p>
           ) : (
             <ul key={at} className={styles.options}>
-              {block.items.map((item, i) => <li key={i} data-line="option" data-chain-option="true">{item}</li>)}
+              {block.items.map((item, i) => (
+                <li key={i} data-line="option" data-chain-option="true" data-chosen={item.chosen ? "true" : undefined}>
+                  {item.chosen ? <span className={styles.srOnly}>Chosen: </span> : null}
+                  {item.text}
+                </li>
+              ))}
             </ul>
           ))}
         </div>
@@ -133,6 +139,12 @@ function Hero({ hero }: { hero: HeroView }) {
               {target.name ? <>Targets <b>{target.name}</b><small>{target.place}</small></> : <>Targets <b>{target.place}</b></>}
             </span>
           ))}
+        </p>
+      ) : null}
+      {hero.chosen.length > 0 ? (
+        <p className={styles.chose} data-chain-chose="true">
+          <b>Chose</b>
+          {hero.chosen.map((text) => <span key={text} data-chain-chose-option="true">{text}</span>)}
         </p>
       ) : null}
       {hero.outcome ? (

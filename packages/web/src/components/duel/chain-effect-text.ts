@@ -12,7 +12,7 @@ import {
   TYPE_SPELL,
   TYPE_TRAP,
 } from "./constants";
-import type { ChainLinkState } from "./chain-state";
+import type { ChainLinkState, ChosenOption } from "./chain-state";
 
 export interface EffectText {
   text: string;
@@ -70,6 +70,8 @@ export function chainEffectText(link: Pick<ChainLinkState, "name" | "description
 export interface CardTextLine {
   kind: "text" | "option";
   text: string;
+  /** An option line the link's player chose. */
+  chosen?: true;
 }
 
 /** The card's text in full, for the panel: the engine's own words (when they say more than the printed text) and every printed line. */
@@ -95,14 +97,47 @@ export function cardTextLines(text: string): CardTextLine[] {
 
 const squash = (text: string): string => normalise(text).replace(/[.!\s]+$/, "").toLowerCase();
 
+/** Quotes and dashes in either style, so a prompt label and the printed text compare as equal. */
+const fold = (text: string): string =>
+  squash(text).replace(/[\u2018\u2019\u201b]/g, "'").replace(/[\u201c\u201d]/g, '"').replace(/[\u2013\u2014]/g, "-");
+/** Shortest text that may match a bullet by containment: a one-word choice must not light an unrelated bullet. */
+const MIN_PARTIAL = 8;
+
+/**
+ * Marks the option lines the link's player chose. A choice matches a bullet by its text first (equal, or one holds the
+ * other); a choice with no text match falls back to its prompt option index when that index points at a bullet. A bullet
+ * is marked once, and a choice that matches nothing marks nothing (the "Chose" line still names it).
+ */
+export function markChosenLines(lines: readonly CardTextLine[], chosen: readonly ChosenOption[] | undefined): CardTextLine[] {
+  if (!chosen?.length) return lines.map((line) => ({ ...line }));
+  const optionAt = lines.flatMap((line, at) => (line.kind === "option" ? [at] : []));
+  const marked = new Set<number>();
+  const loose: ChosenOption[] = [];
+  for (const choice of chosen) {
+    const want = fold(choice.text);
+    const hit = want === "" ? undefined : optionAt.find((at) => !marked.has(at) && fold(lines[at].text) === want)
+      ?? (want.length >= MIN_PARTIAL ? optionAt.find((at) => {
+        const have = fold(lines[at].text);
+        return !marked.has(at) && (have.includes(want) || (have.length >= MIN_PARTIAL && want.includes(have)));
+      }) : undefined);
+    if (hit != null) marked.add(hit);
+    else loose.push(choice);
+  }
+  for (const choice of loose) {
+    const at = choice.index != null && Number.isInteger(choice.index) ? optionAt[choice.index] : undefined;
+    if (at != null && !marked.has(at)) marked.add(at);
+  }
+  return lines.map((line, at) => (marked.has(at) ? { ...line, chosen: true } : { ...line }));
+}
+
 /**
  * Everything the panel can say about what a link does. Every seat sees the same words: the text of a card that
  * is on the chain is public. An unknown card (no name) has none, and never a passcode.
  */
-export function chainFullText(link: Pick<ChainLinkState, "name" | "description" | "text" | "cardType">): FullEffectText | null {
+export function chainFullText(link: Pick<ChainLinkState, "name" | "description" | "text" | "cardType" | "chosenOptions">): FullEffectText | null {
   const name = link.name?.trim() ? link.name.trim() : null;
   if (name == null) return null;
-  const lines = cardTextLines(link.text ?? "");
+  const lines = markChosenLines(cardTextLines(link.text ?? ""), link.chosenOptions);
   const engine = normalise(link.description ?? "");
   const specific = !isGeneric(engine, name);
   const printed = squash(lines.map((line) => line.text).join(" "));

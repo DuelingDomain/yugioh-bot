@@ -443,6 +443,86 @@ describe("privacy in the rendered panel", () => {
     }
   });
 
+  describe("the option the player chose", () => {
+    const prayers = () => info(45171524, "Mitsurugi Prayers", "Apply 1 of these effects.\r\n\u25cf Add 1 \"Mitsurugi\" monster from your Deck to your hand.\r\n\u25cf Take 800 damage.\r\nOnce per turn.", 0x10002);
+    const chose = (chosenOptions?: { index?: number; text: string }[]) => {
+      const events = [
+        activate(1, 0, prayers(), z(0, SZONE, 0), { description: "Apply 1 of these effects" }),
+        { ...ev("chain-resolving", 1), ...(chosenOptions ? { chosenOptions } : {}) },
+      ];
+      const view = render(<ChainFx {...base} events={events} reducedMotion />);
+      flush(60);
+      const bullets = Array.from(hero(view.container)?.querySelectorAll("[data-chain-option]") ?? []);
+      return {
+        view,
+        marked: bullets.filter((bullet) => bullet.getAttribute("data-chosen") === "true").map((bullet) => bullet.textContent?.replace(/^Chosen: /, "")),
+        said: Array.from(hero(view.container)?.querySelectorAll("[data-chain-chose-option]") ?? []).map((node) => node.textContent),
+        line: hero(view.container)?.querySelector("[data-chain-chose]") ?? null,
+      };
+    };
+
+    it("marks the bullet that matches by text and says the choice", () => {
+      const { marked, said, line } = chose([{ index: 1, text: "Take 800 damage" }]);
+      expect(marked).toEqual(["Take 800 damage."]);
+      expect(said).toEqual(["Take 800 damage"]);
+      expect(line?.textContent).toBe("ChoseTake 800 damage");
+    });
+
+    it("tells the chosen bullet to a screen reader, and only that one", () => {
+      const { view } = chose([{ text: "Take 800 damage" }]);
+      const bullets = Array.from(hero(view.container)?.querySelectorAll("[data-chain-option]") ?? []);
+      expect(bullets.map((bullet) => bullet.textContent)).toEqual(["Add 1 \"Mitsurugi\" monster from your Deck to your hand.", "Chosen: Take 800 damage."]);
+    });
+
+    it("marks the bullet at the prompt index when the text matches none", () => {
+      const { marked, said } = chose([{ index: 0, text: "Option 1" }]);
+      expect(marked).toEqual(["Add 1 \"Mitsurugi\" monster from your Deck to your hand."]);
+      expect(said).toEqual(["Option 1"]);
+    });
+
+    it("shows only the Chose line when the choice fits no bullet", () => {
+      const { marked, said, line } = chose([{ text: "Draw 3 cards" }]);
+      expect(marked).toEqual([]);
+      expect(said).toEqual(["Draw 3 cards"]);
+      expect(line).not.toBeNull();
+    });
+
+    it("marks and lists two chosen options", () => {
+      const { marked, said } = chose([{ index: 1, text: "Take 800 damage" }, { index: 0, text: "Add 1 \"Mitsurugi\" monster from your Deck to your hand" }]);
+      expect(marked).toEqual(["Add 1 \"Mitsurugi\" monster from your Deck to your hand.", "Take 800 damage."]);
+      expect(said).toEqual(["Take 800 damage", "Add 1 \"Mitsurugi\" monster from your Deck to your hand"]);
+    });
+
+    it("shows nothing extra without a choice", () => {
+      const { marked, line } = chose(undefined);
+      expect(marked).toEqual([]);
+      expect(line).toBeNull();
+      expect(chose([]).line).toBeNull();
+    });
+
+    it("shows the same choice to the other seat", () => {
+      const events = [
+        activate(1, 1, prayers(), z(1, SZONE, 0), { description: "Apply 1 of these effects" }),
+        { ...ev("chain-resolving", 1), chosenOptions: [{ index: 1, text: "Take 800 damage" }] },
+      ];
+      const { container } = render(<ChainFx {...base} events={events} reducedMotion />);
+      flush(60);
+      expect(hero(container)?.querySelector('[data-chain-option][data-chosen="true"]')?.textContent).toContain("Take 800 damage.");
+      expect(hero(container)?.querySelector("[data-chain-chose]")?.textContent).toContain("Take 800 damage");
+    });
+
+    it("keeps the choice after the link has resolved", () => {
+      const events = [
+        activate(1, 0, prayers(), z(0, SZONE, 0), { description: "Apply 1 of these effects" }),
+        { ...ev("chain-resolving", 1), chosenOptions: [{ index: 1, text: "Take 800 damage" }] },
+        { ...ev("chain-resolved", 1), chosenOptions: [{ index: 1, text: "Take 800 damage" }] },
+      ];
+      const { container } = render(<ChainFx {...base} events={events} reducedMotion />);
+      flush(60);
+      expect(hero(container)?.querySelector("[data-chain-chose]")?.textContent).toContain("Take 800 damage");
+    });
+  });
+
   it("keeps the row list a list when it scrolls, as a named keyboard stop", () => {
     const stack = (container: HTMLElement) => container.querySelector<HTMLElement>("ol[data-overflow]");
     const scroll = vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(300);

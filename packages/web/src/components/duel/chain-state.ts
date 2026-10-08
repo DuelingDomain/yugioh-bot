@@ -14,6 +14,11 @@ import { chainEffectText } from "./chain-effect-text";
 
 export type ChainLinkStatus = "pending" | "resolving" | "resolved";
 
+/** One option the link's player (or the bot) chose, as the server reports it: public text, and the prompt option index when known. */
+export type ChosenOption = NonNullable<DuelChainLink["chosenOptions"]>[number];
+
+const copyChosen = (options: readonly ChosenOption[]): ChosenOption[] => options.map((option) => ({ ...option }));
+
 export interface ChainLinkState {
   /** Chain Link number, 1 = the first activation. */
   index: number;
@@ -31,6 +36,8 @@ export interface ChainLinkState {
   zone: DuelZoneRef | null;
   /** Current public target coordinates; identities stay in the viewer's redacted board. */
   targets: DuelZoneRef[];
+  /** The options chosen for this activation, once a choice was made. Absent before that, and on older snapshots. */
+  chosenOptions?: ChosenOption[];
   status: ChainLinkStatus;
   /** Negated or disabled. Stays set after the link resolves. */
   negated: boolean;
@@ -90,6 +97,7 @@ export function applyChainEvent(state: ChainState, event: DuelEvent): ChainState
       cardType: card && card.type > 0 ? card.type : null,
       zone: event.zone ? { ...event.zone } : null,
       targets: event.targets?.map((zone) => ({ ...zone })) ?? [],
+      ...(event.chosenOptions ? { chosenOptions: copyChosen(event.chosenOptions) } : {}),
       status: "pending",
       negated: false,
     });
@@ -111,6 +119,8 @@ export function applyChainEvent(state: ChainState, event: DuelEvent): ChainState
     link.seat = event.seat ?? link.seat;
     link.zone ??= event.zone ? { ...event.zone } : null;
   }
+  // Each event carries every choice known at that moment, so the latest one replaces the earlier.
+  if (event.chosenOptions) link.chosenOptions = copyChosen(event.chosenOptions);
   if (kind === "target") {
     link.targets = event.targets?.map((zone) => ({ ...zone })) ?? [];
     if (event.seat != null && link.code == null) link.seat = event.seat;
@@ -141,6 +151,7 @@ function fromSnapshot(link: DuelChainLink): ChainLinkState {
     cardType: link.cardType != null && link.cardType > 0 ? link.cardType : null,
     zone: link.zone ? { ...link.zone } : null,
     targets: link.targets?.map((zone) => ({ ...zone })) ?? [],
+    ...(link.chosenOptions ? { chosenOptions: copyChosen(link.chosenOptions) } : {}),
     status: "pending",
     negated: false,
   };
@@ -189,6 +200,7 @@ export function deriveChainState(events: readonly DuelEvent[], snapshot: readonl
       text: base.text ?? entry.text, cardType: base.cardType ?? entry.cardType,
       status: known.status, negated: known.negated, zone: known.zone ?? entry.zone,
       targets: hasTargets ? entry.targets : known.targets,
+      ...((entry.chosenOptions ?? known.chosenOptions) ? { chosenOptions: entry.chosenOptions ?? known.chosenOptions } : {}),
     };
   }
   if (links) state = { links, resolving: state.resolving != null && state.resolving > links.length ? null : state.resolving };
@@ -375,7 +387,8 @@ export function chainStateKey(state: ChainState): string {
     .map((link) => {
       const z = link.zone ? zoneKey(link.zone.controller, link.zone.location, link.zone.sequence) : "-";
       const targets = link.targets.map((zone) => zoneKey(zone.controller, zone.location, zone.sequence)).join(",");
-      return `${link.index}:${link.seat}:${link.code ?? 0}:${link.name ?? ""}:${link.description ?? ""}:${link.text?.length ?? 0}:${link.cardType ?? 0}:${link.status}:${link.negated ? 1 : 0}:${z}:${targets}`;
+      const chosen = link.chosenOptions?.map((option) => `${option.index ?? "-"}=${option.text}`).join(",") ?? "";
+      return `${link.index}:${link.seat}:${link.code ?? 0}:${link.name ?? ""}:${link.description ?? ""}:${link.text?.length ?? 0}:${link.cardType ?? 0}:${link.status}:${link.negated ? 1 : 0}:${z}:${targets}:${chosen}`;
     })
     .join("|");
 }
@@ -541,7 +554,8 @@ export function chainLinkLabel(
     if (link.status === "resolved") parts.push("resolved");
   }
   const targets = chainTargetLabel(link, mySeat, playerName, { named, partner });
-  const text = `Chain Link ${link.index}: ${parts.join(", ")}${targets ? `. ${targets}` : ""}`;
+  const chose = detail && link.chosenOptions?.length ? `. Chose ${link.chosenOptions.map((option) => option.text).join(" and ")}` : "";
+  const text = `Chain Link ${link.index}: ${parts.join(", ")}${targets ? `. ${targets}` : ""}${chose}`;
   const effect = detail ? chainEffectText(link) : null;
   return effect ? `${text}. ${effect.text}` : text;
 }
