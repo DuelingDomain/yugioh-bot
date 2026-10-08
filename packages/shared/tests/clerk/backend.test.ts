@@ -6,6 +6,14 @@ const secretKey = "sk_test_private_value";
 const json = (body: unknown, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers });
 
 describe("Clerk Backend REST client", () => {
+  it("clears recovery metadata through Clerk's merging metadata endpoint", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(json({ id: "user_1", private_metadata: { unrelated: "keep" } }));
+    await createClerkBackend({ secretKey, fetch: fetcher }).updateUserMetadata("user/a", { privateMetadata: { existingPlayerDiscordId: null } });
+    const [url, init] = fetcher.mock.calls[0];
+    expect(url).toBe("https://api.clerk.com/v1/users/user%2Fa/metadata");
+    expect(init?.method).toBe("PATCH");
+    expect(JSON.parse(String(init?.body))).toEqual({ private_metadata: { existingPlayerDiscordId: null } });
+  });
   it("maps every method to the REST wire contract", async () => {
     const requests: { url: string; method: string; body: unknown; auth: string | null; contentType: string | null }[] = [];
     const fetcher: typeof fetch = async (input, init) => {
