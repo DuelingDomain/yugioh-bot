@@ -282,3 +282,76 @@ export class PressSplit {
     this.dragging = false;
   }
 }
+
+/**
+ * One thing the camera fit must keep on screen, in board-box px at the camera pose (the identity view). A board item
+ * (the field) scales with the view. An item with an `anchor` (a life plate, the phase hub) follows the board at its own
+ * size: its anchor goes where the board takes that point (see followShift), the rest of its rect keeps its offset.
+ */
+export interface FitItem {
+  rect: Rect;
+  anchor?: Point;
+}
+
+/** The bounds of the fit items under a view of scale `s` (before the translation: the view's x and y are not in them). */
+function fitBounds(items: readonly FitItem[], s: number): { l: number; t: number; r: number; b: number } {
+  let l = Infinity;
+  let t = Infinity;
+  let r = -Infinity;
+  let b = -Infinity;
+  for (const { rect, anchor } of items) {
+    const x0 = anchor ? s * anchor.x + (rect.x - anchor.x) : s * rect.x;
+    const y0 = anchor ? s * anchor.y + (rect.y - anchor.y) : s * rect.y;
+    const w = anchor ? rect.width : s * rect.width;
+    const h = anchor ? rect.height : s * rect.height;
+    l = Math.min(l, x0);
+    t = Math.min(t, y0);
+    r = Math.max(r, x0 + w);
+    b = Math.max(b, y0 + h);
+  }
+  return { l, t, r, b };
+}
+
+/**
+ * The view of a camera zoom on a field: the largest scale (up to `maxScale`) at which all the fit items are inside the
+ * free box, and the translation that centres them in it. The box is the board box minus the HUD (board-box px). The
+ * scale never goes under 1: a free box too small for the items at the camera pose gets the identity scale, centred.
+ */
+export function fitView(items: readonly FitItem[], free: Rect, maxScale: number = VIEW_ZOOM.max): View {
+  if (items.length === 0 || !(free.width > 0 && free.height > 0)) return VIEW_IDENTITY;
+  const fits = (s: number) => {
+    const b = fitBounds(items, s);
+    return b.r - b.l <= free.width && b.b - b.t <= free.height;
+  };
+  const top = clamp(maxScale, VIEW_ZOOM.min, VIEW_ZOOM.max);
+  let s: number = VIEW_ZOOM.min;
+  if (fits(top)) {
+    s = top;
+  } else if (fits(VIEW_ZOOM.min)) {
+    let lo: number = VIEW_ZOOM.min;
+    let hi = top;
+    for (let i = 0; i < 32; i += 1) {
+      const mid = (lo + hi) / 2;
+      if (fits(mid)) lo = mid;
+      else hi = mid;
+    }
+    s = lo;
+  }
+  const b = fitBounds(items, s);
+  return { s, x: free.x + (free.width - (b.r - b.l)) / 2 - b.l, y: free.y + (free.height - (b.b - b.t)) / 2 - b.t };
+}
+
+/**
+ * The transform that keeps a node inside the board layer at its 1x place and size under a view (the hand of your own
+ * field: it is HUD, only the field zooms). `origin` is the top left of the node in the layer's parent px (canvas px) at
+ * the identity view; the layer maps p to u + s * p, so the node draws p = origin + translate, scaled by 1 / s about its top
+ * left, which the layer maps back onto itself. The node needs `transform-origin: 0 0`.
+ */
+export function counterTransform(view: View, origin: Point, frame: LayerFrame = FLAT_FRAME): string {
+  if (isIdentity(view)) return "";
+  const u = layerOffset(view, frame);
+  const s = view.s;
+  const tx = (-u.x + (1 - s) * origin.x) / s;
+  const ty = (-u.y + (1 - s) * origin.y) / s;
+  return `translate(${tx.toFixed(2)}px, ${ty.toFixed(2)}px) scale(${(1 / s).toFixed(5)})`;
+}

@@ -8,6 +8,8 @@ import {
   clampView,
   DRAG_THRESHOLD_PX,
   edgeInsets,
+  counterTransform,
+  fitView,
   followCss,
   isZoomed,
   layerOffset,
@@ -457,5 +459,54 @@ describe("Reset view control", () => {
     });
     expect(queryByTestId("view-reset")).toBeNull();
     expect(document.activeElement).toBe(getByTestId("board"));
+  });
+});
+
+describe("camera fit of a field", () => {
+  const FREE = { x: 100, y: 50, width: 800, height: 400 };
+
+  it("fills the free box with the field and centres it", () => {
+    const view = fitView([{ rect: { x: 300, y: 200, width: 200, height: 100 } }], FREE);
+    // Width allows 4x, height allows 4x, so the cap of 2.5 is the limit.
+    expect(view.s).toBe(2.5);
+    const l = view.x + view.s * 300;
+    const t = view.y + view.s * 200;
+    expect(l + (view.s * 200) / 2).toBeCloseTo(FREE.x + FREE.width / 2);
+    expect(t + (view.s * 100) / 2).toBeCloseTo(FREE.y + FREE.height / 2);
+  });
+
+  it("takes the largest scale that fits both sides", () => {
+    const view = fitView([{ rect: { x: 0, y: 0, width: 400, height: 300 } }], FREE);
+    expect(view.s).toBeCloseTo(400 / 300, 3);
+    expect(view.s * 300).toBeLessThanOrEqual(FREE.height + 0.01);
+  });
+
+  it("keeps a following plate at its own size, so it does not grow the field's share", () => {
+    const field = { rect: { x: 0, y: 100, width: 300, height: 200 } };
+    const plate = { rect: { x: 0, y: 0, width: 100, height: 80 }, anchor: { x: 0, y: 100 } };
+    const view = fitView([field, plate], FREE);
+    const topOfPlate = view.y + view.s * 100 - 100;
+    expect(topOfPlate).toBeGreaterThanOrEqual(FREE.y - 0.01);
+    expect(view.y + view.s * 300).toBeLessThanOrEqual(FREE.y + FREE.height + 0.01);
+  });
+
+  it("never goes under the camera scale and returns identity with nothing to fit", () => {
+    expect(fitView([], FREE)).toEqual(VIEW_IDENTITY);
+    const big = fitView([{ rect: { x: 0, y: 0, width: 2000, height: 1000 } }], FREE);
+    expect(big.s).toBe(1);
+  });
+
+  it("draws a counter-scaled node at its 1x place", () => {
+    expect(counterTransform(VIEW_IDENTITY, { x: 10, y: 20 })).toBe("");
+    const view = { s: 2, x: -300, y: -100 };
+    const origin = { x: 40, y: 60 };
+    const css = counterTransform(view, origin);
+    const m = /translate\((-?[\d.]+)px, (-?[\d.]+)px\) scale\(([\d.]+)\)/.exec(css)!;
+    const [tx, ty, sc] = [Number(m[1]), Number(m[2]), Number(m[3])];
+    expect(sc).toBeCloseTo(0.5);
+    // The layer maps p to u + s * p: the node's top left lands back on its origin.
+    const u = layerOffset(view);
+    expect(u.x + view.s * (origin.x + tx)).toBeCloseTo(origin.x, 1);
+    expect(u.y + view.s * (origin.y + ty)).toBeCloseTo(origin.y, 1);
   });
 });
