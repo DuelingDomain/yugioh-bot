@@ -11,6 +11,7 @@ export interface CardScriptError {
 /** Private telemetry only. Never include these fields in a player view. */
 export interface DuelScriptError extends CardScriptError {
   index: number;
+  source?: "query";
   /** Worker-only digest of accepted command prefix plus attempted command. */
   commandHash?: string;
   mode: DuelMode;
@@ -20,6 +21,7 @@ export interface DuelScriptError extends CardScriptError {
 }
 
 export const CARD_SCRIPT_STRICT_ERROR_TEXT = "Card script error (strict mode): an effect may not have resolved correctly.";
+export const ENGINE_SCRIPT_ERROR_TEXT = "Engine script error: the duel could not continue.";
 
 export const CARD_SCRIPT_ERROR_TEXT = "Card script error: an effect may not have resolved correctly. The duel will continue.";
 
@@ -71,8 +73,17 @@ export function createScriptErrorPolicy(options: {
   let traceback = "";
   let processing = false;
   let loadDepth = 0;
+  let queryLoadDepth: number | null = null;
+  const queryCards = new Set<number>();
   return {
     errors,
+    /** Queries run a variable number of times in live/recovery/replay. Never add them to events. */
+    query<T>(read: () => T, runtimeScript = false): T {
+      const previous = queryLoadDepth;
+      queryLoadDepth = loadDepth + (runtimeScript ? 1 : 0);
+      try { return read(); }
+      finally { queryLoadDepth = previous; traceback = ""; }
+    },
     enterLoad() { loadDepth++; },
     leaveLoad() { loadDepth--; },
     enterProcess() { processing = true; },
@@ -80,9 +91,17 @@ export function createScriptErrorPolicy(options: {
     note(type: number, text: string) {
       if (type === OcgLogType.FOR_DEBUG) { traceback = text.startsWith("stack traceback:") ? text : ""; return; }
       if (type !== OcgLogType.ERROR && type !== OcgLogType.UNDEFINED) return;
-      const script = classifyCardScriptError(type, text, processing && loadDepth === 0, traceback);
+      const querying = queryLoadDepth !== null;
+      const script = classifyCardScriptError(type, text, querying ? loadDepth <= queryLoadDepth! : processing && loadDepth === 0, traceback);
       traceback = "";
-      if (!script) { errors.push(text); return; }
+      if (!script) { errors.push(ENGINE_SCRIPT_ERROR_TEXT); return; }
+      if (querying) {
+        if (!queryCards.has(script.code)) {
+          queryCards.add(script.code);
+          options.onScriptError?.({ ...script, source: "query", index: script.code, mode: options.mode, format: options.format ?? "1v1", engine: options.engine ?? "pinned", scriptErrorMode });
+        }
+        return;
+      }
       const error = { ...script, index: ++index, mode: options.mode, format: options.format ?? "1v1", engine: options.engine ?? "pinned", scriptErrorMode };
       pending.push(error);
       options.onScriptError?.(error);

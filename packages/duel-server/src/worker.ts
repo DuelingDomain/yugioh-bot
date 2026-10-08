@@ -33,7 +33,7 @@ export async function handleWorkerRequest(request: DuelWorkerRequest): Promise<D
   const mutation = ["create", "answer", "eliminate", "chain-mode"].includes(request.op);
   const commandHash = mutation ? commandIdentity(request) : commandPath;
   const response = await runWorkerRequest(request);
-  if (scriptErrors.length) response.scriptErrors = scriptErrors.splice(0).map((error) => ({ ...error, commandHash }));
+  if (scriptErrors.length) response.scriptErrors = scriptErrors.splice(0).map((error) => ({ ...error, commandHash: error.source === "query" ? "query" : commandHash }));
   if (mutation && response.ok) commandPath = commandHash;
   if (request.op === "close") commandPath = "start";
   if (response.ok && game) {

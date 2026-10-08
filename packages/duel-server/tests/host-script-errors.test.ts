@@ -9,6 +9,8 @@ import type { DuelEngineView, DuelFormat, DuelMode } from "@yugidraft/shared/due
 import { createDuelHost, type DuelHost } from "../src/host.js";
 import { topScriptErrors } from "../src/script-error-store.js";
 import { reproOptions, attackAnswer } from "./helpers/script-error-repro.js";
+import { queryErrorOptions } from "./helpers/query-error-repro.js";
+import { chooseSurrenderedAnswer } from "../src/practice-bot.js";
 import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { engineDataDirectory as DATA } from "./engine-data-dir.js";
 import { describeWithCores, needs } from "./support/cores.js";
@@ -27,6 +29,47 @@ async function request(host: DuelHost, body: Record<string, unknown>, expectedSt
 }
 
 describeWithCores("script errors through host, worker and journal", [needs.standard(DATA), needs.domain(DATA), needs.installedMulti(DATA)], () => {
+  it.each([["legacy", "1v1"], ["pinned", "1v1"], ["pinned", "ffa4"]] as const)("%s %s: repeated view failures stay private across answers, recovery and replay", async (engine, format) => {
+    const db = new Database(":memory:"); migrate(db);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const players = Array.from({ length: format === "1v1" ? 2 : 4 }, (_, i) => seedIdentity(db, { guildId: "g", name: `P${i}`, userId: seedUser(db, `query${i}`).userId }).playerId);
+    const duels = createDuelService(db);
+    const options = queryErrorOptions(format);
+    const session = duels.create({ guildId: "g", organizerPlayerId: players[0]!, name: "Query errors", mode: "normal", format, settings: options.settings });
+    players.slice(1).forEach(player => duels.takeSeat(session.slug, "g", player));
+    players.forEach((player, seat) => duels.setDeck(session.slug, "g", player, options.decks[seat]!));
+    const version = JSON.parse(readFileSync(`${DATA}/manifest.json`, "utf8")).bundleVersion;
+    duels.activate(session.slug, "g", players[0]!, options.seed, pinnedEngineVersion(version, players.length, format === "1v1" ? null : activeMultiScriptsHash(DATA)), null, {
+      engine, scriptErrorMode: "tolerant", firstTurnDraw: false, startupScripts: options.startupScripts.map(script => script.content),
+    });
+    const makeHost = () => { const host = createDuelHost({ db, dataDirectory: DATA, secret: SECRET, searchCards: () => [], pollIntervalMs: 60_000 }); hosts.push(host); return host; };
+    let host = makeHost();
+    const base = { slug: session.slug, guildId: "g" };
+    const views = async (): Promise<DuelEngineView[]> => Promise.all(players.map(async player => (await request(host, { ...base, op: "view", playerId: player })).engine));
+    try {
+      for (let step = 0; step < 3; step++) {
+        const current = await views();
+        expect(await views()).toEqual(current);
+        const seat = current.findIndex(view => view.prompt !== null);
+        const view = current[seat]!;
+        await request(host, { ...base, op: "respond", playerId: players[seat], command: { promptId: view.prompt!.id, revision: view.revision, answer: chooseSurrenderedAnswer(view.prompt!) } });
+      }
+      const live = await views();
+      expect(live[0]!.events.filter(event => event.kind === "script-error")).toHaveLength(0);
+      expect(live[0]!.result).toBeNull();
+      expect(topScriptErrors(db)).toEqual([expect.objectContaining({ code: 15025844, count: 1 })]);
+      await host.close(); hosts.splice(hosts.indexOf(host), 1);
+      host = makeHost();
+      expect(await views()).toEqual(live);
+      expect(duels.privateState(session.slug, "g").commands).toHaveLength(3);
+      expect(topScriptErrors(db)[0]?.count).toBe(1);
+      duels.complete(session.slug, "g", 0, "Test replay completion");
+      const replay = await request(host, { ...base, op: "replay", playerId: players[0] });
+      expect(JSON.stringify(replay)).not.toMatch(/script-error|query_fixture_missing|c15025844\.lua/);
+      expect(topScriptErrors(db)[0]?.count).toBe(1);
+      expect(log.mock.calls.filter(([line]) => typeof line === "string" && line.includes('"event":"card_script_error"'))).toHaveLength(1);
+    } finally { await host.close(); hosts.splice(hosts.indexOf(host), 1); db.close(); }
+  }, 30_000);
   it.each([
     ["legacy", "1v1", "normal"], ["legacy", "1v1", "domain"],
     ["pinned", "1v1", "normal"], ["pinned", "1v1", "domain"],
