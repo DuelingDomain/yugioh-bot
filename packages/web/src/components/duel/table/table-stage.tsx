@@ -544,8 +544,8 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
   // phase strip that follow it, into the free box between the HUD parts. Leaving it eases back. A resize while it stays refits at once.
   const ownFit = useRef(false);
   // A new fit of the field after a resize (or the entry) always: the box is new. The chain strip is not a resize (it changes the frame, not the
-  // box): the view keeps its place and the hook clamps it. A pinned peek, the master chip or the hub moving change the free box: they refit
-  // with an ease, but only when the player has not moved the view by hand (a refit on a prompt or a hover would undo that pan or zoom).
+  // box). A pinned peek, the master chip, the hub or the chain strip moving change the free box: they refit with an ease (never a snap),
+  // but only when the player has not moved the view by hand (a refit on a prompt or a hover would undo that pan or zoom).
   const fitKey = `${ownZoom ? 1 : 0}|${Math.round(box.width)}|${Math.round(box.height)}`;
   const pinnedPeek = pinnedRect != null;
   useEffect(() => {
@@ -575,7 +575,8 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
       window.cancelAnimationFrame(frame);
     };
   }, [ownZoom]);
-  const softKey = `${pinnedPeek ? 1 : 0}|${hasChip ? 1 : 0}|${hubAt ? `${Math.round(hubAt.x)},${Math.round(hubAt.y)}` : ""}`;
+  // The chain strip moves the stage frame (its top, its scale): the field that was fitted moves with it, so the fit is made again (eased).
+  const softKey = `${pinnedPeek ? 1 : 0}|${hasChip ? 1 : 0}|${hubAt ? `${Math.round(hubAt.x)},${Math.round(hubAt.y)}` : ""}|${Math.round(chainInset)}`;
   const lastFitKey = useRef("");
   const { zoomFit, zoomTo, byHand } = zoom;
   useLayoutEffect(() => {
@@ -590,13 +591,15 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
       return;
     }
     if (fitItems.length === 0) return;
-    // A pinned peek, the chip or the hub moved: the player's own pan or zoom stays.
+    // A pinned peek, the chip, the hub or the chain strip moved: the player's own pan or zoom stays.
     if (!hard && byHand()) return;
     const items = fitItems;
     // Your hand stays where it is: the free box ends above it.
     const box = root.getBoundingClientRect();
     const cards = Array.from(root.querySelectorAll<HTMLElement>(`${OWN_HAND} [data-hand-card]`)).map((node) => node.getBoundingClientRect());
     const avoid = cards.length > 0 ? [{ x: Math.min(...cards.map((r) => r.left)) - box.left, y: Math.min(...cards.map((r) => r.top)) - box.top, width: Math.max(...cards.map((r) => r.right)) - Math.min(...cards.map((r) => r.left)), height: box.bottom - Math.min(...cards.map((r) => r.top)) }] : [];
+    // The chain strip across the top (a window with no room for it beside the field): the fit keeps clear of it.
+    if (chainInset > 0 && !portrait) avoid.push({ x: 0, y: 0, width: box.width, height: chainInset + 8 });
     // A card pinned in the peek is stable: the fit keeps clear of it (read from the DOM; the hover peek moves away by itself).
     const pinned = document.querySelector<HTMLElement>(PINNED_PEEK);
     if (pinned) {
