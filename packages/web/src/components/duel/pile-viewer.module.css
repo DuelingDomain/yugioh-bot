@@ -174,16 +174,16 @@
 /* ---------- preview: the card under the pointer or last click, with its full text ---------- */
 
 /* Row 1: the art and the name and type lines. Row 2: the effect text across the full width, scrolling inside its own box
-   (never cut). The block takes the room it needs up to 58% of the panel and the grid keeps a floor, so a long text scrolls. */
+   (never cut). The block never shrinks (`flex: none`), the text box has its own height limit, and the grid takes the
+   rest of the panel and scrolls, so a big pile cannot squeeze the text to nothing. */
 .preview {
   --pv-art-h: clamp(84px, 14vh, 140px);
   display: grid;
-  flex: 0 1 auto;
+  flex: none;
   grid-template-columns: calc(var(--pv-art-h) * 59 / 86) minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
   gap: calc(8 * var(--pv-u)) calc(12 * var(--pv-u));
   min-height: 0;
-  max-height: 58%;
   padding: calc(12 * var(--pv-u)) calc(14 * var(--pv-u)) calc(10 * var(--pv-u)) calc(16 * var(--pv-u));
   border-bottom: 1px solid var(--pv-rule);
   background: linear-gradient(180deg, rgb(9 15 29 / 0.6), transparent);
@@ -249,7 +249,9 @@
 
 .previewText {
   grid-column: 1 / -1;
-  min-height: 0;
+  /* A fixed height, not a max: the detail must not change height with each card's text, or the grid would move under a
+     still pointer and the hover would flap between cards. A long text scrolls in the box. */
+  height: clamp(4.5em, 24dvh, 16em);
   padding-top: calc(6 * var(--pv-u));
   padding-right: calc(4 * var(--pv-u));
   overflow-y: auto;
@@ -477,9 +479,12 @@
 
   .preview {
     --pv-art-h: clamp(72px, 11dvh, 100px);
-    max-height: 64%;
     gap: 8px 10px;
     padding: 10px 14px;
+  }
+
+  .previewText {
+    height: clamp(4.5em, 20dvh, 12em);
   }
 
   .grid {
