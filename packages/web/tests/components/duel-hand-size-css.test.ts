@@ -55,4 +55,24 @@ describe("your hand is drawn larger than the strip reserves", () => {
     // The layout reserve (--ohkr = ohk x (1 - hide + 0.05)) stays near the old 0.198, so the board frame does not shrink.
     expect(ohk * (1 - hide + 0.05)).toBeLessThanOrEqual(0.33);
   });
+  it("draws your 3-way hand about 1.45x larger than before, on a tall table only, and keeps its element honest", () => {
+    // The 3-way stage (not the phone layout) sets the size of your seat field: 1.1 zone heights (was 0.76).
+    const block = /:global\(\[data-table-stage="ffa3"\]:not\(\[data-portrait\]\)\) \.seatField \{([^}]*)\}/.exec(css)?.[1] ?? "";
+    const lh = Number(/--lh: calc\(var\(--z\) \* ([\d.]+)\);/.exec(block)?.[1]);
+    expect(lh).toBeGreaterThanOrEqual(1.0);
+    expect(lh).toBeLessThanOrEqual(1.15);
+    // It rises over the field's bottom pad (0.125 zone) only, so no zone is covered at rest.
+    const rise = Number(/--hand-rise: calc\(var\(--z\) \* ([\d.]+)\);/.exec(block)?.[1]);
+    expect(rise).toBeGreaterThan(0);
+    expect(rise).toBeLessThanOrEqual(0.125);
+    // The strip box is as tall as the cards, the lift and the tag need; real sizes, never a transform on the strip.
+    const strip = /:global\(\[data-table-stage="ffa3"\]:not\(\[data-portrait\]\)\) \.sfHand \{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(strip).toMatch(/height: calc\(var\(--lh\) \* 1\.12 \+ 6px\);/);
+    expect(strip).not.toMatch(/transform|scale|translate/);
+    // The hover zoom reads one variable (2x elsewhere); the 3-way table zooms less because its card is already larger.
+    expect(css.match(/scale\(var\(--hand-hover, 2\)\)/g)).toHaveLength(3);
+    expect(Number(/--hand-hover: ([\d.]+);/.exec(block)?.[1])).toBeGreaterThanOrEqual(1.5);
+    // The 4-way grid keeps its own size (--sf-lh) and the default hand stays 0.76.
+    expect(css).toMatch(/--lh: var\(--sf-lh, calc\(var\(--z\) \* 0\.76\)\);/);
+  });
 });
