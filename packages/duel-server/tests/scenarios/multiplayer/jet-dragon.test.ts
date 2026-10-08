@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { OcgLocation, OcgMessageType, type OcgCoreSync, type OcgMessage } from "ocgcore-wasm";
-import { createEngineGame, type EngineGame, type EngineStartupScript } from "../../../src/engine.js";
+import { createEngineGame, type EngineGame } from "../../../src/engine.js";
 import { createEngineGame as createLegacyGame } from "../../../src/legacy/engine.js";
 import { engineDataDirectory } from "../../engine-data-dir.js";
 import { compileBoard } from "../../support/board.js";
@@ -11,19 +11,11 @@ import { JET_CASES, JET_CODE, JET_NEGATIVE_SCENARIOS, JET_NO_DESTRUCTION_SCENARI
 import { resolveCard } from "../../support/card-catalog.js";
 
 // Record the real core output. Do not alter its messages or responses.
-const observed = vi.hoisted(() => ({ messages: [] as OcgMessage[], legacyFixture: [] as EngineStartupScript[] }));
+const observed = vi.hoisted(() => ({ messages: [] as OcgMessage[] }));
 vi.mock("ocgcore-wasm", async (importOriginal) => {
   const actual = await importOriginal<typeof import("ocgcore-wasm")>();
   return { ...actual, default: async (options: { sync: true }) => {
     const core = await actual.default(options);
-    const start = core.startDuel;
-    // The legacy wrapper has no startupScripts test hook. Load the same board through the real Debug API.
-    core.startDuel = ((handle) => {
-      for (const script of observed.legacyFixture) {
-        if (!core.loadScript(handle, script.name, script.content)) throw new Error(`Cannot load ${script.name}`);
-      }
-      return start(handle);
-    }) as OcgCoreSync["startDuel"];
     const read = core.duelGetMessage;
     core.duelGetMessage = ((handle) => {
       const messages = read(handle);
@@ -33,15 +25,16 @@ vi.mock("ocgcore-wasm", async (importOriginal) => {
     return core;
   } };
 });
-beforeEach(() => { observed.messages.length = 0; observed.legacyFixture = []; });
+beforeEach(() => { observed.messages.length = 0; });
 
 async function runJet(entry: JetCase, auto: boolean, legacy: boolean): Promise<void> {
   const { scenario } = entry;
   const compiled = compileBoard(scenario.setup);
-  observed.legacyFixture = legacy ? compiled.options.startupScripts! : [];
   const create = legacy ? createLegacyGame as unknown as typeof createEngineGame : createEngineGame;
+  const reported = vi.fn();
   const game: EngineGame = await create({
     ...compiled.options, dataDirectory: engineDataDirectory, seed: ["1", "2", "3", "4"],
+    scriptErrorMode: "tolerant", onScriptError: reported,
     settings: { ...compiled.options.settings!, stopAtEveryWindow: !auto },
   });
   try {
@@ -71,6 +64,7 @@ async function runJet(entry: JetCase, auto: boolean, legacy: boolean): Promise<v
       checked = true;
     }
     expect(checked).toBe(true);
+    expect(reported).not.toHaveBeenCalled();
   } finally { game.close(); }
 }
 
@@ -83,9 +77,10 @@ for (const legacy of [false, true]) for (const auto of [false, true]) {
     runScenarios("multiplayer/jet-dragon-controls", [...JET_NEGATIVE_SCENARIOS, ...JET_NO_DESTRUCTION_SCENARIOS]
       .filter(s => !legacy || s.setup.format === "1v1"), async scenario => {
       const compiled = compileBoard(scenario.setup);
-      observed.legacyFixture = legacy ? compiled.options.startupScripts! : [];
       const create = legacy ? createLegacyGame as unknown as typeof createEngineGame : createEngineGame;
+      const reported = vi.fn();
       const game = await create({ ...compiled.options, dataDirectory: engineDataDirectory, seed: ["1", "2", "3", "4"],
+        scriptErrorMode: "tolerant", onScriptError: reported,
         settings: { ...compiled.options.settings!, stopAtEveryWindow: !auto } });
       try {
         const session = new Session(scenario, game);
@@ -93,6 +88,7 @@ for (const legacy of [false, true]) for (const auto of [false, true]) {
         scenario.steps.forEach((step, index) => session.run(step, index + 1));
         expect(observed.messages.some(m => m.type === OcgMessageType.SELECT_EFFECTYN && m.code === JET_CODE
           || m.type === OcgMessageType.SELECT_CHAIN && m.selects.some(c => c.code === JET_CODE))).toBe(false);
+        expect(reported).not.toHaveBeenCalled();
       } finally { game.close(); }
     });
   });
