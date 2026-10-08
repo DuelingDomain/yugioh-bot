@@ -236,13 +236,12 @@ function TableShellBody({
   const flow = useAimFlow(base, layout, rootRef, { suspended });
   const controller = flow.controller;
   const camera = useCamera({ controller, layout, initial: initialCamera, initialLock, seatKeys: flow.seatKeys, suspended, uprightOnly: grid });
-  // The 4-way grid starts with your own field in focus. The turn strip and the keys (1 to 4, O, Esc) move the focus.
+  // The 4-way grid starts on the full table (all four fields). The turn strip and the keys (1 to 4, O, Esc) move the focus.
   const gridSeats = useMemo(() => gridCells(layout), [layout]);
   const gridShown = useMemo(() => engine.seats.filter((view) => !view.eliminated).map((view) => view.seat), [engine.seats]);
   const gates = gridKeyGates({ prompt: controller.prompt, viewerSeat, aiming: flow.aiming, seatKeys: flow.seatKeys, flyoutOpen: hudOpen });
   const gridFocus = useGridFocus({
     enabled: grid,
-    home: gridSeats.find((cell) => cell.home)?.seat ?? 0,
     shown: gridShown,
     suspended,
     digitsFree: gates.digitsFree,
