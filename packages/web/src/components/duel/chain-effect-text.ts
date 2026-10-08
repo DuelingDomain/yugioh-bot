@@ -106,8 +106,9 @@ const MIN_PARTIAL = 8;
 /**
  * Marks the option lines the link's player chose, by text only (equal, or one holds the other). The prompt option index
  * is no guide: the engine hides options whose condition is false, so it need not be the position of a printed bullet, and
- * a wrong mark is worse than none. A bullet is marked once, and a choice that matches nothing marks nothing (the
- * "Chose" line still names it).
+ * a wrong mark is worse than none. An equal bullet beats a partial one; when no bullet is equal and two fit partly,
+ * nothing is marked. A bullet is marked once, and a choice that matches nothing marks nothing (the "Chose" line
+ * still names it).
  */
 export function markChosenLines(lines: readonly CardTextLine[], chosen: readonly ChosenOption[] | undefined): CardTextLine[] {
   if (!chosen?.length) return lines.map((line) => ({ ...line }));
@@ -115,12 +116,17 @@ export function markChosenLines(lines: readonly CardTextLine[], chosen: readonly
   const marked = new Set<number>();
   for (const choice of chosen) {
     const want = fold(choice.text);
-    const hit = want === "" ? undefined : optionAt.find((at) => !marked.has(at) && fold(lines[at].text) === want)
-      ?? (want.length >= MIN_PARTIAL ? optionAt.find((at) => {
-        const have = fold(lines[at].text);
-        return !marked.has(at) && (have.includes(want) || (have.length >= MIN_PARTIAL && want.includes(have)));
-      }) : undefined);
-    if (hit != null) marked.add(hit);
+    if (want === "") continue;
+    const free = optionAt.filter((at) => !marked.has(at));
+    // An equal bullet wins. Without one, a partial match counts only when exactly one bullet fits: two fits are a guess.
+    const exact = free.find((at) => fold(lines[at].text) === want);
+    if (exact != null) { marked.add(exact); continue; }
+    if (want.length < MIN_PARTIAL) continue;
+    const partial = free.filter((at) => {
+      const have = fold(lines[at].text);
+      return have.includes(want) || (have.length >= MIN_PARTIAL && want.includes(have));
+    });
+    if (partial.length === 1) marked.add(partial[0]);
   }
   return lines.map((line, at) => (marked.has(at) ? { ...line, chosen: true } : { ...line }));
 }
