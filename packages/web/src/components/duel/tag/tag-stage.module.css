@@ -283,7 +283,9 @@
 .under {
   pointer-events: none;
   border-radius: 60px;
-  filter: blur(34px);
+  /* A soft edge from a mask: a 34px blur of a 1520x460 box was the biggest cost of every frame of a camera move. */
+  -webkit-mask-image: radial-gradient(closest-side, #000 35%, transparent);
+  mask-image: radial-gradient(closest-side, #000 35%, transparent);
   opacity: 0.5;
 }
 

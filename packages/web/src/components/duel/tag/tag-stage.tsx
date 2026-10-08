@@ -133,7 +133,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
   const phaseHubRef = useRef<HTMLDivElement | null>(null);
   const ownPlateRef = useRef<HTMLDivElement | null>(null);
   const farPlateRef = useRef<HTMLDivElement | null>(null);
-  // apply() runs every frame of a camera tween: it reads the narrow flag from a ref, never from a new media query.
+  // apply() reads the narrow flag from a ref, never from a new media query.
   const narrowRef = useRef(false);
   const isNarrow = useIsNarrow();
   narrowRef.current = isNarrow;
@@ -144,9 +144,21 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
   targetRef.current = target;
   // apply() sizes the phase hub for the gap: shared Extra Monster Zones in it leave less room beside the helipad.
   const sharedRef = useRef(false);
+  // poseRef is the pose the world ends on; a move is one animation the compositor runs (see `move`), so nothing here
+  // changes per frame. tweenRef holds the running move (to read the pose on screen when a new move cuts in).
   const poseRef = useRef<RoofPose>(target);
   const tweenRef = useRef<Tween | null>(null);
-  const rafRef = useRef(0);
+  const animsRef = useRef<Animation[]>([]);
+  const fitRef = useRef(1);
+  const startedRev = useRef(-1);
+  // Where apply() last put each floating HUD box (hub, phase hub, far plate), so a move can glide them to the new place.
+  const placedRef = useRef(new Map<HTMLElement, { x: number; y: number }>());
+
+  const place = (node: HTMLElement, x: number, y: number) => {
+    node.style.left = `${x.toFixed(1)}px`;
+    node.style.top = `${y.toFixed(1)}px`;
+    placedRef.current.set(node, { x, y });
+  };
 
   const apply = useCallback(() => {
     const root = rootRef.current;
@@ -184,6 +196,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     root.style.setProperty("--rail-top", `${railTop}px`);
     const view = { left: 8, right: w - 8, top: Math.min(railTop + railRow, bottom - 40), bottom };
     const fit = roofFit(view) || 1;
+    fitRef.current = fit;
     const cx = (view.left + view.right) / 2;
     const cy = (view.top + view.bottom) / 2;
     root.style.setProperty("--cx", `${cx.toFixed(1)}px`);
@@ -228,65 +241,104 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
         phases.removeAttribute("data-off");
         const at = clampCenter(padAt, { w: Math.max(phases.offsetWidth, hub?.offsetWidth ?? 0), h: stackH }, view);
         const top = at.y - stackH / 2;
-        phases.style.left = `${at.x.toFixed(1)}px`;
-        phases.style.top = `${(top + phases.offsetHeight / 2).toFixed(1)}px`;
-        if (hub) {
-          hub.style.left = `${at.x.toFixed(1)}px`;
-          hub.style.top = `${(top + phases.offsetHeight + PHASE_HUB_GAP + hub.offsetHeight / 2).toFixed(1)}px`;
-        }
+        place(phases, at.x, top + phases.offsetHeight / 2);
+        if (hub) place(hub, at.x, top + phases.offsetHeight + PHASE_HUB_GAP + hub.offsetHeight / 2);
       } else {
         phases.setAttribute("data-off", "true");
+        placedRef.current.delete(phases);
       }
       if (!fitted && hub) {
         const at = clampCenter(padAt, { w: hub.offsetWidth, h: hub.offsetHeight }, view);
-        hub.style.left = `${at.x.toFixed(1)}px`;
-        hub.style.top = `${at.y.toFixed(1)}px`;
+        place(hub, at.x, at.y);
       }
     } else if (hub && pad) {
       const at = clampCenter({ x: pad.left - box.left, y: pad.top - box.top }, { w: hub.offsetWidth, h: hub.offsetHeight }, view);
-      hub.style.left = `${at.x.toFixed(1)}px`;
-      hub.style.top = `${at.y.toFixed(1)}px`;
+      place(hub, at.x, at.y);
     }
     const plate = farPlateRef.current;
     if (plate && far && pad) {
       const at = clampCenter({ x: far.left - box.left, y: 0 }, { w: plate.offsetWidth, h: 0 }, view);
-      plate.style.left = `${(at.x - plate.offsetWidth / 2).toFixed(1)}px`;
-      plate.style.top = "6px";
+      place(plate, at.x - plate.offsetWidth / 2, 6);
     }
   }, []);
 
-  const step = useCallback(() => {
-    rafRef.current = 0;
-    const tween = tweenRef.current;
-    if (tween) {
-      const t = tweenProgress(performance.now(), tween.start, tween.dur);
-      poseRef.current = t >= 1 ? tween.to : poseAt(tween.from, tween.to, t, tween.ease);
-      if (t >= 1) tweenRef.current = null;
-    }
-    apply();
-    if (tweenRef.current) rafRef.current = requestAnimationFrame(step);
-  }, [apply]);
+  /** Stops the move in flight; the world keeps the pose it ends on. */
+  const stopMove = useCallback(() => {
+    for (const anim of animsRef.current) anim.cancel();
+    animsRef.current = [];
+    tweenRef.current = null;
+    const world = worldRef.current;
+    if (world) world.style.willChange = "";
+  }, []);
 
   const { rev, dur, intro, from } = camera;
-  useEffect(() => {
-    if (reducedMotion || dur <= 0) {
-      tweenRef.current = null;
-      poseRef.current = target;
-    } else {
-      tweenRef.current = { from: from ?? poseRef.current, to: target, start: performance.now(), dur, ease: intro ? easeFly : easeCam };
+  /**
+   * A camera move is ONE animation of the world transform that the compositor runs: apply() puts the world, the focus
+   * buttons and the HUD boxes on their end state once, then the world and the boxes glide from where they were. Nothing
+   * runs on the main thread per frame (no layout reads, no style writes, no React render) and `will-change` is on only for
+   * the move. The path is sampled from the camera ease, so it is the same path as the pure `poseAt`, and a move that is
+   * cut in half starts from the pose the clock says is on screen. Without the Web Animations API, or with reduced
+   * motion, or for a jump (`dur` 0), the world snaps to its end pose.
+   */
+  const move = () => {
+    const world = worldRef.current;
+    const live = tweenRef.current;
+    const visible = live ? poseAt(live.from, live.to, tweenProgress(performance.now(), live.start, live.dur), live.ease) : poseRef.current;
+    stopMove();
+    const before = new Map(placedRef.current);
+    const animated = !reducedMotion && dur > 0 && world != null && typeof world.animate === "function";
+    poseRef.current = target;
+    apply();
+    if (!animated || world == null) return;
+    const start = from ?? visible;
+    const ease = intro ? easeFly : easeCam;
+    const steps = Math.min(60, Math.max(8, Math.round(dur / 16)));
+    const frames = Array.from({ length: steps + 1 }, (_, index) => ({ transform: roofTransform(poseAt(start, target, index / steps, ease), fitRef.current) }));
+    const tween: Tween = { from: start, to: target, start: performance.now(), dur, ease };
+    tweenRef.current = tween;
+    world.style.willChange = "transform";
+    const run = world.animate(frames, { duration: dur, easing: "linear" });
+    const anims = [run];
+    // The floating boxes glide the same way (a transform from the old place to 0). One that was not on screen fades in.
+    for (const [node, now] of placedRef.current) {
+      const old = before.get(node);
+      if (!node.isConnected) continue;
+      if (!old) {
+        if (node.hidden || node.dataset.off === "true") continue;
+        anims.push(node.animate([{ opacity: 0 }, { opacity: 1 }], { duration: Math.min(dur, 260), easing: "ease-out" }));
+        continue;
+      }
+      const dx = old.x - now.x;
+      const dy = old.y - now.y;
+      if (Math.abs(dx) + Math.abs(dy) < 0.5) continue;
+      const path = Array.from({ length: steps + 1 }, (_, index) => {
+        const rest = 1 - ease(index / steps);
+        return { transform: `translate(${(dx * rest).toFixed(2)}px, ${(dy * rest).toFixed(2)}px)` };
+      });
+      anims.push(node.animate(path, { duration: dur, easing: "linear" }));
     }
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    step();
-    // A tween starts when the camera reducer bumps `rev`; the pose itself is read from the same state.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rev]);
+    animsRef.current = anims;
+    run.onfinish = () => {
+      if (tweenRef.current !== tween) return;
+      stopMove();
+      // Renders during the move left the HUD boxes alone: measure them once more at the end.
+      apply();
+    };
+  };
 
-  useEffect(() => () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); }, []);
-
-  // The HUD changes size with the data: measure again after every render, and when the box changes.
+  // Each commit: a new `rev` starts a move; any other render measures the HUD again (it changes size with the data) unless
+  // a move is running.
   useLayoutEffect(() => {
+    if (startedRev.current !== rev) {
+      startedRev.current = rev;
+      move();
+      return;
+    }
     if (!tweenRef.current) apply();
   });
+  useEffect(() => stopMove, [stopMove]);
+
+  // The HUD also measures again when the box changes size.
   useEffect(() => {
     const node = rootRef.current;
     if (!node || typeof ResizeObserver === "undefined") return;
