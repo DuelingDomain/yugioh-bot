@@ -175,23 +175,50 @@ describe("the focused field only changes when the viewer asks", () => {
   });
 });
 
-describe("3-way: a click on a field enlarges it, and nothing else does", () => {
+describe("3-way: a click on a field never moves the camera; the button, E and Enter do", () => {
   const seatBox = (root: HTMLElement, seat: number) => root.querySelector<HTMLElement>(`[data-seat-slot='${seat}']`)!;
 
-  it("a click enlarges a rival or your own field; a click on the enlarged field never sends it home", () => {
+  it("a click on a rival field, your own field or the board background moves nothing", () => {
     const { container } = render(<Table state={variant(() => {})} />);
+    for (const seat of [RYO, REN, MIKA]) {
+      fireEvent.click(seatBox(container, seat));
+      expect(chip(container)).toBe("Home");
+      expect(seatBox(container, seat).getAttribute("data-enlarged")).toBeNull();
+    }
+    fireEvent.click(container.querySelector("[data-camera-chip]")!.parentElement!);
+    expect(chip(container)).toBe("Home");
+  });
+
+  it("a click on an enlarged field, or on another field beside it, leaves the zoom where it is", () => {
+    const { container } = render(<Table state={variant(() => {})} camera={{ mode: "focus", focusSeat: RYO }} />);
     fireEvent.click(seatBox(container, RYO));
-    expect(chip(container)).toBe("Focus · Ryo Sato");
-    expect(seatBox(container, RYO).getAttribute("data-enlarged")).toBe("true");
+    fireEvent.click(seatBox(container, MIKA));
     fireEvent.click(seatBox(container, REN));
+    expect(chip(container)).toBe("Focus · Ryo Sato");
+  });
+
+  it("the Zoom my field button and the E key still zoom, and Back and Esc still leave", () => {
+    const { container } = render(<Table state={variant(() => {})} />);
+    fireEvent.click(container.querySelector("[data-camera-zoom]")!);
     expect(chip(container)).toBe("Focus · Ren Arata");
     expect(seatBox(container, REN).getAttribute("data-enlarged")).toBe("true");
-    expect(seatBox(container, RYO).getAttribute("data-enlarged")).toBeNull();
-    fireEvent.click(seatBox(container, REN));
-    fireEvent.click(seatBox(container, REN));
-    expect(chip(container)).toBe("Focus · Ren Arata");
     fireEvent.click(container.querySelector("[data-camera-back]")!);
     expect(chip(container)).toBe("Home");
+    fireEvent.keyDown(window, { key: "e" });
+    expect(chip(container)).toBe("Focus · Ren Arata");
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(chip(container)).toBe("Home");
+  });
+
+  it("the bottom hint names the button and the keys, and no click", () => {
+    const { container } = render(<Table state={variant(() => {})} />);
+    const hint = container.querySelector("[data-camera-chip]")!.textContent ?? "";
+    expect(hint).toContain("E zoom my field");
+    expect(hint).toContain("P look");
+    expect(hint).toContain("0 overview");
+    expect(hint).not.toMatch(/click/i);
+    fireEvent.keyDown(window, { key: "0" });
+    expect(container.querySelector("[data-camera-chip]")!.textContent).not.toMatch(/click/i);
   });
 
   it("Enter on the enlarged field box still goes back (a keyboard toggle, not a click)", () => {
@@ -204,11 +231,10 @@ describe("3-way: a click on a field enlarges it, and nothing else does", () => {
   const plainZone = (root: HTMLElement, seat: number) =>
     seatBox(root, seat).querySelector<HTMLElement>("[data-zones][data-occupied='true']:not([data-pile]):not([data-legal='true']) button")!;
 
-  it("a click on a plain zone enlarges a field, but a pile button only opens the pile", () => {
+  it("a click on a plain zone moves nothing, and a pile button only opens the pile", () => {
     const { container } = render(<Table state={idle()} />);
     fireEvent.click(plainZone(container, RYO));
-    expect(chip(container)).toBe("Focus · Ryo Sato");
-    fireEvent.click(container.querySelector("[data-camera-back]")!);
+    expect(chip(container)).toBe("Home");
     fireEvent.click(seatBox(container, MIKA).querySelector<HTMLElement>("[data-pile] button")!);
     expect(chip(container)).toBe("Home");
   });
@@ -221,17 +247,13 @@ describe("3-way: a click on a field enlarges it, and nothing else does", () => {
     expect(chip(container)).toBe("Focus · Ryo Sato");
   });
 
-  it("a zone click never enlarges a field that holds a legal choice of the prompt", () => {
-    const { container } = render(<Table state={variant(onlyOn(RYO))} />);
-    fireEvent.click(plainZone(container, RYO));
-    expect(chip(container)).toBe("Home");
-  });
-
-  it("legal keys only on the own field (the idle commands of the viewer's turn) do not stop a rival field from enlarging", () => {
-    const { container } = render(<Table state={variant(ownFieldOnly)} />);
-    expect(seatBox(container, REN).querySelector("[data-legal='true']")).not.toBeNull();
-    fireEvent.click(plainZone(container, RYO));
-    expect(chip(container)).toBe("Focus · Ryo Sato");
+  it("a zone click moves nothing, with a legal choice on the field or without one", () => {
+    for (const state of [variant(onlyOn(RYO)), variant(ownFieldOnly)]) {
+      const { container, unmount } = render(<Table state={state} />);
+      fireEvent.click(plainZone(container, RYO));
+      expect(chip(container)).toBe("Home");
+      unmount();
+    }
   });
 
   it("Esc cancels a locked aim first and leaves the enlarged field alone", () => {
@@ -272,10 +294,11 @@ describe("3-way: a click on a field enlarges it, and nothing else does", () => {
 
   it("Esc and the Back button return to the normal layout", () => {
     const { container } = render(<Table state={variant(() => {})} />);
-    fireEvent.click(seatBox(container, MIKA));
+    fireEvent.keyDown(seatBox(container, MIKA), { key: "Enter" });
+    expect(chip(container)).toBe("Focus · Mika Hana");
     fireEvent.keyDown(window, { key: "Escape" });
     expect(chip(container)).toBe("Home");
-    fireEvent.click(seatBox(container, MIKA));
+    fireEvent.keyDown(seatBox(container, MIKA), { key: "Enter" });
     fireEvent.click(container.querySelector("[data-camera-back]")!);
     expect(chip(container)).toBe("Home");
     expect(container.querySelector("[data-camera-back]")).toBeNull();
@@ -315,7 +338,7 @@ describe("3-way: a click on a field enlarges it, and nothing else does", () => {
 
   it("an enlarged field stays enlarged through an attack, a chain and a new turn", () => {
     const { container, rerender } = render(<Table state={variant(() => {})} />);
-    fireEvent.click(seatBox(container, MIKA));
+    fireEvent.keyDown(seatBox(container, MIKA), { key: "Enter" });
     for (const patch of [
       (engine: NonNullable<TableFixtureState["room"]["engine"]>) => { engine.events = [...engine.events, ev(910, "attack")]; },
       (engine: NonNullable<TableFixtureState["room"]["engine"]>) => { engine.turn += 1; engine.turnSeat = RYO; },

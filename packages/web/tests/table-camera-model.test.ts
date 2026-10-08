@@ -462,7 +462,7 @@ describe("the 3-way face-off has one view", () => {
   });
 });
 
-describe("3-way enlarge: the viewer's click on a field", () => {
+describe("3-way enlarge: the Zoom my field button, E and Enter on a field box", () => {
   it("enlarges the field, and the same field again goes home", () => {
     const rival = run(HOME, { type: "enlarge", seat: 1 });
     expect(rival).toMatchObject({ mode: "focus", focusSeat: 1 });
