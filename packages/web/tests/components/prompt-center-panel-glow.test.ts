@@ -23,7 +23,7 @@ describe("prompt panel glow", () => {
     expect(glow).not.toMatch(/translate|scale|width:|height:/);
   });
 
-  it("keeps the glow 48px larger than the panel on every side", () => {
+  it("sizes the gradient 48px larger than the panel on every side, only to keep the old shape of the fade", () => {
     expect(rule(".panel::before")).toContain("center / calc(100% + 96px) calc(100% + 96px) no-repeat");
   });
 });

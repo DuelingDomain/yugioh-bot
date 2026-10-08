@@ -81,8 +81,9 @@
 }
 
 /*
- * A soft dim, darkest in the middle of the panel. The box fills the panel and only its gradient is 48px larger on every
- * side. A box with a negative inset sticks out of the scrolling panel and adds scroll area, so a mouse wheel
+ * A soft dim, darkest in the middle of the panel. It is drawn inside the panel only: the panel's overflow cuts it at the
+ * panel edge. The box fills the panel, and the gradient is sized 48px larger on every side only to keep the old shape of
+ * the fade. A box with a negative inset sticks out of the scrolling panel and adds scroll area, so a mouse wheel
  * pushed the title off the top.
  */
 .panel::before {
