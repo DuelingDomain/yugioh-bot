@@ -263,8 +263,9 @@ function effectLines(events: readonly DuelEvent[], link: ChainLinkState, who: Wh
       destroyed.push(name);
     } else if (event.kind === "move") {
       // The source card leaving its own zone for the Graveyard after its effect is cleanup, not what the effect did. A
-      // card of the same name that is drawn or searched (Pot of Greed drawing a Pot of Greed) is an effect.
-      if (event.card != null && link.code != null && event.card.code === link.code && (event.from == null || sameZone(event.from, link.zone))) continue;
+      // card of the same name that is drawn or searched (Pot of Greed drawing a Pot of Greed) is an effect. Old events carry
+      // no link zone, so there the card's own move is skipped as before.
+      if (event.card != null && link.code != null && event.card.code === link.code && (event.from == null || link.zone == null || sameZone(event.from, link.zone))) continue;
       if (event.reason === "destroy") {
         if (destroyEvents.length === 0) destroyed.push(name);
         continue;

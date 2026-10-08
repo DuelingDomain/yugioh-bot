@@ -349,6 +349,18 @@ describe("chainOutcomes", () => {
     expect(chainOutcomes(events, settle(events), { mySeat: 1, playerName: names }).get(1)?.lines).toEqual(["Drew 1 card"]);
   });
 
+  it("skips the card's own move when an old event carries no link zone", () => {
+    id = 0;
+    const events = [
+      activate(1, 0, RAIGEKI, { zone: undefined }),
+      chainEv("chain-resolving", 1),
+      chainEv("move", undefined, { card: RAIGEKI, zone: z(0, GRAVE, 0), from: z(0, SZONE, 0), reason: "other" }),
+      chainEv("move", undefined, { card: RAIGEKI, zone: z(0, GRAVE, 0), from: z(0, HAND, 0), reason: "other" }),
+      chainEv("chain-resolved", 1),
+    ];
+    expect(chainOutcomes(events, settle(events), who).get(1)?.lines).toEqual(["Resolved"]);
+  });
+
   it("names the seat of each draw and each card added to a hand", () => {
     id = 0;
     const events = [
