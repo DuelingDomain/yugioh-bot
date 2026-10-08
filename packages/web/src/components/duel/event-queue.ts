@@ -299,15 +299,26 @@ export function nearestTurn(angle: number, near: number): number {
 }
 
 /**
+ * The live screen turn of the seat field around `dest` (0 outside a seat field and for a hand card). Only a seat field
+ * of a multiplayer table is turned as a whole; the DOM probe behind it is skipped everywhere else, so a 1v1 flight
+ * adds no layout read.
+ */
+export function seatFieldTurn(dest: HTMLElement): number {
+  if (dest.closest("[data-hand-card]") || !dest.closest("[data-seat-field]")) return 0;
+  return screenPose(dest)?.turn ?? 0;
+}
+
+/**
  * The card's turn on screen when it rests in `dest`: the zone's own half turn (far side), a quarter for Defense Position,
  * and the turn of the seat field around it. A seat of a multiplayer table is rotated as a whole, live (also while the
  * table regroups for a face-off), so the zone's side alone names the wrong way. A hand card adds its fan angle instead.
  * `near` picks the equal angle closest to it, so a flight that ends here never spins the long way round.
+ * `seatTurn` is a seat turn read earlier (a flight reads it again only when the zone moves); omitted, it is read here.
  */
-export function moveDestinationRotation(dest: HTMLElement | null, visible = false, near?: number): number {
+export function moveDestinationRotation(dest: HTMLElement | null, visible = false, near?: number, seatTurn?: number): number {
   if (!dest) return 0;
   const card = dest.closest<HTMLElement>("[data-hand-card]");
-  const turn = (dest.dataset.side === "opp" ? 180 : 0) + (dest.dataset.defense === "true" ? 90 : 0) + (card ? 0 : screenPose(dest)?.turn ?? 0);
+  const turn = (dest.dataset.side === "opp" ? 180 : 0) + (dest.dataset.defense === "true" ? 90 : 0) + (card ? 0 : seatTurn ?? seatFieldTurn(dest));
   const result = (angle: number) => (near == null ? angle : nearestTurn(angle, near));
   const hand = card?.closest<HTMLElement>("[data-hand-seat]");
   if (!card || !hand || hand.closest('[data-reduced-motion="true"]')) return result(turn);
