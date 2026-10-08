@@ -122,9 +122,29 @@ describe("Tag overview camera: click to focus", () => {
     expect(button.getAttribute("aria-label")).toMatch(/focus .*field/i);
     fireEvent.click(button);
     expect(modeOf(root)).toBe("focus:2");
-    // The focused field needs no focus button any more.
-    expect(root.querySelector('[data-field-focus="2"]')).toBeNull();
+    // The same button is now the way back; the other fields keep their focus buttons.
+    expect(root.querySelector('[data-field-focus="2"]')).toBe(button);
     expect(root.querySelector('[data-field-focus="0"]')).not.toBeNull();
+  });
+
+  it("the same button toggles: in the close-up it is Back to overview, with another icon, and a second press zooms out", () => {
+    const root = mount();
+    const button = root.querySelector<HTMLButtonElement>('[data-field-focus="1"]')!;
+    const iconIn = button.querySelector("path")!.getAttribute("d");
+    expect(button.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(button);
+    expect(modeOf(root)).toBe("focus:1");
+    expect(button.getAttribute("aria-label")).toBe("Back to overview");
+    expect(button.getAttribute("aria-pressed")).toBe("true");
+    expect(button.getAttribute("data-focused")).toBe("true");
+    expect(button.getAttribute("title")).toMatch(/back to overview/i);
+    expect(button.querySelector("path")!.getAttribute("d")).not.toBe(iconIn);
+    // The other fields still say Focus.
+    expect(root.querySelector('[data-field-focus="0"]')!.getAttribute("aria-label")).toMatch(/focus .*field/i);
+    fireEvent.click(button);
+    expect(modeOf(root)).toBe("overview:-");
+    expect(button.getAttribute("aria-label")).toMatch(/focus .*field/i);
+    expect(button.querySelector("path")!.getAttribute("d")).toBe(iconIn);
   });
 
   it("the focus button of a field has no seat label under it: it sits inside the mat, in the corner of the field", () => {
@@ -143,12 +163,19 @@ describe("Tag overview camera: click to focus", () => {
 });
 
 describe("Tag overview camera: keyboard focus", () => {
-  it("after a focus, the keyboard focus lands on Back to overview, not on the page body", () => {
+  it("after a focus by the button, the keyboard focus stays on that button (it is the toggle now)", () => {
     const root = mount();
     const button = root.querySelector<HTMLButtonElement>('[data-field-focus="1"]')!;
     button.focus();
     expect(document.activeElement).toBe(button);
     fireEvent.click(button);
+    expect(document.activeElement).toBe(button);
+  });
+
+  it("after a focus by a click on the mat, the keyboard focus lands on Back to overview, not on the page body", () => {
+    const root = mount();
+    fireEvent.click(root.querySelector<HTMLElement>('[data-field-hold="1"] [data-seat-name]')!);
+    expect(modeOf(root)).toBe("focus:1");
     expect(document.activeElement).toBe(root.querySelector("[data-camera-back]"));
   });
 
@@ -270,6 +297,27 @@ describe("Tag overview camera: action clicks never move the camera", () => {
     const hold = root.querySelector<HTMLElement>('[data-field-hold="1"]')!;
     fireEvent.click(hold.querySelector<HTMLElement>("[data-seat-name]") ?? hold);
     expect(modeOf(root)).toBe("overview:-");
+  });
+});
+
+describe("Tag close-up camera: a click on the field never zooms out", () => {
+  it("a click on the mat, the name label or an idle zone of the field in close-up changes nothing", () => {
+    const root = mount("main", "focus");
+    const before = seen.camera!;
+    const hold = root.querySelector<HTMLElement>('[data-field-hold="0"]')!;
+    fireEvent.click(hold.querySelector<HTMLElement>("[data-seat-name]")!);
+    fireEvent.click(zonesOf(root, 0).idle[0].querySelector("button")!);
+    const mat = [...hold.querySelectorAll<HTMLElement>("div")].find((node) => node.className.includes("sfMat"))!;
+    fireEvent.click(mat);
+    expect(modeOf(root)).toBe("focus:0");
+    // No new move either: the camera state is the same object, not a re-focus on the same seat.
+    expect(seen.camera).toBe(before);
+  });
+
+  it("a click on the seat chip of the focused field does not zoom out", () => {
+    const root = mount("main", "focus");
+    fireEvent.click(root.querySelector<HTMLElement>('[data-team-plate="near"] [data-member-seat="0"]')!);
+    expect(modeOf(root)).toBe("focus:0");
   });
 });
 

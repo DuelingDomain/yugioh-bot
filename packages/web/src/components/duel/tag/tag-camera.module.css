@@ -43,6 +43,14 @@
   border-color: rgb(217 141 82 / 0.9);
 }
 
+/* The toggle of the field in close-up: always lit, so it reads as the way back. */
+.focusBtn[data-focused="true"] {
+  opacity: 1;
+  color: #f6d9bd;
+  border-color: rgb(217 141 82 / 0.9);
+  background: rgb(217 141 82 / 0.28);
+}
+
 .focusBtn:focus-visible {
   outline: calc(var(--b) * 0.07) solid rgb(217 141 82 / 0.9);
   outline-offset: calc(var(--b) * 0.04);
