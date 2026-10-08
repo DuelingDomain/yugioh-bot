@@ -5,9 +5,8 @@ import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, MouseEvent as 
 import type { DuelCard } from "@yugidraft/shared/duels";
 import { Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getDuelCards } from "./api";
 import { CardBack } from "./card-face";
-import { hasCardName } from "./card-info";
+import { hasCardName, loadDuelCardInfo } from "./card-info";
 import { cardTextStyle, useCardTextSize } from "./card-text-size";
 import {
   cardArtUrl,
@@ -175,18 +174,19 @@ export function PileViewer({
   const tone = usableGlowToneForPile(cards);
   const anyLegal = entries.some((entry) => legalKeys?.has(zoneKey(entry.card.controller, entry.card.location, entry.card.sequence)));
 
-  // A pile card that came without a name gets it by passcode (one batch), so the grid label and aria-label name it too.
+  // A pile card that came without a name gets it by passcode (from the shared lookup cache), so the grid label and aria-label name it too.
   useEffect(() => {
     if (!open) return;
     const codes = [...new Set(entries.flatMap(({ card }) => (!isHiddenCard(card) && card.code != null && !hasCardName(card) ? [card.code] : [])))];
     if (codes.length === 0) return;
     let live = true;
-    getDuelCards(codes).then(({ cards: infos }) => {
+    // The shared lookup cache: a new engine state with the same cards sends no new request.
+    void Promise.all(codes.map((code) => loadDuelCardInfo(code))).then((infos) => {
       if (!live) return;
       const names = new Map<number, string>();
-      for (const info of infos) if (hasCardName(info)) names.set(info.code, info.name);
+      for (const info of infos) if (info && hasCardName(info)) names.set(info.code, info.name);
       setLookedNames(names);
-    }, () => {});
+    });
     return () => { live = false; };
   }, [open, entries]);
 
