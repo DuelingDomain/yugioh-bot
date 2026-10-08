@@ -842,6 +842,7 @@ export function migrate(db: Database.Database) {
       window_days integer not null,
       bundle_version text not null,
       script_hash text not null,
+      card_script_hash text,
       cleared_at text,
       engine_kind text not null default 'all',
       helper_scripts text not null default '[]',
@@ -1113,6 +1114,8 @@ export function migrate(db: Database.Database) {
   addColumnIfMissing(db, "card_script_error_occurrences", "resolved_code", "integer");
   addColumnIfMissing(db, "card_script_error_occurrences", "script_hash", "text");
   addColumnIfMissing(db, "card_script_error_occurrences", "script_error_mode", "text");
+  addColumnIfMissing(db, "card_script_error_occurrences", "helper_scripts", "text not null default '[]'");
+  addColumnIfMissing(db, "card_script_auto_blocks", "card_script_hash", "text");
   // SQLite cannot ALTER ADD COLUMN with CURRENT_TIMESTAMP. Unknown old ages are safely prunable
   // only for ended/deleted duels; active duel keys are retained by the recorder's cleanup.
   addColumnIfMissing(db, "card_script_error_occurrences", "created_at", "text not null default '1970-01-01 00:00:00'");

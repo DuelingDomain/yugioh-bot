@@ -675,3 +675,28 @@ it("creates auto blocks with independent engine scopes without rebuilding the ta
   expect(db.prepare("select count(*) as n from card_script_auto_blocks").get()).toEqual({ n: 2 });
   db.close();
 });
+
+it("preserves existing auto blocks and occurrences when adding card revisions and helper names", () => {
+  const db = new Database(":memory:");
+  try {
+    db.exec(`create table card_script_auto_blocks (
+      code integer not null, reason text not null, blocked_at text not null,
+      distinct_duels integer not null, error_count integer not null, threshold integer not null,
+      window_days integer not null, bundle_version text not null, script_hash text not null,
+      cleared_at text, engine_kind text not null default 'all', helper_scripts text not null default '[]',
+      primary key (code, engine_kind));
+      insert into card_script_auto_blocks values
+        (10, 'reason', '2026-10-07', 3, 3, 3, 7, 'bundle', 'lift-hash', null, 'pinned-normal', '["proc_x.lua"]');
+      create table card_script_error_occurrences (
+        duel_id integer not null, command_hash text not null, error_index integer not null,
+        code integer not null, created_at text not null, resolved_code integer, script_hash text,
+        script_error_mode text, engine_kind text, primary key (duel_id, command_hash, error_index));
+      insert into card_script_error_occurrences values
+        (1, 'command', 1, 10, '2026-10-07', 10, 'old-hash', 'tolerant', 'pinned-normal');`);
+    migrate(db); migrate(db);
+    expect(db.prepare("select script_hash, card_script_hash, helper_scripts, cleared_at from card_script_auto_blocks").get())
+      .toEqual({ script_hash: "lift-hash", card_script_hash: null, helper_scripts: '["proc_x.lua"]', cleared_at: null });
+    expect(db.prepare("select script_hash, helper_scripts from card_script_error_occurrences").get())
+      .toEqual({ script_hash: "old-hash", helper_scripts: "[]" });
+  } finally { db.close(); }
+});
