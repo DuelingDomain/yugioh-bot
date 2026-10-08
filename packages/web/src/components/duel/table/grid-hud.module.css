@@ -641,15 +641,18 @@
  */
 .preview {
   --pv-ct: var(--ct, 15.5px);
+  /* The peek column at the left edge (peek-layout.ts peekWidth says the same in JS): 14% of the window, 220 to 284 px. The shells keep the board
+     right of 72px + this width + 12px (their --hud-left), so the preview never covers a field. */
+  --pv-col-w: clamp(220px, 14vw, 284px);
   --pv-reserve: 270px;
   position: absolute;
-  left: var(--pv-left, 72px);
-  /* --pv-bottom, --pv-max-h, --pv-w and --pv-left (lined up with the chain panel) come from grid-preview.tsx: the free band of the real layout (below the chain tower, above the Deck Master plate). */
+  left: 72px;
+  /* --pv-bottom, --pv-max-h and --pv-w come from grid-preview.tsx: the free band of the real layout (below the chain tower, above the Deck Master plate). */
   top: 50px;
   z-index: 34;
   display: flex;
   flex-direction: column;
-  width: var(--pv-w, clamp(270px, calc(var(--pv-ct) * 18), 284px));
+  width: var(--pv-w, var(--pv-col-w));
   max-height: var(--pv-max-h, max(300px, calc(100% - 50px - var(--pv-reserve))));
   padding: 12px 12px 14px;
   overflow: hidden;
@@ -660,7 +663,7 @@
   font-family: var(--duel-f-ui);
   color: var(--duel-ink);
   pointer-events: none;
-  transform: translateX(calc(-100% - var(--pv-left, 72px)));
+  transform: translateX(calc(-100% - 72px));
   transition: transform 0.18s ease-out, visibility 0s linear 0.18s;
   visibility: hidden;
 }
@@ -669,20 +672,20 @@
 }
 /* grid-preview.tsx stands the panel on the bottom of its free band. */
 .preview[data-anchor="bottom"] { top: auto; bottom: var(--pv-bottom, 8px); }
-/* The right edge (grid-preview.tsx puts the panel there when the left side is full): it slides in from that edge. */
-.preview[data-side="right"] { left: auto; right: var(--pv-right, 16px); transform: translateX(calc(100% + 32px)); }
-.preview[data-open="true"], .preview[data-side="right"][data-open="true"] { transform: none; visibility: visible; transition: transform 0.18s ease-out, visibility 0s; }
+.preview[data-open="true"] { transform: none; visibility: visible; transition: transform 0.18s ease-out, visibility 0s; }
 .preview[data-motion="none"] { transition: none; }
-/* The art gives way first: its shrink weight dwarfs the text's, down to a small card. It stays centered and blends in. */
+/* The art gives way first: its shrink weight dwarfs the text's, down to a small card. It stays centered and blends in.
+   In a band over about 420px (--pv-max-h, from grid-preview.tsx) it keeps a floor of up to 180px, so a very long text scrolls instead of taking the art to 0. */
 .preview[data-squeezed="true"] .previewArt { display: none; }
-.previewArt { display: block; flex: 0 1000 auto; width: 100%; min-height: 0; aspect-ratio: 59 / 86; margin: 0 0 10px; border-radius: 4px; object-fit: contain; background: transparent; }
+.previewArt { display: block; flex: 0 1000 auto; width: 100%; min-height: clamp(0px, calc(var(--pv-max-h, 0px) - 330px), 180px); aspect-ratio: 59 / 86; margin: 0 0 10px; border-radius: 4px; object-fit: contain; background: transparent; }
 .preview h3 { flex: none; margin: 0; padding-right: 22px; font-size: calc(var(--pv-ct) * 1.35); font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
 .previewType { flex: none; margin: 3px 0 0; color: var(--duel-ink-2); font-size: calc(var(--pv-ct) * 0.95); }
 .previewStats { flex: none; margin: 6px 0 0; font-size: calc(var(--pv-ct) * 1.35); font-weight: 500; letter-spacing: 0.02em; }
 /* No line clamp: the whole effect shows while it fits. After the art is at its minimum, the rest fades out. */
 .previewText {
   flex: 0 1 auto;
-  min-height: 6em;
+  /* A short band of the column (under the chain tower, above a life-point plate) makes the text scroll, it never clips the owner line under it. */
+  min-height: 3em;
   margin: 8px 0 0;
   overflow-y: auto;
   overscroll-behavior: contain;

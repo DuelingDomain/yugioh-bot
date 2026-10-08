@@ -30,6 +30,11 @@ export function isTableStateId(value: string | null | undefined): value is Table
 /** The FX lab cards plus the three the multiplayer fixtures also need (real passcodes, so the art loads). */
 export const TABLE_CARDS = {
   ...CARDS,
+  // The real printed text (6 lines in the peek, a one-line name): the card to hover when the peek must keep its art (Ryo's card in the 3-way table).
+  blueEyes: {
+    ...CARDS.blueEyes,
+    description: "This legendary dragon is a powerful engine of destruction. Virtually invincible, very few have faced this awesome creature and lived to tell the tale.",
+  },
   callOfTheHaunted: {
     code: 97077563,
     name: "Call of the Haunted",

@@ -1,121 +1,142 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { EDGE_LEFT_PX, GAP_PX, MIN_WIDTH_PX, WIDTH_PX, measureObstacles, obstaclesKey, peekPlaces, type Box } from "@/components/duel/table/peek-layout";
+import { EDGE_LEFT_PX, GAP_PX, MAX_WIDTH_PX, MIN_WIDTH_PX, measureObstacles, obstaclesKey, peekColumnRight, peekPlaces, peekWidth, type Box } from "@/components/duel/table/peek-layout";
 
-const layer: Box = { left: -32, top: 0, right: 1888, bottom: 1080 };
+const layer = (width: number, height: number): Box => ({ left: 0, top: 0, right: width, bottom: height });
 const box = (left: number, top: number, right: number, bottom: number): Box => ({ left, top, right, bottom });
-// The 1920 case of the owner screenshot: the compact chain panel at the left, the board from x=487.
-const chain = box(132, 197, 424, 383);
-const board = [box(487, 38, 1575, 1042)];
 
-describe("the card peek lines up with the chain panel", () => {
-  it("takes the left edge and the width of the chain panel, and stands below it with the gap", () => {
-    const [first] = peekPlaces(layer, { board, keep: [chain], chain });
-    expect(first.side).toBe("left");
-    expect(first.left).toBe(chain.left - layer.left);
-    expect(first.width).toBe(chain.right - chain.left);
-    expect(first.top).toBe(chain.bottom + GAP_PX);
-    expect(first.maxH).toBe(layer.bottom - 8 - first.top);
+describe("the card peek column", () => {
+  it("is 14% of the window wide, from 220 to 284 px", () => {
+    expect(peekWidth(1280)).toBe(MIN_WIDTH_PX);
+    expect(peekWidth(1366)).toBe(MIN_WIDTH_PX);
+    expect(peekWidth(1920)).toBe(269);
+    expect(peekWidth(2560)).toBe(MAX_WIDTH_PX);
   });
 
-  it("keeps the layer edge and the usual width with no chain panel", () => {
-    const [first] = peekPlaces(layer, { board, keep: [], chain: null });
-    expect(first.left).toBeUndefined();
-    expect(first.width).toBe(WIDTH_PX);
-    expect(layer.left + EDGE_LEFT_PX).toBe(40);
+  it("ends 12 px before the board: the shells keep the board right of it", () => {
+    expect(peekColumnRight(1366)).toBe(EDGE_LEFT_PX + 220 + GAP_PX);
+    expect(peekColumnRight(2560)).toBe(EDGE_LEFT_PX + 284 + GAP_PX);
   });
 
-  it("never makes the peek narrower than the minimum: a narrow chain panel gives its left edge, not its width", () => {
-    for (const width of [142, 186, 214]) {
-      const narrow = box(130, 131, 130 + width, 298);
-      const [first] = peekPlaces(layer, { board, keep: [narrow], chain: narrow });
-      expect(first.left).toBe(narrow.left - layer.left);
-      expect(first.width).toBe(MIN_WIDTH_PX);
+  it("always stands at the left, whatever is on the table", () => {
+    const l = layer(1920, 1080);
+    const board = [box(353, 38, 1900, 1042)];
+    for (const keep of [[], [box(14, 170, 162, 526)], [box(0, 0, 60, 170), box(14, 700, 230, 1060)]]) {
+      const places = peekPlaces(l, { board, keep });
+      expect(places.length).toBeGreaterThan(0);
+      for (const place of places) expect(place.side).toBe("left");
     }
   });
 
-  it("holds a wide chain panel to the usual width", () => {
-    const wide = box(100, 100, 500, 300);
-    const [first] = peekPlaces(layer, { board: [box(600, 38, 1575, 1042)], keep: [wide], chain: wide });
-    expect(first.width).toBe(WIDTH_PX);
+  it("takes the whole free height of the column with nothing in it", () => {
+    const [first] = peekPlaces(layer(1920, 1080), { board: [box(353, 38, 1900, 1042)], keep: [] });
+    expect(first.width).toBe(269);
+    expect(first.top).toBe(50);
+    expect(first.maxH).toBeGreaterThan(900);
   });
 
-  it("keeps a gap to the board: it narrows when the board is more than the slack nearer, and keeps the old column when 220 px do not fit", () => {
-    const column = box(130, 131, 130 + 292, 298);
-    // The board is 8 px nearer than the gap allows: the width stays. 9 px nearer: it narrows by that.
-    const slack = peekPlaces(layer, { board: [box(column.right + GAP_PX - 8, 28, 1575, 1042)], keep: [column], chain: column });
-    expect(slack[0].width).toBe(292);
-    const nearer = peekPlaces(layer, { board: [box(column.right + GAP_PX - 9, 28, 1575, 1042)], keep: [column], chain: column });
-    expect(nearer[0].width).toBe(283);
-    // The board leaves under 220 px beside the chain panel: the left column of the layer takes the peek (below the chain panel).
-    const tight = peekPlaces(layer, { board: [box(130 + 220 + GAP_PX - 1, 28, 1575, 1042)], keep: [column], chain: column });
-    expect(tight[0].left).toBeUndefined();
-    expect(tight[0].side).toBe("left");
-    expect(tight[0].width).toBeGreaterThanOrEqual(MIN_WIDTH_PX);
-    expect(tight[0].top).toBe(column.bottom + GAP_PX);
+  it("stands in the band below the chain tower and above the Deck Master plate", () => {
+    const tower = box(14, 170, 162, 330);
+    const plate = box(14, 800, 240, 1066);
+    const places = peekPlaces(layer(1920, 1080), { board: [box(353, 38, 1900, 1042)], keep: [tower, plate] });
+    const band = places.find((place) => place.top >= tower.bottom + GAP_PX);
+    expect(band).toBeDefined();
+    expect(band!.top + band!.maxH).toBeLessThanOrEqual(plate.top - GAP_PX);
+    for (const place of places) expect(place.top >= tower.bottom || place.top + place.maxH <= tower.top).toBe(true);
   });
 
-  it("ends a 220 px peek at the right edge of a narrow chain panel when the board is too near for the left edge column", () => {
-    // The 1280x720 case: the chain panel is 214 px wide (x 130-344) and the board starts at x 357.
-    const narrow = box(130, 131, 344, 298);
-    const near = [box(357, 28, 1575, 1042)];
-    const [first] = peekPlaces(layer, { board: near, keep: [narrow], chain: narrow });
-    expect(first.side).toBe("left");
+  it("lists the short bands after the tall ones, still in the left column", () => {
+    // The tower cuts the column: 50-158 (108 px, short) and 342-688 (346 px, tall) above a bar; under the bar is no room.
+    const tower = box(14, 170, 162, 330);
+    const bar = box(14, 700, 162, 704);
+    const places = peekPlaces(layer(1366, 720), { board: [], keep: [tower, bar] });
+    expect(places.map((place) => [place.top, place.maxH])).toEqual([[342, 346], [50, 108]]);
+    for (const place of places) expect(place.side).toBe("left");
+  });
+
+  it("uses the tallest short bands, tallest first, when no band is tall", () => {
+    const places = peekPlaces(layer(1366, 600), { board: [], keep: [box(14, 130, 162, 200), box(14, 300, 162, 320), box(14, 560, 162, 570)] });
+    // The bands (12 px gap round each part): 332-548 (216), 212-288 (76), 50-118 (68). The one of 10 px under the last part is too short.
+    expect(places.map((place) => [place.top, place.maxH])).toEqual([[332, 216], [212, 76], [50, 68]]);
+    for (const place of places) expect(place.side).toBe("left");
+  });
+
+  it("keeps a gap to the board when the board is nearer than the column", () => {
+    const [first] = peekPlaces(layer(1920, 1080), { board: [box(330, 38, 1900, 1042)], keep: [] });
+    expect(first.width).toBe(330 - GAP_PX - EDGE_LEFT_PX);
+  });
+
+  it("never makes the panel narrower than the minimum", () => {
+    const [first] = peekPlaces(layer(1366, 768), { board: [box(200, 38, 1350, 740)], keep: [] });
     expect(first.width).toBe(MIN_WIDTH_PX);
-    // 344 - 220 = 124: the left edges are 6 px apart, and the peek is not at the layer edge (x 40).
-    expect(first.left).toBe(narrow.right - MIN_WIDTH_PX - layer.left);
-    expect(first.top).toBe(narrow.bottom + GAP_PX);
-    expect(layer.left + first.left!).toBeGreaterThan(layer.left + EDGE_LEFT_PX);
-    // The right edge of the peek keeps the gap to the board, to the slack of 8 px.
-    expect(layer.left + first.left! + first.width).toBeLessThanOrEqual(near[0].left - GAP_PX + 8);
   });
 
-  it("tries the right-edge column for a chain panel of 220 px or more too, when the board is too near for the left edge column", () => {
-    const panel = box(130, 131, 356, 298);
-    const [first] = peekPlaces(layer, { board: [box(130 + MIN_WIDTH_PX + GAP_PX - 1, 28, 1575, 1042)], keep: [panel], chain: panel });
-    expect(first.side).toBe("left");
-    expect(first.width).toBe(MIN_WIDTH_PX);
-    expect(first.left).toBe(panel.right - MIN_WIDTH_PX - layer.left);
-    expect(first.top).toBe(panel.bottom + GAP_PX);
+  it("gives no place for a layer with no size (the CSS places the panel)", () => {
+    expect(peekPlaces(layer(0, 0), { board: [], keep: [] })).toEqual([]);
   });
 
-  it("keeps the layer edge column when even the right-aligned 220 px column does not fit beside the board", () => {
-    const narrow = box(130, 131, 344, 298);
-    const [first] = peekPlaces(layer, { board: [box(330, 28, 1575, 1042)], keep: [narrow], chain: narrow });
-    expect(first.left).toBeUndefined();
-    expect(first.side).toBe("left");
-  });
-
-  it("is placed again when the chain panel moves sideways", () => {
-    const base = { board, keep: [chain] };
-    expect(obstaclesKey({ ...base, chain })).not.toBe(obstaclesKey({ ...base, chain: box(chain.left + 20, chain.top, chain.right + 20, chain.bottom) }));
+  it("is placed again when a kept part moves", () => {
+    const base = { board: [box(353, 38, 1900, 1042)] };
+    expect(obstaclesKey({ ...base, keep: [box(14, 170, 162, 330)] })).not.toBe(obstaclesKey({ ...base, keep: [box(34, 170, 182, 330)] }));
   });
 });
 
-describe("measuring the chain panel", () => {
+describe("what the peek stays clear of", () => {
   afterEach(() => { document.body.innerHTML = ""; });
-  const panel = (rect: Box) => {
-    const node = document.createElement("section");
-    node.setAttribute("data-chain-panel", "");
+  const part = (attribute: string, rect: Box) => {
+    const node = document.createElement("div");
+    node.setAttribute(attribute, "");
     node.style.opacity = "1";
     node.getBoundingClientRect = () => ({ ...rect, x: rect.left, y: rect.top, width: rect.right - rect.left, height: rect.bottom - rect.top, toJSON: () => ({}) });
     document.body.append(node);
   };
 
-  it("does not take the strip of the 1v1 table for the chain column", () => {
-    panel(box(300, 20, 486, 120));
-    document.querySelector("[data-chain-panel]")!.setAttribute("data-chain-strip-wrap", "true");
-    expect(measureObstacles().chain).toBeNull();
+  it("keeps clear of the chain panel and the phase hub, and of the life-point plates only for a pin", () => {
+    part("data-chain-panel", box(14, 200, 230, 380));
+    part("data-holo", box(900, 20, 1100, 110));
+    part("data-hub-slot", box(800, 500, 1000, 560));
+    part("data-hub", box(1200, 500, 1300, 560));
+    expect(measureObstacles().keep).toHaveLength(3);
+    expect(measureObstacles(null, true).keep).toHaveLength(4);
   });
 
-  it("reports a narrow panel in the left half and not a strip or a right panel", () => {
-    panel(chain);
-    expect(measureObstacles().chain).toEqual(chain);
-    document.body.innerHTML = "";
-    panel(box(300, 20, 1500, 120));
-    expect(measureObstacles().chain).toBeNull();
-    document.body.innerHTML = "";
-    panel(box(1600, 200, 1892, 380));
-    expect(measureObstacles().chain).toBeNull();
+  it("keeps the art of a hover in FFA3 at 1366 x 768: a life-point plate in the column does not cut the band", () => {
+    // Ryo's plate: it starts at x 234, inside the column (72 to 292), and ends at y 360, and a team plate stands at 460.
+    part("data-holo", box(234, 80, 400, 360));
+    part("data-team-plate", box(14, 460, 240, 760));
+    const l = layer(1366, 768);
+    const [hover] = peekPlaces(l, measureObstacles());
+    const [pin] = peekPlaces(l, measureObstacles(null, true));
+    // Hover: the band from the header pills (50) to the team plate (448) is 398 px tall; art, text and owner line need about 217 px.
+    expect(hover.maxH).toBe(398);
+    expect(hover.width).toBeGreaterThanOrEqual(MIN_WIDTH_PX);
+    // The pin keeps clear of the plate: its band is the short one under the plate.
+    expect(pin.maxH).toBe(76);
+  });
+});
+
+describe("the CSS keeps the peek column free", () => {
+  const read = (file: string) => readFileSync(join(__dirname, "../../src/components/duel", file), "utf8");
+  const COLUMN = "calc(72px + clamp(220px, 14vw, 284px) + 12px)";
+
+  it("has the same column width as peekWidth, and no right side variant", () => {
+    const css = read("table/grid-hud.module.css");
+    expect(css).toContain("--pv-col-w: clamp(220px, 14vw, 284px)");
+    expect(css).not.toContain('.preview[data-side="right"]');
+    expect(css).not.toContain("--pv-right");
+  });
+
+  it("keeps the 1v1 board clear of the corner stack by --hud-left, not by a fixed number", () => {
+    const css = read("room.module.css");
+    expect(css).toContain("--hud-right-need: calc(var(--hud-left) + 364px + 105.6dvh - 100vw)");
+    expect(css).not.toContain("--hud-right-need: calc(520px");
+  });
+
+  it("keeps the board of the 4-way table, the Tag table and the 1v1 table right of the column", () => {
+    for (const file of ["table/table-shell.module.css", "tag/tag-shell.module.css", "room.module.css"]) {
+      expect(read(file), file).toContain(`--hud-left: ${COLUMN}`);
+    }
   });
 });
