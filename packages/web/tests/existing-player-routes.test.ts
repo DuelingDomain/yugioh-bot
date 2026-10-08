@@ -86,12 +86,22 @@ describe("Discord recovery start and cookies", () => {
     expect(readIdentity(value)).toBeNull();
   });
   it("limits repeated starts for one client", async () => {
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 30; i++) {
       const req = request("/api/auth/existing-player/start"); req.headers.set("x-forwarded-for", "198.51.100.1");
-      expect((await start(req)).status).toBe(303);
+      const res = await start(req); expect(res.status).toBe(303);
+      expect(new URL(res.headers.get("location")!).origin).toBe("https://discord.com");
     }
     const req = request("/api/auth/existing-player/start"); req.headers.set("x-forwarded-for", "198.51.100.1");
-    const res = await start(req); expect(res.status).toBe(429); expect(res.headers.has("retry-after")).toBe(true);
+    const res = await start(req); expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toBe(`${ORIGIN}/sign-in?error=discord_recovery_busy`);
+    expect(res.headers.has("retry-after")).toBe(true);
+  });
+  it.each(["DISCORD_CLIENT_ID", "DISCORD_CLIENT_SECRET", "CLERK_SECRET_KEY"])("redirects unavailable recovery configuration to sign-in (%s)", async name => {
+    vi.stubEnv(name, "");
+    const res = await start(request("/api/auth/existing-player/start"));
+    expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toBe(`${ORIGIN}/sign-in?error=discord_recovery_unavailable`);
+    expect(res.headers.get("cache-control")).toBe("no-store");
   });
 });
 describe("Discord recovery callback", () => {
@@ -103,16 +113,26 @@ describe("Discord recovery callback", () => {
   });
   it.each(["", "?state=untrusted&code=x"])("rejects missing proof before contacting Discord (%s)", async query => {
     const res = await callback(request(`/api/auth/callback/discord${query}`));
-    expect(res.status).toBe(400); expect(fetcher).not.toHaveBeenCalled(); expectCleared(res);
+    expect(res.status).toBe(303); expect(res.headers.get("location")).toBe(`${ORIGIN}/sign-in?error=discord_recovery_expired`);
+    expect(fetcher).not.toHaveBeenCalled(); expectCleared(res);
   });
   it("rejects mismatched state and clears cookies", async () => {
     const p = await proof(); const res = await callback(request("/api/auth/callback/discord?state=wrong&code=x", { cookie: p.cookie }));
-    expect(res.status).toBe(400); expect(fetcher).not.toHaveBeenCalled(); expectCleared(res);
+    expect(res.status).toBe(303); expect(res.headers.get("location")).toBe(`${ORIGIN}/sign-in?error=discord_recovery_expired`);
+    expect(fetcher).not.toHaveBeenCalled(); expectCleared(res);
   });
   it("rejects Unicode state of equal character length without an exception", async () => {
     const p = await proof(); const state = "é" + p.state.slice(1);
     const res = await callback(request(`/api/auth/callback/discord?state=${encodeURIComponent(state)}&code=x`, { cookie: p.cookie }));
-    expect(res.status).toBe(400); expect(fetcher).not.toHaveBeenCalled();
+    expect(res.status).toBe(303); expect(res.headers.get("location")).toBe(`${ORIGIN}/sign-in?error=discord_recovery_expired`);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+  it("redirects a rate-limited callback to the busy banner before contacting providers", async () => {
+    const req = request("/api/auth/callback/discord");
+    for (let i = 0; i < 10; i++) await callback(req);
+    const res = await callback(req);
+    expect(res.status).toBe(303); expect(res.headers.get("location")).toBe(`${ORIGIN}/sign-in?error=discord_recovery_busy`);
+    expect(res.headers.has("retry-after")).toBe(true); expect(fetcher).not.toHaveBeenCalled(); expectCleared(res);
   });
   it("never creates users for unknown Discord accounts", async () => {
     const res = await verifiedCallback({ id: "900000000000000999" });
@@ -210,13 +230,30 @@ describe("Discord recovery callback", () => {
     createUserService(mock.db).claimExistingDiscordUser(player.id, discordId, "user_stored");
     mock.metadata.mockRejectedValue(new Error("private provider failure"));
     const res = await verifiedCallback();
-    expect(res.status).toBe(503); expect(mock.token).not.toHaveBeenCalled();
+    expect(res.status).toBe(303); expect(res.headers.get("location")).toBe(`${ORIGIN}/sign-in?error=discord_recovery_unavailable`);
+    expect(mock.token).not.toHaveBeenCalled();
     expect(await res.text()).not.toContain("private provider failure"); expectCleared(res);
   });
   it("handles Discord provider failure without exposing upstream credentials", async () => {
     const p = await proof(); fetcher.mockRejectedValue(new Error("sensitive provider error"));
     const res = await callback(request(`/api/auth/callback/discord?state=${p.state}&code=x`, { cookie: p.cookie }));
-    expect(res.status).toBe(503); expect(await res.text()).not.toContain("sensitive"); expectCleared(res);
+    expect(res.status).toBe(303); expect(res.headers.get("location")).toBe(`${ORIGIN}/sign-in?error=discord_recovery_unavailable`);
+    expect(await res.text()).not.toContain("sensitive"); expectCleared(res);
+  });
+  it.each(["get", "token"] as const)("redirects a transient Clerk %s failure to the service banner", async method => {
+    createUserService(mock.db).claimExistingDiscordUser(player.id, discordId, "user_stored");
+    mock[method].mockRejectedValueOnce({ status: 503, message: "private provider failure" });
+    const res = await verifiedCallback();
+    expect(res.status).toBe(303); expect(res.headers.get("location")).toBe(`${ORIGIN}/sign-in?error=discord_recovery_unavailable`);
+    expect(await res.text()).not.toContain("private provider failure"); expectCleared(res);
+  });
+  it.each(["token", "profile"])("redirects a non-OK Discord %s response to the service banner", async stage => {
+    const p = await proof();
+    if (stage === "profile") fetcher.mockResolvedValueOnce(Response.json({ access_token: "fake-discord-token" }));
+    fetcher.mockResolvedValueOnce(Response.json({ error: "private provider failure" }, { status: 503 }));
+    const res = await callback(request(`/api/auth/callback/discord?state=${p.state}&code=x`, { cookie: p.cookie }));
+    expect(res.status).toBe(303); expect(res.headers.get("location")).toBe(`${ORIGIN}/sign-in?error=discord_recovery_unavailable`);
+    expect(await res.text()).not.toContain("private provider failure"); expectCleared(res);
   });
 });
 describe("recovery completion", () => {
@@ -279,13 +316,39 @@ describe("recovery completion", () => {
     expect(res.status).toBe(409); expect((await res.json()).error).toContain("support@duelingdomain.com");
     expect(mock.token).not.toHaveBeenCalled(); expect(res.cookies.get(TICKET_COOKIE)?.value).toBe(""); expectCleared(res);
   });
-  it("retries a username collision with a valid unique suffix", async () => {
+  it("retries a username collision with the stable player fallback", async () => {
     mock.db.prepare("update users set username='A name! 💫' where id=?").run(player.id);
     mock.create.mockRejectedValueOnce({ errors: [{ code: "form_identifier_exists", meta: { paramName: "username" } }] }).mockResolvedValueOnce({ id: "user_created" });
     const res = await complete(request("/api/auth/existing-player/complete", { method: "POST", cookie: completionCookie(), body: { consent: true } }));
     expect(res.status).toBe(303); expect(mock.create).toHaveBeenCalledTimes(2);
     const names = mock.create.mock.calls.map(([params]) => params.username);
-    expect(names[0]).toMatch(/^[a-zA-Z0-9_-]{4,64}$/); expect(names[1]).toMatch(/^[a-zA-Z0-9_-]{4,64}$/); expect(names[0]).not.toBe(names[1]);
+    expect(names[0]).toMatch(/^[a-zA-Z0-9_-]{4,64}$/); expect(names[1]).toBe(`duelist_${player.id}`);
+  });
+  it.each([
+    { code: "form_username_invalid_characters", meta: { paramName: "username" } },
+    { code: "form_username_invalid_length", meta: { param_name: "username" } },
+    { code: "form_param_format_invalid", meta: { paramName: "username" } },
+    { code: "form_username_reserved" },
+    { code: "form_username_invalid" },
+  ])("retries Clerk username rejection $code with duelist_<id>", async error => {
+    mock.db.prepare("update users set username='123456' where id=?").run(player.id);
+    mock.create.mockRejectedValueOnce({ errors: [error] });
+    const res = await complete(request("/api/auth/existing-player/complete", { method: "POST", cookie: completionCookie(), body: { consent: true } }));
+    expect(res.status).toBe(303); expect(res.headers.get("location")).toBe(`${ORIGIN}/sign-in?existing_player=1`);
+    expect(mock.create.mock.calls.map(([params]) => params.username)).toEqual(["123456", `duelist_${player.id}`]);
+    expect(createUserService(mock.db).findById(player.id)?.clerkUserId).toBe("user_created");
+  });
+  it.each([["form_username_invalid", 503], ["form_username_exists", 409]] as const)("stops after one fallback retry when Clerk still rejects %s", async (code, status) => {
+    mock.create.mockRejectedValue({ errors: [{ code, meta: { paramName: "username" } }] });
+    const res = await complete(request("/api/auth/existing-player/complete", { method: "POST", cookie: completionCookie(), body: { consent: true } }));
+    expect(res.status).toBe(status); expect(res.headers.get("content-type")).toContain("application/json");
+    expect(mock.create).toHaveBeenCalledTimes(2); expect(mock.token).not.toHaveBeenCalled();
+    expect(createUserService(mock.db).findById(player.id)?.clerkUserId).toBeNull(); expectCleared(res);
+  });
+  it("does not retry an unrelated Clerk creation rejection", async () => {
+    mock.create.mockRejectedValue({ errors: [{ code: "form_param_format_invalid", meta: { paramName: "email_address" } }] });
+    const res = await complete(request("/api/auth/existing-player/complete", { method: "POST", cookie: completionCookie(), body: { consent: true } }));
+    expect(res.status).toBe(503); expect(mock.create).toHaveBeenCalledTimes(1); expect(mock.token).not.toHaveBeenCalled();
   });
   it("does not retry an email collision that raced the lookup", async () => {
     mock.create.mockRejectedValue({ errors: [{ code: "form_identifier_exists", meta: { paramName: "email_address" } }] });

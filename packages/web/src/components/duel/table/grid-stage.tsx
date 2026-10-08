@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FocusEvent, type MouseEvent } from "react";
 import { engineFormat } from "../multi-seat";
 import { AttackLine } from "./attack-line";
+import { crumbleWaiting, onCrumbleStart } from "./crumble-gate";
 import { boxOf, cancelTracks, FLIP_EASING, FLIP_MS, playFlip, type FlipTrack } from "./grid-flip";
 import { FINALE_GLIDE_EASING, FINALE_GLIDE_MS } from "./grid-finale";
 import { useGridFocus } from "./grid-focus";
@@ -46,32 +47,62 @@ import styles from "./grid-stage.module.css";
  * for `OUT_HOLD_MS`, then the cell is empty. Cells never move.
  */
 export function useCellStates(seats: readonly { seat: number; eliminated?: boolean; pendingElimination?: boolean }[]): ReadonlyMap<number, CellState> {
+  return useCellHold(seats).states;
+}
+
+/** `useCellStates`, and the seats that are out but whose crumble still waits for the battle (their plate and the pair seam stay as they were). */
+export function useCellHold(seats: readonly { seat: number; eliminated?: boolean; pendingElimination?: boolean }[]): { states: ReadonlyMap<number, CellState>; held: ReadonlySet<number> } {
   const since = useRef(new Map<number, number | null>());
   const opened = useRef(false);
   const [tick, setTick] = useState(0);
   const now = Date.now();
+  // The out clock of a seat whose crumble waits for the battle starts with the crumble (crumble-gate.ts).
+  const late = useRef(new Set<number>());
   for (const view of seats) {
-    if (view.eliminated !== true) since.current.delete(view.seat);
-    else if (!since.current.has(view.seat)) since.current.set(view.seat, opened.current ? now : null);
+    if (view.eliminated !== true) {
+      since.current.delete(view.seat);
+      late.current.delete(view.seat);
+    } else if (!since.current.has(view.seat)) {
+      since.current.set(view.seat, opened.current ? now : null);
+      if (opened.current) late.current.add(view.seat);
+    }
   }
-  const states = new Map<number, CellState>(seats.map((view) => [view.seat, cellState(view, since.current.get(view.seat) ?? null, now)]));
+  const waiting = crumbleWaiting();
+  const sinceOf = (seat: number) => (waiting && late.current.has(seat) ? now : since.current.get(seat) ?? null);
+  const states = new Map<number, CellState>(seats.map((view) => [view.seat, cellState(view, sinceOf(view.seat), now)]));
+  const held = new Set<number>(waiting ? late.current : []);
   // The next moment an `out` cell turns `empty`. Only seats still `out` count: a seat that is already empty has a
   // deadline in the past and would make the timer fire at once, without ever reaching the seat that is still out.
   let deadline: number | null = null;
   for (const view of seats) {
-    const at = since.current.get(view.seat);
+    const at = sinceOf(view.seat);
     if (states.get(view.seat) !== "out" || at == null) continue;
     deadline = deadline == null ? at + OUT_HOLD_MS : Math.min(deadline, at + OUT_HOLD_MS);
   }
   useEffect(() => {
     opened.current = true;
   }, []);
+  useEffect(
+    () =>
+      onCrumbleStart(() => {
+        const at = Date.now();
+        for (const seat of late.current) since.current.set(seat, at);
+        late.current.clear();
+        setTick((value) => value + 1);
+      }),
+    [],
+  );
+  // The crumble of a seat that just went out starts to wait in an effect of its own (a child, so before this one): draw again
+  // with the hold in place, before the paint.
+  useLayoutEffect(() => {
+    if (crumbleWaiting() !== waiting) setTick((value) => value + 1);
+  });
   useEffect(() => {
     if (deadline == null) return;
     const timer = window.setTimeout(() => setTick((value) => value + 1), Math.max(50, deadline - Date.now()));
     return () => window.clearTimeout(timer);
   }, [deadline, tick]);
-  return states;
+  return { states, held };
 }
 
 /** Natural height of the contents of a life plate (px) and the width it needs for five numerals; a smaller box shrinks them. */
@@ -320,7 +351,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
   const world = useMemo(() => gridWorld(masterRule), [masterRule]);
   const cells = useMemo(() => gridCells(layout), [layout]);
   const tones = useMemo(() => new Map<number, SeatTone>(layout.slots.map((slot) => [slot.seat, slot.tone])), [layout.slots]);
-  const states = useCellStates(engine.seats);
+  const { states, held: heldSeats } = useCellHold(engine.seats);
   const homeCell = cells.find((cell) => cell.home);
   const shown = useMemo(() => cells.filter((cell) => (states.get(cell.seat) ?? "live") !== "empty").map((cell) => cell.seat), [cells, states]);
 
@@ -468,7 +499,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
   });
   // An outline that waits for the crumble, or one that is there at once (a seat that was out when the table opened).
   const lateOutline = useRef(new Map<number, boolean>());
-  for (const seat of outSeats) if (!lateOutline.current.has(seat)) lateOutline.current.set(seat, exitState.exits.some((exit) => exit.seat === seat));
+  for (const seat of outSeats) if (!lateOutline.current.get(seat)) lateOutline.current.set(seat, exitState.exits.some((exit) => exit.seat === seat));
   for (const seat of [...lateOutline.current.keys()]) if (!outSeats.includes(seat)) lateOutline.current.delete(seat);
 
   // Zoom and pan of the board (view-zoom.ts): the fields zoom, the life plates, the hub and the prompts stay. A new
@@ -706,7 +737,8 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
                 left: PAIR_LEFT,
                 right: 0,
                 gap: PAIR_GAP,
-                joined: (states.get(cell.partner) ?? "live") === "live",
+                // A partner that went out stays joined while its crumble waits: the mats change at the crumble, not at the attack.
+                joined: (states.get(cell.partner) ?? "live") === "live" || heldSeats.has(cell.partner),
                 framed: true,
               }),
               showTally: false,
@@ -824,6 +856,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
                   onPick={() => picks?.onPick(cell.seat)}
                   onHover={(hover) => controller.onAim?.(hover ? { lpSeat: cell.seat } : null)}
                   placeLabel={placeLabels?.get(cell.seat) ?? null}
+                  held={heldSeats.has(cell.seat)}
                   reducedMotion={reducedMotion}
                 />
               </div>

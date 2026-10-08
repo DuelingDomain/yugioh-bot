@@ -52,6 +52,8 @@ export interface HoloLpProps {
   onInspectMaster?: (card: DuelCardInfo) => void;
   /** The seat just left the duel: the LP is struck out, a chip says its place ("Eliminated, 3rd"), and the panel fades away. */
   exiting?: boolean;
+  /** The seat is out but its board still waits for the battle to end (crumble-gate.ts): the plate keeps its LP and hides the elimination marks. */
+  held?: boolean;
   placeLabel?: string | null;
   /** The seats regroup after an elimination: the panel waits, then glides to its new corner. */
   glide?: boolean;
@@ -126,6 +128,7 @@ export function HoloLp({
   onInspectMaster,
   lastDamage = null,
   exiting = false,
+  held = false,
   placeLabel = null,
   glide = false,
   footer = null,
@@ -192,6 +195,7 @@ export function HoloLp({
       data-active={turn || status === "choosing" ? "true" : undefined}
       data-elim={out ? "true" : undefined}
       data-exiting={exiting ? "true" : undefined}
+      data-held={held ? "true" : undefined}
       data-glide={glide ? "true" : undefined}
       data-leaving={status === "leaving" ? "true" : undefined}
       data-legal={legal ? "true" : undefined}

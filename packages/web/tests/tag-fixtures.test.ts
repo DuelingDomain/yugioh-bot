@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TABLE_STATE_IDS } from "@/components/duel/table/fixtures/common";
-import { TAG_FIXTURES } from "@/components/duel/tag/fixtures";
+import { TAG_FIXTURES, tagSearchVariant } from "@/components/duel/tag/fixtures";
 import { firstInspectCard, responseWindow, teamLoss } from "@/components/duel/tag/tag-logic";
 
 describe("tag fixtures", () => {
@@ -75,5 +75,11 @@ describe("tag fixtures", () => {
     const seen = firstInspectCard(watch, null);
     expect(seen).not.toBeNull();
     expect(seen?.controller).toBe(watch.turnSeat);
+  });
+
+  it("asks for one of 14 Deck cards in the `cards` preview pick, to review a long card strip", () => {
+    const prompt = tagSearchVariant(TAG_FIXTURES).states.main.room.engine!.prompt!;
+    expect(prompt.kind).toBe("cards");
+    expect(prompt.options).toHaveLength(14);
   });
 });

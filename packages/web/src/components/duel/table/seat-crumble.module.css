@@ -96,3 +96,8 @@
     translate: 0 28px;
   }
 }
+
+/* The board before its crumble starts: the same flat board, still. */
+.held {
+  animation: none;
+}
