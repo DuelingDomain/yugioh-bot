@@ -282,8 +282,10 @@ Artifact errors contain fixed reason codes: `card-script-error`, `missing-card-s
 **excluded: script error** with its code, name, source and reason, plus counts.
 `card-remaps.json.scriptSmoke` retains checked counts, exclusions and suppressed
 remaps under the existing integrity hash and bundle version. Weekly inline validation
-uses the same checker; deferred CI validation reads the exact prepared artifact,
-verifies its hash and includes the findings in the weekly report. Cache hits reuse the
+uses the same checker after installing the reviewed shared card-script patches,
+just as fresh preparation does. Deferred reports mark smoke pending; final CI
+validation reads the patched prepared artifact, verifies its hash and includes
+its exact exclusions in the weekly report. Cache hits reuse the
 recorded check for the same pins/recipe/override inputs. Workflow bundle cache inputs
 include both smoke helpers. The format is `official-releases-prerelease-v4`.
 
