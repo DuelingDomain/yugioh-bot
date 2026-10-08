@@ -15,7 +15,7 @@ test("prod credentials are isolated from checkout/install and optional failures 
   assert.match(capture.run, /StrictHostKeyChecking=yes/);
   assert.doesNotMatch(capture.run, /ssh-keyscan|select .*from|\.env/);
   assert.equal(workflow.jobs.prepare.needs, "prod-errors");
-  assert.equal(workflow.jobs.prepare.if, "always()");
+  assert.equal(workflow.jobs.prepare.if, "${{ !cancelled() }}");
   assert.equal(workflow.jobs.prepare.steps.find(step => step.name === "Download optional production snapshot")["continue-on-error"], true);
   assert.match(workflow.jobs.publish.if, /always\(\).*needs\.prepare\.result == 'success'/);
 });
