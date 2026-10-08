@@ -295,7 +295,8 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
   const reset = useCallback(() => go(VIEW_IDENTITY, false), [go]);
   /** A move the player makes (a drag, a pinch, a wheel): a later refit of the code leaves the view where the player put it. */
   const goByHand = useCallback((next: View, instant: boolean) => {
-    live.current.byHand = true;
+    // A move that goes nowhere (a wheel at the limit, a drag at the edge) is not a view the player chose.
+    if (!viewsClose(next, live.current.target)) live.current.byHand = true;
     go(next, instant);
   }, [go]);
 
