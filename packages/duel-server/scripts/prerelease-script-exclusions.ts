@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { readFile, writeFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import type { PreparedCardData } from "./released-card-data.js";
-import type { PrereleaseSmokeResult } from "./prerelease-script-smoke.js";
+import { PRERELEASE_SMOKE_REASONS, type PrereleaseSmokeResult } from "./prerelease-script-smoke.js";
 
 /** Finalize before hashing/copying. Never leave a remap or artwork alias pointing
  * at a removed preview; source codes then retain the established unknown behavior. */
@@ -11,6 +11,7 @@ export async function applyPrereleaseSmokeResult(database: PreparedCardData, res
   const excluded = new Map<number, string[]>();
   for (const card of result.excluded) {
     if (!database.prereleaseCodes.has(card.code)) throw new Error(`Refusing to exclude released/absent card ${card.code}`);
+    if (!card.errors.length || card.errors.some(reason => !(PRERELEASE_SMOKE_REASONS as readonly string[]).includes(reason))) throw new Error("Invalid prerelease smoke reason");
     excluded.set(card.code, card.errors);
   }
   // Merge-time remaps may have repaired an artwork's alias. Family propagation
@@ -25,7 +26,7 @@ export async function applyPrereleaseSmokeResult(database: PreparedCardData, res
   while (changed) {
     changed = false;
     for (const card of database.prerelease) if (card.alias && excluded.has(card.alias) && !excluded.has(card.code)) {
-      excluded.set(card.code, [`Main artwork ${card.alias} excluded: script error`]); changed = true;
+      excluded.set(card.code, ["main-card-excluded"]); changed = true;
     }
   }
   const findings = database.prerelease.filter(card => excluded.has(card.code)).map(card => ({

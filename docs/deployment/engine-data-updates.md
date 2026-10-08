@@ -245,6 +245,13 @@ adding a matching helper or override input. The database format is now
 
 Every fresh preparation registers **every retained prerelease passcode**, including
 unchanged scripts and alternate artworks, on installed npm `ocgcore-wasm@0.1.2`.
+This minimum-core gate is deliberate: new 1v1 tables still default to the legacy
+Standard path (`src/legacy/engine.ts`), which loads the npm core without an external
+WASM binary. All engines share the preview pool. Checking only the newer pinned
+Standard/Domain/multiplayer cores would admit scripts that break default tables.
+The newer cores reuse the npm wrapper but supply different WASM bytes. The
+`prerelease-engine.test.ts` initialization matrix separately covers retained
+previews on legacy/pinned 1v1, Tag, FFA3 and FFA4 in Standard and Domain modes.
 Native registration loads the effective script and invokes `initial_effect` without
 playing a duel. Each card gets a fresh duel so earlier errors cannot poison later
 checks. Optional scriptless Normal Monsters keep the engine's existing behavior.
@@ -255,11 +262,16 @@ excluded main preview also disappear. Filtered scripts and final database bytes 
 hashed only after exclusions. Remaps targeting an excluded preview are suppressed,
 so saved source codes remain unknown rather than migrating to a missing target.
 
-The worker isolates synchronous Lua. A per-card five-second timeout or crash excludes
-the active preview and resumes untested cards in a new worker. Missing core/helpers,
-invalid progress and other un-attributed infrastructure failures stop preparation
-instead of excluding the whole pool. Output lists each **excluded: script error**
-with its code, name, source and error, plus checked/excluded counts.
+The worker isolates synchronous Lua. A thirty-second card timer starts only after
+the active-card message, after tsx/DB/WASM startup and fresh-duel initialization.
+A separate two-minute setup watchdog aborts preparation on infrastructure stalls.
+Timeouts/crashes retry that card once in a fresh worker before excluding it and
+resuming untested cards. Missing core/helpers, errors naming any non-card Lua script,
+invalid progress and other unattributed infrastructure failures stop preparation
+without excluding cards. Diagnostic Lua/stderr/timing text goes to the console only.
+Artifact errors contain fixed reason codes: `card-script-error`, `missing-card-script`,
+`card-timeout`, `worker-crash`, or propagated `main-card-excluded`. Output lists each
+**excluded: script error** with its code, name, source and reason, plus counts.
 `card-remaps.json.scriptSmoke` retains checked counts, exclusions and suppressed
 remaps under the existing integrity hash and bundle version. Weekly inline validation
 uses the same checker; deferred CI validation reads the exact prepared artifact,
@@ -269,4 +281,4 @@ include both smoke helpers. The format is `official-releases-prerelease-v4`.
 
 This is an initialization check. A callback that fails later during an effect still
 needs gameplay investigation. Runtime EDOPro-style logging and the manually reviewed
-card block list are maintained on the separate `feat/edopro-script-errors` branch.
+card block list are maintained on the separate `fix/script-error-tolerant` branch.

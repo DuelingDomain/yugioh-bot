@@ -29,7 +29,8 @@ it("registers all prereleases and excludes load/initial_effect/missing-script er
  const root=await fixture(),result=await smokePrereleaseScripts(root,[100000001,100000002,100000003,100000004,100000005,100000006]);
  expect(result.checked).toBe(6);
  expect(result.excluded.map(card=>card.code)).toEqual([100000002,100000003,100000004,100000006]);
- expect(result.excluded[0]?.errors.join("\n")).toContain("preview initial_effect failed");
+ expect(result.excluded[0]?.errors).toEqual(["card-script-error"]);
+ expect(JSON.stringify(result)).not.toContain("preview initial_effect failed");
  expect(result.excluded.some(card=>card.code===12)).toBe(false);
 });
 it("rejects infrastructure failures instead of falsely excluding an entire pool",async()=>{
@@ -39,8 +40,14 @@ it("rejects infrastructure failures instead of falsely excluding an entire pool"
 it("isolates a hanging prerelease and continues checking the remaining cards",async()=>{
  const root=await fixture();await writeFile(join(root,"card-scripts/pre-release/c100000001.lua"),"local s,id=GetID(); function s.initial_effect(c) while true do end end");
  const result=await smokePrereleaseScripts(root,[100000001,100000005],{timeoutMs:1500});
- expect(result.checked).toBe(2);expect(result.excluded).toHaveLength(1);expect(result.excluded[0]?.code).toBe(100000001);expect(result.excluded[0]?.errors.join(" ")).toContain("timed out");
+ expect(result.checked).toBe(2);expect(result.excluded).toHaveLength(1);expect(result.excluded[0]?.code).toBe(100000001);expect(result.excluded[0]?.errors).toEqual(["card-timeout"]);
 },10000);
+it("stops when a preview loads a failing shared procedure instead of excluding the card",async()=>{
+ const root=await fixture();
+ await writeFile(join(root,"card-scripts/proc_broken.lua"),"function SharedProcedure() error('shared failure') end");
+ await writeFile(join(root,"card-scripts/pre-release/c100000001.lua"),"local s,id=GetID(); Duel.LoadScript('proc_broken.lua'); function s.initial_effect(c) SharedProcedure() end");
+ await expect(smokePrereleaseScripts(root,[100000001,100000005])).rejects.toThrow(/infrastructure.*proc_broken.lua/i);
+});
 it("refuses released codes even if a caller accidentally includes them",async()=>{
  const root=await fixture();await expect(smokePrereleaseScripts(root,[12])).rejects.toThrow(/not.*prerelease/i);
 });

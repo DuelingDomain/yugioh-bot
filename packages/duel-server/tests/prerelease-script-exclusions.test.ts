@@ -19,16 +19,22 @@ async function fixture(){
 }
 it("excludes only broken previews/artwork families and suppresses remaps whose destination was excluded",async()=>{
  const database=await fixture();expect(database.remaps).toEqual({100000001:22});
- await applyPrereleaseSmokeResult(database,{checked:3,excluded:[{code:22,errors:["initial_effect exploded"]}]});
+ await applyPrereleaseSmokeResult(database,{checked:3,excluded:[{code:22,errors:["card-script-error"]}]});
  expect([...database.prereleaseCodes]).toEqual([23]);
  expect(database.remaps).toEqual({});expect(database.prerelease.map(card=>card.code)).toEqual([23]);
  const artifact=JSON.parse(database.remapBytes);
  expect(artifact.scriptSmoke.checked).toBe(3);
  expect(artifact.scriptSmoke.excluded.map((card:any)=>card.code)).toEqual([22,100000050]);
+ expect(artifact.scriptSmoke.excluded[1].errors).toEqual(["main-card-excluded"]);
  expect(artifact.scriptSmoke.suppressedRemaps).toEqual([{old:100000001,target:22}]);
  const db=new Database(database.path);try{expect(db.prepare("SELECT id FROM datas ORDER BY id").all()).toEqual([{id:12},{id:23}]);}finally{db.close();}
 });
 it("refuses a released exclusion instead of deleting released data",async()=>{
  const database=await fixture();
  await expect(applyPrereleaseSmokeResult(database,{checked:3,excluded:[{code:12,errors:["released error"]}]})).rejects.toThrow(/released/i);
+});
+it("refuses diagnostic text in the hashed artifact before deleting any preview",async()=>{
+ const database=await fixture(),before=database.remapBytes;
+ await expect(applyPrereleaseSmokeResult(database,{checked:3,excluded:[{code:22,errors:["random stderr 55ms"]}]})).rejects.toThrow(/reason/);
+ expect(database.remapBytes).toBe(before);expect([...database.prereleaseCodes]).toEqual([22,23,100000050]);
 });
