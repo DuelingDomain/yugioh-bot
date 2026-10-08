@@ -407,7 +407,10 @@ dedicated secret, the section says **prod error data unavailable**. No VM config
 by the weekly workflow. Temporary runner key files are removed after the SSH step.
 
 SSH has a 40-second deadline, five-second database lock timeout and 64-KiB output
-cap. Missing secrets/host pin, connectivity or permission failures, a stopped duel
+cap. Before uploading any public artifact, the credential job validates the byte
+limit, card/count/hash/scope types and field limits, then re-emits only known
+aggregate fields; unknown fields and raw remote bytes are discarded. Invalid data
+leaves the initialized unavailable snapshot. Missing secrets/host pin, connectivity or permission failures, a stopped duel
 container, a deployment predating this command/schema, invalid JSON and artifact
 download failures produce **prod error data unavailable**. They never fail the
 weekly preparation/publication path. The separate snapshot artifact expires after
