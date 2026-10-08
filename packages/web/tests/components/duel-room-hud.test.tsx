@@ -552,14 +552,19 @@ describe("the pinned card peek of the 1v1 room", () => {
   describe("placement", () => {
     type Box = { left: number; right: number; top: number; bottom: number };
     const spies: Array<{ mockRestore: () => void }> = [];
-    /** jsdom has no layout: the clicked card gets `box`, and the panel gets the size and the place that its CSS gives it at 1280 x 720. */
+    const LAYER_H = 720;
+    const PANEL_H = 300;
+    /**
+     * jsdom has no layout: the clicked card gets `box`, and the panel gets the size and the place that its CSS gives it at 1280 x 720
+     * (`--pv-w` wide, 300 px tall, standing on `--pv-bottom` from the layer bottom, at the left edge 72 or the right edge 16).
+     */
     function layout(box: Box, fits: (panel: HTMLElement) => boolean = () => true) {
       const rect = (b: Box) => ({ ...b, x: b.left, y: b.top, width: b.right - b.left, height: b.bottom - b.top, toJSON: () => ({}) });
       const isPanel = (node: HTMLElement) => node.getAttribute("data-testid") === "hover-preview";
-      const widthOf = (node: HTMLElement) => parseInt(node.style.getPropertyValue("--pin-w") || "700", 10);
+      const widthOf = (node: HTMLElement) => parseInt(node.style.getPropertyValue("--pv-w") || "284", 10);
       spies.push(
         vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
-          if (this === document.body) return rect({ left: 0, right: 1280, top: 0, bottom: 720 }) as DOMRect;
+          if (this === document.body) return rect({ left: 0, right: 1280, top: 0, bottom: LAYER_H }) as DOMRect;
           return rect(this.getAttribute("data-testid") === "field-pick" ? box : { left: 0, right: 0, top: 0, bottom: 0 }) as DOMRect;
         }),
         vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (this: HTMLElement) { return isPanel(this) ? widthOf(this) : 0; }),
@@ -569,56 +574,141 @@ describe("the pinned card peek of the 1v1 room", () => {
           const panel = this.closest<HTMLElement>('[data-testid="hover-preview"]');
           return this.tagName === "P" ? 200 + (panel && !fits(panel) ? 100 : 0) : 0;
         }),
-        vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) { return isPanel(this) ? 300 : 0; }),
-        vi.spyOn(HTMLElement.prototype, "offsetTop", "get").mockImplementation(function (this: HTMLElement) { return isPanel(this) ? (parseInt(this.style.getPropertyValue("--pv-top"), 10) || 56) : 0; }),
+        vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) { return isPanel(this) ? PANEL_H : 0; }),
+        vi.spyOn(HTMLElement.prototype, "offsetTop", "get").mockImplementation(function (this: HTMLElement) {
+          return isPanel(this) ? LAYER_H - (parseInt(this.style.getPropertyValue("--pv-bottom"), 10) || 8) - PANEL_H : 0;
+        }),
         vi.spyOn(HTMLElement.prototype, "offsetLeft", "get").mockImplementation(function (this: HTMLElement) {
           if (!isPanel(this)) return 0;
-          return this.getAttribute("data-side") === "right" ? 1280 - 16 - widthOf(this) : 16;
+          return this.getAttribute("data-side") === "right" ? 1280 - 16 - widthOf(this) : 72;
         }),
       );
     }
     afterEach(() => { while (spies.length) spies.pop()!.mockRestore(); });
+    const css = (name: string) => peek().style.getPropertyValue(name);
 
-    it("stays on the left when the clicked card is away from it", () => {
+    /** A part of the page with a fixed box (jsdom has no layout). */
+    function part(attrs: Record<string, string>, b: Box) {
+      const node = document.createElement("div");
+      for (const [name, value] of Object.entries(attrs)) node.setAttribute(name, value);
+      node.getBoundingClientRect = () => ({ ...b, x: b.left, y: b.top, width: b.right - b.left, height: b.bottom - b.top, toJSON: () => ({}) }) as DOMRect;
+      document.body.appendChild(node);
+      return node;
+    }
+    const TOWER: Box = { left: 14, right: 162, top: 232, bottom: 348 };
+    const hover = () => fireEvent.mouseEnter(screen.getByTestId("field-card"));
+
+    it("stays on the left when the clicked card is away from it, standing on the bottom of the free band", () => {
       layout({ left: 900, right: 980, top: 300, bottom: 420 });
       mount();
       pin();
       expect(peek().getAttribute("data-side")).toBe("left");
-      expect(peek().getAttribute("data-narrow")).toBeNull();
+      expect(peek().getAttribute("data-anchor")).toBe("bottom");
+      expect(css("--pv-w")).toBe("320px");
+      // The band runs from 50 (under the header pills) to 8 px above the layer end.
+      expect(css("--pv-bottom")).toBe("8px");
+      expect(css("--pv-max-h")).toBe("662px");
     });
 
     it("moves to the right when the clicked card is under the left panel (a card of the left seat, or Jinzo in the EMZ)", () => {
-      layout({ left: 300, right: 380, top: 120, bottom: 240 });
+      layout({ left: 100, right: 180, top: 400, bottom: 560 });
       mount();
       pin();
       expect(peek().getAttribute("data-side")).toBe("right");
-      expect(peek().getAttribute("data-narrow")).toBeNull();
     });
 
     it("keeps the left when the clicked card is under the right edge", () => {
-      layout({ left: 1000, right: 1080, top: 120, bottom: 240 });
+      layout({ left: 1000, right: 1080, top: 400, bottom: 560 });
       mount();
       pin();
       expect(peek().getAttribute("data-side")).toBe("left");
     });
 
-    it("takes the widest place that clears the card: a narrower panel before a covered card", () => {
-      layout({ left: 650, right: 730, top: 120, bottom: 240 });
-      mount();
-      pin();
-      expect(peek().getAttribute("data-side")).toBe("left");
-      // The widest panel that still ends before the card: 650 (card) - 12 (gap) - 72 (the left edge).
-      expect(peek().style.getPropertyValue("--pin-w")).toBe("566px");
-      expect(peek().getAttribute("data-narrow")).toBeNull();
+    it("is the same window for the hover and the pin: the same place and size, with no wide layout", () => {
+      layout({ left: 900, right: 980, top: 300, bottom: 420 });
+      const tower = part({ "data-testid": "chain-tower" }, TOWER);
+      try {
+        mount();
+        hover();
+        const place = ["--pv-w", "--pv-bottom", "--pv-max-h"].map(css);
+        const side = peek().getAttribute("data-side");
+        expect(peek().getAttribute("data-pinned")).toBeNull();
+        fireEvent.click(screen.getByTestId("field-pick"));
+        expect(peek().getAttribute("data-pinned")).toBe("true");
+        expect(["--pv-w", "--pv-bottom", "--pv-max-h"].map(css)).toEqual(place);
+        expect(peek().getAttribute("data-side")).toBe(side);
+        for (const name of ["data-narrow", "data-stack", "data-art"]) expect(peek().getAttribute(name)).toBeNull();
+      } finally { tower.remove(); }
     });
 
-    it("takes the compact panel when only that one clears the card", () => {
-      layout({ left: 450, right: 830, top: 120, bottom: 240 });
-      mount();
-      pin();
-      expect(peek().getAttribute("data-side")).toBe("left");
-      expect(peek().style.getPropertyValue("--pin-w")).toBe("430px");
-      expect(peek().getAttribute("data-narrow")).toBe("true");
+    it("stands below the chain tower, in the free band down to the bottom of the layer (hover and pin)", () => {
+      layout({ left: 900, right: 980, top: 300, bottom: 420 });
+      const tower = part({ "data-testid": "chain-tower" }, TOWER);
+      try {
+        mount();
+        hover();
+        expect(peek().getAttribute("data-side")).toBe("left");
+        // 348 (the tower) + the 12 px gap = 360; the band runs on to 712.
+        expect(css("--pv-max-h")).toBe("352px");
+        expect(css("--pv-bottom")).toBe("8px");
+        fireEvent.click(screen.getByTestId("field-pick"));
+        expect(css("--pv-max-h")).toBe("352px");
+      } finally { tower.remove(); }
+    });
+
+    it("takes the right edge when the chain tower and the chain panel cut the left column into short bands", () => {
+      layout({ left: 900, right: 980, top: 300, bottom: 420 });
+      const tower = part({ "data-testid": "chain-tower" }, TOWER);
+      const panel = part({ "data-chain-panel": "" }, { left: 164, right: 456, top: 446, bottom: 697 });
+      try {
+        mount();
+        hover();
+        expect(peek().getAttribute("data-side")).toBe("right");
+        fireEvent.click(screen.getByTestId("field-pick"));
+        expect(peek().getAttribute("data-side")).toBe("right");
+      } finally { tower.remove(); panel.remove(); }
+    });
+
+    it("stops above the Tag team plate at the bottom left, and above a Deck Master plate", () => {
+      layout({ left: 900, right: 980, top: 300, bottom: 420 });
+      const plate = part({ "data-team-plate": "" }, { left: 14, right: 200, top: 540, bottom: 700 });
+      const master = part({ "data-testid": "hud-master" }, { left: 14, right: 200, top: 100, bottom: 160 });
+      try {
+        mount();
+        hover();
+        expect(peek().getAttribute("data-side")).toBe("left");
+        // The band between the master (160 + 12) and the plate (540 - 12): it ends 720 - 528 above the layer bottom.
+        expect(css("--pv-bottom")).toBe("192px");
+        expect(css("--pv-max-h")).toBe("356px");
+      } finally { plate.remove(); master.remove(); }
+    });
+
+    it("fits the free side area beside the board: a narrower window, the same one on hover and pin", () => {
+      layout({ left: 900, right: 980, top: 300, bottom: 420 });
+      // The board starts at x 340: 340 - 12 (gap) - 72 (the left edge) = 256 px of room on the left, and the right edge has more room too.
+      const board = part({ "data-zones": "1:4:0" }, { left: 340, right: 940, top: 100, bottom: 500 });
+      try {
+        mount();
+        hover();
+        expect(peek().getAttribute("data-side")).toBe("left");
+        expect(css("--pv-w")).toBe("256px");
+        fireEvent.click(screen.getByTestId("field-pick"));
+        expect(peek().getAttribute("data-side")).toBe("left");
+        expect(css("--pv-w")).toBe("256px");
+      } finally { board.remove(); }
+    });
+
+    it("goes to the right edge when the left edge is covered by the board (an FFA grid with a life-point plate there)", () => {
+      layout({ left: 900, right: 980, top: 300, bottom: 420 });
+      const zones = part({ "data-zones": "1:4:0" }, { left: 300, right: 1000, top: 100, bottom: 600 });
+      const plate = part({ "data-lp-seat": "1" }, { left: 150, right: 320, top: 500, bottom: 600 });
+      try {
+        mount();
+        pin();
+        // The left room is 66 px (under the minimum, so the window would cover the plate); the right edge has 1280 - 16 - 1000 - 12 = 252 px.
+        expect(peek().getAttribute("data-side")).toBe("right");
+        expect(css("--pv-w")).toBe("252px");
+      } finally { zones.remove(); plate.remove(); }
     });
 
     /** The pinned card of the stub field has a printed text, so the panel has a text to fit. */
@@ -630,28 +720,24 @@ describe("the pinned card peek of the 1v1 room", () => {
       render(<DuelRoomView slug="abc" windowed />);
     }
 
-    it("makes the art smaller before the effect text scrolls", () => {
-      layout({ left: 900, right: 980, top: 300, bottom: 420 }, (panel) => panel.getAttribute("data-art") === "small");
-      mountWithText();
-      pin();
-      expect(peek().getAttribute("data-art")).toBe("small");
-      expect(peek().style.getPropertyValue("--pin-w")).toBe("700px");
+    it("keeps the left edge for a long text (it scrolls there) instead of jumping to the other side", () => {
+      layout({ left: 900, right: 980, top: 300, bottom: 420 }, (panel) => panel.getAttribute("data-side") === "right");
+      const tower = part({ "data-testid": "chain-tower" }, TOWER);
+      try {
+        mountWithText();
+        hover();
+        expect(peek().getAttribute("data-side")).toBe("left");
+      } finally { tower.remove(); }
     });
 
-    it("makes the panel wider before the effect text scrolls, up to 60% of the layer", () => {
-      layout({ left: 1200, right: 1270, top: 300, bottom: 420 }, (panel) => parseInt(panel.style.getPropertyValue("--pin-w"), 10) >= 760);
-      mountWithText();
-      pin();
-      // 60% of the 1280 px layer.
-      expect(peek().style.getPropertyValue("--pin-w")).toBe("768px");
-      expect(peek().getAttribute("data-art")).toBeNull();
-    });
-
-    it("never goes wider than 60% of the layer, even when a wider panel would fit the text", () => {
-      layout({ left: 1200, right: 1270, top: 300, bottom: 420 }, (panel) => parseInt(panel.style.getPropertyValue("--pin-w"), 10) >= 900);
-      mountWithText();
-      pin();
-      expect(parseInt(peek().style.getPropertyValue("--pin-w"), 10)).toBeLessThanOrEqual(768);
+    it("takes the right edge when the left one covers the board or a kept part, even for a short text", () => {
+      layout({ left: 900, right: 980, top: 300, bottom: 420 });
+      const master = part({ "data-testid": "hud-master" }, { left: 14, right: 400, top: 20, bottom: 712 });
+      try {
+        mount();
+        hover();
+        expect(peek().getAttribute("data-side")).toBe("right");
+      } finally { master.remove(); }
     });
 
     it("places the panel again when a camera move puts the clicked card under it", () => {
@@ -663,14 +749,14 @@ describe("the pinned card peek of the 1v1 room", () => {
         pin();
         expect(peek().getAttribute("data-side")).toBe("left");
         // The camera moves the card to the left, under the panel.
-        box.left = 300; box.right = 380;
+        box.left = 100; box.right = 180; box.top = 400; box.bottom = 560;
         act(() => { vi.advanceTimersByTime(600); });
         expect(peek().getAttribute("data-side")).toBe("right");
       } finally { vi.useRealTimers(); }
     });
 
     it("stops a right panel above the visible controls at the bottom right, not above hidden items", () => {
-      layout({ left: 300, right: 380, top: 120, bottom: 240 });
+      layout({ left: 100, right: 180, top: 400, bottom: 560 });
       mount();
       const corner = screen.getByTestId("hud-corner");
       const box = (top: number, bottom: number) => () => ({ left: 1100, right: 1270, top, bottom, width: 170, height: bottom - top, x: 1100, y: top, toJSON: () => ({}) }) as DOMRect;
@@ -702,93 +788,34 @@ describe("the pinned card peek of the 1v1 room", () => {
       expect(rule?.[0]).toMatch(/pointer-events:\s*auto/);
     });
 
-    it("drops the art only when nothing else makes the effect text fit", () => {
-      layout({ left: 900, right: 980, top: 300, bottom: 420 }, (panel) => panel.getAttribute("data-art") === "none");
-      mountWithText();
-      pin();
-      expect(peek().getAttribute("data-art")).toBe("none");
-    });
-
-    /** A part of the page with a fixed box (jsdom has no layout). */
-    function part(attrs: Record<string, string>, b: Box) {
-      const node = document.createElement("div");
-      for (const [name, value] of Object.entries(attrs)) node.setAttribute(name, value);
-      node.getBoundingClientRect = () => ({ ...b, x: b.left, y: b.top, width: b.right - b.left, height: b.bottom - b.top, toJSON: () => ({}) }) as DOMRect;
-      document.body.appendChild(node);
-      return node;
-    }
-    const TOWER: Box = { left: 14, right: 162, top: 232, bottom: 348 };
-
-    it("stands below the chain tower, in the free band down to the bottom of the layer", () => {
-      layout({ left: 900, right: 980, top: 300, bottom: 420 });
-      const tower = part({ "data-testid": "chain-tower" }, TOWER);
-      try {
-        mount();
-        pin();
-        expect(peek().getAttribute("data-side")).toBe("left");
-        // 348 (the tower) + the 12 px gap; the band runs on to the layer end at 720 less 8.
-        expect(peek().style.getPropertyValue("--pv-top")).toBe("360px");
-        expect(peek().style.getPropertyValue("--pv-max-h")).toBe("352px");
-      } finally { tower.remove(); }
-    });
-
-    it("puts the hover panel below the chain tower too", () => {
-      layout({ left: 900, right: 980, top: 300, bottom: 420 });
-      const tower = part({ "data-testid": "chain-tower" }, TOWER);
-      try {
-        mount();
-        fireEvent.mouseEnter(screen.getByTestId("field-card"));
-        expect(peek().getAttribute("data-open")).toBe("true");
-        expect(peek().getAttribute("data-pinned")).toBeNull();
-        expect(peek().style.getPropertyValue("--pv-top")).toBe("360px");
-      } finally { tower.remove(); }
-    });
-
-    it("fits the free side area beside the board: a narrower panel with the art on top of the text", () => {
-      layout({ left: 900, right: 980, top: 300, bottom: 420 });
-      // The board starts at x 400: 400 - 12 (gap) - 72 (the left edge) = 316 px of room on the left.
-      const board = part({ "data-zones": "1:4:0" }, { left: 400, right: 900, top: 100, bottom: 500 });
-      try {
-        mount();
-        pin();
-        expect(peek().getAttribute("data-side")).toBe("left");
-        expect(peek().style.getPropertyValue("--pin-w")).toBe("316px");
-        expect(peek().getAttribute("data-stack")).toBe("true");
-      } finally { board.remove(); }
-    });
-
-    it("shrinks the hover panel to the free side area", () => {
-      layout({ left: 900, right: 980, top: 300, bottom: 420 });
-      // 340 - 12 - 72 = 256 px on the left; the right side has the same room, so the left edge stays.
-      const board = part({ "data-zones": "1:4:0" }, { left: 340, right: 940, top: 100, bottom: 500 });
-      try {
-        mount();
-        fireEvent.mouseEnter(screen.getByTestId("field-card"));
-        expect(peek().getAttribute("data-side")).toBe("left");
-        expect(peek().style.getPropertyValue("--pv-w")).toBe("256px");
-      } finally { board.remove(); }
-    });
-
-    it("places the panel again when a chain opens under it", () => {
+    it("places the pinned panel again when a chain opens under it", () => {
       vi.useFakeTimers();
       let tower: HTMLElement | null = null;
       try {
         layout({ left: 900, right: 980, top: 300, bottom: 420 });
         mount();
         pin();
-        expect(peek().style.getPropertyValue("--pv-top")).toBe("50px");
+        expect(css("--pv-max-h")).toBe("662px");
         tower = part({ "data-testid": "chain-tower" }, TOWER);
         act(() => { vi.advanceTimersByTime(600); });
-        expect(peek().style.getPropertyValue("--pv-top")).toBe("360px");
+        expect(css("--pv-max-h")).toBe("352px");
       } finally { tower?.remove(); vi.useRealTimers(); }
     });
 
-    it("keeps the wide left panel for a card below it", () => {
-      layout({ left: 300, right: 380, top: 500, bottom: 620 });
-      mount();
-      pin();
-      expect(peek().getAttribute("data-side")).toBe("left");
-      expect(peek().style.getPropertyValue("--pin-w")).toBe("700px");
+    it("does not poll for a hover panel: it is placed again by the next card or a resize", () => {
+      vi.useFakeTimers();
+      let tower: HTMLElement | null = null;
+      try {
+        layout({ left: 900, right: 980, top: 300, bottom: 420 });
+        mount();
+        hover();
+        expect(css("--pv-max-h")).toBe("662px");
+        tower = part({ "data-testid": "chain-tower" }, TOWER);
+        act(() => { vi.advanceTimersByTime(600); });
+        expect(css("--pv-max-h")).toBe("662px");
+        act(() => { window.dispatchEvent(new Event("resize")); });
+        expect(css("--pv-max-h")).toBe("352px");
+      } finally { tower?.remove(); vi.useRealTimers(); }
     });
   });
 
