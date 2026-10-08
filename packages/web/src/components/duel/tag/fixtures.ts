@@ -11,6 +11,7 @@ import {
   newSeat,
   putMonster,
   putSpell,
+  respondPrompt,
   searchPrompt,
   SZ,
   TABLE_CARDS as C,
@@ -304,7 +305,24 @@ const states = {
 } satisfies Record<TableStateId, TableFixtureState>;
 
 /** States only the Rooftop previews (`?state=emz-place`). */
+const respondState = (count: number) =>
+  make(`respond-${count}` as TableStateId, `Respond: ${count} cards`, {
+    phase: "battle",
+    battleStep: "battle",
+    edit: (seats) => {
+      seats[MIRELLE].spells[1] = cardAt(C.mirrorForce, SZ(MIRELLE, 1));
+      seats[CORVIN].spells[0] = cardAt(C.mst, SZ(CORVIN, 0));
+    },
+    chain: [{ ...link(1, MIRELLE, C.mirrorForce), zone: { controller: MIRELLE, location: LOCATION_SZONE, sequence: 1 } }, { ...link(2, CORVIN, C.mst), zone: { controller: CORVIN, location: LOCATION_SZONE, sequence: 0 } }],
+    prompt: () => respondPrompt(ASTER, count, `${TAG_NAMES[CORVIN]} activated ${C.mst.name}. Your team may respond.`),
+  });
+
 const extra: Record<string, TableFixtureState> = {
+  // "You can respond" with 2, 5, 10 or 14 cards to activate: the card-choice panel of a chain response.
+  "respond-2": respondState(2),
+  "respond-5": respondState(5),
+  "respond-10": respondState(10),
+  "respond-14": respondState(14),
   // Aster Special Summons Dark Paladin: the left cell shared with Mirelle is free, the right one holds her monster.
   "emz-place": make("emz-place", "Place in a shared Extra Monster Zone", {
     edit: (seats) => {

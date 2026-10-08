@@ -5,6 +5,9 @@ import { seatsOfTeam, teamOfSeat } from "@yugidraft/shared/duels";
 import { ChainRoomContext, type ChainStripSize } from "../table/chain-room";
 import { duelFontClasses } from "../fonts";
 import { formatStartingLp } from "../table-format";
+import { zoneKey } from "../constants";
+import { isChainStripPrompt } from "../prompt-center";
+import { useStripRoom } from "../table/use-strip-room";
 import { hexToRgbTriplet } from "../table/seat-angle";
 import { SEAT_TONE_HEX, type SeatFieldProps, type SeatTone, type TagStageProps } from "../table/types";
 import { sharedExtraPairs } from "../multi-seat";
@@ -105,6 +108,12 @@ function toneHex(tone: SeatTone | undefined): HubSeatTone {
   return { rgb: hexToRgbTriplet(hex.main), ink: hex.ink };
 }
 
+/** The HUD the chain-response panel keeps off (strip-room.ts): the team plates and the camera rail. */
+const STRIP_KEY_HUD = "[data-team-plate], [data-camera-rail]";
+/** The HUD it avoids when it can: the helipad hub (its chain line is also in the panel), the chain banner, the lock chip and the partner's hand. */
+const STRIP_SOFT_HUD = "[data-hub], [data-chain-panel], [data-lock-chip], [data-partner-hand]";
+const STRIP_OWN_HAND = '[data-hand-seat][data-side="you"] [data-zones]';
+
 /**
  * The 2v2 Rooftop stage: a 3D roof at night with the two team strips, the helipad baton in the middle, the team LP plates,
  * the chain hub and the hands. It draws the fields only through `renderSeatField`. FX, the prompt panel and any overlay
@@ -152,6 +161,35 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
 
   // ---------- camera ----------
   const rootRef = useRef<HTMLDivElement>(null);
+  // The chain-response panel (every option a card): a room of its own with large cards (strip-room.ts), wholly inside the viewport, off the plates and
+  // the hub, and over no more than the top strip of your hand. The camera never moves for it.
+  const [viewBox, setViewBox] = useState({ width: 0, height: 0 });
+  useLayoutEffect(() => {
+    const node = rootRef.current;
+    if (!node) return;
+    const read = () => setViewBox((current) => (current.width === node.clientWidth && current.height === node.clientHeight ? current : { width: node.clientWidth, height: node.clientHeight }));
+    read();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(read);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+  const stripCount = !phone && promptCenter && prompt && isChainStripPrompt(prompt) ? prompt.options.length : 0;
+  const stripAnchor = useMemo(() => ({ x: viewBox.width / 2, y: viewBox.height / 2 }), [viewBox.width, viewBox.height]);
+  const stripSources = useMemo(() => engine.chain.flatMap((link) => (link.zone ? [zoneKey(link.zone.controller, link.zone.location, link.zone.sequence)] : [])), [engine.chain]);
+  const { room: stripRoom, pending: stripPending } = useStripRoom({
+    rootRef,
+    active: stripCount > 0 && viewBox.width > 0,
+    promptId: prompt?.id ?? "",
+    count: stripCount,
+    box: viewBox,
+    anchor: stripAnchor,
+    keyHud: STRIP_KEY_HUD,
+    softHud: STRIP_SOFT_HUD,
+    hand: STRIP_OWN_HAND,
+    sourceKeys: stripSources,
+    viewKey: `${camera.mode}|${camera.focusSeat ?? ""}|${camera.lock?.reason ?? ""}`,
+  });
   const worldRef = useRef<HTMLDivElement>(null);
   const padRef = useRef<HTMLDivElement>(null);
   const farRef = useRef<HTMLDivElement>(null);
@@ -663,7 +701,14 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
           <div className={styles.slot}>{fx}</div>
         </ChainRoomContext.Provider>
       ) : null}
-      <div ref={rootRef} className={styles.viewport} data-tag-viewport style={{ top: chainInset }}>
+      <div
+        ref={rootRef}
+        className={styles.viewport}
+        data-tag-viewport
+        data-strip-room={stripRoom ? "true" : undefined}
+        data-strip-pending={stripPending ? "true" : undefined}
+        style={{ top: chainInset, ...(stripRoom ? ({ ["--sr-x" as string]: `${stripRoom.x}px`, ["--sr-y" as string]: `${stripRoom.y}px`, ["--sr-w" as string]: `${stripRoom.width}px`, ["--sr-h" as string]: `${stripRoom.height}px`, ["--sr-card" as string]: `${stripRoom.card}px` } as CSSProperties) : {}) }}
+      >
         <div className={styles.persp}>
           <div className={styles.sky} aria-hidden="true">
             <div className={styles.stars} />
