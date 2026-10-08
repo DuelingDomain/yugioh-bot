@@ -13,6 +13,16 @@ import { applyDomainMaster, selectDomainMaster, serializeYdk, type DeckMasterSel
 export const EMPTY_DECK: DuelDeck = { main: [], extra: [], side: [] };
 export const DEFAULT_NAME = "Untitled deck";
 export const MAX_NAME_LENGTH = 100;
+
+/** Cuts a name to at most `max` characters of the length the API counts, never inside a surrogate pair, without trailing spaces. */
+export function cutName(name: string, max = MAX_NAME_LENGTH): string {
+  let out = "";
+  for (const char of name) {
+    if (out.length + char.length > max) break;
+    out += char;
+  }
+  return out.trimEnd();
+}
 export const EXTRA_TYPE_MASK = TYPE_FUSION | TYPE_SYNCHRO | TYPE_XYZ | TYPE_LINK;
 
 export type DeckSection = "main" | "extra" | "side";
