@@ -239,14 +239,19 @@ export function chainOutcomes(events: readonly DuelEvent[], state: ChainState, w
   return out;
 }
 
+function sameZone(a: DuelZoneRef, b: DuelZoneRef | null): boolean {
+  return b != null && a.controller === b.controller && a.location === b.location && a.sequence === b.sequence;
+}
+
 /** The lines for the effects of one link: destroyed, sent, banished, returned, summoned, damage, recovered. */
 function effectLines(events: readonly DuelEvent[], link: ChainLinkState, who: Who): string[] {
   const destroyed: Array<string | null> = [];
   const graveyard: Array<string | null> = [];
   const banished: Array<string | null> = [];
   const toHand: Array<string | null> = [];
-  const added: Array<string | null> = [];
-  let drawn = 0;
+  // Cards that reach a hand, per seat (the seat the card goes to), in the order the seats first appear.
+  const added = new Map<number, Array<string | null>>();
+  const drawn = new Map<number, number>();
   const toDeck: Array<string | null> = [];
   const summoned: Array<{ verb: string; name: string | null }> = [];
   const damage: string[] = [];
@@ -257,8 +262,9 @@ function effectLines(events: readonly DuelEvent[], link: ChainLinkState, who: Wh
     if (event.kind === "destroy") {
       destroyed.push(name);
     } else if (event.kind === "move") {
-      // The source card going to the Graveyard after its own effect is cleanup, not what the effect did.
-      if (event.card != null && link.code != null && event.card.code === link.code) continue;
+      // The source card leaving its own zone for the Graveyard after its effect is cleanup, not what the effect did. A
+      // card of the same name that is drawn or searched (Pot of Greed drawing a Pot of Greed) is an effect.
+      if (event.card != null && link.code != null && event.card.code === link.code && (event.from == null || sameZone(event.from, link.zone))) continue;
       if (event.reason === "destroy") {
         if (destroyEvents.length === 0) destroyed.push(name);
         continue;
@@ -269,9 +275,10 @@ function effectLines(events: readonly DuelEvent[], link: ChainLinkState, who: Wh
       else if (to === 0x2) {
         // The hand is the card's way in: a draw, a card fetched from the Deck, Graveyard or banished pile, or a bounce from the field.
         const from = event.from?.location;
-        if (event.reason === "draw") drawn += 1;
+        const seat = event.zone?.controller ?? link.seat;
+        if (event.reason === "draw") drawn.set(seat, (drawn.get(seat) ?? 0) + 1);
         else if (from === LOCATION_MZONE || from === LOCATION_SZONE) toHand.push(name);
-        else added.push(name);
+        else added.set(seat, [...(added.get(seat) ?? []), name]);
       }
       else if (to === 0x1 || to === 0x40) toDeck.push(name);
     } else if (event.kind === "summon") {
@@ -288,9 +295,16 @@ function effectLines(events: readonly DuelEvent[], link: ChainLinkState, who: Wh
   if (destroyed.length > 0) lines.push(listCards("Destroyed", destroyed));
   if (graveyard.length > 0) lines.push(`${listCards("Sent", graveyard)} to the Graveyard`);
   if (banished.length > 0) lines.push(listCards("Banished", banished));
-  if (drawn > 0) lines.push(`Drew ${drawn} ${drawn === 1 ? "card" : "cards"}`);
+  // The link's owner "Drew 2 cards"; another seat is named, like the damage lines.
+  for (const [seat, count] of drawn) {
+    const label = seat === link.seat ? "Drew" : `${chainSeatLabel(seat, who.mySeat, who.playerName, who.named)} drew`;
+    lines.push(`${label} ${count} ${count === 1 ? "card" : "cards"}`);
+  }
   // A card the effect searched or recovered ("Added"), against one it bounced back from the field ("Returned").
-  if (added.length > 0) lines.push(`${listCards("Added", added)} to the hand`);
+  for (const [seat, cards] of added) {
+    const label = seat === link.seat ? "Added" : `${chainSeatLabel(seat, who.mySeat, who.playerName, who.named)} added`;
+    lines.push(`${listCards(label, cards)} to the hand`);
+  }
   if (toHand.length > 0) lines.push(`${listCards("Returned", toHand)} to the hand`);
   if (toDeck.length > 0) lines.push(`${listCards("Returned", toDeck)} to the Deck`);
   for (const item of summoned) lines.push(`${item.verb} ${item.name ?? "a card"}`);
