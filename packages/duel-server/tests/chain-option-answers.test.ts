@@ -189,6 +189,33 @@ describe.each([["merged", createEngineGame], ["legacy", createLegacyEngineGame]]
     } finally { game.close(); }
   });
 
+  it("matches delayed hints against all option answers in the current window", async () => {
+    fake.batches = [[chain(1, CODE, description(1)), chained(), solving(), option()],
+      [option()], [hint(1), hint(2), followUp()]];
+    const game = await open();
+    try {
+      game.answer(1, game.view(1).prompt!.id, { choice: "opt:0" });
+      game.answer(1, game.view(1).prompt!.id, { choice: "opt:1" });
+      expect(game.view(null).chain[0].chosenOptions).toEqual([
+        { index: 0, text: 'Add 1 "Mitsurugi" monster from your Deck to your hand' },
+        { index: 1, text: "Take 800 damage" },
+      ]);
+    } finally { game.close(); }
+  });
+
+  it("does not duplicate delayed hints when neither answer is the effect description", async () => {
+    fake.batches = [[chain(), chained(), solving(), option()], [option()], [hint(1), hint(2), followUp()]];
+    const game = await open();
+    try {
+      game.answer(1, game.view(1).prompt!.id, { choice: "opt:0" });
+      game.answer(1, game.view(1).prompt!.id, { choice: "opt:1" });
+      expect(game.view(null).chain[0].chosenOptions).toEqual([
+        { index: 0, text: 'Add 1 "Mitsurugi" monster from your Deck to your hand' },
+        { index: 1, text: "Take 800 damage" },
+      ]);
+    } finally { game.close(); }
+  });
+
   it("uses public hints for script choices with no prompt and no known option index", async () => {
     fake.batches = [[chain(), chained(), solving(), hint(1), hint(1, 1), hint(2), followUp()]];
     const game = await open();
