@@ -267,7 +267,9 @@ describe("the pinned card peek of the Tag Rooftop", () => {
     media(false);
     const { container } = render(<Shell />);
     const zone = container.querySelector("[data-kind='mz'][data-occupied='true']") as HTMLElement;
-    const card = zone.querySelector("button") as HTMLElement;
+    // In the overview a tap on a zone with no action focuses that field (Tag camera); in the close-up the tap pins the peek.
+    fireEvent.click(zone.querySelector("button") as HTMLElement);
+    const card = container.querySelector("[data-kind='mz'][data-occupied='true'] button") as HTMLElement;
     fireEvent.mouseEnter(card);
     fireEvent.click(card);
     fireEvent.mouseLeave(card);
