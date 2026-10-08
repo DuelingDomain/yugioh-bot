@@ -121,10 +121,12 @@ describe("Tag overview camera: a click on a field never focuses it on a wide scr
     expect(modeOf(root)).toBe("overview:-");
   });
 
-  it("the focus button and the 1-4 keys still focus", () => {
+  it("the focus button of a field still focuses it, and Back returns to the overview", () => {
     const root = mount();
     fireEvent.click(root.querySelector<HTMLElement>('[data-field-focus="2"]')!);
     expect(modeOf(root)).toBe("focus:2");
+    fireEvent.click(root.querySelector<HTMLElement>("[data-camera-back]")!);
+    expect(modeOf(root)).toBe("overview:-");
   });
 
   it("on a phone, a tap on the mat or the name label still focuses the field (there are no corner buttons)", () => {
