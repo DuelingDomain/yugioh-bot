@@ -472,7 +472,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
   // A double click on a field (its mat, its name, a plate chip) focuses it on a wide screen; a card, a zone or a control keeps its own job.
   const onStageDoubleClick = (event: MouseEvent<HTMLDivElement>) => {
     const node = event.target instanceof Element ? event.target : null;
-    if (!node || node.closest(ACTION_TARGET) || node.closest("[data-uid], [data-zones], [data-pile]")) return;
+    if (!node || node.closest(ACTION_TARGET) || node.closest("[data-uid], [data-zones], [data-pile], [data-hand-seat]")) return;
     const seat = Number(node.closest<HTMLElement>("[data-field-hold]")?.dataset.fieldHold ?? node.closest<HTMLElement>("[data-member-seat]")?.dataset.memberSeat);
     if (Number.isInteger(seat) && engine.seats.some((s) => s.seat === seat)) focusField(seat);
   };
