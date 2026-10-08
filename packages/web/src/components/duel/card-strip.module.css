@@ -189,6 +189,8 @@
   line-height: 1.25;
   overflow-wrap: anywhere;
 }
+/* A strip with a short line under some names keeps two lines for every name, so those lines sit at one height. */
+.strip[data-notes] .name { min-height: 2.5em; }
 .note {
   color: var(--duel-ink-2, #c3bba8);
   font-family: var(--duel-f-num, var(--font-display));
