@@ -1458,7 +1458,8 @@ function projectPrompt(
       if (option.location === OcgLocation.OVERLAY && option.host) {
         // An Xyz material shows while its Xyz monster does, and says which Xyz it is under.
         const hostCard = cardAt(seats, option.host.controller, option.host.location, option.host.sequence);
-        if (hostCard?.code == null) return redactPromptOption(option, hostCard);
+        // A hidden Xyz is no reason to call its material face-down: it has no field card of its own.
+        if (hostCard?.code == null) return redactPromptOption(option, null);
         return { ...option, host: { ...option.host, code: hostCard.code, ...(hostCard.name ? { name: hostCard.name } : null) } };
       }
       const card = cardAt(seats, option.controller ?? -1, option.location ?? -1, option.sequence ?? -1);

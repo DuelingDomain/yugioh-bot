@@ -60,4 +60,15 @@ describe("legacy engine: Xyz materials in a card select", () => {
     expect(options.map((option) => option.card?.code)).toEqual(MATERIALS);
     for (const option of options) expect(option.host).toMatchObject({ ...XYZ_ZONE, code: DUO_DRIVE, name: expect.stringContaining("Ryzeal Duo Drive") });
   });
+
+  it("hides materials of a face-down Xyz from the opponent as unknown cards, not face-down cards", () => {
+    // The opponent picks which of seat 0's materials go, and cannot see the face-down Xyz.
+    const view = project(1, OcgPosition.FACEDOWN_DEFENSE);
+    for (const option of view.prompt!.options) {
+      expect(option.label).toBe("Unknown card");
+      expect(option.card).toBeUndefined();
+      expect(option.host).toEqual(XYZ_ZONE);
+    }
+    expect(view.prompt!.options.map((option) => option.sequence)).toEqual([0, 1, 2]);
+  });
 });
