@@ -9,6 +9,7 @@ import {
   newSeat,
   putMonster,
   putSpell,
+  respondPrompt,
   TABLE_CARDS as C,
   searchPrompt,
   withHiddenHands,
@@ -280,8 +281,27 @@ const banishPrompt = (id: string) => (): DuelPrompt => ({
   ],
 });
 
+/** "You can respond" with `count` cards to activate (`?state=respond-<count>`): the card-choice panel of a chain response. */
+const respondState = (count: number) => {
+  const id = `respond-${count}`;
+  return make(id as TableStateId, `Respond: ${count} cards`, {
+    phase: "battle",
+    battleStep: "battle",
+    edit: (seats) => {
+      putSpell(seats[RYO], 1, C.mirrorForce);
+      putSpell(seats[MIKA], 0, C.callOfTheHaunted);
+    },
+    chain: [link(1, RYO, C.mirrorForce), link(2, MIKA, C.callOfTheHaunted)],
+    prompt: () => respondPrompt(REN, count, `${NAMES[MIKA]} activated ${C.callOfTheHaunted.name}. Respond?`),
+  });
+};
+
 /** States only the FFA3 preview shows (`?state=<id>`). */
 const extra = {
+  "respond-2": respondState(2),
+  "respond-5": respondState(5),
+  "respond-10": respondState(10),
+  "respond-14": respondState(14),
   // A field-select bar over cards in your hand and on your field (the Banish cost of a summon).
   "banish-pick": make("banish-pick" as TableStateId, "Banish: select a card", { prompt: banishPrompt("banish-pick") }),
   // The same pick while a chain is open: the chain tower stands at the side of the board.

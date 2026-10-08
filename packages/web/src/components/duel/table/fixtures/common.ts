@@ -2,7 +2,7 @@ import { defaultDuelSettings, opponentSeatsOf, teamOfSeat } from "@yugidraft/sha
 import type { DuelCardInfo, DuelChainLink, DuelEngineView, DuelEvent, DuelPrompt, DuelPromptOption, DuelRoom, DuelSeatView } from "@yugidraft/shared/duels";
 import { CARDS } from "../../fx-lab/cards";
 import { ATTRIBUTE } from "../../attack-styles";
-import { LOCATION_DECK, LOCATION_MZONE, POS_FACEUP_ATTACK, TYPE_CONTINUOUS, TYPE_EFFECT, TYPE_MONSTER, TYPE_TRAP, zoneKey } from "../../constants";
+import { LOCATION_DECK, LOCATION_HAND, LOCATION_MZONE, POS_FACEUP_ATTACK, TYPE_CONTINUOUS, TYPE_EFFECT, TYPE_MONSTER, TYPE_TRAP, zoneKey } from "../../constants";
 import type { BattleAim, CameraState, TableFormat } from "../types";
 
 import { cardAt, hiddenAt, MZ, SZ, link } from "../../fx-lab/board";
@@ -373,4 +373,23 @@ export function searchPrompt(seat: number, count: number = SEARCH_NAMES.length):
     sequence,
   }));
   return { id: "pick-search", seat, kind: "cards", title: "Select a card", description: "Add to your hand", min: 1, max: 1, options };
+}
+
+/**
+ * The "You can respond" prompt with `count` card options (2, 5 or 10 and more): the response panel of a chain, an optional
+ * choice among the cards you can activate. The preview shows it as `?state=respond-<count>`.
+ */
+export function respondPrompt(seat: number, count: number, title: string): DuelPrompt {
+  const options: DuelPromptOption[] = Array.from({ length: count }, (_, index) => {
+    const name = SEARCH_NAMES[index % SEARCH_NAMES.length];
+    return {
+      id: `activate-${index}`,
+      label: `Activate ${name}`,
+      card: { ...TABLE_CARDS.solemn, code: SEARCH_CODES[index % SEARCH_CODES.length], name },
+      controller: seat,
+      location: LOCATION_HAND,
+      sequence: index,
+    };
+  });
+  return { id: `respond-${count}`, seat, kind: "choice", title, context: { type: "chain", forced: false }, cancelable: true, options };
 }
