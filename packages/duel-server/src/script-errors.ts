@@ -22,6 +22,8 @@ export interface DuelScriptError extends CardScriptError {
 
 export const CARD_SCRIPT_STRICT_ERROR_TEXT = "Card script error (strict mode): an effect may not have resolved correctly.";
 export const ENGINE_SCRIPT_ERROR_TEXT = "Engine script error: the duel could not continue.";
+export const SCRIPT_ERROR_TELEMETRY_LIMIT = 20;
+export const CORE_PROCESS_CALL_LIMIT = 100_000;
 
 export const CARD_SCRIPT_ERROR_TEXT = "Card script error: an effect may not have resolved correctly. The duel will continue.";
 
@@ -75,6 +77,7 @@ export function createScriptErrorPolicy(options: {
   let loadDepth = 0;
   let queryLoadDepth: number | null = null;
   const queryCards = new Set<number>();
+  const reported = new Map<number, number>();
   return {
     errors,
     /** Queries run a variable number of times in live/recovery/replay. Never add them to events. */
@@ -103,8 +106,12 @@ export function createScriptErrorPolicy(options: {
         return;
       }
       const error = { ...script, index: ++index, mode: options.mode, format: options.format ?? "1v1", engine: options.engine ?? "pinned", scriptErrorMode };
-      pending.push(error);
-      options.onScriptError?.(error);
+      if (pending.length === 0) pending.push(error);
+      const count = reported.get(script.code) ?? 0;
+      if (count < SCRIPT_ERROR_TELEMETRY_LIMIT) {
+        reported.set(script.code, count + 1);
+        options.onScriptError?.(error);
+      }
       if (scriptErrorMode === "strict") errors.push(CARD_SCRIPT_STRICT_ERROR_TEXT);
     },
     drain(): DuelScriptError[] {

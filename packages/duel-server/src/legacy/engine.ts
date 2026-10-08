@@ -1,5 +1,5 @@
 import { scriptErrorCoreFactory } from "../script-load-scope.js"; // LEGACY-1V1: distinguish load failures from runtime errors
-import { CARD_SCRIPT_ERROR_TEXT, createScriptErrorPolicy, type DuelScriptError } from "../script-errors.js"; // LEGACY-1V1: owner runtime script-error policy
+import { CARD_SCRIPT_ERROR_TEXT, CORE_PROCESS_CALL_LIMIT, createScriptErrorPolicy, type DuelScriptError } from "../script-errors.js"; // LEGACY-1V1: owner runtime script-error policy
 // LEGACY 1V1 ENGINE. A copy of packages/duel-server/src/engine.ts from main (commit 2a5a959), the engine that ran one-against-one
 // duels in production before the n-seat work. It runs when DUEL_1V1_ENGINE=legacy (the default) for tables with two seats.
 // Do not "fix" or tidy this file, ./views.ts or ./prompts.ts: they must stay equal to main. Every line that differs from main is
@@ -220,6 +220,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   const cards = loadCardDatabase(options.dataDirectory);
   const scriptErrors = createScriptErrorPolicy({ ...options, engine: "legacy" }); // LEGACY-1V1: owner policy
   const errors = scriptErrors.errors;
+  let scriptErrorEventSent = false; // LEGACY-1V1: coalesce runtime errors per answer
   const scopedCreateCore = scriptErrorCoreFactory(legacyCreateCore, scriptErrors);
   const eventContext = createEventContext();
   const cardReader = (code: number) => {
@@ -566,7 +567,9 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     const continuingSummon = pending?.message.type === OcgMessageType.SELECT_POSITION || pending?.message.type === OcgMessageType.SELECT_PLACE;
     resetEventBatch(eventContext, continuingSummon);
     leftFieldLines.length = 0;
+    let processCalls = 0;
     while (!result) {
+      if (processCalls++ >= CORE_PROCESS_CALL_LIMIT) throw new Error(`Engine exceeded ${CORE_PROCESS_CALL_LIMIT} process calls without a player prompt`);
       scriptErrors.enterProcess();
       let status: ReturnType<typeof lib.duelProcess>;
       try { status = lib.duelProcess(handle); }
@@ -577,8 +580,9 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
         recordEvent(message);
       }
       flushDeferredDestroys();
-      for (const error of scriptErrors.drain()) {
-        if (error.scriptErrorMode === "strict") continue;
+      const toleratedError = scriptErrors.drain().some(error => error.scriptErrorMode !== "strict");
+      if (toleratedError && !scriptErrorEventSent) {
+        scriptErrorEventSent = true;
         const event: StoredDuelEvent = { id: nextEventId, kind: "script-error", text: CARD_SCRIPT_ERROR_TEXT, publicText: CARD_SCRIPT_ERROR_TEXT, revealCardTo: "all" };
         pushEvent(event);
         appendLog(CARD_SCRIPT_ERROR_TEXT).eventId = event.id;
@@ -674,6 +678,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     },
     // LEGACY-1V1: chain response mode. See ../engine.ts EngineGame.setChainMode.
     setChainMode(seat, mode) {
+      scriptErrorEventSent = false;
       if (closed) throw new Error("Engine is closed");
       if (result) throw new EngineAnswerError("Duel is over");
       if (seat !== 0 && seat !== 1) throw new Error("Invalid seat");
@@ -695,6 +700,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
       return true;
     },
     answer(seat, promptId, answer) {
+      scriptErrorEventSent = false;
       if (closed) throw new Error("Engine is closed");
       if (result) throw new EngineAnswerError("Duel is over");
       if (!pending) throw new EngineAnswerError("No prompt is waiting");

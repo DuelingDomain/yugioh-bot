@@ -29,6 +29,19 @@ describe("card script error classification", () => {
 
 
 describe("saved script error policy", () => {
+  it("keeps one pending event and at most 20 telemetry samples per card without ending processing", () => {
+    const report = vi.fn();
+    const policy = createScriptErrorPolicy({ mode: "normal", onScriptError: report });
+    policy.enterProcess();
+    for (let i = 0; i < 100; i++) policy.note(OcgLogType.ERROR, 'c3743515.lua:61: attempt to index a nil value');
+    policy.leaveProcess();
+    expect(policy.errors).toEqual([]);
+    expect(policy.drain()).toHaveLength(1);
+    expect(report).toHaveBeenCalledTimes(20);
+    policy.enterProcess(); policy.note(OcgLogType.ERROR, 'c123.lua:1: attempt to index a nil value'); policy.leaveProcess();
+    expect(report).toHaveBeenCalledTimes(21);
+    expect(policy.drain()).toHaveLength(1);
+  });
   it("drops query callback errors even in strict mode, reporting each card privately once", () => {
     const reported = vi.fn();
     const policy = createScriptErrorPolicy({ mode: "normal", scriptErrorMode: "strict", onScriptError: reported });

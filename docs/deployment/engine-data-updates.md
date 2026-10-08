@@ -227,19 +227,28 @@ replay, so query errors never change event IDs or processing error ordinals. Fat
 Lua diagnostics also use generic player-facing text. The WASM binaries are unchanged. A callback can fail without a traceback,
 so traceback presence alone is not used to distinguish loading from runtime.
 
-Every tolerated occurrence produces a deterministic `script-error` event and a
-matching text line: “Card script error: an effect may not have resolved correctly.
+Each answer (including its automatic core responses) produces at most one
+deterministic `script-error` event and matching quiet duel-log line: “Card script error: an effect may not have resolved correctly.
 The duel will continue.” Card identities and raw Lua diagnostics are omitted from
 all player and spectator messages, including with public-hand settings. This
 conservative text never names a hidden card. `DuelEngineView.events/log` flow through
 the existing worker views and room snapshots; `duel:changed` makes the client fetch
 its view, and `MatchSheetLog` displays the text in live duels and replays. No duel-log
-UI change is needed. Event/log IDs depend only on the core sequence; timestamps and
+centre banner is shown for script-error events. Event/log IDs depend only on the core sequence; timestamps and
 counters never enter views or the command journal. Strict-mode client errors also
-use generic text; their raw diagnostic remains in private telemetry.
+use generic text; their raw diagnostic remains in private telemetry. Errors never
+end a duel merely because their count is high. A batch exceeding 100,000 core
+process calls without a player prompt throws “Engine exceeded 100000 process calls
+without a player prompt”. This follows the existing fatal engine-error path: reject
+the command, discard the advanced worker, and recover from the accepted journal.
+If recovery itself fails, the existing recovery failure interrupts the duel.
 
 Private worker replies send card code, reported script file/line, raw message,
 mode, table format, engine, policy and deterministic error ordinal to the host.
+Process telemetry is sampled at most 20 times per card per engine instance; the
+host also caps persistent samples at 20 per duel/card across recoveries. Query
+samples use a separate stable per-card key. Samples beyond these limits do not
+write SQLite rows or JSON error logs and do not affect gameplay events.
 The host emits a JSON `card_script_error` log with the numeric `duelId` and saves
 `card_script_errors` counters in the shared SQLite database. The idempotent schema
 migration also creates `card_script_error_occurrences(duel_id, command_hash, error_index)`;

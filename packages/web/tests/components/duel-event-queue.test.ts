@@ -41,6 +41,13 @@ const threeLinkResolution: DuelEvent[] = [
 ];
 
 describe("collectFreshEvents", () => {
+  it("consumes script-error log entries without a centre banner or cue duration", () => {
+    const script = event(18, "script-error");
+    expect(collectFreshEvents([script], 17)).toEqual({ nextCursor: 18, fresh: [script] });
+    expect(hasCentreBanner("script-error")).toBe(false);
+    expect(cueDuration("script-error", false)).toBe(0);
+    expect(cueDuration("script-error", true)).toBe(0);
+  });
   it("consumes tosses once and leaves their picture and timing to the toss layer", () => {
     const toss: DuelEvent = { ...event(18, "toss"), toss: { type: "coin", results: ["heads", "tails"] } };
     expect(collectFreshEvents([toss, toss], 17)).toEqual({ nextCursor: 18, fresh: [toss] });

@@ -836,6 +836,7 @@ export function migrate(db: Database.Database) {
       duel_id integer not null,
       command_hash text not null,
       error_index integer not null,
+      code integer not null default 0,
       primary key (duel_id, command_hash, error_index)
     );
 
@@ -1089,6 +1090,8 @@ export function migrate(db: Database.Database) {
     );
   `);
 
+  addColumnIfMissing(db, "card_script_error_occurrences", "code", "integer not null default 0");
+  db.exec("create index if not exists card_script_error_duel_code_idx on card_script_error_occurrences (duel_id, code)");
   migrateConfigPoolsToCubeCards(db);
   migrateIdentity(db);
 }
