@@ -83,45 +83,51 @@ function leavesPublicly(from: MoveMessage["from"]): boolean {
 }
 
 /** The text a leftField line becomes when the card turns out to have been destroyed. Public, like the line. */
-export function destroyedLogText(cards: CardDatabase, code: number): string {
-  return `${nameOf(cards, code)} was destroyed`;
+export function destroyedLogText(cards: CardDatabase, code: number, controller?: number, format?: DuelFormat): string {
+  const player = controller == null ? "" : `${playerLabel(format, controller)}'s `;
+  return `${player}${nameOf(cards, code)} was destroyed`;
 }
 
 /** Destruction whose destination was redirected to face-up banishment. */
-export function destroyedAndBanishedLogText(cards: CardDatabase, code: number): string {
-  return `${nameOf(cards, code)} was destroyed and banished`;
+export function destroyedAndBanishedLogText(cards: CardDatabase, code: number, controller?: number, format?: DuelFormat): string {
+  const player = controller == null ? "" : `${playerLabel(format, controller)}'s `;
+  return `${player}${nameOf(cards, code)} was destroyed and banished`;
 }
 
 /**
  * Lines for a card that changed place. Field arrivals have their own summon/Set/activation lines, and moves
  * inside one place (shuffles, zone swaps) say nothing.
- *   Graveyard            "X was sent to the Graveyard" (always public). From the field it may later become
- *                        "X was destroyed" (see LogLine.leftField). A card sent from the hand is not called
+ *   Graveyard            "Player N's X was sent to the Graveyard" (always public). From the field it may later become
+ *                        "Player N's X was destroyed" (see LogLine.leftField). A card sent from the hand is not called
  *                        discarded: Ritual and Fusion materials leave the hand the same way.
- *   banished face-up     "X was banished", or "X was destroyed and banished" when a destruction is reported
+ *   banished face-up     "Player N's X was banished", or "Player N's X was destroyed and banished" when a destruction is reported
  *                        (face-down: nothing)
  *   hand                 public source: "X returned to Player N's hand" (from the field) or
  *                        "X was added to Player N's hand"; hidden source: a nameless public line, the name to
  *                        that hand's owner only
  *   Deck / Extra Deck    public source: "X returned to the Deck" / "the Extra Deck" (a destroyed Pendulum
- *                        Monster's line may become "X was destroyed"); hidden source: nothing
+ *                        Monster's line may become "Player N's X was destroyed"); hidden source: nothing
  * Tributes and materials are only known once the summon that used them arrives, so they read as Graveyard sends.
+ * Graveyard sends, banishes and destruction rewrites name the previous controller, even if the card returns
+ * to a different owner's pile.
+ * Passing the format opts into controller labels. Omitting it preserves the legacy engine's pinned wording.
  */
 export function moveLogLines(message: MoveMessage, cards: CardDatabase, format?: DuelFormat): LogLine[] {
   const { from, to } = message;
   if (!to.location) return [];
   if (from.controller === to.controller && from.location === to.location) return [];
   const name = () => nameOf(cards, message.card);
+  const player = format == null ? "" : `${playerLabel(format, from.controller)}'s `;
   const fromField = from.overlay_sequence == null && FIELD.has(from.location);
   switch (to.location) {
     case OcgLocation.GRAVE: {
-      const line: LogLine = { text: `${name()} was sent to the Graveyard`, audience: "all" };
+      const line: LogLine = { text: `${player}${name()} was sent to the Graveyard`, audience: "all" };
       if (fromField) line.leftField = true;
       return [line];
     }
     case OcgLocation.REMOVED: {
       if (isFaceDown(to.position)) return [];
-      const line: LogLine = { text: `${name()} was banished`, audience: "all" };
+      const line: LogLine = { text: `${player}${name()} was banished`, audience: "all" };
       if (fromField) line.leftField = true;
       return [line];
     }
