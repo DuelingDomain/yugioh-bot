@@ -700,4 +700,16 @@ describe("rooms in an own field zoom", () => {
     const found = fitRoom(out, [{ x: 0, y: 0, width: box.width - 100, height: box.height }], box, { width: 220, height: 140 });
     if (found) expect(inside(found)).toBe(true);
   });
+
+  it("checks a room that starts outside the box where it lands inside the box, and searches from there", () => {
+    const hit = (r: { x: number; y: number; width: number; height: number }, o: { x: number; y: number; width: number; height: number }) => r.x < o.x + o.width && o.x < r.x + r.width && r.y < o.y + o.height && o.y < r.y + r.height;
+    const out = { x: box.width + 100, y: 100, width: 200, height: 100 };
+    // The room lands at the right edge of the box, on the obstacle: it moves off it. A clear landing place is the rect that comes back.
+    const lands = { x: box.width - 200, y: 100, width: 200, height: 100 };
+    expect(clearRoom(out, [], box)).toEqual(lands);
+    const obstacle = { x: box.width - 150, y: 90, width: 100, height: 120 };
+    const moved = clearRoom(out, [obstacle], box);
+    expect(hit(moved, obstacle)).toBe(false);
+    expect(moved.x + moved.width).toBeLessThanOrEqual(box.width);
+  });
 });

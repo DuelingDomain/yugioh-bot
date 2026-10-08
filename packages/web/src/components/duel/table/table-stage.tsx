@@ -582,7 +582,9 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
     };
   }, [ownZoom]);
   // The chain strip moves the stage frame (its top, its scale): the field that was fitted moves with it, so the fit is made again (eased).
-  const softKey = `${pinnedRect ? `${pinnedRect.x},${pinnedRect.y},${pinnedRect.width},${pinnedRect.height}` : 0}|${hasChip ? 1 : 0}|${hubAt ? `${Math.round(hubAt.x)},${Math.round(hubAt.y)}` : ""}|${Math.round(chainInset)}`;
+  // The pinned peek counts by its side and its rect in steps of 16 px: the slide and a settled peek are one refit, and a peek that is a few px off never refits.
+  const peekKey = pinnedRect ? `${pinnedRect.x + pinnedRect.width / 2 < box.width / 2 ? "l" : "r"}${[pinnedRect.x, pinnedRect.y, pinnedRect.width, pinnedRect.height].map((v) => Math.round(v / 16)).join(",")}` : "0";
+  const softKey = `${peekKey}|${hasChip ? 1 : 0}|${hubAt ? `${Math.round(hubAt.x)},${Math.round(hubAt.y)}` : ""}|${Math.round(chainInset)}`;
   const lastFitKey = useRef("");
   const { zoomFit, zoomTo, byHand } = zoom;
   useLayoutEffect(() => {
