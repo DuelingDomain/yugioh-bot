@@ -100,6 +100,9 @@ The deploy workflow requires these GitHub Actions secrets:
    leaves traffic stopped and backups intact. Never restart old binaries against the migrated schema.
    The install script rechecks active duels: a table may have started during the build. Drain those
    games under the existing procedure before retrying; engine data is never replaced before preflight.
+   Bundle rollback does not reverse completed passcode migrations. Saved decks/cubes may already use official
+   codes absent from the older bundle: retain a bundle containing all remap targets or use a matched DB
+   backup with intervening writes reconciled under the restore procedure below; do not reverse remaps blindly.
    Each multi core is installed independently (atomic renames per file, checked against its `.sha256`),
    also when `manifest.json` is identical. A changed multi core is refused while a Tag or free-for-all duel is active.
    A 1v1 duel never blocks it and never reads it. Without the multi core, a Tag, 3 or 4 player table answers 409

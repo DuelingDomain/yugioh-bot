@@ -72,6 +72,7 @@ export type {
 export {
   DUEL_OPENING_PICK_MS,
   DUEL_OPENING_REVEAL_MS,
+  DUEL_OPENING_TIE_REVEAL_MS,
   DUEL_RPS_MOVES,
   isDiceOpening,
   isFirstChoice,
@@ -172,6 +173,8 @@ export interface DuelDeckValidation {
 }
 
 export interface DuelCardInfo {
+  /** Preview data from BabelCDB; available to search and card-info consumers. */
+  prerelease?: boolean;
   code: number;
   /** Engine artwork-family main; equals code for cards without an artwork alias. */
   canonicalPasscode?: number;

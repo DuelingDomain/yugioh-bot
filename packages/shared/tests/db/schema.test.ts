@@ -60,6 +60,17 @@ describe("shared database schema", () => {
       "web_slug",
       "tournament_id",
       "complete_message_id",
+      "lobby_revision",
+      "lobby_auto_start",
+      "lobby_auto_held",
+      "lobby_start_at",
+      "lobby_start_kind",
+      "lobby_start_token",
+      "lobby_start_revision",
+      "lobby_start_setup_hash",
+      "lobby_start_force",
+      "lobby_start_error",
+      "lobby_nudged_at",
     ]);
     expect(getTableInfo(db, "draft_players").map((column) => column.name)).toEqual([
       "draft_id",
@@ -69,6 +80,8 @@ describe("shared database schema", () => {
       "seat_index",
       "joined_at",
       "deck_saved_at",
+      "ready_at",
+      "ready_setup_hash",
     ]);
     expect(getTableInfo(db, "draft_cards").map((column) => column.name)).toEqual([
       "id",
@@ -628,4 +641,16 @@ describe("duel bot seat migration", () => {
       db.prepare("insert into duel_seats (duel_id, seat, player_id, is_bot, ready) values (?, 1, ?, 1, 1)").run(checkId, p2),
     ).toThrow();
   });
+});
+
+
+it("creates the engine remap completion table before bundle migration and preserves its history", () => {
+ const db=new Database(":memory:");
+ try {
+  migrate(db);
+  expect(getTableInfo(db,"engine_card_remap_runs").map(row=>row.name)).toEqual(["bundle_version","applied_at"]);
+  db.prepare("INSERT INTO engine_card_remap_runs(bundle_version) VALUES(?)").run("bundle-v1");
+  migrate(db);
+  expect(db.prepare("SELECT bundle_version,applied_at FROM engine_card_remap_runs").get()).toEqual({bundle_version:"bundle-v1",applied_at:expect.any(String)});
+ } finally {db.close();}
 });

@@ -3,10 +3,11 @@
 The 16 shots in this folder were rendered from `/dev/table-preview` with `capture.mjs`
 (Chromium headless, Node 22). `results.json` records page errors, overflow and chain collisions.
 
-Chain-strip check vs main on the same matrix: main reports 10 problems (9 strip overlaps plus
-classic 1v1 phone with no strip). This branch reports 2, and main has both of them too: Tag phone
-(the strip touches the Tag header; Tag is outside this change) and classic 1v1 phone (classic draws
-its chain inside the prompt, so there is no strip to find). All FFA3/FFA4 shots are clean.
+Chain-strip check after the Tag/classic follow-up (17 shots, adds Tag desktop 1440x900):
+FFA3/FFA4, Tag phone and classic 1v1 phone are clean. Tag phone reserves a band for the strip
+above the roof, so the strip no longer covers the header. Classic 1v1 always mounted the strip in
+the live room; the preview had left it out, and it now mounts it too. One problem from main
+remains: on Tag desktop the strip sits over the bottom of the own hand row (identical on main).
 
 ## Original notes from the Codex run
 

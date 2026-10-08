@@ -125,13 +125,13 @@ it("uses source cube extras when no explicit extra array was sent, including wit
 
 it("reports too-small extras at create and preflight and blocks start atomically", async () => {
   const result = await create({ ...baseConfig, customExtraCardIds: [1001, 1002] });
-  expect(result.errors).toEqual([expect.stringMatching(/Extra.*2.*6/)]);
+  expect(result.errors).toEqual(expect.arrayContaining([expect.stringMatching(/4 players.*160/), expect.stringMatching(/Extra.*2.*12/)]));
   await joinBot(result.id);
   const { GET } = await import("../app/api/drafts/[slug]/preflight/route");
-  expect((await (await GET(new Request("http://x"), context(result.webSlug))).json()).errors).toEqual(result.errors);
+  expect((await (await GET(new Request("http://x"), context(result.webSlug))).json()).errors).toEqual([expect.stringMatching(/Extra.*2.*6/)]);
   const { POST } = await import("../app/api/drafts/[slug]/route");
   const started = await POST(json({}), context(result.webSlug));
-  expect(started.status).toBe(400);
+  expect(started.status).toBe(409);
   expect((await started.json()).error).toMatch(/Extra.*2.*6/);
 });
 

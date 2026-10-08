@@ -14,8 +14,10 @@ export const DUEL_RPS_MOVES: readonly DuelRpsMove[] = ["rock", "paper", "scissor
 
 /** Time a player has to pick a move, or (for the winner) to choose first or second. */
 export const DUEL_OPENING_PICK_MS = 30_000;
-/** Extra time after a decided round, so the reveal can play without eating into the next step. */
+/** Extra time after a winning round, so the reveal can play without eating into the choice window. */
 export const DUEL_OPENING_REVEAL_MS = 3_000;
+/** A tied round shows briefly before players can throw again, with a full pick window afterward. */
+export const DUEL_OPENING_TIE_REVEAL_MS = 2_000;
 
 export function isRpsMove(value: unknown): value is DuelRpsMove {
   return value === "rock" || value === "paper" || value === "scissors";
@@ -127,7 +129,7 @@ function decideRound(state: DuelRpsOpeningState, at: number): DuelRpsOpeningStat
     return {
       ...state,
       round: state.round + 1,
-      deadline: at + DUEL_OPENING_REVEAL_MS + DUEL_OPENING_PICK_MS,
+      deadline: at + DUEL_OPENING_TIE_REVEAL_MS + DUEL_OPENING_PICK_MS,
       picks: [null, null],
       reveal,
     };

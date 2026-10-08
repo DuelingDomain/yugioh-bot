@@ -28,6 +28,7 @@ async function fixture() {
     "packages/duel-server/scripts/prepare-data.ts": `const sources = ${JSON.stringify({ corePackage: "ocgcore-wasm@0.1.2", ...oldPins })};`,
     "packages/duel-server/domain-core/pins.json": corePins,
     "packages/duel-server/legacy-1v1/domain-core/pins.json": corePins,
+    "packages/duel-server/card-script-patches/MANIFEST.json": "[]\n",
   };
   for (const [file, content] of Object.entries(files)) {
     await mkdir(dirname(join(root, file)), { recursive: true });
@@ -75,7 +76,7 @@ describe("engine data update", () => {
   it("synchronizes all three pin files, leaving non-data core pins untouched", async () => {
     const { root, files } = await fixture();
     const rewritten = await rewritePins(root, oldPins, nextPins, false);
-    expect(rewritten.sort()).toEqual(Object.keys(files).sort());
+    expect(rewritten.sort()).toEqual(Object.keys(files).filter(file => file !== "packages/duel-server/card-script-patches/MANIFEST.json").sort());
     for (const [file, original] of Object.entries(files)) {
       let expected = original;
       for (const key of Object.keys(oldPins) as (keyof Pins)[]) expected = expected.replaceAll(oldPins[key], nextPins[key]);
@@ -93,7 +94,7 @@ describe("engine data update", () => {
 
   it("dry-run discovers rewrites but writes no pins", async () => {
     const { root, files } = await fixture();
-    expect(await rewritePins(root, oldPins, nextPins, true)).toHaveLength(Object.keys(files).length);
+    expect(await rewritePins(root, oldPins, nextPins, true)).toHaveLength(3);
     for (const [file, original] of Object.entries(files)) expect(await readFile(join(root, file), "utf8")).toBe(original);
   });
 
@@ -127,8 +128,14 @@ describe("engine data update", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
-  it.each([[true, nextPins], [false, nextPins], [false, { ...oldPins, database: nextPins.database }]])("reports a complete mocked update (dryRun=%s), preserving overlays and core pins", async (dryRun, overrides) => {
-    const { root } = await fixture();
+  it.each([
+    [true, nextPins, "unchanged", undefined], [false, nextPins, "unchanged", undefined],
+    [false, { ...oldPins, database: nextPins.database }, "unchanged", undefined],
+    [false, nextPins, "unchanged", "old"], [false, nextPins, "unchanged", "next"],
+    [false, nextPins, "changed", undefined], [true, nextPins, "changed", undefined],
+    [false, nextPins, "missing", undefined],
+  ] as const)("reports a complete mocked update (dryRun=%s, pins=%j, patch=%s, ambiguous=%s), preserving overlays and core pins", async (dryRun, overrides, patchState, ambiguous) => {
+    const { root, files } = await fixture();
     const manifest = { cards: [{ code: 1, file: "c1.lua", name: "Old card", stockSha256: sha256("old") }] };
     const manifestPath = join(root, "packages/duel-server/domain-core/multi-scripts/MANIFEST.json");
     await mkdir(dirname(manifestPath), { recursive: true });
@@ -138,30 +145,51 @@ describe("engine data update", () => {
     await writeFile(join(stock, "c1.lua"), "s.state[tp]=true\n");
     await writeFile(join(stock, "c2.lua"), "-- new script\n");
     await writeFile(join(stock, "c3.lua"), "-- old script\n");
+    await mkdir(join(stock, "../pre-release"));
+    await writeFile(join(stock, "../pre-release/c100000002.lua"), "-- preview script already exists upstream\n");
     await writeFile(join(stock, "../utility.lua"), "-- shared change\n");
+    const patchManifestPath = join(root, "packages/duel-server/card-script-patches/MANIFEST.json");
+    const patches = [{ stockPath: patchState === "missing" ? "official/c3743515.lua" : "official/c1.lua",
+      stockSha256: sha256(patchState === "unchanged" ? "s.state[tp]=true\n" : "old"), suffix: "c1.lua" }];
+    await writeFile(patchManifestPath, JSON.stringify(patches));
     const archive = execFileSync("tar", ["-czf", "-", "-C", root, "stock"]);
     const dbPath = join(root, "cards.cdb");
     const db = new Database(dbPath);
-    db.exec("CREATE TABLE datas (id INTEGER PRIMARY KEY); INSERT INTO datas VALUES (1); CREATE TABLE texts (id INTEGER PRIMARY KEY, name TEXT); INSERT INTO texts VALUES (1, '@reviewer Changed #123 card');");
+    db.exec("CREATE TABLE datas (id INTEGER PRIMARY KEY,ot INTEGER,alias INTEGER,type INTEGER); INSERT INTO datas VALUES (1,3,0,33); CREATE TABLE texts (id INTEGER PRIMARY KEY, name TEXT); INSERT INTO texts VALUES (1, '@reviewer Changed #123 card');");
     db.close();
     const database = await readFile(dbPath);
     const releasePath = join(root, "release-new.cdb");
     const releaseDb = new Database(releasePath);
-    releaseDb.exec("CREATE TABLE datas (id INTEGER PRIMARY KEY); INSERT INTO datas VALUES (2); CREATE TABLE texts (id INTEGER PRIMARY KEY, name TEXT); INSERT INTO texts VALUES (2, 'New card');");
+    releaseDb.exec("CREATE TABLE datas (id INTEGER PRIMARY KEY,ot INTEGER,alias INTEGER,type INTEGER); INSERT INTO datas VALUES (2,3,0,33); CREATE TABLE texts (id INTEGER PRIMARY KEY, name TEXT); INSERT INTO texts VALUES (2, 'New card');");
     releaseDb.close();
     const release = await readFile(releasePath);
+    const makePreview = async (file: string, rows: Array<[number,string]>) => {
+      const path = join(root,file), db = new Database(path);
+      db.exec("CREATE TABLE datas (id INTEGER PRIMARY KEY,ot INTEGER,alias INTEGER,type INTEGER); CREATE TABLE texts (id INTEGER PRIMARY KEY,name TEXT)");
+      for (const [code,name] of rows) {
+        db.prepare("INSERT INTO datas VALUES(?,3,0,33)").run(code);
+        db.prepare("INSERT INTO texts VALUES(?,?)").run(code,name);
+      }
+      db.close(); return readFile(path);
+    };
+    const oldRelease = await makePreview("old-release.cdb",[]);
+    const oldPreview = await makePreview("old-preview.cdb",[[100000001,"New card"],[100000003,"Withdrawn preview"]]);
+    const conflictingPreview = await makePreview("conflicting-preview.cdb",[[100000001,"@reviewer Changed #123 card"]]);
+    const nextPreview = await makePreview("next-preview.cdb",[[ambiguous === "next" ? 100000001 : 100000002,"New preview"]]);
     const request = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
       if (url.includes("/compare/")) return Response.json({ ahead_by: 2, behind_by: 0, status: "ahead" });
       if (url.includes("/git/trees/")) {
         if (url.includes("/BabelCDB/")) return Response.json({ truncated: false, tree: [
           { path: "cards.cdb", type: "blob", sha: "base" },
+          { path: "prerelease-test.cdb", type: "blob", sha: "preview" },
+          ...(ambiguous === (url.includes(oldPins.database) ? "old" : "next") ? [{path:"prerelease-conflict.cdb",type:"blob",sha:"conflict"}] : []),
           { path: url.includes(oldPins.database) ? "release-old.cdb" : "release-new.cdb", type: "blob", sha: "release" },
-          { path: "prerelease-hidden.cdb", type: "blob", sha: "excluded" },
         ] });
         const old = url.includes(oldPins.scripts);
         return Response.json({ truncated: false, tree: [
           { path: "utility.lua", type: "blob", sha: old ? "old-helper" : "new-helper" },
+          { path: "pre-release/c100000002.lua", type: "blob", sha: "unchanged-preview-script" },
           { path: "official/c1.lua", type: "blob", sha: old ? "old" : "changed" },
           { path: overrides.scripts === oldPins.scripts ? "official/c2.lua" : old ? "official/c3.lua" : "official/c2.lua", type: "blob", sha: "other" },
         ] });
@@ -169,16 +197,55 @@ describe("engine data update", () => {
       if (url.includes("codeload.github.com")) return new Response(new Uint8Array(archive));
       if (url.endsWith("/cards.cdb")) return new Response(new Uint8Array(database));
       if (url.endsWith("/release-new.cdb")) return new Response(new Uint8Array(release));
+      if (url.endsWith("/release-old.cdb")) return new Response(new Uint8Array(oldRelease));
+      if (url.endsWith("/prerelease-conflict.cdb")) return new Response(new Uint8Array(conflictingPreview));
+      if (url.endsWith("/prerelease-test.cdb")) return new Response(new Uint8Array(url.includes(oldPins.database) ? oldPreview : nextPreview));
       throw new Error(`Unexpected request: ${url}`);
     });
+    if (ambiguous === "next") {
+      await expect(runUpdate({root,overrides,dryRun,request,validate:false})).rejects.toThrow(/Ambiguous/);
+      expect(await readPins(root)).toEqual(oldPins);
+      return;
+    }
+    if (patchState !== "unchanged") {
+      await expect(runUpdate({ root, overrides, dryRun, request, validate: false })).rejects.toThrow(/patch needs review/);
+      const report = await readFile(join(root, ".status/engine-data-update.md"), "utf8");
+      expect(report).toMatch(/^BLOCKING: 1 patch needs review/);
+      expect(report).toContain("## Card script patches");
+      expect(report).toContain(patches[0]!.stockPath);
+      expect(report).toContain(patchState === "missing" ? "removed" : sha256("s.state[tp]=true\n"));
+      expect(report).toContain("pins unchanged");
+      expect(await readPins(root)).toEqual(oldPins);
+      expect(await readFile(patchManifestPath, "utf8")).toBe(JSON.stringify(patches));
+      for (const [file, original] of Object.entries(files)) {
+        if (file.endsWith("pins.json")) expect(await readFile(join(root, file), "utf8")).toBe(original);
+      }
+      return;
+    }
     const result = await runUpdate({ root, overrides, dryRun, request, validate: false });
     expect(result.changed).toBe(true);
     expect(await readPins(root)).toEqual(dryRun ? oldPins : overrides);
     const report = await readFile(result.reportPath, "utf8");
+    expect(report).toContain("## Prerelease cards");
+    expect(report).toContain("## Card script patches");
+    expect(report).toContain("All shared card-script patch stock hashes match the candidate.");
     expect(report).toContain("release-new.cdb");
     expect(report).toContain("release-old.cdb");
     expect(report).toContain("Removed release databases");
     expect(result.changedPaths).toContain("official/c2.lua");
+    expect(result.changedPaths).toContain("pre-release/c100000002.lua");
+    if (ambiguous === "old") {
+      expect(report).toContain("Previous card-data comparison");
+      expect(report).toContain("Ambiguous retained prerelease passcode 100000001");
+      expect(report).toContain("could not be determined");
+      expect(report).not.toContain("Added prerelease cards (1)");
+      expect(report).toContain("Dropped prerelease rows (0)");
+    } else {
+      expect(report).toContain("Added prerelease cards (1)");
+      expect(report).toContain("Removed prerelease cards (1)");
+      expect(report).toContain("Graduated prerelease cards (1)");
+      expect(report).toContain("100000001 → 2 New card");
+    }
     if (overrides.scripts === oldPins.scripts) {
       expect(report).toContain("New official card scripts (0)");
       expect(report).toContain("Changed official scripts (0)");
@@ -205,6 +272,7 @@ describe("engine data update", () => {
       "packages/duel-server/legacy-1v1/domain-core/pins.json",
     ].sort());
     expect(await readFile(manifestPath, "utf8")).toBe(JSON.stringify(manifest));
+    expect(await readFile(patchManifestPath, "utf8")).toBe(JSON.stringify(patches));
     for (const file of ["domain-core/pins.json", "legacy-1v1/domain-core/pins.json"]) {
       const pins = JSON.parse(await readFile(join(root, "packages/duel-server", file), "utf8"));
       expect(pins.ygoproCore.commit).toBe("1".repeat(40));

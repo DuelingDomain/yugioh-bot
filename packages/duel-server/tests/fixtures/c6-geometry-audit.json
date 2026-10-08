@@ -680,6 +680,30 @@
       "result": "Fixed: PreviousFilter and trigger geometry suffix (loadable pre-errata)."
     },
     {
+      "script": "pre-release/c100458010.lua",
+      "line": 42,
+      "expression": "local selected_zones=Duel.SelectFieldZone(tp,ct,0,LOCATION_MZONE,ZONES_EMZ<<16)",
+      "result": "C3/C4: SelectFieldZone chooses numeric Main Monster Zones on one opponent's field. The shift excludes EMZ; no column or Link geometry is read."
+    },
+    {
+      "script": "pre-release/c100458010.lua",
+      "line": 57,
+      "expression": "local zone=1<<(Chain.GetTriggeringSequence(ev)+16)",
+      "result": "Excluded: packs a triggering monster's sequence into the selected numeric zone mask. Native FFA bound-event filtering preserves the declared opponent; exact Tag seat behavior lacks a per-card proof."
+    },
+    {
+      "script": "pre-release/c101402090.lua",
+      "line": 73,
+      "expression": "local seq=4-s.normalizeseq(e:GetHandler():GetSequence())",
+      "result": "Excluded from completed C6 fixes: this loadable preview directly mirrors column sequences. FFA3 uses the declared opponent, but FFA4 lacks an across-seat guard and can accept a side opponent. Unresolved prerelease limitation."
+    },
+    {
+      "script": "pre-release/c101403030.lua",
+      "line": 74,
+      "expression": "filter=filter|(1<<(mc:GetSequence()+16))",
+      "result": "C3/C4: builds an occupied numeric Main Monster Zone mask. Native FFA opponent reads use the declared seat. Tag reads joined opposing fields while SelectFieldZone names one field; that interaction lacks a per-card proof."
+    },
+    {
       "script": "proc_ritual.lua",
       "line": 44,
       "expression": "return (lv<<16)|clv",

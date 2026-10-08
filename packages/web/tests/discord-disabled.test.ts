@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
-import { createDraftService, createTournamentService } from "@yugidraft/shared/services";
+import { createDraftLobbyService, createDraftService, createTournamentService } from "@yugidraft/shared/services";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 
@@ -78,6 +78,7 @@ beforeEach(() => {
   signIn();
 });
 afterEach(() => {
+  vi.useRealTimers();
   db.close();
   rmSync(dir, { recursive: true, force: true });
   vi.unstubAllEnvs();
@@ -118,7 +119,7 @@ describe.each([undefined, "0", "true", "1"])("Discord flag %s", flag => {
     expectAnnounces(enabled, ["tournament-created"]);
   });
 
-  it.each(["theme", "booster"])("creates a %s draft for an email-only user without sending Discord announcements", async mode => {
+  it.each(["theme", "booster"])("creates a %s draft for an email-only user and respects the Discord flag", async mode => {
     signIn("owner", true);
     db.prepare("update users set discord_user_id = null where id = ?").run(fixtureUserId("owner"));
     db.prepare("insert into card_catalog (ygoprodeck_id, name, type, frame_type, image_url, image_url_small, card_sets_json, cached_at) values (1, 'Card', 'Normal Monster', 'normal', 'image', 'image', '[]', ?)").run(new Date().toISOString());
@@ -126,7 +127,7 @@ describe.each([undefined, "0", "true", "1"])("Discord flag %s", flag => {
     const config = mode === "theme" ? { mode: "theme", allowedCubeIds: [] } : { customCardIds: [1], packSize: 8, packsPerPlayer: 5 };
     const res = await POST(post({ name: "Draft", config }) as never);
     expect(res.status).toBe(201);
-    expect(db.prepare("select channel_id from drafts").get()).toEqual({ channel_id: "channel" });
+    expect(db.prepare("select channel_id from drafts").get()).toEqual({ channel_id: enabled ? "channel" : null });
     expectAnnounces(enabled, ["draft-created"]);
   });
 
@@ -142,6 +143,7 @@ describe.each([undefined, "0", "true", "1"])("Discord flag %s", flag => {
   });
 
   it("starts a draft and broadcasts its committed status", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
     signIn("a");
     const drafts = createDraftService(db);
     const pool = Array.from({ length: 80 }, (_, i) => i + 1);
@@ -149,11 +151,26 @@ describe.each([undefined, "0", "true", "1"])("Discord flag %s", flag => {
     for (const id of pool) card.run(id, `Card ${id}`, new Date().toISOString());
     const d = drafts.create("g1", "channel", "Draft", { cubeCardIds: pool, customCardIds: pool, cardsPerPlayer: 40, packSize: 8, packsPerPlayer: 5 }, fixtureUserId("a"), a);
     drafts.join(d.id, b);
-    const { POST } = await import("../app/api/drafts/[slug]/route");
+    const lobby = createDraftLobbyService(db);
+    lobby.setReady(d.id, fixtureUserId("a"), true);
+    lobby.setReady(d.id, fixtureUserId("b"), true);
+    const { POST, GET } = await import("../app/api/drafts/[slug]/route");
     const res = await POST(post(), ctx(d.webSlug!));
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
+    expect(drafts.findById(d.id).status).toBe("pending");
+    expect(draft).not.toHaveBeenCalledWith({ kind: "status", slug: d.webSlug, status: "active" });
+    expect(announce).not.toHaveBeenCalled();
+
+    // The compatibility POST schedules; the deadline GET commits and notifies the start.
+    const scheduled = await res.json();
+    expect(scheduled.lobby.start.kind).toBe("manual");
+    vi.setSystemTime(new Date(scheduled.lobby.start.startsAt));
+    expect((await GET(post(), ctx(d.webSlug!))).status).toBe(200);
     expect(drafts.findById(d.id).status).toBe("active");
     expect(draft).toHaveBeenCalledWith({ kind: "status", slug: d.webSlug, status: "active" });
+    // Refreshing the committed draft must not send another start announcement.
+    expect((await GET(post(), ctx(d.webSlug!))).status).toBe(200);
+    expect(draft.mock.calls.filter(([payload]) => payload.kind === "status")).toHaveLength(1);
     expectAnnounces(enabled, ["draft-started"]);
   });
 
