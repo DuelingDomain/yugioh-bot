@@ -56,8 +56,6 @@ describe("initial state", () => {
     expect(s.pose).toEqual(ROOF_PRESETS.overview);
     expect(s.pose.zoom).toBe(1);
     expect(s.lock).toBeNull();
-    expect(s.auto).toBe(true);
-    expect(s.pinned).toBe(false);
   });
 
   it("builds the overview, focus, look and fly modes from a partial state", () => {
@@ -190,32 +188,14 @@ describe("actions", () => {
     expect(run(base, { type: "zoom", factor: 1.18 }).mode).toBe("fly");
   });
 
-  it("toggles flip upright, compact, auto and pin", () => {
+  it("toggles flip upright and compact", () => {
     expect(run(base, { type: "toggleUpright" }).upright).toBe(!base.upright);
-    expect(run(base, { type: "toggleAuto" }).auto).toBe(!base.auto);
-    expect(run(base, { type: "pin", on: true }).pinned).toBe(true);
     expect(run(base, { type: "toggleCompact" }).compact).not.toBe(base.compact);
   });
 });
 
-describe("auto follow, pin and aim", () => {
+describe("aim", () => {
   const base = initialRoofCamera({ anchorSeat: 0, camera: { mode: "home" } });
-
-  it("auto follow moves the focus to the turn seat", () => {
-    const s = run(base, { type: "autoFollow", seat: 2 });
-    expect(s).toMatchObject({ mode: "focus", focusSeat: 2 });
-  });
-
-  it("auto follow does nothing when auto is off, pinned, aiming or in overview", () => {
-    expect(run(base, { type: "toggleAuto" }, { type: "autoFollow", seat: 2 }).mode).toBe("home");
-    expect(run(base, { type: "pin", on: true }, { type: "autoFollow", seat: 2 }).mode).toBe("home");
-    expect(run(base, { type: "aiming", on: true }, { type: "autoFollow", seat: 2 }).mode).toBe("home");
-    expect(run(base, { type: "overview" }, { type: "autoFollow", seat: 2 }).mode).toBe("overview");
-  });
-
-  it("auto follow with null seat changes nothing", () => {
-    expect(run(base, { type: "autoFollow", seat: null })).toBe(base);
-  });
 
   it("aiming on and off only flips the flag", () => {
     const a = run(base, { type: "aiming", on: true });
@@ -248,14 +228,12 @@ describe("FX lock", () => {
       { type: "flyTo", seat: 2 },
       { type: "orbit", dYawDeg: 30, dTiltDeg: 10 },
       { type: "zoom", factor: 1.5 },
-      { type: "autoFollow", seat: 2 },
     ];
     for (const a of inputs) expect(roofReducer(l, a)).toBe(l);
   });
 
-  it("keeps toggles, pin and aiming working during a lock", () => {
+  it("keeps toggles and aiming working during a lock", () => {
     const l = run(focus, { type: "lock", reason: "battle", nowMs: 0, ms: 2000 });
-    expect(roofReducer(l, { type: "pin", on: true }).pinned).toBe(true);
     expect(roofReducer(l, { type: "toggleUpright" }).upright).toBe(!l.upright);
   });
 
@@ -288,18 +266,17 @@ describe("FX lock", () => {
     expect(b.lock?.untilMs).toBe(5000);
   });
 
-  it("works on top of a pin and an aim", () => {
-    const s = run(focus, { type: "pin", on: true }, { type: "lock", reason: "destroy", nowMs: 0, ms: 1000 }, { type: "aiming", on: true });
+  it("works on top of an aim", () => {
+    const s = run(focus, { type: "lock", reason: "destroy", nowMs: 0, ms: 1000 }, { type: "aiming", on: true });
     expect(s.lock?.reason).toBe("destroy");
     const r = roofReducer(s, { type: "tick", nowMs: 1000 });
-    expect(r.pinned).toBe(true);
     expect(r.aiming).toBe(true);
     // The aim needs the rival fields, so the close-up does not come back after the lock.
     expect(r.mode).toBe("overview");
     expect(r.pose).toEqual(ROOF_PRESETS.overview);
   });
 
-  it("an aim under a lock keeps the pin and the overview, and an aim that ends changes nothing more", () => {
+  it("an aim under a lock keeps the overview, and an aim that ends changes nothing more", () => {
     const s = run(focus, { type: "lock", reason: "chain", nowMs: 0, ms: 1000 }, { type: "aiming", on: true }, { type: "aiming", on: false });
     const r = roofReducer(s, { type: "tick", nowMs: 1000 });
     expect(r.mode).toBe("overview");
@@ -363,9 +340,9 @@ describe("key map", () => {
     expect(roofKeyAction("=", ctx)).toEqual({ type: "zoom", factor: 1.18 });
     expect(roofKeyAction("-", ctx)).toEqual({ type: "zoom", factor: 1 / 1.18 });
     expect(roofKeyAction("s", ctx)).toEqual({ type: "toggleUpright" });
-    expect(roofKeyAction("a", ctx)).toEqual({ type: "toggleAuto" });
-    expect(roofKeyAction("k", ctx)).toEqual({ type: "pin", on: true });
-    expect(roofKeyAction("k", { anchorSeat: 0, pinned: true })).toEqual({ type: "pin", on: false });
+    // Auto follow and pin are gone: the duel never moves the camera in, so A and K are no camera keys.
+    expect(roofKeyAction("a", ctx)).toBeNull();
+    expect(roofKeyAction("k", ctx)).toBeNull();
   });
 
   it("maps 1 to 4 to the seats by turn order", () => {
