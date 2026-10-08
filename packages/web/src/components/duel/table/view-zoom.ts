@@ -391,3 +391,19 @@ export function clearRoom(room: Rect, obstacles: readonly Rect[], box: Size, mar
   }
   return best ?? room;
 }
+
+/**
+ * A clear place for a prompt room: `clearRoom`, and when the full room has no clear place it gets shorter, then narrower (the panel sits at
+ * the bottom edge of its room and is lower than the room most of the time), down to `min`. Null when no size has a clear place.
+ */
+export function fitRoom(room: Rect, obstacles: readonly Rect[], box: Size, min: Size, margin: number = 8): Rect | null {
+  const hit = (r: Rect) => obstacles.some((o) => overlaps(r, o));
+  for (let width = room.width; ; width = Math.max(min.width, width - 40)) {
+    for (let height = room.height; ; height = Math.max(min.height, height - 40)) {
+      const moved = clearRoom({ ...room, width, y: room.y + room.height - height, height }, obstacles, box, margin);
+      if (!hit(moved)) return moved;
+      if (height <= min.height) break;
+    }
+    if (width <= min.width) return null;
+  }
+}

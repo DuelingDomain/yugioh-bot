@@ -10,6 +10,17 @@ vi.mock("next/font/google", () => {
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
 });
 
+// Counts every placement of a prompt room (the table recomputes the rooms only when its inputs change).
+const placed = vi.hoisted(() => ({ calls: 0 }));
+vi.mock("@/components/duel/table/view-zoom", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/duel/table/view-zoom")>();
+  return {
+    ...actual,
+    clearRoom: (...args: Parameters<typeof actual.clearRoom>) => { placed.calls += 1; return actual.clearRoom(...args); },
+    fitRoom: (...args: Parameters<typeof actual.fitRoom>) => { placed.calls += 1; return actual.fitRoom(...args); },
+  };
+});
+
 import { setAnimationSpeed } from "@/components/duel/animation-speed";
 import { duelFxClock } from "@/components/duel/fx-clock";
 import { FFA3_FIXTURES } from "@/components/duel/table/fixtures/ffa3";
@@ -31,6 +42,7 @@ beforeAll(() => {
   Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 860 });
 });
 beforeEach(() => {
+  placed.calls = 0;
   window.localStorage.clear();
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date", "performance"] });
   setAnimationSpeed(1);
@@ -188,7 +200,7 @@ describe("FFA3 own field camera zoom", () => {
     peek.setAttribute("data-pinned", "true");
     peek.getBoundingClientRect = () => ({ x: 830, y: 0, left: 830, top: 0, width: 270, height: 860, right: 1100, bottom: 860, toJSON: () => ({}) }) as DOMRect;
     await act(async () => {
-      document.body.appendChild(peek);
+      container.querySelector("[data-table-shell]")!.appendChild(peek);
       await Promise.resolve();
     });
     // The frame that reads the peek, then the ease of the refit (React flushes the state when the first advance ends).
@@ -244,28 +256,56 @@ describe("FFA3 own field camera zoom", () => {
     expect(apart).toBe(true);
   });
 
-  it("a seat-choice panel moves at most once while the zoom settles, and a pan does not move it again", () => {
+  it("the rooms of the prompts are planned once at the fit, and the zoom itself never plans them again", () => {
     frames();
     layout({ x: 300, y: 700, width: 500, height: 160 });
     const { container } = render(<Table state={FFA3_FIXTURES.states["choose-opponent"]} camera={{ mode: "focus", focusSeat: REN }} />);
-    const seen: string[] = [];
-    const sample = () => {
-      const at = `${board(container).style.getPropertyValue("--room-x")},${board(container).style.getPropertyValue("--room-y")}|${board(container).dataset.barRoom ?? ""}`;
-      if (seen[seen.length - 1] !== at) seen.push(at);
-    };
-    for (let i = 0; i < 60; i++) {
-      advance(16);
-      sample();
-    }
-    const settled = seen.length;
-    // A manual pan and zoom: the rooms stay where they are.
+    // The entry ease runs to its end: the rooms are placed for the fit.
+    advance(800);
+    expect(placed.calls).toBeGreaterThan(0);
+    const settled = placed.calls;
+    const at = () => `${board(container).style.getPropertyValue("--room-x")},${board(container).style.getPropertyValue("--room-y")}|${board(container).dataset.barRoom ?? ""}`;
+    const room = at();
+    // A manual zoom and pan move the view for many frames: no frame plans a room again (the rooms do not read the live view).
     fireEvent.wheel(board(container), { deltaY: -300, clientX: 300, clientY: 300 });
     for (let i = 0; i < 60; i++) {
       advance(16);
-      sample();
+      expect(placed.calls).toBe(settled);
     }
-    expect(seen.length).toBe(settled);
-    expect(settled).toBeLessThanOrEqual(3);
+    expect(at()).toBe(room);
+  });
+
+  it("the seat-choice panel keeps off the HUD that stays on screen (a plate, the chip)", async () => {
+    const rect = (x: number, y: number, width: number, height: number) => ({ x, y, left: x, top: y, width, height, right: x + width, bottom: y + height, toJSON: () => ({}) }) as DOMRect;
+    const roomOf = (root: HTMLElement) => {
+      const style = board(root).style;
+      const n = (name: string) => Number.parseFloat(style.getPropertyValue(`--room-${name}`));
+      return { x: n("x"), y: n("y"), width: n("w"), height: n("h") };
+    };
+    const hits = (a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+    const state = FFA3_FIXTURES.states["choose-opponent"];
+    frames();
+    layout({ x: 300, y: 700, width: 500, height: 160 });
+    const first = render(<Table state={state} camera={{ mode: "focus", focusSeat: REN }} />);
+    advance(800);
+    const free = roomOf(first.container);
+    expect(free.width).toBeGreaterThan(0);
+    first.unmount();
+    vi.restoreAllMocks();
+    // The camera chip now stands on that room, and a card is pinned in the peek beside it.
+    frames();
+    const onRoom = rect(free.x, free.y, free.width, free.height);
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      if (this.hasAttribute("data-table-stage")) return rect(0, 0, 1100, 860);
+      if (this.hasAttribute("data-hand-card") && this.closest('[data-hand-seat][data-side="you"]')) return rect(300, 700, 500, 160);
+      if (this.hasAttribute("data-camera-chip")) return onRoom;
+      return rect(0, 0, 0, 0);
+    });
+    const second = render(<Table state={state} camera={{ mode: "focus", focusSeat: REN }} />);
+    advance(900);
+    const moved = roomOf(second.container);
+    expect(moved.width).toBeGreaterThan(0);
+    expect(hits(moved, onRoom)).toBe(false);
   });
 
   it("the chip is HUD for the pan and keeps clear of the Reset control", () => {

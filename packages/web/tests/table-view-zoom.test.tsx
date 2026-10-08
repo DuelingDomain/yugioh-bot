@@ -10,6 +10,7 @@ import {
   DRAG_THRESHOLD_PX,
   edgeInsets,
   clearRoom,
+  fitRoom,
   counterTransform,
   fitItemRect,
   fitView,
@@ -555,6 +556,15 @@ describe("own field zoom: the counter-scaled hand", () => {
     expect(getByTestId("hand").style.transform).toContain("scale(");
   });
 
+  it("zoomTo returns the clamped view it aims at, the same one the layer shows", () => {
+    const { getByTestId } = render(<Host />);
+    let aimed: { s: number; x: number; y: number } | null = null;
+    act(() => { aimed = api!.zoomTo({ s: 1.6, x: -99999, y: 0 }, 0); });
+    expect(aimed!.x).toBeGreaterThan(-99999);
+    expect(getByTestId("layer").style.transform).toContain(`scale(${aimed!.s}`);
+    expect(api!.view.x).toBeCloseTo(aimed!.x, 1);
+  });
+
   it("keeps the hand at 1x after it is re-rendered while the view stays", async () => {
     const { getByTestId } = render(<Host />);
     act(() => api!.zoomTo(ZOOMED, 0));
@@ -662,5 +672,19 @@ describe("rooms in an own field zoom", () => {
     expect(hit).toBe(false);
     expect(moved.x).toBeGreaterThanOrEqual(0);
     expect(moved.x + moved.width).toBeLessThanOrEqual(box.width);
+  });
+
+  it("makes a room shorter and then narrower to find a clear place, and gives null when none is clear", () => {
+    const hit = (r: { x: number; y: number; width: number; height: number }, o: { x: number; y: number; width: number; height: number }) => r.x < o.x + o.width && o.x < r.x + r.width && r.y < o.y + o.height && o.y < r.y + r.height;
+    // A wall across the box, 150 px of free height below it: the full room (300) has no place, the short one has.
+    const wall = { x: 0, y: 0, width: box.width, height: box.height - 160 };
+    const room = { x: 100, y: 100, width: 300, height: 300 };
+    const found = fitRoom(room, [wall], box, { width: 220, height: 140 });
+    expect(found).not.toBeNull();
+    expect(hit(found!, wall)).toBe(false);
+    expect(found!.height).toBeLessThan(300);
+    expect(found!.height).toBeGreaterThanOrEqual(140);
+    // Nothing is clear: null (the caller keeps its own room).
+    expect(fitRoom(room, [{ x: 0, y: 0, width: box.width, height: box.height }], box, { width: 220, height: 140 })).toBeNull();
   });
 });
