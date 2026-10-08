@@ -139,7 +139,7 @@ export interface TableStageViewProps extends TableStageProps {
  * overlay are slots over the whole box, so they measure the real screen position of `[data-zones]` and
  * `[data-lp-seat]` nodes. `camera` is the camera to draw (the shell passes the effective one).
  */
-export function TableStage({ controller, layout, camera, dispatchCamera, renderSeatField, fx, promptCenter, overlay, hub, masterChip, wantMode, locked = false, out = [], targetSeat = null, ring = true, placeLabels, centerPrompts = false }: TableStageViewProps) {
+export function TableStage({ controller, layout, camera: viewCamera, dispatchCamera, renderSeatField, fx, promptCenter, overlay, hub, masterChip, wantMode, locked = false, out = [], targetSeat = null, ring = true, placeLabels, centerPrompts = false }: TableStageViewProps) {
   const { engine, room, viewerSeat, nameOf, legalKeys, selectedKeys, reducedMotion } = controller;
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -175,6 +175,10 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const outSet = useMemo(() => new Set(out), [outKey]);
   const play = useMemo(() => aliveLayout(layout, outSet), [layout, outSet]);
+  // Your own field zoomed stays zoomed when a seat goes out: the table regroups face to face under the same camera zoom (the camera
+  // never zooms by itself). The seats are placed as at home, and the view is fitted again to the new field once they stand still.
+  const ownKept = play !== layout && isOwnFocus(layout, viewCamera) && play.slots.some((slot) => slot.seat === layout.anchorSeat);
+  const camera = useMemo(() => (ownKept ? { ...viewCamera, mode: "home" as const, focusSeat: null } : viewCamera), [ownKept, viewCamera]);
 
   // The seat poses measure fields. Their hand rows extend below the 860px field canvas.
   const portrait = useMemo(() => portraitTable(play, camera, box.screenWidth), [play, camera, box.screenWidth]);
@@ -224,7 +228,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
     [box.width, k, stageTop, stageHeight, canvasHeight],
   );
   // Your own field enlarged (3-way) is a camera zoom of this board layer: the seats stay home, and your hand (HUD) stays at its size and place.
-  const ownZoom = !fly && !portrait && isOwnFocus(play, camera);
+  const ownZoom = !fly && !portrait && (ownKept || isOwnFocus(play, camera));
   // The zoom out eases: your hand and the moved plates keep their place until the view is back at the camera pose.
   const [ownHold, setOwnHold] = useState(false);
   // The view the last fit aimed at: the rooms (panel, bar, chain) clear the field at THIS view, not at the live one, so a pan or a
@@ -238,7 +242,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
     enabled: !fly && k > 0,
     fixed: ownZoom || ownHold ? OWN_HAND : undefined,
     reducedMotion,
-    resetKey: `${camera.mode}|${camera.focusSeat ?? ""}|${camera.lookSeat ?? ""}|${outKey}|${portrait ? "portrait" : "wide"}`,
+    resetKey: `${viewCamera.mode}|${viewCamera.focusSeat ?? ""}|${viewCamera.lookSeat ?? ""}|${portrait ? "portrait" : "wide"}`,
     frame: zoomFrame,
   });
   // How much plaza a wide box shows beyond each side of the 1100 px stage; zero for a box that is not wider.
@@ -518,12 +522,12 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
     // holds a legal choice of the open prompt. Legal keys on another field do not count: on the viewer's own turn the idle
     // and battle commands are legal keys of the own field only, and a click on a rival field still enlarges it.
     const legalHere = plainZone && [...legalKeys].some((key) => key.startsWith(`${seat}:`));
-    if (plainZone && (legalHere || (camera.mode === "focus" && camera.focusSeat === seat))) return;
+    if (plainZone && (legalHere || (viewCamera.mode === "focus" && viewCamera.focusSeat === seat))) return;
     if (fly) {
       dispatchCamera({ type: "flyTo", seat });
     } else if (!plaza3) {
-      if (seat !== layout.anchorSeat && !(camera.mode === "focus" && camera.focusSeat === seat) && !(looking && camera.lookSeat === seat)) dispatchCamera({ type: "focus", seat });
-    } else if (!(looking && camera.lookSeat === seat) && !(camera.mode === "focus" && camera.focusSeat === seat)) {
+      if (seat !== layout.anchorSeat && !(viewCamera.mode === "focus" && viewCamera.focusSeat === seat) && !(looking && camera.lookSeat === seat)) dispatchCamera({ type: "focus", seat });
+    } else if (!(looking && camera.lookSeat === seat) && !(viewCamera.mode === "focus" && viewCamera.focusSeat === seat)) {
       // A click on a field enlarges it. A click on the enlarged field does nothing (same rule as the Tag roof): the way
       // back is the Back button, Esc, and Enter on the field box (see `reach`).
       dispatchCamera({ type: "enlarge", seat });
@@ -584,12 +588,20 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
   // The chain strip moves the stage frame (its top, its scale): the field that was fitted moves with it, so the fit is made again (eased).
   // The pinned peek counts by its side and its rect in steps of 16 px: the slide and a settled peek are one refit, and a peek that is a few px off never refits.
   const peekKey = pinnedRect ? `${pinnedRect.x + pinnedRect.width / 2 < box.width / 2 ? "l" : "r"}${[pinnedRect.x, pinnedRect.y, pinnedRect.width, pinnedRect.height].map((v) => Math.round(v / 16)).join(",")}` : "0";
-  const softKey = `${peekKey}|${hasChip ? 1 : 0}|${hubAt ? `${Math.round(hubAt.x)},${Math.round(hubAt.y)}` : ""}|${Math.round(chainInset)}`;
+  // The seats of a table that regroups glide to their new places: a fit made before they stand still would aim at a field that is still moving.
+  const regrouping = gliding && regroup;
+  const softKey = `${peekKey}|${hasChip ? 1 : 0}|${hubAt ? `${Math.round(hubAt.x)},${Math.round(hubAt.y)}` : ""}|${Math.round(chainInset)}|${regrouping ? "g" : "s"}`;
   const lastFitKey = useRef("");
-  const { zoomFit, zoomTo, byHand } = zoom;
+  // A seat went out while the field was zoomed: the first fit after the glide is the refit to the new field.
+  const afterRegroup = useRef(false);
+  const { zoomFit, zoomTo, byHand, refit: clampToBox } = zoom;
   useLayoutEffect(() => {
     const root = rootRef.current;
     const was = ownFit.current;
+    if (ownZoom && was && regrouping) {
+      afterRegroup.current = true;
+      return;
+    }
     ownFit.current = ownZoom;
     const hard = !was || lastFitKey.current !== fitKey;
     lastFitKey.current = fitKey;
@@ -600,7 +612,13 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
     }
     if (fitItems.length === 0) return;
     // A pinned peek, the chip, the hub or the chain strip moved: the player's own pan or zoom stays.
-    if (!hard && byHand()) return;
+    if (!hard && byHand()) {
+      // The player's own zoom level stays after an elimination; the view is only kept clear of the new field's edge.
+      if (afterRegroup.current) clampToBox();
+      afterRegroup.current = false;
+      return;
+    }
+    afterRegroup.current = false;
     const items = fitItems;
     // Your hand stays where it is: the free box ends above it.
     const box = root.getBoundingClientRect();
@@ -698,9 +716,9 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
       data-prompt-scope
       data-table-stage={layout.format}
       data-format={format}
-      data-camera-mode={camera.mode}
+      data-camera-mode={viewCamera.mode}
       data-regroup={gliding && regroup ? "true" : undefined}
-      data-camera-want={wantMode ?? camera.mode}
+      data-camera-want={wantMode ?? viewCamera.mode}
       data-camera-lock={locked ? "true" : undefined}
       data-fly={fly ? "true" : "false"}
       data-upright={camera.upright ? "true" : "false"}
@@ -786,7 +804,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
                   onInspect: controller.onInspect,
                   onHoverCard: controller.onHoverCard,
                 };
-                const enlarged = camera.mode === "focus" && camera.focusSeat === slot.seat;
+                const enlarged = viewCamera.mode === "focus" && viewCamera.focusSeat === slot.seat;
                 const reach = plaza3 && !fly && !locked && !out.includes(slot.seat)
                   ? { label: `${nameOf(slot.seat)}${slot.seat === layout.anchorSeat ? " (you)" : ""}'s field`, onToggle: () => dispatchCamera({ type: "enlarge", seat: slot.seat }) }
                   : undefined;

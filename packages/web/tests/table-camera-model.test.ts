@@ -8,6 +8,7 @@ import {
   effectiveMode,
   FLY_HOME,
   initialCamera,
+  holdsOwnFocus,
   isFaceOff,
   isLocked,
 } from "@/components/duel/table/camera-model";
@@ -424,6 +425,24 @@ describe("the 3-way face-off has one view", () => {
     const fly = locked(initialCamera(L3, { mode: "fly" }), 1000);
     expect(run(fly, { type: "tick", nowMs: 2500 }, L3, OUT)).toMatchObject({ mode: "home", lock: null });
     expect(run(fly, { type: "tick", nowMs: 2500 }, L3).mode).toBe("fly");
+  });
+
+  it("keeps your own field enlarged: an elimination is not a move of the viewer", () => {
+    const own = run(HOME, { type: "enlarge", seat: 0 });
+    expect(own).toMatchObject({ mode: "focus", focusSeat: 0 });
+    expect(holdsOwnFocus(L3, own, OUT)).toBe(true);
+    expect(holdsOwnFocus(L3, own, [0])).toBe(false);
+    expect(holdsOwnFocus(L3, run(HOME, { type: "enlarge", seat: 1 }), OUT)).toBe(false);
+    expect(holdsOwnFocus(L3, HOME, OUT)).toBe(false);
+    // The lock tick that ends in a face-off leaves it, a viewer move (E, Home) still goes home.
+    expect(run(locked(own, 1000), { type: "tick", nowMs: 2500 }, L3, OUT)).toMatchObject({ mode: "focus", focusSeat: 0, lock: null });
+    expect(run(own, { type: "enlarge", seat: 0 }, L3, OUT).mode).toBe("home");
+    expect(run(own, { type: "home" }, L3, OUT).mode).toBe("home");
+  });
+
+  it("Esc still leaves the enlarged field in a face-off, and does nothing at home", () => {
+    expect(cameraActionForKey({ key: "Escape" }, L3, run(HOME, { type: "enlarge", seat: 0 }), { out: OUT })).toEqual({ type: "home" });
+    expect(cameraActionForKey({ key: "Escape" }, L3, HOME, { out: OUT })).toBeNull();
   });
 
   it("still allows the views with three seats alive", () => {
