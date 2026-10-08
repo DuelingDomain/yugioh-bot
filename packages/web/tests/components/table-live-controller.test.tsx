@@ -66,6 +66,12 @@ describe("live table controller", () => {
     }
   });
 
+  it("marks only a connection error as offline, so prompts say Reconnecting and not Syncing", () => {
+    expect(setup({ error: new Error("offline") }).result.current.controller!.offline).toBe(true);
+    expect(setup({ busy: true }).result.current.controller!.offline).toBe(false);
+    expect(setup({ catchingUp: true }).result.current.controller!.offline).toBe(false);
+  });
+
   it("returns no controller until an engine view arrives, retaining hook order", () => {
     const { result, rerender } = setup({ room: undefined });
     expect(result.current.controller).toBeNull();

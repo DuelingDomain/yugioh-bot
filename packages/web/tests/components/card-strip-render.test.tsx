@@ -72,6 +72,16 @@ describe("CardStrip", () => {
     expect(onPick).not.toHaveBeenCalled();
   });
 
+  it("says it is reconnecting, not syncing, when the duel server is down", () => {
+    const onPick = vi.fn();
+    render(<CardStrip items={items()} highlight={0} busy offline multi={false} label="Pick" onPick={onPick} />);
+    expect(screen.getByRole("status").textContent).toBe("Reconnecting…");
+    const buttons = screen.getAllByRole("button");
+    expect(buttons.every((button) => (button as HTMLButtonElement).disabled)).toBe(true);
+    fireEvent.click(buttons[0]);
+    expect(onPick).not.toHaveBeenCalled();
+  });
+
   it("shows a short line under a card only when it has a detail, with the full text as a tooltip", () => {
     const list = items();
     list[0] = { ...list[0], detail: "Special Summon", detailTitle: "Special Summon 1 monster" };

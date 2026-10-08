@@ -18,12 +18,13 @@ export function useLiveTableController(input: LiveTableControllerInput): TableCo
   return useMemo(() => {
     const engine = room?.engine;
     if (!room || !engine) return null;
-    const busy = working || Boolean(error) || Boolean(catchingUp);
+    const offline = Boolean(error);
+    const busy = working || offline || Boolean(catchingUp);
     const canAct = allowed && !busy;
     return {
       room, engine, viewerSeat: room.mySeat, nameOf, prompt, revealed, draft, legalKeys, selectedKeys,
       aim, reducedMotion, onAnswer, onActivate, onInspect, onHoverCard, onAim,
-      promptSeat: prompt?.seat ?? null, busy, canAct,
+      promptSeat: prompt?.seat ?? null, busy, offline, canAct,
       seatPick: canAct && revealed ? seatPickFor(prompt, engine, onAnswer) : null,
     };
   }, [room, error, catchingUp, nameOf, prompt, allowed, working, revealed, draft, legalKeys, selectedKeys,
