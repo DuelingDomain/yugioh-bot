@@ -56,6 +56,8 @@ let DATA: string;
 beforeAll(() => {
   DATA = createHostDataFixture([
     { code: 3743515, name: "Inaba White Rabbit", type: 33 },
+    { code: 3743516, name: "Inaba White Rabbit", type: 33, alias: 3743515 },
+    { code: 3743615, name: "Far alias", type: 33, alias: 3743515 },
     { code: 15025844, name: "Mystical Elf" },
   ]);
 });
@@ -70,6 +72,7 @@ async function request(host: DuelHost, body: Record<string, unknown>, status = 2
 }
 describe("automatic blocks through host and replay", () => {
   it.each(["legacy", "pinned"] as const)("%s: blocks new duels and deck checks while live/recovered/replayed state stays identical", async engine => {
+    vi.stubEnv("DUEL_DATA_DIR", DATA);
     vi.stubEnv("DUEL_SCRIPT_ERROR_BLOCK_DUELS", "2");
     vi.stubEnv("DUEL_1V1_ENGINE", engine);
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -112,6 +115,13 @@ describe("automatic blocks through host and replay", () => {
       expect(check.report.issues[0].message).toContain("is unavailable: Its effect script is being investigated");
       const query = await request(host, { op: "card-query", guildId: "g", playerId: players[0], cardQuery: { ...emptyCardQuery(), text: "3743515" } });
       expect(query.cards[0].unavailableReason).toBe("Its effect script is being investigated");
+      for (const code of [3743516, 3743615, 15025844]) {
+        const aliasDeck = { ...options.decks[0]!, main: [code, ...Array(39).fill(15025844)] };
+        const aliasCheck = await request(host, { op: "check-deck", guildId: "g", playerId: players[0], mode: "normal", deck: aliasDeck, settings: options.settings });
+        expect(aliasCheck.report.issues.some((issue: { message: string }) => issue.message.includes("is unavailable"))).toBe(code === 3743516);
+        const aliasQuery = await request(host, { op: "card-query", guildId: "g", playerId: players[0], cardQuery: { ...emptyCardQuery(), text: String(code) } });
+        expect(aliasQuery.cards[0].unavailableReason).toBe(code === 3743516 ? "Its effect script is being investigated" : undefined);
+      }
       const next = duels.create({ guildId: "g", organizerPlayerId: players[0]!, name: "New", mode: "normal", settings: options.settings });
       duels.takeSeat(next.slug, "g", players[1]!);
       players.forEach(player => duels.setDeck(next.slug, "g", player, blockedDeck));

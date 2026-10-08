@@ -35,6 +35,7 @@ export function createAutoBlockPolicy(db: Database.Database, options: {
   bundleVersion: string;
   scriptHash: (code: number, kind: ScriptEngineKind) => string | null;
   remaps?: ReadonlyMap<number, number>;
+  exactCodes?: (code: number) => readonly number[];
   now?: () => number;
 }) {
   const enabled = scriptErrorModeFromEnv() !== "strict";
@@ -99,7 +100,7 @@ export function createAutoBlockPolicy(db: Database.Database, options: {
       const cached = cachedEntries.get(kind);
       if (cached) return cached;
       const entries = active.filter(row => !kind || row.engine_kind === "all" || row.engine_kind === kind)
-        .map(row => ({ code: resolveCode(row.code), reason: AUTO_BLOCK_REASON, exactCodes: relatedCodes(resolveCode(row.code)) }));
+        .map(row => ({ code: resolveCode(row.code), reason: AUTO_BLOCK_REASON, exactCodes: options.exactCodes?.(resolveCode(row.code)) ?? relatedCodes(resolveCode(row.code)) }));
       cachedEntries.set(kind, entries);
       return entries;
     },
