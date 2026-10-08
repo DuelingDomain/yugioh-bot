@@ -134,7 +134,7 @@ export function pickKindOf(legalKeys: ReadonlySet<string>): PickKind {
 export const BAR_HUD = "[data-grid-controls], [data-view-reset], [data-camera-panel], [data-testid='hud-corner'], [data-testid='hud-top'], [data-testid='hud-master'], [data-opponent-bar], [data-table-chrome]";
 
 /** The HUD a chain-response panel keeps off unless the box leaves no place: the life plates, the phase hub, the Reset control, the top bar. */
-const KEY_HUD = "[data-holo], [data-grid-hub], [data-view-reset], [data-testid='hud-top']";
+const KEY_HUD = "[data-holo], [data-grid-hub], [data-view-reset], [data-testid='hud-top'], [data-testid='hover-preview'][data-pinned='true']";
 /** The rest of the HUD: it draws over the panel, so the panel keeps off it while a place exists. */
 /** The turn actions and the response switch (bottom right): the panel keeps off them. */
 const STRIP_CONTROLS_HUD = "[data-testid='hud-corner']";

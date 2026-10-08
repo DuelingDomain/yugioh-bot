@@ -280,10 +280,18 @@
   max-height: var(--sr-h);
   overflow: hidden;
 }
+.board[data-strip-room][data-strip-room][data-strip-room] .slot[data-slot="prompt"]:not([data-seat-pick]) :global([data-prompt-panel][data-tone="chain"][data-strip="true"]:not([data-precheck])) > :global(:not([data-strip-wrap])) {
+  flex-shrink: 0;
+}
 .board[data-strip-room][data-strip-room][data-strip-room] .slot[data-slot="prompt"]:not([data-seat-pick]) :global([data-prompt-panel][data-tone="chain"][data-strip="true"]:not([data-precheck])) > :global([data-strip-wrap]) {
   flex: 1 1 auto;
   flex-shrink: 1;
   min-height: 0;
+}
+
+/* The camera chip and the other overlay controls sit in the overlay slot, after this one: the room panel stands over them, never under. */
+.board[data-strip-room] .slot[data-slot="prompt"]:not([data-seat-pick]) {
+  z-index: 51;
 }
 
 /* The room is measured at rest (use-strip-room.ts): the panel waits, hidden, so it never shows at the wrong place first. */
