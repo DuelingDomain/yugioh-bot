@@ -22,6 +22,16 @@ export interface DuelScriptError extends CardScriptError {
   scriptErrorMode: DuelScriptErrorMode;
 }
 
+/** Host-only diagnostics. Fatal errors must never enter player views or telemetry counters. */
+export interface DuelScriptFatalError {
+  message: string;
+  traceback: string;
+  mode: DuelMode;
+  format: DuelFormat;
+  engine: DuelEngineChoice;
+  scriptErrorMode: DuelScriptErrorMode;
+}
+
 export const CARD_SCRIPT_STRICT_ERROR_TEXT = "Card script error (strict mode): an effect may not have resolved correctly.";
 export const ENGINE_SCRIPT_ERROR_TEXT = "Engine script error: the duel could not continue.";
 export const SCRIPT_ERROR_TELEMETRY_LIMIT = 20;
@@ -69,6 +79,7 @@ export function createScriptErrorPolicy(options: {
   engine?: DuelEngineChoice;
   scriptErrorMode?: DuelScriptErrorMode;
   onScriptError?: (error: DuelScriptError) => void;
+  onFatalScriptError?: (error: DuelScriptFatalError) => void;
 }) {
   const scriptErrorMode = options.scriptErrorMode ?? scriptErrorModeFromEnv();
   const errors: string[] = [];
@@ -98,8 +109,13 @@ export function createScriptErrorPolicy(options: {
       if (type !== OcgLogType.ERROR && type !== OcgLogType.UNDEFINED) return;
       const querying = queryLoadDepth !== null;
       const script = classifyCardScriptError(type, text, querying ? loadDepth <= queryLoadDepth! : processing && loadDepth === 0, traceback);
+      const fatalTraceback = traceback;
       traceback = "";
-      if (!script) { errors.push(ENGINE_SCRIPT_ERROR_TEXT); return; }
+      if (!script) {
+        errors.push(ENGINE_SCRIPT_ERROR_TEXT);
+        options.onFatalScriptError?.({ message: text, traceback: fatalTraceback, mode: options.mode, format: options.format ?? "1v1", engine: options.engine ?? "pinned", scriptErrorMode });
+        return;
+      }
       if (querying) {
         if (!queryCards.has(script.code)) {
           queryCards.add(script.code);

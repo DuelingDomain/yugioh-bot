@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { DuelScriptError } from "./script-errors.js";
+import type { DuelScriptError, DuelScriptFatalError } from "./script-errors.js";
 import { parentPort } from "node:worker_threads";
 import { createEngineGame, type EngineGame } from "./engine.js";
 import { createLegacyEngineGame } from "./legacy/index.js";
@@ -12,6 +12,7 @@ let game: EngineGame | null = null;
 let queue = Promise.resolve();
 let traceSeats = 0;
 const scriptErrors: DuelScriptError[] = [];
+const fatalScriptErrors: DuelScriptFatalError[] = [];
 let creationIdentity = "start";
 let journalPosition = 0;
 
@@ -61,6 +62,7 @@ export async function handleWorkerRequest(request: DuelWorkerRequest): Promise<D
   if (scriptErrors.length) response.scriptErrors = scriptErrors.splice(0).map(error => error.source === "query"
     ? { ...error, index: error.code, commandHash: "query" }
     : { ...error, journalPosition: position, index: ++ordinal, commandHash });
+  if (fatalScriptErrors.length) response.fatalScriptErrors = fatalScriptErrors.splice(0);
   return response;
 }
 
@@ -71,7 +73,8 @@ async function runWorkerRequest(request: DuelWorkerRequest): Promise<DuelWorkerR
         if (game) return { id: request.id, ok: false, error: "A game is already running in this worker" };
         // The legacy engine plays two-seat tables only; every other table uses the merged engine and its multi core.
         const legacy = request.options.engine === "legacy" && (request.options.format ?? "1v1") === "1v1";
-        game = await (legacy ? createLegacyEngineGame : createEngineGame)({ ...request.options, onScriptError: (error) => scriptErrors.push(error) });
+        game = await (legacy ? createLegacyEngineGame : createEngineGame)({ ...request.options,
+          onScriptError: (error) => scriptErrors.push(error), onFatalScriptError: (error) => fatalScriptErrors.push(error) });
         traceSeats = process.env.DUEL_SCENARIOS === "1" && (request.options.format ?? "1v1") !== "1v1"
           ? seatCountFor(request.options.format!) : 0;
         return { id: request.id, ok: true };

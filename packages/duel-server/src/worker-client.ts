@@ -1,5 +1,5 @@
 import type { SandboxEngineSnapshot } from "./sandbox-snapshot.js";
-import type { DuelScriptError } from "./script-errors.js";
+import type { DuelScriptError, DuelScriptFatalError } from "./script-errors.js";
 import { Worker } from "node:worker_threads";
 import type { PromptTraceEntry } from "./prompt-trace.js";
 import type { EngineCoreInfo, EngineDiagnostic, EngineStartupScript } from "./engine.js";
@@ -76,7 +76,7 @@ export class GameWorker implements DuelGameWorker {
   /** Index of the oldest prompt in the ring. Writes never shift the retained entries. */
   private promptStart = 0;
 
-  constructor(onScriptError?: (error: DuelScriptError) => void) {
+  constructor(onScriptError?: (error: DuelScriptError) => void, onFatalScriptError?: (error: DuelScriptFatalError) => void) {
     const development = import.meta.url.endsWith(".ts");
     const module = new URL(development ? "./worker.ts" : "./worker.js", import.meta.url);
     this.worker = development
@@ -85,6 +85,7 @@ export class GameWorker implements DuelGameWorker {
     this.worker.on("message", (message: DuelWorkerResponse) => {
       if (this.stopped) return;
       for (const error of message.scriptErrors ?? []) onScriptError?.(error);
+      for (const error of message.fatalScriptErrors ?? []) onFatalScriptError?.(error);
       if (message.ok && message.info) this.info = message.info;
       if (message.ok && message.promptTrace) {
         const latest = this.prompts[(this.promptStart + this.prompts.length - 1) % PROMPT_LOG_LIMIT];

@@ -29,6 +29,21 @@ describe("card script error classification", () => {
 
 
 describe("saved script error policy", () => {
+  it("reports fatal Lua text and its traceback privately without telemetry or player details", () => {
+    const reported = vi.fn();
+    const fatal = vi.fn();
+    const policy = createScriptErrorPolicy({ mode: "normal", onScriptError: reported, onFatalScriptError: fatal });
+    const message = 'c3743515.lua:57: stack overflow';
+    const traceback = 'stack traceback:\n\tc3743515.lua:57: in function initial_effect';
+    policy.note(OcgLogType.FOR_DEBUG, traceback);
+    policy.note(OcgLogType.ERROR, message);
+    expect(fatal).toHaveBeenCalledWith(expect.objectContaining({ message, traceback, engine: "pinned" }));
+    expect(policy.errors).toEqual(["Engine script error: the duel could not continue."]);
+    expect(reported).not.toHaveBeenCalled();
+    expect(policy.drain()).toEqual([]);
+    policy.note(OcgLogType.ERROR, 'unattributed helper failure');
+    expect(fatal).toHaveBeenLastCalledWith(expect.objectContaining({ traceback: "" }));
+  });
   it("keeps one pending event and at most 20 telemetry samples per card without ending processing", () => {
     const report = vi.fn();
     const policy = createScriptErrorPolicy({ mode: "normal", onScriptError: report });
