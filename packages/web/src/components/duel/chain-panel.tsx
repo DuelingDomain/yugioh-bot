@@ -297,7 +297,6 @@ export function ChainPanel({ view, shape, seatTones, priority, mySeat, nameOf, p
               ref={stackRef}
               className={styles.stack}
               data-overflow={stackOver ? "true" : undefined}
-              role={stackOver ? "group" : undefined}
               tabIndex={stackOver ? 0 : undefined}
               aria-label={stackOver ? "Chain links, scrollable" : undefined}
             >

@@ -420,6 +420,24 @@ describe("privacy in the rendered panel", () => {
     }
   });
 
+  it("keeps the row list a list when it scrolls, as a named keyboard stop", () => {
+    const stack = (container: HTMLElement) => container.querySelector<HTMLElement>("ol[data-overflow]");
+    const scroll = vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(300);
+    const client = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(120);
+    try {
+      const { container } = render(<ChainFx {...base} events={pair()} reducedMotion />);
+      flush(60);
+      expect(stack(container)?.tagName).toBe("OL");
+      expect(stack(container)?.hasAttribute("role")).toBe(false);
+      expect(stack(container)?.getAttribute("tabindex")).toBe("0");
+      expect(stack(container)?.getAttribute("aria-label")).toBe("Chain links, scrollable");
+      expect(stack(container)?.querySelectorAll(":scope > li")).toHaveLength(2);
+    } finally {
+      scroll.mockRestore();
+      client.mockRestore();
+    }
+  });
+
   it("names the owner of every row", () => {
     const { container } = render(<ChainFx {...base} events={pair()} reducedMotion />);
     flush(60);
