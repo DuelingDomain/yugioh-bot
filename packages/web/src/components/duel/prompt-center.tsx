@@ -37,6 +37,7 @@ import { chainCardName } from "./chain-state";
 import { PriorityChips, type PrioritySlot } from "./priority-chips";
 import { CardBack } from "./card-face";
 import { CardStrip, type StripCard } from "./card-strip";
+import { isMaterialOption, materialHostNotes, type MaterialViewer } from "./material-host";
 import { optionNotes } from "./option-strip";
 import { battleStepLabel, type BattleStep } from "./station-track";
 import { PrecheckBar } from "./prompt-precheck";
@@ -827,7 +828,7 @@ function ResponseBody({
         <ChainStrip chain={chain} compact={cards} mySeat={mySeat} nameOf={seatTones ? nameOf : undefined} />
         {priority && nameOf ? <PriorityChips order={priority} mySeat={mySeat} nameOf={nameOf} seatTones={seatTones} compact={cards} /> : null}
         {cards ? (
-          <StripChoice prompt={prompt} draft={draft} busy={busy} choose={choose} onInspectCard={onInspectCard} />
+          <StripChoice prompt={prompt} draft={draft} busy={busy} choose={choose} onInspectCard={onInspectCard} who={{ mySeat, nameOf: seatTones ? nameOf : undefined }} />
         ) : (
           <ChainRows prompt={prompt} draft={draft} busy={busy} mySeat={mySeat} choose={choose} onInspectCard={onInspectCard} seatTones={seatTones} nameOf={nameOf} />
         )}
@@ -876,7 +877,7 @@ function ResponseBody({
   }
 
   // A pick among cards (unselect/select one at a time): a strip of large cards, not rows.
-  if (isStripPrompt(prompt)) return <StripChoice prompt={prompt} draft={draft} busy={busy} choose={choose} onInspectCard={onInspectCard} />;
+  if (isStripPrompt(prompt)) return <StripChoice prompt={prompt} draft={draft} busy={busy} choose={choose} onInspectCard={onInspectCard} who={{ mySeat, nameOf: seatTones ? nameOf : undefined }} />;
 
   // Any other list of options: numbered rows, with art when the option names a card.
   return (
@@ -1064,18 +1065,20 @@ export function isChainStripPrompt(prompt: DuelPrompt): boolean {
 }
 
 /** The strip items for a choice prompt: the card, its name, and a short line only where one card has many options. */
-export function choiceStripItems(prompt: DuelPrompt): StripCard[] {
+export function choiceStripItems(prompt: DuelPrompt, who?: MaterialViewer): StripCard[] {
+  // A material has no effect to tell apart; it says which Xyz it is under when there is more than one.
   const notes = optionNotes(
-    prompt.options.map((option) => ({ code: option.card?.code ?? null, effect: effectText(option).effect })),
+    prompt.options.map((option) => ({ code: isMaterialOption(option) ? null : (option.card?.code ?? null), effect: effectText(option).effect })),
   );
+  const hosts = materialHostNotes(prompt.options, who);
   return prompt.options.map((option, index) => ({
     id: option.id,
     card: option.card as DuelCardInfo,
     label: option.card?.name ?? humanizeLabel(option.label),
     selected: prompt.kind === "toggle" && Boolean(option.selected),
     order: null,
-    detail: notes[index]?.detail,
-    detailTitle: notes[index]?.title,
+    detail: hosts[index]?.detail ?? notes[index]?.detail,
+    detailTitle: hosts[index]?.title ?? notes[index]?.title,
     location: option.location,
   }));
 }
@@ -1087,17 +1090,19 @@ function StripChoice({
   busy,
   choose,
   onInspectCard,
+  who,
 }: {
   prompt: DuelPrompt;
   draft: PromptDraft;
   busy: boolean;
   choose: (id: string) => void;
   onInspectCard?: InspectCardHandler;
+  who?: MaterialViewer;
 }) {
   const chainResponse = prompt.context?.type === "chain";
   return (
     <CardStrip
-      items={choiceStripItems(prompt)}
+      items={choiceStripItems(prompt, who)}
       highlight={draft.highlight}
       busy={busy}
       multi={false}
@@ -1121,6 +1126,7 @@ function GridPicker({
   onSubmit,
   onCollapse,
   onInspectCard,
+  who,
 }: {
   prompt: DuelPrompt;
   draft: PromptDraft;
@@ -1129,6 +1135,7 @@ function GridPicker({
   onSubmit: (answer: DuelAnswer) => void;
   onCollapse: () => void;
   onInspectCard?: InspectCardHandler;
+  who?: MaterialViewer;
 }) {
   const styles = useSkinStyles(baseStyles, "prompt");
   const counters = prompt.kind === "counters";
@@ -1164,14 +1171,17 @@ function GridPicker({
 
   // Cards to pick: one wide strip of large cards. Zones, counters and the rest keep the tile grid.
   const strip = isStripPrompt(prompt);
+  const hostNotes = strip ? materialHostNotes(prompt.options, who) : [];
   const stripItems: StripCard[] = strip
-    ? prompt.options.map((option) => ({
+    ? prompt.options.map((option, index) => ({
         id: option.id,
         card: option.card as DuelCardInfo,
         label: option.card?.name ?? humanizeLabel(option.label),
         selected: aim ? aim.lockedId === option.id : draft.selected.includes(option.id),
         order: prompt.kind === "order" ? draft.selected.indexOf(option.id) + 1 || null : null,
         note: valueDetail && option.values?.length ? option.values.join(" / ") : undefined,
+        detail: hostNotes[index]?.detail,
+        detailTitle: hostNotes[index]?.title,
         location: option.location,
       }))
     : [];
@@ -1867,7 +1877,7 @@ export function PromptCenter(props: PromptCenterProps) {
       >
         {stepLine ? <div className={styles.stepRow}>{stepLine}</div> : null}
         <GridPicker prompt={prompt} draft={draft} busy={busy} aim={aim} onSubmit={onSubmit} onCollapse={() => setCollapsed(true)}
-          onInspectCard={onInspectCard} />
+          onInspectCard={onInspectCard} who={{ mySeat, nameOf: props.seatTones ? props.nameOf : undefined }} />
       </div>
     );
   }
