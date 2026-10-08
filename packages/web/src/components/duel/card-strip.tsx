@@ -76,6 +76,7 @@ export function CardStrip({
   items,
   highlight,
   busy,
+  offline = false,
   multi,
   label,
   hint = "Hover to read a card",
@@ -89,6 +90,8 @@ export function CardStrip({
   items: readonly StripCard[];
   highlight: number;
   busy: boolean;
+  /** The duel server is unreachable: the busy caption says Reconnecting instead of Syncing. */
+  offline?: boolean;
   /** Cards toggle on and off (aria-pressed); otherwise a click answers at once. */
   multi: boolean;
   label: string;
@@ -187,7 +190,7 @@ export function CardStrip({
   return (
     <div className={styles.wrap} aria-busy={busy} data-tone={tone}>
       <p className={styles.caption} data-busy={busy ? "true" : "false"} role="status">
-        {busy ? "Syncing…" : <span className={styles.hint}>{hint}</span>}
+        {busy ? (offline ? "Reconnecting…" : "Syncing…") : <span className={styles.hint}>{hint}</span>}
       </p>
       <div className={styles.frame} data-prev={more.prev} data-next={more.next}>
         {more.prev ? (

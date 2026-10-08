@@ -716,6 +716,7 @@ function TableShellBody({
                     active={!terminal && !viewerOut}
                     slug={session.slug}
                     busy={controller.busy || (prompt == null && pick.waiting != null)}
+                    offline={controller.offline}
                     draft={controller.draft}
                     onSubmit={controller.onAnswer}
                     menuOpen={suspended} escapeHeld={hudOpen}

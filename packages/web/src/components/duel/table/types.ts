@@ -150,6 +150,8 @@ export interface TableController {
   promptSeat: number | null;
   canAct: boolean;
   busy: boolean;
+  /** Busy because the duel server is unreachable (not just working or catching up): prompts say Reconnecting. */
+  offline?: boolean;
   revealed: boolean;
   draft: PromptDraft;
   legalKeys: Set<string>;

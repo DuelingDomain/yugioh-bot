@@ -803,6 +803,7 @@ function ResponseBody({
   prompt,
   draft,
   busy,
+  offline,
   slug,
   chain,
   mySeat,
@@ -817,6 +818,7 @@ function ResponseBody({
   prompt: DuelPrompt;
   draft: PromptDraft;
   busy: boolean;
+  offline?: boolean;
   slug: string;
   chain: readonly DuelChainLink[];
   mySeat: number | null;
@@ -882,7 +884,7 @@ function ResponseBody({
         <ChainStrip chain={chain} compact={cards} mySeat={mySeat} nameOf={seatTones ? nameOf : undefined} />
         {priority && nameOf ? <PriorityChips order={priority} mySeat={mySeat} nameOf={nameOf} seatTones={seatTones} compact={cards} /> : null}
         {cards ? (
-          <StripChoice prompt={prompt} draft={draft} busy={busy} choose={choose} onInspectCard={onInspectCard} who={{ mySeat, nameOf: seatTones ? nameOf : undefined }} />
+          <StripChoice prompt={prompt} draft={draft} busy={busy} offline={offline} choose={choose} onInspectCard={onInspectCard} who={{ mySeat, nameOf: seatTones ? nameOf : undefined }} />
         ) : (
           <ChainRows prompt={prompt} draft={draft} busy={busy} mySeat={mySeat} choose={choose} onInspectCard={onInspectCard} seatTones={seatTones} nameOf={nameOf} />
         )}
@@ -931,7 +933,7 @@ function ResponseBody({
   }
 
   // A pick among cards (unselect/select one at a time): a strip of large cards, not rows.
-  if (isStripPrompt(prompt)) return <StripChoice prompt={prompt} draft={draft} busy={busy} choose={choose} onInspectCard={onInspectCard} who={{ mySeat, nameOf: seatTones ? nameOf : undefined }} />;
+  if (isStripPrompt(prompt)) return <StripChoice prompt={prompt} draft={draft} busy={busy} offline={offline} choose={choose} onInspectCard={onInspectCard} who={{ mySeat, nameOf: seatTones ? nameOf : undefined }} />;
 
   // Any other list of options: numbered rows, with art when the option names a card.
   return (
@@ -1142,6 +1144,7 @@ function StripChoice({
   prompt,
   draft,
   busy,
+  offline,
   choose,
   onInspectCard,
   who,
@@ -1149,6 +1152,7 @@ function StripChoice({
   prompt: DuelPrompt;
   draft: PromptDraft;
   busy: boolean;
+  offline?: boolean;
   choose: (id: string) => void;
   onInspectCard?: InspectCardHandler;
   who?: MaterialViewer;
@@ -1159,6 +1163,7 @@ function StripChoice({
       items={choiceStripItems(prompt, who)}
       highlight={draft.highlight}
       busy={busy}
+      offline={offline}
       multi={false}
       tone={chainResponse ? "chain" : undefined}
       hint={chainResponse ? "Click a card to activate it · hover to read it" : undefined}
@@ -1176,6 +1181,7 @@ function GridPicker({
   prompt,
   draft,
   busy,
+  offline,
   aim,
   onSubmit,
   onCollapse,
@@ -1185,6 +1191,7 @@ function GridPicker({
   prompt: DuelPrompt;
   draft: PromptDraft;
   busy: boolean;
+  offline?: boolean;
   aim?: PromptAim;
   onSubmit: (answer: DuelAnswer) => void;
   onCollapse: () => void;
@@ -1256,6 +1263,7 @@ function GridPicker({
           items={stripItems}
           highlight={draft.highlight}
           busy={busy}
+          offline={offline}
           multi
           label={fullTitle}
           onPick={(index) => pick(prompt.options[index], index)}
@@ -1355,6 +1363,8 @@ export interface PromptCenterProps {
   active: boolean;
   slug: string;
   busy: boolean;
+  /** The duel server is unreachable (the room GET failed): strips caption it as Reconnecting, not Syncing. */
+  offline?: boolean;
   draft: PromptDraft;
   onSubmit: (answer: DuelAnswer) => void;
   /** A card action menu is open: right-click and Esc belong to it. */
@@ -1403,7 +1413,7 @@ export interface PromptCenterProps {
  */
 export function PromptCenter(props: PromptCenterProps) {
   const styles = useSkinStyles(baseStyles, "prompt");
-  const { prompt, mySeat, active, draft, busy, onSubmit, chain, aim, reducedMotion, revision, slug, battleStep, onInspectCard } = props;
+  const { prompt, mySeat, active, draft, busy, offline, onSubmit, chain, aim, reducedMotion, revision, slug, battleStep, onInspectCard } = props;
   const revealed = props.revealed ?? true;
   const answering = prompt != null && mySeat != null && prompt.seat === mySeat && active;
   const baseKind = answering ? centerKind(prompt) : null;
@@ -1899,7 +1909,7 @@ export function PromptCenter(props: PromptCenterProps) {
           </span>
           {hide}
         </header>
-        <ResponseBody prompt={prompt} draft={draft} busy={busy} slug={slug} chain={chain} mySeat={mySeat} onSubmit={onSubmit}
+        <ResponseBody prompt={prompt} draft={draft} busy={busy} offline={offline} slug={slug} chain={chain} mySeat={mySeat} onSubmit={onSubmit}
           onInspectCard={onInspectCard} nameOf={props.nameOf} seatTones={props.seatTones} priority={props.priority} outRows={outRows} leavingSeats={props.leavingSeats} />
         {hasActions || optional ? (
           <footer className={styles.foot}>
@@ -1930,7 +1940,7 @@ export function PromptCenter(props: PromptCenterProps) {
         aria-label={fillPlaceholders(prompt.title, promptSource(prompt)?.name)}
       >
         {stepLine ? <div className={styles.stepRow}>{stepLine}</div> : null}
-        <GridPicker prompt={prompt} draft={draft} busy={busy} aim={aim} onSubmit={onSubmit} onCollapse={() => setCollapsed(true)}
+        <GridPicker prompt={prompt} draft={draft} busy={busy} offline={offline} aim={aim} onSubmit={onSubmit} onCollapse={() => setCollapsed(true)}
           onInspectCard={onInspectCard} who={{ mySeat, nameOf: props.seatTones ? props.nameOf : undefined }} />
       </div>
     );
