@@ -103,6 +103,15 @@ describe("callDuelHost error messages", () => {
     expect(await result.response.json()).toEqual({ error: "restarting" });
   });
 
+  it("preserves an unexpected host failure as a 500 for duel answers", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: "Duel server error" }, { status: 500 })));
+    const { callDuelHost } = await loadHost();
+    const result = await callDuelHost({ ...call, op: "respond" });
+    if (result.ok) throw new Error("expected failure");
+    expect(result.response.status).toBe(500);
+    expect(await result.response.json()).toEqual({ error: "Duel server error" });
+  });
+
   it.each(["view", "respond"] as const)("the room %s route surfaces a restart as 503", async op => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: "restarting" }, { status: 503 })));
     const host = await loadHost();

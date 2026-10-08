@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import type Database from "better-sqlite3";
 import { createLocalCardDataStatus, type EngineDataManifest } from "./card-data-status.js";
 import { createGithubCardDataStatus } from "./github-card-data-status.js";
-import { createDuelSeriesService, createDuelService, createTournamentDuelService, isCardFetchError, type DuelFinalSnapshots } from "@yugidraft/shared/services";
+import { createDuelSeriesService, createDuelService, createTournamentDuelService, DuelServiceError, TournamentDuelError, isCardFetchError, type DuelFinalSnapshots } from "@yugidraft/shared/services";
 import type {
   DuelAnswer,
   DuelCommand,
@@ -2724,6 +2724,7 @@ export function createDuelHost(options: {
         }
         const status = error instanceof Error && "status" in error && typeof error.status === "number" ? error.status : 400;
         const unexpected = !(error instanceof RequestError) && !(error instanceof DeckLegalityError) &&
+          !(error instanceof DuelServiceError) && !(error instanceof TournamentDuelError) &&
           !(error instanceof Error && "status" in error && status >= 400 && status < 500);
         if (unexpected) {
           // Error messages/stacks may contain SQL, private payloads or credentials.
@@ -2731,7 +2732,7 @@ export function createDuelHost(options: {
             ...(requestOp ? { op: requestOp } : {}) });
         }
         return Response.json({ error: unexpected ? "Duel server error" : error instanceof Error ? error.message : "Duel request failed",
-          ...(error instanceof RequestError && error.code ? { code: error.code } : {}) }, { status });
+          ...(error instanceof RequestError && error.code ? { code: error.code } : {}) }, { status: unexpected ? 500 : status });
       }
     },
     async close(): Promise<void> {
