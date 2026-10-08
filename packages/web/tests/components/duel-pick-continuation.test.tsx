@@ -10,8 +10,10 @@ vi.mock("next/font/google", () => {
 
 import {
   continuesPick,
+  continuesPhaseMove,
   continuesPlacement,
   keepsPickOpen,
+  movesPhase,
   placesBeforeChain,
   skipsAnswerableWait,
   PICK_CONTINUATION,
@@ -468,6 +470,82 @@ describe("usePickContinuation: only a zone that follows a placing action skips t
     rerender({ prompt: null, rev: 1 });
     rerender({ prompt: places(), rev: 2 });
     expect(result.current.continuing).toBe(true);
+  });
+});
+
+
+function deckMasterAsk(overrides: Partial<DuelPrompt> = {}): DuelPrompt {
+  return {
+    id: "dm1", seat: 0, kind: "choice", title: "Return this Deck Master to the Deck Master Zone?",
+    options: [{ id: "yes", label: "Yes" }, { id: "no", label: "No" }] as DuelPrompt["options"], ...overrides,
+  };
+}
+
+describe("movesPhase", () => {
+  it("is true for the three phase moves of the action prompt", () => {
+    for (const id of ["to_bp", "to_m2", "to_ep"]) expect(movesPhase(menuWith({ id }), { choice: id }), id).toBe(true);
+  });
+
+  it("is false for any other action, a cancel, and a prompt that is not the action menu", () => {
+    for (const id of ["summon:0", "attack:0", "pos:0"]) expect(movesPhase(menuWith({ id }), { choice: id }), id).toBe(false);
+    expect(movesPhase(menu(), { cancel: true })).toBe(false);
+    expect(movesPhase(menu({ context: { type: "chain", forced: false } }), { choice: "to_bp" })).toBe(false);
+  });
+});
+
+describe("continuesPhaseMove", () => {
+  it("shows a response of the same seat at once after the player's own phase move", () => {
+    expect(continuesPhaseMove(menu(), deckMasterAsk())).toBe(true);
+  });
+
+  it("keeps the beat for another seat, a zone prompt and the same prompt id", () => {
+    expect(continuesPhaseMove(menu(), deckMasterAsk({ seat: 1 }))).toBe(false);
+    expect(continuesPhaseMove(menu(), places())).toBe(false);
+    expect(continuesPhaseMove(menu({ id: "dm1" }), deckMasterAsk())).toBe(false);
+    expect(continuesPhaseMove(null, deckMasterAsk())).toBe(false);
+  });
+});
+
+describe("usePickContinuation after a phase move", () => {
+  beforeEach(() => { vi.useFakeTimers(); setAnimationSpeed(1); duelFxClock.resetReviewTimeline(); });
+  afterEach(() => { cleanup(); setAnimationSpeed(1); duelFxClock.resetReviewTimeline(); vi.useRealTimers(); });
+
+  function setup(initial: DuelPrompt | null, revision = 1) {
+    return renderHook(
+      ({ prompt, rev }: { prompt: DuelPrompt | null; rev: number }) => usePickContinuation(prompt, rev),
+      { initialProps: { prompt: initial, rev: revision } },
+    );
+  }
+
+  it("the Battle Phase click shows the follow-up question at once, with no reveal beat", () => {
+    const first = menuWith({ id: "to_bp" });
+    const { result, rerender } = setup(first);
+    act(() => result.current.noteAnswer(first, { choice: "to_bp" }));
+    rerender({ prompt: deckMasterAsk(), rev: 2 });
+    expect(result.current.continuing).toBe(true);
+  });
+
+  it("a follow-up that nobody caused (no phase click) keeps its beat", () => {
+    const { result, rerender } = setup(menu());
+    rerender({ prompt: deckMasterAsk(), rev: 2 });
+    expect(result.current.continuing).toBe(false);
+  });
+
+  it("a card action keeps the beat of a later question: an effect is on screen", () => {
+    const first = menuWith({ id: "attack:0" });
+    const { result, rerender } = setup(first);
+    act(() => result.current.noteAnswer(first, { choice: "attack:0" }));
+    rerender({ prompt: deckMasterAsk(), rev: 2 });
+    expect(result.current.continuing).toBe(false);
+  });
+
+  it("an answer too long ago does not count", () => {
+    const first = menuWith({ id: "to_bp" });
+    const { result, rerender } = setup(first);
+    act(() => result.current.noteAnswer(first, { choice: "to_bp" }));
+    act(() => void vi.advanceTimersByTime(PICK_CONTINUATION.windowMs + 1));
+    rerender({ prompt: deckMasterAsk(), rev: 2 });
+    expect(result.current.continuing).toBe(false);
   });
 });
 
